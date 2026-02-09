@@ -1,0 +1,799 @@
+//! Example: SPI-controlled parallel bus decoding
+//!
+//! Demonstrates using SPI commands to enable/disable a parallel bus decoder.
+//! This is useful when a device uses SPI commands to control when valid data
+//! appears on a parallel bus.
+//!
+//! **Enable Logic**: The parallel decoder is enabled when:
+//! - The SPI command controller output (enable_signal) is TRUE, AND
+//! - The CS (chip select) signal is INACTIVE (high for active-low CS)
+//!
+//! When both conditions are met and a strobe trigger occurs, the parallel data
+//! is decoded and written to a binary file. When either condition becomes false,
+//! decoding stops (but the file remains open until explicitly disabled).
+//!
+//! When the SPI disable command is received, the current capture file is closed.
+//! When the enable command is received, a new binary file will be created on the
+//! first decoded word.
+//!
+//! Binary format: Each word is 24 bytes (all little-endian):
+//!   - value: u64 (8 bytes)
+//!   - timestamp_us: f64 (8 bytes)
+//!   - position: u64 (8 bytes)
+//!
+//! Index file (captures.csv): Contains metadata for all binary files:
+//!   - file_num: Sequential file number
+//!   - filename: Binary file name (e.g., capture_0001.bin)
+//!   - words: Number of words in the file
+//!   - bytes: File size in bytes
+//!   - start_time_us: Timestamp of first word (microseconds)
+//!   - end_time_us: Timestamp of last word (microseconds)
+//!   - duration_us: Time span covered by the file (microseconds)
+//!   - start_pos: Sample position of first word
+//!   - end_pos: Sample position of last word
+//!
+//! Usage:
+//!   cargo run --release --example spi_controlled_decode -- \
+//!       --file scan.dsl \
+//!       --spi-cs 8 --spi-clk 7 --spi-mosi 6 \
+//!       --parallel-strobe 10 --parallel-data 0 1 2 3 4 5 6 7 \
+//!       --enable-cmd 0x600081 --disable-cmd 0x600000 \
+//!       -n 100 \
+//!       --output-dir captures
+
+use clap::Parser;
+use crossbeam_channel::TryRecvError;
+use dsl::DslFileSource;
+use dsl::nodes::decoders::{ParallelDecoder, SpiDecoder};
+use dsl::nodes::decoders::{ParallelWord, SpiMode, SpiTransfer, StrobeMode};
+use dsl::runtime::{
+    InputPort, OutputPort, Pipeline, PortDirection, PortSchema, ProcessNode, Sample, WorkError,
+    WorkResult,
+};
+use std::collections::VecDeque;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::PathBuf;
+use tracing::{debug, info};
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Path to DSL file
+    #[arg(short, long)]
+    file: String,
+
+    /// SPI chip select channel
+    #[arg(long)]
+    spi_cs: usize,
+
+    /// SPI clock channel
+    #[arg(long)]
+    spi_clk: usize,
+
+    /// SPI MOSI channel
+    #[arg(long)]
+    spi_mosi: usize,
+
+    /// Parallel strobe channel
+    #[arg(long)]
+    parallel_strobe: usize,
+
+    /// Parallel data channels (in order)
+    #[arg(long, num_args = 1..)]
+    parallel_data: Vec<usize>,
+
+    /// SPI command that enables parallel decoder (hex)
+    #[arg(long, value_parser = parse_hex)]
+    enable_cmd: u64,
+
+    /// SPI command that disables parallel decoder (hex)
+    #[arg(long, value_parser = parse_hex)]
+    disable_cmd: u64,
+
+    /// Output directory for captured data files
+    #[arg(short, long, default_value = "output")]
+    output_dir: PathBuf,
+}
+
+fn parse_hex(s: &str) -> Result<u64, std::num::ParseIntError> {
+    let s = s.trim_start_matches("0x").trim_start_matches("0X");
+    u64::from_str_radix(s, 16)
+}
+
+/// Controls a boolean state based on SPI command values
+///
+/// This node watches SPI transfers and emits state changes when specific
+/// command values are detected. Used to enable/disable downstream nodes.
+///
+/// Outputs Sample with start_time = position for instantaneous state changes.
+struct SpiCommandController {
+    name: String,
+    enable_command: u64,
+    disable_command: u64,
+    current_state: bool,
+    initial_state_sent: bool,
+    tx_count: u64,
+}
+
+impl SpiCommandController {
+    fn new(enable_command: u64, disable_command: u64) -> Self {
+        Self {
+            name: "spi_command_controller".to_string(),
+            enable_command,
+            disable_command,
+            current_state: false,
+            initial_state_sent: false,
+            tx_count: 0,
+        }
+    }
+}
+
+impl ProcessNode for SpiCommandController {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn num_inputs(&self) -> usize {
+        1 // SpiTransfer input
+    }
+
+    fn num_outputs(&self) -> usize {
+        1 // Sample output
+    }
+
+    fn input_schema(&self) -> Vec<PortSchema> {
+        vec![PortSchema::new::<SpiTransfer>(
+            "spi_in",
+            0,
+            PortDirection::Input,
+        )]
+    }
+
+    fn output_schema(&self) -> Vec<PortSchema> {
+        vec![PortSchema::new::<Sample>(
+            "enable_signal",
+            0,
+            PortDirection::Output,
+        )]
+    }
+
+    fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
+        // Expect 1 input (SpiTransfer) and 1 output (Sample)
+        let mut input_buffer = VecDeque::new();
+        let mut input = inputs
+            .first()
+            .and_then(|port| port.get::<SpiTransfer>(&mut input_buffer))
+            .ok_or_else(|| WorkError::NodeError("Missing input channel".to_string()))?;
+
+        let output = outputs
+            .first()
+            .and_then(|port| port.get::<Sample>())
+            .ok_or_else(|| WorkError::NodeError("Missing output channel".to_string()))?;
+
+        // Send initial state on first call to avoid deadlock
+        if !self.initial_state_sent {
+            debug!(
+                "[SpiCommandController] Sending initial state: {}",
+                self.current_state
+            );
+            let sample = Sample::new(self.current_state, 0);
+            output.send(sample)?;
+            self.initial_state_sent = true;
+        }
+
+        // Process one SPI transfer
+        let transfer = input.recv()?;
+        let mosi_value = transfer.mosi as u64;
+
+        debug!(
+            "[SpiCommandController] command: #{} 0x{:06X}",
+            self.tx_count, mosi_value
+        );
+
+        let new_state = if mosi_value == self.enable_command {
+            true
+        } else if mosi_value == self.disable_command {
+            false
+        } else {
+            self.current_state
+        };
+
+        self.tx_count += 1;
+
+        // Only emit if state changed
+        if new_state != self.current_state {
+            debug!(
+                "[SpiCommandController] State change: {} -> {} (command: 0x{:06X})",
+                self.current_state, new_state, mosi_value
+            );
+            self.current_state = new_state;
+            let timestamp = transfer.timing.position;
+            let sample = Sample::new(self.current_state, timestamp);
+            output.send(sample)?;
+        }
+
+        Ok(1)
+    }
+}
+
+/// Sink that writes parallel words to files, creating a new file on each enable
+struct ControlledParallelWriter {
+    output_dir: PathBuf,
+    count: usize,
+    current_file: Option<BufWriter<File>>,
+    file_count: usize,
+    words_in_file: usize,
+    // Persistent buffer for enable channel (for peek/putback)
+    enable_buffer: VecDeque<Sample>,
+    // Current enable state (updated from edges as they arrive)
+    current_enable_state: bool,
+    current_enable_timestamp: u64,
+    // Metadata for current file
+    current_file_start_time: Option<f64>,
+    current_file_end_time: Option<f64>,
+    current_file_start_pos: Option<u64>,
+    current_file_end_pos: Option<u64>,
+}
+
+impl ControlledParallelWriter {
+    fn new(output_dir: PathBuf) -> Self {
+        Self {
+            output_dir,
+            count: 0,
+            current_file: None,
+            file_count: 0,
+            words_in_file: 0,
+            enable_buffer: VecDeque::new(),
+            current_enable_state: false,
+            current_enable_timestamp: 0,
+            current_file_start_time: None,
+            current_file_end_time: None,
+            current_file_start_pos: None,
+            current_file_end_pos: None,
+        }
+    }
+
+    fn write_index_entry(&self, file_num: usize) -> Result<(), std::io::Error> {
+        let index_path = self.output_dir.join("captures.csv");
+        let file_exists = index_path.exists();
+
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&index_path)?;
+        let mut writer = BufWriter::new(file);
+
+        // Write header if file is new
+        if !file_exists {
+            writeln!(
+                writer,
+                "file_num,filename,words,bytes,start_time_us,end_time_us,duration_us,start_pos,end_pos"
+            )?;
+        }
+
+        // Write metadata for this file
+        let filename = format!("capture_{:04}.bin", file_num);
+        let bytes = self.words_in_file * 24;
+        let start_time = self.current_file_start_time.unwrap_or(0.0);
+        let end_time = self.current_file_end_time.unwrap_or(0.0);
+        let duration = end_time - start_time;
+        let start_pos = self.current_file_start_pos.unwrap_or(0);
+        let end_pos = self.current_file_end_pos.unwrap_or(0);
+
+        writeln!(
+            writer,
+            "{},{},{},{},{:.6},{:.6},{:.6},{},{}",
+            file_num,
+            filename,
+            self.words_in_file,
+            bytes,
+            start_time,
+            end_time,
+            duration,
+            start_pos,
+            end_pos
+        )?;
+
+        writer.flush()?;
+        Ok(())
+    }
+
+    fn open_new_file(&mut self) -> Result<(), std::io::Error> {
+        // Don't close previous file here - that should be done explicitly on disable signal
+        // This ensures we only create a file when we have data to write
+
+        // Create output directory if it doesn't exist
+        std::fs::create_dir_all(&self.output_dir)?;
+
+        // Open new file
+        self.file_count += 1;
+        let file_path = self
+            .output_dir
+            .join(format!("capture_{:04}.bin", self.file_count));
+        let file = File::create(&file_path)?;
+        let writer = BufWriter::new(file);
+
+        self.current_file = Some(writer);
+        self.words_in_file = 0;
+        self.current_file_start_time = None;
+        self.current_file_end_time = None;
+        self.current_file_start_pos = None;
+        self.current_file_end_pos = None;
+
+        info!("Created new binary capture file: {}", file_path.display());
+        Ok(())
+    }
+
+    fn write_word(&mut self, word: &ParallelWord) -> Result<(), std::io::Error> {
+        if let Some(writer) = &mut self.current_file {
+            self.words_in_file += 1;
+
+            // Track metadata for index file
+            if self.current_file_start_time.is_none() {
+                self.current_file_start_time = Some(word.timing.timestamp_us);
+                self.current_file_start_pos = Some(word.timing.position);
+            }
+            self.current_file_end_time = Some(word.timing.timestamp_us);
+            self.current_file_end_pos = Some(word.timing.position);
+
+            // Write binary data: value (u64), timestamp_us (f64), position (u64)
+            // Total: 24 bytes per word
+            writer.write_all(&word.value.to_le_bytes())?;
+            writer.write_all(&word.timing.timestamp_us.to_le_bytes())?;
+            writer.write_all(&word.timing.position.to_le_bytes())?;
+        }
+        Ok(())
+    }
+
+    fn close_file(&mut self) -> Result<(), std::io::Error> {
+        if let Some(mut writer) = self.current_file.take() {
+            writer.flush()?;
+
+            // Write index entry and log for non-empty files
+            if self.words_in_file > 0 {
+                self.write_index_entry(self.file_count)?;
+                info!(
+                    "Closed file {} with {} words ({} bytes)",
+                    self.file_count,
+                    self.words_in_file,
+                    self.words_in_file * 24
+                );
+            } else {
+                // Delete empty files
+                let file_path = self
+                    .output_dir
+                    .join(format!("capture_{:04}.bin", self.file_count));
+                if file_path.exists() {
+                    std::fs::remove_file(&file_path)?;
+                    info!("Deleted empty capture file {}", self.file_count);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Drop for ControlledParallelWriter {
+    fn drop(&mut self) {
+        // Ensure any open file is properly closed and indexed
+        if self.current_file.is_some() {
+            info!(">>> Writer shutting down - closing any open capture file");
+            if let Err(e) = self.close_file() {
+                eprintln!("Error closing file on shutdown: {}", e);
+            }
+        }
+    }
+}
+
+impl ProcessNode for ControlledParallelWriter {
+    fn name(&self) -> &str {
+        "controlled_parallel_writer"
+    }
+
+    fn num_inputs(&self) -> usize {
+        2 // parallel words + enable signal
+    }
+
+    fn num_outputs(&self) -> usize {
+        0 // Sink
+    }
+
+    fn input_schema(&self) -> Vec<dsl::PortSchema> {
+        use dsl::{PortDirection, PortSchema};
+        vec![
+            PortSchema::new::<ParallelWord>("parallel_words", 0, PortDirection::Input),
+            PortSchema::new::<Sample>("enable_signal", 1, PortDirection::Input),
+        ]
+    }
+
+    fn work(&mut self, inputs: &[InputPort], _outputs: &[OutputPort]) -> WorkResult<usize> {
+        let mut words_buffer = std::collections::VecDeque::new();
+        let mut words_input = inputs
+            .first()
+            .and_then(|port| port.get::<ParallelWord>(&mut words_buffer))
+            .ok_or_else(|| WorkError::NodeError("Missing parallel_words input".to_string()))?;
+
+        // Get next parallel word (blocking - this is the timing reference)
+        let word = match words_input.recv() {
+            Ok(w) => w,
+            Err(e) => {
+                // Channel closed - close any open file before shutting down
+                info!(">>> Input channel closed - finalizing capture");
+                self.close_file().map_err(|io_err| {
+                    WorkError::NodeError(format!("Failed to close file: {}", io_err))
+                })?;
+                return Err(e);
+            }
+        };
+
+        let word_position = word.timing.position;
+
+        // Collect edges up to this word's position into a temp buffer
+        // (need to drop enable_input before calling self.close_file)
+        let mut edges_to_process = Vec::new();
+        {
+            let mut enable_input = inputs
+                .get(1)
+                .and_then(|port| port.get::<Sample>(&mut self.enable_buffer))
+                .ok_or_else(|| WorkError::NodeError("Missing enable_signal input".to_string()))?;
+
+            loop {
+                match enable_input.peek() {
+                    Ok(next_edge) => {
+                        if next_edge.start_time <= word_position {
+                            let edge = enable_input.recv()?;
+                            if edge.value != self.current_enable_state {
+                                edges_to_process.push(edge);
+                                // Update state to track further transitions
+                                self.current_enable_state = edge.value;
+                                self.current_enable_timestamp = edge.start_time;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    Err(WorkError::Shutdown) => {
+                        debug!("[{}] Received Shutdown from enable input", self.name());
+                        break;
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        } // enable_input dropped here
+
+        // Process each state transition
+        for edge in &edges_to_process {
+            if !edge.value {
+                info!(
+                    ">>> Enable INACTIVE at position {} - closing capture file",
+                    edge.start_time,
+                );
+                self.close_file()
+                    .map_err(|e| WorkError::NodeError(format!("Failed to close file: {}", e)))?;
+            } else {
+                info!(">>> Enable ACTIVE at position {}", edge.start_time,);
+            }
+        }
+
+        // Write word if currently enabled
+        if self.current_enable_state {
+            // Open file if needed (first word after enable)
+            if self.current_file.is_none() {
+                info!(
+                    ">>> First word while enabled - new capture file (enabled at position {}, word at {:.6}s)",
+                    self.current_enable_timestamp,
+                    word.timing.timestamp_us / 1_000_000.0
+                );
+                self.open_new_file()
+                    .map_err(|e| WorkError::NodeError(format!("Failed to open file: {}", e)))?;
+            }
+
+            self.count += 1;
+            self.write_word(&word)
+                .map_err(|e| WorkError::NodeError(format!("Failed to write word: {}", e)))?;
+
+            // Log progress every 10000 words
+            if self.count.is_multiple_of(10000) {
+                info!(
+                    "Progress: {} words written (latest: 0x{:02X} at t={:.6}s in file {})",
+                    self.count,
+                    word.value,
+                    word.timing.timestamp_us / 1_000_000.0,
+                    self.file_count
+                );
+            }
+        }
+
+        Ok(1)
+    }
+}
+
+/// Sink that monitors enable/disable state
+struct StateMonitor;
+
+impl ProcessNode for StateMonitor {
+    fn name(&self) -> &str {
+        "state_monitor"
+    }
+
+    fn num_inputs(&self) -> usize {
+        1
+    }
+
+    fn num_outputs(&self) -> usize {
+        0 // Sink
+    }
+
+    fn input_schema(&self) -> Vec<dsl::PortSchema> {
+        use dsl::{PortDirection, PortSchema, Sample};
+        vec![PortSchema::new::<Sample>(
+            "enable_state",
+            0,
+            PortDirection::Input,
+        )]
+    }
+
+    fn work(&mut self, inputs: &[InputPort], _outputs: &[OutputPort]) -> WorkResult<usize> {
+        let mut input_buffer = std::collections::VecDeque::new();
+        let mut input = inputs
+            .first()
+            .and_then(|port| port.get::<Sample>(&mut input_buffer))
+            .ok_or_else(|| WorkError::NodeError("Missing input channel".to_string()))?;
+
+        // Use try_recv() to avoid blocking and contributing to backpressure
+        match input.try_recv() {
+            Ok(state) => {
+                info!(
+                    ">>> Parallel decoder {}",
+                    if state.value { "ENABLED" } else { "DISABLED" }
+                );
+                Ok(1)
+            }
+            Err(TryRecvError::Empty) => Ok(0), // No data available, return and let scheduler call again
+            Err(TryRecvError::Disconnected) => {
+                info!("State monitor: input channel disconnected, shutting down");
+                Err(WorkError::Shutdown)
+            }
+        }
+    }
+}
+
+/// Sink that monitors SPI transfers
+struct SpiMonitor;
+
+impl ProcessNode for SpiMonitor {
+    fn name(&self) -> &str {
+        "spi_monitor"
+    }
+
+    fn num_inputs(&self) -> usize {
+        1
+    }
+
+    fn num_outputs(&self) -> usize {
+        0 // Sink
+    }
+
+    fn input_schema(&self) -> Vec<dsl::PortSchema> {
+        use dsl::{PortDirection, PortSchema};
+        vec![PortSchema::new::<SpiTransfer>(
+            "spi_transfers",
+            0,
+            PortDirection::Input,
+        )]
+    }
+
+    fn work(&mut self, inputs: &[InputPort], _outputs: &[OutputPort]) -> WorkResult<usize> {
+        let mut input_buffer = std::collections::VecDeque::new();
+        let mut input = inputs
+            .first()
+            .and_then(|port| port.get::<SpiTransfer>(&mut input_buffer))
+            .ok_or_else(|| WorkError::NodeError("Missing input channel".to_string()))?;
+
+        // Use try_recv() to avoid blocking and contributing to backpressure
+        match input.try_recv() {
+            Ok(transfer) => {
+                // Print the SPI command (only show enable/disable commands to reduce log spam)
+                if transfer.mosi == 0x600081 || transfer.mosi == 0x600000 {
+                    info!(
+                        "SPI Command: 0x{:06X} at t={:.6}s",
+                        transfer.mosi,
+                        transfer.timing.timestamp_us / 1_000_000.0
+                    );
+                }
+                Ok(1)
+            }
+            Err(TryRecvError::Empty) => Ok(0), // No data available, return and let scheduler call again
+            Err(TryRecvError::Disconnected) => {
+                info!("SPI monitor: input channel disconnected, shutting down");
+                Err(WorkError::Shutdown)
+            }
+        }
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize tracing subscriber
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
+
+    let args = Args::parse();
+
+    info!("=== SPI-Controlled Parallel Decode Example ===");
+    info!("File: {}", args.file);
+
+    info!(
+        "SPI: CS={}, CLK={}, MOSI={}",
+        args.spi_cs, args.spi_clk, args.spi_mosi
+    );
+    info!(
+        "Parallel: Strobe={}, Data={:?}",
+        args.parallel_strobe, args.parallel_data
+    );
+    info!("Enable command: 0x{:06X}", args.enable_cmd);
+    info!("Disable command: 0x{:06X}", args.disable_cmd);
+    info!("Output directory: {}", args.output_dir.display());
+
+    // Calculate total channels needed
+    let max_channel = *[
+        args.spi_cs,
+        args.spi_clk,
+        args.spi_mosi,
+        args.parallel_strobe,
+    ]
+    .iter()
+    .chain(args.parallel_data.iter())
+    .max()
+    .unwrap();
+
+    let num_channels = (max_channel + 1) as u8;
+    info!("Using {} channels", num_channels);
+
+    // Create pipeline with large buffers for raw signal channels (high bandwidth)
+    // Control signals and decoded data will use smaller buffers via connect_with_buffer
+    // Watchdog is always enabled - reports operations blocked >5 seconds
+    let mut pipeline = Pipeline::new().with_default_buffer_size(10_000_000);
+
+    // Add file source (autodetects 0 inputs, N outputs)
+    let source = DslFileSource::new(&args.file, num_channels)?;
+
+    pipeline.add_process("source", source)?;
+
+    // Add SPI decoder (autodetects 3 inputs, 1 output)
+    let spi_decoder = SpiDecoder::new(
+        SpiMode::Mode0,
+        24,    // 24-bit words for commands like 0x600081
+        true,  // has_mosi
+        false, // has_miso - decoder uses 3 inputs: CS, CLK, MOSI
+    );
+
+    pipeline.add_process("spi_decoder", spi_decoder)?;
+
+    // Wire SPI decoder inputs from source
+    pipeline.connect(
+        "source",
+        &format!("d{}", args.spi_clk),
+        "spi_decoder",
+        "clk",
+    )?;
+    pipeline.connect("source", &format!("d{}", args.spi_cs), "spi_decoder", "cs")?;
+    pipeline.connect(
+        "source",
+        &format!("d{}", args.spi_mosi),
+        "spi_decoder",
+        "mosi",
+    )?;
+
+    // Add SPI command controller (autodetects 1 input, 1 output)
+    pipeline.add_process(
+        "controller",
+        SpiCommandController::new(args.enable_cmd, args.disable_cmd),
+    )?;
+
+    // Add SPI monitor sink (autodetects 1 input, 0 outputs)
+    pipeline.add_process("spi_monitor", SpiMonitor)?;
+
+    // Connect SPI decoder output to both monitor and controller (small buffers for low-bandwidth SPI commands)
+    pipeline.connect_with_buffer(
+        "spi_decoder",
+        "spi_transfers",
+        "spi_monitor",
+        "spi_transfers",
+        1000,
+    )?;
+    pipeline.connect_with_buffer("spi_decoder", "spi_transfers", "controller", "spi_in", 1000)?;
+
+    // Add state monitor (autodetects 1 input, 0 outputs)
+    pipeline.add_process("state_monitor", StateMonitor)?;
+
+    // Connect enable signals with small buffers (control signals don't need large buffers)
+    pipeline.connect_with_buffer(
+        "controller",
+        "enable_signal",
+        "state_monitor",
+        "enable_state",
+        100,
+    )?;
+
+    // Add parallel decoder - requires enable_signal and CS inputs (autodetects inputs/outputs)
+    pipeline.add_process(
+        "parallel_decoder",
+        ParallelDecoder::new(args.parallel_data.len(), StrobeMode::RisingEdge, true), // true = CS is active-low
+    )?;
+
+    // Wire parallel decoder strobe from source
+    pipeline.connect(
+        "source",
+        &format!("d{}", args.parallel_strobe),
+        "parallel_decoder",
+        "strobe",
+    )?;
+
+    // Wire parallel decoder data bits from source
+    for (i, &channel) in args.parallel_data.iter().enumerate() {
+        pipeline.connect(
+            "source",
+            &format!("d{}", channel),
+            "parallel_decoder",
+            &format!("d{}", i),
+        )?;
+    }
+
+    // Wire enable_signal from controller to parallel_decoder (small buffer for control signal)
+    pipeline.connect_with_buffer(
+        "controller",
+        "enable_signal",
+        "parallel_decoder",
+        "enable_signal",
+        100,
+    )?;
+
+    // Wire CS from source to parallel_decoder
+    pipeline.connect(
+        "source",
+        &format!("d{}", args.spi_cs),
+        "parallel_decoder",
+        "cs",
+    )?;
+
+    // Add parallel word writer (autodetects 2 inputs, 0 outputs)
+    pipeline.add_process(
+        "writer",
+        ControlledParallelWriter::new(args.output_dir.clone()),
+    )?;
+
+    // Connect parallel words with small buffer to slow down consumption
+    // This gives SpiCommandController time to emit enable edges before words are processed
+    pipeline.connect_with_buffer(
+        "parallel_decoder",
+        "words",
+        "writer",
+        "parallel_words",
+        1000, // Reduced from 100_000 to provide backpressure
+    )?;
+
+    // Connect enable signal to writer (small buffer for control signal)
+    pipeline.connect_with_buffer(
+        "controller",
+        "enable_signal",
+        "writer",
+        "enable_signal",
+        100,
+    )?;
+
+    // Build and run
+    info!("Building pipeline...");
+    let scheduler = pipeline.build()?;
+
+    info!("Running...");
+    scheduler.wait();
+
+    info!("Done!");
+
+    Ok(())
+}
