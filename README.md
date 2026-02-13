@@ -177,6 +177,10 @@ RUST_LOG=debug cargo run --release --example spi_decode
 - `tracing` - Structured logging with watchdog support
 - `clap` - CLI parsing (examples only)
 
+## Development
+
+This project was developed collaboratively with AI assistance (Claude/GitHub Copilot).
+
 ## License
 
 MIT - see [LICENSE](LICENSE) file for details
