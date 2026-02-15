@@ -7,7 +7,7 @@ pub mod spi_decoder;
 pub mod types;
 
 // Re-export common types
-pub use types::{ParallelWord, SpiMode, SpiTransfer, StrobeMode, TimingInfo};
+pub use types::{CsPolarity, ParallelWord, SpiMode, SpiTransfer, StrobeMode, TimingInfo};
 
 // Re-export decoders
 pub use parallel_decoder::ParallelDecoder;

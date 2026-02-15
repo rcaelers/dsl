@@ -14,7 +14,7 @@
 //! Because each data value is obtained by blocking recv (not try_recv),
 //! the race condition from the old batch-decode approach is eliminated.
 
-use super::types::{SpiMode, SpiTransfer, TimingInfo};
+use super::types::{CsPolarity, SpiMode, SpiTransfer, TimingInfo};
 use crate::runtime::Receiver;
 use crate::runtime::node::{InputPort, OutputPort, ProcessNode, WorkError, WorkResult};
 use crate::runtime::sample::Sample;
@@ -31,7 +31,7 @@ pub struct SpiDecoder {
     bits_per_word: usize,
     has_mosi: bool,
     has_miso: bool,
-    cs_active_low: bool,
+    cs_polarity: CsPolarity,
 
     /// Per-channel putback buffers, persisted across work() calls.
     /// Indexed by CS=0, CLK=1, MOSI=2, MISO=3.
@@ -47,7 +47,7 @@ pub struct SpiDecoder {
 impl SpiDecoder {
     /// Create a new SPI decoder with active-low CS (standard)
     pub fn new(mode: SpiMode, bits_per_word: usize, has_mosi: bool, has_miso: bool) -> Self {
-        Self::with_cs_polarity(mode, bits_per_word, has_mosi, has_miso, true)
+        Self::with_cs_polarity(mode, bits_per_word, has_mosi, has_miso, CsPolarity::ActiveLow)
     }
 
     /// Create a new SPI decoder with configurable CS polarity
@@ -56,7 +56,7 @@ impl SpiDecoder {
         bits_per_word: usize,
         has_mosi: bool,
         has_miso: bool,
-        cs_active_low: bool,
+        cs_polarity: CsPolarity,
     ) -> Self {
         let num_channels = 2 + usize::from(has_mosi) + usize::from(has_miso);
         Self {
@@ -65,7 +65,7 @@ impl SpiDecoder {
             bits_per_word,
             has_mosi,
             has_miso,
-            cs_active_low,
+            cs_polarity,
             channel_buffers: (0..num_channels).map(|_| VecDeque::new()).collect(),
             prev_clk: false,
             tx_count: 0,
@@ -177,8 +177,14 @@ impl ProcessNode for SpiDecoder {
 
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
         // Extract config values before borrowing channel_buffers
-        let cs_active_low = self.cs_active_low;
-        let cs_is_active = |value: bool| -> bool { if cs_active_low { !value } else { value } };
+        let cs_polarity = self.cs_polarity;
+        let cs_is_active = |value: bool| -> bool {
+            match cs_polarity {
+                CsPolarity::ActiveLow => !value,
+                CsPolarity::ActiveHigh => value,
+                CsPolarity::Disabled => true,
+            }
+        };
         let sample_on_rising = self.samples_on_rising();
         let bits_per_word = self.bits_per_word;
         let has_mosi = self.has_mosi;
@@ -403,9 +409,9 @@ mod tests {
     #[test]
     fn test_cs_polarity() {
         let decoder_low = SpiDecoder::new(SpiMode::Mode0, 8, true, false);
-        assert!(decoder_low.cs_active_low);
+        assert_eq!(decoder_low.cs_polarity, CsPolarity::ActiveLow);
 
-        let decoder_high = SpiDecoder::with_cs_polarity(SpiMode::Mode0, 8, true, false, false);
-        assert!(!decoder_high.cs_active_low);
+        let decoder_high = SpiDecoder::with_cs_polarity(SpiMode::Mode0, 8, true, false, CsPolarity::ActiveHigh);
+        assert_eq!(decoder_high.cs_polarity, CsPolarity::ActiveHigh);
     }
 }

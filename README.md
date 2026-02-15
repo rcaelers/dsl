@@ -116,7 +116,7 @@ use dsl::nodes::decoders::{ParallelDecoder, StrobeMode};
 let parallel = ParallelDecoder::new(
     8,                       // 8 data bits
     StrobeMode::RisingEdge,  // strobe trigger
-    true,                    // cs_active_low
+    CsPolarity::ActiveLow,   // CS polarity
 );
 ```
 

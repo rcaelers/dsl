@@ -43,6 +43,17 @@ pub struct SpiTransfer {
     pub timing: TimingInfo,
 }
 
+/// Chip select polarity for decoders
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CsPolarity {
+    /// CS is active-low (standard SPI): LOW = active, HIGH = inactive
+    ActiveLow,
+    /// CS is active-high: HIGH = active, LOW = inactive
+    ActiveHigh,
+    /// CS state is ignored (decoder always considers CS as inactive/enabled)
+    Disabled,
+}
+
 /// Strobe signal mode for parallel decoder
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StrobeMode {

@@ -27,7 +27,7 @@ pub mod nodes;
 pub mod runtime;
 
 // Re-export decoder data types
-pub use nodes::decoders::{ParallelWord, SpiMode, SpiTransfer, StrobeMode, TimingInfo};
+pub use nodes::decoders::{CsPolarity, ParallelWord, SpiMode, SpiTransfer, StrobeMode, TimingInfo};
 
 // Re-export data types from runtime
 pub use runtime::Sample;

@@ -16,16 +16,12 @@
 //! When the enable command is received, a new binary file will be created on the
 //! first decoded word.
 //!
-//! Binary format: Each word is 24 bytes (all little-endian):
-//!   - value: u64 (8 bytes)
-//!   - timestamp_us: f64 (8 bytes)
-//!   - position: u64 (8 bytes)
+//! Binary format: Raw byte stream, one byte per parallel word (value as u8).
 //!
 //! Index file (captures.csv): Contains metadata for all binary files:
 //!   - file_num: Sequential file number
 //!   - filename: Binary file name (e.g., capture_0001.bin)
-//!   - words: Number of words in the file
-//!   - bytes: File size in bytes
+//!   - bytes: File size in bytes (1 byte per word)
 //!   - start_time_us: Timestamp of first word (microseconds)
 //!   - end_time_us: Timestamp of last word (microseconds)
 //!   - duration_us: Time span covered by the file (microseconds)
@@ -44,8 +40,8 @@
 use clap::Parser;
 use crossbeam_channel::TryRecvError;
 use dsl::DslFileSource;
+use dsl::nodes::decoders::{CsPolarity, ParallelWord, SpiMode, SpiTransfer, StrobeMode};
 use dsl::nodes::decoders::{ParallelDecoder, SpiDecoder};
-use dsl::nodes::decoders::{ParallelWord, SpiMode, SpiTransfer, StrobeMode};
 use dsl::runtime::{
     InputPort, OutputPort, Pipeline, PortDirection, PortSchema, ProcessNode, Sample, WorkError,
     WorkResult,
@@ -268,13 +264,12 @@ impl ControlledParallelWriter {
         if !file_exists {
             writeln!(
                 writer,
-                "file_num,filename,words,bytes,start_time_us,end_time_us,duration_us,start_pos,end_pos"
+                "file_num,filename,bytes,start_time_us,end_time_us,duration_us,start_pos,end_pos"
             )?;
         }
 
         // Write metadata for this file
         let filename = format!("capture_{:04}.bin", file_num);
-        let bytes = self.words_in_file * 24;
         let start_time = self.current_file_start_time.unwrap_or(0.0);
         let end_time = self.current_file_end_time.unwrap_or(0.0);
         let duration = end_time - start_time;
@@ -283,11 +278,10 @@ impl ControlledParallelWriter {
 
         writeln!(
             writer,
-            "{},{},{},{},{:.6},{:.6},{:.6},{},{}",
+            "{},{},{},{:.6},{:.6},{:.6},{},{}",
             file_num,
             filename,
             self.words_in_file,
-            bytes,
             start_time,
             end_time,
             duration,
@@ -337,11 +331,7 @@ impl ControlledParallelWriter {
             self.current_file_end_time = Some(word.timing.timestamp_us);
             self.current_file_end_pos = Some(word.timing.position);
 
-            // Write binary data: value (u64), timestamp_us (f64), position (u64)
-            // Total: 24 bytes per word
-            writer.write_all(&word.value.to_le_bytes())?;
-            writer.write_all(&word.timing.timestamp_us.to_le_bytes())?;
-            writer.write_all(&word.timing.position.to_le_bytes())?;
+            writer.write_all(&[word.value as u8])?;
         }
         Ok(())
     }
@@ -355,9 +345,7 @@ impl ControlledParallelWriter {
                 self.write_index_entry(self.file_count)?;
                 info!(
                     "Closed file {} with {} words ({} bytes)",
-                    self.file_count,
-                    self.words_in_file,
-                    self.words_in_file * 24
+                    self.file_count, self.words_in_file, self.words_in_file
                 );
             } else {
                 // Delete empty files
@@ -723,7 +711,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Add parallel decoder - requires enable_signal and CS inputs (autodetects inputs/outputs)
     pipeline.add_process(
         "parallel_decoder",
-        ParallelDecoder::new(args.parallel_data.len(), StrobeMode::RisingEdge, true), // true = CS is active-low
+        ParallelDecoder::new(
+            args.parallel_data.len(),
+            StrobeMode::AnyEdge,
+            CsPolarity::ActiveLow,
+        ),
     )?;
 
     // Wire parallel decoder strobe from source

@@ -2,7 +2,7 @@
 //!
 //! Works with Sample inputs and outputs ParallelWord events.
 
-use super::types::{ParallelWord, StrobeMode, TimingInfo};
+use super::types::{CsPolarity, ParallelWord, StrobeMode, TimingInfo};
 use crate::runtime::Receiver;
 use crate::runtime::WorkError;
 use crate::runtime::node::{InputPort, OutputPort, ProcessNode, WorkResult};
@@ -18,7 +18,7 @@ pub struct ParallelDecoder {
     name: String,
     num_data_bits: usize,
     mode: StrobeMode,
-    cs_active_low: bool,
+    cs_polarity: CsPolarity,
 
     /// Per-channel putback buffers, persisted across work() calls.
     /// Indexed as: strobe=0, data0..dataN=1..N, enable_signal=N+1, cs=N+2
@@ -36,8 +36,8 @@ impl ParallelDecoder {
     ///
     /// * `num_data_bits` - Number of data bits (1-64)
     /// * `mode` - Strobe trigger mode
-    /// * `cs_active_low` - Whether CS is active-low (true) or active-high (false)
-    pub fn new(num_data_bits: usize, mode: StrobeMode, cs_active_low: bool) -> Self {
+    /// * `cs_polarity` - CS polarity: ActiveLow, ActiveHigh, or Disabled
+    pub fn new(num_data_bits: usize, mode: StrobeMode, cs_polarity: CsPolarity) -> Self {
         assert!(
             num_data_bits > 0 && num_data_bits <= 64,
             "Data bits must be 1-64"
@@ -51,7 +51,7 @@ impl ParallelDecoder {
             name: "parallel_decoder".to_string(),
             num_data_bits,
             mode,
-            cs_active_low,
+            cs_polarity,
             channel_buffers,
             last_strobe_value: false,
             work_call_count: 0,
@@ -154,7 +154,7 @@ impl ParallelDecoder {
         enable_signal: &mut Receiver<'_, Sample>,
         cs: &mut Receiver<'_, Sample>,
         timestamp: u64,
-        cs_active_low: bool,
+        cs_polarity: CsPolarity,
     ) -> WorkResult<bool> {
         // Get enable signal at timestamp
         let enable_value = match Self::value_at_time(enable_signal, timestamp)? {
@@ -167,15 +167,12 @@ impl ParallelDecoder {
             Some(v) => v,
             None => return Ok(false),
         };
-        // debug!(
-        //     "Enable signal: {}, CS value: {} at timestamp {}",
-        //     enable_value, cs_value, timestamp
-        // );
+
         // CS inactive logic depends on polarity
-        let cs_inactive = if cs_active_low {
-            cs_value // CS inactive = high for active-low
-        } else {
-            !cs_value // CS inactive = low for active-high
+        let cs_inactive = match cs_polarity {
+            CsPolarity::ActiveLow => cs_value,   // CS inactive = high for active-low
+            CsPolarity::ActiveHigh => !cs_value,  // CS inactive = low for active-high
+            CsPolarity::Disabled => true,          // CS check bypassed
         };
 
         Ok(enable_value && cs_inactive)
@@ -260,7 +257,7 @@ impl ProcessNode for ParallelDecoder {
         // Extract config before borrowing channel_buffers
         let mode = self.mode;
         let num_data_bits = self.num_data_bits;
-        let cs_active_low = self.cs_active_low;
+        let cs_polarity = self.cs_polarity;
 
         // Create Receivers for each channel with automatic watchdog
         let mut buf_iter = self.channel_buffers.iter_mut();
@@ -302,7 +299,7 @@ impl ProcessNode for ParallelDecoder {
                 };
 
             // Check if enabled (enable_signal=true AND CS=inactive)
-            if Self::check_enabled(&mut enable_signal, &mut cs, timestamp, cs_active_low)? {
+            if Self::check_enabled(&mut enable_signal, &mut cs, timestamp, cs_polarity)? {
                 // Sample data
                 if let Some(value) = Self::sample_data_at_time(&mut data_channels, timestamp)? {
                     trace!(
@@ -333,9 +330,9 @@ mod tests {
 
     #[test]
     fn test_decoder_creation() {
-        let decoder = ParallelDecoder::new(8, StrobeMode::RisingEdge, true);
+        let decoder = ParallelDecoder::new(8, StrobeMode::RisingEdge, CsPolarity::ActiveLow);
         assert_eq!(decoder.num_data_bits, 8);
-        assert!(decoder.cs_active_low);
+        assert_eq!(decoder.cs_polarity, CsPolarity::ActiveLow);
         assert_eq!(decoder.num_inputs(), 11); // strobe + 8 data + enable_signal + cs
     }
 }
