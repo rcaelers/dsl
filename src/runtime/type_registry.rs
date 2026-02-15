@@ -1,6 +1,6 @@
 //! Type registry for dynamic channel creation
 
-use super::sender::Sender;
+use super::sender::{ChannelMessage, Sender};
 use crossbeam_channel::{bounded, Sender as CrossbeamSender};
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -27,11 +27,11 @@ impl TypeRegistry {
     fn register<T: 'static + Send + Clone>(&mut self) {
         let type_id = TypeId::of::<T>();
         
-        // Register channel creator
+        // Register channel creator — channels carry ChannelMessage<T> internally
         self.channel_creators.insert(
             type_id,
             Box::new(|buffer_size: usize| {
-                let (tx, rx) = bounded::<T>(buffer_size);
+                let (tx, rx) = bounded::<ChannelMessage<T>>(buffer_size);
                 (
                     Box::new(tx) as Box<dyn Any + Send>,
                     Box::new(rx) as Box<dyn Any + Send>,
@@ -49,7 +49,7 @@ impl TypeRegistry {
 
                 let mut typed_senders = Vec::new();
                 for sender in senders {
-                    match sender.downcast::<CrossbeamSender<T>>() {
+                    match sender.downcast::<CrossbeamSender<ChannelMessage<T>>>() {
                         Ok(tx) => typed_senders.push(*tx),
                         Err(_) => return Err("Type mismatch in sender".to_string()),
                     }

@@ -1,16 +1,19 @@
 //! Channel receivers with per-channel putback buffers and watchdog monitoring
 //!
-//! - [`Receiver`] wraps a single `crossbeam_channel::Receiver<T>`
+//! - [`Receiver`] wraps a single `crossbeam_channel::Receiver<ChannelMessage<T>>`
 //!   with a putback buffer, providing `recv`, `peek`, `put_back`, and
-//!   `drain_before` operations.
+//!   `drain_before` operations. Transparently unwraps `ChannelMessage` and
+//!   caches end-of-stream state so subsequent calls return `Shutdown`.
 //!
 //! - [`ReceiverSelector`] performs a multiplexed `select()` across
 //!   a slice of `Receiver`s, checking buffers before blocking.
 
 use crossbeam_channel::Receiver as CrossbeamReceiver;
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::errors::{WorkError, WorkResult};
+use super::sender::ChannelMessage;
 use super::watchdog::{OperationGuard, WatchdogHandle};
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -22,63 +25,104 @@ use super::watchdog::{OperationGuard, WatchdogHandle};
 /// The buffer is externally owned (passed as `&mut VecDeque<T>`) so it
 /// persists across calls in the owning node's struct.
 ///
+/// Transparently unwraps `ChannelMessage::Sample(T)` and returns the value.
+/// On `ChannelMessage::EndOfStream`, sets a persistent flag so all subsequent
+/// `recv()`/`peek()` calls return `WorkError::Shutdown` immediately.
+///
 /// Includes watchdog monitoring for deadlock detection (zero-cost with atomics).
 pub struct Receiver<'a, T> {
-    receiver: &'a CrossbeamReceiver<T>,
+    receiver: &'a CrossbeamReceiver<ChannelMessage<T>>,
     buffer: &'a mut VecDeque<T>,
     watchdog_handle: Option<WatchdogHandle>,
+    eos: &'a AtomicBool,
 }
 
 impl<'a, T> Receiver<'a, T> {
     /// Create a new receiver with watchdog monitoring.
     pub fn new(
-        receiver: &'a CrossbeamReceiver<T>,
+        receiver: &'a CrossbeamReceiver<ChannelMessage<T>>,
         buffer: &'a mut VecDeque<T>,
         watchdog_handle: WatchdogHandle,
+        eos: &'a AtomicBool,
     ) -> Self {
         Self {
             receiver,
             buffer,
             watchdog_handle: Some(watchdog_handle),
+            eos,
         }
     }
 
     /// Create a new receiver with watchdog monitoring.
     pub fn with_watchdog(
-        receiver: &'a CrossbeamReceiver<T>,
+        receiver: &'a CrossbeamReceiver<ChannelMessage<T>>,
         buffer: &'a mut VecDeque<T>,
         watchdog_handle: WatchdogHandle,
+        eos: &'a AtomicBool,
     ) -> Self {
-        // Just call new() - they're the same now
-        Self::new(receiver, buffer, watchdog_handle)
+        Self::new(receiver, buffer, watchdog_handle, eos)
     }
 
     /// Blocking receive. Returns from the putback buffer first, then
     /// falls through to the underlying channel.
+    ///
+    /// Returns `Err(WorkError::Shutdown)` if end-of-stream has been received
+    /// (either now or in a previous call).
     pub fn recv(&mut self) -> WorkResult<T> {
+        // Check cached EOS state first
+        if self.eos.load(Ordering::Relaxed) {
+            return Err(WorkError::Shutdown);
+        }
+
         if let Some(item) = self.buffer.pop_front() {
             return Ok(item);
         }
 
         // Create watchdog guard if watchdog is attached (zero-cost: just 8-byte stack ref + 2 atomic stores)
         let _guard = self.watchdog_handle.as_ref().map(OperationGuard::new);
-        self.receiver.recv().map_err(|_| {
-            tracing::debug!("Receiver::recv() - channel disconnected, returning Shutdown");
-            WorkError::Shutdown
-        })
+        match self.receiver.recv() {
+            Ok(ChannelMessage::Sample(item)) => Ok(item),
+            Ok(ChannelMessage::EndOfStream) => {
+                self.eos.store(true, Ordering::Relaxed);
+                tracing::debug!("Receiver::recv() - EndOfStream received");
+                Err(WorkError::Shutdown)
+            }
+            Err(_) => {
+                tracing::debug!("Receiver::recv() - channel disconnected, returning Shutdown");
+                Err(WorkError::Shutdown)
+            }
+        }
     }
 
     /// Peek at the front item. If the buffer is empty, blocks on `recv()`
     /// to populate it.
+    ///
+    /// Returns `Err(WorkError::Shutdown)` if end-of-stream has been received.
     pub fn peek(&mut self) -> WorkResult<&T> {
+        // Check cached EOS state first
+        if self.eos.load(Ordering::Relaxed) {
+            return Err(WorkError::Shutdown);
+        }
+
         if self.buffer.is_empty() {
             // Create watchdog guard if watchdog is attached (zero-cost: just 8-byte stack ref + 2 atomic stores)
             let _guard = self.watchdog_handle.as_ref().map(OperationGuard::new);
-            let item = self.receiver.recv().map_err(|_| {
-                tracing::debug!("Receiver::peek() - channel disconnected, returning Shutdown");
-                WorkError::Shutdown
-            })?;
-            self.buffer.push_back(item);
+            match self.receiver.recv() {
+                Ok(ChannelMessage::Sample(item)) => {
+                    self.buffer.push_back(item);
+                }
+                Ok(ChannelMessage::EndOfStream) => {
+                    self.eos.store(true, Ordering::Relaxed);
+                    tracing::debug!("Receiver::peek() - EndOfStream received");
+                    return Err(WorkError::Shutdown);
+                }
+                Err(_) => {
+                    tracing::debug!(
+                        "Receiver::peek() - channel disconnected, returning Shutdown"
+                    );
+                    return Err(WorkError::Shutdown);
+                }
+            }
         }
         Ok(self.buffer.front().unwrap())
     }
@@ -86,11 +130,22 @@ impl<'a, T> Receiver<'a, T> {
     /// Try to receive without blocking. Returns from the putback buffer first,
     /// then tries the underlying channel. Returns Err if would block or channel is closed.
     pub fn try_recv(&mut self) -> Result<T, crossbeam_channel::TryRecvError> {
+        if self.eos.load(Ordering::Relaxed) {
+            return Err(crossbeam_channel::TryRecvError::Disconnected);
+        }
+
         if let Some(item) = self.buffer.pop_front() {
             return Ok(item);
         }
         // No watchdog needed - this doesn't block
-        self.receiver.try_recv()
+        match self.receiver.try_recv() {
+            Ok(ChannelMessage::Sample(item)) => Ok(item),
+            Ok(ChannelMessage::EndOfStream) => {
+                self.eos.store(true, Ordering::Relaxed);
+                Err(crossbeam_channel::TryRecvError::Disconnected)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Receive with a timeout. Returns from the putback buffer first (immediate),
@@ -99,12 +154,23 @@ impl<'a, T> Receiver<'a, T> {
         &mut self,
         timeout: std::time::Duration,
     ) -> Result<T, crossbeam_channel::RecvTimeoutError> {
+        if self.eos.load(Ordering::Relaxed) {
+            return Err(crossbeam_channel::RecvTimeoutError::Disconnected);
+        }
+
         if let Some(item) = self.buffer.pop_front() {
             return Ok(item);
         }
         // Watchdog guard for timeout recv if watchdog is attached (zero-cost: just 8-byte stack ref + 2 atomic stores)
         let _guard = self.watchdog_handle.as_ref().map(OperationGuard::new);
-        self.receiver.recv_timeout(timeout)
+        match self.receiver.recv_timeout(timeout) {
+            Ok(ChannelMessage::Sample(item)) => Ok(item),
+            Ok(ChannelMessage::EndOfStream) => {
+                self.eos.store(true, Ordering::Relaxed);
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Push an item back to the front of the buffer so the next `recv()`
@@ -185,26 +251,43 @@ impl<'b, 'a, T> ReceiverSelector<'b, 'a, T> {
     pub fn select(&mut self) -> WorkResult<(usize, T)> {
         // Check buffers first (round-robin from index 0)
         for (i, ch) in self.channels.iter_mut().enumerate() {
+            if ch.eos.load(Ordering::Relaxed) {
+                continue;
+            }
             if let Some(item) = ch.buffer.pop_front() {
                 return Ok((i, item));
             }
         }
 
-        // All buffers empty — block on crossbeam Select
+        // All buffers empty — block on crossbeam Select (skip EOS channels)
         let mut sel = crossbeam_channel::Select::new();
-        for ch in self.channels.iter() {
-            sel.recv(ch.receiver);
+        let mut index_map = Vec::new();
+        for (i, ch) in self.channels.iter().enumerate() {
+            if !ch.eos.load(Ordering::Relaxed) {
+                sel.recv(ch.receiver);
+                index_map.push(i);
+            }
+        }
+
+        if index_map.is_empty() {
+            return Err(WorkError::Shutdown);
         }
 
         let oper = sel.select();
-        let idx = oper.index();
-        let item = oper
-            .recv(self.channels[idx].receiver)
-            .map_err(|_| {
-                tracing::debug!("ReceiverSelector::select() - channel {} disconnected, returning Shutdown", idx);
-                WorkError::Shutdown
-            })?;
-        Ok((idx, item))
+        let sel_idx = oper.index();
+        let ch_idx = index_map[sel_idx];
+        match oper.recv(self.channels[ch_idx].receiver) {
+            Ok(ChannelMessage::Sample(item)) => Ok((ch_idx, item)),
+            Ok(ChannelMessage::EndOfStream) => {
+                self.channels[ch_idx].eos.store(true, Ordering::Relaxed);
+                tracing::debug!("ReceiverSelector::select() - channel {} EndOfStream", ch_idx);
+                Err(WorkError::Shutdown)
+            }
+            Err(_) => {
+                tracing::debug!("ReceiverSelector::select() - channel {} disconnected, returning Shutdown", ch_idx);
+                Err(WorkError::Shutdown)
+            }
+        }
     }
 
     /// Blocking select from a subset of channels by index. Checks buffers
@@ -216,27 +299,43 @@ impl<'b, 'a, T> ReceiverSelector<'b, 'a, T> {
     pub fn select_from(&mut self, indices: &[usize]) -> WorkResult<(usize, T)> {
         // Check buffers first
         for &i in indices {
+            if self.channels[i].eos.load(Ordering::Relaxed) {
+                continue;
+            }
             if let Some(item) = self.channels[i].buffer.pop_front() {
                 return Ok((i, item));
             }
         }
 
-        // Block on crossbeam Select for specified channels only
+        // Block on crossbeam Select for specified channels only (skip EOS channels)
         let mut sel = crossbeam_channel::Select::new();
+        let mut index_map = Vec::new();
         for &i in indices {
-            sel.recv(self.channels[i].receiver);
+            if !self.channels[i].eos.load(Ordering::Relaxed) {
+                sel.recv(self.channels[i].receiver);
+                index_map.push(i);
+            }
+        }
+
+        if index_map.is_empty() {
+            return Err(WorkError::Shutdown);
         }
 
         let oper = sel.select();
-        let sel_idx = oper.index(); // index within the select operation list
-        let rx_idx = indices[sel_idx]; // map back to original channel index
-        let item = oper
-            .recv(self.channels[rx_idx].receiver)
-            .map_err(|_| {
+        let sel_idx = oper.index();
+        let rx_idx = index_map[sel_idx];
+        match oper.recv(self.channels[rx_idx].receiver) {
+            Ok(ChannelMessage::Sample(item)) => Ok((rx_idx, item)),
+            Ok(ChannelMessage::EndOfStream) => {
+                self.channels[rx_idx].eos.store(true, Ordering::Relaxed);
+                tracing::debug!("ReceiverSelector::select_from() - channel {} EndOfStream", rx_idx);
+                Err(WorkError::Shutdown)
+            }
+            Err(_) => {
                 tracing::debug!("ReceiverSelector::select_from() - channel {} disconnected, returning Shutdown", rx_idx);
-                WorkError::Shutdown
-            })?;
-        Ok((rx_idx, item))
+                Err(WorkError::Shutdown)
+            }
+        }
     }
 }
 
@@ -244,6 +343,7 @@ impl<'b, 'a, T> ReceiverSelector<'b, 'a, T> {
 mod tests {
     use super::*;
     use crossbeam_channel::bounded;
+    use super::super::sender::ChannelMessage;
 
     // Helper to create a test watchdog
     fn test_watchdog() -> crate::runtime::Watchdog {
@@ -254,19 +354,20 @@ mod tests {
 
     #[test]
     fn test_recv_from_buffer_then_channel() {
-        let (tx, rx) = bounded::<i32>(10);
+        let (tx, rx) = bounded::<ChannelMessage<i32>>(10);
         let mut buf = VecDeque::new();
         buf.push_back(42);
 
         let wd = test_watchdog();
         let handle = wd.register_port("test", "recv", "test_port");
-        let mut pr = Receiver::new(&rx, &mut buf, handle);
+        let eos = AtomicBool::new(false);
+        let mut pr = Receiver::new(&rx, &mut buf, handle, &eos);
 
         // First recv comes from buffer
         assert_eq!(pr.recv().unwrap(), 42);
 
         // Second recv comes from channel
-        tx.send(99).unwrap();
+        tx.send(ChannelMessage::Sample(99)).unwrap();
         assert_eq!(pr.recv().unwrap(), 99);
 
         drop(tx);
@@ -274,12 +375,13 @@ mod tests {
 
     #[test]
     fn test_put_back_and_peek() {
-        let (tx, rx) = bounded::<i32>(10);
+        let (tx, rx) = bounded::<ChannelMessage<i32>>(10);
         let mut buf = VecDeque::new();
 
         let wd = test_watchdog();
         let handle = wd.register_port("test", "recv", "test_port");
-        let mut pr = Receiver::new(&rx, &mut buf, handle);
+        let eos = AtomicBool::new(false);
+        let mut pr = Receiver::new(&rx, &mut buf, handle, &eos);
 
         assert!(!pr.has_buffered());
 
@@ -295,7 +397,7 @@ mod tests {
 
     #[test]
     fn test_drain_before() {
-        let (tx, rx) = bounded::<(u64, i32)>(10);
+        let (tx, rx) = bounded::<ChannelMessage<(u64, i32)>>(10);
         let mut buf = VecDeque::new();
 
         // Add items to buffer (start_time, value)
@@ -305,12 +407,13 @@ mod tests {
         buf.push_back((300, 3));
 
         // Send more via channel
-        tx.send((150, 4)).unwrap(); // Starts at 150, but we already have (100,1) and (200,2) in buffer
-        tx.send((400, 5)).unwrap();
+        tx.send(ChannelMessage::Sample((150, 4))).unwrap();
+        tx.send(ChannelMessage::Sample((400, 5))).unwrap();
 
         let wd = test_watchdog();
         let handle = wd.register_port("test", "recv", "test_port");
-        let mut pr = Receiver::new(&rx, &mut buf, handle);
+        let eos = AtomicBool::new(false);
+        let mut pr = Receiver::new(&rx, &mut buf, handle, &eos);
 
         // Drain everything that ends at or before 200
         // With Sample format: item valid from start_time until next item's start_time
@@ -325,12 +428,69 @@ mod tests {
         drop(tx);
     }
 
+    #[test]
+    fn test_eos_returns_shutdown() {
+        let (tx, rx) = bounded::<ChannelMessage<i32>>(10);
+        let mut buf = VecDeque::new();
+
+        let wd = test_watchdog();
+        let handle = wd.register_port("test", "recv", "test_port");
+        let eos = AtomicBool::new(false);
+        let mut pr = Receiver::new(&rx, &mut buf, handle, &eos);
+
+        // Send a value then EOS
+        tx.send(ChannelMessage::Sample(42)).unwrap();
+        tx.send(ChannelMessage::EndOfStream).unwrap();
+
+        // First recv gets the value
+        assert_eq!(pr.recv().unwrap(), 42);
+
+        // Second recv gets Shutdown from EOS
+        assert!(matches!(pr.recv(), Err(WorkError::Shutdown)));
+
+        // Subsequent recv also returns Shutdown (cached)
+        assert!(matches!(pr.recv(), Err(WorkError::Shutdown)));
+
+        // peek also returns Shutdown
+        assert!(matches!(pr.peek(), Err(WorkError::Shutdown)));
+
+        drop(tx);
+    }
+
+    #[test]
+    fn test_eos_persists_across_receivers() {
+        let (tx, rx) = bounded::<ChannelMessage<i32>>(10);
+        let mut buf = VecDeque::new();
+
+        let wd = test_watchdog();
+        let eos = AtomicBool::new(false);
+
+        // Send EOS
+        tx.send(ChannelMessage::EndOfStream).unwrap();
+
+        // First Receiver sees EOS
+        {
+            let handle = wd.register_port("test", "recv", "test_port");
+            let mut pr = Receiver::new(&rx, &mut buf, handle, &eos);
+            assert!(matches!(pr.recv(), Err(WorkError::Shutdown)));
+        }
+
+        // Second Receiver (simulating next work() call) also sees EOS immediately
+        {
+            let handle = wd.register_port("test", "recv", "test_port");
+            let mut pr = Receiver::new(&rx, &mut buf, handle, &eos);
+            assert!(matches!(pr.recv(), Err(WorkError::Shutdown)));
+        }
+
+        drop(tx);
+    }
+
     // ── ReceiverSelector tests ───────────────────────────────────
 
     #[test]
     fn test_select_from_buffers() {
-        let (tx1, rx1) = bounded::<i32>(10);
-        let (tx2, rx2) = bounded::<i32>(10);
+        let (tx1, rx1) = bounded::<ChannelMessage<i32>>(10);
+        let (tx2, rx2) = bounded::<ChannelMessage<i32>>(10);
         let mut buf0 = VecDeque::new();
         let mut buf1 = VecDeque::new();
 
@@ -340,8 +500,10 @@ mod tests {
         let wd = test_watchdog();
         let h0 = wd.register_port("test", "recv", "ch0");
         let h1 = wd.register_port("test", "recv", "ch1");
-        let mut ch0 = Receiver::new(&rx1, &mut buf0, h0);
-        let mut ch1 = Receiver::new(&rx2, &mut buf1, h1);
+        let eos0 = AtomicBool::new(false);
+        let eos1 = AtomicBool::new(false);
+        let mut ch0 = Receiver::new(&rx1, &mut buf0, h0, &eos0);
+        let mut ch1 = Receiver::new(&rx2, &mut buf1, h1, &eos1);
 
         {
             let mut sel = ReceiverSelector::new(std::slice::from_mut(&mut ch0));
@@ -354,7 +516,7 @@ mod tests {
         assert_eq!(ch1.recv().unwrap(), 99);
 
         // Now test select with channel data
-        tx1.send(10).unwrap();
+        tx1.send(ChannelMessage::Sample(10)).unwrap();
         let mut sel = ReceiverSelector::new(std::slice::from_mut(&mut ch0));
         let (idx, val) = sel.select().unwrap();
         assert_eq!(idx, 0);
@@ -366,8 +528,8 @@ mod tests {
 
     #[test]
     fn test_select_multiple_channels() {
-        let (tx1, rx1) = bounded::<i32>(10);
-        let (tx2, rx2) = bounded::<i32>(10);
+        let (tx1, rx1) = bounded::<ChannelMessage<i32>>(10);
+        let (tx2, rx2) = bounded::<ChannelMessage<i32>>(10);
         let mut buf0 = VecDeque::new();
         let mut buf1 = VecDeque::new();
 
@@ -375,9 +537,11 @@ mod tests {
         let wd = test_watchdog();
         let h0 = wd.register_port("test", "recv", "ch0");
         let h1 = wd.register_port("test", "recv", "ch1");
+        let eos0 = AtomicBool::new(false);
+        let eos1 = AtomicBool::new(false);
         let mut channels = vec![
-            Receiver::new(&rx1, &mut buf0, h0),
-            Receiver::new(&rx2, &mut buf1, h1),
+            Receiver::new(&rx1, &mut buf0, h0, &eos0),
+            Receiver::new(&rx2, &mut buf1, h1, &eos1),
         ];
 
         // Put items in buffers via put_back
@@ -397,7 +561,7 @@ mod tests {
         assert_eq!(val, 99);
 
         // Now from channel
-        tx1.send(10).unwrap();
+        tx1.send(ChannelMessage::Sample(10)).unwrap();
         let (idx, val) = sel.select().unwrap();
         assert_eq!(idx, 0);
         assert_eq!(val, 10);

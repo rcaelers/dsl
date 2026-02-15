@@ -499,6 +499,7 @@ impl DslFileSource {
             channel, position, items_sent
         );
 
+        sender.close();
         drop(sender);
         completed.fetch_add(1, Ordering::Relaxed);
     }

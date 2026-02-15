@@ -53,11 +53,15 @@ impl PortSchema {
 
 use crossbeam_channel::Receiver as CrossbeamReceiver;
 use std::fmt;
+use std::sync::atomic::AtomicBool;
+
+use super::sender::ChannelMessage;
 
 /// Type-erased input port wrapping a Receiver<T>
 pub struct InputPort {
     channel: Box<dyn std::any::Any + Send>,
     watchdog_handle: Option<WatchdogHandle>,
+    eos_received: AtomicBool,
 }
 
 impl InputPort {
@@ -67,12 +71,13 @@ impl InputPort {
         Self {
             channel,
             watchdog_handle: None,
+            eos_received: AtomicBool::new(false),
         }
     }
 
     /// Create a new InputPort with a watchdog (for testing).
     pub fn new_with_watchdog<T: Send + 'static>(
-        receiver: CrossbeamReceiver<T>,
+        receiver: CrossbeamReceiver<ChannelMessage<T>>,
         watchdog: &Watchdog,
         node_name: &str,
         port_name: &str,
@@ -80,6 +85,7 @@ impl InputPort {
         Self {
             channel: Box::new(receiver),
             watchdog_handle: Some(watchdog.register_port(node_name, "recv", port_name)),
+            eos_received: AtomicBool::new(false),
         }
     }
 
@@ -97,17 +103,18 @@ impl InputPort {
     /// Get a Receiver with automatic watchdog monitoring.
     ///
     /// Returns None if the port doesn't contain a Receiver<T>.
-    /// 
+    ///
     /// # Panics
     /// Panics if watchdog has not been attached to this port.
     pub fn get<'a, T: Send + 'static>(
         &'a self,
         buffer: &'a mut std::collections::VecDeque<T>,
     ) -> Option<Receiver<'a, T>> {
-        let receiver = self.channel.downcast_ref::<CrossbeamReceiver<T>>()?;
-        let watchdog = self.watchdog_handle.as_ref()
-            .expect("InputPort.get() called before watchdog attached - this is a bug in the pipeline");
-        Some(Receiver::with_watchdog(receiver, buffer, watchdog.clone()))
+        let receiver = self.channel.downcast_ref::<CrossbeamReceiver<ChannelMessage<T>>>()?;
+        let watchdog = self.watchdog_handle.as_ref().expect(
+            "InputPort.get() called before watchdog attached - this is a bug in the pipeline",
+        );
+        Some(Receiver::with_watchdog(receiver, buffer, watchdog.clone(), &self.eos_received))
     }
 }
 
@@ -155,22 +162,21 @@ impl OutputPort {
     /// Returns an owned sender (cheaply cloned from internal storage).
     ///
     /// Returns None if the port doesn't contain a Sender<T>.
-    /// 
+    ///
     /// # Panics
     /// Panics if watchdog has not been attached to this port.
     pub fn get<T: Send + Clone + 'static>(&self) -> Option<Sender<T>> {
         let sender = self.channel.downcast_ref::<Sender<T>>()?;
-        let watchdog = self.watchdog_handle.as_ref()
-            .expect("OutputPort.get() called before watchdog attached - this is a bug in the pipeline");
+        let watchdog = self.watchdog_handle.as_ref().expect(
+            "OutputPort.get() called before watchdog attached - this is a bug in the pipeline",
+        );
         Some(sender.with_watchdog(watchdog.clone()))
     }
 
     /// Clone the underlying Sender for this port.
     /// Used by nodes that spawn their own worker threads (e.g., DslFileSource).
     pub fn clone_sender<T: Send + Clone + 'static>(&self) -> Option<Sender<T>> {
-        self.channel
-            .downcast_ref::<Sender<T>>()
-            .cloned()
+        self.channel.downcast_ref::<Sender<T>>().cloned()
     }
 
     /// Split the underlying broadcast Sender into individual senders (one per destination).

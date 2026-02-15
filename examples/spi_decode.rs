@@ -112,7 +112,10 @@ impl ProcessNode for SpiPrinter {
         );
 
         if self.max_transfers > 0 && self.count >= self.max_transfers {
-            info!("[SpiPrinter] Max transfers ({}) reached, shutting down", self.max_transfers);
+            info!(
+                "[SpiPrinter] Max transfers ({}) reached, shutting down",
+                self.max_transfers
+            );
             return Err(WorkError::Shutdown);
         }
 
@@ -193,7 +196,10 @@ impl ProcessNode for SpiCsvWriter {
             self.writer
                 .flush()
                 .map_err(|e| WorkError::NodeError(format!("CSV flush error: {}", e)))?;
-            info!("[SpiCsvWriter] Max transfers ({}) reached, shutting down", self.max_transfers);
+            info!(
+                "[SpiCsvWriter] Max transfers ({}) reached, shutting down",
+                self.max_transfers
+            );
             return Err(WorkError::Shutdown);
         }
 

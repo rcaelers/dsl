@@ -223,6 +223,7 @@ impl Default for Scheduler {
 mod tests {
     use super::*;
     use crate::runtime::node::{ProcessNode, WorkError, WorkResult};
+    use crate::runtime::sender::ChannelMessage;
     use crossbeam_channel::bounded;
     use std::sync::Mutex;
     use std::time::Duration;
@@ -304,7 +305,7 @@ mod tests {
     fn test_scheduler_basic() {
         let mut scheduler = Scheduler::new();
 
-        let (tx, rx) = bounded::<u32>(10);
+        let (tx, rx) = bounded::<ChannelMessage<u32>>(10);
 
         let source = TestSource { count: 0, max: 5 };
         let received = Arc::new(Mutex::new(Vec::new()));
