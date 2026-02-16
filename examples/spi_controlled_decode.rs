@@ -87,6 +87,10 @@ struct Args {
     #[arg(long, value_parser = parse_hex)]
     disable_cmd: u64,
 
+    /// TGCK channel number (rising edges mark line boundaries)
+    #[arg(long, default_value_t = 9)]
+    tgck: usize,
+
     /// Output directory for captured data files
     #[arg(short, long, default_value = "output")]
     output_dir: PathBuf,
@@ -230,6 +234,13 @@ struct ControlledParallelWriter {
     current_file_end_time: Option<f64>,
     current_file_start_pos: Option<u64>,
     current_file_end_pos: Option<u64>,
+    // TGCK tracking
+    tgck_buffer: VecDeque<Sample>,
+    last_tgck_value: bool,
+    tgck_indices: Vec<usize>,
+    // Reusable buffers to avoid allocations
+    edges_to_process_buf: Vec<Sample>,
+    tgck_rising_buf: Vec<u64>,
 }
 
 impl ControlledParallelWriter {
@@ -247,6 +258,11 @@ impl ControlledParallelWriter {
             current_file_end_time: None,
             current_file_start_pos: None,
             current_file_end_pos: None,
+            tgck_buffer: VecDeque::new(),
+            last_tgck_value: false,
+            tgck_indices: Vec::new(),
+            edges_to_process_buf: Vec::with_capacity(100),
+            tgck_rising_buf: Vec::with_capacity(1000),
         }
     }
 
@@ -314,6 +330,7 @@ impl ControlledParallelWriter {
         self.current_file_end_time = None;
         self.current_file_start_pos = None;
         self.current_file_end_pos = None;
+        self.tgck_indices.clear();
 
         info!("Created new binary capture file: {}", file_path.display());
         Ok(())
@@ -336,6 +353,28 @@ impl ControlledParallelWriter {
         Ok(())
     }
 
+    fn write_tgck_csv(&self, file_num: usize) -> Result<(), std::io::Error> {
+        if self.tgck_indices.is_empty() {
+            return Ok(());
+        }
+        let csv_path = self
+            .output_dir
+            .join(format!("capture_{:04}_tgck.csv", file_num));
+        let file = File::create(&csv_path)?;
+        let mut writer = BufWriter::new(file);
+        writeln!(writer, "byte_index")?;
+        for &idx in &self.tgck_indices {
+            writeln!(writer, "{}", idx)?;
+        }
+        writer.flush()?;
+        info!(
+            "Wrote TGCK CSV {} with {} edges",
+            csv_path.display(),
+            self.tgck_indices.len()
+        );
+        Ok(())
+    }
+
     fn close_file(&mut self) -> Result<(), std::io::Error> {
         if let Some(mut writer) = self.current_file.take() {
             writer.flush()?;
@@ -343,9 +382,11 @@ impl ControlledParallelWriter {
             // Write index entry and log for non-empty files
             if self.words_in_file > 0 {
                 self.write_index_entry(self.file_count)?;
+                self.write_tgck_csv(self.file_count)?;
                 info!(
-                    "Closed file {} with {} words ({} bytes)",
-                    self.file_count, self.words_in_file, self.words_in_file
+                    "Closed file {} with {} words ({} bytes), {} TGCK edges",
+                    self.file_count, self.words_in_file, self.words_in_file,
+                    self.tgck_indices.len()
                 );
             } else {
                 // Delete empty files
@@ -380,7 +421,7 @@ impl ProcessNode for ControlledParallelWriter {
     }
 
     fn num_inputs(&self) -> usize {
-        2 // parallel words + enable signal
+        3 // parallel words + enable signal + tgck
     }
 
     fn num_outputs(&self) -> usize {
@@ -392,34 +433,55 @@ impl ProcessNode for ControlledParallelWriter {
         vec![
             PortSchema::new::<ParallelWord>("parallel_words", 0, PortDirection::Input),
             PortSchema::new::<Sample>("enable_signal", 1, PortDirection::Input),
+            PortSchema::new::<Sample>("tgck", 2, PortDirection::Input),
         ]
     }
 
     fn work(&mut self, inputs: &[InputPort], _outputs: &[OutputPort]) -> WorkResult<usize> {
+        const BATCH_SIZE: usize = 1000; // Process up to 1000 words per work() call
+        
         let mut words_buffer = std::collections::VecDeque::new();
         let mut words_input = inputs
             .first()
             .and_then(|port| port.get::<ParallelWord>(&mut words_buffer))
             .ok_or_else(|| WorkError::NodeError("Missing parallel_words input".to_string()))?;
 
-        // Get next parallel word (blocking - this is the timing reference)
-        let word = match words_input.recv() {
-            Ok(w) => w,
-            Err(e) => {
-                // Channel closed - close any open file before shutting down
-                info!(">>> Input channel closed - finalizing capture");
-                self.close_file().map_err(|io_err| {
-                    WorkError::NodeError(format!("Failed to close file: {}", io_err))
-                })?;
-                return Err(e);
-            }
-        };
+        let mut words_processed = 0;
 
-        let word_position = word.timing.position;
+        while words_processed < BATCH_SIZE {
+            // Get next parallel word (blocking on first iteration, try_recv after)
+            let word = if words_processed == 0 {
+                match words_input.recv() {
+                    Ok(w) => w,
+                    Err(e) => {
+                        // Channel closed - close any open file before shutting down
+                        info!(">>> Input channel closed - finalizing capture");
+                        self.close_file().map_err(|io_err| {
+                            WorkError::NodeError(format!("Failed to close file: {}", io_err))
+                        })?;
+                        return Err(e);
+                    }
+                }
+            } else {
+                match words_input.try_recv() {
+                    Ok(w) => w,
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        info!(">>> Input channel closed - finalizing capture");
+                        self.close_file().map_err(|io_err| {
+                            WorkError::NodeError(format!("Failed to close file: {}", io_err))
+                        })?;
+                        return Err(WorkError::Shutdown);
+                    }
+                }
+            };
 
-        // Collect edges up to this word's position into a temp buffer
-        // (need to drop enable_input before calling self.close_file)
-        let mut edges_to_process = Vec::new();
+            let word_position = word.timing.position;
+
+            // Collect edges up to this word's position
+            // (need to drop enable_input and tgck_input before calling self.close_file)
+            self.edges_to_process_buf.clear();
+            self.tgck_rising_buf.clear();
         {
             let mut enable_input = inputs
                 .get(1)
@@ -432,7 +494,7 @@ impl ProcessNode for ControlledParallelWriter {
                         if next_edge.start_time <= word_position {
                             let edge = enable_input.recv()?;
                             if edge.value != self.current_enable_state {
-                                edges_to_process.push(edge);
+                                self.edges_to_process_buf.push(edge);
                                 // Update state to track further transitions
                                 self.current_enable_state = edge.value;
                                 self.current_enable_timestamp = edge.start_time;
@@ -448,52 +510,93 @@ impl ProcessNode for ControlledParallelWriter {
                     Err(e) => return Err(e),
                 }
             }
-        } // enable_input dropped here
 
-        // Process each state transition
-        for edge in &edges_to_process {
-            if !edge.value {
-                info!(
-                    ">>> Enable INACTIVE at position {} - closing capture file",
-                    edge.start_time,
-                );
-                self.close_file()
-                    .map_err(|e| WorkError::NodeError(format!("Failed to close file: {}", e)))?;
-            } else {
-                info!(">>> Enable ACTIVE at position {}", edge.start_time,);
+            // Consume TGCK edges up to this word's position
+            let mut tgck_input = inputs
+                .get(2)
+                .and_then(|port| port.get::<Sample>(&mut self.tgck_buffer))
+                .ok_or_else(|| WorkError::NodeError("Missing tgck input".to_string()))?;
+
+            loop {
+                match tgck_input.peek() {
+                    Ok(next_edge) => {
+                        if next_edge.start_time <= word_position {
+                            let edge = tgck_input.recv()?;
+                            // Detect rising edge
+                            if edge.value && !self.last_tgck_value {
+                                self.tgck_rising_buf.push(edge.start_time);
+                            }
+                            self.last_tgck_value = edge.value;
+                        } else {
+                            break;
+                        }
+                    }
+                    Err(WorkError::Shutdown) => {
+                        debug!("[{}] Received Shutdown from tgck input", self.name());
+                        break;
+                    }
+                    Err(e) => return Err(e),
+                }
             }
+            } // enable_input and tgck_input dropped here
+
+            // Record TGCK rising edges as byte indices in the current file
+            for _ts in &self.tgck_rising_buf {
+                if self.current_file.is_some() {
+                    self.tgck_indices.push(self.words_in_file);
+                }
+            }
+
+            // Process each state transition
+            let mut i = 0;
+            while i < self.edges_to_process_buf.len() {
+                let edge = self.edges_to_process_buf[i];
+                if !edge.value {
+                    info!(
+                        ">>> Enable INACTIVE at position {} - closing capture file",
+                        edge.start_time,
+                    );
+                    self.close_file()
+                        .map_err(|e| WorkError::NodeError(format!("Failed to close file: {}", e)))?;
+                } else {
+                    info!(">>> Enable ACTIVE at position {}", edge.start_time,);
+                }
+                i += 1;
+            }
+
+            // Write word if currently enabled
+            if self.current_enable_state {
+                // Open file if needed (first word after enable)
+                if self.current_file.is_none() {
+                    info!(
+                        ">>> First word while enabled - new capture file (enabled at position {}, word at {:.6}s)",
+                        self.current_enable_timestamp,
+                        word.timing.timestamp_us / 1_000_000.0
+                    );
+                    self.open_new_file()
+                        .map_err(|e| WorkError::NodeError(format!("Failed to open file: {}", e)))?;
+                }
+
+                self.count += 1;
+                self.write_word(&word)
+                    .map_err(|e| WorkError::NodeError(format!("Failed to write word: {}", e)))?;
+
+                // Log progress every 100000 words (reduced from 10000 for performance)
+                if self.count.is_multiple_of(100000) {
+                    info!(
+                        "Progress: {} words written (latest: 0x{:02X} at t={:.6}s in file {})",
+                        self.count,
+                        word.value,
+                        word.timing.timestamp_us / 1_000_000.0,
+                        self.file_count
+                    );
+                }
+            }
+
+            words_processed += 1;
         }
 
-        // Write word if currently enabled
-        if self.current_enable_state {
-            // Open file if needed (first word after enable)
-            if self.current_file.is_none() {
-                info!(
-                    ">>> First word while enabled - new capture file (enabled at position {}, word at {:.6}s)",
-                    self.current_enable_timestamp,
-                    word.timing.timestamp_us / 1_000_000.0
-                );
-                self.open_new_file()
-                    .map_err(|e| WorkError::NodeError(format!("Failed to open file: {}", e)))?;
-            }
-
-            self.count += 1;
-            self.write_word(&word)
-                .map_err(|e| WorkError::NodeError(format!("Failed to write word: {}", e)))?;
-
-            // Log progress every 10000 words
-            if self.count.is_multiple_of(10000) {
-                info!(
-                    "Progress: {} words written (latest: 0x{:02X} at t={:.6}s in file {})",
-                    self.count,
-                    word.value,
-                    word.timing.timestamp_us / 1_000_000.0,
-                    self.file_count
-                );
-            }
-        }
-
-        Ok(1)
+        Ok(words_processed)
     }
 }
 
@@ -620,8 +723,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         args.spi_cs, args.spi_clk, args.spi_mosi
     );
     info!(
-        "Parallel: Strobe={}, Data={:?}",
-        args.parallel_strobe, args.parallel_data
+        "Parallel: Strobe={}, Data={:?}, TGCK={}",
+        args.parallel_strobe, args.parallel_data, args.tgck
     );
     info!("Enable command: 0x{:06X}", args.enable_cmd);
     info!("Disable command: 0x{:06X}", args.disable_cmd);
@@ -633,6 +736,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         args.spi_clk,
         args.spi_mosi,
         args.parallel_strobe,
+        args.tgck,
     ]
     .iter()
     .chain(args.parallel_data.iter())
@@ -759,14 +863,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ControlledParallelWriter::new(args.output_dir.clone()),
     )?;
 
-    // Connect parallel words with small buffer to slow down consumption
-    // This gives SpiCommandController time to emit enable edges before words are processed
+    // Connect parallel words with large buffer for high throughput
     pipeline.connect_with_buffer(
         "parallel_decoder",
         "words",
         "writer",
         "parallel_words",
-        1000, // Reduced from 100_000 to provide backpressure
+        100_000, // Large buffer for performance on big files
     )?;
 
     // Connect enable signal to writer (small buffer for control signal)
@@ -776,6 +879,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "writer",
         "enable_signal",
         100,
+    )?;
+
+    // Connect TGCK from source to writer
+    pipeline.connect(
+        "source",
+        &format!("d{}", args.tgck),
+        "writer",
+        "tgck",
     )?;
 
     // Build and run
