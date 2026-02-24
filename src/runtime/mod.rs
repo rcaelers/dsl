@@ -20,6 +20,7 @@ pub use ports::{
 };
 pub use receiver::{Receiver, ReceiverSelector};
 pub use sample::Sample;
+pub use sample::SampleBlock;
 pub use scheduler::Scheduler;
 pub use sender::Sender;
 pub use sender::ChannelMessage;

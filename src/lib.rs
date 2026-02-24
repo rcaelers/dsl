@@ -31,6 +31,7 @@ pub use nodes::decoders::{CsPolarity, ParallelWord, SpiMode, SpiTransfer, Strobe
 
 // Re-export data types from runtime
 pub use runtime::Sample;
+pub use runtime::SampleBlock;
 
 // Re-export streaming nodes - DslFileSource only (SpiCommandController is application-specific)
 pub use nodes::DslFileSource;

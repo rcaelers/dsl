@@ -52,6 +52,18 @@ use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use tracing::{debug, info};
 
+/// One complete TGCK cycle record for the CSV output.
+struct TgckRecord {
+    rising_byte_index: usize,
+    rising_timestamp: u64,
+    falling_byte_index: usize,
+    falling_timestamp: u64,
+    first_clock_after_rising_byte_index: usize,
+    first_clock_after_rising_timestamp: u64,
+    first_clock_after_falling_byte_index: usize,
+    first_clock_after_falling_timestamp: u64,
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -237,10 +249,21 @@ struct ControlledParallelWriter {
     // TGCK tracking
     tgck_buffer: VecDeque<Sample>,
     last_tgck_value: bool,
-    tgck_indices: Vec<usize>,
+    tgck_records: Vec<TgckRecord>,
+    // State for building current TGCK record
+    tgck_current_rising: Option<(usize, u64)>,
+    tgck_current_falling: Option<(usize, u64)>,
+    tgck_first_clock_after_rising: Option<(usize, u64)>,
+    tgck_first_clock_after_falling: Option<(usize, u64)>,
+    tgck_need_clock_after_rising: bool,
+    tgck_need_clock_after_falling: bool,
+    // Channel closed tracking
+    enable_channel_closed: bool,
+    tgck_channel_closed: bool,
     // Reusable buffers to avoid allocations
     edges_to_process_buf: Vec<Sample>,
     tgck_rising_buf: Vec<u64>,
+    tgck_falling_buf: Vec<u64>,
 }
 
 impl ControlledParallelWriter {
@@ -260,10 +283,33 @@ impl ControlledParallelWriter {
             current_file_end_pos: None,
             tgck_buffer: VecDeque::new(),
             last_tgck_value: false,
-            tgck_indices: Vec::new(),
+            tgck_records: Vec::new(),
+            tgck_current_rising: None,
+            tgck_current_falling: None,
+            tgck_first_clock_after_rising: None,
+            tgck_first_clock_after_falling: None,
+            tgck_need_clock_after_rising: false,
+            tgck_need_clock_after_falling: false,
+            enable_channel_closed: false,
+            tgck_channel_closed: false,
             edges_to_process_buf: Vec::with_capacity(100),
             tgck_rising_buf: Vec::with_capacity(1000),
+            tgck_falling_buf: Vec::with_capacity(1000),
         }
+    }
+
+    /// Compute capture width (bytes per line) from TGCK falling_byte_index differences.
+    /// Returns the median of consecutive differences, or None if fewer than 2 records.
+    fn compute_width_from_tgck(&self) -> Option<usize> {
+        if self.tgck_records.len() < 2 {
+            return None;
+        }
+        let mut diffs: Vec<usize> = self.tgck_records
+            .windows(2)
+            .map(|w| w[1].falling_byte_index.saturating_sub(w[0].falling_byte_index))
+            .collect();
+        diffs.sort_unstable();
+        Some(diffs[diffs.len() / 2])
     }
 
     fn write_index_entry(&self, file_num: usize) -> Result<(), std::io::Error> {
@@ -280,7 +326,7 @@ impl ControlledParallelWriter {
         if !file_exists {
             writeln!(
                 writer,
-                "file_num,filename,bytes,start_time_us,end_time_us,duration_us,start_pos,end_pos"
+                "file_num,filename,bytes,width,start_time_us,end_time_us,duration_us,start_pos,end_pos"
             )?;
         }
 
@@ -291,13 +337,15 @@ impl ControlledParallelWriter {
         let duration = end_time - start_time;
         let start_pos = self.current_file_start_pos.unwrap_or(0);
         let end_pos = self.current_file_end_pos.unwrap_or(0);
+        let width = self.compute_width_from_tgck().unwrap_or(0);
 
         writeln!(
             writer,
-            "{},{},{},{:.6},{:.6},{:.6},{},{}",
+            "{},{},{},{},{:.6},{:.6},{:.6},{},{}",
             file_num,
             filename,
             self.words_in_file,
+            width,
             start_time,
             end_time,
             duration,
@@ -330,7 +378,13 @@ impl ControlledParallelWriter {
         self.current_file_end_time = None;
         self.current_file_start_pos = None;
         self.current_file_end_pos = None;
-        self.tgck_indices.clear();
+        self.tgck_records.clear();
+        self.tgck_current_rising = None;
+        self.tgck_current_falling = None;
+        self.tgck_first_clock_after_rising = None;
+        self.tgck_first_clock_after_falling = None;
+        self.tgck_need_clock_after_rising = false;
+        self.tgck_need_clock_after_falling = false;
 
         info!("Created new binary capture file: {}", file_path.display());
         Ok(())
@@ -353,8 +407,28 @@ impl ControlledParallelWriter {
         Ok(())
     }
 
+    fn finalize_tgck_record(&mut self) {
+        if let Some((rising_bi, rising_ts)) = self.tgck_current_rising.take() {
+            let (falling_bi, falling_ts) = self.tgck_current_falling.take().unwrap_or((0, 0));
+            let (fcr_bi, fcr_ts) = self.tgck_first_clock_after_rising.take().unwrap_or((0, 0));
+            let (fcf_bi, fcf_ts) = self.tgck_first_clock_after_falling.take().unwrap_or((0, 0));
+            self.tgck_records.push(TgckRecord {
+                rising_byte_index: rising_bi,
+                rising_timestamp: rising_ts,
+                falling_byte_index: falling_bi,
+                falling_timestamp: falling_ts,
+                first_clock_after_rising_byte_index: fcr_bi,
+                first_clock_after_rising_timestamp: fcr_ts,
+                first_clock_after_falling_byte_index: fcf_bi,
+                first_clock_after_falling_timestamp: fcf_ts,
+            });
+        }
+        self.tgck_need_clock_after_rising = false;
+        self.tgck_need_clock_after_falling = false;
+    }
+
     fn write_tgck_csv(&self, file_num: usize) -> Result<(), std::io::Error> {
-        if self.tgck_indices.is_empty() {
+        if self.tgck_records.is_empty() {
             return Ok(());
         }
         let csv_path = self
@@ -362,15 +436,22 @@ impl ControlledParallelWriter {
             .join(format!("capture_{:04}_tgck.csv", file_num));
         let file = File::create(&csv_path)?;
         let mut writer = BufWriter::new(file);
-        writeln!(writer, "byte_index")?;
-        for &idx in &self.tgck_indices {
-            writeln!(writer, "{}", idx)?;
+        writeln!(writer, "rising_byte_index,rising_timestamp,falling_byte_index,falling_timestamp,first_clock_rising_byte_index,first_clock_rising_timestamp,first_clock_falling_byte_index,first_clock_falling_timestamp")?;
+        for r in &self.tgck_records {
+            writeln!(
+                writer,
+                "{},{},{},{},{},{},{},{}",
+                r.rising_byte_index, r.rising_timestamp,
+                r.falling_byte_index, r.falling_timestamp,
+                r.first_clock_after_rising_byte_index, r.first_clock_after_rising_timestamp,
+                r.first_clock_after_falling_byte_index, r.first_clock_after_falling_timestamp,
+            )?;
         }
         writer.flush()?;
         info!(
-            "Wrote TGCK CSV {} with {} edges",
+            "Wrote TGCK CSV {} with {} records",
             csv_path.display(),
-            self.tgck_indices.len()
+            self.tgck_records.len()
         );
         Ok(())
     }
@@ -381,12 +462,13 @@ impl ControlledParallelWriter {
 
             // Write index entry and log for non-empty files
             if self.words_in_file > 0 {
+                self.finalize_tgck_record();
                 self.write_index_entry(self.file_count)?;
                 self.write_tgck_csv(self.file_count)?;
                 info!(
-                    "Closed file {} with {} words ({} bytes), {} TGCK edges",
+                    "Closed file {} with {} words ({} bytes), {} TGCK records",
                     self.file_count, self.words_in_file, self.words_in_file,
-                    self.tgck_indices.len()
+                    self.tgck_records.len()
                 );
             } else {
                 // Delete empty files
@@ -482,68 +564,91 @@ impl ProcessNode for ControlledParallelWriter {
             // (need to drop enable_input and tgck_input before calling self.close_file)
             self.edges_to_process_buf.clear();
             self.tgck_rising_buf.clear();
+            self.tgck_falling_buf.clear();
         {
-            let mut enable_input = inputs
-                .get(1)
-                .and_then(|port| port.get::<Sample>(&mut self.enable_buffer))
-                .ok_or_else(|| WorkError::NodeError("Missing enable_signal input".to_string()))?;
+            if !self.enable_channel_closed {
+                let mut enable_input = inputs
+                    .get(1)
+                    .and_then(|port| port.get::<Sample>(&mut self.enable_buffer))
+                    .ok_or_else(|| WorkError::NodeError("Missing enable_signal input".to_string()))?;
 
-            loop {
-                match enable_input.peek() {
-                    Ok(next_edge) => {
-                        if next_edge.start_time <= word_position {
-                            let edge = enable_input.recv()?;
-                            if edge.value != self.current_enable_state {
-                                self.edges_to_process_buf.push(edge);
-                                // Update state to track further transitions
-                                self.current_enable_state = edge.value;
-                                self.current_enable_timestamp = edge.start_time;
+                loop {
+                    match enable_input.peek() {
+                        Ok(next_edge) => {
+                            if next_edge.start_time <= word_position {
+                                let edge = enable_input.recv()?;
+                                if edge.value != self.current_enable_state {
+                                    self.edges_to_process_buf.push(edge);
+                                    // Update state to track further transitions
+                                    self.current_enable_state = edge.value;
+                                    self.current_enable_timestamp = edge.start_time;
+                                }
+                            } else {
+                                break;
                             }
-                        } else {
+                        }
+                        Err(WorkError::Shutdown) => {
+                            debug!("[{}] Enable input channel closed", self.name());
+                            self.enable_channel_closed = true;
                             break;
                         }
+                        Err(e) => return Err(e),
                     }
-                    Err(WorkError::Shutdown) => {
-                        debug!("[{}] Received Shutdown from enable input", self.name());
-                        break;
-                    }
-                    Err(e) => return Err(e),
                 }
             }
 
             // Consume TGCK edges up to this word's position
-            let mut tgck_input = inputs
-                .get(2)
-                .and_then(|port| port.get::<Sample>(&mut self.tgck_buffer))
-                .ok_or_else(|| WorkError::NodeError("Missing tgck input".to_string()))?;
+            if !self.tgck_channel_closed {
+                let mut tgck_input = inputs
+                    .get(2)
+                    .and_then(|port| port.get::<Sample>(&mut self.tgck_buffer))
+                    .ok_or_else(|| WorkError::NodeError("Missing tgck input".to_string()))?;
 
-            loop {
-                match tgck_input.peek() {
-                    Ok(next_edge) => {
-                        if next_edge.start_time <= word_position {
-                            let edge = tgck_input.recv()?;
-                            // Detect rising edge
-                            if edge.value && !self.last_tgck_value {
-                                self.tgck_rising_buf.push(edge.start_time);
+                loop {
+                    match tgck_input.peek() {
+                        Ok(next_edge) => {
+                            if next_edge.start_time <= word_position {
+                                let edge = tgck_input.recv()?;
+                                // Detect rising edge
+                                if edge.value && !self.last_tgck_value {
+                                    self.tgck_rising_buf.push(edge.start_time);
+                                }
+                                // Detect falling edge
+                                if !edge.value && self.last_tgck_value {
+                                    self.tgck_falling_buf.push(edge.start_time);
+                                }
+                                self.last_tgck_value = edge.value;
+                            } else {
+                                break;
                             }
-                            self.last_tgck_value = edge.value;
-                        } else {
+                        }
+                        Err(WorkError::Shutdown) => {
+                            debug!("[{}] TGCK input channel closed", self.name());
+                            self.tgck_channel_closed = true;
                             break;
                         }
+                        Err(e) => return Err(e),
                     }
-                    Err(WorkError::Shutdown) => {
-                        debug!("[{}] Received Shutdown from tgck input", self.name());
-                        break;
-                    }
-                    Err(e) => return Err(e),
                 }
             }
             } // enable_input and tgck_input dropped here
 
-            // Record TGCK rising edges as byte indices in the current file
-            for _ts in &self.tgck_rising_buf {
+            // Record TGCK rising edges — each starts a new record
+            for i in 0..self.tgck_rising_buf.len() {
+                let ts = self.tgck_rising_buf[i];
                 if self.current_file.is_some() {
-                    self.tgck_indices.push(self.words_in_file);
+                    self.finalize_tgck_record();
+                    self.tgck_current_rising = Some((self.words_in_file, ts));
+                    self.tgck_need_clock_after_rising = true;
+                }
+            }
+
+            // Record TGCK falling edges
+            for i in 0..self.tgck_falling_buf.len() {
+                let ts = self.tgck_falling_buf[i];
+                if self.current_file.is_some() {
+                    self.tgck_current_falling = Some((self.words_in_file, ts));
+                    self.tgck_need_clock_after_falling = true;
                 }
             }
 
@@ -575,6 +680,16 @@ impl ProcessNode for ControlledParallelWriter {
                     );
                     self.open_new_file()
                         .map_err(|e| WorkError::NodeError(format!("Failed to open file: {}", e)))?;
+                }
+
+                // Track first clock (strobe) edge after TGCK events
+                if self.tgck_need_clock_after_rising {
+                    self.tgck_first_clock_after_rising = Some((self.words_in_file, word.timing.position));
+                    self.tgck_need_clock_after_rising = false;
+                }
+                if self.tgck_need_clock_after_falling {
+                    self.tgck_first_clock_after_falling = Some((self.words_in_file, word.timing.position));
+                    self.tgck_need_clock_after_falling = false;
                 }
 
                 self.count += 1;
@@ -822,39 +937,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
     )?;
 
-    // Wire parallel decoder strobe from source
-    pipeline.connect(
+    // Wire parallel decoder strobe from source (block channel, small buffer — each block is ~2MB)
+    pipeline.connect_with_buffer(
         "source",
-        &format!("d{}", args.parallel_strobe),
+        &format!("b{}", args.parallel_strobe),
         "parallel_decoder",
         "strobe",
+        4,
     )?;
 
-    // Wire parallel decoder data bits from source
+    // Wire parallel decoder data bits from source (block channels)
     for (i, &channel) in args.parallel_data.iter().enumerate() {
-        pipeline.connect(
+        pipeline.connect_with_buffer(
             "source",
-            &format!("d{}", channel),
+            &format!("b{}", channel),
             "parallel_decoder",
             &format!("d{}", i),
+            4,
         )?;
     }
 
-    // Wire enable_signal from controller to parallel_decoder (small buffer for control signal)
+    // Wire CS from source to parallel_decoder (block channel)
+    pipeline.connect_with_buffer(
+        "source",
+        &format!("b{}", args.spi_cs),
+        "parallel_decoder",
+        "cs",
+        4,
+    )?;
+
+    // Wire enable_signal from controller to parallel_decoder (edge-based Sample, small buffer)
     pipeline.connect_with_buffer(
         "controller",
         "enable_signal",
         "parallel_decoder",
         "enable_signal",
         100,
-    )?;
-
-    // Wire CS from source to parallel_decoder
-    pipeline.connect(
-        "source",
-        &format!("d{}", args.spi_cs),
-        "parallel_decoder",
-        "cs",
     )?;
 
     // Add parallel word writer (autodetects 2 inputs, 0 outputs)

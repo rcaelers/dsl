@@ -1,18 +1,23 @@
-//! Parallel bus decoder for channel-based processing
+//! Parallel bus decoder for block-based processing
 //!
-//! Works with Sample inputs and outputs ParallelWord events.
+//! Accepts SampleBlock inputs for high-bandwidth signals (strobe, data, CS)
+//! and Sample inputs for low-bandwidth control signals (enable_signal).
+//! Outputs ParallelWord events.
 
 use super::types::{CsPolarity, ParallelWord, StrobeMode, TimingInfo};
 use crate::runtime::Receiver;
 use crate::runtime::WorkError;
 use crate::runtime::node::{InputPort, OutputPort, ProcessNode, WorkResult};
-use crate::runtime::sample::Sample;
+use crate::runtime::sample::{Sample, SampleBlock};
 use std::collections::VecDeque;
-use tracing::{debug, trace};
+use tracing::debug;
 
-/// Parallel bus decoder node
+/// Parallel bus decoder node (block-based)
 ///
-/// Inputs: strobe, data0..dataN, enable (optional) - all Sample channels
+/// Inputs:
+///   - Block inputs: strobe_block, d0_block..dN_block, cs_block — all SampleBlock
+///   - Edge input: enable_signal — Sample (from SPI controller)
+///
 /// Output: ParallelWord events
 pub struct ParallelDecoder {
     name: String,
@@ -20,13 +25,17 @@ pub struct ParallelDecoder {
     mode: StrobeMode,
     cs_polarity: CsPolarity,
 
-    /// Per-channel putback buffers, persisted across work() calls.
-    /// Indexed as: strobe=0, data0..dataN=1..N, enable_signal=N+1, cs=N+2
-    channel_buffers: Vec<VecDeque<Sample>>,
+    /// Putback buffer for enable_signal (edge-based Sample input)
+    enable_buffer: VecDeque<Sample>,
+
+    /// Current enable state from edge-based enable_signal
+    current_enable_value: bool,
+    /// Position up to which the current enable value is known to be valid
+    next_enable_change_position: u64,
 
     last_strobe_value: bool,
-    // Debug counter
     work_call_count: usize,
+    total_words_emitted: u64,
 }
 
 impl ParallelDecoder {
@@ -43,18 +52,17 @@ impl ParallelDecoder {
             "Data bits must be 1-64"
         );
 
-        // Channels: strobe + data bits + enable_signal + cs
-        let num_channels = 1 + num_data_bits + 2;
-        let channel_buffers = (0..num_channels).map(|_| VecDeque::new()).collect();
-
         Self {
             name: "parallel_decoder".to_string(),
             num_data_bits,
             mode,
             cs_polarity,
-            channel_buffers,
+            enable_buffer: VecDeque::new(),
+            current_enable_value: false,
+            next_enable_change_position: 0,
             last_strobe_value: false,
             work_call_count: 0,
+            total_words_emitted: 0,
         }
     }
 
@@ -62,120 +70,6 @@ impl ParallelDecoder {
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
-    }
-
-    /// Check if strobe has triggered. Consumes strobe edges until a trigger is found.
-    /// Returns the timestamp of the trigger edge if found.
-    fn check_strobe_trigger(
-        strobe: &mut Receiver<'_, Sample>,
-        mode: StrobeMode,
-        last_strobe_value: &mut bool,
-    ) -> WorkResult<Option<u64>> {
-        let edge = strobe.recv()?;
-
-        let triggered = match mode {
-            StrobeMode::RisingEdge => !*last_strobe_value && edge.value,
-            StrobeMode::FallingEdge => *last_strobe_value && !edge.value,
-            StrobeMode::AnyEdge => *last_strobe_value != edge.value,
-            StrobeMode::HighLevel => edge.value,
-            StrobeMode::LowLevel => !edge.value,
-        };
-
-        *last_strobe_value = edge.value;
-
-        if triggered {
-            Ok(Some(edge.start_time))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Read the value of a signal channel at a given timestamp using Sample format.
-    fn value_at_time(
-        channel: &mut Receiver<'_, Sample>,
-        timestamp: u64,
-    ) -> WorkResult<Option<bool>> {
-        loop {
-            let current = channel.recv()?;
-
-            match channel.peek() {
-                Ok(next) => {
-                    // Check if timestamp is in [current.start_time, next.start_time)
-                    if current.start_time <= timestamp && timestamp < next.start_time {
-                        channel.put_back(current);
-                        return Ok(Some(current.value));
-                    }
-                    // timestamp >= next.start_time, current has ended - continue
-                }
-                Err(WorkError::Shutdown) => {
-                    // Channel closed - current is the last edge, extends to infinity
-                    debug!("Channel peek returned Shutdown at timestamp {}", timestamp);
-                    if current.start_time <= timestamp {
-                        channel.put_back(current);
-                        return Ok(Some(current.value));
-                    } else {
-                        return Ok(None);
-                    }
-                }
-                Err(e) => return Err(e),
-            }
-        }
-    }
-
-    /// Sample all data bits at a given timestamp
-    fn sample_data_at_time(
-        data_channels: &mut [Receiver<'_, Sample>],
-        timestamp: u64,
-    ) -> WorkResult<Option<u64>> {
-        let mut value = 0u64;
-
-        for (bit_idx, channel) in data_channels.iter_mut().enumerate() {
-            match Self::value_at_time(channel, timestamp)? {
-                Some(bit_value) => {
-                    if bit_value {
-                        value |= 1 << bit_idx;
-                    }
-                }
-                None => {
-                    trace!(
-                        "Data bit {} not available at timestamp {}",
-                        bit_idx, timestamp
-                    );
-                    return Ok(None);
-                }
-            }
-        }
-
-        Ok(Some(value))
-    }
-
-    /// Check if decoder is enabled: enable_signal must be true AND CS must be inactive
-    fn check_enabled(
-        enable_signal: &mut Receiver<'_, Sample>,
-        cs: &mut Receiver<'_, Sample>,
-        timestamp: u64,
-        cs_polarity: CsPolarity,
-    ) -> WorkResult<bool> {
-        // Get enable signal at timestamp
-        let enable_value = match Self::value_at_time(enable_signal, timestamp)? {
-            Some(v) => v,
-            None => return Ok(false),
-        };
-
-        // Get CS value at timestamp
-        let cs_value = match Self::value_at_time(cs, timestamp)? {
-            Some(v) => v,
-            None => return Ok(false),
-        };
-
-        // CS inactive logic depends on polarity
-        let cs_inactive = match cs_polarity {
-            CsPolarity::ActiveLow => cs_value,   // CS inactive = high for active-low
-            CsPolarity::ActiveHigh => !cs_value,  // CS inactive = low for active-high
-            CsPolarity::Disabled => true,          // CS check bypassed
-        };
-
-        Ok(enable_value && cs_inactive)
     }
 }
 
@@ -185,8 +79,11 @@ impl ProcessNode for ParallelDecoder {
     }
 
     fn num_inputs(&self) -> usize {
-        // strobe + data bits + enable_signal + cs
-        1 + self.num_data_bits + 2
+        // Block inputs: strobe_block + d0_block..dN_block + cs_block
+        // Edge input: enable_signal
+        let block_inputs = 1 + self.num_data_bits + 1; // strobe + data + cs
+        let edge_inputs = 1; // enable_signal
+        block_inputs + edge_inputs
     }
 
     fn num_outputs(&self) -> usize {
@@ -194,30 +91,34 @@ impl ProcessNode for ParallelDecoder {
     }
 
     fn input_schema(&self) -> Vec<crate::runtime::ports::PortSchema> {
-        use crate::Sample;
         use crate::runtime::ports::{PortDirection, PortSchema};
 
-        let mut schemas = vec![PortSchema::new::<Sample>("strobe", 0, PortDirection::Input)];
+        let mut schemas = Vec::new();
 
-        // Add data bit inputs
+        // Block inputs first
+        schemas.push(PortSchema::new::<SampleBlock>(
+            "strobe",
+            0,
+            PortDirection::Input,
+        ));
+
         for i in 0..self.num_data_bits {
-            schemas.push(PortSchema::new::<Sample>(
+            schemas.push(PortSchema::new::<SampleBlock>(
                 format!("d{}", i),
                 1 + i,
                 PortDirection::Input,
             ));
         }
 
-        // Add enable_signal input
-        schemas.push(PortSchema::new::<Sample>(
-            "enable_signal",
+        schemas.push(PortSchema::new::<SampleBlock>(
+            "cs",
             1 + self.num_data_bits,
             PortDirection::Input,
         ));
 
-        // Add CS input
+        // Edge input last
         schemas.push(PortSchema::new::<Sample>(
-            "cs",
+            "enable_signal",
             1 + self.num_data_bits + 1,
             PortDirection::Input,
         ));
@@ -238,7 +139,6 @@ impl ProcessNode for ParallelDecoder {
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
         self.work_call_count += 1;
 
-        // Debug: Log on first call
         if self.work_call_count == 1 {
             debug!(
                 "[{}] First work() call: {} inputs, {} outputs",
@@ -248,79 +148,161 @@ impl ProcessNode for ParallelDecoder {
             );
         }
 
-        // Get output channel with automatic watchdog
+        // Get output
         let output = outputs
             .first()
             .and_then(|port| port.get::<ParallelWord>())
             .ok_or_else(|| WorkError::NodeError("Missing output".to_string()))?;
 
-        // Extract config before borrowing channel_buffers
-        let mode = self.mode;
-        let num_data_bits = self.num_data_bits;
-        let cs_polarity = self.cs_polarity;
-
-        // Create Receivers for each channel with automatic watchdog
-        let mut buf_iter = self.channel_buffers.iter_mut();
-        let mut strobe = inputs
+        // Get block inputs: strobe, data[0..N], cs
+        let mut strobe_buf = VecDeque::new();
+        let mut strobe_input = inputs
             .first()
-            .and_then(|port| port.get::<Sample>(buf_iter.next().unwrap()))
-            .ok_or_else(|| WorkError::NodeError("Missing strobe input".to_string()))?;
+            .and_then(|port| port.get::<SampleBlock>(&mut strobe_buf))
+            .ok_or_else(|| WorkError::NodeError("Missing strobe block input".to_string()))?;
 
-        // Create data channel receivers
-        let mut data_channels: Vec<_> = (0..num_data_bits)
-            .map(|i| {
-                inputs
-                    .get(1 + i)
-                    .and_then(|port| port.get::<Sample>(buf_iter.next().unwrap()))
-                    .ok_or_else(|| WorkError::NodeError(format!("Missing data input {}", i)))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let mut enable_signal = inputs
-            .get(1 + num_data_bits)
-            .and_then(|port| port.get::<Sample>(buf_iter.next().unwrap()))
-            .ok_or_else(|| WorkError::NodeError("Missing enable input".to_string()))?;
-
-        let mut cs = inputs
-            .get(1 + num_data_bits + 1)
-            .and_then(|port| port.get::<Sample>(buf_iter.next().unwrap()))
-            .ok_or_else(|| WorkError::NodeError("Missing cs input".to_string()))?;
-
-        let mut words_emitted = 0;
-
-        // Process multiple strobe triggers in one work() call for better throughput
-        const MAX_WORDS_PER_CALL: usize = 100;
-        while words_emitted < MAX_WORDS_PER_CALL {
-            // Check for strobe trigger
-            let timestamp =
-                match Self::check_strobe_trigger(&mut strobe, mode, &mut self.last_strobe_value)? {
-                    Some(ts) => ts,
-                    None => continue, // Not a trigger edge, get next strobe edge
-                };
-
-            // Check if enabled (enable_signal=true AND CS=inactive)
-            if Self::check_enabled(&mut enable_signal, &mut cs, timestamp, cs_polarity)? {
-                // Sample data
-                if let Some(value) = Self::sample_data_at_time(&mut data_channels, timestamp)? {
-                    trace!(
-                        "[{}] Decoded word: 0x{:02X} at timestamp {}",
-                        self.name, value, timestamp
-                    );
-                    let word = ParallelWord {
-                        value,
-                        timing: TimingInfo::new(
-                            timestamp as f64 / 1_000.0, // Convert ns to microseconds
-                            timestamp,
-                        ),
-                    };
-
-                    output.send(word)?;
-                    words_emitted += 1;
-                }
-            }
+        let mut data_bufs: Vec<VecDeque<SampleBlock>> =
+            (0..self.num_data_bits).map(|_| VecDeque::new()).collect();
+        let mut data_inputs: Vec<Receiver<'_, SampleBlock>> =
+            Vec::with_capacity(self.num_data_bits);
+        for (i, buf) in data_bufs.iter_mut().enumerate() {
+            let input = inputs
+                .get(1 + i)
+                .and_then(|port| port.get::<SampleBlock>(buf))
+                .ok_or_else(|| WorkError::NodeError(format!("Missing data block input {}", i)))?;
+            data_inputs.push(input);
         }
 
-        Ok(words_emitted)
+        let mut cs_buf = VecDeque::new();
+        let mut cs_input = inputs
+            .get(1 + self.num_data_bits)
+            .and_then(|port| port.get::<SampleBlock>(&mut cs_buf))
+            .ok_or_else(|| WorkError::NodeError("Missing cs block input".to_string()))?;
+
+        // Get edge input: enable_signal
+        // Use local variables for enable state to avoid borrowing self
+        let mut current_enable_value = self.current_enable_value;
+        let mut next_enable_change_position = self.next_enable_change_position;
+        let mut enable_input = inputs
+            .get(1 + self.num_data_bits + 1)
+            .and_then(|port| port.get::<Sample>(&mut self.enable_buffer))
+            .ok_or_else(|| WorkError::NodeError("Missing enable_signal input".to_string()))?;
+
+        // Receive one block from each channel
+        let strobe_block = strobe_input.recv()?;
+        let mut data_blocks: Vec<SampleBlock> = Vec::with_capacity(self.num_data_bits);
+        for (i, input) in data_inputs.iter_mut().enumerate() {
+            let block = input.recv()?;
+            // Verify alignment
+            if block.start_position != strobe_block.start_position {
+                return Err(WorkError::NodeError(format!(
+                    "Data block {} misaligned: start={} vs strobe start={}",
+                    i, block.start_position, strobe_block.start_position
+                )));
+            }
+            data_blocks.push(block);
+        }
+        let cs_block = cs_input.recv()?;
+
+        let mode = self.mode;
+        let cs_polarity = self.cs_polarity;
+        let num_samples = strobe_block.num_samples;
+        let start_pos = strobe_block.start_position;
+        let timestamp_step = strobe_block.timestamp_step;
+        let mut words_emitted = 0u64;
+        let mut last_strobe_value = self.last_strobe_value;
+
+        // Iterate through all samples in this block
+        for local_idx in 0..num_samples {
+            let position = start_pos + local_idx as u64;
+            let strobe_val = strobe_block.get_bit(position);
+
+            // Check strobe trigger
+            let triggered = match mode {
+                StrobeMode::RisingEdge => !last_strobe_value && strobe_val,
+                StrobeMode::FallingEdge => last_strobe_value && !strobe_val,
+                StrobeMode::AnyEdge => last_strobe_value != strobe_val,
+                StrobeMode::HighLevel => strobe_val,
+                StrobeMode::LowLevel => !strobe_val,
+            };
+            last_strobe_value = strobe_val;
+
+            if !triggered {
+                continue;
+            }
+
+            // Check CS: is it inactive?
+            let cs_inactive = match cs_polarity {
+                CsPolarity::ActiveLow => cs_block.get_bit(position), // inactive = high
+                CsPolarity::ActiveHigh => !cs_block.get_bit(position), // inactive = low
+                CsPolarity::Disabled => true,
+            };
+
+            if !cs_inactive {
+                continue;
+            }
+
+            // Check enable signal (edge-based, timestamps in nanoseconds) — inline advance logic
+            let timestamp_ns = position * timestamp_step;
+            if timestamp_ns >= next_enable_change_position {
+                loop {
+                    match enable_input.peek() {
+                        Ok(next_edge) => {
+                            if next_edge.start_time <= timestamp_ns {
+                                let edge = enable_input.recv()?;
+                                current_enable_value = edge.value;
+                            } else {
+                                next_enable_change_position = next_edge.start_time;
+                                break;
+                            }
+                        }
+                        Err(WorkError::Shutdown) => {
+                            next_enable_change_position = u64::MAX;
+                            break;
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
+            }
+
+            if !current_enable_value {
+                continue;
+            }
+
+            // Sample all data bits — O(1) per bit
+            let mut value = 0u64;
+            for (bit_idx, db) in data_blocks.iter().enumerate() {
+                if db.get_bit(position) {
+                    value |= 1 << bit_idx;
+                }
+            }
+
+            let word = ParallelWord {
+                value,
+                timing: TimingInfo::new(
+                    timestamp_ns as f64 / 1_000.0, // Convert ns to microseconds
+                    timestamp_ns,
+                ),
+            };
+
+            output.send(word)?;
+            words_emitted += 1;
+        }
+
+        // Save state back
+        self.last_strobe_value = last_strobe_value;
+        self.current_enable_value = current_enable_value;
+        self.next_enable_change_position = next_enable_change_position;
+        self.total_words_emitted += words_emitted;
+
+        if self.work_call_count.is_multiple_of(10) || words_emitted > 0 {
+            debug!(
+                "[{}] Block {} done: {} words this block, {} total",
+                self.name, self.work_call_count, words_emitted, self.total_words_emitted
+            );
+        }
+
+        Ok(words_emitted as usize)
     }
 }
 
@@ -333,6 +315,7 @@ mod tests {
         let decoder = ParallelDecoder::new(8, StrobeMode::RisingEdge, CsPolarity::ActiveLow);
         assert_eq!(decoder.num_data_bits, 8);
         assert_eq!(decoder.cs_polarity, CsPolarity::ActiveLow);
-        assert_eq!(decoder.num_inputs(), 11); // strobe + 8 data + enable_signal + cs
+        // Block inputs: strobe + 8 data + cs = 10, Edge input: enable = 1, Total = 11
+        assert_eq!(decoder.num_inputs(), 11);
     }
 }

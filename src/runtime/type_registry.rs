@@ -82,8 +82,10 @@ lazy_static::lazy_static! {
         
         // Register common types
         use crate::Sample;
+        use crate::runtime::sample::SampleBlock;
         use crate::nodes::decoders::{SpiTransfer, ParallelWord};
         registry.register::<Sample>();
+        registry.register::<SampleBlock>();
         registry.register::<SpiTransfer>();
         registry.register::<ParallelWord>();
         

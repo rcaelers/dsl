@@ -7,9 +7,9 @@
 //! on one destination never blocks other destinations. All threads share a single ZipArchive
 //! and block cache via `Arc<Mutex<..>>`.
 
-use crate::runtime::sample::Sample;
-use crate::runtime::node::{InputPort, OutputPort, ProcessNode, WorkResult};
 use crate::runtime::Sender;
+use crate::runtime::node::{InputPort, OutputPort, ProcessNode, WorkResult};
+use crate::runtime::sample::{Sample, SampleBlock};
 use crate::{DslError, Result};
 use std::collections::HashMap;
 use std::fs::File;
@@ -503,6 +503,127 @@ impl DslFileSource {
         drop(sender);
         completed.fetch_add(1, Ordering::Relaxed);
     }
+
+    /// Worker thread that reads one channel's block data and sends SampleBlocks.
+    ///
+    /// Instead of walking bits and sending per-edge Samples, this sends raw
+    /// packed-bit blocks as `SampleBlock` — one send per ~16M samples. This is
+    /// orders of magnitude faster for downstream consumers that can process
+    /// packed bits directly (like the block-mode ParallelDecoder).
+    fn block_reader_thread(config: BlockReaderConfig) {
+        let BlockReaderConfig {
+            archive,
+            blocks,
+            channel,
+            header,
+            sender,
+            max_samples,
+            shutdown,
+            completed,
+        } = config;
+        let timestamp_step = (1_000_000_000.0 / header.samplerate_hz) as u64;
+        let total_samples = max_samples
+            .unwrap_or(header.total_samples)
+            .min(header.total_samples);
+
+        info!(
+            "[ch{}] Starting block reader thread ({} samples, {} blocks)",
+            channel, total_samples, header.total_blocks
+        );
+
+        for block_num in 0..header.total_blocks {
+            if shutdown.load(Ordering::Relaxed) {
+                debug!(
+                    "[ch{}] Block reader shutdown at block {}",
+                    channel, block_num
+                );
+                break;
+            }
+
+            let block_start_position = block_num * header.samples_per_block;
+            if block_start_position >= total_samples {
+                break;
+            }
+
+            // Load block data (check cache first, then archive)
+            let block_data = {
+                let key = (channel, block_num);
+
+                {
+                    let cache_guard = blocks.lock().unwrap();
+                    if let Some(data) = cache_guard.get(&key) {
+                        Arc::clone(data)
+                    } else {
+                        drop(cache_guard);
+
+                        let block_name = format!("L-{}/{}", channel, block_num);
+                        let data = {
+                            let mut archive_guard = archive.lock().unwrap();
+                            let mut file = match archive_guard.by_name(&block_name) {
+                                Ok(f) => f,
+                                Err(_) => {
+                                    debug!(
+                                        "[ch{}] Block {} not found, stopping",
+                                        channel, block_num
+                                    );
+                                    break;
+                                }
+                            };
+                            let mut buf = Vec::new();
+                            if file.read_to_end(&mut buf).is_err() {
+                                debug!("[ch{}] Failed to read block {}", channel, block_num);
+                                break;
+                            }
+                            Arc::<[u8]>::from(buf)
+                        };
+
+                        let mut cache_guard = blocks.lock().unwrap();
+                        cache_guard.insert(key, Arc::clone(&data));
+                        data
+                    }
+                }
+            };
+
+            // Calculate how many samples are valid in this block
+            let block_capacity = (block_data.len() * 8) as u64;
+            let samples_in_block =
+                block_capacity.min(total_samples - block_start_position) as usize;
+
+            let sample_block = SampleBlock::new(
+                block_data,
+                block_start_position,
+                samples_in_block,
+                timestamp_step,
+            );
+
+            if sender.send(sample_block).is_err() {
+                debug!(
+                    "[ch{}] Block reader: all receivers disconnected at block {}",
+                    channel, block_num
+                );
+                completed.fetch_add(1, Ordering::Relaxed);
+                return;
+            }
+
+            if block_num > 0 && block_num % 10 == 0 {
+                let pct = ((block_start_position + samples_in_block as u64) as f64
+                    / total_samples as f64)
+                    * 100.0;
+                debug!(
+                    "[ch{}] Block progress: {:.1}% ({} blocks sent)",
+                    channel,
+                    pct,
+                    block_num + 1
+                );
+            }
+        }
+
+        info!("[ch{}] Block reader complete", channel);
+
+        sender.close();
+        drop(sender);
+        completed.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 impl ProcessNode for DslFileSource {
@@ -523,18 +644,30 @@ impl ProcessNode for DslFileSource {
     }
 
     fn num_outputs(&self) -> usize {
-        self.num_channels as usize
+        // Edge ports (d0..dN) + Block ports (b0..bN)
+        self.num_channels as usize * 2
     }
 
     fn output_schema(&self) -> Vec<crate::runtime::ports::PortSchema> {
-        use crate::Sample;
         use crate::runtime::ports::{PortDirection, PortSchema};
 
-        (0..self.num_channels)
+        let mut schemas: Vec<PortSchema> = (0..self.num_channels)
             .map(|i| {
                 PortSchema::new::<Sample>(format!("d{}", i), i as usize, PortDirection::Output)
             })
-            .collect()
+            .collect();
+
+        // Block output ports: b0, b1, ..., bN
+        let offset = self.num_channels as usize;
+        for i in 0..self.num_channels {
+            schemas.push(PortSchema::new::<SampleBlock>(
+                format!("b{}", i),
+                offset + i as usize,
+                PortDirection::Output,
+            ));
+        }
+
+        schemas
     }
 
     fn work(&mut self, _inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
@@ -559,21 +692,38 @@ impl ProcessNode for DslFileSource {
 
         // Collect all channel-destination pairs to spawn threads for
         // Each destination gets its own independent reader thread
-        let mut thread_configs: Vec<(usize, usize, Sender<Sample>)> = Vec::new();
+        let mut edge_thread_configs: Vec<(usize, usize, Sender<Sample>)> = Vec::new();
+        let mut block_thread_configs: Vec<(usize, usize, Sender<SampleBlock>)> = Vec::new();
+
+        // Edge outputs: ports 0..num_channels
         for channel_idx in 0..self.num_channels as usize {
             if let Some(senders) = outputs
                 .get(channel_idx)
                 .and_then(|port| port.split_senders::<Sample>())
             {
                 for (dest_idx, sender) in senders.into_iter().enumerate() {
-                    thread_configs.push((channel_idx, dest_idx, sender));
+                    edge_thread_configs.push((channel_idx, dest_idx, sender));
+                }
+            }
+        }
+
+        // Block outputs: ports num_channels..2*num_channels
+        let block_offset = self.num_channels as usize;
+        for channel_idx in 0..self.num_channels as usize {
+            if let Some(senders) = outputs
+                .get(block_offset + channel_idx)
+                .and_then(|port| port.split_senders::<SampleBlock>())
+            {
+                for (dest_idx, sender) in senders.into_iter().enumerate() {
+                    block_thread_configs.push((channel_idx, dest_idx, sender));
                 }
             }
         }
 
         let mut handles = Vec::new();
 
-        for (channel_idx, dest_idx, sender) in thread_configs.into_iter() {
+        // Spawn edge reader threads
+        for (channel_idx, dest_idx, sender) in edge_thread_configs.into_iter() {
             let archive = Arc::clone(&self.archive);
             let blocks = Arc::clone(&self.blocks);
             let header = self.header.clone();
@@ -582,7 +732,7 @@ impl ProcessNode for DslFileSource {
             let completed = Arc::clone(&self.threads_completed);
 
             let handle = std::thread::Builder::new()
-                .name(format!("dsl_ch{}_dest{}", channel_idx, dest_idx))
+                .name(format!("dsl_ch{}_edge_dest{}", channel_idx, dest_idx))
                 .spawn(move || {
                     Self::channel_reader_thread(ChannelReaderConfig {
                         archive,
@@ -595,7 +745,35 @@ impl ProcessNode for DslFileSource {
                         completed,
                     });
                 })
-                .expect("Failed to spawn DslFileSource reader thread");
+                .expect("Failed to spawn DslFileSource edge reader thread");
+
+            handles.push(handle);
+        }
+
+        // Spawn block reader threads
+        for (channel_idx, dest_idx, sender) in block_thread_configs.into_iter() {
+            let archive = Arc::clone(&self.archive);
+            let blocks = Arc::clone(&self.blocks);
+            let header = self.header.clone();
+            let max_samples = self.max_samples;
+            let shutdown = Arc::clone(&self.shutdown);
+            let completed = Arc::clone(&self.threads_completed);
+
+            let handle = std::thread::Builder::new()
+                .name(format!("dsl_ch{}_block_dest{}", channel_idx, dest_idx))
+                .spawn(move || {
+                    Self::block_reader_thread(BlockReaderConfig {
+                        archive,
+                        blocks,
+                        channel: channel_idx,
+                        header,
+                        sender,
+                        max_samples,
+                        shutdown,
+                        completed,
+                    });
+                })
+                .expect("Failed to spawn DslFileSource block reader thread");
 
             handles.push(handle);
         }
@@ -603,8 +781,10 @@ impl ProcessNode for DslFileSource {
         self.num_threads = handles.len();
         self.thread_handles = Some(handles);
 
-        info!("File source: Spawned {} reader threads ({} channels × destinations)", 
-              self.num_threads, self.num_channels);
+        info!(
+            "File source: Spawned {} reader threads ({} channels × destinations)",
+            self.num_threads, self.num_channels
+        );
 
         Ok(0)
     }
@@ -635,6 +815,18 @@ struct ChannelReaderConfig {
     channel: usize,
     header: DslHeader,
     sender: Sender<Sample>,
+    max_samples: Option<u64>,
+    shutdown: Arc<AtomicBool>,
+    completed: Arc<AtomicUsize>,
+}
+
+/// Configuration for a per-channel block reader thread
+struct BlockReaderConfig {
+    archive: Arc<Mutex<ZipArchive<File>>>,
+    blocks: BlockCache,
+    channel: usize,
+    header: DslHeader,
+    sender: Sender<SampleBlock>,
     max_samples: Option<u64>,
     shutdown: Arc<AtomicBool>,
     completed: Arc<AtomicUsize>,
@@ -704,7 +896,7 @@ mod tests {
         if let Ok(source) = result {
             assert_eq!(source.num_channels(), 8);
             assert_eq!(source.num_inputs(), 0); // Source node
-            assert_eq!(source.num_outputs(), 8);
+            assert_eq!(source.num_outputs(), 16); // 8 edge + 8 block ports
             assert_eq!(source.name(), "dsl_file_source");
 
             // Check header parsing
@@ -885,7 +1077,7 @@ mod tests {
         assert!(result.is_ok());
         if let Ok(source) = result {
             assert_eq!(source.num_channels(), 1);
-            assert_eq!(source.num_outputs(), 1);
+            assert_eq!(source.num_outputs(), 2); // 1 edge + 1 block
         }
 
         // Test maximum valid within file's channels (11)
@@ -893,7 +1085,7 @@ mod tests {
         assert!(result.is_ok());
         if let Ok(source) = result {
             assert_eq!(source.num_channels(), 11);
-            assert_eq!(source.num_outputs(), 11);
+            assert_eq!(source.num_outputs(), 22); // 11 edge + 11 block
         }
     }
 
