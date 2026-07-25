@@ -205,6 +205,14 @@ boundary; consumers read snapshots and remain free to
 attach or replace views after a run has started. Wiring every native and wasm source/storage path
 to that boundary is tracked in the proposed-future verification work below.
 
+Source builders declare `SourceDataLifecycle` rather than relying on node names. Native file
+sources declare preload, cache, and index capabilities; their wasm implementations declare the
+same file lifecycle with filesystem-backed cache and index capabilities unsupported. Native live
+sources declare cache and growing-index capabilities, while unavailable wasm hardware
+implementations declare those artifacts unsupported. Successful source materialization publishes
+preload and consumable data as available. The native capture coordinator subsequently publishes
+its cache and growing index as each artifact becomes attachable.
+
 Sampling overlays follow the same boundary. `signal_processing::SamplingEdge` is the shared
 runtime concept; the compiler resolves graph inputs to capture channels, qualifiers, and runtime
 activity handles in `ResolvedSamplingOverlay`. The UI converts that plan into the logic-analyzer

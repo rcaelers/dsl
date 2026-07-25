@@ -21,6 +21,18 @@ impl RuntimeBuilder for FileSourceBuilder {
     fn is_source(&self) -> bool {
         true
     }
+    fn source_data_lifecycle(
+        &self,
+    ) -> Option<logic_analyzer_graph_api::node_support::SourceDataLifecycle> {
+        Some(
+            logic_analyzer_graph_api::node_support::SourceDataLifecycle::new(
+                logic_analyzer_graph_api::node_support::SourceDataLifecycleKind::File,
+                true,
+                true,
+                true,
+            ),
+        )
+    }
     fn derived_data_retention(&self, _state: &Value) -> DerivedDataRetention {
         DerivedDataRetention::MaxEntries(DEFAULT_DERIVED_DATA_MAX_ENTRIES)
     }

@@ -971,6 +971,7 @@ impl App {
                 Some(index) => {
                     self.logic_analyzer
                         .set_growing_capture_with_planned_span(index, planned_span_us);
+                    self.publish_live_source_artifacts(true, true);
                 }
                 None => {
                     self.logic_analyzer.clear_capture();
@@ -992,6 +993,27 @@ impl App {
             self.capture_graph = None;
             self.capture_epoch_observed_graph = None;
             self.capture_epoch_request_in_flight = false;
+        }
+    }
+
+    fn publish_live_source_artifacts(&self, cache: bool, index: bool) {
+        let Some(run) = &self.capture_analysis else {
+            return;
+        };
+        let registry = run.source_readiness();
+        for mut readiness in registry
+            .snapshot()
+            .into_iter()
+            .filter(|readiness| readiness.kind == compiler::SourceDataKind::Live)
+        {
+            if cache {
+                readiness.cache = compiler::SourceArtifactReadiness::Available;
+            }
+            if index {
+                readiness.index = compiler::SourceArtifactReadiness::Available;
+            }
+            readiness.data = compiler::SourceArtifactReadiness::Available;
+            registry.publish(readiness);
         }
     }
 
@@ -1047,6 +1069,7 @@ impl App {
                 }
                 self.set_sampling_overlay_candidates(run_data.sampling_overlays().to_vec());
                 self.capture_analysis = Some(run);
+                self.publish_live_source_artifacts(true, false);
             }
             Err(errors) => {
                 self.report_compile_errors(&errors);

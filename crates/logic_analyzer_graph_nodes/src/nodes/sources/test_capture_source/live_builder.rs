@@ -70,6 +70,19 @@ impl RuntimeBuilder for TestLiveCaptureSourceBuilder {
         true
     }
 
+    fn source_data_lifecycle(
+        &self,
+    ) -> Option<logic_analyzer_graph_api::node_support::SourceDataLifecycle> {
+        Some(
+            logic_analyzer_graph_api::node_support::SourceDataLifecycle::new(
+                logic_analyzer_graph_api::node_support::SourceDataLifecycleKind::Live,
+                false,
+                true,
+                true,
+            ),
+        )
+    }
+
     fn accepted_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind> {
         TestCaptureSourceBuilder.accepted_kinds(socket, state)
     }

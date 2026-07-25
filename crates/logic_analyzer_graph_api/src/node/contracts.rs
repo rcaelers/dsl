@@ -12,8 +12,8 @@ use signal_processing::{
 use crate::node_support::{
     CaptureCacheIdentity, CapturePresentation, DecoderTableColumnDescriptor,
     LanePresentationDescriptor, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
-    SamplingOverlayDescriptor, SimpleTriggerChannel, TriggerConfigurationFeature,
-    ViewerOutputControl,
+    SamplingOverlayDescriptor, SimpleTriggerChannel, SourceDataLifecycle,
+    TriggerConfigurationFeature, ViewerOutputControl,
 };
 
 pub trait CaptureGraphSourceFactory: Send + Sync {
@@ -54,6 +54,9 @@ pub trait LiveCaptureFeature: Send {
 pub trait RuntimeBuilder {
     fn is_source(&self) -> bool {
         false
+    }
+    fn source_data_lifecycle(&self) -> Option<SourceDataLifecycle> {
+        None
     }
     fn derived_data_retention(&self, _state: &Value) -> DerivedDataRetention {
         DerivedDataRetention::Unlimited

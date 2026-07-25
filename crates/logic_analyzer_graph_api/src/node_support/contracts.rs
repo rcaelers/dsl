@@ -61,6 +61,36 @@ pub trait NodeBuildContext {
     fn sampling_activity(&self, runtime_name: &str, input: usize) -> Option<SamplingActivity>;
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceDataLifecycleKind {
+    File,
+    Live,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SourceDataLifecycle {
+    pub kind: SourceDataLifecycleKind,
+    pub preload: bool,
+    pub cache: bool,
+    pub index: bool,
+}
+
+impl SourceDataLifecycle {
+    pub const fn new(
+        kind: SourceDataLifecycleKind,
+        preload: bool,
+        cache: bool,
+        index: bool,
+    ) -> Self {
+        Self {
+            kind,
+            preload,
+            cache,
+            index,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SamplingOverlayDescriptor {
     pub clock_input: usize,

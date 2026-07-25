@@ -1,12 +1,14 @@
 use egui::Pos2;
 
-use logic_analyzer_graph_api::node_support::{CapturePresentation, LiveCaptureEdit};
+use logic_analyzer_graph_api::node_support::{
+    CapturePresentation, LiveCaptureEdit, SourceDataLifecycleKind,
+};
 use logic_analyzer_graph_compiler::GraphCompiler;
 use node_graph::{NodeGraphWidget, SocketDirection, SocketId};
 use signal_processing::{CaptureChannelId, CaptureDataDelivery, SimpleTriggerCondition};
 
 use super::{node_name, test_graphs_tests};
-use crate::test_support::build_registry;
+use crate::test_support::{build_registry, node_builder};
 
 const U3PRO16_ID: &str = "org.logicconduit.graph-node.dslogic-u3pro16/v1";
 const DSL_FILE_SOURCE_ID: &str = "org.logicconduit.graph-node.dsl-file-source/v1";
@@ -59,6 +61,21 @@ fn native_hardware_source_registers_and_lowers() {
             .iter()
             .any(|node| node.builder == node_name(U3PRO16_ID))
     );
+}
+
+#[test]
+fn native_file_and_live_sources_declare_artifact_capabilities() {
+    let file = node_builder(DSL_FILE_SOURCE_ID)
+        .source_data_lifecycle()
+        .expect("file source lifecycle");
+    assert_eq!(file.kind, SourceDataLifecycleKind::File);
+    assert!(file.preload && file.cache && file.index);
+
+    let live = node_builder(U3PRO16_ID)
+        .source_data_lifecycle()
+        .expect("live source lifecycle");
+    assert_eq!(live.kind, SourceDataLifecycleKind::Live);
+    assert!(!live.preload && live.cache && live.index);
 }
 
 #[test]

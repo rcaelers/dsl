@@ -45,8 +45,8 @@ use super::data_collector::DataCollectorBuilder;
 use super::errors::{ApplyError, CompileError};
 use super::{
     CollectedOutputLane, CollectedOutputSubscription, CollectedTableSubscription,
-    OutputSubscriptionPlan, RunData, RunDiagnosticRegistry, SourceReadinessRegistry,
-    cache_platform,
+    OutputSubscriptionPlan, RunData, RunDiagnosticRegistry, SourceArtifactReadiness,
+    SourceDataKind, SourceReadiness, SourceReadinessRegistry, cache_platform,
 };
 
 /// Shared resources handed to builders. A fresh `DerivedLanes` store per
@@ -492,6 +492,48 @@ fn capture_channel_selection(
                 .and_then(|output| builder.viewer_channel_origin(output, &node.state))
         })
         .collect()
+}
+
+fn publish_materialized_source_readiness(
+    compiled: &CompiledGraph,
+    registry: &BuilderRegistry,
+    readiness: &SourceReadinessRegistry,
+) {
+    for node in &compiled.nodes {
+        let Some(lifecycle) = registry
+            .get(&node.builder)
+            .and_then(RuntimeBuilder::source_data_lifecycle)
+        else {
+            continue;
+        };
+        readiness.publish(SourceReadiness {
+            source: node.id,
+            kind: match lifecycle.kind {
+                logic_analyzer_graph_api::node_support::SourceDataLifecycleKind::File => {
+                    SourceDataKind::File
+                }
+                logic_analyzer_graph_api::node_support::SourceDataLifecycleKind::Live => {
+                    SourceDataKind::Live
+                }
+            },
+            preload: if lifecycle.preload {
+                SourceArtifactReadiness::Available
+            } else {
+                SourceArtifactReadiness::Unsupported
+            },
+            cache: if lifecycle.cache {
+                SourceArtifactReadiness::Pending
+            } else {
+                SourceArtifactReadiness::Unsupported
+            },
+            index: if lifecycle.index {
+                SourceArtifactReadiness::Pending
+            } else {
+                SourceArtifactReadiness::Unsupported
+            },
+            data: SourceArtifactReadiness::Available,
+        });
+    }
 }
 
 /// Discovers a concrete source's pre-run presentation through its builder contract.
@@ -2021,6 +2063,7 @@ fn start_live_inner(
     manager
         .start_all_deferred()
         .map_err(|message| vec![CompileError::global(message)])?;
+    publish_materialized_source_readiness(&compiled, registry, &ctx.source_readiness);
 
     Ok(LiveRun {
         manager,
@@ -3072,6 +3115,19 @@ mod tests {
             },
         )
         .unwrap();
+        let readiness = live_run.source_readiness().snapshot();
+        let source_readiness = readiness
+            .iter()
+            .find(|readiness| readiness.source == source_node)
+            .expect("materialized live source publishes readiness");
+        assert_eq!(source_readiness.kind, SourceDataKind::Live);
+        assert_eq!(
+            source_readiness.preload,
+            SourceArtifactReadiness::Unsupported
+        );
+        assert_eq!(source_readiness.cache, SourceArtifactReadiness::Pending);
+        assert_eq!(source_readiness.index, SourceArtifactReadiness::Pending);
+        assert_eq!(source_readiness.data, SourceArtifactReadiness::Available);
 
         for sequence in 0..CHUNKS {
             writer
