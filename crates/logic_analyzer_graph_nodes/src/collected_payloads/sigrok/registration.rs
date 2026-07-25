@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
-use egui::Color32;
-
 use logic_analyzer_graph_api::node::CollectedPayloadRegistration;
-use logic_analyzer_graph_api::node_support::{DefaultViewerPayloadPresentation, PortKind};
+use logic_analyzer_graph_api::node_support::{
+    DefaultLanePresentationDescriptor, LaneBadgeDescriptor, PortKind,
+};
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     SigrokAnnotation, SigrokBinary, SigrokGeneratedLogic, SigrokMetadata,
     sigrok_annotation_payload_adapter, sigrok_binary_payload_adapter,
     sigrok_generated_logic_payload_adapter, sigrok_metadata_payload_adapter,
     sigrok_protocol_packet_payload_adapter,
 };
-use logic_analyzer_viewer::ViewerLaneBadge;
+use logic_analyzer_viewer::ViewerLaneRendererRegistration;
 use signal_processing::ProtocolPacket;
 
 use super::presentation::{
@@ -38,40 +38,52 @@ fn protocol_packet_kind() -> PortKind {
     PortKind::of_named::<ProtocolPacket>("Protocol Packet")
 }
 
-fn annotation_presentation() -> DefaultViewerPayloadPresentation {
-    DefaultViewerPayloadPresentation::with_renderer(
-        ViewerLaneBadge::new("A", Color32::from_rgb(220, 155, 65)),
-        Arc::new(SigrokAnnotationRenderer),
+fn annotation_presentation() -> DefaultLanePresentationDescriptor {
+    DefaultLanePresentationDescriptor::new(
+        LaneBadgeDescriptor::new("A", [220, 155, 65]),
+        ANNOTATION_RENDERER,
     )
 }
 
-fn binary_presentation() -> DefaultViewerPayloadPresentation {
-    DefaultViewerPayloadPresentation::with_renderer(
-        ViewerLaneBadge::new("BIN", Color32::from_rgb(205, 125, 55)),
-        Arc::new(SigrokBinaryRenderer),
+fn binary_presentation() -> DefaultLanePresentationDescriptor {
+    DefaultLanePresentationDescriptor::new(
+        LaneBadgeDescriptor::new("BIN", [205, 125, 55]),
+        BINARY_RENDERER,
     )
 }
 
-fn generated_logic_presentation() -> DefaultViewerPayloadPresentation {
-    DefaultViewerPayloadPresentation::with_renderer(
-        ViewerLaneBadge::new("S", Color32::from_rgb(95, 175, 95)),
-        Arc::new(SigrokGeneratedLogicRenderer),
+fn generated_logic_presentation() -> DefaultLanePresentationDescriptor {
+    DefaultLanePresentationDescriptor::new(
+        LaneBadgeDescriptor::new("S", [95, 175, 95]),
+        GENERATED_LOGIC_RENDERER,
     )
 }
 
-fn metadata_presentation() -> DefaultViewerPayloadPresentation {
-    DefaultViewerPayloadPresentation::with_renderer(
-        ViewerLaneBadge::new("M", Color32::from_rgb(95, 145, 210)),
-        Arc::new(SigrokMetadataRenderer),
+fn metadata_presentation() -> DefaultLanePresentationDescriptor {
+    DefaultLanePresentationDescriptor::new(
+        LaneBadgeDescriptor::new("M", [95, 145, 210]),
+        METADATA_RENDERER,
     )
 }
 
-fn protocol_packet_presentation() -> DefaultViewerPayloadPresentation {
-    DefaultViewerPayloadPresentation::with_renderer(
-        ViewerLaneBadge::new("P", Color32::from_rgb(175, 120, 205)),
-        Arc::new(ProtocolPacketRenderer),
+fn protocol_packet_presentation() -> DefaultLanePresentationDescriptor {
+    DefaultLanePresentationDescriptor::new(
+        LaneBadgeDescriptor::new("P", [175, 120, 205]),
+        PROTOCOL_PACKET_RENDERER,
     )
 }
+
+const ANNOTATION_RENDERER: &str = "org.logicconduit.renderer.sigrok-annotation/v1";
+const BINARY_RENDERER: &str = "org.logicconduit.renderer.sigrok-binary/v1";
+const GENERATED_LOGIC_RENDERER: &str = "org.logicconduit.renderer.sigrok-logic/v1";
+const METADATA_RENDERER: &str = "org.logicconduit.renderer.sigrok-metadata/v1";
+const PROTOCOL_PACKET_RENDERER: &str = "org.logicconduit.renderer.protocol-packet/v1";
+
+inventory::submit! { ViewerLaneRendererRegistration::new(ANNOTATION_RENDERER, || Arc::new(SigrokAnnotationRenderer)) }
+inventory::submit! { ViewerLaneRendererRegistration::new(BINARY_RENDERER, || Arc::new(SigrokBinaryRenderer)) }
+inventory::submit! { ViewerLaneRendererRegistration::new(GENERATED_LOGIC_RENDERER, || Arc::new(SigrokGeneratedLogicRenderer)) }
+inventory::submit! { ViewerLaneRendererRegistration::new(METADATA_RENDERER, || Arc::new(SigrokMetadataRenderer)) }
+inventory::submit! { ViewerLaneRendererRegistration::new(PROTOCOL_PACKET_RENDERER, || Arc::new(ProtocolPacketRenderer)) }
 
 inventory::submit! {
     CollectedPayloadRegistration::subscribable_kind(

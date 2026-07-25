@@ -6,6 +6,7 @@ mod draw;
 mod format;
 mod input;
 mod lanes;
+mod renderer_registration;
 mod sampling;
 mod sampling_overlay;
 mod simple_trigger;
@@ -30,8 +31,9 @@ pub use lanes::{
     AnnotationVisual, DefaultViewerLaneRenderer, DerivedLaneId, OpaqueLaneDrawContext,
     ViewerLaneBadge, ViewerLaneGroup, ViewerLaneGroupId, ViewerLaneInteraction,
     ViewerLaneInteractionContext, ViewerLaneRenderer, ViewerLaneTheme, ViewerLaneTrack,
-    ViewerLaneTrackId, ViewerOutputPresentation, WaveformPresentationRegistry,
+    ViewerLaneTrackId, WaveformPresentationRegistry,
 };
+pub use renderer_registration::{ViewerLaneRendererRegistration, viewer_lane_renderer};
 pub use sampling_overlay::{SamplingEdge, SamplingOverlay, SamplingQualifier};
 pub use simple_trigger::{SimpleTriggerEdit, SimpleTriggerLane};
 pub use types::{ColorProfile, ViewerRowId};

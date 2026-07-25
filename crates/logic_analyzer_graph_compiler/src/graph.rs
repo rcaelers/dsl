@@ -22,7 +22,7 @@ use logic_analyzer_graph_api::node::{
     CaptureGraphSourceFactory, LiveCaptureFeature, RuntimeBuilder,
 };
 use logic_analyzer_graph_api::node_support::{
-    CaptureCacheIdentity, CapturePresentation, DefaultViewerPayloadPresentation, LiveCaptureEdit,
+    CaptureCacheIdentity, CapturePresentation, DefaultLanePresentationDescriptor, LiveCaptureEdit,
     NodeBuildContext, PortKind, ResolvedInput, ResolvedInputs, SimpleTriggerChannel,
     TriggerConfigurationFeature,
 };
@@ -278,7 +278,7 @@ pub(crate) struct BuilderRegistry {
 pub(crate) struct CollectedPayloadSubscription {
     pub(crate) kind: PortKind,
     pub(crate) diagnostic_name: String,
-    pub(crate) presentation: DefaultViewerPayloadPresentation,
+    pub(crate) presentation: DefaultLanePresentationDescriptor,
     pub(crate) persistent_cache: bool,
     pub(crate) configure_request: CollectedPayloadRequestConfigurator,
 }
@@ -356,7 +356,7 @@ impl BuilderRegistry {
         T: logic_analyzer_graph_api::node_support::PortValue,
     >(
         &mut self,
-        presentation: DefaultViewerPayloadPresentation,
+        presentation: DefaultLanePresentationDescriptor,
         configure_request: CollectedPayloadRequestConfigurator,
         persistent_cache: bool,
     ) -> Result<&mut Self, CollectedPayloadRegistrationError> {
@@ -416,7 +416,7 @@ impl BuilderRegistry {
     fn payload_subscription_presentation(
         &self,
         kind: PortKind,
-    ) -> Option<DefaultViewerPayloadPresentation> {
+    ) -> Option<DefaultLanePresentationDescriptor> {
         self.payload_subscriptions
             .iter()
             .find(|payload| payload.kind == kind)
@@ -1268,9 +1268,8 @@ pub(crate) fn lower_with_subscriptions(
                 source_node_title: from_node.title.clone(),
                 word_display_format: from_builder
                     .word_display_format(from_socket, &from_node.state),
-                viewer_presentation: from_builder
-                    .viewer_output_presentation(from_socket, &from_node.state),
-                default_viewer_presentation: data_subscription
+                lane_presentation: from_builder.lane_presentation(from_socket, &from_node.state),
+                default_lane_presentation: data_subscription
                     .then(|| registry.payload_subscription_presentation(kind))
                     .flatten(),
                 decoder_table_column: from_builder
@@ -2342,20 +2341,19 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::{Duration, Instant};
 
-    use egui::{Color32, Pos2};
+    use egui::Pos2;
 
     use logic_analyzer_graph_api::node_support::SamplingOverlayDescriptor;
     use logic_analyzer_processing::nodes::sinks::binary_file_writer::BinaryFileWriter;
     use logic_analyzer_test_support::{BufferedFakeConfig, BufferedFakeProvider};
-    use logic_analyzer_viewer::{SamplingEdge, ViewerLaneBadge};
     use node_graph::NodeGraphWidget;
     use signal_processing::{
         AcquisitionContext, AcquisitionResult, CaptureAnalysisChannel, CaptureAnalysisSource,
         CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureDataDelivery,
         CaptureProviderCapabilities, CaptureSessionId, CaptureStoreCursor, ConfigValue,
         CooperativeManager, DerivedLaneData, NativeCaptureStore, NativeCaptureStoreConfig,
-        NodeSpec, NumberSample, Pipeline, PreparedAcquisition, Sample, TextSample, Trigger,
-        TriggerCount, TriggerCountMode, TriggerEditorSchema, TriggerIdentifier,
+        NodeSpec, NumberSample, Pipeline, PreparedAcquisition, Sample, SamplingEdge, TextSample,
+        Trigger, TriggerCount, TriggerCountMode, TriggerEditorSchema, TriggerIdentifier,
         TriggerLogicOperator, TriggerPlacement, TriggerPredicate, TriggerStage, Word,
     };
 
@@ -2441,8 +2439,8 @@ mod tests {
             registry
                 .payload_subscription_presentation(PortKind::of::<Word>())
                 .unwrap()
-                .badge()
-                .text,
+                .badge
+                .label,
             "W"
         );
         for kind in [
@@ -2466,10 +2464,13 @@ mod tests {
         assert!(matches!(
             registry
                 .register_collected_payload_subscription_with_request_configurator::<SampleBlock>(
-                    DefaultViewerPayloadPresentation::new(ViewerLaneBadge::new(
-                        "B",
-                        Color32::WHITE
-                    )),
+                    DefaultLanePresentationDescriptor::new(
+                        logic_analyzer_graph_api::node_support::LaneBadgeDescriptor::new(
+                            "B",
+                            [255, 255, 255],
+                        ),
+                        "org.example.renderer/v1",
+                    ),
                     Arc::new(|request, _, _, _| request),
                     false,
                 ),
@@ -4158,7 +4159,7 @@ mod tests {
             .into_iter()
             .filter_map(|(_, input)| {
                 input
-                    .viewer_presentation
+                    .lane_presentation
                     .as_ref()
                     .map(|presentation| presentation.track_key.as_str())
             })
@@ -4187,7 +4188,7 @@ mod tests {
             .into_iter()
             .filter(|(_, input)| input.source_node == spi)
             .filter_map(|(_, input)| {
-                input.viewer_presentation.as_ref().map(|presentation| {
+                input.lane_presentation.as_ref().map(|presentation| {
                     (
                         presentation.group_key.as_str(),
                         presentation.track_key.as_str(),
@@ -4250,7 +4251,7 @@ mod tests {
                 .flat_map(|subscription| &subscription.lanes)
                 .filter_map(|lane| {
                     lane.input
-                        .viewer_presentation
+                        .lane_presentation
                         .as_ref()
                         .and_then(|presentation| {
                             (presentation.track_key == "frame").then(|| {
@@ -4287,12 +4288,9 @@ mod tests {
     }
 
     #[test]
-    fn plugin_builder_can_contribute_a_lane_renderer() {
-        use std::sync::Arc;
-
-        use logic_analyzer_viewer::{
-            DefaultViewerLaneRenderer, ViewerLaneBadge, ViewerLaneRenderer,
-            ViewerOutputPresentation,
+    fn plugin_builder_can_contribute_lane_presentation_metadata() {
+        use logic_analyzer_graph_api::node_support::{
+            LaneBadgeDescriptor, LanePresentationDescriptor,
         };
 
         struct PluginBuilder;
@@ -4313,19 +4311,18 @@ mod tests {
                 None
             }
 
-            fn viewer_output_presentation(
+            fn lane_presentation(
                 &self,
                 _: &Socket,
                 _: &Value,
-            ) -> Option<ViewerOutputPresentation> {
-                let renderer: Arc<dyn ViewerLaneRenderer> = Arc::new(DefaultViewerLaneRenderer);
-                Some(ViewerOutputPresentation::new(
+            ) -> Option<LanePresentationDescriptor> {
+                Some(LanePresentationDescriptor::new(
                     "plugin group",
                     "plugin track",
                     0,
                     1.0,
-                    ViewerLaneBadge::new("P", Color32::WHITE),
-                    renderer,
+                    LaneBadgeDescriptor::new("P", [255, 255, 255]),
+                    "org.example.renderer/v1",
                 ))
             }
 
@@ -4355,7 +4352,7 @@ mod tests {
         let presentation = builders
             .get("Plugin Presenter")
             .unwrap()
-            .viewer_output_presentation(socket, &Value::Null)
+            .lane_presentation(socket, &Value::Null)
             .unwrap();
 
         assert_eq!(presentation.group_key, "plugin group");

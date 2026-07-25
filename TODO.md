@@ -223,7 +223,7 @@ in this order:
   application-neutral collector path.
 - [x] Move selected-output waveform-group and renderer binding into the UI presentation adapter.
 - [x] Move decoder-table-panel and sampling-overlay binding into UI presentation adapters.
-- [ ] Replace remaining viewer-native producer metadata with protocol-neutral API contracts that
+- [x] Replace remaining viewer-native producer metadata with protocol-neutral API contracts that
   the UI translates into `logic_analyzer_viewer` renderers and badges.
 - [ ] Move Viewer-node and viewer-selection saved-graph compatibility into an explicit UI
   migration that emits user-visible warnings and preserves the stable

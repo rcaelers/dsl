@@ -2,14 +2,13 @@
 
 use std::sync::Arc;
 
-use egui::Color32;
-
 use logic_analyzer_graph_api::node_support::{
-    DecoderTableCellMode, DecoderTableColumnPresentation,
+    DecoderTableCellMode, DecoderTableColumnDescriptor, LaneBadgeDescriptor,
+    LanePresentationDescriptor,
 };
 use logic_analyzer_viewer::{
-    AnnotationVisual, DerivedLaneId, ViewerLaneBadge, ViewerLaneGroup, ViewerLaneRenderer,
-    ViewerLaneTheme, ViewerLaneTrackId, ViewerOutputPresentation,
+    AnnotationVisual, DerivedLaneId, ViewerLaneGroup, ViewerLaneRenderer,
+    ViewerLaneRendererRegistration, ViewerLaneTheme, ViewerLaneTrackId,
 };
 
 use crate::collected_payloads::WordSnapshotRenderer;
@@ -39,47 +38,45 @@ impl ViewerLaneRenderer for SpiLaneRenderer {
     }
 }
 
-pub(crate) fn spi_output_presentation(def_index: usize) -> Option<ViewerOutputPresentation> {
-    let renderer: Arc<dyn ViewerLaneRenderer> =
-        Arc::new(WordSnapshotRenderer::new(Arc::new(SpiLaneRenderer)));
+pub(crate) fn spi_output_presentation(def_index: usize) -> Option<LanePresentationDescriptor> {
     match def_index {
-        2 => Some(ViewerOutputPresentation::new(
+        2 => Some(LanePresentationDescriptor::new(
             "mosi",
             "bits",
             0,
             1.0,
-            ViewerLaneBadge::new("O", Color32::from_rgb(215, 140, 60)),
-            renderer,
+            LaneBadgeDescriptor::new("O", [215, 140, 60]),
+            SPI_WAVEFORM_RENDERER,
         )),
-        3 => Some(ViewerOutputPresentation::new(
+        3 => Some(LanePresentationDescriptor::new(
             "mosi",
             "data",
             1,
             1.0,
-            ViewerLaneBadge::new("O", Color32::from_rgb(215, 140, 60)),
-            renderer,
+            LaneBadgeDescriptor::new("O", [215, 140, 60]),
+            SPI_WAVEFORM_RENDERER,
         )),
-        4 => Some(ViewerOutputPresentation::new(
+        4 => Some(LanePresentationDescriptor::new(
             "miso",
             "bits",
             0,
             1.0,
-            ViewerLaneBadge::new("I", Color32::from_rgb(90, 145, 210)),
-            renderer,
+            LaneBadgeDescriptor::new("I", [90, 145, 210]),
+            SPI_WAVEFORM_RENDERER,
         )),
-        5 => Some(ViewerOutputPresentation::new(
+        5 => Some(LanePresentationDescriptor::new(
             "miso",
             "data",
             1,
             1.0,
-            ViewerLaneBadge::new("I", Color32::from_rgb(90, 145, 210)),
-            renderer,
+            LaneBadgeDescriptor::new("I", [90, 145, 210]),
+            SPI_WAVEFORM_RENDERER,
         )),
         _ => None,
     }
 }
 
-pub(crate) fn spi_table_column(def_index: usize) -> Option<DecoderTableColumnPresentation> {
+pub(crate) fn spi_table_column(def_index: usize) -> Option<DecoderTableColumnDescriptor> {
     let (column_key, label, order, row_anchor, mode, track_key) = match def_index {
         2 => (
             "mosi_bits",
@@ -115,7 +112,7 @@ pub(crate) fn spi_table_column(def_index: usize) -> Option<DecoderTableColumnPre
         ),
         _ => return None,
     };
-    Some(DecoderTableColumnPresentation::new(
+    Some(DecoderTableColumnDescriptor::new(
         "decoder",
         column_key,
         label,
@@ -123,13 +120,26 @@ pub(crate) fn spi_table_column(def_index: usize) -> Option<DecoderTableColumnPre
         row_anchor,
         mode,
         track_key,
-        Arc::new(SpiLaneRenderer),
+        SPI_TABLE_RENDERER,
     ))
+}
+
+const SPI_WAVEFORM_RENDERER: &str = "org.logicconduit.renderer.spi-waveform/v1";
+const SPI_TABLE_RENDERER: &str = "org.logicconduit.renderer.spi-table/v1";
+
+inventory::submit! {
+    ViewerLaneRendererRegistration::new(SPI_WAVEFORM_RENDERER, || {
+        Arc::new(WordSnapshotRenderer::new(Arc::new(SpiLaneRenderer)))
+    })
+}
+inventory::submit! {
+    ViewerLaneRendererRegistration::new(SPI_TABLE_RENDERER, || Arc::new(SpiLaneRenderer))
 }
 
 #[cfg(test)]
 mod tests {
-    use egui::Stroke;
+    use egui::{Color32, Stroke};
+    use logic_analyzer_viewer::ViewerLaneBadge;
 
     use super::*;
 

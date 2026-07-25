@@ -2189,7 +2189,6 @@ name = "logic-analyzer-graph-api"
 version = "0.1.0"
 dependencies = [
  "inventory",
- "logic-analyzer-viewer",
  "node-graph",
  "serde",
  "serde_json",
@@ -2296,6 +2295,7 @@ version = "0.1.0"
 dependencies = [
  "egui",
  "input-bindings",
+ "inventory",
  "signal-processing",
  "web-time",
 ]

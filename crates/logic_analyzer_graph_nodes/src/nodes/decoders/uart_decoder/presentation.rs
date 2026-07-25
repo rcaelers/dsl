@@ -2,14 +2,15 @@
 
 use std::sync::Arc;
 
-use egui::{Color32, Stroke};
+use egui::Stroke;
 
 use logic_analyzer_graph_api::node_support::{
-    DecoderTableCellMode, DecoderTableColumnPresentation,
+    DecoderTableCellMode, DecoderTableColumnDescriptor, LaneBadgeDescriptor,
+    LanePresentationDescriptor,
 };
 use logic_analyzer_viewer::{
-    AnnotationVisual, DerivedLaneId, ViewerLaneBadge, ViewerLaneGroup, ViewerLaneRenderer,
-    ViewerLaneTheme, ViewerLaneTrackId, ViewerOutputPresentation,
+    AnnotationVisual, DerivedLaneId, ViewerLaneGroup, ViewerLaneRenderer,
+    ViewerLaneRendererRegistration, ViewerLaneTheme, ViewerLaneTrackId,
 };
 
 use crate::collected_payloads::WordSnapshotRenderer;
@@ -62,22 +63,30 @@ impl ViewerLaneRenderer for UartLaneRenderer {
     }
 }
 
-pub(crate) fn uart_output_presentation(def_index: usize) -> Option<ViewerOutputPresentation> {
-    let renderer: Arc<dyn ViewerLaneRenderer> =
-        Arc::new(WordSnapshotRenderer::new(Arc::new(UartLaneRenderer)));
-    let badge = ViewerLaneBadge::new("W", Color32::from_rgb(215, 140, 60));
+pub(crate) fn uart_output_presentation(def_index: usize) -> Option<LanePresentationDescriptor> {
+    let badge = LaneBadgeDescriptor::new("W", [215, 140, 60]);
     match def_index {
-        2 => Some(ViewerOutputPresentation::new(
-            "frame", "bits", 0, 1.0, badge, renderer,
+        2 => Some(LanePresentationDescriptor::new(
+            "frame",
+            "bits",
+            0,
+            1.0,
+            badge,
+            UART_WAVEFORM_RENDERER,
         )),
-        3 => Some(ViewerOutputPresentation::new(
-            "frame", "frame", 1, 1.0, badge, renderer,
+        3 => Some(LanePresentationDescriptor::new(
+            "frame",
+            "frame",
+            1,
+            1.0,
+            badge,
+            UART_WAVEFORM_RENDERER,
         )),
         _ => None,
     }
 }
 
-pub(crate) fn uart_table_column(def_index: usize) -> Option<DecoderTableColumnPresentation> {
+pub(crate) fn uart_table_column(def_index: usize) -> Option<DecoderTableColumnDescriptor> {
     let (column_key, label, order, row_anchor, mode, track_key) = match def_index {
         2 => (
             "bits",
@@ -97,7 +106,7 @@ pub(crate) fn uart_table_column(def_index: usize) -> Option<DecoderTableColumnPr
         ),
         _ => return None,
     };
-    Some(DecoderTableColumnPresentation::new(
+    Some(DecoderTableColumnDescriptor::new(
         "decoder",
         column_key,
         label,
@@ -105,12 +114,27 @@ pub(crate) fn uart_table_column(def_index: usize) -> Option<DecoderTableColumnPr
         row_anchor,
         mode,
         track_key,
-        Arc::new(UartLaneRenderer),
+        UART_TABLE_RENDERER,
     ))
+}
+
+const UART_WAVEFORM_RENDERER: &str = "org.logicconduit.renderer.uart-waveform/v1";
+const UART_TABLE_RENDERER: &str = "org.logicconduit.renderer.uart-table/v1";
+
+inventory::submit! {
+    ViewerLaneRendererRegistration::new(UART_WAVEFORM_RENDERER, || {
+        Arc::new(WordSnapshotRenderer::new(Arc::new(UartLaneRenderer)))
+    })
+}
+inventory::submit! {
+    ViewerLaneRendererRegistration::new(UART_TABLE_RENDERER, || Arc::new(UartLaneRenderer))
 }
 
 #[cfg(test)]
 mod tests {
+    use egui::Color32;
+    use logic_analyzer_viewer::ViewerLaneBadge;
+
     use super::*;
 
     fn visual(label: &str) -> AnnotationVisual {

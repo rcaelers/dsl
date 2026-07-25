@@ -1,11 +1,7 @@
 use std::collections::{HashMap, HashSet};
-use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use logic_analyzer_viewer::{
-    DefaultViewerLaneRenderer, ViewerLaneBadge, ViewerLaneRenderer, ViewerOutputPresentation,
-};
 use node_graph::NodeId;
 use signal_processing::{
     CaptureChannelId, CaptureIndexFactory, DerivedDataRetention, DerivedLanes,
@@ -87,42 +83,71 @@ pub struct ResolvedInput {
     pub source_node: NodeId,
     pub source_node_title: String,
     pub word_display_format: Option<String>,
-    pub viewer_presentation: Option<ViewerOutputPresentation>,
-    pub default_viewer_presentation: Option<DefaultViewerPayloadPresentation>,
-    pub decoder_table_column: Option<DecoderTableColumnPresentation>,
+    pub lane_presentation: Option<LanePresentationDescriptor>,
+    pub default_lane_presentation: Option<DefaultLanePresentationDescriptor>,
+    pub decoder_table_column: Option<DecoderTableColumnDescriptor>,
     pub capture_channel: Option<usize>,
 }
 
-#[derive(Clone)]
-pub struct DefaultViewerPayloadPresentation {
-    badge: ViewerLaneBadge,
-    renderer: Arc<dyn ViewerLaneRenderer>,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LaneBadgeDescriptor {
+    pub label: String,
+    pub color: [u8; 3],
 }
 
-impl DefaultViewerPayloadPresentation {
-    pub fn new(badge: ViewerLaneBadge) -> Self {
-        Self::with_renderer(badge, Arc::new(DefaultViewerLaneRenderer))
-    }
-
-    pub fn with_renderer(badge: ViewerLaneBadge, renderer: Arc<dyn ViewerLaneRenderer>) -> Self {
-        Self { badge, renderer }
-    }
-
-    pub fn badge(&self) -> &ViewerLaneBadge {
-        &self.badge
-    }
-
-    pub fn renderer(&self) -> Arc<dyn ViewerLaneRenderer> {
-        Arc::clone(&self.renderer)
+impl LaneBadgeDescriptor {
+    pub fn new(label: impl Into<String>, color: [u8; 3]) -> Self {
+        Self {
+            label: label.into(),
+            color,
+        }
     }
 }
 
-impl fmt::Debug for DefaultViewerPayloadPresentation {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("DefaultViewerPayloadPresentation")
-            .field("badge", &self.badge)
-            .finish_non_exhaustive()
+/// Application-neutral description of one track in a compound retained lane.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LanePresentationDescriptor {
+    pub group_key: String,
+    pub track_key: String,
+    pub track_order: usize,
+    pub relative_height: f32,
+    pub badge: LaneBadgeDescriptor,
+    pub renderer_key: String,
+}
+
+impl LanePresentationDescriptor {
+    pub fn new(
+        group_key: impl Into<String>,
+        track_key: impl Into<String>,
+        track_order: usize,
+        relative_height: f32,
+        badge: LaneBadgeDescriptor,
+        renderer_key: impl Into<String>,
+    ) -> Self {
+        Self {
+            group_key: group_key.into(),
+            track_key: track_key.into(),
+            track_order,
+            relative_height,
+            badge,
+            renderer_key: renderer_key.into(),
+        }
+    }
+}
+
+/// Default presentation metadata for a collected payload kind.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DefaultLanePresentationDescriptor {
+    pub badge: LaneBadgeDescriptor,
+    pub renderer_key: String,
+}
+
+impl DefaultLanePresentationDescriptor {
+    pub fn new(badge: LaneBadgeDescriptor, renderer_key: impl Into<String>) -> Self {
+        Self {
+            badge,
+            renderer_key: renderer_key.into(),
+        }
     }
 }
 
@@ -271,8 +296,8 @@ pub enum DecoderTableCellMode {
     Joined(String),
 }
 
-#[derive(Clone)]
-pub struct DecoderTableColumnPresentation {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DecoderTableColumnDescriptor {
     pub source_key: String,
     pub column_key: String,
     pub label: String,
@@ -280,25 +305,10 @@ pub struct DecoderTableColumnPresentation {
     pub row_anchor: bool,
     pub cell_mode: DecoderTableCellMode,
     pub track_key: String,
-    pub renderer: Arc<dyn ViewerLaneRenderer>,
+    pub renderer_key: String,
 }
 
-impl fmt::Debug for DecoderTableColumnPresentation {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("DecoderTableColumnPresentation")
-            .field("source_key", &self.source_key)
-            .field("column_key", &self.column_key)
-            .field("label", &self.label)
-            .field("order", &self.order)
-            .field("row_anchor", &self.row_anchor)
-            .field("cell_mode", &self.cell_mode)
-            .field("track_key", &self.track_key)
-            .finish_non_exhaustive()
-    }
-}
-
-impl DecoderTableColumnPresentation {
+impl DecoderTableColumnDescriptor {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         source_key: impl Into<String>,
@@ -308,7 +318,7 @@ impl DecoderTableColumnPresentation {
         row_anchor: bool,
         cell_mode: DecoderTableCellMode,
         track_key: impl Into<String>,
-        renderer: Arc<dyn ViewerLaneRenderer>,
+        renderer_key: impl Into<String>,
     ) -> Self {
         Self {
             source_key: source_key.into(),
@@ -318,7 +328,7 @@ impl DecoderTableColumnPresentation {
             row_anchor,
             cell_mode,
             track_key: track_key.into(),
-            renderer,
+            renderer_key: renderer_key.into(),
         }
     }
 }

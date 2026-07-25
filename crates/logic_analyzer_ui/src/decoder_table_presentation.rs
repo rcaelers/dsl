@@ -1,11 +1,8 @@
-use std::sync::Arc;
-
-use logic_analyzer_graph_api::node_support::{
-    DecoderTableColumn, DecoderTableRegistry, DecoderTableSource,
-};
 use logic_analyzer_graph_compiler::CollectedTableSubscription;
-use logic_analyzer_viewer::{DerivedLaneId, ViewerLaneTrackId};
+use logic_analyzer_viewer::{DerivedLaneId, ViewerLaneTrackId, viewer_lane_renderer};
 use node_graph::NodeId;
+
+use crate::decoder_panel::{DecoderTableColumn, DecoderTableRegistry, DecoderTableSource};
 
 struct PendingSource {
     source_node: NodeId,
@@ -16,7 +13,7 @@ struct PendingSource {
 
 pub(crate) fn decoder_table_registry(
     subscriptions: &[CollectedTableSubscription],
-) -> DecoderTableRegistry {
+) -> Result<DecoderTableRegistry, String> {
     let registry = DecoderTableRegistry::new();
     for subscription in subscriptions {
         let mut pending: Vec<PendingSource> = Vec::new();
@@ -31,7 +28,12 @@ pub(crate) fn decoder_table_registry(
                 track: ViewerLaneTrackId::new(table.track_key.clone()),
                 row_anchor: table.row_anchor,
                 cell_mode: table.cell_mode.clone(),
-                renderer: Arc::clone(&table.renderer),
+                renderer: viewer_lane_renderer(&table.renderer_key).ok_or_else(|| {
+                    format!(
+                        "decoder-table column '{}' references unknown renderer '{}'",
+                        table.column_key, table.renderer_key
+                    )
+                })?,
             };
             if let Some(source) = pending.iter_mut().find(|source| {
                 source.source_node == lane.input.source_node && source.key == table.source_key
@@ -62,19 +64,27 @@ pub(crate) fn decoder_table_registry(
             });
         }
     }
-    registry
+    Ok(registry)
 }
 
 #[cfg(test)]
 mod decoder_table_presentation_tests {
     use logic_analyzer_graph_api::node_support::{
-        DecoderTableCellMode, DecoderTableColumnPresentation, PortKind, ResolvedInput,
+        DecoderTableCellMode, DecoderTableColumnDescriptor, PortKind, ResolvedInput,
     };
     use logic_analyzer_graph_compiler::CollectedOutputLane;
-    use logic_analyzer_viewer::DefaultViewerLaneRenderer;
+    use logic_analyzer_viewer::{DefaultViewerLaneRenderer, ViewerLaneRendererRegistration};
     use signal_processing::Word;
 
     use super::*;
+
+    const TEST_RENDERER: &str = "org.logicconduit.test.renderer.table/v1";
+
+    inventory::submit! {
+        ViewerLaneRendererRegistration::new(TEST_RENDERER, || {
+            std::sync::Arc::new(DefaultViewerLaneRenderer)
+        })
+    }
 
     fn table_lane(member: usize, key: &str, order: usize) -> CollectedOutputLane {
         CollectedOutputLane {
@@ -87,9 +97,9 @@ mod decoder_table_presentation_tests {
                 source_node: NodeId(9),
                 source_node_title: "Decoder".to_owned(),
                 word_display_format: None,
-                viewer_presentation: None,
-                default_viewer_presentation: None,
-                decoder_table_column: Some(DecoderTableColumnPresentation::new(
+                lane_presentation: None,
+                default_lane_presentation: None,
+                decoder_table_column: Some(DecoderTableColumnDescriptor::new(
                     "frames",
                     key,
                     key.to_uppercase(),
@@ -97,7 +107,7 @@ mod decoder_table_presentation_tests {
                     order == 0,
                     DecoderTableCellMode::Single,
                     key,
-                    Arc::new(DefaultViewerLaneRenderer),
+                    TEST_RENDERER,
                 )),
                 capture_channel: None,
             },
@@ -109,7 +119,8 @@ mod decoder_table_presentation_tests {
         let registry = decoder_table_registry(&[CollectedTableSubscription {
             collector: NodeId(4),
             lanes: vec![table_lane(1, "data", 1), table_lane(0, "bits", 0)],
-        }]);
+        }])
+        .unwrap();
 
         let sources = registry.read();
         assert_eq!(sources.len(), 1);

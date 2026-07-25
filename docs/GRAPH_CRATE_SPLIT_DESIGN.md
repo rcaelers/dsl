@@ -21,17 +21,17 @@ The graph domain is divided into crates whose dependency edges follow the direct
 contracts:
 
 ```text
-node_graph                 signal_processing
-    ^                            ^
-    |                            |
-    +---- logic_analyzer_graph_api ---- logic_analyzer_viewer
-                    ^
-          +---------+----------+
-          |                    |
-logic_analyzer_graph_compiler   logic_analyzer_graph_nodes
-          ^                    ^
-          |                    |
- logic_analyzer_ui          plugins
+node_graph                 signal_processing       logic_analyzer_viewer
+    ^                            ^                      ^          ^
+    |                            |                      |          |
+    +---- logic_analyzer_graph_api                     |          |
+                    ^                                  |          |
+          +---------+-------------------+--------------+          |
+          |                             |                         |
+logic_analyzer_graph_compiler   logic_analyzer_graph_nodes        |
+          ^                             ^                         |
+          |                             |                         |
+          +---------- logic_analyzer_ui +-------------------------+
 
 logic_analyzer_capture_export ---> signal_processing
 logic_analyzer_test_support  ---> signal_processing
@@ -61,8 +61,8 @@ directory-backed namespaces and no application-host operations.
 - `NodeBuildContext`;
 - state decoding at the node-owned error boundary;
 - capture identity and presentation descriptions;
-- default waveform and decoder-table presentation descriptions, resolved table sources, and their
-  registry;
+- default lane, compound-lane, and decoder-table presentation descriptions expressed through
+  stable renderer keys and UI-independent badge colors;
 - sampling overlay and qualifier descriptions;
 - trigger configuration, simple-trigger channels, and live-capture edits.
 
@@ -75,11 +75,11 @@ root.
 `NodeBuildContext` is the narrow service contract passed to `RuntimeBuilder`. It replaces
 `CompileCtx` in every plugin-visible signature. It exposes only operations required while a
 concrete node is materialized, including derived-lane access, retention and persistent-cache
-configuration, waveform/table presentation registration, and runtime sampling activity lookup.
+configuration, and runtime sampling activity lookup.
 
 The compiler owns the concrete context state and implements `NodeBuildContext`. Host-only result
-operations, such as taking resolved sampling candidates or publishing the final presentation
-registries, remain on `CompileCtx`, which is exposed through the compiler crate root.
+operations, such as taking resolved sampling candidates and collected subscriber metadata, remain
+on `CompileCtx`, which is exposed through the compiler crate root.
 A plugin cannot receive or import that concrete context through the graph-node API.
 
 ### Graph compiler facade
@@ -105,9 +105,7 @@ construct runtime builders and does not expose an editor-registry operation.
 
 Viewer-output discovery, checkbox state, legacy `show_in_view` migration, and persistence of the
 `logic_analyzer_graph.viewer_selections` extension are UI-owned. The compiler facade exposes no
-viewer-selection operations. During the transition, lowering still reads the saved selection
-manifest to synthesize its internal collection subscription; removing that read and the synthetic
-Viewer node is tracked by the proposed-future migration below.
+viewer-selection operations and receives current selection only through `OutputSubscriptionPlan`.
 
 Compiler result types belong to the crate-root facade: `CompiledGraph`, `CompiledNode`,
 `CompiledEdge`, `CompileError`, `ApplyError`, `LiveRun`, discovered feature wrappers,
@@ -120,7 +118,8 @@ Node-supplied descriptions and host-resolved results remain distinct:
 | `SamplingOverlayDescriptor` | `SamplingOverlayCandidate` |
 | `TriggerConfigurationFeature` | `DiscoveredTriggerConfiguration` |
 | `CapturePresentation` | `DiscoveredCapturePresentation` |
-| `DecoderTableColumnPresentation` | `DecoderTableSource` |
+| `DecoderTableColumnDescriptor` | UI-owned decoder-table source |
+| `LanePresentationDescriptor` | UI-owned viewer lane group |
 | `RuntimeBuilder` | `CompiledNode` |
 | `LiveCaptureFeature` | `DiscoveredLiveCaptureFeature` |
 
@@ -131,10 +130,12 @@ capabilities. Each node directory owns its definition, state, migration, builder
 metadata, inventory submission, and isolated test. Concrete node symbols do not leave their
 directory facade.
 
-Built-in socket types and built-in collected-payload presentations live with the built-in node
-bundle. The bundle submits registrations defined by `logic_analyzer_graph_api`; it does not call
-compiler registration functions. The application references a small linker anchor from every
-enabled built-in or plugin crate before inventory is read on native and wasm.
+Built-in socket types, collected-payload presentation descriptors, and concrete renderer
+registrations live with the built-in node bundle. Neutral descriptors are submitted through
+`logic_analyzer_graph_api`; renderer factories are submitted through the generic viewer registry
+under the stable keys carried by those descriptors. The bundle does not call compiler or UI
+registration functions. The application references a small linker anchor from every enabled
+built-in or plugin crate before inventory is read on native and wasm.
 
 ### Capture export
 
@@ -184,10 +185,12 @@ receives the plan explicitly, so compatibility metadata cannot silently become a
 source of current UI selections.
 
 Each run exposes its collected output subscriptions with stable runtime lane names and resolved
-producer metadata. `logic_analyzer_ui` translates that metadata into waveform groups and tracks,
-including producer-defined compound groups and default payload presentations. Live graph updates
-publish the replacement subscription metadata before the UI rebinds presentations. The compiler
-collects and transports the metadata but does not construct selected-output waveform groups.
+producer metadata. The metadata contains generic grouping, ordering, track, badge, and stable
+renderer-key descriptions; it contains no viewer objects or renderer trait objects.
+`logic_analyzer_ui` resolves the keys through the viewer's plugin registry and translates the
+descriptions into waveform groups and tracks. Missing renderer registrations are explicit UI
+binding errors. Live graph updates publish replacement subscription metadata before the UI
+rebinds presentations. The compiler only transports the descriptors.
 
 Sampling overlays follow the same boundary. `signal_processing::SamplingEdge` is the shared
 runtime concept; the compiler resolves graph inputs to capture channels, qualifiers, and runtime
@@ -195,9 +198,13 @@ activity handles in `ResolvedSamplingOverlay`. The UI converts that plan into th
 widget's overlay type. The compiler does not construct a widget overlay.
 
 Decoder-table subscriptions are published as collected table lanes with their resolved producer
-metadata. The UI groups and orders those lanes into `DecoderTableRegistry` sources and columns.
-Consequently the compiler owns table-data retention but not panel-facing lane IDs, track IDs, or
-registry mutation.
+metadata. The UI owns the resolved decoder-table source, column, and registry models, resolves
+renderer keys, and groups and orders the lanes. Consequently neither the graph API nor the
+compiler owns panel-facing lane IDs, track IDs, renderer objects, or registry mutation.
+
+`logic_analyzer_graph_api` has no dependency on `egui` or `logic_analyzer_viewer`. Concrete node
+features may implement viewer renderers because protocol-specific rendering belongs with those
+features; the stable-key registry keeps that implementation out of generic graph contracts.
 
 `logic_analyzer_graph_compiler` has no production dependency on `egui` or
 `logic_analyzer_viewer`. It does not own a waveform presentation registry or invoke presentation
@@ -223,20 +230,11 @@ at whole implementation-module and linker-composition boundaries.
 
 ## Proposed future: UI-controlled compiler boundary
 
-`logic_analyzer_graph_compiler` will own only the graph-to-processing lifecycle. It accepts a
-graph document, lowers it to a processing graph, executes that graph, and exposes the data and
-source-readiness results produced by the run. It does not construct a node-graph widget, a logic
-analyzer widget, waveform groups, table panels, renderer objects, or UI-selection state.
+The compiler's run results will consolidate retained lanes, collected subscriber data,
+diagnostics, and source readiness behind one application-neutral contract.
 
-The compiler continues to consume the `node_graph` document model because that model is its input
-format. It does not consume `NodeGraphWidget`, `egui`, or `logic_analyzer_viewer`. Node catalog
-construction belongs to built-in-node or application composition. The UI owns graph editing and
-converts its editing state into the graph document passed to the compiler.
-
-The UI controls subscriptions through the existing generic subscription plan, and the compiler
-materializes them with its neutral collector. The run-data handle will additionally consolidate
-collected table data, run diagnostics, and source-readiness artifacts. The UI may attach, detach,
-or rebind its own views without making the compiler invoke a UI callback.
+The run-data handle will let the UI attach, detach, or rebind its views while retaining explicit
+ownership of subscriptions and presentation state.
 
 File and live sources report their viewer-usable data through the same application-neutral
 source-readiness result. For a file source, preparation completes preload, cache lookup or

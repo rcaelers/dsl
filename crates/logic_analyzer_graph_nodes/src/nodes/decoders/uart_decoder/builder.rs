@@ -4,13 +4,13 @@ use serde_json::Value;
 
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{
-    DecoderTableColumnPresentation, NodeBuildContext, PortKind, ResolvedInputs, parse_state,
+    DecoderTableColumnDescriptor, LanePresentationDescriptor, NodeBuildContext, PortKind,
+    ResolvedInputs, parse_state,
 };
 use logic_analyzer_processing::nodes::decoders::uart_decoder::{
     UartDecoder, UartParity, UartStopBits,
 };
 use logic_analyzer_processing::types::BitOrder;
-use logic_analyzer_viewer::ViewerOutputPresentation;
 use node_graph::Socket;
 use signal_processing::{ProcessNode, Sample, Trigger, Word};
 
@@ -18,11 +18,11 @@ use signal_processing::{ProcessNode, Sample, Trigger, Word};
 pub(crate) struct UartDecoderBuilder;
 
 impl RuntimeBuilder for UartDecoderBuilder {
-    fn viewer_output_presentation(
+    fn lane_presentation(
         &self,
         socket: &Socket,
         _state: &Value,
-    ) -> Option<ViewerOutputPresentation> {
+    ) -> Option<LanePresentationDescriptor> {
         super::presentation::uart_output_presentation(socket.def_index)
     }
 
@@ -30,7 +30,7 @@ impl RuntimeBuilder for UartDecoderBuilder {
         &self,
         socket: &Socket,
         _state: &Value,
-    ) -> Option<DecoderTableColumnPresentation> {
+    ) -> Option<DecoderTableColumnDescriptor> {
         super::presentation::uart_table_column(socket.def_index)
     }
 

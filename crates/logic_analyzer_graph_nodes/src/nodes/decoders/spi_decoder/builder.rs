@@ -4,14 +4,14 @@ use serde_json::Value;
 
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{
-    DecoderTableColumnPresentation, NodeBuildContext, PortKind, ResolvedInputs,
-    SamplingOverlayDescriptor, SamplingQualifierDescriptor, ViewerOutputControl, parse_state,
+    DecoderTableColumnDescriptor, LanePresentationDescriptor, NodeBuildContext, PortKind,
+    ResolvedInputs, SamplingOverlayDescriptor, SamplingQualifierDescriptor, ViewerOutputControl,
+    parse_state,
 };
 use logic_analyzer_processing::nodes::decoders::spi_decoder::{SpiDecoder, SpiMode};
 use logic_analyzer_processing::types::{BitOrder, CsPolarity};
-use logic_analyzer_viewer::{SamplingEdge, ViewerOutputPresentation};
 use node_graph::Socket;
-use signal_processing::{ProcessNode, Sample, Word};
+use signal_processing::{ProcessNode, Sample, SamplingEdge, Word};
 
 #[derive(Default)]
 pub(crate) struct SpiDecoderBuilder;
@@ -42,11 +42,11 @@ impl RuntimeBuilder for SpiDecoderBuilder {
         }
     }
 
-    fn viewer_output_presentation(
+    fn lane_presentation(
         &self,
         socket: &Socket,
         _state: &Value,
-    ) -> Option<ViewerOutputPresentation> {
+    ) -> Option<LanePresentationDescriptor> {
         super::presentation::spi_output_presentation(socket.def_index)
     }
 
@@ -54,7 +54,7 @@ impl RuntimeBuilder for SpiDecoderBuilder {
         &self,
         socket: &Socket,
         _state: &Value,
-    ) -> Option<DecoderTableColumnPresentation> {
+    ) -> Option<DecoderTableColumnDescriptor> {
         super::presentation::spi_table_column(socket.def_index)
     }
 

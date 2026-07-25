@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{
-    DecoderTableColumnPresentation, NodeBuildContext, PortKind, ResolvedInputs,
+    DecoderTableColumnDescriptor, NodeBuildContext, PortKind, ResolvedInputs,
     SamplingOverlayDescriptor, SamplingQualifierDescriptor, parse_state,
 };
 use logic_analyzer_processing::nodes::decoders::parallel_decoder::{
@@ -36,7 +36,7 @@ impl RuntimeBuilder for BinaryDecoderBuilder {
         &self,
         socket: &Socket,
         _state: &Value,
-    ) -> Option<DecoderTableColumnPresentation> {
+    ) -> Option<DecoderTableColumnDescriptor> {
         super::presentation::binary_table_column(socket.def_index)
     }
 

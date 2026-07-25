@@ -23,7 +23,7 @@ use trigger_editor::{TriggerEditor, TriggerEditorChannel};
 use crate::about::AboutWindow;
 use crate::app_platform::load_symbol_fonts;
 use crate::collected_output_presentation::waveform_presentation_registry;
-use crate::decoder_panel::DecoderPanels;
+use crate::decoder_panel::{DecoderPanels, DecoderTableRegistry};
 use crate::decoder_table_presentation::decoder_table_registry;
 use crate::live_capture::{
     CaptureAnalysisAttachment, CaptureAvailability, CaptureCoordinator, CaptureCoordinatorContract,
@@ -795,7 +795,7 @@ impl App {
         self.logic_analyzer
             .set_waveform_presentations(WaveformPresentationRegistry::new());
         self.decoder_panels
-            .set_run_data(ctx.derived_lanes().clone(), decoder_table_registry(&[]));
+            .set_run_data(ctx.derived_lanes().clone(), DecoderTableRegistry::new());
         self.plugin_panels.set_run_data(ctx.derived_lanes().clone());
 
         let started = match replay {
@@ -825,10 +825,14 @@ impl App {
                         "Could not bind collected output presentation: {error}"
                     )),
                 }
-                self.decoder_panels.set_run_data(
-                    ctx.derived_lanes().clone(),
-                    decoder_table_registry(ctx.collected_table_subscriptions()),
-                );
+                match decoder_table_registry(ctx.collected_table_subscriptions()) {
+                    Ok(tables) => self
+                        .decoder_panels
+                        .set_run_data(ctx.derived_lanes().clone(), tables),
+                    Err(error) => self.toasts.error(format!(
+                        "Could not bind decoder-table presentation: {error}"
+                    )),
+                }
                 self.set_sampling_overlay_candidates(ctx.take_sampling_overlays());
                 self.run = Some(run);
             }
@@ -1029,7 +1033,7 @@ impl App {
         self.logic_analyzer
             .set_waveform_presentations(WaveformPresentationRegistry::new());
         self.decoder_panels
-            .set_run_data(ctx.derived_lanes().clone(), decoder_table_registry(&[]));
+            .set_run_data(ctx.derived_lanes().clone(), DecoderTableRegistry::new());
         self.plugin_panels.set_run_data(ctx.derived_lanes().clone());
         let source = compiler::LiveAnalysisSource {
             source_node: attachment.source_node,
@@ -1048,10 +1052,14 @@ impl App {
                         "Could not bind collected output presentation: {error}"
                     )),
                 }
-                self.decoder_panels.set_run_data(
-                    ctx.derived_lanes().clone(),
-                    decoder_table_registry(ctx.collected_table_subscriptions()),
-                );
+                match decoder_table_registry(ctx.collected_table_subscriptions()) {
+                    Ok(tables) => self
+                        .decoder_panels
+                        .set_run_data(ctx.derived_lanes().clone(), tables),
+                    Err(error) => self.toasts.error(format!(
+                        "Could not bind decoder-table presentation: {error}"
+                    )),
+                }
                 self.set_sampling_overlay_candidates(ctx.take_sampling_overlays());
                 self.capture_analysis = Some(run);
             }
@@ -1557,10 +1565,14 @@ impl App {
                         "Could not bind collected output presentation: {error}"
                     )),
                 }
-                self.decoder_panels.set_run_data(
-                    run.derived_lanes().clone(),
-                    decoder_table_registry(run.collected_table_subscriptions()),
-                );
+                match decoder_table_registry(run.collected_table_subscriptions()) {
+                    Ok(tables) => self
+                        .decoder_panels
+                        .set_run_data(run.derived_lanes().clone(), tables),
+                    Err(error) => self.toasts.error(format!(
+                        "Could not bind decoder-table presentation: {error}"
+                    )),
+                }
                 refresh_sampling_overlays = true;
             }
             Ok(summary) => {
@@ -1572,10 +1584,14 @@ impl App {
                         "Could not bind collected output presentation: {error}"
                     )),
                 }
-                self.decoder_panels.set_run_data(
-                    run.derived_lanes().clone(),
-                    decoder_table_registry(run.collected_table_subscriptions()),
-                );
+                match decoder_table_registry(run.collected_table_subscriptions()) {
+                    Ok(tables) => self
+                        .decoder_panels
+                        .set_run_data(run.derived_lanes().clone(), tables),
+                    Err(error) => self.toasts.error(format!(
+                        "Could not bind decoder-table presentation: {error}"
+                    )),
+                }
                 refresh_sampling_overlays = true;
                 self.toasts.info(format!(
                     "live: +{} −{} cfg {} restart {}",

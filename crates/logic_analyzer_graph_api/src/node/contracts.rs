@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use logic_analyzer_viewer::ViewerOutputPresentation;
 use node_graph::Socket;
 use signal_processing::{
     AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureChannelId,
@@ -11,9 +10,10 @@ use signal_processing::{
 };
 
 use crate::node_support::{
-    CaptureCacheIdentity, CapturePresentation, DecoderTableColumnPresentation, LiveCaptureEdit,
-    NodeBuildContext, PortKind, ResolvedInputs, SamplingOverlayDescriptor, SimpleTriggerChannel,
-    TriggerConfigurationFeature, ViewerOutputControl,
+    CaptureCacheIdentity, CapturePresentation, DecoderTableColumnDescriptor,
+    LanePresentationDescriptor, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
+    SamplingOverlayDescriptor, SimpleTriggerChannel, TriggerConfigurationFeature,
+    ViewerOutputControl,
 };
 
 pub trait CaptureGraphSourceFactory: Send + Sync {
@@ -100,18 +100,18 @@ pub trait RuntimeBuilder {
     fn word_display_format(&self, _socket: &Socket, _state: &Value) -> Option<String> {
         None
     }
-    fn viewer_output_presentation(
+    fn lane_presentation(
         &self,
         _socket: &Socket,
         _state: &Value,
-    ) -> Option<ViewerOutputPresentation> {
+    ) -> Option<LanePresentationDescriptor> {
         None
     }
     fn decoder_table_column(
         &self,
         _socket: &Socket,
         _state: &Value,
-    ) -> Option<DecoderTableColumnPresentation> {
+    ) -> Option<DecoderTableColumnDescriptor> {
         None
     }
     fn viewer_channel_origin(&self, _socket: &Socket, _state: &Value) -> Option<usize> {

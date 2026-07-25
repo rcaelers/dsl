@@ -3,7 +3,7 @@ use std::sync::Arc;
 use logic_analyzer_graph_compiler::CollectedOutputSubscription;
 use logic_analyzer_viewer::{
     DerivedLaneId, ViewerLaneBadge, ViewerLaneGroup, ViewerLaneGroupId, ViewerLaneRenderer,
-    ViewerLaneTrack, WaveformPresentationRegistry,
+    ViewerLaneTrack, WaveformPresentationRegistry, viewer_lane_renderer,
 };
 
 struct PendingGroup {
@@ -23,7 +23,15 @@ pub(crate) fn bind_collected_output_presentations(
         let mut pending_groups: Vec<PendingGroup> = Vec::new();
         for lane in &subscription.lanes {
             let lane_id = DerivedLaneId::new(lane.lane_name.clone());
-            if let Some(presentation) = &lane.input.viewer_presentation {
+            if let Some(presentation) = &lane.input.lane_presentation {
+                let renderer =
+                    viewer_lane_renderer(&presentation.renderer_key).ok_or_else(|| {
+                        format!(
+                            "collected lane '{}' references unknown renderer '{}'",
+                            lane.lane_name, presentation.renderer_key
+                        )
+                    })?;
+                let [red, green, blue] = presentation.badge.color;
                 let track = ViewerLaneTrack::new(
                     presentation.track_key.clone(),
                     lane_id,
@@ -39,15 +47,18 @@ pub(crate) fn bind_collected_output_presentations(
                         source_node: lane.input.source_node,
                         key: presentation.group_key.clone(),
                         label: lane.source_label.clone(),
-                        badge: presentation.badge.clone(),
-                        renderer: Arc::clone(&presentation.renderer),
+                        badge: ViewerLaneBadge::new(
+                            presentation.badge.label.clone(),
+                            egui::Color32::from_rgb(red, green, blue),
+                        ),
+                        renderer,
                         tracks: vec![(presentation.track_order, track)],
                     });
                 }
             } else {
                 let presentation =
                     lane.input
-                        .default_viewer_presentation
+                        .default_lane_presentation
                         .as_ref()
                         .ok_or_else(|| {
                             format!(
@@ -61,9 +72,22 @@ pub(crate) fn bind_collected_output_presentations(
                         subscription.runtime_name, lane.member
                     )),
                     label: lane.lane_name.clone(),
-                    badge: presentation.badge().clone(),
+                    badge: {
+                        let [red, green, blue] = presentation.badge.color;
+                        ViewerLaneBadge::new(
+                            presentation.badge.label.clone(),
+                            egui::Color32::from_rgb(red, green, blue),
+                        )
+                    },
                     tracks: vec![ViewerLaneTrack::new("primary", lane_id, 1.0)],
-                    renderer: presentation.renderer(),
+                    renderer: viewer_lane_renderer(&presentation.renderer_key).ok_or_else(
+                        || {
+                            format!(
+                                "collected lane '{}' references unknown renderer '{}'",
+                                lane.lane_name, presentation.renderer_key
+                            )
+                        },
+                    )?,
                 });
             }
         }
@@ -95,13 +119,21 @@ pub(crate) fn waveform_presentation_registry(
 
 #[cfg(test)]
 mod collected_output_presentation_tests {
-    use logic_analyzer_graph_api::node_support::{PortKind, ResolvedInput};
+    use logic_analyzer_graph_api::node_support::{
+        LaneBadgeDescriptor, LanePresentationDescriptor, PortKind, ResolvedInput,
+    };
     use logic_analyzer_graph_compiler::CollectedOutputLane;
-    use logic_analyzer_viewer::{DefaultViewerLaneRenderer, ViewerOutputPresentation};
+    use logic_analyzer_viewer::{DefaultViewerLaneRenderer, ViewerLaneRendererRegistration};
     use node_graph::NodeId;
     use signal_processing::Word;
 
     use super::*;
+
+    const TEST_RENDERER: &str = "org.logicconduit.test.renderer.output/v1";
+
+    inventory::submit! {
+        ViewerLaneRendererRegistration::new(TEST_RENDERER, || Arc::new(DefaultViewerLaneRenderer))
+    }
 
     fn grouped_lane(member: usize, track: &str, order: usize) -> CollectedOutputLane {
         CollectedOutputLane {
@@ -114,15 +146,15 @@ mod collected_output_presentation_tests {
                 source_node: NodeId(7),
                 source_node_title: "Decoder".to_owned(),
                 word_display_format: None,
-                viewer_presentation: Some(ViewerOutputPresentation::new(
+                lane_presentation: Some(LanePresentationDescriptor::new(
                     "frame",
                     track,
                     order,
                     1.0,
-                    ViewerLaneBadge::new("W", egui::Color32::WHITE),
-                    Arc::new(DefaultViewerLaneRenderer),
+                    LaneBadgeDescriptor::new("W", [255, 255, 255]),
+                    TEST_RENDERER,
                 )),
-                default_viewer_presentation: None,
+                default_lane_presentation: None,
                 decoder_table_column: None,
                 capture_channel: None,
             },

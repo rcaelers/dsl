@@ -3,7 +3,7 @@ use std::sync::Arc;
 use signal_processing::{CollectedLaneRequest, CollectedPayloadAdapter};
 
 use crate::node_support::{
-    DefaultViewerPayloadPresentation, NodeBuildContext, PortKind, PortValue, ResolvedInput,
+    DefaultLanePresentationDescriptor, NodeBuildContext, PortKind, PortValue, ResolvedInput,
 };
 
 pub type CollectedPayloadRequestConfigurator =
@@ -13,7 +13,7 @@ pub struct CollectedPayloadRegistration {
     stable_id: &'static str,
     kind: fn() -> PortKind,
     adapter: fn() -> Arc<dyn CollectedPayloadAdapter>,
-    presentation: fn() -> DefaultViewerPayloadPresentation,
+    presentation: fn() -> DefaultLanePresentationDescriptor,
     configure_request: CollectedPayloadRequestConfigurator,
     persistent_cache: bool,
 }
@@ -22,7 +22,7 @@ impl CollectedPayloadRegistration {
     pub const fn subscribable<T: PortValue>(
         stable_id: &'static str,
         adapter: fn() -> Arc<dyn CollectedPayloadAdapter>,
-        presentation: fn() -> DefaultViewerPayloadPresentation,
+        presentation: fn() -> DefaultLanePresentationDescriptor,
     ) -> Self {
         Self::subscribable_with_request_configurator::<T>(
             stable_id,
@@ -39,7 +39,7 @@ impl CollectedPayloadRegistration {
         stable_id: &'static str,
         kind: fn() -> PortKind,
         adapter: fn() -> Arc<dyn CollectedPayloadAdapter>,
-        presentation: fn() -> DefaultViewerPayloadPresentation,
+        presentation: fn() -> DefaultLanePresentationDescriptor,
     ) -> Self {
         Self {
             stable_id,
@@ -54,7 +54,7 @@ impl CollectedPayloadRegistration {
     pub const fn subscribable_with_request_configurator<T: PortValue>(
         stable_id: &'static str,
         adapter: fn() -> Arc<dyn CollectedPayloadAdapter>,
-        presentation: fn() -> DefaultViewerPayloadPresentation,
+        presentation: fn() -> DefaultLanePresentationDescriptor,
         configure_request: CollectedPayloadRequestConfigurator,
         persistent_cache: bool,
     ) -> Self {
@@ -82,7 +82,7 @@ impl CollectedPayloadRegistration {
     }
 
     #[doc(hidden)]
-    pub fn presentation(&self) -> DefaultViewerPayloadPresentation {
+    pub fn presentation(&self) -> DefaultLanePresentationDescriptor {
         (self.presentation)()
     }
 

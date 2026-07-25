@@ -371,10 +371,10 @@ Collected display uses two independent registries:
   to those lanes and supplies protocol-neutral renderer objects. It also maps stable payload
   identities to registered singleton presentations for lanes without an explicit group.
 
-Every visible payload belongs to an explicit or registered default group. Concrete producer
-builders can register compound groups and renderer objects through opaque
-`ViewerOutputPresentation` metadata. Row identity, labels, height, drawing, hit-testing, and
-snapping use group and track IDs rather than display names.
+Every visible payload belongs to an explicit or registered default group. The application maps
+producer-owned, protocol-neutral descriptors and their stable renderer keys into compound groups
+and renderer objects. Row identity, labels, height, drawing, hit-testing, and snapping use group
+and track IDs rather than display names.
 
 The viewer requests immutable snapshots bounded by the visible time range and pixel-derived item
 budget, then releases retained-data locks before calling renderer code. Exact and dense activity

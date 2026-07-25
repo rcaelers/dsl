@@ -305,50 +305,6 @@ impl ViewerLaneGroup {
     }
 }
 
-/// Metadata supplied by a producer builder for one output socket.
-#[derive(Clone)]
-pub struct ViewerOutputPresentation {
-    pub group_key: String,
-    pub track_key: String,
-    pub track_order: usize,
-    pub relative_height: f32,
-    pub badge: ViewerLaneBadge,
-    pub renderer: Arc<dyn ViewerLaneRenderer>,
-}
-
-impl fmt::Debug for ViewerOutputPresentation {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("ViewerOutputPresentation")
-            .field("group_key", &self.group_key)
-            .field("track_key", &self.track_key)
-            .field("track_order", &self.track_order)
-            .field("relative_height", &self.relative_height)
-            .field("badge", &self.badge)
-            .finish_non_exhaustive()
-    }
-}
-
-impl ViewerOutputPresentation {
-    pub fn new(
-        group_key: impl Into<String>,
-        track_key: impl Into<String>,
-        track_order: usize,
-        relative_height: f32,
-        badge: ViewerLaneBadge,
-        renderer: Arc<dyn ViewerLaneRenderer>,
-    ) -> Self {
-        Self {
-            group_key: group_key.into(),
-            track_key: track_key.into(),
-            track_order,
-            relative_height,
-            badge,
-            renderer,
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct WaveformPresentationRegistry {
     inner: Arc<RwLock<Vec<ViewerLaneGroup>>>,

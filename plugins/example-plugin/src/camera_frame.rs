@@ -11,11 +11,12 @@ use logic_analyzer_graph_api::node::{
     CollectedPayloadRegistration, GraphNodeRegistration, RuntimeBuilder,
 };
 use logic_analyzer_graph_api::node_support::{
-    DefaultViewerPayloadPresentation, NodeBuildContext, PortKind, PortValue, ResolvedInputs,
+    DefaultLanePresentationDescriptor, LaneBadgeDescriptor, NodeBuildContext, PortKind, PortValue,
+    ResolvedInputs,
 };
 use logic_analyzer_ui::{PluginPanel, PluginPanelContext, PluginPanelIcon, UiPanelRegistration};
 use logic_analyzer_viewer::{
-    OpaqueLaneDrawContext, ViewerLaneBadge, ViewerLaneRenderer, ViewerLaneTrack,
+    OpaqueLaneDrawContext, ViewerLaneRenderer, ViewerLaneRendererRegistration, ViewerLaneTrack,
 };
 use node_graph::{InputDef, NodeDef, OutputDef, Socket, SocketDef, SocketShape};
 use signal_processing::{
@@ -407,11 +408,17 @@ impl ViewerLaneRenderer for CameraFrameRenderer {
     }
 }
 
-fn camera_frame_presentation() -> DefaultViewerPayloadPresentation {
-    DefaultViewerPayloadPresentation::with_renderer(
-        ViewerLaneBadge::new("IMG", Color32::from_rgb(90, 175, 220)),
-        Arc::new(CameraFrameRenderer),
+fn camera_frame_presentation() -> DefaultLanePresentationDescriptor {
+    DefaultLanePresentationDescriptor::new(
+        LaneBadgeDescriptor::new("IMG", [90, 175, 220]),
+        CAMERA_FRAME_RENDERER,
     )
+}
+
+const CAMERA_FRAME_RENDERER: &str = "org.logicconduit.example.renderer.camera-frame/v1";
+
+inventory::submit! {
+    ViewerLaneRendererRegistration::new(CAMERA_FRAME_RENDERER, || Arc::new(CameraFrameRenderer))
 }
 
 fn paint_thumbnail(painter: &egui::Painter, rect: Rect, frame: &CameraFrame) {

@@ -2,13 +2,11 @@
 
 use std::sync::Arc;
 
-use egui::Color32;
-
 use logic_analyzer_graph_api::node::CollectedPayloadRegistration;
 use logic_analyzer_graph_api::node_support::{
-    DefaultViewerPayloadPresentation, NodeBuildContext, ResolvedInput,
+    DefaultLanePresentationDescriptor, LaneBadgeDescriptor, NodeBuildContext, ResolvedInput,
 };
-use logic_analyzer_viewer::{DefaultViewerLaneRenderer, ViewerLaneBadge};
+use logic_analyzer_viewer::{DefaultViewerLaneRenderer, ViewerLaneRendererRegistration};
 use signal_processing::{CollectedLaneRequest, CollectedWordLaneOptions, LiveStoreConfig};
 
 use super::presentation::{
@@ -16,19 +14,17 @@ use super::presentation::{
     WordSnapshotRenderer,
 };
 
-fn digital_presentation() -> DefaultViewerPayloadPresentation {
-    DefaultViewerPayloadPresentation::with_renderer(
-        ViewerLaneBadge::new("S", Color32::from_rgb(95, 175, 95)),
-        Arc::new(DigitalSnapshotRenderer),
+fn digital_presentation() -> DefaultLanePresentationDescriptor {
+    DefaultLanePresentationDescriptor::new(
+        LaneBadgeDescriptor::new("S", [95, 175, 95]),
+        DIGITAL_RENDERER,
     )
 }
 
-fn word_presentation() -> DefaultViewerPayloadPresentation {
-    DefaultViewerPayloadPresentation::with_renderer(
-        ViewerLaneBadge::new("W", Color32::from_rgb(215, 140, 60)),
-        Arc::new(WordSnapshotRenderer::new(Arc::new(
-            DefaultViewerLaneRenderer,
-        ))),
+fn word_presentation() -> DefaultLanePresentationDescriptor {
+    DefaultLanePresentationDescriptor::new(
+        LaneBadgeDescriptor::new("W", [215, 140, 60]),
+        WORD_RENDERER,
     )
 }
 
@@ -53,26 +49,38 @@ fn word_request(
     ))
 }
 
-fn trigger_presentation() -> DefaultViewerPayloadPresentation {
-    DefaultViewerPayloadPresentation::with_renderer(
-        ViewerLaneBadge::new("T", Color32::from_rgb(230, 190, 80)),
-        Arc::new(TriggerSnapshotRenderer),
+fn trigger_presentation() -> DefaultLanePresentationDescriptor {
+    DefaultLanePresentationDescriptor::new(
+        LaneBadgeDescriptor::new("T", [230, 190, 80]),
+        TRIGGER_RENDERER,
     )
 }
 
-fn number_presentation() -> DefaultViewerPayloadPresentation {
-    DefaultViewerPayloadPresentation::with_renderer(
-        ViewerLaneBadge::new("N", Color32::from_rgb(95, 145, 210)),
-        Arc::new(NumberSnapshotRenderer),
+fn number_presentation() -> DefaultLanePresentationDescriptor {
+    DefaultLanePresentationDescriptor::new(
+        LaneBadgeDescriptor::new("N", [95, 145, 210]),
+        NUMBER_RENDERER,
     )
 }
 
-fn text_presentation() -> DefaultViewerPayloadPresentation {
-    DefaultViewerPayloadPresentation::with_renderer(
-        ViewerLaneBadge::new("TXT", Color32::from_rgb(215, 150, 170)),
-        Arc::new(TextSnapshotRenderer),
+fn text_presentation() -> DefaultLanePresentationDescriptor {
+    DefaultLanePresentationDescriptor::new(
+        LaneBadgeDescriptor::new("TXT", [215, 150, 170]),
+        TEXT_RENDERER,
     )
 }
+
+const DIGITAL_RENDERER: &str = "org.logicconduit.renderer.digital/v1";
+const WORD_RENDERER: &str = "org.logicconduit.renderer.word/v1";
+const TRIGGER_RENDERER: &str = "org.logicconduit.renderer.trigger/v1";
+const NUMBER_RENDERER: &str = "org.logicconduit.renderer.number/v1";
+const TEXT_RENDERER: &str = "org.logicconduit.renderer.text/v1";
+
+inventory::submit! { ViewerLaneRendererRegistration::new(DIGITAL_RENDERER, || Arc::new(DigitalSnapshotRenderer)) }
+inventory::submit! { ViewerLaneRendererRegistration::new(WORD_RENDERER, || Arc::new(WordSnapshotRenderer::new(Arc::new(DefaultViewerLaneRenderer)))) }
+inventory::submit! { ViewerLaneRendererRegistration::new(TRIGGER_RENDERER, || Arc::new(TriggerSnapshotRenderer)) }
+inventory::submit! { ViewerLaneRendererRegistration::new(NUMBER_RENDERER, || Arc::new(NumberSnapshotRenderer)) }
+inventory::submit! { ViewerLaneRendererRegistration::new(TEXT_RENDERER, || Arc::new(TextSnapshotRenderer)) }
 
 inventory::submit! {
     CollectedPayloadRegistration::subscribable::<signal_processing::Sample>(

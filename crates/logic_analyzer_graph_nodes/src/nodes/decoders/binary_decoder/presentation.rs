@@ -1,15 +1,11 @@
 //! Viewer presentation for binary-decoder output.
 
-use std::sync::Arc;
+use logic_analyzer_graph_api::node_support::{DecoderTableCellMode, DecoderTableColumnDescriptor};
+use logic_analyzer_viewer::{DefaultViewerLaneRenderer, ViewerLaneRendererRegistration};
 
-use logic_analyzer_graph_api::node_support::{
-    DecoderTableCellMode, DecoderTableColumnPresentation,
-};
-use logic_analyzer_viewer::DefaultViewerLaneRenderer;
-
-pub(crate) fn binary_table_column(def_index: usize) -> Option<DecoderTableColumnPresentation> {
+pub(crate) fn binary_table_column(def_index: usize) -> Option<DecoderTableColumnDescriptor> {
     (def_index == 0).then(|| {
-        DecoderTableColumnPresentation::new(
+        DecoderTableColumnDescriptor::new(
             "decoder",
             "data",
             "Data",
@@ -17,8 +13,16 @@ pub(crate) fn binary_table_column(def_index: usize) -> Option<DecoderTableColumn
             true,
             DecoderTableCellMode::Single,
             "primary",
-            Arc::new(DefaultViewerLaneRenderer),
+            BINARY_TABLE_RENDERER,
         )
+    })
+}
+
+const BINARY_TABLE_RENDERER: &str = "org.logicconduit.renderer.binary-table/v1";
+
+inventory::submit! {
+    ViewerLaneRendererRegistration::new(BINARY_TABLE_RENDERER, || {
+        std::sync::Arc::new(DefaultViewerLaneRenderer)
     })
 }
 

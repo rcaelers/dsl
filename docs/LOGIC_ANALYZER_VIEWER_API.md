@@ -13,7 +13,8 @@ pub use lanes::{
     AnnotationVisual, DefaultViewerLaneRenderer, DerivedLaneId, OpaqueLaneDrawContext,
     ViewerLaneBadge, ViewerLaneInteraction, ViewerLaneInteractionContext, ViewerLaneTheme,
     ViewerLaneGroup, ViewerLaneGroupId, WaveformPresentationRegistry, ViewerLaneRenderer,
-    ViewerLaneTrack, ViewerLaneTrackId, ViewerOutputPresentation,
+    ViewerLaneTrack, ViewerLaneTrackId, ViewerLaneRendererRegistration,
+    viewer_lane_renderer,
 };
 ```
 
@@ -89,8 +90,7 @@ Hosts pair the data store with a per-run presentation registry:
 ```rust
 use logic_analyzer_viewer::WaveformPresentationRegistry;
 
-let compile_ctx = logic_analyzer_graph_compiler::CompileCtx::default();
-viewer.set_waveform_presentations(compile_ctx.waveform_presentations().clone());
+viewer.set_waveform_presentations(application_registry);
 ```
 
 The registry contains explicit `ViewerLaneGroup` and `ViewerLaneTrack` objects plus singleton
@@ -98,11 +98,10 @@ defaults keyed by stable payload identity. A group can combine several payload l
 displayed row and supplies a `ViewerLaneRenderer` for row height, bounded drawing, optional
 level/event interaction, annotation labels/styles, and snap-track selection. Drawing receives a
 theme with semantic color roles and an interaction context containing the bounded window, item
-budget, hover state, and pointer time. Concrete producer builders contribute
-`ViewerOutputPresentation` through `RuntimeBuilder::viewer_output_presentation`; the generic
-waveform-subscription builder performs registration without inspecting node names, socket labels,
-or metadata values. The compiler independently materializes a neutral `DerivedDataCollector` for
-the subscribed outputs.
+budget, hover state, and pointer time. Concrete producers publish application-neutral lane
+descriptors containing stable renderer keys. The host resolves those keys through
+`ViewerLaneRendererRegistration` and constructs the groups; the viewer and compiler do not inspect
+node names, socket labels, or protocol metadata values.
 
 Before invoking a renderer, the viewer asks the lane's query for an immutable snapshot bounded by
 the visible time window and item budget, then releases the lane registry lock. Exact-versus-dense
