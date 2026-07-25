@@ -201,6 +201,34 @@ order; update this single checklist as slices land:
 - [x] Remove transitional re-exports and obsolete dependencies, enforce the final dependency
   graph in architecture checks, and pass workspace Clippy/tests plus native and wasm builds.
 
+### UI-controlled compiler boundary
+
+Implement the proposed boundary in
+[Graph Crate Responsibility Split](docs/GRAPH_CRATE_SPLIT_DESIGN.md#proposed-future-ui-controlled-compiler-boundary)
+in this order:
+
+- [ ] Define a compiler-owned, application-neutral run-data and source-readiness contract. It
+  exposes retained lanes, collected subscriber data, diagnostics, and file/live cache-index
+  availability without viewer or table-widget types.
+- [ ] Define an explicit subscription-plan contract. The UI supplies the payloads it needs before
+  starting or updating a run; the compiler materializes collectors from that plan without a
+  Viewer graph node or UI callback trait.
+- [x] Move node-type registry construction out of `logic_analyzer_graph_compiler`; the UI now
+  builds its editor registry from the validated graph-node inventory.
+- [ ] Move output-selection controls, viewer-selection persistence, and viewer-node synthesis out
+  of `logic_analyzer_graph_compiler` into UI or built-in-node composition.
+- [ ] Move waveform-group, renderer, decoder-table-panel, and sampling-overlay binding into the
+  UI presentation adapter. Keep node-supplied metadata protocol-neutral and make the UI translate
+  it into `logic_analyzer_viewer` contracts.
+- [ ] Move Viewer-node and viewer-selection saved-graph compatibility into an explicit UI
+  migration that emits user-visible warnings and preserves the stable
+  `logic_analyzer_graph.viewer_selections` extension during transition.
+- [ ] Remove `egui` and `logic_analyzer_viewer` from the compiler production dependencies. Add
+  architecture checks that reject widget imports, Viewer-node synthesis, and viewer-selection
+  persistence in the compiler crate.
+- [ ] Verify native and wasm file/live source readiness, cache reuse, indexing, collector
+  subscription changes, and UI attachment after production has started.
+
 - Define how several source clocks and trigger positions map onto the shared viewer timeline.
 - Add graph-level source grouping/alignment metadata and preserve it in saved graphs.
 - Prepare `node-graph` for an eventual separate repository: replace workspace-inherited

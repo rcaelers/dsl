@@ -62,3 +62,24 @@ fn inventory_assembly_does_not_import_the_builtin_node_module() {
         );
     }
 }
+
+#[test]
+fn compiler_does_not_construct_editor_registries() {
+    let sources = [
+        ("compiler facade", include_str!("graph_compiler.rs")),
+        (
+            "runtime inventory",
+            include_str!("graph_node_registration.rs"),
+        ),
+    ];
+
+    for (component, source) in sources {
+        let implementation = implementation_source(source);
+        assert!(
+            !implementation.contains("NodeTypeRegistry")
+                && !implementation.contains("build_node_registry")
+                && !implementation.contains("apply_node"),
+            "{component} must not construct the node editor registry"
+        );
+    }
+}

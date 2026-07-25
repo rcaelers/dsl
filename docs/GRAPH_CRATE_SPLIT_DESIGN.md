@@ -99,6 +99,10 @@ operations:
 - synchronize saved payload subscriptions;
 - start or update an application run and live analysis.
 
+The application UI constructs the editor's `NodeTypeRegistry` directly from the validated
+`GraphNodeRegistration` inventory. The compiler consumes the same validated inventory only to
+construct runtime builders and does not expose an editor-registry operation.
+
 Compiler result types belong to the crate-root facade: `CompiledGraph`, `CompiledNode`,
 `CompiledEdge`, `CompileError`, `ApplyError`, `LiveRun`, discovered feature wrappers,
 compatibility warnings, and resolved sampling candidates.
@@ -173,3 +177,50 @@ Architecture checks enforce these dependency rules:
 
 Native and wasm builds exercise the same inventory and public API surfaces. Target selection stays
 at whole implementation-module and linker-composition boundaries.
+
+## Proposed future: UI-controlled compiler boundary
+
+`logic_analyzer_graph_compiler` will own only the graph-to-processing lifecycle. It accepts a
+graph document, lowers it to a processing graph, executes that graph, and exposes the data and
+source-readiness results produced by the run. It does not construct a node-graph widget, a logic
+analyzer widget, waveform groups, table panels, renderer objects, or UI-selection state.
+
+The compiler continues to consume the `node_graph` document model because that model is its input
+format. It does not consume `NodeGraphWidget`, `egui`, or `logic_analyzer_viewer`. Node catalog
+construction belongs to built-in-node or application composition. The UI owns graph editing and
+converts its editing state into the graph document passed to the compiler.
+
+The UI controls subscriptions explicitly. Before a run it supplies a generic subscription plan
+that identifies the retained payloads it needs. The compiler materializes data collectors for that
+plan and returns a run-data handle containing the retained derived lanes, collected table data,
+run diagnostics, and source-readiness artifacts. The UI binds those results to its waveform and
+table widgets after the run starts; it may attach, detach, or rebind its own views without making
+the compiler construct a viewer node or invoke a UI callback.
+
+File and live sources report their viewer-usable data through the same application-neutral
+source-readiness result. For a file source, preparation completes preload, cache lookup or
+creation, and indexing before publishing the available capture data. For a live source, the run
+publishes its cache and index as they become available. The compiler owns orchestration and its
+explicit cache-directory configuration; source and storage implementations own their platform
+details.
+
+The resulting dependency direction is:
+
+```text
+node_graph document ──> logic_analyzer_graph_compiler ──> signal_processing
+                              │
+                              └──> run data and source readiness
+
+logic_analyzer_graph_nodes ──> logic_analyzer_graph_api
+logic_analyzer_ui ──> logic_analyzer_graph_compiler, logic_analyzer_graph_nodes,
+                      logic_analyzer_viewer
+```
+
+No compiler-to-UI callback trait is required. A callback would reverse lifecycle ownership and
+make subscription, teardown, and presentation state implicit. The UI creates subscription plans,
+starts or updates runs, and consumes run data through explicit compiler operations.
+
+Saved graphs remain compatible through explicit UI-owned migration. Existing Viewer-node state and
+the `logic_analyzer_graph.viewer_selections` extension migrate to UI subscription state with a
+user-visible warning; the compiler does not preserve this compatibility through viewer-specific
+branches.

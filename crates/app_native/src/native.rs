@@ -155,7 +155,7 @@ mod tests {
         link_compile_time_inventories();
 
         let compiler = logic_analyzer_graph_compiler::GraphCompiler::new();
-        let nodes = compiler.build_node_registry();
+        let nodes = logic_analyzer_ui::build_node_registry();
         assert_eq!(nodes.category_of("Pulse Measure"), Some("Plugin"));
         assert_eq!(nodes.category_of("Camera Frame Source"), Some("Plugin"));
 
@@ -172,7 +172,7 @@ mod tests {
         link_compile_time_inventories();
 
         let compiler = logic_analyzer_graph_compiler::GraphCompiler::new();
-        let nodes = compiler.build_node_registry();
+        let nodes = logic_analyzer_ui::build_node_registry();
         assert_eq!(nodes.category_of("SPI Decoder"), Some("Decoders"));
         assert!(
             compiler

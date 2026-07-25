@@ -5,6 +5,7 @@ mod application_config;
 mod decoder_panel;
 mod input_binding_config;
 mod live_capture;
+mod node_registry;
 mod plugin_panel;
 mod preferences;
 mod product;
@@ -18,6 +19,7 @@ pub use app_platform::{
     NativeMenuCommand, dispatch_native_menu_command, set_recent_files_listener,
 };
 use input_bindings::InputBindings;
+pub use node_registry::build_node_registry;
 pub use plugin_panel::{PluginPanel, PluginPanelContext, PluginPanelIcon, UiPanelRegistration};
 pub use product::{APPLICATION_ID, APPLICATION_NAME};
 

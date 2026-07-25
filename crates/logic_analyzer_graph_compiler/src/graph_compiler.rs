@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use logic_analyzer_graph_api::node_support::LiveCaptureEdit;
-use node_graph::{GraphState, NodeId, NodeTypeRegistry};
+use node_graph::{GraphState, NodeId};
 use signal_processing::{CollectedPayloadRegistry, ConfigurationBoundary, PersistentStoreConfig};
 
 use super::errors::{ApplyError, CompileError};
@@ -13,7 +13,7 @@ use super::graph::{
 };
 use super::saved_graph::GraphCompatibilityWarning;
 use super::viewer_selection::ViewerOutputSelection;
-use super::{graph, graph_node_registration, saved_graph, viewer_selection};
+use super::{graph, saved_graph, viewer_selection};
 
 /// Stateful application-facing facade for graph discovery, compilation, and execution.
 ///
@@ -29,10 +29,6 @@ impl GraphCompiler {
         Self {
             builders: BuilderRegistry::standard(),
         }
-    }
-
-    pub fn build_node_registry(&self) -> NodeTypeRegistry {
-        graph_node_registration::build_node_registry()
     }
 
     pub fn collected_payloads(&self) -> &CollectedPayloadRegistry {

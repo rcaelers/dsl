@@ -464,7 +464,7 @@ impl App {
         cc.egui_ctx.set_theme(egui::Theme::Dark);
         install_fonts(&cc.egui_ctx);
         let graph_compiler = compiler::GraphCompiler::new();
-        let registry = graph_compiler.build_node_registry();
+        let registry = crate::build_node_registry();
         let input_bindings = Arc::new(crate::application_input_bindings().clone());
         let plugin_panel_registry = PluginPanelRegistry::standard();
         let mut widget = NodeGraphWidget::new(registry);
