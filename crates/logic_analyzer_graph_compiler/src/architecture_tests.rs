@@ -137,3 +137,28 @@ fn compiler_synthesizes_only_application_neutral_collectors() {
         "compiler-generated collection must not construct or identify a concrete Viewer node"
     );
 }
+
+#[test]
+fn compiler_returns_neutral_sampling_and_table_plans() {
+    let implementation = implementation_source(include_str!("graph.rs"));
+    assert!(
+        !implementation.contains("DecoderTableRegistry")
+            && !implementation.contains("SamplingQualifier {")
+            && !implementation.contains("overlay: SamplingOverlay"),
+        "compiler runtime context must expose resolved plans instead of constructing UI registries"
+    );
+}
+
+#[test]
+fn compiler_has_no_production_ui_dependencies() {
+    let manifest = include_str!("../Cargo.toml");
+    let production_dependencies = manifest
+        .split_once("[dev-dependencies]")
+        .map_or(manifest, |(production, _)| production);
+    assert!(!production_dependencies.contains("logic-analyzer-viewer"));
+    assert!(!production_dependencies.contains("egui"));
+
+    let implementation = implementation_source(include_str!("graph.rs"));
+    assert!(!implementation.contains("logic_analyzer_viewer"));
+    assert!(!implementation.contains("egui::"));
+}

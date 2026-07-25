@@ -222,13 +222,13 @@ in this order:
 - [x] Remove synthetic Viewer-node construction; materialize every selected output through the
   application-neutral collector path.
 - [x] Move selected-output waveform-group and renderer binding into the UI presentation adapter.
-- [ ] Move decoder-table-panel and sampling-overlay binding into UI presentation adapters. Keep
-  node-supplied metadata protocol-neutral and make the UI translate it into
-  `logic_analyzer_viewer` contracts.
+- [x] Move decoder-table-panel and sampling-overlay binding into UI presentation adapters.
+- [ ] Replace remaining viewer-native producer metadata with protocol-neutral API contracts that
+  the UI translates into `logic_analyzer_viewer` renderers and badges.
 - [ ] Move Viewer-node and viewer-selection saved-graph compatibility into an explicit UI
   migration that emits user-visible warnings and preserves the stable
   `logic_analyzer_graph.viewer_selections` extension during transition.
-- [ ] Remove `egui` and `logic_analyzer_viewer` from the compiler production dependencies. Add
+- [x] Remove `egui` and `logic_analyzer_viewer` from the compiler production dependencies. Add
   architecture checks that reject widget imports, Viewer-node synthesis, and viewer-selection
   persistence in the compiler crate.
 - [ ] Verify native and wasm file/live source readiness, cache reuse, indexing, collector

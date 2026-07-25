@@ -4,14 +4,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use logic_analyzer_viewer::{
-    DefaultViewerLaneRenderer, SamplingEdge, ViewerLaneBadge, ViewerLaneGroup, ViewerLaneRenderer,
-    ViewerOutputPresentation,
+    DefaultViewerLaneRenderer, ViewerLaneBadge, ViewerLaneRenderer, ViewerOutputPresentation,
 };
 use node_graph::NodeId;
 use signal_processing::{
     CaptureChannelId, CaptureIndexFactory, DerivedDataRetention, DerivedLanes,
-    PersistentStoreConfig, SamplingActivity, SimpleTriggerCondition, TriggerEditorSchema,
-    TriggerProgram,
+    PersistentStoreConfig, SamplingActivity, SamplingEdge, SimpleTriggerCondition,
+    TriggerEditorSchema, TriggerProgram,
 };
 
 use super::port::PortKind;
@@ -63,7 +62,6 @@ pub trait NodeBuildContext {
     fn derived_lanes(&self) -> &DerivedLanes;
     fn derived_data_retention(&self) -> DerivedDataRetention;
     fn derived_word_cache(&self, member: usize) -> Option<&PersistentStoreConfig>;
-    fn register_waveform_presentation(&self, presentation: ViewerLaneGroup);
     fn sampling_activity(&self, runtime_name: &str, input: usize) -> Option<SamplingActivity>;
 }
 

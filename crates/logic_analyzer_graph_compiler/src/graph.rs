@@ -16,19 +16,15 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
-use egui::{Color32, Pos2};
 use serde_json::Value;
 
 use logic_analyzer_graph_api::node::{
     CaptureGraphSourceFactory, LiveCaptureFeature, RuntimeBuilder,
 };
 use logic_analyzer_graph_api::node_support::{
-    CaptureCacheIdentity, CapturePresentation, DecoderTableRegistry,
-    DefaultViewerPayloadPresentation, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInput,
-    ResolvedInputs, SimpleTriggerChannel, TriggerConfigurationFeature,
-};
-use logic_analyzer_viewer::{
-    SamplingOverlay, SamplingQualifier, ViewerLaneGroup, WaveformPresentationRegistry,
+    CaptureCacheIdentity, CapturePresentation, DefaultViewerPayloadPresentation, LiveCaptureEdit,
+    NodeBuildContext, PortKind, ResolvedInput, ResolvedInputs, SimpleTriggerChannel,
+    TriggerConfigurationFeature,
 };
 use node_graph::{
     Connection, GraphState, Node, NodeId, NodeKind, Socket, SocketDirection, SocketId, SocketShape,
@@ -41,15 +37,15 @@ use signal_processing::{
     CaptureProviderCapabilities, CaptureSessionPlan, CaptureStartMode, CollectedLaneRequest,
     CollectedPayloadRegistry, ConfigurationBoundary, DerivedDataRetention, DerivedLanes,
     DisconnectEvent, InputSub, NodeConfig, OverflowPolicy, PersistentStoreConfig,
-    PreparedAcquisition, ProcessNode, SampleBlock, SamplingActivity, SimpleTriggerCondition,
-    TriggerProgram,
+    PreparedAcquisition, ProcessNode, SampleBlock, SamplingActivity, SamplingEdge,
+    SimpleTriggerCondition, TriggerProgram,
 };
 
 use super::data_collector::DataCollectorBuilder;
-use super::decoder_table_subscription::subscribe_collected_tables;
 use super::errors::{ApplyError, CompileError};
 use super::{
-    CollectedOutputLane, CollectedOutputSubscription, OutputSubscriptionPlan, cache_platform,
+    CollectedOutputLane, CollectedOutputSubscription, CollectedTableSubscription,
+    OutputSubscriptionPlan, cache_platform,
 };
 
 /// Shared resources handed to builders. A fresh `DerivedLanes` store per
@@ -57,8 +53,6 @@ use super::{
 #[derive(Default)]
 pub struct CompileCtx {
     derived_lanes: DerivedLanes,
-    waveform_presentations: WaveformPresentationRegistry,
-    decoder_tables: DecoderTableRegistry,
     /// Storage policy selected by the graph's source. Finite sources retain
     /// their complete timeline; continuous sources can explicitly choose a
     /// bounded rolling window.
@@ -70,19 +64,10 @@ pub struct CompileCtx {
     sampling_overlays: Vec<SamplingOverlayCandidate>,
     sampling_activities: HashMap<(String, usize), SamplingActivity>,
     collected_output_subscriptions: Vec<CollectedOutputSubscription>,
+    collected_table_subscriptions: Vec<CollectedTableSubscription>,
 }
 
 impl CompileCtx {
-    /// Returns the waveform presentations registered while materializing nodes.
-    pub fn waveform_presentations(&self) -> &WaveformPresentationRegistry {
-        &self.waveform_presentations
-    }
-
-    /// Returns the decoder-table sources registered for this run.
-    pub fn decoder_tables(&self) -> &DecoderTableRegistry {
-        &self.decoder_tables
-    }
-
     /// Selects the host-owned directory used for persistent derived-data caches.
     pub fn set_persistent_cache_directory(&mut self, directory: std::path::PathBuf) {
         self.persistent_cache_directory = Some(directory);
@@ -102,6 +87,10 @@ impl CompileCtx {
     pub fn collected_output_subscriptions(&self) -> &[CollectedOutputSubscription] {
         &self.collected_output_subscriptions
     }
+
+    pub fn collected_table_subscriptions(&self) -> &[CollectedTableSubscription] {
+        &self.collected_table_subscriptions
+    }
 }
 
 impl NodeBuildContext for CompileCtx {
@@ -119,10 +108,6 @@ impl NodeBuildContext for CompileCtx {
             .and_then(Option::as_ref)
     }
 
-    fn register_waveform_presentation(&self, presentation: ViewerLaneGroup) {
-        self.waveform_presentations.register(presentation);
-    }
-
     fn sampling_activity(&self, runtime_name: &str, input: usize) -> Option<SamplingActivity> {
         self.sampling_activities
             .get(&(runtime_name.to_owned(), input))
@@ -135,8 +120,23 @@ impl NodeBuildContext for CompileCtx {
 pub struct SamplingOverlayCandidate {
     node_id: NodeId,
     node_title: String,
-    overlay: SamplingOverlay,
+    overlay: ResolvedSamplingOverlay,
     runtime_activities: Vec<(usize, SamplingActivity)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResolvedSamplingQualifier {
+    pub channel: usize,
+    pub active_level: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResolvedSamplingOverlay {
+    pub clock_channel: usize,
+    pub sampled_channels: Vec<usize>,
+    pub edge: SamplingEdge,
+    pub qualifiers: Vec<ResolvedSamplingQualifier>,
+    pub activities: Vec<SamplingActivity>,
 }
 
 impl SamplingOverlayCandidate {
@@ -148,7 +148,7 @@ impl SamplingOverlayCandidate {
         &self.node_title
     }
 
-    pub fn overlay(&self) -> &SamplingOverlay {
+    pub fn overlay(&self) -> &ResolvedSamplingOverlay {
         &self.overlay
     }
 }
@@ -466,25 +466,6 @@ impl BuilderRegistry {
             (contract.configure_request)(request, member, input, ctx),
             &contract.diagnostic_name,
         ))
-    }
-
-    fn register_default_waveform_presentations(
-        &self,
-        presentations: &WaveformPresentationRegistry,
-    ) {
-        for payload in &self.payload_subscriptions {
-            let Some(descriptor) = self
-                .collected_payloads
-                .descriptor_by_type_id(payload.kind.type_id())
-            else {
-                continue;
-            };
-            presentations.register_default_payload(
-                descriptor.stable_id(),
-                payload.presentation.badge().clone(),
-                payload.presentation.renderer(),
-            );
-        }
     }
 
     pub(crate) fn get(&self, def_name: &str) -> Option<&dyn RuntimeBuilder> {
@@ -1022,7 +1003,7 @@ fn with_output_collectors(
             schema_id: String::new(),
             name: label.clone(),
             type_name: "Any".to_owned(),
-            color: Color32::from_rgb(0, 205, 160),
+            color: Default::default(),
             shape: SocketShape::Circle,
             allowed: Vec::new(),
             resolved_type: None,
@@ -1043,7 +1024,7 @@ fn with_output_collectors(
         let mut collector = Node::blank(
             AUTO_OUTPUT_SUBSCRIPTION_NODE_ID,
             crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME,
-            Pos2::ZERO,
+            Default::default(),
         );
         collector.title = "Output Subscription Collector".to_owned();
         collector.inputs = inputs;
@@ -1074,7 +1055,7 @@ fn with_output_collectors(
                 schema_id: String::new(),
                 name: label.clone(),
                 type_name: "Any".to_owned(),
-                color: Color32::from_rgb(160, 80, 60),
+                color: Default::default(),
                 shape: SocketShape::Circle,
                 allowed: Vec::new(),
                 resolved_type: None,
@@ -1094,7 +1075,7 @@ fn with_output_collectors(
         let mut collector = Node::blank(
             AUTO_DATA_COLLECTOR_NODE_ID,
             crate::DATA_COLLECTOR_BUILDER,
-            Pos2::ZERO,
+            Default::default(),
         );
         collector.title = "Derived Data Collector".to_owned();
         collector.inputs = inputs;
@@ -1402,7 +1383,7 @@ pub(crate) fn lower_with_subscriptions(
                     continue;
                 };
                 if let Some(channel) = input.capture_channel {
-                    qualifiers.push(SamplingQualifier {
+                    qualifiers.push(ResolvedSamplingQualifier {
                         channel,
                         active_level: qualifier.active_level,
                     });
@@ -1417,7 +1398,7 @@ pub(crate) fn lower_with_subscriptions(
             Some(SamplingOverlayCandidate {
                 node_id: compiled_node.id,
                 node_title: graph.nodes[&compiled_node.id].title.clone(),
-                overlay: SamplingOverlay {
+                overlay: ResolvedSamplingOverlay {
                     clock_channel,
                     sampled_channels,
                     edge: descriptor.edge,
@@ -1601,24 +1582,38 @@ fn materialize_compiled_node(
     builder.build(runtime_name, &node.state, &node.resolved, ctx)
 }
 
-fn register_collected_subscribers(
-    node: &CompiledNode,
-    builder: &dyn RuntimeBuilder,
-    subscription_name: &str,
-    ctx: &CompileCtx,
-) -> Result<(), String> {
-    if !node.data_collector {
-        return Ok(());
-    }
-    let lane_names = builder.collected_lane_names(&node.state, &node.resolved);
-    subscribe_collected_tables(node.id, &node.resolved, &lane_names, ctx.decoder_tables());
-    builder.register_presentations(
-        subscription_name,
-        &node.state,
-        &node.resolved,
-        &lane_names,
-        ctx,
-    )
+fn collected_table_subscriptions(
+    compiled: &CompiledGraph,
+    registry: &BuilderRegistry,
+) -> Vec<CollectedTableSubscription> {
+    compiled
+        .nodes
+        .iter()
+        .filter(|node| node.data_collector)
+        .filter_map(|node| {
+            let builder = registry.get(&node.builder)?;
+            let lanes = builder
+                .collected_lane_names(&node.state, &node.resolved)
+                .into_iter()
+                .filter_map(|(member, lane_name)| {
+                    let input = node.resolved.get(0, member)?.clone();
+                    input
+                        .decoder_table_column
+                        .is_some()
+                        .then_some(CollectedOutputLane {
+                            member,
+                            lane_name,
+                            source_label: input.source_node_title.clone(),
+                            input,
+                        })
+                })
+                .collect::<Vec<_>>();
+            (!lanes.is_empty()).then_some(CollectedTableSubscription {
+                collector: node.id,
+                lanes,
+            })
+        })
+        .collect()
 }
 
 fn collected_output_subscriptions(
@@ -1630,7 +1625,7 @@ fn collected_output_subscriptions(
         .iter()
         .filter_map(|node| {
             let builder = registry.get(&node.builder)?;
-            (builder.is_data_collector() && builder.is_data_subscription()).then(|| {
+            builder.is_data_subscription().then(|| {
                 let lanes = builder
                     .collected_lane_names(&node.state, &node.resolved)
                     .into_iter()
@@ -1639,6 +1634,8 @@ fn collected_output_subscriptions(
                             .get(0, member)
                             .cloned()
                             .map(|input| CollectedOutputLane {
+                                source_label: builder
+                                    .collected_source_label(&node.state, &input.source_node_title),
                                 member,
                                 lane_name,
                                 input,
@@ -1856,9 +1853,8 @@ pub struct LiveRun {
     /// title renames and in-place restarts.
     names: HashMap<NodeId, String>,
     lanes: DerivedLanes,
-    waveform_presentations: WaveformPresentationRegistry,
-    decoder_tables: DecoderTableRegistry,
     collected_output_subscriptions: Vec<CollectedOutputSubscription>,
+    collected_table_subscriptions: Vec<CollectedTableSubscription>,
     /// Set by [`Self::stop`]: the wind-down has been signalled but node
     /// threads may still be finishing their current `work()` call.
     stop_requested: bool,
@@ -1940,8 +1936,6 @@ fn start_live_inner(
     ctx: &mut CompileCtx,
     mut source_overrides: SourceProcessOverrides,
 ) -> Result<LiveRun, Vec<CompileError>> {
-    registry.register_default_waveform_presentations(ctx.waveform_presentations());
-    ctx.waveform_presentations().set_implicit_groups(false);
     let mut compiled = lower_with_subscriptions(graph, registry, subscriptions)?;
     cache_platform::configure_directory(&mut compiled, ctx.persistent_cache_directory.as_deref());
     ctx.derived_data_retention = compiled.derived_data_retention;
@@ -1949,18 +1943,11 @@ fn start_live_inner(
         .clone_from(&compiled.sampling_overlays);
     ctx.sampling_activities = sampling_activity_map(&compiled);
     ctx.collected_output_subscriptions = collected_output_subscriptions(&compiled, registry);
+    ctx.collected_table_subscriptions = collected_table_subscriptions(&compiled, registry);
     let mut manager = AppManager::new();
     let mut names: HashMap<NodeId, String> = HashMap::new();
 
     let (execution, cache_pruned) = cache_platform::prepare_execution(&compiled, registry);
-
-    for node in &execution.nodes {
-        let Some(builder) = registry.get(&node.builder) else {
-            continue;
-        };
-        register_collected_subscribers(node, builder, &node.runtime_name, ctx)
-            .map_err(|message| vec![CompileError::on(node.id, message)])?;
-    }
 
     for source_node in source_overrides.keys().copied() {
         let Some(node) = execution.nodes.iter().find(|node| node.id == source_node) else {
@@ -2018,9 +2005,8 @@ fn start_live_inner(
         compiled,
         names,
         lanes: ctx.derived_lanes.clone(),
-        waveform_presentations: ctx.waveform_presentations.clone(),
-        decoder_tables: ctx.decoder_tables.clone(),
         collected_output_subscriptions: ctx.collected_output_subscriptions.clone(),
+        collected_table_subscriptions: ctx.collected_table_subscriptions.clone(),
         stop_requested: false,
         cache_pruned,
         persistent_cache_directory: ctx.persistent_cache_directory.clone(),
@@ -2044,8 +2030,12 @@ impl LiveRun {
         &self.collected_output_subscriptions
     }
 
-    pub fn waveform_presentations(&self) -> &WaveformPresentationRegistry {
-        &self.waveform_presentations
+    pub fn collected_table_subscriptions(&self) -> &[CollectedTableSubscription] {
+        &self.collected_table_subscriptions
+    }
+
+    pub fn derived_lanes(&self) -> &DerivedLanes {
+        &self.lanes
     }
 
     /// Diffs the edited graph against what is running and applies the
@@ -2065,6 +2055,7 @@ impl LiveRun {
         let edits = diff(&self.compiled, &new, registry).map_err(ApplyError::NeedsFullRestart)?;
         if edits.is_empty() {
             self.collected_output_subscriptions = collected_output_subscriptions(&new, registry);
+            self.collected_table_subscriptions = collected_table_subscriptions(&new, registry);
             self.compiled = new;
             return Ok(ApplySummary::default());
         }
@@ -2077,14 +2068,13 @@ impl LiveRun {
 
         let mut ctx = CompileCtx {
             derived_lanes: self.lanes.clone(),
-            waveform_presentations: self.waveform_presentations.clone(),
-            decoder_tables: self.decoder_tables.clone(),
             derived_data_retention: new.derived_data_retention,
             derived_word_caches: Vec::new(),
             persistent_cache_directory: self.persistent_cache_directory.clone(),
             sampling_overlays: new.sampling_overlays.clone(),
             sampling_activities: sampling_activity_map(&new),
             collected_output_subscriptions: collected_output_subscriptions(&new, registry),
+            collected_table_subscriptions: collected_table_subscriptions(&new, registry),
         };
         let mut summary = ApplySummary::default();
         for edit in edits {
@@ -2102,8 +2092,6 @@ impl LiveRun {
                     })?;
                     ctx.derived_word_caches
                         .clone_from(&node.derived_word_caches);
-                    register_collected_subscribers(node, builder, &node.runtime_name, &ctx)
-                        .map_err(ApplyError::Apply)?;
                     let process = materialize_compiled_node(
                         node,
                         builder,
@@ -2146,8 +2134,6 @@ impl LiveRun {
                     })?;
                     ctx.derived_word_caches
                         .clone_from(&node.derived_word_caches);
-                    register_collected_subscribers(node, builder, &name, &ctx)
-                        .map_err(ApplyError::Apply)?;
                     let process =
                         materialize_compiled_node(node, builder, &name, registry, &mut ctx)
                             .map_err(ApplyError::Apply)?;
@@ -2161,6 +2147,7 @@ impl LiveRun {
             }
         }
         self.collected_output_subscriptions = collected_output_subscriptions(&new, registry);
+        self.collected_table_subscriptions = collected_table_subscriptions(&new, registry);
         self.compiled = new;
         Ok(summary)
     }
@@ -2193,6 +2180,7 @@ impl LiveRun {
         let edits = diff(&self.compiled, &new, registry).map_err(ApplyError::NeedsFullRestart)?;
         if edits.is_empty() {
             self.collected_output_subscriptions = collected_output_subscriptions(&new, registry);
+            self.collected_table_subscriptions = collected_table_subscriptions(&new, registry);
             self.compiled = new;
             return Ok(ApplySummary::default());
         }
@@ -2238,6 +2226,7 @@ impl LiveRun {
                 .map_err(ApplyError::Apply)?;
         }
         self.collected_output_subscriptions = collected_output_subscriptions(&new, registry);
+        self.collected_table_subscriptions = collected_table_subscriptions(&new, registry);
         self.compiled = new;
         Ok(ApplySummary {
             configured,
@@ -2352,6 +2341,8 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::{Duration, Instant};
+
+    use egui::{Color32, Pos2};
 
     use logic_analyzer_graph_api::node_support::SamplingOverlayDescriptor;
     use logic_analyzer_processing::nodes::sinks::binary_file_writer::BinaryFileWriter;
@@ -3132,7 +3123,6 @@ mod tests {
             let builder = registry.get(&node.builder).unwrap();
             ctx.derived_word_caches
                 .clone_from(&node.derived_word_caches);
-            register_collected_subscribers(node, builder, &node.runtime_name, &ctx).unwrap();
             let process =
                 materialize_compiled_node(node, builder, &node.runtime_name, &registry, &mut ctx)
                     .unwrap();
@@ -3764,33 +3754,20 @@ mod tests {
 
         let mut ctx = CompileCtx::default();
         let lanes = ctx.derived_lanes().clone();
-        let tables = ctx.decoder_tables().clone();
         let mut run = start_live(widget.graph(), &registry, &mut ctx).unwrap();
         run.wait();
 
-        // Presentation subscribers are reconstructible after production has
-        // finished because the collector retains the data independently.
-        tables.clear();
-        for node in compiled.nodes.iter().filter(|node| node.data_collector) {
-            let builder = registry.get(&node.builder).unwrap();
-            subscribe_collected_tables(
-                node.id,
-                &node.resolved,
-                &builder.collected_lane_names(&node.state, &node.resolved),
-                &tables,
-            );
-        }
-        let sources = tables.read();
-        assert!(!sources.is_empty());
+        let subscriptions = ctx.collected_table_subscriptions();
+        assert!(!subscriptions.is_empty());
         assert!(
-            sources
+            subscriptions
                 .iter()
-                .flat_map(|source| &source.columns)
-                .all(|column| {
+                .flat_map(|subscription| &subscription.lanes)
+                .all(|lane| {
                     lanes
                         .opaque_lanes()
                         .iter()
-                        .any(|lane| lane.name() == column.lane.as_str())
+                        .any(|collected| collected.name() == lane.lane_name)
                 })
         );
     }
@@ -4268,30 +4245,26 @@ mod tests {
         let build_groups = |widget: &NodeGraphWidget| {
             let builders = BuilderRegistry::standard();
             let compiled = lower(widget.graph(), &builders).unwrap();
-            let viewer = compiled
-                .nodes
+            let mut groups = collected_output_subscriptions(&compiled, &builders)
                 .iter()
-                .find(|node| node.builder == "Viewer")
-                .unwrap();
-            let ctx = CompileCtx::default();
-            register_collected_subscribers(
-                viewer,
-                builders.get("Viewer").unwrap(),
-                &viewer.runtime_name,
-                &ctx,
-            )
-            .unwrap();
-            let groups = ctx.waveform_presentations.read();
-            groups
-                .iter()
-                .filter(|group| {
-                    group
-                        .tracks
-                        .iter()
-                        .any(|track| track.id.as_str() == "frame")
+                .flat_map(|subscription| &subscription.lanes)
+                .filter_map(|lane| {
+                    lane.input
+                        .viewer_presentation
+                        .as_ref()
+                        .and_then(|presentation| {
+                            (presentation.track_key == "frame").then(|| {
+                                (
+                                    (lane.input.source_node, presentation.group_key.clone()),
+                                    lane.source_label.clone(),
+                                )
+                            })
+                        })
                 })
-                .map(|group| (group.id.as_str().to_owned(), group.label.clone()))
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>();
+            groups.sort_by_key(|((node, key), _)| (node.0, key.clone()));
+            groups.dedup();
+            groups
         };
 
         let before = build_groups(&widget);

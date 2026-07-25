@@ -189,6 +189,22 @@ including producer-defined compound groups and default payload presentations. Li
 publish the replacement subscription metadata before the UI rebinds presentations. The compiler
 collects and transports the metadata but does not construct selected-output waveform groups.
 
+Sampling overlays follow the same boundary. `signal_processing::SamplingEdge` is the shared
+runtime concept; the compiler resolves graph inputs to capture channels, qualifiers, and runtime
+activity handles in `ResolvedSamplingOverlay`. The UI converts that plan into the logic-analyzer
+widget's overlay type. The compiler does not construct a widget overlay.
+
+Decoder-table subscriptions are published as collected table lanes with their resolved producer
+metadata. The UI groups and orders those lanes into `DecoderTableRegistry` sources and columns.
+Consequently the compiler owns table-data retention but not panel-facing lane IDs, track IDs, or
+registry mutation.
+
+`logic_analyzer_graph_compiler` has no production dependency on `egui` or
+`logic_analyzer_viewer`. It does not own a waveform presentation registry or invoke presentation
+callbacks while materializing processing nodes. Explicit compatibility Viewer nodes lower as
+ordinary data subscriptions and contribute the same resolved lane metadata as UI-selected
+outputs; the UI constructs a fresh presentation registry from the complete subscription set.
+
 ### Enforcement
 
 Architecture checks enforce these dependency rules:

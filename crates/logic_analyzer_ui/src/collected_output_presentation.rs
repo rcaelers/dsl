@@ -38,7 +38,7 @@ pub(crate) fn bind_collected_output_presentations(
                     pending_groups.push(PendingGroup {
                         source_node: lane.input.source_node,
                         key: presentation.group_key.clone(),
-                        label: lane.input.source_node_title.clone(),
+                        label: lane.source_label.clone(),
                         badge: presentation.badge.clone(),
                         renderer: Arc::clone(&presentation.renderer),
                         tracks: vec![(presentation.track_order, track)],
@@ -84,6 +84,15 @@ pub(crate) fn bind_collected_output_presentations(
     Ok(())
 }
 
+pub(crate) fn waveform_presentation_registry(
+    subscriptions: &[CollectedOutputSubscription],
+) -> Result<WaveformPresentationRegistry, String> {
+    let registry = WaveformPresentationRegistry::new();
+    registry.set_implicit_groups(false);
+    bind_collected_output_presentations(&registry, subscriptions)?;
+    Ok(registry)
+}
+
 #[cfg(test)]
 mod collected_output_presentation_tests {
     use logic_analyzer_graph_api::node_support::{PortKind, ResolvedInput};
@@ -98,6 +107,7 @@ mod collected_output_presentation_tests {
         CollectedOutputLane {
             member,
             lane_name: format!("Decoder.{track}"),
+            source_label: "Decoder".to_owned(),
             input: ResolvedInput {
                 kind: PortKind::of::<Word>(),
                 source: format!("Decoder.{track}"),

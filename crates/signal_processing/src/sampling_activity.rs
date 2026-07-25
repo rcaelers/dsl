@@ -1,6 +1,24 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
+/// Which clock transitions are sampling instants for a clocked processor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SamplingEdge {
+    Rising,
+    Falling,
+    Both,
+}
+
+impl SamplingEdge {
+    pub fn accepts(self, value_after_edge: bool) -> bool {
+        match self {
+            Self::Rising => value_after_edge,
+            Self::Falling => !value_after_edge,
+            Self::Both => true,
+        }
+    }
+}
+
 /// Thread-safe boolean activity timeline used by processing nodes to expose
 /// when a generic sampling condition is active. It stores only level changes,
 /// never individual clock/sample events.

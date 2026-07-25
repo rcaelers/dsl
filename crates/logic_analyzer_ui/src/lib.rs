@@ -4,12 +4,14 @@ mod app_platform;
 mod application_config;
 mod collected_output_presentation;
 mod decoder_panel;
+mod decoder_table_presentation;
 mod input_binding_config;
 mod live_capture;
 mod node_registry;
 mod plugin_panel;
 mod preferences;
 mod product;
+mod sampling_overlay_presentation;
 mod toast;
 mod viewer_selection;
 

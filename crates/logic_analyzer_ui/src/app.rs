@@ -11,6 +11,7 @@ use logic_analyzer_graph_api::node_support::{
 use logic_analyzer_graph_compiler as compiler;
 use logic_analyzer_viewer::{
     LogicAnalyzerViewer, SimpleTriggerEdit, SimpleTriggerLane, ViewerLaneGroupId, ViewerRowId,
+    WaveformPresentationRegistry,
 };
 use node_graph::{
     GraphState, NodeBadge, NodeContextAction, NodeGraphWidget, NodeId, PanelTabDef,
@@ -21,14 +22,16 @@ use trigger_editor::{TriggerEditor, TriggerEditorChannel};
 
 use crate::about::AboutWindow;
 use crate::app_platform::load_symbol_fonts;
-use crate::collected_output_presentation::bind_collected_output_presentations;
+use crate::collected_output_presentation::waveform_presentation_registry;
 use crate::decoder_panel::DecoderPanels;
+use crate::decoder_table_presentation::decoder_table_registry;
 use crate::live_capture::{
     CaptureAnalysisAttachment, CaptureAvailability, CaptureCoordinator, CaptureCoordinatorContract,
     CaptureReplayAttachment, ConfigurationEpochResolution, capture_availability,
 };
 use crate::plugin_panel::{PluginPanelIcon, PluginPanelRegistry, PluginPanels, PluginPanelsState};
 use crate::preferences::PreferencesWindow;
+use crate::sampling_overlay_presentation::sampling_overlay_presentation;
 use crate::toast::Toasts;
 use crate::viewer_selection::{
     output_subscription_plan, set_viewer_output_selected, synchronize_viewer_selections,
@@ -624,7 +627,7 @@ impl App {
             self.sampling_overlay_candidates
                 .iter()
                 .find(|candidate| candidate.node_id() == selected)
-                .map(|candidate| candidate.overlay().clone())
+                .map(|candidate| sampling_overlay_presentation(candidate.overlay()))
         });
         self.logic_analyzer.set_sampling_overlay(overlay);
 
@@ -790,9 +793,9 @@ impl App {
         self.logic_analyzer
             .set_derived_lanes(ctx.derived_lanes().clone());
         self.logic_analyzer
-            .set_waveform_presentations(ctx.waveform_presentations().clone());
+            .set_waveform_presentations(WaveformPresentationRegistry::new());
         self.decoder_panels
-            .set_run_data(ctx.derived_lanes().clone(), ctx.decoder_tables().clone());
+            .set_run_data(ctx.derived_lanes().clone(), decoder_table_registry(&[]));
         self.plugin_panels.set_run_data(ctx.derived_lanes().clone());
 
         let started = match replay {
@@ -814,14 +817,18 @@ impl App {
         };
         match started {
             Ok(run) => {
-                if let Err(error) = bind_collected_output_presentations(
-                    ctx.waveform_presentations(),
-                    ctx.collected_output_subscriptions(),
-                ) {
-                    self.toasts.error(format!(
+                match waveform_presentation_registry(ctx.collected_output_subscriptions()) {
+                    Ok(presentations) => self
+                        .logic_analyzer
+                        .set_waveform_presentations(presentations),
+                    Err(error) => self.toasts.error(format!(
                         "Could not bind collected output presentation: {error}"
-                    ));
+                    )),
                 }
+                self.decoder_panels.set_run_data(
+                    ctx.derived_lanes().clone(),
+                    decoder_table_registry(ctx.collected_table_subscriptions()),
+                );
                 self.set_sampling_overlay_candidates(ctx.take_sampling_overlays());
                 self.run = Some(run);
             }
@@ -1020,9 +1027,9 @@ impl App {
         self.logic_analyzer
             .set_derived_lanes(ctx.derived_lanes().clone());
         self.logic_analyzer
-            .set_waveform_presentations(ctx.waveform_presentations().clone());
+            .set_waveform_presentations(WaveformPresentationRegistry::new());
         self.decoder_panels
-            .set_run_data(ctx.derived_lanes().clone(), ctx.decoder_tables().clone());
+            .set_run_data(ctx.derived_lanes().clone(), decoder_table_registry(&[]));
         self.plugin_panels.set_run_data(ctx.derived_lanes().clone());
         let source = compiler::LiveAnalysisSource {
             source_node: attachment.source_node,
@@ -1033,14 +1040,18 @@ impl App {
             .start_live_analysis(&graph, &mut ctx, source)
         {
             Ok(run) => {
-                if let Err(error) = bind_collected_output_presentations(
-                    ctx.waveform_presentations(),
-                    ctx.collected_output_subscriptions(),
-                ) {
-                    self.toasts.error(format!(
+                match waveform_presentation_registry(ctx.collected_output_subscriptions()) {
+                    Ok(presentations) => self
+                        .logic_analyzer
+                        .set_waveform_presentations(presentations),
+                    Err(error) => self.toasts.error(format!(
                         "Could not bind collected output presentation: {error}"
-                    ));
+                    )),
                 }
+                self.decoder_panels.set_run_data(
+                    ctx.derived_lanes().clone(),
+                    decoder_table_registry(ctx.collected_table_subscriptions()),
+                );
                 self.set_sampling_overlay_candidates(ctx.take_sampling_overlays());
                 self.capture_analysis = Some(run);
             }
@@ -1538,25 +1549,33 @@ impl App {
         let mut refresh_sampling_overlays = false;
         match self.graph_compiler.apply_run(run, self.node_graph.graph()) {
             Ok(summary) if summary.is_empty() => {
-                if let Err(error) = bind_collected_output_presentations(
-                    run.waveform_presentations(),
-                    run.collected_output_subscriptions(),
-                ) {
-                    self.toasts.error(format!(
+                match waveform_presentation_registry(run.collected_output_subscriptions()) {
+                    Ok(presentations) => self
+                        .logic_analyzer
+                        .set_waveform_presentations(presentations),
+                    Err(error) => self.toasts.error(format!(
                         "Could not bind collected output presentation: {error}"
-                    ));
+                    )),
                 }
+                self.decoder_panels.set_run_data(
+                    run.derived_lanes().clone(),
+                    decoder_table_registry(run.collected_table_subscriptions()),
+                );
                 refresh_sampling_overlays = true;
             }
             Ok(summary) => {
-                if let Err(error) = bind_collected_output_presentations(
-                    run.waveform_presentations(),
-                    run.collected_output_subscriptions(),
-                ) {
-                    self.toasts.error(format!(
+                match waveform_presentation_registry(run.collected_output_subscriptions()) {
+                    Ok(presentations) => self
+                        .logic_analyzer
+                        .set_waveform_presentations(presentations),
+                    Err(error) => self.toasts.error(format!(
                         "Could not bind collected output presentation: {error}"
-                    ));
+                    )),
                 }
+                self.decoder_panels.set_run_data(
+                    run.derived_lanes().clone(),
+                    decoder_table_registry(run.collected_table_subscriptions()),
+                );
                 refresh_sampling_overlays = true;
                 self.toasts.info(format!(
                     "live: +{} −{} cfg {} restart {}",

@@ -14,9 +14,7 @@ test-support = []
 [dependencies]
 signal-processing = { path = "../signal_processing" }
 logic-analyzer-graph-api = { path = "../logic_analyzer_graph_api" }
-logic-analyzer-viewer = { path = "../widgets/logic_analyzer_viewer" }
 node-graph = { path = "../widgets/node_graph" }
-egui = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 blake3 = { workspace = true }
@@ -26,4 +24,6 @@ inventory = { workspace = true }
 logic-analyzer-graph-nodes = { path = "../logic_analyzer_graph_nodes", features = ["test-support"] }
 logic-analyzer-processing = { path = "../logic_analyzer_processing" }
 logic-analyzer-test-support = { path = "../logic_analyzer_test_support" }
+logic-analyzer-viewer = { path = "../widgets/logic_analyzer_viewer" }
+egui = { workspace = true }
 tempfile = { workspace = true }

@@ -148,7 +148,7 @@ pub use receiver::{Receiver, ReceiverSelector};
 pub use sample::{Sample, SampleBlock};
 pub use sample_kind::SampleKind;
 pub(crate) use sample_kind::negotiate as negotiate_sample_kind;
-pub use sampling_activity::SamplingActivity;
+pub use sampling_activity::{SamplingActivity, SamplingEdge};
 pub use scheduler::{Scheduler, StopHandle};
 pub use sender::{ChannelMessage, OverflowPolicy, Sender, SharedSenders};
 pub(crate) use watchdog::OperationGuard;

@@ -74,15 +74,8 @@ pub trait RuntimeBuilder {
     ) -> Vec<(usize, String)> {
         Vec::new()
     }
-    fn register_presentations(
-        &self,
-        _name: &str,
-        _state: &Value,
-        _resolved: &ResolvedInputs,
-        _lane_names: &[(usize, String)],
-        _ctx: &dyn NodeBuildContext,
-    ) -> Result<(), String> {
-        Ok(())
+    fn collected_source_label(&self, _state: &Value, source_title: &str) -> String {
+        source_title.to_owned()
     }
     fn accepted_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind>;
     fn offered_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind>;

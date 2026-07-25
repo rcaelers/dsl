@@ -16,6 +16,7 @@ pub struct OutputSubscriptionPlan {
 pub struct CollectedOutputLane {
     pub member: usize,
     pub lane_name: String,
+    pub source_label: String,
     pub input: ResolvedInput,
 }
 
@@ -23,6 +24,13 @@ pub struct CollectedOutputLane {
 #[derive(Clone, Debug)]
 pub struct CollectedOutputSubscription {
     pub runtime_name: String,
+    pub lanes: Vec<CollectedOutputLane>,
+}
+
+/// Retained lanes carrying decoder-table column metadata for one collector.
+#[derive(Clone, Debug)]
+pub struct CollectedTableSubscription {
+    pub collector: NodeId,
     pub lanes: Vec<CollectedOutputLane>,
 }
 

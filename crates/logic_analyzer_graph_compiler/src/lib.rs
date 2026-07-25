@@ -7,7 +7,6 @@
 
 mod collected_payload_registration;
 mod data_collector;
-mod decoder_table_subscription;
 mod errors;
 mod graph;
 mod graph_compiler;
@@ -36,14 +35,15 @@ pub use errors::{ApplyError, CompileError};
 pub use graph::{
     ApplySummary, CompileCtx, CompiledEdge, CompiledGraph, CompiledNode,
     DiscoveredCapturePresentation, DiscoveredLiveCaptureFeature, DiscoveredTriggerConfiguration,
-    LiveAnalysisSource, LiveCaptureDiscoveryError, LiveRun, SamplingOverlayCandidate,
-    SourceProcessOverrides,
+    LiveAnalysisSource, LiveCaptureDiscoveryError, LiveRun, ResolvedSamplingOverlay,
+    ResolvedSamplingQualifier, SamplingOverlayCandidate, SourceProcessOverrides,
 };
 pub use graph_compiler::GraphCompiler;
 pub(crate) use graph_node_registration::{
     standard_graph_node_builders, validate_graph_node_payload_requirements,
 };
 pub use output_subscription::{
-    CollectedOutputLane, CollectedOutputSubscription, OutputSubscriptionPlan,
+    CollectedOutputLane, CollectedOutputSubscription, CollectedTableSubscription,
+    OutputSubscriptionPlan,
 };
 pub use saved_graph::GraphCompatibilityWarning;
