@@ -120,3 +120,20 @@ fn production_compiler_consumes_application_supplied_output_subscriptions() {
         "the transitional manifest helper must remain test-only"
     );
 }
+
+#[test]
+fn compiler_synthesizes_only_application_neutral_collectors() {
+    let graph = include_str!("graph.rs");
+    let collectors = graph
+        .split_once("fn with_output_collectors")
+        .expect("collector lowering function")
+        .1
+        .split_once("pub(crate) fn lower_with_subscriptions")
+        .expect("lowering function follows collector construction")
+        .0;
+    assert!(collectors.contains("OUTPUT_SUBSCRIPTION_BUILDER_NAME"));
+    assert!(
+        !collectors.contains("\"Viewer\"") && !collectors.contains("AUTO_VIEW"),
+        "compiler-generated collection must not construct or identify a concrete Viewer node"
+    );
+}

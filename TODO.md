@@ -219,11 +219,12 @@ in this order:
   UI; remove viewer-selection operations and types from the compiler facade.
 - [x] Replace the compiler's transitional viewer-selection manifest reader with an explicit
   UI-supplied subscription plan.
-- [ ] Remove synthetic Viewer-node construction; materialize every selected output through the
+- [x] Remove synthetic Viewer-node construction; materialize every selected output through the
   application-neutral collector path.
-- [ ] Move waveform-group, renderer, decoder-table-panel, and sampling-overlay binding into the
-  UI presentation adapter. Keep node-supplied metadata protocol-neutral and make the UI translate
-  it into `logic_analyzer_viewer` contracts.
+- [x] Move selected-output waveform-group and renderer binding into the UI presentation adapter.
+- [ ] Move decoder-table-panel and sampling-overlay binding into UI presentation adapters. Keep
+  node-supplied metadata protocol-neutral and make the UI translate it into
+  `logic_analyzer_viewer` contracts.
 - [ ] Move Viewer-node and viewer-selection saved-graph compatibility into an explicit UI
   migration that emits user-visible warnings and preserves the stable
   `logic_analyzer_graph.viewer_selections` extension during transition.

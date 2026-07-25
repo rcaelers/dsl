@@ -1,3 +1,4 @@
+use logic_analyzer_graph_api::node_support::ResolvedInput;
 use node_graph::NodeId;
 
 /// Application-supplied outputs whose produced data must be collected.
@@ -8,6 +9,21 @@ use node_graph::NodeId;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OutputSubscriptionPlan {
     outputs: Vec<(NodeId, usize)>,
+}
+
+/// One retained lane produced for an application output subscription.
+#[derive(Clone, Debug)]
+pub struct CollectedOutputLane {
+    pub member: usize,
+    pub lane_name: String,
+    pub input: ResolvedInput,
+}
+
+/// Runtime identities and source metadata for one collected output set.
+#[derive(Clone, Debug)]
+pub struct CollectedOutputSubscription {
+    pub runtime_name: String,
+    pub lanes: Vec<CollectedOutputLane>,
 }
 
 impl OutputSubscriptionPlan {

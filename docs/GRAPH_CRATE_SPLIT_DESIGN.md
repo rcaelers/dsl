@@ -177,10 +177,17 @@ lowering, execution, cache planning, or live graph updates. The plan contains on
 identities; it carries no widget, lane, renderer, or panel state.
 
 The compiler uses the same plan for source-channel visibility and retained derived-output
-collection. Its production code does not read the
+collection. Selected derived outputs lower to a compiler-owned `Output Subscription Collector`;
+the compiler never synthesizes or identifies a concrete Viewer node. Its production code does not read the
 `logic_analyzer_graph.viewer_selections` extension. Saved payload-identity reconciliation also
 receives the plan explicitly, so compatibility metadata cannot silently become an alternate
 source of current UI selections.
+
+Each run exposes its collected output subscriptions with stable runtime lane names and resolved
+producer metadata. `logic_analyzer_ui` translates that metadata into waveform groups and tracks,
+including producer-defined compound groups and default payload presentations. Live graph updates
+publish the replacement subscription metadata before the UI rebinds presentations. The compiler
+collects and transports the metadata but does not construct selected-output waveform groups.
 
 ### Enforcement
 
@@ -210,12 +217,10 @@ format. It does not consume `NodeGraphWidget`, `egui`, or `logic_analyzer_viewer
 construction belongs to built-in-node or application composition. The UI owns graph editing and
 converts its editing state into the graph document passed to the compiler.
 
-The UI controls subscriptions through the existing generic subscription plan. The compiler will
-materialize those subscriptions without constructing a synthetic Viewer node and return a
-run-data handle containing the retained derived lanes, collected table data, run diagnostics, and
-source-readiness artifacts. The UI will bind those results to its waveform and table widgets after
-the run starts; it may attach, detach, or rebind its own views without making the compiler invoke a
-UI callback.
+The UI controls subscriptions through the existing generic subscription plan, and the compiler
+materializes them with its neutral collector. The run-data handle will additionally consolidate
+collected table data, run diagnostics, and source-readiness artifacts. The UI may attach, detach,
+or rebind its own views without making the compiler invoke a UI callback.
 
 File and live sources report their viewer-usable data through the same application-neutral
 source-readiness result. For a file source, preparation completes preload, cache lookup or

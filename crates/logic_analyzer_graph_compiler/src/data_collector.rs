@@ -12,10 +12,25 @@ use signal_processing::{CollectedLaneRequest, DerivedDataCollector, ProcessNode}
 use super::graph::BuilderRegistry;
 
 pub(crate) const BUILDER_NAME: &str = "Derived Data Collector";
+pub(crate) const OUTPUT_SUBSCRIPTION_BUILDER_NAME: &str = "Output Subscription Collector";
 
-pub(crate) struct DataCollectorBuilder;
+pub(crate) struct DataCollectorBuilder {
+    output_subscription: bool,
+}
 
 impl DataCollectorBuilder {
+    pub(crate) const fn retained_data() -> Self {
+        Self {
+            output_subscription: false,
+        }
+    }
+
+    pub(crate) const fn output_subscription() -> Self {
+        Self {
+            output_subscription: true,
+        }
+    }
+
     pub(crate) fn build_with_lane_names(
         name: &str,
         resolved: &ResolvedInputs,
@@ -91,6 +106,10 @@ impl RuntimeBuilder for DataCollectorBuilder {
 
     fn is_data_collector(&self) -> bool {
         true
+    }
+
+    fn is_data_subscription(&self) -> bool {
+        self.output_subscription
     }
 
     fn collected_lane_names(

@@ -29,7 +29,9 @@ mod cache_platform;
 mod cache_platform;
 
 pub(crate) use collected_payload_registration::collected_payload_registrations;
-pub(crate) use data_collector::{BUILDER_NAME as DATA_COLLECTOR_BUILDER, DataCollectorBuilder};
+pub(crate) use data_collector::{
+    BUILDER_NAME as DATA_COLLECTOR_BUILDER, DataCollectorBuilder, OUTPUT_SUBSCRIPTION_BUILDER_NAME,
+};
 pub use errors::{ApplyError, CompileError};
 pub use graph::{
     ApplySummary, CompileCtx, CompiledEdge, CompiledGraph, CompiledNode,
@@ -41,5 +43,7 @@ pub use graph_compiler::GraphCompiler;
 pub(crate) use graph_node_registration::{
     standard_graph_node_builders, validate_graph_node_payload_requirements,
 };
-pub use output_subscription::OutputSubscriptionPlan;
+pub use output_subscription::{
+    CollectedOutputLane, CollectedOutputSubscription, OutputSubscriptionPlan,
+};
 pub use saved_graph::GraphCompatibilityWarning;

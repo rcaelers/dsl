@@ -21,6 +21,7 @@ use trigger_editor::{TriggerEditor, TriggerEditorChannel};
 
 use crate::about::AboutWindow;
 use crate::app_platform::load_symbol_fonts;
+use crate::collected_output_presentation::bind_collected_output_presentations;
 use crate::decoder_panel::DecoderPanels;
 use crate::live_capture::{
     CaptureAnalysisAttachment, CaptureAvailability, CaptureCoordinator, CaptureCoordinatorContract,
@@ -813,6 +814,14 @@ impl App {
         };
         match started {
             Ok(run) => {
+                if let Err(error) = bind_collected_output_presentations(
+                    ctx.waveform_presentations(),
+                    ctx.collected_output_subscriptions(),
+                ) {
+                    self.toasts.error(format!(
+                        "Could not bind collected output presentation: {error}"
+                    ));
+                }
                 self.set_sampling_overlay_candidates(ctx.take_sampling_overlays());
                 self.run = Some(run);
             }
@@ -1024,6 +1033,14 @@ impl App {
             .start_live_analysis(&graph, &mut ctx, source)
         {
             Ok(run) => {
+                if let Err(error) = bind_collected_output_presentations(
+                    ctx.waveform_presentations(),
+                    ctx.collected_output_subscriptions(),
+                ) {
+                    self.toasts.error(format!(
+                        "Could not bind collected output presentation: {error}"
+                    ));
+                }
                 self.set_sampling_overlay_candidates(ctx.take_sampling_overlays());
                 self.capture_analysis = Some(run);
             }
@@ -1521,9 +1538,25 @@ impl App {
         let mut refresh_sampling_overlays = false;
         match self.graph_compiler.apply_run(run, self.node_graph.graph()) {
             Ok(summary) if summary.is_empty() => {
+                if let Err(error) = bind_collected_output_presentations(
+                    run.waveform_presentations(),
+                    run.collected_output_subscriptions(),
+                ) {
+                    self.toasts.error(format!(
+                        "Could not bind collected output presentation: {error}"
+                    ));
+                }
                 refresh_sampling_overlays = true;
             }
             Ok(summary) => {
+                if let Err(error) = bind_collected_output_presentations(
+                    run.waveform_presentations(),
+                    run.collected_output_subscriptions(),
+                ) {
+                    self.toasts.error(format!(
+                        "Could not bind collected output presentation: {error}"
+                    ));
+                }
                 refresh_sampling_overlays = true;
                 self.toasts.info(format!(
                     "live: +{} −{} cfg {} restart {}",

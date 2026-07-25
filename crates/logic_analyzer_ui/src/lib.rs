@@ -2,6 +2,7 @@ mod about;
 mod app;
 mod app_platform;
 mod application_config;
+mod collected_output_presentation;
 mod decoder_panel;
 mod input_binding_config;
 mod live_capture;

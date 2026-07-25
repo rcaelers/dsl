@@ -48,7 +48,9 @@ use signal_processing::{
 use super::data_collector::DataCollectorBuilder;
 use super::decoder_table_subscription::subscribe_collected_tables;
 use super::errors::{ApplyError, CompileError};
-use super::{OutputSubscriptionPlan, cache_platform};
+use super::{
+    CollectedOutputLane, CollectedOutputSubscription, OutputSubscriptionPlan, cache_platform,
+};
 
 /// Shared resources handed to builders. A fresh `DerivedLanes` store per
 /// run makes stale collected data vanish atomically on re-run.
@@ -67,6 +69,7 @@ pub struct CompileCtx {
     /// application chooses at most one candidate to display.
     sampling_overlays: Vec<SamplingOverlayCandidate>,
     sampling_activities: HashMap<(String, usize), SamplingActivity>,
+    collected_output_subscriptions: Vec<CollectedOutputSubscription>,
 }
 
 impl CompileCtx {
@@ -93,6 +96,11 @@ impl CompileCtx {
     /// Takes the sampling-overlay candidates discovered for this run.
     pub fn take_sampling_overlays(&mut self) -> Vec<SamplingOverlayCandidate> {
         std::mem::take(&mut self.sampling_overlays)
+    }
+
+    /// Returns application-requested retained outputs and their resolved lane metadata.
+    pub fn collected_output_subscriptions(&self) -> &[CollectedOutputSubscription] {
+        &self.collected_output_subscriptions
     }
 }
 
@@ -913,22 +921,17 @@ fn member_index(node: &Node, socket_index: usize) -> usize {
         .count()
 }
 
-/// Fixed id for the compiler-synthesized `Viewer` sink that gathers every
-/// output selected by the host-owned viewer-selection contract without an
-/// explicit wire.
+/// Fixed ids for compiler-synthesized collectors. Stable ids keep live
+/// diffing deterministic across repeated lowering.
 /// Kept constant (rather than derived from the graph's own ids) so
 /// live-diffing sees the same node across `lower()` calls while the watched
 /// set is unchanged, regardless of how many real nodes come and go.
-const AUTO_VIEW_NODE_ID: NodeId = NodeId(u32::MAX);
+const AUTO_OUTPUT_SUBSCRIPTION_NODE_ID: NodeId = NodeId(u32::MAX);
 const AUTO_DATA_COLLECTOR_NODE_ID: NodeId = NodeId(u32::MAX - 1);
 
-/// If any output in `graph` is checked "Show in view", returns a clone with
-/// a synthetic `Viewer` node wired to every one of them — the View panel's
-/// checkboxes become lanes without the user dragging a wire. Reuses the
-/// exact same pruning and edge-negotiation path an explicit Viewer
-/// connection would take, so nothing downstream in `lower()` needs to know
-/// this node isn't real.
-fn with_auto_view_sink(
+/// Adds application-requested and table-retention collectors through the
+/// same generic sink and edge-negotiation path as explicit graph sinks.
+fn with_output_collectors(
     graph: &GraphState,
     registry: &BuilderRegistry,
     subscriptions: &OutputSubscriptionPlan,
@@ -1029,20 +1032,25 @@ fn with_auto_view_sink(
                 max: watched.len(),
                 placeholder: false,
             }),
-            visible: true,
-            editor_visible: true,
-            hidden: false,
+            visible: false,
+            editor_visible: false,
+            hidden: true,
             has_control: false,
             extensions: Default::default(),
         })
         .collect();
     if !inputs.is_empty() {
-        let mut auto_view = Node::blank(AUTO_VIEW_NODE_ID, "Viewer", Pos2::ZERO);
-        auto_view.title = "Auto View".to_owned();
-        auto_view.header_color = Color32::from_rgb(160, 80, 60);
-        auto_view.inputs = inputs;
-        auto_view.state = serde_json::json!({ "label": { "value": "" } });
-        graph.nodes.insert(AUTO_VIEW_NODE_ID, auto_view);
+        let mut collector = Node::blank(
+            AUTO_OUTPUT_SUBSCRIPTION_NODE_ID,
+            crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME,
+            Pos2::ZERO,
+        );
+        collector.title = "Output Subscription Collector".to_owned();
+        collector.inputs = inputs;
+        collector.state = Value::Null;
+        graph
+            .nodes
+            .insert(AUTO_OUTPUT_SUBSCRIPTION_NODE_ID, collector);
         graph
             .connections
             .extend(
@@ -1052,7 +1060,7 @@ fn with_auto_view_sink(
                     .map(|(member, (from, _))| Connection {
                         from,
                         to: SocketId {
-                            node: AUTO_VIEW_NODE_ID,
+                            node: AUTO_OUTPUT_SUBSCRIPTION_NODE_ID,
                             index: member,
                             direction: SocketDirection::Input,
                         },
@@ -1116,7 +1124,7 @@ pub(crate) fn lower_with_subscriptions(
     registry: &BuilderRegistry,
     subscriptions: &OutputSubscriptionPlan,
 ) -> Result<CompiledGraph, Vec<CompileError>> {
-    let augmented = with_auto_view_sink(graph, registry, subscriptions);
+    let augmented = with_output_collectors(graph, registry, subscriptions);
     let graph = &augmented;
     let (wires, mut errors) = resolve_reroute_edges(graph);
 
@@ -1613,6 +1621,39 @@ fn register_collected_subscribers(
     )
 }
 
+fn collected_output_subscriptions(
+    compiled: &CompiledGraph,
+    registry: &BuilderRegistry,
+) -> Vec<CollectedOutputSubscription> {
+    compiled
+        .nodes
+        .iter()
+        .filter_map(|node| {
+            let builder = registry.get(&node.builder)?;
+            (builder.is_data_collector() && builder.is_data_subscription()).then(|| {
+                let lanes = builder
+                    .collected_lane_names(&node.state, &node.resolved)
+                    .into_iter()
+                    .filter_map(|(member, lane_name)| {
+                        node.resolved
+                            .get(0, member)
+                            .cloned()
+                            .map(|input| CollectedOutputLane {
+                                member,
+                                lane_name,
+                                input,
+                            })
+                    })
+                    .collect();
+                CollectedOutputSubscription {
+                    runtime_name: node.runtime_name.clone(),
+                    lanes,
+                }
+            })
+        })
+        .collect()
+}
+
 pub(crate) fn derived_cache_configs_by_node_with_subscriptions(
     graph: &GraphState,
     registry: &BuilderRegistry,
@@ -1817,6 +1858,7 @@ pub struct LiveRun {
     lanes: DerivedLanes,
     waveform_presentations: WaveformPresentationRegistry,
     decoder_tables: DecoderTableRegistry,
+    collected_output_subscriptions: Vec<CollectedOutputSubscription>,
     /// Set by [`Self::stop`]: the wind-down has been signalled but node
     /// threads may still be finishing their current `work()` call.
     stop_requested: bool,
@@ -1906,6 +1948,7 @@ fn start_live_inner(
     ctx.sampling_overlays
         .clone_from(&compiled.sampling_overlays);
     ctx.sampling_activities = sampling_activity_map(&compiled);
+    ctx.collected_output_subscriptions = collected_output_subscriptions(&compiled, registry);
     let mut manager = AppManager::new();
     let mut names: HashMap<NodeId, String> = HashMap::new();
 
@@ -1977,6 +2020,7 @@ fn start_live_inner(
         lanes: ctx.derived_lanes.clone(),
         waveform_presentations: ctx.waveform_presentations.clone(),
         decoder_tables: ctx.decoder_tables.clone(),
+        collected_output_subscriptions: ctx.collected_output_subscriptions.clone(),
         stop_requested: false,
         cache_pruned,
         persistent_cache_directory: ctx.persistent_cache_directory.clone(),
@@ -1996,6 +2040,14 @@ impl LiveRun {
             .collect()
     }
 
+    pub fn collected_output_subscriptions(&self) -> &[CollectedOutputSubscription] {
+        &self.collected_output_subscriptions
+    }
+
+    pub fn waveform_presentations(&self) -> &WaveformPresentationRegistry {
+        &self.waveform_presentations
+    }
+
     /// Diffs the edited graph against what is running and applies the
     /// difference live. On any error the running pipeline is untouched
     /// (edits either fail up front in `diff`, or — for build failures midway
@@ -2012,6 +2064,7 @@ impl LiveRun {
         cache_platform::configure_directory(&mut new, self.persistent_cache_directory.as_deref());
         let edits = diff(&self.compiled, &new, registry).map_err(ApplyError::NeedsFullRestart)?;
         if edits.is_empty() {
+            self.collected_output_subscriptions = collected_output_subscriptions(&new, registry);
             self.compiled = new;
             return Ok(ApplySummary::default());
         }
@@ -2031,6 +2084,7 @@ impl LiveRun {
             persistent_cache_directory: self.persistent_cache_directory.clone(),
             sampling_overlays: new.sampling_overlays.clone(),
             sampling_activities: sampling_activity_map(&new),
+            collected_output_subscriptions: collected_output_subscriptions(&new, registry),
         };
         let mut summary = ApplySummary::default();
         for edit in edits {
@@ -2106,6 +2160,7 @@ impl LiveRun {
                 }
             }
         }
+        self.collected_output_subscriptions = collected_output_subscriptions(&new, registry);
         self.compiled = new;
         Ok(summary)
     }
@@ -2137,6 +2192,7 @@ impl LiveRun {
         cache_platform::configure_directory(&mut new, self.persistent_cache_directory.as_deref());
         let edits = diff(&self.compiled, &new, registry).map_err(ApplyError::NeedsFullRestart)?;
         if edits.is_empty() {
+            self.collected_output_subscriptions = collected_output_subscriptions(&new, registry);
             self.compiled = new;
             return Ok(ApplySummary::default());
         }
@@ -2181,6 +2237,7 @@ impl LiveRun {
                 .reconfigure_at(&name, config, boundary)
                 .map_err(ApplyError::Apply)?;
         }
+        self.collected_output_subscriptions = collected_output_subscriptions(&new, registry);
         self.compiled = new;
         Ok(ApplySummary {
             configured,
@@ -3143,7 +3200,7 @@ mod tests {
         let viewer = compiled
             .nodes
             .iter()
-            .find(|n| n.builder == "Viewer")
+            .find(|n| n.builder == crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME)
             .unwrap();
         let lanes = viewer.resolved.members(0);
         assert_eq!(lanes.len(), 7);
@@ -3645,7 +3702,7 @@ mod tests {
         let viewer = compiled
             .nodes
             .iter()
-            .find(|node| node.builder == "Viewer")
+            .find(|node| node.builder == crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME)
             .expect("synthetic viewer");
         let kinds: Vec<_> = viewer
             .resolved
@@ -3694,7 +3751,7 @@ mod tests {
     }
 
     #[test]
-    fn unwatching_the_only_output_drops_the_synthetic_viewer() {
+    fn unwatching_the_only_output_drops_the_output_subscription_collector() {
         let mut widget = selectable_output_widget();
         let (node_id, output_index) = first_watched_selectable_output(&widget);
         let registry = BuilderRegistry::standard();
@@ -3739,7 +3796,7 @@ mod tests {
     }
 
     #[test]
-    fn synthetic_viewer_id_is_stable_across_relowers() {
+    fn output_subscription_collector_id_is_stable_across_relowers() {
         let widget = selectable_output_widget();
         let registry = BuilderRegistry::standard();
 
@@ -3749,27 +3806,29 @@ mod tests {
             compiled
                 .nodes
                 .iter()
-                .find(|n| n.builder == "Viewer")
+                .find(|n| n.builder == crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME)
                 .unwrap()
                 .id
         };
-        assert_eq!(viewer_id(&first), AUTO_VIEW_NODE_ID);
+        assert_eq!(viewer_id(&first), AUTO_OUTPUT_SUBSCRIPTION_NODE_ID);
         assert_eq!(viewer_id(&first), viewer_id(&second));
     }
 
     #[test]
-    fn viewer_is_a_presentation_subscription_not_a_runtime_sink() {
+    fn output_subscription_collector_is_a_generic_runtime_sink() {
         let registry = BuilderRegistry::standard();
-        let builder = registry.get("Viewer").unwrap();
-        assert!(!builder.is_sink());
-        assert!(!builder.is_data_collector());
+        let builder = registry
+            .get(crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME)
+            .unwrap();
+        assert!(builder.is_sink());
+        assert!(builder.is_data_collector());
         assert!(builder.is_data_subscription());
 
-        let compiled = lower(uart_demo_widget().graph(), &registry).unwrap();
+        let compiled = lower(selectable_output_widget().graph(), &registry).unwrap();
         let viewer = compiled
             .nodes
             .iter()
-            .find(|node| node.builder == "Viewer")
+            .find(|node| node.builder == crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME)
             .unwrap();
         assert!(viewer.data_collector, "lowering must plan retained storage");
 
@@ -4143,7 +4202,7 @@ mod tests {
         let viewer = compiled
             .nodes
             .iter()
-            .find(|node| node.builder == "Viewer")
+            .find(|node| node.builder == crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME)
             .unwrap();
         let mut tracks = viewer
             .resolved
@@ -4830,7 +4889,7 @@ mod tests {
         assert!(
             edits
                 .iter()
-                .any(|edit| matches!(edit, LiveEdit::Restart(id) if *id == AUTO_VIEW_NODE_ID)),
+                .any(|edit| matches!(edit, LiveEdit::Restart(id) if *id == AUTO_OUTPUT_SUBSCRIPTION_NODE_ID)),
             "{edits:?}"
         );
         assert_eq!(edits.len(), 2, "{edits:?}");

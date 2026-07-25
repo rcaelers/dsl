@@ -10,7 +10,11 @@ pub(crate) fn standard_graph_node_builders() -> HashMap<String, Box<dyn RuntimeB
     let mut builders: HashMap<String, Box<dyn RuntimeBuilder>> = HashMap::new();
     builders.insert(
         super::DATA_COLLECTOR_BUILDER.into(),
-        Box::new(super::DataCollectorBuilder),
+        Box::new(super::DataCollectorBuilder::retained_data()),
+    );
+    builders.insert(
+        super::OUTPUT_SUBSCRIPTION_BUILDER_NAME.into(),
+        Box::new(super::DataCollectorBuilder::output_subscription()),
     );
     for registration in graph_node_registrations() {
         registration.apply_runtime_setup();
