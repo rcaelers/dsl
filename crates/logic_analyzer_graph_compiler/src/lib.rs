@@ -12,10 +12,6 @@ mod graph;
 mod graph_compiler;
 mod graph_node_registration;
 mod output_subscription;
-mod saved_graph;
-
-#[cfg(test)]
-mod viewer_selection;
 
 #[cfg(test)]
 mod architecture_tests;
@@ -46,4 +42,3 @@ pub use output_subscription::{
     CollectedOutputLane, CollectedOutputSubscription, CollectedTableSubscription,
     OutputSubscriptionPlan,
 };
-pub use saved_graph::GraphCompatibilityWarning;

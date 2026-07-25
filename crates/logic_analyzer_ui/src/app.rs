@@ -34,8 +34,7 @@ use crate::preferences::PreferencesWindow;
 use crate::sampling_overlay_presentation::sampling_overlay_presentation;
 use crate::toast::Toasts;
 use crate::viewer_selection::{
-    output_subscription_plan, set_viewer_output_selected, synchronize_viewer_selections,
-    viewer_output_selections,
+    set_viewer_output_selected, synchronize_viewer_compatibility, viewer_output_selections,
 };
 
 const VIEWER_OUTPUT_PANEL_ID: &str = "viewer-outputs";
@@ -364,23 +363,7 @@ impl App {
     }
 
     pub(crate) fn synchronize_payload_subscription_manifest(&mut self, report_warnings: bool) {
-        match synchronize_viewer_selections(self.node_graph.graph_mut()) {
-            Ok(warnings) if report_warnings => {
-                for warning in warnings {
-                    self.toasts.warning(warning.message);
-                }
-            }
-            Ok(_) => {}
-            Err(error) => self
-                .toasts
-                .error(format!("Could not update saved viewer selections: {error}")),
-        }
-        self.graph_compiler
-            .set_output_subscriptions(output_subscription_plan(self.node_graph.graph()));
-        match self
-            .graph_compiler
-            .synchronize_payload_subscriptions(self.node_graph.graph_mut())
-        {
+        match synchronize_viewer_compatibility(self.node_graph.graph_mut()) {
             Ok(warnings) if report_warnings => {
                 for warning in warnings {
                     if let Some(node) = warning.node {
@@ -392,9 +375,9 @@ impl App {
                 }
             }
             Ok(_) => {}
-            Err(error) => self.toasts.error(format!(
-                "Could not update saved payload subscriptions: {error}"
-            )),
+            Err(error) => self
+                .toasts
+                .error(format!("Could not update saved viewer selections: {error}")),
         }
         self.refresh_graph_output_selections();
     }

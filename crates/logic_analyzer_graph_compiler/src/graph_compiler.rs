@@ -11,8 +11,7 @@ use super::graph::{
     DiscoveredLiveCaptureFeature, DiscoveredTriggerConfiguration, LiveAnalysisSource,
     LiveCaptureDiscoveryError, LiveRun, SamplingOverlayCandidate, SourceProcessOverrides,
 };
-use super::saved_graph::GraphCompatibilityWarning;
-use super::{OutputSubscriptionPlan, graph, saved_graph};
+use super::{OutputSubscriptionPlan, graph};
 
 /// Stateful application-facing facade for graph discovery, compilation, and execution.
 ///
@@ -109,17 +108,6 @@ impl GraphCompiler {
         edit: &LiveCaptureEdit,
     ) -> Result<serde_json::Value, String> {
         graph::apply_live_capture_edit(graph, &self.builders, source_node, edit)
-    }
-
-    pub fn synchronize_payload_subscriptions(
-        &self,
-        graph: &mut GraphState,
-    ) -> Result<Vec<GraphCompatibilityWarning>, serde_json::Error> {
-        saved_graph::synchronize_payload_subscriptions_with_plan(
-            graph,
-            &self.builders,
-            &self.output_subscriptions,
-        )
     }
 
     pub fn lower(&self, graph: &GraphState) -> Result<CompiledGraph, Vec<CompileError>> {

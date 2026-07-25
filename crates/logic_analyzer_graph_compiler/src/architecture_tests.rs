@@ -10,7 +10,6 @@ fn generic_collection_compiler_has_no_builtin_payload_or_protocol_checks() {
     let sources = [
         ("graph lowering", include_str!("graph.rs")),
         ("data collector", include_str!("data_collector.rs")),
-        ("saved subscriptions", include_str!("saved_graph.rs")),
     ];
     let forbidden = [
         "CollectedDataKind",
@@ -108,16 +107,10 @@ fn production_compiler_consumes_application_supplied_output_subscriptions() {
         "compiler facade must accept the application-owned subscription plan"
     );
 
-    let saved_graph = implementation_source(include_str!("saved_graph.rs"));
-    assert!(
-        !saved_graph.contains("viewer_selection"),
-        "saved-payload discovery must consume the supplied plan instead of UI selection state"
-    );
-
     let crate_facade = include_str!("lib.rs");
     assert!(
-        crate_facade.contains("#[cfg(test)]\nmod viewer_selection;"),
-        "the transitional manifest helper must remain test-only"
+        !crate_facade.contains("saved_graph") && !crate_facade.contains("viewer_selection"),
+        "saved Viewer compatibility must not remain in the compiler crate"
     );
 }
 

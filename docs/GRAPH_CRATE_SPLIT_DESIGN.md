@@ -84,8 +84,8 @@ A plugin cannot receive or import that concrete context through the graph-node A
 
 ### Graph compiler facade
 
-`logic_analyzer_graph_compiler` owns graph lowering, validation, discovery, execution, cache planning, and
-saved-graph synchronization. Its crate-root facade is consumed by `logic_analyzer_ui`, native and
+`logic_analyzer_graph_compiler` owns graph lowering, validation, discovery, execution, and cache
+planning. Its crate-root facade is consumed by `logic_analyzer_ui`, native and
 web composition, headless hosts, and integration tests. Graph-node contracts are imported directly
 from `logic_analyzer_graph_api` rather than forwarded through the compiler crate.
 
@@ -96,7 +96,6 @@ operations:
 - discover capture and trigger features;
 - apply a feature edit through the owning node;
 - resolve sampling overlays and cache plans;
-- synchronize saved payload subscriptions;
 - start or update an application run and live analysis.
 
 The application UI constructs the editor's `NodeTypeRegistry` directly from the validated
@@ -109,7 +108,7 @@ viewer-selection operations and receives current selection only through `OutputS
 
 Compiler result types belong to the crate-root facade: `CompiledGraph`, `CompiledNode`,
 `CompiledEdge`, `CompileError`, `ApplyError`, `LiveRun`, discovered feature wrappers,
-compatibility warnings, and resolved sampling candidates.
+and resolved sampling candidates.
 
 Node-supplied descriptions and host-resolved results remain distinct:
 
@@ -166,8 +165,13 @@ per-node list.
 ### Compatibility and saved graphs
 
 Moving Rust symbols does not change stable graph-node IDs, payload IDs, builder names, serialized
-node definitions, or namespaced graph extensions. Compatibility remains owned by each concrete
-node migration. Generic API/compiler crates never translate concrete node names or state.
+node definitions, or namespaced graph extensions. Concrete node-state compatibility remains owned
+by each node migration. The UI explicitly migrates legacy Viewer nodes and `show_in_view` socket
+state into `logic_analyzer_graph.viewer_selections`, rewrites Viewer-input payload identities to
+their source-output identities, removes the obsolete nodes, and emits user-visible warnings. It
+preserves unavailable plugin payload identities in
+`logic_analyzer_graph.payload_subscriptions`. The compiler has no saved-Viewer module or facade
+operation.
 
 ### Application-supplied output subscriptions
 
@@ -180,9 +184,9 @@ identities; it carries no widget, lane, renderer, or panel state.
 The compiler uses the same plan for source-channel visibility and retained derived-output
 collection. Selected derived outputs lower to a compiler-owned `Output Subscription Collector`;
 the compiler never synthesizes or identifies a concrete Viewer node. Its production code does not read the
-`logic_analyzer_graph.viewer_selections` extension. Saved payload-identity reconciliation also
-receives the plan explicitly, so compatibility metadata cannot silently become an alternate
-source of current UI selections.
+`logic_analyzer_graph.viewer_selections` extension. Saved payload-identity reconciliation is also
+UI-owned, so compatibility metadata cannot silently become an alternate source of compiler
+subscriptions.
 
 Each run exposes its collected output subscriptions with stable runtime lane names and resolved
 producer metadata. The metadata contains generic grouping, ordering, track, badge, and stable
@@ -208,9 +212,8 @@ features; the stable-key registry keeps that implementation out of generic graph
 
 `logic_analyzer_graph_compiler` has no production dependency on `egui` or
 `logic_analyzer_viewer`. It does not own a waveform presentation registry or invoke presentation
-callbacks while materializing processing nodes. Explicit compatibility Viewer nodes lower as
-ordinary data subscriptions and contribute the same resolved lane metadata as UI-selected
-outputs; the UI constructs a fresh presentation registry from the complete subscription set.
+callbacks while materializing processing nodes. The UI removes legacy Viewer nodes during document
+migration and constructs a fresh presentation registry from the resulting subscription set.
 
 ### Enforcement
 
@@ -258,8 +261,3 @@ logic_analyzer_ui ──> logic_analyzer_graph_compiler, logic_analyzer_graph_no
 No compiler-to-UI callback trait is required. A callback would reverse lifecycle ownership and
 make subscription, teardown, and presentation state implicit. The UI creates subscription plans,
 starts or updates runs, and consumes run data through explicit compiler operations.
-
-Saved graphs remain compatible through explicit UI-owned migration. Existing Viewer-node state and
-the `logic_analyzer_graph.viewer_selections` extension migrate to UI subscription state with a
-user-visible warning; the compiler does not preserve this compatibility through viewer-specific
-branches.

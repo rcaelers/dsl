@@ -225,7 +225,7 @@ in this order:
 - [x] Move decoder-table-panel and sampling-overlay binding into UI presentation adapters.
 - [x] Replace remaining viewer-native producer metadata with protocol-neutral API contracts that
   the UI translates into `logic_analyzer_viewer` renderers and badges.
-- [ ] Move Viewer-node and viewer-selection saved-graph compatibility into an explicit UI
+- [x] Move Viewer-node and viewer-selection saved-graph compatibility into an explicit UI
   migration that emits user-visible warnings and preserves the stable
   `logic_analyzer_graph.viewer_selections` extension during transition.
 - [x] Remove `egui` and `logic_analyzer_viewer` from the compiler production dependencies. Add

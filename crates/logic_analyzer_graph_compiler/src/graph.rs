@@ -423,25 +423,6 @@ impl BuilderRegistry {
             .map(|payload| payload.presentation.clone())
     }
 
-    pub(crate) fn payload_subscription_stable_id(&self, kind: PortKind) -> Option<&str> {
-        self.payload_subscriptions
-            .iter()
-            .find(|payload| payload.kind == kind)
-            .and_then(|payload| {
-                self.collected_payloads
-                    .descriptor_by_type_id(payload.kind.type_id())
-            })
-            .map(|descriptor| descriptor.stable_id())
-    }
-
-    pub(crate) fn has_payload_subscription(&self, stable_id: &str) -> bool {
-        self.payload_subscriptions.iter().any(|payload| {
-            self.collected_payloads
-                .descriptor_by_type_id(payload.kind.type_id())
-                .is_some_and(|descriptor| descriptor.stable_id() == stable_id)
-        })
-    }
-
     pub(crate) fn payload_uses_persistent_cache(&self, kind: PortKind) -> bool {
         self.payload_subscriptions
             .iter()
@@ -877,14 +858,6 @@ fn resolve_reroute_edges(graph: &GraphState) -> (Vec<Wire>, Vec<CompileError>) {
         }
     }
     (wires, errors)
-}
-
-pub(crate) fn resolved_wire_endpoints(graph: &GraphState) -> Vec<(SocketId, SocketId)> {
-    resolve_reroute_edges(graph)
-        .0
-        .into_iter()
-        .map(|wire| (wire.from, wire.to))
-        .collect()
 }
 
 /// Position of a variadic member within its group (0-based); 0 for plain
@@ -1424,10 +1397,35 @@ pub(crate) fn test_output_subscriptions(
     graph: &GraphState,
     registry: &BuilderRegistry,
 ) -> OutputSubscriptionPlan {
-    super::viewer_selection::viewer_output_selections(graph, registry)
-        .into_iter()
-        .filter(|selection| selection.selected)
-        .map(|selection| (selection.node, selection.output))
+    graph
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.kind == NodeKind::Regular)
+        .flat_map(|(&node_id, node)| {
+            let Some(builder) = registry.get(node.def_name()) else {
+                return Vec::new().into_iter();
+            };
+            node.outputs
+                .iter()
+                .enumerate()
+                .filter_map(move |(output_index, output)| {
+                    let logic_analyzer_graph_api::node_support::ViewerOutputControl::Selectable {
+                        default_selected,
+                        ..
+                    } = builder.viewer_output_control(output, &node.state)?
+                    else {
+                        return None;
+                    };
+                    output
+                        .extensions
+                        .get("show_in_view")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(default_selected)
+                        .then_some((node_id, output_index))
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+        })
         .collect()
 }
 
@@ -2365,17 +2363,9 @@ mod tests {
         output: usize,
         selected: bool,
     ) {
-        let output_id = widget.graph().nodes[&node].outputs[output]
-            .schema_id
-            .clone();
-        super::super::viewer_selection::set_viewer_output_selected(
-            widget.graph_mut(),
-            &BuilderRegistry::standard(),
-            node,
-            &output_id,
-            selected,
-        )
-        .unwrap();
+        widget.graph_mut().nodes.get_mut(&node).unwrap().outputs[output]
+            .extensions
+            .insert("show_in_view".to_owned(), serde_json::json!(selected));
     }
 
     fn select_named_output(widget: &mut NodeGraphWidget, node_title: &str, output_name: &str) {
@@ -3618,23 +3608,18 @@ mod tests {
     }
 
     fn first_watched_selectable_output(widget: &NodeGraphWidget) -> (NodeId, usize) {
-        super::super::viewer_selection::viewer_output_selections(
-            widget.graph(),
-            &BuilderRegistry::standard(),
-        )
-        .into_iter()
-        .find(|selection| {
-            let node = &widget.graph().nodes[&selection.node];
-            let builder = BuilderRegistry::standard();
-            selection.selected
-                && builder.get(node.def_name()).is_some_and(|builder| {
+        test_output_subscriptions(widget.graph(), &BuilderRegistry::standard())
+            .outputs()
+            .find(|(node_id, output)| {
+                let node = &widget.graph().nodes[node_id];
+                let builder = BuilderRegistry::standard();
+                builder.get(node.def_name()).is_some_and(|builder| {
                     builder
-                        .viewer_channel_origin(&node.outputs[selection.output], &node.state)
+                        .viewer_channel_origin(&node.outputs[*output], &node.state)
                         .is_none()
                 })
-        })
-        .map(|selection| (selection.node, selection.output))
-        .expect("test graph has a watched selectable output")
+            })
+            .expect("test graph has a watched selectable output")
     }
 
     #[test]
@@ -3650,12 +3635,9 @@ mod tests {
         let widget = source_only_widget();
         let source = widget.graph().nodes.values().next().unwrap();
         assert!(
-            super::super::viewer_selection::viewer_output_selections(
-                widget.graph(),
-                &BuilderRegistry::standard(),
-            )
-            .into_iter()
-            .any(|selection| selection.node == source.id && selection.selected)
+            test_output_subscriptions(widget.graph(), &BuilderRegistry::standard())
+                .outputs()
+                .any(|(node, _)| node == source.id)
         );
 
         let presentation =
@@ -4828,15 +4810,9 @@ mod tests {
             },
         );
         let matcher_out = out_idx(graph, matcher, "Match");
-        let output_id = graph.nodes[&matcher].outputs[matcher_out].schema_id.clone();
-        super::super::viewer_selection::set_viewer_output_selected(
-            graph,
-            &BuilderRegistry::standard(),
-            matcher,
-            &output_id,
-            true,
-        )
-        .unwrap();
+        graph.nodes.get_mut(&matcher).unwrap().outputs[matcher_out]
+            .extensions
+            .insert("show_in_view".to_owned(), serde_json::json!(true));
         matcher
     }
 
