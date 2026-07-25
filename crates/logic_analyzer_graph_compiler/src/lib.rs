@@ -12,6 +12,7 @@ mod graph;
 mod graph_compiler;
 mod graph_node_registration;
 mod output_subscription;
+mod run_data;
 
 #[cfg(test)]
 mod architecture_tests;
@@ -41,4 +42,8 @@ pub(crate) use graph_node_registration::{
 pub use output_subscription::{
     CollectedOutputLane, CollectedOutputSubscription, CollectedTableSubscription,
     OutputSubscriptionPlan,
+};
+pub use run_data::{
+    RunData, RunDiagnostic, RunDiagnosticRegistry, RunDiagnosticSeverity, SourceArtifactReadiness,
+    SourceDataKind, SourceReadiness, SourceReadinessRegistry,
 };

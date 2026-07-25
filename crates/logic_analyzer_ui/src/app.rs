@@ -800,7 +800,8 @@ impl App {
         };
         match started {
             Ok(run) => {
-                match waveform_presentation_registry(ctx.collected_output_subscriptions()) {
+                let run_data = ctx.run_data();
+                match waveform_presentation_registry(run_data.output_subscriptions()) {
                     Ok(presentations) => self
                         .logic_analyzer
                         .set_waveform_presentations(presentations),
@@ -808,15 +809,15 @@ impl App {
                         "Could not bind collected output presentation: {error}"
                     )),
                 }
-                match decoder_table_registry(ctx.collected_table_subscriptions()) {
+                match decoder_table_registry(run_data.table_subscriptions()) {
                     Ok(tables) => self
                         .decoder_panels
-                        .set_run_data(ctx.derived_lanes().clone(), tables),
+                        .set_run_data(run_data.derived_lanes().clone(), tables),
                     Err(error) => self.toasts.error(format!(
                         "Could not bind decoder-table presentation: {error}"
                     )),
                 }
-                self.set_sampling_overlay_candidates(ctx.take_sampling_overlays());
+                self.set_sampling_overlay_candidates(run_data.sampling_overlays().to_vec());
                 self.run = Some(run);
             }
             Err(errors) => {
@@ -1027,7 +1028,8 @@ impl App {
             .start_live_analysis(&graph, &mut ctx, source)
         {
             Ok(run) => {
-                match waveform_presentation_registry(ctx.collected_output_subscriptions()) {
+                let run_data = ctx.run_data();
+                match waveform_presentation_registry(run_data.output_subscriptions()) {
                     Ok(presentations) => self
                         .logic_analyzer
                         .set_waveform_presentations(presentations),
@@ -1035,15 +1037,15 @@ impl App {
                         "Could not bind collected output presentation: {error}"
                     )),
                 }
-                match decoder_table_registry(ctx.collected_table_subscriptions()) {
+                match decoder_table_registry(run_data.table_subscriptions()) {
                     Ok(tables) => self
                         .decoder_panels
-                        .set_run_data(ctx.derived_lanes().clone(), tables),
+                        .set_run_data(run_data.derived_lanes().clone(), tables),
                     Err(error) => self.toasts.error(format!(
                         "Could not bind decoder-table presentation: {error}"
                     )),
                 }
-                self.set_sampling_overlay_candidates(ctx.take_sampling_overlays());
+                self.set_sampling_overlay_candidates(run_data.sampling_overlays().to_vec());
                 self.capture_analysis = Some(run);
             }
             Err(errors) => {
@@ -1540,7 +1542,8 @@ impl App {
         let mut refresh_sampling_overlays = false;
         match self.graph_compiler.apply_run(run, self.node_graph.graph()) {
             Ok(summary) if summary.is_empty() => {
-                match waveform_presentation_registry(run.collected_output_subscriptions()) {
+                let run_data = run.run_data();
+                match waveform_presentation_registry(run_data.output_subscriptions()) {
                     Ok(presentations) => self
                         .logic_analyzer
                         .set_waveform_presentations(presentations),
@@ -1548,10 +1551,10 @@ impl App {
                         "Could not bind collected output presentation: {error}"
                     )),
                 }
-                match decoder_table_registry(run.collected_table_subscriptions()) {
+                match decoder_table_registry(run_data.table_subscriptions()) {
                     Ok(tables) => self
                         .decoder_panels
-                        .set_run_data(run.derived_lanes().clone(), tables),
+                        .set_run_data(run_data.derived_lanes().clone(), tables),
                     Err(error) => self.toasts.error(format!(
                         "Could not bind decoder-table presentation: {error}"
                     )),
@@ -1559,7 +1562,8 @@ impl App {
                 refresh_sampling_overlays = true;
             }
             Ok(summary) => {
-                match waveform_presentation_registry(run.collected_output_subscriptions()) {
+                let run_data = run.run_data();
+                match waveform_presentation_registry(run_data.output_subscriptions()) {
                     Ok(presentations) => self
                         .logic_analyzer
                         .set_waveform_presentations(presentations),
@@ -1567,10 +1571,10 @@ impl App {
                         "Could not bind collected output presentation: {error}"
                     )),
                 }
-                match decoder_table_registry(run.collected_table_subscriptions()) {
+                match decoder_table_registry(run_data.table_subscriptions()) {
                     Ok(tables) => self
                         .decoder_panels
-                        .set_run_data(run.derived_lanes().clone(), tables),
+                        .set_run_data(run_data.derived_lanes().clone(), tables),
                     Err(error) => self.toasts.error(format!(
                         "Could not bind decoder-table presentation: {error}"
                     )),

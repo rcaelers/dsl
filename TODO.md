@@ -207,7 +207,7 @@ Implement the proposed boundary in
 [Graph Crate Responsibility Split](docs/GRAPH_CRATE_SPLIT_DESIGN.md#proposed-future-ui-controlled-compiler-boundary)
 in this order:
 
-- [ ] Define a compiler-owned, application-neutral run-data and source-readiness contract. It
+- [x] Define a compiler-owned, application-neutral run-data and source-readiness contract. It
   exposes retained lanes, collected subscriber data, diagnostics, and file/live cache-index
   availability without viewer or table-widget types.
 - [x] Define an explicit subscription-plan contract. The UI supplies the payloads it needs before

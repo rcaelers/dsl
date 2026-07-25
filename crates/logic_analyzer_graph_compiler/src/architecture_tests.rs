@@ -155,3 +155,29 @@ fn compiler_has_no_production_ui_dependencies() {
     assert!(!implementation.contains("logic_analyzer_viewer"));
     assert!(!implementation.contains("egui::"));
 }
+
+#[test]
+fn run_data_contract_is_application_neutral() {
+    let implementation = include_str!("run_data.rs");
+    for forbidden in [
+        "logic_analyzer_viewer",
+        "egui::",
+        "DecoderTableRegistry",
+        "WaveformPresentationRegistry",
+        "NodeGraphWidget",
+    ] {
+        assert!(
+            !implementation.contains(forbidden),
+            "run-data contract contains UI type {forbidden}"
+        );
+    }
+    for required in [
+        "DerivedLanes",
+        "CollectedOutputSubscription",
+        "CollectedTableSubscription",
+        "RunDiagnosticRegistry",
+        "SourceReadinessRegistry",
+    ] {
+        assert!(implementation.contains(required));
+    }
+}

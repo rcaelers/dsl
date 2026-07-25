@@ -45,7 +45,8 @@ use super::data_collector::DataCollectorBuilder;
 use super::errors::{ApplyError, CompileError};
 use super::{
     CollectedOutputLane, CollectedOutputSubscription, CollectedTableSubscription,
-    OutputSubscriptionPlan, cache_platform,
+    OutputSubscriptionPlan, RunData, RunDiagnosticRegistry, SourceReadinessRegistry,
+    cache_platform,
 };
 
 /// Shared resources handed to builders. A fresh `DerivedLanes` store per
@@ -65,6 +66,8 @@ pub struct CompileCtx {
     sampling_activities: HashMap<(String, usize), SamplingActivity>,
     collected_output_subscriptions: Vec<CollectedOutputSubscription>,
     collected_table_subscriptions: Vec<CollectedTableSubscription>,
+    diagnostics: RunDiagnosticRegistry,
+    source_readiness: SourceReadinessRegistry,
 }
 
 impl CompileCtx {
@@ -90,6 +93,26 @@ impl CompileCtx {
 
     pub fn collected_table_subscriptions(&self) -> &[CollectedTableSubscription] {
         &self.collected_table_subscriptions
+    }
+
+    /// Returns all application-neutral data and readiness handles for this run.
+    pub fn run_data(&self) -> RunData {
+        RunData::new(
+            self.derived_lanes.clone(),
+            self.collected_output_subscriptions.clone(),
+            self.collected_table_subscriptions.clone(),
+            self.sampling_overlays.clone(),
+            self.diagnostics.clone(),
+            self.source_readiness.clone(),
+        )
+    }
+
+    pub fn diagnostics(&self) -> &RunDiagnosticRegistry {
+        &self.diagnostics
+    }
+
+    pub fn source_readiness(&self) -> &SourceReadinessRegistry {
+        &self.source_readiness
     }
 }
 
@@ -1852,6 +1875,8 @@ pub struct LiveRun {
     lanes: DerivedLanes,
     collected_output_subscriptions: Vec<CollectedOutputSubscription>,
     collected_table_subscriptions: Vec<CollectedTableSubscription>,
+    diagnostics: RunDiagnosticRegistry,
+    source_readiness: SourceReadinessRegistry,
     /// Set by [`Self::stop`]: the wind-down has been signalled but node
     /// threads may still be finishing their current `work()` call.
     stop_requested: bool,
@@ -2004,6 +2029,8 @@ fn start_live_inner(
         lanes: ctx.derived_lanes.clone(),
         collected_output_subscriptions: ctx.collected_output_subscriptions.clone(),
         collected_table_subscriptions: ctx.collected_table_subscriptions.clone(),
+        diagnostics: ctx.diagnostics.clone(),
+        source_readiness: ctx.source_readiness.clone(),
         stop_requested: false,
         cache_pruned,
         persistent_cache_directory: ctx.persistent_cache_directory.clone(),
@@ -2033,6 +2060,26 @@ impl LiveRun {
 
     pub fn derived_lanes(&self) -> &DerivedLanes {
         &self.lanes
+    }
+
+    /// Returns a coherent application-neutral snapshot of this live run.
+    pub fn run_data(&self) -> RunData {
+        RunData::new(
+            self.lanes.clone(),
+            self.collected_output_subscriptions.clone(),
+            self.collected_table_subscriptions.clone(),
+            self.compiled.sampling_overlays.clone(),
+            self.diagnostics.clone(),
+            self.source_readiness.clone(),
+        )
+    }
+
+    pub fn diagnostics(&self) -> &RunDiagnosticRegistry {
+        &self.diagnostics
+    }
+
+    pub fn source_readiness(&self) -> &SourceReadinessRegistry {
+        &self.source_readiness
     }
 
     /// Diffs the edited graph against what is running and applies the
@@ -2072,6 +2119,8 @@ impl LiveRun {
             sampling_activities: sampling_activity_map(&new),
             collected_output_subscriptions: collected_output_subscriptions(&new, registry),
             collected_table_subscriptions: collected_table_subscriptions(&new, registry),
+            diagnostics: self.diagnostics.clone(),
+            source_readiness: self.source_readiness.clone(),
         };
         let mut summary = ApplySummary::default();
         for edit in edits {

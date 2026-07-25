@@ -196,6 +196,15 @@ descriptions into waveform groups and tracks. Missing renderer registrations are
 binding errors. Live graph updates publish replacement subscription metadata before the UI
 rebinds presentations. The compiler only transports the descriptors.
 
+`RunData` is the compiler-owned application-facing snapshot for both initial materialization and
+live runs. It consolidates retained `DerivedLanes`, output and table subscriptions, sampling plans,
+shared run diagnostics, and shared source readiness. Source readiness identifies file or live data
+and independently reports preload, cache, index, and consumable-data artifacts as pending,
+available, unsupported, or failed. The shared registries provide the explicit publication
+boundary; consumers read snapshots and remain free to
+attach or replace views after a run has started. Wiring every native and wasm source/storage path
+to that boundary is tracked in the proposed-future verification work below.
+
 Sampling overlays follow the same boundary. `signal_processing::SamplingEdge` is the shared
 runtime concept; the compiler resolves graph inputs to capture channels, qualifiers, and runtime
 activity handles in `ResolvedSamplingOverlay`. The UI converts that plan into the logic-analyzer
@@ -231,13 +240,7 @@ Architecture checks enforce these dependency rules:
 Native and wasm builds exercise the same inventory and public API surfaces. Target selection stays
 at whole implementation-module and linker-composition boundaries.
 
-## Proposed future: UI-controlled compiler boundary
-
-The compiler's run results will consolidate retained lanes, collected subscriber data,
-diagnostics, and source readiness behind one application-neutral contract.
-
-The run-data handle will let the UI attach, detach, or rebind its views while retaining explicit
-ownership of subscriptions and presentation state.
+## Proposed future: source-readiness orchestration
 
 File and live sources report their viewer-usable data through the same application-neutral
 source-readiness result. For a file source, preparation completes preload, cache lookup or
