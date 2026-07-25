@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use logic_analyzer_graph_api::node_support::CapturePresentation;
 use logic_analyzer_graph_compiler as compiler;
 use node_graph::NodeId;
 
@@ -131,52 +130,74 @@ impl App {
         if self.logic_analyzer.has_growing_capture() {
             return;
         }
-        let discovered = self
+        let update = match self
             .graph_compiler
-            .discover_capture_presentation(self.node_graph.graph())
-            .ok()
-            .flatten();
-        let Some(discovered) = discovered else {
-            if self.platform.capture_presentation_identity.take().is_some() {
+            .synchronize_prepared_capture(self.node_graph.graph())
+        {
+            Ok(update) => update,
+            Err(error) => {
+                self.toasts
+                    .error(format!("Could not prepare capture source: {error}"));
+                return;
+            }
+        };
+        match update {
+            compiler::SourcePreparationUpdate::Unchanged => {}
+            compiler::SourcePreparationUpdate::Preparing => {
+                if self.platform.capture_presentation_identity.take().is_some() {
+                    self.logic_analyzer.clear_capture();
+                }
+            }
+            compiler::SourcePreparationUpdate::Cleared => {
+                self.platform.capture_presentation_identity = None;
                 self.logic_analyzer.clear_capture();
             }
-            return;
-        };
-        if self.platform.capture_presentation_identity.as_deref()
-            == Some(discovered.identity.as_str())
-        {
-            return;
+            compiler::SourcePreparationUpdate::Failed(error) => {
+                self.platform.capture_presentation_identity = None;
+                self.logic_analyzer.clear_capture();
+                self.toasts
+                    .error(format!("Could not prepare capture source: {error}"));
+            }
+            compiler::SourcePreparationUpdate::Ready(prepared) => {
+                self.logic_analyzer
+                    .set_visible_capture_channels(prepared.visible_channels);
+                self.platform.capture_presentation_identity = Some(prepared.identity.clone());
+                match prepared.data {
+                    compiler::PreparedCaptureData::Indexed(index) => self
+                        .logic_analyzer
+                        .set_prepared_capture(prepared.identity, index),
+                    compiler::PreparedCaptureData::InMemory { signals, .. } => {
+                        self.set_capture_preview(signals)
+                    }
+                    compiler::PreparedCaptureData::Channels(channels) => {
+                        self.logic_analyzer.set_channels(
+                            channels
+                                .into_iter()
+                                .map(|(index, name)| logic_analyzer_viewer::ChannelSignal {
+                                    index,
+                                    name,
+                                    initial: false,
+                                    transitions: Vec::new(),
+                                })
+                                .collect(),
+                        )
+                    }
+                }
+            }
         }
-        self.logic_analyzer
-            .set_visible_capture_channels(discovered.visible_channels);
-        self.platform.capture_presentation_identity = Some(discovered.identity);
-        match discovered.presentation {
-            CapturePresentation::Indexed {
-                identity, factory, ..
-            } => {
-                self.logic_analyzer.set_capture_factory(identity, factory);
+        match self.graph_compiler.source_preparation_status() {
+            compiler::SourcePreparationStatus::Ready => self.publish_file_source_ready(),
+            compiler::SourcePreparationStatus::Failed(error) => {
+                self.publish_file_source_failure(&error)
             }
-            CapturePresentation::InMemory { signals, .. } => {
-                self.set_capture_preview(signals);
-            }
-            CapturePresentation::Channels(channels) => {
-                self.logic_analyzer.set_channels(
-                    channels
-                        .into_iter()
-                        .map(|(index, name)| logic_analyzer_viewer::ChannelSignal {
-                            index,
-                            name,
-                            initial: false,
-                            transitions: Vec::new(),
-                        })
-                        .collect(),
-                );
-            }
+            compiler::SourcePreparationStatus::Empty
+            | compiler::SourcePreparationStatus::Preparing => {}
         }
     }
 
     pub(crate) fn platform_restore_graph_capture(&mut self) {
         self.platform.capture_presentation_identity = None;
+        self.graph_compiler.reset_prepared_capture();
     }
 
     pub(crate) fn platform_before_graph(&mut self) {

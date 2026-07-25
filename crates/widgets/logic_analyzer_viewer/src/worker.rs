@@ -2,8 +2,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 
 use signal_processing::{
-    CaptureDataSource, CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory,
-    CaptureIndexProgress, CaptureMetadata, IndexSampler,
+    CaptureDataSource, CaptureIndex, CaptureIndexProgress, CaptureMetadata, IndexSampler,
 };
 
 use crate::channel::placeholder_channels;
@@ -217,61 +216,6 @@ pub(crate) fn spawn_capture_worker(
             let _ = responses.send(response);
         })
         .expect("capture indexer thread should start");
-}
-
-pub(crate) fn spawn_capture_factory_worker(
-    identity: PathBuf,
-    factory: Box<dyn CaptureIndexFactory>,
-    responses: Sender<WorkerResponse>,
-) {
-    std::thread::Builder::new()
-        .name("capture_index_factory".to_string())
-        .spawn(move || {
-            let display_name = factory.display_name();
-            let _ = responses.send(WorkerResponse::Status {
-                path: identity.clone(),
-                message: format!("Opening {display_name}…"),
-            });
-            let progress_path = identity.clone();
-            let progress_responses = responses.clone();
-            let mut last_progress_sent = std::time::Instant::now()
-                .checked_sub(std::time::Duration::from_millis(100))
-                .unwrap_or_else(std::time::Instant::now);
-            let mut last_progress_completed = 0_usize;
-            let result = factory.open(&mut |progress: CaptureIndexBuildProgress| {
-                let now = std::time::Instant::now();
-                let enough_time = now.duration_since(last_progress_sent)
-                    >= std::time::Duration::from_millis(100);
-                let enough_work = progress.completed.saturating_sub(last_progress_completed) >= 64;
-                if progress.completed == 0
-                    || progress.completed >= progress.total
-                    || enough_time
-                    || enough_work
-                {
-                    last_progress_sent = now;
-                    last_progress_completed = progress.completed;
-                    let _ = progress_responses.send(WorkerResponse::IndexProgress {
-                        path: progress_path.clone(),
-                        progress: CaptureIndexProgress {
-                            completed_roots: progress.completed,
-                            total_roots: progress.total,
-                        },
-                    });
-                }
-            });
-            let response = match result {
-                Ok(sampler) => WorkerResponse::IndexReady {
-                    path: identity,
-                    sampler,
-                },
-                Err(error) => WorkerResponse::Error {
-                    path: identity,
-                    message: format!("Could not open capture: {error}"),
-                },
-            };
-            let _ = responses.send(response);
-        })
-        .expect("capture index factory thread should start");
 }
 
 fn path_display_name(path: &std::path::Path) -> &str {

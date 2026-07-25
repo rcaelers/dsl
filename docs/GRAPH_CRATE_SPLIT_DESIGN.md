@@ -202,16 +202,17 @@ shared run diagnostics, and shared source readiness. Source readiness identifies
 and independently reports preload, cache, index, and consumable-data artifacts as pending,
 available, unsupported, or failed. The shared registries provide the explicit publication
 boundary; consumers read snapshots and remain free to
-attach or replace views after a run has started. Wiring every native and wasm source/storage path
-to that boundary is tracked in the proposed-future verification work below.
+attach or replace views after a run has started.
 
 Source builders declare `SourceDataLifecycle` rather than relying on node names. Native file
 sources declare preload, cache, and index capabilities; their wasm implementations declare the
 same file lifecycle with filesystem-backed cache and index capabilities unsupported. Native live
 sources declare cache and growing-index capabilities, while unavailable wasm hardware
-implementations declare those artifacts unsupported. Successful source materialization publishes
-preload and consumable data as available. The native capture coordinator subsequently publishes
-its cache and growing index as each artifact becomes attachable.
+implementations declare those artifacts unsupported. Source materialization publishes supported
+file artifacts as pending. Compiler-owned preparation opens the source factory off the UI thread
+and produces a completed format-neutral capture index; the UI attaches that index and marks the
+supported file artifacts available in the run registry. The native capture coordinator publishes
+live cache and growing-index availability as each artifact becomes attachable.
 
 Sampling overlays follow the same boundary. `signal_processing::SamplingEdge` is the shared
 runtime concept; the compiler resolves graph inputs to capture channels, qualifiers, and runtime
@@ -248,14 +249,15 @@ Architecture checks enforce these dependency rules:
 Native and wasm builds exercise the same inventory and public API surfaces. Target selection stays
 at whole implementation-module and linker-composition boundaries.
 
-## Proposed future: source-readiness orchestration
+## Source-readiness orchestration
 
 File and live sources report their viewer-usable data through the same application-neutral
 source-readiness result. For a file source, preparation completes preload, cache lookup or
 creation, and indexing before publishing the available capture data. For a live source, the run
-publishes its cache and index as they become available. The compiler owns orchestration and its
-explicit cache-directory configuration; source and storage implementations own their platform
-details.
+publishes its cache and index as they become available. The compiler owns orchestration while
+source and storage implementations own their platform details. The UI remains in control of when
+it polls preparation, attaches completed data, and reflects completion in the active run's
+readiness registry.
 
 The resulting dependency direction is:
 

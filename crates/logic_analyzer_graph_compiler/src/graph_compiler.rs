@@ -11,7 +11,8 @@ use super::graph::{
     DiscoveredLiveCaptureFeature, DiscoveredTriggerConfiguration, LiveAnalysisSource,
     LiveCaptureDiscoveryError, LiveRun, SamplingOverlayCandidate, SourceProcessOverrides,
 };
-use super::{OutputSubscriptionPlan, graph};
+use super::source_preparation::SourcePreparation;
+use super::{OutputSubscriptionPlan, SourcePreparationStatus, SourcePreparationUpdate, graph};
 
 /// Stateful application-facing facade for graph discovery, compilation, and execution.
 ///
@@ -21,6 +22,7 @@ use super::{OutputSubscriptionPlan, graph};
 pub struct GraphCompiler {
     builders: BuilderRegistry,
     output_subscriptions: OutputSubscriptionPlan,
+    source_preparation: SourcePreparation,
 }
 
 impl GraphCompiler {
@@ -28,6 +30,7 @@ impl GraphCompiler {
         Self {
             builders: BuilderRegistry::standard(),
             output_subscriptions: OutputSubscriptionPlan::new(),
+            source_preparation: SourcePreparation::new(),
         }
     }
 
@@ -45,6 +48,7 @@ impl GraphCompiler {
         Self {
             builders: BuilderRegistry::isolated_test(),
             output_subscriptions: OutputSubscriptionPlan::new(),
+            source_preparation: SourcePreparation::new(),
         }
     }
 
@@ -81,6 +85,28 @@ impl GraphCompiler {
             &self.builders,
             &self.output_subscriptions,
         )
+    }
+
+    /// Advances source-owned preload/index preparation and returns only state changes.
+    pub fn synchronize_prepared_capture(
+        &mut self,
+        graph: &GraphState,
+    ) -> Result<SourcePreparationUpdate, String> {
+        let discovered = graph::discover_capture_presentation_with_subscriptions(
+            graph,
+            &self.builders,
+            &self.output_subscriptions,
+        )?;
+        Ok(self.source_preparation.synchronize(discovered))
+    }
+
+    /// Forgets source preparation state so the current graph is prepared again.
+    pub fn reset_prepared_capture(&mut self) {
+        self.source_preparation.reset();
+    }
+
+    pub fn source_preparation_status(&self) -> SourcePreparationStatus {
+        self.source_preparation.status()
     }
 
     pub fn discover_live_capture_feature(

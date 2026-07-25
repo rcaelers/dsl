@@ -19,7 +19,8 @@ pub use lanes::{
 ```
 
 Capture/lane data types come from the `signal-processing` crate: `CaptureDataSource`,
-`CaptureIndexFactory`, and `DerivedLanes`. Concrete file sources remain outside the widget.
+`CaptureIndex`, and `DerivedLanes`. Concrete file sources and their preparation remain outside the
+widget.
 
 ---
 
@@ -34,7 +35,7 @@ let mut viewer = LogicAnalyzerViewer::new();   // or ::default()
 viewer.show(ui);                               // fills the available rect
 ```
 
-`show` is self-contained: it drains background-worker messages, handles all interaction
+`show` is self-contained: it drains lower-level file-worker messages, handles all interaction
 (pan, zoom, cursors, row rename/reorder, hover measurement), samples the visible window,
 paints, and schedules repaints while a capture is opening or indexing.
 
@@ -43,17 +44,16 @@ paints, and schedules repaints while a capture is opening or indexing.
 The viewer renders three independent kinds of rows, freely combined; a single internal row
 order spans all of them (user-reorderable by dragging labels).
 
-### 1. Indexed captures — `set_capture_factory`
+### 1. Indexed captures — `set_prepared_capture`
 
 ```rust
-viewer.set_capture_factory(identity, factory);
+viewer.set_prepared_capture(identity, index);
 ```
 
-The viewer only knows the generic `signal_processing::CaptureIndexFactory`. Concrete graph-source
-features create factories for their formats. Calling the method again with the same opaque
-identity is a no-op; a new identity replaces the capture rows and moves all opening and index work
-to a background worker. `set_capture_path` remains available to lower-level hosts that already own
-a concrete `CaptureDataSource`.
+The host prepares the generic `signal_processing::CaptureIndex` before attaching it. In the graph
+application, the compiler owns file preload, cache, and index orchestration and the UI attaches the
+completed result. `set_capture_path` remains available to lower-level hosts that directly own a
+concrete `CaptureDataSource`.
 
 ### 2. In-memory channels — `set_channels`
 

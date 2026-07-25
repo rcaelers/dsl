@@ -29,8 +29,8 @@ The widget's public API is documented in
 
 The viewer renders three independent kinds of rows:
 
-1. **Capture channels** — sampled on demand from an indexed capture. The viewer accepts a generic
-   `CaptureIndexFactory`; concrete graph-source builders own format-specific construction and the
+1. **Capture channels** — sampled on demand from a host-prepared generic `CaptureIndex`. Concrete
+   graph-source builders own format-specific construction, the compiler owns preparation, and the
    widget never depends on a file format.
 2. **In-memory channels** — raw `(time, level)` transition lists handed in wholesale
    (`set_channels`), used for host-provided data.
@@ -71,7 +71,9 @@ one channel.
 concrete capture source
   │
   ├─ graph-owned CaptureIndexFactory     (opaque identity and deferred open)
-  │    └─ concrete processing reader     (DSL, Sigrok, or another registered format)
+  │    └─ compiler source preparation    (preload, cache, and index)
+  │         ├─ background thread         (opens capture and builds/validates index)
+  │         └─ concrete processing reader (DSL, Sigrok, or another registered format)
   │
   ├─ Waveform index (crates/signal_processing/src/waveform_index)
   │    ├─ IndexBuilder              — builds finite sidecars on worker threads
@@ -82,9 +84,7 @@ concrete capture source
   ├─ Archive capture store (crates/signal_processing/src/archive_capture_store)
   │    └─ NativeArchiveCaptureStore — optional `.dsl.idx.raw` exact-read store
   │
-  └─ LogicAnalyzerViewer (egui)          — UI widget
-       ├─ background thread             — opens capture, builds/validates index, reports progress
-       └─ UI thread                     — samples the visible window synchronously and paints it
+  └─ LogicAnalyzerViewer (egui)          — samples the prepared index and paints it
 ```
 
 `IndexSampler` and `NativeGrowingCaptureIndex` are the finite and growing handles of one waveform

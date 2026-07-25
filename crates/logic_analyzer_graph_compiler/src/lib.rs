@@ -13,6 +13,13 @@ mod graph_compiler;
 mod graph_node_registration;
 mod output_subscription;
 mod run_data;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "source_preparation_native.rs"]
+mod source_preparation;
+#[cfg(target_arch = "wasm32")]
+#[path = "source_preparation_wasm.rs"]
+mod source_preparation;
+mod source_preparation_contract;
 
 #[cfg(test)]
 mod architecture_tests;
@@ -46,4 +53,7 @@ pub use output_subscription::{
 pub use run_data::{
     RunData, RunDiagnostic, RunDiagnosticRegistry, RunDiagnosticSeverity, SourceArtifactReadiness,
     SourceDataKind, SourceReadiness, SourceReadinessRegistry,
+};
+pub use source_preparation_contract::{
+    PreparedCapture, PreparedCaptureData, SourcePreparationStatus, SourcePreparationUpdate,
 };

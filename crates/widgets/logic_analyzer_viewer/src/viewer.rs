@@ -6,7 +6,7 @@ use std::sync::mpsc::{self, Receiver};
 use egui::{FontId, Pos2, Rect, Sense, Ui};
 
 use input_bindings::InputBindings;
-use signal_processing::{CaptureDataSource, CaptureIndex, CaptureIndexFactory, DerivedLanes};
+use signal_processing::{CaptureDataSource, CaptureIndex, DerivedLanes};
 
 use crate::channel::LogicChannel;
 use crate::lanes::{ViewerLaneGroupId, WaveformPresentationRegistry};
@@ -344,24 +344,31 @@ impl LogicAnalyzerViewer {
         self.worker_responses = Some(response_rx);
     }
 
-    /// Attaches a deferred, format-neutral indexed capture source.
-    pub fn set_capture_factory(
+    /// Attaches an index fully prepared by the host.
+    pub fn set_prepared_capture(
         &mut self,
         identity: impl Into<PathBuf>,
-        factory: Box<dyn CaptureIndexFactory>,
+        sampler: Box<dyn CaptureIndex>,
     ) {
         let identity = identity.into();
-        if self.capture_path.as_ref() == Some(&identity) {
-            return;
-        }
-        let display_name = factory.display_name();
+        let metadata = sampler.current_metadata();
+        let duration_us = metadata.duration_us();
         self.clear_capture();
-        self.capture_path = Some(identity.clone());
+        self.capture_path = Some(identity);
+        self.capture_info = Some(CaptureInfo {
+            header: metadata.clone(),
+            duration_us,
+        });
+        self.channels = crate::channel::placeholder_channels(&metadata)
+            .into_iter()
+            .filter(|channel| self.capture_channel_is_visible(channel.index))
+            .collect();
+        self.sampler = Some(sampler);
+        self.visible_start_us = 0.0;
+        self.visible_span_us = duration_us.max(1.0);
         self.fit_to_capture = true;
-        self.status = format!("Opening {display_name}");
-        let (response_tx, response_rx) = mpsc::channel();
-        crate::worker::spawn_capture_factory_worker(identity, factory, response_tx);
-        self.worker_responses = Some(response_rx);
+        self.status = "Indexed capture ready".into();
+        self.ensure_row_order();
     }
 
     /// Clear a capture when no file-backed source remains in the graph.

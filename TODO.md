@@ -203,9 +203,8 @@ order; update this single checklist as slices land:
 
 ### UI-controlled compiler boundary
 
-Implement the proposed boundary in
-[Graph Crate Responsibility Split](docs/GRAPH_CRATE_SPLIT_DESIGN.md#proposed-future-ui-controlled-compiler-boundary)
-in this order:
+Maintain the boundary described in
+[Graph Crate Responsibility Split](docs/GRAPH_CRATE_SPLIT_DESIGN.md#application-supplied-output-subscriptions):
 
 - [x] Define a compiler-owned, application-neutral run-data and source-readiness contract. It
   exposes retained lanes, collected subscriber data, diagnostics, and file/live cache-index
@@ -231,7 +230,7 @@ in this order:
 - [x] Remove `egui` and `logic_analyzer_viewer` from the compiler production dependencies. Add
   architecture checks that reject widget imports, Viewer-node synthesis, and viewer-selection
   persistence in the compiler crate.
-- [ ] Verify native and wasm file/live source readiness, cache reuse, indexing, collector
+- [x] Verify native and wasm file/live source readiness, cache reuse, indexing, collector
   subscription changes, and UI attachment after production has started.
 
 - Define how several source clocks and trigger positions map onto the shared viewer timeline.

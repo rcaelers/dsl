@@ -1017,6 +1017,54 @@ impl App {
         }
     }
 
+    pub(crate) fn publish_file_source_ready(&self) {
+        let Some(run) = &self.run else {
+            return;
+        };
+        let registry = run.source_readiness();
+        for mut readiness in registry
+            .snapshot()
+            .into_iter()
+            .filter(|readiness| readiness.kind == compiler::SourceDataKind::File)
+        {
+            for artifact in [
+                &mut readiness.preload,
+                &mut readiness.cache,
+                &mut readiness.index,
+                &mut readiness.data,
+            ] {
+                if *artifact == compiler::SourceArtifactReadiness::Pending {
+                    *artifact = compiler::SourceArtifactReadiness::Available;
+                }
+            }
+            registry.publish(readiness);
+        }
+    }
+
+    pub(crate) fn publish_file_source_failure(&self, error: &str) {
+        let Some(run) = &self.run else {
+            return;
+        };
+        let registry = run.source_readiness();
+        for mut readiness in registry
+            .snapshot()
+            .into_iter()
+            .filter(|readiness| readiness.kind == compiler::SourceDataKind::File)
+        {
+            for artifact in [
+                &mut readiness.preload,
+                &mut readiness.cache,
+                &mut readiness.index,
+                &mut readiness.data,
+            ] {
+                if *artifact != compiler::SourceArtifactReadiness::Unsupported {
+                    *artifact = compiler::SourceArtifactReadiness::Failed(error.to_owned());
+                }
+            }
+            registry.publish(readiness);
+        }
+    }
+
     fn start_capture_analysis(&mut self, attachment: CaptureAnalysisAttachment) {
         let Some(graph) = self.capture_graph.take() else {
             self.capture_analysis_error = Some("capture graph snapshot is unavailable".into());

@@ -517,7 +517,7 @@ fn publish_materialized_source_readiness(
                 }
             },
             preload: if lifecycle.preload {
-                SourceArtifactReadiness::Available
+                SourceArtifactReadiness::Pending
             } else {
                 SourceArtifactReadiness::Unsupported
             },
@@ -531,7 +531,14 @@ fn publish_materialized_source_readiness(
             } else {
                 SourceArtifactReadiness::Unsupported
             },
-            data: SourceArtifactReadiness::Available,
+            data: match lifecycle.kind {
+                logic_analyzer_graph_api::node_support::SourceDataLifecycleKind::File => {
+                    SourceArtifactReadiness::Pending
+                }
+                logic_analyzer_graph_api::node_support::SourceDataLifecycleKind::Live => {
+                    SourceArtifactReadiness::Available
+                }
+            },
         });
     }
 }
