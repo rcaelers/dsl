@@ -5,7 +5,7 @@ use logic_analyzer_ui::{APPLICATION_ID, APPLICATION_NAME};
 const APPLICATION_LOG_TARGETS: &[&str] = &[
     "logic_conduit",
     "logic_analyzer_ui",
-    "logic_analyzer_graph",
+    "logic_analyzer_graph_compiler",
     "logic_analyzer_processing",
     "logic_analyzer_viewer",
     "node_graph",
@@ -139,7 +139,7 @@ mod logging_tests {
     fn retains_non_application_directives() {
         assert_eq!(
             expand_application_log_directives("warn,eframe=info,logic_conduit=debug"),
-            "warn,eframe=info,logic_conduit=debug,logic_analyzer_ui=debug,logic_analyzer_graph=debug,logic_analyzer_processing=debug,logic_analyzer_viewer=debug,node_graph=debug,panel_layout=debug,trigger_editor=debug,input_bindings=debug,signal_processing=debug"
+            "warn,eframe=info,logic_conduit=debug,logic_analyzer_ui=debug,logic_analyzer_graph_compiler=debug,logic_analyzer_processing=debug,logic_analyzer_viewer=debug,node_graph=debug,panel_layout=debug,trigger_editor=debug,input_bindings=debug,signal_processing=debug"
         );
     }
 
@@ -154,7 +154,7 @@ mod tests {
     fn enabled_plugin_link_makes_its_inventories_visible_to_the_native_host() {
         link_compile_time_inventories();
 
-        let compiler = logic_analyzer_graph::host::GraphCompiler::new();
+        let compiler = logic_analyzer_graph_compiler::GraphCompiler::new();
         let nodes = compiler.build_node_registry();
         assert_eq!(nodes.category_of("Pulse Measure"), Some("Plugin"));
         assert_eq!(nodes.category_of("Camera Frame Source"), Some("Plugin"));
@@ -171,7 +171,7 @@ mod tests {
     fn built_in_link_makes_node_and_payload_inventories_visible() {
         link_compile_time_inventories();
 
-        let compiler = logic_analyzer_graph::host::GraphCompiler::new();
+        let compiler = logic_analyzer_graph_compiler::GraphCompiler::new();
         let nodes = compiler.build_node_registry();
         assert_eq!(nodes.category_of("SPI Decoder"), Some("Decoders"));
         assert!(

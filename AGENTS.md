@@ -4,7 +4,7 @@
   infrastructure independent of concrete nodes and protocols. They must not
   branch on node names, port labels, or protocol-specific values (for example
   UART, `Bits`, `Data`, start/stop markers, SPI, or Binary Decoder).
-- Concrete behavior belongs in the corresponding `logic_analyzer_graph` node
+- Concrete behavior belongs in the corresponding `logic_analyzer_graph_nodes` node
   feature and its `logic_analyzer_processing` runtime node.
 - Pass protocol-specific presentation needs to generic infrastructure through
   explicit, generic metadata/contracts. Do not infer behavior from display
@@ -28,8 +28,9 @@ See `docs/DECODER_VIEW_LANE_DESIGN.md` for the detailed viewer-lane decision.
   infrastructure.
 - `logic_analyzer_processing` owns UI-independent concrete capture sources,
   protocol decoders, processing nodes, and sinks.
-- `logic_analyzer_graph` owns concrete graph nodes, compiler builders, graph
-  lowering, and plugin registration contracts.
+- `logic_analyzer_graph_nodes` owns concrete graph nodes and their builders.
+- `logic_analyzer_graph_compiler` owns generic graph lowering, discovery, execution, and
+  saved-document synchronization.
 - `logic_analyzer_ui` composes the widgets and application services; it must not
   contain concrete node definitions or runtime builders.
 - Reusable widgets live below `crates/widgets` and must remain independent of

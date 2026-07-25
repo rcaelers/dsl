@@ -20,7 +20,7 @@
 
 ### Consolidate wasm stand-ins behind processing platform facades
 
-- Make `logic_analyzer_graph` compile the same concrete node definitions and runtime builders on
+- Make `logic_analyzer_graph_nodes` compile the same concrete node definitions and runtime builders on
   native and wasm. It must describe node state, ports, and presentation contracts without knowing
   that a wasm runtime is synthetic or that a native runtime uses USB/filesystem resources.
 - Move selection of real versus synthetic source and sink implementations into whole-file
@@ -34,7 +34,7 @@
   alias compile.
 - Pass synthetic capture presentation and runtime capabilities back through explicit processing
   metadata/contracts. Remove `builder_wasm.rs`, synthetic-presentation helpers, and target-specific
-  builder registration from `logic_analyzer_graph` once the processing facade owns those choices.
+  builder registration from `logic_analyzer_graph_nodes` once the processing facade owns those choices.
 - Keep target selection in one processing `platform` boundary per capability and add native/wasm
   catalog, port-schema, state-option, and lowering-parity tests.
 
@@ -179,7 +179,7 @@ The definitive migration design is
 order; update this single checklist as slices land:
 
 - [x] Introduce explicit `node`, `node_support`, and `host` facades in
-  `logic_analyzer_graph`; classify every current public symbol and stop adding new crate-root
+  `logic_analyzer_graph_compiler`; classify every current public symbol and stop adding new crate-root
   exports.
 - [x] Replace plugin-visible `CompileCtx` parameters with a narrow `NodeBuildContext` contract;
   keep compiler result extraction on host-owned state.
@@ -188,7 +188,7 @@ order; update this single checklist as slices land:
   `crate::nodes`.
 - [x] Extract `logic_analyzer_graph_api` with only the `node` and `node_support` namespaces, then
   update the compiler, built-in nodes, and example plugin to use those paths.
-- [x] Introduce `GraphCompiler` as the stateful `logic_analyzer_graph::host` facade and migrate UI
+- [x] Introduce `GraphCompiler` as the stateful `logic_analyzer_graph_compiler` facade and migrate UI
   and application composition away from independent compiler free functions.
 - [x] Extract `logic_analyzer_graph_nodes`, including built-in socket definitions, concrete graph
   nodes, migrations, payload presentations, registrations, and isolated tests.

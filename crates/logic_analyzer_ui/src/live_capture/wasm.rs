@@ -1,4 +1,4 @@
-use logic_analyzer_graph::host::DiscoveredLiveCaptureFeature;
+use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
 use signal_processing::CaptureStartMode;
 
 use super::implementation::{

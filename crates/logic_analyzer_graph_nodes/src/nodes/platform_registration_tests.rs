@@ -1,7 +1,7 @@
 use egui::Pos2;
 
-use logic_analyzer_graph::host::GraphCompiler;
 use logic_analyzer_graph_api::node_support::{CapturePresentation, LiveCaptureEdit};
+use logic_analyzer_graph_compiler::GraphCompiler;
 use node_graph::{NodeGraphWidget, SocketDirection, SocketId};
 use signal_processing::{CaptureChannelId, CaptureDataDelivery, SimpleTriggerCondition};
 

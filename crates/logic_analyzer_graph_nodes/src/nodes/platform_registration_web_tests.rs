@@ -1,6 +1,6 @@
 use egui::Pos2;
 
-use logic_analyzer_graph::host::GraphCompiler;
+use logic_analyzer_graph_compiler::GraphCompiler;
 use node_graph::NodeGraphWidget;
 
 use crate::nodes::node_name;

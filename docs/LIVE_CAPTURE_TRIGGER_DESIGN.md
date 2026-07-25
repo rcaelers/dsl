@@ -213,7 +213,7 @@ pre-trigger data can therefore be retained without pretending it belongs after t
 | --- | --- |
 | `signal_processing` | Generic session IDs/status, provider acquisition lifecycle, append-only live raw store, committed-prefix queries, trigger point metadata, analysis cursor sources, and finalized capture handles. No USB, node names, or UI. |
 | `logic_analyzer_processing` | Concrete capture providers and source-owned U3Pro16 USB behavior. The U3Pro16 processing source feature translates trigger headers and chunks into the generic session contracts. |
-| `logic_analyzer_graph` | U3Pro16 saved trigger state, generic live-source descriptors, trigger-state lowering, replay override lowering, and builder registration. Concrete U3 behavior stays in its feature directory. |
+| `logic_analyzer_graph_compiler` | Generic live-source descriptors, trigger-state lowering, and replay override lowering. Concrete U3 state, builder registration, and behavior stay in the corresponding `logic_analyzer_graph_nodes` feature directory. |
 | `logic_analyzer_viewer` | Generic lane trigger icons, hit testing, live capture queries, and neutral trigger-edit events. It does not identify U3Pro16 or construct hardware trigger programs. |
 | `logic_analyzer_ui` | Capture-session coordinator, Start/Stop state machine, recording-time epoch orchestration, title-bar controls, status/toasts, and routing neutral edits between descriptors and widgets. It does not branch on node names. |
 | `node_graph` | Generic read-only/edit-enabled mode during capture. It has no capture or trigger concepts. |

@@ -156,7 +156,8 @@ cargo check -p logic-analyzer-app-web --target wasm32-unknown-unknown
 
 The repository is a Cargo workspace: `crates/signal_processing` (generic streaming runtime),
 `crates/logic_analyzer_processing` (concrete decoders, processing nodes, and file/USB sources),
-`crates/logic_analyzer_graph` (node catalog and graph compiler),
+`crates/logic_analyzer_graph_nodes` (node catalog) and
+`crates/logic_analyzer_graph_compiler` (graph compiler),
 `crates/widgets/node_graph` (reusable node editor widget),
 `crates/widgets/logic_analyzer_viewer` (waveform widget), `crates/logic_analyzer_ui`
 (application UI), `crates/app_native` (desktop binary), `crates/app_web`

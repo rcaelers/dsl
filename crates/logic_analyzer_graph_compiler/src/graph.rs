@@ -23,9 +23,9 @@ use logic_analyzer_graph_api::node::{
     CaptureGraphSourceFactory, LiveCaptureFeature, RuntimeBuilder,
 };
 use logic_analyzer_graph_api::node_support::{
-    CaptureCacheIdentity, CapturePresentation, DefaultViewerPayloadPresentation, LiveCaptureEdit,
-    NodeBuildContext, PortKind, ResolvedInput, ResolvedInputs, SimpleTriggerChannel,
-    TriggerConfigurationFeature,
+    CaptureCacheIdentity, CapturePresentation, DecoderTableRegistry,
+    DefaultViewerPayloadPresentation, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInput,
+    ResolvedInputs, SimpleTriggerChannel, TriggerConfigurationFeature,
 };
 use logic_analyzer_viewer::{
     SamplingOverlay, SamplingQualifier, ViewerLaneGroup, WaveformPresentationRegistry,
@@ -47,8 +47,8 @@ use signal_processing::{
 
 use super::cache_platform;
 use super::data_collector::DataCollectorBuilder;
+use super::decoder_table_subscription::subscribe_collected_tables;
 use super::errors::{ApplyError, CompileError};
-use crate::decoder_table::DecoderTableRegistry;
 
 /// Shared resources handed to builders. A fresh `DerivedLanes` store per
 /// run makes stale collected data vanish atomically on re-run.
@@ -1066,7 +1066,7 @@ fn with_auto_view_sink(graph: &GraphState, registry: &BuilderRegistry) -> GraphS
             .collect();
         let mut collector = Node::blank(
             AUTO_DATA_COLLECTOR_NODE_ID,
-            crate::compiler::DATA_COLLECTOR_BUILDER,
+            crate::DATA_COLLECTOR_BUILDER,
             Pos2::ZERO,
         );
         collector.title = "Derived Data Collector".to_owned();
@@ -1560,12 +1560,7 @@ fn register_collected_subscribers(
         return Ok(());
     }
     let lane_names = builder.collected_lane_names(&node.state, &node.resolved);
-    crate::decoder_table::subscribe_collected_tables(
-        node.id,
-        &node.resolved,
-        &lane_names,
-        ctx.decoder_tables(),
-    );
+    subscribe_collected_tables(node.id, &node.resolved, &lane_names, ctx.decoder_tables());
     builder.register_presentations(
         subscription_name,
         &node.state,
@@ -2244,7 +2239,7 @@ mod tests {
         let retained: HashSet<_> = compiled.nodes.iter().map(|node| node.id).collect();
         discover_live_capture_feature_from(graph, builders, |node| retained.contains(&node.id))
     }
-    use crate::nodes;
+    use logic_analyzer_graph_nodes::test_support as nodes;
 
     #[test]
     fn opaque_connection_contracts_require_an_intersection_when_both_ends_declare_them() {
@@ -2318,7 +2313,7 @@ mod tests {
 
     fn startup_widget() -> NodeGraphWidget {
         let mut widget = NodeGraphWidget::new(nodes::build_registry());
-        nodes::test_graphs_tests::populate_startup(&mut widget);
+        nodes::populate_startup(&mut widget);
         for (node, output) in [
             ("SPI Decoder", "MOSI Bits"),
             ("SPI Decoder", "MOSI Data"),
@@ -2335,13 +2330,13 @@ mod tests {
 
     fn uart_demo_widget() -> NodeGraphWidget {
         let mut widget = NodeGraphWidget::new(nodes::build_registry());
-        nodes::test_graphs_tests::populate_uart_demo(&mut widget);
+        nodes::populate_uart_demo(&mut widget);
         widget
     }
 
     fn binary_decoder_demo_widget() -> NodeGraphWidget {
         let mut widget = NodeGraphWidget::new(nodes::build_registry());
-        nodes::test_graphs_tests::build_binary_decoder_demo(&mut widget);
+        nodes::build_binary_decoder_demo(&mut widget);
         for (node, output) in [
             ("SR Flip-Flop", "Q"),
             ("Parallel Enable Gate", "Out"),
@@ -2830,7 +2825,7 @@ mod tests {
         const SAMPLES_PER_CHUNK: u64 = 128;
 
         let mut widget = NodeGraphWidget::new(nodes::build_registry());
-        let source_node = nodes::test_graphs_tests::build_live_binary_test(&mut widget);
+        let source_node = nodes::build_live_binary_test(&mut widget);
         select_named_output(&mut widget, "Binary Decoder", "Words");
         let captured_feature =
             discover_live_capture_feature(widget.graph(), &BuilderRegistry::standard())
@@ -3435,7 +3430,7 @@ mod tests {
 
     fn selectable_output_widget() -> NodeGraphWidget {
         let mut widget = NodeGraphWidget::new(nodes::build_registry());
-        nodes::test_graphs_tests::build_live_binary_test(&mut widget);
+        nodes::build_live_binary_test(&mut widget);
         let decoder = widget
             .graph()
             .nodes
@@ -3510,7 +3505,7 @@ mod tests {
         use signal_processing::{NumberSample, TextSample};
 
         let mut widget = NodeGraphWidget::new(nodes::build_registry());
-        nodes::test_graphs_tests::build_binary_decoder_demo(&mut widget);
+        nodes::build_binary_decoder_demo(&mut widget);
         for definition in [
             nodes::node_name("org.logicconduit.graph-node.counter/v1"),
             nodes::node_name("org.logicconduit.graph-node.string-formatter/v1"),
@@ -3601,7 +3596,7 @@ mod tests {
         tables.clear();
         for node in compiled.nodes.iter().filter(|node| node.data_collector) {
             let builder = registry.get(&node.builder).unwrap();
-            crate::decoder_table::subscribe_collected_tables(
+            subscribe_collected_tables(
                 node.id,
                 &node.resolved,
                 &builder.collected_lane_names(&node.state, &node.resolved),
@@ -5286,7 +5281,7 @@ mod tests {
     /// The golden correctness gate: the compiled startup graph must
     /// produce byte-identical output to the hand-built Phase-1 pipeline.
     /// Slow (full 12.7B-sample capture) — run explicitly:
-    /// `cargo test -p logic-analyzer-graph --release -- --ignored golden`
+    /// `cargo test -p logic-analyzer-graph-compiler --release -- --ignored golden`
     #[test]
     #[ignore = "runs the full wipneus5.dsl capture; use --release"]
     fn golden_compiled_graph_matches_reference() {

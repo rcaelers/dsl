@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use logic_analyzer_graph::host::GraphCompiler;
+use logic_analyzer_graph_compiler::GraphCompiler;
 use node_graph::{GraphState, NodeId};
 use signal_processing::{
     CaptureAcquisitionPhase, CaptureCommandCapabilities, CaptureCompletion, CaptureHealth,

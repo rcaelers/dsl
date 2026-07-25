@@ -2,9 +2,9 @@ use std::collections::HashSet;
 
 use egui::Pos2;
 
-use logic_analyzer_graph::host::GraphCompiler;
 use logic_analyzer_graph_api::node::GraphNodeRegistration;
 use logic_analyzer_graph_api::node_support::PortKind;
+use logic_analyzer_graph_compiler::GraphCompiler;
 use node_graph::{NodeDef, NodeGraphWidget, NodeTypeRegistry, SocketDirection, SocketId};
 
 use super::endpoints::{self, TestSink, TestSource};

@@ -1,11 +1,11 @@
 [package]
-name = "logic-analyzer-graph"
+name = "logic-analyzer-graph-compiler"
 version.workspace = true
 edition = "2024"
 authors = ["Rob Caelers <rob.caelers@gmail.com>"]
 
 [lib]
-name = "logic_analyzer_graph"
+name = "logic_analyzer_graph_compiler"
 path = "src/lib.rs"
 
 [features]

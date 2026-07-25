@@ -28,7 +28,7 @@ annotation, indexed-annotation, and marker payloads using generic drawing and qu
 
 UART bit and frame outputs carry explicit presentation metadata from `UartDecoderBuilder`. Their
 grouping, value semantics, styling, geometry, and snap policy are implemented by the UART adapter
-in `logic_analyzer_graph`; the viewer does not infer them from names or values.
+in `logic_analyzer_graph_nodes`; the viewer does not infer them from names or values.
 
 ## Lane presentation design
 
@@ -48,7 +48,7 @@ crates/logic_analyzer_graph_nodes/src/nodes/decoders/uart_decoder/
   mod.rs
 ```
 
-`logic_analyzer_graph` depends on `logic_analyzer_viewer` and constructs these implementations.
+`logic_analyzer_graph_compiler` depends on `logic_analyzer_viewer` and consumes these implementations.
 This dependency direction does not form a cycle: the viewer depends only on generic runtime
 data in `signal_processing`, while the graph crate depends on both.
 
@@ -265,8 +265,9 @@ Decoder table panels consume a protocol-neutral presentation registry alongside 
 registry. Concrete decoder output adapters explicitly assign retained word outputs to a table
 source, provide stable column keys, labels and ordering, identify row-anchor columns, and choose
 whether overlapping annotations are displayed as one value or as a joined sequence. The
-decoder-table contract and registry live in `logic_analyzer_graph`, which owns concrete node
-presentation metadata and graph lowering. A presentation-neutral data collector retains typed
+decoder-table contract and registry live in `logic_analyzer_graph_api::node_support`, which owns
+protocol-neutral node-presentation contracts shared by graph lowering and application panels. A
+presentation-neutral data collector retains typed
 output streams under stable derived-lane identities. The waveform viewer and decoder table are
 peer subscribers that independently resolve those identities; neither subscriber is part of the
 collector and neither knows about the other. Because the retained store outlives production, a

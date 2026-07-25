@@ -1,9 +1,11 @@
 use std::fmt;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
-use logic_analyzer_graph_api::node_support::DecoderTableCellMode;
 use logic_analyzer_viewer::{DerivedLaneId, ViewerLaneRenderer, ViewerLaneTrackId};
 
+use super::contracts::DecoderTableCellMode;
+
+/// A resolved decoder-table column bound to a collected derived lane.
 #[derive(Clone)]
 pub struct DecoderTableColumn {
     pub key: String,
@@ -29,6 +31,7 @@ impl fmt::Debug for DecoderTableColumn {
     }
 }
 
+/// A resolved decoder-table source contributed by a graph node.
 #[derive(Debug, Clone)]
 pub struct DecoderTableSource {
     pub id: String,
@@ -36,6 +39,7 @@ pub struct DecoderTableSource {
     pub columns: Vec<DecoderTableColumn>,
 }
 
+/// The collection of decoder-table sources resolved for one graph run.
 #[derive(Debug, Clone, Default)]
 pub struct DecoderTableRegistry {
     inner: Arc<RwLock<Vec<DecoderTableSource>>>,

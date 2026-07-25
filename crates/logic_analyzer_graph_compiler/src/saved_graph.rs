@@ -282,10 +282,10 @@ fn discover_subscription(
 
 #[cfg(test)]
 mod saved_graph_tests {
+    use logic_analyzer_graph_nodes::test_support as nodes;
     use node_graph::{NodeGraphWidget, SocketDirection, SocketId};
 
     use super::*;
-    use crate::nodes;
 
     #[test]
     fn legacy_builtin_view_selections_gain_stable_payload_identities() {

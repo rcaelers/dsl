@@ -1241,8 +1241,8 @@ dependencies = [
  "crossbeam-channel",
  "egui",
  "inventory",
- "logic-analyzer-graph",
  "logic-analyzer-graph-api",
+ "logic-analyzer-graph-compiler",
  "logic-analyzer-graph-nodes",
  "logic-analyzer-ui",
  "logic-analyzer-viewer",
@@ -2140,7 +2140,7 @@ dependencies = [
  "eframe",
  "egui",
  "example-plugin",
- "logic-analyzer-graph",
+ "logic-analyzer-graph-compiler",
  "logic-analyzer-graph-nodes",
  "logic-analyzer-ui",
  "objc2 0.6.4",
@@ -2185,7 +2185,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "logic-analyzer-graph"
+name = "logic-analyzer-graph-api"
+version = "0.1.0"
+dependencies = [
+ "inventory",
+ "logic-analyzer-viewer",
+ "node-graph",
+ "serde",
+ "serde_json",
+ "signal-processing",
+]
+
+[[package]]
+name = "logic-analyzer-graph-compiler"
 version = "0.1.0"
 dependencies = [
  "blake3",
@@ -2204,26 +2216,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "logic-analyzer-graph-api"
-version = "0.1.0"
-dependencies = [
- "inventory",
- "logic-analyzer-viewer",
- "node-graph",
- "serde",
- "serde_json",
- "signal-processing",
-]
-
-[[package]]
 name = "logic-analyzer-graph-nodes"
 version = "0.1.0"
 dependencies = [
  "dirs",
  "egui",
  "inventory",
- "logic-analyzer-graph",
  "logic-analyzer-graph-api",
+ "logic-analyzer-graph-compiler",
  "logic-analyzer-processing",
  "logic-analyzer-test-support",
  "logic-analyzer-viewer",
@@ -2275,8 +2275,8 @@ dependencies = [
  "input-bindings",
  "inventory",
  "logic-analyzer-capture-export",
- "logic-analyzer-graph",
  "logic-analyzer-graph-api",
+ "logic-analyzer-graph-compiler",
  "logic-analyzer-graph-nodes",
  "logic-analyzer-test-support",
  "logic-analyzer-viewer",

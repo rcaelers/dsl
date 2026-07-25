@@ -11,7 +11,7 @@ path = "src/lib.rs"
 [dependencies]
 input-bindings = { path = "../input_bindings" }
 signal-processing = { path = "../signal_processing" }
-logic-analyzer-graph = { path = "../logic_analyzer_graph" }
+logic-analyzer-graph-compiler = { path = "../logic_analyzer_graph_compiler" }
 logic-analyzer-graph-api = { path = "../logic_analyzer_graph_api" }
 logic-analyzer-viewer = { path = "../widgets/logic_analyzer_viewer" }
 node-graph = { path = "../widgets/node_graph" }

@@ -178,7 +178,7 @@ on native targets as part of the workspace and explicitly on `wasm32-unknown-unk
 
 - `signal_processing` owns type-erased ingestion, retained query, snapshot, and storage contracts.
 - `logic_analyzer_viewer` owns presentation adapters and drawing contracts for those snapshots.
-- `logic_analyzer_graph` owns compiler negotiation: it accepts only registered collectable payloads
+- `logic_analyzer_graph_compiler` owns compiler negotiation: it accepts only registered collectable payloads
   for a data subscription and reports a targeted error for an unavailable subscription contract
   or adapter.
 - `logic_analyzer_ui` owns panel factories, panel state, and the read-only panel data context.

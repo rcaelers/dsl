@@ -134,7 +134,7 @@ its production binary writer and automatically attached indexed viewer lane. Thi
 benchmark for end-to-end throughput rather than decoder-kernel throughput alone:
 
 ```bash
-cargo test -p logic-analyzer-graph --release \
+cargo test -p logic-analyzer-graph-compiler --release \
   benchmark_checked_in_spi_controlled_graph_runtime -- --ignored --nocapture
 ```
 

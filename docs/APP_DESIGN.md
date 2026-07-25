@@ -2,8 +2,10 @@
 
 Design of the desktop/wasm application: the `logic-analyzer-ui` crate
 ([crates/logic_analyzer_ui](../crates/logic_analyzer_ui)) — the application shell;
-the `logic-analyzer-graph` crate ([crates/logic_analyzer_graph](../crates/logic_analyzer_graph)) —
-node definitions and the graph→pipeline compiler; and the thin native and web application crates
+the `logic-analyzer-graph-nodes` crate ([crates/logic_analyzer_graph_nodes](../crates/logic_analyzer_graph_nodes)) —
+node definitions; the `logic-analyzer-graph-compiler` crate
+([crates/logic_analyzer_graph_compiler](../crates/logic_analyzer_graph_compiler)) — the
+graph→pipeline compiler; and the thin native and web application crates
 ([crates/app_native](../crates/app_native), [crates/app_web](../crates/app_web)). Companion docs:
 [NODE_GRAPH_DESIGN.md](NODE_GRAPH_DESIGN.md) (the editor widget),
 [PIPELINE_DESIGN.md](PIPELINE_DESIGN.md) (the runtime it compiles into),
@@ -11,8 +13,8 @@ node definitions and the graph→pipeline compiler; and the thin native and web 
 
 Layering rule: `node_graph` stays UI-generic, `signal_processing` stays generic and UI-free, and
 `logic_analyzer_processing` owns concrete UI-independent runtime nodes. Concrete feature
-integration lives under `logic-analyzer-graph/src/nodes/<feature>/`; shared lowering remains in
-`logic-analyzer-graph/src/compiler/`. The application UI
+integration lives under `logic-analyzer-graph-nodes/src/nodes/<feature>/`; shared lowering lives
+at the `logic-analyzer-graph-compiler` crate root. The application UI
 consumes that integration and must not contain concrete node/compiler implementations.
 
 ---
@@ -148,7 +150,7 @@ pub trait RuntimeBuilder {
 ```
 
 `PortKind` is an open, `TypeId`-backed payload identity (`PortKind::of::<T: PortValue>()`,
-[port_kind.rs](../crates/logic_analyzer_graph/src/compiler/port_kind.rs)) — the compiler-layer analogue of
+[port.rs](../crates/logic_analyzer_graph_api/src/node_support/port.rs)) — the compiler-layer analogue of
 `node_graph::SocketDef` and `signal_processing::register_type`, so plugin crates add payload types
 without editing any compiler file.
 
@@ -218,7 +220,7 @@ into the viewer so stale lanes vanish atomically.
 
 The correctness gate for the whole compile path is the golden test: the compiled startup
 graph must produce byte-identical output to the hand-written pipeline example on a real
-capture (`cargo test -p logic-analyzer-graph --release -- --ignored golden`), run through the live
+capture (`cargo test -p logic-analyzer-graph-compiler --release -- --ignored golden`), run through the live
 machinery.
 
 ## Plugins

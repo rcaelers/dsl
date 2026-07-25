@@ -13,7 +13,7 @@ fn generic_capture_components_contain_no_provider_or_model_contracts() {
         ("native coordinator", include_str!("native.rs")),
         (
             "compiler",
-            include_str!("../../../logic_analyzer_graph/src/compiler/graph.rs"),
+            include_str!("../../../logic_analyzer_graph_compiler/src/graph.rs"),
         ),
         (
             "capture runtime",
@@ -77,7 +77,7 @@ fn generic_ui_compiler_and_widgets_contain_no_sigrok_host_cases() {
         ("application", include_str!("../app.rs")),
         (
             "compiler",
-            include_str!("../../../logic_analyzer_graph/src/compiler/graph.rs"),
+            include_str!("../../../logic_analyzer_graph_compiler/src/graph.rs"),
         ),
         (
             "node graph definition API",

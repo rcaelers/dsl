@@ -7,8 +7,8 @@
 inventory assembly is compiler-owned and consumes submissions without importing a node bundle.
 
 `logic_analyzer_graph_nodes` owns the built-in node definitions, builders, migrations, socket
-types, payload presentations, and inventory submissions. `logic_analyzer_graph` owns compiler and
-host services. Its feature-gated `GraphCompiler` test constructors are the narrow integration seam
+types, payload presentations, and inventory submissions. `logic_analyzer_graph_compiler` owns compiler and
+application-facing services. Its feature-gated `GraphCompiler` test constructors are the narrow integration seam
 for isolated built-in-node tests.
 `logic_analyzer_capture_export` owns native streaming capture export without depending on a graph
 crate. `logic_analyzer_test_support` owns deterministic capture providers shared by cross-crate
@@ -28,7 +28,7 @@ node_graph                 signal_processing
                     ^
           +---------+----------+
           |                    |
-logic_analyzer_graph   logic_analyzer_graph_nodes
+logic_analyzer_graph_compiler   logic_analyzer_graph_nodes
           ^                    ^
           |                    |
  logic_analyzer_ui          plugins
@@ -37,7 +37,7 @@ logic_analyzer_capture_export ---> signal_processing
 logic_analyzer_test_support  ---> signal_processing
 ```
 
-`logic_analyzer_graph` and `logic_analyzer_graph_nodes` both depend on
+`logic_analyzer_graph_compiler` and `logic_analyzer_graph_nodes` both depend on
 `logic_analyzer_graph_api`. The compiler crate never depends on the built-in-node crate. A plugin
 depends on the API crate and the lower-level domains required by its own implementation; it does
 not depend on the compiler or application UI.
@@ -61,7 +61,8 @@ directory-backed namespaces and no application-host operations.
 - `NodeBuildContext`;
 - state decoding at the node-owned error boundary;
 - capture identity and presentation descriptions;
-- default waveform and decoder-table column presentations;
+- default waveform and decoder-table presentation descriptions, resolved table sources, and their
+  registry;
 - sampling overlay and qualifier descriptions;
 - trigger configuration, simple-trigger channels, and live-capture edits.
 
@@ -78,15 +79,15 @@ configuration, waveform/table presentation registration, and runtime sampling ac
 
 The compiler owns the concrete context state and implements `NodeBuildContext`. Host-only result
 operations, such as taking resolved sampling candidates or publishing the final presentation
-registries, remain on `CompileCtx`, which is exposed only through the compiler's `host` namespace.
+registries, remain on `CompileCtx`, which is exposed through the compiler crate root.
 A plugin cannot receive or import that concrete context through the graph-node API.
 
-### Graph compiler and host facade
+### Graph compiler facade
 
-`logic_analyzer_graph` owns graph lowering, validation, discovery, execution, cache planning, and
-saved-graph synchronization. Its only public namespace is `host`, consumed by `logic_analyzer_ui`,
-native and web composition, headless hosts, and integration tests. Graph-node contracts are
-imported directly from `logic_analyzer_graph_api` rather than forwarded through the compiler crate.
+`logic_analyzer_graph_compiler` owns graph lowering, validation, discovery, execution, cache planning, and
+saved-graph synchronization. Its crate-root facade is consumed by `logic_analyzer_ui`, native and
+web composition, headless hosts, and integration tests. Graph-node contracts are imported directly
+from `logic_analyzer_graph_api` rather than forwarded through the compiler crate.
 
 `GraphCompiler` owns the inventory-derived builder registry and provides these application-facing
 operations:
@@ -98,9 +99,9 @@ operations:
 - synchronize saved payload subscriptions;
 - start or update an application run and live analysis.
 
-Compiler result types belong to `host`: `CompiledGraph`, `CompiledNode`, `CompiledEdge`,
-`CompileError`, `ApplyError`, `LiveRun`, discovered feature wrappers, compatibility warnings, and
-resolved sampling candidates. The crate root does not flatten the host facade.
+Compiler result types belong to the crate-root facade: `CompiledGraph`, `CompiledNode`,
+`CompiledEdge`, `CompileError`, `ApplyError`, `LiveRun`, discovered feature wrappers,
+compatibility warnings, and resolved sampling candidates.
 
 Node-supplied descriptions and host-resolved results remain distinct:
 
@@ -143,7 +144,7 @@ has a documented need for them.
 ### Inventory and composition
 
 The inventory collection types are declared by `logic_analyzer_graph_api`. Built-in nodes and
-plugins submit registrations there. `logic_analyzer_graph::host::GraphCompiler` reads those
+plugins submit registrations there. `logic_analyzer_graph_compiler::GraphCompiler` reads those
 registrations without importing any submitter.
 
 Every enabled submission crate exposes an idempotent `link()` anchor. Native and web application
@@ -164,7 +165,7 @@ Architecture checks enforce these dependency rules:
 - graph API does not depend on the compiler, built-in nodes, processing implementations, UI, or
   capture export;
 - compiler does not depend on built-in nodes, concrete processing nodes, UI, or export formats;
-- built-in graph nodes and plugins do not depend on the compiler `host` namespace;
+- built-in graph nodes and plugins do not depend on the compiler crate;
 - UI does not import built-in node implementation paths or `logic_analyzer_processing` concrete
   nodes;
 - capture export does not depend on graph crates;

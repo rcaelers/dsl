@@ -549,8 +549,8 @@ pub(crate) mod test_graphs_tests {
 
 #[cfg(test)]
 mod tests {
-    use logic_analyzer_graph::host::{CompiledGraph, GraphCompiler};
     use logic_analyzer_graph_api::node_support::CapturePresentation;
+    use logic_analyzer_graph_compiler::{CompiledGraph, GraphCompiler};
     use node_graph::NodeGraphWidget;
 
     use super::test_graphs_tests;

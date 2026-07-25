@@ -536,8 +536,8 @@ inventory::submit! {
 
 #[cfg(test)]
 mod camera_frame_tests {
-    use logic_analyzer_graph::host::{CompileCtx, GraphCompiler};
     use logic_analyzer_graph_api::node_support::PortKind;
+    use logic_analyzer_graph_compiler::{CompileCtx, GraphCompiler};
     use node_graph::{NodeGraphWidget, SocketDirection, SocketId};
 
     use super::*;

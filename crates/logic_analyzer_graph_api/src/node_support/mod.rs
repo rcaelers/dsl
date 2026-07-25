@@ -1,6 +1,7 @@
 //! Values and restricted build services supplied to graph-node implementations.
 
 mod contracts;
+mod decoder_table;
 mod port;
 
 pub use contracts::{
@@ -11,4 +12,5 @@ pub use contracts::{
     ViewerOutputControl, ViewerOutputPanelAction, ViewerOutputPanelEntry, ViewerOutputPanelModel,
     parse_state,
 };
+pub use decoder_table::{DecoderTableColumn, DecoderTableRegistry, DecoderTableSource};
 pub use port::{PortKind, PortValue};

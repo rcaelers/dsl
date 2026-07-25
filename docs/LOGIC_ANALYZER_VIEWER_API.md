@@ -89,7 +89,7 @@ Hosts pair the data store with a per-run presentation registry:
 ```rust
 use logic_analyzer_viewer::WaveformPresentationRegistry;
 
-let compile_ctx = logic_analyzer_graph::compiler::CompileCtx::default();
+let compile_ctx = logic_analyzer_graph_compiler::CompileCtx::default();
 viewer.set_waveform_presentations(compile_ctx.waveform_presentations().clone());
 ```
 

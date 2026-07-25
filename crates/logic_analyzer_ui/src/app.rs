@@ -3,12 +3,12 @@ use std::path::Path;
 use std::sync::Arc;
 
 use input_bindings::{InputBindings, PointerButtonName, PointerGesture, Trigger};
-use logic_analyzer_graph::host as compiler;
 use logic_analyzer_graph_api::node::DirectoryNodeCatalog;
 use logic_analyzer_graph_api::node_support::{
     CapturePresentationSignal, LiveCaptureEdit, ViewerOutputPanelAction, ViewerOutputPanelEntry,
     ViewerOutputPanelModel,
 };
+use logic_analyzer_graph_compiler as compiler;
 use logic_analyzer_viewer::{
     LogicAnalyzerViewer, SimpleTriggerEdit, SimpleTriggerLane, ViewerLaneGroupId, ViewerRowId,
 };
