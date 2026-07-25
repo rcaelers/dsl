@@ -29,6 +29,9 @@ use crate::live_capture::{
 use crate::plugin_panel::{PluginPanelIcon, PluginPanelRegistry, PluginPanels, PluginPanelsState};
 use crate::preferences::PreferencesWindow;
 use crate::toast::Toasts;
+use crate::viewer_selection::{
+    set_viewer_output_selected, synchronize_viewer_selections, viewer_output_selections,
+};
 
 const VIEWER_OUTPUT_PANEL_ID: &str = "viewer-outputs";
 const VIEWER_SOCKET_INDICATOR_OWNER: &str = "logic-analyzer.viewer";
@@ -356,10 +359,7 @@ impl App {
     }
 
     pub(crate) fn synchronize_payload_subscription_manifest(&mut self, report_warnings: bool) {
-        match self
-            .graph_compiler
-            .synchronize_viewer_selections(self.node_graph.graph_mut())
-        {
+        match synchronize_viewer_selections(self.node_graph.graph_mut()) {
             Ok(warnings) if report_warnings => {
                 for warning in warnings {
                     self.toasts.warning(warning.message);
@@ -393,9 +393,7 @@ impl App {
     }
 
     fn refresh_graph_output_selections(&mut self) {
-        let selections = self
-            .graph_compiler
-            .viewer_output_selections(self.node_graph.graph());
+        let selections = viewer_output_selections(self.node_graph.graph());
         let mut by_node: HashMap<NodeId, Vec<ViewerOutputPanelEntry>> = HashMap::new();
         self.node_graph.clear_panel_data(VIEWER_OUTPUT_PANEL_ID);
         self.node_graph
@@ -2206,7 +2204,7 @@ impl eframe::App for App {
                             && let Ok(ViewerOutputPanelAction::SetSelected { id, selected }) =
                                 action.downcast::<ViewerOutputPanelAction>()
                         {
-                            if let Err(error) = self.graph_compiler.set_viewer_output_selected(
+                            if let Err(error) = set_viewer_output_selected(
                                 self.node_graph.graph_mut(),
                                 node_id,
                                 &id,

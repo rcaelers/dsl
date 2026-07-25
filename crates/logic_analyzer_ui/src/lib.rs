@@ -10,6 +10,7 @@ mod plugin_panel;
 mod preferences;
 mod product;
 mod toast;
+mod viewer_selection;
 
 use std::sync::OnceLock;
 

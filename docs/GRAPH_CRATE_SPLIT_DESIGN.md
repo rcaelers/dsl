@@ -103,6 +103,12 @@ The application UI constructs the editor's `NodeTypeRegistry` directly from the 
 `GraphNodeRegistration` inventory. The compiler consumes the same validated inventory only to
 construct runtime builders and does not expose an editor-registry operation.
 
+Viewer-output discovery, checkbox state, legacy `show_in_view` migration, and persistence of the
+`logic_analyzer_graph.viewer_selections` extension are UI-owned. The compiler facade exposes no
+viewer-selection operations. During the transition, lowering still reads the saved selection
+manifest to synthesize its internal collection subscription; removing that read and the synthetic
+Viewer node is tracked by the proposed-future migration below.
+
 Compiler result types belong to the crate-root facade: `CompiledGraph`, `CompiledNode`,
 `CompiledEdge`, `CompileError`, `ApplyError`, `LiveRun`, discovered feature wrappers,
 compatibility warnings, and resolved sampling candidates.

@@ -549,12 +549,47 @@ pub(crate) mod test_graphs_tests {
 
 #[cfg(test)]
 mod tests {
-    use logic_analyzer_graph_api::node_support::CapturePresentation;
+    use logic_analyzer_graph_api::node::{RuntimeBuilder, graph_node_registrations};
+    use logic_analyzer_graph_api::node_support::{CapturePresentation, ViewerOutputControl};
     use logic_analyzer_graph_compiler::{CompiledGraph, GraphCompiler};
-    use node_graph::NodeGraphWidget;
+    use node_graph::{GraphState, NodeGraphWidget, NodeId};
 
     use super::test_graphs_tests;
     use crate::test_support::build_registry as build_node_registry;
+
+    fn selected_output_nodes(graph: &GraphState) -> Vec<NodeId> {
+        let builders: std::collections::HashMap<String, Box<dyn RuntimeBuilder>> =
+            graph_node_registrations()
+                .into_iter()
+                .filter_map(|registration| {
+                    registration
+                        .builder()
+                        .map(|builder| (registration.name().to_owned(), builder))
+                })
+                .collect();
+        graph
+            .nodes
+            .iter()
+            .flat_map(|(&node_id, node)| {
+                let builder = builders.get(node.def_name());
+                node.outputs.iter().filter_map(move |output| {
+                    let builder = builder?;
+                    let ViewerOutputControl::Selectable {
+                        default_selected, ..
+                    } = builder.viewer_output_control(output, &node.state)?
+                    else {
+                        return None;
+                    };
+                    let selected = output
+                        .extensions
+                        .get("show_in_view")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(default_selected);
+                    selected.then_some(node_id)
+                })
+            })
+            .collect()
+    }
 
     #[test]
     fn startup_graph_builds_with_compatible_wiring() {
@@ -593,20 +628,14 @@ mod tests {
             "org.logicconduit.graph-node.sigrok-file-source/v1",
         );
         let compiler = GraphCompiler::new();
-        let selections = compiler.viewer_output_selections(widget.graph());
-        let raw_channels = selections
+        let selected_nodes = selected_output_nodes(widget.graph());
+        let raw_channels = selected_nodes
             .iter()
-            .filter(|selection| {
-                widget.graph().nodes[&selection.node].def_name() == source_name
-                    && selection.selected
-            })
+            .filter(|node| widget.graph().nodes[node].def_name() == source_name)
             .count();
-        let derived_lanes = selections
+        let derived_lanes = selected_nodes
             .iter()
-            .filter(|selection| {
-                widget.graph().nodes[&selection.node].def_name() != source_name
-                    && selection.selected
-            })
+            .filter(|node| widget.graph().nodes[node].def_name() != source_name)
             .count();
         assert_eq!(raw_channels, 11);
         assert_eq!(derived_lanes, 0);

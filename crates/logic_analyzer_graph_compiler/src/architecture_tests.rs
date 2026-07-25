@@ -83,3 +83,19 @@ fn compiler_does_not_construct_editor_registries() {
         );
     }
 }
+
+#[test]
+fn compiler_facade_exposes_no_viewer_selection_controls() {
+    let facade = implementation_source(include_str!("graph_compiler.rs"));
+    for token in [
+        "synchronize_viewer_selections",
+        "viewer_output_selections",
+        "set_viewer_output_selected",
+        "ViewerOutputSelection",
+    ] {
+        assert!(
+            !facade.contains(token),
+            "compiler facade must not expose UI viewer-selection control {token}"
+        );
+    }
+}

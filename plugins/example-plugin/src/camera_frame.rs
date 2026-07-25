@@ -547,7 +547,7 @@ mod camera_frame_tests {
         std::hint::black_box(logic_analyzer_graph_nodes::link());
         std::hint::black_box(crate::link());
         let compiler = GraphCompiler::new();
-        let node_types = compiler.build_node_registry();
+        let node_types = logic_analyzer_ui::build_node_registry();
         let mut widget = NodeGraphWidget::new(node_types);
         let source = widget
             .add_node_at("Camera Frame Source", egui::Pos2::ZERO)

@@ -1,14 +1,14 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use logic_analyzer_graph_api::node_support::ViewerOutputControl;
+use logic_analyzer_graph_api::node::{
+    CollectedPayloadRegistration, RuntimeBuilder, graph_node_registrations,
+};
+use logic_analyzer_graph_api::node_support::{PortKind, ViewerOutputControl};
 use node_graph::{GraphState, NodeId, NodeKind};
 
-use super::graph::BuilderRegistry;
-
 const EXTENSION: &str = "logic_analyzer_graph.viewer_selections";
-#[cfg(test)]
 const VERSION: u32 = 1;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
@@ -29,6 +29,10 @@ struct SavedSelections {
     selections: Vec<SavedSelection>,
 }
 
+pub(crate) struct ViewerSelectionWarning {
+    pub(crate) message: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ViewerOutputSelection {
     pub(crate) node: NodeId,
@@ -37,6 +41,32 @@ pub(crate) struct ViewerOutputSelection {
     pub(crate) label: String,
     pub(crate) selected: bool,
     pub(crate) indicator_outputs: Vec<usize>,
+}
+
+struct SelectionContracts {
+    builders: HashMap<String, Box<dyn RuntimeBuilder>>,
+    subscribable_kinds: HashSet<PortKind>,
+}
+
+impl SelectionContracts {
+    fn from_inventory() -> Self {
+        let builders = graph_node_registrations()
+            .into_iter()
+            .filter_map(|registration| {
+                registration
+                    .builder()
+                    .map(|builder| (registration.name().to_owned(), builder))
+            })
+            .collect();
+        let subscribable_kinds = inventory::iter::<CollectedPayloadRegistration>
+            .into_iter()
+            .map(CollectedPayloadRegistration::kind)
+            .collect();
+        Self {
+            builders,
+            subscribable_kinds,
+        }
+    }
 }
 
 fn saved_map(graph: &GraphState) -> HashMap<SavedEndpoint, bool> {
@@ -50,17 +80,15 @@ fn saved_map(graph: &GraphState) -> HashMap<SavedEndpoint, bool> {
         .collect()
 }
 
-pub(crate) fn viewer_output_selections(
-    graph: &GraphState,
-    registry: &BuilderRegistry,
-) -> Vec<ViewerOutputSelection> {
+pub(crate) fn viewer_output_selections(graph: &GraphState) -> Vec<ViewerOutputSelection> {
+    let contracts = SelectionContracts::from_inventory();
     let saved = saved_map(graph);
     let mut selections = Vec::new();
     for (&node_id, node) in &graph.nodes {
         if node.kind != NodeKind::Regular {
             continue;
         }
-        let builder = registry.get(node.def_name());
+        let builder = contracts.builders.get(node.def_name());
         for (output_index, output) in node.outputs.iter().enumerate() {
             if !output.visible {
                 continue;
@@ -80,13 +108,10 @@ pub(crate) fn viewer_output_selections(
                 .and_then(serde_json::Value::as_bool);
             let saved_selection = saved.get(&endpoint).copied();
             let (default_selected, indicator_outputs) = if let Some(builder) = builder {
-                let Some(control) = builder.viewer_output_control(output, &node.state) else {
-                    continue;
-                };
-                let ViewerOutputControl::Selectable {
+                let Some(ViewerOutputControl::Selectable {
                     default_selected,
                     indicator_outputs,
-                } = control
+                }) = builder.viewer_output_control(output, &node.state)
                 else {
                     continue;
                 };
@@ -94,7 +119,7 @@ pub(crate) fn viewer_output_selections(
                     || builder
                         .offered_kinds(output, &node.state)
                         .into_iter()
-                        .any(|kind| registry.subscribable_payload_kinds().contains(&kind));
+                        .any(|kind| contracts.subscribable_kinds.contains(&kind));
                 if !viewable {
                     continue;
                 }
@@ -118,15 +143,57 @@ pub(crate) fn viewer_output_selections(
     selections
 }
 
-#[cfg(test)]
+pub(crate) fn synchronize_viewer_selections(
+    graph: &mut GraphState,
+) -> Result<Vec<ViewerSelectionWarning>, serde_json::Error> {
+    let saved = match graph.extension::<SavedSelections>(EXTENSION) {
+        Ok(saved) => saved,
+        Err(error) => {
+            return Ok(vec![ViewerSelectionWarning {
+                message: format!(
+                    "Could not read the saved viewer-selection manifest; it was preserved unchanged: {error}"
+                ),
+            }]);
+        }
+    };
+    if let Some(saved) = saved
+        && saved.version != VERSION
+    {
+        return Ok(vec![ViewerSelectionWarning {
+            message: format!(
+                "Viewer-selection manifest version {} is not supported by this version; it was preserved unchanged",
+                saved.version
+            ),
+        }]);
+    }
+    let had_legacy = graph.nodes.values().any(|node| {
+        node.outputs
+            .iter()
+            .any(|output| output.extensions.contains_key("show_in_view"))
+    });
+    let selections = viewer_output_selections(graph);
+    for node in graph.nodes.values_mut() {
+        for output in &mut node.outputs {
+            output.extensions.remove("show_in_view");
+        }
+    }
+    store(graph, &selections)?;
+    Ok(had_legacy
+        .then(|| ViewerSelectionWarning {
+            message: "Migrated legacy socket viewer selections to the LogicConduit viewer-selection manifest"
+                .to_owned(),
+        })
+        .into_iter()
+        .collect())
+}
+
 pub(crate) fn set_viewer_output_selected(
     graph: &mut GraphState,
-    registry: &BuilderRegistry,
     node: NodeId,
     output_id: &str,
     selected: bool,
 ) -> Result<(), serde_json::Error> {
-    let mut selections = viewer_output_selections(graph, registry);
+    let mut selections = viewer_output_selections(graph);
     if let Some(selection) = selections
         .iter_mut()
         .find(|selection| selection.node == node && selection.output_id == output_id)
@@ -136,7 +203,6 @@ pub(crate) fn set_viewer_output_selected(
     store(graph, &selections)
 }
 
-#[cfg(test)]
 fn store(
     graph: &mut GraphState,
     selections: &[ViewerOutputSelection],
