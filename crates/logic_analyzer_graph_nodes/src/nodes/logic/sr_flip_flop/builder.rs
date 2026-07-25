@@ -7,7 +7,7 @@ use logic_analyzer_graph_api::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
 use logic_analyzer_processing::nodes::logic::sr_latch::SrLatch;
-use node_graph::Socket;
+use node_graph::api::Socket;
 use signal_processing::{ProcessNode, Sample, Trigger};
 
 #[derive(Default)]

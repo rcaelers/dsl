@@ -9,7 +9,7 @@ use logic_analyzer_graph_api::node_support::{
 };
 use logic_analyzer_processing::nodes::sources::sigrok_file::SigrokFileSource;
 use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
-use node_graph::Socket;
+use node_graph::api::Socket;
 use signal_processing::{ProcessNode, Sample, SampleBlock};
 
 #[derive(Default)]

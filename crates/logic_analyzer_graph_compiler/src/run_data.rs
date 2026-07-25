@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-use node_graph::NodeId;
+use node_graph::api::NodeId;
 use signal_processing::DerivedLanes;
 
 use super::{CollectedOutputSubscription, CollectedTableSubscription, SamplingOverlayCandidate};

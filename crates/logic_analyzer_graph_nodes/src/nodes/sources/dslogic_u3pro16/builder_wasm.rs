@@ -8,7 +8,7 @@ use logic_analyzer_graph_api::node_support::{
     parse_state,
 };
 use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
-use node_graph::Socket;
+use node_graph::api::Socket;
 use signal_processing::{DerivedDataRetention, ProcessNode, Sample, SampleBlock};
 
 use super::definition::U3Pro16State;

@@ -12,7 +12,7 @@ use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     SigrokGeneratedLogic, SigrokInitialPin, SigrokMetadata, SigrokOptionValue,
 };
 use logic_analyzer_processing::support::{SigrokDecoderDescriptor, discover_sigrok_decoder};
-use node_graph::Socket;
+use node_graph::api::Socket;
 use signal_processing::{ProcessNode, ProtocolPacket, SampleBlock};
 
 use super::definition::{SavedOptionControl, SavedOutputKind, SavedScalar, SigrokDecoderState};

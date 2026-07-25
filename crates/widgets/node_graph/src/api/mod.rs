@@ -1,3 +1,5 @@
+//! Supported graph documents and contracts implemented by node definitions.
+
 mod builtins;
 mod control;
 #[cfg(not(target_arch = "wasm32"))]
@@ -25,3 +27,9 @@ pub use panel::{
     PropertyPanelPresentation,
 };
 pub use socket::{SocketDef, SocketWithControlDef};
+
+pub use crate::model::{
+    Connection, GraphMetadata, GraphState, Node, NodeId, NodeKind, Socket, SocketDirection,
+    SocketId, SocketShape, VariadicInfo,
+};
+pub use crate::runtime::{NodeTemplate, NodeTypeRegistry, SocketTypeStyle};

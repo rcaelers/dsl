@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::CaptureCacheIdentity;
-use node_graph::{GraphState, NodeId};
+use node_graph::api::{GraphState, NodeId};
 use signal_processing::{IndexedAnnotationStore, PersistentStoreConfig};
 
 use super::OutputSubscriptionPlan;

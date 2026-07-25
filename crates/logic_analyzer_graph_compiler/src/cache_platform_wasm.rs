@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use node_graph::{GraphState, NodeId};
+use node_graph::api::{GraphState, NodeId};
 use signal_processing::PersistentStoreConfig;
 
 use super::OutputSubscriptionPlan;

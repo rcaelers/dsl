@@ -1,5 +1,5 @@
 use logic_analyzer_graph_api::node_support::ResolvedInput;
-use node_graph::NodeId;
+use node_graph::api::NodeId;
 
 /// Application-supplied outputs whose produced data must be collected.
 ///

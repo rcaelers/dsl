@@ -232,6 +232,9 @@ features; the stable-key registry keeps that implementation out of generic graph
 `logic_analyzer_viewer`. It does not own a waveform presentation registry or invoke presentation
 callbacks while materializing processing nodes. The UI removes legacy Viewer nodes during document
 migration and constructs a fresh presentation registry from the resulting subscription set.
+Its dependency on `node_graph` is restricted to the supported `node_graph::api`
+document, identifier, connection, and socket contracts; it does not import the widget or editor
+runtime surface.
 
 ### Enforcement
 

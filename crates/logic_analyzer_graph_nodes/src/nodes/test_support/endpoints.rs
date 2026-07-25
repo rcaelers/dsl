@@ -4,7 +4,7 @@ use serde_json::Value;
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{NodeBuildContext, PortKind, ResolvedInputs};
 use logic_analyzer_graph_compiler::GraphCompiler;
-use node_graph::{AnySocket, InputDef, NodeDef, OutputDef, Socket};
+use node_graph::api::{AnySocket, InputDef, NodeDef, OutputDef, Socket};
 use signal_processing::{InputPort, OutputPort, ProcessNode, WorkResult};
 
 pub(crate) const SOURCE_NAME: &str = "Isolated Test Source";

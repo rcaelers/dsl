@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use logic_analyzer_graph_api::node_support::LiveCaptureEdit;
-use node_graph::{GraphState, NodeId};
+use node_graph::api::{GraphState, NodeId};
 use signal_processing::{CollectedPayloadRegistry, ConfigurationBoundary, PersistentStoreConfig};
 
 use super::errors::{ApplyError, CompileError};

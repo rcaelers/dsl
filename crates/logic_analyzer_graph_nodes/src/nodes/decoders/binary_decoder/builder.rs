@@ -12,7 +12,7 @@ use logic_analyzer_processing::nodes::decoders::parallel_decoder::{
 };
 use logic_analyzer_processing::types::{CsPolarity, Endianness};
 use logic_analyzer_viewer::SamplingEdge;
-use node_graph::Socket;
+use node_graph::api::Socket;
 use signal_processing::{ProcessNode, Sample, SampleBlock, Word};
 
 #[derive(Default)]

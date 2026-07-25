@@ -27,6 +27,9 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
 - `logic_analyzer_graph_compiler` owns generic graph lowering, discovery, execution, and host services.
   Definition defaults and lowering helpers remain crate-private unless plugin authors or another
   crate implement against a documented contract.
+- `node_graph::api` owns the compiler-facing graph document and node-definition contracts.
+  Compiler and graph-node code depend on this namespace; widget and editor operations remain at
+  the `node_graph` crate root for UI composition.
 - `logic_analyzer_capture_export` owns native streaming export of finalized generic capture
   storage. It depends on capture contracts and format libraries, not graph crates or concrete
   processing nodes.
@@ -121,7 +124,7 @@ nearest owning facade. The allowlist names canonical public namespaces.
 | `logic_analyzer_graph_nodes` | feature-gated `test_support` | The crate root exposes only the linker anchor. Built-in graph-node definitions, socket types, migrations, presentations, and inventory submissions remain private. The test-support namespace exposes graph fixtures without making concrete node implementation symbols public. |
 | `logic_analyzer_capture_export` | none | The cohesive native exporter exposes its curated format, progress, observer, report, and export operation through the crate root. Encoder and archive implementation modules remain private. |
 | `logic_analyzer_test_support` | none | Shared deterministic acquisition providers are exposed through the crate root. Their synchronization and acquisition implementations remain private. |
-| `node_graph` | none | The reusable widget exposes one curated crate-root API; model, runtime, support, API, and widget implementation modules remain private. |
+| `node_graph` | `api` | `api` exposes graph documents, identifiers, sockets, and node-definition contracts to compilers and graph-node implementations. The crate root exposes the widget/editor composition surface used by UI hosts. |
 | `logic_analyzer_viewer` | none | The reusable viewer exposes one curated crate-root API; drawing, sampling, input, cursor, lane, worker, and indexing modules remain private. |
 | `logic_analyzer_ui` | none | The application-composition crate exposes only its host-facing crate-root facade. |
 | `input_bindings`, `panel_layout`, `trigger_editor`, `widget_support` | none | Each crate already represents one cohesive public component and does not need a second namespace level. |

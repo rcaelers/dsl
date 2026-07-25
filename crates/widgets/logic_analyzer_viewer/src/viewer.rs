@@ -897,6 +897,26 @@ mod tests {
     }
 
     #[test]
+    fn prepared_capture_attaches_without_a_viewer_worker() {
+        let total_samples = Arc::new(AtomicU64::new(100));
+        let generation = Arc::new(AtomicU64::new(0));
+        let mut viewer = LogicAnalyzerViewer::default();
+        viewer.set_prepared_capture(
+            "prepared-capture",
+            Box::new(growing_test_index(total_samples, generation)),
+        );
+
+        assert_eq!(
+            viewer.capture_path.as_deref(),
+            Some(Path::new("prepared-capture"))
+        );
+        assert!(viewer.capture_info.is_some());
+        assert!(viewer.sampler.is_some());
+        assert!(viewer.worker_responses.is_none());
+        assert_eq!(viewer.status, "Indexed capture ready");
+    }
+
+    #[test]
     fn reset_time_view_fits_in_memory_channels_without_a_capture() {
         let mut viewer = LogicAnalyzerViewer::new();
         viewer.set_channels(vec![ChannelSignal {

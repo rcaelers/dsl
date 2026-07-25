@@ -7,7 +7,7 @@ use logic_analyzer_graph_api::node_support::{
     CapturePresentation, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
     SimpleTriggerChannel, TriggerConfigurationFeature,
 };
-use node_graph::Socket;
+use node_graph::api::Socket;
 use signal_processing::{ProcessNode, SimpleTriggerCondition, TriggerPredicate, TriggerProgram};
 
 use super::builder::TestCaptureSourceBuilder;

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use node_graph::NodeId;
+use node_graph::api::NodeId;
 use signal_processing::{
     CaptureChannelId, CaptureIndexFactory, DerivedDataRetention, DerivedLanes,
     PersistentStoreConfig, SamplingActivity, SamplingEdge, SimpleTriggerCondition,

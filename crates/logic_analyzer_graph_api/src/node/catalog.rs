@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use node_graph::NodeTemplate;
+use node_graph::api::NodeTemplate;
 
 #[derive(Clone, Debug, Default)]
 pub struct NodeCatalogStatus {

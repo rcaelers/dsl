@@ -18,7 +18,7 @@ use logic_analyzer_ui::{PluginPanel, PluginPanelContext, PluginPanelIcon, UiPane
 use logic_analyzer_viewer::{
     OpaqueLaneDrawContext, ViewerLaneRenderer, ViewerLaneRendererRegistration, ViewerLaneTrack,
 };
-use node_graph::{InputDef, NodeDef, OutputDef, Socket, SocketDef, SocketShape};
+use node_graph::api::{InputDef, NodeDef, OutputDef, Socket, SocketDef, SocketShape};
 use signal_processing::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
     CollectedPayloadAdapter, DerivedDataRetention, InputPort, OpaqueCollectedLaneSnapshot,

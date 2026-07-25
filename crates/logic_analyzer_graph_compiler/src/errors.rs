@@ -1,4 +1,4 @@
-use node_graph::NodeId;
+use node_graph::api::NodeId;
 
 /// An error found while lowering the editor graph.
 #[derive(Debug, Clone)]

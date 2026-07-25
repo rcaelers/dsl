@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use node_graph::{NodeDef, NodeTypeRegistry};
+use node_graph::api::{NodeDef, NodeTypeRegistry};
 
 use super::contracts::RuntimeBuilder;
 
@@ -130,7 +130,7 @@ mod graph_registration_tests {
 
     struct FirstNode;
 
-    impl node_graph::NodeDef for FirstNode {
+    impl node_graph::api::NodeDef for FirstNode {
         type State = ();
 
         fn name() -> &'static str {
@@ -141,11 +141,11 @@ mod graph_registration_tests {
             "Tests"
         }
 
-        fn inputs() -> Vec<node_graph::InputDef<Self::State>> {
+        fn inputs() -> Vec<node_graph::api::InputDef<Self::State>> {
             Vec::new()
         }
 
-        fn outputs() -> Vec<node_graph::OutputDef<Self::State>> {
+        fn outputs() -> Vec<node_graph::api::OutputDef<Self::State>> {
             Vec::new()
         }
 
@@ -154,7 +154,7 @@ mod graph_registration_tests {
 
     struct SecondNode;
 
-    impl node_graph::NodeDef for SecondNode {
+    impl node_graph::api::NodeDef for SecondNode {
         type State = ();
 
         fn name() -> &'static str {
@@ -165,11 +165,11 @@ mod graph_registration_tests {
             "Tests"
         }
 
-        fn inputs() -> Vec<node_graph::InputDef<Self::State>> {
+        fn inputs() -> Vec<node_graph::api::InputDef<Self::State>> {
             Vec::new()
         }
 
-        fn outputs() -> Vec<node_graph::OutputDef<Self::State>> {
+        fn outputs() -> Vec<node_graph::api::OutputDef<Self::State>> {
             Vec::new()
         }
 

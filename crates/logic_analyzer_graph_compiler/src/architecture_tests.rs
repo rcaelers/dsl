@@ -157,6 +157,42 @@ fn compiler_has_no_production_ui_dependencies() {
 }
 
 #[test]
+fn compiler_uses_only_the_node_graph_api_namespace() {
+    let sources = [
+        ("cache native", include_str!("cache_platform_native.rs")),
+        ("cache wasm", include_str!("cache_platform_wasm.rs")),
+        ("data collector", include_str!("data_collector.rs")),
+        ("errors", include_str!("errors.rs")),
+        ("compiler facade", include_str!("graph_compiler.rs")),
+        ("subscriptions", include_str!("output_subscription.rs")),
+        ("run data", include_str!("run_data.rs")),
+    ];
+
+    for (component, source) in sources {
+        for line in implementation_source(source)
+            .lines()
+            .filter(|line| line.contains("node_graph::"))
+        {
+            assert!(
+                line.contains("node_graph::api::"),
+                "compiler {component} bypasses node_graph::api: {line}"
+            );
+        }
+    }
+
+    let graph = include_str!("graph.rs")
+        .split_once("#[cfg(all(test, not(target_arch = \"wasm32\")))]\nmod tests")
+        .expect("graph test module boundary")
+        .0;
+    for line in graph.lines().filter(|line| line.contains("node_graph::")) {
+        assert!(
+            line.contains("node_graph::api::"),
+            "compiler graph lowering bypasses node_graph::api: {line}"
+        );
+    }
+}
+
+#[test]
 fn run_data_contract_is_application_neutral() {
     let implementation = include_str!("run_data.rs");
     for forbidden in [

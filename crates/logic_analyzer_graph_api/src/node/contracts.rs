@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use node_graph::Socket;
+use node_graph::api::Socket;
 use signal_processing::{
     AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureChannelId,
     CaptureProviderCapabilities, CaptureSessionPlan, CaptureStartMode, CaptureStoreCursor,

@@ -8,7 +8,7 @@ use logic_analyzer_graph_api::node_support::{
     TriggerConfigurationFeature, parse_state,
 };
 use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::DsLogicU3Pro16Source;
-use node_graph::Socket;
+use node_graph::api::Socket;
 use signal_processing::{DerivedDataRetention, ProcessNode, Sample, SampleBlock};
 
 use super::definition::U3Pro16State;

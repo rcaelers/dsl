@@ -8,7 +8,7 @@ use logic_analyzer_graph_api::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
 use logic_analyzer_processing::nodes::sinks::csv_word_writer::{CsvValueFormat, CsvWordWriter};
-use node_graph::Socket;
+use node_graph::api::Socket;
 use signal_processing::{ProcessNode, TextSample, Word};
 
 #[derive(Default)]

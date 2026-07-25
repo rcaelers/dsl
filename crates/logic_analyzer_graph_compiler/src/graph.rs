@@ -26,7 +26,7 @@ use logic_analyzer_graph_api::node_support::{
     NodeBuildContext, PortKind, ResolvedInput, ResolvedInputs, SimpleTriggerChannel,
     TriggerConfigurationFeature,
 };
-use node_graph::{
+use node_graph::api::{
     Connection, GraphState, Node, NodeId, NodeKind, Socket, SocketDirection, SocketId, SocketShape,
     VariadicInfo,
 };
@@ -4616,7 +4616,7 @@ mod tests {
     #[test]
     fn buffer_node_kind_mismatch_is_rejected() {
         use egui::Pos2;
-        use node_graph::{SocketDirection, SocketId};
+        use node_graph::api::{SocketDirection, SocketId};
 
         let mut widget = NodeGraphWidget::new(nodes::build_registry());
         let source = widget
@@ -4675,7 +4675,7 @@ mod tests {
     #[test]
     fn muted_node_with_compatible_pass_through_lowers_to_a_direct_connection() {
         use egui::Pos2;
-        use node_graph::{SocketDirection, SocketId};
+        use node_graph::api::{SocketDirection, SocketId};
 
         let mut widget = NodeGraphWidget::new(nodes::build_registry());
         let source = widget
@@ -4733,7 +4733,7 @@ mod tests {
     #[test]
     fn muted_node_without_compatible_pass_through_reports_a_targeted_error() {
         use egui::Pos2;
-        use node_graph::{SocketDirection, SocketId};
+        use node_graph::api::{SocketDirection, SocketId};
 
         let mut widget = NodeGraphWidget::new(nodes::build_registry());
         let source = widget
@@ -4892,14 +4892,14 @@ mod tests {
         widget.set_node_state(matcher, state);
 
         let decoder = node_by_def(widget, "Binary Decoder");
-        let out_idx = |graph: &node_graph::GraphState, id: NodeId, name: &str| {
+        let out_idx = |graph: &node_graph::api::GraphState, id: NodeId, name: &str| {
             graph.nodes[&id]
                 .outputs
                 .iter()
                 .position(|s| s.name == name)
                 .unwrap()
         };
-        let input_idx = |graph: &node_graph::GraphState, id: NodeId, name: &str| {
+        let input_idx = |graph: &node_graph::api::GraphState, id: NodeId, name: &str| {
             graph.nodes[&id]
                 .inputs
                 .iter()
@@ -4913,12 +4913,12 @@ mod tests {
             SocketId {
                 node: decoder,
                 index: decoder_words,
-                direction: node_graph::SocketDirection::Output,
+                direction: node_graph::api::SocketDirection::Output,
             },
             SocketId {
                 node: matcher,
                 index: matcher_in,
-                direction: node_graph::SocketDirection::Input,
+                direction: node_graph::api::SocketDirection::Input,
             },
         );
         let matcher_out = out_idx(graph, matcher, "Match");

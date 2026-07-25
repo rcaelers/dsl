@@ -9,7 +9,7 @@ use logic_analyzer_graph_api::node_support::{
     parse_state,
 };
 use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
-use node_graph::Socket;
+use node_graph::api::Socket;
 use signal_processing::{
     DEFAULT_DERIVED_DATA_MAX_ENTRIES, DerivedDataRetention, ProcessNode, Sample, SampleBlock,
 };

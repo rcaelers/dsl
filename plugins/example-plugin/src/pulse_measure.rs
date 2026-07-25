@@ -14,7 +14,7 @@ use logic_analyzer_graph_api::node::{GraphNodeRegistration, RuntimeBuilder};
 use logic_analyzer_graph_api::node_support::{
     NodeBuildContext, PortKind, PortValue, ResolvedInputs,
 };
-use node_graph::{InputDef, NodeDef, OutputDef, Socket, SocketDef, SocketShape};
+use node_graph::api::{InputDef, NodeDef, OutputDef, Socket, SocketDef, SocketShape};
 use signal_processing::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Sample, WorkError, WorkResult,
 };

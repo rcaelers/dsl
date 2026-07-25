@@ -6,7 +6,7 @@ use serde_json::Value;
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{NodeBuildContext, PortKind, ResolvedInputs};
 use logic_analyzer_processing::nodes::sinks::text_file_writer::TextFileWriter;
-use node_graph::Socket;
+use node_graph::api::Socket;
 use signal_processing::{ProcessNode, TextSample};
 
 #[derive(Default)]
