@@ -1587,9 +1587,18 @@ impl NodeGraphWidget {
                 .open_add_popup(screen_pos, &self.registry, canvas_pos);
         }
 
+        let menu_owned_pointer = self.menu.is_open();
         if let Some(action) = self.menu.update(ui, response, pointer, !cutting) {
             let effect = self.execute_action(action, ui.ctx(), pointer_canvas);
             self.apply_effect(effect, pointer_canvas);
+        }
+
+        // A menu that was open at the start of this update owns the complete
+        // pointer gesture, including an outside click used only to dismiss it.
+        // The canvas responses were collected earlier in the frame, so without
+        // this guard the same release would also clear the graph selection.
+        if menu_owned_pointer {
+            return;
         }
 
         self.update_interaction(
@@ -2079,6 +2088,73 @@ mod tests {
             index,
             direction,
         }
+    }
+
+    #[test]
+    fn outside_click_that_closes_a_menu_does_not_clear_node_selection() {
+        use crate::runtime::NodeTypeRegistry;
+        use crate::widget::graph::action::GraphAction;
+        use crate::widget::menu::MenuEntry;
+
+        fn show_frame(
+            context: &egui::Context,
+            widget: &mut NodeGraphWidget,
+            events: Vec<egui::Event>,
+        ) {
+            let screen_rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+            context.begin_pass(egui::RawInput {
+                screen_rect: Some(screen_rect),
+                events,
+                ..Default::default()
+            });
+            let mut ui = egui::Ui::new(
+                context.clone(),
+                egui::Id::new("menu-dismiss-selection-test"),
+                egui::UiBuilder::new().max_rect(screen_rect),
+            );
+            widget.show(&mut ui);
+            let _ = context.end_pass();
+        }
+
+        let context = egui::Context::default();
+        let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+        let node = widget
+            .add_node_at("Reroute", Pos2::new(300.0, 250.0))
+            .unwrap();
+        widget.graph.nodes.get_mut(&node).unwrap().selected = true;
+        show_frame(&context, &mut widget, Vec::new());
+
+        widget.menu.open_popup(
+            Pos2::new(400.0, 300.0),
+            vec![MenuEntry::action("Unused", GraphAction::DeselectAll)],
+        );
+        let outside = Pos2::new(60.0, 60.0);
+        show_frame(
+            &context,
+            &mut widget,
+            vec![
+                egui::Event::PointerMoved(outside),
+                egui::Event::PointerButton {
+                    pos: outside,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        show_frame(
+            &context,
+            &mut widget,
+            vec![egui::Event::PointerButton {
+                pos: outside,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+
+        assert!(!widget.menu.is_open());
+        assert!(widget.graph.nodes[&node].selected);
     }
 
     #[test]

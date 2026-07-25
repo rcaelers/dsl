@@ -455,9 +455,7 @@ mod tests {
             editor_visible: true,
             hidden: false,
             has_control: false,
-            view_selectable: true,
-            view_indicator_sources: Vec::new(),
-            show_in_view: false,
+            extensions: Default::default(),
         }
     }
 

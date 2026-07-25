@@ -35,7 +35,7 @@ impl NodeDef for TestUartSource {
     }
 
     fn outputs() -> Vec<OutputDef<Self::State>> {
-        vec![OutputDef::new::<Signal>("RX").view_selectable(false)]
+        vec![OutputDef::new::<Signal>("RX")]
     }
 
     fn state() -> Self::State {
@@ -43,5 +43,9 @@ impl NodeDef for TestUartSource {
             message: StringValue::new("HELLO\n"),
             baud_rate: IntValue::new(115_200, 300, 100_000_000),
         }
+    }
+
+    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+        vec![crate::presentation::viewer_outputs_panel()]
     }
 }

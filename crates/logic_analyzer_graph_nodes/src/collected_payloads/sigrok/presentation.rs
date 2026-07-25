@@ -1,11 +1,10 @@
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     SigrokAnnotation, SigrokBinary, SigrokGeneratedLogic, SigrokLaneSnapshot, SigrokMetadata,
-    SigrokProtocolPacket,
 };
 use logic_analyzer_viewer::{
-    OpaqueLaneDrawContext, ViewerLaneRenderer, ViewerLaneTrack, draw_value_snapshot,
+    OpaqueLaneDrawContext, ViewerLaneRenderer, ViewerLaneTrack, draw_span_snapshot,
 };
-use signal_processing::OpaqueCollectedLaneSnapshot;
+use signal_processing::{OpaqueCollectedLaneSnapshot, ProtocolPacket};
 
 macro_rules! span_renderer {
     ($renderer:ident, $payload:ty) => {
@@ -26,9 +25,17 @@ macro_rules! span_renderer {
                 let values = snapshot
                     .entries()
                     .iter()
-                    .map(|entry| (entry.start_time_ns, entry.display_text()))
+                    .map(|entry| (entry.start_time_ns, entry.end_time_ns, entry.display_text()))
                     .collect::<Vec<_>>();
-                draw_value_snapshot(&context, &values, context.theme.accent);
+                draw_span_snapshot(&context, &values, context.theme.accent);
+                if !snapshot.activity_spans().is_empty() {
+                    let activity = snapshot
+                        .activity_spans()
+                        .iter()
+                        .map(|&(start, end)| (start, end, String::new()))
+                        .collect::<Vec<_>>();
+                    draw_span_snapshot(&context, &activity, context.theme.accent);
+                }
                 true
             }
         }
@@ -39,4 +46,4 @@ span_renderer!(SigrokAnnotationRenderer, SigrokAnnotation);
 span_renderer!(SigrokBinaryRenderer, SigrokBinary);
 span_renderer!(SigrokGeneratedLogicRenderer, SigrokGeneratedLogic);
 span_renderer!(SigrokMetadataRenderer, SigrokMetadata);
-span_renderer!(SigrokProtocolPacketRenderer, SigrokProtocolPacket);
+span_renderer!(ProtocolPacketRenderer, ProtocolPacket);

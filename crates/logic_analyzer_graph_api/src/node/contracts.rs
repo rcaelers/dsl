@@ -13,7 +13,7 @@ use signal_processing::{
 use crate::node_support::{
     CaptureCacheIdentity, CapturePresentation, DecoderTableColumnPresentation, LiveCaptureEdit,
     NodeBuildContext, PortKind, ResolvedInputs, SamplingOverlayDescriptor, SimpleTriggerChannel,
-    TriggerConfigurationFeature,
+    TriggerConfigurationFeature, ViewerOutputControl,
 };
 
 pub trait CaptureGraphSourceFactory: Send + Sync {
@@ -123,6 +123,12 @@ pub trait RuntimeBuilder {
     }
     fn viewer_channel_origin(&self, _socket: &Socket, _state: &Value) -> Option<usize> {
         None
+    }
+    fn viewer_output_control(&self, socket: &Socket, state: &Value) -> Option<ViewerOutputControl> {
+        if self.viewer_channel_origin(socket, state).is_some() {
+            return Some(ViewerOutputControl::new(true, [socket.def_index]));
+        }
+        Some(ViewerOutputControl::new(false, [socket.def_index]))
     }
     fn capture_presentation(&self, _state: &Value) -> Result<Option<CapturePresentation>, String> {
         Ok(None)

@@ -1,12 +1,10 @@
-//! `I2C Decoder` graph-node definition — demo placeholder. No matching runtime builder
-//! exists (nothing implements the decode), so the node is editable but not
-//! runnable.
+//! Native `I2C Decoder` graph-node definition.
 
 use egui::Color32;
 
 use node_graph::{InputDef, NodeDef, OutputDef};
 
-use crate::nodes::registry::{COLOR_DECODERS, Signal, Words};
+use crate::nodes::registry::{COLOR_DECODERS, ProtocolPackets, Signal, Words};
 
 pub(crate) struct I2cDecoder;
 impl NodeDef for I2cDecoder {
@@ -30,8 +28,15 @@ impl NodeDef for I2cDecoder {
     }
 
     fn outputs() -> Vec<OutputDef<Self::State>> {
-        vec![OutputDef::new::<Words>("Words")]
+        vec![
+            OutputDef::new::<Words>("Words"),
+            OutputDef::new::<ProtocolPackets>("Packets").stable_id("packets"),
+        ]
     }
 
     fn state() -> Self::State {}
+
+    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+        vec![crate::presentation::viewer_outputs_panel()]
+    }
 }

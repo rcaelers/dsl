@@ -40,7 +40,8 @@ representation of node state.
 ## The definition API
 
 A node type is a `NodeDef` implementation: an associated serde `State` type plus static
-descriptions of sockets, inline props, panel sections, and two hooks:
+descriptions of sockets, inline props, built-in Node-panel sections, node-contributed panel
+presentations, and two hooks:
 
 - `on_update(state, inputs, outputs)` — runs after any state edit or connect/disconnect;
   mutates socket visibility/styling (dynamic sockets).
@@ -154,6 +155,16 @@ Interaction highlights:
 - **Document extensions**: hosts persist namespaced document-level presentation or tool state in
   `GraphState`. The generic graph model preserves opaque JSON values and does not interpret their
   keys or contents; empty extension maps are omitted for compatibility with existing graph files.
+- **Tabs and contributed panels**: the built-in `Node` tab is owned by the widget; additional tabs
+  are configured once per widget, and all tabs remain visible for all nodes. A `NodeDef`
+  contributes opaque panels by stable panel ID and tab ID. Its
+  `NodePanelPresentation` owns the title and complete UI; the widget only supplies layout,
+  scrolling, state-update routing, and opaque typed panel data/action transport. The widget does
+  not define or inspect feature-specific panel models.
+- **Socket indicators**: hosts attach transient, owner-namespaced
+  `SocketIndicatorPresentation` objects to any input or output `SocketId`. The widget positions
+  them and delegates size and drawing to the presentation. It does not assign viewer, validation,
+  or protocol semantics to an indicator.
 - **Clipboard** is the system clipboard: selected nodes + their internal connections
   serialize to a JSON payload tagged `node_graph_clipboard_v1`, so copy/paste works across
   application instances. Paste remaps ids, offsets positions, selects the pasted set, and
@@ -187,10 +198,13 @@ and placement states so these accelerators are discoverable.
 A Blender-style N-panel docked to the right edge, rendered in **screen space** (regular
 egui widgets, unaffected by graph zoom — which is what makes rich controls like channel
 grids practical; inline node controls stay zoom-scaled). It shows the *active* node — the
-most recently clicked/added one. A built-in *Node* section exposes rename and type/category
-info; the def contributes `PanelSection`s of `PropDef`s. Panel edits mutate the same node
+most recently clicked/added one. The built-in *Node* panel exposes rename and type/category
+info plus the def's `PanelSection`s of `PropDef`s. It is the only panel whose contents the widget
+defines. Other panels come from the active node's `NodeDef`, and any configured tab can contain
+multiple panels. Panel edits mutate the same node
 state and run through the same `on_update` path as inline controls, so visibility,
-clamping, and badges react identically. A persistent tab strip on the right edge toggles
+clamping, and badges react identically. The persistent widget-level tab strip stays visible even
+without an active node and toggles
 the panel (`N`); the panel body floats over the graph and claims pointer input only within
 its bounds.
 

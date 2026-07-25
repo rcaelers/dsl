@@ -276,6 +276,7 @@ struct RunningNode {
     pending: Option<PendingStart>,
     control_tx: crossbeam_channel::Sender<NodeConfig>,
     configuration_scheduler: Option<Arc<dyn ConfigurationScheduler>>,
+    cancellation: Option<Arc<dyn super::node::NodeCancellation>>,
     stop_flag: Arc<AtomicBool>,
     /// Set before a restart-kill so the exiting thread does not close the
     /// output lists the replacement will reuse.
@@ -462,6 +463,7 @@ impl PipelineManager {
         generation: u64,
     ) {
         let configuration_scheduler = node.configuration_scheduler();
+        let cancellation = node.cancellation();
         let (control_tx, control_rx) = crossbeam_channel::unbounded::<NodeConfig>();
         let items = Arc::new(AtomicU64::new(0));
         self.nodes.insert(
@@ -477,6 +479,7 @@ impl PipelineManager {
                 }),
                 control_tx,
                 configuration_scheduler,
+                cancellation,
                 stop_flag: Arc::new(AtomicBool::new(false)),
                 keep_outputs_open: Arc::new(AtomicBool::new(false)),
                 items,
@@ -604,6 +607,9 @@ impl PipelineManager {
             .ok_or_else(|| format!("node '{name}' not running"))?;
         self.detach(&node);
         node.stop_flag.store(true, Ordering::Relaxed);
+        if let Some(cancellation) = &node.cancellation {
+            cancellation.request_cancel();
+        }
         for output in node.outputs.values() {
             for (_, list) in &output.lists {
                 list.close();
@@ -688,6 +694,9 @@ impl PipelineManager {
         old.keep_outputs_open.store(true, Ordering::Relaxed);
         self.detach(&old);
         old.stop_flag.store(true, Ordering::Relaxed);
+        if let Some(cancellation) = &old.cancellation {
+            cancellation.request_cancel();
+        }
         if let Some(thread) = old.thread
             && thread.join().is_err()
         {
@@ -830,6 +839,9 @@ impl PipelineManager {
     pub fn request_stop(&self) {
         for node in self.nodes.values() {
             node.stop_flag.store(true, Ordering::Relaxed);
+            if let Some(cancellation) = &node.cancellation {
+                cancellation.request_cancel();
+            }
             for output in node.outputs.values() {
                 for (_, list) in &output.lists {
                     list.close();
@@ -906,6 +918,44 @@ mod tests {
         next: i64,
         max: i64,
         pace: Duration,
+    }
+
+    struct BlockingCancellation {
+        sender: crossbeam_channel::Sender<()>,
+    }
+
+    impl crate::node::NodeCancellation for BlockingCancellation {
+        fn request_cancel(&self) {
+            let _ = self.sender.try_send(());
+        }
+    }
+
+    struct BlockingCancelableNode {
+        receiver: crossbeam_channel::Receiver<()>,
+        cancellation: Arc<BlockingCancellation>,
+    }
+
+    impl ProcessNode for BlockingCancelableNode {
+        fn name(&self) -> &str {
+            "blocking_cancelable"
+        }
+
+        fn num_inputs(&self) -> usize {
+            0
+        }
+
+        fn num_outputs(&self) -> usize {
+            0
+        }
+
+        fn cancellation(&self) -> Option<Arc<dyn crate::node::NodeCancellation>> {
+            Some(self.cancellation.clone())
+        }
+
+        fn work(&mut self, _inputs: &[InputPort], _outputs: &[OutputPort]) -> WorkResult<usize> {
+            let _ = self.receiver.recv();
+            Err(WorkError::Shutdown)
+        }
     }
 
     impl ProcessNode for PacedSource {
@@ -1486,6 +1536,33 @@ mod tests {
             "reaping a finished run must be instant"
         );
         assert!(!out.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn request_stop_cancels_a_node_blocked_inside_work() {
+        let mut manager = PipelineManager::new();
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        manager
+            .add_node(NodeSpec {
+                name: "blocked".into(),
+                node: Box::new(BlockingCancelableNode {
+                    receiver,
+                    cancellation: Arc::new(BlockingCancellation { sender }),
+                }),
+                inputs: vec![],
+            })
+            .unwrap();
+
+        manager.request_stop();
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while !manager.is_finished() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "cancellation handle did not interrupt blocked work"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        manager.stop_all();
     }
 
     // ── EdgeQuery negotiation ─────────────────────────────────────────

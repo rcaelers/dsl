@@ -43,6 +43,11 @@ define_class!(
             dispatch_native_menu_command(NativeMenuCommand::About);
         }
 
+        #[unsafe(method(showPreferences:))]
+        fn show_preferences(&self, _sender: &AnyObject) {
+            dispatch_native_menu_command(NativeMenuCommand::Preferences);
+        }
+
         #[unsafe(method(newGraph:))]
         fn new_graph(&self, _sender: &AnyObject) {
             dispatch_native_menu_command(NativeMenuCommand::New);
@@ -394,6 +399,16 @@ pub(crate) fn install(recent_files: &[PathBuf]) {
         application_menu_item.setTitle(&application_name);
         if let Some(application_menu) = application_menu_item.submenu() {
             application_menu.setTitle(&application_name);
+            let preferences = unsafe {
+                menu_item(
+                    mtm,
+                    ns_string!("Preferences…"),
+                    sel!(showPreferences:),
+                    ns_string!(","),
+                    &handler,
+                )
+            };
+            application_menu.insertItem_atIndex(&preferences, 1);
             for index in 0..application_menu.numberOfItems() {
                 let Some(item) = application_menu.itemAtIndex(index) else {
                     continue;

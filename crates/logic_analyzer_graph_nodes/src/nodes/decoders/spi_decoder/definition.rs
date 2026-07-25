@@ -4,8 +4,8 @@ use egui::Color32;
 use serde::{Deserialize, Serialize};
 
 use node_graph::{
-    BoolValue, EnumValue, InputDef, IntValue, NodeBadge, NodeDef, OutputDef, PanelSection, PropDef,
-    Socket,
+    BoolValue, EnumValue, InputDef, IntValue, NodeBadge, NodeDef, NodePanelDef, OutputDef,
+    PanelMetadata, PanelSection, PropDef, PropertyPanelPresentation, Socket,
 };
 
 use crate::nodes::registry::{COLOR_DECODERS, Signal, Words};
@@ -66,12 +66,8 @@ impl NodeDef for SpiDecoder {
 
     fn outputs() -> Vec<OutputDef<Self::State>> {
         vec![
-            OutputDef::new::<Words>("MOSI Words")
-                .view_selectable(false)
-                .view_indicator_sources([2, 3]),
-            OutputDef::new::<Words>("MISO Words")
-                .view_selectable(false)
-                .view_indicator_sources([4, 5]),
+            OutputDef::new::<Words>("MOSI Words"),
+            OutputDef::new::<Words>("MISO Words"),
             OutputDef::new::<Words>("MOSI Bits").editor_visible(false),
             OutputDef::new::<Words>("MOSI Data").editor_visible(false),
             OutputDef::new::<Words>("MISO Bits").editor_visible(false),
@@ -108,15 +104,26 @@ impl NodeDef for SpiDecoder {
         )]
     }
 
-    fn view_panel() -> Vec<PanelSection<Self::State>> {
-        vec![PanelSection::new(
-            "Presentation",
-            vec![PropDef::control(
-                "display_format",
-                "Data display",
-                |state| &mut state.display_format,
-            )],
-        )]
+    fn panels() -> Vec<NodePanelDef<Self::State>> {
+        vec![
+            crate::presentation::viewer_outputs_panel(),
+            NodePanelDef::new(
+                "presentation",
+                "view",
+                PropertyPanelPresentation::new(
+                    "Presentation",
+                    vec![PanelSection::new(
+                        "Format",
+                        vec![PropDef::control(
+                            "display_format",
+                            "Data display",
+                            |state: &mut SpiDecoderState| &mut state.display_format,
+                        )],
+                    )],
+                ),
+            )
+            .metadata(PanelMetadata::default().preferred_height(130.0)),
+        ]
     }
 
     fn on_update(state: &mut Self::State, inputs: &mut [Socket], outputs: &mut [Socket]) {
@@ -124,16 +131,22 @@ impl NodeDef for SpiDecoder {
             for (legacy, bits, data) in [(0, 2, 3), (1, 4, 5)] {
                 let was_in_view = outputs
                     .get(legacy)
-                    .is_some_and(|output| output.show_in_view);
+                    .and_then(|output| output.extensions.get("show_in_view"))
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
                 if was_in_view {
                     if let Some(output) = outputs.get_mut(bits) {
-                        output.show_in_view = true;
+                        output
+                            .extensions
+                            .insert("show_in_view".to_owned(), serde_json::Value::Bool(true));
                     }
                     if let Some(output) = outputs.get_mut(data) {
-                        output.show_in_view = true;
+                        output
+                            .extensions
+                            .insert("show_in_view".to_owned(), serde_json::Value::Bool(true));
                     }
                     if let Some(output) = outputs.get_mut(legacy) {
-                        output.show_in_view = false;
+                        output.extensions.remove("show_in_view");
                     }
                 }
             }
@@ -182,7 +195,7 @@ mod tests {
     }
 
     #[test]
-    fn node_editor_shows_words_and_summarizes_detail_lane_visibility() {
+    fn node_editor_shows_only_connectable_word_outputs() {
         let mut widget = node_graph::NodeGraphWidget::new(crate::test_support::build_registry());
         let node_id = widget
             .add_node_at(SpiDecoder::name(), egui::Pos2::ZERO)
@@ -191,12 +204,8 @@ mod tests {
 
         assert!(node.outputs[0].editor_visible);
         assert!(node.outputs[1].editor_visible);
-        assert!(!node.outputs[0].view_selectable);
-        assert_eq!(node.outputs[0].view_indicator_sources, [2, 3]);
-        assert_eq!(node.outputs[1].view_indicator_sources, [4, 5]);
         for output in &node.outputs[2..] {
             assert!(!output.editor_visible);
-            assert!(output.view_selectable);
         }
     }
 
@@ -211,15 +220,23 @@ mod tests {
         let mut graph = widget.graph().clone();
         let saved = graph.nodes.get_mut(&node).unwrap();
         saved.outputs.truncate(2);
-        saved.outputs[0].show_in_view = true;
+        saved.outputs[0]
+            .extensions
+            .insert("show_in_view".to_owned(), serde_json::json!(true));
         saved.state = legacy;
 
         widget.set_graph(graph);
 
         let node = &widget.graph().nodes[&node];
-        assert!(!node.outputs[0].show_in_view);
-        assert!(node.outputs[2].show_in_view);
-        assert!(node.outputs[3].show_in_view);
+        assert!(!node.outputs[0].extensions.contains_key("show_in_view"));
+        assert_eq!(
+            node.outputs[2].extensions.get("show_in_view"),
+            Some(&serde_json::json!(true))
+        );
+        assert_eq!(
+            node.outputs[3].extensions.get("show_in_view"),
+            Some(&serde_json::json!(true))
+        );
         assert!(
             node.badge
                 .as_ref()

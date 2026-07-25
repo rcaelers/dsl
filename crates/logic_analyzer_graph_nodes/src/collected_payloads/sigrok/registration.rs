@@ -5,16 +5,17 @@ use egui::Color32;
 use logic_analyzer_graph_api::node::CollectedPayloadRegistration;
 use logic_analyzer_graph_api::node_support::{DefaultViewerPayloadPresentation, PortKind};
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
-    SigrokAnnotation, SigrokBinary, SigrokGeneratedLogic, SigrokMetadata, SigrokProtocolPacket,
+    SigrokAnnotation, SigrokBinary, SigrokGeneratedLogic, SigrokMetadata,
     sigrok_annotation_payload_adapter, sigrok_binary_payload_adapter,
     sigrok_generated_logic_payload_adapter, sigrok_metadata_payload_adapter,
     sigrok_protocol_packet_payload_adapter,
 };
 use logic_analyzer_viewer::ViewerLaneBadge;
+use signal_processing::ProtocolPacket;
 
 use super::presentation::{
-    SigrokAnnotationRenderer, SigrokBinaryRenderer, SigrokGeneratedLogicRenderer,
-    SigrokMetadataRenderer, SigrokProtocolPacketRenderer,
+    ProtocolPacketRenderer, SigrokAnnotationRenderer, SigrokBinaryRenderer,
+    SigrokGeneratedLogicRenderer, SigrokMetadataRenderer,
 };
 
 fn annotation_kind() -> PortKind {
@@ -34,7 +35,7 @@ fn metadata_kind() -> PortKind {
 }
 
 fn protocol_packet_kind() -> PortKind {
-    PortKind::of_named::<SigrokProtocolPacket>("Sigrok Packet")
+    PortKind::of_named::<ProtocolPacket>("Protocol Packet")
 }
 
 fn annotation_presentation() -> DefaultViewerPayloadPresentation {
@@ -68,7 +69,7 @@ fn metadata_presentation() -> DefaultViewerPayloadPresentation {
 fn protocol_packet_presentation() -> DefaultViewerPayloadPresentation {
     DefaultViewerPayloadPresentation::with_renderer(
         ViewerLaneBadge::new("P", Color32::from_rgb(175, 120, 205)),
-        Arc::new(SigrokProtocolPacketRenderer),
+        Arc::new(ProtocolPacketRenderer),
     )
 }
 
@@ -110,7 +111,7 @@ mod registration_tests {
             "org.logicconduit.sigrok.binary/v1",
             "org.logicconduit.sigrok.generated-logic/v1",
             "org.logicconduit.sigrok.metadata/v1",
-            "org.logicconduit.sigrok.protocol-packet/v1",
+            "org.logicconduit.protocol-packet/v1",
         ] {
             assert!(stable_ids.contains(stable_id));
         }
@@ -146,7 +147,7 @@ inventory::submit! {
 
 inventory::submit! {
     CollectedPayloadRegistration::subscribable_kind(
-        "org.logicconduit.sigrok.protocol-packet/v1",
+        "org.logicconduit.protocol-packet/v1",
         protocol_packet_kind,
         sigrok_protocol_packet_payload_adapter,
         protocol_packet_presentation,

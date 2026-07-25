@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
@@ -62,7 +64,7 @@ pub struct Socket {
     #[serde(default = "default_true", skip_serializing)]
     pub visible: bool,
     /// Definition-owned node-editor presentation. Unlike `visible`, this does
-    /// not remove the output from generic viewer selection or compilation.
+    /// not remove the output from host processing.
     #[serde(default = "default_true", skip_serializing)]
     pub editor_visible: bool,
     /// Set true by the user via "Hide Unused"; never touched by `on_update`.
@@ -70,18 +72,10 @@ pub struct Socket {
     pub hidden: bool,
     #[serde(default, skip_serializing)]
     pub has_control: bool,
-    /// Definition-owned eligibility for the generic View-panel lane selector.
-    #[serde(default = "default_true", skip_serializing)]
-    pub view_selectable: bool,
-    /// Definition-owned output indices whose viewer selection is summarized
-    /// by this socket's eye. Empty means this output summarizes itself.
-    #[serde(default, skip_serializing)]
-    pub view_indicator_sources: Vec<usize>,
-    /// User-toggled from the graph widget's generic View panel (outputs
-    /// only): show this output as a logic analyzer lane without an explicit
-    /// wire to a `Viewer` node. The compiler synthesizes the connection.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub show_in_view: bool,
+    /// Opaque host-owned socket metadata. Generic graph code preserves these
+    /// values but never interprets their keys or contents.
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extensions: BTreeMap<String, serde_json::Value>,
 }
 
 fn default_socket_type_name() -> String {
@@ -171,9 +165,7 @@ mod tests {
             editor_visible: true,
             hidden: false,
             has_control: false,
-            view_selectable: true,
-            view_indicator_sources: Vec::new(),
-            show_in_view: false,
+            extensions: Default::default(),
         }
     }
 
@@ -226,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn definition_owned_fields_are_not_serialized_but_legacy_values_load() {
+    fn definition_owned_fields_are_not_serialized_and_host_values_are_opaque() {
         let socket = socket("Float");
         let mut value = serde_json::to_value(&socket).unwrap();
         let object = value.as_object_mut().unwrap();
@@ -240,14 +232,12 @@ mod tests {
         assert!(!object.contains_key("visible"));
         assert!(!object.contains_key("hidden"));
         assert!(!object.contains_key("has_control"));
-        assert!(!object.contains_key("view_selectable"));
-        assert!(!object.contains_key("show_in_view"));
 
         object.insert("name".to_owned(), serde_json::json!("Input"));
         object.insert("type_name".to_owned(), serde_json::json!("Float"));
         object.insert("color".to_owned(), serde_json::json!([1, 2, 3, 255]));
         object.insert("shape".to_owned(), serde_json::json!("Diamond"));
-        object.insert("view_selectable".to_owned(), serde_json::json!(false));
+        object.insert("host.selection".to_owned(), serde_json::json!(false));
         object.insert(
             "variadic".to_owned(),
             serde_json::json!({"base":"Input","max":4,"placeholder":true}),
@@ -257,7 +247,10 @@ mod tests {
         assert_eq!(restored.type_name, "Float");
         assert_eq!(restored.color, Color32::from_rgb(1, 2, 3));
         assert_eq!(restored.shape, SocketShape::Diamond);
-        assert!(!restored.view_selectable);
+        assert_eq!(
+            restored.extensions.get("host.selection"),
+            Some(&serde_json::json!(false))
+        );
         assert!(restored.is_variadic_placeholder());
     }
 }

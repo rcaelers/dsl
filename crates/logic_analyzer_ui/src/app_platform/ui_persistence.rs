@@ -9,6 +9,12 @@ impl PersistedUiState {
     }
 
     pub(crate) fn restore(self, widget: &mut node_graph::NodeGraphWidget) {
-        widget.set_ui_prefs(self.graph_ui_prefs);
+        let mut prefs = self.graph_ui_prefs;
+        prefs.panel_tab = match prefs.panel_tab.as_deref() {
+            Some("Node") => Some("node".to_owned()),
+            Some("Auxiliary" | "View") => Some("view".to_owned()),
+            _ => prefs.panel_tab,
+        };
+        widget.set_ui_prefs(prefs);
     }
 }

@@ -3,7 +3,10 @@
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
-use node_graph::{InputDef, NodeDef, OutputDef, PanelSection, PropDef, StringValue};
+use node_graph::{
+    InputDef, NodeDef, NodePanelDef, OutputDef, PanelMetadata, PanelSection, PropDef,
+    PropertyPanelPresentation, StringValue,
+};
 
 use crate::nodes::registry::{COLOR_OUTPUT, Number, Signal, Text, Trigger, Words};
 
@@ -50,10 +53,24 @@ impl NodeDef for Viewer {
         }
     }
 
-    fn view_panel() -> Vec<PanelSection<Self::State>> {
-        vec![PanelSection::new(
-            "Presentation",
-            vec![PropDef::control("label", "Label", |state| &mut state.label)],
-        )]
+    fn panels() -> Vec<NodePanelDef<Self::State>> {
+        vec![
+            NodePanelDef::new(
+                "presentation",
+                "view",
+                PropertyPanelPresentation::new(
+                    "Presentation",
+                    vec![PanelSection::new(
+                        "Lane",
+                        vec![PropDef::control(
+                            "label",
+                            "Label",
+                            |state: &mut ViewerState| &mut state.label,
+                        )],
+                    )],
+                ),
+            )
+            .metadata(PanelMetadata::default().preferred_height(130.0)),
+        ]
     }
 }

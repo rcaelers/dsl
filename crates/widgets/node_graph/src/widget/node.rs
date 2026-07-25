@@ -6,6 +6,7 @@ use crate::model::{
 };
 use crate::runtime::{NodeInstance, NodeTypeRegistry};
 use crate::support::{ViewState, draw_wire_dashed, to_screen_rect};
+use crate::widget::graph::SocketIndicatorRegistry;
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 
@@ -282,6 +283,7 @@ pub(crate) struct NodeDrawContext<'a> {
     pub registry: &'a NodeTypeRegistry,
     pub view: &'a ViewState,
     pub origin: Pos2,
+    pub socket_indicators: &'a SocketIndicatorRegistry,
 }
 
 pub(crate) struct NodeControlContext<'a> {
@@ -336,6 +338,7 @@ impl NodeWidget {
             registry,
             view,
             origin,
+            socket_indicators,
         } = context;
         let l = &self.layout;
         let node_s = to_screen_rect(l.node_rect, view, origin);
@@ -442,12 +445,15 @@ impl NodeWidget {
                 let (color, shape) = registry.socket_display(sock);
                 let socket_pos = s(pos);
                 draw_socket(painter, socket_pos, sz(SOCKET_RADIUS), shape, color);
-                draw_view_indicator_for_output(
+                draw_socket_indicators(
                     painter,
                     graph,
-                    node_id,
-                    i,
-                    output_view_indicator_active(node, i),
+                    socket_indicators,
+                    SocketId {
+                        node: node_id,
+                        index: i,
+                        direction: SocketDirection::Output,
+                    },
                     socket_pos,
                     view.zoom,
                 );
@@ -458,7 +464,20 @@ impl NodeWidget {
                     continue;
                 };
                 let (color, shape) = registry.socket_display(sock);
-                draw_socket(painter, s(pos), sz(SOCKET_RADIUS), shape, color);
+                let socket_pos = s(pos);
+                draw_socket(painter, socket_pos, sz(SOCKET_RADIUS), shape, color);
+                draw_socket_indicators(
+                    painter,
+                    graph,
+                    socket_indicators,
+                    SocketId {
+                        node: node_id,
+                        index: i,
+                        direction: SocketDirection::Input,
+                    },
+                    socket_pos,
+                    view.zoom,
+                );
             }
             if node.muted {
                 draw_mute_pass_through(painter, node, l, &s);
@@ -491,12 +510,15 @@ impl NodeWidget {
             let sp = s(pos);
             let (color, shape) = registry.socket_display(sock);
             draw_socket(painter, sp, sz(SOCKET_RADIUS), shape, color);
-            draw_view_indicator_for_output(
+            draw_socket_indicators(
                 painter,
                 graph,
-                node_id,
-                i,
-                output_view_indicator_active(node, i),
+                socket_indicators,
+                SocketId {
+                    node: node_id,
+                    index: i,
+                    direction: SocketDirection::Output,
+                },
                 sp,
                 view.zoom,
             );
@@ -518,6 +540,18 @@ impl NodeWidget {
             let sp = s(pos);
             let (color, shape) = registry.socket_display(sock);
             draw_socket(painter, sp, sz(SOCKET_RADIUS), shape, color);
+            draw_socket_indicators(
+                painter,
+                graph,
+                socket_indicators,
+                SocketId {
+                    node: node_id,
+                    index: i,
+                    direction: SocketDirection::Input,
+                },
+                sp,
+                view.zoom,
+            );
             // An input with an inline control normally gets its label from
             // the control's hint text — but the control only renders while
             // the socket is unconnected (`show_controls`), so a connected
@@ -851,63 +885,36 @@ fn draw_socket(painter: &Painter, pos: Pos2, radius: f32, shape: SocketShape, co
     }
 }
 
-fn draw_view_indicator_for_output(
+fn draw_socket_indicators(
     painter: &Painter,
     graph: &GraphState,
-    node_id: NodeId,
-    output_index: usize,
-    show_in_view: bool,
+    indicators: &SocketIndicatorRegistry,
+    socket: SocketId,
     socket_pos: Pos2,
     zoom: f32,
 ) {
-    if !show_in_view {
-        return;
-    }
-    let socket = SocketId {
-        node: node_id,
-        index: output_index,
-        direction: SocketDirection::Output,
+    let connected = match socket.direction {
+        SocketDirection::Input => graph.is_input_connected(socket),
+        SocketDirection::Output => graph.is_output_connected(socket),
     };
-    let connected = graph.is_output_connected(socket);
-    let scale = zoom.clamp(0.65, 1.25);
-    let center = Pos2::new(
-        socket_pos.x + 13.0 * scale,
-        socket_pos.y - if connected { 8.0 * scale } else { 0.0 },
-    );
-    draw_view_indicator(painter, center, scale);
-}
-
-fn output_view_indicator_active(node: &Node, output_index: usize) -> bool {
-    let Some(output) = node.outputs.get(output_index) else {
-        return false;
+    let direction = match socket.direction {
+        SocketDirection::Input => -1.0,
+        SocketDirection::Output => 1.0,
     };
-    if output.view_indicator_sources.is_empty() {
-        return output.visible && output.view_selectable && output.show_in_view;
+    let mut offset = SOCKET_RADIUS * zoom + 3.0;
+    for presentation in indicators
+        .values()
+        .filter_map(|by_socket| by_socket.get(&socket))
+        .flat_map(|by_id| by_id.values())
+    {
+        let size = presentation.size(zoom).max(Vec2::ZERO);
+        let center = Pos2::new(
+            socket_pos.x + direction * (offset + size.x * 0.5),
+            socket_pos.y - if connected { size.y + 2.0 } else { 0.0 },
+        );
+        presentation.draw(painter, Rect::from_center_size(center, size), zoom);
+        offset += size.x + 3.0;
     }
-    output
-        .view_indicator_sources
-        .iter()
-        .filter_map(|source| node.outputs.get(*source))
-        .any(|source| source.visible && source.view_selectable && source.show_in_view)
-}
-
-fn draw_view_indicator(painter: &Painter, center: Pos2, scale: f32) {
-    let half_width = 6.0 * scale;
-    let half_height = 3.7 * scale;
-    let points = vec![
-        Pos2::new(center.x - half_width, center.y),
-        Pos2::new(center.x - half_width * 0.45, center.y - half_height),
-        Pos2::new(center.x + half_width * 0.45, center.y - half_height),
-        Pos2::new(center.x + half_width, center.y),
-        Pos2::new(center.x + half_width * 0.45, center.y + half_height),
-        Pos2::new(center.x - half_width * 0.45, center.y + half_height),
-    ];
-    painter.add(egui::Shape::convex_polygon(
-        points,
-        Color32::from_black_alpha(210),
-        Stroke::new(1.2 * scale, Color32::from_rgb(190, 225, 205)),
-    ));
-    painter.circle_filled(center, 1.65 * scale, Color32::from_rgb(110, 205, 145));
 }
 
 fn socket_outline_color(color: Color32) -> Color32 {
@@ -922,10 +929,7 @@ fn socket_outline_color(color: Color32) -> Color32 {
 
 #[cfg(test)]
 mod tests {
-    use egui::Pos2;
-
-    use super::{output_view_indicator_active, socket_is_laid_out};
-    use crate::model::{Node, NodeId, NodeKind};
+    use super::socket_is_laid_out;
 
     #[test]
     fn connected_sockets_remain_visible_despite_definition_or_user_hiding() {
@@ -933,25 +937,5 @@ mod tests {
         assert!(socket_is_laid_out(true, true, true));
         assert!(!socket_is_laid_out(false, false, false));
         assert!(!socket_is_laid_out(true, true, false));
-    }
-
-    #[test]
-    fn summarized_view_indicator_is_active_when_any_source_is_selected() {
-        let mut node = Node::new_reroute(NodeId(1), Pos2::ZERO);
-        node.kind = NodeKind::Regular;
-        let mut summary = node.outputs[0].clone();
-        summary.view_selectable = false;
-        summary.view_indicator_sources = vec![1, 2];
-        let mut first = node.outputs[0].clone();
-        first.view_selectable = true;
-        let mut second = first.clone();
-        second.show_in_view = true;
-        node.outputs = vec![summary, first, second];
-
-        assert!(output_view_indicator_active(&node, 0));
-        node.outputs[2].visible = false;
-        assert!(!output_view_indicator_active(&node, 0));
-        node.outputs[1].show_in_view = true;
-        assert!(output_view_indicator_active(&node, 0));
     }
 }

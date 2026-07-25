@@ -3,7 +3,10 @@
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
-use node_graph::{EnumValue, InputDef, IntValue, NodeDef, OutputDef, PanelSection, PropDef};
+use node_graph::{
+    EnumValue, InputDef, IntValue, NodeDef, NodePanelDef, OutputDef, PanelMetadata, PanelSection,
+    PropDef, PropertyPanelPresentation,
+};
 
 use crate::nodes::registry::{COLOR_DECODERS, Signal, Words};
 
@@ -87,15 +90,26 @@ impl NodeDef for BinaryDecoder {
         )]
     }
 
-    fn view_panel() -> Vec<PanelSection<Self::State>> {
-        vec![PanelSection::new(
-            "Presentation",
-            vec![PropDef::control(
-                "display_format",
-                "Data display",
-                |state| &mut state.display_format,
-            )],
-        )]
+    fn panels() -> Vec<NodePanelDef<Self::State>> {
+        vec![
+            crate::presentation::viewer_outputs_panel(),
+            NodePanelDef::new(
+                "presentation",
+                "view",
+                PropertyPanelPresentation::new(
+                    "Presentation",
+                    vec![PanelSection::new(
+                        "Format",
+                        vec![PropDef::control(
+                            "display_format",
+                            "Data display",
+                            |state: &mut BinaryDecoderState| &mut state.display_format,
+                        )],
+                    )],
+                ),
+            )
+            .metadata(PanelMetadata::default().preferred_height(130.0)),
+        ]
     }
 }
 

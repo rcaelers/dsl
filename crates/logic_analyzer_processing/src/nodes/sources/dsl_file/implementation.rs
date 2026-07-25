@@ -23,7 +23,7 @@ use signal_processing::waveform_index::IndexSampler;
 use signal_processing::{
     CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, EdgeQuery, Error, InputPort,
     OutputPort, ProcessNode, ProtocolKind, Result, Sample, SampleBlock, SampleKind, Sender,
-    TextSample, WorkResult,
+    WorkResult,
 };
 
 use super::super::capture_archive::zip_error;
@@ -200,11 +200,11 @@ impl EdgeQuery for DslChannelEdgeIndex {
 /// - On-demand block loading with shared caching for efficiency
 /// - Automatic timestamp generation based on sample rate
 /// - Sample output (only sends on signal transitions)
-/// - Supports 1-16 channels
+/// - Exposes every channel declared by the capture
 ///
 /// # Example
 /// ```ignore
-/// let source = DslFileSource::new("capture.dsl", 16)?;
+/// let source = DslFileSource::new("capture.dsl")?;
 /// let handle = pipeline.add_process(source);
 /// ```
 pub struct DslFileSource {
@@ -216,7 +216,7 @@ pub struct DslFileSource {
     blocks: BlockCache,
 
     // Configuration
-    num_channels: u8,
+    num_channels: usize,
     max_samples: Option<u64>,
 
     // Per-channel thread management
@@ -252,32 +252,14 @@ impl DslFileSource {
         Ok(capture_cache_identity(path, &source))
     }
 
-    /// Creates the runtime variant whose filename arrives through its input
-    /// port at run start.
-    pub fn from_filename_input(name: impl Into<String>, num_channels: u8) -> Box<dyn ProcessNode> {
-        Box::new(DeferredDslFileSource::new(num_channels).with_name(name))
-    }
-
     /// Create a new DSL file source from a file path
-    pub fn new<P: AsRef<Path>>(path: P, num_channels: u8) -> Result<Self> {
-        if !(1..=16).contains(&num_channels) {
-            return Err(Error::ParseError(format!(
-                "num_channels must be 1-16, got {}",
-                num_channels
-            )));
-        }
-
+    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         let file = File::open(&path)?;
         let mut archive = ZipArchive::new(file).map_err(zip_error)?;
         let header = parse_header(&mut archive)?;
 
-        if header.total_probes < num_channels as usize {
-            return Err(Error::ParseError(format!(
-                "File has only {} channels, need at least {}",
-                header.total_probes, num_channels
-            )));
-        }
+        let num_channels = header.total_probes;
 
         Ok(Self {
             name: "dsl_file_source".to_string(),
@@ -285,7 +267,7 @@ impl DslFileSource {
             archive: Arc::new(Mutex::new(archive)),
             header: header.clone(),
             blocks: Arc::new(Mutex::new(BoundedBlockCache::new(
-                num_channels as usize * DEFAULT_BLOCK_CACHE_WINDOWS,
+                num_channels * DEFAULT_BLOCK_CACHE_WINDOWS,
             ))),
             num_channels,
             max_samples: None,
@@ -388,7 +370,7 @@ impl DslFileSource {
     }
 
     /// Get the number of channels this source outputs
-    pub fn num_channels(&self) -> u8 {
+    pub fn num_channels(&self) -> usize {
         self.num_channels
     }
 
@@ -664,7 +646,7 @@ impl ProcessNode for DslFileSource {
         // SampleBlock per connection (see `output_schema`'s
         // `with_sample_kinds`) instead of exposing separate `d`/`b` ports
         // for each.
-        self.num_channels as usize
+        self.num_channels
     }
 
     fn output_schema(&self) -> Vec<signal_processing::PortSchema> {
@@ -672,7 +654,7 @@ impl ProcessNode for DslFileSource {
 
         (0..self.num_channels)
             .map(|i| {
-                PortSchema::new::<Sample>(format!("ch{}", i), i as usize, PortDirection::Output)
+                PortSchema::new::<Sample>(format!("ch{}", i), i, PortDirection::Output)
                     // Every channel port aliases a raw file channel, so
                     // every port can be answered from the waveform index —
                     // prefer that, fall back to streaming for consumers (or
@@ -741,7 +723,7 @@ impl ProcessNode for DslFileSource {
             Vec::new();
         let mut block_thread_groups: HashMap<String, Vec<BlockDestination>> = HashMap::new();
 
-        for channel_idx in 0..self.num_channels as usize {
+        for channel_idx in 0..self.num_channels {
             let Some(port) = outputs.get(channel_idx) else {
                 continue;
             };
@@ -856,130 +838,6 @@ impl Drop for DslFileSource {
     }
 }
 
-/// A [`DslFileSource`] whose file path arrives over a `filename` input (a
-/// [`TextSample`] level) at run start instead of being known at build time
-/// — the runtime behind a graph that *wires* the source's File socket
-/// rather than picking a path in the node.
-///
-/// Opens the file on the filename level's guaranteed t=0 initial value
-/// (level-stream contract: a bounded, one-time wait), then behaves exactly
-/// like the inner source. Two deliberate constraints:
-///
-/// - **No `EdgeQuery`.** Protocol negotiation happens at build, before the
-///   file (and thus its waveform index) exists, so every consumer streams.
-///   A build-time path keeps skip-ahead queries — prefer it when the name
-///   doesn't need to come from the graph.
-/// - **One file per run.** Filename changes after the first value are not
-///   consumed; a name level that keeps changing will eventually fill its
-///   channel and backpressure its producer.
-struct DeferredDslFileSource {
-    name: String,
-    num_channels: u8,
-    max_samples: Option<u64>,
-    name_buffer: VecDeque<TextSample>,
-    inner: Option<DslFileSource>,
-}
-
-impl DeferredDslFileSource {
-    fn new(num_channels: u8) -> Self {
-        Self {
-            name: "dsl_file_source".to_string(),
-            num_channels,
-            max_samples: None,
-            name_buffer: VecDeque::new(),
-            inner: None,
-        }
-    }
-
-    fn with_name(mut self, name: impl Into<String>) -> Self {
-        self.name = name.into();
-        self
-    }
-
-    #[cfg(test)]
-    fn with_max_samples(mut self, max_samples: Option<u64>) -> Self {
-        self.max_samples = max_samples;
-        self
-    }
-}
-
-impl ProcessNode for DeferredDslFileSource {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn should_stop(&self) -> bool {
-        self.inner.as_ref().is_some_and(|inner| inner.should_stop())
-    }
-
-    fn is_self_threading(&self) -> bool {
-        true
-    }
-
-    fn num_inputs(&self) -> usize {
-        1
-    }
-
-    fn num_outputs(&self) -> usize {
-        self.num_channels as usize
-    }
-
-    fn input_schema(&self) -> Vec<signal_processing::PortSchema> {
-        use signal_processing::{PortDirection, PortSchema};
-        vec![PortSchema::new::<TextSample>(
-            "filename",
-            0,
-            PortDirection::Input,
-        )]
-    }
-
-    fn output_schema(&self) -> Vec<signal_processing::PortSchema> {
-        use signal_processing::{PortDirection, PortSchema};
-
-        // Mirrors `DslFileSource::output_schema` minus the `EdgeQuery`
-        // protocol — the index can't answer queries before the file is
-        // known, and negotiation happens at build (see the struct doc).
-        (0..self.num_channels)
-            .map(|i| {
-                PortSchema::new::<Sample>(format!("ch{}", i), i as usize, PortDirection::Output)
-                    .with_sample_kinds(vec![SampleKind::Block, SampleKind::Edge])
-            })
-            .collect()
-    }
-
-    fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
-        use signal_processing::WorkError;
-
-        if self.inner.is_some() {
-            return Err(WorkError::NodeError(
-                "work() called multiple times on self-threading node".to_string(),
-            ));
-        }
-
-        let mut names = inputs
-            .first()
-            .and_then(|port| port.get::<TextSample>(&mut self.name_buffer))
-            .ok_or_else(|| WorkError::NodeError("Missing filename input".to_string()))?;
-        // Level-stream contract: the initial value arrives at t=0, so this
-        // one-time blocking wait is bounded.
-        let initial = names.recv()?;
-
-        info!(
-            "[{}] opening capture from wired filename: {:?}",
-            self.name, initial.value
-        );
-        let inner = DslFileSource::new(&initial.value, self.num_channels)
-            .map_err(|e| WorkError::NodeError(format!("cannot open '{}': {e}", initial.value)))?
-            .with_name(self.name.clone())
-            .with_max_samples(self.max_samples);
-        self.inner = Some(inner);
-        self.inner
-            .as_mut()
-            .expect("just assigned")
-            .work(&[], outputs)
-    }
-}
-
 // ============================================================================
 // Per-channel thread function
 // ============================================================================
@@ -1075,194 +933,6 @@ mod tests {
         assert_eq!(block_destination_group(3, 2, None), "ch3_dest2");
     }
 
-    // ── DeferredDslFileSource ────────────────────────────────────────────
-
-    /// A nonexistent path arriving over the filename wire is a node error,
-    /// reported with the offending path.
-    #[test]
-    fn deferred_source_reports_unopenable_file() {
-        use crossbeam_channel::bounded;
-        use signal_processing::{ChannelMessage, TextSample, Watchdog, WorkError};
-
-        let wd = Watchdog::new();
-        let (name_tx, name_rx) = bounded::<ChannelMessage<TextSample>>(4);
-        name_tx
-            .send(ChannelMessage::Sample(TextSample::new(
-                "/nonexistent/capture.dsl",
-                0,
-            )))
-            .unwrap();
-        drop(name_tx);
-        let inputs = [InputPort::new_with_watchdog(
-            name_rx, &wd, "src", "filename",
-        )];
-
-        let mut source = DeferredDslFileSource::new(4);
-        match source.work(&inputs, &[]) {
-            Err(WorkError::NodeError(message)) => {
-                assert!(message.contains("/nonexistent/capture.dsl"), "{message}");
-            }
-            other => panic!("expected a node error, got {other:?}"),
-        }
-    }
-
-    /// A filename channel that closes without ever delivering a value
-    /// shuts the source down instead of hanging or opening anything.
-    #[test]
-    fn deferred_source_shuts_down_on_closed_filename_channel() {
-        use crossbeam_channel::bounded;
-        use signal_processing::{ChannelMessage, TextSample, Watchdog, WorkError};
-
-        let wd = Watchdog::new();
-        let (name_tx, name_rx) = bounded::<ChannelMessage<TextSample>>(4);
-        drop(name_tx);
-        let inputs = [InputPort::new_with_watchdog(
-            name_rx, &wd, "src", "filename",
-        )];
-
-        let mut source = DeferredDslFileSource::new(4);
-        assert!(matches!(
-            source.work(&inputs, &[]),
-            Err(WorkError::Shutdown)
-        ));
-    }
-
-    /// End-to-end (gated on the local capture): a pipeline whose filename
-    /// travels over a wire streams the same leading edges as one whose path
-    /// was known at build time.
-    #[test]
-    fn deferred_source_streams_the_named_file() {
-        use std::sync::{Arc, Mutex};
-
-        use signal_processing::{Pipeline, TextSample};
-
-        let path = std::path::Path::new("_captures/wipneus5.dsl");
-        if !path.exists() {
-            return;
-        }
-        const MAX_SAMPLES: u64 = 1_000_000;
-
-        /// One-shot filename level source.
-        struct NameSource {
-            path: String,
-            sent: bool,
-        }
-        impl ProcessNode for NameSource {
-            fn name(&self) -> &str {
-                "name_source"
-            }
-            fn num_inputs(&self) -> usize {
-                0
-            }
-            fn num_outputs(&self) -> usize {
-                1
-            }
-            fn output_schema(&self) -> Vec<signal_processing::PortSchema> {
-                use signal_processing::{PortDirection, PortSchema};
-                vec![PortSchema::new::<TextSample>(
-                    "text",
-                    0,
-                    PortDirection::Output,
-                )]
-            }
-            fn work(&mut self, _: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
-                use signal_processing::WorkError;
-                if self.sent {
-                    return Err(WorkError::Shutdown);
-                }
-                self.sent = true;
-                let out = outputs
-                    .first()
-                    .and_then(|p| p.get::<TextSample>())
-                    .ok_or_else(|| WorkError::NodeError("missing output".into()))?;
-                out.send(TextSample::new(self.path.clone(), 0))?;
-                Ok(1)
-            }
-        }
-
-        /// Collects `Sample` edges from one channel.
-        struct CollectEdges(Arc<Mutex<Vec<Sample>>>);
-        impl ProcessNode for CollectEdges {
-            fn name(&self) -> &str {
-                "collect"
-            }
-            fn num_inputs(&self) -> usize {
-                1
-            }
-            fn num_outputs(&self) -> usize {
-                0
-            }
-            fn input_schema(&self) -> Vec<signal_processing::PortSchema> {
-                use signal_processing::{PortDirection, PortSchema};
-                vec![PortSchema::new::<Sample>("in", 0, PortDirection::Input)]
-            }
-            fn work(&mut self, inputs: &[InputPort], _: &[OutputPort]) -> WorkResult<usize> {
-                use signal_processing::WorkError;
-                let mut buffer = std::collections::VecDeque::new();
-                let mut input = inputs
-                    .first()
-                    .and_then(|p| p.get::<Sample>(&mut buffer))
-                    .ok_or_else(|| WorkError::NodeError("missing input".into()))?;
-                let sample = input.recv()?;
-                self.0.lock().unwrap().push(sample);
-                Ok(1)
-            }
-        }
-
-        let run_deferred = || -> Vec<Sample> {
-            let collected = Arc::new(Mutex::new(Vec::new()));
-            let mut pipeline = Pipeline::new();
-            pipeline
-                .add_process(
-                    "names",
-                    NameSource {
-                        path: path.display().to_string(),
-                        sent: false,
-                    },
-                )
-                .unwrap();
-            pipeline
-                .add_process(
-                    "source",
-                    DeferredDslFileSource::new(8).with_max_samples(Some(MAX_SAMPLES)),
-                )
-                .unwrap();
-            pipeline
-                .add_process("collect", CollectEdges(collected.clone()))
-                .unwrap();
-            pipeline
-                .connect("names", "text", "source", "filename")
-                .unwrap();
-            pipeline.connect("source", "ch7", "collect", "in").unwrap();
-            pipeline.build().unwrap().wait();
-            Arc::try_unwrap(collected).unwrap().into_inner().unwrap()
-        };
-
-        let run_direct = || -> Vec<Sample> {
-            let collected = Arc::new(Mutex::new(Vec::new()));
-            let mut pipeline = Pipeline::new();
-            pipeline
-                .add_process(
-                    "source",
-                    DslFileSource::new(path, 8)
-                        .unwrap()
-                        .with_max_samples(Some(MAX_SAMPLES)),
-                )
-                .unwrap();
-            pipeline
-                .add_process("collect", CollectEdges(collected.clone()))
-                .unwrap();
-            pipeline.connect("source", "ch7", "collect", "in").unwrap();
-            pipeline.build().unwrap().wait();
-            Arc::try_unwrap(collected).unwrap().into_inner().unwrap()
-        };
-
-        let deferred = run_deferred();
-        let direct = run_direct();
-        assert!(!direct.is_empty(), "expected edges in the bounded prefix");
-        assert_eq!(deferred, direct);
-    }
-
     #[test]
     fn test_parse_sample_rate_valid() {
         assert_eq!(parse_sample_rate("50 MHz"), Some(50_000_000.0));
@@ -1331,7 +1001,7 @@ mod tests {
             return;
         }
 
-        let source = DslFileSource::new(path, 1).expect("wipneus5.dsl should open");
+        let source = DslFileSource::new(path).expect("wipneus5.dsl should open");
         let edge_query = source
             .edge_query(0, &[])
             .expect("DslFileSource should provide an EdgeQuery for channel 0");
@@ -1381,7 +1051,7 @@ mod tests {
         if !path.exists() {
             return;
         }
-        let source = DslFileSource::new(path, 1).expect("wipneus5.dsl should open");
+        let source = DslFileSource::new(path).expect("wipneus5.dsl should open");
         let edge_query = source.edge_query(0, &[]).expect("edge query available");
         let limit = 2_000_000u64.min(edge_query.total_samples());
 
@@ -1412,7 +1082,7 @@ mod tests {
         if !path.exists() {
             return;
         }
-        let source = DslFileSource::new(path, 1).expect("wipneus5.dsl should open");
+        let source = DslFileSource::new(path).expect("wipneus5.dsl should open");
         let edge_query = source.edge_query(0, &[]).expect("edge query available");
         let total = edge_query.total_samples();
 
@@ -1424,7 +1094,7 @@ mod tests {
     #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_new_valid() {
         // Test with actual scan.dsl file if it exists
-        let result = DslFileSource::new("scan.dsl", 8);
+        let result = DslFileSource::new("scan.dsl");
         assert!(
             result.is_ok(),
             "Failed to create DslFileSource: {:?}",
@@ -1432,9 +1102,9 @@ mod tests {
         );
 
         if let Ok(source) = result {
-            assert_eq!(source.num_channels(), 8);
+            assert_eq!(source.num_channels(), source.header().total_probes);
             assert_eq!(source.num_inputs(), 0); // Source node
-            assert_eq!(source.num_outputs(), 8); // one port per channel
+            assert_eq!(source.num_outputs(), source.header().total_probes);
             assert_eq!(source.name(), "dsl_file_source");
 
             // Check header parsing
@@ -1447,37 +1117,15 @@ mod tests {
     }
 
     #[test]
-    fn test_dsl_file_source_invalid_channels() {
-        // Test with 0 channels
-        let result = DslFileSource::new("scan.dsl", 0);
-        assert!(result.is_err());
-
-        // Test with too many channels (17)
-        let result = DslFileSource::new("scan.dsl", 17);
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_dsl_file_source_invalid_file() {
-        let result = DslFileSource::new("nonexistent.dsl", 8);
+        let result = DslFileSource::new("nonexistent.dsl");
         assert!(result.is_err());
-    }
-
-    #[test]
-    #[ignore = "requires the developer-local scan.dsl fixture"]
-    fn test_dsl_file_source_more_channels_than_file() {
-        // scan.dsl has 11 channels, request 16
-        let result = DslFileSource::new("scan.dsl", 16);
-        assert!(result.is_err());
-        if let Err(e) = result {
-            assert!(e.to_string().contains("has only"));
-        }
     }
 
     #[test]
     #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_builder_methods() {
-        let result = DslFileSource::new("scan.dsl", 4);
+        let result = DslFileSource::new("scan.dsl");
         assert!(result.is_ok());
 
         if let Ok(source) = result {
@@ -1490,7 +1138,7 @@ mod tests {
     #[test]
     #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_getters() {
-        let result = DslFileSource::new("scan.dsl", 8);
+        let result = DslFileSource::new("scan.dsl");
         assert!(result.is_ok());
 
         if let Ok(source) = result {
@@ -1509,7 +1157,7 @@ mod tests {
     #[test]
     #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_worknode_methods() {
-        let result = DslFileSource::new("scan.dsl", 8);
+        let result = DslFileSource::new("scan.dsl");
         assert!(result.is_ok());
 
         if let Ok(source) = result {
@@ -1525,7 +1173,7 @@ mod tests {
     #[test]
     #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_read_bit_valid() {
-        let result = DslFileSource::new("scan.dsl", 8);
+        let result = DslFileSource::new("scan.dsl");
         assert!(result.is_ok());
 
         if let Ok(source) = result {
@@ -1546,7 +1194,7 @@ mod tests {
     #[test]
     #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_read_bit_invalid_channel() {
-        let result = DslFileSource::new("scan.dsl", 8);
+        let result = DslFileSource::new("scan.dsl");
         assert!(result.is_ok());
 
         if let Ok(source) = result {
@@ -1566,7 +1214,7 @@ mod tests {
     #[test]
     #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_read_bit_invalid_position() {
-        let result = DslFileSource::new("scan.dsl", 8);
+        let result = DslFileSource::new("scan.dsl");
         assert!(result.is_ok());
 
         if let Ok(source) = result {
@@ -1586,7 +1234,7 @@ mod tests {
     #[test]
     #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_header_fields() {
-        let result = DslFileSource::new("scan.dsl", 8);
+        let result = DslFileSource::new("scan.dsl");
         assert!(result.is_ok());
 
         if let Ok(source) = result {
@@ -1618,28 +1266,8 @@ mod tests {
 
     #[test]
     #[ignore = "requires the developer-local scan.dsl fixture"]
-    fn test_dsl_file_source_channel_count_validation() {
-        // Test minimum valid (1 channel)
-        let result = DslFileSource::new("scan.dsl", 1);
-        assert!(result.is_ok());
-        if let Ok(source) = result {
-            assert_eq!(source.num_channels(), 1);
-            assert_eq!(source.num_outputs(), 1); // one port per channel
-        }
-
-        // Test maximum valid within file's channels (11)
-        let result = DslFileSource::new("scan.dsl", 11);
-        assert!(result.is_ok());
-        if let Ok(source) = result {
-            assert_eq!(source.num_channels(), 11);
-            assert_eq!(source.num_outputs(), 11); // one port per channel
-        }
-    }
-
-    #[test]
-    #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_block_caching() {
-        let result = DslFileSource::new("scan.dsl", 8);
+        let result = DslFileSource::new("scan.dsl");
         assert!(result.is_ok());
 
         if let Ok(source) = result {
@@ -1660,7 +1288,7 @@ mod tests {
     #[test]
     #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_multiple_channels() {
-        let result = DslFileSource::new("scan.dsl", 8);
+        let result = DslFileSource::new("scan.dsl");
         assert!(result.is_ok());
 
         if let Ok(source) = result {

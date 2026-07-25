@@ -45,7 +45,7 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
 
     fn capture_presentation(&self, state: &Value) -> Result<Option<CapturePresentation>, String> {
         let state: super::definition::SigrokFileSourceState = parse_state(state)?;
-        let channels = state.channels.value.clamp(1, 32) as usize;
+        let channels = state.channel_count();
         if state.demo_data {
             let channels = SyntheticCaptureSource::preview_channels_with_count(channels);
             let signals = channels
@@ -93,7 +93,7 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
         let state: super::definition::SigrokFileSourceState = parse_state(state)?;
         Ok(Box::new(
             SyntheticCaptureSource::new()
-                .with_channel_count(state.channels.value.clamp(1, 32) as usize)
+                .with_channel_count(state.channel_count())
                 .with_name(name),
         ))
     }

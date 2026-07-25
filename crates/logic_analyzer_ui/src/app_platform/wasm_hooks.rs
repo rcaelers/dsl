@@ -51,9 +51,9 @@ impl App {
 
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("View", |ui| {
-                for (label, content_id, icon) in self.available_view_panels() {
+                for (label, content_id, icon) in self.available_auxiliary_panels() {
                     if icon.menu_item(ui, &label).clicked() {
-                        self.show_view_panel(&content_id);
+                        self.show_auxiliary_panel(&content_id);
                         ui.close();
                     }
                 }
@@ -111,6 +111,10 @@ impl App {
         let identity = presentation.as_ref().map(|value| value.identity.as_str());
         if identity == self.platform.capture_presentation_identity.as_deref() {
             return;
+        }
+        if let Some(discovered) = &presentation {
+            self.logic_analyzer
+                .set_visible_capture_channels(discovered.visible_channels.iter().copied());
         }
         self.platform.capture_presentation_identity = identity.map(str::to_owned);
         match presentation.map(|value| value.presentation) {

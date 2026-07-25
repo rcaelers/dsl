@@ -6,6 +6,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::control::InlineControl;
+use super::panel::NodePanelDef;
 use super::socket::{SocketDef, SocketWithControlDef};
 use crate::model::{NodeBadge, Socket, SocketShape};
 
@@ -120,9 +121,7 @@ pub struct OutputDef<S> {
     pub(crate) shape: SocketShape,
     pub(crate) identity: SocketTypeIdentity,
     pub(crate) control: Option<Box<dyn ControlBinding<S>>>,
-    pub(crate) view_selectable: bool,
     pub(crate) editor_visible: bool,
-    pub(crate) view_indicator_sources: Vec<usize>,
 }
 
 impl<S: 'static> OutputDef<S> {
@@ -136,9 +135,7 @@ impl<S: 'static> OutputDef<S> {
             shape: T::shape(),
             identity: SocketTypeIdentity::of::<T>(),
             control: None,
-            view_selectable: true,
             editor_visible: true,
-            view_indicator_sources: Vec::new(),
         }
     }
 
@@ -155,9 +152,7 @@ impl<S: 'static> OutputDef<S> {
             shape: T::shape(),
             identity: SocketTypeIdentity::of::<T>(),
             control: Some(Box::new(ControlBindingRenderer { label, accessor })),
-            view_selectable: true,
             editor_visible: true,
-            view_indicator_sources: Vec::new(),
         }
     }
 
@@ -167,25 +162,10 @@ impl<S: 'static> OutputDef<S> {
         self
     }
 
-    /// Controls whether this output appears in the generic View panel's lane
-    /// selector. Disable this when the host presents the output automatically
-    /// through another explicit contract.
-    pub fn view_selectable(mut self, selectable: bool) -> Self {
-        self.view_selectable = selectable;
-        self
-    }
-
     /// Controls whether this output has a socket row in the node editor.
     /// Connected outputs remain visible so existing wires stay editable.
     pub fn editor_visible(mut self, visible: bool) -> Self {
         self.editor_visible = visible;
-        self
-    }
-
-    /// Makes this output's viewer eye summarize the selected viewer state of
-    /// other outputs. Indices refer to this node's output definitions.
-    pub fn view_indicator_sources(mut self, sources: impl IntoIterator<Item = usize>) -> Self {
-        self.view_indicator_sources = sources.into_iter().collect();
         self
     }
 }
@@ -297,7 +277,7 @@ pub struct NodeInstanceSchema<S> {
     pub outputs: Vec<OutputDef<S>>,
     pub props: Vec<PropDef<S>>,
     pub panel: Vec<PanelSection<S>>,
-    pub view_panel: Vec<PanelSection<S>>,
+    pub panels: Vec<NodePanelDef<S>>,
 }
 
 impl<S> NodeInstanceSchema<S> {
@@ -307,7 +287,7 @@ impl<S> NodeInstanceSchema<S> {
             outputs,
             props: Vec::new(),
             panel: Vec::new(),
-            view_panel: Vec::new(),
+            panels: Vec::new(),
         }
     }
 
@@ -321,8 +301,8 @@ impl<S> NodeInstanceSchema<S> {
         self
     }
 
-    pub fn view_panel(mut self, view_panel: Vec<PanelSection<S>>) -> Self {
-        self.view_panel = view_panel;
+    pub fn panels(mut self, panels: Vec<NodePanelDef<S>>) -> Self {
+        self.panels = panels;
         self
     }
 }
@@ -336,6 +316,12 @@ pub trait NodeDef: 'static {
     fn category() -> &'static str
     where
         Self: Sized;
+    fn add_menu_visible() -> bool
+    where
+        Self: Sized,
+    {
+        true
+    }
     fn color() -> Color32
     where
         Self: Sized,
@@ -363,7 +349,7 @@ pub trait NodeDef: 'static {
         NodeInstanceSchema::new(Self::inputs(), Self::outputs())
             .props(Self::props())
             .panel(Self::panel())
-            .view_panel(Self::view_panel())
+            .panels(Self::panels())
     }
     fn props() -> Vec<PropDef<Self::State>>
     where
@@ -380,11 +366,9 @@ pub trait NodeDef: 'static {
     {
         vec![]
     }
-    /// Viewer-only properties shown in the right-docked View panel when this
-    /// node is active. Concrete nodes declare presentation controls here;
-    /// the generic graph widget renders them without interpreting their
-    /// meaning.
-    fn view_panel() -> Vec<PanelSection<Self::State>>
+    /// Panels contributed by this node. Each presentation owns all content;
+    /// the graph widget only places it in the requested widget-level tab.
+    fn panels() -> Vec<NodePanelDef<Self::State>>
     where
         Self: Sized,
     {

@@ -116,8 +116,8 @@ pub use derived_word_store::{
 pub use edge_query::EdgeQuery;
 pub use errors::{ConnectionError, Error, PortError, Result, WorkError, WorkResult};
 pub use events::{
-    Annotation, MAX_ANNOTATION_NS, NumberSample, TextSample, Trigger, Word,
-    instantaneous_word_end_ns,
+    Annotation, MAX_ANNOTATION_NS, NumberSample, ProtocolPacket, ProtocolValue, TextSample,
+    Trigger, Word, instantaneous_word_end_ns,
 };
 pub use graph::{Connection, GraphBuilder, NodeId};
 use idle::idle_backoff;
@@ -139,7 +139,7 @@ pub use live_capture_store::*;
 pub use manager::{DisconnectEvent, InputSub, NodeSpec, PipelineManager};
 pub use node::{
     ConfigOutcome, ConfigValue, ConfigurationBoundary, ConfigurationScheduler,
-    InputProtocolCandidate, NodeConfig, ProcessNode,
+    InputProtocolCandidate, NodeCancellation, NodeConfig, ProcessNode,
 };
 pub use pipeline::Pipeline;
 pub use ports::{InputPort, OutputPort, PortDirection, PortSchema, register_type};

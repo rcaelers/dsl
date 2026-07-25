@@ -10,11 +10,10 @@ use logic_analyzer_graph_api::node_support::{
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     SigrokAnnotation, SigrokBinary, SigrokChannel, SigrokDecoder, SigrokDecoderConfig,
     SigrokGeneratedLogic, SigrokInitialPin, SigrokMetadata, SigrokOptionValue,
-    SigrokProtocolPacket,
 };
 use logic_analyzer_processing::support::{SigrokDecoderDescriptor, discover_sigrok_decoder};
 use node_graph::Socket;
-use signal_processing::{ProcessNode, SampleBlock};
+use signal_processing::{ProcessNode, ProtocolPacket, SampleBlock};
 
 use super::definition::{SavedOptionControl, SavedOutputKind, SavedScalar, SigrokDecoderState};
 
@@ -33,7 +32,7 @@ impl RuntimeBuilder for SigrokDecoderBuilder {
             return Vec::new();
         };
         if socket.def_index == state.channels.len() && !state.protocol_inputs.is_empty() {
-            vec![PortKind::of_named::<SigrokProtocolPacket>("Sigrok Packet")]
+            vec![PortKind::of_named::<ProtocolPacket>("Protocol Packet")]
         } else {
             vec![PortKind::of::<SampleBlock>()]
         }
@@ -87,7 +86,7 @@ impl RuntimeBuilder for SigrokDecoderBuilder {
     ) -> Option<String> {
         let state = Self::parsed(state).ok()?;
         if socket.def_index == state.channels.len() && !state.protocol_inputs.is_empty() {
-            return (kind == PortKind::of_named::<SigrokProtocolPacket>("Sigrok Packet"))
+            return (kind == PortKind::of_named::<ProtocolPacket>("Protocol Packet"))
                 .then(|| "packets".to_owned());
         }
         if kind != PortKind::of::<SampleBlock>() {
@@ -195,9 +194,7 @@ fn output_kind(output: SavedOutputKind) -> PortKind {
             PortKind::of_named::<SigrokGeneratedLogic>("Sigrok Logic")
         }
         SavedOutputKind::Metadata => PortKind::of_named::<SigrokMetadata>("Sigrok Metadata"),
-        SavedOutputKind::ProtocolPacket => {
-            PortKind::of_named::<SigrokProtocolPacket>("Sigrok Packet")
-        }
+        SavedOutputKind::ProtocolPacket => PortKind::of_named::<ProtocolPacket>("Protocol Packet"),
     }
 }
 

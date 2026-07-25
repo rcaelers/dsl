@@ -104,6 +104,7 @@ pub(crate) struct PlatformState {
 #[derive(Clone)]
 pub enum NativeMenuCommand {
     About,
+    Preferences,
     New,
     Load,
     LoadPath(PathBuf),

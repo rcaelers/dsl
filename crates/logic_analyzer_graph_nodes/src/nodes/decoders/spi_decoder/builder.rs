@@ -5,7 +5,7 @@ use serde_json::Value;
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{
     DecoderTableColumnPresentation, NodeBuildContext, PortKind, ResolvedInputs,
-    SamplingOverlayDescriptor, SamplingQualifierDescriptor, parse_state,
+    SamplingOverlayDescriptor, SamplingQualifierDescriptor, ViewerOutputControl, parse_state,
 };
 use logic_analyzer_processing::nodes::decoders::spi_decoder::{SpiDecoder, SpiMode};
 use logic_analyzer_processing::types::{BitOrder, CsPolarity};
@@ -30,6 +30,18 @@ impl SpiDecoderBuilder {
 }
 
 impl RuntimeBuilder for SpiDecoderBuilder {
+    fn viewer_output_control(
+        &self,
+        socket: &Socket,
+        _state: &Value,
+    ) -> Option<ViewerOutputControl> {
+        match socket.def_index {
+            2 | 3 => Some(ViewerOutputControl::new(false, [0])),
+            4 | 5 => Some(ViewerOutputControl::new(false, [1])),
+            _ => Some(ViewerOutputControl::Hidden),
+        }
+    }
+
     fn viewer_output_presentation(
         &self,
         socket: &Socket,

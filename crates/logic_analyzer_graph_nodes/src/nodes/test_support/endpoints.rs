@@ -32,7 +32,7 @@ impl NodeDef for TestSource {
     }
 
     fn outputs() -> Vec<OutputDef<Self::State>> {
-        vec![OutputDef::new::<AnySocket>("Out").view_selectable(false)]
+        vec![OutputDef::new::<AnySocket>("Out")]
     }
 
     fn state() -> Self::State {}

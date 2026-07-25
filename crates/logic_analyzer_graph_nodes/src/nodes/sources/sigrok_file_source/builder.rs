@@ -22,15 +22,8 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
     fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
         vec![]
     }
-    fn offered_kinds(&self, _socket: &Socket, state: &Value) -> Vec<PortKind> {
-        let demo_data = parse_state::<super::definition::SigrokFileSourceState>(state)
-            .map(|state| state.demo_data)
-            .unwrap_or(false);
-        if demo_data {
-            vec![PortKind::of::<SampleBlock>(), PortKind::of::<Sample>()]
-        } else {
-            vec![PortKind::of::<Sample>()]
-        }
+    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+        vec![PortKind::of::<SampleBlock>(), PortKind::of::<Sample>()]
     }
     fn input_port(&self, _socket: &Socket, _: usize, _: &Value, _: PortKind) -> Option<String> {
         None
@@ -42,7 +35,8 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
         if demo_data && kind == PortKind::of::<SampleBlock>() {
             Some(format!("block{}", socket.def_index))
         } else {
-            (kind == PortKind::of::<Sample>()).then(|| format!("ch{}", socket.def_index))
+            (kind == PortKind::of::<Sample>() || kind == PortKind::of::<SampleBlock>())
+                .then(|| format!("ch{}", socket.def_index))
         }
     }
     fn viewer_channel_origin(&self, socket: &Socket, _state: &Value) -> Option<usize> {
@@ -51,9 +45,8 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
     fn capture_presentation(&self, state: &Value) -> Result<Option<CapturePresentation>, String> {
         let state: super::definition::SigrokFileSourceState = parse_state(state)?;
         if state.demo_data {
-            let channels = SyntheticCaptureSource::preview_channels_with_count(
-                state.channels.value.clamp(1, 32) as usize,
-            );
+            let channels =
+                SyntheticCaptureSource::preview_channels_with_count(state.channel_count());
             let signals = channels
                 .iter()
                 .enumerate()
@@ -120,11 +113,11 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
         if state.demo_data {
             return Ok(Box::new(
                 SyntheticCaptureSource::new()
-                    .with_channel_count(state.channels.value.clamp(1, 32) as usize)
+                    .with_channel_count(state.channel_count())
                     .with_name(name),
             ));
         }
-        SigrokFileSource::new(&state.file.value, state.channels.value.clamp(1, 32) as u8)
+        SigrokFileSource::new(&state.file.value)
             .map(|source| Box::new(source.with_name(name)) as Box<dyn ProcessNode>)
             .map_err(|error| format!("cannot open '{}': {error}", state.file.value))
     }

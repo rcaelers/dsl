@@ -31,9 +31,9 @@ impl SigrokCapture {
 
         let mut archive = ZipArchive::new(File::open(path)?).map_err(zip_error)?;
         let version = read_zip_text(&mut archive, "version")?;
-        if version.trim() != "2" {
+        if !matches!(version.trim(), "1" | "2") {
             return Err(Error::ParseError(format!(
-                "unsupported sigrok session version '{}' (expected 2)",
+                "unsupported sigrok session version '{}' (expected 1 or 2)",
                 version.trim()
             )));
         }
@@ -154,7 +154,7 @@ impl SigrokCapture {
     }
 }
 
-/// Random-access reader for a sigrok v2 logic capture.
+/// Random-access reader for a sigrok session logic capture.
 pub(crate) struct SigrokCaptureReader {
     capture: SigrokCapture,
 }
@@ -199,7 +199,7 @@ impl BlockCaptureSource for SigrokCaptureReader {
     }
 }
 
-/// Indexable sigrok v2 capture data for the logic-analyzer viewer.
+/// Indexable sigrok capture data for the logic-analyzer viewer.
 #[derive(Debug, Clone)]
 pub(crate) struct SigrokFileCaptureDataSource {
     path: PathBuf,

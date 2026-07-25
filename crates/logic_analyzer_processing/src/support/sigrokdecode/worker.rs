@@ -9,6 +9,8 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyDictMethods, PyList, PyModule};
 use thiserror::Error;
 
+use signal_processing::NodeCancellation;
+
 use super::bridge::{BridgeError, DecoderBridge, DecoderOutput, OutputRegistration};
 use super::python_error::format_python_error;
 use super::python_host::{HostDecoder, SRD_CONF_SAMPLERATE, install_sigrokdecode_module};
@@ -65,7 +67,22 @@ pub(crate) struct DecoderWorker {
     bridge: Arc<DecoderBridge>,
     outputs: Receiver<DecoderOutput>,
     thread: Option<JoinHandle<Result<(), WorkerError>>>,
+    cancellation: Arc<DecoderCancellation>,
+}
+
+pub(crate) struct DecoderCancellation {
+    bridge: Arc<DecoderBridge>,
     protocol_input: Option<Sender<ProtocolInputMessage>>,
+}
+
+impl NodeCancellation for DecoderCancellation {
+    fn request_cancel(&self) {
+        if let Some(sender) = &self.protocol_input {
+            let _ = sender.send(ProtocolInputMessage::Cancel);
+        } else {
+            self.bridge.cancel();
+        }
+    }
 }
 
 impl DecoderWorker {
@@ -79,6 +96,10 @@ impl DecoderWorker {
         let (protocol_sender, protocol_receiver) = unbounded();
         let protocol_input =
             matches!(&config.input, WorkerInputConfig::Protocol(_)).then_some(protocol_sender);
+        let cancellation = Arc::new(DecoderCancellation {
+            bridge: Arc::clone(&bridge),
+            protocol_input,
+        });
         let thread_bridge = Arc::clone(&bridge);
         let thread = thread::Builder::new()
             .name(format!("sigrok-{}", config.decoder_id))
@@ -88,7 +109,7 @@ impl DecoderWorker {
             bridge,
             outputs,
             thread: Some(thread),
-            protocol_input,
+            cancellation,
         })
     }
 
@@ -104,6 +125,7 @@ impl DecoderWorker {
         value: Py<PyAny>,
     ) -> Result<(), WorkerError> {
         let sender = self
+            .cancellation
             .protocol_input
             .as_ref()
             .ok_or(BridgeError::ProtocolInputUnavailable)?;
@@ -118,7 +140,7 @@ impl DecoderWorker {
     }
 
     pub(crate) fn finish(&self) -> Result<(), WorkerError> {
-        if let Some(sender) = &self.protocol_input {
+        if let Some(sender) = &self.cancellation.protocol_input {
             sender
                 .send(ProtocolInputMessage::Finish)
                 .map_err(|_| BridgeError::InputQueueClosed.into())
@@ -128,11 +150,11 @@ impl DecoderWorker {
     }
 
     pub(crate) fn cancel(&self) {
-        if let Some(sender) = &self.protocol_input {
-            let _ = sender.send(ProtocolInputMessage::Cancel);
-        } else {
-            self.bridge.cancel();
-        }
+        self.cancellation.request_cancel();
+    }
+
+    pub(crate) fn cancellation(&self) -> Arc<dyn NodeCancellation> {
+        self.cancellation.clone()
     }
 
     pub(crate) fn try_output(&self) -> Result<Option<DecoderOutput>, WorkerError> {

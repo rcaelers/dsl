@@ -7,13 +7,12 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString, PyTuple};
 
 use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, SampleBlock, WorkError,
-    WorkResult,
+    InputPort, NodeCancellation, OutputPort, PortDirection, PortSchema, ProcessNode,
+    ProtocolPacket, ProtocolValue, SampleBlock, WorkError, WorkResult,
 };
 
 use super::output_payloads::{
     SigrokAnnotation, SigrokBinary, SigrokGeneratedLogic, SigrokMetadata, SigrokMetadataValue,
-    SigrokProtocolPacket, SigrokValue,
 };
 use crate::support::{
     DecoderOutput, DecoderWorker, InitialPin, LogicChunk, MetadataType, OUTPUT_ANN, OUTPUT_BINARY,
@@ -64,19 +63,21 @@ pub struct SigrokDecoder {
     name: String,
     decoder_id: String,
     sample_rate: u64,
+    input_timestamp_step_ns: Option<u64>,
     channels: Vec<SigrokChannel>,
     annotation_rows_by_class: Vec<Arc<[usize]>>,
     binary_class_count: usize,
     logic_groups: Vec<String>,
     input_buffers: Vec<VecDeque<SampleBlock>>,
     protocol_inputs: Vec<String>,
-    protocol_buffer: VecDeque<SigrokProtocolPacket>,
+    protocol_buffer: VecDeque<ProtocolPacket>,
     worker: DecoderWorker,
     finished: bool,
 }
 
 impl SigrokDecoder {
     pub fn new(config: SigrokDecoderConfig) -> Result<Self, String> {
+        Python::initialize();
         if config.sample_rate == 0 {
             return Err("Sigrok decoder sample rate must be positive".into());
         }
@@ -138,6 +139,7 @@ impl SigrokDecoder {
             name: format!("sigrok_{}", config.decoder_id),
             decoder_id: config.decoder_id,
             sample_rate: config.sample_rate,
+            input_timestamp_step_ns: None,
             channels: config.channels,
             annotation_rows_by_class: config.annotation_rows_by_class,
             binary_class_count: config.binary_class_count,
@@ -179,6 +181,21 @@ impl SigrokDecoder {
             return Err(WorkError::NodeError(
                 "Sigrok decoder received an empty sample block".into(),
             ));
+        }
+        if first.timestamp_step == 0 {
+            return Err(WorkError::NodeError(
+                "Sigrok decoder received a zero input timestamp step".into(),
+            ));
+        }
+        match self.input_timestamp_step_ns {
+            Some(timestamp_step) if timestamp_step != first.timestamp_step => {
+                return Err(WorkError::NodeError(format!(
+                    "Sigrok decoder input timestamp step changed from {timestamp_step} ns to {} ns",
+                    first.timestamp_step
+                )));
+            }
+            None => self.input_timestamp_step_ns = Some(first.timestamp_step),
+            _ => {}
         }
         for (index, block) in blocks.iter().enumerate().skip(1) {
             if block.start_position != first.start_position
@@ -223,14 +240,13 @@ impl SigrokDecoder {
     fn acquire_protocol_packet(
         &mut self,
         inputs: &[InputPort],
-    ) -> WorkResult<Option<SigrokProtocolPacket>> {
+    ) -> WorkResult<Option<ProtocolPacket>> {
         let Some(input) = inputs.first() else {
             return Err(WorkError::NodeError(
                 "missing Sigrok decoder protocol input".into(),
             ));
         };
-        let Some(mut receiver) = input.get::<SigrokProtocolPacket>(&mut self.protocol_buffer)
-        else {
+        let Some(mut receiver) = input.get::<ProtocolPacket>(&mut self.protocol_buffer) else {
             return Err(WorkError::NodeError(
                 "invalid Sigrok decoder protocol input".into(),
             ));
@@ -286,8 +302,8 @@ impl SigrokDecoder {
                 output.output_id
             ))
         })?;
-        let start_time_ns = sample_time_ns(output.start_sample, self.sample_rate);
-        let end_time_ns = sample_time_ns(output.end_sample, self.sample_rate);
+        let start_time_ns = self.sample_time_ns(output.start_sample);
+        let end_time_ns = self.sample_time_ns(output.end_sample);
         Python::attach(|py| {
             convert_python_output(
                 output.data.bind(py),
@@ -303,6 +319,10 @@ impl SigrokDecoder {
             )
         })
         .map_err(|error| WorkError::NodeError(format!("invalid Sigrok decoder output: {error}")))
+    }
+
+    fn sample_time_ns(&self, sample: u64) -> u64 {
+        sample_time_ns(sample, self.input_timestamp_step_ns, self.sample_rate)
     }
 }
 
@@ -329,7 +349,7 @@ impl ProcessNode for SigrokDecoder {
 
     fn input_schema(&self) -> Vec<PortSchema> {
         if !self.protocol_inputs.is_empty() {
-            return vec![PortSchema::new::<SigrokProtocolPacket>(
+            return vec![PortSchema::new::<ProtocolPacket>(
                 "packets",
                 0,
                 PortDirection::Input,
@@ -351,8 +371,12 @@ impl ProcessNode for SigrokDecoder {
             PortSchema::new::<SigrokBinary>("binary", 1, PortDirection::Output),
             PortSchema::new::<SigrokGeneratedLogic>("logic", 2, PortDirection::Output),
             PortSchema::new::<SigrokMetadata>("metadata", 3, PortDirection::Output),
-            PortSchema::new::<SigrokProtocolPacket>("packets", 4, PortDirection::Output),
+            PortSchema::new::<ProtocolPacket>("packets", 4, PortDirection::Output),
         ]
+    }
+
+    fn cancellation(&self) -> Option<Arc<dyn NodeCancellation>> {
+        Some(self.worker.cancellation())
     }
 
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
@@ -411,7 +435,7 @@ enum ConvertedOutput {
     Binary(SigrokBinary),
     Logic(SigrokGeneratedLogic),
     Metadata(SigrokMetadata),
-    Packet(SigrokProtocolPacket),
+    Packet(ProtocolPacket),
 }
 
 fn send_output(outputs: &[OutputPort], output: ConvertedOutput) -> WorkResult<()> {
@@ -542,7 +566,7 @@ fn convert_python_output(
                 value,
             }))
         }
-        OUTPUT_PYTHON => Ok(ConvertedOutput::Packet(SigrokProtocolPacket {
+        OUTPUT_PYTHON => Ok(ConvertedOutput::Packet(ProtocolPacket {
             start_sample,
             end_sample,
             start_time_ns,
@@ -561,7 +585,7 @@ fn convert_python_output(
 
 fn sigrok_value_to_python(
     py: Python<'_>,
-    value: &SigrokValue,
+    value: &ProtocolValue,
     depth: usize,
 ) -> PyResult<Py<PyAny>> {
     if depth >= VALUE_RECURSION_LIMIT {
@@ -570,27 +594,27 @@ fn sigrok_value_to_python(
         ));
     }
     let value = match value {
-        SigrokValue::Null => return Ok(py.None()),
-        SigrokValue::Bool(value) => PyBool::new(py, *value).to_owned().into_any(),
-        SigrokValue::Integer(value) => PyInt::new(py, *value).into_any(),
-        SigrokValue::Float(value) => PyFloat::new(py, *value).into_any(),
-        SigrokValue::String(value) => PyString::new(py, value).into_any(),
-        SigrokValue::Bytes(value) => PyBytes::new(py, value).into_any(),
-        SigrokValue::List(values) => {
+        ProtocolValue::Null => return Ok(py.None()),
+        ProtocolValue::Bool(value) => PyBool::new(py, *value).to_owned().into_any(),
+        ProtocolValue::Integer(value) => PyInt::new(py, *value).into_any(),
+        ProtocolValue::Float(value) => PyFloat::new(py, *value).into_any(),
+        ProtocolValue::String(value) => PyString::new(py, value).into_any(),
+        ProtocolValue::Bytes(value) => PyBytes::new(py, value).into_any(),
+        ProtocolValue::List(values) => {
             let result = PyList::empty(py);
             for value in values {
                 result.append(sigrok_value_to_python(py, value, depth + 1)?)?;
             }
             result.into_any()
         }
-        SigrokValue::Tuple(values) => {
+        ProtocolValue::Tuple(values) => {
             let values = values
                 .iter()
                 .map(|value| sigrok_value_to_python(py, value, depth + 1))
                 .collect::<PyResult<Vec<_>>>()?;
             PyTuple::new(py, values)?.into_any()
         }
-        SigrokValue::Mapping(values) => {
+        ProtocolValue::Mapping(values) => {
             let result = PyDict::new(py);
             for (key, value) in values {
                 result.set_item(key, sigrok_value_to_python(py, value, depth + 1)?)?;
@@ -601,40 +625,40 @@ fn sigrok_value_to_python(
     Ok(value.unbind())
 }
 
-fn convert_value(value: &Bound<'_, PyAny>, depth: usize) -> PyResult<SigrokValue> {
+fn convert_value(value: &Bound<'_, PyAny>, depth: usize) -> PyResult<ProtocolValue> {
     if depth >= VALUE_RECURSION_LIMIT {
         return Err(pyo3::exceptions::PyValueError::new_err(
             "protocol packet nesting exceeds 64 levels",
         ));
     }
     if value.is_none() {
-        Ok(SigrokValue::Null)
+        Ok(ProtocolValue::Null)
     } else if value.is_instance_of::<PyBool>() {
-        Ok(SigrokValue::Bool(value.extract()?))
+        Ok(ProtocolValue::Bool(value.extract()?))
     } else if value.is_instance_of::<PyInt>() {
-        Ok(SigrokValue::Integer(value.extract()?))
+        Ok(ProtocolValue::Integer(value.extract()?))
     } else if value.is_instance_of::<PyFloat>() {
-        Ok(SigrokValue::Float(value.extract()?))
+        Ok(ProtocolValue::Float(value.extract()?))
     } else if value.is_instance_of::<PyString>() {
-        Ok(SigrokValue::String(value.extract()?))
+        Ok(ProtocolValue::String(value.extract()?))
     } else if let Ok(value) = value.cast::<PyBytes>() {
-        Ok(SigrokValue::Bytes(value.as_bytes().into()))
+        Ok(ProtocolValue::Bytes(value.as_bytes().into()))
     } else if let Ok(value) = value.cast::<PyList>() {
-        Ok(SigrokValue::List(
+        Ok(ProtocolValue::List(
             value
                 .iter()
                 .map(|item| convert_value(&item, depth + 1))
                 .collect::<PyResult<_>>()?,
         ))
     } else if let Ok(value) = value.cast::<PyTuple>() {
-        Ok(SigrokValue::Tuple(
+        Ok(ProtocolValue::Tuple(
             value
                 .iter()
                 .map(|item| convert_value(&item, depth + 1))
                 .collect::<PyResult<_>>()?,
         ))
     } else if let Ok(value) = value.cast::<PyDict>() {
-        Ok(SigrokValue::Mapping(
+        Ok(ProtocolValue::Mapping(
             value
                 .iter()
                 .map(|(key, value)| Ok((key.extract()?, convert_value(&value, depth + 1)?)))
@@ -658,8 +682,14 @@ fn require_length(actual: usize, expected: usize, name: &str) -> PyResult<()> {
     }
 }
 
-fn sample_time_ns(sample: u64, sample_rate: u64) -> u64 {
-    (u128::from(sample) * 1_000_000_000 / u128::from(sample_rate)).min(u128::from(u64::MAX)) as u64
+fn sample_time_ns(sample: u64, timestamp_step_ns: Option<u64>, sample_rate: u64) -> u64 {
+    timestamp_step_ns.map_or_else(
+        || {
+            (u128::from(sample) * 1_000_000_000 / u128::from(sample_rate)).min(u128::from(u64::MAX))
+                as u64
+        },
+        |timestamp_step| sample.saturating_mul(timestamp_step),
+    )
 }
 
 fn worker_error(error: WorkerError) -> WorkError {
@@ -682,7 +712,12 @@ mod implementation_tests {
         annotations: Vec<(u64, u64, usize, Vec<String>)>,
         binary: Vec<(usize, Vec<u8>)>,
         metadata: Vec<(String, SigrokMetadataValue)>,
-        packets: Vec<(String, SigrokValue)>,
+        packets: Vec<(String, ProtocolValue)>,
+    }
+
+    #[test]
+    fn raw_input_timing_takes_precedence_over_the_decoder_configuration() {
+        assert_eq!(sample_time_ns(645_812, Some(1_000), 2_000_000), 645_812_000);
     }
 
     #[test]
@@ -707,7 +742,7 @@ mod implementation_tests {
         assert!(reference.metadata.iter().any(|(name, _)| name == "Bitrate"));
         assert!(reference.packets.iter().any(|(protocol, value)| {
             protocol == "spi"
-                && matches!(value, SigrokValue::List(items) if matches!(items.first(), Some(SigrokValue::String(kind)) if kind == "DATA"))
+                && matches!(value, ProtocolValue::List(items) if matches!(items.first(), Some(ProtocolValue::String(kind)) if kind == "DATA"))
         }));
 
         for boundary in 1..signals[0].len() {
@@ -750,18 +785,21 @@ class Decoder(srd.Decoder):
         let watchdog = Watchdog::new();
         let (input_sender, input_receiver) = bounded(4);
         input_sender
-            .send(ChannelMessage::Sample(SigrokProtocolPacket {
+            .send(ChannelMessage::Sample(ProtocolPacket {
                 start_sample: 12,
                 end_sample: 20,
                 start_time_ns: 12_000,
                 end_time_ns: 20_000,
                 protocol_id: "spi".into(),
-                value: SigrokValue::Tuple(vec![
-                    SigrokValue::String("DATA".into()),
-                    SigrokValue::Integer(165),
-                    SigrokValue::Mapping(BTreeMap::from([
-                        ("valid".into(), SigrokValue::Bool(true)),
-                        ("bytes".into(), SigrokValue::Bytes(Arc::from([0x10, 0x20]))),
+                value: ProtocolValue::Tuple(vec![
+                    ProtocolValue::String("DATA".into()),
+                    ProtocolValue::Integer(165),
+                    ProtocolValue::Mapping(BTreeMap::from([
+                        ("valid".into(), ProtocolValue::Bool(true)),
+                        (
+                            "bytes".into(),
+                            ProtocolValue::Bytes(Arc::from([0x10, 0x20])),
+                        ),
                     ])),
                 ]),
             }))
@@ -777,7 +815,7 @@ class Decoder(srd.Decoder):
         let (binary_output, _binary_receiver) = output::<SigrokBinary>(&watchdog, 1);
         let (logic_output, _logic_receiver) = output::<SigrokGeneratedLogic>(&watchdog, 2);
         let (metadata_output, _metadata_receiver) = output::<SigrokMetadata>(&watchdog, 3);
-        let (packet_output, _packet_receiver) = output::<SigrokProtocolPacket>(&watchdog, 4);
+        let (packet_output, _packet_receiver) = output::<ProtocolPacket>(&watchdog, 4);
         let outputs = vec![
             annotation_output,
             binary_output,
@@ -823,7 +861,7 @@ class Decoder(srd.Decoder):
         let (binary_output, binary_receiver) = output::<SigrokBinary>(&watchdog, 1);
         let (logic_output, _logic_receiver) = output::<SigrokGeneratedLogic>(&watchdog, 2);
         let (metadata_output, metadata_receiver) = output::<SigrokMetadata>(&watchdog, 3);
-        let (packet_output, packet_receiver) = output::<SigrokProtocolPacket>(&watchdog, 4);
+        let (packet_output, packet_receiver) = output::<ProtocolPacket>(&watchdog, 4);
         let outputs = vec![
             annotation_output,
             binary_output,

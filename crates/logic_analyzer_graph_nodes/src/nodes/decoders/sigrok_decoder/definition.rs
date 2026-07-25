@@ -15,7 +15,7 @@ use node_graph::{
     StringValue,
 };
 
-use crate::nodes::registry::{COLOR_DECODERS, Signal};
+use crate::nodes::registry::{COLOR_DECODERS, ProtocolPackets, Signal};
 
 const CURRENT_SCHEMA_VERSION: u8 = 2;
 
@@ -422,6 +422,10 @@ impl NodeDef for SigrokDecoderDefinition {
         "Decoders"
     }
 
+    fn add_menu_visible() -> bool {
+        false
+    }
+
     fn color() -> Color32 {
         COLOR_DECODERS
     }
@@ -443,9 +447,11 @@ impl NodeDef for SigrokDecoderDefinition {
             .channels
             .iter()
             .map(|channel| InputDef::new::<Signal>(&channel.label).stable_id(channel.id.clone()))
-            .chain((!state.protocol_inputs.is_empty()).then(|| {
-                InputDef::new::<SigrokProtocolPacketSocket>("Packets").stable_id("protocol_packets")
-            }))
+            .chain(
+                (!state.protocol_inputs.is_empty()).then(|| {
+                    InputDef::new::<ProtocolPackets>("Packets").stable_id("protocol_packets")
+                }),
+            )
             .collect();
         let outputs = state
             .outputs
@@ -492,24 +498,20 @@ impl NodeDef for SigrokDecoderDefinition {
                 )
             })
             .collect::<Vec<_>>();
-        let mut panel = vec![PanelSection::new(
-            "Decoder catalog",
-            vec![
-                PropDef::instance_control(
-                    "catalog",
-                    "Sigrok decoder catalog",
-                    |state: &mut SigrokDecoderState| &mut state.catalog,
-                )
-                .panel_height(150.0),
-            ],
-        )];
+        let mut panel = Vec::new();
         if !settings.is_empty() {
             panel.push(PanelSection::new("Channels", settings));
         }
         if !options.is_empty() {
             panel.push(PanelSection::new("Options", options));
         }
-        NodeInstanceSchema::new(inputs, outputs).panel(panel)
+        NodeInstanceSchema::new(inputs, outputs)
+            .panel(panel)
+            .panels(Self::panels())
+    }
+
+    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+        vec![crate::presentation::viewer_outputs_panel()]
     }
 
     fn on_update(state: &mut Self::State, inputs: &mut [Socket], _outputs: &mut [Socket]) {
@@ -569,7 +571,7 @@ fn catalog_search_paths(control: &SigrokCatalogControl) -> Vec<PathBuf> {
 
 fn refresh_catalog(state: &mut SigrokDecoderState) {
     if !state.catalog.refresh_requested
-        && (state.decoder_id.is_empty() || !state.catalog.entries.is_empty())
+        && (state.decoder_id.is_empty() || state.schema_version >= CURRENT_SCHEMA_VERSION)
     {
         return;
     }
@@ -679,7 +681,7 @@ fn apply_catalog_selection(state: &mut SigrokDecoderState) {
     *state = selected_state;
 }
 
-fn default_decoder_search_paths() -> Vec<PathBuf> {
+pub(crate) fn default_decoder_search_paths() -> Vec<PathBuf> {
     let mut paths = std::env::var_os("SIGROK_DECODERS_DIR")
         .map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
         .unwrap_or_default();
@@ -768,9 +770,7 @@ fn output_definition(output: SavedOutputKind) -> OutputDef<SigrokDecoderState> {
             OutputDef::new::<SigrokGeneratedLogicSocket>(output.label())
         }
         SavedOutputKind::Metadata => OutputDef::new::<SigrokMetadataSocket>(output.label()),
-        SavedOutputKind::ProtocolPacket => {
-            OutputDef::new::<SigrokProtocolPacketSocket>(output.label())
-        }
+        SavedOutputKind::ProtocolPacket => OutputDef::new::<ProtocolPackets>(output.label()),
     };
     definition.stable_id(output.port_name())
 }
@@ -816,12 +816,6 @@ socket_type!(
     "Sigrok Metadata",
     Color32::from_rgb(95, 145, 210)
 );
-socket_type!(
-    SigrokProtocolPacketSocket,
-    "Sigrok Packet",
-    Color32::from_rgb(175, 120, 205)
-);
-
 #[cfg(test)]
 mod definition_tests {
     use super::*;

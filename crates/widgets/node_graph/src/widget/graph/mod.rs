@@ -7,4 +7,5 @@ mod panel;
 mod render;
 mod widget;
 
-pub use widget::{GraphPanelTab, GraphUiPrefs, NodeContextAction, NodeGraphWidget};
+pub(crate) use widget::SocketIndicatorRegistry;
+pub use widget::{GraphUiPrefs, NodeContextAction, NodeGraphWidget};

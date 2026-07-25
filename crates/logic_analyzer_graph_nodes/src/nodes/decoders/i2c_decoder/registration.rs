@@ -1,13 +1,18 @@
 inventory::submit! {
-    logic_analyzer_graph_api::node::GraphNodeRegistration::definition::<super::definition::I2cDecoder>(
-        "org.logicconduit.graph-node.i2c-decoder/v1",
-    )
+    logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
+        super::definition::I2cDecoder,
+        super::builder::I2cDecoderBuilder,
+    >("org.logicconduit.graph-node.i2c-decoder/v1").requiring_payloads(&[
+        "org.logicconduit.digital-sample/v1",
+        "org.logicconduit.word/v1",
+        "org.logicconduit.protocol-packet/v1",
+    ])
 }
 
 #[cfg(test)]
 mod registration_tests {
     #[test]
-    fn i2c_definition_is_isolated() {
+    fn i2c_decoder_lowers_in_isolation() {
         crate::nodes::test_support::assert_node_registration_isolated(
             "org.logicconduit.graph-node.i2c-decoder/v1",
         );

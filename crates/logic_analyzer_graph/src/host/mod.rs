@@ -4,6 +4,6 @@ pub use crate::compiler::{
     ApplyError, ApplySummary, CompileCtx, CompileError, CompiledEdge, CompiledGraph, CompiledNode,
     DiscoveredCapturePresentation, DiscoveredLiveCaptureFeature, DiscoveredTriggerConfiguration,
     GraphCompatibilityWarning, GraphCompiler, LiveAnalysisSource, LiveCaptureDiscoveryError,
-    LiveRun, SamplingOverlayCandidate, SourceProcessOverrides,
+    LiveRun, SamplingOverlayCandidate, SourceProcessOverrides, ViewerOutputSelection,
 };
 pub use crate::decoder_table::{DecoderTableColumn, DecoderTableRegistry, DecoderTableSource};

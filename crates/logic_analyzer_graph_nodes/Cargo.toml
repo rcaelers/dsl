@@ -27,6 +27,8 @@ logic-analyzer-graph = { path = "../logic_analyzer_graph", features = ["test-sup
 logic-analyzer-processing = { path = "../logic_analyzer_processing" }
 logic-analyzer-test-support = { path = "../logic_analyzer_test_support" }
 tempfile = { workspace = true }
+zip = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+dirs = { workspace = true }
 logic-analyzer-test-support = { path = "../logic_analyzer_test_support", optional = true }

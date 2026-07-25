@@ -51,7 +51,7 @@ struct DiscoveredSubscription {
     current_payload: Option<String>,
 }
 
-/// Reconciles saved Viewer and `show_in_view` selections with the payload
+/// Reconciles saved Viewer selections with the payload
 /// contracts registered by the current application.
 ///
 /// Documents predating the manifest are upgraded in place. Existing stable
@@ -186,28 +186,27 @@ fn discover_subscriptions(
     registry: &BuilderRegistry,
 ) -> Vec<DiscoveredSubscription> {
     let mut discovered = Vec::new();
-    for (&node_id, node) in &graph.nodes {
-        if node.kind != NodeKind::Regular {
+    for selection in super::viewer_selection::viewer_output_selections(graph, registry)
+        .into_iter()
+        .filter(|selection| selection.selected)
+    {
+        let Some(node) = graph.nodes.get(&selection.node) else {
             continue;
-        }
-        for (output_index, output) in node.outputs.iter().enumerate() {
-            if output.visible && output.view_selectable && output.show_in_view {
-                discovered.push(discover_subscription(
-                    graph,
-                    registry,
-                    SavedSubscriptionTarget::ShowInView {
-                        node: node_id,
-                        output: output_index,
-                    },
-                    SocketId {
-                        node: node_id,
-                        index: output_index,
-                        direction: SocketDirection::Output,
-                    },
-                    format!("View selection '{}.{}'", node.title, output.name),
-                ));
-            }
-        }
+        };
+        discovered.push(discover_subscription(
+            graph,
+            registry,
+            SavedSubscriptionTarget::ShowInView {
+                node: selection.node,
+                output: selection.output,
+            },
+            SocketId {
+                node: selection.node,
+                index: selection.output,
+                direction: SocketDirection::Output,
+            },
+            format!("View selection '{}.{}'", node.title, selection.label),
+        ));
     }
 
     let resolved_sources: HashMap<_, _> = resolved_wire_endpoints(graph)
@@ -294,7 +293,9 @@ mod saved_graph_tests {
         let source = widget
             .add_node_at("Binary Decoder", egui::Pos2::ZERO)
             .unwrap();
-        widget.graph_mut().nodes.get_mut(&source).unwrap().outputs[0].show_in_view = true;
+        widget.graph_mut().nodes.get_mut(&source).unwrap().outputs[0]
+            .extensions
+            .insert("show_in_view".to_owned(), serde_json::json!(true));
         let registry = BuilderRegistry::standard();
 
         let warnings = synchronize_payload_subscriptions(widget.graph_mut(), &registry).unwrap();
@@ -319,7 +320,9 @@ mod saved_graph_tests {
         let source = widget
             .add_node_at("Binary Decoder", egui::Pos2::ZERO)
             .unwrap();
-        widget.graph_mut().nodes.get_mut(&source).unwrap().outputs[0].show_in_view = true;
+        widget.graph_mut().nodes.get_mut(&source).unwrap().outputs[0]
+            .extensions
+            .insert("show_in_view".to_owned(), serde_json::json!(true));
         widget
             .graph_mut()
             .set_extension(
@@ -354,7 +357,9 @@ mod saved_graph_tests {
         let source = widget
             .add_node_at("Binary Decoder", egui::Pos2::ZERO)
             .unwrap();
-        widget.graph_mut().nodes.get_mut(&source).unwrap().outputs[0].show_in_view = true;
+        widget.graph_mut().nodes.get_mut(&source).unwrap().outputs[0]
+            .extensions
+            .insert("show_in_view".to_owned(), serde_json::json!(true));
         widget
             .graph_mut()
             .set_extension(

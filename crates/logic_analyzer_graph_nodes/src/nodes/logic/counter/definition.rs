@@ -42,6 +42,10 @@ impl NodeDef for Counter {
         }
     }
 
+    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+        vec![crate::presentation::viewer_outputs_panel()]
+    }
+
     fn panel() -> Vec<PanelSection<Self::State>> {
         vec![PanelSection::new(
             "Options",

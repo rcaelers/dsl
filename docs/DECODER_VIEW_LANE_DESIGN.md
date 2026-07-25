@@ -238,8 +238,9 @@ through the same contract without changing generic viewer code.
 ### Saved graphs and migration
 
 The presentation registry is derived from the current node definition and is not serialized.
-Graph documents do serialize the stable collected-payload identity of every explicit Viewer input
-and `show_in_view` selection in the graph-owned payload-subscription extension. This preserves a
+Graph documents serialize viewer output choices in the graph-owned
+`logic_analyzer_graph.viewer_selections` extension and the stable collected-payload identity of
+every selected output and explicit Viewer input in the payload-subscription extension. This preserves a
 diagnosable contract when a plugin is absent without serializing renderer implementation details.
 The UART socket schema remains stable, so existing graphs load without a presentation migration.
 The hidden legacy UART `Words` output remains a normal singleton word lane when connected. SPI

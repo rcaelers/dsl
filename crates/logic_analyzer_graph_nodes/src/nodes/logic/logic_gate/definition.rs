@@ -44,6 +44,10 @@ impl NodeDef for LogicGate {
         }
     }
 
+    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+        vec![crate::presentation::viewer_outputs_panel()]
+    }
+
     fn props() -> Vec<PropDef<Self::State>> {
         vec![PropDef::control("op", "Op", |state| &mut state.op)]
     }

@@ -2,4 +2,4 @@ mod graph;
 mod menu;
 mod node;
 
-pub use graph::{GraphPanelTab, GraphUiPrefs, NodeContextAction, NodeGraphWidget};
+pub use graph::{GraphUiPrefs, NodeContextAction, NodeGraphWidget};

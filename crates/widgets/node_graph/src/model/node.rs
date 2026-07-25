@@ -176,9 +176,7 @@ impl Node {
             editor_visible: true,
             hidden: false,
             has_control: false,
-            view_selectable: false,
-            view_indicator_sources: Vec::new(),
-            show_in_view: false,
+            extensions: Default::default(),
         };
         let output = input.clone();
         Self {

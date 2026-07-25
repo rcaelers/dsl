@@ -127,6 +127,23 @@
 
 ## Graph and runtime
 
+### Node-graph widget
+
+- Revisit the `set_panel_data` attachment API. Client code has the node and panel IDs and should
+  remain the authoritative owner of panel state; `NodeGraphWidget` must not become a general-purpose
+  or persistent client-data store. Consider a draw-scoped `PanelDataProvider`/action handler so the
+  widget can borrow panel models without retaining them. Preserve an explicit attachment mechanism
+  only where transient, widget-lifetime data is genuinely useful, and document its ownership,
+  replacement, cleanup, and non-persistence semantics.
+- Revisit ownership of persistent graph and socket `extensions`. Although opaque, namespaced JSON
+  lets hosts and plugins preserve saved-document metadata without coupling generic graph code to
+  its meaning, it also makes `node_graph::GraphState` responsible for storing application data such
+  as panel layout, viewer lane order, sampling overlays, viewer selections, and payload
+  subscriptions. Decide whether this belongs in the generic graph model or in a host-owned saved
+  document/envelope surrounding the graph. Include unknown-plugin round-tripping, migration,
+  copy/paste and subgraph behavior, socket metadata, and eventual extraction of `node_graph` as a
+  standalone widget in that decision; do not move the data until the ownership contract is clear.
+
 ### Sigrok Python protocol decoders
 
 The proposed architecture and compatibility boundary are defined in

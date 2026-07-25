@@ -87,7 +87,9 @@ pub trait InlineControl: Send + Sync + fmt::Debug {
 A node type is a `NodeDef`: a serde `State` plus static socket/prop descriptions.
 
 ```rust
-use node_graph::{InputDef, IntValue, NodeDef, OutputDef, PanelSection, PropDef};
+use node_graph::{
+    InputDef, IntValue, NodeDef, NodePanelDef, OutputDef, PanelSection, PropDef,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,8 +118,8 @@ impl NodeDef for Counter {
             PropDef::control("step",  "Step",  |s| &mut s.step),
         ])]
     }
-    fn view_panel() -> Vec<PanelSection<Self::State>> {
-        vec![] // viewer-only presentation controls, when applicable
+    fn panels() -> Vec<NodePanelDef<Self::State>> {
+        vec![] // optional node-owned presentations assigned to widget tabs
     }
 }
 ```
@@ -132,19 +134,37 @@ impl NodeDef for Counter {
 | `.idle_style(color, shape)` | Override the unconnected look (resolved look always comes from the connected type) |
 | `.variadic(max)` | Growing group: members "{label} 1…N" plus a trailing placeholder; connecting the placeholder adds a member. No inline controls |
 | `OutputDef::new::<T>(label)` / `::control::<T>(…)` | Same for outputs (outputs never resolve; they keep their concrete type) |
-| `OutputDef::view_selectable(false)` | Omits an output from the generic View-panel lane selector when the host already presents it through another explicit contract |
-| `OutputDef::editor_visible(false)` | Keeps an output available to compilation and generic viewer selection without drawing its unused socket row; an existing connection still reveals it |
-| `OutputDef::view_indicator_sources(indices)` | Makes this output's node-editor eye summarize whether any listed output is selected in the viewer |
+| `OutputDef::editor_visible(false)` | Keeps an output available to host processing without drawing its unused socket row; an existing connection still reveals it |
 
-### Props and the panel
+### Properties, tabs, and panels
 
 - `props()` → `Vec<PropDef>` render in the **node body** (zoom-scaled, keep them few).
 - `panel()` → `Vec<PanelSection>` render in the right-docked **properties panel**
   (screen-space, full-size widgets) when the node is active. `PropDef::panel_height(h)`
   requests a taller row (e.g. a channel grid).
-- `view_panel()` → `Vec<PanelSection>` render in the right-docked **View panel** alongside
-  the generic visible-output lane checkboxes. Use it only for viewer presentation controls.
-- All three mutate the same `State` and trigger the same update path.
+- Tabs are widget configuration (`PanelTabDef`) and remain visible for every node and when no node
+  is active. The widget always supplies the first `Node` tab; the host configures only additional
+  tabs such as `View`.
+- `panels()` → `Vec<NodePanelDef>` contributes zero or more panels to those tabs. Each definition
+  supplies a stable panel ID, a tab ID, optional height/scroll metadata, and a
+  `NodePanelPresentation`. The presentation draws the complete content, including its title and
+  empty state; `node_graph` only allocates its rectangle and optional scroll area.
+- The built-in Node panel is the only panel whose contents are controlled by `node_graph`. It
+  contains node identity plus the properties returned by `panel()`.
+- A panel presentation can inspect opaque, typed host data through `PanelContext::data` and emit
+  an opaque typed action through `PanelContext::emit`. The data and action types belong to the
+  concrete feature; `node_graph` does not define their fields or meaning.
+- State edits from node-body properties, the built-in Node panel, and node-contributed panels all
+  trigger the same update path.
+
+### Socket indicators
+
+Transient decorations next to inputs and outputs use the generic
+`SocketIndicatorPresentation` contract. A presentation reports its screen-space size and draws
+inside the rectangle allocated by the graph widget. The widget supports multiple indicators per
+socket and groups them by host-owned namespace, with `set_socket_indicator`,
+`remove_socket_indicator`, and `clear_socket_indicators` APIs. Indicator meaning, iconography,
+color, and persistence remain outside `node_graph`.
 
 ### Hooks
 

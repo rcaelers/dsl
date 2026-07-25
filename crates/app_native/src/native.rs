@@ -101,7 +101,11 @@ pub(crate) fn run() -> MainResult {
         APPLICATION_NAME,
         options,
         Box::new(move |cc| {
-            let app = logic_analyzer_ui::App::new_with_file(cc, args.file.as_deref());
+            let app = logic_analyzer_ui::App::new_with_file_and_catalogs(
+                cc,
+                args.file.as_deref(),
+                logic_analyzer_graph_nodes::native_node_catalogs(),
+            );
             #[cfg(target_os = "macos")]
             macos_menu::install(app.recent_files());
             Ok(Box::new(app))

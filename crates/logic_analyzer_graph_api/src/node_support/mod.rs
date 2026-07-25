@@ -7,6 +7,8 @@ pub use contracts::{
     CaptureCacheIdentity, CapturePresentation, CapturePresentationSignal, DecoderTableCellMode,
     DecoderTableColumnPresentation, DefaultViewerPayloadPresentation, LiveCaptureEdit,
     NodeBuildContext, ResolvedInput, ResolvedInputs, SamplingOverlayDescriptor,
-    SamplingQualifierDescriptor, SimpleTriggerChannel, TriggerConfigurationFeature, parse_state,
+    SamplingQualifierDescriptor, SimpleTriggerChannel, TriggerConfigurationFeature,
+    ViewerOutputControl, ViewerOutputPanelAction, ViewerOutputPanelEntry, ViewerOutputPanelModel,
+    parse_state,
 };
 pub use port::{PortKind, PortValue};

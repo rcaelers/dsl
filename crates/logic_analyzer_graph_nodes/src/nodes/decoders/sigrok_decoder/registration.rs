@@ -8,7 +8,7 @@ inventory::submit! {
         "org.logicconduit.sigrok.binary/v1",
         "org.logicconduit.sigrok.generated-logic/v1",
         "org.logicconduit.sigrok.metadata/v1",
-        "org.logicconduit.sigrok.protocol-packet/v1",
+        "org.logicconduit.protocol-packet/v1",
     ])
 }
 

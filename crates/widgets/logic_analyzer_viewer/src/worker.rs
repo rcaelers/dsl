@@ -65,6 +65,7 @@ impl LogicAnalyzerViewer {
                         self.status = capture_status(path_display_name(&path), capture);
                     }
                     let mut channels = placeholder_channels(&header);
+                    channels.retain(|channel| self.capture_channel_is_visible(channel.index));
                     self.apply_channel_names(&mut channels);
                     self.apply_channel_order(&mut channels);
                     self.channels = channels;
@@ -113,6 +114,7 @@ impl LogicAnalyzerViewer {
                         self.visible_start_us = 0.0;
                         self.visible_span_us = duration_us.max(1.0);
                         let mut channels = placeholder_channels(&header);
+                        channels.retain(|channel| self.capture_channel_is_visible(channel.index));
                         self.apply_channel_names(&mut channels);
                         self.apply_channel_order(&mut channels);
                         self.channels = channels;

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver};
@@ -33,6 +33,7 @@ pub struct ChannelSignal {
 pub struct LogicAnalyzerViewer {
     pub(crate) input_bindings: Arc<InputBindings>,
     pub(crate) channels: Vec<LogicChannel>,
+    pub(crate) visible_capture_channels: Option<BTreeSet<usize>>,
     /// Display order across both `channels` and `derived` lanes — the only
     /// source of truth for row order, kept in sync by `ensure_row_order`.
     pub(crate) row_order: Vec<RowKey>,
@@ -107,6 +108,7 @@ impl LogicAnalyzerViewer {
             row_order: Vec::new(),
             row_order_changed: false,
             channels: Vec::new(),
+            visible_capture_channels: None,
             row_drag: None,
             channel_names: HashMap::new(),
             derived_names: HashMap::new(),
@@ -212,6 +214,20 @@ impl LogicAnalyzerViewer {
         self.pending_simple_trigger_edit.take()
     }
 
+    /// Selects which raw capture-channel indices are presented. Derived
+    /// waveform lanes are unaffected. The host sets this before attaching a
+    /// capture; standalone users that never call it continue to see every
+    /// channel.
+    pub fn set_visible_capture_channels(&mut self, channels: impl IntoIterator<Item = usize>) {
+        self.visible_capture_channels = Some(channels.into_iter().collect());
+    }
+
+    pub(crate) fn capture_channel_is_visible(&self, channel: usize) -> bool {
+        self.visible_capture_channels
+            .as_ref()
+            .is_none_or(|visible| visible.contains(&channel))
+    }
+
     /// Replaces the raw channel rows with `signals` — the generic way for a
     /// host application to hand the viewer waveform data it already has in
     /// memory, independent of opening a capture file or wiring up a live
@@ -220,6 +236,7 @@ impl LogicAnalyzerViewer {
     pub fn set_channels(&mut self, signals: Vec<ChannelSignal>) {
         self.channels = signals
             .into_iter()
+            .filter(|signal| self.capture_channel_is_visible(signal.index))
             .map(|signal| LogicChannel {
                 index: signal.index,
                 name: signal.name,
@@ -391,7 +408,10 @@ impl LogicAnalyzerViewer {
             duration_us: metadata.duration_us(),
             header: metadata.clone(),
         });
-        self.channels = crate::channel::placeholder_channels(&metadata);
+        self.channels = crate::channel::placeholder_channels(&metadata)
+            .into_iter()
+            .filter(|channel| self.capture_channel_is_visible(channel.index))
+            .collect();
         self.channel_names.clear();
         self.row_rename = None;
         self.sampler = Some(sampler);
@@ -1016,5 +1036,28 @@ mod tests {
         viewer.sample_sampling_overlay();
         assert!(viewer.sampling_overlay_channels.is_none());
         assert!(viewer.sampling_overlay_key.is_none());
+    }
+
+    #[test]
+    fn raw_channel_visibility_filters_only_capture_channels() {
+        let mut viewer = LogicAnalyzerViewer::new();
+        viewer.set_visible_capture_channels([1]);
+        viewer.set_channels(vec![
+            ChannelSignal {
+                index: 0,
+                name: "D0".into(),
+                initial: false,
+                transitions: Vec::new(),
+            },
+            ChannelSignal {
+                index: 1,
+                name: "D1".into(),
+                initial: false,
+                transitions: Vec::new(),
+            },
+        ]);
+
+        assert_eq!(viewer.channels.len(), 1);
+        assert_eq!(viewer.channels[0].index, 1);
     }
 }

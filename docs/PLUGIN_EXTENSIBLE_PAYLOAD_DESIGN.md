@@ -96,10 +96,11 @@ as `"org.logicconduit.camera-frame/v1"` with its typed ingest and presentation c
 panel state, persistent caches, and missing-plugin diagnostics use the stable identifier; they
 never serialize `TypeId`.
 
-Graph documents store a versioned `logic_analyzer_graph.payload_subscriptions` extension for every
-explicit Viewer input and every `show_in_view` output. Each entry identifies its endpoint and the
-payload owner's stable identifier. Socket indices and `show_in_view` remain in the generic graph
-model, while the namespaced extension supplies the domain-specific compatibility contract. On
+Graph documents store viewer choices in the versioned
+`logic_analyzer_graph.viewer_selections` extension and store a
+`logic_analyzer_graph.payload_subscriptions` entry for every explicit Viewer input and selected
+output. Each payload entry identifies its endpoint and the payload owner's stable identifier.
+The generic graph model preserves both namespaced extensions without interpreting them. On
 load, legacy built-in lanes are assigned their registered stable identities without changing
 their connections, selection state, ordering, grouping, badge, or renderer. The application shows
 a persistent compatibility warning when a saved payload, ingestion subscription, or presentation

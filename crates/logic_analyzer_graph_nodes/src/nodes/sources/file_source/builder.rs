@@ -12,7 +12,6 @@ use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
 use node_graph::Socket;
 use signal_processing::{
     DEFAULT_DERIVED_DATA_MAX_ENTRIES, DerivedDataRetention, ProcessNode, Sample, SampleBlock,
-    TextSample,
 };
 
 #[derive(Default)]
@@ -25,20 +24,14 @@ impl RuntimeBuilder for FileSourceBuilder {
     fn derived_data_retention(&self, _state: &Value) -> DerivedDataRetention {
         DerivedDataRetention::MaxEntries(DEFAULT_DERIVED_DATA_MAX_ENTRIES)
     }
-    fn accepted_kinds(&self, socket: &Socket, _state: &Value) -> Vec<PortKind> {
-        match socket.def_index {
-            // A wired File socket delivers the filename at run start (the
-            // source below); the trade-off is documented on
-            // `logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource`.
-            0 => vec![PortKind::of::<TextSample>()],
-            _ => vec![],
-        }
+    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+        vec![]
     }
     fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Sample>(), PortKind::of::<SampleBlock>()]
     }
-    fn input_port(&self, socket: &Socket, _: usize, _: &Value, _: PortKind) -> Option<String> {
-        (socket.def_index == 0).then(|| "filename".into())
+    fn input_port(&self, _socket: &Socket, _: usize, _: &Value, _: PortKind) -> Option<String> {
+        None
     }
     fn output_port(&self, socket: &Socket, _state: &Value, kind: PortKind) -> Option<String> {
         let channel = socket.def_index;
@@ -69,12 +62,12 @@ impl RuntimeBuilder for FileSourceBuilder {
     fn capture_cache_identity(
         &self,
         state: &Value,
-        resolved: &ResolvedInputs,
+        _resolved: &ResolvedInputs,
     ) -> CaptureCacheIdentity {
         let Ok(state) = parse_state::<super::definition::DslFileSourceState>(state) else {
             return CaptureCacheIdentity::Dynamic;
         };
-        if resolved.kind(0).is_some() || state.file.value.trim().is_empty() {
+        if state.file.value.trim().is_empty() {
             return CaptureCacheIdentity::Dynamic;
         }
         DslFileSource::capture_cache_identity(&state.file.value)
@@ -82,25 +75,17 @@ impl RuntimeBuilder for FileSourceBuilder {
             .unwrap_or(CaptureCacheIdentity::Dynamic)
     }
     fn input_required(&self, _socket: &Socket, _state: &Value) -> bool {
-        // Empty paths are valid in saved/example graphs.  Runtime start will
-        // report a missing path when the user actually runs the source.
         false
     }
     fn build(
         &self,
         name: &str,
         state: &Value,
-        resolved: &ResolvedInputs,
+        _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state: super::definition::DslFileSourceState = parse_state(state)?;
-        let channels = state.channels.value.clamp(1, 32) as u8;
-        if resolved.kind(0).is_some() {
-            // File socket wired: the path arrives over the wire at run
-            // start; consumers stream (no index to query yet at build).
-            return Ok(DslFileSource::from_filename_input(name, channels));
-        }
-        let source = DslFileSource::new(&state.file.value, channels)
+        let source = DslFileSource::new(&state.file.value)
             .map_err(|e| format!("cannot open '{}': {e}", state.file.value))?
             .with_name(name);
         Ok(Box::new(source))

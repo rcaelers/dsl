@@ -59,6 +59,10 @@ impl App {
                     self.about.open();
                     continue;
                 }
+                NativeMenuCommand::Preferences => {
+                    self.preferences.open();
+                    continue;
+                }
                 NativeMenuCommand::Run => {
                     self.run_command();
                     continue;
@@ -72,15 +76,15 @@ impl App {
                     continue;
                 }
                 NativeMenuCommand::ShowWatches => {
-                    self.show_view_panel("watches");
+                    self.show_auxiliary_panel("watches");
                     continue;
                 }
                 NativeMenuCommand::ShowTriggers => {
-                    self.show_view_panel("triggers");
+                    self.show_auxiliary_panel("triggers");
                     continue;
                 }
                 NativeMenuCommand::ShowDecoder => {
-                    self.show_view_panel("decoder");
+                    self.show_auxiliary_panel("decoder");
                     continue;
                 }
                 NativeMenuCommand::ResetLayout => {
@@ -143,6 +147,8 @@ impl App {
         {
             return;
         }
+        self.logic_analyzer
+            .set_visible_capture_channels(discovered.visible_channels);
         self.platform.capture_presentation_identity = Some(discovered.identity);
         match discovered.presentation {
             CapturePresentation::Indexed {
@@ -660,6 +666,11 @@ impl App {
                     ui.close();
                 }
                 ui.separator();
+                if ui.button("Preferences...").clicked() {
+                    self.preferences.open();
+                    ui.close();
+                }
+                ui.separator();
                 if ui
                     .add(
                         egui::Button::new("Quit")
@@ -672,9 +683,9 @@ impl App {
                 }
             });
             ui.menu_button("View", |ui| {
-                for (label, content_id, icon) in self.available_view_panels() {
+                for (label, content_id, icon) in self.available_auxiliary_panels() {
                     if icon.menu_item(ui, &label).clicked() {
-                        self.show_view_panel(&content_id);
+                        self.show_auxiliary_panel(&content_id);
                         ui.close();
                     }
                 }

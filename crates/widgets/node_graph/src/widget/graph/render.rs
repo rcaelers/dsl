@@ -223,6 +223,7 @@ impl NodeGraphWidget {
                         registry: &self.registry,
                         view: &self.view,
                         origin,
+                        socket_indicators: &self.socket_indicators,
                     },
                 );
                 if let Some((source_id, connectable)) = &wire_drag_dim

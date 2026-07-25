@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use egui::{Color32, Pos2};
 
 use input_bindings::InputBindings;
@@ -34,8 +32,9 @@ fn build_add_search_items(registry: &NodeTypeRegistry, canvas_pos: Pos2) -> Vec<
     let mut items: Vec<AddSearchItem> = registry
         .all()
         .iter()
+        .filter(|definition| definition.add_menu_visible)
         .map(|def| AddSearchItem {
-            label: format!("{} → {}", def.category, def.name),
+            label: format!("{} → {}", def.category.replace("::", " → "), def.name),
             action: GraphAction::AddNode {
                 name: def.name.clone(),
                 pos: canvas_pos,
@@ -86,38 +85,22 @@ fn build_link_drag_search_items(
 }
 
 fn build_add_entries(registry: &NodeTypeRegistry, canvas_pos: Pos2) -> Vec<MenuEntry<GraphAction>> {
-    let mut cats: Vec<String> = Vec::new();
-    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    let mut categories = Vec::<AddCategory>::new();
     for def in registry.all() {
-        map.entry(def.category.clone())
-            .or_default()
-            .push(def.name.clone());
-        if !cats.contains(&def.category) {
-            cats.push(def.category.clone());
+        if !def.add_menu_visible {
+            continue;
         }
+        insert_add_category(
+            &mut categories,
+            &mut def.category.split("::").peekable(),
+            def.name.clone(),
+        );
     }
-    let mut entries: Vec<MenuEntry<GraphAction>> = cats
+    categories.sort_by_key(|category| category.label == "External Sigrok");
+    let mut entries = categories
         .into_iter()
-        .map(|cat| {
-            let names = map.remove(&cat).unwrap_or_default();
-            MenuEntry::submenu(
-                cat,
-                names
-                    .into_iter()
-                    .map(|name| {
-                        let label = name.clone();
-                        MenuEntry::action(
-                            label,
-                            GraphAction::AddNode {
-                                name,
-                                pos: canvas_pos,
-                            },
-                        )
-                    })
-                    .collect(),
-            )
-        })
-        .collect();
+        .map(|category| category.into_entry(canvas_pos))
+        .collect::<Vec<_>>();
     entries.push(MenuEntry::separator());
     entries.push(MenuEntry::action(
         "Reroute",
@@ -127,6 +110,59 @@ fn build_add_entries(registry: &NodeTypeRegistry, canvas_pos: Pos2) -> Vec<MenuE
         },
     ));
     entries
+}
+
+struct AddCategory {
+    label: String,
+    children: Vec<AddCategory>,
+    nodes: Vec<String>,
+}
+
+impl AddCategory {
+    fn into_entry(self, canvas_pos: Pos2) -> MenuEntry<GraphAction> {
+        let mut entries = self
+            .children
+            .into_iter()
+            .map(|child| child.into_entry(canvas_pos))
+            .collect::<Vec<_>>();
+        entries.extend(self.nodes.into_iter().map(|name| {
+            let label = name.clone();
+            MenuEntry::action(
+                label,
+                GraphAction::AddNode {
+                    name,
+                    pos: canvas_pos,
+                },
+            )
+        }));
+        MenuEntry::submenu(self.label, entries)
+    }
+}
+
+fn insert_add_category<'a>(
+    categories: &mut Vec<AddCategory>,
+    path: &mut std::iter::Peekable<impl Iterator<Item = &'a str>>,
+    node: String,
+) {
+    let Some(label) = path.next() else {
+        return;
+    };
+    let index = categories
+        .iter()
+        .position(|category| category.label == label)
+        .unwrap_or_else(|| {
+            categories.push(AddCategory {
+                label: label.to_owned(),
+                children: Vec::new(),
+                nodes: Vec::new(),
+            });
+            categories.len() - 1
+        });
+    if path.peek().is_none() {
+        categories[index].nodes.push(node);
+    } else {
+        insert_add_category(&mut categories[index].children, path, node);
+    }
 }
 
 fn paste_entry(canvas_pos: Pos2, input_bindings: &InputBindings) -> MenuEntry<GraphAction> {
@@ -771,6 +807,10 @@ impl MenuController {
 
     pub(crate) fn blocks_canvas_scroll(&self, ui: &egui::Ui) -> bool {
         self.add_search.blocks_canvas_scroll(ui)
+    }
+
+    pub(crate) fn is_open(&self) -> bool {
+        self.popup.is_open() || self.add_search.visible
     }
 
     /// Drive for one frame: tablet gesture detection, keyboard nav, rendering.

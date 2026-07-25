@@ -165,7 +165,7 @@ pub(crate) struct TestLiveCaptureSource;
 
 fn outputs() -> Vec<OutputDef<TestCaptureSourceState>> {
     (0..TEST_CAPTURE_CHANNELS)
-        .map(|channel| OutputDef::new::<Signal>(format!("Ch {channel}")).view_selectable(false))
+        .map(|channel| OutputDef::new::<Signal>(format!("Ch {channel}")))
         .collect()
 }
 
@@ -200,6 +200,10 @@ impl NodeDef for TestCaptureSource {
         TestCaptureSourceState::default()
     }
 
+    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+        vec![crate::presentation::viewer_outputs_panel()]
+    }
+
     fn badge(state: &Self::State) -> Option<NodeBadge> {
         badge(state)
     }
@@ -230,6 +234,10 @@ impl NodeDef for TestLiveCaptureSource {
 
     fn state() -> Self::State {
         TestCaptureSourceState::default()
+    }
+
+    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+        vec![crate::presentation::viewer_outputs_panel()]
     }
 
     fn badge(state: &Self::State) -> Option<NodeBadge> {

@@ -12,7 +12,8 @@ use super::graph::{
     LiveCaptureDiscoveryError, LiveRun, SamplingOverlayCandidate, SourceProcessOverrides,
 };
 use super::saved_graph::GraphCompatibilityWarning;
-use super::{graph, graph_node_registration, saved_graph};
+use super::viewer_selection::ViewerOutputSelection;
+use super::{graph, graph_node_registration, saved_graph, viewer_selection};
 
 /// Stateful application-facing facade for graph discovery, compilation, and execution.
 ///
@@ -105,6 +106,33 @@ impl GraphCompiler {
         graph: &mut GraphState,
     ) -> Result<Vec<GraphCompatibilityWarning>, serde_json::Error> {
         saved_graph::synchronize_payload_subscriptions(graph, &self.builders)
+    }
+
+    pub fn synchronize_viewer_selections(
+        &self,
+        graph: &mut GraphState,
+    ) -> Result<Vec<GraphCompatibilityWarning>, serde_json::Error> {
+        viewer_selection::synchronize_viewer_selections(graph, &self.builders)
+    }
+
+    pub fn viewer_output_selections(&self, graph: &GraphState) -> Vec<ViewerOutputSelection> {
+        viewer_selection::viewer_output_selections(graph, &self.builders)
+    }
+
+    pub fn set_viewer_output_selected(
+        &self,
+        graph: &mut GraphState,
+        node: NodeId,
+        output_id: &str,
+        selected: bool,
+    ) -> Result<(), serde_json::Error> {
+        viewer_selection::set_viewer_output_selected(
+            graph,
+            &self.builders,
+            node,
+            output_id,
+            selected,
+        )
     }
 
     pub fn lower(&self, graph: &GraphState) -> Result<CompiledGraph, Vec<CompileError>> {

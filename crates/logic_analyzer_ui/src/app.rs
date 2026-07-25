@@ -4,11 +4,18 @@ use std::sync::Arc;
 
 use input_bindings::{InputBindings, PointerButtonName, PointerGesture, Trigger};
 use logic_analyzer_graph::host as compiler;
-use logic_analyzer_graph_api::node_support::{CapturePresentationSignal, LiveCaptureEdit};
+use logic_analyzer_graph_api::node::DirectoryNodeCatalog;
+use logic_analyzer_graph_api::node_support::{
+    CapturePresentationSignal, LiveCaptureEdit, ViewerOutputPanelAction, ViewerOutputPanelEntry,
+    ViewerOutputPanelModel,
+};
 use logic_analyzer_viewer::{
     LogicAnalyzerViewer, SimpleTriggerEdit, SimpleTriggerLane, ViewerLaneGroupId, ViewerRowId,
 };
-use node_graph::{GraphState, NodeBadge, NodeContextAction, NodeGraphWidget, NodeId};
+use node_graph::{
+    GraphState, NodeBadge, NodeContextAction, NodeGraphWidget, NodeId, PanelTabDef,
+    SocketDirection, SocketId, SocketIndicatorPresentation,
+};
 use panel_layout::{BoundaryInteraction, PanelIcon, PanelLayout, PanelSlot, PanelSpec};
 use trigger_editor::{TriggerEditor, TriggerEditorChannel};
 
@@ -20,7 +27,40 @@ use crate::live_capture::{
     CaptureReplayAttachment, ConfigurationEpochResolution, capture_availability,
 };
 use crate::plugin_panel::{PluginPanelIcon, PluginPanelRegistry, PluginPanels, PluginPanelsState};
+use crate::preferences::PreferencesWindow;
 use crate::toast::Toasts;
+
+const VIEWER_OUTPUT_PANEL_ID: &str = "viewer-outputs";
+const VIEWER_SOCKET_INDICATOR_OWNER: &str = "logic-analyzer.viewer";
+
+struct ViewerSocketIndicator;
+
+impl SocketIndicatorPresentation for ViewerSocketIndicator {
+    fn size(&self, zoom: f32) -> egui::Vec2 {
+        let scale = zoom.clamp(0.65, 1.25);
+        egui::Vec2::new(12.0 * scale, 7.4 * scale)
+    }
+
+    fn draw(&self, painter: &egui::Painter, rect: egui::Rect, zoom: f32) {
+        let scale = zoom.clamp(0.65, 1.25);
+        let center = rect.center();
+        let half_width = rect.width() * 0.5;
+        let half_height = rect.height() * 0.5;
+        painter.add(egui::Shape::convex_polygon(
+            vec![
+                egui::Pos2::new(center.x - half_width, center.y),
+                egui::Pos2::new(center.x - half_width * 0.45, center.y - half_height),
+                egui::Pos2::new(center.x + half_width * 0.45, center.y - half_height),
+                egui::Pos2::new(center.x + half_width, center.y),
+                egui::Pos2::new(center.x + half_width * 0.45, center.y + half_height),
+                egui::Pos2::new(center.x - half_width * 0.45, center.y + half_height),
+            ],
+            egui::Color32::from_black_alpha(210),
+            egui::Stroke::new(1.2 * scale, egui::Color32::from_rgb(190, 225, 205)),
+        ));
+        painter.circle_filled(center, 1.65 * scale, egui::Color32::from_rgb(110, 205, 145));
+    }
+}
 
 const SAMPLING_OVERLAY_EXTENSION: &str = "logic_analyzer_ui.sampling_overlay";
 const VIEWER_LANE_ORDER_EXTENSION: &str = "logic_analyzer_ui.viewer_lane_order";
@@ -149,6 +189,8 @@ pub struct App {
     pub(crate) toasts: Toasts,
     pub(crate) platform: crate::app_platform::PlatformState,
     pub(crate) about: AboutWindow,
+    pub(crate) preferences: PreferencesWindow,
+    pub(crate) node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
     /// Nodes badged with compile errors; cleared on the next Run.
     pub(crate) error_badges: Vec<NodeId>,
     /// Last time the running pipeline was diffed against the edited graph.
@@ -298,13 +340,13 @@ impl App {
     }
 
     pub fn new(cc: &eframe::CreationContext) -> Self {
-        Self::build(cc)
+        Self::build(cc, Vec::new())
     }
 
     /// Builds the application around an initial graph supplied by the host
     /// application. The host owns where that graph comes from.
     pub fn new_with_graph(cc: &eframe::CreationContext, graph: node_graph::GraphState) -> Self {
-        let mut app = Self::build(cc);
+        let mut app = Self::build(cc, Vec::new());
         app.node_graph.set_graph(graph);
         app.synchronize_payload_subscription_manifest(true);
         app.restore_sampling_overlay_setting();
@@ -314,6 +356,20 @@ impl App {
     }
 
     pub(crate) fn synchronize_payload_subscription_manifest(&mut self, report_warnings: bool) {
+        match self
+            .graph_compiler
+            .synchronize_viewer_selections(self.node_graph.graph_mut())
+        {
+            Ok(warnings) if report_warnings => {
+                for warning in warnings {
+                    self.toasts.warning(warning.message);
+                }
+            }
+            Ok(_) => {}
+            Err(error) => self
+                .toasts
+                .error(format!("Could not update saved viewer selections: {error}")),
+        }
         match self
             .graph_compiler
             .synchronize_payload_subscriptions(self.node_graph.graph_mut())
@@ -333,6 +389,48 @@ impl App {
                 "Could not update saved payload subscriptions: {error}"
             )),
         }
+        self.refresh_graph_output_selections();
+    }
+
+    fn refresh_graph_output_selections(&mut self) {
+        let selections = self
+            .graph_compiler
+            .viewer_output_selections(self.node_graph.graph());
+        let mut by_node: HashMap<NodeId, Vec<ViewerOutputPanelEntry>> = HashMap::new();
+        self.node_graph.clear_panel_data(VIEWER_OUTPUT_PANEL_ID);
+        self.node_graph
+            .clear_socket_indicators(VIEWER_SOCKET_INDICATOR_OWNER);
+        for selection in selections {
+            by_node
+                .entry(selection.node)
+                .or_default()
+                .push(ViewerOutputPanelEntry {
+                    id: selection.output_id.clone(),
+                    label: selection.label,
+                    selected: selection.selected,
+                });
+            if selection.selected {
+                for output in selection.indicator_outputs {
+                    self.node_graph.set_socket_indicator(
+                        VIEWER_SOCKET_INDICATOR_OWNER,
+                        SocketId {
+                            node: selection.node,
+                            index: output,
+                            direction: SocketDirection::Output,
+                        },
+                        "active",
+                        ViewerSocketIndicator,
+                    );
+                }
+            }
+        }
+        for (node, outputs) in by_node {
+            self.node_graph.set_panel_data(
+                node,
+                VIEWER_OUTPUT_PANEL_ID,
+                ViewerOutputPanelModel { outputs },
+            );
+        }
     }
 
     /// The persisted MRU list, most recent first — read once at startup by
@@ -343,12 +441,23 @@ impl App {
     }
 
     pub fn new_with_file(cc: &eframe::CreationContext, file: Option<&Path>) -> Self {
-        let mut app = Self::build(cc);
+        Self::new_with_file_and_catalogs(cc, file, Vec::new())
+    }
+
+    pub fn new_with_file_and_catalogs(
+        cc: &eframe::CreationContext,
+        file: Option<&Path>,
+        node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
+    ) -> Self {
+        let mut app = Self::build(cc, node_catalogs);
         app.platform_load_startup_file(file);
         app
     }
 
-    fn build(cc: &eframe::CreationContext) -> Self {
+    fn build(
+        cc: &eframe::CreationContext,
+        node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
+    ) -> Self {
         // The graph canvas and its custom widgets use a dark palette. Do not
         // inherit a light OS/browser preference for the surrounding egui
         // controls, or their dark foreground text becomes unreadable there.
@@ -360,6 +469,7 @@ impl App {
         let plugin_panel_registry = PluginPanelRegistry::standard();
         let mut widget = NodeGraphWidget::new(registry);
         widget.set_input_bindings(input_bindings.clone());
+        widget.set_panel_tabs(vec![PanelTabDef::new("view", "View")]);
         let platform = crate::app_platform::PlatformState::restore(cc, &mut widget);
         let mut logic_analyzer = LogicAnalyzerViewer::new();
         logic_analyzer.set_input_bindings(input_bindings.clone());
@@ -401,6 +511,8 @@ impl App {
             toasts: Toasts::default(),
             platform,
             about: AboutWindow::new(),
+            preferences: PreferencesWindow::new(),
+            node_catalogs,
             error_badges: Vec::new(),
             last_live_sync: -1.0,
             sampling_overlay_candidates: Vec::new(),
@@ -779,6 +891,8 @@ impl App {
                 return;
             }
         };
+        self.logic_analyzer
+            .set_visible_capture_channels(feature.visible_channels().iter().copied());
         self.capture_graph = Some(self.node_graph.graph().clone());
         self.capture_epoch_observed_graph = serde_json::to_vec(self.node_graph.graph()).ok();
         self.capture_epoch_request_in_flight = false;
@@ -1568,8 +1682,8 @@ impl App {
         }
     }
 
-    pub(crate) fn show_view_panel(&mut self, content_id: &str) {
-        let order = self.view_panel_order();
+    pub(crate) fn show_auxiliary_panel(&mut self, content_id: &str) {
+        let order = self.auxiliary_panel_order();
         self.panel_layout.ensure_right_column_content(
             content_id,
             &order.iter().map(String::as_str).collect::<Vec<_>>(),
@@ -1577,7 +1691,9 @@ impl App {
         );
     }
 
-    pub(crate) fn available_view_panels(&self) -> Vec<(String, String, panel_layout::PanelIcon)> {
+    pub(crate) fn available_auxiliary_panels(
+        &self,
+    ) -> Vec<(String, String, panel_layout::PanelIcon)> {
         let mut panels = vec![
             ("Watches".to_owned(), "watches".to_owned(), PanelIcon::List),
             (
@@ -1596,8 +1712,8 @@ impl App {
         panels
     }
 
-    fn view_panel_order(&self) -> Vec<String> {
-        self.available_view_panels()
+    fn auxiliary_panel_order(&self) -> Vec<String> {
+        self.available_auxiliary_panels()
             .into_iter()
             .map(|(_, content_id, _)| content_id)
             .collect()
@@ -1987,6 +2103,17 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.platform_before_ui(ui);
 
+        for catalog in &mut self.node_catalogs {
+            if let Some(templates) = catalog.take_templates() {
+                self.node_graph
+                    .replace_node_templates(catalog.namespace(), templates);
+            }
+            if catalog.status().scanning {
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_millis(100));
+            }
+        }
+
         let viewport_rect = ui.available_rect_before_wrap();
         self.poll_capture(ui.ctx());
         self.platform_sync_capture();
@@ -2059,6 +2186,7 @@ impl eframe::App for App {
                     ..
                 } => {
                     self.platform_before_graph();
+                    self.refresh_graph_output_selections();
                     self.node_graph.show(panel_ui);
                     if let Some(message) = self.node_graph.take_io_status() {
                         self.toasts.info(message);
@@ -2071,6 +2199,26 @@ impl eframe::App for App {
                         panel_ui
                             .ctx()
                             .request_repaint_after(std::time::Duration::from_millis(16));
+                    }
+                    if let Some(action) = self.node_graph.take_panel_action() {
+                        let node_id = action.node();
+                        if action.panel_id() == VIEWER_OUTPUT_PANEL_ID
+                            && let Ok(ViewerOutputPanelAction::SetSelected { id, selected }) =
+                                action.downcast::<ViewerOutputPanelAction>()
+                        {
+                            if let Err(error) = self.graph_compiler.set_viewer_output_selected(
+                                self.node_graph.graph_mut(),
+                                node_id,
+                                &id,
+                                selected,
+                            ) {
+                                self.toasts.error(format!(
+                                    "Could not update the viewer selection: {error}"
+                                ));
+                            } else {
+                                self.synchronize_payload_subscription_manifest(false);
+                            }
+                        }
                     }
                     self.platform_after_graph();
                 }
@@ -2135,6 +2283,7 @@ impl eframe::App for App {
         self.show_status_bar(&mut status_ui, &status_actions);
 
         self.about.show(ui.ctx());
+        self.preferences.show(ui.ctx(), &mut self.node_catalogs);
 
         self.platform_after_ui(ui.ctx());
 

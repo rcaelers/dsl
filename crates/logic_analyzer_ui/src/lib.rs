@@ -6,6 +6,7 @@ mod decoder_panel;
 mod input_binding_config;
 mod live_capture;
 mod plugin_panel;
+mod preferences;
 mod product;
 mod toast;
 

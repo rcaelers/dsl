@@ -1,4 +1,4 @@
-//! Sigrok v2 (`.sr`) processing-node file source.
+//! Sigrok session (`.sr`) processing-node file source.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -7,17 +7,18 @@ use std::thread::JoinHandle;
 
 use signal_processing::{
     CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, InputPort, OutputPort,
-    PortDirection, PortSchema, ProcessNode, Result, Sample, Sender, WorkError, WorkResult,
+    PortDirection, PortSchema, ProcessNode, Result, Sample, SampleBlock, SampleKind, Sender,
+    WorkError, WorkResult,
 };
 
 use crate::support::capture_index::capture_cache_identity;
 use crate::support::sigrok_file::{SigrokCapture, SigrokFileCaptureDataSource};
 
-/// A PulseView/sigrok v2 session source.
+/// A PulseView/sigrok session source.
 pub struct SigrokFileSource {
     name: String,
     capture: SigrokCapture,
-    num_channels: u8,
+    num_channels: usize,
     shutdown: Arc<AtomicBool>,
     completed: Arc<AtomicUsize>,
     threads: Option<Vec<JoinHandle<()>>>,
@@ -32,6 +33,17 @@ struct ChannelStream {
     total_samples: usize,
     timestamp_step: u64,
     sender: Sender<Sample>,
+    shutdown: Arc<AtomicBool>,
+    completed: Arc<AtomicUsize>,
+}
+
+struct ChannelBlockStream {
+    samples: Arc<[u8]>,
+    unitsize: usize,
+    channel: usize,
+    total_samples: usize,
+    timestamp_step: u64,
+    sender: Sender<SampleBlock>,
     shutdown: Arc<AtomicBool>,
     completed: Arc<AtomicUsize>,
 }
@@ -59,6 +71,32 @@ impl ChannelStream {
                     }
                 }
             }
+        }
+        self.sender.close();
+        self.completed.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+impl ChannelBlockStream {
+    fn run(self) {
+        let mut packed = vec![0_u8; self.total_samples.div_ceil(8)];
+        for sample in 0..self.total_samples {
+            if self.shutdown.load(Ordering::Relaxed) {
+                break;
+            }
+            if self.samples[sample * self.unitsize + self.channel / 8] & (1 << (self.channel % 8))
+                != 0
+            {
+                packed[sample / 8] |= 1 << (sample % 8);
+            }
+        }
+        if !self.shutdown.load(Ordering::Relaxed) {
+            let _ = self.sender.send(SampleBlock::new(
+                packed,
+                0,
+                self.total_samples,
+                self.timestamp_step,
+            ));
         }
         self.sender.close();
         self.completed.fetch_add(1, Ordering::Relaxed);
@@ -108,10 +146,12 @@ impl SigrokFileSource {
         Ok(capture_cache_identity(path, &source))
     }
 
-    pub fn new(path: impl AsRef<Path>, num_channels: u8) -> Result<Self> {
+    pub fn new(path: impl AsRef<Path>) -> Result<Self> {
+        let capture = SigrokCapture::open(path, 1)?;
+        let num_channels = capture.metadata().total_probes;
         Ok(Self {
             name: "sigrok_file_source".into(),
-            capture: SigrokCapture::open(path, num_channels)?,
+            capture,
             num_channels,
             shutdown: Arc::new(AtomicBool::new(false)),
             completed: Arc::new(AtomicUsize::new(0)),
@@ -145,16 +185,13 @@ impl ProcessNode for SigrokFileSource {
         0
     }
     fn num_outputs(&self) -> usize {
-        self.num_channels as usize
+        self.num_channels
     }
     fn output_schema(&self) -> Vec<PortSchema> {
         (0..self.num_channels)
             .map(|channel| {
-                PortSchema::new::<Sample>(
-                    format!("ch{channel}"),
-                    channel as usize,
-                    PortDirection::Output,
-                )
+                PortSchema::new::<Sample>(format!("ch{channel}"), channel, PortDirection::Output)
+                    .with_sample_kinds(vec![SampleKind::Block, SampleKind::Edge])
             })
             .collect()
     }
@@ -167,32 +204,53 @@ impl ProcessNode for SigrokFileSource {
         self.spawned = true;
         let timestamp_step = (1_000_000_000.0 / self.capture.metadata().samplerate_hz) as u64;
         let mut threads = Vec::new();
-        for channel in 0..self.num_channels as usize {
-            let Some(senders) = outputs
-                .get(channel)
-                .and_then(|output| output.split_senders::<Sample>())
-            else {
+        for channel in 0..self.num_channels {
+            let Some(output) = outputs.get(channel) else {
                 continue;
             };
-            for sender in senders {
-                let samples = self.capture.samples();
-                let shutdown = Arc::clone(&self.shutdown);
-                let completed = Arc::clone(&self.completed);
-                let unitsize = self.capture.unitsize();
-                let total_samples = self.capture.metadata().total_samples as usize;
-                threads.push(std::thread::spawn(move || {
-                    ChannelStream {
-                        samples,
-                        unitsize,
-                        channel,
-                        total_samples,
-                        timestamp_step,
-                        sender,
-                        shutdown,
-                        completed,
-                    }
-                    .run()
-                }));
+            if let Some(senders) = output.split_senders::<Sample>() {
+                for sender in senders {
+                    let samples = self.capture.samples();
+                    let shutdown = Arc::clone(&self.shutdown);
+                    let completed = Arc::clone(&self.completed);
+                    let unitsize = self.capture.unitsize();
+                    let total_samples = self.capture.metadata().total_samples as usize;
+                    threads.push(std::thread::spawn(move || {
+                        ChannelStream {
+                            samples,
+                            unitsize,
+                            channel,
+                            total_samples,
+                            timestamp_step,
+                            sender,
+                            shutdown,
+                            completed,
+                        }
+                        .run()
+                    }));
+                }
+            }
+            if let Some(senders) = output.split_senders::<SampleBlock>() {
+                for sender in senders {
+                    let samples = self.capture.samples();
+                    let shutdown = Arc::clone(&self.shutdown);
+                    let completed = Arc::clone(&self.completed);
+                    let unitsize = self.capture.unitsize();
+                    let total_samples = self.capture.metadata().total_samples as usize;
+                    threads.push(std::thread::spawn(move || {
+                        ChannelBlockStream {
+                            samples,
+                            unitsize,
+                            channel,
+                            total_samples,
+                            timestamp_step,
+                            sender,
+                            shutdown,
+                            completed,
+                        }
+                        .run()
+                    }));
+                }
             }
         }
         self.num_threads = threads.len();
@@ -221,16 +279,18 @@ mod tests {
     use super::*;
     use crate::support::sigrok_file::SigrokFileCaptureDataSource;
 
-    fn fixture() -> tempfile::TempDir {
+    fn fixture(version: &str, chunked: bool) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         let file = std::fs::File::create(dir.path().join("hello.sr")).unwrap();
         let mut archive = zip::ZipWriter::new(file);
         let options = zip::write::SimpleFileOptions::default();
         archive.start_file("version", options).unwrap();
-        archive.write_all(b"2").unwrap();
+        archive.write_all(version.as_bytes()).unwrap();
         archive.start_file("metadata", options).unwrap();
         archive.write_all(b"[device 1]\ncapturefile=logic-1\ntotal probes=8\nsamplerate=1 MHz\nprobe1=TX\nunitsize=1\n").unwrap();
-        archive.start_file("logic-1-1", options).unwrap();
+        archive
+            .start_file(if chunked { "logic-1-1" } else { "logic-1" }, options)
+            .unwrap();
         archive.write_all(&[0, 1, 1, 0, 0, 1, 0, 1]).unwrap();
         archive.finish().unwrap();
         dir
@@ -238,19 +298,40 @@ mod tests {
 
     #[test]
     fn opens_checked_in_pulseview_capture() {
-        let dir = fixture();
-        let source = SigrokFileSource::new(dir.path().join("hello.sr"), 8).unwrap();
+        let dir = fixture("2", true);
+        let source = SigrokFileSource::new(dir.path().join("hello.sr")).unwrap();
         assert_eq!(source.header().total_probes, 8);
         assert_eq!(source.header().samplerate_hz, 1_000_000.0);
         assert_eq!(source.header().total_samples, 8);
         assert_eq!(source.header().probe_names[0], "TX");
+        assert_eq!(source.num_outputs(), 8);
     }
 
     #[test]
     fn data_source_is_private_support_for_the_node() {
-        let dir = fixture();
+        let dir = fixture("2", true);
         let source = SigrokFileCaptureDataSource::open(dir.path().join("hello.sr")).unwrap();
         assert_eq!(source.metadata().total_samples, 8);
         assert_eq!(source.open_reader().unwrap().metadata().total_probes, 8);
+    }
+
+    #[test]
+    fn opens_version_one_session_with_unchunked_logic_data() {
+        let dir = fixture("1", false);
+        let source = SigrokFileSource::new(dir.path().join("hello.sr")).unwrap();
+        assert_eq!(source.header().total_probes, 8);
+        assert_eq!(source.header().total_samples, 8);
+        assert!(
+            source
+                .output_schema()
+                .iter()
+                .all(|port| { port.sample_kinds == [SampleKind::Block, SampleKind::Edge] })
+        );
+
+        let data_source = SigrokFileCaptureDataSource::open(dir.path().join("hello.sr")).unwrap();
+        assert_eq!(
+            data_source.open_reader().unwrap().metadata().total_samples,
+            8
+        );
     }
 }

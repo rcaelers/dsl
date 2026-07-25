@@ -1,5 +1,5 @@
 use std::any::Any;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
@@ -7,7 +7,7 @@ use signal_processing::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
     CollectedLaneTableMetadata, CollectedLaneTableRow, CollectedLaneTableSnapshot,
     CollectedPayloadAdapter, DerivedDataRetention, InputPort, OpaqueCollectedLaneSnapshot,
-    PortDirection, PortSchema, WorkResult,
+    PortDirection, PortSchema, ProtocolPacket, WorkResult,
 };
 
 const DRAIN_BATCH_SIZE: usize = 1_024;
@@ -92,42 +92,20 @@ impl SigrokMetadata {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum SigrokValue {
-    Null,
-    Bool(bool),
-    Integer(i128),
-    Float(f64),
-    String(String),
-    Bytes(Arc<[u8]>),
-    List(Vec<Self>),
-    Tuple(Vec<Self>),
-    Mapping(BTreeMap<String, Self>),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct SigrokProtocolPacket {
-    pub start_sample: u64,
-    pub end_sample: u64,
-    pub start_time_ns: u64,
-    pub end_time_ns: u64,
-    pub protocol_id: String,
-    pub value: SigrokValue,
-}
-
-impl SigrokProtocolPacket {
-    pub fn display_text(&self) -> String {
-        format!("{} · {}", self.protocol_id, value_summary(&self.value))
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
 pub struct SigrokLaneSnapshot<T> {
     entries: Vec<T>,
+    activity_spans: Vec<(u64, u64)>,
 }
 
 impl<T> SigrokLaneSnapshot<T> {
     pub fn entries(&self) -> &[T] {
         &self.entries
+    }
+
+    /// Time buckets containing activity when an exact snapshot would exceed
+    /// the viewer's bounded item budget.
+    pub fn activity_spans(&self) -> &[(u64, u64)] {
+        &self.activity_spans
     }
 }
 
@@ -181,8 +159,8 @@ impl_span_payload!(
     "metadata-number"
 );
 impl_span_payload!(
-    SigrokProtocolPacket,
-    |_value: &SigrokProtocolPacket| 0,
+    ProtocolPacket,
+    |_value: &ProtocolPacket| 0,
     "protocol-packet"
 );
 
@@ -206,18 +184,32 @@ impl<T: SigrokSpanPayload> CollectedLaneQuery for SigrokLaneQuery<T> {
         request: CollectedLaneSnapshotRequest,
     ) -> Option<OpaqueCollectedLaneSnapshot> {
         let state = self.state.read().unwrap();
-        let entries = state
+        let visible = state
             .entries
             .iter()
             .filter(|entry| {
                 entry.end_time_ns() >= request.start_time_ns
                     && entry.start_time_ns() <= request.end_time_ns
             })
-            .take(request.max_items)
-            .cloned()
-            .collect();
+            .collect::<Vec<_>>();
+        let (entries, activity_spans) = if visible.len() <= request.max_items {
+            (visible.into_iter().cloned().collect(), Vec::new())
+        } else {
+            (
+                Vec::new(),
+                summarize_activity(
+                    &visible,
+                    request.start_time_ns,
+                    request.end_time_ns,
+                    request.max_items,
+                ),
+            )
+        };
         Some(OpaqueCollectedLaneSnapshot::new(Arc::new(
-            SigrokLaneSnapshot { entries },
+            SigrokLaneSnapshot {
+                entries,
+                activity_spans,
+            },
         )))
     }
 
@@ -275,6 +267,78 @@ impl<T: SigrokSpanPayload> CollectedLaneQuery for SigrokLaneQuery<T> {
             format_hint: Some(T::format_hint().to_owned()),
         })
     }
+}
+
+fn summarize_activity<T: SigrokSpanPayload>(
+    entries: &[&T],
+    start_time_ns: u64,
+    end_time_ns: u64,
+    max_items: usize,
+) -> Vec<(u64, u64)> {
+    let bucket_count = max_items.max(1);
+    let duration = end_time_ns.saturating_sub(start_time_ns).saturating_add(1);
+    let mut changes = vec![0_i64; bucket_count + 1];
+    for entry in entries {
+        let start = entry.start_time_ns().max(start_time_ns);
+        let end = entry.end_time_ns().min(end_time_ns);
+        let first = bucket_index(start, start_time_ns, duration, bucket_count);
+        let last = bucket_index(end, start_time_ns, duration, bucket_count);
+        changes[first] += 1;
+        changes[last + 1] -= 1;
+    }
+
+    let mut spans = Vec::new();
+    let mut active = 0_i64;
+    let mut span_start = None;
+    for (bucket, change) in changes.into_iter().take(bucket_count).enumerate() {
+        active += change;
+        match (span_start, active > 0) {
+            (None, true) => span_start = Some(bucket),
+            (Some(first), false) => {
+                spans.push(bucket_span(
+                    first,
+                    bucket,
+                    start_time_ns,
+                    duration,
+                    bucket_count,
+                ));
+                span_start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(first) = span_start {
+        spans.push(bucket_span(
+            first,
+            bucket_count,
+            start_time_ns,
+            duration,
+            bucket_count,
+        ));
+    }
+    spans
+}
+
+fn bucket_index(time: u64, start: u64, duration: u64, bucket_count: usize) -> usize {
+    ((u128::from(time.saturating_sub(start)) * bucket_count as u128 / u128::from(duration))
+        as usize)
+        .min(bucket_count - 1)
+}
+
+fn bucket_span(
+    first: usize,
+    end_exclusive: usize,
+    start: u64,
+    duration: u64,
+    bucket_count: usize,
+) -> (u64, u64) {
+    let boundary = |bucket: usize| {
+        start.saturating_add(
+            (u128::from(duration) * bucket as u128 / bucket_count as u128).min(u128::from(u64::MAX))
+                as u64,
+        )
+    };
+    (boundary(first), boundary(end_exclusive).saturating_sub(1))
 }
 
 struct SigrokPayloadIngestor<T> {
@@ -367,27 +431,13 @@ adapter_factory!(sigrok_annotation_payload_adapter, SigrokAnnotation);
 adapter_factory!(sigrok_binary_payload_adapter, SigrokBinary);
 adapter_factory!(sigrok_generated_logic_payload_adapter, SigrokGeneratedLogic);
 adapter_factory!(sigrok_metadata_payload_adapter, SigrokMetadata);
-adapter_factory!(sigrok_protocol_packet_payload_adapter, SigrokProtocolPacket);
+adapter_factory!(sigrok_protocol_packet_payload_adapter, ProtocolPacket);
 
 fn metadata_table_value(value: SigrokMetadataValue) -> u64 {
     match value {
         SigrokMetadataValue::Unsigned(value) => value,
         SigrokMetadataValue::Signed(value) => value as u64,
         SigrokMetadataValue::Float(value) => value.to_bits(),
-    }
-}
-
-fn value_summary(value: &SigrokValue) -> String {
-    match value {
-        SigrokValue::Null => "null".into(),
-        SigrokValue::Bool(value) => value.to_string(),
-        SigrokValue::Integer(value) => value.to_string(),
-        SigrokValue::Float(value) => value.to_string(),
-        SigrokValue::String(value) => value.clone(),
-        SigrokValue::Bytes(value) => format!("{} bytes", value.len()),
-        SigrokValue::List(value) => format!("list[{}]", value.len()),
-        SigrokValue::Tuple(value) => format!("tuple[{}]", value.len()),
-        SigrokValue::Mapping(value) => format!("map[{}]", value.len()),
     }
 }
 
@@ -444,7 +494,7 @@ mod output_payload_tests {
             .snapshot(CollectedLaneSnapshotRequest {
                 start_time_ns: 30,
                 end_time_ns: 60,
-                max_items: 2,
+                max_items: 4,
             })
             .unwrap()
             .value::<SigrokLaneSnapshot<SigrokAnnotation>>()
@@ -455,8 +505,21 @@ mod output_payload_tests {
                 .iter()
                 .map(|entry| entry.class)
                 .collect::<Vec<_>>(),
-            [3, 4]
+            [3, 4, 5]
         );
+        assert!(snapshot.activity_spans().is_empty());
+
+        let dense_snapshot = query
+            .snapshot(CollectedLaneSnapshotRequest {
+                start_time_ns: 30,
+                end_time_ns: 60,
+                max_items: 2,
+            })
+            .unwrap()
+            .value::<SigrokLaneSnapshot<SigrokAnnotation>>()
+            .unwrap();
+        assert!(dense_snapshot.entries().is_empty());
+        assert_eq!(dense_snapshot.activity_spans(), [(30, 60)]);
         assert_eq!(query.nearest_time_boundary(46, 2), Some(45));
         assert_eq!(query.timeline_extent_end_ns(), Some(55));
         assert_eq!(query.table_metadata().unwrap().total_rows, 3);
@@ -494,8 +557,8 @@ mod output_payload_tests {
             "org.logicconduit.sigrok.metadata/v1",
             sigrok_metadata_payload_adapter(),
         );
-        assert_adapter_type::<SigrokProtocolPacket>(
-            "org.logicconduit.sigrok.protocol-packet/v1",
+        assert_adapter_type::<ProtocolPacket>(
+            "org.logicconduit.protocol-packet/v1",
             sigrok_protocol_packet_payload_adapter(),
         );
     }

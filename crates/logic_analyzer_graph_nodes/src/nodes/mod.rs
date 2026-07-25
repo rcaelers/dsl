@@ -8,7 +8,7 @@ mod registry;
 #[cfg(test)]
 mod test_support;
 
-mod decoders;
+pub(crate) mod decoders;
 mod logic;
 mod sinks;
 mod sources;

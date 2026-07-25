@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use egui::{Color32, Pos2};
 pub(crate) use input_bindings::MenuShortcut as Shortcut;
 use widget_support::{MENU_ICON_COLUMN_WIDTH, menu_item_layout_job};
@@ -142,6 +144,13 @@ struct Menu<T> {
     visible: bool,
     pos: Pos2,
     pending_close: bool,
+    column_heights: HashMap<Vec<String>, f32>,
+}
+
+#[derive(Clone, Copy)]
+struct SubmenuAnchor {
+    top: f32,
+    bottom: f32,
 }
 
 impl<T: Clone> Menu<T> {
@@ -158,17 +167,20 @@ impl<T: Clone> Menu<T> {
             visible: false,
             pos: Pos2::ZERO,
             pending_close: false,
+            column_heights: HashMap::new(),
         }
     }
 
     fn set_entries(&mut self, entries: Vec<MenuEntry<T>>) {
         self.entries = entries;
         self.title = None;
+        self.column_heights.clear();
     }
 
     fn set_entries_with_title(&mut self, title: impl Into<String>, entries: Vec<MenuEntry<T>>) {
         self.entries = entries;
         self.title = Some(title.into());
+        self.column_heights.clear();
     }
 
     fn open(&mut self, pos: Pos2) {
@@ -321,13 +333,23 @@ impl<T: Clone> Menu<T> {
         let title = self.title.clone();
         let mut sel = self.sel.clone();
         let area_id = self.area_id;
-        let pos = self.pos;
         let menu_signature = Self::entries_signature(&entries);
+        let mut column_heights = std::mem::take(&mut self.column_heights);
+        let root_height = column_heights.get(&Vec::new()).copied().unwrap_or_else(|| {
+            Self::estimated_column_height(ui, &entries, title.as_deref()) + 12.0
+        });
+        let root_width = Self::column_width(ui, &entries, title.as_deref()) + 8.0;
+        let pos = Self::clamp_root_position(
+            self.pos,
+            egui::vec2(root_width, root_height),
+            ui.ctx().content_rect().shrink(4.0),
+        );
 
         let mut result: Option<T> = None;
 
         let area_resp = egui::Area::new(area_id)
             .fixed_pos(pos)
+            .constrain(false)
             .order(egui::Order::Foreground)
             .layout(egui::Layout::top_down_justified(egui::Align::Min))
             .info(egui::UiStackInfo::new(egui::UiKind::Menu).with_tag_value(
@@ -348,16 +370,16 @@ impl<T: Clone> Menu<T> {
                         }
 
                         let column_offset = column_offsets.get(depth).copied().unwrap_or(0.0);
-                        let mut next_column_offset = None;
+                        let mut next_column_anchor = None;
                         ui.push_id(("menu-column", &menu_signature, &column_path), |ui| {
                             ui.vertical(|ui| {
                                 ui.add_space(column_offset);
-                                egui::Frame::menu(ui.style()).show(ui, |ui| {
+                                let frame = egui::Frame::menu(ui.style()).show(ui, |ui| {
                                     ui.allocate_ui_with_layout(
                                         egui::vec2(Self::MIN_WIDTH, 0.0),
                                         egui::Layout::top_down_justified(egui::Align::Min),
                                         |ui| {
-                                            next_column_offset = Self::render_column(
+                                            next_column_anchor = Self::render_column(
                                                 ui,
                                                 depth_entries,
                                                 &mut sel,
@@ -365,11 +387,12 @@ impl<T: Clone> Menu<T> {
                                                 depth,
                                                 (depth == 0).then_some(title.as_deref()).flatten(),
                                                 &mut result,
-                                            )
-                                            .map(|offset| column_offset + offset);
+                                            );
                                         },
                                     );
                                 });
+                                column_heights
+                                    .insert(column_path.clone(), frame.response.rect.height());
                             });
                         });
 
@@ -386,10 +409,27 @@ impl<T: Clone> Menu<T> {
                             break;
                         }
 
-                        if column_offsets.len() <= depth + 1 {
-                            column_offsets.push(next_column_offset.unwrap_or(column_offset));
-                        } else if let Some(offset) = next_column_offset {
-                            column_offsets[depth + 1] = offset;
+                        if let Some(anchor) = next_column_anchor {
+                            let child_path = Self::entry_path(&entries, &sel[..=depth]);
+                            let child_entries = Self::entries_at(&entries, &sel[..=depth]);
+                            let child_height =
+                                column_heights.get(&child_path).copied().unwrap_or_else(|| {
+                                    Self::estimated_column_height(ui, child_entries, None)
+                                });
+                            let desired_top = anchor.top - pos.y;
+                            let parent_bottom = anchor.bottom - pos.y;
+                            let screen_bottom = ui.ctx().content_rect().bottom() - pos.y;
+                            let offset = Self::submenu_offset(
+                                desired_top,
+                                parent_bottom,
+                                child_height,
+                                screen_bottom,
+                            );
+                            if column_offsets.len() <= depth + 1 {
+                                column_offsets.push(offset);
+                            } else {
+                                column_offsets[depth + 1] = offset;
+                            }
                         }
                         depth += 1;
                     }
@@ -399,6 +439,7 @@ impl<T: Clone> Menu<T> {
         self.entries = entries;
         self.sel = sel;
         self.btn_ids.clear();
+        self.column_heights = column_heights;
         (area_resp.response, result)
     }
 
@@ -529,8 +570,9 @@ impl<T: Clone> Menu<T> {
         depth: usize,
         title: Option<&str>,
         result: &mut Option<T>,
-    ) -> Option<f32> {
-        ui.set_min_width(Self::MIN_WIDTH);
+    ) -> Option<SubmenuAnchor> {
+        let column_width = Self::column_width(ui, entries, title);
+        ui.set_min_width(column_width);
 
         let sel_bg = ui.visuals().selection.bg_fill;
         let sel_at_depth = sel.get(depth).copied();
@@ -539,7 +581,6 @@ impl<T: Clone> Menu<T> {
             ui.label(egui::RichText::new(title).strong());
             ui.separator();
         }
-        let column_top = ui.next_widget_position().y;
         let mut selected_submenu_offset = None;
 
         for (i, entry) in entries.iter().enumerate() {
@@ -563,6 +604,7 @@ impl<T: Clone> Menu<T> {
                         let btn = egui::Button::new(egui::WidgetText::LayoutJob(job.into()))
                             .right_text(arrow)
                             .fill(fill)
+                            .min_size(egui::vec2(column_width, ui.spacing().interact_size.y))
                             .wrap_mode(egui::TextWrapMode::Extend);
                         let resp = ui.add(btn);
                         if resp.hovered() || resp.clicked() {
@@ -573,7 +615,10 @@ impl<T: Clone> Menu<T> {
                             sel.truncate(depth + 1);
                         }
                         if sel.get(depth) == Some(&i) {
-                            selected_submenu_offset = Some(resp.rect.min.y - column_top);
+                            selected_submenu_offset = Some(SubmenuAnchor {
+                                top: resp.rect.min.y,
+                                bottom: resp.rect.max.y,
+                            });
                         }
                     }
                     MenuKind::Action(action) => {
@@ -583,6 +628,8 @@ impl<T: Clone> Menu<T> {
                         if let Some(sc) = entry.shortcut {
                             btn = btn.right_text(sc.to_string());
                         }
+                        let btn =
+                            btn.min_size(egui::vec2(column_width, ui.spacing().interact_size.y));
                         let resp = ui.add(btn);
                         if entry.checked == Some(true) {
                             draw_checkmark(ui, &resp);
@@ -607,6 +654,73 @@ impl<T: Clone> Menu<T> {
             });
         }
         selected_submenu_offset
+    }
+
+    fn estimated_column_height(
+        ui: &egui::Ui,
+        entries: &[MenuEntry<T>],
+        title: Option<&str>,
+    ) -> f32 {
+        let rows = entries.iter().filter(|entry| !entry.is_separator()).count() as f32;
+        let separators = entries.iter().filter(|entry| entry.is_separator()).count() as f32;
+        let row_pitch = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+        let title_height = title.map_or(0.0, |_| row_pitch + 6.0);
+        8.0 + title_height + rows * row_pitch + separators * (6.0 + ui.spacing().item_spacing.y)
+    }
+
+    fn clamp_root_position(pos: Pos2, size: egui::Vec2, viewport: egui::Rect) -> Pos2 {
+        let max_x = (viewport.right() - size.x).max(viewport.left());
+        let max_y = (viewport.bottom() - size.y).max(viewport.top());
+        egui::pos2(
+            pos.x.clamp(viewport.left(), max_x),
+            pos.y.clamp(viewport.top(), max_y),
+        )
+    }
+
+    fn submenu_offset(
+        desired_top: f32,
+        parent_bottom: f32,
+        child_height: f32,
+        screen_bottom: f32,
+    ) -> f32 {
+        let fit_top = screen_bottom - child_height;
+        let bottom_aligned_to_parent = parent_bottom - child_height;
+        desired_top.min(fit_top.max(bottom_aligned_to_parent))
+    }
+
+    fn column_width(ui: &egui::Ui, entries: &[MenuEntry<T>], title: Option<&str>) -> f32 {
+        let font_id = egui::TextStyle::Button.resolve(ui.style());
+        let color = Color32::PLACEHOLDER;
+        let title_width = title.map_or(0.0, |title| {
+            ui.ctx().fonts_mut(|fonts| {
+                fonts
+                    .layout_no_wrap(title.to_owned(), font_id.clone(), color)
+                    .size()
+                    .x
+            })
+        });
+        let row_width = entries
+            .iter()
+            .filter(|entry| !entry.is_separator())
+            .map(|entry| {
+                let job = menu_item_layout_job(ui, entry.icon.as_deref(), &entry.label);
+                let label_width = ui.ctx().fonts_mut(|fonts| fonts.layout_job(job).size().x);
+                let right_text = match &entry.kind {
+                    MenuKind::SubMenu(_) => {
+                        Some(egui::containers::menu::SubMenuButton::RIGHT_ARROW.to_owned())
+                    }
+                    MenuKind::Action(_) => entry.shortcut.map(|shortcut| shortcut.to_string()),
+                    MenuKind::Palette(_) | MenuKind::Separator => None,
+                };
+                let right_width = right_text.map_or(0.0, |text| {
+                    ui.ctx().fonts_mut(|fonts| {
+                        fonts.layout_no_wrap(text, font_id.clone(), color).size().x
+                    }) + 12.0
+                });
+                label_width + right_width + 2.0 * ui.spacing().button_padding.x
+            })
+            .fold(0.0_f32, f32::max);
+        Self::MIN_WIDTH.max(row_width).max(title_width + 16.0)
     }
 
     fn render_palette(ui: &mut egui::Ui, items: &[(Color32, T)], result: &mut Option<T>) {
@@ -799,6 +913,44 @@ mod tests {
         assert_ne!(
             Menu::<()>::entries_signature(&first),
             Menu::<()>::entries_signature(&second)
+        );
+    }
+
+    #[test]
+    fn submenu_moves_without_moving_its_parent_column() {
+        assert_eq!(
+            Menu::<()>::submenu_offset(120.0, 140.0, 200.0, 500.0),
+            120.0
+        );
+        assert_eq!(
+            Menu::<()>::submenu_offset(350.0, 370.0, 200.0, 500.0),
+            300.0
+        );
+        assert_eq!(
+            Menu::<()>::submenu_offset(350.0, 370.0, 600.0, 500.0),
+            -100.0
+        );
+    }
+
+    #[test]
+    fn root_menu_is_clamped_fully_inside_the_viewport() {
+        let viewport = egui::Rect::from_min_max(egui::pos2(10.0, 20.0), egui::pos2(510.0, 420.0));
+
+        assert_eq!(
+            Menu::<()>::clamp_root_position(
+                egui::pos2(480.0, 390.0),
+                egui::vec2(180.0, 140.0),
+                viewport,
+            ),
+            egui::pos2(330.0, 280.0),
+        );
+        assert_eq!(
+            Menu::<()>::clamp_root_position(
+                egui::pos2(-20.0, -30.0),
+                egui::vec2(180.0, 140.0),
+                viewport,
+            ),
+            viewport.min,
         );
     }
 }

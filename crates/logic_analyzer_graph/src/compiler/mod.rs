@@ -5,6 +5,7 @@ mod graph;
 mod graph_compiler;
 mod graph_node_registration;
 mod saved_graph;
+mod viewer_selection;
 
 #[cfg(test)]
 mod architecture_tests;
@@ -30,3 +31,4 @@ pub(crate) use graph_node_registration::{
     standard_graph_node_builders, validate_graph_node_payload_requirements,
 };
 pub use saved_graph::GraphCompatibilityWarning;
+pub use viewer_selection::ViewerOutputSelection;

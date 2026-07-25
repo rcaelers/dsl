@@ -688,7 +688,15 @@ std::cfg_select! {
             .chain(args.cs)
             .max()
             .map_or(0, |channel| channel + 1);
-        let source = DslFileSource::new(&args.capture, required_channels as u8)?;
+        let source = DslFileSource::new(&args.capture)?;
+        if required_channels > source.num_channels() {
+            return Err(format!(
+                "capture has {} channels, but channel {} is required",
+                source.num_channels(),
+                required_channels - 1
+            )
+            .into());
+        }
         let samples = args.samples.min(source.total_samples());
         let samplerate_hz = source.samplerate_hz();
         let source = source.with_max_samples(Some(samples));
@@ -1104,7 +1112,7 @@ std::cfg_select! {
             let directory = tempfile::tempdir().unwrap();
             let capture = directory.path().join("sparse.dsl");
             write_sparse_capture(&capture);
-            let source = DslFileSource::new(&capture, 3).unwrap();
+            let source = DslFileSource::new(&capture).unwrap();
             let activity = source
                 .edge_query(2, &[])
                 .and_then(|query| query.activity_ratio_hint())
@@ -1147,7 +1155,7 @@ std::cfg_select! {
             let directory = tempfile::tempdir().unwrap();
             let capture = directory.path().join("dense.dsl");
             write_dense_capture(&capture);
-            let source = DslFileSource::new(&capture, 3).unwrap();
+            let source = DslFileSource::new(&capture).unwrap();
             let activity = source
                 .edge_query(2, &[])
                 .and_then(|query| query.activity_ratio_hint())

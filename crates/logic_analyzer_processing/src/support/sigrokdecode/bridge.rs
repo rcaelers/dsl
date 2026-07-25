@@ -50,10 +50,10 @@ pub(crate) enum BridgeError {
     InputQueueFull,
     #[error("decoder input queue is closed")]
     InputQueueClosed,
-    #[error("decoder output queue is full")]
-    OutputQueueFull,
     #[error("decoder output queue is closed")]
     OutputQueueClosed,
+    #[error("decoder was cancelled")]
+    Cancelled,
     #[error("decoder output ID {0} is not registered")]
     UnknownOutput(usize),
     #[error("decoder output ends before it starts")]
@@ -184,12 +184,12 @@ impl DecoderBridge {
         if output.output_id >= self.registrations.lock().unwrap().len() {
             return Err(BridgeError::UnknownOutput(output.output_id));
         }
-        self.output_sender
-            .try_send(output)
-            .map_err(|error| match error {
-                TrySendError::Full(_) => BridgeError::OutputQueueFull,
-                TrySendError::Disconnected(_) => BridgeError::OutputQueueClosed,
-            })
+        select_biased! {
+            recv(self.cancel_receiver) -> _ => Err(BridgeError::Cancelled),
+            send(self.output_sender, output) -> result => {
+                result.map_err(|_| BridgeError::OutputQueueClosed)
+            }
+        }
     }
 
     pub(crate) fn has_channel(&self, channel: usize) -> bool {
@@ -213,4 +213,64 @@ fn map_input_send(result: Result<(), TrySendError<InputMessage>>) -> Result<(), 
 
 pub(crate) fn matched_parts(result: WaitMatch) -> (u64, Vec<u8>, Option<Vec<bool>>) {
     (result.sample, result.pins, result.matched)
+}
+
+#[cfg(test)]
+mod bridge_tests {
+    use pyo3::Python;
+
+    use super::*;
+    use crate::support::InitialPin;
+
+    #[test]
+    fn full_output_queue_applies_backpressure_without_truncating_decoder_output() {
+        Python::initialize();
+        let (bridge, outputs) = DecoderBridge::new(vec![Some(InitialPin::Low)], 1).unwrap();
+        let output_id = bridge.register(OutputRegistration {
+            output_type: 0,
+            protocol_id: None,
+            metadata: None,
+        });
+        let output = move |sample| DecoderOutput {
+            start_sample: sample,
+            end_sample: sample,
+            output_id,
+            data: Python::attach(|py| py.None()),
+        };
+
+        bridge.put(output(1)).unwrap();
+        let blocked_bridge = Arc::clone(&bridge);
+        let blocked = std::thread::spawn(move || blocked_bridge.put(output(2)));
+
+        assert_eq!(outputs.recv().unwrap().start_sample, 1);
+        blocked.join().unwrap().unwrap();
+        assert_eq!(outputs.recv().unwrap().start_sample, 2);
+    }
+
+    #[test]
+    fn cancellation_interrupts_output_backpressure() {
+        Python::initialize();
+        let (bridge, _outputs) = DecoderBridge::new(vec![Some(InitialPin::Low)], 1).unwrap();
+        let output_id = bridge.register(OutputRegistration {
+            output_type: 0,
+            protocol_id: None,
+            metadata: None,
+        });
+        let output = move |sample| DecoderOutput {
+            start_sample: sample,
+            end_sample: sample,
+            output_id,
+            data: Python::attach(|py| py.None()),
+        };
+
+        bridge.put(output(1)).unwrap();
+        let blocked_bridge = Arc::clone(&bridge);
+        let blocked = std::thread::spawn(move || blocked_bridge.put(output(2)));
+        bridge.cancel();
+
+        assert!(matches!(
+            blocked.join().unwrap(),
+            Err(BridgeError::Cancelled)
+        ));
+    }
 }

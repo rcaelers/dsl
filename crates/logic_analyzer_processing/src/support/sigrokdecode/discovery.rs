@@ -397,12 +397,36 @@ fn channels(value: &Bound<'_, PyAny>) -> PyResult<Vec<SigrokDecoderChannelDescri
         .try_iter()?
         .map(|item| {
             let item = item?;
-            let item = item.cast::<PyDict>()?;
-            Ok(SigrokDecoderChannelDescriptor {
-                id: required_dict_item(item, "id")?.extract()?,
-                name: required_dict_item(item, "name")?.extract()?,
-                description: required_dict_item(item, "desc")?.extract()?,
-            })
+            if let Ok(item) = item.cast::<PyDict>() {
+                return Ok(SigrokDecoderChannelDescriptor {
+                    id: required_dict_item(item, "id")?.extract()?,
+                    name: required_dict_item(item, "name")?.extract()?,
+                    description: required_dict_item(item, "desc")?.extract()?,
+                });
+            }
+
+            // Some upstream decoders build generated-logic channels with
+            // compact `(id, name)` tuples instead of the dictionaries used
+            // by regular input channels. libsigrokdecode accepts both forms.
+            let fields = item
+                .try_iter()?
+                .map(|field| field.and_then(|field| field.extract::<String>()))
+                .collect::<PyResult<Vec<_>>>()?;
+            match fields.as_slice() {
+                [id, name] => Ok(SigrokDecoderChannelDescriptor {
+                    id: id.clone(),
+                    name: name.clone(),
+                    description: name.clone(),
+                }),
+                [id, name, description] => Ok(SigrokDecoderChannelDescriptor {
+                    id: id.clone(),
+                    name: name.clone(),
+                    description: description.clone(),
+                }),
+                _ => Err(PyValueError::new_err(
+                    "decoder channel must be a dictionary or an (id, name[, description]) sequence",
+                )),
+            }
         })
         .collect()
 }
@@ -603,6 +627,25 @@ mod tests {
         .unwrap();
     }
 
+    #[test]
+    fn standard_pca9571_tuple_channels_are_discovered() {
+        let Some(decoder_root) = local_decoder_root() else {
+            eprintln!("skipping PCA9571 discovery test: no local Sigrok decoder tree");
+            return;
+        };
+        if !decoder_root.join("pca9571/pd.py").is_file() {
+            eprintln!("skipping PCA9571 discovery test: decoder is unavailable");
+            return;
+        }
+        let _guard = python_test_lock().lock().unwrap();
+
+        let descriptor = discover_sigrok_decoder(decoder_root, "pca9571").unwrap();
+
+        assert_eq!(descriptor.logic_output_channels.len(), 8);
+        assert_eq!(descriptor.logic_output_channels[0].id, "p0");
+        assert_eq!(descriptor.logic_output_channels[7].name, "P7");
+    }
+
     fn local_decoder_root() -> Option<PathBuf> {
         std::env::var_os("SIGROK_DECODERS_DIR")
             .map(PathBuf::from)
@@ -659,6 +702,26 @@ mod tests {
             SigrokCatalogDiagnosticKind::MissingSearchPath
         );
         assert_eq!(snapshot.diagnostics[0].path, missing);
+    }
+
+    #[test]
+    fn generated_logic_channels_accept_sigrok_tuple_form() {
+        let directory = tempfile::tempdir().unwrap();
+        write_tuple_channel_fixture(directory.path());
+        let _guard = python_test_lock().lock().unwrap();
+
+        let snapshot = SigrokDecoderCatalog::default().refresh(&[directory.path().to_owned()]);
+
+        assert!(
+            snapshot.diagnostics.is_empty(),
+            "{:?}",
+            snapshot.diagnostics
+        );
+        let descriptor = &snapshot.entries[0].descriptor;
+        assert_eq!(descriptor.logic_output_channels.len(), 2);
+        assert_eq!(descriptor.logic_output_channels[0].id, "p0");
+        assert_eq!(descriptor.logic_output_channels[0].name, "P0");
+        assert_eq!(descriptor.logic_output_channels[0].description, "P0");
     }
 
     #[test]
@@ -721,6 +784,42 @@ class Decoder(srd.Decoder):
         pass
 "#
             ),
+        )
+        .unwrap();
+    }
+
+    fn write_tuple_channel_fixture(root: &Path) {
+        let package = root.join("tuple_channels");
+        fs::create_dir_all(&package).unwrap();
+        fs::write(package.join("__init__.py"), "from .pd import Decoder\n").unwrap();
+        fs::write(
+            package.join("pd.py"),
+            r#"import sigrokdecode as srd
+
+class Decoder(srd.Decoder):
+    api_version = 3
+    id = 'tuple_channels'
+    name = 'Tuple channels'
+    longname = 'Tuple channels'
+    desc = 'Tuple channel fixture.'
+    license = 'mit'
+    inputs = ['logic']
+    outputs = []
+    tags = ['Test']
+    channels = ({'id': 'data', 'name': 'Data', 'desc': 'Data'},)
+    optional_channels = ()
+    options = ()
+    annotations = ()
+    annotation_rows = ()
+    binary = ()
+    logic_output_channels = (('p0', 'P0'), ('p1', 'P1'))
+
+    def metadata(self, key, value):
+        self.samplerate = value
+
+    def start(self):
+        self.register(srd.OUTPUT_LOGIC)
+"#,
         )
         .unwrap();
     }

@@ -64,6 +64,15 @@ pub trait ConfigurationScheduler: Send + Sync {
     ) -> ConfigOutcome;
 }
 
+/// Thread-safe cancellation endpoint retained by a runtime supervisor after
+/// the processing node itself has moved into its worker thread.
+///
+/// Nodes with internal workers use this to interrupt a blocked `work()`
+/// call promptly when an interactive run is stopped.
+pub trait NodeCancellation: Send + Sync {
+    fn request_cancel(&self);
+}
+
 /// Outcome of a hot configuration attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigOutcome {
@@ -193,6 +202,12 @@ pub trait ProcessNode: Send {
         None
     }
 
+    /// Returns a thread-safe cancellation endpoint for work that can remain
+    /// blocked inside this node after the supervisor requests shutdown.
+    fn cancellation(&self) -> Option<Arc<dyn NodeCancellation>> {
+        None
+    }
+
     /// Random-access query handle for output port `port`, if this node
     /// can answer it without streaming. Only called by `Pipeline::build`
     /// for connections that negotiated
@@ -239,6 +254,9 @@ impl ProcessNode for Box<dyn ProcessNode> {
     }
     fn output_schema(&self) -> Vec<crate::ports::PortSchema> {
         (**self).output_schema()
+    }
+    fn cancellation(&self) -> Option<Arc<dyn NodeCancellation>> {
+        (**self).cancellation()
     }
     fn select_input_protocols(
         &self,

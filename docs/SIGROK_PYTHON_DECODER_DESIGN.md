@@ -118,8 +118,11 @@ which implementation wins. Saved graphs retain
 the decoder ID, compatibility profile, relevant package fingerprint, configured channel mapping,
 options, and protocol input/output schema.
 
-Discovery is cached outside the frame-rendering path. Refreshing decoder directories is an
-explicit host operation and cannot mutate an executing pipeline.
+The native Preferences window owns an ordered collection of external decoder directories. Adding,
+removing, or rescanning directories starts discovery on a background thread; the UI continues to
+render and reports scan progress and package diagnostics. The collection is persisted in the
+application configuration directory. A completed scan atomically replaces one catalog-owned set
+of generic graph-node templates and cannot mutate an executing pipeline.
 
 ## Python module and instance association
 
@@ -198,21 +201,24 @@ ordinary node-graph connections; the Python host does not construct, configure, 
 hidden decoder stack. A graph connection is valid when the emitted protocol ID intersects the
 receiving decoder's declared inputs. Routing uses those declared IDs, not decoder names.
 
-`OUTPUT_PYTHON` therefore crosses a processing boundary as an owned protocol packet. The Sigrok
-owner converts the supported Python value subset into a recursive value model containing null,
-booleans, integers, floats, strings, bytes, lists, tuples, and string-keyed mappings. A packet that
-cannot be represented produces a structured compatibility error. The receiving node reconstructs
-the corresponding Python value before invoking `decode(start_sample, end_sample, data)`.
+`OUTPUT_PYTHON` therefore crosses a processing boundary as the shared, protocol-neutral
+`ProtocolPacket` runtime type. Its recursive `ProtocolValue` model contains null, booleans,
+integers, floats, strings, bytes, lists, tuples, and string-keyed mappings. Native decoder nodes can
+emit the same type when they implement an explicitly documented protocol contract; the native I²C
+decoder, for example, emits the standard Sigrok `i2c` packet vocabulary as well as native words.
+A packet that cannot be represented produces a structured compatibility error. A receiving Sigrok
+node reconstructs the corresponding Python value before invoking
+`decode(start_sample, end_sample, data)`.
 
 ## Output payloads
 
-The Sigrok processing owner registers distinct stable payload identities:
+The processing and graph-node owners register distinct stable payload identities:
 
 - annotation: span, annotation class, row membership, and ordered alternative texts;
 - binary: span, binary class, and bytes;
 - generated logic: span, declared group/channel identity, and sample values;
 - metadata: registered name, description, numeric type, and value;
-- protocol packet: protocol ID and an owner-defined opaque or recursively owned value.
+- protocol packet: a shared protocol ID plus an owner-defined recursively owned value.
 
 `put()` validates output IDs, sample ranges, class indices, and value shapes at the Python boundary.
 Invalid output is reported with decoder ID and Python traceback context.
@@ -223,9 +229,13 @@ remain sibling subscribers and do not know that the payload originated in Python
 
 ## Graph node and saved state
 
-One generic `Sigrok Decoder` feature represents discovered decoders. Its state selects the decoder
-descriptor and stores options, channel mapping, compatibility profile, and protocol input/output
-connections. It does not generate a Rust node type for every Python package.
+One generic, restorable `Sigrok Decoder` feature represents discovered decoders. The base feature
+is hidden from the Add menu. Each catalog result contributes a preconfigured Add-menu template,
+grouped by its declared Sigrok tag and explicitly labeled as external Sigrok code. Instantiating a
+template still creates the generic feature, so saved graphs do not depend on ephemeral template
+names. Its state selects the decoder descriptor and stores options, channel mapping, compatibility
+profile, and protocol input/output connections. It does not generate a Rust node type for every
+Python package.
 
 The graph model provides an instance-schema contract so inputs, outputs, and controls are derived
 from validated saved state and a host-supplied decoder catalog. That contract is generic: it allows a

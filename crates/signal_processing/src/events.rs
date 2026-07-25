@@ -13,6 +13,9 @@
 //!
 //! All timestamps are nanoseconds, in the same domain as `Sample.start_time_ns`.
 
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
 /// Longest inferred display span for an instantaneous word when no recent
 /// cadence is available. Prevents sparse word events from painting a value
 /// continuously across an unrelated or gated-off interval.
@@ -56,6 +59,50 @@ pub(crate) fn instantaneous_word_end_ns_with_limit(
 pub struct Trigger {
     /// Timestamp in nanoseconds.
     pub timestamp_ns: u64,
+}
+
+/// Open, protocol-neutral value transported between independently authored
+/// decoder nodes. Concrete protocol contracts determine which shapes are
+/// meaningful on a connection.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ProtocolValue {
+    Null,
+    Bool(bool),
+    Integer(i128),
+    Float(f64),
+    String(String),
+    Bytes(Arc<[u8]>),
+    List(Vec<Self>),
+    Tuple(Vec<Self>),
+    Mapping(BTreeMap<String, Self>),
+}
+
+/// Timestamped structured value exchanged by stacked protocol decoders.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProtocolPacket {
+    pub start_sample: u64,
+    pub end_sample: u64,
+    pub start_time_ns: u64,
+    pub end_time_ns: u64,
+    pub protocol_id: String,
+    pub value: ProtocolValue,
+}
+
+impl ProtocolPacket {
+    pub fn display_text(&self) -> String {
+        let value = match &self.value {
+            ProtocolValue::Null => "null".into(),
+            ProtocolValue::Bool(value) => value.to_string(),
+            ProtocolValue::Integer(value) => value.to_string(),
+            ProtocolValue::Float(value) => value.to_string(),
+            ProtocolValue::String(value) => value.clone(),
+            ProtocolValue::Bytes(value) => format!("{} bytes", value.len()),
+            ProtocolValue::List(value) => format!("list[{}]", value.len()),
+            ProtocolValue::Tuple(value) => format!("tuple[{}]", value.len()),
+            ProtocolValue::Mapping(value) => format!("map[{}]", value.len()),
+        };
+        format!("{} · {value}", self.protocol_id)
+    }
 }
 
 impl Trigger {

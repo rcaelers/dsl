@@ -157,6 +157,7 @@ pub struct DiscoveredTriggerConfiguration {
 pub struct DiscoveredLiveCaptureFeature {
     source_node: NodeId,
     source_title: String,
+    visible_channels: Vec<usize>,
     feature: Box<dyn LiveCaptureFeature>,
 }
 
@@ -166,9 +167,20 @@ impl DiscoveredLiveCaptureFeature {
         source_title: impl Into<String>,
         feature: Box<dyn LiveCaptureFeature>,
     ) -> Self {
+        let visible_channels = (0..feature.channels().len()).collect();
+        Self::new_with_visible_channels(source_node, source_title, visible_channels, feature)
+    }
+
+    fn new_with_visible_channels(
+        source_node: NodeId,
+        source_title: impl Into<String>,
+        visible_channels: Vec<usize>,
+        feature: Box<dyn LiveCaptureFeature>,
+    ) -> Self {
         Self {
             source_node,
             source_title: source_title.into(),
+            visible_channels,
             feature,
         }
     }
@@ -187,6 +199,10 @@ impl DiscoveredLiveCaptureFeature {
 
     pub fn channel_names(&self) -> &[String] {
         self.feature.channel_names()
+    }
+
+    pub fn visible_channels(&self) -> &[usize] {
+        &self.visible_channels
     }
 
     pub fn sample_rate_hz(&self) -> f64 {
@@ -240,6 +256,7 @@ pub struct LiveCaptureDiscoveryError {
 
 pub struct DiscoveredCapturePresentation {
     pub identity: String,
+    pub visible_channels: Vec<usize>,
     pub presentation: CapturePresentation,
 }
 
@@ -467,6 +484,22 @@ impl BuilderRegistry {
     }
 }
 
+fn capture_channel_selection(
+    graph: &GraphState,
+    registry: &BuilderRegistry,
+    node_id: NodeId,
+    node: &Node,
+    builder: &dyn RuntimeBuilder,
+) -> Vec<usize> {
+    super::viewer_selection::viewer_output_selections(graph, registry)
+        .into_iter()
+        .filter(|selection| selection.node == node_id && selection.selected)
+        .filter_map(|selection| {
+            builder.viewer_channel_origin(&node.outputs[selection.output], &node.state)
+        })
+        .collect()
+}
+
 /// Discovers a concrete source's pre-run presentation through its builder contract.
 pub(crate) fn discover_capture_presentation(
     graph: &GraphState,
@@ -483,9 +516,12 @@ pub(crate) fn discover_capture_presentation(
         let Some(presentation) = builder.capture_presentation(&node.state)? else {
             continue;
         };
-        let state = serde_json::to_vec(&node.state).map_err(|error| error.to_string())?;
+        let visible_channels = capture_channel_selection(graph, builders, node_id, node, builder);
+        let identity_state = (&node.state, &visible_channels);
+        let state = serde_json::to_vec(&identity_state).map_err(|error| error.to_string())?;
         candidates.push(DiscoveredCapturePresentation {
             identity: format!("{node_id:?}:{}", blake3::hash(&state).to_hex()),
+            visible_channels,
             presentation,
         });
     }
@@ -643,9 +679,10 @@ fn discover_live_capture_feature_from(
                         message: format!("{}: {message}", node.title),
                     });
                 }
-                candidates.push(DiscoveredLiveCaptureFeature::new(
+                candidates.push(DiscoveredLiveCaptureFeature::new_with_visible_channels(
                     node.id,
                     node.title.clone(),
+                    capture_channel_selection(graph, builders, node.id, node, builder),
                     feature,
                 ));
             }
@@ -855,9 +892,8 @@ fn member_index(node: &Node, socket_index: usize) -> usize {
 }
 
 /// Fixed id for the compiler-synthesized `Viewer` sink that gathers every
-/// selectable output checked in the graph widget's generic View panel
-/// (`Socket::view_selectable`, `Socket::show_in_view`, `docs/APP_DESIGN.md`)
-/// without an explicit wire.
+/// output selected by the host-owned viewer-selection contract without an
+/// explicit wire.
 /// Kept constant (rather than derived from the graph's own ids) so
 /// live-diffing sees the same node across `lower()` calls while the watched
 /// set is unchanged, regardless of how many real nodes come and go.
@@ -871,16 +907,27 @@ const AUTO_DATA_COLLECTOR_NODE_ID: NodeId = NodeId(u32::MAX - 1);
 /// connection would take, so nothing downstream in `lower()` needs to know
 /// this node isn't real.
 fn with_auto_view_sink(graph: &GraphState, registry: &BuilderRegistry) -> GraphState {
+    let selected: std::collections::HashSet<_> =
+        super::viewer_selection::viewer_output_selections(graph, registry)
+            .into_iter()
+            .filter(|selection| selection.selected)
+            .map(|selection| (selection.node, selection.output))
+            .collect();
     let mut watched: Vec<(SocketId, String)> = graph
         .nodes
         .iter()
         .filter(|(_, node)| node.kind == NodeKind::Regular)
         .flat_map(|(&id, node)| {
+            let selected = &selected;
             node.outputs
                 .iter()
                 .enumerate()
-                .filter(|(_, output)| {
-                    output.visible && output.view_selectable && output.show_in_view
+                .filter(move |(index, output)| {
+                    output.visible
+                        && selected.contains(&(id, *index))
+                        && registry.get(node.def_name()).is_none_or(|builder| {
+                            builder.viewer_channel_origin(output, &node.state).is_none()
+                        })
                 })
                 .map(move |(index, output)| {
                     (
@@ -910,8 +957,7 @@ fn with_auto_view_sink(graph: &GraphState, registry: &BuilderRegistry) -> GraphS
                 .iter()
                 .enumerate()
                 .filter(|(index, output)| {
-                    let collected_for_view =
-                        output.visible && output.view_selectable && output.show_in_view;
+                    let collected_for_view = output.visible && selected.contains(&(id, *index));
                     let collected_by_explicit_sink = graph.connections.iter().any(|connection| {
                         connection.from.node == id
                             && connection.from.index == *index
@@ -968,9 +1014,7 @@ fn with_auto_view_sink(graph: &GraphState, registry: &BuilderRegistry) -> GraphS
             editor_visible: true,
             hidden: false,
             has_control: false,
-            view_selectable: false,
-            view_indicator_sources: Vec::new(),
-            show_in_view: false,
+            extensions: Default::default(),
         })
         .collect();
     if !inputs.is_empty() {
@@ -1017,9 +1061,7 @@ fn with_auto_view_sink(graph: &GraphState, registry: &BuilderRegistry) -> GraphS
                 editor_visible: false,
                 hidden: true,
                 has_control: false,
-                view_selectable: false,
-                view_indicator_sources: Vec::new(),
-                show_in_view: false,
+                extensions: Default::default(),
             })
             .collect();
         let mut collector = Node::blank(
@@ -2159,6 +2201,41 @@ mod tests {
 
     use super::*;
 
+    fn set_viewer_selection(
+        widget: &mut NodeGraphWidget,
+        node: NodeId,
+        output: usize,
+        selected: bool,
+    ) {
+        let output_id = widget.graph().nodes[&node].outputs[output]
+            .schema_id
+            .clone();
+        super::super::viewer_selection::set_viewer_output_selected(
+            widget.graph_mut(),
+            &BuilderRegistry::standard(),
+            node,
+            &output_id,
+            selected,
+        )
+        .unwrap();
+    }
+
+    fn select_named_output(widget: &mut NodeGraphWidget, node_title: &str, output_name: &str) {
+        let node = widget
+            .graph()
+            .nodes
+            .values()
+            .find(|node| node.title == node_title)
+            .unwrap_or_else(|| panic!("missing node '{node_title}'"));
+        let output = node
+            .outputs
+            .iter()
+            .position(|output| output.name == output_name)
+            .unwrap_or_else(|| panic!("missing output '{node_title}.{output_name}'"));
+        let node = node.id;
+        set_viewer_selection(widget, node, output, true);
+    }
+
     fn discover_compiled_live_capture_feature(
         graph: &GraphState,
         compiled: &CompiledGraph,
@@ -2242,6 +2319,17 @@ mod tests {
     fn startup_widget() -> NodeGraphWidget {
         let mut widget = NodeGraphWidget::new(nodes::build_registry());
         nodes::test_graphs_tests::populate_startup(&mut widget);
+        for (node, output) in [
+            ("SPI Decoder", "MOSI Bits"),
+            ("SPI Decoder", "MOSI Data"),
+            ("Match Start", "Match"),
+            ("Match Stop", "Match"),
+            ("SR Flip-Flop", "Q"),
+            ("Enable Gate", "Out"),
+            ("Binary Decoder", "Words"),
+        ] {
+            select_named_output(&mut widget, node, output);
+        }
         widget
     }
 
@@ -2254,6 +2342,20 @@ mod tests {
     fn binary_decoder_demo_widget() -> NodeGraphWidget {
         let mut widget = NodeGraphWidget::new(nodes::build_registry());
         nodes::test_graphs_tests::build_binary_decoder_demo(&mut widget);
+        for (node, output) in [
+            ("SR Flip-Flop", "Q"),
+            ("Parallel Enable Gate", "Out"),
+            ("Match Start 0x9A", "Match"),
+            ("Match Stop 0xDE", "Match"),
+            ("SPI Decoder", "MOSI Bits"),
+            ("SPI Decoder", "MOSI Data"),
+            ("SPI Decoder", "MISO Bits"),
+            ("SPI Decoder", "MISO Data"),
+            ("Parallel Decoder", "Words"),
+            ("String Formatter", "Text"),
+        ] {
+            select_named_output(&mut widget, node, output);
+        }
         widget
     }
 
@@ -2729,6 +2831,7 @@ mod tests {
 
         let mut widget = NodeGraphWidget::new(nodes::build_registry());
         let source_node = nodes::test_graphs_tests::build_live_binary_test(&mut widget);
+        select_named_output(&mut widget, "Binary Decoder", "Words");
         let captured_feature =
             discover_live_capture_feature(widget.graph(), &BuilderRegistry::standard())
                 .unwrap()
@@ -3009,6 +3112,7 @@ mod tests {
 
         assert_eq!(feature.source_node, source);
         assert_eq!(feature.channels().len(), 11);
+        assert_eq!(feature.visible_channels(), &(0..11).collect::<Vec<_>>());
         assert_eq!(feature.channels()[7].as_str(), "demo:7");
         assert_eq!(feature.simple_trigger_channels().len(), 11);
         assert!(
@@ -3017,6 +3121,13 @@ mod tests {
                 .iter()
                 .all(|channel| channel.condition == SimpleTriggerCondition::Ignore)
         );
+        drop(feature);
+        set_viewer_selection(&mut widget, source, 7, false);
+        let feature = discover_live_capture_feature(widget.graph(), &BuilderRegistry::standard())
+            .unwrap()
+            .unwrap();
+        assert!(!feature.visible_channels().contains(&7));
+        assert_eq!(feature.visible_channels().len(), 10);
 
         let state = apply_live_capture_edit(
             widget.graph(),
@@ -3316,43 +3427,79 @@ mod tests {
         widget
     }
 
-    fn watch_first_output(widget: &mut NodeGraphWidget) -> NodeId {
+    fn hide_first_output(widget: &mut NodeGraphWidget) -> NodeId {
         let id = *widget.graph().nodes.keys().next().unwrap();
-        widget.graph_mut().nodes.get_mut(&id).unwrap().outputs[0].show_in_view = true;
+        set_viewer_selection(widget, id, 0, false);
         id
     }
 
     fn selectable_output_widget() -> NodeGraphWidget {
         let mut widget = NodeGraphWidget::new(nodes::build_registry());
         nodes::test_graphs_tests::build_live_binary_test(&mut widget);
+        let decoder = widget
+            .graph()
+            .nodes
+            .values()
+            .find(|node| {
+                node.def_name() == nodes::node_name("org.logicconduit.graph-node.binary-decoder/v1")
+            })
+            .unwrap();
+        let output = decoder
+            .outputs
+            .iter()
+            .position(|output| output.name == "Words")
+            .unwrap();
+        let decoder = decoder.id;
+        set_viewer_selection(&mut widget, decoder, output, true);
         widget
     }
 
     fn first_watched_selectable_output(widget: &NodeGraphWidget) -> (NodeId, usize) {
-        widget
-            .graph()
-            .nodes
-            .values()
-            .find_map(|node| {
-                node.outputs
-                    .iter()
-                    .position(|output| output.view_selectable && output.show_in_view)
-                    .map(|index| (node.id, index))
-            })
-            .expect("test graph has a watched selectable output")
+        super::super::viewer_selection::viewer_output_selections(
+            widget.graph(),
+            &BuilderRegistry::standard(),
+        )
+        .into_iter()
+        .find(|selection| {
+            let node = &widget.graph().nodes[&selection.node];
+            let builder = BuilderRegistry::standard();
+            selection.selected
+                && builder.get(node.def_name()).is_some_and(|builder| {
+                    builder
+                        .viewer_channel_origin(&node.outputs[selection.output], &node.state)
+                        .is_none()
+                })
+        })
+        .map(|selection| (selection.node, selection.output))
+        .expect("test graph has a watched selectable output")
     }
 
     #[test]
     fn unwatched_source_has_no_sink() {
-        let widget = source_only_widget();
+        let mut widget = source_only_widget();
+        hide_first_output(&mut widget);
         let errors = lower(widget.graph(), &BuilderRegistry::standard()).unwrap_err();
         assert!(errors.iter().any(|e| e.message.contains("no sink")));
     }
 
     #[test]
-    fn non_selectable_source_output_ignores_a_legacy_view_flag() {
-        let mut widget = source_only_widget();
-        watch_first_output(&mut widget);
+    fn raw_source_output_is_visible_by_default_without_becoming_a_derived_sink() {
+        let widget = source_only_widget();
+        let source = widget.graph().nodes.values().next().unwrap();
+        assert!(
+            super::super::viewer_selection::viewer_output_selections(
+                widget.graph(),
+                &BuilderRegistry::standard(),
+            )
+            .into_iter()
+            .any(|selection| selection.node == source.id && selection.selected)
+        );
+
+        let presentation =
+            discover_capture_presentation(widget.graph(), &BuilderRegistry::standard())
+                .unwrap()
+                .expect("source provides a capture presentation");
+        assert_eq!(presentation.visible_channels, [0]);
 
         let errors = lower(widget.graph(), &BuilderRegistry::standard()).unwrap_err();
         assert!(errors.iter().any(|error| error.message.contains("no sink")));
@@ -3369,12 +3516,13 @@ mod tests {
             nodes::node_name("org.logicconduit.graph-node.string-formatter/v1"),
         ] {
             let node = widget
-                .graph_mut()
+                .graph()
                 .nodes
-                .values_mut()
+                .values()
                 .find(|node| node.def_name() == definition)
                 .unwrap_or_else(|| panic!("missing {definition}"));
-            node.outputs[0].show_in_view = true;
+            let node = node.id;
+            set_viewer_selection(&mut widget, node, 0, true);
         }
 
         let compiled = lower(widget.graph(), &BuilderRegistry::standard())
@@ -3437,8 +3585,7 @@ mod tests {
         let registry = BuilderRegistry::standard();
         assert!(lower(widget.graph(), &registry).is_ok());
 
-        widget.graph_mut().nodes.get_mut(&node_id).unwrap().outputs[output_index].show_in_view =
-            false;
+        set_viewer_selection(&mut widget, node_id, output_index, false);
         let compiled = lower(widget.graph(), &registry).unwrap();
         assert!(compiled.nodes.iter().all(|node| node.builder != "Viewer"));
         assert!(compiled.nodes.iter().any(|node| node.data_collector));
@@ -3730,7 +3877,7 @@ mod tests {
         let mut widget = uart_demo_widget();
         let decoder = node_by_def(&widget, "UART Decoder");
         let bits = output_index(&widget, decoder, "Bits");
-        widget.graph_mut().nodes.get_mut(&decoder).unwrap().outputs[bits].show_in_view = true;
+        set_viewer_selection(&mut widget, decoder, bits, true);
 
         let (compiled, _) = run_cooperatively(&widget);
         assert!(
@@ -4199,69 +4346,6 @@ mod tests {
         );
     }
 
-    /// A wired File socket on the DSL File Source builds the deferred
-    /// variant (filename arrives at run start over the wire); unconnected
-    /// keeps the build-time open, and unconnected + empty picker is
-    /// required (a compile error).
-    #[test]
-    fn file_source_with_wired_filename_builds_deferred_source() {
-        use signal_processing::TextSample;
-
-        let builder = nodes::node_builder("org.logicconduit.graph-node.dsl-file-source/v1");
-        let mut state = nodes::default_node_state("org.logicconduit.graph-node.dsl-file-source/v1");
-        state["channels"]["value"] = 4.into();
-
-        let file_socket = Socket {
-            schema_id: String::new(),
-            name: "File".into(),
-            type_name: "Text".into(),
-            color: egui::Color32::WHITE,
-            shape: node_graph::SocketShape::Circle,
-            allowed: vec![],
-            resolved_type: None,
-            def_index: 0,
-            variadic: None,
-            visible: true,
-            editor_visible: true,
-            hidden: false,
-            has_control: true,
-            view_selectable: false,
-            view_indicator_sources: Vec::new(),
-            show_in_view: false,
-        };
-        assert_eq!(
-            builder.accepted_kinds(&file_socket, &state),
-            vec![PortKind::of::<TextSample>()],
-            "the File socket accepts a Text filename wire"
-        );
-        assert!(!builder.input_required(&file_socket, &state));
-
-        let mut resolved = ResolvedInputs::default();
-        resolved.insert(
-            0,
-            0,
-            ResolvedInput {
-                kind: PortKind::of::<TextSample>(),
-                source: "Formatter.Text".into(),
-                source_node: NodeId(1),
-                source_node_title: "Formatter".into(),
-                word_display_format: None,
-                viewer_presentation: None,
-                default_viewer_presentation: None,
-                decoder_table_column: None,
-                capture_channel: None,
-            },
-        );
-        let node = builder
-            .build("src", &state, &resolved, &mut CompileCtx::default())
-            .expect("wired filename must not require the file to exist at build");
-        assert_eq!(
-            node.num_inputs(),
-            1,
-            "expected the deferred source (one filename input)"
-        );
-    }
-
     /// The counterpart to `missing_writer_input_is_reported`: with the
     /// writer's static filename (save-dialog prop) set, an unconnected
     /// Filename input is fine — the graph compiles and the writer is built
@@ -4600,7 +4684,15 @@ mod tests {
             },
         );
         let matcher_out = out_idx(graph, matcher, "Match");
-        graph.nodes.get_mut(&matcher).unwrap().outputs[matcher_out].show_in_view = true;
+        let output_id = graph.nodes[&matcher].outputs[matcher_out].schema_id.clone();
+        super::super::viewer_selection::set_viewer_output_selected(
+            graph,
+            &BuilderRegistry::standard(),
+            matcher,
+            &output_id,
+            true,
+        )
+        .unwrap();
         matcher
     }
 
@@ -4636,7 +4728,7 @@ mod tests {
         let old = lower(widget.graph(), &registry).unwrap();
 
         let source = node_by_def(&widget, "DSL File Source");
-        widget.graph_mut().nodes.get_mut(&source).unwrap().outputs[9].show_in_view = true;
+        set_viewer_selection(&mut widget, source, 9, true);
 
         let new = lower(widget.graph(), &registry).unwrap();
         assert!(diff(&old, &new, &registry).unwrap().is_empty());
@@ -4664,7 +4756,7 @@ mod tests {
 
         let mut pipeline = Pipeline::new().with_default_buffer_size(10_000_000);
         pipeline
-            .add_process("source", DslFileSource::new(capture, 11).unwrap())
+            .add_process("source", DslFileSource::new(capture).unwrap())
             .unwrap();
         pipeline
             .add_process("spi", SpiDecoder::new(SpiMode::Mode0, 24, true, false))
@@ -4764,7 +4856,7 @@ mod tests {
 
         let mut pipeline = Pipeline::new().with_default_buffer_size(10_000_000);
         pipeline
-            .add_process("source", DslFileSource::new(capture, 11).unwrap())
+            .add_process("source", DslFileSource::new(capture).unwrap())
             .unwrap();
         pipeline
             .add_process("spi", SpiDecoder::new(SpiMode::Mode0, 24, true, false))

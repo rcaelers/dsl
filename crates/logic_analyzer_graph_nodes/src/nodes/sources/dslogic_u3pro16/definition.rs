@@ -29,7 +29,7 @@ const U3_RATES: &[(&str, u64)] = &[
     ("1 GHz", 1_000_000_000),
 ];
 const MAX_STREAM_SAMPLES: u64 = 1 << 34;
-const U3PRO16_STATE_VERSION: u16 = 4;
+const U3PRO16_STATE_VERSION: u16 = 5;
 pub(crate) const U3PRO16_CHANNELS: usize = 16;
 
 fn u3_rate_names() -> Vec<&'static str> {
@@ -736,7 +736,7 @@ impl NodeDef for DsLogicU3Pro16 {
 
     fn outputs() -> Vec<OutputDef<Self::State>> {
         (0..16_usize)
-            .map(|i| OutputDef::new::<Signal>(format!("Ch {i}")).view_selectable(false))
+            .map(|i| OutputDef::new::<Signal>(format!("Ch {i}")))
             .collect()
     }
 
@@ -746,6 +746,10 @@ impl NodeDef for DsLogicU3Pro16 {
 
     fn props() -> Vec<PropDef<Self::State>> {
         vec![PropDef::control("summary", "", |state| &mut state.summary)]
+    }
+
+    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+        vec![crate::presentation::viewer_outputs_panel()]
     }
 
     fn panel() -> Vec<PanelSection<Self::State>> {
@@ -1022,7 +1026,7 @@ mod tests {
         assert!(warning.text.contains("schema 0"));
         assert!(warning.text.contains("defaulted to Ignore"));
         let current = serde_json::to_value(restored).unwrap();
-        assert_eq!(current["schema_version"], 4);
+        assert_eq!(current["schema_version"], 5);
         assert_eq!(current["recording_start"]["value"], "Immediate");
         assert_eq!(current["trigger_position_percent"]["value"], 50);
         assert_eq!(current["retention"]["value"], "Everything");

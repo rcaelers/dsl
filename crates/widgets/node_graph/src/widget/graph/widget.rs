@@ -1,4 +1,5 @@
-use std::collections::{HashMap, HashSet};
+use std::any::Any;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -9,10 +10,11 @@ use input_bindings::InputBindings;
 use super::action::HotkeyRegistry;
 use super::interaction::{GraphResponses, InteractionState};
 use super::menu::MenuController;
-use super::panel::{PanelState, PanelTab};
+use super::panel::PanelState;
 use super::{layout, render};
-use crate::model::{FrameId, GraphState, Node, NodeBadge, NodeId};
-use crate::runtime::{NodeInstance, NodeRuntime, NodeTypeRegistry};
+use crate::api::{PanelAction, PanelTabDef, SocketIndicatorPresentation};
+use crate::model::{FrameId, GraphState, Node, NodeBadge, NodeId, SocketId};
+use crate::runtime::{NodeInstance, NodeRuntime, NodeTemplate, NodeTypeRegistry};
 use crate::support::ViewState;
 
 // ── Main widget ───────────────────────────────────────────────────────────────
@@ -57,6 +59,14 @@ pub struct NodeGraphWidget {
     /// Host-provided, application-neutral node context actions.
     pub(crate) node_context_actions: HashMap<NodeId, Vec<NodeContextAction>>,
     pub(crate) node_context_action_request: Option<(NodeId, String)>,
+    /// Host data is keyed by node and node-owned panel ID. The widget only
+    /// passes the opaque value to that panel's presentation.
+    pub(crate) panel_data: HashMap<(NodeId, String), Arc<dyn Any + Send + Sync>>,
+    pub(crate) panel_action: Option<PanelAction>,
+    /// Transient socket decorations grouped by host-owned namespace so one
+    /// feature can replace or clear its indicators without touching another.
+    pub(crate) socket_indicators: SocketIndicatorRegistry,
+    pub(crate) panel_tabs: Vec<PanelTabDef>,
     /// Host-controlled edit gate. View navigation, selection, inspection,
     /// and copy remain available while graph mutations are disabled.
     pub(crate) editing_enabled: bool,
@@ -71,6 +81,9 @@ pub struct NodeContextAction {
     pub icon: Option<String>,
     pub checked: bool,
 }
+
+pub(crate) type SocketIndicatorRegistry =
+    BTreeMap<String, HashMap<SocketId, BTreeMap<String, Arc<dyn SocketIndicatorPresentation>>>>;
 
 impl NodeContextAction {
     pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
@@ -105,32 +118,6 @@ pub(crate) struct NodeRenameState {
     pub(crate) screen_pos: Pos2,
 }
 
-/// Public mirror of the internal `PanelTab` — kept separate so the widget's
-/// internal panel module doesn't need to be part of the crate's API surface.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum GraphPanelTab {
-    Node,
-    View,
-}
-
-impl From<PanelTab> for GraphPanelTab {
-    fn from(tab: PanelTab) -> Self {
-        match tab {
-            PanelTab::Node => Self::Node,
-            PanelTab::View => Self::View,
-        }
-    }
-}
-
-impl From<GraphPanelTab> for PanelTab {
-    fn from(tab: GraphPanelTab) -> Self {
-        match tab {
-            GraphPanelTab::Node => Self::Node,
-            GraphPanelTab::View => Self::View,
-        }
-    }
-}
-
 /// Persistable UI state that isn't part of the graph document itself —
 /// N-panel width/tab and minimap visibility (Phase 5.2). The host app reads
 /// this via [`NodeGraphWidget::ui_prefs`] to save it and restores it via
@@ -138,7 +125,7 @@ impl From<GraphPanelTab> for PanelTab {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GraphUiPrefs {
     pub panel_width: f32,
-    pub panel_tab: Option<GraphPanelTab>,
+    pub panel_tab: Option<String>,
     pub minimap_visible: bool,
 }
 
@@ -153,6 +140,10 @@ fn graph_pointer(
 }
 
 impl NodeGraphWidget {
+    pub fn replace_node_templates(&mut self, namespace: &str, templates: Vec<NodeTemplate>) {
+        self.registry.replace_templates(namespace, templates);
+    }
+
     pub fn new(registry: NodeTypeRegistry) -> Self {
         let input_bindings = Arc::new(
             InputBindings::from_json(r#"{"bindings":[]}"#)
@@ -184,6 +175,10 @@ impl NodeGraphWidget {
             clear_derived_cache_request: None,
             node_context_actions: HashMap::new(),
             node_context_action_request: None,
+            panel_data: HashMap::new(),
+            panel_action: None,
+            socket_indicators: BTreeMap::new(),
+            panel_tabs: vec![PanelTabDef::new("node", "Node")],
             editing_enabled: true,
         }
     }
@@ -271,12 +266,85 @@ impl NodeGraphWidget {
         self.node_context_action_request.take()
     }
 
+    pub fn set_panel_data<T: Any + Send + Sync>(
+        &mut self,
+        node: NodeId,
+        panel_id: impl Into<String>,
+        data: T,
+    ) {
+        self.panel_data
+            .insert((node, panel_id.into()), Arc::new(data));
+    }
+
+    pub fn clear_panel_data(&mut self, panel_id: &str) {
+        self.panel_data
+            .retain(|(_, stored_panel_id), _| stored_panel_id != panel_id);
+    }
+
+    pub fn take_panel_action(&mut self) -> Option<PanelAction> {
+        self.panel_action.take()
+    }
+
+    pub fn set_socket_indicator(
+        &mut self,
+        owner: impl Into<String>,
+        socket: SocketId,
+        id: impl Into<String>,
+        presentation: impl SocketIndicatorPresentation,
+    ) {
+        self.socket_indicators
+            .entry(owner.into())
+            .or_default()
+            .entry(socket)
+            .or_default()
+            .insert(id.into(), Arc::new(presentation));
+    }
+
+    pub fn remove_socket_indicator(&mut self, owner: &str, socket: SocketId, id: &str) {
+        let Some(by_socket) = self.socket_indicators.get_mut(owner) else {
+            return;
+        };
+        if let Some(indicators) = by_socket.get_mut(&socket) {
+            indicators.remove(id);
+            if indicators.is_empty() {
+                by_socket.remove(&socket);
+            }
+        }
+        if by_socket.is_empty() {
+            self.socket_indicators.remove(owner);
+        }
+    }
+
+    pub fn clear_socket_indicators(&mut self, owner: &str) {
+        self.socket_indicators.remove(owner);
+    }
+
+    /// Replaces the host-defined tabs. The built-in `Node` tab is always the
+    /// first tab and must not be supplied by the host.
+    pub fn set_panel_tabs(&mut self, tabs: Vec<PanelTabDef>) {
+        let mut seen = HashSet::from(["node".to_owned()]);
+        self.panel_tabs = std::iter::once(PanelTabDef::new("node", "Node"))
+            .chain(
+                tabs.into_iter()
+                    .filter(|tab| seen.insert(tab.id().to_owned())),
+            )
+            .collect();
+        if self
+            .panel
+            .active_tab
+            .as_ref()
+            .is_some_and(|active| !self.panel_tabs.iter().any(|tab| tab.id() == active))
+        {
+            self.panel.active_tab = self.panel_tabs.first().map(|tab| tab.id().to_owned());
+        }
+    }
+
     /// Current UI prefs (N-panel width/tab, minimap visibility) — for the
     /// host app to persist across launches (Phase 5.2).
     pub fn ui_prefs(&self) -> GraphUiPrefs {
         GraphUiPrefs {
             panel_width: self.panel.width,
-            panel_tab: self.panel.active_tab.map(GraphPanelTab::from),
+            panel_tab: self.panel.active_tab.clone(),
             minimap_visible: self.minimap_visible,
         }
     }
@@ -285,7 +353,13 @@ impl NodeGraphWidget {
     /// construction, before the first `show`.
     pub fn set_ui_prefs(&mut self, prefs: GraphUiPrefs) {
         self.panel.width = prefs.panel_width;
-        self.panel.active_tab = prefs.panel_tab.map(PanelTab::from);
+        self.panel.active_tab = prefs.panel_tab.map(|requested| {
+            self.panel_tabs
+                .iter()
+                .find(|tab| tab.id() == requested)
+                .or_else(|| self.panel_tabs.first())
+                .map_or(requested, |tab| tab.id().to_owned())
+        });
         self.minimap_visible = prefs.minimap_visible;
     }
 
@@ -652,18 +726,29 @@ impl NodeGraphWidget {
 
 #[cfg(test)]
 mod tests {
-    use egui::{Pos2, Rect, Vec2};
+    use egui::{Painter, Pos2, Rect, Vec2};
 
-    use super::{GraphPanelTab, GraphUiPrefs, NodeGraphWidget, graph_pointer};
-    use crate::model::NodeId;
+    use super::{GraphUiPrefs, NodeGraphWidget, graph_pointer};
+    use crate::api::{PanelTabDef, SocketIndicatorPresentation};
+    use crate::model::{NodeId, SocketDirection, SocketId};
     use crate::runtime::NodeTypeRegistry;
     use crate::widget::graph::action::GraphAction;
     use crate::widget::graph::interaction::InteractionState;
 
+    struct TestIndicator;
+
+    impl SocketIndicatorPresentation for TestIndicator {
+        fn size(&self, _zoom: f32) -> Vec2 {
+            Vec2::splat(8.0)
+        }
+
+        fn draw(&self, _painter: &Painter, _rect: Rect, _zoom: f32) {}
+    }
+
     #[test]
     fn node_panel_is_open_by_default_and_restored_preferences_win() {
         let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
-        assert_eq!(widget.ui_prefs().panel_tab, Some(GraphPanelTab::Node));
+        assert_eq!(widget.ui_prefs().panel_tab.as_deref(), Some("node"));
 
         widget.set_ui_prefs(GraphUiPrefs {
             panel_width: 280.0,
@@ -671,6 +756,50 @@ mod tests {
             minimap_visible: true,
         });
         assert_eq!(widget.ui_prefs().panel_tab, None);
+    }
+
+    #[test]
+    fn tabs_are_widget_configuration_and_stale_preferences_fall_back() {
+        let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+        widget.set_panel_tabs(vec![PanelTabDef::new("diagnostics", "Diagnostics")]);
+        assert_eq!(widget.panel_tabs.len(), 2);
+        assert_eq!(widget.panel_tabs[0].id(), "node");
+        assert_eq!(widget.panel_tabs[0].label(), "Node");
+
+        widget.set_panel_tabs(vec![
+            PanelTabDef::new("node", "Host override"),
+            PanelTabDef::new("diagnostics", "Diagnostics"),
+            PanelTabDef::new("diagnostics", "Duplicate"),
+        ]);
+        assert_eq!(widget.panel_tabs.len(), 2);
+        assert_eq!(widget.panel_tabs[0].label(), "Node");
+
+        widget.set_ui_prefs(GraphUiPrefs {
+            panel_width: 300.0,
+            panel_tab: Some("removed-tab".to_owned()),
+            minimap_visible: true,
+        });
+        assert_eq!(widget.ui_prefs().panel_tab.as_deref(), Some("node"));
+    }
+
+    #[test]
+    fn socket_indicator_owners_can_replace_and_remove_their_own_decorations() {
+        let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+        let socket = SocketId {
+            node: NodeId(7),
+            index: 2,
+            direction: SocketDirection::Output,
+        };
+        widget.set_socket_indicator("feature-a", socket, "active", TestIndicator);
+        widget.set_socket_indicator("feature-b", socket, "warning", TestIndicator);
+        assert_eq!(widget.socket_indicators.len(), 2);
+
+        widget.remove_socket_indicator("feature-a", socket, "active");
+        assert!(!widget.socket_indicators.contains_key("feature-a"));
+        assert!(widget.socket_indicators.contains_key("feature-b"));
+
+        widget.clear_socket_indicators("feature-b");
+        assert!(widget.socket_indicators.is_empty());
     }
 
     #[test]

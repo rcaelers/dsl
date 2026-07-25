@@ -16,6 +16,45 @@ use signal_processing::{
 
 use super::port::PortKind;
 
+/// Logic-analyzer presentation choice contributed by a concrete graph node.
+/// Generic graph widgets receive only a transient, application-neutral UI
+/// model derived from this contract.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ViewerOutputControl {
+    Hidden,
+    Selectable {
+        default_selected: bool,
+        indicator_outputs: Vec<usize>,
+    },
+}
+
+/// Logic-analyzer-owned data supplied to the node's viewer-output panel.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ViewerOutputPanelModel {
+    pub outputs: Vec<ViewerOutputPanelEntry>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ViewerOutputPanelEntry {
+    pub id: String,
+    pub label: String,
+    pub selected: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ViewerOutputPanelAction {
+    SetSelected { id: String, selected: bool },
+}
+
+impl ViewerOutputControl {
+    pub fn new(default_selected: bool, indicator_outputs: impl IntoIterator<Item = usize>) -> Self {
+        Self::Selectable {
+            default_selected,
+            indicator_outputs: indicator_outputs.into_iter().collect(),
+        }
+    }
+}
+
 pub fn parse_state<T: serde::de::DeserializeOwned>(state: &serde_json::Value) -> Result<T, String> {
     serde_json::from_value(state.clone()).map_err(|error| format!("invalid node state: {error}"))
 }

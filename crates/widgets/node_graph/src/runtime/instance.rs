@@ -2,7 +2,9 @@ use egui::{Rect, Ui};
 use serde_json::Value;
 
 use super::registry::{reconcile_input_sockets, reconcile_output_sockets};
-use crate::api::{InputDef, NodeDef, OutputDef, PanelSection, PropDef};
+use crate::api::{
+    InputDef, NodeDef, NodePanelDef, OutputDef, PanelContext, PanelMetadata, PanelSection, PropDef,
+};
 use crate::model::{Node, NodeBadge, Socket};
 
 /// Layout facts about one panel section, including the stable identity and
@@ -15,6 +17,12 @@ pub(crate) struct PanelSectionMeta {
 pub(crate) struct PanelPropMeta {
     pub(crate) id: String,
     pub(crate) height: Option<f32>,
+}
+
+pub(crate) struct NodePanelMeta {
+    pub(crate) id: String,
+    pub(crate) tab_id: String,
+    pub(crate) metadata: PanelMetadata,
 }
 
 pub(crate) trait NodeInstance {
@@ -45,7 +53,7 @@ pub(crate) trait NodeInstance {
         clip_rect: Rect,
     ) -> bool;
     fn panel_sections(&self) -> Vec<PanelSectionMeta>;
-    fn view_panel_sections(&self) -> Vec<PanelSectionMeta>;
+    fn panels(&self) -> Vec<NodePanelMeta>;
     fn draw_panel_prop(
         &mut self,
         section: usize,
@@ -54,14 +62,7 @@ pub(crate) trait NodeInstance {
         rect: Rect,
         clip_rect: Rect,
     ) -> bool;
-    fn draw_view_panel_prop(
-        &mut self,
-        section: usize,
-        index: usize,
-        ui: &mut Ui,
-        rect: Rect,
-        clip_rect: Rect,
-    ) -> bool;
+    fn draw_panel(&mut self, index: usize, ui: &mut Ui, context: &mut PanelContext<'_>) -> bool;
     fn save_state(&self) -> Value;
 }
 
@@ -76,7 +77,7 @@ pub(crate) struct TypedNode<T: NodeDef> {
     pub outputs: Vec<OutputDef<T::State>>,
     pub properties: Vec<PropDef<T::State>>,
     pub panel: Vec<PanelSection<T::State>>,
-    pub view_panel: Vec<PanelSection<T::State>>,
+    pub panels: Vec<NodePanelDef<T::State>>,
 }
 
 impl<T: NodeDef> NodeInstance for TypedNode<T> {
@@ -89,7 +90,7 @@ impl<T: NodeDef> NodeInstance for TypedNode<T> {
         self.outputs = schema.outputs;
         self.properties = schema.props;
         self.panel = schema.panel;
-        self.view_panel = schema.view_panel;
+        self.panels = schema.panels;
         T::on_update(&mut self.state, inputs, outputs);
     }
 
@@ -144,8 +145,15 @@ impl<T: NodeDef> NodeInstance for TypedNode<T> {
         panel_section_meta(&self.panel)
     }
 
-    fn view_panel_sections(&self) -> Vec<PanelSectionMeta> {
-        panel_section_meta(&self.view_panel)
+    fn panels(&self) -> Vec<NodePanelMeta> {
+        self.panels
+            .iter()
+            .map(|panel| NodePanelMeta {
+                id: panel.id().to_owned(),
+                tab_id: panel.tab_id().to_owned(),
+                metadata: panel.panel_metadata(),
+            })
+            .collect()
     }
 
     fn draw_panel_prop(
@@ -167,23 +175,10 @@ impl<T: NodeDef> NodeInstance for TypedNode<T> {
         )
     }
 
-    fn draw_view_panel_prop(
-        &mut self,
-        section: usize,
-        index: usize,
-        ui: &mut Ui,
-        rect: Rect,
-        clip_rect: Rect,
-    ) -> bool {
-        draw_panel_prop(
-            &mut self.state,
-            &self.view_panel,
-            section,
-            index,
-            ui,
-            rect,
-            clip_rect,
-        )
+    fn draw_panel(&mut self, index: usize, ui: &mut Ui, context: &mut PanelContext<'_>) -> bool {
+        self.panels
+            .get(index)
+            .is_some_and(|panel| panel.draw(&mut self.state, ui, context))
     }
 
     fn save_state(&self) -> Value {

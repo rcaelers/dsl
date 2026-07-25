@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use egui::{Color32, Pos2};
 
@@ -31,9 +32,7 @@ fn input_socket<S>(def_index: usize, input: &InputDef<S>) -> Socket {
         editor_visible: true,
         hidden: false,
         has_control: input.control.is_some() && input.variadic_max.is_none(),
-        view_selectable: false,
-        view_indicator_sources: Vec::new(),
-        show_in_view: false,
+        extensions: Default::default(),
     }
 }
 
@@ -52,9 +51,7 @@ fn output_socket<S>(def_index: usize, output: &OutputDef<S>) -> Socket {
         editor_visible: output.editor_visible,
         hidden: false,
         has_control: output.control.is_some(),
-        view_selectable: output.view_selectable,
-        view_indicator_sources: output.view_indicator_sources.clone(),
-        show_in_view: false,
+        extensions: Default::default(),
     }
 }
 
@@ -90,7 +87,6 @@ pub(crate) fn reconcile_output_sockets<S>(sockets: &mut Vec<Socket>, defs: &[Out
             let Some(&index) = definitions.get(previous.schema_id.as_str()) else {
                 let mut removed = previous;
                 removed.visible = false;
-                removed.view_selectable = false;
                 removed.has_control = false;
                 removed.def_index = usize::MAX;
                 reconciled.push(removed);
@@ -100,7 +96,7 @@ pub(crate) fn reconcile_output_sockets<S>(sockets: &mut Vec<Socket>, defs: &[Out
             let mut socket = output_socket(index, &defs[index]);
             socket.resolved_type = previous.resolved_type;
             socket.hidden = previous.hidden;
-            socket.show_in_view = previous.show_in_view;
+            socket.extensions = previous.extensions;
             reconciled.push(socket);
         }
         reconciled.extend(
@@ -131,7 +127,7 @@ pub(crate) fn reconcile_output_sockets<S>(sockets: &mut Vec<Socket>, defs: &[Out
         };
         socket.resolved_type = previous.resolved_type;
         socket.hidden = previous.hidden;
-        socket.show_in_view = previous.show_in_view;
+        socket.extensions = previous.extensions;
     }
     *sockets = reconciled;
 }
@@ -306,7 +302,7 @@ fn build_node<T: NodeDef>(id: NodeId, pos: Pos2, state: T::State) -> NodeRuntime
     let outputs = schema.outputs;
     let properties = schema.props;
     let panel = schema.panel;
-    let view_panel = schema.view_panel;
+    let panels = schema.panels;
     let state_json = serde_json::to_value(&state).expect("node state must serialize");
     let input_sockets = build_input_sockets(&inputs);
     let output_sockets = build_output_sockets(&outputs);
@@ -332,7 +328,7 @@ fn build_node<T: NodeDef>(id: NodeId, pos: Pos2, state: T::State) -> NodeRuntime
         outputs,
         properties,
         panel,
-        view_panel,
+        panels,
     });
     instance.update(&mut node.inputs, &mut node.outputs);
     node.state = instance.save_state();
@@ -351,7 +347,7 @@ fn restore_node<T: NodeDef>(node: &mut Node) -> Box<dyn NodeInstance> {
     let outputs = schema.outputs;
     let properties = schema.props;
     let panel = schema.panel;
-    let view_panel = schema.view_panel;
+    let panels = schema.panels;
 
     reconcile_input_sockets(&mut node.inputs, &inputs);
     reconcile_output_sockets(&mut node.outputs, &outputs);
@@ -366,7 +362,7 @@ fn restore_node<T: NodeDef>(node: &mut Node) -> Box<dyn NodeInstance> {
         outputs,
         properties,
         panel,
-        view_panel,
+        panels,
     });
     instance.update(&mut node.inputs, &mut node.outputs);
     node.state = instance.save_state();
@@ -379,8 +375,10 @@ fn restore_node<T: NodeDef>(node: &mut Node) -> Box<dyn NodeInstance> {
 pub(crate) struct RegisteredNodeType {
     pub(crate) name: String,
     pub(crate) category: String,
-    pub(crate) create: fn(NodeId, Pos2) -> NodeRuntime,
+    pub(crate) create: Arc<dyn Fn(NodeId, Pos2) -> NodeRuntime + Send + Sync>,
     pub(crate) restore: fn(&mut Node) -> Box<dyn NodeInstance>,
+    pub(crate) add_menu_visible: bool,
+    pub(crate) template_namespace: Option<String>,
 }
 
 impl RegisteredNodeType {
@@ -388,10 +386,21 @@ impl RegisteredNodeType {
         Self {
             name: T::name().to_owned(),
             category: T::category().to_owned(),
-            create: create_node::<T>,
+            create: Arc::new(create_node::<T>),
             restore: restore_node::<T>,
+            add_menu_visible: T::add_menu_visible(),
+            template_namespace: None,
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct NodeTemplate {
+    pub name: String,
+    pub category: String,
+    pub base_type: String,
+    pub title: String,
+    pub state: serde_json::Value,
 }
 
 impl NodeTypeRegistry {
@@ -435,6 +444,35 @@ impl NodeTypeRegistry {
         }
         self.types.push(RegisteredNodeType::from_def::<T>());
         self
+    }
+
+    pub fn replace_templates(&mut self, namespace: &str, templates: Vec<NodeTemplate>) {
+        self.types
+            .retain(|definition| definition.template_namespace.as_deref() != Some(namespace));
+        for template in templates {
+            let Some(base) = self.find(&template.base_type) else {
+                continue;
+            };
+            let create_base = Arc::clone(&base.create);
+            let restore = base.restore;
+            let state = template.state;
+            let title = template.title;
+            self.types.push(RegisteredNodeType {
+                name: template.name,
+                category: template.category,
+                create: Arc::new(move |id, pos| {
+                    let mut runtime = create_base(id, pos);
+                    runtime.node.state = state.clone();
+                    runtime.node.title = title.clone();
+                    runtime.instance = restore(&mut runtime.node);
+                    runtime.node.title = title.clone();
+                    runtime
+                }),
+                restore,
+                add_menu_visible: true,
+                template_namespace: Some(namespace.to_owned()),
+            });
+        }
     }
 
     fn record_socket_type(&mut self, identity: &crate::api::SocketTypeIdentity) {
@@ -498,6 +536,7 @@ impl NodeTypeRegistry {
     ) -> Vec<&RegisteredNodeType> {
         self.types
             .iter()
+            .filter(|definition| definition.add_menu_visible)
             .filter(|def| {
                 let probe = (def.create)(NodeId(0), Pos2::ZERO);
                 probe
@@ -523,8 +562,8 @@ mod tests {
 
     use super::*;
     use crate::api::{
-        AnySocket, FloatSocket, InputDef, IntSocket, NodeDef, NodeInstanceSchema, OutputDef,
-        PanelSection, PropDef, StringValue,
+        AnySocket, FloatSocket, InputDef, IntSocket, NodeDef, NodeInstanceSchema, NodePanelDef,
+        OutputDef, PanelSection, PropDef, PropertyPanelPresentation, StringValue,
     };
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -566,52 +605,90 @@ mod tests {
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct ViewPanelState {
+    struct ContributedPanelState {
         label: StringValue,
     }
 
-    struct ViewPanelNode;
-    impl NodeDef for ViewPanelNode {
-        type State = ViewPanelState;
+    struct ContributedPanelNode;
+    impl NodeDef for ContributedPanelNode {
+        type State = ContributedPanelState;
 
         fn name() -> &'static str {
-            "ViewPanel"
+            "ContributedPanel"
         }
         fn category() -> &'static str {
             "Test"
         }
-        fn inputs() -> Vec<InputDef<ViewPanelState>> {
+        fn inputs() -> Vec<InputDef<ContributedPanelState>> {
             vec![]
         }
-        fn outputs() -> Vec<OutputDef<ViewPanelState>> {
+        fn outputs() -> Vec<OutputDef<ContributedPanelState>> {
             vec![]
         }
-        fn state() -> ViewPanelState {
-            ViewPanelState {
+        fn state() -> ContributedPanelState {
+            ContributedPanelState {
                 label: StringValue::new(""),
             }
         }
-        fn view_panel() -> Vec<PanelSection<ViewPanelState>> {
-            vec![PanelSection::new(
-                "Presentation",
-                vec![PropDef::control("label", "Label", |state| &mut state.label)],
+        fn panels() -> Vec<NodePanelDef<ContributedPanelState>> {
+            vec![NodePanelDef::new(
+                "presentation",
+                "view",
+                PropertyPanelPresentation::new(
+                    "Presentation",
+                    vec![PanelSection::new(
+                        "Content",
+                        vec![PropDef::control(
+                            "label",
+                            "Label",
+                            |state: &mut ContributedPanelState| &mut state.label,
+                        )],
+                    )],
+                ),
             )]
         }
     }
 
     #[test]
-    fn create_and_restore_keep_view_panel_sections_separate() {
-        let runtime = create_node::<ViewPanelNode>(NodeId(0), Pos2::ZERO);
+    fn create_and_restore_keep_contributed_panels_separate() {
+        let runtime = create_node::<ContributedPanelNode>(NodeId(0), Pos2::ZERO);
         assert!(runtime.instance.panel_sections().is_empty());
-        let sections = runtime.instance.view_panel_sections();
-        assert_eq!(sections.len(), 1);
-        assert_eq!(sections[0].title, "Presentation");
-        assert_eq!(sections[0].props.len(), 1);
+        let panels = runtime.instance.panels();
+        assert_eq!(panels.len(), 1);
+        assert_eq!(panels[0].id, "presentation");
+        assert_eq!(panels[0].tab_id, "view");
 
         let mut node = runtime.node;
-        let restored = restore_node::<ViewPanelNode>(&mut node);
+        let restored = restore_node::<ContributedPanelNode>(&mut node);
         assert!(restored.panel_sections().is_empty());
-        assert_eq!(restored.view_panel_sections().len(), 1);
+        assert_eq!(restored.panels().len(), 1);
+    }
+
+    #[test]
+    fn dynamic_template_uses_base_definition_and_saved_state() {
+        let mut registry = NodeTypeRegistry::new();
+        registry.register::<ContributedPanelNode>();
+        registry.replace_templates(
+            "external.test",
+            vec![NodeTemplate {
+                name: "External view panel".to_owned(),
+                category: "External".to_owned(),
+                base_type: "ContributedPanel".to_owned(),
+                title: "Foreign panel".to_owned(),
+                state: serde_json::to_value(ContributedPanelState {
+                    label: StringValue::new("configured"),
+                })
+                .unwrap(),
+            }],
+        );
+
+        let runtime = registry
+            .instantiate("External view panel", NodeId(7), Pos2::ZERO)
+            .unwrap();
+
+        assert_eq!(runtime.node.title, "Foreign panel");
+        assert_eq!(runtime.node.def_name(), "ContributedPanel");
+        assert_eq!(runtime.node.state["label"]["value"], "configured");
     }
 
     #[test]
@@ -697,13 +774,15 @@ mod tests {
     }
 
     #[test]
-    fn appended_outputs_preserve_saved_user_flags_by_definition_index() {
+    fn appended_outputs_preserve_saved_user_state_by_definition_index() {
         let old_defs = vec![
             OutputDef::<()>::new::<FloatSocket>("First"),
             OutputDef::<()>::new::<FloatSocket>("Second"),
         ];
         let mut sockets = build_output_sockets(&old_defs);
-        sockets[1].show_in_view = true;
+        sockets[1]
+            .extensions
+            .insert("host.selection".to_owned(), serde_json::json!(true));
         sockets[1].hidden = true;
         let new_defs = vec![
             OutputDef::<()>::new::<FloatSocket>("First"),
@@ -714,9 +793,12 @@ mod tests {
         reconcile_output_sockets(&mut sockets, &new_defs);
 
         assert_eq!(sockets.len(), 3);
-        assert!(sockets[1].show_in_view);
+        assert_eq!(
+            sockets[1].extensions.get("host.selection"),
+            Some(&serde_json::json!(true))
+        );
         assert!(sockets[1].hidden);
-        assert!(!sockets[2].show_in_view);
+        assert!(sockets[2].extensions.is_empty());
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -736,12 +818,7 @@ mod tests {
             vec![]
         }
         fn outputs() -> Vec<OutputDef<IntSourceState>> {
-            vec![
-                OutputDef::new::<IntSocket>("Out")
-                    .view_selectable(false)
-                    .editor_visible(false)
-                    .view_indicator_sources([1, 2]),
-            ]
+            vec![OutputDef::new::<IntSocket>("Out").editor_visible(false)]
         }
         fn state() -> IntSourceState {
             IntSourceState
@@ -749,23 +826,22 @@ mod tests {
     }
 
     #[test]
-    fn output_presentation_is_definition_owned_across_restore() {
+    fn output_editor_visibility_is_definition_owned_across_restore() {
         let runtime = create_node::<IntSourceNode>(NodeId(0), Pos2::ZERO);
         let mut node = runtime.node;
-        assert!(!node.outputs[0].view_selectable);
         assert!(!node.outputs[0].editor_visible);
-        assert_eq!(node.outputs[0].view_indicator_sources, [1, 2]);
 
-        node.outputs[0].view_selectable = true;
         node.outputs[0].editor_visible = true;
-        node.outputs[0].view_indicator_sources.clear();
-        node.outputs[0].show_in_view = true;
+        node.outputs[0]
+            .extensions
+            .insert("host.selection".to_owned(), serde_json::json!(true));
         restore_node::<IntSourceNode>(&mut node);
 
-        assert!(!node.outputs[0].view_selectable);
         assert!(!node.outputs[0].editor_visible);
-        assert_eq!(node.outputs[0].view_indicator_sources, [1, 2]);
-        assert!(node.outputs[0].show_in_view);
+        assert_eq!(
+            node.outputs[0].extensions.get("host.selection"),
+            Some(&serde_json::json!(true))
+        );
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -898,9 +974,7 @@ mod tests {
             editor_visible: true,
             hidden: false,
             has_control: false,
-            view_selectable: true,
-            view_indicator_sources: Vec::new(),
-            show_in_view: false,
+            extensions: Default::default(),
         };
         let matches = registry.connectable_types(&float_output, SocketDirection::Output);
         assert!(matches.iter().any(|def| def.name == "Mix"));
@@ -924,9 +998,7 @@ mod tests {
             editor_visible: true,
             hidden: false,
             has_control: false,
-            view_selectable: true,
-            view_indicator_sources: Vec::new(),
-            show_in_view: false,
+            extensions: Default::default(),
         };
         let matches = registry.connectable_types(&any_output, SocketDirection::Output);
         // "Any" satisfies every input, so both defs with an input should match.

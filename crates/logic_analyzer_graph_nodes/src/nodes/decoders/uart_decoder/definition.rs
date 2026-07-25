@@ -4,7 +4,8 @@ use egui::Color32;
 use serde::{Deserialize, Serialize};
 
 use node_graph::{
-    BoolValue, EnumValue, InputDef, IntValue, NodeDef, OutputDef, PanelSection, PropDef, Socket,
+    BoolValue, EnumValue, InputDef, IntValue, NodeDef, NodePanelDef, OutputDef, PanelMetadata,
+    PanelSection, PropDef, PropertyPanelPresentation, Socket,
 };
 
 use super::super::display_format::default_display_format;
@@ -135,15 +136,26 @@ impl NodeDef for UartDecoder {
         )]
     }
 
-    fn view_panel() -> Vec<PanelSection<Self::State>> {
-        vec![PanelSection::new(
-            "Presentation",
-            vec![PropDef::control(
-                "display_format",
-                "Data display",
-                |state| &mut state.display_format,
-            )],
-        )]
+    fn panels() -> Vec<NodePanelDef<Self::State>> {
+        vec![
+            crate::presentation::viewer_outputs_panel(),
+            NodePanelDef::new(
+                "presentation",
+                "view",
+                PropertyPanelPresentation::new(
+                    "Presentation",
+                    vec![PanelSection::new(
+                        "Format",
+                        vec![PropDef::control(
+                            "display_format",
+                            "Data display",
+                            |state: &mut UartDecoderState| &mut state.display_format,
+                        )],
+                    )],
+                ),
+            )
+            .metadata(PanelMetadata::default().preferred_height(130.0)),
+        ]
     }
 
     fn on_update(state: &mut Self::State, _inputs: &mut [Socket], outputs: &mut [Socket]) {

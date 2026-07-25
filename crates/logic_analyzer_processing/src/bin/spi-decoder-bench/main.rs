@@ -65,7 +65,15 @@ std::cfg_select! {
             pub(crate) fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let args = Args::parse();
                 let channels = args.clk.max(args.mosi).max(args.cs) + 1;
-                let source = DslFileSource::new(&args.capture, channels as u8)?;
+                let source = DslFileSource::new(&args.capture)?;
+                if channels > source.num_channels() {
+                    return Err(format!(
+                        "capture has {} channels, but channel {} is required",
+                        source.num_channels(),
+                        channels - 1
+                    )
+                    .into());
+                }
                 let samples = args.samples.min(source.total_samples());
                 let capture_seconds = samples as f64 / source.samplerate_hz();
                 let source = source.with_max_samples(Some(samples));
