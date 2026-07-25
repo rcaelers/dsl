@@ -10,6 +10,7 @@ use logic_analyzer_graph_api::node_support::CaptureCacheIdentity;
 use node_graph::{GraphState, NodeId};
 use signal_processing::{IndexedAnnotationStore, PersistentStoreConfig};
 
+use super::OutputSubscriptionPlan;
 use super::errors::CompileError;
 use super::graph::{BuilderRegistry, CompiledEdge, CompiledGraph, compiled_node};
 const DERIVED_CACHE_ABI_VERSION: u32 = 2;
@@ -138,9 +139,10 @@ fn prepare_cache(compiled: &CompiledGraph) {
 pub(crate) fn cache_configs_by_node(
     graph: &GraphState,
     registry: &BuilderRegistry,
+    subscriptions: &OutputSubscriptionPlan,
     directory: &Path,
 ) -> Result<HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>> {
-    let mut compiled = super::graph::lower(graph, registry)?;
+    let mut compiled = super::graph::lower_with_subscriptions(graph, registry, subscriptions)?;
     configure_directory(&mut compiled, Some(directory));
     let mut result: HashMap<NodeId, Vec<PersistentStoreConfig>> = HashMap::new();
     for collector in compiled.nodes.iter().filter(|node| node.data_collector) {

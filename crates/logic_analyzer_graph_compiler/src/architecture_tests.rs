@@ -99,3 +99,24 @@ fn compiler_facade_exposes_no_viewer_selection_controls() {
         );
     }
 }
+
+#[test]
+fn production_compiler_consumes_application_supplied_output_subscriptions() {
+    let facade = implementation_source(include_str!("graph_compiler.rs"));
+    assert!(
+        facade.contains("OutputSubscriptionPlan"),
+        "compiler facade must accept the application-owned subscription plan"
+    );
+
+    let saved_graph = implementation_source(include_str!("saved_graph.rs"));
+    assert!(
+        !saved_graph.contains("viewer_selection"),
+        "saved-payload discovery must consume the supplied plan instead of UI selection state"
+    );
+
+    let crate_facade = include_str!("lib.rs");
+    assert!(
+        crate_facade.contains("#[cfg(test)]\nmod viewer_selection;"),
+        "the transitional manifest helper must remain test-only"
+    );
+}

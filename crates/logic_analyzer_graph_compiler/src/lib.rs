@@ -12,7 +12,10 @@ mod errors;
 mod graph;
 mod graph_compiler;
 mod graph_node_registration;
+mod output_subscription;
 mod saved_graph;
+
+#[cfg(test)]
 mod viewer_selection;
 
 #[cfg(test)]
@@ -38,4 +41,5 @@ pub use graph_compiler::GraphCompiler;
 pub(crate) use graph_node_registration::{
     standard_graph_node_builders, validate_graph_node_payload_requirements,
 };
+pub use output_subscription::OutputSubscriptionPlan;
 pub use saved_graph::GraphCompatibilityWarning;

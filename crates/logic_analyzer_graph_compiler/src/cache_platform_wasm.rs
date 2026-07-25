@@ -9,6 +9,7 @@ use std::path::Path;
 use node_graph::{GraphState, NodeId};
 use signal_processing::PersistentStoreConfig;
 
+use super::OutputSubscriptionPlan;
 use super::errors::CompileError;
 use super::graph::{BuilderRegistry, CompiledGraph};
 
@@ -33,6 +34,7 @@ pub(crate) fn prepare_execution(
 pub(crate) fn cache_configs_by_node(
     _graph: &GraphState,
     _registry: &BuilderRegistry,
+    _subscriptions: &OutputSubscriptionPlan,
     _directory: &std::path::Path,
 ) -> Result<HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>> {
     Ok(HashMap::new())

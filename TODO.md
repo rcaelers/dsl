@@ -210,15 +210,17 @@ in this order:
 - [ ] Define a compiler-owned, application-neutral run-data and source-readiness contract. It
   exposes retained lanes, collected subscriber data, diagnostics, and file/live cache-index
   availability without viewer or table-widget types.
-- [ ] Define an explicit subscription-plan contract. The UI supplies the payloads it needs before
+- [x] Define an explicit subscription-plan contract. The UI supplies the payloads it needs before
   starting or updating a run; the compiler materializes collectors from that plan without a
-  Viewer graph node or UI callback trait.
+  UI callback trait.
 - [x] Move node-type registry construction out of `logic_analyzer_graph_compiler`; the UI now
   builds its editor registry from the validated graph-node inventory.
 - [x] Move output-selection discovery, controls, legacy-field migration, and persistence into the
   UI; remove viewer-selection operations and types from the compiler facade.
-- [ ] Replace the compiler's transitional viewer-selection manifest reader with an explicit
-  UI-supplied subscription plan, then remove synthetic Viewer-node construction.
+- [x] Replace the compiler's transitional viewer-selection manifest reader with an explicit
+  UI-supplied subscription plan.
+- [ ] Remove synthetic Viewer-node construction; materialize every selected output through the
+  application-neutral collector path.
 - [ ] Move waveform-group, renderer, decoder-table-panel, and sampling-overlay binding into the
   UI presentation adapter. Keep node-supplied metadata protocol-neutral and make the UI translate
   it into `logic_analyzer_viewer` contracts.

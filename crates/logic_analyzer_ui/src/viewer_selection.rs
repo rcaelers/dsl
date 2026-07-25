@@ -6,6 +6,7 @@ use logic_analyzer_graph_api::node::{
     CollectedPayloadRegistration, RuntimeBuilder, graph_node_registrations,
 };
 use logic_analyzer_graph_api::node_support::{PortKind, ViewerOutputControl};
+use logic_analyzer_graph_compiler::OutputSubscriptionPlan;
 use node_graph::{GraphState, NodeId, NodeKind};
 
 const EXTENSION: &str = "logic_analyzer_graph.viewer_selections";
@@ -141,6 +142,14 @@ pub(crate) fn viewer_output_selections(graph: &GraphState) -> Vec<ViewerOutputSe
     }
     selections.sort_by_key(|selection| (selection.node.0, selection.output));
     selections
+}
+
+pub(crate) fn output_subscription_plan(graph: &GraphState) -> OutputSubscriptionPlan {
+    viewer_output_selections(graph)
+        .into_iter()
+        .filter(|selection| selection.selected)
+        .map(|selection| (selection.node, selection.output))
+        .collect()
 }
 
 pub(crate) fn synchronize_viewer_selections(

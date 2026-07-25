@@ -45,10 +45,10 @@ use signal_processing::{
     TriggerProgram,
 };
 
-use super::cache_platform;
 use super::data_collector::DataCollectorBuilder;
 use super::decoder_table_subscription::subscribe_collected_tables;
 use super::errors::{ApplyError, CompileError};
+use super::{OutputSubscriptionPlan, cache_platform};
 
 /// Shared resources handed to builders. A fresh `DerivedLanes` store per
 /// run makes stale collected data vanish atomically on re-run.
@@ -485,25 +485,27 @@ impl BuilderRegistry {
 }
 
 fn capture_channel_selection(
-    graph: &GraphState,
-    registry: &BuilderRegistry,
+    subscriptions: &OutputSubscriptionPlan,
     node_id: NodeId,
     node: &Node,
     builder: &dyn RuntimeBuilder,
 ) -> Vec<usize> {
-    super::viewer_selection::viewer_output_selections(graph, registry)
-        .into_iter()
-        .filter(|selection| selection.node == node_id && selection.selected)
-        .filter_map(|selection| {
-            builder.viewer_channel_origin(&node.outputs[selection.output], &node.state)
+    subscriptions
+        .outputs()
+        .filter(|(selected_node, _)| *selected_node == node_id)
+        .filter_map(|(_, output)| {
+            node.outputs
+                .get(output)
+                .and_then(|output| builder.viewer_channel_origin(output, &node.state))
         })
         .collect()
 }
 
 /// Discovers a concrete source's pre-run presentation through its builder contract.
-pub(crate) fn discover_capture_presentation(
+pub(crate) fn discover_capture_presentation_with_subscriptions(
     graph: &GraphState,
     builders: &BuilderRegistry,
+    subscriptions: &OutputSubscriptionPlan,
 ) -> Result<Option<DiscoveredCapturePresentation>, String> {
     let mut candidates = Vec::new();
     for (&node_id, node) in &graph.nodes {
@@ -516,7 +518,7 @@ pub(crate) fn discover_capture_presentation(
         let Some(presentation) = builder.capture_presentation(&node.state)? else {
             continue;
         };
-        let visible_channels = capture_channel_selection(graph, builders, node_id, node, builder);
+        let visible_channels = capture_channel_selection(subscriptions, node_id, node, builder);
         let identity_state = (&node.state, &visible_channels);
         let state = serde_json::to_vec(&identity_state).map_err(|error| error.to_string())?;
         candidates.push(DiscoveredCapturePresentation {
@@ -534,13 +536,32 @@ pub(crate) fn discover_capture_presentation(
     }
 }
 
+#[cfg(test)]
+fn discover_capture_presentation(
+    graph: &GraphState,
+    builders: &BuilderRegistry,
+) -> Result<Option<DiscoveredCapturePresentation>, String> {
+    let subscriptions = test_output_subscriptions(graph, builders);
+    discover_capture_presentation_with_subscriptions(graph, builders, &subscriptions)
+}
+
 /// Resolves exactly one enabled live-capture feature without identifying a
 /// concrete node type. Muted nodes do not participate in acquisition.
-pub(crate) fn discover_live_capture_feature(
+pub(crate) fn discover_live_capture_feature_with_subscriptions(
+    graph: &GraphState,
+    builders: &BuilderRegistry,
+    subscriptions: &OutputSubscriptionPlan,
+) -> Result<Option<DiscoveredLiveCaptureFeature>, LiveCaptureDiscoveryError> {
+    discover_live_capture_feature_from(graph, builders, subscriptions, |_| true)
+}
+
+#[cfg(test)]
+fn discover_live_capture_feature(
     graph: &GraphState,
     builders: &BuilderRegistry,
 ) -> Result<Option<DiscoveredLiveCaptureFeature>, LiveCaptureDiscoveryError> {
-    discover_live_capture_feature_from(graph, builders, |_| true)
+    let subscriptions = test_output_subscriptions(graph, builders);
+    discover_live_capture_feature_with_subscriptions(graph, builders, &subscriptions)
 }
 
 /// Resolves exactly one enabled trigger-configuration feature without consulting acquisition
@@ -612,6 +633,7 @@ pub(crate) fn apply_live_capture_edit(
 fn discover_live_capture_feature_from(
     graph: &GraphState,
     builders: &BuilderRegistry,
+    subscriptions: &OutputSubscriptionPlan,
     include: impl Fn(&Node) -> bool,
 ) -> Result<Option<DiscoveredLiveCaptureFeature>, LiveCaptureDiscoveryError> {
     let mut candidates = Vec::new();
@@ -682,7 +704,7 @@ fn discover_live_capture_feature_from(
                 candidates.push(DiscoveredLiveCaptureFeature::new_with_visible_channels(
                     node.id,
                     node.title.clone(),
-                    capture_channel_selection(graph, builders, node.id, node, builder),
+                    capture_channel_selection(subscriptions, node.id, node, builder),
                     feature,
                 ));
             }
@@ -906,25 +928,22 @@ const AUTO_DATA_COLLECTOR_NODE_ID: NodeId = NodeId(u32::MAX - 1);
 /// exact same pruning and edge-negotiation path an explicit Viewer
 /// connection would take, so nothing downstream in `lower()` needs to know
 /// this node isn't real.
-fn with_auto_view_sink(graph: &GraphState, registry: &BuilderRegistry) -> GraphState {
-    let selected: std::collections::HashSet<_> =
-        super::viewer_selection::viewer_output_selections(graph, registry)
-            .into_iter()
-            .filter(|selection| selection.selected)
-            .map(|selection| (selection.node, selection.output))
-            .collect();
+fn with_auto_view_sink(
+    graph: &GraphState,
+    registry: &BuilderRegistry,
+    subscriptions: &OutputSubscriptionPlan,
+) -> GraphState {
     let mut watched: Vec<(SocketId, String)> = graph
         .nodes
         .iter()
         .filter(|(_, node)| node.kind == NodeKind::Regular)
         .flat_map(|(&id, node)| {
-            let selected = &selected;
             node.outputs
                 .iter()
                 .enumerate()
                 .filter(move |(index, output)| {
                     output.visible
-                        && selected.contains(&(id, *index))
+                        && subscriptions.contains(id, *index)
                         && registry.get(node.def_name()).is_none_or(|builder| {
                             builder.viewer_channel_origin(output, &node.state).is_none()
                         })
@@ -957,7 +976,7 @@ fn with_auto_view_sink(graph: &GraphState, registry: &BuilderRegistry) -> GraphS
                 .iter()
                 .enumerate()
                 .filter(|(index, output)| {
-                    let collected_for_view = output.visible && selected.contains(&(id, *index));
+                    let collected_for_view = output.visible && subscriptions.contains(id, *index);
                     let collected_by_explicit_sink = graph.connections.iter().any(|connection| {
                         connection.from.node == id
                             && connection.from.index == *index
@@ -1092,11 +1111,12 @@ fn with_auto_view_sink(graph: &GraphState, registry: &BuilderRegistry) -> GraphS
     graph
 }
 
-pub(crate) fn lower(
+pub(crate) fn lower_with_subscriptions(
     graph: &GraphState,
     registry: &BuilderRegistry,
+    subscriptions: &OutputSubscriptionPlan,
 ) -> Result<CompiledGraph, Vec<CompileError>> {
-    let augmented = with_auto_view_sink(graph, registry);
+    let augmented = with_auto_view_sink(graph, registry, subscriptions);
     let graph = &augmented;
     let (wires, mut errors) = resolve_reroute_edges(graph);
 
@@ -1411,6 +1431,27 @@ pub(crate) fn lower(
     Ok(compiled)
 }
 
+#[cfg(test)]
+pub(crate) fn test_output_subscriptions(
+    graph: &GraphState,
+    registry: &BuilderRegistry,
+) -> OutputSubscriptionPlan {
+    super::viewer_selection::viewer_output_selections(graph, registry)
+        .into_iter()
+        .filter(|selection| selection.selected)
+        .map(|selection| (selection.node, selection.output))
+        .collect()
+}
+
+#[cfg(test)]
+fn lower(
+    graph: &GraphState,
+    registry: &BuilderRegistry,
+) -> Result<CompiledGraph, Vec<CompileError>> {
+    let subscriptions = test_output_subscriptions(graph, registry);
+    lower_with_subscriptions(graph, registry, &subscriptions)
+}
+
 fn connection_contracts_overlap(offered: &[String], accepted: &[String]) -> bool {
     offered.is_empty()
         || accepted.is_empty()
@@ -1423,8 +1464,10 @@ fn connection_contracts_overlap(offered: &[String], accepted: &[String]) -> bool
 pub(crate) fn sampling_overlay_candidates(
     graph: &GraphState,
     registry: &BuilderRegistry,
+    subscriptions: &OutputSubscriptionPlan,
 ) -> Result<Vec<SamplingOverlayCandidate>, Vec<CompileError>> {
-    lower(graph, registry).map(|compiled| compiled.sampling_overlays)
+    lower_with_subscriptions(graph, registry, subscriptions)
+        .map(|compiled| compiled.sampling_overlays)
 }
 
 fn sampling_activity_map(compiled: &CompiledGraph) -> HashMap<(String, usize), SamplingActivity> {
@@ -1570,12 +1613,23 @@ fn register_collected_subscribers(
     )
 }
 
-pub(crate) fn derived_cache_configs_by_node(
+pub(crate) fn derived_cache_configs_by_node_with_subscriptions(
+    graph: &GraphState,
+    registry: &BuilderRegistry,
+    subscriptions: &OutputSubscriptionPlan,
+    directory: &std::path::Path,
+) -> Result<HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>> {
+    cache_platform::cache_configs_by_node(graph, registry, subscriptions, directory)
+}
+
+#[cfg(test)]
+fn derived_cache_configs_by_node(
     graph: &GraphState,
     registry: &BuilderRegistry,
     directory: &std::path::Path,
 ) -> Result<HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>> {
-    cache_platform::cache_configs_by_node(graph, registry, directory)
+    let subscriptions = test_output_subscriptions(graph, registry);
+    derived_cache_configs_by_node_with_subscriptions(graph, registry, &subscriptions, directory)
 }
 
 /// Input subscriptions for `id`, matched to the built node's input schema.
@@ -1786,37 +1840,67 @@ pub type SourceProcessOverrides = HashMap<NodeId, Box<dyn ProcessNode>>;
 
 /// Lowers and materializes `graph` under an [`AppManager`] — real OS threads
 /// natively, a cooperative single-thread runner on wasm.
+fn start_live_with_subscriptions(
+    graph: &GraphState,
+    registry: &BuilderRegistry,
+    subscriptions: &OutputSubscriptionPlan,
+    ctx: &mut CompileCtx,
+) -> Result<LiveRun, Vec<CompileError>> {
+    start_live_inner(
+        graph,
+        registry,
+        subscriptions,
+        ctx,
+        SourceProcessOverrides::new(),
+    )
+}
+
+#[cfg(test)]
 fn start_live(
     graph: &GraphState,
     registry: &BuilderRegistry,
     ctx: &mut CompileCtx,
 ) -> Result<LiveRun, Vec<CompileError>> {
-    start_live_inner(graph, registry, ctx, SourceProcessOverrides::new())
+    let subscriptions = test_output_subscriptions(graph, registry);
+    start_live_with_subscriptions(graph, registry, &subscriptions, ctx)
 }
 
 /// Starts the fixed compiled graph with its live-capable source replaced by
 /// the process that follows the capture store. All other nodes use the same
 /// lowering and materialization path as an ordinary run.
-pub(crate) fn start_live_analysis(
+pub(crate) fn start_live_analysis_with_subscriptions(
     graph: &GraphState,
     registry: &BuilderRegistry,
+    subscriptions: &OutputSubscriptionPlan,
     ctx: &mut CompileCtx,
     source: LiveAnalysisSource,
 ) -> Result<LiveRun, Vec<CompileError>> {
     let mut overrides = SourceProcessOverrides::new();
     overrides.insert(source.source_node, source.process);
-    start_live_inner(graph, registry, ctx, overrides)
+    start_live_inner(graph, registry, subscriptions, ctx, overrides)
+}
+
+#[cfg(test)]
+fn start_live_analysis(
+    graph: &GraphState,
+    registry: &BuilderRegistry,
+    ctx: &mut CompileCtx,
+    source: LiveAnalysisSource,
+) -> Result<LiveRun, Vec<CompileError>> {
+    let subscriptions = test_output_subscriptions(graph, registry);
+    start_live_analysis_with_subscriptions(graph, registry, &subscriptions, ctx, source)
 }
 
 fn start_live_inner(
     graph: &GraphState,
     registry: &BuilderRegistry,
+    subscriptions: &OutputSubscriptionPlan,
     ctx: &mut CompileCtx,
     mut source_overrides: SourceProcessOverrides,
 ) -> Result<LiveRun, Vec<CompileError>> {
     registry.register_default_waveform_presentations(ctx.waveform_presentations());
     ctx.waveform_presentations().set_implicit_groups(false);
-    let mut compiled = lower(graph, registry)?;
+    let mut compiled = lower_with_subscriptions(graph, registry, subscriptions)?;
     cache_platform::configure_directory(&mut compiled, ctx.persistent_cache_directory.as_deref());
     ctx.derived_data_retention = compiled.derived_data_retention;
     ctx.sampling_overlays
@@ -1916,12 +2000,14 @@ impl LiveRun {
     /// difference live. On any error the running pipeline is untouched
     /// (edits either fail up front in `diff`, or — for build failures midway
     /// — leave already-applied edits in place and report).
-    pub(crate) fn apply(
+    pub(crate) fn apply_with_subscriptions(
         &mut self,
         graph: &GraphState,
         registry: &BuilderRegistry,
+        subscriptions: &OutputSubscriptionPlan,
     ) -> Result<ApplySummary, ApplyError> {
-        let mut new = lower(graph, registry).map_err(ApplyError::Compile)?;
+        let mut new = lower_with_subscriptions(graph, registry, subscriptions)
+            .map_err(ApplyError::Compile)?;
         reuse_sampling_activities(&self.compiled, &mut new);
         cache_platform::configure_directory(&mut new, self.persistent_cache_directory.as_deref());
         let edits = diff(&self.compiled, &new, registry).map_err(ApplyError::NeedsFullRestart)?;
@@ -2024,6 +2110,16 @@ impl LiveRun {
         Ok(summary)
     }
 
+    #[cfg(test)]
+    fn apply(
+        &mut self,
+        graph: &GraphState,
+        registry: &BuilderRegistry,
+    ) -> Result<ApplySummary, ApplyError> {
+        let subscriptions = test_output_subscriptions(graph, registry);
+        self.apply_with_subscriptions(graph, registry, &subscriptions)
+    }
+
     /// Applies the subset of an edited capture graph that can preserve an
     /// explicit future-only boundary. Phase 13.1 deliberately accepts only
     /// builder-declared hot configuration; structural changes and restarts
@@ -2032,9 +2128,11 @@ impl LiveRun {
         &mut self,
         graph: &GraphState,
         registry: &BuilderRegistry,
+        subscriptions: &OutputSubscriptionPlan,
         boundary: ConfigurationBoundary,
     ) -> Result<ApplySummary, ApplyError> {
-        let mut new = lower(graph, registry).map_err(ApplyError::Compile)?;
+        let mut new = lower_with_subscriptions(graph, registry, subscriptions)
+            .map_err(ApplyError::Compile)?;
         reuse_sampling_activities(&self.compiled, &mut new);
         cache_platform::configure_directory(&mut new, self.persistent_cache_directory.as_deref());
         let edits = diff(&self.compiled, &new, registry).map_err(ApplyError::NeedsFullRestart)?;
@@ -2155,21 +2253,40 @@ impl LiveRun {
 pub(crate) fn start_app_run(
     graph: &GraphState,
     registry: &BuilderRegistry,
+    subscriptions: &OutputSubscriptionPlan,
     ctx: &mut CompileCtx,
 ) -> Result<LiveRun, Vec<CompileError>> {
-    start_live(graph, registry, ctx)
+    start_live_with_subscriptions(graph, registry, subscriptions, ctx)
 }
 
 /// Starts an ordinary application run while replacing explicitly identified
 /// source nodes. Finalized-session replay uses this entry point so lowering
 /// cannot invoke the captured provider's discovery or build paths.
-pub(crate) fn start_app_run_with_source_overrides(
+pub(crate) fn start_app_run_with_source_overrides_and_subscriptions(
+    graph: &GraphState,
+    registry: &BuilderRegistry,
+    subscriptions: &OutputSubscriptionPlan,
+    ctx: &mut CompileCtx,
+    overrides: SourceProcessOverrides,
+) -> Result<LiveRun, Vec<CompileError>> {
+    start_live_inner(graph, registry, subscriptions, ctx, overrides)
+}
+
+#[cfg(test)]
+fn start_app_run_with_source_overrides(
     graph: &GraphState,
     registry: &BuilderRegistry,
     ctx: &mut CompileCtx,
     overrides: SourceProcessOverrides,
 ) -> Result<LiveRun, Vec<CompileError>> {
-    start_live_inner(graph, registry, ctx, overrides)
+    let subscriptions = test_output_subscriptions(graph, registry);
+    start_app_run_with_source_overrides_and_subscriptions(
+        graph,
+        registry,
+        &subscriptions,
+        ctx,
+        overrides,
+    )
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -2237,7 +2354,10 @@ mod tests {
         builders: &BuilderRegistry,
     ) -> Result<Option<DiscoveredLiveCaptureFeature>, LiveCaptureDiscoveryError> {
         let retained: HashSet<_> = compiled.nodes.iter().map(|node| node.id).collect();
-        discover_live_capture_feature_from(graph, builders, |node| retained.contains(&node.id))
+        let subscriptions = test_output_subscriptions(graph, builders);
+        discover_live_capture_feature_from(graph, builders, &subscriptions, |node| {
+            retained.contains(&node.id)
+        })
     }
     use logic_analyzer_graph_nodes::test_support as nodes;
 

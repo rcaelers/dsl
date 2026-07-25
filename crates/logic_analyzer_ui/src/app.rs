@@ -30,7 +30,8 @@ use crate::plugin_panel::{PluginPanelIcon, PluginPanelRegistry, PluginPanels, Pl
 use crate::preferences::PreferencesWindow;
 use crate::toast::Toasts;
 use crate::viewer_selection::{
-    set_viewer_output_selected, synchronize_viewer_selections, viewer_output_selections,
+    output_subscription_plan, set_viewer_output_selected, synchronize_viewer_selections,
+    viewer_output_selections,
 };
 
 const VIEWER_OUTPUT_PANEL_ID: &str = "viewer-outputs";
@@ -370,6 +371,8 @@ impl App {
                 .toasts
                 .error(format!("Could not update saved viewer selections: {error}")),
         }
+        self.graph_compiler
+            .set_output_subscriptions(output_subscription_plan(self.node_graph.graph()));
         match self
             .graph_compiler
             .synchronize_payload_subscriptions(self.node_graph.graph_mut())
@@ -394,6 +397,13 @@ impl App {
 
     fn refresh_graph_output_selections(&mut self) {
         let selections = viewer_output_selections(self.node_graph.graph());
+        self.graph_compiler.set_output_subscriptions(
+            selections
+                .iter()
+                .filter(|selection| selection.selected)
+                .map(|selection| (selection.node, selection.output))
+                .collect(),
+        );
         let mut by_node: HashMap<NodeId, Vec<ViewerOutputPanelEntry>> = HashMap::new();
         self.node_graph.clear_panel_data(VIEWER_OUTPUT_PANEL_ID);
         self.node_graph

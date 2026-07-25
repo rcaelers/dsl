@@ -168,6 +168,20 @@ Moving Rust symbols does not change stable graph-node IDs, payload IDs, builder 
 node definitions, or namespaced graph extensions. Compatibility remains owned by each concrete
 node migration. Generic API/compiler crates never translate concrete node names or state.
 
+### Application-supplied output subscriptions
+
+`logic_analyzer_ui` owns viewer-output selection discovery, editing, migration, and persistence.
+It translates the selected graph endpoints into
+`logic_analyzer_graph_compiler::OutputSubscriptionPlan` and updates the compiler before discovery,
+lowering, execution, cache planning, or live graph updates. The plan contains only node/output
+identities; it carries no widget, lane, renderer, or panel state.
+
+The compiler uses the same plan for source-channel visibility and retained derived-output
+collection. Its production code does not read the
+`logic_analyzer_graph.viewer_selections` extension. Saved payload-identity reconciliation also
+receives the plan explicitly, so compatibility metadata cannot silently become an alternate
+source of current UI selections.
+
 ### Enforcement
 
 Architecture checks enforce these dependency rules:
@@ -196,12 +210,12 @@ format. It does not consume `NodeGraphWidget`, `egui`, or `logic_analyzer_viewer
 construction belongs to built-in-node or application composition. The UI owns graph editing and
 converts its editing state into the graph document passed to the compiler.
 
-The UI controls subscriptions explicitly. Before a run it supplies a generic subscription plan
-that identifies the retained payloads it needs. The compiler materializes data collectors for that
-plan and returns a run-data handle containing the retained derived lanes, collected table data,
-run diagnostics, and source-readiness artifacts. The UI binds those results to its waveform and
-table widgets after the run starts; it may attach, detach, or rebind its own views without making
-the compiler construct a viewer node or invoke a UI callback.
+The UI controls subscriptions through the existing generic subscription plan. The compiler will
+materialize those subscriptions without constructing a synthetic Viewer node and return a
+run-data handle containing the retained derived lanes, collected table data, run diagnostics, and
+source-readiness artifacts. The UI will bind those results to its waveform and table widgets after
+the run starts; it may attach, detach, or rebind its own views without making the compiler invoke a
+UI callback.
 
 File and live sources report their viewer-usable data through the same application-neutral
 source-readiness result. For a file source, preparation completes preload, cache lookup or

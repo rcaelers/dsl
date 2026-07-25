@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use node_graph::{GraphState, NodeId, NodeKind, SocketDirection, SocketId};
 
+use super::OutputSubscriptionPlan;
 use super::graph::{BuilderRegistry, resolved_wire_endpoints};
 
 const PAYLOAD_SUBSCRIPTIONS_EXTENSION: &str = "logic_analyzer_graph.payload_subscriptions";
@@ -57,9 +58,10 @@ struct DiscoveredSubscription {
 /// Documents predating the manifest are upgraded in place. Existing stable
 /// identities are retained when their plugin is unavailable, so saving the
 /// graph never silently erases the information needed to restore it later.
-pub(crate) fn synchronize_payload_subscriptions(
+pub(crate) fn synchronize_payload_subscriptions_with_plan(
     graph: &mut GraphState,
     registry: &BuilderRegistry,
+    output_subscriptions: &OutputSubscriptionPlan,
 ) -> Result<Vec<GraphCompatibilityWarning>, serde_json::Error> {
     let mut warnings = Vec::new();
     let saved = match graph.extension::<SavedPayloadSubscriptions>(PAYLOAD_SUBSCRIPTIONS_EXTENSION)
@@ -91,7 +93,7 @@ pub(crate) fn synchronize_payload_subscriptions(
         .flat_map(|saved| saved.subscriptions)
         .map(|subscription| (subscription.target, subscription.payload))
         .collect();
-    let discovered = discover_subscriptions(graph, registry);
+    let discovered = discover_subscriptions(graph, registry, output_subscriptions);
     let mut subscriptions = Vec::with_capacity(discovered.len());
     let mut migrated = 0usize;
 
@@ -181,31 +183,41 @@ pub(crate) fn synchronize_payload_subscriptions(
     Ok(warnings)
 }
 
+#[cfg(test)]
+fn synchronize_payload_subscriptions(
+    graph: &mut GraphState,
+    registry: &BuilderRegistry,
+) -> Result<Vec<GraphCompatibilityWarning>, serde_json::Error> {
+    let output_subscriptions = super::graph::test_output_subscriptions(graph, registry);
+    synchronize_payload_subscriptions_with_plan(graph, registry, &output_subscriptions)
+}
+
 fn discover_subscriptions(
     graph: &GraphState,
     registry: &BuilderRegistry,
+    output_subscriptions: &OutputSubscriptionPlan,
 ) -> Vec<DiscoveredSubscription> {
     let mut discovered = Vec::new();
-    for selection in super::viewer_selection::viewer_output_selections(graph, registry)
-        .into_iter()
-        .filter(|selection| selection.selected)
-    {
-        let Some(node) = graph.nodes.get(&selection.node) else {
+    for (node_id, output_index) in output_subscriptions.outputs() {
+        let Some(node) = graph.nodes.get(&node_id) else {
+            continue;
+        };
+        let Some(output) = node.outputs.get(output_index) else {
             continue;
         };
         discovered.push(discover_subscription(
             graph,
             registry,
             SavedSubscriptionTarget::ShowInView {
-                node: selection.node,
-                output: selection.output,
+                node: node_id,
+                output: output_index,
             },
             SocketId {
-                node: selection.node,
-                index: selection.output,
+                node: node_id,
+                index: output_index,
                 direction: SocketDirection::Output,
             },
-            format!("View selection '{}.{}'", node.title, selection.label),
+            format!("View selection '{}.{}'", node.title, output.name),
         ));
     }
 

@@ -12,22 +12,28 @@ use super::graph::{
     LiveCaptureDiscoveryError, LiveRun, SamplingOverlayCandidate, SourceProcessOverrides,
 };
 use super::saved_graph::GraphCompatibilityWarning;
-use super::{graph, saved_graph};
+use super::{OutputSubscriptionPlan, graph, saved_graph};
 
 /// Stateful application-facing facade for graph discovery, compilation, and execution.
 ///
-/// The compiler owns its inventory-derived runtime registry. Hosts supply graph documents and
-/// consume resolved results without coordinating individual compiler functions or handling node
-/// builders directly.
+/// The compiler owns its inventory-derived runtime registry. Hosts supply graph documents and an
+/// application-neutral output-subscription plan, then consume resolved results without
+/// coordinating individual compiler functions or handling node builders directly.
 pub struct GraphCompiler {
     builders: BuilderRegistry,
+    output_subscriptions: OutputSubscriptionPlan,
 }
 
 impl GraphCompiler {
     pub fn new() -> Self {
         Self {
             builders: BuilderRegistry::standard(),
+            output_subscriptions: OutputSubscriptionPlan::new(),
         }
+    }
+
+    pub fn set_output_subscriptions(&mut self, subscriptions: OutputSubscriptionPlan) {
+        self.output_subscriptions = subscriptions;
     }
 
     pub fn collected_payloads(&self) -> &CollectedPayloadRegistry {
@@ -39,6 +45,7 @@ impl GraphCompiler {
     pub fn isolated_test() -> Self {
         Self {
             builders: BuilderRegistry::isolated_test(),
+            output_subscriptions: OutputSubscriptionPlan::new(),
         }
     }
 
@@ -70,14 +77,22 @@ impl GraphCompiler {
         &self,
         graph: &GraphState,
     ) -> Result<Option<DiscoveredCapturePresentation>, String> {
-        graph::discover_capture_presentation(graph, &self.builders)
+        graph::discover_capture_presentation_with_subscriptions(
+            graph,
+            &self.builders,
+            &self.output_subscriptions,
+        )
     }
 
     pub fn discover_live_capture_feature(
         &self,
         graph: &GraphState,
     ) -> Result<Option<DiscoveredLiveCaptureFeature>, LiveCaptureDiscoveryError> {
-        graph::discover_live_capture_feature(graph, &self.builders)
+        graph::discover_live_capture_feature_with_subscriptions(
+            graph,
+            &self.builders,
+            &self.output_subscriptions,
+        )
     }
 
     pub fn discover_trigger_configuration(
@@ -100,18 +115,22 @@ impl GraphCompiler {
         &self,
         graph: &mut GraphState,
     ) -> Result<Vec<GraphCompatibilityWarning>, serde_json::Error> {
-        saved_graph::synchronize_payload_subscriptions(graph, &self.builders)
+        saved_graph::synchronize_payload_subscriptions_with_plan(
+            graph,
+            &self.builders,
+            &self.output_subscriptions,
+        )
     }
 
     pub fn lower(&self, graph: &GraphState) -> Result<CompiledGraph, Vec<CompileError>> {
-        graph::lower(graph, &self.builders)
+        graph::lower_with_subscriptions(graph, &self.builders, &self.output_subscriptions)
     }
 
     pub fn sampling_overlay_candidates(
         &self,
         graph: &GraphState,
     ) -> Result<Vec<SamplingOverlayCandidate>, Vec<CompileError>> {
-        graph::sampling_overlay_candidates(graph, &self.builders)
+        graph::sampling_overlay_candidates(graph, &self.builders, &self.output_subscriptions)
     }
 
     pub fn derived_cache_configs_by_node(
@@ -119,7 +138,12 @@ impl GraphCompiler {
         graph: &GraphState,
         directory: &Path,
     ) -> Result<HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>> {
-        graph::derived_cache_configs_by_node(graph, &self.builders, directory)
+        graph::derived_cache_configs_by_node_with_subscriptions(
+            graph,
+            &self.builders,
+            &self.output_subscriptions,
+            directory,
+        )
     }
 
     pub fn start_app_run(
@@ -127,7 +151,7 @@ impl GraphCompiler {
         graph: &GraphState,
         ctx: &mut CompileCtx,
     ) -> Result<LiveRun, Vec<CompileError>> {
-        graph::start_app_run(graph, &self.builders, ctx)
+        graph::start_app_run(graph, &self.builders, &self.output_subscriptions, ctx)
     }
 
     pub fn start_app_run_with_source_overrides(
@@ -136,7 +160,13 @@ impl GraphCompiler {
         ctx: &mut CompileCtx,
         overrides: SourceProcessOverrides,
     ) -> Result<LiveRun, Vec<CompileError>> {
-        graph::start_app_run_with_source_overrides(graph, &self.builders, ctx, overrides)
+        graph::start_app_run_with_source_overrides_and_subscriptions(
+            graph,
+            &self.builders,
+            &self.output_subscriptions,
+            ctx,
+            overrides,
+        )
     }
 
     pub fn start_live_analysis(
@@ -145,7 +175,13 @@ impl GraphCompiler {
         ctx: &mut CompileCtx,
         source: LiveAnalysisSource,
     ) -> Result<LiveRun, Vec<CompileError>> {
-        graph::start_live_analysis(graph, &self.builders, ctx, source)
+        graph::start_live_analysis_with_subscriptions(
+            graph,
+            &self.builders,
+            &self.output_subscriptions,
+            ctx,
+            source,
+        )
     }
 
     pub fn apply_run(
@@ -153,7 +189,7 @@ impl GraphCompiler {
         run: &mut LiveRun,
         graph: &GraphState,
     ) -> Result<ApplySummary, ApplyError> {
-        run.apply(graph, &self.builders)
+        run.apply_with_subscriptions(graph, &self.builders, &self.output_subscriptions)
     }
 
     pub fn apply_configuration_epoch(
@@ -162,7 +198,7 @@ impl GraphCompiler {
         graph: &GraphState,
         boundary: ConfigurationBoundary,
     ) -> Result<ApplySummary, ApplyError> {
-        run.apply_configuration_epoch(graph, &self.builders, boundary)
+        run.apply_configuration_epoch(graph, &self.builders, &self.output_subscriptions, boundary)
     }
 }
 
