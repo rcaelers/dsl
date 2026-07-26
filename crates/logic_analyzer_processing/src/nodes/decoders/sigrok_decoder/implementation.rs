@@ -11,7 +11,7 @@ use signal_processing::{
     ProtocolPacket, ProtocolValue, SampleBlock, Word, WorkError, WorkResult,
 };
 
-use crate::support::{
+use crate::support::sigrokdecode::{
     DecoderOutput, DecoderWorker, InitialPin, LogicChunk, MetadataType, OUTPUT_ANN, OUTPUT_BINARY,
     OUTPUT_LOGIC, OUTPUT_META, OUTPUT_PYTHON, OptionValue, OutputRegistration, WorkerConfig,
     WorkerError, WorkerInputConfig,

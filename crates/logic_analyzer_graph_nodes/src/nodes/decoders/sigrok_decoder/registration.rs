@@ -16,7 +16,7 @@ mod registration_tests {
     use egui::Pos2;
 
     use logic_analyzer_graph_api::node::RuntimeBuilder;
-    use logic_analyzer_processing::support::discover_sigrok_decoder;
+    use logic_analyzer_processing::nodes::decoders::sigrok_decoder::discover_sigrok_decoder;
     use node_graph::{NodeDef, NodeGraphWidget, NodeTypeRegistry};
 
     use super::super::builder::SigrokDecoderBuilder;

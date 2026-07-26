@@ -4,7 +4,9 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use serde::{Deserialize, Serialize};
 
 use logic_analyzer_graph_api::node::{DirectoryNodeCatalog, NodeCatalogStatus};
-use logic_analyzer_processing::support::{SigrokCatalogSnapshot, SigrokDecoderCatalog};
+use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+    SigrokCatalogSnapshot, SigrokDecoderCatalog,
+};
 use node_graph::NodeTemplate;
 
 use super::definition::SigrokDecoderState;

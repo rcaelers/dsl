@@ -1,11 +1,11 @@
 //! Conventional pipeline source for the DSLogic U3Pro16.
 
+use signal_processing::logic_analyzer::{
+    LogicAnalyzerResult, LogicAnalyzerSource, LogicCaptureConfig,
+};
 use signal_processing::{InputPort, OutputPort, ProcessNode, WorkResult};
 
 use super::implementation::DsLogicU3Pro16;
-use crate::support::logic_analyzer::{
-    LogicAnalyzerResult, LogicAnalyzerSource, LogicCaptureConfig,
-};
 
 /// A DSLogic U3Pro16 source node for a conventional processing pipeline.
 pub struct DsLogicU3Pro16Source {

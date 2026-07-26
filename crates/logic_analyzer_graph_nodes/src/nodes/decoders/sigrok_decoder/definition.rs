@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 use egui::{Color32, Rect, Ui};
 use serde::{Deserialize, Serialize};
 
-use logic_analyzer_processing::support::{
+use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     SigrokCatalogEntry, SigrokDecoderCatalog, SigrokDecoderDescriptor, SigrokOutputKind,
     SigrokScalarValue,
 };

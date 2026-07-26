@@ -8,9 +8,9 @@ use logic_analyzer_graph_api::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
-    SigrokChannel, SigrokDecoder, SigrokDecoderConfig, SigrokInitialPin, SigrokOptionValue,
+    SigrokChannel, SigrokDecoder, SigrokDecoderConfig, SigrokDecoderDescriptor, SigrokInitialPin,
+    SigrokOptionValue, discover_sigrok_decoder,
 };
-use logic_analyzer_processing::support::{SigrokDecoderDescriptor, discover_sigrok_decoder};
 use node_graph::api::Socket;
 use signal_processing::{ProcessNode, ProtocolPacket, SampleBlock, Word};
 

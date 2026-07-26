@@ -17,7 +17,7 @@ use signal_processing::capture::{
 use signal_processing::waveform_index::IndexSampler;
 use signal_processing::{Error, Result};
 
-use crate::support::{get_packed_bit, parse_sample_rate};
+use crate::support::capture_format::{get_packed_bit, parse_sample_rate};
 
 fn zip_error(error: zip::result::ZipError) -> Error {
     Error::ParseError(format!("capture archive error: {error}"))

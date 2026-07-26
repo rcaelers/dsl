@@ -12,7 +12,7 @@ use signal_processing::capture::{
 };
 use signal_processing::{Error, Result};
 
-use crate::support::parse_sample_rate;
+use crate::support::capture_format::parse_sample_rate;
 
 /// Decoded sigrok capture data shared by a file source and random-access reader.
 pub(crate) struct SigrokCapture {

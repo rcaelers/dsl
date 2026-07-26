@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use signal_processing::logic_analyzer::{CaptureMode, LogicCaptureConfig};
 use signal_processing::{
     AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureChannelId, CaptureDataDelivery,
     PreparedAcquisition,
@@ -10,7 +11,6 @@ use signal_processing::{
 use super::buffered::BufferedProvider;
 use super::implementation::{DsLogicCapturePlan, LinkSpeed};
 use super::streaming::StreamingProvider;
-use crate::support::logic_analyzer::{CaptureMode, LogicCaptureConfig};
 
 #[derive(Clone, Copy)]
 enum CaptureProfile {

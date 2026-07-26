@@ -28,6 +28,7 @@ mod events;
 mod graph;
 pub mod live_capture;
 pub mod live_capture_store;
+pub mod logic_analyzer;
 mod manager;
 mod node;
 mod payload;

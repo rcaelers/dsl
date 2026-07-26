@@ -1,6 +1,6 @@
 //! Platform-neutral trigger configuration for logic-analyzer sources.
 
-use signal_processing::TriggerCountMode;
+use crate::TriggerCountMode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TriggerCondition {

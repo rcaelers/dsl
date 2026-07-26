@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 
+use signal_processing::logic_analyzer::{LogicAnalyzer, LogicCaptureConfig};
 use signal_processing::{
     AcquisitionContext, AcquisitionError, AcquisitionOutcome, AcquisitionResult,
     CaptureAcquisitionPhase, CaptureChannelId, CaptureChunk, CaptureCompletion, CaptureProgress,
@@ -12,7 +13,6 @@ use signal_processing::{
 
 use super::common::{CanonicalTransferAssembler, map_analyzer_error};
 use super::implementation::{DsLogicCapturePlan, DsLogicU3Pro16, RusbTransport, UsbTransport};
-use crate::support::logic_analyzer::{LogicAnalyzer, LogicCaptureConfig};
 
 pub(crate) struct StreamingProvider<T: UsbTransport = RusbTransport> {
     analyzer: DsLogicU3Pro16<T>,

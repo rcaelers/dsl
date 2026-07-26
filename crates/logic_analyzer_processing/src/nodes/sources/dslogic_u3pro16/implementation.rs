@@ -13,8 +13,7 @@ use std::time::{Duration, Instant};
 use rusb::{Context, DeviceHandle, UsbContext};
 
 use signal_processing::TriggerCountMode;
-
-use crate::support::logic_analyzer::{
+use signal_processing::logic_analyzer::{
     CaptureMode, ClockEdge, ClockSource, LogicAnalyzer, LogicAnalyzerError, LogicAnalyzerInfo,
     LogicAnalyzerResult, LogicAnalyzerSource, LogicCaptureConfig, LogicChunk, LogicEncoding,
     LogicEncodingRequest, LogicTrigger, LogicTriggerStage, TriggerCondition, TriggerLogic,

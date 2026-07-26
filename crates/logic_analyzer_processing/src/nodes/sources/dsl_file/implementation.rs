@@ -27,9 +27,9 @@ use signal_processing::{
 };
 
 use super::super::capture_archive::zip_error;
+use crate::support::capture_format::get_packed_bit;
 use crate::support::capture_index::capture_cache_identity;
 use crate::support::dsl_file::{DslChunkedCaptureReader, DslFileCaptureDataSource, parse_header};
-use crate::support::get_packed_bit;
 const DEFAULT_BLOCK_CACHE_WINDOWS: usize = 2;
 
 type BlockKey = (usize, u64);
@@ -897,8 +897,8 @@ mod tests {
     use signal_processing::ProcessNode;
 
     use super::*;
+    use crate::support::capture_format::{get_packed_bit, parse_sample_rate};
     use crate::support::dsl_file::DslCaptureReader;
-    use crate::support::{get_packed_bit, parse_sample_rate};
 
     pub(crate) fn open_dsl_chunked_capture<P: AsRef<Path>>(
         path: P,

@@ -219,8 +219,8 @@ pub(crate) fn matched_parts(result: WaitMatch) -> (u64, Vec<u8>, Option<Vec<bool
 mod bridge_tests {
     use pyo3::Python;
 
+    use super::super::scheduler::InitialPin;
     use super::*;
-    use crate::support::InitialPin;
 
     #[test]
     fn full_output_queue_applies_backpressure_without_truncating_decoder_output() {
