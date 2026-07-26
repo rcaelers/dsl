@@ -48,30 +48,40 @@ impl CaptureAvailability {
     }
 }
 
+pub(crate) trait CaptureFeatureDiscovery {
+    fn discover_capture_availability(&self, graph: &GraphState) -> CaptureAvailability;
+}
+
+impl CaptureFeatureDiscovery for GraphCompiler {
+    fn discover_capture_availability(&self, graph: &GraphState) -> CaptureAvailability {
+        match self.discover_live_capture_feature(graph) {
+            Ok(Some(feature)) => CaptureAvailability::Available {
+                source_node: feature.source_node(),
+                source_title: feature.source_title().to_owned(),
+                has_trigger_program: feature.has_trigger_program(),
+                capabilities: feature.capabilities().clone(),
+                session_plan: feature.session_plan().cloned().map(Box::new),
+            },
+            Ok(None) => CaptureAvailability::Unavailable {
+                reason: "The graph has no live capture source".into(),
+            },
+            Err(error) => CaptureAvailability::Unavailable {
+                reason: error.message,
+            },
+        }
+    }
+}
+
 pub(crate) fn capture_availability(
     graph: &GraphState,
-    compiler: &GraphCompiler,
+    discovery: &dyn CaptureFeatureDiscovery,
 ) -> CaptureAvailability {
     if !CaptureCoordinator::backend_available() {
         return CaptureAvailability::Unavailable {
             reason: CaptureCoordinator::backend_unavailable_reason().into(),
         };
     }
-    match compiler.discover_live_capture_feature(graph) {
-        Ok(Some(feature)) => CaptureAvailability::Available {
-            source_node: feature.source_node(),
-            source_title: feature.source_title().to_owned(),
-            has_trigger_program: feature.has_trigger_program(),
-            capabilities: feature.capabilities().clone(),
-            session_plan: feature.session_plan().cloned().map(Box::new),
-        },
-        Ok(None) => CaptureAvailability::Unavailable {
-            reason: "The graph has no live capture source".into(),
-        },
-        Err(error) => CaptureAvailability::Unavailable {
-            reason: error.message,
-        },
-    }
+    discovery.discover_capture_availability(graph)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -166,44 +176,46 @@ pub(crate) trait CaptureCoordinatorContract {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use logic_analyzer_graph_nodes::test_support as nodes;
-    use node_graph::NodeGraphWidget;
+    use signal_processing::{CaptureChannelId, CaptureDataDelivery};
 
     use super::*;
 
-    const TEST_CAPTURE_SOURCE_ID: &str = "org.logicconduit.graph-node.test-capture-source/v1";
-    const TEST_LIVE_CAPTURE_SOURCE_ID: &str =
-        "org.logicconduit.graph-node.test-live-capture-source/v1";
+    struct FixedDiscovery(CaptureAvailability);
+
+    impl CaptureFeatureDiscovery for FixedDiscovery {
+        fn discover_capture_availability(&self, _graph: &GraphState) -> CaptureAvailability {
+            self.0.clone()
+        }
+    }
 
     #[test]
-    fn source_only_graph_is_available_for_raw_capture() {
-        let mut graph = NodeGraphWidget::new(nodes::build_registry());
-        graph
-            .add_node_at(
-                nodes::registered_node_name(TEST_LIVE_CAPTURE_SOURCE_ID),
-                egui::Pos2::ZERO,
-            )
-            .expect("test capture source is registered");
+    fn discovered_live_capture_is_available_for_raw_capture() {
+        let capabilities = CaptureProviderCapabilities::single(
+            CaptureDataDelivery::DuringAcquisition,
+            vec![CaptureChannelId::new("ui-test:0")],
+            1_000_000,
+        );
+        let discovery = FixedDiscovery(CaptureAvailability::Available {
+            source_node: NodeId(7),
+            source_title: "UI Test Source".into(),
+            has_trigger_program: false,
+            capabilities,
+            session_plan: None,
+        });
 
         assert!(matches!(
-            capture_availability(graph.graph(), &GraphCompiler::new()),
+            capture_availability(&GraphState::default(), &discovery),
             CaptureAvailability::Available { .. }
         ));
     }
 
     #[test]
-    fn preloaded_demo_capture_is_not_a_live_capture_source() {
-        let mut graph = NodeGraphWidget::new(nodes::build_registry());
-        graph
-            .add_node_at(
-                nodes::registered_node_name(TEST_CAPTURE_SOURCE_ID),
-                egui::Pos2::ZERO,
-            )
-            .expect("test capture source is registered");
+    fn unavailable_discovery_reason_is_preserved() {
+        let discovery = FixedDiscovery(CaptureAvailability::Unavailable {
+            reason: "not a live source".into(),
+        });
 
-        assert!(matches!(
-            capture_availability(graph.graph(), &GraphCompiler::new()),
-            CaptureAvailability::Unavailable { .. }
-        ));
+        let availability = capture_availability(&GraphState::default(), &discovery);
+        assert_eq!(availability.reason(), Some("not a live source"));
     }
 }

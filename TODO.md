@@ -16,9 +16,8 @@ crate under test.
      validation. Keep only the first two categories in ordinary Cargo test
      targets.
    - Record every dev-dependency between workspace crates and remove accidental
-     test-only cycles. In particular, eliminate the current
-     `logic_analyzer_graph_compiler` ↔ `logic_analyzer_graph_nodes` test cycle
-     and the UI test dependency on the concrete graph-node catalog.
+     test-only cycles. Prevent reintroduction of the removed compiler/node
+     cycle and UI dependency on the concrete graph-node catalog.
    - Add a repository check that rejects tests which reference paths outside
      their crate, environment-selected fixture roots, network resources, or
      untracked fixture files. Allow environment access only in explicit manual
@@ -59,9 +58,8 @@ crate under test.
    - Move full catalog + compiler + node scenarios to a top-level integration
      test package that explicitly owns that composition. It must use public
      facades only and checked-in graph/fixture data.
-   - Remove the compiler's graph-nodes dev-dependency, the graph-nodes compiler
-     dev-dependency, and the cross-crate `test-support` features that only
-     expose implementation helpers for this cycle.
+   - Remove cross-crate `test-support` features that now only expose
+     implementation helpers for integration composition.
    - Completion gate: compiler and graph-node crate tests pass independently,
      and their Cargo dependency graphs contain no test-only cycle.
 
@@ -92,8 +90,8 @@ crate under test.
      stores merely to drive UI state transitions.
    - Move end-to-end UI + compiler + built-in-node workflows to the top-level
      integration test package.
-   - Remove graph-nodes and concrete capture test-support dev-dependencies from
-     UI once local service fakes cover UI-owned behavior.
+   - Remove the concrete capture test-support dev-dependency from UI once local
+     service fakes cover the remaining UI-owned behavior.
    - Completion gate: `logic_analyzer_ui` tests run with no built-in node
      registrations, USB backend, native dialog, or filesystem export backend.
 

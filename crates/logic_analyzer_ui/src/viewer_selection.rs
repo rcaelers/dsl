@@ -594,16 +594,16 @@ fn store(
 
 #[cfg(test)]
 mod viewer_selection_tests {
-    use logic_analyzer_graph_nodes::test_support as nodes;
     use node_graph::NodeGraphWidget;
 
     use super::*;
+    use crate::test_contracts_tests::{WORD_PRODUCER_NAME, build_test_node_registry};
 
     #[test]
     fn legacy_socket_selection_migrates_with_visible_warning() {
-        let mut widget = NodeGraphWidget::new(nodes::build_registry());
+        let mut widget = NodeGraphWidget::new(build_test_node_registry());
         let decoder = widget
-            .add_node_at("Binary Decoder", egui::Pos2::ZERO)
+            .add_node_at(WORD_PRODUCER_NAME, egui::Pos2::ZERO)
             .unwrap();
         widget.graph_mut().nodes.get_mut(&decoder).unwrap().outputs[0]
             .extensions
@@ -634,9 +634,9 @@ mod viewer_selection_tests {
 
     #[test]
     fn legacy_viewer_node_becomes_ui_owned_output_subscription() {
-        let mut widget = NodeGraphWidget::new(nodes::build_registry());
+        let mut widget = NodeGraphWidget::new(build_test_node_registry());
         let decoder = widget
-            .add_node_at("Binary Decoder", egui::Pos2::ZERO)
+            .add_node_at(WORD_PRODUCER_NAME, egui::Pos2::ZERO)
             .unwrap();
         let viewer = widget
             .add_node_at("Viewer", egui::Pos2::new(200.0, 0.0))

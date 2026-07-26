@@ -25,7 +25,6 @@ mod node_registry_tests {
 
     #[test]
     fn obsolete_viewer_node_is_not_offered_by_the_ui_catalog() {
-        logic_analyzer_graph_nodes::link();
         assert!(build_node_registry().category_of("Viewer").is_none());
     }
 }

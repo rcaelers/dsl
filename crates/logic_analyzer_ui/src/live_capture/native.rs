@@ -1689,14 +1689,13 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use logic_analyzer_graph_api::node::{CaptureGraphSourceFactory, LiveCaptureFeature};
-    use logic_analyzer_graph_api::node_support::{LiveCaptureEdit, SimpleTriggerChannel};
-    use logic_analyzer_graph_compiler::{DiscoveredLiveCaptureFeature, GraphCompiler};
-    use logic_analyzer_graph_nodes::test_support as nodes;
+    use logic_analyzer_graph_api::node_support::SimpleTriggerChannel;
+    use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
     use logic_analyzer_test_support::{
         BufferedFakeConfig, BufferedFakeController, BufferedFakeProvider, DeterministicFakeConfig,
         DeterministicFakeController, DeterministicFakeProvider,
     };
-    use node_graph::{NodeGraphWidget, NodeId};
+    use node_graph::NodeId;
     use signal_processing::{
         AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureAnalysisChannel,
         CaptureAnalysisSource, CaptureChannelId, CaptureCommandCapabilities, CaptureDataDelivery,
@@ -1710,35 +1709,6 @@ mod tests {
         ActiveCapture, CaptureCoordinator, CaptureCoordinatorContract, CaptureRawExportFormat,
         WorkerCompletion, bounded_capture_event_queue, waveform_ready_for_publication,
     };
-
-    const TEST_LIVE_CAPTURE_SOURCE_ID: &str =
-        "org.logicconduit.graph-node.test-live-capture-source/v1";
-    const U3PRO16_ID: &str = "org.logicconduit.graph-node.dslogic-u3pro16/v1";
-
-    fn registered_node_name(stable_id: &str) -> &'static str {
-        nodes::registered_node_name(stable_id)
-    }
-
-    fn configure_u3pro16(
-        state: &mut serde_json::Value,
-        mode: &str,
-        sample_rate: &str,
-        duration_ms: u64,
-        enabled_channels: &[usize],
-    ) {
-        state["mode"]["value"] = mode.into();
-        state["sample_rate"]["value"] = sample_rate.into();
-        state["duration"]["nanoseconds"] = duration_ms.saturating_mul(1_000_000).into();
-        let channel_count = state["channels"]["enabled"]
-            .as_array()
-            .expect("U3Pro16 channels are an array")
-            .len();
-        let mut enabled = vec![false; channel_count];
-        for &channel in enabled_channels {
-            enabled[channel] = true;
-        }
-        state["channels"]["enabled"] = serde_json::to_value(enabled).unwrap();
-    }
 
     impl CaptureCoordinator {
         fn start(
@@ -1831,6 +1801,14 @@ mod tests {
                 .prepare
                 .take()
                 .expect("test live-capture feature prepares at most once")(context)
+        }
+
+        fn prepare_with_mode(
+            self: Box<Self>,
+            context: AcquisitionContext,
+            _mode: CaptureStartMode,
+        ) -> AcquisitionResult<Box<dyn PreparedAcquisition>> {
+            self.prepare(context)
         }
     }
 
@@ -2032,6 +2010,58 @@ mod tests {
     ) {
         let (feature, controller, trigger_sample, _) = manual_triggered_feature_with_counter();
         (feature, controller, trigger_sample)
+    }
+
+    fn manual_capture_now_feature() -> (DiscoveredLiveCaptureFeature, DeterministicFakeController) {
+        let channels = vec![CaptureChannelId::new("capture-now:0")];
+        let config =
+            DeterministicFakeConfig::new(channels.clone(), vec![3, 5, 2, 7], 0x5a17).unwrap();
+        let total_samples = config.total_samples();
+        let (provider, controller) = DeterministicFakeProvider::manually_paced(config);
+        let prepare_calls = Arc::new(AtomicUsize::new(0));
+        let feature = DiscoveredLiveCaptureFeature::new(
+            NodeId(44),
+            "Capture Now Contract Fake",
+            Box::new(FakeFeature {
+                channel_names: vec!["Capture Now 0".into()],
+                simple_trigger_channels: vec![SimpleTriggerChannel {
+                    channel_id: channels[0].clone(),
+                    viewer_channel: 0,
+                    name: "Capture Now 0".into(),
+                    enabled: true,
+                    condition: SimpleTriggerCondition::Rising,
+                }],
+                channels: channels.clone(),
+                sample_rate_hz: 1_000_000_000.0,
+                prepare: Some(Box::new(move |context| provider.prepare(context))),
+                prepare_calls,
+                capabilities: streaming_capabilities(&channels),
+                session_plan: Some(CaptureSessionPlan {
+                    sample_rate_hz: 1_000_000_000,
+                    channel_count: 1,
+                    capture_window_samples: Some(total_samples),
+                    policy: EffectiveCapturePolicy {
+                        requested: CapturePolicy {
+                            start: RecordingStart::Trigger,
+                            trigger_placement: None,
+                            retention_before_origin: RetentionPolicy::Everything,
+                            retention_after_origin: RetentionPolicy::Everything,
+                            completion: CompletionPolicy::UntilStopped,
+                            trigger_timeout: None,
+                        },
+                        effective: CapturePolicy {
+                            start: RecordingStart::Trigger,
+                            trigger_placement: None,
+                            retention_before_origin: RetentionPolicy::Everything,
+                            retention_after_origin: RetentionPolicy::Everything,
+                            completion: CompletionPolicy::UntilStopped,
+                            trigger_timeout: None,
+                        },
+                    },
+                }),
+            }),
+        );
+        (feature, controller)
     }
 
     fn buffered_triggered_feature() -> (
@@ -2273,50 +2303,14 @@ mod tests {
     }
 
     #[test]
-    fn development_registration_discovers_and_completes_a_capture() {
-        let mut graph = NodeGraphWidget::new(nodes::build_registry());
-        let source = graph
-            .add_node_at(
-                registered_node_name(TEST_LIVE_CAPTURE_SOURCE_ID),
-                egui::Pos2::ZERO,
-            )
-            .unwrap();
-        let feature = GraphCompiler::new()
-            .discover_live_capture_feature(graph.graph())
-            .unwrap()
-            .unwrap();
-        assert_eq!(feature.source_node(), source);
-
-        let mut coordinator = CaptureCoordinator::new();
-        coordinator
-            .start(feature, CaptureStartMode::SavedPolicy)
-            .unwrap();
-        poll_until(&mut coordinator, |coordinator| !coordinator.is_active());
-
-        let manifest = coordinator.completed_manifest().unwrap();
-        assert_eq!(manifest.committed_chunks, 64);
-        assert_eq!(manifest.committed_samples, 64 * 4_096);
-        assert_eq!(manifest.descriptor.channels().len(), 11);
-    }
-
-    #[test]
     fn raw_only_capture_completes_after_its_analysis_attachment_is_dropped() {
-        let mut graph = NodeGraphWidget::new(nodes::build_registry());
-        graph
-            .add_node_at(
-                registered_node_name(TEST_LIVE_CAPTURE_SOURCE_ID),
-                egui::Pos2::ZERO,
-            )
-            .unwrap();
-        let feature = GraphCompiler::new()
-            .discover_live_capture_feature(graph.graph())
-            .unwrap()
-            .unwrap();
+        let (feature, controller) = manual_feature();
 
         let mut coordinator = CaptureCoordinator::new();
         coordinator
             .start(feature, CaptureStartMode::SavedPolicy)
             .unwrap();
+        controller.grant_chunks(4);
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
             coordinator.poll();
@@ -2341,22 +2335,13 @@ mod tests {
 
     #[test]
     fn starting_a_new_capture_discards_the_previous_store_and_index() {
-        let mut graph = NodeGraphWidget::new(nodes::build_registry());
-        graph
-            .add_node_at(
-                registered_node_name(TEST_LIVE_CAPTURE_SOURCE_ID),
-                egui::Pos2::ZERO,
-            )
-            .unwrap();
-        let compiler = GraphCompiler::new();
-        let feature = compiler
-            .discover_live_capture_feature(graph.graph())
-            .unwrap()
-            .unwrap();
+        let graph = node_graph::GraphState::default();
+        let (feature, first_controller) = manual_feature();
         let mut coordinator = CaptureCoordinator::new();
         coordinator
-            .start_with_graph(feature, graph.graph(), CaptureStartMode::SavedPolicy)
+            .start_with_graph(feature, &graph, CaptureStartMode::SavedPolicy)
             .unwrap();
+        first_controller.grant_chunks(4);
         poll_until(&mut coordinator, |coordinator| !coordinator.is_active());
         let first_session = coordinator.current_session_id().unwrap();
         let first_directory = coordinator
@@ -2368,14 +2353,12 @@ mod tests {
             .to_owned();
         assert!(first_directory.exists());
 
-        let feature = compiler
-            .discover_live_capture_feature(graph.graph())
-            .unwrap()
-            .unwrap();
+        let (feature, second_controller) = manual_feature();
         coordinator
-            .start_with_graph(feature, graph.graph(), CaptureStartMode::SavedPolicy)
+            .start_with_graph(feature, &graph, CaptureStartMode::SavedPolicy)
             .unwrap();
         assert!(!first_directory.exists());
+        second_controller.grant_chunks(4);
         poll_until(&mut coordinator, |coordinator| !coordinator.is_active());
         assert_ne!(coordinator.current_session_id(), Some(first_session));
     }
@@ -2684,28 +2667,7 @@ mod tests {
 
     #[test]
     fn capture_now_bypasses_one_session_trigger_without_mutating_requested_policy() {
-        let mut graph = NodeGraphWidget::new(nodes::build_registry());
-        let source = graph
-            .add_node_at(
-                registered_node_name(TEST_LIVE_CAPTURE_SOURCE_ID),
-                egui::Pos2::ZERO,
-            )
-            .unwrap();
-        let state = &graph.graph().nodes[&source].state;
-        let edited = nodes::apply_registered_live_capture_edit(
-            TEST_LIVE_CAPTURE_SOURCE_ID,
-            state,
-            &LiveCaptureEdit::SetSimpleTrigger {
-                channel_id: CaptureChannelId::new("demo:0"),
-                condition: SimpleTriggerCondition::Rising,
-            },
-        )
-        .unwrap();
-        graph.graph_mut().nodes.get_mut(&source).unwrap().state = edited;
-        let feature = GraphCompiler::new()
-            .discover_live_capture_feature(graph.graph())
-            .unwrap()
-            .unwrap();
+        let (feature, controller) = manual_capture_now_feature();
         assert_eq!(
             feature.session_plan().unwrap().policy.requested.start,
             signal_processing::RecordingStart::Trigger
@@ -2715,6 +2677,7 @@ mod tests {
         coordinator
             .start(feature, CaptureStartMode::CaptureNow)
             .unwrap();
+        controller.grant_chunks(4);
         poll_until(&mut coordinator, |coordinator| !coordinator.is_active());
 
         assert_eq!(coordinator.completed_recording_origin(), Some(0));
@@ -2956,104 +2919,5 @@ mod tests {
             schema(second.process.as_ref())
         );
         assert_eq!(prepare_calls.load(Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    #[ignore = "requires a connected DSLogic U3Pro16 with runtime firmware and FPGA image"]
-    fn u3pro16_buffered_hardware_capture_finalizes_and_opens_a_replay_source() {
-        let mut graph = NodeGraphWidget::new(nodes::build_registry());
-        let source = graph
-            .add_node_at(registered_node_name(U3PRO16_ID), egui::Pos2::ZERO)
-            .unwrap();
-        configure_u3pro16(
-            &mut graph.graph_mut().nodes.get_mut(&source).unwrap().state,
-            "Buffer",
-            "1 MHz",
-            1,
-            &[0, 1],
-        );
-        let feature = GraphCompiler::new()
-            .discover_live_capture_feature(graph.graph())
-            .unwrap()
-            .unwrap();
-        let mut coordinator = CaptureCoordinator::new();
-        coordinator
-            .start(feature, CaptureStartMode::SavedPolicy)
-            .unwrap();
-
-        let deadline = Instant::now() + Duration::from_secs(30);
-        while coordinator.is_active() {
-            assert!(Instant::now() < deadline, "hardware capture timed out");
-            coordinator.poll();
-            std::thread::yield_now();
-        }
-
-        let status = coordinator.status().unwrap();
-        assert_eq!(
-            status.state,
-            CaptureSessionState::Complete,
-            "{:?}",
-            status.error
-        );
-        assert!(coordinator.completed_manifest().unwrap().committed_samples >= 1_024);
-        let replay = coordinator
-            .create_replay_attachment()
-            .unwrap()
-            .expect("finalized hardware capture should be replayable");
-        assert_eq!(replay.source_node, source);
-        assert_eq!(replay.process.output_schema().len(), 2);
-    }
-
-    #[test]
-    #[ignore = "requires a connected SuperSpeed DSLogic U3Pro16 with runtime firmware and FPGA image"]
-    fn u3pro16_streaming_hardware_capture_stops_at_the_host_limit_and_replays() {
-        let mut graph = NodeGraphWidget::new(nodes::build_registry());
-        let source = graph
-            .add_node_at(registered_node_name(U3PRO16_ID), egui::Pos2::ZERO)
-            .unwrap();
-        configure_u3pro16(
-            &mut graph.graph_mut().nodes.get_mut(&source).unwrap().state,
-            "Stream",
-            "1 MHz",
-            10,
-            &[0, 1],
-        );
-        let feature = GraphCompiler::new()
-            .discover_live_capture_feature(graph.graph())
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            feature.capabilities().data_delivery(),
-            signal_processing::CaptureDataDelivery::DuringAcquisition
-        );
-        let mut coordinator = CaptureCoordinator::new();
-        coordinator
-            .start(feature, CaptureStartMode::SavedPolicy)
-            .unwrap();
-
-        let deadline = Instant::now() + Duration::from_secs(30);
-        while coordinator.is_active() {
-            assert!(Instant::now() < deadline, "hardware stream timed out");
-            coordinator.poll();
-            std::thread::yield_now();
-        }
-
-        let status = coordinator.status().unwrap();
-        assert_eq!(
-            status.state,
-            CaptureSessionState::Complete,
-            "{:?}",
-            status.error
-        );
-        assert_eq!(
-            coordinator.completed_manifest().unwrap().committed_samples,
-            10_000
-        );
-        let replay = coordinator
-            .create_replay_attachment()
-            .unwrap()
-            .expect("finalized hardware stream should be replayable");
-        assert_eq!(replay.source_node, source);
-        assert_eq!(replay.process.output_schema().len(), 2);
     }
 }

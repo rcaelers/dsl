@@ -12,6 +12,8 @@ mod plugin_panel;
 mod preferences;
 mod product;
 mod sampling_overlay_presentation;
+#[cfg(test)]
+mod test_contracts_tests;
 mod toast;
 mod viewer_selection;
 

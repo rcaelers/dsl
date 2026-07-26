@@ -6,6 +6,15 @@ fn implementation_source(source: &'static str) -> &'static str {
 }
 
 #[test]
+fn ui_manifest_has_no_concrete_graph_node_dependency() {
+    let manifest = include_str!("../../Cargo.toml");
+    assert!(
+        !manifest.contains("logic-analyzer-graph-nodes"),
+        "UI tests must use UI-owned service and catalog fakes; built-in-node composition belongs in workspace integration tests"
+    );
+}
+
+#[test]
 fn generic_capture_components_contain_no_provider_or_model_contracts() {
     let sources = [
         ("application", include_str!("../app.rs")),

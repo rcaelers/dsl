@@ -2281,7 +2281,6 @@ dependencies = [
  "logic-analyzer-capture-export",
  "logic-analyzer-graph-api",
  "logic-analyzer-graph-compiler",
- "logic-analyzer-graph-nodes",
  "logic-analyzer-test-support",
  "logic-analyzer-viewer",
  "node-graph",
