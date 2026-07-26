@@ -4,10 +4,12 @@ use node_graph::{FileValue, SocketDef, SocketWithControlDef};
 
 use super::text::Text;
 
-/// A text input whose unconnected inline control selects an existing file.
-pub(crate) struct TextOpenPath;
+/// A text input whose unconnected inline control edits a file path.
+///
+/// The associated [`FileValue`] selects open or save dialog behavior.
+pub(crate) struct TextPath;
 
-impl SocketDef for TextOpenPath {
+impl SocketDef for TextPath {
     type Value = String;
 
     fn type_name() -> &'static str {
@@ -19,6 +21,6 @@ impl SocketDef for TextOpenPath {
     }
 }
 
-impl SocketWithControlDef for TextOpenPath {
+impl SocketWithControlDef for TextPath {
     type Control = FileValue;
 }

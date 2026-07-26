@@ -5,8 +5,7 @@ mod number;
 mod protocol_packets;
 mod signal;
 mod text;
-mod text_open_path;
-mod text_save_path;
+mod text_path;
 mod trigger;
 mod words;
 
@@ -15,7 +14,6 @@ pub(crate) use number::Number;
 pub(crate) use protocol_packets::ProtocolPackets;
 pub(crate) use signal::Signal;
 pub(crate) use text::Text;
-pub(crate) use text_open_path::TextOpenPath;
-pub(crate) use text_save_path::TextSavePath;
+pub(crate) use text_path::TextPath;
 pub(crate) use trigger::Trigger;
 pub(crate) use words::Words;

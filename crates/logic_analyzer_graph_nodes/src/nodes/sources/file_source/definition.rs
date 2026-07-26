@@ -10,7 +10,7 @@ use node_graph::{
 };
 
 use super::metadata_platform;
-use crate::sockets::{COLOR_SOURCES, Signal, TextOpenPath};
+use crate::sockets::{COLOR_SOURCES, Signal, TextPath};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct DslFileSourceState {
@@ -45,7 +45,7 @@ impl NodeDef for DslFileSource {
     }
 
     fn inputs() -> Vec<InputDef<Self::State>> {
-        vec![InputDef::control::<TextOpenPath>("File", |state| {
+        vec![InputDef::control::<TextPath>("File", |state| {
             &mut state.file
         })]
     }

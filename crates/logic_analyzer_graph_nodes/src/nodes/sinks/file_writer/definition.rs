@@ -7,7 +7,7 @@ use node_graph::{
     BoolValue, EnumValue, FileValue, InputDef, NodeDef, OutputDef, PanelSection, PropDef,
 };
 
-use crate::sockets::{COLOR_OUTPUT, TextSavePath, Words};
+use crate::sockets::{COLOR_OUTPUT, TextPath, Words};
 
 /// Empty save-dialog picker, shown inline on the `Filename` socket while it
 /// is unconnected; a connected filename stream always wins.
@@ -43,7 +43,7 @@ impl NodeDef for FileWriter {
             InputDef::new::<Words>("Data"),
             // While unconnected, the socket shows a save-file picker in the
             // node body — the static path the writer falls back to.
-            InputDef::control::<TextSavePath>("Filename", |state| &mut state.filename),
+            InputDef::control::<TextPath>("Filename", |state| &mut state.filename),
         ]
     }
 

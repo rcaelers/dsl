@@ -10,7 +10,7 @@ use node_graph::{
 };
 
 use super::metadata_platform;
-use crate::sockets::{COLOR_SOURCES, Signal, TextOpenPath};
+use crate::sockets::{COLOR_SOURCES, Signal, TextPath};
 
 const DEFAULT_DEMO_CHANNELS: usize = 11;
 
@@ -55,7 +55,7 @@ impl NodeDef for SigrokFileSource {
     }
 
     fn inputs() -> Vec<InputDef<Self::State>> {
-        vec![InputDef::control::<TextOpenPath>("File", |state| {
+        vec![InputDef::control::<TextPath>("File", |state| {
             &mut state.file
         })]
     }
