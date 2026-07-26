@@ -1097,8 +1097,8 @@ std::cfg_select! {
             let mut a = OutputStats::default();
             a.extend_words(&[first.clone(), second.clone()]);
             let mut b = OutputStats::default();
-            b.extend_words(&[first.clone()]);
-            b.extend_words(&[second.clone()]);
+            b.extend_words(std::slice::from_ref(&first));
+            b.extend_words(std::slice::from_ref(&second));
             let mut reversed = OutputStats::default();
             reversed.extend_words(&[second, first]);
 

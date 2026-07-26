@@ -187,9 +187,11 @@ impl WordBlockBuilder {
                     };
                 let record_bytes = next_timestamp_bytes + word_count * next_value_bytes;
                 let restart_count = word_count.div_ceil(self.config.restart_interval);
-                let payload_bytes = (next_payload_count > 0)
-                    .then(|| encoded_len(next_payload_count as u64) + next_payload_entry_bytes)
-                    .unwrap_or(0);
+                let payload_bytes = if next_payload_count > 0 {
+                    encoded_len(next_payload_count as u64) + next_payload_entry_bytes
+                } else {
+                    0
+                };
                 if record_bytes
                     + restart_count * RESTART_ENTRY_SIZE
                     + next_duration_bytes
@@ -380,9 +382,11 @@ impl WordBlockBuilder {
         } else {
             (self.payload_entry_bytes, self.payload_count)
         };
-        let payload_bytes = (payload_count > 0)
-            .then(|| encoded_len(payload_count as u64) + payload_entry_bytes)
-            .unwrap_or(0);
+        let payload_bytes = if payload_count > 0 {
+            encoded_len(payload_count as u64) + payload_entry_bytes
+        } else {
+            0
+        };
         record_bytes + restart_count * RESTART_ENTRY_SIZE + duration_bytes + payload_bytes
             > self.config.max_payload_bytes
     }
@@ -571,12 +575,15 @@ fn encode_validated_word_block_with_interval(
         .ok_or_else(|| invalid("word-block size overflow"))?;
 
     let mut header = WordBlockHeader {
-        flags: (duration_count > 0)
-            .then_some(BLOCK_FLAG_HAS_DURATIONS)
-            .unwrap_or(0)
-            | (payload_count > 0)
-                .then_some(BLOCK_FLAG_HAS_PAYLOADS)
-                .unwrap_or(0),
+        flags: (if duration_count > 0 {
+            BLOCK_FLAG_HAS_DURATIONS
+        } else {
+            0
+        }) | (if payload_count > 0 {
+            BLOCK_FLAG_HAS_PAYLOADS
+        } else {
+            0
+        }),
         sequence,
         first_timestamp_ns: words[0].timestamp_ns,
         last_timestamp_ns: words.last().unwrap().timestamp_ns,
