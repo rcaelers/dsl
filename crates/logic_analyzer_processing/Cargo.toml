@@ -21,6 +21,20 @@ required-features = ["developer-tools"]
 test = false
 bench = false
 
+[[bin]]
+name = "u3pro16-hardware-validation"
+path = "src/bin/u3pro16-hardware-validation/main.rs"
+required-features = ["developer-tools"]
+test = false
+bench = false
+
+[[bin]]
+name = "sigrok-upstream-validation"
+path = "src/bin/sigrok-upstream-validation/main.rs"
+required-features = ["developer-tools"]
+test = false
+bench = false
+
 [dependencies]
 signal-processing = { path = "../signal_processing" }
 zip = { workspace = true }

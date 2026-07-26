@@ -120,13 +120,6 @@ crate under test.
      test-only IDs. Provide separate fixtures for raw-logic input, stacked
      protocol input, annotations, binary output, metadata, generated logic,
      malformed metadata, and runtime failure as needed.
-   - Move the remaining ignored U3Pro16 hardware checks and Sigrok upstream
-     compatibility checks out of Cargo test targets into explicit manual
-     validation commands. Keep deterministic packet, transport, and
-     custom-decoder counterparts in ordinary tests.
-   - Completion gate: `cargo test --workspace -- --ignored` no longer discovers
-     tests whose success depends on hardware, installed libraries, upstream
-     decoder trees, or private captures.
 
 8. **Reusable contract suites and CI:**
    - Put reusable conformance assertions beside the trait owner. Implementor

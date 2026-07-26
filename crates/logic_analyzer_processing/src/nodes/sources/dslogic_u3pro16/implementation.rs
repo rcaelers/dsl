@@ -648,7 +648,7 @@ impl<T: UsbTransport> DsLogicU3Pro16<T> {
     }
 
     /// Configure the capture FPGA with the exact U3Pro16 `.bin` image.
-    fn configure_fpga(&mut self, image: &[u8]) -> LogicAnalyzerResult<()> {
+    pub(crate) fn configure_fpga(&mut self, image: &[u8]) -> LogicAnalyzerResult<()> {
         if image.is_empty() || image.len() > 0x00ff_ffff {
             return Err(LogicAnalyzerError::InvalidSettings(
                 "FPGA image must be 1..=0x00ffffff bytes".into(),
@@ -842,7 +842,7 @@ impl<T: UsbTransport> DsLogicU3Pro16<T> {
     /// The runtime exposes FPGA registers through the command-15 status
     /// block. The HDL version is byte four of a read beginning at offset zero;
     /// it is not addressable as an independent one-byte read.
-    fn logic_version(&mut self) -> LogicAnalyzerResult<u8> {
+    pub(crate) fn logic_version(&mut self) -> LogicAnalyzerResult<u8> {
         Ok(self.command_read(15, 0, 5)?[4])
     }
 
@@ -2405,32 +2405,6 @@ mod tests {
         analyzer.ensure_fpga_configured().unwrap();
 
         assert!(bulk_writes.lock().unwrap().is_empty());
-    }
-
-    #[test]
-    #[ignore = "requires DSLOGIC_U3PRO16_FPGA_IMAGE and a connected DSLogic U3Pro16"]
-    fn hardware_fpga_configuration_reaches_the_expected_logic_version() {
-        let image_path = std::env::var_os("DSLOGIC_U3PRO16_FPGA_IMAGE")
-            .expect("DSLOGIC_U3PRO16_FPGA_IMAGE must identify the exact U3Pro16 image");
-        let image = std::fs::read(&image_path).unwrap();
-        let mut analyzer = DsLogicU3Pro16::open_first().unwrap();
-
-        analyzer.configure_fpga(&image).unwrap();
-        assert_eq!(analyzer.logic_version().unwrap(), 0x0e);
-    }
-
-    #[test]
-    #[ignore = "requires a connected DSLogic U3Pro16; captures 1,024 samples from inputs 0 and 1"]
-    fn hardware_capture_receives_the_trigger_header_before_logic_data() {
-        let config = LogicCaptureConfig::finite(1_000_000, 0b11, 1_024);
-        let mut analyzer = DsLogicU3Pro16::open_first().unwrap();
-
-        analyzer.configure_capture(&config).unwrap();
-        analyzer.start_capture().unwrap();
-        analyzer.next_chunk().unwrap();
-
-        assert!(analyzer.take_trigger_header().is_some());
-        analyzer.stop_capture().unwrap();
     }
 
     #[test]

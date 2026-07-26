@@ -6,7 +6,7 @@
 # for name resolution and `unreachable_pub`.
 
 ROOT = File.expand_path("..", __dir__)
-SOURCE_GLOBS = ["crates/**/*.rs", "plugins/**/*.rs"].freeze
+SOURCE_GLOBS = ["crates/**/*.rs", "plugins/**/*.rs", "tests/**/*.rs", "benches/**/*.rs"].freeze
 ROOT_FILES = %w[lib.rs main.rs mod.rs].freeze
 
 PUBLIC_MODULES = {
@@ -180,13 +180,35 @@ end
 files.each do |path|
   rel = relative(path)
   source = File.read(path)
+  tests = test_source(path, source)
+  test_offset = tests.empty? ? 0 : source.index(tests)
+
+  source.to_enum(:scan, /#\s*\[\s*ignore(?:\s*=|\s*\])/).each do
+    errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: benchmarks and external validation belong in explicit non-test commands, not ignored tests"
+  end
+
+  tests.to_enum(:scan, /\b(?:std::)?env::(?:var|var_os)\s*\(/).each do
+    offset = test_offset + Regexp.last_match.begin(0)
+    errors << "#{rel}:#{line_number(source, offset)}: portable tests must not select fixtures or behavior through environment variables"
+  end
+
+  tests.to_enum(:scan, /\b(?:SIGROK_DECODERS_DIR|DSLOGIC_U3PRO16_FPGA_IMAGE)\b/).each do
+    offset = test_offset + Regexp.last_match.begin(0)
+    errors << "#{rel}:#{line_number(source, offset)}: external-resource prerequisites belong in explicit developer tools"
+  end
 
   owner = crate_root(path)
-  test_source(path, source).to_enum(:scan, /include_(?:str|bytes)!\s*\(\s*"([^"]+)"\s*\)/).each do
+  tests.to_enum(:scan, /include_(?:str|bytes)!\s*\(\s*"([^"]+)"\s*\)/).each do
     fixture = File.expand_path(Regexp.last_match[1], File.dirname(path))
-    next if owner && (fixture == owner || fixture.start_with?("#{owner}/"))
+    source_offset = test_offset + Regexp.last_match.begin(0)
+    unless owner && (fixture == owner || fixture.start_with?("#{owner}/"))
+      errors << "#{rel}:#{line_number(source, source_offset)}: tests must not include fixtures outside their owning crate"
+      next
+    end
 
-    errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: tests must not include fixtures outside their owning crate"
+    unless system("git", "-C", ROOT, "ls-files", "--error-unmatch", relative(fixture), out: File::NULL, err: File::NULL)
+      errors << "#{rel}:#{line_number(source, source_offset)}: required test fixture #{relative(fixture)} must be tracked by Git"
+    end
   end
 
   if rel.start_with?("crates/logic_analyzer_ui/src/")
@@ -222,7 +244,8 @@ files.each do |path|
 
     unless ROOT_FILES.include?(File.basename(path))
       preceding = source[[match.begin(0) - 200, 0].max...match.begin(0)]
-      test_module = name.include?("tests") && preceding.match?(/#\s*\[\s*cfg\s*\([^\]]*\btest\b/)
+      test_target = rel.start_with?("tests/", "benches/")
+      test_module = name.include?("tests") && (test_target || preceding.match?(/#\s*\[\s*cfg\s*\([^\]]*\btest\b/))
       unless test_module
         errors << "#{rel}:#{line}: module declarations belong only in lib.rs, main.rs, or mod.rs"
       end

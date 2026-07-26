@@ -705,7 +705,6 @@ fn worker_error(error: WorkerError) -> WorkError {
 #[cfg(test)]
 mod implementation_tests {
     use std::fs;
-    use std::path::Path;
 
     use crossbeam_channel::{Receiver as ChannelReceiver, bounded};
 
@@ -713,60 +712,9 @@ mod implementation_tests {
 
     use super::*;
 
-    #[derive(Debug, PartialEq)]
-    struct SpiResult {
-        annotations: Vec<(u64, u64, u64, String)>,
-        binary: Vec<(u64, Vec<u8>)>,
-        metadata: Vec<(u64, String)>,
-        packets: Vec<(String, ProtocolValue)>,
-    }
-
     #[test]
     fn raw_input_timing_takes_precedence_over_the_decoder_configuration() {
         assert_eq!(sample_time_ns(645_812, Some(1_000), 2_000_000), 645_812_000);
-    }
-
-    #[test]
-    #[ignore = "requires SIGROK_DECODERS_DIR containing the upstream spi decoder"]
-    fn unmodified_spi_node_is_sample_exact_across_every_chunk_boundary() {
-        let decoder_root =
-            local_decoder_root().expect("SIGROK_DECODERS_DIR must contain the spi decoder");
-        let signals = spi_signals(0xa5);
-        let reference = run_spi(&decoder_root, &signals, &[signals[0].len()]);
-        assert!(
-            reference
-                .annotations
-                .iter()
-                .any(|(_, _, class, text)| *class == 1 && text == "A5")
-        );
-        assert!(
-            reference
-                .binary
-                .iter()
-                .any(|(class, bytes)| *class == 1 && bytes == &[0xa5])
-        );
-        assert!(
-            reference
-                .metadata
-                .iter()
-                .any(|(_, label)| label.starts_with("Bitrate:"))
-        );
-        assert!(reference.packets.iter().any(|(protocol, value)| {
-            protocol == "spi"
-                && matches!(value, ProtocolValue::List(items) if matches!(items.first(), Some(ProtocolValue::String(kind)) if kind == "DATA"))
-        }));
-
-        for boundary in 1..signals[0].len() {
-            assert_eq!(
-                run_spi(
-                    &decoder_root,
-                    &signals,
-                    &[boundary, signals[0].len() - boundary],
-                ),
-                reference,
-                "output changed at chunk boundary {boundary}"
-            );
-        }
     }
 
     #[test]
@@ -861,61 +809,6 @@ class Decoder(srd.Decoder):
         assert_eq!(word_text(&annotations[0]), "DATA:165:True");
     }
 
-    fn run_spi(decoder_root: &Path, signals: &[Vec<bool>; 3], chunks: &[usize]) -> SpiResult {
-        let watchdog = Watchdog::new();
-        let inputs = signals
-            .iter()
-            .enumerate()
-            .map(|(channel, samples)| block_input(&watchdog, samples, chunks, channel))
-            .collect::<Vec<_>>();
-        let (annotation_output, annotation_receiver) = output::<Word>(&watchdog, 0);
-        let (binary_output, binary_receiver) = output::<Word>(&watchdog, 1);
-        let (logic_output, _logic_receiver) = output::<SampleBlock>(&watchdog, 2);
-        let (metadata_output, metadata_receiver) = output::<Word>(&watchdog, 3);
-        let (packet_output, packet_receiver) = output::<ProtocolPacket>(&watchdog, 4);
-        let outputs = vec![
-            annotation_output,
-            binary_output,
-            logic_output,
-            metadata_output,
-            packet_output,
-        ];
-        let mut decoder = SigrokDecoder::new(spi_config(decoder_root)).unwrap();
-        loop {
-            match decoder.work(&inputs, &outputs) {
-                Ok(_) if decoder.should_stop() => break,
-                Ok(_) => {}
-                Err(WorkError::Shutdown) => break,
-                Err(error) => panic!("unexpected Sigrok node error: {error}"),
-            }
-        }
-        SpiResult {
-            annotations: collect(annotation_receiver)
-                .into_iter()
-                .map(|value| {
-                    (
-                        value.timestamp_ns,
-                        value.end_ns(),
-                        value.value,
-                        word_text(&value),
-                    )
-                })
-                .collect(),
-            binary: collect(binary_receiver)
-                .into_iter()
-                .map(|value| (value.value, word_bytes(&value)))
-                .collect(),
-            metadata: collect(metadata_receiver)
-                .into_iter()
-                .map(|value| (value.value, word_text(&value)))
-                .collect(),
-            packets: collect(packet_receiver)
-                .into_iter()
-                .map(|value| (value.protocol_id, value.value))
-                .collect(),
-        }
-    }
-
     fn word_text(word: &Word) -> String {
         match word.payload.as_ref() {
             Some(WordPayload::Text(text)) => text.to_string(),
@@ -926,109 +819,6 @@ class Decoder(srd.Decoder):
                 .join(" "),
             None => word.value.to_string(),
         }
-    }
-
-    fn word_bytes(word: &Word) -> Vec<u8> {
-        match word.payload.as_ref() {
-            Some(WordPayload::Bytes(bytes)) => bytes.to_vec(),
-            _ => word.value.to_be_bytes().to_vec(),
-        }
-    }
-
-    fn spi_config(decoder_root: &Path) -> SigrokDecoderConfig {
-        SigrokDecoderConfig {
-            decoder_root: decoder_root.to_owned(),
-            decoder_id: "spi".into(),
-            sample_rate: 1_000_000_000,
-            channels: vec![
-                SigrokChannel {
-                    name: "clk".into(),
-                    connected: true,
-                    initial_pin: SigrokInitialPin::SameAsFirstSample,
-                },
-                SigrokChannel {
-                    name: "miso".into(),
-                    connected: false,
-                    initial_pin: SigrokInitialPin::SameAsFirstSample,
-                },
-                SigrokChannel {
-                    name: "mosi".into(),
-                    connected: true,
-                    initial_pin: SigrokInitialPin::SameAsFirstSample,
-                },
-                SigrokChannel {
-                    name: "cs".into(),
-                    connected: true,
-                    initial_pin: SigrokInitialPin::SameAsFirstSample,
-                },
-            ],
-            protocol_inputs: Vec::new(),
-            options: BTreeMap::from([
-                (
-                    "bitorder".into(),
-                    SigrokOptionValue::String("msb-first".into()),
-                ),
-                (
-                    "cs_polarity".into(),
-                    SigrokOptionValue::String("active-low".into()),
-                ),
-                ("cpol".into(), SigrokOptionValue::Integer(0)),
-                ("cpha".into(), SigrokOptionValue::Integer(0)),
-                ("wordsize".into(), SigrokOptionValue::Integer(8)),
-            ]),
-            annotation_rows_by_class: vec![
-                Arc::from([1]),
-                Arc::from([4]),
-                Arc::from([0]),
-                Arc::from([3]),
-                Arc::from([6]),
-                Arc::from([2]),
-                Arc::from([5]),
-            ],
-            binary_class_count: 2,
-            logic_groups: Vec::new(),
-        }
-    }
-
-    fn spi_signals(word: u8) -> [Vec<bool>; 3] {
-        let mut clock = vec![false, false];
-        let mut mosi = vec![word & 0x80 != 0; 2];
-        let mut chip_select = vec![true, false];
-        for bit in (0..8).rev() {
-            let value = word & (1 << bit) != 0;
-            clock.extend([true, false]);
-            mosi.extend([value, value]);
-            chip_select.extend([false, false]);
-        }
-        clock.push(false);
-        mosi.push(word & 1 != 0);
-        chip_select.push(true);
-        [clock, mosi, chip_select]
-    }
-
-    fn block_input(
-        watchdog: &Watchdog,
-        samples: &[bool],
-        chunks: &[usize],
-        channel: usize,
-    ) -> InputPort {
-        let (sender, receiver) = bounded(8);
-        let mut start = 0;
-        for &count in chunks {
-            let bytes = pack(&samples[start..start + count]);
-            sender
-                .send(ChannelMessage::Sample(SampleBlock::new(
-                    bytes,
-                    start as u64,
-                    count,
-                    1,
-                )))
-                .unwrap();
-            start += count;
-        }
-        assert_eq!(start, samples.len());
-        drop(sender);
-        InputPort::new_with_watchdog(receiver, watchdog, "sigrok-test", &format!("in{channel}"))
     }
 
     fn output<T: Clone + Send + 'static>(
@@ -1056,91 +846,5 @@ class Decoder(srd.Decoder):
                 ChannelMessage::EndOfStream => Vec::new(),
             })
             .collect()
-    }
-
-    fn pack(samples: &[bool]) -> Arc<[u8]> {
-        let mut packed = vec![0_u8; samples.len().div_ceil(8)];
-        for (sample, high) in samples.iter().copied().enumerate() {
-            if high {
-                packed[sample / 8] |= 1 << (sample % 8);
-            }
-        }
-        packed.into()
-    }
-
-    fn local_decoder_root() -> Option<PathBuf> {
-        std::env::var_os("SIGROK_DECODERS_DIR")
-            .map(PathBuf::from)
-            .filter(|path| path.join("spi/pd.py").is_file())
-    }
-
-    #[test]
-    #[ignore = "requires SIGROK_DECODERS_DIR and an installed libsigrokdecode development package"]
-    fn standard_spi_matches_the_libsigrokdecode_oracle() {
-        use std::fs;
-        use std::process::Command;
-
-        let decoder_root = local_decoder_root().expect("Sigrok decoder directory is unavailable");
-        let pkg_config_name =
-            std::env::var("SIGROK_ORACLE_PKG_CONFIG").unwrap_or_else(|_| "libsigrokdecode".into());
-        let flags = Command::new("pkg-config")
-            .args(["--cflags", "--libs", &pkg_config_name])
-            .output()
-            .expect("could not run pkg-config");
-        assert!(
-            flags.status.success(),
-            "pkg-config could not resolve {pkg_config_name}: {}",
-            String::from_utf8_lossy(&flags.stderr)
-        );
-        let directory = tempfile::tempdir().unwrap();
-        let source = directory.path().join("oracle.c");
-        let executable = directory.path().join("sigrok-oracle");
-        fs::write(&source, include_str!("oracle.c")).unwrap();
-        let mut compiler = Command::new(std::env::var("CC").unwrap_or_else(|_| "cc".into()));
-        compiler.arg(&source).arg("-o").arg(&executable);
-        compiler.args(String::from_utf8(flags.stdout).unwrap().split_whitespace());
-        let compiled = compiler.output().expect("could not run C compiler");
-        assert!(
-            compiled.status.success(),
-            "could not build libsigrokdecode oracle:\n{}",
-            String::from_utf8_lossy(&compiled.stderr)
-        );
-        let oracle = Command::new(executable)
-            .arg(&decoder_root)
-            .output()
-            .expect("could not run libsigrokdecode oracle");
-        assert!(
-            oracle.status.success(),
-            "libsigrokdecode oracle failed:\n{}",
-            String::from_utf8_lossy(&oracle.stderr)
-        );
-
-        let host = run_spi(&decoder_root, &spi_signals(0xa5), &[19]);
-        let host_annotations = host
-            .annotations
-            .iter()
-            .map(|(start, end, class, text)| format!("A {start} {end} {class} {text}"))
-            .chain(host.binary.iter().map(|(class, bytes)| {
-                let value = bytes
-                    .iter()
-                    .map(|byte| format!("{byte:02X}"))
-                    .collect::<String>();
-                let annotation = host
-                    .annotations
-                    .iter()
-                    .find(|(_, _, annotation_class, _)| {
-                        (*class == 0 && *annotation_class == 0)
-                            || (*class == 1 && *annotation_class == 1)
-                    })
-                    .expect("binary output has no matching annotation span");
-                format!("B {} {} {class} {value}", annotation.0, annotation.1)
-            }))
-            .collect::<std::collections::HashSet<_>>();
-        let oracle = String::from_utf8(oracle.stdout)
-            .unwrap()
-            .lines()
-            .map(str::to_owned)
-            .collect::<std::collections::HashSet<_>>();
-        assert_eq!(host_annotations, oracle);
     }
 }

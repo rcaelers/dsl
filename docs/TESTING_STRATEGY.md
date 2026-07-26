@@ -21,6 +21,9 @@ hardware, or network access.
 - Protocol fixtures model only the behavior required by the assertion. They
   use project-owned names and formats so upstream packages cannot silently
   change the test contract.
+- The repository structure check rejects ignored Rust tests, runtime
+  environment-variable access from test modules, fixtures outside the owning
+  crate, and required fixtures not tracked by Git.
 
 ## Python decoder fixtures
 
@@ -71,3 +74,31 @@ cargo run --release -p logic-analyzer-processing \
 
 The feature exposes only the benchmark entry point. Its generated USB
 transport remains private to the U3Pro16 source module.
+
+U3Pro16 hardware validation is an explicit command requiring a connected
+device. FPGA validation also requires the exact image as a positional path:
+
+```console
+cargo run --release -p logic-analyzer-processing \
+  --features developer-tools --bin u3pro16-hardware-validation -- \
+  fpga /path/to/DSLogicU3Pro16.bin
+cargo run --release -p logic-analyzer-processing \
+  --features developer-tools --bin u3pro16-hardware-validation -- capture
+```
+
+Upstream Sigrok compatibility validation requires an explicit decoder tree.
+The oracle command additionally requires `pkg-config`, a C compiler, and an
+installed libsigrokdecode development package:
+
+```console
+cargo run --release -p logic-analyzer-processing \
+  --features developer-tools --bin sigrok-upstream-validation -- \
+  chunk-boundaries /path/to/libsigrokdecode/decoders
+cargo run --release -p logic-analyzer-processing \
+  --features developer-tools --bin sigrok-upstream-validation -- \
+  oracle /path/to/libsigrokdecode/decoders
+```
+
+Optional `--pkg-config` and `--cc` arguments select non-default oracle tooling.
+These external validations are non-test binaries and are never discovered by
+ordinary or ignored Cargo test runs.
