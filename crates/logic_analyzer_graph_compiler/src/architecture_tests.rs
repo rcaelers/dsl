@@ -60,6 +60,15 @@ fn inventory_assembly_does_not_import_the_builtin_node_module() {
 }
 
 #[test]
+fn compiler_manifest_has_no_concrete_graph_node_dependency() {
+    let manifest = include_str!("../Cargo.toml");
+    assert!(
+        !manifest.contains("logic-analyzer-graph-nodes"),
+        "compiler tests must use local runtime-builder contracts; built-in-node composition belongs in the workspace integration package"
+    );
+}
+
+#[test]
 fn compiler_does_not_construct_editor_registries() {
     let sources = [
         ("compiler facade", include_str!("graph_compiler.rs")),

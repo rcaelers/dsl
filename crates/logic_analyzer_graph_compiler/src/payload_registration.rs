@@ -64,7 +64,19 @@ fn validate_payload_registrations(registrations: &mut Vec<&PayloadRegistration>)
 
 #[cfg(test)]
 mod payload_registration_tests {
+    use logic_analyzer_graph_api::node_support::{
+        DefaultLanePresentationDescriptor, LaneBadgeDescriptor,
+    };
+    use signal_processing::Sample;
+
     use super::*;
+
+    fn test_presentation() -> DefaultLanePresentationDescriptor {
+        DefaultLanePresentationDescriptor::new(
+            LaneBadgeDescriptor::new("T", [0, 0, 0]),
+            "org.logicconduit.compiler-test.renderer/v1",
+        )
+    }
 
     #[test]
     fn registrations_are_stably_ordered_and_unique() {
@@ -78,12 +90,16 @@ mod payload_registration_tests {
 
     #[test]
     fn duplicate_registration_is_rejected() {
-        let registration = payload_registrations()[0];
-        let mut registrations = vec![registration, registration];
+        let registration = PayloadRegistration::subscribable::<Sample>(
+            "org.logicconduit.compiler-test.payload/v1",
+            signal_processing::digital_payload_adapter,
+            test_presentation,
+        );
+        let mut registrations = vec![&registration, &registration];
         assert!(
-            std::panic::catch_unwind(move || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
                 validate_payload_registrations(&mut registrations)
-            })
+            }))
             .is_err()
         );
     }

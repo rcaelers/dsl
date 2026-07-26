@@ -386,7 +386,7 @@ Maintain the boundary described in
   persistence in the compiler crate.
 - [x] Verify native and wasm file/live source readiness, cache reuse, indexing, collector
   subscription changes, and UI attachment after production has started.
-- [ ] Replace the remaining concrete `logic_analyzer_graph_nodes` fixtures in compiler-private
+- [x] Replace the remaining concrete `logic_analyzer_graph_nodes` fixtures in compiler-private
   lowering and live-edit unit tests with neutral local node/builders, then remove that final
   concrete dev-dependency from `logic_analyzer_graph_compiler`.
 

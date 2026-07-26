@@ -2213,7 +2213,6 @@ dependencies = [
  "egui",
  "inventory",
  "logic-analyzer-graph-api",
- "logic-analyzer-graph-nodes",
  "node-graph",
  "serde",
  "serde_json",

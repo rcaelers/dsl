@@ -340,7 +340,11 @@ impl BuilderRegistry {
     #[cfg(any(test, feature = "test-support"))]
     #[doc(hidden)]
     pub(crate) fn isolated_test() -> Self {
-        Self::with_builders(HashMap::new())
+        Self {
+            builders: HashMap::new(),
+            payloads: PayloadRegistry::new(),
+            payload_subscriptions: Vec::new(),
+        }
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -1954,16 +1958,6 @@ fn start_live_with_subscriptions(
     )
 }
 
-#[cfg(test)]
-fn start_live(
-    graph: &GraphState,
-    registry: &BuilderRegistry,
-    ctx: &mut CompileCtx,
-) -> Result<LiveRun, Vec<CompileError>> {
-    let subscriptions = test_output_subscriptions(graph, registry);
-    start_live_with_subscriptions(graph, registry, &subscriptions, ctx)
-}
-
 /// Starts the fixed compiled graph with its live-capable source replaced by
 /// the process that follows the capture store. All other nodes use the same
 /// lowering and materialization path as an ordinary run.
@@ -1977,17 +1971,6 @@ pub(crate) fn start_live_analysis_with_subscriptions(
     let mut overrides = SourceProcessOverrides::new();
     overrides.insert(source.source_node, source.process);
     start_live_inner(graph, registry, subscriptions, ctx, overrides)
-}
-
-#[cfg(test)]
-fn start_live_analysis(
-    graph: &GraphState,
-    registry: &BuilderRegistry,
-    ctx: &mut CompileCtx,
-    source: LiveAnalysisSource,
-) -> Result<LiveRun, Vec<CompileError>> {
-    let subscriptions = test_output_subscriptions(graph, registry);
-    start_live_analysis_with_subscriptions(graph, registry, &subscriptions, ctx, source)
 }
 
 fn start_live_inner(
@@ -2394,45 +2377,459 @@ pub(crate) fn start_app_run_with_source_overrides_and_subscriptions(
     start_live_inner(graph, registry, subscriptions, ctx, overrides)
 }
 
-#[cfg(test)]
-fn start_app_run_with_source_overrides(
-    graph: &GraphState,
-    registry: &BuilderRegistry,
-    ctx: &mut CompileCtx,
-    overrides: SourceProcessOverrides,
-) -> Result<LiveRun, Vec<CompileError>> {
-    let subscriptions = test_output_subscriptions(graph, registry);
-    start_app_run_with_source_overrides_and_subscriptions(
-        graph,
-        registry,
-        &subscriptions,
-        ctx,
-        overrides,
-    )
-}
-
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::Duration;
 
     use egui::Pos2;
 
-    use logic_analyzer_graph_api::node_support::SamplingOverlayDescriptor;
     use node_graph::NodeGraphWidget;
+    use node_graph::api::{
+        AnySocket, BoolSocket, InputDef, IntSocket, NodeDef, NodeTypeRegistry, OutputDef,
+    };
     use signal_processing::{
         AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureAnalysisChannel,
-        CaptureAnalysisSource, CaptureChannelId, CaptureChunk, CaptureChunkWriter,
-        CaptureDataDelivery, CaptureProviderCapabilities, CaptureSessionId,
-        CaptureSettingCombination, CaptureStoreCursor, ConfigValue, CooperativeManager,
-        NativeCaptureStore, NativeCaptureStoreConfig, NodeSpec, NumberSample, PreparedAcquisition,
-        Sample, SamplingEdge, TextSample, Trigger, TriggerCount, TriggerCountMode,
-        TriggerEditorSchema, TriggerIdentifier, TriggerLogicOperator, TriggerPlacement,
-        TriggerPredicate, TriggerStage, Word,
+        CaptureAnalysisSource, CaptureChannelId, CaptureDataDelivery, CaptureProviderCapabilities,
+        CaptureSettingCombination, CaptureStoreCursor, ConfigValue, PreparedAcquisition, Sample,
+        SamplingEdge, TextSample, Trigger, TriggerEditorSchema, TriggerIdentifier,
+        TriggerLogicOperator, TriggerPredicate, TriggerStage, Word,
     };
 
     use super::*;
+
+    const CONTRACT_SOURCE: &str = "Contract Source";
+    const CONTRACT_LIVE_SOURCE: &str = "Contract Live Source";
+    const CONTRACT_CONFIGURABLE_SOURCE: &str = "Contract Configurable Source";
+    const CONTRACT_TRANSFORM: &str = "Contract Transform";
+    const CONTRACT_CONVERSION: &str = "Contract Conversion";
+    const CONTRACT_SINK: &str = "Contract Sink";
+
+    struct ContractSourceDefinition;
+
+    impl NodeDef for ContractSourceDefinition {
+        type State = Value;
+
+        fn name() -> &'static str {
+            CONTRACT_SOURCE
+        }
+
+        fn category() -> &'static str {
+            "Compiler Tests"
+        }
+
+        fn inputs() -> Vec<InputDef<Self::State>> {
+            Vec::new()
+        }
+
+        fn outputs() -> Vec<OutputDef<Self::State>> {
+            vec![OutputDef::new::<AnySocket>("Out")]
+        }
+
+        fn state() -> Self::State {
+            Value::Null
+        }
+    }
+
+    struct ContractTransformDefinition;
+
+    struct ContractConfigurableSourceDefinition;
+
+    impl NodeDef for ContractConfigurableSourceDefinition {
+        type State = Value;
+
+        fn name() -> &'static str {
+            CONTRACT_CONFIGURABLE_SOURCE
+        }
+
+        fn category() -> &'static str {
+            "Compiler Tests"
+        }
+
+        fn inputs() -> Vec<InputDef<Self::State>> {
+            vec![InputDef::new::<AnySocket>("Configuration")]
+        }
+
+        fn outputs() -> Vec<OutputDef<Self::State>> {
+            vec![OutputDef::new::<AnySocket>("Out")]
+        }
+
+        fn state() -> Self::State {
+            serde_json::json!({ "configured": false })
+        }
+    }
+
+    struct ContractLiveSourceDefinition;
+
+    impl NodeDef for ContractLiveSourceDefinition {
+        type State = Value;
+
+        fn name() -> &'static str {
+            CONTRACT_LIVE_SOURCE
+        }
+
+        fn category() -> &'static str {
+            "Compiler Tests"
+        }
+
+        fn inputs() -> Vec<InputDef<Self::State>> {
+            Vec::new()
+        }
+
+        fn outputs() -> Vec<OutputDef<Self::State>> {
+            vec![OutputDef::new::<AnySocket>("Out")]
+        }
+
+        fn state() -> Self::State {
+            Value::Null
+        }
+    }
+
+    impl NodeDef for ContractTransformDefinition {
+        type State = Value;
+
+        fn name() -> &'static str {
+            CONTRACT_TRANSFORM
+        }
+
+        fn category() -> &'static str {
+            "Compiler Tests"
+        }
+
+        fn inputs() -> Vec<InputDef<Self::State>> {
+            vec![InputDef::new::<AnySocket>("In")]
+        }
+
+        fn outputs() -> Vec<OutputDef<Self::State>> {
+            vec![OutputDef::new::<AnySocket>("Out")]
+        }
+
+        fn state() -> Self::State {
+            Value::Null
+        }
+    }
+
+    struct ContractSinkDefinition;
+
+    struct ContractConversionDefinition;
+
+    impl NodeDef for ContractConversionDefinition {
+        type State = Value;
+
+        fn name() -> &'static str {
+            CONTRACT_CONVERSION
+        }
+
+        fn category() -> &'static str {
+            "Compiler Tests"
+        }
+
+        fn inputs() -> Vec<InputDef<Self::State>> {
+            vec![InputDef::new::<BoolSocket>("In")]
+        }
+
+        fn outputs() -> Vec<OutputDef<Self::State>> {
+            vec![OutputDef::new::<IntSocket>("Out")]
+        }
+
+        fn state() -> Self::State {
+            Value::Null
+        }
+    }
+
+    impl NodeDef for ContractSinkDefinition {
+        type State = Value;
+
+        fn name() -> &'static str {
+            CONTRACT_SINK
+        }
+
+        fn category() -> &'static str {
+            "Compiler Tests"
+        }
+
+        fn inputs() -> Vec<InputDef<Self::State>> {
+            vec![InputDef::new::<AnySocket>("In")]
+        }
+
+        fn outputs() -> Vec<OutputDef<Self::State>> {
+            Vec::new()
+        }
+
+        fn state() -> Self::State {
+            Value::Null
+        }
+    }
+
+    struct ContractBuilder {
+        source: bool,
+        sink: bool,
+        accepted: Option<PortKind>,
+        offered: Option<PortKind>,
+        retention: DerivedDataRetention,
+        hot_config: bool,
+        presentation: bool,
+    }
+
+    struct ConfigurableSourceBuilder;
+
+    impl RuntimeBuilder for ConfigurableSourceBuilder {
+        fn is_source(&self) -> bool {
+            true
+        }
+
+        fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+            vec![PortKind::of::<TextSample>()]
+        }
+
+        fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+            vec![PortKind::of::<Sample>()]
+        }
+
+        fn input_port(
+            &self,
+            _socket: &Socket,
+            _member_index: usize,
+            _state: &Value,
+            kind: PortKind,
+        ) -> Option<String> {
+            (kind == PortKind::of::<TextSample>()).then(|| "configuration".to_owned())
+        }
+
+        fn output_port(&self, _socket: &Socket, _state: &Value, kind: PortKind) -> Option<String> {
+            (kind == PortKind::of::<Sample>()).then(|| "out".to_owned())
+        }
+
+        fn input_required(&self, _socket: &Socket, state: &Value) -> bool {
+            !state
+                .get("configured")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        }
+    }
+
+    impl ContractBuilder {
+        fn source(kind: PortKind) -> Self {
+            Self {
+                source: true,
+                sink: false,
+                accepted: None,
+                offered: Some(kind),
+                retention: DerivedDataRetention::Unlimited,
+                hot_config: false,
+                presentation: false,
+            }
+        }
+
+        fn finite_source(kind: PortKind) -> Self {
+            Self {
+                retention: DerivedDataRetention::MaxEntries(
+                    signal_processing::DEFAULT_DERIVED_DATA_MAX_ENTRIES,
+                ),
+                ..Self::source(kind)
+            }
+        }
+
+        fn transform(accepted: PortKind, offered: PortKind) -> Self {
+            Self {
+                source: false,
+                sink: false,
+                accepted: Some(accepted),
+                offered: Some(offered),
+                retention: DerivedDataRetention::Unlimited,
+                hot_config: false,
+                presentation: false,
+            }
+        }
+
+        fn hot_transform(kind: PortKind) -> Self {
+            Self {
+                hot_config: true,
+                ..Self::transform(kind, kind)
+            }
+        }
+
+        fn presenting_transform(kind: PortKind) -> Self {
+            Self {
+                presentation: true,
+                ..Self::transform(kind, kind)
+            }
+        }
+
+        fn sink(kind: PortKind) -> Self {
+            Self {
+                source: false,
+                sink: true,
+                accepted: Some(kind),
+                offered: None,
+                retention: DerivedDataRetention::Unlimited,
+                hot_config: false,
+                presentation: false,
+            }
+        }
+    }
+
+    impl RuntimeBuilder for ContractBuilder {
+        fn is_source(&self) -> bool {
+            self.source
+        }
+
+        fn is_sink(&self) -> bool {
+            self.sink
+        }
+
+        fn derived_data_retention(&self, _state: &Value) -> DerivedDataRetention {
+            self.retention
+        }
+
+        fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+            self.accepted.into_iter().collect()
+        }
+
+        fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+            self.offered.into_iter().collect()
+        }
+
+        fn input_port(
+            &self,
+            _socket: &Socket,
+            _member_index: usize,
+            _state: &Value,
+            kind: PortKind,
+        ) -> Option<String> {
+            (self.accepted == Some(kind)).then(|| "in".to_owned())
+        }
+
+        fn output_port(&self, _socket: &Socket, _state: &Value, kind: PortKind) -> Option<String> {
+            (self.offered == Some(kind)).then(|| "out".to_owned())
+        }
+
+        fn input_required(&self, _socket: &Socket, _state: &Value) -> bool {
+            self.accepted.is_some()
+        }
+
+        fn lane_presentation(
+            &self,
+            _socket: &Socket,
+            _state: &Value,
+        ) -> Option<logic_analyzer_graph_api::node_support::LanePresentationDescriptor> {
+            self.presentation.then(|| {
+                logic_analyzer_graph_api::node_support::LanePresentationDescriptor::new(
+                    "frames",
+                    "frame",
+                    0,
+                    1.0,
+                    logic_analyzer_graph_api::node_support::LaneBadgeDescriptor::new(
+                        "F",
+                        [255, 255, 255],
+                    ),
+                    "org.logicconduit.compiler-test.frame-renderer/v1",
+                )
+            })
+        }
+
+        fn hot_config(&self, state: &Value) -> Option<NodeConfig> {
+            if !self.hot_config {
+                return None;
+            }
+            let mut config = NodeConfig::new();
+            config.insert(
+                "value".to_owned(),
+                ConfigValue::U64(state.get("value")?.as_u64()?),
+            );
+            Some(config)
+        }
+    }
+
+    fn contract_pipeline(
+        source_kind: PortKind,
+        transform_input_kind: PortKind,
+        transform_output_kind: PortKind,
+        sink_kind: PortKind,
+        type_preserving_transform: bool,
+    ) -> (NodeGraphWidget, BuilderRegistry, NodeId, NodeId, NodeId) {
+        let mut node_types = NodeTypeRegistry::new();
+        node_types.register::<ContractSourceDefinition>();
+        node_types.register::<ContractLiveSourceDefinition>();
+        node_types.register::<ContractConfigurableSourceDefinition>();
+        node_types.register::<ContractTransformDefinition>();
+        node_types.register::<ContractConversionDefinition>();
+        node_types.register::<ContractSinkDefinition>();
+
+        let mut widget = NodeGraphWidget::new(node_types);
+        let source = widget
+            .add_node_at(CONTRACT_SOURCE, Pos2::new(0.0, 0.0))
+            .unwrap();
+        let transform_name = if type_preserving_transform {
+            CONTRACT_TRANSFORM
+        } else {
+            CONTRACT_CONVERSION
+        };
+        let transform = widget
+            .add_node_at(transform_name, Pos2::new(200.0, 0.0))
+            .unwrap();
+        let sink = widget
+            .add_node_at(CONTRACT_SINK, Pos2::new(400.0, 0.0))
+            .unwrap();
+        connect_named(&mut widget, (source, "Out"), (transform, "In"));
+        connect_named(&mut widget, (transform, "Out"), (sink, "In"));
+
+        let mut builders = BuilderRegistry::isolated_test();
+        builders.insert_test_builder(
+            CONTRACT_SOURCE,
+            Box::new(ContractBuilder::source(source_kind)),
+        );
+        builders.insert_test_builder(
+            transform_name,
+            Box::new(ContractBuilder::transform(
+                transform_input_kind,
+                transform_output_kind,
+            )),
+        );
+        builders.insert_test_builder(CONTRACT_SINK, Box::new(ContractBuilder::sink(sink_kind)));
+        (widget, builders, source, transform, sink)
+    }
+
+    fn configurable_source_pipeline() -> (NodeGraphWidget, BuilderRegistry, NodeId) {
+        let mut node_types = NodeTypeRegistry::new();
+        node_types.register::<ContractConfigurableSourceDefinition>();
+        node_types.register::<ContractSinkDefinition>();
+        let mut widget = NodeGraphWidget::new(node_types);
+        let source = widget
+            .add_node_at(CONTRACT_CONFIGURABLE_SOURCE, Pos2::ZERO)
+            .unwrap();
+        let sink = widget
+            .add_node_at(CONTRACT_SINK, Pos2::new(200.0, 0.0))
+            .unwrap();
+        connect_named(&mut widget, (source, "Out"), (sink, "In"));
+
+        let mut builders = BuilderRegistry::isolated_test();
+        builders.insert_test_builder(
+            CONTRACT_CONFIGURABLE_SOURCE,
+            Box::new(ConfigurableSourceBuilder),
+        );
+        builders.insert_test_builder(
+            CONTRACT_SINK,
+            Box::new(ContractBuilder::sink(PortKind::of::<Sample>())),
+        );
+        (widget, builders, source)
+    }
+
+    fn connect_named(widget: &mut NodeGraphWidget, from: (NodeId, &str), to: (NodeId, &str)) {
+        let output = output_index(widget, from.0, from.1);
+        let input = input_index(widget, to.0, to.1);
+        widget.graph_mut().add_connection(
+            SocketId {
+                node: from.0,
+                index: output,
+                direction: SocketDirection::Output,
+            },
+            SocketId {
+                node: to.0,
+                index: input,
+                direction: SocketDirection::Input,
+            },
+        );
+    }
 
     fn set_viewer_selection(
         widget: &mut NodeGraphWidget,
@@ -2443,22 +2840,6 @@ mod tests {
         widget.graph_mut().nodes.get_mut(&node).unwrap().outputs[output]
             .extensions
             .insert("show_in_view".to_owned(), serde_json::json!(selected));
-    }
-
-    fn select_named_output(widget: &mut NodeGraphWidget, node_title: &str, output_name: &str) {
-        let node = widget
-            .graph()
-            .nodes
-            .values()
-            .find(|node| node.title == node_title)
-            .unwrap_or_else(|| panic!("missing node '{node_title}'"));
-        let output = node
-            .outputs
-            .iter()
-            .position(|output| output.name == output_name)
-            .unwrap_or_else(|| panic!("missing output '{node_title}.{output_name}'"));
-        let node = node.id;
-        set_viewer_selection(widget, node, output, true);
     }
 
     fn discover_compiled_live_capture_feature(
@@ -2472,8 +2853,6 @@ mod tests {
             retained.contains(&node.id)
         })
     }
-    use logic_analyzer_graph_nodes::test_support as nodes;
-
     #[test]
     fn opaque_connection_contracts_require_an_intersection_when_both_ends_declare_them() {
         assert!(connection_contracts_overlap(&[], &["spi".into()]));
@@ -2489,129 +2868,50 @@ mod tests {
     }
 
     #[test]
-    fn payload_subscriptions_register_subscription_and_default_presentation() {
-        let mut registry = BuilderRegistry::standard();
-
-        assert!(
-            registry
-                .subscribable_payload_kinds()
-                .contains(&PortKind::of::<Sample>())
-        );
-        assert!(
-            registry
-                .subscribable_payload_kinds()
-                .contains(&PortKind::of::<Word>())
-        );
-        assert_eq!(
-            registry
-                .payload_subscription_presentation(PortKind::of::<Word>())
-                .unwrap()
-                .badge
-                .label,
-            "W"
-        );
-        for kind in [
-            PortKind::of::<Word>(),
-            PortKind::of::<Sample>(),
-            PortKind::of::<Trigger>(),
-            PortKind::of::<NumberSample>(),
-            PortKind::of::<TextSample>(),
-        ] {
-            assert!(registry.payload_subscription_presentation(kind).is_some());
-        }
+    fn payload_subscription_registration_requires_an_adapter_and_records_its_contract() {
+        let mut registry = BuilderRegistry::isolated_test();
         registry
-            .register_payload::<SampleBlock>("org.example.block/v1")
+            .register_payload::<Sample>("org.logicconduit.compiler-test.sample/v1")
             .unwrap();
-        assert!(
-            !registry
-                .subscribable_payload_kinds()
-                .contains(&PortKind::of::<SampleBlock>()),
-            "a durable payload identity alone must not create a subscription contract"
+        let presentation = DefaultLanePresentationDescriptor::new(
+            logic_analyzer_graph_api::node_support::LaneBadgeDescriptor::new("T", [255, 255, 255]),
+            "org.logicconduit.compiler-test.renderer/v1",
         );
+
         assert!(matches!(
-            registry.register_payload_subscription_with_request_configurator::<SampleBlock>(
-                DefaultLanePresentationDescriptor::new(
-                    logic_analyzer_graph_api::node_support::LaneBadgeDescriptor::new(
-                        "B",
-                        [255, 255, 255],
-                    ),
-                    "org.example.renderer/v1",
-                ),
+            registry.register_payload_subscription_with_request_configurator::<Sample>(
+                presentation.clone(),
                 Arc::new(|request, _, _, _| request),
-                false,
+                true,
             ),
             Err(PayloadRegistrationError::PayloadHasNoAdapter { .. })
         ));
-        assert!(registry.payload_uses_persistent_cache(PortKind::of::<Word>()));
-        assert!(!registry.payload_uses_persistent_cache(PortKind::of::<Sample>()));
+        registry
+            .payloads
+            .register_adapter::<Sample>(signal_processing::digital_payload_adapter())
+            .unwrap();
+        registry
+            .register_payload_subscription_with_request_configurator::<Sample>(
+                presentation.clone(),
+                Arc::new(|request, _, _, _| request),
+                true,
+            )
+            .unwrap();
+
+        assert_eq!(
+            registry.subscribable_payload_kinds(),
+            [PortKind::of::<Sample>()]
+        );
+        assert_eq!(
+            registry.payload_subscription_presentation(PortKind::of::<Sample>()),
+            Some(presentation)
+        );
+        assert!(registry.payload_uses_persistent_cache(PortKind::of::<Sample>()));
     }
 
-    fn startup_widget() -> NodeGraphWidget {
-        let mut widget = NodeGraphWidget::new(nodes::build_registry());
-        nodes::populate_startup(&mut widget);
-        for (node, output) in [
-            ("SPI Decoder", "MOSI Bits"),
-            ("SPI Decoder", "MOSI Data"),
-            ("Match Start", "Match"),
-            ("Match Stop", "Match"),
-            ("SR Flip-Flop", "Q"),
-            ("Enable Gate", "Out"),
-            ("Binary Decoder", "Words"),
-        ] {
-            select_named_output(&mut widget, node, output);
-        }
-        widget
-    }
+    struct BufferedPluginBuilder;
 
-    fn uart_demo_widget() -> NodeGraphWidget {
-        let mut widget = NodeGraphWidget::new(nodes::build_registry());
-        nodes::populate_uart_demo(&mut widget);
-        widget
-    }
-
-    fn binary_decoder_demo_widget() -> NodeGraphWidget {
-        let mut widget = NodeGraphWidget::new(nodes::build_registry());
-        nodes::build_binary_decoder_demo(&mut widget);
-        for (node, output) in [
-            ("SR Flip-Flop", "Q"),
-            ("Parallel Enable Gate", "Out"),
-            ("Match Start 0x9A", "Match"),
-            ("Match Stop 0xDE", "Match"),
-            ("SPI Decoder", "MOSI Bits"),
-            ("SPI Decoder", "MOSI Data"),
-            ("SPI Decoder", "MISO Bits"),
-            ("SPI Decoder", "MISO Data"),
-            ("Parallel Decoder", "Words"),
-            ("String Formatter", "Text"),
-        ] {
-            select_named_output(&mut widget, node, output);
-        }
-        widget
-    }
-
-    struct ThrottledProcess {
-        inner: Box<dyn ProcessNode>,
-        delay: Duration,
-    }
-
-    struct ThrottledBinaryBuilder {
-        inner: Box<dyn RuntimeBuilder>,
-        delay: Duration,
-    }
-
-    struct InstrumentedCaptureBuilder {
-        inner: Box<dyn RuntimeBuilder>,
-        discovery_calls: Arc<AtomicUsize>,
-        provider_build_calls: Arc<AtomicUsize>,
-    }
-
-    struct BufferedPluginBuilder {
-        inner: Box<dyn RuntimeBuilder>,
-    }
-
-    struct TriggerOnlyPluginBuilder {
-        inner: Box<dyn RuntimeBuilder>,
-    }
+    struct TriggerOnlyPluginBuilder;
 
     struct BufferedPluginGraphSourceFactory {
         channels: Arc<[CaptureChannelId]>,
@@ -2684,30 +2984,40 @@ mod tests {
             true
         }
 
-        fn accepted_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind> {
-            self.inner.accepted_kinds(socket, state)
+        fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+            Vec::new()
         }
 
-        fn offered_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind> {
-            self.inner.offered_kinds(socket, state)
+        fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+            vec![PortKind::of::<Sample>()]
         }
 
         fn input_port(
             &self,
-            socket: &Socket,
-            member_index: usize,
-            state: &Value,
-            kind: PortKind,
+            _socket: &Socket,
+            _member_index: usize,
+            _state: &Value,
+            _kind: PortKind,
         ) -> Option<String> {
-            self.inner.input_port(socket, member_index, state, kind)
+            None
         }
 
-        fn output_port(&self, socket: &Socket, state: &Value, kind: PortKind) -> Option<String> {
-            self.inner.output_port(socket, state, kind)
+        fn output_port(&self, _socket: &Socket, _state: &Value, kind: PortKind) -> Option<String> {
+            (kind == PortKind::of::<Sample>()).then(|| "out".to_owned())
         }
 
-        fn viewer_channel_origin(&self, socket: &Socket, state: &Value) -> Option<usize> {
-            self.inner.viewer_channel_origin(socket, state)
+        fn viewer_channel_origin(&self, _socket: &Socket, _state: &Value) -> Option<usize> {
+            Some(0)
+        }
+
+        fn capture_presentation(
+            &self,
+            _state: &Value,
+        ) -> Result<Option<CapturePresentation>, String> {
+            Ok(Some(CapturePresentation::Channels(vec![(
+                0,
+                "Channel 0".to_owned(),
+            )])))
         }
 
         fn live_capture_feature(
@@ -2749,18 +3059,18 @@ mod tests {
             }
         }
 
-        fn input_required(&self, socket: &Socket, state: &Value) -> bool {
-            self.inner.input_required(socket, state)
+        fn input_required(&self, _socket: &Socket, _state: &Value) -> bool {
+            false
         }
 
         fn build(
             &self,
-            name: &str,
-            state: &Value,
-            resolved: &ResolvedInputs,
-            ctx: &mut dyn NodeBuildContext,
+            _name: &str,
+            _state: &Value,
+            _resolved: &ResolvedInputs,
+            _ctx: &mut dyn NodeBuildContext,
         ) -> Result<Box<dyn ProcessNode>, String> {
-            self.inner.build(name, state, resolved, ctx)
+            Err("capability-only compiler test builder".to_owned())
         }
     }
 
@@ -2769,30 +3079,30 @@ mod tests {
             true
         }
 
-        fn accepted_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind> {
-            self.inner.accepted_kinds(socket, state)
+        fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+            Vec::new()
         }
 
-        fn offered_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind> {
-            self.inner.offered_kinds(socket, state)
+        fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+            vec![PortKind::of::<Sample>()]
         }
 
         fn input_port(
             &self,
-            socket: &Socket,
-            member_index: usize,
-            state: &Value,
-            kind: PortKind,
+            _socket: &Socket,
+            _member_index: usize,
+            _state: &Value,
+            _kind: PortKind,
         ) -> Option<String> {
-            self.inner.input_port(socket, member_index, state, kind)
+            None
         }
 
-        fn output_port(&self, socket: &Socket, state: &Value, kind: PortKind) -> Option<String> {
-            self.inner.output_port(socket, state, kind)
+        fn output_port(&self, _socket: &Socket, _state: &Value, kind: PortKind) -> Option<String> {
+            (kind == PortKind::of::<Sample>()).then(|| "out".to_owned())
         }
 
-        fn viewer_channel_origin(&self, socket: &Socket, state: &Value) -> Option<usize> {
-            self.inner.viewer_channel_origin(socket, state)
+        fn viewer_channel_origin(&self, _socket: &Socket, _state: &Value) -> Option<usize> {
+            Some(0)
         }
 
         fn live_capture_feature(
@@ -2830,62 +3140,8 @@ mod tests {
             .map(Some)
         }
 
-        fn input_required(&self, socket: &Socket, state: &Value) -> bool {
-            self.inner.input_required(socket, state)
-        }
-
-        fn build(
-            &self,
-            name: &str,
-            state: &Value,
-            resolved: &ResolvedInputs,
-            ctx: &mut dyn NodeBuildContext,
-        ) -> Result<Box<dyn ProcessNode>, String> {
-            self.inner.build(name, state, resolved, ctx)
-        }
-    }
-
-    impl RuntimeBuilder for InstrumentedCaptureBuilder {
-        fn is_source(&self) -> bool {
-            true
-        }
-
-        fn accepted_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind> {
-            self.inner.accepted_kinds(socket, state)
-        }
-
-        fn offered_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind> {
-            self.inner.offered_kinds(socket, state)
-        }
-
-        fn input_port(
-            &self,
-            socket: &Socket,
-            member_index: usize,
-            state: &Value,
-            kind: PortKind,
-        ) -> Option<String> {
-            self.inner.input_port(socket, member_index, state, kind)
-        }
-
-        fn output_port(&self, socket: &Socket, state: &Value, kind: PortKind) -> Option<String> {
-            self.inner.output_port(socket, state, kind)
-        }
-
-        fn viewer_channel_origin(&self, socket: &Socket, state: &Value) -> Option<usize> {
-            self.inner.viewer_channel_origin(socket, state)
-        }
-
-        fn live_capture_feature(
-            &self,
-            _state: &Value,
-        ) -> Result<Option<Box<dyn LiveCaptureFeature>>, String> {
-            self.discovery_calls.fetch_add(1, Ordering::SeqCst);
-            Err("replay attempted provider discovery".into())
-        }
-
-        fn input_required(&self, socket: &Socket, state: &Value) -> bool {
-            self.inner.input_required(socket, state)
+        fn input_required(&self, _socket: &Socket, _state: &Value) -> bool {
+            false
         }
 
         fn build(
@@ -2895,587 +3151,23 @@ mod tests {
             _resolved: &ResolvedInputs,
             _ctx: &mut dyn NodeBuildContext,
         ) -> Result<Box<dyn ProcessNode>, String> {
-            self.provider_build_calls.fetch_add(1, Ordering::SeqCst);
-            Err("replay attempted to build the provider source".into())
+            Err("trigger-only compiler test builder".to_owned())
         }
-    }
-
-    impl RuntimeBuilder for ThrottledBinaryBuilder {
-        fn accepted_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind> {
-            self.inner.accepted_kinds(socket, state)
-        }
-
-        fn offered_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind> {
-            self.inner.offered_kinds(socket, state)
-        }
-
-        fn input_port(
-            &self,
-            socket: &Socket,
-            member_index: usize,
-            state: &Value,
-            kind: PortKind,
-        ) -> Option<String> {
-            self.inner.input_port(socket, member_index, state, kind)
-        }
-
-        fn output_port(&self, socket: &Socket, state: &Value, kind: PortKind) -> Option<String> {
-            self.inner.output_port(socket, state, kind)
-        }
-
-        fn word_display_format(&self, socket: &Socket, state: &Value) -> Option<String> {
-            self.inner.word_display_format(socket, state)
-        }
-
-        fn sampling_overlay(&self, state: &Value) -> Option<SamplingOverlayDescriptor> {
-            self.inner.sampling_overlay(state)
-        }
-
-        fn input_required(&self, socket: &Socket, state: &Value) -> bool {
-            self.inner.input_required(socket, state)
-        }
-
-        fn build(
-            &self,
-            name: &str,
-            state: &Value,
-            resolved: &ResolvedInputs,
-            ctx: &mut dyn NodeBuildContext,
-        ) -> Result<Box<dyn ProcessNode>, String> {
-            let inner = self.inner.build(name, state, resolved, ctx)?;
-            Ok(Box::new(ThrottledProcess {
-                inner,
-                delay: self.delay,
-            }))
-        }
-    }
-
-    impl ProcessNode for ThrottledProcess {
-        fn name(&self) -> &str {
-            self.inner.name()
-        }
-
-        fn should_stop(&self) -> bool {
-            self.inner.should_stop()
-        }
-
-        fn num_inputs(&self) -> usize {
-            self.inner.num_inputs()
-        }
-
-        fn num_outputs(&self) -> usize {
-            self.inner.num_outputs()
-        }
-
-        fn input_schema(&self) -> Vec<signal_processing::PortSchema> {
-            self.inner.input_schema()
-        }
-
-        fn output_schema(&self) -> Vec<signal_processing::PortSchema> {
-            self.inner.output_schema()
-        }
-
-        fn work(
-            &mut self,
-            inputs: &[signal_processing::InputPort],
-            outputs: &[signal_processing::OutputPort],
-        ) -> signal_processing::WorkResult<usize> {
-            std::thread::sleep(self.delay);
-            self.inner.work(inputs, outputs)
-        }
-    }
-
-    fn live_analysis_chunk(
-        session_id: CaptureSessionId,
-        channels: &[CaptureChannelId],
-        sequence: u64,
-        start_sample: u64,
-        sample_count: u64,
-    ) -> CaptureChunk {
-        let bit_offset = (sequence % 7) as u8;
-        let bit_count = sample_count as usize * channels.len();
-        let mut bytes = vec![0_u8; (usize::from(bit_offset) + bit_count).div_ceil(8)];
-        for relative in 0..sample_count {
-            let sample = start_sample + relative;
-            for channel in 0..channels.len() {
-                let value = match channel {
-                    0 => !sample.is_multiple_of(2),
-                    1 => !(sample / 2).is_multiple_of(2),
-                    _ => false,
-                };
-                if value {
-                    let bit =
-                        usize::from(bit_offset) + relative as usize * channels.len() + channel;
-                    bytes[bit / 8] |= 1 << (bit % 8);
-                }
-            }
-        }
-        CaptureChunk::packed_lsb_first(
-            session_id,
-            sequence,
-            start_sample,
-            sample_count,
-            channels.to_vec(),
-            bytes,
-            bit_offset,
-        )
-        .unwrap()
-    }
-
-    fn captured_words(
-        lanes: &signal_processing::DerivedLanes,
-    ) -> Vec<signal_processing::Annotation> {
-        lanes
-            .opaque_lanes()
-            .into_iter()
-            .find(|lane| lane.payload().stable_id() == "org.logicconduit.word/v1")
-            .and_then(|lane| lane.table_snapshot(1_000_000))
-            .map(|snapshot| {
-                snapshot
-                    .rows
-                    .into_iter()
-                    .map(|row| signal_processing::Annotation {
-                        start_ns: row.start_time_ns,
-                        end_ns: row.end_time_ns,
-                        value: row.value,
-                        payload: row.payload,
-                    })
-                    .collect()
-            })
-            .unwrap_or_else(|| panic!("binary decoder word adapter was not published"))
-    }
-
-    fn annotation_bytes(annotations: &[signal_processing::Annotation]) -> Vec<u8> {
-        annotations
-            .iter()
-            .flat_map(|annotation| {
-                [
-                    annotation.start_ns.to_le_bytes(),
-                    annotation.end_ns.to_le_bytes(),
-                    annotation.value.to_le_bytes(),
-                ]
-                .into_iter()
-                .flatten()
-            })
-            .collect()
-    }
-
-    #[test]
-    fn lagging_live_analysis_and_finalized_replay_are_byte_equal_without_provider_operations() {
-        const CHUNKS: u64 = 48;
-        const SAMPLES_PER_CHUNK: u64 = 128;
-
-        let mut widget = NodeGraphWidget::new(nodes::build_registry());
-        let source_node = nodes::build_live_binary_test(&mut widget);
-        select_named_output(&mut widget, "Binary Decoder", "Words");
-        let captured_feature =
-            discover_live_capture_feature(widget.graph(), &BuilderRegistry::standard())
-                .unwrap()
-                .expect("test graph has a live capture feature");
-        assert_eq!(captured_feature.source_node, source_node);
-        let graph_source_factory = captured_feature.graph_source_factory();
-        let mut registry = BuilderRegistry::standard();
-        registry.builders.insert(
-            nodes::node_name("org.logicconduit.graph-node.binary-decoder/v1").to_owned(),
-            Box::new(ThrottledBinaryBuilder {
-                inner: nodes::node_builder("org.logicconduit.graph-node.binary-decoder/v1"),
-                delay: Duration::from_millis(3),
-            }),
-        );
-        let channels = captured_feature.channels().to_vec();
-        let session_id = CaptureSessionId::new(0x4c49_5645);
-        let directory = tempfile::tempdir().unwrap();
-        let descriptor =
-            signal_processing::CaptureStoreDescriptor::new(session_id, channels.clone()).unwrap();
-        let (store, mut writer) =
-            NativeCaptureStore::create(NativeCaptureStoreConfig::new(directory.path(), descriptor))
-                .unwrap();
-
-        let cursor = store.open_cursor().unwrap();
-        let source = graph_source_factory.create(Box::new(cursor)).unwrap();
-        let mut live_ctx = CompileCtx::default();
-        let live_lanes = live_ctx.derived_lanes.clone();
-        let mut live_run = start_live_analysis(
-            widget.graph(),
-            &registry,
-            &mut live_ctx,
-            LiveAnalysisSource {
-                source_node,
-                process: source,
-            },
-        )
-        .unwrap();
-        let readiness = live_run.source_readiness().snapshot();
-        let source_readiness = readiness
-            .iter()
-            .find(|readiness| readiness.source == source_node)
-            .expect("materialized live source publishes readiness");
-        assert_eq!(source_readiness.kind, SourceDataKind::Live);
-        assert_eq!(
-            source_readiness.preload,
-            SourceArtifactReadiness::Unsupported
-        );
-        assert_eq!(source_readiness.cache, SourceArtifactReadiness::Pending);
-        assert_eq!(source_readiness.index, SourceArtifactReadiness::Pending);
-        assert_eq!(source_readiness.data, SourceArtifactReadiness::Available);
-
-        for sequence in 0..CHUNKS {
-            writer
-                .append(live_analysis_chunk(
-                    session_id,
-                    &channels,
-                    sequence,
-                    sequence * SAMPLES_PER_CHUNK,
-                    SAMPLES_PER_CHUNK,
-                ))
-                .unwrap();
-        }
-        writer.finish().unwrap();
-        drop(writer);
-        let committed_samples = CHUNKS * SAMPLES_PER_CHUNK;
-        assert_eq!(store.snapshot().committed_samples, committed_samples);
-        let processed_while_capture_finished = live_run
-            .progress()
-            .into_iter()
-            .find_map(|(node, items)| (node == source_node).then_some(items))
-            .unwrap_or(0);
-        assert!(
-            processed_while_capture_finished < committed_samples,
-            "throttled analysis unexpectedly kept up with acquisition"
-        );
-        let finalized = store.finalize().unwrap();
-        while !live_run.is_finished() {
-            std::thread::yield_now();
-        }
-        let final_processed = live_run
-            .progress()
-            .into_iter()
-            .find_map(|(node, items)| (node == source_node).then_some(items));
-        live_run.wait();
-        let live_words = captured_words(&live_lanes);
-        assert!(!live_words.is_empty());
-
-        let replay_source = graph_source_factory
-            .create(Box::new(finalized.open_cursor().unwrap()))
-            .unwrap();
-        let mut reference_ctx = CompileCtx::default();
-        let reference_lanes = reference_ctx.derived_lanes.clone();
-        let discovery_calls = Arc::new(AtomicUsize::new(0));
-        let provider_build_calls = Arc::new(AtomicUsize::new(0));
-        let mut reference_registry = BuilderRegistry::standard();
-        reference_registry.builders.insert(
-            nodes::node_name("org.logicconduit.graph-node.test-capture-source/v1").to_owned(),
-            Box::new(InstrumentedCaptureBuilder {
-                inner: nodes::node_builder("org.logicconduit.graph-node.test-capture-source/v1"),
-                discovery_calls: Arc::clone(&discovery_calls),
-                provider_build_calls: Arc::clone(&provider_build_calls),
-            }),
-        );
-        let mut overrides = SourceProcessOverrides::new();
-        overrides.insert(source_node, replay_source);
-        let mut reference_run = start_app_run_with_source_overrides(
-            widget.graph(),
-            &reference_registry,
-            &mut reference_ctx,
-            overrides,
-        )
-        .unwrap();
-        reference_run.wait();
-
-        let replay_words = captured_words(&reference_lanes);
-        assert_eq!(
-            annotation_bytes(&live_words),
-            annotation_bytes(&replay_words)
-        );
-        assert_eq!(final_processed, Some(committed_samples));
-        assert_eq!(discovery_calls.load(Ordering::SeqCst), 0);
-        assert_eq!(provider_build_calls.load(Ordering::SeqCst), 0);
-    }
-
-    fn run_cooperatively(widget: &NodeGraphWidget) -> (CompiledGraph, Vec<(String, u64)>) {
-        let registry = BuilderRegistry::standard();
-        let cache_directory = tempfile::tempdir().unwrap();
-        let mut compiled = lower(widget.graph(), &registry).unwrap();
-        cache_platform::configure_directory(&mut compiled, Some(cache_directory.path()));
-        let mut manager = CooperativeManager::new();
-        let mut names = HashMap::new();
-        let mut ctx = CompileCtx {
-            sampling_activities: sampling_activity_map(&compiled),
-            ..CompileCtx::default()
-        };
-
-        for id in topo_order(&compiled) {
-            let node = compiled_node(&compiled, id);
-            let builder = registry.get(&node.builder).unwrap();
-            ctx.derived_word_caches
-                .clone_from(&node.derived_word_caches);
-            let process =
-                materialize_compiled_node(node, builder, &node.runtime_name, &registry, &mut ctx)
-                    .unwrap();
-            let inputs = input_subs(&compiled, id, process.as_ref(), &names).unwrap();
-            manager
-                .add_node_deferred(NodeSpec {
-                    name: node.runtime_name.clone(),
-                    node: process,
-                    inputs,
-                })
-                .unwrap();
-            names.insert(id, node.runtime_name.clone());
-        }
-
-        manager.start_all_deferred().unwrap();
-        for _ in 0..1_000 {
-            manager.pump(256);
-            if manager.is_finished() {
-                break;
-            }
-        }
-        assert!(
-            manager.is_finished(),
-            "unfinished: {:?}",
-            manager.progress()
-        );
-        (compiled, manager.progress())
-    }
-
-    #[test]
-    fn startup_graph_lowers() {
-        let widget = startup_widget();
-        let compiled = lower(widget.graph(), &BuilderRegistry::standard())
-            .unwrap_or_else(|errors| panic!("lower failed: {errors:?}"));
-
-        // Every saved processing node has a runtime, plus the generic viewer
-        // sink synthesized from watched outputs.
-        assert_eq!(compiled.nodes.len(), 11);
-        assert_eq!(compiled.edges.len(), 30);
-
-        let spi_sampling = compiled
-            .sampling_overlays
-            .iter()
-            .find(|candidate| candidate.node_title == "SPI Decoder")
-            .expect("SPI decoder should expose a sampling overlay");
-        assert_eq!(spi_sampling.overlay.edge, SamplingEdge::Rising);
-        assert!(!spi_sampling.overlay.sampled_channels.is_empty());
-        assert!(
-            !spi_sampling.overlay.qualifiers.is_empty()
-                || !spi_sampling.overlay.activities.is_empty()
-        );
-        let binary_sampling = compiled
-            .sampling_overlays
-            .iter()
-            .find(|candidate| candidate.node_title == "Binary Decoder")
-            .expect("binary decoder should expose a sampling overlay");
-        assert_eq!(binary_sampling.overlay.edge, SamplingEdge::Both);
-        assert!(!binary_sampling.overlay.sampled_channels.is_empty());
-        assert!(
-            !binary_sampling.overlay.qualifiers.is_empty()
-                || !binary_sampling.overlay.activities.is_empty()
-        );
-
-        // Viewer lanes resolve with per-lane kinds and producer labels.
-        let viewer = compiled
-            .nodes
-            .iter()
-            .find(|n| n.builder == crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME)
-            .unwrap();
-        let lanes = viewer.resolved.members(0);
-        assert_eq!(lanes.len(), 7);
-        assert!(
-            lanes
-                .iter()
-                .any(|(_, input)| input.kind == PortKind::of::<Word>()
-                    && input.source == "SPI Decoder.MOSI Bits")
-        );
-        assert!(
-            lanes
-                .iter()
-                .any(|(_, input)| input.kind == PortKind::of::<Word>()
-                    && input.source == "SPI Decoder.MOSI Data")
-        );
-        assert!(
-            lanes
-                .iter()
-                .any(|(_, input)| input.kind == PortKind::of::<Trigger>()
-                    && input.source == "Match Start.Match")
-        );
-        assert!(
-            lanes
-                .iter()
-                .any(|(_, input)| input.kind == PortKind::of::<Word>()
-                    && input.source == "Binary Decoder.Words")
-        );
-
-        // Kind negotiation spot checks: SPI clk reads edges, the binary
-        // decoder reads blocks — both fed from the same UI sockets.
-        let spi = compiled
-            .nodes
-            .iter()
-            .find(|n| n.builder == "SPI Decoder")
-            .unwrap();
-        let decoder = compiled
-            .nodes
-            .iter()
-            .find(|n| n.builder == "Binary Decoder")
-            .unwrap();
-        let edge_to = |node: NodeId, port: &str| {
-            compiled
-                .edges
-                .iter()
-                .find(|e| e.to.0 == node && e.to.1 == port)
-                .unwrap_or_else(|| panic!("no edge into {port}"))
-        };
-        // The runtime port name no longer encodes which kind was picked
-        // (both resolve to `ch{channel}` on a single collapsed port —
-        // see `FileSourceBuilder::output_port`), so check the negotiated
-        // kind directly via each node's `ResolvedInputs` instead of
-        // sniffing a `d`/`b` prefix.
-        assert_eq!(spi.resolved.kind(0), Some(PortKind::of::<Sample>())); // clk
-        assert_eq!(
-            decoder.resolved.kind(0),
-            Some(PortKind::of::<SampleBlock>())
-        ); // strobe
-        assert_eq!(edge_to(decoder.id, "strobe").buffer, 2);
-        assert_eq!(edge_to(spi.id, "clk").buffer, 10_000_000);
-        assert_eq!(edge_to(decoder.id, "d7").from.1, "ch7");
-        assert!(
-            compiled
-                .edges
-                .iter()
-                .any(|e| e.to.1 == "enable_signal" && e.buffer == 1_000)
-        );
-    }
-
-    #[test]
-    fn development_capture_feature_is_discovered_without_node_name_matching() {
-        let mut widget = NodeGraphWidget::new(nodes::build_registry());
-        let source = widget
-            .add_node_at(
-                nodes::node_name("org.logicconduit.graph-node.test-live-capture-source/v1"),
-                Pos2::ZERO,
-            )
-            .unwrap();
-        let feature = discover_live_capture_feature(widget.graph(), &BuilderRegistry::standard())
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(feature.source_node, source);
-        assert_eq!(feature.channels().len(), 11);
-        assert_eq!(feature.visible_channels(), &(0..11).collect::<Vec<_>>());
-        assert_eq!(feature.channels()[7].as_str(), "demo:7");
-        assert_eq!(feature.simple_trigger_channels().len(), 11);
-        assert!(
-            feature
-                .simple_trigger_channels()
-                .iter()
-                .all(|channel| channel.condition == SimpleTriggerCondition::Ignore)
-        );
-        drop(feature);
-        set_viewer_selection(&mut widget, source, 7, false);
-        let feature = discover_live_capture_feature(widget.graph(), &BuilderRegistry::standard())
-            .unwrap()
-            .unwrap();
-        assert!(!feature.visible_channels().contains(&7));
-        assert_eq!(feature.visible_channels().len(), 10);
-
-        let state = apply_live_capture_edit(
-            widget.graph(),
-            &BuilderRegistry::standard(),
-            source,
-            &LiveCaptureEdit::SetSimpleTrigger {
-                channel_id: CaptureChannelId::new("demo:7"),
-                condition: SimpleTriggerCondition::Falling,
-            },
-        )
-        .unwrap();
-        assert!(widget.edit_node_state(source, state));
-        let edited = discover_live_capture_feature(widget.graph(), &BuilderRegistry::standard())
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            edited.simple_trigger_channels()[7].condition,
-            SimpleTriggerCondition::Falling
-        );
-        assert!(edited.has_simple_trigger());
-        let trigger_configuration =
-            discover_trigger_configuration(widget.graph(), &BuilderRegistry::standard())
-                .unwrap()
-                .unwrap();
-        assert_eq!(trigger_configuration.source_node, source);
-        assert_eq!(
-            trigger_configuration.feature.program(),
-            edited.trigger_program()
-        );
-        let panel_program = trigger_configuration
-            .feature
-            .schema()
-            .simple_program([
-                (
-                    CaptureChannelId::new("demo:2"),
-                    SimpleTriggerCondition::High,
-                ),
-                (
-                    CaptureChannelId::new("demo:7"),
-                    SimpleTriggerCondition::Falling,
-                ),
-            ])
-            .unwrap();
-        let state = apply_live_capture_edit(
-            widget.graph(),
-            &BuilderRegistry::standard(),
-            source,
-            &LiveCaptureEdit::SetTriggerProgram {
-                program: panel_program.clone(),
-            },
-        )
-        .unwrap();
-        assert!(widget.edit_node_state(source, state));
-        let panel_edited =
-            discover_trigger_configuration(widget.graph(), &BuilderRegistry::standard())
-                .unwrap()
-                .unwrap();
-        assert_eq!(panel_edited.feature.program(), panel_program.as_ref());
-
-        let serialized = serde_json::to_string(widget.graph()).unwrap();
-        let graph: GraphState = serde_json::from_str(&serialized).unwrap();
-        assert!(
-            graph.nodes[&source]
-                .state
-                .get("trigger_conditions")
-                .is_none()
-        );
-        let mut restored = NodeGraphWidget::new(nodes::build_registry());
-        restored.set_graph(graph);
-        let reloaded =
-            discover_live_capture_feature(restored.graph(), &BuilderRegistry::standard())
-                .unwrap()
-                .unwrap();
-        assert_eq!(
-            reloaded.simple_trigger_channels()[7].condition,
-            SimpleTriggerCondition::Falling
-        );
-        assert_eq!(
-            reloaded.simple_trigger_channels()[2].condition,
-            SimpleTriggerCondition::High
-        );
     }
 
     #[test]
     fn trigger_configuration_discovery_does_not_require_acquisition() {
-        let node_types = nodes::build_registry();
-        let mut builders = BuilderRegistry::standard();
-        builders.builders.insert(
-            nodes::node_name("org.logicconduit.graph-node.test-capture-source/v1").to_owned(),
-            Box::new(TriggerOnlyPluginBuilder {
-                inner: nodes::node_builder("org.logicconduit.graph-node.test-capture-source/v1"),
-            }),
+        let (widget, mut builders, source, _transform, _sink) = contract_pipeline(
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            true,
         );
-        let mut widget = NodeGraphWidget::new(node_types);
-        let source = widget
-            .add_node_at(
-                nodes::node_name("org.logicconduit.graph-node.test-capture-source/v1"),
-                Pos2::ZERO,
-            )
-            .unwrap();
+        builders.builders.insert(
+            CONTRACT_SOURCE.to_owned(),
+            Box::new(TriggerOnlyPluginBuilder),
+        );
 
         let configuration = discover_trigger_configuration(widget.graph(), &builders)
             .unwrap()
@@ -3493,125 +3185,26 @@ mod tests {
     }
 
     #[test]
-    fn advanced_test_graph_edit_executes_identically_after_json_reload() {
-        let builders = BuilderRegistry::standard();
-        let mut widget = NodeGraphWidget::new(nodes::build_registry());
-        let source = widget
-            .add_node_at(
-                nodes::node_name("org.logicconduit.graph-node.test-live-capture-source/v1"),
-                Pos2::ZERO,
-            )
-            .unwrap();
-        let configuration = discover_trigger_configuration(widget.graph(), &builders)
-            .unwrap()
-            .unwrap();
-        let schema = configuration.feature.schema();
-        let program = TriggerProgram::new(
-            schema.id().clone(),
-            schema.revision(),
-            vec![
-                TriggerStage {
-                    predicates: vec![TriggerPredicate::Digital {
-                        channel: CaptureChannelId::new("demo:0"),
-                        condition: SimpleTriggerCondition::High,
-                    }],
-                    logic: TriggerLogicOperator::And,
-                    inverted: false,
-                    count: Some(TriggerCount {
-                        mode: TriggerCountMode::Occurrences,
-                        value: 2,
-                    }),
-                },
-                TriggerStage {
-                    predicates: vec![TriggerPredicate::Digital {
-                        channel: CaptureChannelId::new("demo:0"),
-                        condition: SimpleTriggerCondition::Falling,
-                    }],
-                    logic: TriggerLogicOperator::Or,
-                    inverted: true,
-                    count: Some(TriggerCount {
-                        mode: TriggerCountMode::Consecutive,
-                        value: 1,
-                    }),
-                },
-            ],
-        );
-        let state = apply_live_capture_edit(
-            widget.graph(),
-            &builders,
-            source,
-            &LiveCaptureEdit::SetTriggerProgram {
-                program: Some(program.clone()),
-            },
-        )
-        .unwrap();
-        assert!(widget.edit_node_state(source, state));
-
-        let before = discover_live_capture_feature(widget.graph(), &builders)
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            before
-                .session_plan()
-                .unwrap()
-                .policy
-                .effective
-                .trigger_placement,
-            Some(TriggerPlacement::SamplesBefore(5))
-        );
-
-        let graph: GraphState =
-            serde_json::from_str(&serde_json::to_string(widget.graph()).unwrap()).unwrap();
-        let mut restored = NodeGraphWidget::new(nodes::build_registry());
-        restored.set_graph(graph);
-        let restored_configuration = discover_trigger_configuration(restored.graph(), &builders)
-            .unwrap()
-            .unwrap();
-        assert_eq!(restored_configuration.feature.program(), Some(&program));
-        let after = discover_live_capture_feature(restored.graph(), &builders)
-            .unwrap()
-            .unwrap();
-        assert_eq!(after.session_plan(), before.session_plan());
-    }
-
-    #[test]
-    fn legacy_development_capture_state_migrates_with_a_visible_warning() {
-        let mut widget = NodeGraphWidget::new(nodes::build_registry());
-        let source = widget
-            .add_node_at(
-                nodes::node_name("org.logicconduit.graph-node.test-capture-source/v1"),
-                Pos2::ZERO,
-            )
-            .unwrap();
-        let mut graph = widget.graph().clone();
-        graph.nodes.get_mut(&source).unwrap().state = serde_json::json!({});
-
-        let mut restored = NodeGraphWidget::new(nodes::build_registry());
-        restored.set_graph(graph);
-        let warning = restored.graph().nodes[&source]
-            .badge
-            .as_ref()
-            .expect("legacy state must surface its migration");
-        assert!(warning.text.contains("legacy"));
-    }
-
-    #[test]
     fn discovery_rejects_multiple_live_capture_features() {
-        let mut widget = NodeGraphWidget::new(nodes::build_registry());
+        let (mut widget, mut builders, _source, _transform, _sink) = contract_pipeline(
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            true,
+        );
+        builders.builders.insert(
+            CONTRACT_LIVE_SOURCE.to_owned(),
+            Box::new(BufferedPluginBuilder),
+        );
         let first = widget
-            .add_node_at(
-                nodes::node_name("org.logicconduit.graph-node.test-live-capture-source/v1"),
-                Pos2::ZERO,
-            )
+            .add_node_at(CONTRACT_LIVE_SOURCE, Pos2::new(600.0, 0.0))
             .unwrap();
         let second = widget
-            .add_node_at(
-                nodes::node_name("org.logicconduit.graph-node.test-live-capture-source/v1"),
-                Pos2::new(100.0, 0.0),
-            )
+            .add_node_at(CONTRACT_LIVE_SOURCE, Pos2::new(800.0, 0.0))
             .unwrap();
 
-        let error = discover_live_capture_feature(widget.graph(), &BuilderRegistry::standard())
+        let error = discover_live_capture_feature(widget.graph(), &builders)
             .err()
             .unwrap();
         assert_eq!(error.source_nodes, [first, second]);
@@ -3620,14 +3213,20 @@ mod tests {
 
     #[test]
     fn compiled_discovery_ignores_a_disconnected_live_feature() {
-        let mut widget = uart_demo_widget();
+        let (mut widget, mut builders, _source, _transform, _sink) = contract_pipeline(
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            true,
+        );
+        builders.builders.insert(
+            CONTRACT_LIVE_SOURCE.to_owned(),
+            Box::new(BufferedPluginBuilder),
+        );
         widget
-            .add_node_at(
-                nodes::node_name("org.logicconduit.graph-node.test-live-capture-source/v1"),
-                Pos2::new(1_000.0, 0.0),
-            )
+            .add_node_at(CONTRACT_LIVE_SOURCE, Pos2::new(1_000.0, 0.0))
             .unwrap();
-        let builders = BuilderRegistry::standard();
         let compiled = lower(widget.graph(), &builders).unwrap();
 
         assert!(
@@ -3639,40 +3238,57 @@ mod tests {
 
     #[test]
     fn unchanged_live_lowering_reuses_runtime_sampling_activity() {
-        let widget = startup_widget();
-        let registry = BuilderRegistry::standard();
-        let old = lower(widget.graph(), &registry).unwrap();
-        let activity = old
-            .sampling_overlays
-            .iter()
-            .find(|candidate| candidate.node_title == "Binary Decoder")
-            .and_then(|candidate| candidate.overlay.activities.first())
-            .expect("startup binary enable is a runtime sampling condition")
-            .clone();
+        let activity = SamplingActivity::default();
         activity.record_interval(100, 200);
+        let old = CompiledGraph {
+            sampling_overlays: vec![SamplingOverlayCandidate {
+                node_id: NodeId(7),
+                node_title: "Contract sampler".to_owned(),
+                overlay: ResolvedSamplingOverlay {
+                    clock_channel: 0,
+                    sampled_channels: vec![1],
+                    edge: SamplingEdge::Rising,
+                    qualifiers: Vec::new(),
+                    activities: vec![activity.clone()],
+                },
+                runtime_activities: vec![(2, activity)],
+            }],
+            ..CompiledGraph::default()
+        };
 
-        let mut new = lower(widget.graph(), &registry).unwrap();
+        let replacement = SamplingActivity::default();
+        let mut new = CompiledGraph {
+            sampling_overlays: vec![SamplingOverlayCandidate {
+                node_id: NodeId(7),
+                node_title: "Contract sampler".to_owned(),
+                overlay: ResolvedSamplingOverlay {
+                    clock_channel: 0,
+                    sampled_channels: vec![1],
+                    edge: SamplingEdge::Rising,
+                    qualifiers: Vec::new(),
+                    activities: vec![replacement.clone()],
+                },
+                runtime_activities: vec![(2, replacement)],
+            }],
+            ..CompiledGraph::default()
+        };
         reuse_sampling_activities(&old, &mut new);
-        let reused = new
-            .sampling_overlays
-            .iter()
-            .find(|candidate| candidate.node_title == "Binary Decoder")
-            .and_then(|candidate| candidate.overlay.activities.first())
-            .unwrap();
+        let reused = &new.sampling_overlays[0].overlay.activities[0];
         assert!(reused.is_active_at(150));
     }
 
     /// A lone source node with no explicit sink, used to verify that source
     /// presentation remains independent of selectable waveform presentations.
-    fn source_only_widget() -> NodeGraphWidget {
-        let mut widget = NodeGraphWidget::new(nodes::build_registry());
+    fn source_only_contract() -> (NodeGraphWidget, BuilderRegistry) {
+        let mut node_types = NodeTypeRegistry::new();
+        node_types.register::<ContractSourceDefinition>();
+        let mut widget = NodeGraphWidget::new(node_types);
         widget
-            .add_node_at(
-                nodes::node_name("org.logicconduit.graph-node.test-uart-source/v1"),
-                egui::Pos2::ZERO,
-            )
-            .expect("Test UART Source is registered");
-        widget
+            .add_node_at(CONTRACT_SOURCE, Pos2::ZERO)
+            .expect("contract source is registered");
+        let mut builders = BuilderRegistry::isolated_test();
+        builders.insert_test_builder(CONTRACT_SOURCE, Box::new(BufferedPluginBuilder));
+        (widget, builders)
     }
 
     fn hide_first_output(widget: &mut NodeGraphWidget) -> NodeId {
@@ -3681,34 +3297,62 @@ mod tests {
         id
     }
 
-    fn selectable_output_widget() -> NodeGraphWidget {
-        let mut widget = NodeGraphWidget::new(nodes::build_registry());
-        nodes::build_live_binary_test(&mut widget);
-        let decoder = widget
-            .graph()
-            .nodes
-            .values()
-            .find(|node| {
-                node.def_name() == nodes::node_name("org.logicconduit.graph-node.binary-decoder/v1")
-            })
-            .unwrap();
-        let output = decoder
-            .outputs
-            .iter()
-            .position(|output| output.name == "Words")
-            .unwrap();
-        let decoder = decoder.id;
-        set_viewer_selection(&mut widget, decoder, output, true);
-        widget
+    fn selectable_output_contract() -> (NodeGraphWidget, BuilderRegistry, NodeId) {
+        selectable_output_contract_for::<Sample>(
+            "org.logicconduit.compiler-test.sample/v1",
+            signal_processing::digital_payload_adapter(),
+            false,
+        )
     }
 
-    fn first_watched_selectable_output(widget: &NodeGraphWidget) -> (NodeId, usize) {
-        test_output_subscriptions(widget.graph(), &BuilderRegistry::standard())
+    fn selectable_word_output_contract() -> (NodeGraphWidget, BuilderRegistry, NodeId) {
+        selectable_output_contract_for::<Word>(
+            "org.logicconduit.compiler-test.word/v1",
+            signal_processing::word_payload_adapter(),
+            true,
+        )
+    }
+
+    fn selectable_output_contract_for<T: logic_analyzer_graph_api::node_support::PortValue>(
+        stable_id: &str,
+        adapter: Arc<dyn signal_processing::PayloadAdapter>,
+        persistent_cache: bool,
+    ) -> (NodeGraphWidget, BuilderRegistry, NodeId) {
+        let kind = PortKind::of::<T>();
+        let (mut widget, mut registry, _source, transform, _sink) =
+            contract_pipeline(kind, kind, kind, kind, true);
+        registry.register_payload::<T>(stable_id).unwrap();
+        registry.payloads.register_adapter::<T>(adapter).unwrap();
+        registry
+            .register_payload_subscription_with_request_configurator::<T>(
+                DefaultLanePresentationDescriptor::new(
+                    logic_analyzer_graph_api::node_support::LaneBadgeDescriptor::new(
+                        "T",
+                        [255, 255, 255],
+                    ),
+                    "org.logicconduit.compiler-test.renderer/v1",
+                ),
+                Arc::new(|request, _member, _input, _context| request),
+                persistent_cache,
+            )
+            .unwrap();
+        registry.insert_test_builder(
+            crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME,
+            Box::new(DataCollectorBuilder::output_subscription()),
+        );
+        set_viewer_selection(&mut widget, transform, 0, true);
+        (widget, registry, transform)
+    }
+
+    fn first_watched_selectable_output(
+        widget: &NodeGraphWidget,
+        registry: &BuilderRegistry,
+    ) -> (NodeId, usize) {
+        test_output_subscriptions(widget.graph(), registry)
             .outputs()
             .find(|(node_id, output)| {
                 let node = &widget.graph().nodes[node_id];
-                let builder = BuilderRegistry::standard();
-                builder.get(node.def_name()).is_some_and(|builder| {
+                registry.get(node.def_name()).is_some_and(|builder| {
                     builder
                         .viewer_channel_origin(&node.outputs[*output], &node.state)
                         .is_none()
@@ -3719,141 +3363,53 @@ mod tests {
 
     #[test]
     fn unwatched_source_has_no_sink() {
-        let mut widget = source_only_widget();
+        let (mut widget, builders) = source_only_contract();
         hide_first_output(&mut widget);
-        let errors = lower(widget.graph(), &BuilderRegistry::standard()).unwrap_err();
+        let errors = lower(widget.graph(), &builders).unwrap_err();
         assert!(errors.iter().any(|e| e.message.contains("no sink")));
     }
 
     #[test]
     fn raw_source_output_is_visible_by_default_without_becoming_a_derived_sink() {
-        let widget = source_only_widget();
+        let (widget, builders) = source_only_contract();
         let source = widget.graph().nodes.values().next().unwrap();
         assert!(
-            test_output_subscriptions(widget.graph(), &BuilderRegistry::standard())
+            test_output_subscriptions(widget.graph(), &builders)
                 .outputs()
                 .any(|(node, _)| node == source.id)
         );
 
-        let presentation =
-            discover_capture_presentation(widget.graph(), &BuilderRegistry::standard())
-                .unwrap()
-                .expect("source provides a capture presentation");
+        let presentation = discover_capture_presentation(widget.graph(), &builders)
+            .unwrap()
+            .expect("source provides a capture presentation");
         assert_eq!(presentation.visible_channels, [0]);
 
-        let errors = lower(widget.graph(), &BuilderRegistry::standard()).unwrap_err();
+        let errors = lower(widget.graph(), &builders).unwrap_err();
         assert!(errors.iter().any(|error| error.message.contains("no sink")));
     }
 
     #[test]
-    fn counter_and_formatter_outputs_can_be_watched() {
-        use signal_processing::{NumberSample, TextSample};
-
-        let mut widget = NodeGraphWidget::new(nodes::build_registry());
-        nodes::build_binary_decoder_demo(&mut widget);
-        for definition in [
-            nodes::node_name("org.logicconduit.graph-node.counter/v1"),
-            nodes::node_name("org.logicconduit.graph-node.string-formatter/v1"),
-        ] {
-            let node = widget
-                .graph()
-                .nodes
-                .values()
-                .find(|node| node.def_name() == definition)
-                .unwrap_or_else(|| panic!("missing {definition}"));
-            let node = node.id;
-            set_viewer_selection(&mut widget, node, 0, true);
-        }
-
-        let compiled = lower(widget.graph(), &BuilderRegistry::standard())
-            .unwrap_or_else(|errors| panic!("lower failed: {errors:?}"));
-        let viewer = compiled
-            .nodes
-            .iter()
-            .find(|node| node.builder == crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME)
-            .expect("synthetic viewer");
-        let kinds: Vec<_> = viewer
-            .resolved
-            .members(0)
-            .into_iter()
-            .map(|(_, input)| input.kind)
-            .collect();
-        assert!(kinds.contains(&PortKind::of::<NumberSample>()));
-        assert!(kinds.contains(&PortKind::of::<TextSample>()));
-
-        let mut ctx = CompileCtx::default();
-        let derived = ctx.derived_lanes.clone();
-        let mut run = start_live(widget.graph(), &BuilderRegistry::standard(), &mut ctx)
-            .expect("watched value levels should run");
-        run.wait();
-        for suffix in [".Count", ".Text"] {
-            let lane = derived
-                .opaque_lanes()
-                .into_iter()
-                .find(|lane| lane.name().ends_with(suffix))
-                .unwrap_or_else(|| panic!("missing {suffix} viewer lane"));
-            let snapshot = lane
-                .snapshot(signal_processing::CollectedLaneSnapshotRequest {
-                    start_time_ns: 0,
-                    end_time_ns: u64::MAX,
-                    max_items: usize::MAX,
-                })
-                .unwrap();
-            let changes = snapshot
-                .value::<signal_processing::NumberLaneSnapshot>()
-                .map(|snapshot| match snapshot.as_ref() {
-                    signal_processing::NumberLaneSnapshot::Exact(samples) => samples.len(),
-                    signal_processing::NumberLaneSnapshot::Activity(_) => 0,
-                })
-                .or_else(|| {
-                    snapshot
-                        .value::<signal_processing::TextLaneSnapshot>()
-                        .map(|snapshot| match snapshot.as_ref() {
-                            signal_processing::TextLaneSnapshot::Exact(samples) => samples.len(),
-                            signal_processing::TextLaneSnapshot::Activity(_) => 0,
-                        })
-                })
-                .unwrap_or_else(|| panic!("{suffix} should publish a typed value snapshot"));
-            assert!(changes > 1, "{suffix} should contain changes");
-        }
-    }
-
-    #[test]
     fn unwatching_the_only_output_drops_the_output_subscription_collector() {
-        let mut widget = selectable_output_widget();
-        let (node_id, output_index) = first_watched_selectable_output(&widget);
-        let registry = BuilderRegistry::standard();
-        assert!(lower(widget.graph(), &registry).is_ok());
+        let (mut widget, registry, node_id) = selectable_output_contract();
+        let (_, output_index) = first_watched_selectable_output(&widget, &registry);
+        let watched = lower(widget.graph(), &registry).unwrap();
+        assert!(watched.nodes.iter().any(|node| {
+            node.builder == crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME && node.data_collector
+        }));
 
         set_viewer_selection(&mut widget, node_id, output_index, false);
         let compiled = lower(widget.graph(), &registry).unwrap();
-        assert!(compiled.nodes.iter().all(|node| node.builder != "Viewer"));
-        assert!(compiled.nodes.iter().any(|node| node.data_collector));
-
-        let mut ctx = CompileCtx::default();
-        let lanes = ctx.derived_lanes().clone();
-        let mut run = start_live(widget.graph(), &registry, &mut ctx).unwrap();
-        run.wait();
-
-        let subscriptions = ctx.collected_table_subscriptions();
-        assert!(!subscriptions.is_empty());
         assert!(
-            subscriptions
+            compiled
+                .nodes
                 .iter()
-                .flat_map(|subscription| &subscription.lanes)
-                .all(|lane| {
-                    lanes
-                        .opaque_lanes()
-                        .iter()
-                        .any(|collected| collected.name() == lane.lane_name)
-                })
+                .all(|node| node.builder != crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME)
         );
     }
 
     #[test]
     fn output_subscription_collector_id_is_stable_across_relowers() {
-        let widget = selectable_output_widget();
-        let registry = BuilderRegistry::standard();
+        let (widget, registry, _selected) = selectable_output_contract();
 
         let first = lower(widget.graph(), &registry).unwrap();
         let second = lower(widget.graph(), &registry).unwrap();
@@ -3871,7 +3427,7 @@ mod tests {
 
     #[test]
     fn output_subscription_collector_is_a_generic_runtime_sink() {
-        let registry = BuilderRegistry::standard();
+        let (widget, registry, _selected) = selectable_output_contract();
         let builder = registry
             .get(crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME)
             .unwrap();
@@ -3879,7 +3435,7 @@ mod tests {
         assert!(builder.is_data_collector());
         assert!(builder.is_data_subscription());
 
-        let compiled = lower(selectable_output_widget().graph(), &registry).unwrap();
+        let compiled = lower(widget.graph(), &registry).unwrap();
         let viewer = compiled
             .nodes
             .iter()
@@ -3905,41 +3461,29 @@ mod tests {
     }
 
     #[test]
-    fn persistent_derived_lane_key_is_stable_but_decoder_configuration_invalidates_it() {
-        let mut widget = uart_demo_widget();
-        let registry = BuilderRegistry::standard();
+    fn persistent_derived_lane_key_is_stable_but_producer_configuration_invalidates_it() {
+        let (mut widget, registry, producer) = selectable_word_output_contract();
         let first = lower(widget.graph(), &registry).unwrap();
         let repeated = lower(widget.graph(), &registry).unwrap();
         let first_keys = persistent_word_keys(&first);
         assert!(!first_keys.is_empty());
         assert_eq!(first_keys, persistent_word_keys(&repeated));
 
-        let decoder = widget
-            .graph()
-            .nodes
-            .values()
-            .find(|node| node.def_name() == "UART Decoder")
-            .unwrap()
-            .id;
-        let mut state = widget.graph().nodes[&decoder].state.clone();
-        let data_bits = state["data_bits"]["value"].as_i64().unwrap();
-        state["data_bits"]["value"] = (data_bits - 1).into();
-        widget.set_node_state(decoder, state);
+        widget.set_node_state(producer, serde_json::json!({ "revision": 2 }));
         let changed = lower(widget.graph(), &registry).unwrap();
         assert_ne!(first_keys, persistent_word_keys(&changed));
     }
 
     #[test]
     fn cache_inventory_maps_a_lane_to_its_collector_and_upstream_nodes() {
-        let widget = uart_demo_widget();
-        let registry = BuilderRegistry::standard();
+        let (widget, registry, producer) = selectable_word_output_contract();
         let compiled = lower(widget.graph(), &registry).unwrap();
-        let viewer = compiled
+        let collector = compiled
             .nodes
             .iter()
-            .find(|node| node.builder == "Viewer")
+            .find(|node| node.builder == crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME)
             .unwrap();
-        let expected: Vec<_> = viewer
+        let expected: Vec<_> = collector
             .derived_word_caches
             .iter()
             .flatten()
@@ -3949,51 +3493,49 @@ mod tests {
         let inventory =
             derived_cache_configs_by_node(widget.graph(), &registry, std::path::Path::new("cache"))
                 .unwrap();
-        let actual = inventory[&viewer.id]
+        let actual = inventory[&collector.id]
             .iter()
             .map(|config| config.cache_key)
             .collect::<Vec<_>>();
-        let decoder = compiled
-            .nodes
-            .iter()
-            .find(|node| node.builder == "UART Decoder")
-            .unwrap();
-
         assert!(!expected.is_empty());
         assert!(expected.iter().all(|key| actual.contains(key)));
-        let decoder_keys = inventory[&decoder.id]
+        let producer_keys = inventory[&producer]
             .iter()
             .map(|config| config.cache_key)
             .collect::<Vec<_>>();
-        assert!(expected.iter().all(|key| decoder_keys.contains(key)));
+        assert!(expected.iter().all(|key| producer_keys.contains(key)));
     }
 
     #[test]
     fn persistent_derived_lane_key_includes_variadic_member_order() {
-        let compiled = lower(uart_demo_widget().graph(), &BuilderRegistry::standard()).unwrap();
-        let viewer = compiled
+        let (widget, registry, _producer) = selectable_word_output_contract();
+        let compiled = lower(widget.graph(), &registry).unwrap();
+        let collector = compiled
             .nodes
             .iter()
-            .find(|node| node.builder == "Viewer")
+            .find(|node| node.builder == crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME)
             .unwrap();
         let edge = compiled
             .edges
             .iter()
-            .find(|edge| edge.to.0 == viewer.id && edge.kind == PortKind::of::<Word>())
+            .find(|edge| edge.to.0 == collector.id && edge.kind == PortKind::of::<Word>())
             .unwrap();
         assert_ne!(
-            cache_platform::persistent_lane_key(&compiled, viewer.id, 0, edge),
-            cache_platform::persistent_lane_key(&compiled, viewer.id, 1, edge)
+            cache_platform::persistent_lane_key(&compiled, collector.id, 0, edge),
+            cache_platform::persistent_lane_key(&compiled, collector.id, 1, edge)
         );
     }
 
     #[test]
-    fn persistent_cache_hit_prunes_decoder_used_only_by_cached_derived_lane() {
+    fn persistent_cache_hit_prunes_producer_used_only_by_cached_derived_lane() {
         use signal_processing::{IndexedAnnotationWriter, LiveStoreConfig};
 
         let directory = tempfile::tempdir().unwrap();
-        let registry = BuilderRegistry::standard();
-        let mut compiled = lower(uart_demo_widget().graph(), &registry).unwrap();
+        let (mut widget, registry, producer) = selectable_word_output_contract();
+        let explicit_sink = node_by_def(&widget, CONTRACT_SINK);
+        widget.graph_mut().remove_node(explicit_sink);
+
+        let mut compiled = lower(widget.graph(), &registry).unwrap();
         cache_platform::configure_directory(&mut compiled, Some(directory.path()));
         let caches = compiled
             .nodes
@@ -4017,13 +3559,13 @@ mod tests {
         let (execution, pruned) = cache_platform::prepare_execution(&compiled, &registry);
 
         assert!(pruned);
+        assert!(execution.nodes.iter().all(|node| node.id != producer));
         assert!(
             execution
                 .nodes
                 .iter()
-                .all(|node| node.builder != "UART Decoder")
+                .any(|node| { node.builder == crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME })
         );
-        assert!(execution.nodes.iter().any(|node| node.builder == "Viewer"));
         assert!(
             execution
                 .edges
@@ -4033,295 +3575,25 @@ mod tests {
     }
 
     #[test]
-    fn second_live_run_reuses_persistent_words_without_starting_decoder() {
-        let directory = tempfile::tempdir().unwrap();
-        let widget = uart_demo_widget();
-        let registry = BuilderRegistry::standard();
-        let decoder_id = widget
-            .graph()
-            .nodes
-            .values()
-            .find(|node| node.def_name() == "UART Decoder")
-            .unwrap()
-            .id;
-        let mut first_ctx = CompileCtx {
-            persistent_cache_directory: Some(directory.path().to_path_buf()),
-            ..CompileCtx::default()
-        };
-        let mut first = start_live(widget.graph(), &registry, &mut first_ctx).unwrap();
-        first.wait();
-        assert!(first.names.contains_key(&decoder_id));
-        drop((first, first_ctx));
-
-        let mut second_ctx = CompileCtx {
-            persistent_cache_directory: Some(directory.path().to_path_buf()),
-            ..CompileCtx::default()
-        };
-        let lanes = second_ctx.derived_lanes.clone();
-        let mut second = start_live(widget.graph(), &registry, &mut second_ctx).unwrap();
-        assert!(!second.names.contains_key(&decoder_id));
-        second.wait();
-
-        assert!(lanes.opaque_lanes().iter().any(|lane| {
-            lane.payload().stable_id() == "org.logicconduit.word/v1"
-                && lane
-                    .table_metadata()
-                    .is_some_and(|metadata| metadata.total_rows >= 6)
-        }));
-    }
-
-    #[test]
-    fn test_uart_graph_lowers() {
-        let widget = uart_demo_widget();
-        let compiled = lower(widget.graph(), &BuilderRegistry::standard())
-            .unwrap_or_else(|errors| panic!("lower failed: {errors:?}"));
-
-        assert_eq!(compiled.nodes.len(), 4);
-        assert_eq!(compiled.edges.len(), 4);
-        assert_eq!(
-            compiled.derived_data_retention,
-            DerivedDataRetention::Unlimited
+    fn duplicate_and_renamed_producers_keep_distinct_explicit_groups() {
+        let (mut widget, mut builders, first_producer) = selectable_output_contract();
+        builders.insert_test_builder(
+            CONTRACT_TRANSFORM,
+            Box::new(ContractBuilder::presenting_transform(
+                PortKind::of::<Sample>(),
+            )),
         );
-        assert!(
-            compiled
-                .nodes
-                .iter()
-                .any(|n| n.builder == "Test UART Source")
-        );
-        assert!(compiled.nodes.iter().any(|n| n.builder == "UART Decoder"));
-
-        let viewer = compiled
-            .nodes
-            .iter()
-            .find(|n| n.builder == "Viewer")
+        let source = node_by_def(&widget, CONTRACT_SOURCE);
+        let second_producer = widget
+            .add_node_at(CONTRACT_TRANSFORM, Pos2::new(420.0, 420.0))
             .unwrap();
-        let lanes = viewer.resolved.members(0);
-        assert_eq!(lanes.len(), 2);
-        assert_eq!(lanes[0].1.kind, PortKind::of::<Sample>());
-        assert_eq!(lanes[1].1.kind, PortKind::of::<Word>());
-    }
-
-    #[test]
-    fn uart_bits_view_completes_under_cooperative_runner() {
-        let mut widget = uart_demo_widget();
-        let decoder = node_by_def(&widget, "UART Decoder");
-        let bits = output_index(&widget, decoder, "Bits");
-        set_viewer_selection(&mut widget, decoder, bits, true);
-
-        let (compiled, _) = run_cooperatively(&widget);
-        assert!(
-            compiled
-                .edges
-                .iter()
-                .any(|edge| edge.from == (decoder, "bits".to_owned()))
-        );
-    }
-
-    #[test]
-    fn binary_decoder_demo_decodes_both_protocols_cooperatively() {
-        let widget = binary_decoder_demo_widget();
-        let (compiled, progress) = run_cooperatively(&widget);
-        let items_for = |builder_name: &str| {
-            let runtime_name = &compiled
-                .nodes
-                .iter()
-                .find(|node| node.builder == builder_name)
-                .unwrap()
-                .runtime_name;
-            progress
-                .iter()
-                .find(|(name, _)| name == runtime_name)
-                .unwrap()
-                .1
-        };
-
-        assert_eq!(items_for("Sigrok File Source"), 60_000);
-        assert_eq!(items_for("SPI Decoder"), 60);
-        assert_eq!(items_for("Binary Decoder"), 96);
-
-        let binary_sampling = compiled
-            .sampling_overlays
-            .iter()
-            .find(|candidate| candidate.node_title == "Parallel Decoder")
-            .expect("parallel decoder should expose sampling points");
-        let enable = binary_sampling
-            .overlay
-            .activities
-            .first()
-            .expect("parallel decoder should publish its derived enable activity");
-        assert!(enable.is_active_at(800_000_000));
-        assert!(!enable.is_active_at(1_200_000_000));
-    }
-
-    #[test]
-    fn binary_sampling_activity_reaches_the_ui_candidate_after_a_run() {
-        let widget = binary_decoder_demo_widget();
-        let mut ctx = CompileCtx::default();
-        let mut run = start_live(widget.graph(), &BuilderRegistry::standard(), &mut ctx).unwrap();
-        let overlays = ctx.take_sampling_overlays();
-        let binary_sampling = overlays
-            .iter()
-            .find(|candidate| candidate.node_title == "Parallel Decoder")
-            .expect("parallel decoder should expose sampling points");
-        let enable = binary_sampling
-            .overlay
-            .activities
-            .first()
-            .expect("parallel decoder should publish its derived enable activity");
-
-        run.wait();
-
-        assert!(enable.is_active_at(800_000_000));
-        assert!(!enable.is_active_at(1_200_000_000));
-        let completed_enable = run
-            .sampling_overlays()
-            .iter()
-            .find(|candidate| candidate.node_title == "Parallel Decoder")
-            .and_then(|candidate| candidate.overlay.activities.first())
-            .expect("completed run should retain the parallel enable activity");
-        assert!(completed_enable.is_active_at(800_000_000));
-        assert!(!completed_enable.is_active_at(1_200_000_000));
-    }
-
-    #[test]
-    fn binary_decoder_demo_latch_follows_every_start_stop_pair() {
-        let widget = binary_decoder_demo_widget();
-        let mut ctx = CompileCtx::default();
-        let lanes = ctx.derived_lanes.clone();
-        let mut run = start_live(widget.graph(), &BuilderRegistry::standard(), &mut ctx).unwrap();
-        run.wait();
-
-        let q = lanes
-            .opaque_lanes()
-            .into_iter()
-            .find(|lane| lane.name() == "SR Flip-Flop.Q")
-            .expect("latch output should be visible");
-        let snapshot = q
-            .snapshot(signal_processing::CollectedLaneSnapshotRequest {
-                start_time_ns: 0,
-                end_time_ns: u64::MAX,
-                max_items: usize::MAX,
-            })
-            .and_then(|snapshot| snapshot.value::<signal_processing::DigitalLaneSnapshot>())
-            .expect("latch output should publish a digital snapshot");
-        let signal_processing::DigitalLaneSnapshot::Exact { samples, .. } = snapshot.as_ref()
-        else {
-            panic!("latch output should retain an exact digital snapshot");
-        };
-        assert_eq!(samples.len(), 25);
-        assert!(
-            samples
-                .iter()
-                .enumerate()
-                .all(|(index, sample)| sample.value == !index.is_multiple_of(2))
-        );
-        assert!(
-            samples
-                .windows(2)
-                .all(|pair| pair[0].start_time_ns <= pair[1].start_time_ns)
-        );
-    }
-
-    #[test]
-    fn uart_viewer_tracks_carry_explicit_presentation_metadata() {
-        let compiled = lower(uart_demo_widget().graph(), &BuilderRegistry::standard()).unwrap();
-        let viewer = compiled
-            .nodes
-            .iter()
-            .find(|node| node.builder == "Viewer")
-            .unwrap();
-        let mut tracks = viewer
-            .resolved
-            .members(0)
-            .into_iter()
-            .filter_map(|(_, input)| {
-                input
-                    .lane_presentation
-                    .as_ref()
-                    .map(|presentation| presentation.track_key.as_str())
-            })
-            .collect::<Vec<_>>();
-        tracks.sort_unstable();
-
-        // The demo connects only Data. Explicit grouping still produces a
-        // valid partial compound group rather than relying on a Bits lane
-        // being present or discoverable by name.
-        assert_eq!(tracks, ["frame"]);
-    }
-
-    #[test]
-    fn spi_viewer_tracks_form_explicit_mosi_and_miso_groups() {
-        let widget = binary_decoder_demo_widget();
-        let spi = node_by_def(&widget, "SPI Decoder");
-        let compiled = lower(widget.graph(), &BuilderRegistry::standard()).unwrap();
-        let viewer = compiled
-            .nodes
-            .iter()
-            .find(|node| node.builder == crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME)
-            .unwrap();
-        let mut tracks = viewer
-            .resolved
-            .members(0)
-            .into_iter()
-            .filter(|(_, input)| input.source_node == spi)
-            .filter_map(|(_, input)| {
-                input.lane_presentation.as_ref().map(|presentation| {
-                    (
-                        presentation.group_key.as_str(),
-                        presentation.track_key.as_str(),
-                    )
-                })
-            })
-            .collect::<Vec<_>>();
-        tracks.sort_unstable();
-
-        assert_eq!(
-            tracks,
-            [
-                ("miso", "bits"),
-                ("miso", "data"),
-                ("mosi", "bits"),
-                ("mosi", "data"),
-            ]
-        );
-    }
-
-    #[test]
-    fn duplicate_and_renamed_decoders_keep_distinct_explicit_groups() {
-        let mut widget = uart_demo_widget();
-        let source = node_by_def(&widget, "Test UART Source");
-        let first_decoder = node_by_def(&widget, "UART Decoder");
-        let viewer = node_by_def(&widget, "Viewer");
-        let second_decoder = widget
-            .add_node_at(
-                nodes::node_name("org.logicconduit.graph-node.uart-decoder/v1"),
-                Pos2::new(420.0, 420.0),
-            )
-            .unwrap();
-        for decoder in [first_decoder, second_decoder] {
-            widget.graph_mut().nodes.get_mut(&decoder).unwrap().title = "Duplicate title".into();
+        connect_named(&mut widget, (source, "Out"), (second_producer, "In"));
+        set_viewer_selection(&mut widget, second_producer, 0, true);
+        for producer in [first_producer, second_producer] {
+            widget.graph_mut().nodes.get_mut(&producer).unwrap().title = "Duplicate title".into();
         }
-        let connect = |widget: &mut NodeGraphWidget, from: (NodeId, &str), to: (NodeId, &str)| {
-            let from_index = output_index(widget, from.0, from.1);
-            let to_index = input_index(widget, to.0, to.1);
-            widget.graph_mut().add_connection(
-                SocketId {
-                    node: from.0,
-                    index: from_index,
-                    direction: SocketDirection::Output,
-                },
-                SocketId {
-                    node: to.0,
-                    index: to_index,
-                    direction: SocketDirection::Input,
-                },
-            );
-        };
-        connect(&mut widget, (source, "RX"), (second_decoder, "RX/TX"));
-        connect(&mut widget, (second_decoder, "Data"), (viewer, "In"));
 
         let build_groups = |widget: &NodeGraphWidget| {
-            let builders = BuilderRegistry::standard();
             let compiled = lower(widget.graph(), &builders).unwrap();
             let mut groups = collected_output_subscriptions(&compiled, &builders)
                 .iter()
@@ -4353,15 +3625,15 @@ mod tests {
         widget
             .graph_mut()
             .nodes
-            .get_mut(&first_decoder)
+            .get_mut(&first_producer)
             .unwrap()
-            .title = "Renamed decoder".into();
+            .title = "Renamed producer".into();
         let after = build_groups(&widget);
         assert_eq!(
             before.iter().map(|(id, _)| id).collect::<Vec<_>>(),
             after.iter().map(|(id, _)| id).collect::<Vec<_>>()
         );
-        assert!(after.iter().any(|(_, label)| label == "Renamed decoder"));
+        assert!(after.iter().any(|(_, label)| label == "Renamed producer"));
     }
 
     #[test]
@@ -4414,18 +3686,17 @@ mod tests {
             }
         }
 
-        let mut builders = BuilderRegistry::standard();
+        let (widget, mut builders, source, _transform, _sink) = contract_pipeline(
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            true,
+        );
         builders
             .builders
             .insert("Plugin Presenter".into(), Box::new(PluginBuilder));
-        let widget = uart_demo_widget();
-        let socket = &widget
-            .graph()
-            .nodes
-            .values()
-            .find(|node| node.def_name() == "UART Decoder")
-            .unwrap()
-            .outputs[3];
+        let socket = &widget.graph().nodes[&source].outputs[0];
         let presentation = builders
             .get("Plugin Presenter")
             .unwrap()
@@ -4438,21 +3709,16 @@ mod tests {
 
     #[test]
     fn buffered_provider_registers_through_the_existing_live_feature_contract() {
-        let node_types = nodes::build_registry();
-        let mut builders = BuilderRegistry::standard();
-        builders.builders.insert(
-            nodes::node_name("org.logicconduit.graph-node.test-capture-source/v1").to_owned(),
-            Box::new(BufferedPluginBuilder {
-                inner: nodes::node_builder("org.logicconduit.graph-node.test-capture-source/v1"),
-            }),
+        let (widget, mut builders, source, _transform, _sink) = contract_pipeline(
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            true,
         );
-        let mut widget = NodeGraphWidget::new(node_types);
-        let source = widget
-            .add_node_at(
-                nodes::node_name("org.logicconduit.graph-node.test-capture-source/v1"),
-                Pos2::ZERO,
-            )
-            .unwrap();
+        builders
+            .builders
+            .insert(CONTRACT_SOURCE.to_owned(), Box::new(BufferedPluginBuilder));
 
         let feature = discover_live_capture_feature(widget.graph(), &builders)
             .unwrap()
@@ -4482,21 +3748,16 @@ mod tests {
 
     #[test]
     fn advanced_trigger_program_routes_unchanged_to_the_registered_builder() {
-        let node_types = nodes::build_registry();
-        let mut builders = BuilderRegistry::standard();
-        builders.builders.insert(
-            nodes::node_name("org.logicconduit.graph-node.test-capture-source/v1").to_owned(),
-            Box::new(BufferedPluginBuilder {
-                inner: nodes::node_builder("org.logicconduit.graph-node.test-capture-source/v1"),
-            }),
+        let (widget, mut builders, source, _transform, _sink) = contract_pipeline(
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            true,
         );
-        let mut widget = NodeGraphWidget::new(node_types);
-        let source = widget
-            .add_node_at(
-                nodes::node_name("org.logicconduit.graph-node.test-capture-source/v1"),
-                Pos2::ZERO,
-            )
-            .unwrap();
+        builders
+            .builders
+            .insert(CONTRACT_SOURCE.to_owned(), Box::new(BufferedPluginBuilder));
         let program = TriggerProgram::new(
             TriggerIdentifier::new("plugin.vendor-neutral.engine").unwrap(),
             17,
@@ -4530,8 +3791,18 @@ mod tests {
 
     #[test]
     fn file_source_bounds_exact_derived_data_entries() {
-        let widget = startup_widget();
-        let compiled = lower(widget.graph(), &BuilderRegistry::standard())
+        let (widget, mut builders, _source, _transform, _sink) = contract_pipeline(
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            true,
+        );
+        builders.insert_test_builder(
+            CONTRACT_SOURCE,
+            Box::new(ContractBuilder::finite_source(PortKind::of::<Sample>())),
+        );
+        let compiled = lower(widget.graph(), &builders)
             .unwrap_or_else(|errors| panic!("lower failed: {errors:?}"));
 
         assert_eq!(
@@ -4541,240 +3812,101 @@ mod tests {
     }
 
     #[test]
-    fn missing_writer_input_is_reported() {
-        let mut widget = startup_widget();
-        // Cut the filename wire; the writer input becomes a compile error.
-        let graph = widget.graph_mut();
-        let writer = graph
-            .nodes
-            .values()
-            .find(|n| n.def_name() == "File Writer")
-            .unwrap()
-            .id;
-        let index = graph
-            .connections
-            .iter()
-            .position(|c| c.to.node == writer && c.to.index == 1)
-            .unwrap();
-        graph.remove_connection_at(index);
+    fn missing_required_configuration_input_is_reported() {
+        let (widget, builders, source) = configurable_source_pipeline();
 
-        let errors = lower(widget.graph(), &BuilderRegistry::standard()).unwrap_err();
+        let errors = lower(widget.graph(), &builders).unwrap_err();
         assert!(
             errors
                 .iter()
-                .any(|e| e.node == Some(writer) && e.message.contains("Filename")),
-            "expected filename error, got {errors:?}"
+                .any(|error| error.node == Some(source) && error.message.contains("Configuration")),
+            "expected configuration-input error, got {errors:?}"
         );
     }
 
-    /// The counterpart to `missing_writer_input_is_reported`: with the
-    /// writer's static filename (save-dialog prop) set, an unconnected
-    /// Filename input is fine — the graph compiles and the writer is built
-    /// with the static path.
     #[test]
-    fn static_filename_makes_writer_filename_input_optional() {
-        let mut widget = startup_widget();
-        let graph = widget.graph_mut();
-        let writer = graph
-            .nodes
-            .values()
-            .find(|n| n.def_name() == "File Writer")
-            .unwrap()
-            .id;
-        let index = graph
-            .connections
-            .iter()
-            .position(|c| c.to.node == writer && c.to.index == 1)
-            .unwrap();
-        graph.remove_connection_at(index);
+    fn builder_state_can_make_configuration_input_optional() {
+        let (mut widget, builders, source) = configurable_source_pipeline();
+        widget.set_node_state(source, serde_json::json!({ "configured": true }));
 
-        let mut state = graph.nodes[&writer].state.clone();
-        state["filename"]["value"] = "/tmp/capture.bin".into();
-        widget.set_node_state(writer, state);
-
-        lower(widget.graph(), &BuilderRegistry::standard())
+        lower(widget.graph(), &builders)
             .unwrap_or_else(|errors| panic!("expected the graph to compile: {errors:?}"));
     }
 
     #[test]
-    fn buffer_node_kind_mismatch_is_rejected() {
-        use egui::Pos2;
-        use node_graph::api::{SocketDirection, SocketId};
+    fn connected_payload_kind_mismatch_is_rejected() {
+        let (widget, builders, _source, transform, _sink) = contract_pipeline(
+            PortKind::of::<Sample>(),
+            PortKind::of::<Trigger>(),
+            PortKind::of::<Trigger>(),
+            PortKind::of::<Trigger>(),
+            true,
+        );
 
-        let mut widget = NodeGraphWidget::new(nodes::build_registry());
-        let source = widget
-            .add_node_at(
-                nodes::node_name("org.logicconduit.graph-node.test-uart-source/v1"),
-                Pos2::new(0.0, 0.0),
-            )
-            .unwrap();
-        let buf = widget
-            .add_node_at(
-                nodes::node_name("org.logicconduit.graph-node.buffer/v1"),
-                Pos2::new(200.0, 0.0),
-            )
-            .unwrap();
-        let viewer = widget
-            .add_node_at(
-                nodes::node_name("org.logicconduit.graph-node.viewer/v1"),
-                Pos2::new(400.0, 0.0),
-            )
-            .unwrap();
-
-        // TestUartSource offers `Sample` ("Signal"); set the buffer to
-        // "Trigger" — no common kind on the source -> buffer edge, must be
-        // a compile error (regardless of what the buffer -> viewer edge
-        // downstream negotiates to).
-        let mut state = widget.graph().nodes[&buf].state.clone();
-        state["kind"]["value"] = "Trigger".into();
-        widget.set_node_state(buf, state);
-
-        let connect = |widget: &mut NodeGraphWidget, from: (NodeId, &str), to: (NodeId, &str)| {
-            let from_socket = SocketId {
-                node: from.0,
-                index: output_index(widget, from.0, from.1),
-                direction: SocketDirection::Output,
-            };
-            let to_socket = SocketId {
-                node: to.0,
-                index: input_index(widget, to.0, to.1),
-                direction: SocketDirection::Input,
-            };
-            widget.graph_mut().add_connection(from_socket, to_socket);
-        };
-        connect(&mut widget, (source, "RX"), (buf, "In"));
-        // A dangling output is unreachable and gets pruned before kind
-        // negotiation runs — give the buffer a sink so it stays reachable
-        // and the mismatch on its input actually gets checked.
-        connect(&mut widget, (buf, "Out"), (viewer, "In"));
-
-        let errors = lower(widget.graph(), &BuilderRegistry::standard()).unwrap_err();
+        let errors = lower(widget.graph(), &builders).unwrap_err();
         assert!(
-            errors.iter().any(|e| e.node == Some(buf)),
-            "expected a compile error on the buffer node, got {errors:?}"
+            errors.iter().any(|error| error.node == Some(transform)),
+            "expected a compile error on the transform node, got {errors:?}"
         );
     }
 
     #[test]
     fn muted_node_with_compatible_pass_through_lowers_to_a_direct_connection() {
-        use egui::Pos2;
-        use node_graph::api::{SocketDirection, SocketId};
+        let (mut widget, builders, source, transform, sink) = contract_pipeline(
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            true,
+        );
+        widget.graph_mut().nodes.get_mut(&transform).unwrap().muted = true;
 
-        let mut widget = NodeGraphWidget::new(nodes::build_registry());
-        let source = widget
-            .add_node_at(
-                nodes::node_name("org.logicconduit.graph-node.test-uart-source/v1"),
-                Pos2::new(0.0, 0.0),
-            )
-            .unwrap();
-        let buf = widget
-            .add_node_at(
-                nodes::node_name("org.logicconduit.graph-node.buffer/v1"),
-                Pos2::new(200.0, 0.0),
-            )
-            .unwrap();
-        let viewer = widget
-            .add_node_at(
-                nodes::node_name("org.logicconduit.graph-node.viewer/v1"),
-                Pos2::new(400.0, 0.0),
-            )
-            .unwrap();
-
-        let connect = |widget: &mut NodeGraphWidget, from: (NodeId, &str), to: (NodeId, &str)| {
-            let from_socket = SocketId {
-                node: from.0,
-                index: output_index(widget, from.0, from.1),
-                direction: SocketDirection::Output,
-            };
-            let to_socket = SocketId {
-                node: to.0,
-                index: input_index(widget, to.0, to.1),
-                direction: SocketDirection::Input,
-            };
-            widget.graph_mut().add_connection(from_socket, to_socket);
-        };
-        connect(&mut widget, (source, "RX"), (buf, "In"));
-        connect(&mut widget, (buf, "Out"), (viewer, "In"));
-        widget.graph_mut().nodes.get_mut(&buf).unwrap().muted = true;
-
-        let compiled =
-            lower(widget.graph(), &BuilderRegistry::standard()).unwrap_or_else(|errors| {
-                panic!("expected the muted buffer to splice through: {errors:?}")
-            });
+        let compiled = lower(widget.graph(), &builders)
+            .unwrap_or_else(|errors| panic!("expected the muted node to splice: {errors:?}"));
 
         assert!(
-            compiled.nodes.iter().all(|n| n.id != buf),
+            compiled.nodes.iter().all(|node| node.id != transform),
             "muted node must be dropped from the compiled graph, got {:?}",
             compiled.nodes
         );
         assert_eq!(compiled.edges.len(), 1);
         let edge = &compiled.edges[0];
         assert_eq!(edge.from.0, source);
-        assert_eq!(edge.to.0, viewer);
+        assert_eq!(edge.to.0, sink);
     }
 
     #[test]
     fn muted_node_without_compatible_pass_through_reports_a_targeted_error() {
-        use egui::Pos2;
-        use node_graph::api::{SocketDirection, SocketId};
+        let (mut widget, builders, _source, transform, _sink) = contract_pipeline(
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Trigger>(),
+            PortKind::of::<Trigger>(),
+            false,
+        );
+        widget.graph_mut().nodes.get_mut(&transform).unwrap().muted = true;
 
-        let mut widget = NodeGraphWidget::new(nodes::build_registry());
-        let source = widget
-            .add_node_at("Test UART Source", Pos2::new(0.0, 0.0))
-            .unwrap();
-        let matcher = widget
-            .add_node_at("Word Matcher", Pos2::new(200.0, 0.0))
-            .unwrap();
-        let flip_flop = widget
-            .add_node_at("SR Flip-Flop", Pos2::new(400.0, 0.0))
-            .unwrap();
-        let viewer = widget.add_node_at("Viewer", Pos2::new(600.0, 0.0)).unwrap();
-
-        let connect = |widget: &mut NodeGraphWidget, from: (NodeId, &str), to: (NodeId, &str)| {
-            let from_socket = SocketId {
-                node: from.0,
-                index: output_index(widget, from.0, from.1),
-                direction: SocketDirection::Output,
-            };
-            let to_socket = SocketId {
-                node: to.0,
-                index: input_index(widget, to.0, to.1),
-                direction: SocketDirection::Input,
-            };
-            widget.graph_mut().add_connection(from_socket, to_socket);
-        };
-        // Word Matcher's only input is `Words`-typed and its outputs are
-        // `Trigger`/`Signal` — none of those pairs share a type, so it has
-        // no pass-through no matter what's wired to it. Connecting it from
-        // the Signal-typed source (bypassing the editor's own connect-time
-        // type check, as `buffer_node_kind_mismatch_is_rejected` does above)
-        // just gives it something realistic to break.
-        connect(&mut widget, (source, "RX"), (matcher, "Words"));
-        connect(&mut widget, (matcher, "Match"), (flip_flop, "Set"));
-        connect(&mut widget, (flip_flop, "Q"), (viewer, "In"));
-        widget.graph_mut().nodes.get_mut(&matcher).unwrap().muted = true;
-
-        let errors = lower(widget.graph(), &BuilderRegistry::standard()).unwrap_err();
+        let errors = lower(widget.graph(), &builders).unwrap_err();
         assert!(
             errors
                 .iter()
-                .any(|e| e.node == Some(matcher) && e.message.contains("Muted")),
-            "expected a targeted error on the muted Word Matcher, got {errors:?}"
+                .any(|error| error.node == Some(transform) && error.message.contains("Muted")),
+            "expected a targeted error on the muted transform, got {errors:?}"
         );
     }
 
     #[test]
     fn muted_source_reports_the_break_and_prunes_its_branch() {
-        // A source has no data input at all — no config property shares
-        // its output's type either — so it can never have a pass-through
-        // pair. Muting it is a hard break, not a silent no-op: the targeted
-        // error should point at the source, and its downstream branch
-        // should vanish from the compiled graph rather than dangling.
-        let mut widget = uart_demo_widget();
-        let source = node_by_def(&widget, "Test UART Source");
+        let (mut widget, builders, source, _transform, _sink) = contract_pipeline(
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            true,
+        );
         widget.graph_mut().nodes.get_mut(&source).unwrap().muted = true;
 
-        let errors = lower(widget.graph(), &BuilderRegistry::standard()).unwrap_err();
+        let errors = lower(widget.graph(), &builders).unwrap_err();
         assert!(
             errors
                 .iter()
@@ -4812,29 +3944,30 @@ mod tests {
     // ── diff classification ───────────────────────────────────────────
 
     #[test]
-    fn diff_classifies_matcher_pattern_change_as_hot_config() {
-        let registry = BuilderRegistry::standard();
-        let mut widget = startup_widget();
+    fn diff_classifies_builder_owned_state_change_as_hot_config() {
+        let (mut widget, mut registry, _source, transform, _sink) = contract_pipeline(
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            true,
+        );
+        registry.insert_test_builder(
+            CONTRACT_TRANSFORM,
+            Box::new(ContractBuilder::hot_transform(PortKind::of::<Sample>())),
+        );
+        widget.set_node_state(transform, serde_json::json!({ "value": 1 }));
         let old = lower(widget.graph(), &registry).unwrap();
 
-        let matcher = widget
-            .graph()
-            .nodes
-            .values()
-            .find(|node| node.title == "Match Start")
-            .unwrap()
-            .id;
-        let mut state = widget.graph().nodes[&matcher].state.clone();
-        state["pattern"]["value"] = "0x600082".into();
-        widget.set_node_state(matcher, state);
+        widget.set_node_state(transform, serde_json::json!({ "value": 0x600082 }));
 
         let new = lower(widget.graph(), &registry).unwrap();
         let edits = diff(&old, &new, &registry).unwrap();
         assert_eq!(edits.len(), 1);
         match &edits[0] {
             LiveEdit::Configure(id, config) => {
-                assert_eq!(*id, matcher);
-                assert_eq!(config.get("pattern"), Some(&ConfigValue::U64(0x600082)));
+                assert_eq!(*id, transform);
+                assert_eq!(config.get("value"), Some(&ConfigValue::U64(0x600082)));
             }
             other => panic!("expected Configure, got {other:?}"),
         }
@@ -4842,89 +3975,39 @@ mod tests {
 
     #[test]
     fn diff_rejects_source_fed_restart() {
-        let registry = BuilderRegistry::standard();
-        let mut widget = startup_widget();
+        let (mut widget, registry, _source, transform, _sink) = contract_pipeline(
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            true,
+        );
         let old = lower(widget.graph(), &registry).unwrap();
 
-        // SPI word size has no hot config and the decoder is source-fed.
-        let spi = node_by_def(&widget, "SPI Decoder");
-        let mut state = widget.graph().nodes[&spi].state.clone();
-        state["word_size"]["value"] = 16.into();
-        widget.set_node_state(spi, state);
+        widget.set_node_state(transform, serde_json::json!({ "revision": 2 }));
 
         let new = lower(widget.graph(), &registry).unwrap();
         let error = diff(&old, &new, &registry).unwrap_err();
         assert!(error.contains("fed directly by the source"), "{error}");
     }
 
-    /// Wires a new matcher onto the **binary decoder's** words — the one
-    /// event branch that stays live for the whole run. The SPI control
-    /// branch is index-driven (EdgeQuery) and decodes the entire capture
-    /// in seconds, long before the block-streaming path produces its first
-    /// capture file — a tap attached to it mid-run would join an
-    /// already-closed stream and correctly observe nothing (event streams
-    /// don't replay). Mask 0x0 matches every word, so the tap fires as
-    /// soon as any enabled window streams data.
-    fn attach_matcher_tap(widget: &mut NodeGraphWidget) -> NodeId {
-        let matcher = widget
-            .add_node_at("Word Matcher", egui::Pos2::new(620.0, 600.0))
-            .unwrap();
-        let mut state = widget.graph().nodes[&matcher].state.clone();
-        state["pattern"]["value"] = "0x0".into();
-        state["mask"]["value"] = "0x0".into();
-        widget.set_node_state(matcher, state);
-
-        let decoder = node_by_def(widget, "Binary Decoder");
-        let out_idx = |graph: &node_graph::api::GraphState, id: NodeId, name: &str| {
-            graph.nodes[&id]
-                .outputs
-                .iter()
-                .position(|s| s.name == name)
-                .unwrap()
-        };
-        let input_idx = |graph: &node_graph::api::GraphState, id: NodeId, name: &str| {
-            graph.nodes[&id]
-                .inputs
-                .iter()
-                .position(|s| s.name == name && s.visible)
-                .unwrap()
-        };
-        let graph = widget.graph_mut();
-        let decoder_words = out_idx(graph, decoder, "Words");
-        let matcher_in = input_idx(graph, matcher, "Words");
-        graph.add_connection(
-            SocketId {
-                node: decoder,
-                index: decoder_words,
-                direction: node_graph::api::SocketDirection::Output,
-            },
-            SocketId {
-                node: matcher,
-                index: matcher_in,
-                direction: node_graph::api::SocketDirection::Input,
-            },
-        );
-        let matcher_out = out_idx(graph, matcher, "Match");
-        graph.nodes.get_mut(&matcher).unwrap().outputs[matcher_out]
-            .extensions
-            .insert("show_in_view".to_owned(), serde_json::json!(true));
-        matcher
-    }
-
     #[test]
     fn diff_classifies_tap_attach_as_add_plus_viewer_restart() {
-        let registry = BuilderRegistry::standard();
-        let mut widget = startup_widget();
+        let (mut widget, registry, existing_transform) = selectable_output_contract();
         let old = lower(widget.graph(), &registry).unwrap();
 
-        let matcher = attach_matcher_tap(&mut widget);
+        let tap = widget
+            .add_node_at(CONTRACT_TRANSFORM, Pos2::new(600.0, 200.0))
+            .unwrap();
+        connect_named(&mut widget, (existing_transform, "Out"), (tap, "In"));
+        set_viewer_selection(&mut widget, tap, 0, true);
         let new = lower(widget.graph(), &registry).unwrap();
         let edits = diff(&old, &new, &registry).unwrap();
 
         assert!(
             edits
                 .iter()
-                .any(|edit| matches!(edit, LiveEdit::Add(id) if *id == matcher)),
+                .any(|edit| matches!(edit, LiveEdit::Add(id) if *id == tap)),
             "{edits:?}"
         );
         assert!(
@@ -4938,12 +4021,17 @@ mod tests {
 
     #[test]
     fn diff_ignores_a_legacy_source_view_flag() {
-        let registry = BuilderRegistry::standard();
-        let mut widget = startup_widget();
+        let (mut widget, mut registry, source, _transform, _sink) = contract_pipeline(
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            true,
+        );
+        registry.insert_test_builder(CONTRACT_SOURCE, Box::new(BufferedPluginBuilder));
         let old = lower(widget.graph(), &registry).unwrap();
 
-        let source = node_by_def(&widget, "DSL File Source");
-        set_viewer_selection(&mut widget, source, 9, true);
+        set_viewer_selection(&mut widget, source, 0, true);
 
         let new = lower(widget.graph(), &registry).unwrap();
         assert!(diff(&old, &new, &registry).unwrap().is_empty());
