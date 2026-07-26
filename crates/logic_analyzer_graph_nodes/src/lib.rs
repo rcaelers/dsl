@@ -7,8 +7,8 @@ mod nodes;
 mod payloads;
 mod presentation;
 mod sockets;
-#[cfg(any(test, feature = "test-support"))]
-pub mod test_support;
+#[cfg(test)]
+mod test_support;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use catalogs::native_node_catalogs;

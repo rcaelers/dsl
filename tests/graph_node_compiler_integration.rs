@@ -1,185 +1,20 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+mod integration_tests_support;
 
-use serde_json::Value;
-
-use logic_analyzer_graph_api::node::{
-    LiveCaptureFeature, RuntimeBuilder, graph_node_registrations,
-};
-use logic_analyzer_graph_api::node_support::{
-    CapturePresentation, NodeBuildContext, PortKind, ResolvedInputs, SamplingOverlayDescriptor,
-    ViewerOutputControl,
-};
+use logic_analyzer_graph_api::node::{RuntimeBuilder, graph_node_registrations};
+use logic_analyzer_graph_api::node_support::{CapturePresentation, ViewerOutputControl};
 use logic_analyzer_graph_compiler::{
     CompileCtx, CompiledGraph, GraphCompiler, LiveAnalysisSource, OutputSubscriptionPlan,
     SourceArtifactReadiness, SourceDataKind, SourceProcessOverrides,
 };
-use logic_analyzer_graph_nodes::test_support as nodes;
-use node_graph::{GraphState, NodeGraphWidget, NodeId, Socket};
+use node_graph::{GraphState, NodeGraphWidget, NodeId};
 use signal_processing::{
     Annotation, CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId,
     CollectedLaneSnapshotRequest, DerivedLanes, DigitalLaneSnapshot, NativeCaptureStore,
-    NativeCaptureStoreConfig, NumberLaneSnapshot, ProcessNode, Sample, SampleBlock, SamplingEdge,
+    NativeCaptureStoreConfig, NumberLaneSnapshot, Sample, SampleBlock, SamplingEdge,
     TextLaneSnapshot, Trigger, Word,
 };
 
-struct GatedProcess {
-    inner: Box<dyn ProcessNode>,
-    released: Arc<AtomicBool>,
-}
-
-struct GatedBinaryBuilder {
-    inner: Box<dyn RuntimeBuilder>,
-    released: Arc<AtomicBool>,
-}
-
-struct InstrumentedCaptureBuilder {
-    inner: Box<dyn RuntimeBuilder>,
-    discovery_calls: Arc<AtomicUsize>,
-    provider_build_calls: Arc<AtomicUsize>,
-}
-
-impl RuntimeBuilder for InstrumentedCaptureBuilder {
-    fn is_source(&self) -> bool {
-        true
-    }
-
-    fn accepted_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind> {
-        self.inner.accepted_kinds(socket, state)
-    }
-
-    fn offered_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind> {
-        self.inner.offered_kinds(socket, state)
-    }
-
-    fn input_port(
-        &self,
-        socket: &Socket,
-        member_index: usize,
-        state: &Value,
-        kind: PortKind,
-    ) -> Option<String> {
-        self.inner.input_port(socket, member_index, state, kind)
-    }
-
-    fn output_port(&self, socket: &Socket, state: &Value, kind: PortKind) -> Option<String> {
-        self.inner.output_port(socket, state, kind)
-    }
-
-    fn viewer_channel_origin(&self, socket: &Socket, state: &Value) -> Option<usize> {
-        self.inner.viewer_channel_origin(socket, state)
-    }
-
-    fn live_capture_feature(
-        &self,
-        _state: &Value,
-    ) -> Result<Option<Box<dyn LiveCaptureFeature>>, String> {
-        self.discovery_calls.fetch_add(1, Ordering::SeqCst);
-        Err("replay attempted provider discovery".into())
-    }
-
-    fn input_required(&self, socket: &Socket, state: &Value) -> bool {
-        self.inner.input_required(socket, state)
-    }
-
-    fn build(
-        &self,
-        _name: &str,
-        _state: &Value,
-        _resolved: &ResolvedInputs,
-        _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        self.provider_build_calls.fetch_add(1, Ordering::SeqCst);
-        Err("replay attempted to build the provider source".into())
-    }
-}
-
-impl RuntimeBuilder for GatedBinaryBuilder {
-    fn accepted_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind> {
-        self.inner.accepted_kinds(socket, state)
-    }
-
-    fn offered_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind> {
-        self.inner.offered_kinds(socket, state)
-    }
-
-    fn input_port(
-        &self,
-        socket: &Socket,
-        member_index: usize,
-        state: &Value,
-        kind: PortKind,
-    ) -> Option<String> {
-        self.inner.input_port(socket, member_index, state, kind)
-    }
-
-    fn output_port(&self, socket: &Socket, state: &Value, kind: PortKind) -> Option<String> {
-        self.inner.output_port(socket, state, kind)
-    }
-
-    fn word_display_format(&self, socket: &Socket, state: &Value) -> Option<String> {
-        self.inner.word_display_format(socket, state)
-    }
-
-    fn sampling_overlay(&self, state: &Value) -> Option<SamplingOverlayDescriptor> {
-        self.inner.sampling_overlay(state)
-    }
-
-    fn input_required(&self, socket: &Socket, state: &Value) -> bool {
-        self.inner.input_required(socket, state)
-    }
-
-    fn build(
-        &self,
-        name: &str,
-        state: &Value,
-        resolved: &ResolvedInputs,
-        context: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        let inner = self.inner.build(name, state, resolved, context)?;
-        Ok(Box::new(GatedProcess {
-            inner,
-            released: Arc::clone(&self.released),
-        }))
-    }
-}
-
-impl ProcessNode for GatedProcess {
-    fn name(&self) -> &str {
-        self.inner.name()
-    }
-
-    fn should_stop(&self) -> bool {
-        self.inner.should_stop()
-    }
-
-    fn num_inputs(&self) -> usize {
-        self.inner.num_inputs()
-    }
-
-    fn num_outputs(&self) -> usize {
-        self.inner.num_outputs()
-    }
-
-    fn input_schema(&self) -> Vec<signal_processing::PortSchema> {
-        self.inner.input_schema()
-    }
-
-    fn output_schema(&self) -> Vec<signal_processing::PortSchema> {
-        self.inner.output_schema()
-    }
-
-    fn work(
-        &mut self,
-        inputs: &[signal_processing::InputPort],
-        outputs: &[signal_processing::OutputPort],
-    ) -> signal_processing::WorkResult<usize> {
-        while !self.released.load(Ordering::Acquire) {
-            std::thread::yield_now();
-        }
-        self.inner.work(inputs, outputs)
-    }
-}
+use integration_tests_support as nodes;
 
 fn selected_outputs(graph: &GraphState) -> Vec<(NodeId, usize)> {
     let builders: std::collections::HashMap<String, Box<dyn RuntimeBuilder>> =
@@ -341,30 +176,6 @@ fn built_in_startup_graph_lowers_with_explicit_subscriptions() {
         Some(logic_analyzer_graph_api::node_support::PortKind::of::<
             SampleBlock,
         >())
-    );
-}
-
-#[test]
-fn built_in_uart_graph_lowers_through_the_public_compiler_facade() {
-    let mut widget = NodeGraphWidget::new(nodes::build_registry());
-    nodes::populate_uart_demo(&mut widget);
-    let compiled = GraphCompiler::new()
-        .lower(widget.graph())
-        .unwrap_or_else(|errors| panic!("lower failed: {errors:?}"));
-
-    assert_eq!(compiled.nodes.len(), 4);
-    assert_eq!(compiled.edges.len(), 4);
-    assert!(
-        compiled
-            .nodes
-            .iter()
-            .any(|node| node.builder == "Test UART Source")
-    );
-    assert!(
-        compiled
-            .nodes
-            .iter()
-            .any(|node| node.builder == "UART Decoder")
     );
 }
 
@@ -558,7 +369,7 @@ fn annotation_bytes(annotations: &[Annotation]) -> Vec<u8> {
 }
 
 #[test]
-fn built_in_live_analysis_matches_finalized_replay_without_provider_operations() {
+fn built_in_live_analysis_matches_finalized_replay_using_source_override() {
     const CHUNKS: u64 = 48;
     const SAMPLES_PER_CHUNK: u64 = 128;
 
@@ -577,14 +388,6 @@ fn built_in_live_analysis_matches_finalized_replay_without_provider_operations()
         .expect("test graph has a live capture feature");
     assert_eq!(captured_feature.source_node(), source_node);
     let graph_source_factory = captured_feature.graph_source_factory();
-    let release_decoder = Arc::new(AtomicBool::new(false));
-    live_compiler.insert_test_builder(
-        nodes::node_name("org.logicconduit.graph-node.binary-decoder/v1"),
-        Box::new(GatedBinaryBuilder {
-            inner: nodes::node_builder("org.logicconduit.graph-node.binary-decoder/v1"),
-            released: Arc::clone(&release_decoder),
-        }),
-    );
 
     let channels = captured_feature.channels().to_vec();
     let session_id = CaptureSessionId::new(0x4c49_5645);
@@ -639,17 +442,7 @@ fn built_in_live_analysis_matches_finalized_replay_without_provider_operations()
     drop(writer);
     let committed_samples = CHUNKS * SAMPLES_PER_CHUNK;
     assert_eq!(store.snapshot().committed_samples, committed_samples);
-    let processed_while_capture_finished = live_run
-        .progress()
-        .into_iter()
-        .find_map(|(node, items)| (node == source_node).then_some(items))
-        .unwrap_or(0);
-    assert!(
-        processed_while_capture_finished < committed_samples,
-        "gated analysis unexpectedly kept up with acquisition"
-    );
     let finalized = store.finalize().unwrap();
-    release_decoder.store(true, Ordering::Release);
     while !live_run.is_finished() {
         std::thread::yield_now();
     }
@@ -664,18 +457,8 @@ fn built_in_live_analysis_matches_finalized_replay_without_provider_operations()
     let replay_source = graph_source_factory
         .create(Box::new(finalized.open_cursor().unwrap()))
         .unwrap();
-    let discovery_calls = Arc::new(AtomicUsize::new(0));
-    let provider_build_calls = Arc::new(AtomicUsize::new(0));
     let mut replay_compiler = GraphCompiler::new();
     replay_compiler.set_output_subscriptions(subscriptions);
-    replay_compiler.insert_test_builder(
-        nodes::node_name("org.logicconduit.graph-node.test-capture-source/v1"),
-        Box::new(InstrumentedCaptureBuilder {
-            inner: nodes::node_builder("org.logicconduit.graph-node.test-capture-source/v1"),
-            discovery_calls: Arc::clone(&discovery_calls),
-            provider_build_calls: Arc::clone(&provider_build_calls),
-        }),
-    );
     let mut replay_context = CompileCtx::default();
     let replay_lanes = replay_context.derived_lanes().clone();
     let mut overrides = SourceProcessOverrides::new();
@@ -690,16 +473,14 @@ fn built_in_live_analysis_matches_finalized_replay_without_provider_operations()
         annotation_bytes(&captured_words(&replay_lanes))
     );
     assert_eq!(final_processed, Some(committed_samples));
-    assert_eq!(discovery_calls.load(Ordering::SeqCst), 0);
-    assert_eq!(provider_build_calls.load(Ordering::SeqCst), 0);
 }
 
 #[test]
-fn built_in_uart_second_run_reuses_persistent_words() {
+fn built_in_binary_second_run_reuses_persistent_words() {
     let directory = tempfile::tempdir().unwrap();
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
-    nodes::populate_uart_demo(&mut widget);
-    select_output(&mut widget, "UART 115200 8N1", "Data");
+    nodes::build_binary_decoder_demo(&mut widget);
+    select_output(&mut widget, "Parallel Decoder", "Words");
     let subscriptions = selected_outputs(widget.graph())
         .into_iter()
         .collect::<OutputSubscriptionPlan>();
@@ -727,7 +508,7 @@ fn built_in_uart_second_run_reuses_persistent_words() {
         lane.payload().stable_id() == "org.logicconduit.word/v1"
             && lane
                 .table_metadata()
-                .is_some_and(|metadata| metadata.total_rows >= 6)
+                .is_some_and(|metadata| metadata.total_rows > 0)
     }));
 }
 

@@ -1,3 +1,5 @@
+mod integration_tests_support;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -5,7 +7,6 @@ use std::time::{Duration, Instant};
 use egui::Pos2;
 
 use logic_analyzer_graph_compiler::{CompileCtx, GraphCompiler, OutputSubscriptionPlan};
-use logic_analyzer_graph_nodes::test_support as nodes;
 use logic_analyzer_processing::nodes::decoders::parallel_decoder::{ParallelDecoder, StrobeMode};
 use logic_analyzer_processing::nodes::decoders::spi_decoder::{SpiDecoder, SpiMode};
 use logic_analyzer_processing::nodes::logic::logic_gate::{GateOp, LogicGate};
@@ -18,6 +19,8 @@ use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
 use logic_analyzer_processing::types::CsPolarity;
 use node_graph::{NodeGraphWidget, NodeId, SocketDirection, SocketId};
 use signal_processing::{CollectedLaneSnapshotRequest, Pipeline, TriggerLaneSnapshot};
+
+use integration_tests_support as nodes;
 
 const STARTUP_OUTPUTS: [(&str, &str); 7] = [
     ("SPI Decoder", "MOSI Bits"),

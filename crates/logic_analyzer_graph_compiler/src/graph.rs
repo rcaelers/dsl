@@ -337,7 +337,7 @@ impl BuilderRegistry {
         registry
     }
 
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(test)]
     #[doc(hidden)]
     pub(crate) fn isolated_test() -> Self {
         Self {
@@ -347,7 +347,7 @@ impl BuilderRegistry {
         }
     }
 
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(test)]
     #[doc(hidden)]
     pub(crate) fn insert_test_builder(
         &mut self,
@@ -422,7 +422,6 @@ impl BuilderRegistry {
         &self.payloads
     }
 
-    #[cfg_attr(feature = "test-support", doc(hidden))]
     pub(crate) fn subscribable_payload_kinds(&self) -> Vec<PortKind> {
         self.payload_subscriptions
             .iter()

@@ -1,18 +1,18 @@
+mod integration_tests_support;
+
 use egui::Pos2;
 
 use logic_analyzer_graph_api::node_support::{
     CapturePresentation, LiveCaptureEdit, SourceDataLifecycleKind,
 };
 use logic_analyzer_graph_compiler::GraphCompiler;
-use logic_analyzer_graph_nodes::test_support::{
-    build_registry, node_builder, node_name, populate_startup,
-};
-use node_graph::{NodeGraphWidget, SocketDirection, SocketId};
+use node_graph::NodeGraphWidget;
 use signal_processing::{CaptureChannelId, CaptureDataDelivery, SimpleTriggerCondition};
+
+use integration_tests_support::{build_live_binary_test, build_registry, node_builder, node_name};
 
 const U3PRO16_ID: &str = "org.logicconduit.graph-node.dslogic-u3pro16/v1";
 const DSL_FILE_SOURCE_ID: &str = "org.logicconduit.graph-node.dsl-file-source/v1";
-const VIEWER_ID: &str = "org.logicconduit.graph-node.viewer/v1";
 
 fn select(state: &mut serde_json::Value, field: &str, value: &str) {
     state[field]["value"] = serde_json::Value::String(value.to_owned());
@@ -28,33 +28,30 @@ fn enable_channels(state: &mut serde_json::Value, channels: &[usize]) {
     }
 }
 
-fn attach_viewer_sink(widget: &mut NodeGraphWidget, source: node_graph::NodeId) {
-    let viewer = widget
-        .add_node_at(node_name(VIEWER_ID), Pos2::new(320.0, 0.0))
-        .expect("viewer should be registered");
-    widget.graph_mut().add_connection(
-        SocketId {
-            node: source,
-            index: 0,
-            direction: SocketDirection::Output,
-        },
-        SocketId {
-            node: viewer,
-            index: 0,
-            direction: SocketDirection::Input,
-        },
-    );
-}
-
 #[test]
 fn native_hardware_source_registers_and_lowers() {
     let mut widget = NodeGraphWidget::new(build_registry());
-    let source = widget
-        .add_node_at(node_name(U3PRO16_ID), Pos2::ZERO)
-        .expect("native hardware source should be registered");
-    attach_viewer_sink(&mut widget, source);
+    let source = build_live_binary_test(&mut widget);
+    assert_eq!(
+        widget.graph().nodes[&source].def_name(),
+        node_name(U3PRO16_ID)
+    );
+    let decoder = widget
+        .graph()
+        .nodes
+        .values()
+        .find(|node| node.def_name() == node_name("org.logicconduit.graph-node.binary-decoder/v1"))
+        .expect("binary decoder should be registered");
+    let words = decoder
+        .outputs
+        .iter()
+        .position(|output| output.name == "Words")
+        .expect("binary decoder exposes words");
+    let decoder = decoder.id;
 
-    let compiled = GraphCompiler::new().lower(widget.graph()).unwrap();
+    let mut compiler = GraphCompiler::new();
+    compiler.set_output_subscriptions([(decoder, words)].into_iter().collect());
+    let compiled = compiler.lower(widget.graph()).unwrap();
     assert!(
         compiled
             .nodes
@@ -195,14 +192,9 @@ fn streaming_hardware_discovery_rejects_too_many_channels_for_the_rate() {
 #[test]
 fn dsl_source_presentation_is_builder_owned_after_node_rename() {
     let mut widget = NodeGraphWidget::new(build_registry());
-    populate_startup(&mut widget);
-    let source_id = *widget
-        .graph()
-        .nodes
-        .iter()
-        .find(|(_, node)| node.def_name() == node_name(DSL_FILE_SOURCE_ID))
-        .map(|(id, _)| id)
-        .unwrap();
+    let source_id = widget
+        .add_node_at(node_name(DSL_FILE_SOURCE_ID), Pos2::ZERO)
+        .expect("DSL file source should be registered");
     widget.graph_mut().nodes.get_mut(&source_id).unwrap().title = "My capture".to_owned();
     widget.graph_mut().nodes.get_mut(&source_id).unwrap().state["file"]["value"] =
         serde_json::Value::String("capture.dsl".to_owned());

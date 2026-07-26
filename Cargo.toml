@@ -57,9 +57,10 @@ minifb = { workspace = true }
 blake3 = { workspace = true }
 egui = { workspace = true }
 logic-analyzer-graph-api = { path = "crates/logic_analyzer_graph_api" }
-logic-analyzer-graph-compiler = { path = "crates/logic_analyzer_graph_compiler", features = ["test-support"] }
-logic-analyzer-graph-nodes = { path = "crates/logic_analyzer_graph_nodes", features = ["test-support"] }
+logic-analyzer-graph-compiler = { path = "crates/logic_analyzer_graph_compiler" }
+logic-analyzer-graph-nodes = { path = "crates/logic_analyzer_graph_nodes" }
 logic-analyzer-processing = { path = "crates/logic_analyzer_processing" }
+logic-analyzer-ui = { path = "crates/logic_analyzer_ui" }
 node-graph = { path = "crates/widgets/node_graph" }
 signal-processing = { path = "crates/signal_processing" }
 serde_json = { workspace = true }

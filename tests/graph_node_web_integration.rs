@@ -1,10 +1,12 @@
 #![cfg(target_arch = "wasm32")]
 
+mod integration_tests_support;
+
 use egui::Pos2;
 
-use logic_analyzer_graph_compiler::GraphCompiler;
-use logic_analyzer_graph_nodes::test_support::{build_registry, node_name};
 use node_graph::NodeGraphWidget;
+
+use integration_tests_support::{build_registry, node_builder, node_name};
 
 #[test]
 fn browser_discovers_every_platform_sensitive_node_and_builder() {
@@ -18,8 +20,6 @@ fn browser_discovers_every_platform_sensitive_node_and_builder() {
         "org.logicconduit.graph-node.csv-writer/v1",
     ];
     let mut graph = NodeGraphWidget::new(build_registry());
-    let compiler = GraphCompiler::new();
-
     for (index, stable_id) in stable_ids.into_iter().enumerate() {
         let name = node_name(stable_id);
         assert!(
@@ -28,9 +28,6 @@ fn browser_discovers_every_platform_sensitive_node_and_builder() {
                 .is_some(),
             "missing browser node definition for {name}"
         );
-        assert!(
-            compiler.has_builder(name),
-            "missing browser runtime builder for {name}"
-        );
+        let _builder = node_builder(stable_id);
     }
 }

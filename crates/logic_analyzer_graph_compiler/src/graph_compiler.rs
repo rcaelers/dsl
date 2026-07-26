@@ -42,40 +42,6 @@ impl GraphCompiler {
         self.builders.payloads()
     }
 
-    #[cfg(any(test, feature = "test-support"))]
-    #[doc(hidden)]
-    pub fn isolated_test() -> Self {
-        Self {
-            builders: BuilderRegistry::isolated_test(),
-            output_subscriptions: OutputSubscriptionPlan::new(),
-            source_preparation: SourcePreparation::new(),
-        }
-    }
-
-    #[cfg(any(test, feature = "test-support"))]
-    #[doc(hidden)]
-    pub fn insert_test_builder(
-        &mut self,
-        name: impl Into<String>,
-        builder: Box<dyn logic_analyzer_graph_api::node::RuntimeBuilder>,
-    ) {
-        self.builders.insert_test_builder(name, builder);
-    }
-
-    #[cfg(any(test, feature = "test-support"))]
-    #[doc(hidden)]
-    pub fn subscribable_payload_kinds(
-        &self,
-    ) -> Vec<logic_analyzer_graph_api::node_support::PortKind> {
-        self.builders.subscribable_payload_kinds()
-    }
-
-    #[cfg(any(test, feature = "test-support"))]
-    #[doc(hidden)]
-    pub fn has_builder(&self, name: &str) -> bool {
-        self.builders.get(name).is_some()
-    }
-
     pub fn discover_capture_presentation(
         &self,
         graph: &GraphState,

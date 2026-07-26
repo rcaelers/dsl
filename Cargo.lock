@@ -2186,6 +2186,7 @@ dependencies = [
  "logic-analyzer-graph-compiler",
  "logic-analyzer-graph-nodes",
  "logic-analyzer-processing",
+ "logic-analyzer-ui",
  "memmap2",
  "minifb",
  "node-graph",

@@ -1,6 +1,6 @@
 //! Test graph fixtures for built-in graph-node integration tests.
 
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(test)]
 pub(crate) mod test_graphs_tests {
     fn name(stable_id: &str) -> &'static str {
         crate::test_support::node_name(stable_id)
@@ -46,128 +46,6 @@ pub(crate) mod test_graphs_tests {
             direction: node_graph::SocketDirection::Input,
         };
         widget.graph_mut().add_connection(from_socket, to_socket);
-    }
-
-    pub(crate) fn build_binary_decoder_demo(widget: &mut node_graph::NodeGraphWidget) {
-        use egui::Pos2;
-        let add = |widget: &mut node_graph::NodeGraphWidget, name: &str, x: f32, y: f32| {
-            widget
-                .add_node_at(name, Pos2::new(x, y))
-                .unwrap_or_else(|| panic!("unknown node type '{name}'"))
-        };
-
-        let source_name = name("org.logicconduit.graph-node.sigrok-file-source/v1");
-        let source = add(widget, source_name, 40.0, 300.0);
-        let mut source_state = widget.graph().nodes[&source].state.clone();
-        source_state["channel_names"] = serde_json::Value::Array(
-            (0..11)
-                .map(|channel| serde_json::Value::String(format!("Ch {channel}")))
-                .collect(),
-        );
-        source_state["demo_data"] = true.into();
-        widget.set_node_state(source, source_state);
-        widget.graph_mut().nodes.get_mut(&source).unwrap().title = source_name.into();
-        let spi = add(
-            widget,
-            name("org.logicconduit.graph-node.spi-decoder/v1"),
-            360.0,
-            80.0,
-        );
-        let start = add(
-            widget,
-            name("org.logicconduit.graph-node.word-matcher/v1"),
-            680.0,
-            40.0,
-        );
-        let stop = add(
-            widget,
-            name("org.logicconduit.graph-node.word-matcher/v1"),
-            680.0,
-            230.0,
-        );
-        let counter = add(
-            widget,
-            name("org.logicconduit.graph-node.counter/v1"),
-            960.0,
-            40.0,
-        );
-        let latch = add(
-            widget,
-            name("org.logicconduit.graph-node.sr-flip-flop/v1"),
-            960.0,
-            230.0,
-        );
-        let formatter = add(
-            widget,
-            name("org.logicconduit.graph-node.string-formatter/v1"),
-            1240.0,
-            40.0,
-        );
-        let gate = add(
-            widget,
-            name("org.logicconduit.graph-node.logic-gate/v1"),
-            1198.4297,
-            592.2656,
-        );
-        let decoder = add(
-            widget,
-            name("org.logicconduit.graph-node.binary-decoder/v1"),
-            1520.0,
-            300.0,
-        );
-
-        let matcher_state =
-            |widget: &node_graph::NodeGraphWidget, node: node_graph::NodeId, pattern: &str| {
-                let mut state = widget.graph().nodes[&node].state.clone();
-                state["pattern"]["value"] = pattern.into();
-                state["mask"]["value"] = "0xFF".into();
-                state
-            };
-        widget.set_node_state(start, matcher_state(widget, start, "0x9A"));
-        widget.set_node_state(stop, matcher_state(widget, stop, "0xDE"));
-
-        let mut formatter_state = widget.graph().nodes[&formatter].state.clone();
-        formatter_state["template"]["value"] = "Window {n:02}".into();
-        widget.set_node_state(formatter, formatter_state);
-
-        let mut decoder_state = widget.graph().nodes[&decoder].state.clone();
-        decoder_state["input_strategy"]["value"] = "Packed stream".into();
-        widget.set_node_state(decoder, decoder_state);
-
-        for (id, title) in [
-            (source, "Demo"),
-            (start, "Match Start 0x9A"),
-            (stop, "Match Stop 0xDE"),
-            (gate, "Parallel Enable Gate"),
-            (decoder, "Parallel Decoder"),
-        ] {
-            widget.graph_mut().nodes.get_mut(&id).unwrap().title = title.to_owned();
-        }
-
-        connect(widget, (source, "Ch 7"), (spi, "CLK"));
-        connect(widget, (source, "Ch 6"), (spi, "MOSI"));
-        connect(widget, (source, "Ch 5"), (spi, "MISO"));
-        connect(widget, (source, "Ch 8"), (spi, "CS#"));
-        connect(widget, (spi, "MOSI Words"), (start, "Words"));
-        connect(widget, (spi, "MOSI Words"), (stop, "Words"));
-        connect(widget, (start, "Match"), (latch, "Set"));
-        connect(widget, (stop, "Match"), (latch, "Reset"));
-        connect(widget, (start, "Match"), (counter, "Trigger"));
-        connect(widget, (counter, "Count"), (formatter, "Value"));
-
-        connect(widget, (source, "Ch 8"), (gate, "In"));
-        connect(widget, (latch, "Q"), (gate, "In"));
-        connect(widget, (gate, "Out"), (decoder, "Enable"));
-        connect(widget, (source, "Ch 10"), (decoder, "Clock"));
-        for bit in 0..8 {
-            connect(widget, (source, &format!("Ch {bit}")), (decoder, "D"));
-        }
-        widget
-            .graph_mut()
-            .nodes
-            .get_mut(&formatter)
-            .unwrap()
-            .selected = true;
     }
 
     /// Small two-channel graph used by live-capture cursor contract tests.
