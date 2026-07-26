@@ -62,9 +62,9 @@ crate under test.
      workers or opening production capture files.
 
 4. **UI isolation:**
-   - Add UI-owned ports for native dialogs, capture export, cache commands, and
-     other host effects. Keep platform implementations behind the existing
-     whole-file native/wasm boundary.
+   - Put capture export execution behind a UI-owned asynchronous port with
+     deterministic progress, cancellation, success, and failure implementations.
+     Keep native and wasm implementations behind whole-file platform boundaries.
    - Move end-to-end UI + compiler + built-in-node workflows to the top-level
      integration test package.
    - Completion gate: `logic_analyzer_ui` tests run with no built-in node

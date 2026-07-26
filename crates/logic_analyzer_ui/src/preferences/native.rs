@@ -1,5 +1,7 @@
 use logic_analyzer_graph_api::node::DirectoryNodeCatalog;
 
+use crate::host_service::HostService;
+
 pub(crate) struct PreferencesWindow {
     open: bool,
 }
@@ -17,6 +19,7 @@ impl PreferencesWindow {
         &mut self,
         ctx: &egui::Context,
         catalogs: &mut [Box<dyn DirectoryNodeCatalog>],
+        host_service: &mut dyn HostService,
     ) {
         if !self.open {
             return;
@@ -42,7 +45,7 @@ impl PreferencesWindow {
                         );
                         ui.add_space(10.0);
                         for catalog in catalogs {
-                            draw_catalog(ui, catalog.as_mut());
+                            draw_catalog(ui, catalog.as_mut(), host_service);
                             ui.add_space(12.0);
                         }
                     });
@@ -51,7 +54,11 @@ impl PreferencesWindow {
     }
 }
 
-fn draw_catalog(ui: &mut egui::Ui, catalog: &mut dyn DirectoryNodeCatalog) {
+fn draw_catalog(
+    ui: &mut egui::Ui,
+    catalog: &mut dyn DirectoryNodeCatalog,
+    host_service: &mut dyn HostService,
+) {
     egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.set_width(ui.available_width());
         egui::CollapsingHeader::new(catalog.title())
@@ -79,7 +86,7 @@ fn draw_catalog(ui: &mut egui::Ui, catalog: &mut dyn DirectoryNodeCatalog) {
                 }
                 ui.horizontal(|ui| {
                     if ui.button("+ Add Directory").clicked()
-                        && let Some(directory) = rfd::FileDialog::new().pick_folder()
+                        && let Some(directory) = host_service.choose_directory()
                     {
                         let mut directories = catalog.directories();
                         if !directories.contains(&directory) {

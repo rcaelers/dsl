@@ -26,6 +26,7 @@ use crate::collected_output_presentation::waveform_presentation_registry;
 use crate::decoder_panel::{DecoderPanels, DecoderTableRegistry};
 use crate::decoder_table_presentation::decoder_table_registry;
 use crate::graph_service::{GraphRun, GraphService, standard_graph_service};
+use crate::host_service::{HostService, standard_host_service};
 use crate::live_capture::{
     CaptureAnalysisAttachment, CaptureAvailability, CaptureCoordinator, CaptureCoordinatorContract,
     CaptureReplayAttachment, ConfigurationEpochResolution, capture_availability,
@@ -176,6 +177,7 @@ pub struct App {
     pub(crate) input_bindings: Arc<InputBindings>,
     pub(crate) panel_layout: PanelLayout,
     pub(crate) graph_service: Box<dyn GraphService>,
+    pub(crate) host_service: Box<dyn HostService>,
     pub(crate) capture: CaptureCoordinator,
     pub(crate) capture_availability: CaptureAvailability,
     pub(crate) trigger_configuration: Option<compiler::DiscoveredTriggerConfiguration>,
@@ -454,13 +456,19 @@ impl App {
         cc: &eframe::CreationContext,
         node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
     ) -> Self {
-        Self::build_with_graph_service(cc, node_catalogs, standard_graph_service())
+        Self::build_with_services(
+            cc,
+            node_catalogs,
+            standard_graph_service(),
+            standard_host_service(),
+        )
     }
 
-    fn build_with_graph_service(
+    fn build_with_services(
         cc: &eframe::CreationContext,
         node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
         graph_service: Box<dyn GraphService>,
+        host_service: Box<dyn HostService>,
     ) -> Self {
         // The graph canvas and its custom widgets use a dark palette. Do not
         // inherit a light OS/browser preference for the surrounding egui
@@ -497,6 +505,7 @@ impl App {
             input_bindings,
             panel_layout: Self::default_panel_layout(),
             graph_service,
+            host_service,
             capture,
             capture_availability,
             trigger_configuration: None,
@@ -2419,7 +2428,11 @@ impl eframe::App for App {
         self.show_status_bar(&mut status_ui, &status_actions);
 
         self.about.show(ui.ctx());
-        self.preferences.show(ui.ctx(), &mut self.node_catalogs);
+        self.preferences.show(
+            ui.ctx(),
+            &mut self.node_catalogs,
+            self.host_service.as_mut(),
+        );
 
         self.platform_after_ui(ui.ctx());
 

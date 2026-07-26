@@ -247,6 +247,7 @@ files.each do |path|
 
   if rel.start_with?("crates/logic_analyzer_ui/src/")
     implementation = implementation_source(source)
+    host_service_adapter = rel == "crates/logic_analyzer_ui/src/host_service/native.rs"
     graph_service_adapter = %w[
       crates/logic_analyzer_ui/src/graph_service/graph_compiler.rs
       crates/logic_analyzer_ui/src/graph_service/platform_graph_compiler_native.rs
@@ -263,6 +264,17 @@ files.each do |path|
     ui_compiler_free_functions.each do |function|
       implementation.to_enum(:scan, /\bcompiler::#{Regexp.escape(function)}\s*\(/).each do
         errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: UI hosts call GraphCompiler##{function}"
+      end
+    end
+    unless File.basename(path).include?("tests") || host_service_adapter
+      implementation.to_enum(:scan, /\brfd::/).each do
+        errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: native dialogs belong behind the UI-owned HostService"
+      end
+      implementation.to_enum(:scan, /\b(?:load_from_path|save_to_path)\s*\(/).each do
+        errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: application graph persistence belongs behind the UI-owned HostService"
+      end
+      implementation.to_enum(:scan, /\bsignal_processing::clear_cache(?:_entry)?\s*\(/).each do
+        errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: cache commands belong behind the UI-owned HostService"
       end
     end
   end

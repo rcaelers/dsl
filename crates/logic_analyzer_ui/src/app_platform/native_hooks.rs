@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use logic_analyzer_graph_compiler as compiler;
 use node_graph::NodeId;
@@ -7,6 +7,7 @@ use crate::app::App;
 use crate::app_platform::{FileCommand, GuardedAction, derived_cache_directory};
 #[cfg(target_os = "macos")]
 use crate::app_platform::{NativeMenuCommand, notify_recent_files_changed};
+use crate::host_service::{OpenDialog, SaveDialog};
 use crate::live_capture::{CaptureCoordinatorContract, CaptureRawExportFormat};
 #[cfg(not(target_os = "macos"))]
 use crate::product::APPLICATION_NAME;
@@ -17,7 +18,7 @@ impl App {
         configs: &[signal_processing::PersistentStoreConfig],
     ) -> Result<(), String> {
         for config in configs {
-            signal_processing::clear_cache_entry(config).map_err(|error| error.to_string())?;
+            self.host_service.clear_cache_entry(config)?;
         }
         Ok(())
     }
@@ -220,8 +221,9 @@ impl App {
         if !self.can_replace_graph() {
             return;
         }
-        match self.node_graph.load_from_path(&path) {
-            Ok(()) => {
+        match self.host_service.load_graph(&path) {
+            Ok(graph) => {
+                self.node_graph.set_graph(graph);
                 if let Some(run) = &mut self.run {
                     run.stop();
                 }
@@ -293,18 +295,19 @@ impl App {
     }
 
     fn choose_and_load_file(&mut self) {
-        let mut dialog = rfd::FileDialog::new()
-            .set_title("Load graph")
-            .add_filter("Graph JSON", &["json"]);
-        if let Some(parent) = self
+        let initial_directory = self
             .platform
             .current_file
             .as_ref()
             .and_then(|path| path.parent())
-        {
-            dialog = dialog.set_directory(parent);
-        }
-        if let Some(path) = dialog.pick_file() {
+            .map(Path::to_owned);
+        let path = self.host_service.choose_open_file(OpenDialog {
+            title: "Load graph",
+            filter_label: "Graph JSON",
+            extensions: &["json"],
+            initial_directory: initial_directory.as_deref(),
+        });
+        if let Some(path) = path {
             self.load_file(path);
         }
     }
@@ -317,19 +320,27 @@ impl App {
     }
 
     fn save_file_as(&mut self) -> bool {
-        let mut dialog = rfd::FileDialog::new()
-            .set_title("Save graph as")
-            .set_file_name("pipeline.json")
-            .add_filter("Graph JSON", &["json"]);
-        if let Some(path) = &self.platform.current_file {
-            if let Some(parent) = path.parent() {
-                dialog = dialog.set_directory(parent);
-            }
-            if let Some(file_name) = path.file_name().and_then(|name| name.to_str()) {
-                dialog = dialog.set_file_name(file_name);
-            }
-        }
-        let path = dialog.save_file();
+        let initial_directory = self
+            .platform
+            .current_file
+            .as_ref()
+            .and_then(|path| path.parent())
+            .map(Path::to_owned);
+        let default_file_name = self
+            .platform
+            .current_file
+            .as_ref()
+            .and_then(|path| path.file_name())
+            .and_then(|name| name.to_str())
+            .unwrap_or("pipeline.json")
+            .to_owned();
+        let path = self.host_service.choose_save_file(SaveDialog {
+            title: "Save graph as",
+            default_file_name: &default_file_name,
+            filter_label: "Graph JSON",
+            extensions: &["json"],
+            initial_directory: initial_directory.as_deref(),
+        });
         let Some(path) = path else {
             return false;
         };
@@ -343,7 +354,14 @@ impl App {
             return false;
         }
         self.synchronize_payload_subscription_manifest(false);
-        match self.node_graph.save_to_path(&path) {
+        let graph = match self.node_graph.snapshot_value() {
+            Ok(graph) => graph,
+            Err(error) => {
+                self.toasts.error(error);
+                return false;
+            }
+        };
+        match self.host_service.save_graph(&path, &graph) {
             Ok(()) => {
                 self.platform.current_file = Some(path.clone());
                 self.mark_graph_saved();
@@ -361,19 +379,19 @@ impl App {
     fn choose_and_save_capture_data(&mut self) {
         let format = CaptureRawExportFormat::Portable;
         let descriptor = format.descriptor();
-        let mut dialog = rfd::FileDialog::new()
-            .set_title(descriptor.dialog_title)
-            .set_file_name(descriptor.default_file_name)
-            .add_filter(descriptor.label, &[descriptor.extension]);
-        if let Some(parent) = self
+        let initial_directory = self
             .platform
             .current_file
             .as_ref()
             .and_then(|path| path.parent())
-        {
-            dialog = dialog.set_directory(parent);
-        }
-        let Some(mut path) = dialog.save_file() else {
+            .map(Path::to_owned);
+        let Some(mut path) = self.host_service.choose_save_file(SaveDialog {
+            title: descriptor.dialog_title,
+            default_file_name: descriptor.default_file_name,
+            filter_label: descriptor.label,
+            extensions: &[descriptor.extension],
+            initial_directory: initial_directory.as_deref(),
+        }) else {
             return;
         };
         if path.extension().is_none() {
@@ -832,7 +850,7 @@ impl App {
         let mut removed_entries = 0usize;
         let mut removed_bytes = 0u64;
         for config in &configs {
-            match signal_processing::clear_cache_entry(config) {
+            match self.host_service.clear_cache_entry(config) {
                 Ok(stats) => {
                     removed_entries += stats.removed_entries;
                     removed_bytes = removed_bytes.saturating_add(stats.removed_bytes);
@@ -866,7 +884,7 @@ impl App {
         }
         self.release_derived_data_handles();
         let directory = derived_cache_directory();
-        match signal_processing::clear_cache(&directory) {
+        match self.host_service.clear_cache(&directory) {
             Ok(stats) if stats.removed_entries == 0 && stats.removed_bytes == 0 => {
                 self.toasts.info("No derived data caches found");
             }

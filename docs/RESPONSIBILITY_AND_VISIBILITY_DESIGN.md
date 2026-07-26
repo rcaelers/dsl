@@ -38,7 +38,9 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
 - `logic_analyzer_ui` owns the application-facing graph service port. Application and platform
   orchestration depend on its private `GraphService` and `GraphRun` traits; the crate's production
   adapter delegates to `GraphCompiler` and `LiveRun`, while UI tests provide deterministic local
-  implementations.
+  implementations. Its private `HostService` port owns native file and directory dialogs, graph
+  document persistence, and derived-cache commands. Native and web adapters implement the same
+  platform-neutral contract in complete platform-selected modules.
 - Workspace-level integration tests own end-to-end compositions spanning concrete graph nodes,
   processing nodes, and the generic compiler. Component crates keep only tests of their own
   contracts and private implementation mechanics; composition-only dependencies do not appear in
