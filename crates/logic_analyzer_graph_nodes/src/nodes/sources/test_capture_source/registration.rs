@@ -9,12 +9,12 @@ inventory::submit! {
 #[cfg(test)]
 mod registration_tests {
     #[test]
-    fn capture_sources_lower_in_isolation() {
+    fn capture_source_registration_contracts_are_self_consistent() {
         for stable_id in [
             "org.logicconduit.graph-node.test-capture-source/v1",
             "org.logicconduit.graph-node.test-live-capture-source/v1",
         ] {
-            crate::nodes::test_support::assert_node_registration_isolated(stable_id);
+            crate::nodes::test_support::assert_node_registration_contract(stable_id);
         }
     }
 }

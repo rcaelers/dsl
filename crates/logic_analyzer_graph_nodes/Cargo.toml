@@ -23,7 +23,6 @@ serde_json = { workspace = true }
 inventory = { workspace = true }
 
 [dev-dependencies]
-logic-analyzer-graph-compiler = { path = "../logic_analyzer_graph_compiler", features = ["test-support"] }
 logic-analyzer-processing = { path = "../logic_analyzer_processing" }
 logic-analyzer-test-support = { path = "../logic_analyzer_test_support" }
 tempfile = { workspace = true }

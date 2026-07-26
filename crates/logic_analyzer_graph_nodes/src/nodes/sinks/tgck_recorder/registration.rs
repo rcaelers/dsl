@@ -12,8 +12,8 @@ inventory::submit! {
 #[cfg(test)]
 mod registration_tests {
     #[test]
-    fn tgck_recorder_lowers_in_isolation() {
-        crate::nodes::test_support::assert_node_registration_isolated(
+    fn tgck_recorder_registration_contract_is_self_consistent() {
+        crate::nodes::test_support::assert_node_registration_contract(
             "org.logicconduit.graph-node.tgck-recorder/v1",
         );
     }

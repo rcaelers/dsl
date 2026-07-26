@@ -11,8 +11,8 @@ inventory::submit! {
 #[cfg(test)]
 mod registration_tests {
     #[test]
-    fn string_formatter_lowers_in_isolation() {
-        crate::nodes::test_support::assert_node_registration_isolated(
+    fn string_formatter_registration_contract_is_self_consistent() {
+        crate::nodes::test_support::assert_node_registration_contract(
             "org.logicconduit.graph-node.string-formatter/v1",
         );
     }

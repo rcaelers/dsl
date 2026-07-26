@@ -11,10 +11,7 @@ inventory::submit! {
 
 #[cfg(test)]
 mod registration_tests {
-    use std::path::PathBuf;
-
     use egui::Pos2;
-
     use logic_analyzer_graph_api::node::RuntimeBuilder;
     use logic_analyzer_processing::nodes::decoders::sigrok_decoder::discover_sigrok_decoder;
     use node_graph::{NodeDef, NodeGraphWidget, NodeTypeRegistry};
@@ -23,11 +20,9 @@ mod registration_tests {
     use super::super::definition::{SigrokDecoderDefinition, SigrokDecoderState};
 
     #[test]
-    #[ignore = "requires SIGROK_DECODERS_DIR containing the upstream spi decoder"]
-    fn standard_spi_decoder_lowers_in_isolation_from_discovered_metadata() {
-        let decoder_root =
-            local_decoder_root().expect("SIGROK_DECODERS_DIR must contain the spi decoder");
-        let descriptor = discover_sigrok_decoder(&decoder_root, "spi").unwrap();
+    fn checked_in_logic_decoder_registration_contract_uses_discovered_metadata() {
+        let decoder_root = test_decoder_root();
+        let descriptor = discover_sigrok_decoder(&decoder_root, "test_logic").unwrap();
         let mut state = super::super::definition::SigrokDecoderState::from_descriptor(
             decoder_root,
             &descriptor,
@@ -37,36 +32,32 @@ mod registration_tests {
                 channel.enabled.value = true;
             }
         }
-        crate::nodes::test_support::assert_node_registration_isolated_with_state(
+        crate::nodes::test_support::assert_node_registration_contract_with_state(
             "org.logicconduit.graph-node.sigrok-decoder/v1",
             Some(serde_json::to_value(state).unwrap()),
         );
     }
 
     #[test]
-    #[ignore = "requires SIGROK_DECODERS_DIR containing upstream spi and spiflash decoders"]
-    fn standard_stacked_decoder_lowers_with_a_protocol_packet_input() {
-        let decoder_root =
-            local_decoder_root().expect("SIGROK_DECODERS_DIR must contain the spi decoder");
-        let descriptor = discover_sigrok_decoder(&decoder_root, "spiflash").unwrap();
-        assert_eq!(descriptor.inputs, ["spi"]);
+    fn checked_in_stacked_decoder_registration_contract_accepts_protocol_packets() {
+        let decoder_root = test_decoder_root();
+        let descriptor = discover_sigrok_decoder(&decoder_root, "test_stacked").unwrap();
+        assert_eq!(descriptor.inputs, ["test_logic"]);
         let state = SigrokDecoderState::from_descriptor(decoder_root, &descriptor);
-        crate::nodes::test_support::assert_node_registration_isolated_with_state(
+        crate::nodes::test_support::assert_node_registration_contract_with_state(
             "org.logicconduit.graph-node.sigrok-decoder/v1",
             Some(serde_json::to_value(state).unwrap()),
         );
     }
 
     #[test]
-    #[ignore = "requires SIGROK_DECODERS_DIR containing upstream spi and spiflash decoders"]
     fn graph_connection_contracts_follow_declared_protocol_ids() {
-        let decoder_root =
-            local_decoder_root().expect("SIGROK_DECODERS_DIR must contain the spi decoder");
+        let decoder_root = test_decoder_root();
         let spi = SigrokDecoderState::from_descriptor(
             decoder_root.clone(),
-            &discover_sigrok_decoder(&decoder_root, "spi").unwrap(),
+            &discover_sigrok_decoder(&decoder_root, "test_logic").unwrap(),
         );
-        let spiflash_descriptor = discover_sigrok_decoder(&decoder_root, "spiflash").unwrap();
+        let spiflash_descriptor = discover_sigrok_decoder(&decoder_root, "test_stacked").unwrap();
         let spiflash = SigrokDecoderState::from_descriptor(decoder_root, &spiflash_descriptor);
         let mut registry = NodeTypeRegistry::new();
         registry.register::<SigrokDecoderDefinition>();
@@ -94,17 +85,15 @@ mod registration_tests {
         let builder = SigrokDecoderBuilder;
         let offered = builder.offered_connection_contracts(output, &producer_node.state);
         let accepted = builder.accepted_connection_contracts(input, &consumer_node.state);
-        assert_eq!(offered, ["spi"]);
-        assert_eq!(accepted, ["spi"]);
+        assert_eq!(offered, ["test_logic"]);
+        assert_eq!(accepted, ["test_logic"]);
         assert!(offered.iter().any(|contract| accepted.contains(contract)));
     }
 
     #[test]
-    #[ignore = "requires SIGROK_DECODERS_DIR containing the upstream spi decoder"]
-    fn previous_saved_spi_state_gains_protocol_contracts_with_a_warning() {
-        let decoder_root =
-            local_decoder_root().expect("SIGROK_DECODERS_DIR must contain the spi decoder");
-        let descriptor = discover_sigrok_decoder(&decoder_root, "spi").unwrap();
+    fn previous_saved_state_gains_protocol_contracts_with_a_warning() {
+        let decoder_root = test_decoder_root();
+        let descriptor = discover_sigrok_decoder(&decoder_root, "test_logic").unwrap();
         let mut state = SigrokDecoderState::from_descriptor(decoder_root.clone(), &descriptor);
         state.schema_version = 1;
         state.protocol_outputs.clear();
@@ -120,7 +109,7 @@ mod registration_tests {
         let migrated: SigrokDecoderState =
             serde_json::from_value(widget.graph().nodes[&node].state.clone()).unwrap();
         assert_eq!(migrated.schema_version, 3);
-        assert_eq!(migrated.protocol_outputs, ["spi"]);
+        assert_eq!(migrated.protocol_outputs, ["test_logic"]);
         assert!(
             widget.graph().nodes[&node]
                 .badge
@@ -129,9 +118,7 @@ mod registration_tests {
         );
     }
 
-    fn local_decoder_root() -> Option<PathBuf> {
-        std::env::var_os("SIGROK_DECODERS_DIR")
-            .map(PathBuf::from)
-            .filter(|path| path.join("spi/pd.py").is_file())
+    fn test_decoder_root() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test_data/sigrok_decoders")
     }
 }

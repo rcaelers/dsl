@@ -570,78 +570,37 @@ fn package_fingerprint(package: &Path) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::PathBuf;
     use std::sync::{Arc, Barrier, Mutex, OnceLock};
 
     use super::*;
 
     #[test]
-    #[ignore = "requires SIGROK_DECODERS_DIR pointing to a complete upstream decoder tree"]
-    fn standard_spi_decoder_can_be_discovered_and_started_without_libsigrokdecode() {
-        let decoder_root =
-            local_decoder_root().expect("SIGROK_DECODERS_DIR must contain the spi decoder");
+    fn checked_in_fixture_decoder_can_be_discovered_and_started() {
+        let directory = tempfile::tempdir().unwrap();
+        write_fixture_decoder(directory.path(), "fixture_logic", "Fixture Logic", "mit");
         let _guard = python_test_lock().lock().unwrap();
-        let _import_guard = decoder_import_guard();
 
-        Python::initialize();
-        Python::attach(|py| {
-            install_sigrokdecode_module(py)?;
-            let decoder_class = import_decoder(py, &decoder_root, "spi")?;
-            let descriptor = descriptor_from_class(&decoder_class)?;
+        let descriptor = discover_sigrok_decoder(directory.path(), "fixture_logic").unwrap();
 
-            assert_eq!(descriptor.api_version, 3);
-            assert_eq!(descriptor.id, "spi");
-            assert_eq!(descriptor.name, "SPI");
-            assert_eq!(descriptor.long_name, "Serial Peripheral Interface");
-            assert_eq!(
-                descriptor.description,
-                "Full-duplex, synchronous, serial bus."
-            );
-            assert_eq!(descriptor.license, "gplv2+");
-            assert_eq!(descriptor.inputs, ["logic"]);
-            assert_eq!(descriptor.outputs, ["spi"]);
-            assert_eq!(descriptor.tags, ["Embedded/industrial"]);
-            assert_eq!(descriptor.channels.len(), 1);
-            assert_eq!(descriptor.channels[0].id, "clk");
-            assert_eq!(descriptor.optional_channels.len(), 3);
-            assert_eq!(descriptor.optional_channels[2].id, "cs");
-            assert_eq!(descriptor.options.len(), 5);
-            assert_eq!(descriptor.options[4].id, "wordsize");
-            assert_eq!(descriptor.options[4].default, SigrokScalarValue::Integer(8));
-            assert!(descriptor.options[4].values.is_empty());
-            assert_eq!(descriptor.annotations.len(), 7);
-            assert_eq!(descriptor.annotation_rows.len(), 7);
-            assert_eq!(descriptor.annotation_rows[0].classes, [2]);
-            assert_eq!(descriptor.binary.len(), 2);
-
-            let (decoder, _) = start_decoder(py, &decoder_class, &descriptor)?;
-            assert_eq!(decoder.getattr("samplerate")?.extract::<u64>()?, 1_000_000);
-            assert_eq!(decoder.getattr("out_python")?.extract::<usize>()?, 0);
-            assert_eq!(decoder.getattr("out_ann")?.extract::<usize>()?, 1);
-            assert_eq!(decoder.getattr("out_binary")?.extract::<usize>()?, 2);
-            assert_eq!(decoder.getattr("out_bitrate")?.extract::<usize>()?, 3);
-            assert_eq!(decoder.getattr("bw")?.extract::<usize>()?, 1);
-            PyResult::Ok(())
-        })
-        .unwrap();
+        assert_eq!(descriptor.api_version, 3);
+        assert_eq!(descriptor.id, "fixture_logic");
+        assert_eq!(descriptor.name, "Fixture Logic");
+        assert_eq!(descriptor.license, "mit");
+        assert_eq!(descriptor.inputs, ["logic"]);
+        assert_eq!(descriptor.channels[0].id, "data");
     }
 
     #[test]
-    #[ignore = "requires SIGROK_DECODERS_DIR containing the upstream pca9571 decoder"]
-    fn standard_pca9571_tuple_channels_are_discovered() {
-        let decoder_root =
-            local_decoder_root().expect("SIGROK_DECODERS_DIR must contain the spi decoder");
-        assert!(
-            decoder_root.join("pca9571/pd.py").is_file(),
-            "SIGROK_DECODERS_DIR must contain the pca9571 decoder"
-        );
+    fn checked_in_tuple_channels_are_discovered() {
+        let directory = tempfile::tempdir().unwrap();
+        write_tuple_channel_fixture(directory.path());
         let _guard = python_test_lock().lock().unwrap();
 
-        let descriptor = discover_sigrok_decoder(decoder_root, "pca9571").unwrap();
+        let descriptor = discover_sigrok_decoder(directory.path(), "tuple_channels").unwrap();
 
-        assert_eq!(descriptor.logic_output_channels.len(), 8);
+        assert_eq!(descriptor.logic_output_channels.len(), 2);
         assert_eq!(descriptor.logic_output_channels[0].id, "p0");
-        assert_eq!(descriptor.logic_output_channels[7].name, "P7");
+        assert_eq!(descriptor.logic_output_channels[1].name, "P1");
     }
 
     #[test]
@@ -690,12 +649,6 @@ mod tests {
         for worker in workers {
             worker.join().expect("discovery worker panicked").unwrap();
         }
-    }
-
-    fn local_decoder_root() -> Option<PathBuf> {
-        std::env::var_os("SIGROK_DECODERS_DIR")
-            .map(PathBuf::from)
-            .filter(|path| path.join("spi/pd.py").is_file())
     }
 
     fn python_test_lock() -> &'static Mutex<()> {
@@ -762,33 +715,6 @@ mod tests {
         assert_eq!(descriptor.logic_output_channels[0].id, "p0");
         assert_eq!(descriptor.logic_output_channels[0].name, "P0");
         assert_eq!(descriptor.logic_output_channels[0].description, "P0");
-    }
-
-    #[test]
-    #[ignore = "requires SIGROK_DECODERS_DIR; scans the complete upstream decoder tree"]
-    fn benchmark_complete_standard_catalog_discovery() {
-        let decoder_root = local_decoder_root().expect("Sigrok decoder directory is unavailable");
-        let started = std::time::Instant::now();
-
-        let snapshot = SigrokDecoderCatalog::default().refresh(&[decoder_root]);
-
-        assert!(
-            snapshot
-                .entries
-                .iter()
-                .any(|entry| entry.descriptor.id == "spi")
-        );
-        assert!(
-            started.elapsed() < std::time::Duration::from_secs(30),
-            "catalog discovery took {:?}",
-            started.elapsed()
-        );
-        eprintln!(
-            "discovered {} decoders with {} diagnostics in {:?}",
-            snapshot.entries.len(),
-            snapshot.diagnostics.len(),
-            started.elapsed()
-        );
     }
 
     fn write_fixture_decoder(root: &Path, id: &str, name: &str, license: &str) {

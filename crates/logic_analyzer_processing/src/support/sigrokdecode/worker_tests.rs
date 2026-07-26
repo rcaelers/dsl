@@ -9,7 +9,7 @@ use pyo3::types::{PyAnyMethods, PyStringMethods};
 
 use super::python_host::{OUTPUT_ANN, OUTPUT_PYTHON};
 use super::scheduler::{InitialPin, LogicChunk};
-use super::worker::{DecoderWorker, OptionValue, WorkerConfig, WorkerError, WorkerInputConfig};
+use super::worker::{DecoderWorker, WorkerConfig, WorkerError, WorkerInputConfig};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -129,40 +129,43 @@ class Decoder(srd.Decoder):
 }
 
 #[test]
-#[ignore = "requires SIGROK_DECODERS_DIR containing the upstream spi decoder"]
-fn unmodified_spi_decoder_runs_through_the_worker() {
-    let decoder_root =
-        local_decoder_root().expect("SIGROK_DECODERS_DIR must contain the spi decoder");
-    let options = BTreeMap::from([
-        ("bitorder".into(), OptionValue::String("msb-first".into())),
-        (
-            "cs_polarity".into(),
-            OptionValue::String("active-low".into()),
-        ),
-        ("cpol".into(), OptionValue::Integer(0)),
-        ("cpha".into(), OptionValue::Integer(0)),
-        ("wordsize".into(), OptionValue::Integer(8)),
-    ]);
+fn checked_in_logic_decoder_runs_through_the_worker() {
+    let fixture = DecoderFixture::new(
+        "edge_decoder",
+        r#"
+import sigrokdecode as srd
+
+class Decoder(srd.Decoder):
+    def metadata(self, key, value):
+        self.samplerate = value
+    def start(self):
+        self.output = self.register(srd.OUTPUT_PYTHON, proto_id='test_logic')
+    def decode(self):
+        while True:
+            pins = self.wait({0: 'r'})
+            self.put(self.samplenum, self.samplenum + 1, self.output, ['EDGE', int(pins[1])])
+"#,
+    );
     let config = WorkerConfig {
-        decoder_root,
-        decoder_id: "spi".into(),
+        decoder_root: fixture.root.clone(),
+        decoder_id: fixture.id.clone(),
         sample_rate: 1_000_000,
         input: WorkerInputConfig::Logic(vec![
             Some(InitialPin::SameAsFirstSample),
-            None,
             Some(InitialPin::SameAsFirstSample),
-            None,
         ]),
-        options,
+        options: BTreeMap::new(),
         queue_capacity: 128,
     };
     let mut worker = DecoderWorker::spawn(config).unwrap();
-    let (clock, mosi) = spi_samples(0xa5);
     worker
         .push_chunk(LogicChunk::new(
             0,
-            clock.len(),
-            vec![Some(pack(&clock)), None, Some(pack(&mosi)), None],
+            3,
+            vec![
+                Some(pack(&[false, true, false])),
+                Some(pack(&[true, true, true])),
+            ],
         ))
         .unwrap();
     worker.finish().unwrap();
@@ -175,7 +178,7 @@ fn unmodified_spi_decoder_runs_through_the_worker() {
             saw_python_word = true;
         }
     }
-    assert!(saw_python_word, "SPI decoder emitted no protocol word");
+    assert!(saw_python_word, "test decoder emitted no protocol word");
 }
 
 fn chunk(start: u64, count: usize, samples: &[bool]) -> LogicChunk {
@@ -190,23 +193,6 @@ fn pack(samples: &[bool]) -> Arc<[u8]> {
         }
     }
     packed.into()
-}
-
-fn spi_samples(word: u8) -> (Vec<bool>, Vec<bool>) {
-    let mut clock = vec![false];
-    let mut mosi = vec![word & 0x80 != 0];
-    for bit in (0..8).rev() {
-        let value = word & (1 << bit) != 0;
-        clock.extend([true, false]);
-        mosi.extend([value, value]);
-    }
-    (clock, mosi)
-}
-
-fn local_decoder_root() -> Option<PathBuf> {
-    std::env::var_os("SIGROK_DECODERS_DIR")
-        .map(PathBuf::from)
-        .filter(|path| path.join("spi/pd.py").is_file())
 }
 
 struct DecoderFixture {

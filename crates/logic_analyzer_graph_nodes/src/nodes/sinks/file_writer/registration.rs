@@ -11,8 +11,8 @@ inventory::submit! {
 #[cfg(test)]
 mod registration_tests {
     #[test]
-    fn file_writer_lowers_in_isolation() {
-        crate::nodes::test_support::assert_node_registration_isolated(
+    fn file_writer_registration_contract_is_self_consistent() {
+        crate::nodes::test_support::assert_node_registration_contract(
             "org.logicconduit.graph-node.file-writer/v1",
         );
     }

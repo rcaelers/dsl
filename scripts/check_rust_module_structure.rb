@@ -10,7 +10,7 @@ SOURCE_GLOBS = ["crates/**/*.rs", "plugins/**/*.rs"].freeze
 ROOT_FILES = %w[lib.rs main.rs mod.rs].freeze
 
 PUBLIC_MODULES = {
-  "crates/signal_processing/src/lib.rs" => %w[capture derived_word_store live_capture live_capture_store waveform_index],
+  "crates/signal_processing/src/lib.rs" => %w[capture derived_word_store live_capture live_capture_store logic_analyzer waveform_index],
   "crates/logic_analyzer_processing/src/lib.rs" => %w[nodes support types],
   "crates/logic_analyzer_processing/src/support/mod.rs" => %w[logic_analyzer],
   "crates/logic_analyzer_processing/src/nodes/mod.rs" => %w[decoders logic sinks sources],
@@ -106,9 +106,8 @@ capture_export_manifest = File.read(File.join(ROOT, "crates/logic_analyzer_captu
 end
 
 graph_nodes_manifest = File.read(File.join(ROOT, "crates/logic_analyzer_graph_nodes/Cargo.toml"))
-graph_nodes_production_manifest = graph_nodes_manifest.split(/^\[dev-dependencies\]\s*$/, 2).first
-if graph_nodes_production_manifest.match?(/^logic-analyzer-graph-compiler\s*=/)
-  errors << "crates/logic_analyzer_graph_nodes/Cargo.toml: built-in nodes submit graph API contracts and must not depend on the compiler"
+if graph_nodes_manifest.match?(/^logic-analyzer-graph-compiler\s*=/)
+  errors << "crates/logic_analyzer_graph_nodes/Cargo.toml: built-in nodes and their isolated tests must use graph API contracts, not the compiler"
 end
 
 Dir.glob(File.join(ROOT, "plugins/*/Cargo.toml")).sort.each do |manifest_path|

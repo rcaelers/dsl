@@ -9,8 +9,8 @@ inventory::submit! {
 #[cfg(test)]
 mod registration_tests {
     #[test]
-    fn dslogic_u3pro16_lowers_in_isolation() {
-        crate::nodes::test_support::assert_node_registration_isolated(
+    fn dslogic_u3pro16_registration_contract_is_self_consistent() {
+        crate::nodes::test_support::assert_node_registration_contract(
             "org.logicconduit.graph-node.dslogic-u3pro16/v1",
         );
     }

@@ -11,8 +11,8 @@ inventory::submit! {
 #[cfg(test)]
 mod registration_tests {
     #[test]
-    fn binary_decoder_lowers_in_isolation() {
-        crate::nodes::test_support::assert_node_registration_isolated(
+    fn binary_decoder_registration_contract_is_self_consistent() {
+        crate::nodes::test_support::assert_node_registration_contract(
             "org.logicconduit.graph-node.binary-decoder/v1",
         );
     }

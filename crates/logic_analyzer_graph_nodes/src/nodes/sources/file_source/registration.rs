@@ -19,7 +19,7 @@ mod registration_tests {
     use super::super::definition::DslFileSource;
 
     #[test]
-    fn dsl_file_source_lowers_in_isolation() {
+    fn dsl_file_source_registration_contract_accepts_a_checked_in_format() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("one-channel.dsl");
         let file = File::create(&path).unwrap();
@@ -40,7 +40,7 @@ mod registration_tests {
 
         let mut state = serde_json::to_value(DslFileSource::state()).unwrap();
         state["file"]["value"] = path.display().to_string().into();
-        crate::nodes::test_support::assert_node_registration_isolated_with_state(
+        crate::nodes::test_support::assert_node_registration_contract_with_state(
             "org.logicconduit.graph-node.dsl-file-source/v1",
             Some(state),
         );

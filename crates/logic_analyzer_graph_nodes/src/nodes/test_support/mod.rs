@@ -1,10 +1,7 @@
 //! Private fixtures for isolated concrete-node tests.
 
 mod assertion;
-mod endpoints;
-mod lookup;
 
 pub(crate) use assertion::{
-    assert_node_registration_isolated, assert_node_registration_isolated_with_state,
+    assert_node_registration_contract, assert_node_registration_contract_with_state,
 };
-pub(crate) use lookup::node_name;

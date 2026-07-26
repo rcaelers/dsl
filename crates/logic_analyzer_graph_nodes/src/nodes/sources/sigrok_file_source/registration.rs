@@ -11,10 +11,10 @@ mod registration_tests {
     use node_graph::NodeDef;
 
     #[test]
-    fn sigrok_file_source_lowers_in_isolation() {
+    fn sigrok_file_source_registration_contract_accepts_demo_state() {
         let mut state = super::super::definition::SigrokFileSource::state();
         state.demo_data = true;
-        crate::nodes::test_support::assert_node_registration_isolated_with_state(
+        crate::nodes::test_support::assert_node_registration_contract_with_state(
             "org.logicconduit.graph-node.sigrok-file-source/v1",
             Some(serde_json::to_value(state).expect("test state is serializable")),
         );

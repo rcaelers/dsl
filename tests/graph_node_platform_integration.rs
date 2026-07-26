@@ -4,11 +4,11 @@ use logic_analyzer_graph_api::node_support::{
     CapturePresentation, LiveCaptureEdit, SourceDataLifecycleKind,
 };
 use logic_analyzer_graph_compiler::GraphCompiler;
+use logic_analyzer_graph_nodes::test_support::{
+    build_registry, node_builder, node_name, populate_startup,
+};
 use node_graph::{NodeGraphWidget, SocketDirection, SocketId};
 use signal_processing::{CaptureChannelId, CaptureDataDelivery, SimpleTriggerCondition};
-
-use super::{node_name, test_graphs_tests};
-use crate::test_support::{build_registry, node_builder};
 
 const U3PRO16_ID: &str = "org.logicconduit.graph-node.dslogic-u3pro16/v1";
 const DSL_FILE_SOURCE_ID: &str = "org.logicconduit.graph-node.dsl-file-source/v1";
@@ -195,7 +195,7 @@ fn streaming_hardware_discovery_rejects_too_many_channels_for_the_rate() {
 #[test]
 fn dsl_source_presentation_is_builder_owned_after_node_rename() {
     let mut widget = NodeGraphWidget::new(build_registry());
-    test_graphs_tests::populate_startup(&mut widget);
+    populate_startup(&mut widget);
     let source_id = *widget
         .graph()
         .nodes

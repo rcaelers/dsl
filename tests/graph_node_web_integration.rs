@@ -1,10 +1,10 @@
+#![cfg(target_arch = "wasm32")]
+
 use egui::Pos2;
 
 use logic_analyzer_graph_compiler::GraphCompiler;
+use logic_analyzer_graph_nodes::test_support::{build_registry, node_name};
 use node_graph::NodeGraphWidget;
-
-use crate::nodes::node_name;
-use crate::test_support::build_registry;
 
 #[test]
 fn browser_discovers_every_platform_sensitive_node_and_builder() {

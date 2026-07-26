@@ -398,47 +398,10 @@ pub(crate) mod test_graphs_tests {
 
 #[cfg(test)]
 mod tests {
-    use logic_analyzer_graph_api::node::{RuntimeBuilder, graph_node_registrations};
-    use logic_analyzer_graph_api::node_support::{CapturePresentation, ViewerOutputControl};
-    use logic_analyzer_graph_compiler::{CompiledGraph, GraphCompiler};
-    use node_graph::{GraphState, NodeGraphWidget, NodeId};
+    use node_graph::NodeGraphWidget;
 
     use super::test_graphs_tests;
     use crate::test_support::build_registry as build_node_registry;
-
-    fn selected_output_nodes(graph: &GraphState) -> Vec<NodeId> {
-        let builders: std::collections::HashMap<String, Box<dyn RuntimeBuilder>> =
-            graph_node_registrations()
-                .into_iter()
-                .filter_map(|registration| {
-                    registration
-                        .builder()
-                        .map(|builder| (registration.name().to_owned(), builder))
-                })
-                .collect();
-        graph
-            .nodes
-            .iter()
-            .flat_map(|(&node_id, node)| {
-                let builder = builders.get(node.def_name());
-                node.outputs.iter().filter_map(move |output| {
-                    let builder = builder?;
-                    let ViewerOutputControl::Selectable {
-                        default_selected, ..
-                    } = builder.viewer_output_control(output, &node.state)?
-                    else {
-                        return None;
-                    };
-                    let selected = output
-                        .extensions
-                        .get("show_in_view")
-                        .and_then(serde_json::Value::as_bool)
-                        .unwrap_or(default_selected);
-                    selected.then_some(node_id)
-                })
-            })
-            .collect()
-    }
 
     #[test]
     fn startup_graph_builds_with_compatible_wiring() {
@@ -468,53 +431,6 @@ mod tests {
     }
 
     #[test]
-    fn binary_decoder_demo_fixture_lowers() {
-        let mut widget = NodeGraphWidget::new(build_node_registry());
-        test_graphs_tests::build_binary_decoder_demo(&mut widget);
-        assert!(widget.graph().nodes.values().all(|node| node.type_name
-            != super::super::test_support::node_name("org.logicconduit.graph-node.viewer/v1")));
-        let source_name = super::super::test_support::node_name(
-            "org.logicconduit.graph-node.sigrok-file-source/v1",
-        );
-        let compiler = GraphCompiler::new();
-        let selected_nodes = selected_output_nodes(widget.graph());
-        let raw_channels = selected_nodes
-            .iter()
-            .filter(|node| widget.graph().nodes[node].def_name() == source_name)
-            .count();
-        let derived_lanes = selected_nodes
-            .iter()
-            .filter(|node| widget.graph().nodes[node].def_name() != source_name)
-            .count();
-        assert_eq!(raw_channels, 11);
-        assert_eq!(derived_lanes, 0);
-        let preview = compiler
-            .discover_capture_presentation(widget.graph())
-            .unwrap()
-            .expect("demo source should provide a pre-run capture preview");
-        let CapturePresentation::InMemory {
-            signals: preview, ..
-        } = preview.presentation
-        else {
-            panic!("demo source should provide an in-memory presentation");
-        };
-        assert_eq!(preview.len(), 10);
-        assert_eq!(preview.first().unwrap().name, "Ch 0");
-        assert_eq!(preview.last().unwrap().name, "Ch 10");
-        assert_eq!(
-            preview.last().unwrap().transitions.last().unwrap().0,
-            59_999_000.0
-        );
-        let compiled = compiler
-            .lower(widget.graph())
-            .expect("wasm demo should lower cleanly");
-        // Presentation choices are host-owned and are therefore absent from
-        // this processing-topology fixture.
-        assert_eq!(widget.graph().nodes.len(), 9);
-        assert_eq!(compiled.nodes.len(), 8);
-    }
-
-    #[test]
     fn auxiliary_test_graph_fixtures_build_with_registered_nodes() {
         let mut live_binary = NodeGraphWidget::new(build_node_registry());
         let source = test_graphs_tests::build_live_binary_test(&mut live_binary);
@@ -540,50 +456,5 @@ mod tests {
 
         assert_eq!(loaded.graph().nodes.len(), 10);
         assert_eq!(loaded.graph().connections.len(), 23);
-    }
-
-    /// Save/load round-trip: serializing the graph to JSON and
-    /// restoring it through the registry (the File > Save/Load path) must
-    /// compile to the same pipeline.
-    #[test]
-    fn graph_json_round_trip_compiles_identically() {
-        let mut widget = NodeGraphWidget::new(build_node_registry());
-        test_graphs_tests::populate_startup(&mut widget);
-        let compiler = GraphCompiler::new();
-        let original = compiler.lower(widget.graph()).expect("original lowers");
-
-        let json = serde_json::to_string(widget.graph()).expect("graph serializes");
-        let restored_state: node_graph::GraphState =
-            serde_json::from_str(&json).expect("graph deserializes");
-        let mut restored = NodeGraphWidget::new(build_node_registry());
-        restored.set_graph(restored_state);
-
-        let reloaded = compiler.lower(restored.graph()).expect("restored lowers");
-
-        assert_eq!(original.nodes.len(), reloaded.nodes.len());
-        for (a, b) in original.nodes.iter().zip(&reloaded.nodes) {
-            assert_eq!(a.id, b.id);
-            assert_eq!(a.builder, b.builder);
-            assert_eq!(
-                a.state, b.state,
-                "state of {} changed in round-trip",
-                a.builder
-            );
-        }
-        let edges = |compiled: &CompiledGraph| {
-            let mut edges: Vec<String> = compiled
-                .edges
-                .iter()
-                .map(|edge| {
-                    format!(
-                        "n{}:{} -> n{}:{} ({})",
-                        edge.from.0.0, edge.from.1, edge.to.0.0, edge.to.1, edge.buffer
-                    )
-                })
-                .collect();
-            edges.sort();
-            edges
-        };
-        assert_eq!(edges(&original), edges(&reloaded));
     }
 }

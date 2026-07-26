@@ -11,8 +11,8 @@ inventory::submit! {
 #[cfg(test)]
 mod registration_tests {
     #[test]
-    fn sr_flip_flop_lowers_in_isolation() {
-        crate::nodes::test_support::assert_node_registration_isolated(
+    fn sr_flip_flop_registration_contract_is_self_consistent() {
+        crate::nodes::test_support::assert_node_registration_contract(
             "org.logicconduit.graph-node.sr-flip-flop/v1",
         );
     }
