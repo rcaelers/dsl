@@ -1,7 +1,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -10,10 +10,6 @@ use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 
-use logic_analyzer_capture_export::{
-    CaptureExportFormat as CaptureRawExportFormat, CaptureExportObserver, CaptureExportProgress,
-    CaptureExportReport, export_finalized_capture,
-};
 use logic_analyzer_graph_api::node::CaptureGraphSourceFactory;
 use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
 use signal_processing::{
@@ -30,10 +26,18 @@ use signal_processing::{
 };
 
 use super::implementation::{
-    CaptureAnalysisAttachment, CaptureCoordinatorContract, CaptureExportCompletion,
-    CaptureExportStatus, CaptureReplayAttachment, CaptureSessionStatus, CaptureWaveformUpdate,
+    CaptureAnalysisAttachment, CaptureCoordinatorContract, CaptureReplayAttachment,
+    CaptureSessionStatus, CaptureWaveformUpdate,
 };
 use crate::app_platform::capture_session_directory;
+use crate::capture_export_service::{
+    CaptureExportCompletion, CaptureExportFormat as CaptureRawExportFormat, CaptureExportService,
+    CaptureExportStatus, standard_capture_export_service,
+};
+#[cfg(test)]
+use crate::capture_export_service::{
+    ScriptedCaptureExportControl, scripted_capture_export_service,
+};
 
 const EVENT_QUEUE_CAPACITY: usize = 1_024;
 const SUPERVISOR_POLL_INTERVAL: Duration = Duration::from_millis(5);
@@ -264,28 +268,6 @@ struct CaptureWorkerSession {
     application_metadata: Option<CaptureApplicationMetadata>,
 }
 
-struct ExportObserver {
-    cancellation: Arc<AtomicBool>,
-    progress: Sender<CaptureExportProgress>,
-}
-
-impl CaptureExportObserver for ExportObserver {
-    fn is_cancelled(&self) -> bool {
-        self.cancellation.load(Ordering::Relaxed)
-    }
-
-    fn on_progress(&mut self, progress: CaptureExportProgress) {
-        let _ = self.progress.try_send(progress);
-    }
-}
-
-struct ActiveExport {
-    cancellation: Arc<AtomicBool>,
-    progress: Receiver<CaptureExportProgress>,
-    completion: Receiver<Result<CaptureExportReport, String>>,
-    worker: Option<JoinHandle<()>>,
-}
-
 pub(crate) struct CaptureCoordinator {
     repository: NativeCaptureSessionRepository,
     recent_sessions: Vec<NativeCaptureSessionSummary>,
@@ -296,9 +278,7 @@ pub(crate) struct CaptureCoordinator {
     retired: Vec<CompletedCapture>,
     waveform_update: Option<CaptureWaveformUpdate>,
     analysis_attachment: Option<CaptureAnalysisAttachment>,
-    export_status: Option<CaptureExportStatus>,
-    export_notice: Option<Result<CaptureExportCompletion, String>>,
-    active_export: Option<ActiveExport>,
+    export_service: Box<dyn CaptureExportService>,
     pending_configuration_epoch: Option<PendingConfigurationEpoch>,
     configuration_epoch_preparation:
         Option<Result<super::implementation::PreparedConfigurationEpoch, String>>,
@@ -310,12 +290,21 @@ pub(crate) struct CaptureCoordinator {
 impl CaptureCoordinator {
     #[cfg(test)]
     fn new() -> Self {
+        Self::new_with_scripted_export().0
+    }
+
+    #[cfg(test)]
+    fn new_with_scripted_export() -> (Self, ScriptedCaptureExportControl) {
         let root = tempfile::tempdir().expect("temporary capture root must be available");
         let repository = NativeCaptureSessionRepository::new(
             NativeCaptureSessionRepositoryConfig::new(root.path()),
         )
         .expect("temporary capture repository must be available");
-        Self::with_repository(repository, Some(root))
+        let (export_service, control) = scripted_capture_export_service();
+        (
+            Self::with_repository_and_export_service(repository, Some(root), export_service),
+            control,
+        )
     }
 
     pub(crate) fn configured(max_recent_sessions: usize, max_total_bytes: u64) -> Self {
@@ -331,6 +320,15 @@ impl CaptureCoordinator {
         repository: NativeCaptureSessionRepository,
         ephemeral_root: Option<TempDir>,
     ) -> Self {
+        let export_service = standard_capture_export_service(repository.clone());
+        Self::with_repository_and_export_service(repository, ephemeral_root, export_service)
+    }
+
+    fn with_repository_and_export_service(
+        repository: NativeCaptureSessionRepository,
+        ephemeral_root: Option<TempDir>,
+        export_service: Box<dyn CaptureExportService>,
+    ) -> Self {
         let (recent_sessions, _) = repository.scan_with_cleanup_plan().unwrap_or_default();
         Self {
             repository,
@@ -342,9 +340,7 @@ impl CaptureCoordinator {
             retired: Vec::new(),
             waveform_update: None,
             analysis_attachment: None,
-            export_status: None,
-            export_notice: None,
-            active_export: None,
+            export_service,
             pending_configuration_epoch: None,
             configuration_epoch_preparation: None,
             configuration_epoch_resolutions: Vec::new(),
@@ -360,11 +356,11 @@ impl CaptureCoordinator {
     }
 
     pub(crate) fn export_status(&self) -> Option<&CaptureExportStatus> {
-        self.export_status.as_ref()
+        self.export_service.status()
     }
 
     pub(crate) fn take_export_notice(&mut self) -> Option<Result<CaptureExportCompletion, String>> {
-        self.export_notice.take()
+        self.export_service.take_completion()
     }
 
     pub(crate) fn start_export_current(
@@ -372,102 +368,17 @@ impl CaptureCoordinator {
         format: CaptureRawExportFormat,
         destination: PathBuf,
     ) -> Result<(), String> {
-        if self.active_export.is_some() {
-            return Err("a capture export is already active".into());
-        }
         if self.is_active() {
             return Err("finish the live capture before exporting it".into());
         }
         let session_id = self
             .current_session_id()
             .ok_or_else(|| "there is no displayed capture to export".to_owned())?;
-        let (capture, session_pin) = self
-            .repository
-            .open(session_id)
-            .map_err(|error| format!("could not pin capture for export: {error}"))?;
-        let total_samples = capture.manifest().committed_samples;
-        let cancellation = Arc::new(AtomicBool::new(false));
-        let (progress_sender, progress) = crossbeam_channel::bounded(1);
-        let (completion_sender, completion) = crossbeam_channel::bounded(1);
-        let worker_cancellation = Arc::clone(&cancellation);
-        let worker_destination = destination.clone();
-        let worker = std::thread::Builder::new()
-            .name("capture-export".into())
-            .spawn(move || {
-                let _session_pin = session_pin;
-                let mut observer = ExportObserver {
-                    cancellation: worker_cancellation,
-                    progress: progress_sender,
-                };
-                let result =
-                    export_finalized_capture(&capture, format, &worker_destination, &mut observer);
-                let _ = completion_sender.send(result);
-            })
-            .map_err(|error| format!("could not start capture export: {error}"))?;
-        self.export_notice = None;
-        self.export_status = Some(CaptureExportStatus {
-            format_label: format.descriptor().label.to_owned(),
-            destination,
-            samples_written: 0,
-            total_samples,
-            cancelling: false,
-        });
-        self.active_export = Some(ActiveExport {
-            cancellation,
-            progress,
-            completion,
-            worker: Some(worker),
-        });
-        Ok(())
+        self.export_service.start(session_id, format, destination)
     }
 
     pub(crate) fn request_cancel_export(&mut self) {
-        let Some(active) = &self.active_export else {
-            return;
-        };
-        active.cancellation.store(true, Ordering::Relaxed);
-        if let Some(status) = &mut self.export_status {
-            status.cancelling = true;
-        }
-    }
-
-    fn poll_export(&mut self) {
-        let mut latest_progress = None;
-        if let Some(active) = &self.active_export {
-            while let Ok(progress) = active.progress.try_recv() {
-                latest_progress = Some(progress);
-            }
-        }
-        if let Some(progress) = latest_progress
-            && let Some(status) = &mut self.export_status
-        {
-            status.samples_written = progress.samples_written;
-            status.total_samples = progress.total_samples;
-        }
-
-        let completion =
-            self.active_export
-                .as_ref()
-                .and_then(|active| match active.completion.try_recv() {
-                    Ok(completion) => Some(completion),
-                    Err(TryRecvError::Empty) => None,
-                    Err(TryRecvError::Disconnected) => {
-                        Some(Err("capture export worker stopped without a result".into()))
-                    }
-                });
-        let Some(completion) = completion else {
-            return;
-        };
-        if let Some(mut active) = self.active_export.take()
-            && let Some(worker) = active.worker.take()
-        {
-            let _ = worker.join();
-        }
-        self.export_status = None;
-        self.export_notice = Some(completion.map(|report| CaptureExportCompletion {
-            destination: report.destination,
-            warnings: report.warnings,
-        }));
+        self.export_service.request_cancel();
     }
 
     fn poll_configuration_epochs(&mut self) {
@@ -654,15 +565,14 @@ impl CaptureCoordinator {
         if self.is_active() {
             return Err("cannot replace capture data while acquisition is active".into());
         }
-        if self.active_export.is_some() {
+        if self.export_service.is_active() {
             return Err("cannot replace capture data while it is being saved".into());
         }
 
         self.analysis_attachment = None;
         self.waveform_update = None;
         self.status = None;
-        self.export_status = None;
-        self.export_notice = None;
+        self.export_service.reset();
 
         let mut completed = self.completed.take().into_iter().collect::<Vec<_>>();
         completed.append(&mut self.retired);
@@ -986,7 +896,7 @@ impl CaptureCoordinatorContract for CaptureCoordinator {
     }
 
     fn poll(&mut self) {
-        self.poll_export();
+        self.export_service.poll();
         self.poll_configuration_epochs();
         self.reap_waveform_workers();
         if let Some(analysis) = self
@@ -1158,12 +1068,6 @@ impl CaptureCoordinatorContract for CaptureCoordinator {
 
 impl Drop for CaptureCoordinator {
     fn drop(&mut self) {
-        if let Some(mut export) = self.active_export.take() {
-            export.cancellation.store(true, Ordering::Relaxed);
-            if let Some(worker) = export.worker.take() {
-                let _ = worker.join();
-            }
-        }
         if let Some(mut active) = self.active.take() {
             let _ = active.commands.try_send(CaptureCommand::Stop);
             drop(active.commands);
@@ -1684,6 +1588,7 @@ fn resolve_configuration_epoch(
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::{Duration, Instant};
@@ -2251,17 +2156,17 @@ mod tests {
     }
 
     #[test]
-    fn finalized_capture_saves_as_pulseview_data_in_background() {
+    fn finalized_capture_routes_export_through_the_injected_service() {
         let (feature, controller) = manual_feature();
-        let mut coordinator = CaptureCoordinator::new();
+        let (mut coordinator, export_control) = CaptureCoordinator::new_with_scripted_export();
         coordinator
             .start(feature, CaptureStartMode::SavedPolicy)
             .unwrap();
         controller.grant_chunks(4);
         poll_until(&mut coordinator, |coordinator| !coordinator.is_active());
 
-        let output_dir = tempfile::tempdir().unwrap();
-        let output = output_dir.path().join("background.sr");
+        let output = PathBuf::from("background.sr");
+        let session_id = coordinator.current_session_id().unwrap();
         coordinator
             .start_export_current(CaptureRawExportFormat::Portable, output.clone())
             .unwrap();
@@ -2271,8 +2176,10 @@ mod tests {
         let completion = coordinator.take_export_notice().unwrap().unwrap();
         assert_eq!(completion.destination, output);
         assert!(completion.warnings.is_empty());
-
-        assert!(std::fs::metadata(&completion.destination).unwrap().len() > 0);
+        assert_eq!(
+            export_control.starts(),
+            vec![(session_id, CaptureRawExportFormat::Portable, output)]
+        );
     }
 
     #[test]

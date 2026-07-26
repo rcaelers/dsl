@@ -247,6 +247,7 @@ files.each do |path|
 
   if rel.start_with?("crates/logic_analyzer_ui/src/")
     implementation = implementation_source(source)
+    capture_export_adapter = rel == "crates/logic_analyzer_ui/src/capture_export_service/native.rs"
     host_service_adapter = rel == "crates/logic_analyzer_ui/src/host_service/native.rs"
     graph_service_adapter = %w[
       crates/logic_analyzer_ui/src/graph_service/graph_compiler.rs
@@ -275,6 +276,14 @@ files.each do |path|
       end
       implementation.to_enum(:scan, /\bsignal_processing::clear_cache(?:_entry)?\s*\(/).each do
         errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: cache commands belong behind the UI-owned HostService"
+      end
+    end
+    unless File.basename(path).include?("tests") || capture_export_adapter
+      implementation.to_enum(:scan, /\blogic_analyzer_capture_export\b/).each do
+        errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: concrete capture export belongs behind CaptureExportService"
+      end
+      implementation.to_enum(:scan, /\b(?:export_finalized_capture|CaptureExportObserver|CaptureExportProgress|CaptureExportReport|ActiveExport)\b/).each do
+        errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: capture export worker details belong behind CaptureExportService"
       end
     end
   end

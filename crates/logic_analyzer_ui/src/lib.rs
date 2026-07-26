@@ -2,6 +2,7 @@ mod about;
 mod app;
 mod app_platform;
 mod application_config;
+mod capture_export_service;
 mod collected_output_presentation;
 mod decoder_panel;
 mod decoder_table_presentation;

@@ -2,15 +2,23 @@ use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
 use signal_processing::CaptureStartMode;
 
 use super::implementation::{
-    CaptureAnalysisAttachment, CaptureCoordinatorContract, CaptureExportCompletion,
-    CaptureExportStatus, CaptureReplayAttachment, CaptureSessionStatus, CaptureWaveformUpdate,
+    CaptureAnalysisAttachment, CaptureCoordinatorContract, CaptureReplayAttachment,
+    CaptureSessionStatus, CaptureWaveformUpdate,
+};
+use crate::capture_export_service::{
+    CaptureExportCompletion, CaptureExportService, CaptureExportStatus,
+    standard_capture_export_service,
 };
 
-pub(crate) struct CaptureCoordinator;
+pub(crate) struct CaptureCoordinator {
+    _export_service: Box<dyn CaptureExportService>,
+}
 
 impl CaptureCoordinator {
     pub(crate) fn configured(_max_recent_sessions: usize, _max_total_bytes: u64) -> Self {
-        Self
+        Self {
+            _export_service: standard_capture_export_service(),
+        }
     }
 
     pub(crate) fn start_with_graph(

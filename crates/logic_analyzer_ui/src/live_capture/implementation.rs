@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use node_graph::{GraphState, NodeId};
 use signal_processing::{
     CaptureAcquisitionPhase, CaptureCommandCapabilities, CaptureCompletion, CaptureHealth,
@@ -82,21 +80,6 @@ pub(crate) struct CaptureSessionStatus {
     pub(crate) outcome: CaptureSessionOutcome,
     pub(crate) completion: Option<CaptureCompletion>,
     pub(crate) error: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CaptureExportStatus {
-    pub(crate) format_label: String,
-    pub(crate) destination: PathBuf,
-    pub(crate) samples_written: u64,
-    pub(crate) total_samples: u64,
-    pub(crate) cancelling: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CaptureExportCompletion {
-    pub(crate) destination: PathBuf,
-    pub(crate) warnings: Vec<String>,
 }
 
 #[derive(Clone)]
