@@ -1691,10 +1691,6 @@ mod tests {
     use logic_analyzer_graph_api::node::{CaptureGraphSourceFactory, LiveCaptureFeature};
     use logic_analyzer_graph_api::node_support::SimpleTriggerChannel;
     use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
-    use logic_analyzer_test_support::{
-        BufferedFakeConfig, BufferedFakeController, BufferedFakeProvider, DeterministicFakeConfig,
-        DeterministicFakeController, DeterministicFakeProvider,
-    };
     use node_graph::NodeId;
     use signal_processing::{
         AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureAnalysisChannel,
@@ -1705,6 +1701,10 @@ mod tests {
         TriggerTimeout, TriggerTimeoutAction,
     };
 
+    use super::super::test_acquisition_tests::{
+        BufferedFakeConfig, BufferedFakeController, BufferedFakeProvider, DeterministicFakeConfig,
+        DeterministicFakeController, DeterministicFakeProvider,
+    };
     use super::{
         ActiveCapture, CaptureCoordinator, CaptureCoordinatorContract, CaptureRawExportFormat,
         WorkerCompletion, bounded_capture_event_queue, waveform_ready_for_publication,

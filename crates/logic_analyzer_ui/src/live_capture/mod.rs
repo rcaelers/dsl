@@ -3,6 +3,8 @@
 #[cfg(test)]
 mod architecture_tests;
 mod implementation;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod test_acquisition_tests;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[path = "native.rs"]

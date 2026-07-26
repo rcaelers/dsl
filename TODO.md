@@ -90,8 +90,6 @@ crate under test.
      stores merely to drive UI state transitions.
    - Move end-to-end UI + compiler + built-in-node workflows to the top-level
      integration test package.
-   - Remove the concrete capture test-support dev-dependency from UI once local
-     service fakes cover the remaining UI-owned behavior.
    - Completion gate: `logic_analyzer_ui` tests run with no built-in node
      registrations, USB backend, native dialog, or filesystem export backend.
 
