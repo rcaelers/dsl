@@ -1,5 +1,8 @@
 //! Generic schema-driven editor for provider-neutral trigger programs.
 
+#[cfg(test)]
+mod architecture_tests;
+
 use std::collections::BTreeMap;
 
 use signal_processing::{

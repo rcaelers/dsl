@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod architecture_tests;
+
 pub mod api;
 mod model;
 mod runtime;

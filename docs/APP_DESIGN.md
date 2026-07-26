@@ -123,9 +123,9 @@ File Writer, TGCK Recorder, Viewer (variadic input accepting
 The native application loads graphs selected by the user. The wasm application embeds and loads
 `crates/app_web/data/wasm_decoder_demo.json`, a self-contained one-minute SPI-controlled
 parallel-bus capture backed by `Sigrok File Source` with explicit synthetic-capture metadata.
-Programmatic graph construction is confined
-to test fixtures in `nodes::test_graphs`. File-backed test fixtures live under the owning crate's
-`tests/data/` directory. The editable examples in `graphs/` are not code dependencies.
+Programmatic graph construction is confined to crate-local unit fixtures and the top-level
+integration-test support package. File-backed test fixtures live under the owning crate's
+`test_data/` directory. The editable examples in `graphs/` are not code dependencies.
 
 ## Graph → pipeline compiler
 

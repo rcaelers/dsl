@@ -154,32 +154,17 @@ mod tests {
     fn enabled_plugin_link_makes_its_inventories_visible_to_the_native_host() {
         link_compile_time_inventories();
 
-        let compiler = logic_analyzer_graph_compiler::GraphCompiler::new();
         let nodes = logic_analyzer_ui::build_node_registry();
         assert_eq!(nodes.category_of("Pulse Measure"), Some("Plugin"));
         assert_eq!(nodes.category_of("Camera Frame Source"), Some("Plugin"));
-
-        assert!(
-            compiler
-                .payloads()
-                .descriptor_by_stable_id("org.logicconduit.example.camera-frame/v1")
-                .is_some()
-        );
     }
 
     #[test]
-    fn built_in_link_makes_node_and_payload_inventories_visible() {
+    fn built_in_link_makes_node_inventory_visible() {
         link_compile_time_inventories();
 
-        let compiler = logic_analyzer_graph_compiler::GraphCompiler::new();
         let nodes = logic_analyzer_ui::build_node_registry();
         assert_eq!(nodes.category_of("SPI Decoder"), Some("Decoders"));
-        assert!(
-            compiler
-                .payloads()
-                .descriptor_by_stable_id("org.logicconduit.word/v1")
-                .is_some()
-        );
     }
 
     #[test]

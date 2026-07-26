@@ -81,8 +81,8 @@ The UI-independent live-capture foundation is also present:
   layout and timebase before provider ownership is consumed; the same factory creates independent
   live and finalized-session cursor sources, and generic code does not infer ports from node names,
   channel labels, or protocols;
-- feature-gated test capture sources expose the deterministic provider through the same contracts
-  without contributing node definitions or builders to production catalogs;
+- crate-local test capture sources expose the deterministic provider through the same contracts
+  under `cfg(test)` without contributing node definitions or builders to production catalogs;
 - the native application capture coordinator prepares, starts, supervises, stops, aborts,
   force-triggers, applies finite completion and trigger-timeout actions, and finalizes capture off
   the UI thread, retaining the previous completed temporary session until a new session completes

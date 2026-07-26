@@ -541,38 +541,48 @@ inventory::submit! {
 
 #[cfg(test)]
 mod camera_frame_tests {
-    use logic_analyzer_graph_api::node_support::PortKind;
-    use logic_analyzer_graph_compiler::{CompileCtx, GraphCompiler, OutputSubscriptionPlan};
-    use node_graph::NodeGraphWidget;
+    use crossbeam_channel::bounded;
+    use signal_processing::{ChannelMessage, DerivedLanes, PayloadRegistry, Sender, Watchdog};
 
     use super::*;
 
     #[test]
-    fn custom_source_collects_bounded_typed_frames_through_an_explicit_subscription() {
-        std::hint::black_box(logic_analyzer_graph_nodes::link());
-        std::hint::black_box(crate::link());
-        let mut compiler = GraphCompiler::new();
-        let node_types = logic_analyzer_ui::build_node_registry();
-        let mut widget = NodeGraphWidget::new(node_types);
-        let source = widget
-            .add_node_at("Camera Frame Source", egui::Pos2::ZERO)
-            .unwrap();
-        compiler.set_output_subscriptions(OutputSubscriptionPlan::from_iter([(source, 0)]));
-        let compiled = compiler.lower(widget.graph()).unwrap();
-        assert!(
-            compiled
-                .edges
-                .iter()
-                .any(|edge| edge.kind == PortKind::of::<CameraFrame>()),
-            "the plugin socket must negotiate its typed runtime channel"
-        );
-        let mut ctx = CompileCtx::default();
-        let lanes = ctx.derived_lanes().clone();
-        let mut run = compiler.start_app_run(widget.graph(), &mut ctx).unwrap();
-        while !run.is_finished() {
-            run.pump(64);
+    fn custom_source_and_adapter_retain_bounded_typed_frames() {
+        let watchdog = Watchdog::new();
+        let (frame_tx, frame_rx) = bounded::<ChannelMessage<CameraFrame>>(64);
+        let outputs = [OutputPort::new_with_watchdog(
+            Sender::new(vec![frame_tx]),
+            &watchdog,
+            "camera",
+            "frames",
+        )];
+        let mut source = CameraFrameSourceNode::new("camera");
+        loop {
+            match source.work(&[], &outputs) {
+                Ok(_) => {}
+                Err(WorkError::Shutdown) => break,
+                Err(error) => panic!("unexpected source error: {error}"),
+            }
         }
+        drop(outputs);
 
+        let lanes = DerivedLanes::new();
+        let mut payloads = PayloadRegistry::new();
+        payloads.register::<CameraFrame>(PAYLOAD_ID).unwrap();
+        let request = CollectedLaneRequest::new(
+            "camera.frames",
+            0,
+            lanes.clone(),
+            payloads.descriptor::<CameraFrame>().unwrap().clone(),
+            DerivedDataRetention::MaxEntries(9),
+        );
+        let mut ingestor = camera_frame_adapter().create_ingestor(request).unwrap();
+        let input = InputPort::new_with_watchdog(frame_rx, &watchdog, "camera", "frames");
+        while !ingestor.is_finished() {
+            ingestor
+                .drain(&input, DerivedDataRetention::MaxEntries(9))
+                .unwrap();
+        }
         let lane = lanes
             .opaque_lanes()
             .into_iter()

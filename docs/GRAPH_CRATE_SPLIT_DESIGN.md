@@ -7,9 +7,9 @@
 inventory assembly is compiler-owned and consumes submissions without importing a node bundle.
 
 `logic_analyzer_graph_nodes` owns the built-in node definitions, builders, migrations, socket
-types, payload presentations, and inventory submissions. `logic_analyzer_graph_compiler` owns compiler and
-application-facing services. Its feature-gated `GraphCompiler` test constructors are the narrow integration seam
-for isolated built-in-node tests.
+types, payload presentations, and inventory submissions. `logic_analyzer_graph_compiler` owns
+compiler and application-facing services. Compiler tests inject local runtime builders directly;
+full built-in-node and compiler composition belongs to the top-level integration-test package.
 `logic_analyzer_capture_export` owns native streaming capture export without depending on a graph
 crate. `logic_analyzer_test_support` owns deterministic capture providers shared by cross-crate
 tests. Native and web application composition link the built-in bundle before constructing the host
@@ -147,9 +147,9 @@ complete exporter implementation at the crate boundary.
 
 `logic_analyzer_test_support` owns deterministic acquisition providers used across crate
 boundaries. It depends only on generic `signal_processing` capture contracts. Processing
-conformance tests, compiler tests, built-in test nodes, and UI integration tests consume this owner
-directly. Node-isolation mocks remain private to the built-in graph-node crate unless another crate
-has a documented need for them.
+conformance tests and built-in test nodes consume this owner directly. Compiler and UI tests use
+locally owned fakes at their respective service boundaries. Node-isolation mocks remain private to
+the built-in graph-node crate unless another crate has a documented need for them.
 
 ### Inventory and composition
 

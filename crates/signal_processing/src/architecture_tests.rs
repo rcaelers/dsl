@@ -47,6 +47,31 @@ fn generic_runtime_contains_no_concrete_source_or_protocol_contracts() {
 }
 
 #[test]
+fn generic_capture_storage_contains_no_concrete_provider_contracts() {
+    let sources = [
+        (
+            "capture runtime",
+            include_str!("live_capture/implementation.rs"),
+        ),
+        ("capture store", include_str!("live_capture_store/mod.rs")),
+        (
+            "native capture store",
+            include_str!("live_capture_store/native.rs"),
+        ),
+        ("waveform index", include_str!("waveform_index/mod.rs")),
+    ];
+    for (component, source) in sources {
+        let source = implementation_source(source);
+        for token in ["DeterministicFake", "BufferedFake", "U3Pro16", "u3pro16"] {
+            assert!(
+                !source.contains(token),
+                "generic {component} contains concrete capture-provider token {token:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn type_erased_collection_contract_has_no_builtin_payload_checks() {
     let source = implementation_source(include_str!("payload.rs"));
     for token in [

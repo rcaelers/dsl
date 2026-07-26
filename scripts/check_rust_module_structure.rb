@@ -25,8 +25,7 @@ PUBLIC_MODULES = {
     dsl_file dslogic_u3pro16 sigrok_file synthetic_capture_source synthetic_uart_source
   ],
   "crates/logic_analyzer_graph_api/src/lib.rs" => %w[node node_support],
-  "crates/widgets/node_graph/src/lib.rs" => %w[api],
-  "crates/logic_analyzer_graph_nodes/src/lib.rs" => %w[test_support]
+  "crates/widgets/node_graph/src/lib.rs" => %w[api]
 }.freeze
 
 errors = []
@@ -42,6 +41,25 @@ end
 def implementation_source(source)
   test_module = source.index(/^\s*#\s*\[\s*cfg\s*\([^\]]*\btest\b[^\]]*\)\s*\]\s*\n\s*mod\s+\w*tests\b/)
   test_module.nil? ? source : source[0...test_module]
+end
+
+def test_source(path, source)
+  return source if File.basename(path).include?("tests")
+
+  test_module = source.index(/^\s*#\s*\[\s*cfg\s*\([^\]]*\btest\b[^\]]*\)\s*\]\s*\n\s*mod\s+\w*tests\b/)
+  test_module.nil? ? "" : source[test_module..]
+end
+
+def crate_root(path)
+  directory = File.dirname(path)
+  loop do
+    return directory if File.file?(File.join(directory, "Cargo.toml"))
+
+    parent = File.dirname(directory)
+    return nil if parent == directory
+
+    directory = parent
+  end
 end
 
 files = SOURCE_GLOBS.flat_map { |glob| Dir.glob(File.join(ROOT, glob)) }.sort
@@ -111,9 +129,15 @@ if graph_nodes_manifest.match?(/^logic-analyzer-graph-compiler\s*=/)
 end
 
 Dir.glob(File.join(ROOT, "plugins/*/Cargo.toml")).sort.each do |manifest_path|
-  production_manifest = File.read(manifest_path).split(/^\[dev-dependencies\]\s*$/, 2).first
+  manifest = File.read(manifest_path)
+  production_manifest = manifest.split(/^\[dev-dependencies\]\s*$/, 2).first
   if production_manifest.match?(/^logic-analyzer-graph-compiler\s*=/)
     errors << "#{relative(manifest_path)}: plugins depend on the graph API, not the compiler"
+  end
+  %w[logic-analyzer-graph-compiler logic-analyzer-graph-nodes].each do |dependency|
+    if manifest.match?(/^#{Regexp.escape(dependency)}\s*=/)
+      errors << "#{relative(manifest_path)}: #{dependency} composition belongs in the top-level integration package"
+    end
   end
 end
 
@@ -140,6 +164,10 @@ end
     next unless dependency_source.include?("inventory::submit!")
 
     rust_name = dependency.tr("-", "_")
+    # A crate used through another production symbol is already retained by
+    # the linker. Inventory-only dependencies need an explicit anchor.
+    next if application_source.match?(/\b#{Regexp.escape(rust_name)}::(?!link\b)/)
+
     unless dependency_source.match?(/\bpub\s+fn\s+link\s*\(\s*\)\s*->\s*usize\b/)
       errors << "#{relative(manifest_path)}: inventory submitter #{dependency} must expose pub fn link() -> usize"
     end
@@ -152,6 +180,14 @@ end
 files.each do |path|
   rel = relative(path)
   source = File.read(path)
+
+  owner = crate_root(path)
+  test_source(path, source).to_enum(:scan, /include_(?:str|bytes)!\s*\(\s*"([^"]+)"\s*\)/).each do
+    fixture = File.expand_path(Regexp.last_match[1], File.dirname(path))
+    next if owner && (fixture == owner || fixture.start_with?("#{owner}/"))
+
+    errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: tests must not include fixtures outside their owning crate"
+  end
 
   if rel.start_with?("crates/logic_analyzer_ui/src/")
     implementation = implementation_source(source)

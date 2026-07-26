@@ -63,3 +63,16 @@ impl Default for WebHandle {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod demo_graph_tests {
+    #[test]
+    fn embedded_demo_contains_its_decoder_panel_layout() {
+        let graph: serde_json::Value =
+            serde_json::from_str(include_str!("../data/wasm_decoder_demo.json")).unwrap();
+        let panels =
+            &graph["extensions"]["logic_analyzer_ui.panel_layout"]["decoder_panels"]["panels"];
+
+        assert_eq!(panels.as_object().unwrap().len(), 2);
+    }
+}

@@ -39,6 +39,25 @@ fn generic_collection_compiler_has_no_builtin_payload_or_protocol_checks() {
 }
 
 #[test]
+fn generic_compiler_contains_no_concrete_capture_provider_or_decoder_host() {
+    let source = implementation_source(include_str!("graph.rs"));
+    for token in [
+        "DeterministicFake",
+        "BufferedFake",
+        "U3Pro16",
+        "u3pro16",
+        "Sigrok",
+        "sigrok",
+        "Python decoder",
+    ] {
+        assert!(
+            !source.contains(token),
+            "generic compiler contains concrete provider or decoder-host token {token:?}"
+        );
+    }
+}
+
+#[test]
 fn inventory_assembly_does_not_import_the_builtin_node_module() {
     let sources = [
         ("graph compiler", include_str!("graph.rs")),

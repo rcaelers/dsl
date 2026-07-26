@@ -20,8 +20,6 @@ example-plugin = { path = "../../plugins/example-plugin", optional = true }
 [features]
 example-plugin = ["dep:example-plugin"]
 
-[dev-dependencies]
-logic-analyzer-graph-compiler = { path = "../logic_analyzer_graph_compiler" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

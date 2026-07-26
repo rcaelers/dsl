@@ -211,14 +211,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn inventory_populates_both_registries() {
-        std::hint::black_box(logic_analyzer_graph_nodes::link());
-        std::hint::black_box(crate::link());
-        let nodes = logic_analyzer_ui::build_node_registry();
-        assert_eq!(nodes.category_of("Pulse Measure"), Some("Plugin"));
-    }
-
-    #[test]
     fn emits_pulse_width_covering_the_preceding_high_level() {
         let wd = Watchdog::new();
         let (tx, rx) = bounded::<ChannelMessage<Sample>>(64);

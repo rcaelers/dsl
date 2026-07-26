@@ -9,6 +9,13 @@ fn generic_viewer_sources_contain_no_uart_contracts() {
         include_str!("viewer.rs"),
     ];
     let forbidden = [
+        "DeterministicFake",
+        "BufferedFake",
+        "U3Pro16",
+        "u3pro16",
+        "Sigrok",
+        "sigrok",
+        "Python decoder",
         "uart_data_lane_name",
         "UART",
         "uart_",

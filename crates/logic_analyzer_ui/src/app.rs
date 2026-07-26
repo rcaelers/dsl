@@ -2508,20 +2508,6 @@ mod font_tests {
     }
 
     #[test]
-    fn wasm_demo_contains_its_decoder_panel_layout() {
-        let graph: GraphState =
-            serde_json::from_str(include_str!("../../app_web/data/wasm_decoder_demo.json"))
-                .unwrap();
-        let saved = saved_panel_layout(&graph).unwrap().unwrap();
-        let value = serde_json::to_value(saved).unwrap();
-
-        assert_eq!(
-            value["decoder_panels"]["panels"].as_object().unwrap().len(),
-            2
-        );
-    }
-
-    #[test]
     fn interaction_status_bindings_change_during_panel_and_node_drags() {
         let bindings =
             input_bindings::InputBindings::from_json(include_str!("../config/input_bindings.json"))
