@@ -62,6 +62,30 @@ def crate_root(path)
   end
 end
 
+def path_dependencies_by_kind(manifest)
+  dependencies = { production: [], development: [] }
+  kind = nil
+
+  manifest.each_line do |line|
+    if (header = line.match(/^\s*\[([^\]]+)\]\s*$/))
+      section = header[1]
+      kind = if section == "dependencies" || section.match?(/\Atarget\..*\.dependencies\z/)
+               :production
+             elsif section == "dev-dependencies" || section.match?(/\Atarget\..*\.dev-dependencies\z/)
+               :development
+             end
+      next
+    end
+
+    next unless kind
+
+    dependency = line.match(/^([A-Za-z0-9_-]+)\s*=\s*\{[^}]*\bpath\s*=\s*"[^"]+"[^}]*\}/)
+    dependencies[kind] << dependency[1] if dependency
+  end
+
+  dependencies.transform_values(&:uniq)
+end
+
 files = SOURCE_GLOBS.flat_map { |glob| Dir.glob(File.join(ROOT, glob)) }.sort
 
 ui_compiler_free_functions = %w[
@@ -138,6 +162,16 @@ Dir.glob(File.join(ROOT, "plugins/*/Cargo.toml")).sort.each do |manifest_path|
     if manifest.match?(/^#{Regexp.escape(dependency)}\s*=/)
       errors << "#{relative(manifest_path)}: #{dependency} composition belongs in the top-level integration package"
     end
+  end
+end
+
+Dir.glob(File.join(ROOT, "{crates,plugins}/**/Cargo.toml")).sort.each do |manifest_path|
+  dependencies = path_dependencies_by_kind(File.read(manifest_path))
+  dependencies[:development].each do |dependency|
+    next if dependencies[:production].include?(dependency)
+    next if dependency == "logic-analyzer-test-support"
+
+    errors << "#{relative(manifest_path)}: test-only workspace dependency #{dependency} belongs in the top-level integration package"
   end
 end
 

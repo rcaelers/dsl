@@ -10,23 +10,7 @@ assemble a realistic application. Prefer substitutable traits at actual
 component boundaries, with deterministic test implementations owned by the
 crate under test.
 
-1. **Inventory and enforcement baseline:**
-   - Classify every existing test as a portable unit/contract test, a
-     cross-component integration test, a benchmark, or manual hardware/upstream
-     validation. Keep only the first two categories in ordinary Cargo test
-     targets.
-   - Record every dev-dependency between workspace crates and remove accidental
-     test-only cycles. Prevent reintroduction of the removed compiler/node
-     cycle and UI dependency on the concrete graph-node catalog.
-   - Add a repository check that rejects tests which reference paths outside
-     their crate, environment-selected fixture roots, network resources, or
-     untracked fixture files. Allow environment access only in explicit manual
-     validation tools.
-   - Completion gate: `cargo test -p <crate>` succeeds for every crate from a
-     clean checkout with relevant environment variables unset, no attached
-     hardware, no installed Sigrok decoder tree, and no network access.
-
-2. **Trait-seam rules:**
+1. **Trait-seam rules:**
    - Introduce a trait where production code crosses a replaceable boundary:
      registries/catalogs, storage and artifact opening, task execution, clocks,
      hardware transports, dialogs, exports, and application services.
@@ -44,7 +28,7 @@ crate under test.
      switches, and tests substitute implementations only at explicit trait
      boundaries.
 
-3. **Compiler and graph-node isolation:**
+2. **Compiler and graph-node isolation:**
    - Replace compiler tests' use of inventory-populated
      `BuilderRegistry::standard()` with an injected runtime-builder catalog.
      Keep inventory discovery as the production catalog adapter.
@@ -63,7 +47,7 @@ crate under test.
    - Completion gate: compiler and graph-node crate tests pass independently,
      and their Cargo dependency graphs contain no test-only cycle.
 
-4. **Compiler host-effect isolation:**
+3. **Compiler host-effect isolation:**
    - Put source preparation behind a task-executor trait and an indexed-capture
      opener/factory contract. Production uses the native worker and existing
      capture factories; tests use immediate and manually controlled executors.
@@ -77,7 +61,7 @@ crate under test.
      fail every asynchronous preparation operation without starting real
      workers or opening production capture files.
 
-5. **UI isolation:**
+4. **UI isolation:**
    - Define a UI-owned graph/compiler service trait containing only the
      discovery, edit, run, source-preparation, and result operations consumed
      by `logic_analyzer_ui`. Implement it for `GraphCompiler`; use a local fake
@@ -93,7 +77,7 @@ crate under test.
    - Completion gate: `logic_analyzer_ui` tests run with no built-in node
      registrations, USB backend, native dialog, or filesystem export backend.
 
-6. **Concrete processing boundaries:**
+5. **Concrete processing boundaries:**
    - Retain `LogicAnalyzer`, `CaptureDataSource`, `CaptureIndex`,
      `PreparedAcquisition`, and `UsbTransport` as the principal substitution
      seams. Move code that bypasses them back behind the appropriate owner
@@ -111,7 +95,7 @@ crate under test.
      and failure coverage through deterministic input, transport, storage, or
      host implementations.
 
-7. **Fixtures and external validation:**
+6. **Fixtures and external validation:**
    - Store required fixture data under the owning crate's `test_data/`
      directory, or generate it deterministically in the test. Do not read a
      sibling crate's fixtures or repository-adjacent directories such as
@@ -121,20 +105,13 @@ crate under test.
      protocol input, annotations, binary output, metadata, generated logic,
      malformed metadata, and runtime failure as needed.
 
-8. **Reusable contract suites and CI:**
+7. **Reusable contract suites and CI:**
    - Put reusable conformance assertions beside the trait owner. Implementor
      crates invoke them with local constructors/factories rather than importing
      another concrete implementation.
    - Cover capture providers, capture indexes, persistent stores, runtime
      builders, payload adapters, and compiler/UI service ports with shared
      behavioral contracts where multiple implementations exist.
-   - Add per-crate CI jobs before the workspace integration job. Run native
-     unit/contract tests, wasm checks where supported, workspace integration
-     tests, Clippy with `-D warnings`, and explicit benchmark/manual commands
-     as separate categories.
-   - Add architecture checks for forbidden concrete dev-dependencies and for
-     fixture ownership. Keep these checks structural; behavioral tests remain
-     responsible for contract correctness.
    - Completion gate: each crate can be tested independently, integration
      failures identify the composing package, and no portable test outcome
      depends on undeclared machine state.

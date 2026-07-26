@@ -23,7 +23,21 @@ hardware, or network access.
   change the test contract.
 - The repository structure check rejects ignored Rust tests, runtime
   environment-variable access from test modules, fixtures outside the owning
-  crate, and required fixtures not tracked by Git.
+  crate, required fixtures not tracked by Git, and test-only workspace
+  dependencies that belong in the top-level integration package. A crate may
+  use a workspace dependency in tests when it is already part of that crate's
+  production contract, or may use the neutral test-support crate for shared
+  deterministic data models.
+
+## Continuous integration
+
+CI runs each workspace crate as its own `cargo test -p <crate>` matrix entry.
+Only after every crate passes does it run the top-level
+`logic-analyzer-examples` integration package and the compile-time plugin-link
+test. Architecture checks, Clippy, wasm compilation, deterministic benchmark
+compilation, and manual-validation-tool compilation are separate jobs so a
+failure identifies the affected boundary. External validation commands are
+compiled in CI but are not executed there.
 
 ## Python decoder fixtures
 

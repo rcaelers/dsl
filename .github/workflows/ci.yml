@@ -8,14 +8,20 @@ permissions:
   contents: read
 
 jobs:
-  test-native:
+  architecture:
     runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.test_packages.outputs.packages }}
     steps:
       - uses: actions/checkout@v6
-      - name: Install UI symbol font
-        run: sudo apt-get update && sudo apt-get install --yes fonts-noto-core
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+      - name: Discover independently tested crates
+        id: test_packages
+        run: |
+          cargo metadata --no-deps --format-version 1 \
+            | jq -c '.workspace_root as $root | [.packages[] | select(.manifest_path != ($root + "/Cargo.toml")) | .name]' \
+            | sed 's/^/packages=/' >> "$GITHUB_OUTPUT"
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
       - name: Check Rust module structure
@@ -30,12 +36,73 @@ jobs:
         env:
           RUSTFLAGS: -D unreachable-pub
         run: cargo check --workspace --all-targets
-      - name: Test workspace
-        run: cargo test --workspace
+
+  test-crates:
+    name: Test ${{ matrix.package }}
+    needs: architecture
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.architecture.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Test crate in isolation
+        run: cargo test -p ${{ matrix.package }}
+
+  test-integration:
+    needs: test-crates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Test top-level integration package
+        run: cargo test -p logic-analyzer-examples
       - name: Test native compile-time plugin linking
         run: cargo test -p logic-analyzer-app-native --features example-plugin
 
+  clippy:
+    needs: architecture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Check all targets and features
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  check-developer-tools:
+    needs: architecture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Check deterministic benchmark commands
+        run: |
+          cargo check -p signal-processing --bin derived-word-store-bench
+          cargo check -p logic-analyzer-processing --features developer-tools --bin u3pro16-streaming-bench
+          cargo check -p logic-analyzer-examples --bench compiler_capture
+      - name: Check manual validation commands
+        run: |
+          cargo check -p logic-analyzer-processing --features developer-tools --bin u3pro16-hardware-validation
+          cargo check -p logic-analyzer-processing --features developer-tools --bin sigrok-upstream-validation
+
   check-wasm:
+    needs: architecture
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -45,6 +112,10 @@ jobs:
           targets: wasm32-unknown-unknown
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
+      - name: Check concrete processing targets
+        env:
+          RUSTFLAGS: -D unreachable-pub
+        run: cargo check -p logic-analyzer-processing --target wasm32-unknown-unknown --all-targets --all-features
       - name: Build wasm UI with compile-time plugin constructors
         env:
           RUSTFLAGS: -D unreachable-pub

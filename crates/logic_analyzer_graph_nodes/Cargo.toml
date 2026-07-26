@@ -20,7 +20,6 @@ serde_json = { workspace = true }
 inventory = { workspace = true }
 
 [dev-dependencies]
-logic-analyzer-processing = { path = "../logic_analyzer_processing" }
 logic-analyzer-test-support = { path = "../logic_analyzer_test_support" }
 tempfile = { workspace = true }
 zip = { workspace = true }
