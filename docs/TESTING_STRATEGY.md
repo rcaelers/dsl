@@ -36,3 +36,16 @@ portable crate tests. They are kept separate from the ordinary test suite,
 state their prerequisites, and do not make an unavailable local resource a
 test failure. Their assertions complement rather than replace deterministic
 tests using checked-in fixtures and fakes.
+
+The compiler capture tool contains the graph-runtime timing probes and the
+full-capture differential validations. It requires an explicit DSL capture
+path and runs in the release benchmark profile:
+
+```console
+cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
+  <command> /path/to/capture.dsl
+```
+
+Run it with `--help` to list its timing and validation commands. These commands
+are intentionally absent from Cargo's test harness because their input is
+developer-supplied and their execution time depends on the complete capture.

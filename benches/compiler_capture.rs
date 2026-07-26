@@ -1,3 +1,4 @@
+#[path = "../tests/integration_tests_support/mod.rs"]
 mod integration_tests_support;
 
 use std::collections::HashMap;
@@ -31,10 +32,6 @@ const STARTUP_OUTPUTS: [(&str, &str); 7] = [
     ("Enable Gate", "Out"),
     ("Binary Decoder", "Words"),
 ];
-
-fn capture_path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("_captures/wipneus5.dsl")
-}
 
 fn startup_widget() -> NodeGraphWidget {
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
@@ -329,12 +326,9 @@ fn assert_outputs_equal(actual: &Path, expected: &Path) {
     assert_eq!(normalized_csv(actual), normalized_csv(expected));
 }
 
-#[test]
-#[ignore = "requires ignored developer-local _captures/wipneus5.dsl; run with --release"]
-fn compiler_runtime_benchmark() {
-    let capture = capture_path();
+fn compiler_runtime_benchmark(capture: &Path) {
     let output = tempfile::tempdir().unwrap();
-    let widget = configured_widget(&capture, output.path());
+    let widget = configured_widget(capture, output.path());
     let compiler = configured_compiler(&widget);
     let mut context = CompileCtx::default();
     let started = Instant::now();
@@ -351,12 +345,10 @@ fn compiler_runtime_benchmark() {
     assert!(!files.is_empty());
 }
 
-#[test]
-#[ignore = "requires ignored developer-local _captures/wipneus5.dsl; run with --release"]
-fn phase_one_reference_runtime_benchmark() {
+fn phase_one_reference_runtime_benchmark(capture: &Path) {
     let output = tempfile::tempdir().unwrap();
     let started = Instant::now();
-    run_phase_one_reference(&capture_path(), output.path());
+    run_phase_one_reference(capture, output.path());
     eprintln!(
         "phase-one reference: elapsed={:.3}s",
         started.elapsed().as_secs_f64()
@@ -364,12 +356,10 @@ fn phase_one_reference_runtime_benchmark() {
     assert!(!binary_files(output.path()).is_empty());
 }
 
-#[test]
-#[ignore = "requires ignored developer-local _captures/wipneus5.dsl; run with --release"]
-fn current_reference_runtime_benchmark() {
+fn current_reference_runtime_benchmark(capture: &Path) {
     let output = tempfile::tempdir().unwrap();
     let started = Instant::now();
-    run_current_reference(&capture_path(), output.path());
+    run_current_reference(capture, output.path());
     eprintln!(
         "current reference: elapsed={:.3}s",
         started.elapsed().as_secs_f64()
@@ -377,20 +367,12 @@ fn current_reference_runtime_benchmark() {
     assert!(!binary_files(output.path()).is_empty());
 }
 
-#[test]
-#[ignore = "requires ignored developer-local _captures/wipneus5.dsl; run with --release"]
-fn startup_graph_runtime_benchmark() {
-    compiler_runtime_benchmark();
-}
-
-#[test]
-#[ignore = "requires ignored developer-local _captures/wipneus5.dsl; run with --release"]
-fn live_viewer_subscription_benchmark() {
+fn live_viewer_subscription_benchmark(capture: &Path) {
     const TARGET_POINTS: usize = 5_120;
     const END_NS: u64 = 250_000_000_000;
 
     let output = tempfile::tempdir().unwrap();
-    let widget = configured_widget(&capture_path(), output.path());
+    let widget = configured_widget(capture, output.path());
     let compiler = configured_compiler(&widget);
     let mut context = CompileCtx::default();
     let mut run = compiler
@@ -437,21 +419,18 @@ fn live_viewer_subscription_benchmark() {
     assert!(!binary_files(output.path()).is_empty());
 }
 
-#[test]
-#[ignore = "requires ignored developer-local _captures/wipneus5.dsl; run with --release"]
-fn compiled_graph_matches_current_reference() {
+fn compiled_graph_matches_current_reference(capture: &Path) {
     let temporary = tempfile::tempdir().unwrap();
     let actual = temporary.path().join("compiled");
     let expected = temporary.path().join("reference");
     std::fs::create_dir_all(&actual).unwrap();
     std::fs::create_dir_all(&expected).unwrap();
-    let capture = capture_path();
     let reference = {
-        let capture = capture.clone();
+        let capture = capture.to_owned();
         let expected = expected.clone();
         std::thread::spawn(move || run_current_reference(&capture, &expected))
     };
-    let widget = configured_widget(&capture, &actual);
+    let widget = configured_widget(capture, &actual);
     let compiler = configured_compiler(&widget);
     let mut context = CompileCtx::default();
     let lanes = context.derived_lanes().clone();
@@ -472,21 +451,18 @@ fn compiled_graph_matches_current_reference() {
     assert_outputs_equal(&actual, &expected);
 }
 
-#[test]
-#[ignore = "requires ignored developer-local _captures/wipneus5.dsl; run with --release"]
-fn live_attach_detach_preserves_writer_output() {
+fn live_attach_detach_preserves_writer_output(capture: &Path) {
     let temporary = tempfile::tempdir().unwrap();
     let actual = temporary.path().join("compiled");
     let expected = temporary.path().join("reference");
     std::fs::create_dir_all(&actual).unwrap();
     std::fs::create_dir_all(&expected).unwrap();
-    let capture = capture_path();
     let reference = {
-        let capture = capture.clone();
+        let capture = capture.to_owned();
         let expected = expected.clone();
         std::thread::spawn(move || run_current_reference(&capture, &expected))
     };
-    let mut widget = configured_widget(&capture, &actual);
+    let mut widget = configured_widget(capture, &actual);
     let mut compiler = configured_compiler(&widget);
     let base_subscriptions = startup_output_subscriptions(&widget);
     let mut context = CompileCtx::default();
@@ -531,4 +507,63 @@ fn live_attach_detach_preserves_writer_output() {
     run.wait();
     reference.join().unwrap();
     assert_outputs_equal(&actual, &expected);
+}
+
+fn print_usage() {
+    eprintln!(
+        "usage: cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
+         <command> <capture.dsl>\n\
+         \n\
+         commands:\n\
+           compiler-runtime       time the compiled startup graph\n\
+           phase-one-runtime      time the phase-one reference pipeline\n\
+           current-runtime        time the current reference pipeline\n\
+           live-viewer-runtime    exercise live viewer queries while processing\n\
+           validate-compiled      compare compiled and reference output\n\
+           validate-live-attach   verify attach/detach preserves writer output\n\
+           all                    run every command"
+    );
+}
+
+fn main() {
+    let mut arguments = std::env::args_os().skip(1);
+    let Some(command) = arguments.next() else {
+        print_usage();
+        return;
+    };
+    if command == "--help" || command == "-h" {
+        print_usage();
+        return;
+    }
+    let Some(capture) = arguments.next().map(PathBuf::from) else {
+        print_usage();
+        panic!("a capture path is required");
+    };
+    assert!(arguments.next().is_none(), "unexpected extra arguments");
+    assert!(
+        capture.is_file(),
+        "capture file '{}' does not exist",
+        capture.display()
+    );
+
+    match command.to_string_lossy().as_ref() {
+        "compiler-runtime" => compiler_runtime_benchmark(&capture),
+        "phase-one-runtime" => phase_one_reference_runtime_benchmark(&capture),
+        "current-runtime" => current_reference_runtime_benchmark(&capture),
+        "live-viewer-runtime" => live_viewer_subscription_benchmark(&capture),
+        "validate-compiled" => compiled_graph_matches_current_reference(&capture),
+        "validate-live-attach" => live_attach_detach_preserves_writer_output(&capture),
+        "all" => {
+            compiler_runtime_benchmark(&capture);
+            phase_one_reference_runtime_benchmark(&capture);
+            current_reference_runtime_benchmark(&capture);
+            live_viewer_subscription_benchmark(&capture);
+            compiled_graph_matches_current_reference(&capture);
+            live_attach_detach_preserves_writer_output(&capture);
+        }
+        command => {
+            print_usage();
+            panic!("unknown command '{command}'");
+        }
+    }
 }
