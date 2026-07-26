@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use node_graph::{InputDef, IntValue, NodeDef, OutputDef, PanelSection, PropDef};
 
-use crate::nodes::registry::{COLOR_LOGIC, Number, Trigger};
+use crate::sockets::{COLOR_LOGIC, Number, Trigger};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct CounterState {

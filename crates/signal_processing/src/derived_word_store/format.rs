@@ -4,6 +4,7 @@ pub(crate) const FORMAT_VERSION: u32 = 1;
 const DATA_MAGIC: &[u8; 8] = b"DWRDDAT1";
 const BLOCK_MAGIC: &[u8; 4] = b"DWBL";
 pub(crate) const BLOCK_FLAG_HAS_DURATIONS: u16 = 1 << 0;
+pub(crate) const BLOCK_FLAG_HAS_PAYLOADS: u16 = 1 << 1;
 pub(crate) const DATA_HEADER_SIZE: usize = 64;
 pub(crate) const BLOCK_HEADER_SIZE: usize = 72;
 pub(crate) const RESTART_ENTRY_SIZE: usize = 16;

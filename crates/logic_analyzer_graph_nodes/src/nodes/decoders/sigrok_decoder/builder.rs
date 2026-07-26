@@ -8,12 +8,11 @@ use logic_analyzer_graph_api::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
-    SigrokAnnotation, SigrokBinary, SigrokChannel, SigrokDecoder, SigrokDecoderConfig,
-    SigrokGeneratedLogic, SigrokInitialPin, SigrokMetadata, SigrokOptionValue,
+    SigrokChannel, SigrokDecoder, SigrokDecoderConfig, SigrokInitialPin, SigrokOptionValue,
 };
 use logic_analyzer_processing::support::{SigrokDecoderDescriptor, discover_sigrok_decoder};
 use node_graph::api::Socket;
-use signal_processing::{ProcessNode, ProtocolPacket, SampleBlock};
+use signal_processing::{ProcessNode, ProtocolPacket, SampleBlock, Word};
 
 use super::definition::{SavedOptionControl, SavedOutputKind, SavedScalar, SigrokDecoderState};
 
@@ -188,12 +187,10 @@ impl RuntimeBuilder for SigrokDecoderBuilder {
 
 fn output_kind(output: SavedOutputKind) -> PortKind {
     match output {
-        SavedOutputKind::Annotation => PortKind::of_named::<SigrokAnnotation>("Sigrok Annotation"),
-        SavedOutputKind::Binary => PortKind::of_named::<SigrokBinary>("Sigrok Binary"),
-        SavedOutputKind::GeneratedLogic => {
-            PortKind::of_named::<SigrokGeneratedLogic>("Sigrok Logic")
+        SavedOutputKind::Annotation | SavedOutputKind::Binary | SavedOutputKind::Metadata => {
+            PortKind::of::<Word>()
         }
-        SavedOutputKind::Metadata => PortKind::of_named::<SigrokMetadata>("Sigrok Metadata"),
+        SavedOutputKind::GeneratedLogic => PortKind::of::<SampleBlock>(),
         SavedOutputKind::ProtocolPacket => PortKind::of_named::<ProtocolPacket>("Protocol Packet"),
     }
 }

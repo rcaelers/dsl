@@ -21,7 +21,7 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
 - `logic_analyzer_processing` owns concrete capture formats, devices, protocol decoders,
   processing nodes, and sinks. Format parsing and device-transport errors originate here and are
   mapped to generic runtime errors only where a generic trait requires it.
-- `logic_analyzer_graph_api` owns graph-node and collected-payload plugin contracts.
+- `logic_analyzer_graph_api` owns graph-node and payload plugin contracts.
 - `logic_analyzer_graph_nodes` owns built-in concrete node definitions, builders, migrations,
   registrations, and presentation metadata.
 - `logic_analyzer_graph_compiler` owns generic graph lowering, discovery, execution, and host services.
@@ -35,6 +35,10 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
   processing nodes.
 - `logic_analyzer_test_support` owns deterministic capture providers shared by cross-crate tests.
   It depends on generic runtime contracts rather than concrete processing, graph, or UI crates.
+- Workspace-level integration tests own end-to-end compositions spanning concrete graph nodes,
+  processing nodes, and the generic compiler. Component crates keep only tests of their own
+  contracts and private implementation mechanics; composition-only dependencies do not appear in
+  their manifests.
 - Generic graph, viewer, compiler, runtime, and widget crates consume explicit metadata and
   capability contracts. They do not infer concrete behavior from names.
 - Presentation helpers shared by widgets live in a neutral widget module or crate. Input-binding

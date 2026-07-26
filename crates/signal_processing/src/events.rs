@@ -111,13 +111,26 @@ impl Trigger {
     }
 }
 
-/// A single decoded word from any framed or sampled word stream: one value up
-/// to 64 bits wide, timestamped where it started. A producer that exposes two
-/// independent word-shaped streams uses two output ports rather than two
-/// fields on one value.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Optional non-numeric content carried by a decoded word.
+///
+/// Numeric words remain allocation-free. Byte words retain their complete,
+/// arbitrary-width value, while text gives decoders a generic way to attach a
+/// preferred label without introducing protocol-specific payload types.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WordPayload {
+    Bytes(Arc<[u8]>),
+    Text(Arc<str>),
+}
+
+/// A single decoded item from any framed or sampled word stream.
+///
+/// `value` is the numeric representation used by native decoders. `payload`
+/// carries arbitrary-width bytes or a decoder-provided label when the item is
+/// not adequately represented by a `u64` alone.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Word {
     pub value: u64,
+    pub payload: Option<WordPayload>,
     /// Timestamp of the word's start (its first sampling edge), ns.
     pub timestamp_ns: u64,
     /// The word's real extent: start to its last sampling edge / frame
@@ -132,6 +145,7 @@ impl Word {
     pub fn new(value: u64, timestamp_ns: u64) -> Self {
         Self {
             value,
+            payload: None,
             timestamp_ns,
             duration_ns: 0,
         }
@@ -141,9 +155,59 @@ impl Word {
     pub fn spanning(value: u64, timestamp_ns: u64, duration_ns: u64) -> Self {
         Self {
             value,
+            payload: None,
             timestamp_ns,
             duration_ns,
         }
+    }
+
+    /// An arbitrary-width byte word spanning the supplied interval.
+    pub fn bytes(value: impl Into<Arc<[u8]>>, timestamp_ns: u64, duration_ns: u64) -> Self {
+        Self::bytes_with_tag(0, value, timestamp_ns, duration_ns)
+    }
+
+    /// An arbitrary-width byte word with a numeric presentation tag.
+    pub fn bytes_with_tag(
+        tag: u64,
+        value: impl Into<Arc<[u8]>>,
+        timestamp_ns: u64,
+        duration_ns: u64,
+    ) -> Self {
+        Self {
+            value: tag,
+            payload: Some(WordPayload::Bytes(value.into())),
+            timestamp_ns,
+            duration_ns,
+        }
+    }
+
+    /// A labeled decoded item spanning the supplied interval.
+    pub fn text(value: impl Into<Arc<str>>, timestamp_ns: u64, duration_ns: u64) -> Self {
+        Self {
+            value: 0,
+            payload: Some(WordPayload::Text(value.into())),
+            timestamp_ns,
+            duration_ns,
+        }
+    }
+
+    /// A numeric word with an explicit presentation label.
+    pub fn labeled(
+        value: u64,
+        label: impl Into<Arc<str>>,
+        timestamp_ns: u64,
+        duration_ns: u64,
+    ) -> Self {
+        Self {
+            value,
+            payload: Some(WordPayload::Text(label.into())),
+            timestamp_ns,
+            duration_ns,
+        }
+    }
+
+    pub fn is_numeric(&self) -> bool {
+        self.payload.is_none()
     }
 
     /// The word's end (equals its start for instantaneous words).
@@ -155,11 +219,12 @@ impl Word {
 /// A decoded word prepared for timeline rendering. Instantaneous words use
 /// the next word's timestamp as `end_ns`; explicitly-spanning words retain
 /// their encoded duration.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Annotation {
     pub start_ns: u64,
     pub end_ns: u64,
     pub value: u64,
+    pub payload: Option<WordPayload>,
 }
 
 /// Change of an integer level (e.g. counter output). Mirrors `Sample`.

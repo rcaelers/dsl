@@ -12,7 +12,7 @@ use node_graph::{
     AnySocket, EnumValue, InputDef, IntValue, NodeDef, OutputDef, PanelSection, PropDef,
 };
 
-use crate::nodes::registry::COLOR_LOGIC;
+use crate::sockets::COLOR_LOGIC;
 
 /// Which built-in payload kind flows through a given `Buffer` instance —
 /// order matches the dropdown and the sibling builder's

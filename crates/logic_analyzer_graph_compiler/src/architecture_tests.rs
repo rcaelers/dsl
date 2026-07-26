@@ -46,10 +46,7 @@ fn inventory_assembly_does_not_import_the_builtin_node_module() {
             "graph-node inventory",
             include_str!("graph_node_registration.rs"),
         ),
-        (
-            "collected-payload inventory",
-            include_str!("collected_payload_registration.rs"),
-        ),
+        ("payload inventory", include_str!("payload_registration.rs")),
     ];
 
     for (component, source) in sources {

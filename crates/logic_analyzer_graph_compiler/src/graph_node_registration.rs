@@ -33,20 +33,20 @@ pub(crate) fn standard_graph_node_builders() -> HashMap<String, Box<dyn RuntimeB
 }
 
 pub(crate) fn validate_graph_node_payload_requirements(
-    payloads: &signal_processing::CollectedPayloadRegistry,
+    payloads: &signal_processing::PayloadRegistry,
 ) {
     validate_graph_node_payload_requirements_for(&graph_node_registrations(), payloads);
 }
 
 fn validate_graph_node_payload_requirements_for(
     registrations: &[&GraphNodeRegistration],
-    payloads: &signal_processing::CollectedPayloadRegistry,
+    payloads: &signal_processing::PayloadRegistry,
 ) {
     for registration in registrations {
         for stable_id in registration.required_payloads() {
             assert!(
                 payloads.descriptor_by_stable_id(stable_id).is_some(),
-                "graph-node inventory feature '{}' requires unavailable collected payload '{}'",
+                "graph-node inventory feature '{}' requires unavailable payload '{}'",
                 registration.stable_id(),
                 stable_id
             );

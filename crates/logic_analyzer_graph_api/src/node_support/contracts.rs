@@ -165,7 +165,7 @@ impl LanePresentationDescriptor {
     }
 }
 
-/// Default presentation metadata for a collected payload kind.
+/// Default presentation metadata for a payload kind.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DefaultLanePresentationDescriptor {
     pub badge: LaneBadgeDescriptor,

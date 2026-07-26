@@ -1095,10 +1095,10 @@ std::cfg_select! {
             let first = Word::spanning(0x12, 1_000, 50);
             let second = Word::spanning(0x27, 2_000, 75);
             let mut a = OutputStats::default();
-            a.extend_words(&[first, second]);
+            a.extend_words(&[first.clone(), second.clone()]);
             let mut b = OutputStats::default();
-            b.extend_words(&[first]);
-            b.extend_words(&[second]);
+            b.extend_words(&[first.clone()]);
+            b.extend_words(&[second.clone()]);
             let mut reversed = OutputStats::default();
             reversed.extend_words(&[second, first]);
 

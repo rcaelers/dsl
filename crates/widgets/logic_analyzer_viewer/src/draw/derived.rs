@@ -335,7 +335,7 @@ pub fn draw_annotation_snapshot<F>(
     last_timestamp_ns: Option<u64>,
     mut visual_for: F,
 ) where
-    F: FnMut(u64) -> AnnotationVisual,
+    F: FnMut(&Annotation) -> AnnotationVisual,
 {
     let box_top = context.top + context.height * 0.12;
     let box_bottom = context.top + context.height * 0.88;
@@ -352,7 +352,7 @@ pub fn draw_annotation_snapshot<F>(
         let effective_end = annotation_box_end(annotation, is_last_ever, previous_duration_ns);
         let x0 = context.time_to_x(annotation.start_ns);
         let natural_x1 = annotation_right_x(x0, context.time_to_x(effective_end));
-        let visual = visual_for(annotation.value);
+        let visual = visual_for(annotation);
         let label_width = annotation_label_width(&visual.label);
         let rect = Rect::from_min_max(Pos2::new(x0, box_top), Pos2::new(natural_x1, box_bottom));
         let bevel = (rect.height() * 0.20)
@@ -471,6 +471,7 @@ mod tests {
             start_ns: 100_000,
             end_ns: 100_000,
             value: 0x0A,
+            payload: None,
         };
         assert_eq!(annotation_box_end(&annotation, true, Some(10_000)), 110_000);
     }
@@ -481,6 +482,7 @@ mod tests {
             start_ns: 1_000,
             end_ns: 1_000,
             value: 0x4F,
+            payload: None,
         };
         assert_eq!(
             annotation_box_end(&annotation, true, None),
@@ -494,6 +496,7 @@ mod tests {
             start_ns: 1_000,
             end_ns: 1_000,
             value: 0x4F,
+            payload: None,
         };
         assert_eq!(
             annotation_box_end(&annotation, true, Some(MAX_ANNOTATION_NS * 10)),
@@ -507,6 +510,7 @@ mod tests {
             start_ns: 1_000,
             end_ns: 1_500,
             value: 0x4F,
+            payload: None,
         };
         assert_eq!(annotation_box_end(&annotation, true, Some(10_000)), 1_500);
         assert_eq!(annotation_box_end(&annotation, false, Some(10_000)), 1_500);
@@ -554,6 +558,7 @@ mod tests {
             start_ns: 1_000,
             end_ns: 1_000,
             value: 0x4F,
+            payload: None,
         };
         assert_eq!(annotation_box_end(&annotation, false, Some(10_000)), 1_000);
     }

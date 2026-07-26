@@ -157,8 +157,9 @@ The proposed architecture and compatibility boundary are defined in
 - [x] Implement the native decoder worker and PyO3 `Decoder` methods (`wait`, `register`, `put`, and
   `has_channel`) with bounded queues, GIL release while waiting, traceback-rich failures, and clean
   teardown.
-- [x] Add registered Sigrok annotation, binary, generated-logic, metadata, and protocol-packet
-  payload contracts with owner-provided retention, table, and viewer presentation.
+- [x] Map Sigrok annotation, binary, generated-logic, metadata, and protocol-packet outputs onto
+  the standard Word, Signal, and Protocol Packet contracts and their shared retention, table, and
+  viewer presentation.
 - [x] Add the concrete processing node and prove the unmodified standard SPI decoder against
   deterministic captures and a test-only `libsigrokdecode` differential oracle.
 - [x] Add a generic instance-schema contract to `node_graph`/graph API, then implement one saved,
@@ -184,7 +185,7 @@ order; update this single checklist as slices land:
 - [x] Replace plugin-visible `CompileCtx` parameters with a narrow `NodeBuildContext` contract;
   keep compiler result extraction on host-owned state.
 - [x] Make inventory construction independent of the built-in node module. The compiler reads
-  `GraphNodeRegistration` and `CollectedPayloadRegistration` submissions without calling
+  `GraphNodeRegistration` and `PayloadRegistration` submissions without calling
   `crate::nodes`.
 - [x] Extract `logic_analyzer_graph_api` with only the `node` and `node_support` namespaces, then
   update the compiler, built-in nodes, and example plugin to use those paths.
@@ -232,6 +233,9 @@ Maintain the boundary described in
   persistence in the compiler crate.
 - [x] Verify native and wasm file/live source readiness, cache reuse, indexing, collector
   subscription changes, and UI attachment after production has started.
+- [ ] Replace the remaining concrete `logic_analyzer_graph_nodes` fixtures in compiler-private
+  lowering and live-edit unit tests with neutral local node/builders, then remove that final
+  concrete dev-dependency from `logic_analyzer_graph_compiler`.
 
 - Define how several source clocks and trigger positions map onto the shared viewer timeline.
 - Add graph-level source grouping/alignment metadata and preserve it in saved graphs.

@@ -11,7 +11,7 @@ use logic_analyzer_viewer::{
     ViewerLaneRendererRegistration, ViewerLaneTheme, ViewerLaneTrackId,
 };
 
-use crate::collected_payloads::WordSnapshotRenderer;
+use crate::payloads::WordSnapshotRenderer;
 
 struct SpiLaneRenderer;
 

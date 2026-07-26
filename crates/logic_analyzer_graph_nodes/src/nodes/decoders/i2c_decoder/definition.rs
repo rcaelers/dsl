@@ -4,7 +4,7 @@ use egui::Color32;
 
 use node_graph::{InputDef, NodeDef, OutputDef};
 
-use crate::nodes::registry::{COLOR_DECODERS, ProtocolPackets, Signal, Words};
+use crate::sockets::{COLOR_DECODERS, ProtocolPackets, Signal, Words};
 
 pub(crate) struct I2cDecoder;
 impl NodeDef for I2cDecoder {

@@ -10,7 +10,7 @@ use node_graph::{
 };
 
 use super::metadata_platform;
-use crate::nodes::registry::{COLOR_SOURCES, Signal, TextOpenPath};
+use crate::sockets::{COLOR_SOURCES, Signal, TextOpenPath};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct DslFileSourceState {

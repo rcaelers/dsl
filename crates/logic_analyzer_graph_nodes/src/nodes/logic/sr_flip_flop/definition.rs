@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use node_graph::{BoolValue, InputDef, NodeDef, OutputDef, PanelSection, PropDef};
 
-use crate::nodes::registry::{COLOR_LOGIC, Signal, Trigger};
+use crate::sockets::{COLOR_LOGIC, Signal, Trigger};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct SrFlipFlopState {

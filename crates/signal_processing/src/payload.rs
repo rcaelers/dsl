@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use crate::derived_data_collector::{DerivedDataRetention, DerivedLanes};
 use crate::errors::WorkResult;
+use crate::events::WordPayload;
 use crate::ports::{InputPort, PortSchema};
 
 /// One type-erased collector input owned by a registered payload adapter.
@@ -40,11 +41,12 @@ pub struct CollectedLaneTableMetadata {
 }
 
 /// One scalar record supplied by an optional tabular lane projection.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CollectedLaneTableRow {
     pub start_time_ns: u64,
     pub end_time_ns: u64,
     pub value: u64,
+    pub payload: Option<WordPayload>,
 }
 
 /// Bounded rows for an optional scalar table projection.
@@ -136,7 +138,7 @@ pub struct CollectedLaneRequest {
     name: String,
     input_index: usize,
     lanes: DerivedLanes,
-    payload: CollectedPayloadDescriptor,
+    payload: PayloadDescriptor,
     retention: DerivedDataRetention,
     options: Arc<dyn Any + Send + Sync>,
 }
@@ -146,7 +148,7 @@ impl CollectedLaneRequest {
         name: impl Into<String>,
         input_index: usize,
         lanes: DerivedLanes,
-        payload: CollectedPayloadDescriptor,
+        payload: PayloadDescriptor,
         retention: DerivedDataRetention,
     ) -> Self {
         Self {
@@ -171,7 +173,7 @@ impl CollectedLaneRequest {
         &self.lanes
     }
 
-    pub fn payload(&self) -> &CollectedPayloadDescriptor {
+    pub fn payload(&self) -> &PayloadDescriptor {
         &self.payload
     }
 
@@ -200,7 +202,7 @@ impl CollectedLaneRequest {
 }
 
 /// Factory for the typed ingestion and retained-query behavior of one payload.
-pub trait CollectedPayloadAdapter: Send + Sync {
+pub trait PayloadAdapter: Send + Sync {
     fn create_ingestor(
         &self,
         request: CollectedLaneRequest,
@@ -209,21 +211,21 @@ pub trait CollectedPayloadAdapter: Send + Sync {
 
 /// Persistable identity assigned by a payload owner.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CollectedPayloadDescriptor {
+pub struct PayloadDescriptor {
     stable_id: String,
 }
 
-impl CollectedPayloadDescriptor {
+impl PayloadDescriptor {
     /// Stable plugin-owned identity, suitable for saved state and diagnostics.
     pub fn stable_id(&self) -> &str {
         &self.stable_id
     }
 }
 
-/// Failure to add an ambiguous collected-payload identity.
+/// Failure to add an ambiguous payload identity.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum CollectedPayloadRegistrationError {
-    #[error("collected payload identifiers must not be empty")]
+pub enum PayloadRegistrationError {
+    #[error("payload identifiers must not be empty")]
     EmptyStableId,
     #[error(
         "payload type is already registered as '{existing_stable_id}', not '{requested_stable_id}'"
@@ -232,39 +234,39 @@ pub enum CollectedPayloadRegistrationError {
         existing_stable_id: String,
         requested_stable_id: String,
     },
-    #[error("collected payload identifier '{stable_id}' is already registered for another type")]
+    #[error("payload identifier '{stable_id}' is already registered for another type")]
     StableIdAlreadyRegistered { stable_id: String },
-    #[error("collected payload '{stable_id}' already has an ingestion adapter")]
+    #[error("payload '{stable_id}' already has an ingestion adapter")]
     AdapterAlreadyRegistered { stable_id: String },
-    #[error("payload type '{type_name}' has no collected-payload identity")]
+    #[error("payload type '{type_name}' has no payload identity")]
     PayloadNotRegistered { type_name: String },
-    #[error("collected payload '{stable_id}' has no ingestion adapter")]
+    #[error("payload '{stable_id}' has no ingestion adapter")]
     PayloadHasNoAdapter { stable_id: String },
 }
 
-/// Bidirectional identity registry for collected payload types.
+/// Bidirectional identity registry for payload types.
 ///
 /// `TypeId` selects a typed channel while the application runs. `stable_id`
 /// is the durable identity for serialized graph and panel state. Registering
 /// the same type and identifier is idempotent; every other collision fails.
 #[derive(Clone, Default)]
-pub struct CollectedPayloadRegistry {
-    by_type: HashMap<TypeId, CollectedPayloadDescriptor>,
+pub struct PayloadRegistry {
+    by_type: HashMap<TypeId, PayloadDescriptor>,
     by_stable_id: HashMap<String, TypeId>,
-    adapters: HashMap<TypeId, Arc<dyn CollectedPayloadAdapter>>,
+    adapters: HashMap<TypeId, Arc<dyn PayloadAdapter>>,
 }
 
-impl std::fmt::Debug for CollectedPayloadRegistry {
+impl std::fmt::Debug for PayloadRegistry {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_struct("CollectedPayloadRegistry")
+            .debug_struct("PayloadRegistry")
             .field("by_type", &self.by_type)
             .field("adapter_count", &self.adapters.len())
             .finish()
     }
 }
 
-impl CollectedPayloadRegistry {
+impl PayloadRegistry {
     pub fn new() -> Self {
         Self::default()
     }
@@ -272,10 +274,10 @@ impl CollectedPayloadRegistry {
     pub fn register<T: Clone + Send + Sync + 'static>(
         &mut self,
         stable_id: impl Into<String>,
-    ) -> Result<(), CollectedPayloadRegistrationError> {
+    ) -> Result<(), PayloadRegistrationError> {
         let stable_id = stable_id.into();
         if stable_id.trim().is_empty() {
-            return Err(CollectedPayloadRegistrationError::EmptyStableId);
+            return Err(PayloadRegistrationError::EmptyStableId);
         }
 
         let type_id = TypeId::of::<T>();
@@ -283,19 +285,19 @@ impl CollectedPayloadRegistry {
             return if existing.stable_id == stable_id {
                 Ok(())
             } else {
-                Err(CollectedPayloadRegistrationError::TypeAlreadyRegistered {
+                Err(PayloadRegistrationError::TypeAlreadyRegistered {
                     existing_stable_id: existing.stable_id.clone(),
                     requested_stable_id: stable_id,
                 })
             };
         }
         if self.by_stable_id.contains_key(&stable_id) {
-            return Err(CollectedPayloadRegistrationError::StableIdAlreadyRegistered { stable_id });
+            return Err(PayloadRegistrationError::StableIdAlreadyRegistered { stable_id });
         }
 
         self.by_stable_id.insert(stable_id.clone(), type_id);
         self.by_type
-            .insert(type_id, CollectedPayloadDescriptor { stable_id });
+            .insert(type_id, PayloadDescriptor { stable_id });
         Ok(())
     }
 
@@ -304,39 +306,39 @@ impl CollectedPayloadRegistry {
         &mut self,
         type_id: TypeId,
         stable_id: impl Into<String>,
-    ) -> Result<(), CollectedPayloadRegistrationError> {
+    ) -> Result<(), PayloadRegistrationError> {
         let stable_id = stable_id.into();
         if stable_id.trim().is_empty() {
-            return Err(CollectedPayloadRegistrationError::EmptyStableId);
+            return Err(PayloadRegistrationError::EmptyStableId);
         }
         if let Some(existing) = self.by_type.get(&type_id) {
             return if existing.stable_id == stable_id {
                 Ok(())
             } else {
-                Err(CollectedPayloadRegistrationError::TypeAlreadyRegistered {
+                Err(PayloadRegistrationError::TypeAlreadyRegistered {
                     existing_stable_id: existing.stable_id.clone(),
                     requested_stable_id: stable_id,
                 })
             };
         }
         if self.by_stable_id.contains_key(&stable_id) {
-            return Err(CollectedPayloadRegistrationError::StableIdAlreadyRegistered { stable_id });
+            return Err(PayloadRegistrationError::StableIdAlreadyRegistered { stable_id });
         }
         self.by_stable_id.insert(stable_id.clone(), type_id);
         self.by_type
-            .insert(type_id, CollectedPayloadDescriptor { stable_id });
+            .insert(type_id, PayloadDescriptor { stable_id });
         Ok(())
     }
 
-    pub fn descriptor<T: 'static>(&self) -> Option<&CollectedPayloadDescriptor> {
+    pub fn descriptor<T: 'static>(&self) -> Option<&PayloadDescriptor> {
         self.descriptor_by_type_id(TypeId::of::<T>())
     }
 
-    pub fn descriptor_by_type_id(&self, type_id: TypeId) -> Option<&CollectedPayloadDescriptor> {
+    pub fn descriptor_by_type_id(&self, type_id: TypeId) -> Option<&PayloadDescriptor> {
         self.by_type.get(&type_id)
     }
 
-    pub fn descriptor_by_stable_id(&self, stable_id: &str) -> Option<&CollectedPayloadDescriptor> {
+    pub fn descriptor_by_stable_id(&self, stable_id: &str) -> Option<&PayloadDescriptor> {
         self.by_stable_id
             .get(stable_id)
             .and_then(|type_id| self.descriptor_by_type_id(*type_id))
@@ -345,20 +347,18 @@ impl CollectedPayloadRegistry {
     /// Adds the typed ingestion factory for an already identified payload.
     pub fn register_adapter<T: Clone + Send + Sync + 'static>(
         &mut self,
-        adapter: Arc<dyn CollectedPayloadAdapter>,
-    ) -> Result<(), CollectedPayloadRegistrationError> {
+        adapter: Arc<dyn PayloadAdapter>,
+    ) -> Result<(), PayloadRegistrationError> {
         let type_id = TypeId::of::<T>();
         let Some(descriptor) = self.by_type.get(&type_id) else {
-            return Err(CollectedPayloadRegistrationError::PayloadNotRegistered {
+            return Err(PayloadRegistrationError::PayloadNotRegistered {
                 type_name: std::any::type_name::<T>().to_owned(),
             });
         };
         if self.adapters.contains_key(&type_id) {
-            return Err(
-                CollectedPayloadRegistrationError::AdapterAlreadyRegistered {
-                    stable_id: descriptor.stable_id.clone(),
-                },
-            );
+            return Err(PayloadRegistrationError::AdapterAlreadyRegistered {
+                stable_id: descriptor.stable_id.clone(),
+            });
         }
         self.adapters.insert(type_id, adapter);
         Ok(())
@@ -369,31 +369,29 @@ impl CollectedPayloadRegistry {
         &mut self,
         type_id: TypeId,
         type_name: &str,
-        adapter: Arc<dyn CollectedPayloadAdapter>,
-    ) -> Result<(), CollectedPayloadRegistrationError> {
+        adapter: Arc<dyn PayloadAdapter>,
+    ) -> Result<(), PayloadRegistrationError> {
         let Some(descriptor) = self.by_type.get(&type_id) else {
-            return Err(CollectedPayloadRegistrationError::PayloadNotRegistered {
+            return Err(PayloadRegistrationError::PayloadNotRegistered {
                 type_name: type_name.to_owned(),
             });
         };
         if self.adapters.contains_key(&type_id) {
-            return Err(
-                CollectedPayloadRegistrationError::AdapterAlreadyRegistered {
-                    stable_id: descriptor.stable_id.clone(),
-                },
-            );
+            return Err(PayloadRegistrationError::AdapterAlreadyRegistered {
+                stable_id: descriptor.stable_id.clone(),
+            });
         }
         self.adapters.insert(type_id, adapter);
         Ok(())
     }
 
-    pub fn adapter_by_type_id(&self, type_id: TypeId) -> Option<&Arc<dyn CollectedPayloadAdapter>> {
+    pub fn adapter_by_type_id(&self, type_id: TypeId) -> Option<&Arc<dyn PayloadAdapter>> {
         self.adapters.get(&type_id)
     }
 }
 
 #[cfg(test)]
-mod collected_payload_tests {
+mod payload_tests {
     use super::*;
 
     #[derive(Clone)]
@@ -424,7 +422,7 @@ mod collected_payload_tests {
 
     struct FailingAdapter;
 
-    impl CollectedPayloadAdapter for FailingAdapter {
+    impl PayloadAdapter for FailingAdapter {
         fn create_ingestor(
             &self,
             _request: CollectedLaneRequest,
@@ -435,7 +433,7 @@ mod collected_payload_tests {
 
     #[test]
     fn same_type_and_stable_id_is_idempotent() {
-        let mut registry = CollectedPayloadRegistry::new();
+        let mut registry = PayloadRegistry::new();
 
         registry.register::<First>("org.example.first/v1").unwrap();
         registry.register::<First>("org.example.first/v1").unwrap();
@@ -448,7 +446,7 @@ mod collected_payload_tests {
 
     #[test]
     fn erased_plugin_registration_preserves_type_identity_and_adapter() {
-        let mut registry = CollectedPayloadRegistry::new();
+        let mut registry = PayloadRegistry::new();
         let type_id = TypeId::of::<First>();
 
         registry
@@ -467,22 +465,22 @@ mod collected_payload_tests {
 
     #[test]
     fn rejects_type_or_stable_id_collisions() {
-        let mut registry = CollectedPayloadRegistry::new();
+        let mut registry = PayloadRegistry::new();
         registry.register::<First>("org.example.first/v1").unwrap();
 
         assert!(matches!(
             registry.register::<First>("org.example.renamed/v1"),
-            Err(CollectedPayloadRegistrationError::TypeAlreadyRegistered { .. })
+            Err(PayloadRegistrationError::TypeAlreadyRegistered { .. })
         ));
         assert!(matches!(
             registry.register::<Second>("org.example.first/v1"),
-            Err(CollectedPayloadRegistrationError::StableIdAlreadyRegistered { .. })
+            Err(PayloadRegistrationError::StableIdAlreadyRegistered { .. })
         ));
     }
 
     #[test]
     fn registered_identity_accepts_one_typed_ingestion_adapter() {
-        let mut registry = CollectedPayloadRegistry::new();
+        let mut registry = PayloadRegistry::new();
         registry.register::<First>("org.example.first/v1").unwrap();
 
         registry
@@ -492,24 +490,24 @@ mod collected_payload_tests {
         assert!(registry.adapter_by_type_id(TypeId::of::<First>()).is_some());
         assert!(matches!(
             registry.register_adapter::<First>(Arc::new(FailingAdapter)),
-            Err(CollectedPayloadRegistrationError::AdapterAlreadyRegistered { .. })
+            Err(PayloadRegistrationError::AdapterAlreadyRegistered { .. })
         ));
     }
 
     #[test]
     fn adapter_registration_requires_a_payload_identity() {
-        let mut registry = CollectedPayloadRegistry::new();
+        let mut registry = PayloadRegistry::new();
 
         assert!(matches!(
             registry.register_adapter::<First>(Arc::new(FailingAdapter)),
-            Err(CollectedPayloadRegistrationError::PayloadNotRegistered { .. })
+            Err(PayloadRegistrationError::PayloadNotRegistered { .. })
         ));
     }
 
     #[test]
     fn request_publishes_an_adapter_owned_query() {
         let lanes = DerivedLanes::new();
-        let mut registry = CollectedPayloadRegistry::new();
+        let mut registry = PayloadRegistry::new();
         registry.register::<First>("org.example.first/v1").unwrap();
         let request = CollectedLaneRequest::new(
             "first",

@@ -6,14 +6,6 @@ use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 use web_time::Instant;
 
-#[cfg(test)]
-use crate::collected_payload::CollectedPayloadRegistrationError;
-use crate::collected_payload::{
-    CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
-    CollectedLaneTableMetadata, CollectedLaneTableRow, CollectedLaneTableSnapshot,
-    CollectedPayloadAdapter, CollectedPayloadDescriptor, CollectedPayloadRegistry,
-    OpaqueCollectedLaneSnapshot,
-};
 use crate::derived_index::{AppendOnlyMipmap, ChunkedMipmap, LaneFold, MipmapRecord};
 use crate::derived_word_store::{
     AnnotationQuery, AnnotationStoreBackend, AnnotationStoreMetadata, AnnotationStoreWriterBackend,
@@ -23,6 +15,13 @@ use crate::derived_word_store::{
 use crate::errors::{WorkError, WorkResult};
 use crate::events::{Annotation, NumberSample, TextSample, Trigger, Word};
 use crate::node::ProcessNode;
+#[cfg(test)]
+use crate::payload::PayloadRegistrationError;
+use crate::payload::{
+    CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
+    CollectedLaneTableMetadata, CollectedLaneTableRow, CollectedLaneTableSnapshot,
+    OpaqueCollectedLaneSnapshot, PayloadAdapter, PayloadDescriptor, PayloadRegistry,
+};
 use crate::ports::{InputPort, OutputPort, PortDirection, PortSchema};
 use crate::sample::Sample;
 
@@ -697,6 +696,7 @@ fn annotation_table_row(annotation: &Annotation) -> CollectedLaneTableRow {
         start_time_ns: annotation.start_ns,
         end_time_ns: annotation.end_ns,
         value: annotation.value,
+        payload: annotation.payload.clone(),
     }
 }
 
@@ -985,8 +985,8 @@ impl LaneSummary {
 pub struct DerivedLane {
     pub name: String,
     /// Durable identity of the payload adapter that owns this lane, when it
-    /// was registered through the collected-payload contract.
-    pub payload: Option<CollectedPayloadDescriptor>,
+    /// was registered through the payload contract.
+    pub payload: Option<PayloadDescriptor>,
     pub data: DerivedLaneData,
     pub summary: LaneSummary,
     pub word_display_format: Option<String>,
@@ -997,7 +997,7 @@ pub struct DerivedLane {
 #[derive(Clone)]
 pub struct OpaqueCollectedLane {
     name: String,
-    payload: CollectedPayloadDescriptor,
+    payload: PayloadDescriptor,
     query: Arc<dyn CollectedLaneQuery>,
 }
 
@@ -1006,7 +1006,7 @@ impl OpaqueCollectedLane {
         &self.name
     }
 
-    pub fn payload(&self) -> &CollectedPayloadDescriptor {
+    pub fn payload(&self) -> &PayloadDescriptor {
         &self.payload
     }
 
@@ -1086,7 +1086,7 @@ impl DerivedLanes {
     fn register_with_payload(
         &self,
         name: impl Into<String>,
-        payload: Option<CollectedPayloadDescriptor>,
+        payload: Option<PayloadDescriptor>,
         data: DerivedLaneData,
     ) -> usize {
         let name = name.into();
@@ -1132,7 +1132,7 @@ impl DerivedLanes {
     pub fn publish_opaque_lane<T: CollectedLaneQuery + 'static>(
         &self,
         name: impl Into<String>,
-        payload: CollectedPayloadDescriptor,
+        payload: PayloadDescriptor,
         query: Arc<T>,
     ) {
         let name = name.into();
@@ -1237,6 +1237,7 @@ impl DerivedLanes {
                 // start) until the next word patches or cadence-bounds it.
                 end_ns: start_ns + duration_ns,
                 value,
+                payload: None,
             };
             if duration_ns > 0 {
                 summary.push(&annotation);
@@ -1719,7 +1720,7 @@ impl WordLane {
         name: String,
         store: DerivedLanes,
         retention: DerivedDataRetention,
-        payload: Option<CollectedPayloadDescriptor>,
+        payload: Option<PayloadDescriptor>,
         options: CollectedWordLaneOptions,
     ) -> Self {
         let legacy_store = Some(store.clone());
@@ -1887,6 +1888,7 @@ fn append_words_to_in_memory_storage(
             start_ns: word.timestamp_ns,
             end_ns: word.timestamp_ns + word.duration_ns,
             value: word.value,
+            payload: word.payload.clone(),
         };
         if word.duration_ns > 0 {
             storage.summary.push(&annotation);
@@ -1901,14 +1903,14 @@ fn append_words_to_in_memory_storage(
 
 /// Creates the built-in retained word-lane adapter for non-graph callers
 /// such as benchmark tools. Graph compilation obtains the same adapter from
-/// [`CollectedPayloadRegistry`].
+/// [`PayloadRegistry`].
 pub fn built_in_word_lane_ingestor(
     name: impl Into<String>,
     lanes: DerivedLanes,
     retention: DerivedDataRetention,
     options: CollectedWordLaneOptions,
 ) -> Box<dyn CollectedLaneIngestor> {
-    let mut payloads = CollectedPayloadRegistry::new();
+    let mut payloads = PayloadRegistry::new();
     payloads
         .register::<Word>("org.logicconduit.word/v1")
         .expect("built-in word payload identity must be valid");
@@ -1934,7 +1936,7 @@ struct TextPayloadAdapter;
 
 struct WordPayloadAdapter;
 
-impl CollectedPayloadAdapter for DigitalPayloadAdapter {
+impl PayloadAdapter for DigitalPayloadAdapter {
     fn create_ingestor(
         &self,
         request: CollectedLaneRequest,
@@ -1943,7 +1945,7 @@ impl CollectedPayloadAdapter for DigitalPayloadAdapter {
     }
 }
 
-impl CollectedPayloadAdapter for TriggerPayloadAdapter {
+impl PayloadAdapter for TriggerPayloadAdapter {
     fn create_ingestor(
         &self,
         request: CollectedLaneRequest,
@@ -1952,7 +1954,7 @@ impl CollectedPayloadAdapter for TriggerPayloadAdapter {
     }
 }
 
-impl CollectedPayloadAdapter for NumberPayloadAdapter {
+impl PayloadAdapter for NumberPayloadAdapter {
     fn create_ingestor(
         &self,
         request: CollectedLaneRequest,
@@ -1961,7 +1963,7 @@ impl CollectedPayloadAdapter for NumberPayloadAdapter {
     }
 }
 
-impl CollectedPayloadAdapter for TextPayloadAdapter {
+impl PayloadAdapter for TextPayloadAdapter {
     fn create_ingestor(
         &self,
         request: CollectedLaneRequest,
@@ -1970,7 +1972,7 @@ impl CollectedPayloadAdapter for TextPayloadAdapter {
     }
 }
 
-impl CollectedPayloadAdapter for WordPayloadAdapter {
+impl PayloadAdapter for WordPayloadAdapter {
     fn create_ingestor(
         &self,
         request: CollectedLaneRequest,
@@ -1979,30 +1981,30 @@ impl CollectedPayloadAdapter for WordPayloadAdapter {
     }
 }
 
-pub fn digital_payload_adapter() -> Arc<dyn CollectedPayloadAdapter> {
+pub fn digital_payload_adapter() -> Arc<dyn PayloadAdapter> {
     Arc::new(DigitalPayloadAdapter)
 }
 
-pub fn word_payload_adapter() -> Arc<dyn CollectedPayloadAdapter> {
+pub fn word_payload_adapter() -> Arc<dyn PayloadAdapter> {
     Arc::new(WordPayloadAdapter)
 }
 
-pub fn trigger_payload_adapter() -> Arc<dyn CollectedPayloadAdapter> {
+pub fn trigger_payload_adapter() -> Arc<dyn PayloadAdapter> {
     Arc::new(TriggerPayloadAdapter)
 }
 
-pub fn number_payload_adapter() -> Arc<dyn CollectedPayloadAdapter> {
+pub fn number_payload_adapter() -> Arc<dyn PayloadAdapter> {
     Arc::new(NumberPayloadAdapter)
 }
 
-pub fn text_payload_adapter() -> Arc<dyn CollectedPayloadAdapter> {
+pub fn text_payload_adapter() -> Arc<dyn PayloadAdapter> {
     Arc::new(TextPayloadAdapter)
 }
 
 #[cfg(test)]
 fn register_test_payload_adapters(
-    registry: &mut CollectedPayloadRegistry,
-) -> Result<(), CollectedPayloadRegistrationError> {
+    registry: &mut PayloadRegistry,
+) -> Result<(), PayloadRegistrationError> {
     registry.register::<Sample>("org.logicconduit.digital-sample/v1")?;
     registry.register_adapter::<Sample>(digital_payload_adapter())?;
     registry.register::<Word>("org.logicconduit.word/v1")?;
@@ -2309,7 +2311,7 @@ mod tests {
     #[test]
     fn adapter_lane_collects_and_publishes_an_opaque_query() {
         let lanes = DerivedLanes::new();
-        let mut payloads = crate::CollectedPayloadRegistry::new();
+        let mut payloads = crate::PayloadRegistry::new();
         payloads
             .register::<PluginEvent>("org.example.plugin-event/v1")
             .unwrap();
@@ -2361,7 +2363,7 @@ mod tests {
 
     #[test]
     fn built_in_payloads_register_through_the_adapter_registry() {
-        let mut payloads = crate::CollectedPayloadRegistry::new();
+        let mut payloads = crate::PayloadRegistry::new();
         register_test_payload_adapters(&mut payloads).unwrap();
 
         for type_id in [
@@ -2378,7 +2380,7 @@ mod tests {
     #[test]
     fn adapter_owned_lane_publishes_its_payload_identity() {
         let lanes = DerivedLanes::new();
-        let mut payloads = crate::CollectedPayloadRegistry::new();
+        let mut payloads = crate::PayloadRegistry::new();
         register_test_payload_adapters(&mut payloads).unwrap();
         let descriptor = payloads.descriptor::<Word>().unwrap().clone();
         let ingestor = payloads
@@ -2413,6 +2415,64 @@ mod tests {
     }
 
     #[test]
+    fn arbitrary_width_words_are_retained_without_numeric_truncation() {
+        let lanes = DerivedLanes::new();
+        let mut payloads = crate::PayloadRegistry::new();
+        register_test_payload_adapters(&mut payloads).unwrap();
+        let descriptor = payloads.descriptor::<Word>().unwrap().clone();
+        let ingestor = payloads
+            .adapter_by_type_id(std::any::TypeId::of::<Word>())
+            .unwrap()
+            .create_ingestor(CollectedLaneRequest::new(
+                "wide.words",
+                0,
+                lanes.clone(),
+                descriptor,
+                DerivedDataRetention::Unlimited,
+            ))
+            .unwrap();
+        let mut collector = test_collector(lanes.clone()).with_ingestor(ingestor);
+        let watchdog = Watchdog::new();
+        let (sender, receiver) = bounded(4);
+        let bytes: Arc<[u8]> = (0..32).collect::<Vec<_>>().into();
+        sender
+            .send(ChannelMessage::Sample(Word::bytes(
+                Arc::clone(&bytes),
+                10,
+                20,
+            )))
+            .unwrap();
+        drop(sender);
+        run_sink(
+            &mut collector,
+            vec![InputPort::new_with_watchdog(
+                receiver,
+                &watchdog,
+                "collector",
+                "in0",
+            )],
+        );
+
+        let snapshot = lanes.opaque_lanes()[0]
+            .snapshot(CollectedLaneSnapshotRequest {
+                start_time_ns: 0,
+                end_time_ns: 100,
+                max_items: 8,
+            })
+            .unwrap()
+            .value::<WordLaneSnapshot>()
+            .unwrap();
+        let WordLaneSnapshot::Exact { annotations, .. } = snapshot.as_ref() else {
+            panic!("expected exact rich-word snapshot");
+        };
+        assert_eq!(annotations.len(), 1);
+        assert_eq!(
+            annotations[0].payload,
+            Some(crate::WordPayload::Bytes(bytes))
+        );
+    }
+
+    #[test]
     fn standalone_word_ingestor_publishes_query_without_a_legacy_mirror() {
         let lanes = DerivedLanes::new();
         let options = CollectedWordLaneOptions {
@@ -2438,7 +2498,7 @@ mod tests {
     #[test]
     fn digital_adapter_publishes_an_opaque_snapshot_query() {
         let lanes = DerivedLanes::new();
-        let mut payloads = crate::CollectedPayloadRegistry::new();
+        let mut payloads = crate::PayloadRegistry::new();
         register_test_payload_adapters(&mut payloads).unwrap();
         let descriptor = payloads.descriptor::<Sample>().unwrap().clone();
         let ingestor = payloads
@@ -2471,7 +2531,7 @@ mod tests {
     #[test]
     fn trigger_adapter_publishes_an_opaque_snapshot_query() {
         let lanes = DerivedLanes::new();
-        let mut payloads = crate::CollectedPayloadRegistry::new();
+        let mut payloads = crate::PayloadRegistry::new();
         register_test_payload_adapters(&mut payloads).unwrap();
         let descriptor = payloads.descriptor::<Trigger>().unwrap().clone();
         let ingestor = payloads
@@ -2504,7 +2564,7 @@ mod tests {
     #[test]
     fn level_adapters_publish_typed_snapshots_after_collection() {
         let lanes = DerivedLanes::new();
-        let mut payloads = crate::CollectedPayloadRegistry::new();
+        let mut payloads = crate::PayloadRegistry::new();
         register_test_payload_adapters(&mut payloads).unwrap();
         let number = payloads
             .adapter_by_type_id(std::any::TypeId::of::<NumberSample>())
@@ -2585,16 +2645,19 @@ mod tests {
                             start_ns: 10,
                             end_ns: 20,
                             value: 1,
+                            payload: None,
                         },
                         Annotation {
                             start_ns: 30,
                             end_ns: 40,
                             value: 2,
+                            payload: None,
                         },
                         Annotation {
                             start_ns: 50,
                             end_ns: 60,
                             value: 3,
+                            payload: None,
                         },
                     ],
                     summary: ChunkedMipmap::new(),
@@ -2638,11 +2701,13 @@ mod tests {
                         start_time_ns: 10,
                         end_time_ns: 20,
                         value: 1,
+                        payload: None,
                     },
                     CollectedLaneTableRow {
                         start_time_ns: 30,
                         end_time_ns: 40,
                         value: 2,
+                        payload: None,
                     },
                 ],
                 complete: false,
@@ -2707,11 +2772,13 @@ mod tests {
                 start_ns: 1_000,
                 end_ns: 1_500,
                 value: 0xAB,
+                payload: None,
             },
             Annotation {
                 start_ns: 1_500,
                 end_ns: 1_500,
                 value: 0xCD,
+                payload: None,
             },
         ];
         match &lanes[1].data {
@@ -3098,7 +3165,8 @@ mod tests {
                 &[Annotation {
                     start_ns: 1_000,
                     end_ns: 3_300,
-                    value: 0x600081
+                    value: 0x600081,
+                    payload: None,
                 }]
             );
             // Closed immediately → in the summary at once, no one-entry lag.

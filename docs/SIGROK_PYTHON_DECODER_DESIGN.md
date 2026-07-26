@@ -22,7 +22,7 @@ Actionable delivery work is tracked in the **Sigrok Python protocol decoders** s
 - Run raw-logic decoders with compatible `wait()` behavior over finite and growing captures.
 - Route owned protocol packets between independent decoder nodes for graph-defined stacking.
 - Publish annotations and other supported outputs through registered, protocol-independent
-  collected-payload contracts.
+  payload contracts.
 - Derive graph controls, viewer lanes, and decoder-table columns from explicit decoder metadata.
 - Keep generic runtime, compiler, viewer, table, and node-graph code independent of Sigrok and of
   individual protocols.
@@ -84,7 +84,6 @@ logic_analyzer_graph_nodes
   nodes/decoders/sigrok_decoder/
     definition         saved state and graph controls
     builder            processing-node construction and port lowering
-    presentation       collected-payload and lane/table descriptions
     registration       compile-time registration of the generic node feature
 ```
 
@@ -153,7 +152,7 @@ For a raw-logic decoder the runtime performs this sequence:
 5. Allow `decode()` to suspend inside the host `wait()` method.
 6. Feed committed input spans from the processing pipeline to the Rust scheduler.
 7. Resume Python only when a wait condition matches or termination is requested.
-8. Drain converted outputs into typed processing ports and collected-payload adapters.
+8. Drain converted outputs into typed processing ports and payload adapters.
 9. On normal input completion, make the final committed span available and then raise `EOFError`
    from `wait()`.
 10. On cancellation or failure, wake and join the worker without publishing partial output as a
@@ -212,20 +211,26 @@ node reconstructs the corresponding Python value before invoking
 
 ## Output payloads
 
-The processing and graph-node owners register distinct stable payload identities:
+Sigrok output kinds lower to the same standard runtime payloads used by native nodes:
 
-- annotation: span, annotation class, row membership, and ordered alternative texts;
-- binary: span, binary class, and bytes;
-- generated logic: span, declared group/channel identity, and sample values;
-- metadata: registered name, description, numeric type, and value;
-- protocol packet: a shared protocol ID plus an owner-defined recursively owned value.
+- annotations become `Word` values whose numeric tag is the annotation class and whose text is
+  the decoder-provided preferred label;
+- binary output becomes arbitrary-width byte `Word` values whose numeric tag is the binary class;
+- generated logic becomes `SampleBlock` data on a standard signal socket;
+- numeric metadata becomes a `Word` retaining its numeric representation and an explicit label;
+- stacked-decoder output becomes the shared `ProtocolPacket` type with a protocol ID and an
+  owner-defined recursively owned value.
+
+There are no Sigrok-specific retained payload identities, adapters, snapshots, table rows, or
+viewer renderers. A Sigrok output is interchangeable with the corresponding native output at the
+graph and processing boundaries.
 
 `put()` validates output IDs, sample ranges, class indices, and value shapes at the Python boundary.
 Invalid output is reported with decoder ID and Python traceback context.
 
-Collected-payload adapters own retention, snapshots, cursor snapping, decoder-table projection,
-and viewer rendering. Annotation metadata supplies labels and rows explicitly. Viewer and table
-remain sibling subscribers and do not know that the payload originated in Python.
+The standard payload adapters own retention, snapshots, cursor snapping, decoder-table projection,
+and viewer rendering. Viewer and table remain sibling subscribers and do not know whether a value
+originated in Python or a native decoder.
 
 ## Graph node and saved state
 

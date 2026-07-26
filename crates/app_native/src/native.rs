@@ -161,7 +161,7 @@ mod tests {
 
         assert!(
             compiler
-                .collected_payloads()
+                .payloads()
                 .descriptor_by_stable_id("org.logicconduit.example.camera-frame/v1")
                 .is_some()
         );
@@ -176,7 +176,7 @@ mod tests {
         assert_eq!(nodes.category_of("SPI Decoder"), Some("Decoders"));
         assert!(
             compiler
-                .collected_payloads()
+                .payloads()
                 .descriptor_by_stable_id("org.logicconduit.word/v1")
                 .is_some()
         );

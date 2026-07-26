@@ -10,7 +10,7 @@ use node_graph::{
 };
 use signal_processing::{SimpleTriggerCondition, TriggerProgram};
 
-use crate::nodes::registry::{COLOR_SOURCES, Signal};
+use crate::sockets::{COLOR_SOURCES, Signal};
 
 /// Selectable sample rates; the stream-mode channel-count constraint limits
 /// which are reachable.

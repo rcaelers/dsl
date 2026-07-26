@@ -229,7 +229,7 @@ Compile-time plugin crates submit independently discoverable payload, graph-node
 capabilities through `inventory`. The host enables the plugin crate and calls its linker anchor;
 application composition applies payloads, graph nodes, and panels in deterministic stable-ID order.
 [plugins/example-plugin](../plugins/example-plugin) demonstrates
-custom channel and collected payload types, socket types, graph definitions and runtime builders,
+custom channel and payload types, socket types, graph definitions and runtime builders,
 a waveform renderer, and an independently openable panel. Every inventory-submitting bundle
 exposes the same idempotent `link()` anchor. Native and web hosts reference that anchor for every
 enabled bundle. The web entry point invokes the module constructors exactly once

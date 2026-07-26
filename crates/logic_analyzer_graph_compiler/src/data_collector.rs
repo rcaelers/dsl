@@ -46,7 +46,7 @@ impl DataCollectorBuilder {
                 .get(0, *member)
                 .ok_or_else(|| format!("collector input {member} is unresolved"))?;
             let descriptor = registry
-                .collected_payloads()
+                .payloads()
                 .descriptor_by_type_id(input.kind.type_id())
                 .ok_or_else(|| format!("collector cannot retain {:?}", input.kind))?
                 .clone();
@@ -60,11 +60,11 @@ impl DataCollectorBuilder {
             let (request, diagnostic_name) = registry
                 .configure_collected_lane_request(input.kind, request, *member, input, ctx)?;
             let adapter = registry
-                .collected_payloads()
+                .payloads()
                 .adapter_by_type_id(input.kind.type_id())
                 .ok_or_else(|| {
                     format!(
-                        "collected payload '{}' ({}) has no ingestion adapter",
+                        "payload '{}' ({}) has no ingestion adapter",
                         diagnostic_name,
                         request.payload().stable_id()
                     )

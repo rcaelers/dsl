@@ -11,13 +11,13 @@ use logic_analyzer_processing::support::{
 };
 use node_graph::{
     BoolValue, EnumValue, FloatValue, InlineControl, InputDef, IntValue, NodeBadge, NodeDef,
-    NodeInstanceSchema, OutputDef, PanelSection, PropDef, Socket, SocketDef, SocketShape,
-    StringValue,
+    NodeInstanceSchema, OutputDef, PanelSection, PropDef, Socket, StringValue,
 };
 
-use crate::nodes::registry::{COLOR_DECODERS, ProtocolPackets, Signal};
+use crate::sockets::{COLOR_DECODERS, ProtocolPackets, Signal, Words};
 
-const CURRENT_SCHEMA_VERSION: u8 = 2;
+const PROTOCOL_CONTRACT_SCHEMA_VERSION: u8 = 2;
+const CURRENT_SCHEMA_VERSION: u8 = 3;
 
 #[derive(Clone, Debug)]
 pub(crate) struct CatalogChoice {
@@ -517,16 +517,24 @@ impl NodeDef for SigrokDecoderDefinition {
     fn on_update(state: &mut Self::State, inputs: &mut [Socket], _outputs: &mut [Socket]) {
         refresh_catalog(state);
         apply_catalog_selection(state);
-        if state.schema_version < CURRENT_SCHEMA_VERSION
+        if state.schema_version < PROTOCOL_CONTRACT_SCHEMA_VERSION
             && (!state.protocol_inputs.is_empty()
                 || !state.protocol_outputs.is_empty()
                 || !state.outputs.contains(&SavedOutputKind::ProtocolPacket))
         {
-            state.schema_version = CURRENT_SCHEMA_VERSION;
+            state.schema_version = PROTOCOL_CONTRACT_SCHEMA_VERSION;
             state.compatibility_warning = Some(
                 "Upgraded the saved Sigrok decoder with explicit protocol connection contracts; existing socket identities were preserved"
                     .to_owned(),
             );
+        }
+        if state.schema_version < CURRENT_SCHEMA_VERSION {
+            state.schema_version = CURRENT_SCHEMA_VERSION;
+            let message = "Upgraded Sigrok outputs to the standard Word, Signal, and Protocol Packet payload contracts; existing socket identities were preserved";
+            state.compatibility_warning = Some(match state.compatibility_warning.take() {
+                Some(existing) => format!("{existing}; {message}"),
+                None => message.to_owned(),
+            });
         }
         for input in inputs.iter_mut() {
             input.visible =
@@ -571,7 +579,7 @@ fn catalog_search_paths(control: &SigrokCatalogControl) -> Vec<PathBuf> {
 
 fn refresh_catalog(state: &mut SigrokDecoderState) {
     if !state.catalog.refresh_requested
-        && (state.decoder_id.is_empty() || state.schema_version >= CURRENT_SCHEMA_VERSION)
+        && (state.decoder_id.is_empty() || state.schema_version >= PROTOCOL_CONTRACT_SCHEMA_VERSION)
     {
         return;
     }
@@ -591,7 +599,7 @@ fn refresh_catalog(state: &mut SigrokDecoderState) {
     if state.catalog.selected_id.is_empty() && !state.decoder_id.is_empty() {
         state.catalog.selected_id = state.decoder_id.clone();
     }
-    if state.schema_version < CURRENT_SCHEMA_VERSION
+    if state.schema_version < PROTOCOL_CONTRACT_SCHEMA_VERSION
         && let Some(current) = snapshot.entries.iter().find(|entry| {
             entry.descriptor.id == state.decoder_id
                 && entry.descriptor.package_fingerprint == state.package_fingerprint
@@ -605,7 +613,7 @@ fn refresh_catalog(state: &mut SigrokDecoderState) {
             .cloned()
             .collect();
         state.protocol_outputs = current.descriptor.outputs.clone();
-        state.schema_version = CURRENT_SCHEMA_VERSION;
+        state.schema_version = PROTOCOL_CONTRACT_SCHEMA_VERSION;
         state.compatibility_warning = Some(
             "Upgraded the saved Sigrok decoder with explicit protocol connection contracts; existing socket identities were preserved"
                 .to_owned(),
@@ -764,58 +772,15 @@ fn validate_saved_schema(state: &SigrokDecoderState) -> Result<(), String> {
 
 fn output_definition(output: SavedOutputKind) -> OutputDef<SigrokDecoderState> {
     let definition = match output {
-        SavedOutputKind::Annotation => OutputDef::new::<SigrokAnnotationSocket>(output.label()),
-        SavedOutputKind::Binary => OutputDef::new::<SigrokBinarySocket>(output.label()),
-        SavedOutputKind::GeneratedLogic => {
-            OutputDef::new::<SigrokGeneratedLogicSocket>(output.label())
+        SavedOutputKind::Annotation | SavedOutputKind::Binary | SavedOutputKind::Metadata => {
+            OutputDef::new::<Words>(output.label())
         }
-        SavedOutputKind::Metadata => OutputDef::new::<SigrokMetadataSocket>(output.label()),
+        SavedOutputKind::GeneratedLogic => OutputDef::new::<Signal>(output.label()),
         SavedOutputKind::ProtocolPacket => OutputDef::new::<ProtocolPackets>(output.label()),
     };
     definition.stable_id(output.port_name())
 }
 
-macro_rules! socket_type {
-    ($name:ident, $type_name:literal, $color:expr) => {
-        struct $name;
-        impl SocketDef for $name {
-            type Value = ();
-
-            fn type_name() -> &'static str {
-                $type_name
-            }
-
-            fn color() -> Color32 {
-                $color
-            }
-
-            fn shape() -> SocketShape {
-                SocketShape::Diamond
-            }
-        }
-    };
-}
-
-socket_type!(
-    SigrokAnnotationSocket,
-    "Sigrok Annotation",
-    Color32::from_rgb(220, 155, 65)
-);
-socket_type!(
-    SigrokBinarySocket,
-    "Sigrok Binary",
-    Color32::from_rgb(205, 125, 55)
-);
-socket_type!(
-    SigrokGeneratedLogicSocket,
-    "Sigrok Logic",
-    Color32::from_rgb(95, 175, 95)
-);
-socket_type!(
-    SigrokMetadataSocket,
-    "Sigrok Metadata",
-    Color32::from_rgb(95, 145, 210)
-);
 #[cfg(test)]
 mod definition_tests {
     use super::*;
@@ -845,7 +810,20 @@ mod definition_tests {
                 .iter()
                 .map(|output| output.name.as_str())
                 .collect::<Vec<_>>(),
-            ["Annotations", "Packets"]
+            [
+                "Annotations",
+                "Binary",
+                "Generated Logic",
+                "Metadata",
+                "Packets"
+            ]
+        );
+        assert_eq!(
+            node.outputs
+                .iter()
+                .map(|output| output.type_name.as_str())
+                .collect::<Vec<_>>(),
+            ["Words", "Words", "Signal", "Words", "Protocol Packet"]
         );
 
         let saved = serde_json::to_string(widget.graph()).unwrap();
@@ -855,7 +833,7 @@ mod definition_tests {
         restored.set_graph(serde_json::from_str(&saved).unwrap());
         let node = &restored.graph().nodes[&node.id];
         assert_eq!(node.inputs[0].name, "Clock");
-        assert_eq!(node.outputs[1].name, "Packets");
+        assert_eq!(node.outputs[4].name, "Packets");
     }
 
     #[test]
@@ -917,7 +895,13 @@ mod definition_tests {
                     ],
                 },
             }],
-            outputs: vec![SavedOutputKind::Annotation, SavedOutputKind::ProtocolPacket],
+            outputs: vec![
+                SavedOutputKind::Annotation,
+                SavedOutputKind::Binary,
+                SavedOutputKind::GeneratedLogic,
+                SavedOutputKind::Metadata,
+                SavedOutputKind::ProtocolPacket,
+            ],
             annotation_rows: vec![SavedAnnotationRow { classes: vec![0] }],
             annotation_class_count: 1,
             binary_class_count: 0,

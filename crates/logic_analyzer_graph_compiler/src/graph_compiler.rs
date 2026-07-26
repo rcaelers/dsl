@@ -3,7 +3,7 @@ use std::path::Path;
 
 use logic_analyzer_graph_api::node_support::LiveCaptureEdit;
 use node_graph::api::{GraphState, NodeId};
-use signal_processing::{CollectedPayloadRegistry, ConfigurationBoundary, PersistentStoreConfig};
+use signal_processing::{ConfigurationBoundary, PayloadRegistry, PersistentStoreConfig};
 
 use super::errors::{ApplyError, CompileError};
 use super::graph::{
@@ -38,8 +38,8 @@ impl GraphCompiler {
         self.output_subscriptions = subscriptions;
     }
 
-    pub fn collected_payloads(&self) -> &CollectedPayloadRegistry {
-        self.builders.collected_payloads()
+    pub fn payloads(&self) -> &PayloadRegistry {
+        self.builders.payloads()
     }
 
     #[cfg(any(test, feature = "test-support"))]

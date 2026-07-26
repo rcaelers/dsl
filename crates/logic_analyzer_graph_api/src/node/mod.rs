@@ -8,4 +8,4 @@ mod payload_registration;
 pub use catalog::{DirectoryNodeCatalog, NodeCatalogStatus};
 pub use contracts::{CaptureGraphSourceFactory, LiveCaptureFeature, RuntimeBuilder};
 pub use graph_registration::{GraphNodeRegistration, graph_node_registrations};
-pub use payload_registration::{CollectedPayloadRegistration, CollectedPayloadRequestConfigurator};
+pub use payload_registration::{PayloadRegistration, PayloadRequestConfigurator};

@@ -604,6 +604,7 @@ fn load_table(
                                 start_time_ns: annotation.start_ns,
                                 end_time_ns: annotation.end_ns,
                                 value: annotation.value,
+                                payload: annotation.payload.clone(),
                             })
                             .collect(),
                         lane_format,
@@ -627,6 +628,7 @@ fn load_table(
                                 start_time_ns: annotation.start_ns,
                                 end_time_ns: annotation.end_ns,
                                 value: annotation.value,
+                                payload: annotation.payload.clone(),
                             })
                             .collect(),
                         lane_format,
@@ -761,7 +763,7 @@ fn show_row(
     index: usize,
 ) -> Vec<egui::Rect> {
     let mut cells = Vec::new();
-    let anchor = table.columns[table.anchor].rows[index];
+    let anchor = &table.columns[table.anchor].rows[index];
     if visible(state, "sequence") {
         cells.push(ui.monospace((index + 1).to_string()).rect);
     }
@@ -781,7 +783,7 @@ fn show_row(
                     row.start_time_ns >= anchor.start_time_ns
                         && row.start_time_ns <= anchor.end_time_ns
                 })
-                .map(|row| format_cell_value(ui, column, row.value, state, loaded))
+                .map(|row| format_cell_value(ui, column, row, state, loaded))
                 .collect::<Vec<_>>();
             let text = match &column.cell_mode {
                 DecoderTableCellMode::Single => values.first().cloned().unwrap_or_default(),
@@ -840,7 +842,7 @@ fn paint_sticky_header(
 fn format_cell_value(
     ui: &egui::Ui,
     column: &DecoderTableColumn,
-    value: u64,
+    row: &CollectedLaneTableRow,
     state: &DecoderPanelState,
     loaded: &LoadedColumn,
 ) -> String {
@@ -849,14 +851,23 @@ fn format_cell_value(
         .format
         .override_name()
         .or(loaded.lane_format.as_deref());
+    let label = match &row.payload {
+        Some(signal_processing::WordPayload::Bytes(bytes)) => bytes
+            .iter()
+            .map(|byte| format!("{byte:02X}"))
+            .collect::<Vec<_>>()
+            .join(" "),
+        Some(signal_processing::WordPayload::Text(text)) => text.to_string(),
+        None => format_value(row.value, format),
+    };
     let default = AnnotationVisual {
-        label: format_value(value, format),
+        label,
         fill: theme.accent.gamma_multiply(0.35),
         border: Stroke::new(1.0, theme.accent),
     };
     column
         .renderer
-        .annotation_visual(&column.track, &theme, value, default)
+        .annotation_visual(&column.track, &theme, row.value, default)
         .label
 }
 
@@ -901,7 +912,7 @@ mod tests {
     use logic_analyzer_viewer::{DefaultViewerLaneRenderer, DerivedLaneId, ViewerLaneTrackId};
     use signal_processing::{
         CollectedLaneQuery, CollectedLaneTableMetadata, CollectedLaneTableRow,
-        CollectedLaneTableSnapshot, CollectedPayloadRegistry, Word,
+        CollectedLaneTableSnapshot, PayloadRegistry, Word,
     };
 
     use super::*;
@@ -953,6 +964,7 @@ mod tests {
                         start_time_ns: 10,
                         end_time_ns: 20,
                         value: 0x2A,
+                        payload: None,
                     }],
                     complete: false,
                     format_hint: Some("Hex".to_owned()),
@@ -981,9 +993,10 @@ mod tests {
                 start_ns: 100,
                 end_ns: 200,
                 value: 0x11,
+                payload: None,
             }]),
         );
-        let mut payloads = CollectedPayloadRegistry::new();
+        let mut payloads = PayloadRegistry::new();
         payloads.register::<Word>("org.example.word/v1").unwrap();
         lanes.publish_opaque_lane(
             lane_id.as_str(),
@@ -1003,6 +1016,7 @@ mod tests {
                 start_time_ns: 10,
                 end_time_ns: 20,
                 value: 0x2A,
+                payload: None,
             }]
         );
         assert_eq!(table.columns[0].lane_format.as_deref(), Some("Hex"));

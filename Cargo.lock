@@ -2179,9 +2179,17 @@ dependencies = [
 name = "logic-analyzer-examples"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "clap",
+ "egui",
+ "logic-analyzer-graph-compiler",
+ "logic-analyzer-graph-nodes",
+ "logic-analyzer-processing",
  "memmap2",
  "minifb",
+ "node-graph",
+ "signal-processing",
+ "tempfile",
 ]
 
 [[package]]
@@ -2204,9 +2212,6 @@ dependencies = [
  "inventory",
  "logic-analyzer-graph-api",
  "logic-analyzer-graph-nodes",
- "logic-analyzer-processing",
- "logic-analyzer-test-support",
- "logic-analyzer-viewer",
  "node-graph",
  "serde",
  "serde_json",

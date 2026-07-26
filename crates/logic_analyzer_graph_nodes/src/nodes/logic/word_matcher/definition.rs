@@ -8,7 +8,7 @@ use node_graph::{
     StringValue,
 };
 
-use crate::nodes::registry::{COLOR_LOGIC, Signal, Trigger, Words};
+use crate::sockets::{COLOR_LOGIC, Signal, Trigger, Words};
 
 const MATCH_OPS: &[&str] = &["==", "≠", "<", "≤", ">", "≥"];
 

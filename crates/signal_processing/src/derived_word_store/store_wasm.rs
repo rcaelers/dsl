@@ -151,6 +151,7 @@ impl AnnotationQuery for IndexedAnnotationStore {
                     start_ns: word.timestamp_ns,
                     end_ns: annotation_end,
                     value: word.value,
+                    payload: word.payload.clone(),
                 });
             }
         }
@@ -252,7 +253,7 @@ impl IndexedAnnotationWriter {
             }
         }
         let first_block = state.words.len() as u64;
-        for (offset, word) in words.iter().copied().enumerate() {
+        for (offset, word) in words.iter().cloned().enumerate() {
             state.presence.push(WordSummaryRecord {
                 start_ns: word.timestamp_ns,
                 end_ns: word.timestamp_ns.saturating_add(word.duration_ns),

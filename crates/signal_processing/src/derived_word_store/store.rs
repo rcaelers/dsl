@@ -544,6 +544,7 @@ impl AnnotationQuery for IndexedAnnotationStore {
                     start_ns: word.timestamp_ns,
                     end_ns: end,
                     value: word.value,
+                    payload: word.payload.clone(),
                 });
                 if annotations.len() > max_words {
                     annotations.truncate(max_words);
@@ -725,14 +726,15 @@ impl ExactQueryCandidates {
         if words.is_empty() || self.truncated || self.successor.is_some() {
             return;
         }
-        for &word in words {
+        for word in words {
             if word.timestamp_ns < start_ns {
                 if self
                     .predecessor
+                    .as_ref()
                     .is_none_or(|current| current.timestamp_ns <= word.timestamp_ns)
                 {
-                    self.previous_predecessor = self.predecessor;
-                    self.predecessor = Some(word);
+                    self.previous_predecessor = self.predecessor.clone();
+                    self.predecessor = Some(word.clone());
                 }
                 if word.duration_ns == 0
                     || word.timestamp_ns.saturating_add(word.duration_ns) < start_ns
@@ -740,7 +742,7 @@ impl ExactQueryCandidates {
                     continue;
                 }
             } else if word.timestamp_ns > end_ns {
-                self.successor = Some(word);
+                self.successor = Some(word.clone());
                 break;
             }
 
@@ -748,7 +750,7 @@ impl ExactQueryCandidates {
                 self.truncated = true;
                 return;
             }
-            self.words.push(word);
+            self.words.push(word.clone());
         }
     }
 }
@@ -961,7 +963,7 @@ impl IndexedAnnotationWriter {
     }
 
     fn append_batch_inner(&mut self, words: &[Word]) -> StoreResult<()> {
-        for &word in words {
+        for word in words {
             if let Some(previous_timestamp_ns) = self.last_timestamp_ns
                 && word.timestamp_ns < previous_timestamp_ns
             {
@@ -1299,7 +1301,11 @@ mod tests {
         let persistent = config.persistence.clone().unwrap();
         let (mut writer, live_store) = IndexedAnnotationWriter::create(config).unwrap();
         let words: Vec<_> = (0..41)
-            .map(|index| Word::spanning(index, index * 80, index % 5))
+            .map(|index| match index {
+                17 => Word::bytes_with_tag(index, vec![0xa5; 96], index * 80, index % 5),
+                23 => Word::labeled(index, "decoded label", index * 80, index % 5),
+                _ => Word::spanning(index, index * 80, index % 5),
+            })
             .collect();
         writer.append_batch(&words).unwrap();
         writer.finish().unwrap();
@@ -1707,6 +1713,7 @@ mod tests {
                 start_ns: 10,
                 end_ns: 10_000,
                 value: 0x27,
+                payload: None,
             }]
         );
         assert_eq!(store.nearest_boundary(9_998, 10).unwrap(), Some(10_000));
@@ -1951,6 +1958,7 @@ mod tests {
                     start_ns: word.timestamp_ns,
                     end_ns: annotation_end,
                     value: word.value,
+                    payload: word.payload.clone(),
                 })
             })
             .collect()

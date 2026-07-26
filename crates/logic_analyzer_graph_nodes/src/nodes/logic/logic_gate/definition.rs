@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use node_graph::{EnumValue, InputDef, NodeBadge, NodeDef, OutputDef, PropDef, Socket};
 
-use crate::nodes::registry::{COLOR_LOGIC, Signal};
+use crate::sockets::{COLOR_LOGIC, Signal};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct LogicGateState {

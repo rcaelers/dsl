@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use node_graph::{InputDef, IntValue, NodeDef, OutputDef, StringValue};
 
-use crate::nodes::registry::{COLOR_SOURCES, Signal};
+use crate::sockets::{COLOR_SOURCES, Signal};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct TestUartSourceState {

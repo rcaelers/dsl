@@ -805,7 +805,7 @@ mod tests {
 
     use signal_processing::{
         CaptureIndex, CaptureMetadata, CaptureSampledChannel, CaptureSampledWindow,
-        CollectedLaneQuery, CollectedPayloadRegistry, DerivedLanes, Word,
+        CollectedLaneQuery, DerivedLanes, PayloadRegistry, Word,
     };
 
     use super::{ChannelSignal, LogicAnalyzerViewer};
@@ -948,7 +948,7 @@ mod tests {
         }
 
         let lanes = DerivedLanes::new();
-        let mut payloads = CollectedPayloadRegistry::new();
+        let mut payloads = PayloadRegistry::new();
         payloads.register::<Word>("org.example.word/v1").unwrap();
         lanes.publish_opaque_lane(
             "words",

@@ -31,14 +31,14 @@ use node_graph::api::{
     VariadicInfo,
 };
 #[cfg(test)]
-use signal_processing::CollectedPayloadRegistrationError;
+use signal_processing::PayloadRegistrationError;
 use signal_processing::{
     AcquisitionContext, AcquisitionResult, AppManager, CaptureChannelId,
     CaptureProviderCapabilities, CaptureSessionPlan, CaptureStartMode, CollectedLaneRequest,
-    CollectedPayloadRegistry, ConfigurationBoundary, DerivedDataRetention, DerivedLanes,
-    DisconnectEvent, InputSub, NodeConfig, OverflowPolicy, PersistentStoreConfig,
-    PreparedAcquisition, ProcessNode, SampleBlock, SamplingActivity, SamplingEdge,
-    SimpleTriggerCondition, TriggerProgram,
+    ConfigurationBoundary, DerivedDataRetention, DerivedLanes, DisconnectEvent, InputSub,
+    NodeConfig, OverflowPolicy, PayloadRegistry, PersistentStoreConfig, PreparedAcquisition,
+    ProcessNode, SampleBlock, SamplingActivity, SamplingEdge, SimpleTriggerCondition,
+    TriggerProgram,
 };
 
 use super::data_collector::DataCollectorBuilder;
@@ -293,20 +293,20 @@ pub struct DiscoveredCapturePresentation {
 
 pub(crate) struct BuilderRegistry {
     pub(crate) builders: HashMap<String, Box<dyn RuntimeBuilder>>,
-    pub(crate) collected_payloads: CollectedPayloadRegistry,
-    pub(crate) payload_subscriptions: Vec<CollectedPayloadSubscription>,
+    pub(crate) payloads: PayloadRegistry,
+    pub(crate) payload_subscriptions: Vec<PayloadSubscription>,
 }
 
 #[derive(Clone)]
-pub(crate) struct CollectedPayloadSubscription {
+pub(crate) struct PayloadSubscription {
     pub(crate) kind: PortKind,
     pub(crate) diagnostic_name: String,
     pub(crate) presentation: DefaultLanePresentationDescriptor,
     pub(crate) persistent_cache: bool,
-    pub(crate) configure_request: CollectedPayloadRequestConfigurator,
+    pub(crate) configure_request: PayloadRequestConfigurator,
 }
 
-pub(crate) type CollectedPayloadRequestConfigurator = Arc<
+pub(crate) type PayloadRequestConfigurator = Arc<
     dyn Fn(
             CollectedLaneRequest,
             usize,
@@ -320,22 +320,19 @@ pub(crate) type CollectedPayloadRequestConfigurator = Arc<
 impl BuilderRegistry {
     pub(crate) fn standard() -> Self {
         let registry = Self::with_builders(super::standard_graph_node_builders());
-        super::validate_graph_node_payload_requirements(&registry.collected_payloads);
+        super::validate_graph_node_payload_requirements(&registry.payloads);
         registry
     }
 
     fn with_builders(builders: HashMap<String, Box<dyn RuntimeBuilder>>) -> Self {
         let mut registry = Self {
             builders,
-            collected_payloads: CollectedPayloadRegistry::new(),
+            payloads: PayloadRegistry::new(),
             payload_subscriptions: Vec::new(),
         };
-        for registration in super::collected_payload_registrations() {
-            super::collected_payload_registration::apply_collected_payload_registration(
-                registration,
-                &mut registry,
-            )
-            .expect("collected-payload inventory registration must be valid");
+        for registration in super::payload_registrations() {
+            super::payload_registration::apply_payload_registration(registration, &mut registry)
+                .expect("payload inventory registration must be valid");
         }
         registry
     }
@@ -363,39 +360,33 @@ impl BuilderRegistry {
     /// later adapter registration supplies its typed ingestion and query
     /// behavior.
     #[cfg(test)]
-    pub(crate) fn register_collected_payload<
-        T: logic_analyzer_graph_api::node_support::PortValue,
-    >(
+    pub(crate) fn register_payload<T: logic_analyzer_graph_api::node_support::PortValue>(
         &mut self,
         stable_id: impl Into<String>,
-    ) -> Result<&mut Self, CollectedPayloadRegistrationError> {
+    ) -> Result<&mut Self, PayloadRegistrationError> {
         signal_processing::register_type::<T>();
-        self.collected_payloads.register::<T>(stable_id)?;
+        self.payloads.register::<T>(stable_id)?;
         Ok(self)
     }
 
     #[cfg(test)]
-    pub(crate) fn register_collected_payload_subscription_with_request_configurator<
+    pub(crate) fn register_payload_subscription_with_request_configurator<
         T: logic_analyzer_graph_api::node_support::PortValue,
     >(
         &mut self,
         presentation: DefaultLanePresentationDescriptor,
-        configure_request: CollectedPayloadRequestConfigurator,
+        configure_request: PayloadRequestConfigurator,
         persistent_cache: bool,
-    ) -> Result<&mut Self, CollectedPayloadRegistrationError> {
+    ) -> Result<&mut Self, PayloadRegistrationError> {
         let type_id = std::any::TypeId::of::<T>();
         let descriptor = self
-            .collected_payloads
+            .payloads
             .descriptor_by_type_id(type_id)
-            .ok_or_else(|| CollectedPayloadRegistrationError::PayloadNotRegistered {
+            .ok_or_else(|| PayloadRegistrationError::PayloadNotRegistered {
                 type_name: std::any::type_name::<T>().to_owned(),
             })?;
-        if self
-            .collected_payloads
-            .adapter_by_type_id(type_id)
-            .is_none()
-        {
-            return Err(CollectedPayloadRegistrationError::PayloadHasNoAdapter {
+        if self.payloads.adapter_by_type_id(type_id).is_none() {
+            return Err(PayloadRegistrationError::PayloadHasNoAdapter {
                 stable_id: descriptor.stable_id().to_owned(),
             });
         }
@@ -410,22 +401,21 @@ impl BuilderRegistry {
             existing.persistent_cache = persistent_cache;
             existing.configure_request = configure_request;
         } else {
-            self.payload_subscriptions
-                .push(CollectedPayloadSubscription {
-                    kind,
-                    diagnostic_name: T::kind_name().to_owned(),
-                    presentation,
-                    persistent_cache,
-                    configure_request,
-                });
+            self.payload_subscriptions.push(PayloadSubscription {
+                kind,
+                diagnostic_name: T::kind_name().to_owned(),
+                presentation,
+                persistent_cache,
+                configure_request,
+            });
         }
         Ok(self)
     }
 
     /// Registered retained-payload identities, keyed by runtime `TypeId` and
     /// durable plugin-owned identifiers.
-    pub(crate) fn collected_payloads(&self) -> &CollectedPayloadRegistry {
-        &self.collected_payloads
+    pub(crate) fn payloads(&self) -> &PayloadRegistry {
+        &self.payloads
     }
 
     #[cfg_attr(feature = "test-support", doc(hidden))]
@@ -2248,16 +2238,6 @@ impl LiveRun {
         Ok(summary)
     }
 
-    #[cfg(test)]
-    fn apply(
-        &mut self,
-        graph: &GraphState,
-        registry: &BuilderRegistry,
-    ) -> Result<ApplySummary, ApplyError> {
-        let subscriptions = test_output_subscriptions(graph, registry);
-        self.apply_with_subscriptions(graph, registry, &subscriptions)
-    }
-
     /// Applies the subset of an edited capture graph that can preserve an
     /// explicit future-only boundary. Phase 13.1 deliberately accepts only
     /// builder-declared hot configuration; structural changes and restarts
@@ -2433,25 +2413,23 @@ fn start_app_run_with_source_overrides(
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     use egui::Pos2;
 
     use logic_analyzer_graph_api::node_support::SamplingOverlayDescriptor;
-    use logic_analyzer_processing::nodes::sinks::binary_file_writer::BinaryFileWriter;
-    use logic_analyzer_test_support::{BufferedFakeConfig, BufferedFakeProvider};
     use node_graph::NodeGraphWidget;
     use signal_processing::{
-        AcquisitionContext, AcquisitionResult, CaptureAnalysisChannel, CaptureAnalysisSource,
-        CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureDataDelivery,
-        CaptureProviderCapabilities, CaptureSessionId, CaptureStoreCursor, ConfigValue,
-        CooperativeManager, DerivedLaneData, NativeCaptureStore, NativeCaptureStoreConfig,
-        NodeSpec, NumberSample, Pipeline, PreparedAcquisition, Sample, SamplingEdge, TextSample,
-        Trigger, TriggerCount, TriggerCountMode, TriggerEditorSchema, TriggerIdentifier,
-        TriggerLogicOperator, TriggerPlacement, TriggerPredicate, TriggerStage, Word,
+        AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureAnalysisChannel,
+        CaptureAnalysisSource, CaptureChannelId, CaptureChunk, CaptureChunkWriter,
+        CaptureDataDelivery, CaptureProviderCapabilities, CaptureSessionId,
+        CaptureSettingCombination, CaptureStoreCursor, ConfigValue, CooperativeManager,
+        NativeCaptureStore, NativeCaptureStoreConfig, NodeSpec, NumberSample, PreparedAcquisition,
+        Sample, SamplingEdge, TextSample, Trigger, TriggerCount, TriggerCountMode,
+        TriggerEditorSchema, TriggerIdentifier, TriggerLogicOperator, TriggerPlacement,
+        TriggerPredicate, TriggerStage, Word,
     };
 
     use super::*;
@@ -2542,7 +2520,7 @@ mod tests {
             assert!(registry.payload_subscription_presentation(kind).is_some());
         }
         registry
-            .register_collected_payload::<SampleBlock>("org.example.block/v1")
+            .register_payload::<SampleBlock>("org.example.block/v1")
             .unwrap();
         assert!(
             !registry
@@ -2551,19 +2529,18 @@ mod tests {
             "a durable payload identity alone must not create a subscription contract"
         );
         assert!(matches!(
-            registry
-                .register_collected_payload_subscription_with_request_configurator::<SampleBlock>(
-                    DefaultLanePresentationDescriptor::new(
-                        logic_analyzer_graph_api::node_support::LaneBadgeDescriptor::new(
-                            "B",
-                            [255, 255, 255],
-                        ),
-                        "org.example.renderer/v1",
+            registry.register_payload_subscription_with_request_configurator::<SampleBlock>(
+                DefaultLanePresentationDescriptor::new(
+                    logic_analyzer_graph_api::node_support::LaneBadgeDescriptor::new(
+                        "B",
+                        [255, 255, 255],
                     ),
-                    Arc::new(|request, _, _, _| request),
-                    false,
+                    "org.example.renderer/v1",
                 ),
-            Err(CollectedPayloadRegistrationError::PayloadHasNoAdapter { .. })
+                Arc::new(|request, _, _, _| request),
+                false,
+            ),
+            Err(PayloadRegistrationError::PayloadHasNoAdapter { .. })
         ));
         assert!(registry.payload_uses_persistent_cache(PortKind::of::<Word>()));
         assert!(!registry.payload_uses_persistent_cache(PortKind::of::<Sample>()));
@@ -2644,7 +2621,6 @@ mod tests {
         channels: Arc<[CaptureChannelId]>,
         channel_names: Arc<[String]>,
         capabilities: CaptureProviderCapabilities,
-        provider: BufferedFakeProvider,
     }
 
     impl CaptureGraphSourceFactory for BufferedPluginGraphSourceFactory {
@@ -2695,9 +2671,11 @@ mod tests {
 
         fn prepare(
             self: Box<Self>,
-            context: AcquisitionContext,
+            _context: AcquisitionContext,
         ) -> AcquisitionResult<Box<dyn PreparedAcquisition>> {
-            self.provider.prepare(context)
+            Err(AcquisitionError::UnsupportedOperation(
+                "capability-only compiler test feature".into(),
+            ))
         }
     }
 
@@ -2742,14 +2720,18 @@ mod tests {
                 CaptureChannelId::new("aux-bank:9"),
             ]
             .into();
-            let config = BufferedFakeConfig::new(Arc::clone(&channels), 2_000_000, 19, 5, 0x8d31)
-                .map_err(|error| error.to_string())?;
-            let capabilities = config.capabilities().clone();
+            let capabilities = CaptureProviderCapabilities::new(
+                CaptureDataDelivery::BufferedUpload,
+                Arc::from([
+                    CaptureSettingCombination::new(Arc::clone(&channels), Arc::from([2_000_000]))?,
+                    CaptureSettingCombination::new(Arc::clone(&channels), Arc::from([1_000_000]))?,
+                ]),
+                false,
+            )?;
             Ok(Some(Box::new(BufferedPluginFeature {
                 channel_names: vec!["Pod A 3".into(), "Pod Q 41".into(), "Aux 9".into()].into(),
                 channels,
                 capabilities,
-                provider: BufferedFakeProvider::new(config),
             })))
         }
 
@@ -3056,6 +3038,7 @@ mod tests {
                         start_ns: row.start_time_ns,
                         end_ns: row.end_time_ns,
                         value: row.value,
+                        payload: row.payload,
                     })
                     .collect()
             })
@@ -4964,638 +4947,5 @@ mod tests {
 
         let new = lower(widget.graph(), &registry).unwrap();
         assert!(diff(&old, &new, &registry).unwrap().is_empty());
-    }
-
-    fn repo_path(relative: &str) -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join(relative)
-    }
-
-    /// Reference pipeline: the byte-exact Phase-1 wiring of
-    /// `examples/spi_graph_decode.rs`.
-    fn run_reference(capture: &Path, out_dir: &Path) {
-        use logic_analyzer_processing::nodes::decoders::parallel_decoder::{
-            ParallelDecoder, StrobeMode,
-        };
-        use logic_analyzer_processing::nodes::decoders::spi_decoder::{SpiDecoder, SpiMode};
-        use logic_analyzer_processing::nodes::logic::sr_latch::SrLatch;
-        use logic_analyzer_processing::nodes::logic::text_formatter::TextFormatter;
-        use logic_analyzer_processing::nodes::logic::trigger_counter::TriggerCounter;
-        use logic_analyzer_processing::nodes::logic::word_matcher::WordMatcher;
-        use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
-        use logic_analyzer_processing::types::CsPolarity;
-
-        let mut pipeline = Pipeline::new().with_default_buffer_size(10_000_000);
-        pipeline
-            .add_process("source", DslFileSource::new(capture).unwrap())
-            .unwrap();
-        pipeline
-            .add_process("spi", SpiDecoder::new(SpiMode::Mode0, 24, true, false))
-            .unwrap();
-        pipeline
-            .add_process("start", WordMatcher::new(0x600081, u64::MAX))
-            .unwrap();
-        pipeline
-            .add_process("stop", WordMatcher::new(0x600000, u64::MAX))
-            .unwrap();
-        pipeline.add_process("latch", SrLatch::new(false)).unwrap();
-        pipeline
-            .add_process("counter", TriggerCounter::new(0, 1))
-            .unwrap();
-        pipeline
-            .add_process(
-                "formatter",
-                TextFormatter::new(format!("{}/capture_{{n:04}}.bin", out_dir.display())),
-            )
-            .unwrap();
-        pipeline
-            .add_process(
-                "decoder",
-                ParallelDecoder::new(8, StrobeMode::AnyEdge, CsPolarity::ActiveLow),
-            )
-            .unwrap();
-        pipeline
-            .add_process("writer", BinaryFileWriter::new().with_index_csv(true))
-            .unwrap();
-
-        pipeline.connect("source", "ch7", "spi", "clk").unwrap();
-        pipeline.connect("source", "ch8", "spi", "cs").unwrap();
-        pipeline.connect("source", "ch6", "spi", "mosi").unwrap();
-        pipeline
-            .connect_with_buffer("spi", "mosi_words", "start", "words", 1_000)
-            .unwrap();
-        pipeline
-            .connect_with_buffer("spi", "mosi_words", "stop", "words", 1_000)
-            .unwrap();
-        pipeline
-            .connect_with_buffer("start", "trigger", "latch", "set", 100)
-            .unwrap();
-        pipeline
-            .connect_with_buffer("stop", "trigger", "latch", "reset", 100)
-            .unwrap();
-        pipeline
-            .connect_with_buffer("latch", "q", "decoder", "enable_signal", 100)
-            .unwrap();
-        pipeline
-            .connect_with_buffer("start", "trigger", "counter", "trigger", 100)
-            .unwrap();
-        pipeline
-            .connect_with_buffer("counter", "count", "formatter", "value", 100)
-            .unwrap();
-        pipeline
-            .connect_with_buffer("formatter", "text", "writer", "filename", 100)
-            .unwrap();
-        pipeline
-            .connect_with_buffer("source", "ch10", "decoder", "strobe", 4)
-            .unwrap();
-        for bit in 0..8 {
-            pipeline
-                .connect_with_buffer(
-                    "source",
-                    &format!("ch{bit}"),
-                    "decoder",
-                    &format!("d{bit}"),
-                    4,
-                )
-                .unwrap();
-        }
-        // Same channel 8 as `spi.cs` above, negotiated onto a *different*
-        // SampleKind (Block, not Edge) for this destination — the mixed-
-        // kind fan-out this whole change exists to collapse into one port.
-        pipeline
-            .connect_with_buffer("source", "ch8", "decoder", "cs", 4)
-            .unwrap();
-        pipeline
-            .connect_with_buffer("decoder", "words", "writer", "data", 100_000)
-            .unwrap();
-
-        pipeline.build().unwrap().wait();
-    }
-
-    fn run_current_reference(capture: &Path, out_dir: &Path) {
-        use logic_analyzer_processing::nodes::decoders::parallel_decoder::{
-            ParallelDecoder, StrobeMode,
-        };
-        use logic_analyzer_processing::nodes::decoders::spi_decoder::{SpiDecoder, SpiMode};
-        use logic_analyzer_processing::nodes::logic::logic_gate::{GateOp, LogicGate};
-        use logic_analyzer_processing::nodes::logic::sr_latch::SrLatch;
-        use logic_analyzer_processing::nodes::logic::text_formatter::TextFormatter;
-        use logic_analyzer_processing::nodes::logic::trigger_counter::TriggerCounter;
-        use logic_analyzer_processing::nodes::logic::word_matcher::WordMatcher;
-        use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
-        use logic_analyzer_processing::types::CsPolarity;
-
-        let mut pipeline = Pipeline::new().with_default_buffer_size(10_000_000);
-        pipeline
-            .add_process("source", DslFileSource::new(capture).unwrap())
-            .unwrap();
-        pipeline
-            .add_process("spi", SpiDecoder::new(SpiMode::Mode0, 24, true, false))
-            .unwrap();
-        pipeline
-            .add_process("start", WordMatcher::new(0x600081, u64::MAX))
-            .unwrap();
-        pipeline
-            .add_process("stop", WordMatcher::new(0x600000, u64::MAX))
-            .unwrap();
-        pipeline.add_process("latch", SrLatch::new(false)).unwrap();
-        pipeline
-            .add_process("gate", LogicGate::new(GateOp::And, 2))
-            .unwrap();
-        pipeline
-            .add_process("counter", TriggerCounter::new(0, 1))
-            .unwrap();
-        pipeline
-            .add_process(
-                "formatter",
-                TextFormatter::new(format!("{}/capture_{{n:04}}.bin", out_dir.display())),
-            )
-            .unwrap();
-        pipeline
-            .add_process(
-                "decoder",
-                ParallelDecoder::new(8, StrobeMode::AnyEdge, CsPolarity::Disabled),
-            )
-            .unwrap();
-        pipeline
-            .add_process("writer", BinaryFileWriter::new().with_index_csv(true))
-            .unwrap();
-
-        pipeline.connect("source", "ch7", "spi", "clk").unwrap();
-        pipeline.connect("source", "ch8", "spi", "cs").unwrap();
-        pipeline.connect("source", "ch6", "spi", "mosi").unwrap();
-        pipeline
-            .connect("spi", "mosi_words", "start", "words")
-            .unwrap();
-        pipeline
-            .connect("spi", "mosi_words", "stop", "words")
-            .unwrap();
-        pipeline
-            .connect("start", "trigger", "latch", "set")
-            .unwrap();
-        pipeline
-            .connect("stop", "trigger", "latch", "reset")
-            .unwrap();
-        pipeline.connect("source", "ch8", "gate", "in0").unwrap();
-        pipeline.connect("latch", "q", "gate", "in1").unwrap();
-        pipeline
-            .connect("gate", "out", "decoder", "enable_signal")
-            .unwrap();
-        pipeline
-            .connect("start", "trigger", "counter", "trigger")
-            .unwrap();
-        pipeline
-            .connect("counter", "count", "formatter", "value")
-            .unwrap();
-        pipeline
-            .connect("formatter", "text", "writer", "filename")
-            .unwrap();
-        pipeline
-            .connect("source", "ch10", "decoder", "strobe")
-            .unwrap();
-        for bit in 0..8 {
-            pipeline
-                .connect("source", &format!("ch{bit}"), "decoder", &format!("d{bit}"))
-                .unwrap();
-        }
-        pipeline
-            .connect("decoder", "words", "writer", "data")
-            .unwrap();
-        pipeline.build().unwrap().wait();
-    }
-
-    fn bin_files(dir: &Path) -> Vec<String> {
-        let mut names: Vec<String> = std::fs::read_dir(dir)
-            .unwrap()
-            .filter_map(|entry| {
-                let name = entry.unwrap().file_name().into_string().unwrap();
-                (name.starts_with("capture_") && name.ends_with(".bin")).then_some(name)
-            })
-            .collect();
-        names.sort();
-        names
-    }
-
-    /// captures.csv rows with the filename column reduced to its basename,
-    /// so runs into different directories compare equal.
-    fn normalized_csv(dir: &Path) -> Vec<String> {
-        std::fs::read_to_string(dir.join("captures.csv"))
-            .unwrap()
-            .lines()
-            .map(|line| {
-                line.split(',')
-                    .map(|field| field.rsplit('/').next().unwrap_or(field))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            })
-            .collect()
-    }
-
-    /// Startup graph pointed at `capture` with the writer template in
-    /// `out_dir`.
-    fn golden_widget(capture: &Path, out_dir: &Path) -> NodeGraphWidget {
-        let mut widget = startup_widget();
-        let source_id = node_by_def(&widget, "DSL File Source");
-        let formatter_id = node_by_def(&widget, "String Formatter");
-        let mut source_state = widget.graph().nodes[&source_id].state.clone();
-        source_state["file"]["value"] = capture.display().to_string().into();
-        source_state["channels"]["value"] = 11.into();
-        widget.set_node_state(source_id, source_state);
-        let mut formatter_state = widget.graph().nodes[&formatter_id].state.clone();
-        formatter_state["template"]["value"] =
-            format!("{}/capture_{{n:04}}.bin", out_dir.display()).into();
-        widget.set_node_state(formatter_id, formatter_state);
-        widget
-    }
-
-    /// The live-tap gate: attach a matcher tap mid-run and detach it
-    /// again; the untouched writer branch must produce byte-identical
-    /// output to an uninterrupted reference run, and the tap must actually
-    /// have collected data while attached.
-    #[test]
-    #[ignore = "runs the full wipneus5.dsl capture; use --release"]
-    fn live_attach_detach_preserves_writer_output() {
-        let capture = repo_path("_captures/wipneus5.dsl");
-        assert!(capture.exists(), "capture not found: {}", capture.display());
-
-        let tmp = tempfile::tempdir().unwrap();
-        let graph_dir = tmp.path().join("graph");
-        let ref_dir = tmp.path().join("reference");
-        std::fs::create_dir_all(&graph_dir).unwrap();
-        std::fs::create_dir_all(&ref_dir).unwrap();
-
-        // The reference pipeline is a second, entirely independent full pass
-        // over the same multi-billion-sample capture (own process, own
-        // output dir) — nothing about it depends on the live-graph run
-        // below, so it runs concurrently on its own thread instead of
-        // afterward, roughly halving this test's wall-clock time on a
-        // machine with room for both.
-        let reference_handle = {
-            let capture = capture.clone();
-            let ref_dir = ref_dir.clone();
-            std::thread::spawn(move || run_reference(&capture, &ref_dir))
-        };
-
-        let registry = BuilderRegistry::standard();
-        let mut widget = golden_widget(&capture, &graph_dir);
-        let mut ctx = CompileCtx::default();
-        let lanes = ctx.derived_lanes.clone();
-        let mut run = start_live(widget.graph(), &registry, &mut ctx)
-            .unwrap_or_else(|errors| panic!("compile failed: {errors:?}"));
-
-        // Wait until the pipeline demonstrably produces output, then attach.
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(900);
-        while bin_files(&graph_dir).is_empty() {
-            assert!(!run.is_finished(), "run finished before any capture file");
-            assert!(
-                std::time::Instant::now() < deadline,
-                "no capture file within deadline"
-            );
-            std::thread::sleep(std::time::Duration::from_millis(200));
-        }
-
-        let matcher = attach_matcher_tap(&mut widget);
-        let summary = run.apply(widget.graph(), &registry).expect("attach tap");
-        assert_eq!(summary.added, 1, "{summary:?}");
-        assert_eq!(summary.restarted, 1, "{summary:?}"); // viewer rewired
-
-        // Let the tap observe at least one window, then detach it — poll
-        // instead of a fixed sleep so this only takes as long as it
-        // actually needs to.
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
-        loop {
-            let observed = lanes.read().iter().any(|lane| {
-                lane.name.contains("Word Matcher.Match")
-                    && matches!(&lane.data, signal_processing::DerivedLaneData::Markers(markers) if !markers.is_empty())
-            });
-            if observed {
-                break;
-            }
-            assert!(
-                !run.is_finished(),
-                "run finished before the tap observed anything"
-            );
-            assert!(
-                std::time::Instant::now() < deadline,
-                "tap never observed a trigger within deadline"
-            );
-            std::thread::sleep(std::time::Duration::from_millis(200));
-        }
-        widget.graph_mut().remove_node(matcher);
-        let summary = run.apply(widget.graph(), &registry).expect("detach tap");
-        assert_eq!(summary.removed, 1, "{summary:?}");
-        assert_eq!(summary.restarted, 1, "{summary:?}");
-
-        run.wait();
-        reference_handle.join().expect("reference run panicked");
-
-        // The writer branch never noticed any of it.
-        let graph_files = bin_files(&graph_dir);
-        let ref_files = bin_files(&ref_dir);
-        assert!(!ref_files.is_empty());
-        assert_eq!(graph_files, ref_files, "different file sets");
-        for name in &ref_files {
-            let a = std::fs::read(graph_dir.join(name)).unwrap();
-            let b = std::fs::read(ref_dir.join(name)).unwrap();
-            assert_eq!(a, b, "{name} differs");
-        }
-        assert_eq!(normalized_csv(&graph_dir), normalized_csv(&ref_dir));
-
-        // The tap collected triggers while attached.
-        let lanes = lanes.read();
-        let tap_lane = lanes
-            .iter()
-            .find(|lane| lane.name.contains("Word Matcher.Match"))
-            .expect("tap lane registered");
-        match &tap_lane.data {
-            signal_processing::DerivedLaneData::Markers(markers) => {
-                assert!(!markers.is_empty(), "tap never fired while attached");
-            }
-            other => panic!("expected marker lane, got {other:?}"),
-        }
-    }
-
-    /// Measures the live compiled graph without the golden test's concurrent
-    /// reference pass or multi-gigabyte byte-for-byte comparison.
-    #[test]
-    #[ignore = "runs the full wipneus5.dsl capture; use --release"]
-    fn benchmark_compiled_graph_runtime() {
-        let capture = repo_path("_captures/wipneus5.dsl");
-        assert!(capture.exists(), "capture not found: {}", capture.display());
-
-        let output = tempfile::tempdir().unwrap();
-        let widget = golden_widget(&capture, output.path());
-        let mut ctx = CompileCtx::default();
-        let start = std::time::Instant::now();
-        let mut run = start_live(widget.graph(), &BuilderRegistry::standard(), &mut ctx)
-            .unwrap_or_else(|errors| panic!("compile failed: {errors:?}"));
-        run.wait();
-        let elapsed = start.elapsed();
-        let files = bin_files(output.path());
-        let bytes: u64 = files
-            .iter()
-            .map(|name| std::fs::metadata(output.path().join(name)).unwrap().len())
-            .sum();
-        eprintln!(
-            "compiled graph: elapsed={:.3}s files={} bytes={bytes}",
-            elapsed.as_secs_f64(),
-            files.len()
-        );
-        assert!(!files.is_empty(), "compiled graph produced no output");
-    }
-
-    #[test]
-    #[ignore = "runs the full wipneus5.dsl capture; use --release"]
-    fn benchmark_reference_pipeline_runtime() {
-        let capture = repo_path("_captures/wipneus5.dsl");
-        assert!(capture.exists(), "capture not found: {}", capture.display());
-
-        let output = tempfile::tempdir().unwrap();
-        let start = std::time::Instant::now();
-        run_reference(&capture, output.path());
-        let elapsed = start.elapsed();
-        let files = bin_files(output.path());
-        let bytes: u64 = files
-            .iter()
-            .map(|name| std::fs::metadata(output.path().join(name)).unwrap().len())
-            .sum();
-        eprintln!(
-            "reference pipeline: elapsed={:.3}s files={} bytes={bytes}",
-            elapsed.as_secs_f64(),
-            files.len()
-        );
-        assert!(!files.is_empty(), "reference pipeline produced no output");
-    }
-
-    #[test]
-    #[ignore = "runs the current full pipeline topology; use --release"]
-    fn benchmark_current_reference_pipeline_runtime() {
-        let capture = repo_path("_captures/wipneus5.dsl");
-        let output = tempfile::tempdir().unwrap();
-        let start = std::time::Instant::now();
-        run_current_reference(&capture, output.path());
-        let elapsed = start.elapsed();
-        let files = bin_files(output.path());
-        let bytes: u64 = files
-            .iter()
-            .map(|name| std::fs::metadata(output.path().join(name)).unwrap().len())
-            .sum();
-        eprintln!(
-            "current reference: elapsed={:.3}s files={} bytes={bytes}",
-            elapsed.as_secs_f64(),
-            files.len()
-        );
-        assert!(!files.is_empty());
-    }
-
-    #[test]
-    #[ignore = "runs the full SPI-controlled test graph; use --release"]
-    fn benchmark_spi_controlled_test_graph_runtime() {
-        let capture = repo_path("_captures/wipneus5.dsl");
-        let mut widget = startup_widget();
-        let output = tempfile::tempdir().unwrap();
-        for node in widget.graph_mut().nodes.values_mut() {
-            match node.def_name() {
-                "DSL File Source" => {
-                    node.state["file"]["value"] = capture.display().to_string().into();
-                    node.state["channels"]["value"] = 11.into();
-                }
-                "String Formatter" => {
-                    node.state["template"]["value"] =
-                        format!("{}/capture_{{n:04}}.bin", output.path().display()).into();
-                }
-                _ => {}
-            }
-        }
-
-        let mut ctx = CompileCtx::default();
-        let start = std::time::Instant::now();
-        let mut run = start_live(widget.graph(), &BuilderRegistry::standard(), &mut ctx)
-            .unwrap_or_else(|errors| panic!("compile failed: {errors:?}"));
-        run.wait();
-        let elapsed = start.elapsed();
-        let files = bin_files(output.path());
-        let bytes: u64 = files
-            .iter()
-            .map(|name| std::fs::metadata(output.path().join(name)).unwrap().len())
-            .sum();
-        eprintln!(
-            "test graph: elapsed={:.3}s files={} bytes={bytes}",
-            elapsed.as_secs_f64(),
-            files.len()
-        );
-        assert!(!files.is_empty(), "test graph produced no output");
-    }
-
-    #[test]
-    #[ignore = "runs the full graph while simulating a 60 Hz 5120-pixel viewer; use --release"]
-    fn benchmark_spi_controlled_test_graph_with_live_viewer_queries() {
-        let capture = repo_path("_captures/wipneus5.dsl");
-        let mut widget = startup_widget();
-        let output = tempfile::tempdir().unwrap();
-        for node in widget.graph_mut().nodes.values_mut() {
-            match node.def_name() {
-                "DSL File Source" => {
-                    node.state["file"]["value"] = capture.display().to_string().into();
-                    node.state["channels"]["value"] = 11.into();
-                }
-                "String Formatter" => {
-                    node.state["template"]["value"] =
-                        format!("{}/capture_{{n:04}}.bin", output.path().display()).into();
-                }
-                _ => {}
-            }
-        }
-
-        const TARGET_POINTS: usize = 5_120;
-        const END_NS: u64 = 250_000_000_000;
-        let mut ctx = CompileCtx::default();
-        let start = Instant::now();
-        let mut run = start_live(widget.graph(), &BuilderRegistry::standard(), &mut ctx)
-            .unwrap_or_else(|errors| panic!("compile failed: {errors:?}"));
-        let mut generations = HashMap::new();
-        let mut sampled_at = HashMap::new();
-        let mut query_time = Duration::ZERO;
-        let mut query_count = 0u64;
-        while !run.is_finished() {
-            let frame_start = Instant::now();
-            let queries: Vec<_> = run
-                .lanes
-                .read()
-                .iter()
-                .filter_map(|lane| match &lane.data {
-                    DerivedLaneData::IndexedAnnotations(indexed) => {
-                        Some((lane.name.clone(), Arc::clone(indexed.query())))
-                    }
-                    _ => None,
-                })
-                .collect();
-            for (name, query) in queries {
-                let metadata = query.metadata();
-                if generations.get(&name) == Some(&metadata.generation) {
-                    continue;
-                }
-                if metadata.is_live
-                    && sampled_at.get(&name).is_some_and(|sampled: &Instant| {
-                        sampled.elapsed() < Duration::from_millis(50)
-                    })
-                {
-                    continue;
-                }
-                sampled_at.insert(name.clone(), Instant::now());
-                generations.insert(name, metadata.generation);
-                let query_start = Instant::now();
-                let buckets = query
-                    .coarse_presence_window(0, END_NS, TARGET_POINTS)
-                    .unwrap();
-                let estimated_words = buckets
-                    .iter()
-                    .map(|bucket| bucket.word_count)
-                    .fold(0u64, u64::saturating_add);
-                if estimated_words <= (TARGET_POINTS * 2) as u64 {
-                    let _ = query.exact_window(0, END_NS, TARGET_POINTS * 2).unwrap();
-                }
-                query_time += query_start.elapsed();
-                query_count += 1;
-            }
-            let remaining = Duration::from_millis(16).saturating_sub(frame_start.elapsed());
-            std::thread::sleep(remaining);
-        }
-        run.wait();
-        eprintln!(
-            "live viewer graph: elapsed={:.3}s queries={query_count} query_time={:.3}s",
-            start.elapsed().as_secs_f64(),
-            query_time.as_secs_f64()
-        );
-        assert!(query_count > 0, "viewer lane produced no live queries");
-        assert!(
-            !bin_files(output.path()).is_empty(),
-            "test graph produced no output"
-        );
-    }
-
-    /// The golden correctness gate: the compiled startup graph must
-    /// produce byte-identical output to the hand-built Phase-1 pipeline.
-    /// Slow (full 12.7B-sample capture) — run explicitly:
-    /// `cargo test -p logic-analyzer-graph-compiler --release -- --ignored golden`
-    #[test]
-    #[ignore = "runs the full wipneus5.dsl capture; use --release"]
-    fn golden_compiled_graph_matches_reference() {
-        let capture = repo_path("_captures/wipneus5.dsl");
-        assert!(capture.exists(), "capture not found: {}", capture.display());
-
-        let tmp = tempfile::tempdir().unwrap();
-        let graph_dir = tmp.path().join("graph");
-        let ref_dir = tmp.path().join("reference");
-        std::fs::create_dir_all(&graph_dir).unwrap();
-        std::fs::create_dir_all(&ref_dir).unwrap();
-
-        // The reference pipeline is a second, entirely independent full pass
-        // over the same multi-billion-sample capture (own process, own
-        // output dir) — nothing about it depends on the compiled-graph run
-        // below, so it runs concurrently on its own thread instead of
-        // afterward, roughly halving this test's wall-clock time on a
-        // machine with room for both.
-        let reference_handle = {
-            let capture = capture.clone();
-            let ref_dir = ref_dir.clone();
-            std::thread::spawn(move || run_reference(&capture, &ref_dir))
-        };
-
-        // Compiled-graph run: startup graph with capture path + output
-        // template pointed at the temp dirs.
-        let widget = golden_widget(&capture, &graph_dir);
-
-        // Through the live path: shared sender lists + supervisor-driven
-        // shutdown must reproduce the offline byte-exact behavior.
-        let mut ctx = CompileCtx::default();
-        let lanes = ctx.derived_lanes.clone();
-        let mut run = start_live(widget.graph(), &BuilderRegistry::standard(), &mut ctx)
-            .unwrap_or_else(|errors| panic!("compile failed: {errors:?}"));
-        run.wait();
-
-        // The viewer lanes filled while the pipeline ran.
-        {
-            let lanes = lanes.read();
-            assert_eq!(lanes.len(), 5, "expected 5 viewer lanes");
-            let annotations = lanes
-                .iter()
-                .find_map(|lane| match &lane.data {
-                    signal_processing::DerivedLaneData::Annotations(a) => Some(a.len()),
-                    signal_processing::DerivedLaneData::IndexedAnnotations(indexed) => {
-                        Some(indexed.metadata().total_word_count as usize)
-                    }
-                    _ => None,
-                })
-                .expect("a words lane");
-            assert!(annotations > 0, "words lane stayed empty");
-            let markers: usize = lanes
-                .iter()
-                .filter_map(|lane| match &lane.data {
-                    signal_processing::DerivedLaneData::Markers(m) => Some(m.len()),
-                    _ => None,
-                })
-                .sum();
-            // 26 windows → at least 26 start + 26 stop triggers.
-            assert!(markers >= 52, "expected ≥52 trigger markers, got {markers}");
-        }
-
-        reference_handle.join().expect("reference run panicked");
-
-        let graph_files = bin_files(&graph_dir);
-        let ref_files = bin_files(&ref_dir);
-        assert!(!ref_files.is_empty(), "reference produced no files");
-        assert_eq!(graph_files, ref_files, "different file sets");
-        for name in &ref_files {
-            let a = std::fs::read(graph_dir.join(name)).unwrap();
-            let b = std::fs::read(ref_dir.join(name)).unwrap();
-            assert_eq!(a, b, "{name} differs");
-        }
-        assert_eq!(
-            normalized_csv(&graph_dir),
-            normalized_csv(&ref_dir),
-            "captures.csv differs"
-        );
     }
 }

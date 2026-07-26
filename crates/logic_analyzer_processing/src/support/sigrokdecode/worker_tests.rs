@@ -129,11 +129,10 @@ class Decoder(srd.Decoder):
 }
 
 #[test]
+#[ignore = "requires SIGROK_DECODERS_DIR containing the upstream spi decoder"]
 fn unmodified_spi_decoder_runs_through_the_worker() {
-    let Some(decoder_root) = local_decoder_root() else {
-        eprintln!("skipping Sigrok SPI worker test: set SIGROK_DECODERS_DIR");
-        return;
-    };
+    let decoder_root =
+        local_decoder_root().expect("SIGROK_DECODERS_DIR must contain the spi decoder");
     let options = BTreeMap::from([
         ("bitorder".into(), OptionValue::String("msb-first".into())),
         (
@@ -207,12 +206,6 @@ fn spi_samples(word: u8) -> (Vec<bool>, Vec<bool>) {
 fn local_decoder_root() -> Option<PathBuf> {
     std::env::var_os("SIGROK_DECODERS_DIR")
         .map(PathBuf::from)
-        .or_else(|| {
-            Some(
-                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../../dslogic/libsigrokdecode/decoders"),
-            )
-        })
         .filter(|path| path.join("spi/pd.py").is_file())
 }
 

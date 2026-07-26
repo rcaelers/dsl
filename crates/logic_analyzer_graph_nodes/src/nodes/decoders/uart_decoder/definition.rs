@@ -9,7 +9,7 @@ use node_graph::{
 };
 
 use super::super::display_format::default_display_format;
-use crate::nodes::registry::{COLOR_DECODERS, Signal, Trigger, Words};
+use crate::sockets::{COLOR_DECODERS, Signal, Trigger, Words};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct UartDecoderState {

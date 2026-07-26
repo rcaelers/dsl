@@ -7,9 +7,7 @@ use std::sync::{Arc, RwLock};
 use egui::{Color32, Rect, Stroke, StrokeKind};
 use serde_json::Value;
 
-use logic_analyzer_graph_api::node::{
-    CollectedPayloadRegistration, GraphNodeRegistration, RuntimeBuilder,
-};
+use logic_analyzer_graph_api::node::{GraphNodeRegistration, PayloadRegistration, RuntimeBuilder};
 use logic_analyzer_graph_api::node_support::{
     DefaultLanePresentationDescriptor, LaneBadgeDescriptor, NodeBuildContext, PortKind, PortValue,
     ResolvedInputs,
@@ -21,8 +19,8 @@ use logic_analyzer_viewer::{
 use node_graph::api::{InputDef, NodeDef, OutputDef, Socket, SocketDef, SocketShape};
 use signal_processing::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
-    CollectedPayloadAdapter, DerivedDataRetention, InputPort, OpaqueCollectedLaneSnapshot,
-    OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
+    DerivedDataRetention, InputPort, OpaqueCollectedLaneSnapshot, OutputPort, PayloadAdapter,
+    PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };
 
 const PAYLOAD_ID: &str = "org.logicconduit.example.camera-frame/v1";
@@ -368,7 +366,7 @@ impl CollectedLaneIngestor for CameraFrameIngestor {
 
 struct CameraFrameAdapter;
 
-impl CollectedPayloadAdapter for CameraFrameAdapter {
+impl PayloadAdapter for CameraFrameAdapter {
     fn create_ingestor(
         &self,
         request: CollectedLaneRequest,
@@ -377,7 +375,7 @@ impl CollectedPayloadAdapter for CameraFrameAdapter {
     }
 }
 
-fn camera_frame_adapter() -> Arc<dyn CollectedPayloadAdapter> {
+fn camera_frame_adapter() -> Arc<dyn PayloadAdapter> {
     Arc::new(CameraFrameAdapter)
 }
 
@@ -521,7 +519,7 @@ impl PluginPanel for CameraPanel {
 }
 
 inventory::submit! {
-    CollectedPayloadRegistration::subscribable::<CameraFrame>(
+    PayloadRegistration::subscribable::<CameraFrame>(
         PAYLOAD_ID,
         camera_frame_adapter,
         camera_frame_presentation,
@@ -544,36 +542,22 @@ inventory::submit! {
 #[cfg(test)]
 mod camera_frame_tests {
     use logic_analyzer_graph_api::node_support::PortKind;
-    use logic_analyzer_graph_compiler::{CompileCtx, GraphCompiler};
-    use node_graph::{NodeGraphWidget, SocketDirection, SocketId};
+    use logic_analyzer_graph_compiler::{CompileCtx, GraphCompiler, OutputSubscriptionPlan};
+    use node_graph::NodeGraphWidget;
 
     use super::*;
 
     #[test]
-    fn custom_source_collects_bounded_typed_frames_through_an_explicit_viewer() {
+    fn custom_source_collects_bounded_typed_frames_through_an_explicit_subscription() {
         std::hint::black_box(logic_analyzer_graph_nodes::link());
         std::hint::black_box(crate::link());
-        let compiler = GraphCompiler::new();
+        let mut compiler = GraphCompiler::new();
         let node_types = logic_analyzer_ui::build_node_registry();
         let mut widget = NodeGraphWidget::new(node_types);
         let source = widget
             .add_node_at("Camera Frame Source", egui::Pos2::ZERO)
             .unwrap();
-        let viewer = widget
-            .add_node_at("Viewer", egui::Pos2::new(200.0, 0.0))
-            .unwrap();
-        widget.graph_mut().add_connection(
-            SocketId {
-                node: source,
-                index: 0,
-                direction: SocketDirection::Output,
-            },
-            SocketId {
-                node: viewer,
-                index: 0,
-                direction: SocketDirection::Input,
-            },
-        );
+        compiler.set_output_subscriptions(OutputSubscriptionPlan::from_iter([(source, 0)]));
         let compiled = compiler.lower(widget.graph()).unwrap();
         assert!(
             compiled

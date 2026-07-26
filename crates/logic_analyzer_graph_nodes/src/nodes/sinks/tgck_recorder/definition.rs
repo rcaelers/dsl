@@ -4,7 +4,7 @@ use egui::Color32;
 
 use node_graph::{InputDef, NodeDef, OutputDef};
 
-use crate::nodes::registry::{COLOR_OUTPUT, Signal, Text, Words};
+use crate::sockets::{COLOR_OUTPUT, Signal, Text, Words};
 
 pub(crate) struct TgckRecorder;
 impl NodeDef for TgckRecorder {

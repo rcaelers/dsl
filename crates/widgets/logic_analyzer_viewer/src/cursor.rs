@@ -367,7 +367,7 @@ mod cursor_tests {
 
     use egui::Color32;
 
-    use signal_processing::{CollectedLaneQuery, CollectedPayloadRegistry, DerivedLanes, Word};
+    use signal_processing::{CollectedLaneQuery, DerivedLanes, PayloadRegistry, Word};
 
     use super::*;
     use crate::lanes::{
@@ -412,7 +412,7 @@ mod cursor_tests {
         }
 
         let lanes = DerivedLanes::new();
-        let mut payloads = CollectedPayloadRegistry::new();
+        let mut payloads = PayloadRegistry::new();
         payloads.register::<Word>("org.example.word/v1").unwrap();
         lanes.publish_opaque_lane(
             "decoded.words",

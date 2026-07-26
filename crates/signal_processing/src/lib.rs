@@ -18,7 +18,6 @@ mod advanced_trigger;
 mod app_manager;
 pub mod capture;
 mod capture_policy;
-mod collected_payload;
 mod cooperative_manager;
 mod derived_data_collector;
 mod derived_index;
@@ -31,9 +30,11 @@ pub mod live_capture;
 pub mod live_capture_store;
 mod manager;
 mod node;
+mod payload;
 mod pipeline;
 mod ports;
 mod protocol;
+mod protocol_packet_payload;
 mod receiver;
 mod sample;
 mod sample_kind;
@@ -91,12 +92,6 @@ pub use capture_policy::{
     RecordingStart, RetentionPolicy, RetentionPolicyKind, TriggerPlacement,
     TriggerPlacementCapability, TriggerTimeout, TriggerTimeoutAction,
 };
-pub use collected_payload::{
-    CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
-    CollectedLaneTableMetadata, CollectedLaneTableRow, CollectedLaneTableSnapshot,
-    CollectedPayloadAdapter, CollectedPayloadDescriptor, CollectedPayloadRegistrationError,
-    CollectedPayloadRegistry, OpaqueCollectedLaneSnapshot,
-};
 pub use cooperative_manager::CooperativeManager;
 pub use derived_data_collector::{
     AnnotationFold, CollectedValue, CollectedValueKind, CollectedValueLane,
@@ -117,7 +112,7 @@ pub use edge_query::EdgeQuery;
 pub use errors::{ConnectionError, Error, PortError, Result, WorkError, WorkResult};
 pub use events::{
     Annotation, MAX_ANNOTATION_NS, NumberSample, ProtocolPacket, ProtocolValue, TextSample,
-    Trigger, Word, instantaneous_word_end_ns,
+    Trigger, Word, WordPayload, instantaneous_word_end_ns,
 };
 pub use graph::{Connection, GraphBuilder, NodeId};
 use idle::idle_backoff;
@@ -141,9 +136,16 @@ pub use node::{
     ConfigOutcome, ConfigValue, ConfigurationBoundary, ConfigurationScheduler,
     InputProtocolCandidate, NodeCancellation, NodeConfig, ProcessNode,
 };
+pub use payload::{
+    CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
+    CollectedLaneTableMetadata, CollectedLaneTableRow, CollectedLaneTableSnapshot,
+    OpaqueCollectedLaneSnapshot, PayloadAdapter, PayloadDescriptor, PayloadRegistrationError,
+    PayloadRegistry,
+};
 pub use pipeline::Pipeline;
 pub use ports::{InputPort, OutputPort, PortDirection, PortSchema, register_type};
 pub use protocol::ProtocolKind;
+pub use protocol_packet_payload::{ProtocolPacketLaneSnapshot, protocol_packet_payload_adapter};
 pub use receiver::{Receiver, ReceiverSelector};
 pub use sample::{Sample, SampleBlock};
 pub use sample_kind::SampleKind;

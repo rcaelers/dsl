@@ -892,6 +892,8 @@ fn block_destination_group(
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+
     use signal_processing::ProcessNode;
 
     use super::*;
@@ -972,14 +974,11 @@ mod tests {
     }
 
     #[test]
-    fn test_capture_reader_wipneus5_window_if_present() {
-        let path = Path::new("_captures/wipneus5.dsl");
-        if !path.exists() {
-            return;
-        }
+    fn test_capture_reader_reads_a_window_from_a_generated_fixture() {
+        let (_directory, path) = dsl_fixture();
 
-        let mut reader = DslCaptureReader::open(path)
-            .expect("wipneus5.dsl should open with the windowed reader")
+        let mut reader = DslCaptureReader::open(&path)
+            .expect("generated DSL capture should open with the windowed reader")
             .with_max_cached_blocks(4);
         assert!(reader.header().total_samples > 0);
         assert!(reader.header().total_probes > 0);
@@ -987,8 +986,8 @@ mod tests {
         let channel_count = reader.header().total_probes.min(4);
         let channels: Vec<usize> = (0..channel_count).collect();
         let window = reader
-            .sampled_window(&channels, 0, 100_000, 800)
-            .expect("small wipneus5.dsl viewport should read");
+            .sampled_window(&channels, 0, 8, 8)
+            .expect("generated DSL capture viewport should read");
 
         assert_eq!(window.channels.len(), channel_count);
         assert!(window.sample_step > 0);
@@ -996,12 +995,9 @@ mod tests {
 
     #[test]
     fn test_dsl_channel_edge_index_matches_ground_truth() {
-        let path = Path::new("_captures/wipneus5.dsl");
-        if !path.exists() {
-            return;
-        }
+        let (_directory, path) = dsl_fixture();
 
-        let source = DslFileSource::new(path).expect("wipneus5.dsl should open");
+        let source = DslFileSource::new(&path).expect("generated DSL capture should open");
         let edge_query = source
             .edge_query(0, &[])
             .expect("DslFileSource should provide an EdgeQuery for channel 0");
@@ -1011,7 +1007,7 @@ mod tests {
         // this validates next_edge's search logic against real data shape,
         // not just the index itself.
         let ground_truth_end = 2_000_000u64.min(edge_query.total_samples());
-        let mut sampler = open_dsl_chunked_capture(path).expect("sampler should open");
+        let mut sampler = open_dsl_chunked_capture(&path).expect("sampler should open");
         let window = sampler
             .sampled_window(&[0], 0, ground_truth_end, ground_truth_end as usize)
             .expect("exact window should read");
@@ -1047,17 +1043,15 @@ mod tests {
 
     #[test]
     fn test_dsl_channel_edge_index_next_edge_with_value() {
-        let path = Path::new("_captures/wipneus5.dsl");
-        if !path.exists() {
-            return;
-        }
-        let source = DslFileSource::new(path).expect("wipneus5.dsl should open");
+        let (_directory, path) = dsl_fixture();
+        let source = DslFileSource::new(&path).expect("generated DSL capture should open");
         let edge_query = source.edge_query(0, &[]).expect("edge query available");
         let limit = 2_000_000u64.min(edge_query.total_samples());
 
-        let Some(first) = edge_query.next_edge(0, limit).unwrap() else {
-            return; // channel 0 has no transitions in this prefix; nothing to check
-        };
+        let first = edge_query
+            .next_edge(0, limit)
+            .unwrap()
+            .expect("generated fixture must contain a transition");
 
         let same = edge_query
             .next_edge_with_value(0, first.value, limit)
@@ -1067,22 +1061,18 @@ mod tests {
 
         // Edges alternate, so the opposite value's first occurrence (if any
         // before `limit`) is strictly after `first`.
-        if let Some(other) = edge_query
+        let other = edge_query
             .next_edge_with_value(0, !first.value, limit)
             .unwrap()
-        {
-            assert_ne!(other.value, first.value);
-            assert!(other.sample > first.sample);
-        }
+            .expect("generated fixture must contain the opposite transition value");
+        assert_ne!(other.value, first.value);
+        assert!(other.sample > first.sample);
     }
 
     #[test]
     fn test_dsl_channel_edge_index_end_of_file() {
-        let path = Path::new("_captures/wipneus5.dsl");
-        if !path.exists() {
-            return;
-        }
-        let source = DslFileSource::new(path).expect("wipneus5.dsl should open");
+        let (_directory, path) = dsl_fixture();
+        let source = DslFileSource::new(&path).expect("generated DSL capture should open");
         let edge_query = source.edge_query(0, &[]).expect("edge query available");
         let total = edge_query.total_samples();
 
@@ -1090,11 +1080,34 @@ mod tests {
         assert_eq!(edge_query.next_edge(total, total).unwrap(), None);
     }
 
+    fn dsl_fixture() -> (tempfile::TempDir, PathBuf) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("fixture.dsl");
+        let file = File::create(&path).unwrap();
+        let mut archive = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+        archive.start_file("header", options).unwrap();
+        archive
+            .write_all(
+                b"total probes = 8\nsamplerate = 1 MHz\ntotal samples = 1024\ntotal blocks = 1\nprobe0 = D0\nprobe1 = D1\nprobe2 = D2\nprobe3 = D3\nprobe4 = D4\nprobe5 = D5\nprobe6 = D6\nprobe7 = D7\n",
+            )
+            .unwrap();
+        for channel in 0..8 {
+            archive
+                .start_file(format!("L-{channel}/0"), options)
+                .unwrap();
+            archive
+                .write_all(&[if channel % 2 == 0 { 0xAA } else { 0x55 }; 128])
+                .unwrap();
+        }
+        archive.finish().unwrap();
+        (directory, path)
+    }
+
     #[test]
-    #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_new_valid() {
-        // Test with actual scan.dsl file if it exists
-        let result = DslFileSource::new("scan.dsl");
+        let (_directory, path) = dsl_fixture();
+        let result = DslFileSource::new(path);
         assert!(
             result.is_ok(),
             "Failed to create DslFileSource: {:?}",
@@ -1123,9 +1136,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_builder_methods() {
-        let result = DslFileSource::new("scan.dsl");
+        let (_directory, path) = dsl_fixture();
+        let result = DslFileSource::new(path);
         assert!(result.is_ok());
 
         if let Ok(source) = result {
@@ -1136,9 +1149,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_getters() {
-        let result = DslFileSource::new("scan.dsl");
+        let (_directory, path) = dsl_fixture();
+        let result = DslFileSource::new(path);
         assert!(result.is_ok());
 
         if let Ok(source) = result {
@@ -1155,9 +1168,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_worknode_methods() {
-        let result = DslFileSource::new("scan.dsl");
+        let (_directory, path) = dsl_fixture();
+        let result = DslFileSource::new(path);
         assert!(result.is_ok());
 
         if let Ok(source) = result {
@@ -1171,9 +1184,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_read_bit_valid() {
-        let result = DslFileSource::new("scan.dsl");
+        let (_directory, path) = dsl_fixture();
+        let result = DslFileSource::new(path);
         assert!(result.is_ok());
 
         if let Ok(source) = result {
@@ -1192,9 +1205,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_read_bit_invalid_channel() {
-        let result = DslFileSource::new("scan.dsl");
+        let (_directory, path) = dsl_fixture();
+        let result = DslFileSource::new(path);
         assert!(result.is_ok());
 
         if let Ok(source) = result {
@@ -1212,9 +1225,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_read_bit_invalid_position() {
-        let result = DslFileSource::new("scan.dsl");
+        let (_directory, path) = dsl_fixture();
+        let result = DslFileSource::new(path);
         assert!(result.is_ok());
 
         if let Ok(source) = result {
@@ -1232,9 +1245,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_header_fields() {
-        let result = DslFileSource::new("scan.dsl");
+        let (_directory, path) = dsl_fixture();
+        let result = DslFileSource::new(path);
         assert!(result.is_ok());
 
         if let Ok(source) = result {
@@ -1254,20 +1267,16 @@ mod tests {
             let expected_period = 1.0 / header.samplerate_hz;
             assert!((header.sample_period - expected_period).abs() < 1e-10);
 
-            // Verify samples per block is the actual block size (typically 2^24 = 16777216)
-            // This should be larger than the average (total_samples / total_blocks)
-            // because the last block is typically shorter
             let average_per_block = header.total_samples / header.total_blocks;
             assert!(header.samples_per_block >= average_per_block);
-            // Verify it's a reasonable block size (power of 2 for standard DSL format)
-            assert_eq!(header.samples_per_block, 16777216); // 2^24 for scan.dsl
+            assert_eq!(header.samples_per_block, 1024);
         }
     }
 
     #[test]
-    #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_block_caching() {
-        let result = DslFileSource::new("scan.dsl");
+        let (_directory, path) = dsl_fixture();
+        let result = DslFileSource::new(path);
         assert!(result.is_ok());
 
         if let Ok(source) = result {
@@ -1286,9 +1295,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires the developer-local scan.dsl fixture"]
     fn test_dsl_file_source_multiple_channels() {
-        let result = DslFileSource::new("scan.dsl");
+        let (_directory, path) = dsl_fixture();
+        let result = DslFileSource::new(path);
         assert!(result.is_ok());
 
         if let Ok(source) = result {

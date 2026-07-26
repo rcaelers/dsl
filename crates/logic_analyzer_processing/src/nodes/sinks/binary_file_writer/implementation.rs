@@ -15,11 +15,12 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
 use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, TextSample, Word, WorkError,
-    WorkResult,
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, TextSample, Word, WordPayload,
+    WorkError, WorkResult,
 };
 
-/// How a word's value is written to the file.
+/// How a numeric word's value is written to the file. Byte and text words are
+/// written in full and do not use this width.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WriteWidth {
     /// Low byte only (`value as u8`).
@@ -260,7 +261,11 @@ impl BinaryFileWriter {
         self.file_end_ns = word.timestamp_ns;
         self.last_word_ts = word_ts;
 
-        self.width.append_to(&mut self.encoded_batch, word.value);
+        match &word.payload {
+            Some(WordPayload::Bytes(bytes)) => self.encoded_batch.extend_from_slice(bytes),
+            Some(WordPayload::Text(text)) => self.encoded_batch.extend_from_slice(text.as_bytes()),
+            None => self.width.append_to(&mut self.encoded_batch, word.value),
+        }
         self.words_in_file += 1;
         Ok(())
     }
@@ -466,6 +471,47 @@ mod tests {
         }
 
         assert_eq!(std::fs::read(&target).unwrap(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn arbitrary_width_and_text_words_are_written_in_full() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("rich.bin").display().to_string();
+        let wd = Watchdog::new();
+        let (data_tx, data_rx) = bounded::<ChannelMessage<Word>>(4);
+        let inputs = vec![
+            InputPort::new_with_watchdog(data_rx, &wd, "writer", "data"),
+            InputPort::disconnected().with_watchdog(
+                wd.clone(),
+                "writer".to_string(),
+                "filename".to_string(),
+            ),
+        ];
+        data_tx
+            .send(ChannelMessage::Sample(Word::bytes(
+                vec![0x10, 0x20, 0x30, 0x40],
+                100,
+                0,
+            )))
+            .unwrap();
+        data_tx
+            .send(ChannelMessage::Sample(Word::text("OK", 200, 0)))
+            .unwrap();
+        drop(data_tx);
+
+        let mut writer = BinaryFileWriter::new().with_filename(&target);
+        loop {
+            match writer.work(&inputs, &[]) {
+                Ok(_) => {}
+                Err(WorkError::Shutdown) => break,
+                Err(error) => panic!("unexpected error: {error}"),
+            }
+        }
+
+        assert_eq!(
+            std::fs::read(&target).unwrap(),
+            vec![0x10, 0x20, 0x30, 0x40, b'O', b'K']
+        );
     }
 
     /// No filename input *and* no static filename is a configuration

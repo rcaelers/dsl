@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use logic_analyzer_graph_api::node::{
-    CollectedPayloadRegistration, RuntimeBuilder, graph_node_registrations,
+    PayloadRegistration, RuntimeBuilder, graph_node_registrations,
 };
 use logic_analyzer_graph_api::node_support::{PortKind, ViewerOutputControl};
 use node_graph::{GraphState, NodeId, NodeKind, SocketDirection, SocketId};
@@ -103,7 +103,7 @@ impl SelectionContracts {
                     .map(|builder| (registration.name().to_owned(), builder))
             })
             .collect();
-        let registrations = inventory::iter::<CollectedPayloadRegistration>
+        let registrations = inventory::iter::<PayloadRegistration>
             .into_iter()
             .collect::<Vec<_>>();
         let subscribable_kinds = registrations

@@ -27,11 +27,13 @@ fn backend_contract_append_query_finish() {
                 start_ns: 100,
                 end_ns: 120,
                 value: 0x11,
+                payload: None,
             },
             Annotation {
                 start_ns: 200,
                 end_ns: 200,
                 value: 0x22,
+                payload: None,
             },
         ]
     );

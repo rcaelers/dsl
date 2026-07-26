@@ -8,12 +8,9 @@ use pyo3::types::{PyAny, PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyStri
 
 use signal_processing::{
     InputPort, NodeCancellation, OutputPort, PortDirection, PortSchema, ProcessNode,
-    ProtocolPacket, ProtocolValue, SampleBlock, WorkError, WorkResult,
+    ProtocolPacket, ProtocolValue, SampleBlock, Word, WorkError, WorkResult,
 };
 
-use super::output_payloads::{
-    SigrokAnnotation, SigrokBinary, SigrokGeneratedLogic, SigrokMetadata, SigrokMetadataValue,
-};
 use crate::support::{
     DecoderOutput, DecoderWorker, InitialPin, LogicChunk, MetadataType, OUTPUT_ANN, OUTPUT_BINARY,
     OUTPUT_LOGIC, OUTPUT_META, OUTPUT_PYTHON, OptionValue, OutputRegistration, WorkerConfig,
@@ -367,10 +364,10 @@ impl ProcessNode for SigrokDecoder {
 
     fn output_schema(&self) -> Vec<PortSchema> {
         vec![
-            PortSchema::new::<SigrokAnnotation>("annotations", 0, PortDirection::Output),
-            PortSchema::new::<SigrokBinary>("binary", 1, PortDirection::Output),
-            PortSchema::new::<SigrokGeneratedLogic>("logic", 2, PortDirection::Output),
-            PortSchema::new::<SigrokMetadata>("metadata", 3, PortDirection::Output),
+            PortSchema::new::<Word>("annotations", 0, PortDirection::Output),
+            PortSchema::new::<Word>("binary", 1, PortDirection::Output),
+            PortSchema::new::<SampleBlock>("logic", 2, PortDirection::Output),
+            PortSchema::new::<Word>("metadata", 3, PortDirection::Output),
             PortSchema::new::<ProtocolPacket>("packets", 4, PortDirection::Output),
         ]
     }
@@ -431,10 +428,10 @@ impl ProcessNode for SigrokDecoder {
 }
 
 enum ConvertedOutput {
-    Annotation(SigrokAnnotation),
-    Binary(SigrokBinary),
-    Logic(SigrokGeneratedLogic),
-    Metadata(SigrokMetadata),
+    Annotation(Word),
+    Binary(Word),
+    Logic(SampleBlock),
+    Metadata(Word),
     Packet(ProtocolPacket),
 }
 
@@ -487,7 +484,7 @@ fn convert_python_output(
             let data = data.cast::<PyList>()?;
             require_length(data.len(), 2, "annotation")?;
             let class: usize = data.get_item(0)?.extract()?;
-            let rows = annotation_rows_by_class
+            let _rows = annotation_rows_by_class
                 .get(class)
                 .cloned()
                 .ok_or_else(|| {
@@ -501,13 +498,13 @@ fn convert_python_output(
                 .iter()
                 .map(|text| text.extract())
                 .collect::<PyResult<Vec<String>>>()?;
-            Ok(ConvertedOutput::Annotation(SigrokAnnotation {
+            let label = texts.first().cloned().unwrap_or_default();
+            Ok(ConvertedOutput::Annotation(Word::labeled(
+                class as u64,
+                label,
                 start_time_ns,
-                end_time_ns,
-                class,
-                rows,
-                texts: texts.into(),
-            }))
+                end_time_ns.saturating_sub(start_time_ns),
+            )))
         }
         OUTPUT_BINARY => {
             let data = data.cast::<PyList>()?;
@@ -518,35 +515,39 @@ fn convert_python_output(
                     "binary class {class} is not declared"
                 )));
             }
-            let bytes = data.get_item(1)?.cast::<PyBytes>()?.as_bytes().into();
-            Ok(ConvertedOutput::Binary(SigrokBinary {
-                start_time_ns,
-                end_time_ns,
-                class,
+            let bytes: Arc<[u8]> = data.get_item(1)?.cast::<PyBytes>()?.as_bytes().into();
+            Ok(ConvertedOutput::Binary(Word::bytes_with_tag(
+                class as u64,
                 bytes,
-            }))
+                start_time_ns,
+                end_time_ns.saturating_sub(start_time_ns),
+            )))
         }
         OUTPUT_LOGIC => {
             let data = data.cast::<PyList>()?;
             require_length(data.len(), 2, "generated logic output")?;
             let group_index: usize = data.get_item(0)?.extract()?;
-            let group = logic_groups.get(group_index).cloned().ok_or_else(|| {
+            let _group = logic_groups.get(group_index).cloned().ok_or_else(|| {
                 pyo3::exceptions::PyValueError::new_err(format!(
                     "logic group {group_index} is not declared"
                 ))
             })?;
-            let samples = data.get_item(1)?.cast::<PyBytes>()?.as_bytes().into();
-            Ok(ConvertedOutput::Logic(SigrokGeneratedLogic {
-                start_time_ns,
-                end_time_ns,
-                group: group.clone(),
-                channel: group,
+            let samples: Arc<[u8]> = data.get_item(1)?.cast::<PyBytes>()?.as_bytes().into();
+            let sample_count = end_sample
+                .saturating_sub(start_sample)
+                .saturating_sub(1)
+                .min(usize::MAX as u64) as usize;
+            let timestamp_step = end_time_ns
+                .saturating_sub(start_time_ns)
+                .checked_div(sample_count.max(1) as u64)
+                .unwrap_or(1)
+                .max(1);
+            Ok(ConvertedOutput::Logic(SampleBlock::new(
                 samples,
-                sample_count: end_sample
-                    .saturating_sub(start_sample)
-                    .saturating_sub(1)
-                    .min(usize::MAX as u64) as usize,
-            }))
+                start_sample,
+                sample_count,
+                timestamp_step,
+            )))
         }
         OUTPUT_META => {
             let metadata = registration.metadata.as_ref().ok_or_else(|| {
@@ -554,17 +555,22 @@ fn convert_python_output(
                     "metadata output has no registration descriptor",
                 )
             })?;
-            let value = match metadata.value_type {
-                MetadataType::Integer => SigrokMetadataValue::Signed(data.extract()?),
-                MetadataType::Float => SigrokMetadataValue::Float(data.extract()?),
+            let (value, display) = match metadata.value_type {
+                MetadataType::Integer => {
+                    let value: i64 = data.extract()?;
+                    (value as u64, format!("{}: {value}", metadata.name))
+                }
+                MetadataType::Float => {
+                    let value: f64 = data.extract()?;
+                    (value.to_bits(), format!("{}: {value}", metadata.name))
+                }
             };
-            Ok(ConvertedOutput::Metadata(SigrokMetadata {
-                start_time_ns,
-                end_time_ns,
-                name: metadata.name.clone(),
-                description: metadata.description.clone(),
+            Ok(ConvertedOutput::Metadata(Word::labeled(
                 value,
-            }))
+                display,
+                start_time_ns,
+                end_time_ns.saturating_sub(start_time_ns),
+            )))
         }
         OUTPUT_PYTHON => Ok(ConvertedOutput::Packet(ProtocolPacket {
             start_sample,
@@ -703,15 +709,15 @@ mod implementation_tests {
 
     use crossbeam_channel::{Receiver as ChannelReceiver, bounded};
 
-    use signal_processing::{ChannelMessage, Sender, Watchdog};
+    use signal_processing::{ChannelMessage, Sender, Watchdog, WordPayload};
 
     use super::*;
 
     #[derive(Debug, PartialEq)]
     struct SpiResult {
-        annotations: Vec<(u64, u64, usize, Vec<String>)>,
-        binary: Vec<(usize, Vec<u8>)>,
-        metadata: Vec<(String, SigrokMetadataValue)>,
+        annotations: Vec<(u64, u64, u64, String)>,
+        binary: Vec<(u64, Vec<u8>)>,
+        metadata: Vec<(u64, String)>,
         packets: Vec<(String, ProtocolValue)>,
     }
 
@@ -721,17 +727,17 @@ mod implementation_tests {
     }
 
     #[test]
+    #[ignore = "requires SIGROK_DECODERS_DIR containing the upstream spi decoder"]
     fn unmodified_spi_node_is_sample_exact_across_every_chunk_boundary() {
-        let Some(decoder_root) = local_decoder_root() else {
-            eprintln!("skipping Sigrok SPI node test: set SIGROK_DECODERS_DIR");
-            return;
-        };
+        let decoder_root =
+            local_decoder_root().expect("SIGROK_DECODERS_DIR must contain the spi decoder");
         let signals = spi_signals(0xa5);
         let reference = run_spi(&decoder_root, &signals, &[signals[0].len()]);
         assert!(
-            reference.annotations.iter().any(|(_, _, class, texts)| {
-                *class == 1 && texts.iter().any(|text| text == "A5")
-            })
+            reference
+                .annotations
+                .iter()
+                .any(|(_, _, class, text)| *class == 1 && text == "A5")
         );
         assert!(
             reference
@@ -739,7 +745,12 @@ mod implementation_tests {
                 .iter()
                 .any(|(class, bytes)| *class == 1 && bytes == &[0xa5])
         );
-        assert!(reference.metadata.iter().any(|(name, _)| name == "Bitrate"));
+        assert!(
+            reference
+                .metadata
+                .iter()
+                .any(|(_, label)| label.starts_with("Bitrate:"))
+        );
         assert!(reference.packets.iter().any(|(protocol, value)| {
             protocol == "spi"
                 && matches!(value, ProtocolValue::List(items) if matches!(items.first(), Some(ProtocolValue::String(kind)) if kind == "DATA"))
@@ -811,10 +822,10 @@ class Decoder(srd.Decoder):
             "stacked-test",
             "packets",
         )];
-        let (annotation_output, annotation_receiver) = output::<SigrokAnnotation>(&watchdog, 0);
-        let (binary_output, _binary_receiver) = output::<SigrokBinary>(&watchdog, 1);
-        let (logic_output, _logic_receiver) = output::<SigrokGeneratedLogic>(&watchdog, 2);
-        let (metadata_output, _metadata_receiver) = output::<SigrokMetadata>(&watchdog, 3);
+        let (annotation_output, annotation_receiver) = output::<Word>(&watchdog, 0);
+        let (binary_output, _binary_receiver) = output::<Word>(&watchdog, 1);
+        let (logic_output, _logic_receiver) = output::<SampleBlock>(&watchdog, 2);
+        let (metadata_output, _metadata_receiver) = output::<Word>(&watchdog, 3);
         let (packet_output, _packet_receiver) = output::<ProtocolPacket>(&watchdog, 4);
         let outputs = vec![
             annotation_output,
@@ -845,9 +856,9 @@ class Decoder(srd.Decoder):
         }
         let annotations = collect(annotation_receiver);
         assert_eq!(annotations.len(), 1);
-        assert_eq!(annotations[0].start_time_ns, 12_000);
-        assert_eq!(annotations[0].end_time_ns, 20_000);
-        assert_eq!(annotations[0].texts.as_ref(), ["DATA:165:True"]);
+        assert_eq!(annotations[0].timestamp_ns, 12_000);
+        assert_eq!(annotations[0].end_ns(), 20_000);
+        assert_eq!(word_text(&annotations[0]), "DATA:165:True");
     }
 
     fn run_spi(decoder_root: &Path, signals: &[Vec<bool>; 3], chunks: &[usize]) -> SpiResult {
@@ -857,10 +868,10 @@ class Decoder(srd.Decoder):
             .enumerate()
             .map(|(channel, samples)| block_input(&watchdog, samples, chunks, channel))
             .collect::<Vec<_>>();
-        let (annotation_output, annotation_receiver) = output::<SigrokAnnotation>(&watchdog, 0);
-        let (binary_output, binary_receiver) = output::<SigrokBinary>(&watchdog, 1);
-        let (logic_output, _logic_receiver) = output::<SigrokGeneratedLogic>(&watchdog, 2);
-        let (metadata_output, metadata_receiver) = output::<SigrokMetadata>(&watchdog, 3);
+        let (annotation_output, annotation_receiver) = output::<Word>(&watchdog, 0);
+        let (binary_output, binary_receiver) = output::<Word>(&watchdog, 1);
+        let (logic_output, _logic_receiver) = output::<SampleBlock>(&watchdog, 2);
+        let (metadata_output, metadata_receiver) = output::<Word>(&watchdog, 3);
         let (packet_output, packet_receiver) = output::<ProtocolPacket>(&watchdog, 4);
         let outputs = vec![
             annotation_output,
@@ -883,25 +894,44 @@ class Decoder(srd.Decoder):
                 .into_iter()
                 .map(|value| {
                     (
-                        value.start_time_ns,
-                        value.end_time_ns,
-                        value.class,
-                        value.texts.to_vec(),
+                        value.timestamp_ns,
+                        value.end_ns(),
+                        value.value,
+                        word_text(&value),
                     )
                 })
                 .collect(),
             binary: collect(binary_receiver)
                 .into_iter()
-                .map(|value| (value.class, value.bytes.to_vec()))
+                .map(|value| (value.value, word_bytes(&value)))
                 .collect(),
             metadata: collect(metadata_receiver)
                 .into_iter()
-                .map(|value| (value.name, value.value))
+                .map(|value| (value.value, word_text(&value)))
                 .collect(),
             packets: collect(packet_receiver)
                 .into_iter()
                 .map(|value| (value.protocol_id, value.value))
                 .collect(),
+        }
+    }
+
+    fn word_text(word: &Word) -> String {
+        match word.payload.as_ref() {
+            Some(WordPayload::Text(text)) => text.to_string(),
+            Some(WordPayload::Bytes(bytes)) => bytes
+                .iter()
+                .map(|byte| format!("{byte:02X}"))
+                .collect::<Vec<_>>()
+                .join(" "),
+            None => word.value.to_string(),
+        }
+    }
+
+    fn word_bytes(word: &Word) -> Vec<u8> {
+        match word.payload.as_ref() {
+            Some(WordPayload::Bytes(bytes)) => bytes.to_vec(),
+            _ => word.value.to_be_bytes().to_vec(),
         }
     }
 
@@ -1041,17 +1071,11 @@ class Decoder(srd.Decoder):
     fn local_decoder_root() -> Option<PathBuf> {
         std::env::var_os("SIGROK_DECODERS_DIR")
             .map(PathBuf::from)
-            .or_else(|| {
-                Some(
-                    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                        .join("../../../dslogic/libsigrokdecode/decoders"),
-                )
-            })
             .filter(|path| path.join("spi/pd.py").is_file())
     }
 
     #[test]
-    #[ignore = "requires an installed libsigrokdecode development package"]
+    #[ignore = "requires SIGROK_DECODERS_DIR and an installed libsigrokdecode development package"]
     fn standard_spi_matches_the_libsigrokdecode_oracle() {
         use std::fs;
         use std::process::Command;
@@ -1095,12 +1119,7 @@ class Decoder(srd.Decoder):
         let host_annotations = host
             .annotations
             .iter()
-            .map(|(start, end, class, texts)| {
-                format!(
-                    "A {start} {end} {class} {}",
-                    texts.first().map(String::as_str).unwrap_or("")
-                )
-            })
+            .map(|(start, end, class, text)| format!("A {start} {end} {class} {text}"))
             .chain(host.binary.iter().map(|(class, bytes)| {
                 let value = bytes
                     .iter()

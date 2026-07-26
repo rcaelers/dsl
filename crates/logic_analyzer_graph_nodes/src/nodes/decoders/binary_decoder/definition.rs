@@ -8,7 +8,7 @@ use node_graph::{
     PropDef, PropertyPanelPresentation,
 };
 
-use crate::nodes::registry::{COLOR_DECODERS, Signal, Words};
+use crate::sockets::{COLOR_DECODERS, Signal, Words};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct BinaryDecoderState {

@@ -710,8 +710,8 @@ mod tests {
     use egui::Color32;
 
     use signal_processing::{
-        CollectedLaneQuery, CollectedLaneSnapshotRequest, CollectedPayloadRegistry, DerivedLanes,
-        OpaqueCollectedLaneSnapshot,
+        CollectedLaneQuery, CollectedLaneSnapshotRequest, DerivedLanes,
+        OpaqueCollectedLaneSnapshot, PayloadRegistry,
     };
 
     use super::*;
@@ -763,7 +763,7 @@ mod tests {
         name: &str,
         interaction: Option<ViewerLaneInteraction>,
     ) {
-        let mut payloads = CollectedPayloadRegistry::new();
+        let mut payloads = PayloadRegistry::new();
         payloads.register::<TestPayload>(TEST_PAYLOAD_ID).unwrap();
         lanes.publish_opaque_lane(
             name,

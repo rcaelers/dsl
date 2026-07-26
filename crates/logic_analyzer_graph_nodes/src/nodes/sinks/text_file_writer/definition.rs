@@ -5,7 +5,7 @@ use egui::Color32;
 
 use node_graph::{InputDef, NodeDef, OutputDef};
 
-use crate::nodes::registry::{COLOR_OUTPUT, Text};
+use crate::sockets::{COLOR_OUTPUT, Text};
 
 pub(crate) struct TextFileWriter;
 impl NodeDef for TextFileWriter {

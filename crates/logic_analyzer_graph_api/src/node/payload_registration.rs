@@ -1,27 +1,27 @@
 use std::sync::Arc;
 
-use signal_processing::{CollectedLaneRequest, CollectedPayloadAdapter};
+use signal_processing::{CollectedLaneRequest, PayloadAdapter};
 
 use crate::node_support::{
     DefaultLanePresentationDescriptor, NodeBuildContext, PortKind, PortValue, ResolvedInput,
 };
 
-pub type CollectedPayloadRequestConfigurator =
+pub type PayloadRequestConfigurator =
     fn(CollectedLaneRequest, usize, &ResolvedInput, &dyn NodeBuildContext) -> CollectedLaneRequest;
 
-pub struct CollectedPayloadRegistration {
+pub struct PayloadRegistration {
     stable_id: &'static str,
     kind: fn() -> PortKind,
-    adapter: fn() -> Arc<dyn CollectedPayloadAdapter>,
+    adapter: fn() -> Arc<dyn PayloadAdapter>,
     presentation: fn() -> DefaultLanePresentationDescriptor,
-    configure_request: CollectedPayloadRequestConfigurator,
+    configure_request: PayloadRequestConfigurator,
     persistent_cache: bool,
 }
 
-impl CollectedPayloadRegistration {
+impl PayloadRegistration {
     pub const fn subscribable<T: PortValue>(
         stable_id: &'static str,
-        adapter: fn() -> Arc<dyn CollectedPayloadAdapter>,
+        adapter: fn() -> Arc<dyn PayloadAdapter>,
         presentation: fn() -> DefaultLanePresentationDescriptor,
     ) -> Self {
         Self::subscribable_with_request_configurator::<T>(
@@ -38,7 +38,7 @@ impl CollectedPayloadRegistration {
     pub const fn subscribable_kind(
         stable_id: &'static str,
         kind: fn() -> PortKind,
-        adapter: fn() -> Arc<dyn CollectedPayloadAdapter>,
+        adapter: fn() -> Arc<dyn PayloadAdapter>,
         presentation: fn() -> DefaultLanePresentationDescriptor,
     ) -> Self {
         Self {
@@ -53,9 +53,9 @@ impl CollectedPayloadRegistration {
 
     pub const fn subscribable_with_request_configurator<T: PortValue>(
         stable_id: &'static str,
-        adapter: fn() -> Arc<dyn CollectedPayloadAdapter>,
+        adapter: fn() -> Arc<dyn PayloadAdapter>,
         presentation: fn() -> DefaultLanePresentationDescriptor,
-        configure_request: CollectedPayloadRequestConfigurator,
+        configure_request: PayloadRequestConfigurator,
         persistent_cache: bool,
     ) -> Self {
         Self {
@@ -77,7 +77,7 @@ impl CollectedPayloadRegistration {
     }
 
     #[doc(hidden)]
-    pub fn adapter(&self) -> Arc<dyn CollectedPayloadAdapter> {
+    pub fn adapter(&self) -> Arc<dyn PayloadAdapter> {
         (self.adapter)()
     }
 
@@ -87,7 +87,7 @@ impl CollectedPayloadRegistration {
     }
 
     #[doc(hidden)]
-    pub const fn configure_request(&self) -> CollectedPayloadRequestConfigurator {
+    pub const fn configure_request(&self) -> PayloadRequestConfigurator {
         self.configure_request
     }
 
@@ -106,4 +106,4 @@ fn identity_request(
     request
 }
 
-inventory::collect!(CollectedPayloadRegistration);
+inventory::collect!(PayloadRegistration);

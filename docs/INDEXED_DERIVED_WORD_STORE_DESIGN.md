@@ -23,7 +23,7 @@ Related documents:
 
 The store:
 
-- preserves each decoded `Word` value, timestamp, and explicit duration;
+- preserves each decoded `Word` numeric value or arbitrary-width payload, timestamp, and explicit duration;
 - keeps viewer memory independent of recording duration on native builds;
 - answers exact-window, presence-window, and nearest-boundary queries;
 - supports queries while decoding is active;
@@ -87,15 +87,24 @@ The input is the runtime `Word` type:
 ```rust
 pub struct Word {
     pub value: u64,
+    pub payload: Option<WordPayload>,
     pub timestamp_ns: u64,
     pub duration_ns: u64,
+}
+
+pub enum WordPayload {
+    Bytes(Arc<[u8]>),
+    Text(Arc<str>),
 }
 ```
 
 Words arrive in nondecreasing timestamp order. Equal timestamps retain arrival order. An
 out-of-order timestamp is a store error. A non-zero duration is authoritative and round-trips
-exactly. Instantaneous words use adjacent word starts or a cadence-bounded inferred end for
-display and boundary queries, so long inactive intervals remain empty.
+exactly. Numeric words use `value` without allocating. Byte words retain their complete value at
+any width, while text supplies an explicit decoder-owned label; `value` remains available as a
+generic numeric tag for styling and filtering. Instantaneous words use adjacent word starts or a
+cadence-bounded inferred end for display and boundary queries, so long inactive intervals remain
+empty.
 
 The public query surface is viewer-oriented and independent of the storage format:
 
@@ -151,6 +160,7 @@ Each block contains:
 - an absolute first timestamp followed by unsigned VLQ timestamp deltas;
 - fixed-width values using the smallest of one, two, four, or eight bytes for that block;
 - sparse duration exceptions for words with non-zero duration;
+- a sparse typed payload table for arbitrary-width bytes and UTF-8 text;
 - restart entries for bounded seeks within the variable-length record stream;
 - a CRC32C checksum.
 

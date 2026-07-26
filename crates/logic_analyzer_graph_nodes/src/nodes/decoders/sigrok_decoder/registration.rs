@@ -4,10 +4,7 @@ inventory::submit! {
         super::builder::SigrokDecoderBuilder,
     >("org.logicconduit.graph-node.sigrok-decoder/v1").requiring_payloads(&[
         "org.logicconduit.digital-sample/v1",
-        "org.logicconduit.sigrok.annotation/v1",
-        "org.logicconduit.sigrok.binary/v1",
-        "org.logicconduit.sigrok.generated-logic/v1",
-        "org.logicconduit.sigrok.metadata/v1",
+        "org.logicconduit.word/v1",
         "org.logicconduit.protocol-packet/v1",
     ])
 }
@@ -26,11 +23,10 @@ mod registration_tests {
     use super::super::definition::{SigrokDecoderDefinition, SigrokDecoderState};
 
     #[test]
+    #[ignore = "requires SIGROK_DECODERS_DIR containing the upstream spi decoder"]
     fn standard_spi_decoder_lowers_in_isolation_from_discovered_metadata() {
-        let Some(decoder_root) = local_decoder_root() else {
-            eprintln!("skipping Sigrok graph-node test: set SIGROK_DECODERS_DIR");
-            return;
-        };
+        let decoder_root =
+            local_decoder_root().expect("SIGROK_DECODERS_DIR must contain the spi decoder");
         let descriptor = discover_sigrok_decoder(&decoder_root, "spi").unwrap();
         let mut state = super::super::definition::SigrokDecoderState::from_descriptor(
             decoder_root,
@@ -48,11 +44,10 @@ mod registration_tests {
     }
 
     #[test]
+    #[ignore = "requires SIGROK_DECODERS_DIR containing upstream spi and spiflash decoders"]
     fn standard_stacked_decoder_lowers_with_a_protocol_packet_input() {
-        let Some(decoder_root) = local_decoder_root() else {
-            eprintln!("skipping Sigrok graph-node test: set SIGROK_DECODERS_DIR");
-            return;
-        };
+        let decoder_root =
+            local_decoder_root().expect("SIGROK_DECODERS_DIR must contain the spi decoder");
         let descriptor = discover_sigrok_decoder(&decoder_root, "spiflash").unwrap();
         assert_eq!(descriptor.inputs, ["spi"]);
         let state = SigrokDecoderState::from_descriptor(decoder_root, &descriptor);
@@ -63,11 +58,10 @@ mod registration_tests {
     }
 
     #[test]
+    #[ignore = "requires SIGROK_DECODERS_DIR containing upstream spi and spiflash decoders"]
     fn graph_connection_contracts_follow_declared_protocol_ids() {
-        let Some(decoder_root) = local_decoder_root() else {
-            eprintln!("skipping Sigrok graph-node test: set SIGROK_DECODERS_DIR");
-            return;
-        };
+        let decoder_root =
+            local_decoder_root().expect("SIGROK_DECODERS_DIR must contain the spi decoder");
         let spi = SigrokDecoderState::from_descriptor(
             decoder_root.clone(),
             &discover_sigrok_decoder(&decoder_root, "spi").unwrap(),
@@ -106,11 +100,10 @@ mod registration_tests {
     }
 
     #[test]
+    #[ignore = "requires SIGROK_DECODERS_DIR containing the upstream spi decoder"]
     fn previous_saved_spi_state_gains_protocol_contracts_with_a_warning() {
-        let Some(decoder_root) = local_decoder_root() else {
-            eprintln!("skipping Sigrok graph-node test: set SIGROK_DECODERS_DIR");
-            return;
-        };
+        let decoder_root =
+            local_decoder_root().expect("SIGROK_DECODERS_DIR must contain the spi decoder");
         let descriptor = discover_sigrok_decoder(&decoder_root, "spi").unwrap();
         let mut state = SigrokDecoderState::from_descriptor(decoder_root.clone(), &descriptor);
         state.schema_version = 1;
@@ -126,7 +119,7 @@ mod registration_tests {
         assert!(widget.set_node_state(node, serde_json::to_value(state).unwrap()));
         let migrated: SigrokDecoderState =
             serde_json::from_value(widget.graph().nodes[&node].state.clone()).unwrap();
-        assert_eq!(migrated.schema_version, 2);
+        assert_eq!(migrated.schema_version, 3);
         assert_eq!(migrated.protocol_outputs, ["spi"]);
         assert!(
             widget.graph().nodes[&node]
@@ -139,12 +132,6 @@ mod registration_tests {
     fn local_decoder_root() -> Option<PathBuf> {
         std::env::var_os("SIGROK_DECODERS_DIR")
             .map(PathBuf::from)
-            .or_else(|| {
-                Some(
-                    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                        .join("../../../dslogic/libsigrokdecode/decoders"),
-                )
-            })
             .filter(|path| path.join("spi/pd.py").is_file())
     }
 }

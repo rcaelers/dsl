@@ -163,7 +163,7 @@ lock.
 
 ### Default presentation
 
-Payload owners register default singleton presentations by stable collected-payload identity.
+Payload owners register default singleton presentations by stable payload identity.
 The graph crate registers the standard digital, word, trigger, number, and text presentations;
 plugins use the same contract. The generic viewer does not know this set and leaves an unregistered
 payload undisplayed.
@@ -239,7 +239,7 @@ through the same contract without changing generic viewer code.
 
 The presentation registry is derived from the current node definition and is not serialized.
 Graph documents serialize viewer output choices in the graph-owned
-`logic_analyzer_graph.viewer_selections` extension and the stable collected-payload identity of
+`logic_analyzer_graph.viewer_selections` extension and the stable payload identity of
 every selected output and explicit Viewer input in the payload-subscription extension. This preserves a
 diagnosable contract when a plugin is absent without serializing renderer implementation details.
 The UART socket schema remains stable, so existing graphs load without a presentation migration.

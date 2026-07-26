@@ -7,7 +7,7 @@ use serde_json::Value;
 use node_graph::{InputDef, NodeBadge, NodeDef, OutputDef};
 use signal_processing::{SimpleTriggerCondition, TriggerProgram};
 
-use crate::nodes::registry::{COLOR_SOURCES, Signal};
+use crate::sockets::{COLOR_SOURCES, Signal};
 
 pub(crate) const TEST_CAPTURE_CHANNELS: usize = 11;
 const DEMO_CAPTURE_STATE_VERSION: u16 = 2;

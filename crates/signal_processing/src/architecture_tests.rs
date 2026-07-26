@@ -48,7 +48,7 @@ fn generic_runtime_contains_no_concrete_source_or_protocol_contracts() {
 
 #[test]
 fn type_erased_collection_contract_has_no_builtin_payload_checks() {
-    let source = implementation_source(include_str!("collected_payload.rs"));
+    let source = implementation_source(include_str!("payload.rs"));
     for token in [
         "CollectedDataKind",
         "CollectedValueKind",
@@ -60,7 +60,7 @@ fn type_erased_collection_contract_has_no_builtin_payload_checks() {
     ] {
         assert!(
             !source.contains(token),
-            "generic collected-payload contract contains built-in token {token:?}"
+            "generic payload contract contains built-in token {token:?}"
         );
     }
 }

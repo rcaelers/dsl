@@ -67,7 +67,7 @@ and viewer lanes aligned (including across live-edit rejoins).
 |---|---|---|
 | `Sample` | level | Logic-level change (RLE edge): `value`, `start_time_ns` |
 | `SampleBlock` | bulk | Packed raw bits of one channel block (bandwidth path) |
-| `Word` | event | One decoded value ≤ 64 bits: `value`, `timestamp_ns`, `duration_ns` — the single word type every decoder emits |
+| `Word` | event | One decoded item with a numeric value, arbitrary-width bytes, or text plus `timestamp_ns` and `duration_ns` — the standard decoded-value type every decoder emits |
 | `Trigger` | event | Instantaneous occurrence (matcher hit), time only |
 | `NumberSample` | level | Integer level change (counter output) |
 | `TextSample` | level | Text level change (formatter output / filename) |

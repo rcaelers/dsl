@@ -13,7 +13,7 @@ use logic_analyzer_viewer::{
     ViewerLaneRendererRegistration, ViewerLaneTheme, ViewerLaneTrackId,
 };
 
-use crate::collected_payloads::WordSnapshotRenderer;
+use crate::payloads::WordSnapshotRenderer;
 
 const START: u64 = u64::MAX;
 const STOP: u64 = u64::MAX - 1;

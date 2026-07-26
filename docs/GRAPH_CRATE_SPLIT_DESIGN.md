@@ -3,7 +3,7 @@
 ## Current boundary
 
 `logic_analyzer_graph_api` owns the compile-time plugin contract through its `node` and
-`node_support` namespaces. Graph-node and collected-payload inventory types are defined there;
+`node_support` namespaces. Graph-node and payload inventory types are defined there;
 inventory assembly is compiler-owned and consumes submissions without importing a node bundle.
 
 `logic_analyzer_graph_nodes` owns the built-in node definitions, builders, migrations, socket
@@ -51,7 +51,7 @@ directory-backed namespaces and no application-host operations.
 
 - `RuntimeBuilder`;
 - `GraphNodeRegistration`;
-- `CollectedPayloadRegistration`;
+- `PayloadRegistration`;
 - `LiveCaptureFeature`;
 - `CaptureGraphSourceFactory`.
 
@@ -129,7 +129,7 @@ capabilities. Each node directory owns its definition, state, migration, builder
 metadata, inventory submission, and isolated test. Concrete node symbols do not leave their
 directory facade.
 
-Built-in socket types, collected-payload presentation descriptors, and concrete renderer
+Built-in socket types, payload presentation descriptors, and concrete renderer
 registrations live with the built-in node bundle. Neutral descriptors are submitted through
 `logic_analyzer_graph_api`; renderer factories are submitted through the generic viewer registry
 under the stable keys carried by those descriptors. The bundle does not call compiler or UI

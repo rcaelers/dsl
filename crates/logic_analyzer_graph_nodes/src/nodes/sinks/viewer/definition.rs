@@ -8,7 +8,7 @@ use node_graph::{
     PropertyPanelPresentation, StringValue,
 };
 
-use crate::nodes::registry::{COLOR_OUTPUT, Number, Signal, Text, Trigger, Words};
+use crate::sockets::{COLOR_OUTPUT, Number, Signal, Text, Trigger, Words};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct ViewerState {

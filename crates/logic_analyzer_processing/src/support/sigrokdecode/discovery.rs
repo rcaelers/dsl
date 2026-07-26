@@ -12,7 +12,7 @@ use super::bridge::DecoderBridge;
 use super::python_error::format_python_error;
 use super::python_host::{
     HostDecoder, OUTPUT_ANN, OUTPUT_BINARY, OUTPUT_LOGIC, OUTPUT_META, OUTPUT_PYTHON,
-    SRD_CONF_SAMPLERATE, install_sigrokdecode_module,
+    SRD_CONF_SAMPLERATE, decoder_import_guard, install_sigrokdecode_module,
 };
 use super::scheduler::InitialPin;
 
@@ -149,6 +149,7 @@ pub fn discover_sigrok_decoder(
 ) -> Result<SigrokDecoderDescriptor, String> {
     let decoder_root = decoder_root.into();
     Python::initialize();
+    let _import_guard = decoder_import_guard();
     Python::attach(|py| {
         install_sigrokdecode_module(py)?;
         let decoder_class = import_decoder(py, &decoder_root, id)?;
@@ -570,19 +571,17 @@ fn package_fingerprint(package: &Path) -> Result<String, String> {
 mod tests {
     use std::fs;
     use std::path::PathBuf;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::{Arc, Barrier, Mutex, OnceLock};
 
     use super::*;
 
     #[test]
+    #[ignore = "requires SIGROK_DECODERS_DIR pointing to a complete upstream decoder tree"]
     fn standard_spi_decoder_can_be_discovered_and_started_without_libsigrokdecode() {
-        let Some(decoder_root) = local_decoder_root() else {
-            eprintln!(
-                "skipping Sigrok SPI feasibility test: set SIGROK_DECODERS_DIR to a decoder tree"
-            );
-            return;
-        };
+        let decoder_root =
+            local_decoder_root().expect("SIGROK_DECODERS_DIR must contain the spi decoder");
         let _guard = python_test_lock().lock().unwrap();
+        let _import_guard = decoder_import_guard();
 
         Python::initialize();
         Python::attach(|py| {
@@ -628,15 +627,14 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires SIGROK_DECODERS_DIR containing the upstream pca9571 decoder"]
     fn standard_pca9571_tuple_channels_are_discovered() {
-        let Some(decoder_root) = local_decoder_root() else {
-            eprintln!("skipping PCA9571 discovery test: no local Sigrok decoder tree");
-            return;
-        };
-        if !decoder_root.join("pca9571/pd.py").is_file() {
-            eprintln!("skipping PCA9571 discovery test: decoder is unavailable");
-            return;
-        }
+        let decoder_root =
+            local_decoder_root().expect("SIGROK_DECODERS_DIR must contain the spi decoder");
+        assert!(
+            decoder_root.join("pca9571/pd.py").is_file(),
+            "SIGROK_DECODERS_DIR must contain the pca9571 decoder"
+        );
         let _guard = python_test_lock().lock().unwrap();
 
         let descriptor = discover_sigrok_decoder(decoder_root, "pca9571").unwrap();
@@ -646,15 +644,57 @@ mod tests {
         assert_eq!(descriptor.logic_output_channels[7].name, "P7");
     }
 
+    #[test]
+    fn concurrent_decoder_discovery_keeps_python_packages_registered() {
+        let directory = tempfile::tempdir().unwrap();
+        for id in ["fixture_a", "fixture_b"] {
+            write_fixture_decoder(directory.path(), id, id, "mit");
+            let package = directory.path().join(id);
+            fs::write(package.join("lists.py"), "MARKER = 'loaded'\n").unwrap();
+            let decoder = fs::read_to_string(package.join("pd.py")).unwrap();
+            fs::write(
+                package.join("pd.py"),
+                format!("from .lists import MARKER\n{decoder}"),
+            )
+            .unwrap();
+        }
+        let decoder_root = directory.path().to_owned();
+
+        let barrier = Arc::new(Barrier::new(5));
+        let workers = (0..4)
+            .map(|worker| {
+                let barrier = Arc::clone(&barrier);
+                let decoder_root = decoder_root.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    for iteration in 0..4 {
+                        let id = if (worker + iteration) % 2 == 0 {
+                            "fixture_a"
+                        } else {
+                            "fixture_b"
+                        };
+                        let descriptor = discover_sigrok_decoder(&decoder_root, id)?;
+                        if descriptor.id != id {
+                            return Err(format!(
+                                "requested decoder {id}, discovered {}",
+                                descriptor.id
+                            ));
+                        }
+                    }
+                    Ok::<_, String>(())
+                })
+            })
+            .collect::<Vec<_>>();
+        barrier.wait();
+
+        for worker in workers {
+            worker.join().expect("discovery worker panicked").unwrap();
+        }
+    }
+
     fn local_decoder_root() -> Option<PathBuf> {
         std::env::var_os("SIGROK_DECODERS_DIR")
             .map(PathBuf::from)
-            .or_else(|| {
-                Some(
-                    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                        .join("../../../dslogic/libsigrokdecode/decoders"),
-                )
-            })
             .filter(|path| path.join("spi/pd.py").is_file())
     }
 
@@ -725,7 +765,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "representative native catalog performance check; scans the complete decoder tree"]
+    #[ignore = "requires SIGROK_DECODERS_DIR; scans the complete upstream decoder tree"]
     fn benchmark_complete_standard_catalog_discovery() {
         let decoder_root = local_decoder_root().expect("Sigrok decoder directory is unavailable");
         let started = std::time::Instant::now();

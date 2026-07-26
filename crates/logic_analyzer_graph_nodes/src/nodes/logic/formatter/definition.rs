@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use node_graph::{InputDef, NodeDef, OutputDef, PropDef, StringValue};
 
-use crate::nodes::registry::{COLOR_LOGIC, Number, Text};
+use crate::sockets::{COLOR_LOGIC, Number, Text};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct StringFormatterState {

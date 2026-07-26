@@ -1,4 +1,4 @@
-# Plugin-Extensible Collected Payload Design
+# Plugin-Extensible Payload Design
 
 ## Current architecture
 
@@ -10,8 +10,8 @@ carries any idempotent runtime channel setup needed for a non-collected custom p
 payload capability registration performs the same typed channel setup as part of its atomic
 submission.
 
-`CollectedPayloadRegistry` records a durable, plugin-owned identity for each payload intended to
-become collectable. `CollectedPayloadRegistration` inventory submissions atomically provide that
+`PayloadRegistry` records a durable, plugin-owned identity for each payload intended to
+become collectable. `PayloadRegistration` inventory submissions atomically provide that
 identity, typed channel setup, adapter factory, request configuration, persistence policy, and
 default waveform presentation. `BuilderRegistry::standard()` applies submissions in stable-ID
 order and rejects identity/type collisions before graph-node payload requirements are validated.
@@ -42,10 +42,12 @@ The built-in numeric and text adapters retain their respective `i64` and `String
 their queries. Their graph-owned presentation adapters format bounded values only while rendering;
 the generic collector does not convert a payload into display text.
 
-The built-in word adapter exposes `CollectedWordLaneQuery` as its concrete query contract. Generic
-subscribers use its bounded waveform and table capabilities through `CollectedLaneQuery`; concrete
-word diagnostics may downcast the query and inspect its indexed store without accessing generic
-collector storage.
+The built-in word adapter exposes `CollectedWordLaneQuery` as its concrete query contract. `Word`
+represents both ordinary numeric decoder values and arbitrary-width byte values, with optional
+text supplied by the decoder. Its indexed storage, waveform snapshots, and table rows preserve
+that complete value. Generic subscribers use the bounded waveform and table capabilities through
+`CollectedLaneQuery`; concrete word diagnostics may downcast the query and inspect its indexed
+store without accessing generic collector storage.
 
 `CollectedLaneQuery` supplies an immutable snapshot only when its payload has waveform
 semantics. The request is bounded by a visible time window and item limit. The viewer passes the
@@ -57,7 +59,7 @@ and event transitions for hover measurement and event-row interaction. Cursor bo
 timeline extent, and live status are query capabilities. The generic viewer neither reads a
 parallel built-in lane representation nor matches a payload type.
 
-## Collected-payload adapters
+## Payload adapters
 
 A payload is *collectable* only when its owner registers explicit timeline and storage semantics.
 This is intentionally narrower than being a `PortValue`: a payload such as a configuration command
@@ -68,10 +70,10 @@ plugin payload T
       │
       ├── PortValue + runtime channel registration
       │
-      └── collected-payload adapter registration
+      └── payload adapter registration
                    │
                    ▼
-           CollectedPayloadRegistry
+           PayloadRegistry
                    │
                    ▼
            DerivedDataCollector
@@ -113,7 +115,7 @@ plugins from silently assigning incompatible semantics to one payload.
 
 ### Runtime adapter contract
 
-`CollectedPayloadAdapter` registration for `T` creates a typed lane ingestor while exposing only
+`PayloadAdapter` registration for `T` creates a typed lane ingestor while exposing only
 an erased, object-safe interface to the collector.
 
 ```rust
@@ -137,7 +139,7 @@ capabilities rather than inferred from a payload type.
 
 ### Presentation and panels
 
-The waveform viewer owns a separate presentation registry keyed by the collected payload identity.
+The waveform viewer owns a separate presentation registry keyed by the payload identity.
 Its adapter supplies default group/badge metadata and a renderer for bounded snapshots. Rendering
 occurs after the retained-lane lock is released. `ViewerLaneTheme` supplies current background,
 foreground, muted, accent, and error roles. `ViewerLaneInteractionContext` supplies the bounded

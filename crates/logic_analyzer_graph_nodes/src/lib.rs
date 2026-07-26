@@ -1,11 +1,12 @@
-//! Built-in LogicConduit graph nodes and collected-payload presentations.
+//! Built-in LogicConduit graph nodes and payload presentations.
 
 #[cfg(not(target_arch = "wasm32"))]
 mod catalogs;
-mod collected_payloads;
 mod link;
 mod nodes;
+mod payloads;
 mod presentation;
+mod sockets;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 

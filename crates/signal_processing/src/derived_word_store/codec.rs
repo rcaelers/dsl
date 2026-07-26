@@ -1,12 +1,12 @@
 use super::config::BlockCodecConfig;
 use super::errors::{CodecError, CodecResult};
 use super::format::{
-    BLOCK_CHECKSUM_OFFSET, BLOCK_FLAG_HAS_DURATIONS, BLOCK_HEADER_SIZE,
+    BLOCK_CHECKSUM_OFFSET, BLOCK_FLAG_HAS_DURATIONS, BLOCK_FLAG_HAS_PAYLOADS, BLOCK_HEADER_SIZE,
     DEFAULT_MAX_WORDS_PER_BLOCK, RESTART_ENTRY_SIZE, RestartEntry, WordBlockHeader,
 };
 use super::vlq::{decode_u64, encode_u64, encoded_len};
 use crate::crc32c::block_checksum;
-use crate::events::Word;
+use crate::events::{Word, WordPayload};
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +24,9 @@ pub(crate) struct WordBlockBuilder {
     duration_bytes: usize,
     duration_count: usize,
     last_duration_index: usize,
+    payload_entry_bytes: usize,
+    payload_count: usize,
+    last_payload_index: usize,
     max_value: u64,
 }
 
@@ -54,6 +57,9 @@ impl WordBlockBuilder {
             duration_bytes: 0,
             duration_count: 0,
             last_duration_index: 0,
+            payload_entry_bytes: 0,
+            payload_count: 0,
+            last_payload_index: 0,
             max_value: 0,
         })
     }
@@ -74,7 +80,7 @@ impl WordBlockBuilder {
     /// committed first. `word` is not consumed when `BlockFull` is returned.
     #[cfg(test)]
     fn push(&mut self, word: Word) -> CodecResult<PushResult> {
-        self.validate_order(word)?;
+        self.validate_order(&word)?;
         self.push_ordered(word)
     }
 
@@ -83,7 +89,7 @@ impl WordBlockBuilder {
     /// high-volume live-index path while retaining all block-size checks.
     #[cfg(test)]
     fn push_ordered(&mut self, word: Word) -> CodecResult<PushResult> {
-        if !self.words.is_empty() && self.would_close_before(word) {
+        if !self.words.is_empty() && self.would_close_before(&word) {
             return Ok(PushResult::BlockFull);
         }
         if self.words.len() == u32::MAX as usize {
@@ -100,6 +106,8 @@ impl WordBlockBuilder {
     pub(crate) fn extend_ordered(&mut self, words: &[Word]) -> usize {
         if self.duration_count == 0
             && words.iter().all(|word| word.duration_ns == 0)
+            && self.payload_count == 0
+            && words.iter().all(Word::is_numeric)
             && self.duration_free_payload_fits_at_max_words()
         {
             return self.extend_duration_free(words);
@@ -111,6 +119,9 @@ impl WordBlockBuilder {
         let mut duration_bytes = self.duration_bytes;
         let mut duration_count = self.duration_count;
         let mut last_duration_index = self.last_duration_index;
+        let mut payload_entry_bytes = self.payload_entry_bytes;
+        let mut payload_count = self.payload_count;
+        let mut last_payload_index = self.last_payload_index;
         let mut max_value = self.max_value;
         let mut previous_timestamp = self.words.last().map(|word| word.timestamp_ns);
         let first_timestamp = self
@@ -119,7 +130,7 @@ impl WordBlockBuilder {
             .map(|word| word.timestamp_ns)
             .or_else(|| words.first().map(|word| word.timestamp_ns));
 
-        for &word in words {
+        for word in words {
             let next_index = original_len + accepted;
             if let Some(previous_timestamp) = previous_timestamp {
                 if next_index >= self.config.max_words
@@ -155,9 +166,34 @@ impl WordBlockBuilder {
                         )
                     };
                 let word_count = next_index + 1;
+                let (next_payload_entry_bytes, next_payload_count, next_last_payload_index) =
+                    if let Some(payload) = &word.payload {
+                        let index_delta = if payload_count == 0 {
+                            next_index
+                        } else {
+                            next_index - last_payload_index
+                        };
+                        (
+                            payload_entry_bytes
+                                + encoded_len(index_delta as u64)
+                                + 1
+                                + encoded_len(payload_len(payload) as u64)
+                                + payload_len(payload),
+                            payload_count + 1,
+                            next_index,
+                        )
+                    } else {
+                        (payload_entry_bytes, payload_count, last_payload_index)
+                    };
                 let record_bytes = next_timestamp_bytes + word_count * next_value_bytes;
                 let restart_count = word_count.div_ceil(self.config.restart_interval);
-                if record_bytes + restart_count * RESTART_ENTRY_SIZE + next_duration_bytes
+                let payload_bytes = (next_payload_count > 0)
+                    .then(|| encoded_len(next_payload_count as u64) + next_payload_entry_bytes)
+                    .unwrap_or(0);
+                if record_bytes
+                    + restart_count * RESTART_ENTRY_SIZE
+                    + next_duration_bytes
+                    + payload_bytes
                     > self.config.max_payload_bytes
                 {
                     break;
@@ -167,6 +203,9 @@ impl WordBlockBuilder {
                 duration_bytes = next_duration_bytes;
                 duration_count = next_duration_count;
                 last_duration_index = next_last_duration_index;
+                payload_entry_bytes = next_payload_entry_bytes;
+                payload_count = next_payload_count;
+                last_payload_index = next_last_payload_index;
             } else {
                 timestamp_bytes += encoded_len(0);
                 if word.duration_ns != 0 {
@@ -175,6 +214,14 @@ impl WordBlockBuilder {
                     last_duration_index = 0;
                 }
                 max_value = word.value;
+                if let Some(payload) = &word.payload {
+                    payload_entry_bytes = encoded_len(0)
+                        + 1
+                        + encoded_len(payload_len(payload) as u64)
+                        + payload_len(payload);
+                    payload_count = 1;
+                    last_payload_index = 0;
+                }
             }
             previous_timestamp = Some(word.timestamp_ns);
             accepted += 1;
@@ -184,6 +231,9 @@ impl WordBlockBuilder {
         self.duration_bytes = duration_bytes;
         self.duration_count = duration_count;
         self.last_duration_index = last_duration_index;
+        self.payload_entry_bytes = payload_entry_bytes;
+        self.payload_count = payload_count;
+        self.last_payload_index = last_payload_index;
         self.max_value = max_value;
         self.words.extend_from_slice(&words[..accepted]);
         accepted
@@ -216,7 +266,7 @@ impl WordBlockBuilder {
         let mut accepted = 0usize;
         let mut timestamp_bytes = self.timestamp_bytes;
         let mut max_value = self.max_value;
-        for &word in candidates {
+        for word in candidates {
             if let Some(previous_timestamp) = previous_timestamp {
                 let delta = word.timestamp_ns.saturating_sub(previous_timestamp);
                 if delta > self.config.max_inter_word_gap_ns
@@ -251,6 +301,9 @@ impl WordBlockBuilder {
         self.duration_bytes = 0;
         self.duration_count = 0;
         self.last_duration_index = 0;
+        self.payload_entry_bytes = 0;
+        self.payload_count = 0;
+        self.last_payload_index = 0;
         self.max_value = 0;
     }
 
@@ -269,7 +322,7 @@ impl WordBlockBuilder {
     }
 
     #[cfg(test)]
-    fn validate_order(&self, word: Word) -> CodecResult<()> {
+    fn validate_order(&self, word: &Word) -> CodecResult<()> {
         if let Some(previous) = self.words.last()
             && word.timestamp_ns < previous.timestamp_ns
         {
@@ -283,7 +336,7 @@ impl WordBlockBuilder {
     }
 
     #[cfg(test)]
-    fn would_close_before(&self, word: Word) -> bool {
+    fn would_close_before(&self, word: &Word) -> bool {
         let first = self.words.first().expect("non-empty builder");
         let last = self.words.last().expect("non-empty builder");
         if self.words.len() >= self.config.max_words
@@ -310,7 +363,27 @@ impl WordBlockBuilder {
             };
         let record_bytes = timestamp_bytes + (next_index + 1) * value_bytes;
         let restart_count = (next_index + 1).div_ceil(self.config.restart_interval);
-        record_bytes + restart_count * RESTART_ENTRY_SIZE + duration_bytes
+        let (payload_entry_bytes, payload_count) = if let Some(payload) = &word.payload {
+            let index_delta = if self.payload_count == 0 {
+                next_index
+            } else {
+                next_index - self.last_payload_index
+            };
+            (
+                self.payload_entry_bytes
+                    + encoded_len(index_delta as u64)
+                    + 1
+                    + encoded_len(payload_len(payload) as u64)
+                    + payload_len(payload),
+                self.payload_count + 1,
+            )
+        } else {
+            (self.payload_entry_bytes, self.payload_count)
+        };
+        let payload_bytes = (payload_count > 0)
+            .then(|| encoded_len(payload_count as u64) + payload_entry_bytes)
+            .unwrap_or(0);
+        record_bytes + restart_count * RESTART_ENTRY_SIZE + duration_bytes + payload_bytes
             > self.config.max_payload_bytes
     }
 
@@ -331,6 +404,19 @@ impl WordBlockBuilder {
             self.duration_bytes += encoded_len(index_delta as u64) + encoded_len(word.duration_ns);
             self.duration_count += 1;
             self.last_duration_index = index;
+        }
+        if let Some(payload) = &word.payload {
+            let index_delta = if self.payload_count == 0 {
+                index
+            } else {
+                index - self.last_payload_index
+            };
+            self.payload_entry_bytes += encoded_len(index_delta as u64)
+                + 1
+                + encoded_len(payload_len(payload) as u64)
+                + payload_len(payload);
+            self.payload_count += 1;
+            self.last_payload_index = index;
         }
         self.max_value = self.max_value.max(word.value);
         self.words.push(word);
@@ -403,10 +489,17 @@ fn encode_validated_word_block_with_interval(
     debug_assert!(restart_interval > 0);
     let mut records = Vec::with_capacity(words.len() * (value_bytes + 1));
     let mut durations = Vec::new();
+    let mut payloads = Vec::new();
     let mut restarts = Vec::with_capacity(words.len().div_ceil(restart_interval));
     let mut previous_timestamp = words[0].timestamp_ns;
     let mut previous_duration_index = 0usize;
     let mut duration_count = 0usize;
+    let mut previous_payload_index = 0usize;
+    let mut emitted_payload_count = 0usize;
+    let payload_count = words.iter().filter(|word| word.payload.is_some()).count();
+    if payload_count > 0 {
+        encode_u64(payload_count as u64, &mut payloads);
+    }
 
     for (index, word) in words.iter().enumerate() {
         if index.is_multiple_of(restart_interval) {
@@ -438,6 +531,28 @@ fn encode_validated_word_block_with_interval(
             previous_duration_index = index;
             duration_count += 1;
         }
+        if let Some(payload) = &word.payload {
+            let index_delta = if emitted_payload_count == 0 {
+                index
+            } else {
+                index - previous_payload_index
+            };
+            encode_u64(index_delta as u64, &mut payloads);
+            match payload {
+                WordPayload::Bytes(bytes) => {
+                    payloads.push(1);
+                    encode_u64(bytes.len() as u64, &mut payloads);
+                    payloads.extend_from_slice(bytes);
+                }
+                WordPayload::Text(text) => {
+                    payloads.push(2);
+                    encode_u64(text.len() as u64, &mut payloads);
+                    payloads.extend_from_slice(text.as_bytes());
+                }
+            }
+            previous_payload_index = index;
+            emitted_payload_count += 1;
+        }
     }
 
     let restart_table_offset = BLOCK_HEADER_SIZE
@@ -448,6 +563,7 @@ fn encode_validated_word_block_with_interval(
         .ok_or_else(|| invalid("word-block size overflow"))?;
     let unpadded_len = duration_table_offset
         .checked_add(durations.len())
+        .and_then(|length| length.checked_add(payloads.len()))
         .ok_or_else(|| invalid("word-block size overflow"))?;
     let block_len = unpadded_len
         .checked_add(7)
@@ -455,11 +571,12 @@ fn encode_validated_word_block_with_interval(
         .ok_or_else(|| invalid("word-block size overflow"))?;
 
     let mut header = WordBlockHeader {
-        flags: if duration_count == 0 {
-            0
-        } else {
-            BLOCK_FLAG_HAS_DURATIONS
-        },
+        flags: (duration_count > 0)
+            .then_some(BLOCK_FLAG_HAS_DURATIONS)
+            .unwrap_or(0)
+            | (payload_count > 0)
+                .then_some(BLOCK_FLAG_HAS_PAYLOADS)
+                .unwrap_or(0),
         sequence,
         first_timestamp_ns: words[0].timestamp_ns,
         last_timestamp_ns: words.last().unwrap().timestamp_ns,
@@ -481,6 +598,7 @@ fn encode_validated_word_block_with_interval(
         restart.append_to(output);
     }
     output.extend_from_slice(&durations);
+    output.extend_from_slice(&payloads);
     output.resize(block_len, 0);
     header.write_to(output);
     header.crc32c = block_checksum(output, BLOCK_CHECKSUM_OFFSET);
@@ -666,6 +784,9 @@ fn parse_word_block(bytes: &[u8]) -> CodecResult<ParsedWordBlock> {
     if !matches!(value_bytes, 1 | 2 | 4 | 8) {
         return Err(invalid("invalid value width"));
     }
+    if header.flags & !(BLOCK_FLAG_HAS_DURATIONS | BLOCK_FLAG_HAS_PAYLOADS) != 0 {
+        return Err(invalid("word block contains unsupported flags"));
+    }
 
     let record_end = BLOCK_HEADER_SIZE
         .checked_add(header.record_payload_len as usize)
@@ -737,8 +858,57 @@ fn apply_durations(
         }
         previous_duration_index = record_index;
     }
+    let mut payload_cursor = duration_cursor;
+    if parsed.header.flags & BLOCK_FLAG_HAS_PAYLOADS != 0 {
+        let payload_count = usize::try_from(decode_u64(bytes, &mut payload_cursor)?)
+            .map_err(|_| invalid("word payload count overflow"))?;
+        let mut previous_payload_index = 0usize;
+        for payload_index in 0..payload_count {
+            let index_delta = usize::try_from(decode_u64(bytes, &mut payload_cursor)?)
+                .map_err(|_| invalid("word payload index overflow"))?;
+            let record_index = if payload_index == 0 {
+                index_delta
+            } else {
+                if index_delta == 0 {
+                    return Err(invalid("word payload indices are not increasing"));
+                }
+                previous_payload_index
+                    .checked_add(index_delta)
+                    .ok_or_else(|| invalid("word payload index overflow"))?
+            };
+            if record_index >= parsed.header.word_count as usize {
+                return Err(invalid("word payload index is out of bounds"));
+            }
+            let kind = *bytes.get(payload_cursor).ok_or(CodecError::Truncated)?;
+            payload_cursor += 1;
+            let length = usize::try_from(decode_u64(bytes, &mut payload_cursor)?)
+                .map_err(|_| invalid("word payload length overflow"))?;
+            let end = payload_cursor
+                .checked_add(length)
+                .ok_or_else(|| invalid("word payload length overflow"))?;
+            let value = bytes
+                .get(payload_cursor..end)
+                .ok_or(CodecError::Truncated)?;
+            let payload = match kind {
+                1 => WordPayload::Bytes(value.into()),
+                2 => WordPayload::Text(
+                    std::str::from_utf8(value)
+                        .map_err(|_| invalid("word text payload is not UTF-8"))?
+                        .into(),
+                ),
+                _ => return Err(invalid("unknown word payload kind")),
+            };
+            if let Some(local_index) = record_index.checked_sub(first_record_index)
+                && let Some(word) = words.get_mut(local_index)
+            {
+                word.payload = Some(payload);
+            }
+            payload_cursor = end;
+            previous_payload_index = record_index;
+        }
+    }
     let padding = bytes
-        .get(duration_cursor..parsed.block_len)
+        .get(payload_cursor..parsed.block_len)
         .ok_or(CodecError::Truncated)?;
     if padding.len() > 7 || padding.iter().any(|&byte| byte != 0) {
         return Err(invalid("invalid word-block padding"));
@@ -794,6 +964,13 @@ fn value_width(max_value: u64) -> usize {
     }
 }
 
+fn payload_len(payload: &WordPayload) -> usize {
+    match payload {
+        WordPayload::Bytes(bytes) => bytes.len(),
+        WordPayload::Text(text) => text.len(),
+    }
+}
+
 fn append_value(value: u64, width: usize, output: &mut Vec<u8>) {
     output.extend_from_slice(&value.to_le_bytes()[..width]);
 }
@@ -825,6 +1002,7 @@ fn invalid(message: &str) -> CodecError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::time::Instant;
 
     use super::*;
@@ -876,6 +1054,25 @@ mod tests {
         let (metadata, _) = round_trip(&words);
         assert_eq!(metadata.header.value_bytes, 8);
         assert_eq!(metadata.header.duration_count, 2);
+    }
+
+    #[test]
+    fn block_and_range_round_trip_arbitrary_width_and_text_words() {
+        let bytes = Arc::<[u8]>::from((0..=255).collect::<Vec<_>>());
+        let words = [
+            Word::new(7, 100),
+            Word::bytes_with_tag(3, Arc::clone(&bytes), 200, 25),
+            Word::labeled(9, "decoder label", 300, 40),
+            Word::new(11, 400),
+        ];
+        let (_, encoded) = round_trip(&words);
+
+        let range = decode_word_block_range(&encoded, 200, 300, 8).unwrap();
+        assert_eq!(range.words, words);
+        assert_eq!(
+            range.words[1].payload,
+            Some(WordPayload::Bytes(Arc::clone(&bytes)))
+        );
     }
 
     #[test]
@@ -1052,10 +1249,13 @@ mod tests {
         assert_eq!(batch.extend_ordered(&words[3..]), 0);
 
         let mut scalar = WordBlockBuilder::new(config).unwrap();
-        for &word in &words[..3] {
-            assert_eq!(scalar.push(word).unwrap(), PushResult::Appended);
+        for word in &words[..3] {
+            assert_eq!(scalar.push(word.clone()).unwrap(), PushResult::Appended);
         }
-        assert_eq!(scalar.push(words[3]).unwrap(), PushResult::BlockFull);
+        assert_eq!(
+            scalar.push(words[3].clone()).unwrap(),
+            PushResult::BlockFull
+        );
 
         let mut batch_bytes = Vec::new();
         let mut scalar_bytes = Vec::new();

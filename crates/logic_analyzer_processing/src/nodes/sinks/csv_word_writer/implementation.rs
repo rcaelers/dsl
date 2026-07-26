@@ -21,8 +21,8 @@ use std::path::PathBuf;
 use tracing::{debug, info, warn};
 
 use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, TextSample, Word, WorkError,
-    WorkResult,
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, TextSample, Word, WordPayload,
+    WorkError, WorkResult,
 };
 
 /// How a word's value is rendered in the CSV `value` column.
@@ -40,13 +40,33 @@ impl CsvValueFormat {
         output: &mut Vec<u8>,
         row_id: u64,
         timestamp_ns: u64,
-        value: u64,
+        word: &Word,
     ) -> std::io::Result<()> {
-        match *self {
-            CsvValueFormat::Decimal => writeln!(output, "{row_id},{timestamp_ns},{value}"),
-            CsvValueFormat::Hex { width } => {
-                writeln!(output, "{row_id},{timestamp_ns},{value:0width$X}")
+        write!(output, "{row_id},{timestamp_ns},")?;
+        match &word.payload {
+            Some(WordPayload::Bytes(bytes)) => {
+                for byte in bytes.iter() {
+                    write!(output, "{byte:02X}")?;
+                }
+                writeln!(output)
             }
+            Some(WordPayload::Text(text)) => {
+                output.push(b'"');
+                for byte in text.bytes() {
+                    if byte == b'"' {
+                        output.push(b'"');
+                    }
+                    output.push(byte);
+                }
+                output.extend_from_slice(b"\"\n");
+                Ok(())
+            }
+            None => match *self {
+                CsvValueFormat::Decimal => writeln!(output, "{}", word.value),
+                CsvValueFormat::Hex { width } => {
+                    writeln!(output, "{:0width$X}", word.value)
+                }
+            },
         }
     }
 }
@@ -218,7 +238,7 @@ impl CsvWordWriter {
 
         let row_id = self.rows_in_file + 1;
         self.value_format
-            .append_row(&mut self.encoded_batch, row_id, word_ts, word.value)
+            .append_row(&mut self.encoded_batch, row_id, word_ts, &word)
             .map_err(|error| WorkError::NodeError(format!("encoding row: {error}")))?;
         self.rows_in_file += 1;
         Ok(())
@@ -424,6 +444,51 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(&target).unwrap(),
             "id,time_ns,value\n1,100,1\n2,200,2\n3,300,47\n"
+        );
+    }
+
+    #[test]
+    fn arbitrary_width_and_text_words_keep_their_complete_csv_value() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("rich.csv").display().to_string();
+        let wd = Watchdog::new();
+        let (data_tx, data_rx) = bounded::<ChannelMessage<Word>>(4);
+        let inputs = vec![
+            InputPort::new_with_watchdog(data_rx, &wd, "writer", "data"),
+            InputPort::disconnected().with_watchdog(
+                wd.clone(),
+                "writer".to_string(),
+                "filename".to_string(),
+            ),
+        ];
+        data_tx
+            .send(ChannelMessage::Sample(Word::bytes(
+                vec![0x10, 0x20, 0x30, 0x40],
+                100,
+                0,
+            )))
+            .unwrap();
+        data_tx
+            .send(ChannelMessage::Sample(Word::text(
+                "label, \"quoted\"",
+                200,
+                0,
+            )))
+            .unwrap();
+        drop(data_tx);
+
+        let mut writer = CsvWordWriter::new().with_filename(&target);
+        loop {
+            match writer.work(&inputs, &[]) {
+                Ok(_) => {}
+                Err(WorkError::Shutdown) => break,
+                Err(error) => panic!("unexpected error: {error}"),
+            }
+        }
+
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "id,time_ns,value\n1,100,10203040\n2,200,\"label, \"\"quoted\"\"\"\n"
         );
     }
 

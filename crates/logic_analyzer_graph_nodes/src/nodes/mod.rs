@@ -1,10 +1,11 @@
-//! Concrete graph nodes and their registry infrastructure.
+//! Concrete graph-node definitions, builders, registrations, and test fixtures.
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod platform_registration_tests;
 #[cfg(all(test, target_arch = "wasm32"))]
 mod platform_registration_web_tests;
-mod registry;
+#[cfg(any(test, feature = "test-support"))]
+mod test_graphs;
 #[cfg(test)]
 mod test_support;
 
@@ -14,6 +15,6 @@ mod sinks;
 mod sources;
 
 #[cfg(any(test, feature = "test-support"))]
-pub(crate) use registry::test_graphs_tests;
+pub(crate) use test_graphs::test_graphs_tests;
 #[cfg(test)]
 pub(crate) use test_support::node_name;

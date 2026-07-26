@@ -13,7 +13,9 @@ use signal_processing::NodeCancellation;
 
 use super::bridge::{BridgeError, DecoderBridge, DecoderOutput, OutputRegistration};
 use super::python_error::format_python_error;
-use super::python_host::{HostDecoder, SRD_CONF_SAMPLERATE, install_sigrokdecode_module};
+use super::python_host::{
+    HostDecoder, SRD_CONF_SAMPLERATE, decoder_import_guard, install_sigrokdecode_module,
+};
 use super::scheduler::{InitialPin, LogicChunk};
 
 #[derive(Clone, Debug)]
@@ -212,10 +214,14 @@ fn run_decoder(
     protocol_input: Receiver<ProtocolInputMessage>,
 ) -> Result<(), WorkerError> {
     Python::initialize();
-    Python::attach(|py| {
-        install_sigrokdecode_module(py)?;
-        let decoder_class = import_decoder(py, &config.decoder_root, &config.decoder_id)?;
-        let decoder = decoder_class.call0()?;
+    let import_guard = decoder_import_guard();
+    Python::attach(move |py| {
+        let decoder = {
+            install_sigrokdecode_module(py)?;
+            let decoder_class = import_decoder(py, &config.decoder_root, &config.decoder_id)?;
+            decoder_class.call0()?
+        };
+        drop(import_guard);
         decoder.cast::<HostDecoder>()?.borrow_mut().attach(bridge);
 
         let options = PyDict::new(py);

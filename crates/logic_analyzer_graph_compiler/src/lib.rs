@@ -5,13 +5,13 @@
 //! presentations live in `logic-analyzer-graph-nodes`; application composition and window
 //! integration belong in `logic-analyzer-ui`.
 
-mod collected_payload_registration;
 mod data_collector;
 mod errors;
 mod graph;
 mod graph_compiler;
 mod graph_node_registration;
 mod output_subscription;
+mod payload_registration;
 mod run_data;
 #[cfg(not(target_arch = "wasm32"))]
 #[path = "source_preparation_native.rs"]
@@ -31,7 +31,6 @@ mod cache_platform;
 #[path = "cache_platform_wasm.rs"]
 mod cache_platform;
 
-pub(crate) use collected_payload_registration::collected_payload_registrations;
 pub(crate) use data_collector::{
     BUILDER_NAME as DATA_COLLECTOR_BUILDER, DataCollectorBuilder, OUTPUT_SUBSCRIPTION_BUILDER_NAME,
 };
@@ -50,6 +49,7 @@ pub use output_subscription::{
     CollectedOutputLane, CollectedOutputSubscription, CollectedTableSubscription,
     OutputSubscriptionPlan,
 };
+pub(crate) use payload_registration::payload_registrations;
 pub use run_data::{
     RunData, RunDiagnostic, RunDiagnosticRegistry, RunDiagnosticSeverity, SourceArtifactReadiness,
     SourceDataKind, SourceReadiness, SourceReadinessRegistry,

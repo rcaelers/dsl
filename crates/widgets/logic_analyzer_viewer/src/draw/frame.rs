@@ -466,8 +466,8 @@ mod frame_tests {
     use std::sync::{Arc, Mutex};
 
     use signal_processing::{
-        CaptureMetadata, CollectedLaneQuery, CollectedLaneSnapshotRequest,
-        CollectedPayloadRegistry, DerivedLanes, OpaqueCollectedLaneSnapshot,
+        CaptureMetadata, CollectedLaneQuery, CollectedLaneSnapshotRequest, DerivedLanes,
+        OpaqueCollectedLaneSnapshot, PayloadRegistry,
     };
 
     use super::*;
@@ -554,7 +554,7 @@ mod frame_tests {
     #[test]
     fn opaque_lane_renderer_receives_a_bounded_snapshot_after_locks_release() {
         let lanes = DerivedLanes::new();
-        let mut payloads = CollectedPayloadRegistry::new();
+        let mut payloads = PayloadRegistry::new();
         payloads
             .register::<u8>("org.example.camera-frame/v1")
             .unwrap();

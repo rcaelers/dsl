@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use pyo3::exceptions::{PyEOFError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -17,6 +17,15 @@ pub(crate) const OUTPUT_BINARY: i32 = 2;
 pub(crate) const OUTPUT_LOGIC: i32 = 3;
 pub(crate) const OUTPUT_META: i32 = 4;
 pub(crate) const SRD_CONF_SAMPLERATE: i32 = 10_000;
+
+pub(crate) fn decoder_import_guard() -> MutexGuard<'static, ()> {
+    // Decoder imports replace entries in Python's process-wide `sys.modules` registry.
+    // Keep package removal and re-import atomic across discovery and runtime workers.
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 #[pyclass(subclass, name = "Decoder", module = "sigrokdecode")]
 #[derive(Default)]
