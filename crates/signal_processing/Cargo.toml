@@ -12,6 +12,12 @@ license = "MIT"
 name = "signal_processing"
 path = "src/lib.rs"
 
+[[bin]]
+name = "derived-word-store-bench"
+path = "src/bin/derived-word-store-bench/main.rs"
+test = false
+bench = false
+
 [dependencies]
 thiserror = { workspace = true }
 crossbeam-channel = { workspace = true }

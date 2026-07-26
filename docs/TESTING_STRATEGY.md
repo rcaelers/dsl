@@ -49,3 +49,13 @@ cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
 Run it with `--help` to list its timing and validation commands. These commands
 are intentionally absent from Cargo's test harness because their input is
 developer-supplied and their execution time depends on the complete capture.
+
+The derived-word store throughput guard uses a deterministic generated
+workload and exercises the supported indexed writer boundary:
+
+```console
+cargo run --release -p signal-processing --bin derived-word-store-bench
+```
+
+It is a non-test binary so ordinary and ignored test runs neither discover nor
+execute the performance guard.

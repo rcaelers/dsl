@@ -1010,7 +1010,6 @@ fn invalid(message: &str) -> CodecError {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::time::Instant;
 
     use super::*;
 
@@ -1317,26 +1316,6 @@ mod tests {
             decode_word_block(&bytes),
             Err(CodecError::InvalidFormat(_))
         ));
-    }
-
-    #[test]
-    #[ignore = "release-only throughput guard; run with cargo test --release encode_throughput"]
-    fn encode_throughput_exceeds_twenty_million_words_per_second() {
-        let words: Vec<_> = (0..DEFAULT_MAX_WORDS_PER_BLOCK)
-            .map(|index| Word::new((index & 0xff) as u64, index as u64 * 80))
-            .collect();
-        let mut output = Vec::new();
-        let iterations = 64;
-        let start = Instant::now();
-        for sequence in 0..iterations {
-            encode_word_block(sequence, &words, &mut output).unwrap();
-        }
-        let throughput = words.len() as f64 * iterations as f64 / start.elapsed().as_secs_f64();
-        eprintln!("derived-word codec: {throughput:.1} words/s");
-        assert!(
-            throughput >= 20_000_000.0,
-            "encoded {throughput:.1} words/s"
-        );
     }
 
     fn next_random(state: &mut u64) -> u64 {
