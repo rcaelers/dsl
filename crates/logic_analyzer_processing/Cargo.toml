@@ -11,6 +11,16 @@ license = "MIT"
 name = "logic_analyzer_processing"
 path = "src/lib.rs"
 
+[features]
+developer-tools = []
+
+[[bin]]
+name = "u3pro16-streaming-bench"
+path = "src/bin/u3pro16-streaming-bench/main.rs"
+required-features = ["developer-tools"]
+test = false
+bench = false
+
 [dependencies]
 signal-processing = { path = "../signal_processing" }
 zip = { workspace = true }

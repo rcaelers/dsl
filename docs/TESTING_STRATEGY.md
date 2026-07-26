@@ -59,3 +59,15 @@ cargo run --release -p signal-processing --bin derived-word-store-bench
 
 It is a non-test binary so ordinary and ignored test runs neither discover nor
 execute the performance guard.
+
+The U3Pro16 sustained-ingest benchmark uses a generated transport while still
+exercising the concrete streaming driver, capture store, growing index, viewer
+queries, and a lagging consumer:
+
+```console
+cargo run --release -p logic-analyzer-processing \
+  --features developer-tools --bin u3pro16-streaming-bench
+```
+
+The feature exposes only the benchmark entry point. Its generated USB
+transport remains private to the U3Pro16 source module.

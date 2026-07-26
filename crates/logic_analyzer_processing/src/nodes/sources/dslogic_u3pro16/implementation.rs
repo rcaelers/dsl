@@ -621,7 +621,7 @@ impl DsLogicU3Pro16<RusbTransport> {
 }
 
 impl<T: UsbTransport> DsLogicU3Pro16<T> {
-    fn new(transport: T) -> LogicAnalyzerResult<Self> {
+    pub(crate) fn new(transport: T) -> LogicAnalyzerResult<Self> {
         let settings = DsLogicCaptureSettings::finite(1_000_000, 1, 1024);
         let info = LogicAnalyzerInfo {
             driver: "dslogic_u3pro16".into(),
@@ -1817,16 +1817,14 @@ fn put32(buffer: &mut [u8], offset: usize, value: u32) {
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
-    use std::time::Instant;
 
     use serde::Deserialize;
 
     use signal_processing::{
         AcquisitionContext, CaptureAcquisitionPhase, CaptureCursorItem, CaptureEvent,
-        CaptureFailureKind, CaptureIndex, CaptureQueueReceiveError, CaptureSessionId,
-        CaptureStoreCursor, CaptureStoreDescriptor, NativeCaptureStore, NativeCaptureStoreConfig,
+        CaptureFailureKind, CaptureQueueReceiveError, CaptureSessionId, CaptureStoreCursor,
+        CaptureStoreDescriptor, NativeCaptureStore, NativeCaptureStoreConfig,
         bounded_capture_event_queue,
     };
 
@@ -2199,89 +2197,6 @@ mod tests {
         fn cancel_queued_bulk_read(&mut self) -> Result<(), UsbError> {
             self.header_queued = false;
             Ok(())
-        }
-    }
-
-    struct GeneratedStreamingTransport {
-        control_reads: VecDeque<Vec<u8>>,
-        header_pending: bool,
-        data_bytes: usize,
-        data_offset: usize,
-    }
-
-    impl GeneratedStreamingTransport {
-        fn new(data_bytes: usize) -> Self {
-            Self {
-                control_reads: FixtureTransport::control_reads(),
-                header_pending: true,
-                data_bytes,
-                data_offset: 0,
-            }
-        }
-    }
-
-    impl UsbTransport for GeneratedStreamingTransport {
-        fn link_speed(&self) -> LinkSpeed {
-            LinkSpeed::Super
-        }
-
-        fn control_write(
-            &mut self,
-            _request_type: u8,
-            _request: u8,
-            _value: u16,
-            _index: u16,
-            data: &[u8],
-            _timeout: Duration,
-        ) -> Result<usize, UsbError> {
-            Ok(data.len())
-        }
-
-        fn control_read(
-            &mut self,
-            _request_type: u8,
-            _request: u8,
-            _value: u16,
-            _index: u16,
-            data: &mut [u8],
-            _timeout: Duration,
-        ) -> Result<usize, UsbError> {
-            let response = self.control_reads.pop_front().ok_or(UsbError::Other)?;
-            if response.len() != data.len() {
-                return Err(UsbError::Other);
-            }
-            data.copy_from_slice(&response);
-            Ok(data.len())
-        }
-
-        fn bulk_write(
-            &mut self,
-            _endpoint: u8,
-            data: &[u8],
-            _timeout: Duration,
-        ) -> Result<usize, UsbError> {
-            Ok(data.len())
-        }
-
-        fn bulk_read(
-            &mut self,
-            _endpoint: u8,
-            data: &mut [u8],
-            _timeout: Duration,
-        ) -> Result<usize, UsbError> {
-            if self.header_pending {
-                if data.len() != 1024 {
-                    return Err(UsbError::Other);
-                }
-                data.fill(0);
-                put32(data, 0, 0x5555_5555);
-                self.header_pending = false;
-                return Ok(data.len());
-            }
-            let read = data.len().min(self.data_bytes - self.data_offset);
-            data[..read].fill(0xa5);
-            self.data_offset += read;
-            Ok(read)
         }
     }
 
@@ -2845,112 +2760,6 @@ mod tests {
         assert_eq!(get16(&packet, 10), 1);
         assert_eq!(get16(&packet, 12), 3 << 8);
         assert_eq!(plan.stream_buffer, 1_000_448);
-    }
-
-    #[test]
-    #[ignore = "release-mode sustained-ingest benchmark; run with --release --ignored benchmark_streaming_ingest"]
-    fn benchmark_streaming_ingest_store_summary_and_consumer_lag() {
-        use signal_processing::NativeGrowingCaptureIndex;
-
-        for (channels_count, rate_hz, samples) in [
-            (3_usize, 1_000_000_000_u64, 32_000_000_u64),
-            (16, 125_000_000, 32_000_000),
-        ] {
-            let input_mask = (1_u64 << channels_count) - 1;
-            let mut config = LogicCaptureConfig::finite(rate_hz, input_mask, samples);
-            config.mode = CaptureMode::Streaming;
-            let data_bytes = usize::try_from(
-                u128::from(samples)
-                    .checked_mul(channels_count as u128)
-                    .unwrap()
-                    .div_ceil(8),
-            )
-            .unwrap();
-            let analyzer =
-                DsLogicU3Pro16::new(GeneratedStreamingTransport::new(data_bytes)).unwrap();
-            let channels = (0..channels_count)
-                .map(|channel| {
-                    signal_processing::CaptureChannelId::new(format!("u3pro16:input:{channel}"))
-                })
-                .collect::<Vec<_>>();
-            let provider = StreamingProvider::new(analyzer, config, channels.clone()).unwrap();
-            let directory = tempfile::tempdir().unwrap();
-            let session_id = CaptureSessionId::new(0x9000 + channels_count as u128);
-            let descriptor = CaptureStoreDescriptor::new(session_id, channels.clone()).unwrap();
-            let (store, writer) = NativeCaptureStore::create(NativeCaptureStoreConfig::new(
-                directory.path(),
-                descriptor,
-            ))
-            .unwrap();
-            let (index, index_worker) = NativeGrowingCaptureIndex::spawn(
-                store.clone(),
-                "U3 streaming benchmark",
-                rate_hz as f64,
-                (0..channels_count)
-                    .map(|channel| format!("Ch {channel}"))
-                    .collect(),
-            )
-            .unwrap();
-            let viewer_stop = Arc::new(AtomicBool::new(false));
-            let viewer_stop_worker = Arc::clone(&viewer_stop);
-            let mut viewer_index = index.clone();
-            let viewer_channels = (0..channels_count).collect::<Vec<_>>();
-            let viewer = std::thread::spawn(move || {
-                while !viewer_stop_worker.load(Ordering::Relaxed) {
-                    let total_samples = viewer_index.current_metadata().total_samples;
-                    if total_samples > 0 {
-                        let _ =
-                            viewer_index.sampled_window(&viewer_channels, 0, total_samples, 1_920);
-                    }
-                    std::thread::sleep(Duration::from_millis(8));
-                }
-            });
-            let analyzed_samples = Arc::new(AtomicU64::new(0));
-            let analyzed_samples_worker = Arc::clone(&analyzed_samples);
-            let mut slow_cursor = store.open_cursor().unwrap();
-            let slow_consumer = std::thread::spawn(move || {
-                loop {
-                    match slow_cursor.wait_next(Duration::from_millis(50)).unwrap() {
-                        CaptureCursorItem::Chunk(chunk) => {
-                            analyzed_samples_worker.store(chunk.end_sample(), Ordering::Relaxed);
-                            std::thread::sleep(Duration::from_millis(1));
-                        }
-                        CaptureCursorItem::Pending => {}
-                        CaptureCursorItem::End => break,
-                    }
-                }
-            });
-            let (events, _event_reader) = bounded_capture_event_queue(4096).unwrap();
-            let context = AcquisitionContext::new(session_id, Box::new(writer), Box::new(events));
-            let mut acquisition = provider.prepare(context).unwrap();
-
-            let started = Instant::now();
-            acquisition.start().unwrap();
-            let outcome = acquisition.join().unwrap();
-            let acquisition_elapsed = started.elapsed();
-            let lag_at_finish = samples.saturating_sub(analyzed_samples.load(Ordering::Relaxed));
-            let summary_lag_at_finish =
-                samples.saturating_sub(index.current_metadata().total_samples);
-            viewer_stop.store(true, Ordering::Relaxed);
-            viewer.join().unwrap();
-            let summary_started = Instant::now();
-            index_worker.join().unwrap();
-            slow_consumer.join().unwrap();
-            let catch_up_elapsed = summary_started.elapsed();
-            store.finalize().unwrap();
-
-            let mib = data_bytes as f64 / (1024.0 * 1024.0);
-            eprintln!(
-                "u3-stream channels={channels_count} rate_hz={rate_hz} samples={samples} data_mib={mib:.1} acquisition_s={:.3} ingest_mib_s={:.1} optional_consumer_lag_samples={lag_at_finish} summary_lag_samples={summary_lag_at_finish} summary_catchup_s={:.3} resident_summary_records={}",
-                acquisition_elapsed.as_secs_f64(),
-                mib / acquisition_elapsed.as_secs_f64(),
-                catch_up_elapsed.as_secs_f64(),
-                index.resident_summary_records(),
-            );
-            assert_eq!(outcome.captured_samples, samples);
-            assert_eq!(store.snapshot().resident_commit_records, 0);
-            assert!(index.resident_summary_records() <= channels_count * 64 * 12);
-        }
     }
 
     #[test]

@@ -120,13 +120,10 @@ crate under test.
      test-only IDs. Provide separate fixtures for raw-logic input, stacked
      protocol input, annotations, binary output, metadata, generated logic,
      malformed metadata, and runtime failure as needed.
-   - Move the remaining ignored U3Pro16 hardware checks and the
-     libsigrokdecode differential check out of Cargo test targets into explicit
-     manual validation commands. Keep deterministic packet, transport, and
+   - Move the remaining ignored U3Pro16 hardware checks and Sigrok upstream
+     compatibility checks out of Cargo test targets into explicit manual
+     validation commands. Keep deterministic packet, transport, and
      custom-decoder counterparts in ordinary tests.
-   - Move performance guards into explicit benchmark targets or commands with
-     checked-in/generated workloads; do not use `#[ignore]` as a benchmark
-     runner.
    - Completion gate: `cargo test --workspace -- --ignored` no longer discovers
      tests whose success depends on hardware, installed libraries, upstream
      decoder trees, or private captures.
