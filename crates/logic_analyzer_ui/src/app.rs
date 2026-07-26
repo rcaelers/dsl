@@ -25,6 +25,7 @@ use crate::app_platform::load_symbol_fonts;
 use crate::collected_output_presentation::waveform_presentation_registry;
 use crate::decoder_panel::{DecoderPanels, DecoderTableRegistry};
 use crate::decoder_table_presentation::decoder_table_registry;
+use crate::graph_service::{GraphRun, GraphService, standard_graph_service};
 use crate::live_capture::{
     CaptureAnalysisAttachment, CaptureAvailability, CaptureCoordinator, CaptureCoordinatorContract,
     CaptureReplayAttachment, ConfigurationEpochResolution, capture_availability,
@@ -174,18 +175,18 @@ pub struct App {
     pub(crate) logic_analyzer: LogicAnalyzerViewer,
     pub(crate) input_bindings: Arc<InputBindings>,
     pub(crate) panel_layout: PanelLayout,
-    pub(crate) graph_compiler: compiler::GraphCompiler,
+    pub(crate) graph_service: Box<dyn GraphService>,
     pub(crate) capture: CaptureCoordinator,
     pub(crate) capture_availability: CaptureAvailability,
     pub(crate) trigger_configuration: Option<compiler::DiscoveredTriggerConfiguration>,
     pub(crate) trigger_configuration_error: Option<String>,
     pub(crate) capture_graph: Option<GraphState>,
-    pub(crate) capture_analysis: Option<compiler::LiveRun>,
+    pub(crate) capture_analysis: Option<Box<dyn GraphRun>>,
     pub(crate) capture_analysis_error: Option<String>,
     pub(crate) capture_epoch_observed_graph: Option<Vec<u8>>,
     pub(crate) capture_epoch_request_in_flight: bool,
     pub(crate) last_capture_epoch_sync: f64,
-    pub(crate) run: Option<compiler::LiveRun>,
+    pub(crate) run: Option<Box<dyn GraphRun>>,
     /// Persistent run *state* shown in the status bar next to Run/Stop — the
     /// current compile-error summary, or "stop & rerun to apply" while a
     /// live edit can't be applied in place. One-off events (a live edit that
@@ -228,7 +229,7 @@ impl App {
 
     fn refresh_trigger_configuration(&mut self) {
         match self
-            .graph_compiler
+            .graph_service
             .discover_trigger_configuration(self.node_graph.graph())
         {
             Ok(configuration) => {
@@ -272,7 +273,7 @@ impl App {
             self.refresh_simple_trigger_ui();
             return;
         };
-        let state = match self.graph_compiler.apply_live_capture_edit(
+        let state = match self.graph_service.apply_live_capture_edit(
             self.node_graph.graph(),
             source_node,
             &request,
@@ -291,7 +292,7 @@ impl App {
             return;
         }
         self.capture_availability =
-            capture_availability(self.node_graph.graph(), &self.graph_compiler);
+            capture_availability(self.node_graph.graph(), self.graph_service.as_ref());
         self.refresh_trigger_configuration();
     }
 
@@ -307,7 +308,7 @@ impl App {
             return;
         };
         let request = LiveCaptureEdit::SetTriggerProgram { program };
-        let state = match self.graph_compiler.apply_live_capture_edit(
+        let state = match self.graph_service.apply_live_capture_edit(
             self.node_graph.graph(),
             source_node,
             &request,
@@ -324,7 +325,7 @@ impl App {
                 .error("The trigger could not be changed while the graph is read-only");
         }
         self.capture_availability =
-            capture_availability(self.node_graph.graph(), &self.graph_compiler);
+            capture_availability(self.node_graph.graph(), self.graph_service.as_ref());
         self.refresh_trigger_configuration();
     }
 
@@ -384,7 +385,7 @@ impl App {
 
     fn refresh_graph_output_selections(&mut self) {
         let selections = viewer_output_selections(self.node_graph.graph());
-        self.graph_compiler.set_output_subscriptions(
+        self.graph_service.set_output_subscriptions(
             selections
                 .iter()
                 .filter(|selection| selection.selected)
@@ -453,12 +454,19 @@ impl App {
         cc: &eframe::CreationContext,
         node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
     ) -> Self {
+        Self::build_with_graph_service(cc, node_catalogs, standard_graph_service())
+    }
+
+    fn build_with_graph_service(
+        cc: &eframe::CreationContext,
+        node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
+        graph_service: Box<dyn GraphService>,
+    ) -> Self {
         // The graph canvas and its custom widgets use a dark palette. Do not
         // inherit a light OS/browser preference for the surrounding egui
         // controls, or their dark foreground text becomes unreadable there.
         cc.egui_ctx.set_theme(egui::Theme::Dark);
         install_fonts(&cc.egui_ctx);
-        let graph_compiler = compiler::GraphCompiler::new();
         let registry = crate::build_node_registry();
         let input_bindings = Arc::new(crate::application_input_bindings().clone());
         let plugin_panel_registry = PluginPanelRegistry::standard();
@@ -482,13 +490,13 @@ impl App {
                 .max_storage_gib
                 .saturating_mul(1024 * 1024 * 1024),
         );
-        let capture_availability = capture_availability(widget.graph(), &graph_compiler);
+        let capture_availability = capture_availability(widget.graph(), graph_service.as_ref());
         Self {
             node_graph: widget,
             logic_analyzer,
             input_bindings,
             panel_layout: Self::default_panel_layout(),
-            graph_compiler,
+            graph_service,
             capture,
             capture_availability,
             trigger_configuration: None,
@@ -758,7 +766,7 @@ impl App {
 
         if replay.is_none()
             && matches!(
-                capture_availability(self.node_graph.graph(), &self.graph_compiler),
+                capture_availability(self.node_graph.graph(), self.graph_service.as_ref()),
                 CaptureAvailability::Available { .. }
             )
         {
@@ -781,23 +789,17 @@ impl App {
             .set_run_data(ctx.derived_lanes().clone(), DecoderTableRegistry::new());
         self.plugin_panels.set_run_data(ctx.derived_lanes().clone());
 
-        let started = match replay {
-            Some(CaptureReplayAttachment {
-                source_node,
-                process,
-            }) => {
-                let mut overrides = compiler::SourceProcessOverrides::new();
-                overrides.insert(source_node, process);
-                self.graph_compiler.start_app_run_with_source_overrides(
-                    self.node_graph.graph(),
-                    &mut ctx,
-                    overrides,
-                )
-            }
-            None => self
-                .graph_compiler
-                .start_app_run(self.node_graph.graph(), &mut ctx),
-        };
+        let mut source_overrides = compiler::SourceProcessOverrides::new();
+        if let Some(CaptureReplayAttachment {
+            source_node,
+            process,
+        }) = replay
+        {
+            source_overrides.insert(source_node, process);
+        }
+        let started =
+            self.graph_service
+                .start_run(self.node_graph.graph(), &mut ctx, source_overrides);
         match started {
             Ok(run) => {
                 let run_data = ctx.run_data();
@@ -890,7 +892,7 @@ impl App {
         self.run_message = None;
         self.node_graph.sync_node_states();
         let feature = match self
-            .graph_compiler
+            .graph_service
             .discover_live_capture_feature(self.node_graph.graph())
         {
             Ok(Some(feature)) => feature,
@@ -911,7 +913,7 @@ impl App {
         let capture_cache_configs = self
             .capture_analysis
             .as_ref()
-            .map(compiler::LiveRun::persistent_cache_configs)
+            .map(|run| run.persistent_cache_configs())
             .unwrap_or_default();
         self.capture_analysis = None;
         self.capture_analysis_error = None;
@@ -1070,15 +1072,14 @@ impl App {
             self.capture_analysis_error = Some("capture graph snapshot is unavailable".into());
             return;
         };
-        let compiled = match self.graph_compiler.lower(&graph) {
-            Ok(compiled) => compiled,
+        let contains_source = match self
+            .graph_service
+            .graph_contains_node(&graph, attachment.source_node)
+        {
+            Ok(contains_source) => contains_source,
             Err(_) => return,
         };
-        if !compiled
-            .nodes
-            .iter()
-            .any(|node| node.id == attachment.source_node)
-        {
+        if !contains_source {
             return;
         }
         let mut ctx = compiler::CompileCtx::default();
@@ -1094,7 +1095,7 @@ impl App {
             process: attachment.process,
         };
         match self
-            .graph_compiler
+            .graph_service
             .start_live_analysis(&graph, &mut ctx, source)
         {
             Ok(run) => {
@@ -1160,8 +1161,8 @@ impl App {
             self.capture_epoch_request_in_flight = false;
             match preparation {
                 Ok(prepared) => {
-                    let result = self.graph_compiler.apply_configuration_epoch(
-                        self.capture_analysis.as_mut().unwrap(),
+                    let result = self.graph_service.apply_configuration_epoch(
+                        self.capture_analysis.as_mut().unwrap().as_mut(),
                         &prepared.graph,
                         prepared.boundary,
                     );
@@ -1507,7 +1508,7 @@ impl App {
                 if self
                     .capture_analysis
                     .as_ref()
-                    .is_some_and(compiler::LiveRun::is_finished)
+                    .is_some_and(|run| run.is_finished())
                 {
                     ui.label(format!("Analysis complete · {processed} samples"));
                 } else {
@@ -1570,10 +1571,10 @@ impl App {
             if now - self.last_live_sync >= SYNC_INTERVAL_S {
                 self.last_live_sync = now;
                 self.capture_availability =
-                    capture_availability(self.node_graph.graph(), &self.graph_compiler);
+                    capture_availability(self.node_graph.graph(), self.graph_service.as_ref());
                 self.refresh_trigger_configuration();
                 if let Ok(candidates) = self
-                    .graph_compiler
+                    .graph_service
                     .sampling_overlay_candidates(self.node_graph.graph())
                 {
                     self.set_sampling_overlay_candidates(candidates);
@@ -1611,10 +1612,12 @@ impl App {
         }
 
         let mut refresh_sampling_overlays = false;
-        match self.graph_compiler.apply_run(run, self.node_graph.graph()) {
+        match self
+            .graph_service
+            .apply_run(run.as_mut(), self.node_graph.graph())
+        {
             Ok(summary) if summary.is_empty() => {
-                let run_data = run.run_data();
-                match waveform_presentation_registry(run_data.output_subscriptions()) {
+                match waveform_presentation_registry(run.output_subscriptions()) {
                     Ok(presentations) => self
                         .logic_analyzer
                         .set_waveform_presentations(presentations),
@@ -1622,10 +1625,10 @@ impl App {
                         "Could not bind collected output presentation: {error}"
                     )),
                 }
-                match decoder_table_registry(run_data.table_subscriptions()) {
+                match decoder_table_registry(run.table_subscriptions()) {
                     Ok(tables) => self
                         .decoder_panels
-                        .set_run_data(run_data.derived_lanes().clone(), tables),
+                        .set_run_data(run.derived_lanes().clone(), tables),
                     Err(error) => self.toasts.error(format!(
                         "Could not bind decoder-table presentation: {error}"
                     )),
@@ -1633,8 +1636,7 @@ impl App {
                 refresh_sampling_overlays = true;
             }
             Ok(summary) => {
-                let run_data = run.run_data();
-                match waveform_presentation_registry(run_data.output_subscriptions()) {
+                match waveform_presentation_registry(run.output_subscriptions()) {
                     Ok(presentations) => self
                         .logic_analyzer
                         .set_waveform_presentations(presentations),
@@ -1642,10 +1644,10 @@ impl App {
                         "Could not bind collected output presentation: {error}"
                     )),
                 }
-                match decoder_table_registry(run_data.table_subscriptions()) {
+                match decoder_table_registry(run.table_subscriptions()) {
                     Ok(tables) => self
                         .decoder_panels
-                        .set_run_data(run_data.derived_lanes().clone(), tables),
+                        .set_run_data(run.derived_lanes().clone(), tables),
                     Err(error) => self.toasts.error(format!(
                         "Could not bind decoder-table presentation: {error}"
                     )),

@@ -103,7 +103,7 @@ impl App {
             return;
         }
         let update = match self
-            .graph_compiler
+            .graph_service
             .synchronize_prepared_capture(self.node_graph.graph())
         {
             Ok(update) => update,
@@ -157,7 +157,7 @@ impl App {
                 }
             }
         }
-        match self.graph_compiler.source_preparation_status() {
+        match self.graph_service.source_preparation_status() {
             compiler::SourcePreparationStatus::Ready => self.publish_file_source_ready(),
             compiler::SourcePreparationStatus::Failed(error) => {
                 self.publish_file_source_failure(&error)
@@ -169,7 +169,7 @@ impl App {
 
     pub(crate) fn platform_restore_graph_capture(&mut self) {
         self.platform.capture_presentation_identity = None;
-        self.graph_compiler.reset_prepared_capture();
+        self.graph_service.reset_prepared_capture();
     }
 
     pub(crate) fn platform_before_graph(&mut self) {}

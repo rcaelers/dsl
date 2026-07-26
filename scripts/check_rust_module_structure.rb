@@ -247,6 +247,16 @@ files.each do |path|
 
   if rel.start_with?("crates/logic_analyzer_ui/src/")
     implementation = implementation_source(source)
+    graph_service_adapter = %w[
+      crates/logic_analyzer_ui/src/graph_service/graph_compiler.rs
+      crates/logic_analyzer_ui/src/graph_service/platform_graph_compiler_native.rs
+      crates/logic_analyzer_ui/src/graph_service/platform_graph_compiler_wasm.rs
+    ].include?(rel)
+    unless File.basename(path).include?("tests") || graph_service_adapter
+      implementation.to_enum(:scan, /\b(?:GraphCompiler|LiveRun)\b/).each do
+        errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: UI orchestration depends on the UI-owned GraphService and GraphRun; concrete compiler knowledge belongs in its adapter"
+      end
+    end
     implementation.to_enum(:scan, /\bBuilderRegistry\b/).each do
       errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: UI hosts use GraphCompiler, not BuilderRegistry"
     end

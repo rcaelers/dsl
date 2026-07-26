@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use logic_analyzer_graph_compiler::GraphCompiler;
 use node_graph::{GraphState, NodeId};
 use signal_processing::{
     CaptureAcquisitionPhase, CaptureCommandCapabilities, CaptureCompletion, CaptureHealth,
@@ -52,30 +51,13 @@ pub(crate) trait CaptureFeatureDiscovery {
     fn discover_capture_availability(&self, graph: &GraphState) -> CaptureAvailability;
 }
 
-impl CaptureFeatureDiscovery for GraphCompiler {
-    fn discover_capture_availability(&self, graph: &GraphState) -> CaptureAvailability {
-        match self.discover_live_capture_feature(graph) {
-            Ok(Some(feature)) => CaptureAvailability::Available {
-                source_node: feature.source_node(),
-                source_title: feature.source_title().to_owned(),
-                has_trigger_program: feature.has_trigger_program(),
-                capabilities: feature.capabilities().clone(),
-                session_plan: feature.session_plan().cloned().map(Box::new),
-            },
-            Ok(None) => CaptureAvailability::Unavailable {
-                reason: "The graph has no live capture source".into(),
-            },
-            Err(error) => CaptureAvailability::Unavailable {
-                reason: error.message,
-            },
-        }
-    }
-}
-
-pub(crate) fn capture_availability(
+pub(crate) fn capture_availability<Discovery>(
     graph: &GraphState,
-    discovery: &dyn CaptureFeatureDiscovery,
-) -> CaptureAvailability {
+    discovery: &Discovery,
+) -> CaptureAvailability
+where
+    Discovery: CaptureFeatureDiscovery + ?Sized,
+{
     if !CaptureCoordinator::backend_available() {
         return CaptureAvailability::Unavailable {
             reason: CaptureCoordinator::backend_unavailable_reason().into(),

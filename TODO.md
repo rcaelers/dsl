@@ -62,16 +62,9 @@ crate under test.
      workers or opening production capture files.
 
 4. **UI isolation:**
-   - Define a UI-owned graph/compiler service trait containing only the
-     discovery, edit, run, source-preparation, and result operations consumed
-     by `logic_analyzer_ui`. Implement it for `GraphCompiler`; use a local fake
-     in UI tests.
    - Add UI-owned ports for native dialogs, capture export, cache commands, and
      other host effects. Keep platform implementations behind the existing
      whole-file native/wasm boundary.
-   - Construct UI models from trait objects or generic service parameters so
-     tests do not register concrete graph nodes or create production capture
-     stores merely to drive UI state transitions.
    - Move end-to-end UI + compiler + built-in-node workflows to the top-level
      integration test package.
    - Completion gate: `logic_analyzer_ui` tests run with no built-in node

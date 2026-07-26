@@ -5,6 +5,7 @@ mod application_config;
 mod collected_output_presentation;
 mod decoder_panel;
 mod decoder_table_presentation;
+mod graph_service;
 mod input_binding_config;
 mod live_capture;
 mod node_registry;

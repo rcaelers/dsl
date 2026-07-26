@@ -35,6 +35,10 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
   processing nodes.
 - `logic_analyzer_test_support` owns deterministic capture providers shared by cross-crate tests.
   It depends on generic runtime contracts rather than concrete processing, graph, or UI crates.
+- `logic_analyzer_ui` owns the application-facing graph service port. Application and platform
+  orchestration depend on its private `GraphService` and `GraphRun` traits; the crate's production
+  adapter delegates to `GraphCompiler` and `LiveRun`, while UI tests provide deterministic local
+  implementations.
 - Workspace-level integration tests own end-to-end compositions spanning concrete graph nodes,
   processing nodes, and the generic compiler. Component crates keep only tests of their own
   contracts and private implementation mechanics; composition-only dependencies do not appear in

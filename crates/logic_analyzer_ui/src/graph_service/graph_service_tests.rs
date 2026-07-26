@@ -1,0 +1,257 @@
+use std::sync::{Arc, Mutex};
+
+use logic_analyzer_graph_api::node_support::LiveCaptureEdit;
+use logic_analyzer_graph_compiler::{
+    ApplyError, ApplySummary, CollectedOutputSubscription, CollectedTableSubscription, CompileCtx,
+    CompileError, DiscoveredLiveCaptureFeature, DiscoveredTriggerConfiguration, LiveAnalysisSource,
+    LiveCaptureDiscoveryError, OutputSubscriptionPlan, SamplingOverlayCandidate,
+    SourcePreparationStatus, SourcePreparationUpdate, SourceProcessOverrides,
+    SourceReadinessRegistry,
+};
+use node_graph::{GraphState, NodeId};
+use signal_processing::{
+    ConfigurationBoundary, DerivedLanes, DisconnectEvent, PersistentStoreConfig,
+};
+
+use super::contract::{GraphRun, GraphService};
+use super::platform_contract::PlatformGraphService;
+use crate::live_capture::{CaptureAvailability, CaptureFeatureDiscovery, capture_availability};
+
+struct FakeGraphService {
+    subscriptions: Arc<Mutex<Vec<(NodeId, usize)>>>,
+    contains_node: bool,
+}
+
+struct FakeGraphRun {
+    derived_lanes: DerivedLanes,
+    output_subscriptions: Vec<CollectedOutputSubscription>,
+    table_subscriptions: Vec<CollectedTableSubscription>,
+    source_readiness: SourceReadinessRegistry,
+    stopping: bool,
+}
+
+impl Default for FakeGraphRun {
+    fn default() -> Self {
+        Self {
+            derived_lanes: DerivedLanes::new(),
+            output_subscriptions: Vec::new(),
+            table_subscriptions: Vec::new(),
+            source_readiness: SourceReadinessRegistry::default(),
+            stopping: false,
+        }
+    }
+}
+
+impl GraphRun for FakeGraphRun {
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
+    fn persistent_cache_configs(&self) -> Vec<PersistentStoreConfig> {
+        Vec::new()
+    }
+
+    fn sampling_overlays(&self) -> &[SamplingOverlayCandidate] {
+        &[]
+    }
+
+    fn derived_lanes(&self) -> &DerivedLanes {
+        &self.derived_lanes
+    }
+
+    fn output_subscriptions(&self) -> &[CollectedOutputSubscription] {
+        &self.output_subscriptions
+    }
+
+    fn table_subscriptions(&self) -> &[CollectedTableSubscription] {
+        &self.table_subscriptions
+    }
+
+    fn source_readiness(&self) -> &SourceReadinessRegistry {
+        &self.source_readiness
+    }
+
+    fn is_finished(&self) -> bool {
+        false
+    }
+
+    fn is_stopping(&self) -> bool {
+        self.stopping
+    }
+
+    fn stop(&mut self) {
+        self.stopping = true;
+    }
+
+    fn pump(&mut self, _budget: usize) {}
+
+    fn progress(&self) -> Vec<(NodeId, u64)> {
+        vec![(NodeId(11), 23)]
+    }
+
+    fn take_disconnected(&self) -> Vec<(Option<NodeId>, DisconnectEvent)> {
+        Vec::new()
+    }
+}
+
+impl CaptureFeatureDiscovery for FakeGraphService {
+    fn discover_capture_availability(&self, _graph: &GraphState) -> CaptureAvailability {
+        CaptureAvailability::Unavailable {
+            reason: "fake graph has no capture source".into(),
+        }
+    }
+}
+
+impl PlatformGraphService for FakeGraphService {
+    fn derived_cache_configs_by_node(
+        &self,
+        _graph: &GraphState,
+        _directory: &std::path::Path,
+    ) -> Result<std::collections::HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>>
+    {
+        Ok(std::collections::HashMap::new())
+    }
+}
+
+impl GraphService for FakeGraphService {
+    fn set_output_subscriptions(&mut self, subscriptions: OutputSubscriptionPlan) {
+        *self.subscriptions.lock().unwrap() = subscriptions.outputs().collect();
+    }
+
+    fn synchronize_prepared_capture(
+        &mut self,
+        _graph: &GraphState,
+    ) -> Result<SourcePreparationUpdate, String> {
+        Ok(SourcePreparationUpdate::Unchanged)
+    }
+
+    fn reset_prepared_capture(&mut self) {}
+
+    fn source_preparation_status(&self) -> SourcePreparationStatus {
+        SourcePreparationStatus::Ready
+    }
+
+    fn discover_live_capture_feature(
+        &self,
+        _graph: &GraphState,
+    ) -> Result<Option<DiscoveredLiveCaptureFeature>, LiveCaptureDiscoveryError> {
+        Ok(None)
+    }
+
+    fn discover_trigger_configuration(
+        &self,
+        _graph: &GraphState,
+    ) -> Result<Option<DiscoveredTriggerConfiguration>, LiveCaptureDiscoveryError> {
+        Ok(None)
+    }
+
+    fn apply_live_capture_edit(
+        &self,
+        _graph: &GraphState,
+        _source_node: NodeId,
+        _edit: &LiveCaptureEdit,
+    ) -> Result<serde_json::Value, String> {
+        Ok(serde_json::Value::Null)
+    }
+
+    fn graph_contains_node(
+        &self,
+        _graph: &GraphState,
+        _node: NodeId,
+    ) -> Result<bool, Vec<CompileError>> {
+        Ok(self.contains_node)
+    }
+
+    fn sampling_overlay_candidates(
+        &self,
+        _graph: &GraphState,
+    ) -> Result<Vec<SamplingOverlayCandidate>, Vec<CompileError>> {
+        Ok(Vec::new())
+    }
+
+    fn start_run(
+        &self,
+        _graph: &GraphState,
+        _context: &mut CompileCtx,
+        _source_overrides: SourceProcessOverrides,
+    ) -> Result<Box<dyn GraphRun>, Vec<CompileError>> {
+        Ok(Box::new(FakeGraphRun::default()))
+    }
+
+    fn start_live_analysis(
+        &self,
+        _graph: &GraphState,
+        _context: &mut CompileCtx,
+        _source: LiveAnalysisSource,
+    ) -> Result<Box<dyn GraphRun>, Vec<CompileError>> {
+        Ok(Box::new(FakeGraphRun::default()))
+    }
+
+    fn apply_run(
+        &self,
+        _run: &mut dyn GraphRun,
+        _graph: &GraphState,
+    ) -> Result<ApplySummary, ApplyError> {
+        Ok(ApplySummary::default())
+    }
+
+    fn apply_configuration_epoch(
+        &self,
+        _run: &mut dyn GraphRun,
+        _graph: &GraphState,
+        _boundary: ConfigurationBoundary,
+    ) -> Result<ApplySummary, ApplyError> {
+        Ok(ApplySummary::default())
+    }
+}
+
+#[test]
+fn ui_graph_orchestration_accepts_a_local_service_fake() {
+    let subscriptions = Arc::new(Mutex::new(Vec::new()));
+    let mut service: Box<dyn GraphService> = Box::new(FakeGraphService {
+        subscriptions: subscriptions.clone(),
+        contains_node: true,
+    });
+    let plan: OutputSubscriptionPlan = [(NodeId(3), 2), (NodeId(7), 1)].into_iter().collect();
+
+    service.set_output_subscriptions(plan);
+
+    assert_eq!(
+        *subscriptions.lock().unwrap(),
+        vec![(NodeId(3), 2), (NodeId(7), 1)]
+    );
+    assert!(
+        service
+            .graph_contains_node(&GraphState::default(), NodeId(3))
+            .unwrap()
+    );
+    assert!(matches!(
+        service.source_preparation_status(),
+        SourcePreparationStatus::Ready
+    ));
+    let mut run = service
+        .start_run(
+            &GraphState::default(),
+            &mut CompileCtx::default(),
+            SourceProcessOverrides::new(),
+        )
+        .unwrap();
+    assert_eq!(run.progress(), vec![(NodeId(11), 23)]);
+    run.stop();
+    assert!(run.is_stopping());
+}
+
+#[test]
+fn capture_discovery_uses_the_same_substitutable_graph_service() {
+    let service: Box<dyn GraphService> = Box::new(FakeGraphService {
+        subscriptions: Arc::new(Mutex::new(Vec::new())),
+        contains_node: false,
+    });
+
+    let availability = capture_availability(&GraphState::default(), service.as_ref());
+
+    assert_eq!(
+        availability.reason(),
+        Some("fake graph has no capture source")
+    );
+}

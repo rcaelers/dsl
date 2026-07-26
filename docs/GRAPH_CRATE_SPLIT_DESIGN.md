@@ -85,9 +85,9 @@ A plugin cannot receive or import that concrete context through the graph-node A
 ### Graph compiler facade
 
 `logic_analyzer_graph_compiler` owns graph lowering, validation, discovery, execution, and cache
-planning. Its crate-root facade is consumed by `logic_analyzer_ui`, native and
-web composition, headless hosts, and integration tests. Graph-node contracts are imported directly
-from `logic_analyzer_graph_api` rather than forwarded through the compiler crate.
+planning. Its crate-root facade is consumed by the UI's production graph-service adapter, native
+and web composition, headless hosts, and integration tests. Graph-node contracts are imported
+directly from `logic_analyzer_graph_api` rather than forwarded through the compiler crate.
 
 `GraphCompiler` owns the inventory-derived builder registry and provides these application-facing
 operations:
@@ -98,9 +98,13 @@ operations:
 - resolve sampling overlays and cache plans;
 - start or update an application run and live analysis.
 
-The application UI constructs the editor's `NodeTypeRegistry` directly from the validated
-`GraphNodeRegistration` inventory. The compiler consumes the same validated inventory only to
-construct runtime builders and does not expose an editor-registry operation.
+The application UI depends on its private `GraphService` port for discovery, source preparation,
+run control, and live edits, and on `GraphRun` for lifecycle, progress, readiness, and collected
+results. The production adapter implements those ports for `GraphCompiler` and `LiveRun`; UI tests
+substitute local deterministic implementations. The UI constructs the editor's `NodeTypeRegistry`
+directly from the validated `GraphNodeRegistration` inventory. The compiler consumes the same
+validated inventory only to construct runtime builders and does not expose an editor-registry
+operation.
 
 Viewer-output discovery, checkbox state, legacy `show_in_view` migration, and persistence of the
 `logic_analyzer_graph.viewer_selections` extension are UI-owned. The compiler facade exposes no

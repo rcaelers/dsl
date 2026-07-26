@@ -131,7 +131,7 @@ impl App {
             return;
         }
         let update = match self
-            .graph_compiler
+            .graph_service
             .synchronize_prepared_capture(self.node_graph.graph())
         {
             Ok(update) => update,
@@ -185,7 +185,7 @@ impl App {
                 }
             }
         }
-        match self.graph_compiler.source_preparation_status() {
+        match self.graph_service.source_preparation_status() {
             compiler::SourcePreparationStatus::Ready => self.publish_file_source_ready(),
             compiler::SourcePreparationStatus::Failed(error) => {
                 self.publish_file_source_failure(&error)
@@ -197,7 +197,7 @@ impl App {
 
     pub(crate) fn platform_restore_graph_capture(&mut self) {
         self.platform.capture_presentation_identity = None;
-        self.graph_compiler.reset_prepared_capture();
+        self.graph_service.reset_prepared_capture();
     }
 
     pub(crate) fn platform_before_graph(&mut self) {
@@ -785,7 +785,7 @@ impl App {
 
     fn refresh_derived_cache_nodes(&mut self) {
         self.platform.derived_cache_nodes = self
-            .graph_compiler
+            .graph_service
             .derived_cache_configs_by_node(self.node_graph.graph(), &derived_cache_directory())
             .map(|inventory| {
                 inventory
@@ -808,7 +808,7 @@ impl App {
             .map(|node| node.title.clone())
             .unwrap_or_else(|| "node".to_owned());
         let configs = match self
-            .graph_compiler
+            .graph_service
             .derived_cache_configs_by_node(self.node_graph.graph(), &derived_cache_directory())
         {
             Ok(mut inventory) => inventory.remove(&node_id).unwrap_or_default(),
