@@ -57,7 +57,9 @@ impl LogicAnalyzerViewer {
         self.draw_edge_delta_tooltip(
             painter,
             wave_rect,
-            Pos2::new((start.x + end.x) * 0.5, (start.y + end.y) * 0.5),
+            (start.x + end.x) * 0.5,
+            start.y.min(end.y) - lift,
+            start.y.max(end.y),
             &delta_text,
         );
     }
@@ -66,21 +68,12 @@ impl LogicAnalyzerViewer {
         &self,
         painter: &Painter,
         wave_rect: Rect,
-        center: Pos2,
+        center_x: f32,
+        curve_top: f32,
+        curve_bottom: f32,
         text: &str,
     ) {
-        let width = 145.0_f32.min(wave_rect.width().max(1.0));
-        let height = 28.0;
-        let left = (center.x - width * 0.5)
-            .max(wave_rect.left())
-            .min(wave_rect.right() - width);
-        let below = center.y + 14.0;
-        let top = if below + height <= wave_rect.bottom() {
-            below
-        } else {
-            (center.y - height - 14.0).max(wave_rect.top())
-        };
-        let rect = Rect::from_min_size(Pos2::new(left, top), vec2(width, height));
+        let rect = edge_delta_tooltip_rect(wave_rect, center_x, curve_top, curve_bottom);
         painter.rect_filled(
             rect,
             0.0,
@@ -292,5 +285,60 @@ impl LogicAnalyzerViewer {
                 yellow,
             );
         }
+    }
+}
+
+fn edge_delta_tooltip_rect(
+    wave_rect: Rect,
+    center_x: f32,
+    curve_top: f32,
+    curve_bottom: f32,
+) -> Rect {
+    let width = 145.0_f32.min(wave_rect.width().max(1.0));
+    let height = 28.0;
+    let gap = 8.0;
+    let left = (center_x - width * 0.5)
+        .max(wave_rect.left())
+        .min(wave_rect.right() - width);
+    let top = if curve_top - gap - height >= wave_rect.top() {
+        curve_top - gap - height
+    } else if curve_bottom + gap + height <= wave_rect.bottom() {
+        curve_bottom + gap
+    } else {
+        (curve_bottom + gap)
+            .min(wave_rect.bottom() - height)
+            .max(wave_rect.top())
+    };
+    Rect::from_min_size(Pos2::new(left, top), vec2(width, height))
+}
+
+#[cfg(test)]
+mod measurement_tests {
+    use egui::{Pos2, Rect};
+
+    use super::edge_delta_tooltip_rect;
+
+    #[test]
+    fn edge_delta_tooltip_uses_space_below_when_the_curve_has_no_headroom() {
+        let rect = edge_delta_tooltip_rect(
+            Rect::from_min_size(Pos2::ZERO, egui::vec2(400.0, 240.0)),
+            200.0,
+            20.0,
+            118.0,
+        );
+
+        assert_eq!(rect.top(), 126.0);
+    }
+
+    #[test]
+    fn edge_delta_tooltip_uses_space_above_the_curve_when_available() {
+        let rect = edge_delta_tooltip_rect(
+            Rect::from_min_size(Pos2::ZERO, egui::vec2(400.0, 240.0)),
+            200.0,
+            80.0,
+            150.0,
+        );
+
+        assert_eq!(rect.bottom(), 72.0);
     }
 }
