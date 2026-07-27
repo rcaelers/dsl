@@ -487,6 +487,66 @@ impl PanelLayout {
         self.add_right_column_content(content_id, ordered_contents, existing_layout_fraction)
     }
 
+    /// Ensures `content_id` is present immediately beside `anchor_content`.
+    ///
+    /// When the anchor is visible, the new panel replaces its leaf with the
+    /// requested split. This preserves the anchor's enclosing layout, such as
+    /// a primary panel area beside an auxiliary column. If the anchor is no
+    /// longer present, the new panel wraps the current layout at the requested
+    /// edge instead.
+    pub fn ensure_adjacent_content(
+        &mut self,
+        content_id: &str,
+        anchor_content: &str,
+        axis: SplitAxis,
+        content_first: bool,
+        fraction: f32,
+    ) -> bool {
+        if find_panel_by_content(self.state.root.as_ref(), content_id).is_some() {
+            return false;
+        }
+
+        self.restore_maximized();
+        let new_panel = PanelState {
+            id: self.allocate_id("panel"),
+            content: content_id.to_owned(),
+            title_bar_position: TitleBarPosition::Top,
+        };
+        let split_id = self.allocate_numeric_id();
+        let fraction = fraction.clamp(0.1, 0.9);
+
+        if split_content_by_content(
+            self.state.root.as_mut(),
+            anchor_content,
+            axis,
+            content_first,
+            fraction,
+            split_id,
+            new_panel.clone(),
+        ) {
+            return true;
+        }
+
+        let Some(existing) = self.state.root.take() else {
+            self.state.root = Some(LayoutNode::Panel { panel: new_panel });
+            return true;
+        };
+        let new = LayoutNode::Panel { panel: new_panel };
+        let (first, second) = if content_first {
+            (new, existing)
+        } else {
+            (existing, new)
+        };
+        self.state.root = Some(LayoutNode::Split {
+            id: split_id,
+            axis,
+            fraction,
+            first: Box::new(first),
+            second: Box::new(second),
+        });
+        true
+    }
+
     /// Ensures that at least `count` panels with `content_id` are present.
     /// Additional instances are placed in the same ordered right-side column.
     pub fn ensure_right_column_content_count(
@@ -2365,6 +2425,64 @@ fn remove_panel(node: Option<&mut LayoutNode>, panel_id: &str) -> bool {
     }
 }
 
+fn split_content_by_content(
+    node: Option<&mut LayoutNode>,
+    content: &str,
+    axis: SplitAxis,
+    content_first: bool,
+    fraction: f32,
+    split_id: u64,
+    new_panel: PanelState,
+) -> bool {
+    let Some(node) = node else {
+        return false;
+    };
+    match node {
+        LayoutNode::Panel { panel } if panel.content == content => {
+            let existing = std::mem::replace(
+                node,
+                LayoutNode::Panel {
+                    panel: new_panel.clone(),
+                },
+            );
+            let new = LayoutNode::Panel { panel: new_panel };
+            let (first, second) = if content_first {
+                (new, existing)
+            } else {
+                (existing, new)
+            };
+            *node = LayoutNode::Split {
+                id: split_id,
+                axis,
+                fraction,
+                first: Box::new(first),
+                second: Box::new(second),
+            };
+            true
+        }
+        LayoutNode::Split { first, second, .. } => {
+            split_content_by_content(
+                Some(first),
+                content,
+                axis,
+                content_first,
+                fraction,
+                split_id,
+                new_panel.clone(),
+            ) || split_content_by_content(
+                Some(second),
+                content,
+                axis,
+                content_first,
+                fraction,
+                split_id,
+                new_panel,
+            )
+        }
+        LayoutNode::Panel { .. } => false,
+    }
+}
+
 fn split_panel(
     node: Option<&mut LayoutNode>,
     panel_id: &str,
@@ -2793,6 +2911,45 @@ mod tests {
             assert_eq!(column_contents, ["watches", "triggers", "decoder"]);
             assert_eq!(all_panels(layout.state.root.as_ref()).len(), 5);
         }
+    }
+
+    #[test]
+    fn adjacent_content_restores_a_closed_primary_panel_inside_its_original_area() {
+        let mut layout = PanelLayout::new([("logic_analyzer", 0.42), ("node_graph", 0.58)]);
+        assert!(layout.ensure_right_column_content("watches", &["watches", "triggers"], 0.82,));
+        layout.apply_panel_action("node_graph", PanelAction::Close);
+
+        assert!(layout.ensure_adjacent_content(
+            "node_graph",
+            "logic_analyzer",
+            SplitAxis::Horizontal,
+            false,
+            0.42,
+        ));
+
+        let LayoutNode::Split {
+            axis: SplitAxis::Vertical,
+            first,
+            second,
+            ..
+        } = layout.state.root.as_ref().unwrap()
+        else {
+            panic!("expected the auxiliary column to remain outside the primary area");
+        };
+        let LayoutNode::Split {
+            axis: SplitAxis::Horizontal,
+            fraction,
+            first: logic_analyzer,
+            second: node_graph,
+            ..
+        } = first.as_ref()
+        else {
+            panic!("expected the restored primary split");
+        };
+        assert_eq!(*fraction, 0.42);
+        assert!(contains_content(logic_analyzer, "logic_analyzer"));
+        assert!(contains_content(node_graph, "node_graph"));
+        assert!(contains_content(second, "watches"));
     }
 
     #[test]

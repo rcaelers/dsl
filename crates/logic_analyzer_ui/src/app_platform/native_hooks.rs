@@ -75,6 +75,14 @@ impl App {
                     self.request_clear_all_derived_caches();
                     continue;
                 }
+                NativeMenuCommand::ShowLogicAnalyzer => {
+                    self.show_primary_panel("logic_analyzer");
+                    continue;
+                }
+                NativeMenuCommand::ShowNodeGraph => {
+                    self.show_primary_panel("node_graph");
+                    continue;
+                }
                 NativeMenuCommand::ShowWatches => {
                     self.show_auxiliary_panel("watches");
                     continue;
@@ -722,6 +730,20 @@ impl App {
                 }
             });
             ui.menu_button("View", |ui| {
+                for (label, content_id, icon) in [
+                    (
+                        "Logic Analyzer",
+                        "logic_analyzer",
+                        panel_layout::PanelIcon::Waveform,
+                    ),
+                    ("Node Graph", "node_graph", panel_layout::PanelIcon::Network),
+                ] {
+                    if icon.menu_item(ui, label).clicked() {
+                        self.show_primary_panel(content_id);
+                        ui.close();
+                    }
+                }
+                ui.separator();
                 for (label, content_id, icon) in self.available_auxiliary_panels() {
                     if icon.menu_item(ui, &label).clicked() {
                         self.show_auxiliary_panel(&content_id);

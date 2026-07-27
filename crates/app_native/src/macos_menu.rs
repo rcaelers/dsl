@@ -111,6 +111,16 @@ define_class!(
             dispatch_native_menu_command(NativeMenuCommand::ClearDerivedCaches);
         }
 
+        #[unsafe(method(showLogicAnalyzer:))]
+        fn show_logic_analyzer(&self, _sender: &AnyObject) {
+            dispatch_native_menu_command(NativeMenuCommand::ShowLogicAnalyzer);
+        }
+
+        #[unsafe(method(showNodeGraph:))]
+        fn show_node_graph(&self, _sender: &AnyObject) {
+            dispatch_native_menu_command(NativeMenuCommand::ShowNodeGraph);
+        }
+
         #[unsafe(method(showWatches:))]
         fn show_watches(&self, _sender: &AnyObject) {
             dispatch_native_menu_command(NativeMenuCommand::ShowWatches);
@@ -332,6 +342,21 @@ pub(crate) fn install(recent_files: &[PathBuf]) {
     let view_menu_item = NSMenuItem::new(mtm);
     let view_menu = NSMenu::initWithTitle(mtm.alloc(), ns_string!("View"));
     unsafe {
+        view_menu.addItem(&menu_item_with_symbol(
+            mtm,
+            ns_string!("Logic Analyzer"),
+            sel!(showLogicAnalyzer:),
+            ns_string!("waveform.path.ecg"),
+            &handler,
+        ));
+        view_menu.addItem(&menu_item_with_symbol(
+            mtm,
+            ns_string!("Node Graph"),
+            sel!(showNodeGraph:),
+            ns_string!("point.3.connected.trianglepath.dotted"),
+            &handler,
+        ));
+        view_menu.addItem(&NSMenuItem::separatorItem(mtm));
         view_menu.addItem(&menu_item_with_symbol(
             mtm,
             ns_string!("Watches"),

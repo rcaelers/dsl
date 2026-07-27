@@ -631,18 +631,18 @@
           "panel-2": {
             "format": "lane",
             "hidden_columns": [],
-            "selected_source": "n4294967295_auto_view:node:1:decoder"
+            "selected_source": "collector:4294967294:node:1:decoder"
           },
           "panel-4": {
             "format": "lane",
             "hidden_columns": [],
-            "selected_source": "n4294967295_auto_view:node:8:decoder"
+            "selected_source": "collector:4294967295:node:1:decoder"
           }
         }
       },
       "layout": {
         "maximized": null,
-        "next_id": 6,
+        "next_id": 9,
         "root": {
           "axis": "vertical",
           "first": {
@@ -655,7 +655,7 @@
                 "title_bar_position": "top"
               }
             },
-            "fraction": 0.43513190746307373,
+            "fraction": 0.4616457521915436,
             "id": 1,
             "kind": "split",
             "second": {
@@ -667,7 +667,7 @@
               }
             }
           },
-          "fraction": 0.8199999928474426,
+          "fraction": 0.8181593418121338,
           "id": 3,
           "kind": "split",
           "second": {
@@ -680,8 +680,8 @@
                 "title_bar_position": "top"
               }
             },
-            "fraction": 0.3479096591472626,
-            "id": 5,
+            "fraction": 0.3840397894382477,
+            "id": 8,
             "kind": "split",
             "second": {
               "kind": "panel",
@@ -1415,7 +1415,7 @@
         "x": 1834.65625,
         "y": 188.68359375
       },
-      "selected": true,
+      "selected": false,
       "state": {
         "filename": {
           "dialog_title": "Save capture as",

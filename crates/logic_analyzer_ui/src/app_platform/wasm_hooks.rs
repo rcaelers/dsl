@@ -50,6 +50,20 @@ impl App {
 
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("View", |ui| {
+                for (label, content_id, icon) in [
+                    (
+                        "Logic Analyzer",
+                        "logic_analyzer",
+                        panel_layout::PanelIcon::Waveform,
+                    ),
+                    ("Node Graph", "node_graph", panel_layout::PanelIcon::Network),
+                ] {
+                    if icon.menu_item(ui, label).clicked() {
+                        self.show_primary_panel(content_id);
+                        ui.close();
+                    }
+                }
+                ui.separator();
                 for (label, content_id, icon) in self.available_auxiliary_panels() {
                     if icon.menu_item(ui, &label).clicked() {
                         self.show_auxiliary_panel(&content_id);

@@ -1836,6 +1836,21 @@ impl App {
         );
     }
 
+    pub(crate) fn show_primary_panel(&mut self, content_id: &str) {
+        let (anchor, content_first) = match content_id {
+            "logic_analyzer" => ("node_graph", true),
+            "node_graph" => ("logic_analyzer", false),
+            _ => return,
+        };
+        self.panel_layout.ensure_adjacent_content(
+            content_id,
+            anchor,
+            panel_layout::SplitAxis::Horizontal,
+            content_first,
+            DEFAULT_ANALYZER_SPLIT,
+        );
+    }
+
     pub(crate) fn available_auxiliary_panels(
         &self,
     ) -> Vec<(String, String, panel_layout::PanelIcon)> {
