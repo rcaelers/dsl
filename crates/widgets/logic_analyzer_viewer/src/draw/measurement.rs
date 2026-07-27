@@ -1,10 +1,100 @@
+use egui::epaint::CubicBezierShape;
 use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Stroke, vec2};
 
 use crate::format::{format_delta, format_frequency};
-use crate::types::PulseMeasurement;
+use crate::types::{EdgeDeltaMeasurement, PulseMeasurement};
 use crate::viewer::LogicAnalyzerViewer;
 
 impl LogicAnalyzerViewer {
+    pub(crate) fn draw_edge_delta_measurement(
+        &self,
+        painter: &Painter,
+        wave_rect: Rect,
+        row_height: f32,
+        measurement: EdgeDeltaMeasurement,
+    ) {
+        let row_top = self.row_top(wave_rect.top(), measurement.channel_row, row_height);
+        let start = Pos2::new(
+            self.time_to_x(wave_rect, measurement.start_us),
+            row_top + row_height * 0.5,
+        );
+        let end = Pos2::new(
+            self.time_to_x(wave_rect, measurement.end_us),
+            measurement.end_y,
+        );
+        let color = Color32::from_rgb(255, 190, 0);
+        let dx = end.x - start.x;
+        let lift = (row_height * 0.9).min(28.0);
+        let points = [
+            start,
+            start + vec2(dx * 0.3, -lift),
+            end - vec2(dx * 0.3, lift),
+            end,
+        ];
+        if start.distance(end) > 1.0 {
+            painter.add(CubicBezierShape::from_points_stroke(
+                points,
+                false,
+                Color32::TRANSPARENT,
+                Stroke::new(2.0, Color32::from_rgba_premultiplied(0, 0, 0, 180)),
+            ));
+            painter.add(CubicBezierShape::from_points_stroke(
+                points,
+                false,
+                Color32::TRANSPARENT,
+                Stroke::new(1.1, color),
+            ));
+        }
+        painter.circle_filled(start, 3.0, color);
+        painter.circle_filled(end, 3.0, color);
+
+        let delta = measurement.end_us - measurement.start_us;
+        let delta_text = format!(
+            "Δt: {}{}",
+            if delta.is_sign_negative() { "−" } else { "+" },
+            format_delta(delta.abs()).trim_start_matches('+')
+        );
+        self.draw_edge_delta_tooltip(
+            painter,
+            wave_rect,
+            Pos2::new((start.x + end.x) * 0.5, (start.y + end.y) * 0.5),
+            &delta_text,
+        );
+    }
+
+    fn draw_edge_delta_tooltip(
+        &self,
+        painter: &Painter,
+        wave_rect: Rect,
+        center: Pos2,
+        text: &str,
+    ) {
+        let width = 145.0_f32.min(wave_rect.width().max(1.0));
+        let height = 28.0;
+        let left = (center.x - width * 0.5)
+            .max(wave_rect.left())
+            .min(wave_rect.right() - width);
+        let below = center.y + 14.0;
+        let top = if below + height <= wave_rect.bottom() {
+            below
+        } else {
+            (center.y - height - 14.0).max(wave_rect.top())
+        };
+        let rect = Rect::from_min_size(Pos2::new(left, top), vec2(width, height));
+        painter.rect_filled(
+            rect,
+            0.0,
+            Color32::from_rgba_premultiplied(0, 120, 180, 225),
+        );
+        painter.text(
+            Pos2::new(rect.right() - 8.0, rect.center().y),
+            Align2::RIGHT_CENTER,
+            text,
+            FontId::proportional(11.0),
+            Color32::from_rgb(255, 190, 0),
+        );
+    }
+
     pub(crate) fn draw_pulse_measurement(
         &self,
         painter: &Painter,

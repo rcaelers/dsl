@@ -288,13 +288,17 @@ impl LogicAnalyzerViewer {
 
     /// First toggle strictly after `sample`, searched across the whole
     /// capture.
-    fn next_transition_after(&mut self, channel_index: usize, sample: u64) -> Option<(u64, bool)> {
+    pub(crate) fn next_transition_after(
+        &mut self,
+        channel_index: usize,
+        sample: u64,
+    ) -> Option<(u64, bool)> {
         let total_samples = self.capture_info.as_ref()?.header.total_samples;
         self.find_transition(channel_index, sample, sample, total_samples, false)
     }
 
     /// Last toggle at or before `sample`, searched across the whole capture.
-    fn prev_transition_at_or_before(
+    pub(crate) fn prev_transition_at_or_before(
         &mut self,
         channel_index: usize,
         sample: u64,
@@ -502,7 +506,7 @@ pub(crate) fn pulse_measurement_from_window(
     })
 }
 
-fn us_to_sample(time_us: f64, samplerate_hz: f64) -> u64 {
+pub(crate) fn us_to_sample(time_us: f64, samplerate_hz: f64) -> u64 {
     (time_us.max(0.0) * samplerate_hz / 1_000_000.0).round() as u64
 }
 

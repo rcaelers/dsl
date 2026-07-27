@@ -13,8 +13,8 @@ use crate::lanes::{ViewerLaneGroupId, WaveformPresentationRegistry};
 use crate::sampling_overlay::SamplingOverlay;
 use crate::simple_trigger::{SimpleTriggerEdit, SimpleTriggerLane, SimpleTriggerPopup};
 use crate::types::{
-    AnalyzerLayout, CaptureInfo, ColorProfile, IndexBuildProgress, PulseMeasurement, RowDragState,
-    RowKey, RowRenameState, TimeCursor, Transition,
+    AnalyzerLayout, CaptureInfo, ColorProfile, EdgeDeltaMeasurement, IndexBuildProgress,
+    PulseMeasurement, RowDragState, RowKey, RowRenameState, TimeCursor, Transition,
 };
 
 const DEFAULT_VISIBLE_SPAN_US: f64 = 900.0;
@@ -56,6 +56,9 @@ pub struct LogicAnalyzerViewer {
     /// `waveform` bands, which don't carry individual edge times — measuring
     /// then requires an extra exact query into the index around the pointer.
     pub(crate) hover_measurement: Option<PulseMeasurement>,
+    /// A click-to-measure edge delta that remains active until explicitly
+    /// stopped, unlike the transient hover pulse measurement.
+    pub(crate) edge_delta_measurement: Option<EdgeDeltaMeasurement>,
     pub(crate) visible_start_us: f64,
     pub(crate) visible_span_us: f64,
     pub(crate) capture_path: Option<PathBuf>,
@@ -116,6 +119,7 @@ impl LogicAnalyzerViewer {
             sampler: None,
             sampled_key: None,
             hover_measurement: None,
+            edge_delta_measurement: None,
             visible_start_us: 0.0,
             visible_span_us: DEFAULT_VISIBLE_SPAN_US,
             capture_path: None,
@@ -234,6 +238,7 @@ impl LogicAnalyzerViewer {
     /// pipeline. `derived` lanes are untouched and keep sitting below
     /// whatever channels are here.
     pub fn set_channels(&mut self, signals: Vec<ChannelSignal>) {
+        self.edge_delta_measurement = None;
         self.channels = signals
             .into_iter()
             .filter(|signal| self.capture_channel_is_visible(signal.index))
@@ -270,6 +275,7 @@ impl LogicAnalyzerViewer {
         self.cursors.clear();
         self.drag_cursor = None;
         self.hover_measurement = None;
+        self.edge_delta_measurement = None;
         self.set_channels(signals);
         self.visible_start_us = 0.0;
         self.visible_span_us = duration_us.max(1.0);
@@ -317,6 +323,7 @@ impl LogicAnalyzerViewer {
                 self.cursors.clear();
                 self.drag_cursor = None;
                 self.hover_measurement = None;
+                self.edge_delta_measurement = None;
                 self.status = format!("Could not inspect capture: {err}");
                 return;
             }
@@ -337,6 +344,7 @@ impl LogicAnalyzerViewer {
         self.cursors.clear();
         self.drag_cursor = None;
         self.hover_measurement = None;
+        self.edge_delta_measurement = None;
         self.status = format!("Opening {}", data_source.display_name());
 
         let (response_tx, response_rx) = mpsc::channel();
@@ -387,6 +395,7 @@ impl LogicAnalyzerViewer {
         self.index_progress = None;
         self.cursors.clear();
         self.hover_measurement = None;
+        self.edge_delta_measurement = None;
         self.status = "No capture loaded".to_string();
     }
 
@@ -430,6 +439,7 @@ impl LogicAnalyzerViewer {
         self.cursors.clear();
         self.drag_cursor = None;
         self.hover_measurement = None;
+        self.edge_delta_measurement = None;
         let duration_us = metadata.duration_us();
         let planned_span_us = planned_span_us.filter(|span| span.is_finite() && *span > 0.0);
         self.visible_span_us = planned_span_us
@@ -553,7 +563,7 @@ impl LogicAnalyzerViewer {
 
     /// One-line hint of available controls, for a status bar (Phase 4.1).
     pub fn status_hint(&self) -> &'static str {
-        "Drag Pan · Scroll Zoom · Double-click view to add a cursor · Home Fit"
+        "Click an edge to measure · Drag Pan · Scroll Zoom · Double-click view to add a cursor · Home Fit"
     }
 
     pub fn show(&mut self, ui: &mut Ui) {
@@ -581,11 +591,31 @@ impl LogicAnalyzerViewer {
                 }
             })
             .unwrap_or("logic_analyzer");
-        let trigger_input = self.handle_simple_trigger_input(ui, &response, layout);
-        let row_rename_started =
-            !trigger_input && self.handle_row_label_input(ui, &response, layout);
-        let row_dragging = !trigger_input && self.handle_row_reorder(ui, &response, layout);
-        let cursor_input = self.handle_cursor_input(ui, &response, layout);
+        // A running edge measurement owns the next primary click everywhere
+        // inside the viewer, including labels and trigger controls, so the
+        // documented click-to-stop gesture is never intercepted by another
+        // interaction first.
+        let mut edge_measurement_active = self.edge_delta_measurement.is_some()
+            && self.handle_edge_measurement_input(ui, &response, layout);
+        let trigger_input =
+            !edge_measurement_active && self.handle_simple_trigger_input(ui, &response, layout);
+        let row_rename_started = !edge_measurement_active
+            && !trigger_input
+            && self.handle_row_label_input(ui, &response, layout);
+        let row_dragging = !edge_measurement_active
+            && !trigger_input
+            && self.handle_row_reorder(ui, &response, layout);
+        if !edge_measurement_active {
+            edge_measurement_active = !trigger_input
+                && !row_rename_started
+                && !row_dragging
+                && self.handle_edge_measurement_input(ui, &response, layout);
+        }
+        let cursor_input = if edge_measurement_active {
+            crate::types::CursorInput::default()
+        } else {
+            self.handle_cursor_input(ui, &response, layout)
+        };
         if cursor_input.active.is_some() {
             self.hovered_input_context = "logic_analyzer.cursor";
         }
@@ -619,6 +649,7 @@ impl LogicAnalyzerViewer {
                 .pointer_button(&["logic_analyzer"], "pan")
                 .is_some_and(|button| response.dragged_by(button))
                 && !cursor_input.blocks_pan
+                && !edge_measurement_active
                 && !row_dragging,
         );
         self.sample_visible_window(layout);
@@ -629,7 +660,12 @@ impl LogicAnalyzerViewer {
         } else {
             response.hover_pos()
         };
-        self.sample_hover_measurement(layout, hover_pointer);
+        if self.edge_delta_measurement.is_some() {
+            self.hover_measurement = None;
+            self.update_edge_measurement(layout, hover_pointer);
+        } else {
+            self.sample_hover_measurement(layout, hover_pointer);
+        }
         self.draw(&painter, layout, hover_pointer, cursor_input.active);
         self.show_simple_trigger_popup(ui.ctx());
         self.show_row_rename(ui.ctx());
@@ -653,6 +689,10 @@ impl LogicAnalyzerViewer {
         {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(100));
+        }
+        if self.edge_delta_measurement.is_some() {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(16));
         }
     }
 

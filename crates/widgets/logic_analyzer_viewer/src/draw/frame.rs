@@ -89,6 +89,10 @@ impl LogicAnalyzerViewer {
             }
         }
 
+        if let Some(measurement) = self.edge_delta_measurement {
+            self.draw_edge_delta_measurement(painter, wave_rect, row_height, measurement);
+        }
+
         self.draw_cursors(painter, ruler_rect, wave_rect, active_cursor);
     }
 

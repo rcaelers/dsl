@@ -396,6 +396,7 @@ impl LogicAnalyzerViewer {
         if self.row_order != order {
             self.row_order = order;
             self.hover_measurement = None;
+            self.edge_delta_measurement = None;
             self.sampled_key = None;
         }
     }
@@ -524,6 +525,7 @@ impl LogicAnalyzerViewer {
         self.row_order.insert(target_row, entry);
         self.row_order_changed = true;
         self.hover_measurement = None;
+        self.edge_delta_measurement = None;
         self.sampled_key = None;
     }
 

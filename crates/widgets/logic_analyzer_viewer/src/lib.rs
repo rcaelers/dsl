@@ -3,6 +3,7 @@ mod architecture_tests;
 mod channel;
 mod cursor;
 mod draw;
+mod edge_measurement;
 mod format;
 mod input;
 mod lanes;

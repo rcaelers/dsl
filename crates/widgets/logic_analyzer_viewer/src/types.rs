@@ -178,6 +178,16 @@ pub(crate) struct PulseMeasurement {
     pub(crate) is_event: bool,
 }
 
+/// A two-edge delta measurement held open after selecting its first edge.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct EdgeDeltaMeasurement {
+    pub(crate) channel_row: usize,
+    pub(crate) start_us: f64,
+    pub(crate) end_us: f64,
+    /// Free pointer position, or the centre of a snapped endpoint's row.
+    pub(crate) end_y: f32,
+}
+
 impl PulseMeasurement {
     pub(crate) fn width_us(self) -> f64 {
         self.end_us - self.start_us

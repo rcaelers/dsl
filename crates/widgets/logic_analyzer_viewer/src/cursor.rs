@@ -315,7 +315,7 @@ fn next_cursor_number(cursors: &[TimeCursor]) -> usize {
     number
 }
 
-fn nearest_transition_time(transitions: &[Transition], time_us: f64) -> Option<f64> {
+pub(crate) fn nearest_transition_time(transitions: &[Transition], time_us: f64) -> Option<f64> {
     let index = transitions.partition_point(|transition| transition.time_us < time_us);
     let after = transitions.get(index).map(|transition| transition.time_us);
     let before = index
