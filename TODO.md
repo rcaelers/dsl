@@ -28,25 +28,7 @@ crate under test.
      switches, and tests substitute implementations only at explicit trait
      boundaries.
 
-2. **Graph-node builder isolation:**
-   - Give graph-node tests an API-level fake `NodeBuildContext`, typed fake
-     endpoints, and contract assertions so each concrete builder can be tested
-     without `logic_analyzer_graph_compiler`.
-   - Completion gate: every concrete builder exercises successful lowering and
-     malformed state/input errors directly through graph-API fakes, without a
-     compiler or graph widget dependency.
-
-3. **Fixtures and external validation:**
-   - Store required fixture data under the owning crate's `test_data/`
-     directory, or generate it deterministically in the test. Do not read a
-     sibling crate's fixtures or repository-adjacent directories such as
-     `dslogic` or `_capture`.
-   - Use only project-owned Sigrok Python decoder packages with explicit
-     test-only IDs. Provide separate fixtures for raw-logic input, stacked
-     protocol input, annotations, binary output, metadata, generated logic,
-     malformed metadata, and runtime failure as needed.
-
-4. **Reusable contract suites and CI:**
+2. **Reusable contract suites and CI:**
    - Put reusable conformance assertions beside the trait owner. Implementor
      crates invoke them with local constructors/factories rather than importing
      another concrete implementation.

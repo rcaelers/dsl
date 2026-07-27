@@ -646,10 +646,191 @@ mod implementation_tests {
     use signal_processing::{ChannelMessage, Sender, Watchdog, WordPayload};
 
     use super::*;
+    use crate::support::sigrokdecode::MetadataRegistration;
 
     #[test]
     fn raw_input_timing_takes_precedence_over_the_decoder_configuration() {
         assert_eq!(sample_time_ns(645_812, Some(1_000), 2_000_000), 645_812_000);
+    }
+
+    #[test]
+    fn every_sigrok_output_kind_converts_to_a_standard_payload() {
+        let annotation = convert_fixture(
+            ProtocolValue::List(vec![
+                ProtocolValue::Integer(0),
+                ProtocolValue::List(vec![ProtocolValue::String("address".into())]),
+            ]),
+            OutputRegistration {
+                output_type: OUTPUT_ANN,
+                protocol_id: None,
+                metadata: None,
+            },
+        )
+        .unwrap();
+        let ConvertedOutput::Annotation(annotation) = annotation else {
+            panic!("annotation output used the wrong standard payload");
+        };
+        assert_eq!(word_text(&annotation), "address");
+        assert_eq!(
+            (annotation.timestamp_ns, annotation.duration_ns),
+            (10_000, 8_000)
+        );
+
+        let binary = convert_fixture(
+            ProtocolValue::List(vec![
+                ProtocolValue::Integer(0),
+                ProtocolValue::Bytes(Arc::from([0x12, 0x34, 0x56])),
+            ]),
+            OutputRegistration {
+                output_type: OUTPUT_BINARY,
+                protocol_id: None,
+                metadata: None,
+            },
+        )
+        .unwrap();
+        let ConvertedOutput::Binary(binary) = binary else {
+            panic!("binary output used the wrong standard payload");
+        };
+        assert_eq!(word_text(&binary), "12 34 56");
+        assert_eq!(binary.value, 0);
+
+        let logic = convert_fixture(
+            ProtocolValue::List(vec![
+                ProtocolValue::Integer(0),
+                ProtocolValue::Bytes(Arc::from([0b0101_1010])),
+            ]),
+            OutputRegistration {
+                output_type: OUTPUT_LOGIC,
+                protocol_id: None,
+                metadata: None,
+            },
+        )
+        .unwrap();
+        let ConvertedOutput::Logic(logic) = logic else {
+            panic!("generated logic output used the wrong standard payload");
+        };
+        assert_eq!(logic.start_position, 10);
+        assert_eq!(logic.num_samples, 7);
+        assert_eq!(logic.timestamp_step, 1_142);
+        assert_eq!(&logic.data[..], &[0b0101_1010]);
+
+        let metadata = convert_fixture(
+            ProtocolValue::Integer(42),
+            OutputRegistration {
+                output_type: OUTPUT_META,
+                protocol_id: None,
+                metadata: Some(MetadataRegistration {
+                    value_type: MetadataType::Integer,
+                    name: "Count".into(),
+                    description: "Decoded count".into(),
+                }),
+            },
+        )
+        .unwrap();
+        let ConvertedOutput::Metadata(metadata) = metadata else {
+            panic!("metadata output used the wrong standard payload");
+        };
+        assert_eq!(metadata.value, 42);
+        assert_eq!(word_text(&metadata), "Count: 42");
+
+        let packet_value = ProtocolValue::Tuple(vec![ProtocolValue::String("DATA".into())]);
+        let packet = convert_fixture(
+            packet_value.clone(),
+            OutputRegistration {
+                output_type: OUTPUT_PYTHON,
+                protocol_id: Some("fixture-protocol".into()),
+                metadata: None,
+            },
+        )
+        .unwrap();
+        let ConvertedOutput::Packet(packet) = packet else {
+            panic!("protocol output used the wrong standard payload");
+        };
+        assert_eq!(packet.protocol_id, "fixture-protocol");
+        assert_eq!(packet.value, packet_value);
+        assert_eq!((packet.start_sample, packet.end_sample), (10, 18));
+    }
+
+    #[test]
+    fn malformed_sigrok_outputs_are_rejected_at_the_conversion_boundary() {
+        let cases = [
+            (
+                ProtocolValue::String("not an annotation".into()),
+                OutputRegistration {
+                    output_type: OUTPUT_ANN,
+                    protocol_id: None,
+                    metadata: None,
+                },
+                "annotation must be a list",
+            ),
+            (
+                ProtocolValue::List(vec![
+                    ProtocolValue::Integer(1),
+                    ProtocolValue::Bytes(Arc::from([0xAA])),
+                ]),
+                OutputRegistration {
+                    output_type: OUTPUT_BINARY,
+                    protocol_id: None,
+                    metadata: None,
+                },
+                "binary class 1 is not declared",
+            ),
+            (
+                ProtocolValue::List(vec![
+                    ProtocolValue::Integer(1),
+                    ProtocolValue::Bytes(Arc::from([0xAA])),
+                ]),
+                OutputRegistration {
+                    output_type: OUTPUT_LOGIC,
+                    protocol_id: None,
+                    metadata: None,
+                },
+                "logic group 1 is not declared",
+            ),
+            (
+                ProtocolValue::Integer(1),
+                OutputRegistration {
+                    output_type: OUTPUT_META,
+                    protocol_id: None,
+                    metadata: None,
+                },
+                "metadata output has no registration descriptor",
+            ),
+            (
+                ProtocolValue::Null,
+                OutputRegistration {
+                    output_type: 99,
+                    protocol_id: None,
+                    metadata: None,
+                },
+                "unsupported output type 99",
+            ),
+        ];
+
+        for (value, registration, expected) in cases {
+            let error = convert_fixture(value, registration)
+                .err()
+                .expect("malformed output must fail");
+            assert_eq!(error, expected);
+        }
+    }
+
+    fn convert_fixture(
+        value: ProtocolValue,
+        registration: OutputRegistration,
+    ) -> Result<ConvertedOutput, String> {
+        convert_output(
+            &value,
+            &registration,
+            10_000,
+            18_000,
+            10,
+            18,
+            "fixture-decoder",
+            &[Arc::from([0])],
+            1,
+            &["generated".into()],
+        )
     }
 
     #[test]

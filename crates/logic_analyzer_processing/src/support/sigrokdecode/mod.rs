@@ -13,6 +13,8 @@ mod scheduler;
 #[allow(dead_code)]
 mod worker;
 
+#[cfg(test)]
+pub(crate) use bridge::MetadataRegistration;
 pub(crate) use bridge::{DecoderOutput, MetadataType, OutputRegistration};
 pub(crate) use python_host::{OUTPUT_ANN, OUTPUT_BINARY, OUTPUT_LOGIC, OUTPUT_META, OUTPUT_PYTHON};
 pub(crate) use scheduler::{InitialPin, LogicChunk};

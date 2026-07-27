@@ -5,6 +5,7 @@ use serde_json::Value;
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{
     CapturePresentation, CapturePresentationSignal, NodeBuildContext, PortKind, ResolvedInputs,
+    parse_state,
 };
 use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
 use node_graph::api::Socket;
@@ -85,10 +86,11 @@ impl RuntimeBuilder for TestCaptureSourceBuilder {
     fn build(
         &self,
         name: &str,
-        _state: &Value,
+        state: &Value,
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
+        let _: super::definition::TestCaptureSourceState = parse_state(state)?;
         Ok(Box::new(SyntheticCaptureSource::new().with_name(name)))
     }
 }

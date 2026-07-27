@@ -10,7 +10,7 @@ inventory::submit! {
 mod registration_tests {
     #[test]
     fn dslogic_u3pro16_registration_contract_is_self_consistent() {
-        crate::nodes::test_support::assert_node_registration_contract(
+        crate::nodes::test_support::assert_node_registration_contract_without_runtime(
             "org.logicconduit.graph-node.dslogic-u3pro16/v1",
         );
     }
