@@ -38,10 +38,20 @@ hardware, or network access.
   executors, and compiler cache-pruning tests inject cache availability and
   cleanup outcomes by key. Native worker and persistent-store conformance is
   tested by the component that owns each adapter.
+- Compiler tests construct saved graph documents through the headless
+  `node_graph::api::GraphDocumentBuilder`. Node-definition migrations and
+  state-dependent socket schemas therefore remain active without constructing
+  `NodeGraphWidget` or importing `egui` in the compiler crate.
+- Concrete-node registration contract tests use that same headless builder;
+  only tests of editor interaction or presentation construct the graph widget.
 - Capture-file parsers and replay sources consume the processing-owned
   `CaptureArchive` contract. Their unit tests inject in-memory entries; a
   focused generated-file test covers the native ZIP adapter, while generated
   archive and sidecar integration tests cover the complete indexed-reader path.
+- Concrete file sinks create, append, write, and flush through the private
+  `OutputStorage` contract. Sink tests inject in-memory output files and
+  controlled create, write, and flush failures; native filesystem tests cover
+  path creation, rollover, and persisted bytes.
 
 ## Continuous integration
 

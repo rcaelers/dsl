@@ -2,6 +2,7 @@
 
 mod builtins;
 mod control;
+mod document;
 #[cfg(all(not(target_arch = "wasm32"), feature = "native-file-dialog"))]
 #[path = "file_dialog_native.rs"]
 mod file_dialog;
@@ -21,6 +22,7 @@ pub use builtins::{
     IntSocket, IntValue, StrSocket, StringValue,
 };
 pub use control::InlineControl;
+pub use document::GraphDocumentBuilder;
 pub use indicator::SocketIndicatorPresentation;
 pub use node::{
     InputDef, NodeDef, NodeInstanceSchema, OutputDef, PanelSection, PropDef, SocketTypeIdentity,

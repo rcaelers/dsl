@@ -8,3 +8,6 @@ pub mod discard_writer;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod text_file_writer;
 pub mod tgck_recorder;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod output_storage;

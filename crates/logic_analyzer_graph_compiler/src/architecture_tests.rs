@@ -182,6 +182,17 @@ fn compiler_has_no_production_ui_dependencies() {
 }
 
 #[test]
+fn compiler_tests_build_graph_documents_without_the_widget() {
+    let tests = include_str!("graph.rs")
+        .split_once("#[cfg(all(test, not(target_arch = \"wasm32\")))]\nmod tests")
+        .expect("graph test module boundary")
+        .1;
+    assert!(tests.contains("GraphDocumentBuilder"));
+    assert!(!tests.contains("NodeGraphWidget"));
+    assert!(!tests.contains("egui::"));
+}
+
+#[test]
 fn compiler_cache_policy_uses_its_storage_backend_contract() {
     let policy = implementation_source(include_str!("cache_platform_native.rs"));
     assert!(!policy.contains("IndexedAnnotationStore"));

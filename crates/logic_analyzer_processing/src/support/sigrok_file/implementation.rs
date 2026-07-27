@@ -216,14 +216,9 @@ impl SigrokFileCaptureDataSource {
         let path = path.as_ref().to_path_buf();
         let source_len = std::fs::metadata(&path)?.len();
         let capture = SigrokCapture::open(&path, 1)?;
-        Ok(Self {
-            path,
-            capture,
-            source_len,
-        })
+        Ok(Self::from_capture(path, source_len, capture))
     }
 
-    #[cfg(test)]
     pub(crate) fn from_capture(
         path: impl Into<PathBuf>,
         source_len: u64,
@@ -302,4 +297,112 @@ fn required<'a>(values: &'a BTreeMap<String, String>, key: &str) -> Result<&'a s
         .get(key)
         .map(String::as_str)
         .ok_or_else(|| Error::ParseError(format!("missing required field: device X.{key}")))
+}
+
+#[cfg(test)]
+mod implementation_tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+
+    #[test]
+    fn missing_and_unsupported_versions_are_rejected_from_in_memory_archives() {
+        let mut missing = TestCaptureArchive::default();
+        assert_parse_error(&mut missing, "missing required field: version");
+
+        let mut unsupported = valid_archive(1, 8, &[0]).with_entry("version", b"3");
+        assert_parse_error(&mut unsupported, "unsupported sigrok session version '3'");
+    }
+
+    #[test]
+    fn non_utf8_metadata_is_rejected_without_opening_a_host_file() {
+        let mut archive = valid_archive(1, 8, &[0]).with_entry("metadata", &[0xff]);
+
+        assert_parse_error(&mut archive, "capture field is not UTF-8: metadata");
+    }
+
+    #[test]
+    fn malformed_logic_layouts_and_payloads_are_rejected() {
+        let mut impossible_layout = valid_archive(1, 9, &[0]);
+        assert_parse_error(
+            &mut impossible_layout,
+            "invalid sigrok logic layout: 9 probes in 1-byte samples",
+        );
+
+        let mut partial_sample = valid_archive(2, 8, &[0, 1, 2]);
+        assert_parse_error(
+            &mut partial_sample,
+            "logic data size 3 is not divisible by unitsize 2",
+        );
+
+        let mut empty_logic = valid_archive(1, 8, &[]);
+        assert_parse_error(&mut empty_logic, "logic data contains no samples");
+    }
+
+    #[test]
+    fn archive_read_failures_are_preserved() {
+        let mut archive = valid_archive(1, 8, &[0]).failing_on("metadata");
+
+        let error = SigrokCapture::from_archive(&mut archive, 1).err().unwrap();
+
+        assert!(
+            matches!(error, Error::Io(error) if error.to_string() == "controlled archive read failure")
+        );
+    }
+
+    fn valid_archive(unitsize: usize, probes: usize, logic: &[u8]) -> TestCaptureArchive {
+        TestCaptureArchive::default()
+            .with_entry("version", b"2")
+            .with_entry(
+                "metadata",
+                format!(
+                    "[device 1]\ncapturefile=logic-1\ntotal probes={probes}\nsamplerate=1 MHz\nunitsize={unitsize}\n"
+                )
+                .as_bytes(),
+            )
+            .with_entry("logic-1", logic)
+    }
+
+    fn assert_parse_error(archive: &mut TestCaptureArchive, expected: &str) {
+        let error = SigrokCapture::from_archive(archive, 1).err().unwrap();
+        assert!(
+            matches!(error, Error::ParseError(message) if message.contains(expected)),
+            "expected parse error containing: {expected}"
+        );
+    }
+
+    #[derive(Default)]
+    struct TestCaptureArchive {
+        entries: BTreeMap<String, Vec<u8>>,
+        failing_entry: Option<String>,
+    }
+
+    impl TestCaptureArchive {
+        fn with_entry(mut self, name: &str, data: &[u8]) -> Self {
+            self.entries.insert(name.to_owned(), data.to_vec());
+            self
+        }
+
+        fn failing_on(mut self, name: &str) -> Self {
+            self.failing_entry = Some(name.to_owned());
+            self
+        }
+    }
+
+    impl CaptureArchive for TestCaptureArchive {
+        fn entry_names(&self) -> Vec<String> {
+            self.entries.keys().cloned().collect()
+        }
+
+        fn entry_size(&mut self, name: &str) -> Result<Option<u64>> {
+            Ok(self.entries.get(name).map(|entry| entry.len() as u64))
+        }
+
+        fn read_entry(&mut self, name: &str) -> Result<Option<Vec<u8>>> {
+            if self.failing_entry.as_deref() == Some(name) {
+                return Err(std::io::Error::other("controlled archive read failure").into());
+            }
+            Ok(self.entries.get(name).cloned())
+        }
+    }
 }

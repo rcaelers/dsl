@@ -2382,11 +2382,9 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
 
-    use egui::Pos2;
-
-    use node_graph::NodeGraphWidget;
     use node_graph::api::{
-        AnySocket, BoolSocket, InputDef, IntSocket, NodeDef, NodeTypeRegistry, OutputDef,
+        AnySocket, BoolSocket, GraphDocumentBuilder, InputDef, IntSocket, NodeDef,
+        NodeTypeRegistry, OutputDef,
     };
     use signal_processing::{
         AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureAnalysisChannel,
@@ -2801,7 +2799,13 @@ mod tests {
         transform_output_kind: PortKind,
         sink_kind: PortKind,
         type_preserving_transform: bool,
-    ) -> (NodeGraphWidget, BuilderRegistry, NodeId, NodeId, NodeId) {
+    ) -> (
+        GraphDocumentBuilder,
+        BuilderRegistry,
+        NodeId,
+        NodeId,
+        NodeId,
+    ) {
         let mut node_types = NodeTypeRegistry::new();
         node_types.register::<ContractSourceDefinition>();
         node_types.register::<ContractLiveSourceDefinition>();
@@ -2810,23 +2814,17 @@ mod tests {
         node_types.register::<ContractConversionDefinition>();
         node_types.register::<ContractSinkDefinition>();
 
-        let mut widget = NodeGraphWidget::new(node_types);
-        let source = widget
-            .add_node_at(CONTRACT_SOURCE, Pos2::new(0.0, 0.0))
-            .unwrap();
+        let mut document = GraphDocumentBuilder::new(node_types);
+        let source = document.add_node(CONTRACT_SOURCE).unwrap();
         let transform_name = if type_preserving_transform {
             CONTRACT_TRANSFORM
         } else {
             CONTRACT_CONVERSION
         };
-        let transform = widget
-            .add_node_at(transform_name, Pos2::new(200.0, 0.0))
-            .unwrap();
-        let sink = widget
-            .add_node_at(CONTRACT_SINK, Pos2::new(400.0, 0.0))
-            .unwrap();
-        connect_named(&mut widget, (source, "Out"), (transform, "In"));
-        connect_named(&mut widget, (transform, "Out"), (sink, "In"));
+        let transform = document.add_node(transform_name).unwrap();
+        let sink = document.add_node(CONTRACT_SINK).unwrap();
+        connect_named(&mut document, (source, "Out"), (transform, "In"));
+        connect_named(&mut document, (transform, "Out"), (sink, "In"));
 
         let mut builders = BuilderRegistry::isolated_test();
         builders.insert_test_builder(
@@ -2841,21 +2839,17 @@ mod tests {
             )),
         );
         builders.insert_test_builder(CONTRACT_SINK, Box::new(ContractBuilder::sink(sink_kind)));
-        (widget, builders, source, transform, sink)
+        (document, builders, source, transform, sink)
     }
 
-    fn configurable_source_pipeline() -> (NodeGraphWidget, BuilderRegistry, NodeId) {
+    fn configurable_source_pipeline() -> (GraphDocumentBuilder, BuilderRegistry, NodeId) {
         let mut node_types = NodeTypeRegistry::new();
         node_types.register::<ContractConfigurableSourceDefinition>();
         node_types.register::<ContractSinkDefinition>();
-        let mut widget = NodeGraphWidget::new(node_types);
-        let source = widget
-            .add_node_at(CONTRACT_CONFIGURABLE_SOURCE, Pos2::ZERO)
-            .unwrap();
-        let sink = widget
-            .add_node_at(CONTRACT_SINK, Pos2::new(200.0, 0.0))
-            .unwrap();
-        connect_named(&mut widget, (source, "Out"), (sink, "In"));
+        let mut document = GraphDocumentBuilder::new(node_types);
+        let source = document.add_node(CONTRACT_CONFIGURABLE_SOURCE).unwrap();
+        let sink = document.add_node(CONTRACT_SINK).unwrap();
+        connect_named(&mut document, (source, "Out"), (sink, "In"));
 
         let mut builders = BuilderRegistry::isolated_test();
         builders.insert_test_builder(
@@ -2866,13 +2860,17 @@ mod tests {
             CONTRACT_SINK,
             Box::new(ContractBuilder::sink(PortKind::of::<Sample>())),
         );
-        (widget, builders, source)
+        (document, builders, source)
     }
 
-    fn connect_named(widget: &mut NodeGraphWidget, from: (NodeId, &str), to: (NodeId, &str)) {
-        let output = output_index(widget, from.0, from.1);
-        let input = input_index(widget, to.0, to.1);
-        widget.graph_mut().add_connection(
+    fn connect_named(
+        document: &mut GraphDocumentBuilder,
+        from: (NodeId, &str),
+        to: (NodeId, &str),
+    ) {
+        let output = output_index(document, from.0, from.1);
+        let input = input_index(document, to.0, to.1);
+        document.graph_mut().add_connection(
             SocketId {
                 node: from.0,
                 index: output,
@@ -2887,12 +2885,12 @@ mod tests {
     }
 
     fn set_viewer_selection(
-        widget: &mut NodeGraphWidget,
+        document: &mut GraphDocumentBuilder,
         node: NodeId,
         output: usize,
         selected: bool,
     ) {
-        widget.graph_mut().nodes.get_mut(&node).unwrap().outputs[output]
+        document.graph_mut().nodes.get_mut(&node).unwrap().outputs[output]
             .extensions
             .insert("show_in_view".to_owned(), serde_json::json!(selected));
     }
@@ -3212,7 +3210,7 @@ mod tests {
 
     #[test]
     fn trigger_configuration_discovery_does_not_require_acquisition() {
-        let (widget, mut builders, source, _transform, _sink) = contract_pipeline(
+        let (document, mut builders, source, _transform, _sink) = contract_pipeline(
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
@@ -3224,7 +3222,7 @@ mod tests {
             Box::new(TriggerOnlyPluginBuilder),
         );
 
-        let configuration = discover_trigger_configuration(widget.graph(), &builders)
+        let configuration = discover_trigger_configuration(document.graph(), &builders)
             .unwrap()
             .unwrap();
 
@@ -3241,7 +3239,7 @@ mod tests {
 
     #[test]
     fn discovery_rejects_multiple_live_capture_features() {
-        let (mut widget, mut builders, _source, _transform, _sink) = contract_pipeline(
+        let (mut document, mut builders, _source, _transform, _sink) = contract_pipeline(
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
@@ -3252,14 +3250,10 @@ mod tests {
             CONTRACT_LIVE_SOURCE.to_owned(),
             Box::new(BufferedPluginBuilder),
         );
-        let first = widget
-            .add_node_at(CONTRACT_LIVE_SOURCE, Pos2::new(600.0, 0.0))
-            .unwrap();
-        let second = widget
-            .add_node_at(CONTRACT_LIVE_SOURCE, Pos2::new(800.0, 0.0))
-            .unwrap();
+        let first = document.add_node(CONTRACT_LIVE_SOURCE).unwrap();
+        let second = document.add_node(CONTRACT_LIVE_SOURCE).unwrap();
 
-        let error = discover_live_capture_feature(widget.graph(), &builders)
+        let error = discover_live_capture_feature(document.graph(), &builders)
             .err()
             .unwrap();
         assert_eq!(error.source_nodes, [first, second]);
@@ -3268,7 +3262,7 @@ mod tests {
 
     #[test]
     fn compiled_discovery_ignores_a_disconnected_live_feature() {
-        let (mut widget, mut builders, _source, _transform, _sink) = contract_pipeline(
+        let (mut document, mut builders, _source, _transform, _sink) = contract_pipeline(
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
@@ -3279,13 +3273,11 @@ mod tests {
             CONTRACT_LIVE_SOURCE.to_owned(),
             Box::new(BufferedPluginBuilder),
         );
-        widget
-            .add_node_at(CONTRACT_LIVE_SOURCE, Pos2::new(1_000.0, 0.0))
-            .unwrap();
-        let compiled = lower(widget.graph(), &builders).unwrap();
+        document.add_node(CONTRACT_LIVE_SOURCE).unwrap();
+        let compiled = lower(document.graph(), &builders).unwrap();
 
         assert!(
-            discover_compiled_live_capture_feature(widget.graph(), &compiled, &builders)
+            discover_compiled_live_capture_feature(document.graph(), &compiled, &builders)
                 .unwrap()
                 .is_none()
         );
@@ -3334,25 +3326,25 @@ mod tests {
 
     /// A lone source node with no explicit sink, used to verify that source
     /// presentation remains independent of selectable waveform presentations.
-    fn source_only_contract() -> (NodeGraphWidget, BuilderRegistry) {
+    fn source_only_contract() -> (GraphDocumentBuilder, BuilderRegistry) {
         let mut node_types = NodeTypeRegistry::new();
         node_types.register::<ContractSourceDefinition>();
-        let mut widget = NodeGraphWidget::new(node_types);
-        widget
-            .add_node_at(CONTRACT_SOURCE, Pos2::ZERO)
+        let mut document = GraphDocumentBuilder::new(node_types);
+        document
+            .add_node(CONTRACT_SOURCE)
             .expect("contract source is registered");
         let mut builders = BuilderRegistry::isolated_test();
         builders.insert_test_builder(CONTRACT_SOURCE, Box::new(BufferedPluginBuilder));
-        (widget, builders)
+        (document, builders)
     }
 
-    fn hide_first_output(widget: &mut NodeGraphWidget) -> NodeId {
-        let id = *widget.graph().nodes.keys().next().unwrap();
-        set_viewer_selection(widget, id, 0, false);
+    fn hide_first_output(document: &mut GraphDocumentBuilder) -> NodeId {
+        let id = *document.graph().nodes.keys().next().unwrap();
+        set_viewer_selection(document, id, 0, false);
         id
     }
 
-    fn selectable_output_contract() -> (NodeGraphWidget, BuilderRegistry, NodeId) {
+    fn selectable_output_contract() -> (GraphDocumentBuilder, BuilderRegistry, NodeId) {
         selectable_output_contract_for::<Sample>(
             "org.logicconduit.compiler-test.sample/v1",
             signal_processing::digital_payload_adapter(),
@@ -3360,7 +3352,7 @@ mod tests {
         )
     }
 
-    fn selectable_word_output_contract() -> (NodeGraphWidget, BuilderRegistry, NodeId) {
+    fn selectable_word_output_contract() -> (GraphDocumentBuilder, BuilderRegistry, NodeId) {
         selectable_output_contract_for::<Word>(
             "org.logicconduit.compiler-test.word/v1",
             signal_processing::word_payload_adapter(),
@@ -3372,9 +3364,9 @@ mod tests {
         stable_id: &str,
         adapter: Arc<dyn signal_processing::PayloadAdapter>,
         persistent_cache: bool,
-    ) -> (NodeGraphWidget, BuilderRegistry, NodeId) {
+    ) -> (GraphDocumentBuilder, BuilderRegistry, NodeId) {
         let kind = PortKind::of::<T>();
-        let (mut widget, mut registry, _source, transform, _sink) =
+        let (mut document, mut registry, _source, transform, _sink) =
             contract_pipeline(kind, kind, kind, kind, true);
         registry.register_payload::<T>(stable_id).unwrap();
         registry.payloads.register_adapter::<T>(adapter).unwrap();
@@ -3395,18 +3387,18 @@ mod tests {
             crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME,
             Box::new(DataCollectorBuilder::output_subscription()),
         );
-        set_viewer_selection(&mut widget, transform, 0, true);
-        (widget, registry, transform)
+        set_viewer_selection(&mut document, transform, 0, true);
+        (document, registry, transform)
     }
 
     fn first_watched_selectable_output(
-        widget: &NodeGraphWidget,
+        document: &GraphDocumentBuilder,
         registry: &BuilderRegistry,
     ) -> (NodeId, usize) {
-        test_output_subscriptions(widget.graph(), registry)
+        test_output_subscriptions(document.graph(), registry)
             .outputs()
             .find(|(node_id, output)| {
-                let node = &widget.graph().nodes[node_id];
+                let node = &document.graph().nodes[node_id];
                 registry.get(node.def_name()).is_some_and(|builder| {
                     builder
                         .viewer_channel_origin(&node.outputs[*output], &node.state)
@@ -3418,42 +3410,42 @@ mod tests {
 
     #[test]
     fn unwatched_source_has_no_sink() {
-        let (mut widget, builders) = source_only_contract();
-        hide_first_output(&mut widget);
-        let errors = lower(widget.graph(), &builders).unwrap_err();
+        let (mut document, builders) = source_only_contract();
+        hide_first_output(&mut document);
+        let errors = lower(document.graph(), &builders).unwrap_err();
         assert!(errors.iter().any(|e| e.message.contains("no sink")));
     }
 
     #[test]
     fn raw_source_output_is_visible_by_default_without_becoming_a_derived_sink() {
-        let (widget, builders) = source_only_contract();
-        let source = widget.graph().nodes.values().next().unwrap();
+        let (document, builders) = source_only_contract();
+        let source = document.graph().nodes.values().next().unwrap();
         assert!(
-            test_output_subscriptions(widget.graph(), &builders)
+            test_output_subscriptions(document.graph(), &builders)
                 .outputs()
                 .any(|(node, _)| node == source.id)
         );
 
-        let presentation = discover_capture_presentation(widget.graph(), &builders)
+        let presentation = discover_capture_presentation(document.graph(), &builders)
             .unwrap()
             .expect("source provides a capture presentation");
         assert_eq!(presentation.visible_channels, [0]);
 
-        let errors = lower(widget.graph(), &builders).unwrap_err();
+        let errors = lower(document.graph(), &builders).unwrap_err();
         assert!(errors.iter().any(|error| error.message.contains("no sink")));
     }
 
     #[test]
     fn unwatching_the_only_output_drops_the_output_subscription_collector() {
-        let (mut widget, registry, node_id) = selectable_output_contract();
-        let (_, output_index) = first_watched_selectable_output(&widget, &registry);
-        let watched = lower(widget.graph(), &registry).unwrap();
+        let (mut document, registry, node_id) = selectable_output_contract();
+        let (_, output_index) = first_watched_selectable_output(&document, &registry);
+        let watched = lower(document.graph(), &registry).unwrap();
         assert!(watched.nodes.iter().any(|node| {
             node.builder == crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME && node.data_collector
         }));
 
-        set_viewer_selection(&mut widget, node_id, output_index, false);
-        let compiled = lower(widget.graph(), &registry).unwrap();
+        set_viewer_selection(&mut document, node_id, output_index, false);
+        let compiled = lower(document.graph(), &registry).unwrap();
         assert!(
             compiled
                 .nodes
@@ -3464,10 +3456,10 @@ mod tests {
 
     #[test]
     fn output_subscription_collector_id_is_stable_across_relowers() {
-        let (widget, registry, _selected) = selectable_output_contract();
+        let (document, registry, _selected) = selectable_output_contract();
 
-        let first = lower(widget.graph(), &registry).unwrap();
-        let second = lower(widget.graph(), &registry).unwrap();
+        let first = lower(document.graph(), &registry).unwrap();
+        let second = lower(document.graph(), &registry).unwrap();
         let viewer_id = |compiled: &CompiledGraph| {
             compiled
                 .nodes
@@ -3482,7 +3474,7 @@ mod tests {
 
     #[test]
     fn output_subscription_collector_is_a_generic_runtime_sink() {
-        let (widget, registry, _selected) = selectable_output_contract();
+        let (document, registry, _selected) = selectable_output_contract();
         let builder = registry
             .get(crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME)
             .unwrap();
@@ -3490,7 +3482,7 @@ mod tests {
         assert!(builder.is_data_collector());
         assert!(builder.is_data_subscription());
 
-        let compiled = lower(widget.graph(), &registry).unwrap();
+        let compiled = lower(document.graph(), &registry).unwrap();
         let viewer = compiled
             .nodes
             .iter()
@@ -3517,22 +3509,22 @@ mod tests {
 
     #[test]
     fn persistent_derived_lane_key_is_stable_but_producer_configuration_invalidates_it() {
-        let (mut widget, registry, producer) = selectable_word_output_contract();
-        let first = lower(widget.graph(), &registry).unwrap();
-        let repeated = lower(widget.graph(), &registry).unwrap();
+        let (mut document, registry, producer) = selectable_word_output_contract();
+        let first = lower(document.graph(), &registry).unwrap();
+        let repeated = lower(document.graph(), &registry).unwrap();
         let first_keys = persistent_word_keys(&first);
         assert!(!first_keys.is_empty());
         assert_eq!(first_keys, persistent_word_keys(&repeated));
 
-        widget.set_node_state(producer, serde_json::json!({ "revision": 2 }));
-        let changed = lower(widget.graph(), &registry).unwrap();
+        document.set_node_state(producer, serde_json::json!({ "revision": 2 }));
+        let changed = lower(document.graph(), &registry).unwrap();
         assert_ne!(first_keys, persistent_word_keys(&changed));
     }
 
     #[test]
     fn cache_inventory_maps_a_lane_to_its_collector_and_upstream_nodes() {
-        let (widget, registry, producer) = selectable_word_output_contract();
-        let compiled = lower(widget.graph(), &registry).unwrap();
+        let (document, registry, producer) = selectable_word_output_contract();
+        let compiled = lower(document.graph(), &registry).unwrap();
         let collector = compiled
             .nodes
             .iter()
@@ -3545,9 +3537,12 @@ mod tests {
             .map(|config| config.cache_key)
             .collect();
 
-        let inventory =
-            derived_cache_configs_by_node(widget.graph(), &registry, std::path::Path::new("cache"))
-                .unwrap();
+        let inventory = derived_cache_configs_by_node(
+            document.graph(),
+            &registry,
+            std::path::Path::new("cache"),
+        )
+        .unwrap();
         let actual = inventory[&collector.id]
             .iter()
             .map(|config| config.cache_key)
@@ -3563,8 +3558,8 @@ mod tests {
 
     #[test]
     fn persistent_derived_lane_key_includes_variadic_member_order() {
-        let (widget, registry, _producer) = selectable_word_output_contract();
-        let compiled = lower(widget.graph(), &registry).unwrap();
+        let (document, registry, _producer) = selectable_word_output_contract();
+        let compiled = lower(document.graph(), &registry).unwrap();
         let collector = compiled
             .nodes
             .iter()
@@ -3583,11 +3578,11 @@ mod tests {
 
     #[test]
     fn persistent_cache_hit_prunes_producer_used_only_by_cached_derived_lane() {
-        let (mut widget, registry, producer) = selectable_word_output_contract();
-        let explicit_sink = node_by_def(&widget, CONTRACT_SINK);
-        widget.graph_mut().remove_node(explicit_sink);
+        let (mut document, registry, producer) = selectable_word_output_contract();
+        let explicit_sink = node_by_def(&document, CONTRACT_SINK);
+        document.graph_mut().remove_node(explicit_sink);
 
-        let mut compiled = lower(widget.graph(), &registry).unwrap();
+        let mut compiled = lower(document.graph(), &registry).unwrap();
         let directory = Path::new("controlled-cache");
         cache_platform::configure_directory(&mut compiled, Some(directory));
         let caches = compiled
@@ -3634,10 +3629,10 @@ mod tests {
 
     #[test]
     fn missing_or_unreadable_persistent_caches_keep_the_producer_connected() {
-        let (mut widget, registry, producer) = selectable_word_output_contract();
-        let explicit_sink = node_by_def(&widget, CONTRACT_SINK);
-        widget.graph_mut().remove_node(explicit_sink);
-        let mut compiled = lower(widget.graph(), &registry).unwrap();
+        let (mut document, registry, producer) = selectable_word_output_contract();
+        let explicit_sink = node_by_def(&document, CONTRACT_SINK);
+        document.graph_mut().remove_node(explicit_sink);
+        let mut compiled = lower(document.graph(), &registry).unwrap();
         cache_platform::configure_directory(&mut compiled, Some(Path::new("controlled-cache")));
         let cache_keys = compiled
             .nodes
@@ -3676,25 +3671,23 @@ mod tests {
 
     #[test]
     fn duplicate_and_renamed_producers_keep_distinct_explicit_groups() {
-        let (mut widget, mut builders, first_producer) = selectable_output_contract();
+        let (mut document, mut builders, first_producer) = selectable_output_contract();
         builders.insert_test_builder(
             CONTRACT_TRANSFORM,
             Box::new(ContractBuilder::presenting_transform(
                 PortKind::of::<Sample>(),
             )),
         );
-        let source = node_by_def(&widget, CONTRACT_SOURCE);
-        let second_producer = widget
-            .add_node_at(CONTRACT_TRANSFORM, Pos2::new(420.0, 420.0))
-            .unwrap();
-        connect_named(&mut widget, (source, "Out"), (second_producer, "In"));
-        set_viewer_selection(&mut widget, second_producer, 0, true);
+        let source = node_by_def(&document, CONTRACT_SOURCE);
+        let second_producer = document.add_node(CONTRACT_TRANSFORM).unwrap();
+        connect_named(&mut document, (source, "Out"), (second_producer, "In"));
+        set_viewer_selection(&mut document, second_producer, 0, true);
         for producer in [first_producer, second_producer] {
-            widget.graph_mut().nodes.get_mut(&producer).unwrap().title = "Duplicate title".into();
+            document.graph_mut().nodes.get_mut(&producer).unwrap().title = "Duplicate title".into();
         }
 
-        let build_groups = |widget: &NodeGraphWidget| {
-            let compiled = lower(widget.graph(), &builders).unwrap();
+        let build_groups = |document: &GraphDocumentBuilder| {
+            let compiled = lower(document.graph(), &builders).unwrap();
             let mut groups = collected_output_subscriptions(&compiled, &builders)
                 .iter()
                 .flat_map(|subscription| &subscription.lanes)
@@ -3717,18 +3710,18 @@ mod tests {
             groups
         };
 
-        let before = build_groups(&widget);
+        let before = build_groups(&document);
         assert_eq!(before.len(), 2);
         assert_ne!(before[0].0, before[1].0);
         assert!(before.iter().all(|(_, label)| label == "Duplicate title"));
 
-        widget
+        document
             .graph_mut()
             .nodes
             .get_mut(&first_producer)
             .unwrap()
             .title = "Renamed producer".into();
-        let after = build_groups(&widget);
+        let after = build_groups(&document);
         assert_eq!(
             before.iter().map(|(id, _)| id).collect::<Vec<_>>(),
             after.iter().map(|(id, _)| id).collect::<Vec<_>>()
@@ -3786,7 +3779,7 @@ mod tests {
             }
         }
 
-        let (widget, mut builders, source, _transform, _sink) = contract_pipeline(
+        let (document, mut builders, source, _transform, _sink) = contract_pipeline(
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
@@ -3796,7 +3789,7 @@ mod tests {
         builders
             .builders
             .insert("Plugin Presenter".into(), Box::new(PluginBuilder));
-        let socket = &widget.graph().nodes[&source].outputs[0];
+        let socket = &document.graph().nodes[&source].outputs[0];
         let presentation = builders
             .get("Plugin Presenter")
             .unwrap()
@@ -3809,7 +3802,7 @@ mod tests {
 
     #[test]
     fn buffered_provider_registers_through_the_existing_live_feature_contract() {
-        let (widget, mut builders, source, _transform, _sink) = contract_pipeline(
+        let (document, mut builders, source, _transform, _sink) = contract_pipeline(
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
@@ -3820,7 +3813,7 @@ mod tests {
             .builders
             .insert(CONTRACT_SOURCE.to_owned(), Box::new(BufferedPluginBuilder));
 
-        let feature = discover_live_capture_feature(widget.graph(), &builders)
+        let feature = discover_live_capture_feature(document.graph(), &builders)
             .unwrap()
             .expect("registered builder should expose its live feature");
 
@@ -3848,7 +3841,7 @@ mod tests {
 
     #[test]
     fn advanced_trigger_program_routes_unchanged_to_the_registered_builder() {
-        let (widget, mut builders, source, _transform, _sink) = contract_pipeline(
+        let (document, mut builders, source, _transform, _sink) = contract_pipeline(
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
@@ -3873,7 +3866,7 @@ mod tests {
         );
 
         let state = apply_live_capture_edit(
-            widget.graph(),
+            document.graph(),
             &builders,
             source,
             &LiveCaptureEdit::SetTriggerProgram {
@@ -3886,12 +3879,15 @@ mod tests {
             state["received_program"],
             serde_json::to_value(Some(program)).unwrap()
         );
-        assert_eq!(state["previous_state"], widget.graph().nodes[&source].state);
+        assert_eq!(
+            state["previous_state"],
+            document.graph().nodes[&source].state
+        );
     }
 
     #[test]
     fn file_source_bounds_exact_derived_data_entries() {
-        let (widget, mut builders, _source, _transform, _sink) = contract_pipeline(
+        let (document, mut builders, _source, _transform, _sink) = contract_pipeline(
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
@@ -3902,7 +3898,7 @@ mod tests {
             CONTRACT_SOURCE,
             Box::new(ContractBuilder::finite_source(PortKind::of::<Sample>())),
         );
-        let compiled = lower(widget.graph(), &builders)
+        let compiled = lower(document.graph(), &builders)
             .unwrap_or_else(|errors| panic!("lower failed: {errors:?}"));
 
         assert_eq!(
@@ -3913,9 +3909,9 @@ mod tests {
 
     #[test]
     fn missing_required_configuration_input_is_reported() {
-        let (widget, builders, source) = configurable_source_pipeline();
+        let (document, builders, source) = configurable_source_pipeline();
 
-        let errors = lower(widget.graph(), &builders).unwrap_err();
+        let errors = lower(document.graph(), &builders).unwrap_err();
         assert!(
             errors
                 .iter()
@@ -3926,16 +3922,16 @@ mod tests {
 
     #[test]
     fn builder_state_can_make_configuration_input_optional() {
-        let (mut widget, builders, source) = configurable_source_pipeline();
-        widget.set_node_state(source, serde_json::json!({ "configured": true }));
+        let (mut document, builders, source) = configurable_source_pipeline();
+        document.set_node_state(source, serde_json::json!({ "configured": true }));
 
-        lower(widget.graph(), &builders)
+        lower(document.graph(), &builders)
             .unwrap_or_else(|errors| panic!("expected the graph to compile: {errors:?}"));
     }
 
     #[test]
     fn connected_payload_kind_mismatch_is_rejected() {
-        let (widget, builders, _source, transform, _sink) = contract_pipeline(
+        let (document, builders, _source, transform, _sink) = contract_pipeline(
             PortKind::of::<Sample>(),
             PortKind::of::<Trigger>(),
             PortKind::of::<Trigger>(),
@@ -3943,7 +3939,7 @@ mod tests {
             true,
         );
 
-        let errors = lower(widget.graph(), &builders).unwrap_err();
+        let errors = lower(document.graph(), &builders).unwrap_err();
         assert!(
             errors.iter().any(|error| error.node == Some(transform)),
             "expected a compile error on the transform node, got {errors:?}"
@@ -3952,16 +3948,21 @@ mod tests {
 
     #[test]
     fn muted_node_with_compatible_pass_through_lowers_to_a_direct_connection() {
-        let (mut widget, builders, source, transform, sink) = contract_pipeline(
+        let (mut document, builders, source, transform, sink) = contract_pipeline(
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
             true,
         );
-        widget.graph_mut().nodes.get_mut(&transform).unwrap().muted = true;
+        document
+            .graph_mut()
+            .nodes
+            .get_mut(&transform)
+            .unwrap()
+            .muted = true;
 
-        let compiled = lower(widget.graph(), &builders)
+        let compiled = lower(document.graph(), &builders)
             .unwrap_or_else(|errors| panic!("expected the muted node to splice: {errors:?}"));
 
         assert!(
@@ -3977,16 +3978,21 @@ mod tests {
 
     #[test]
     fn muted_node_without_compatible_pass_through_reports_a_targeted_error() {
-        let (mut widget, builders, _source, transform, _sink) = contract_pipeline(
+        let (mut document, builders, _source, transform, _sink) = contract_pipeline(
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
             PortKind::of::<Trigger>(),
             PortKind::of::<Trigger>(),
             false,
         );
-        widget.graph_mut().nodes.get_mut(&transform).unwrap().muted = true;
+        document
+            .graph_mut()
+            .nodes
+            .get_mut(&transform)
+            .unwrap()
+            .muted = true;
 
-        let errors = lower(widget.graph(), &builders).unwrap_err();
+        let errors = lower(document.graph(), &builders).unwrap_err();
         assert!(
             errors
                 .iter()
@@ -3997,16 +4003,16 @@ mod tests {
 
     #[test]
     fn muted_source_reports_the_break_and_prunes_its_branch() {
-        let (mut widget, builders, source, _transform, _sink) = contract_pipeline(
+        let (mut document, builders, source, _transform, _sink) = contract_pipeline(
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
             true,
         );
-        widget.graph_mut().nodes.get_mut(&source).unwrap().muted = true;
+        document.graph_mut().nodes.get_mut(&source).unwrap().muted = true;
 
-        let errors = lower(widget.graph(), &builders).unwrap_err();
+        let errors = lower(document.graph(), &builders).unwrap_err();
         assert!(
             errors
                 .iter()
@@ -4015,24 +4021,24 @@ mod tests {
         );
     }
 
-    fn output_index(widget: &NodeGraphWidget, node: NodeId, name: &str) -> usize {
-        widget.graph().nodes[&node]
+    fn output_index(document: &GraphDocumentBuilder, node: NodeId, name: &str) -> usize {
+        document.graph().nodes[&node]
             .outputs
             .iter()
             .position(|socket| socket.name == name)
             .unwrap_or_else(|| panic!("no output socket '{name}'"))
     }
 
-    fn input_index(widget: &NodeGraphWidget, node: NodeId, name: &str) -> usize {
-        widget.graph().nodes[&node]
+    fn input_index(document: &GraphDocumentBuilder, node: NodeId, name: &str) -> usize {
+        document.graph().nodes[&node]
             .inputs
             .iter()
             .position(|socket| socket.name == name && socket.visible)
             .unwrap_or_else(|| panic!("no input socket '{name}'"))
     }
 
-    fn node_by_def(widget: &NodeGraphWidget, def: &str) -> NodeId {
-        widget
+    fn node_by_def(document: &GraphDocumentBuilder, def: &str) -> NodeId {
+        document
             .graph()
             .nodes
             .values()
@@ -4045,7 +4051,7 @@ mod tests {
 
     #[test]
     fn diff_classifies_builder_owned_state_change_as_hot_config() {
-        let (mut widget, mut registry, _source, transform, _sink) = contract_pipeline(
+        let (mut document, mut registry, _source, transform, _sink) = contract_pipeline(
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
@@ -4056,12 +4062,12 @@ mod tests {
             CONTRACT_TRANSFORM,
             Box::new(ContractBuilder::hot_transform(PortKind::of::<Sample>())),
         );
-        widget.set_node_state(transform, serde_json::json!({ "value": 1 }));
-        let old = lower(widget.graph(), &registry).unwrap();
+        document.set_node_state(transform, serde_json::json!({ "value": 1 }));
+        let old = lower(document.graph(), &registry).unwrap();
 
-        widget.set_node_state(transform, serde_json::json!({ "value": 0x600082 }));
+        document.set_node_state(transform, serde_json::json!({ "value": 0x600082 }));
 
-        let new = lower(widget.graph(), &registry).unwrap();
+        let new = lower(document.graph(), &registry).unwrap();
         let edits = diff(&old, &new, &registry).unwrap();
         assert_eq!(edits.len(), 1);
         match &edits[0] {
@@ -4075,33 +4081,31 @@ mod tests {
 
     #[test]
     fn diff_rejects_source_fed_restart() {
-        let (mut widget, registry, _source, transform, _sink) = contract_pipeline(
+        let (mut document, registry, _source, transform, _sink) = contract_pipeline(
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
             true,
         );
-        let old = lower(widget.graph(), &registry).unwrap();
+        let old = lower(document.graph(), &registry).unwrap();
 
-        widget.set_node_state(transform, serde_json::json!({ "revision": 2 }));
+        document.set_node_state(transform, serde_json::json!({ "revision": 2 }));
 
-        let new = lower(widget.graph(), &registry).unwrap();
+        let new = lower(document.graph(), &registry).unwrap();
         let error = diff(&old, &new, &registry).unwrap_err();
         assert!(error.contains("fed directly by the source"), "{error}");
     }
 
     #[test]
     fn diff_classifies_tap_attach_as_add_plus_viewer_restart() {
-        let (mut widget, registry, existing_transform) = selectable_output_contract();
-        let old = lower(widget.graph(), &registry).unwrap();
+        let (mut document, registry, existing_transform) = selectable_output_contract();
+        let old = lower(document.graph(), &registry).unwrap();
 
-        let tap = widget
-            .add_node_at(CONTRACT_TRANSFORM, Pos2::new(600.0, 200.0))
-            .unwrap();
-        connect_named(&mut widget, (existing_transform, "Out"), (tap, "In"));
-        set_viewer_selection(&mut widget, tap, 0, true);
-        let new = lower(widget.graph(), &registry).unwrap();
+        let tap = document.add_node(CONTRACT_TRANSFORM).unwrap();
+        connect_named(&mut document, (existing_transform, "Out"), (tap, "In"));
+        set_viewer_selection(&mut document, tap, 0, true);
+        let new = lower(document.graph(), &registry).unwrap();
         let edits = diff(&old, &new, &registry).unwrap();
 
         assert!(
@@ -4121,7 +4125,7 @@ mod tests {
 
     #[test]
     fn diff_ignores_a_legacy_source_view_flag() {
-        let (mut widget, mut registry, source, _transform, _sink) = contract_pipeline(
+        let (mut document, mut registry, source, _transform, _sink) = contract_pipeline(
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
             PortKind::of::<Sample>(),
@@ -4129,11 +4133,11 @@ mod tests {
             true,
         );
         registry.insert_test_builder(CONTRACT_SOURCE, Box::new(BufferedPluginBuilder));
-        let old = lower(widget.graph(), &registry).unwrap();
+        let old = lower(document.graph(), &registry).unwrap();
 
-        set_viewer_selection(&mut widget, source, 0, true);
+        set_viewer_selection(&mut document, source, 0, true);
 
-        let new = lower(widget.graph(), &registry).unwrap();
+        let new = lower(document.graph(), &registry).unwrap();
         assert!(diff(&old, &new, &registry).unwrap().is_empty());
     }
 }

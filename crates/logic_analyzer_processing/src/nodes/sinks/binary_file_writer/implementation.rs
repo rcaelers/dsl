@@ -8,9 +8,9 @@
 //! name windows without data produce no file at all.
 
 use std::collections::VecDeque;
-use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use tracing::{debug, info, warn};
 
@@ -18,6 +18,8 @@ use signal_processing::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, TextSample, Word, WordPayload,
     WorkError, WorkResult,
 };
+
+use super::super::output_storage::{NativeOutputStorage, OutputFile, OutputStorage};
 
 /// How a numeric word's value is written to the file. Byte and text words are
 /// written in full and do not use this width.
@@ -61,7 +63,8 @@ pub struct BinaryFileWriter {
     pending_names: VecDeque<TextSample>,
 
     current_name: Option<String>,
-    current_file: Option<BufWriter<File>>,
+    current_file: Option<BufWriter<Box<dyn OutputFile>>>,
+    storage: Arc<dyn OutputStorage>,
     files_closed: usize,
     bytes_in_file: u64,
     words_in_file: u64,
@@ -74,6 +77,10 @@ impl BinaryFileWriter {
     const DRAIN_BATCH_SIZE: usize = 65_536;
 
     pub fn new() -> Self {
+        Self::with_storage(Arc::new(NativeOutputStorage))
+    }
+
+    fn with_storage(storage: Arc<dyn OutputStorage>) -> Self {
         Self {
             name: "binary_file_writer".to_string(),
             width: WriteWidth::default(),
@@ -85,6 +92,7 @@ impl BinaryFileWriter {
             pending_names: VecDeque::new(),
             current_name: None,
             current_file: None,
+            storage,
             files_closed: 0,
             bytes_in_file: 0,
             words_in_file: 0,
@@ -123,11 +131,8 @@ impl BinaryFileWriter {
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join("captures.csv");
-        let exists = index_path.exists();
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&index_path)?;
+        let exists = self.storage.exists(&index_path);
+        let file = self.storage.append(&index_path)?;
         let mut writer = BufWriter::new(file);
         if !exists {
             writeln!(
@@ -202,20 +207,19 @@ impl BinaryFileWriter {
         Ok(())
     }
 
-    fn ensure_file_open(&mut self) -> WorkResult<&mut BufWriter<File>> {
+    fn ensure_file_open(&mut self) -> WorkResult<&mut BufWriter<Box<dyn OutputFile>>> {
         if self.current_file.is_none() {
             let name = self
                 .current_name
                 .as_deref()
                 .ok_or_else(|| WorkError::NodeError("No filename set".to_string()))?;
             let path = PathBuf::from(name);
-            if let Some(parent) = path.parent()
-                && !parent.as_os_str().is_empty()
-            {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| WorkError::NodeError(format!("creating {parent:?}: {e}")))?;
-            }
-            let file = File::create(&path)
+            self.storage
+                .create_parent_dirs(&path)
+                .map_err(|e| WorkError::NodeError(format!("creating parent for {path:?}: {e}")))?;
+            let file = self
+                .storage
+                .create(&path)
                 .map_err(|e| WorkError::NodeError(format!("creating {path:?}: {e}")))?;
             info!("[{}] created {}", self.name, path.display());
             self.current_file = Some(BufWriter::new(file));
@@ -392,10 +396,15 @@ impl ProcessNode for BinaryFileWriter {
 
 #[cfg(test)]
 mod tests {
+    use std::io::ErrorKind;
+    use std::sync::Arc;
+
     use crossbeam_channel::bounded;
+
     use signal_processing::{ChannelMessage, Watchdog};
 
     use super::*;
+    use crate::nodes::sinks::output_storage::TestOutputStorage;
 
     fn word(value: u64, ts: u64) -> Word {
         Word::new(value, ts)
@@ -536,6 +545,59 @@ mod tests {
             writer.work(&inputs, &[]),
             Err(WorkError::NodeError(_))
         ));
+    }
+
+    #[test]
+    fn in_memory_storage_receives_the_complete_output() {
+        let storage = Arc::new(TestOutputStorage::default());
+        let wd = Watchdog::new();
+        let (data_tx, data_rx) = bounded::<ChannelMessage<Word>>(4);
+        let inputs = vec![
+            InputPort::new_with_watchdog(data_rx, &wd, "writer", "data"),
+            InputPort::disconnected().with_watchdog(
+                wd.clone(),
+                "writer".to_string(),
+                "filename".to_string(),
+            ),
+        ];
+        data_tx.send(ChannelMessage::Sample(word(1, 100))).unwrap();
+        data_tx.send(ChannelMessage::Sample(word(2, 200))).unwrap();
+        drop(data_tx);
+        let mut writer =
+            BinaryFileWriter::with_storage(storage.clone()).with_filename("virtual/out.bin");
+
+        assert_eq!(writer.work(&inputs, &[]).unwrap(), 2);
+        assert!(matches!(
+            writer.work(&inputs, &[]),
+            Err(WorkError::Shutdown)
+        ));
+
+        assert_eq!(storage.contents("virtual/out.bin"), Some(vec![1, 2]));
+    }
+
+    #[test]
+    fn storage_flush_failure_is_reported_as_a_node_error() {
+        let storage = Arc::new(TestOutputStorage::failing_flush(ErrorKind::Other));
+        let wd = Watchdog::new();
+        let (data_tx, data_rx) = bounded::<ChannelMessage<Word>>(4);
+        let inputs = vec![
+            InputPort::new_with_watchdog(data_rx, &wd, "writer", "data"),
+            InputPort::disconnected().with_watchdog(
+                wd.clone(),
+                "writer".to_string(),
+                "filename".to_string(),
+            ),
+        ];
+        data_tx.send(ChannelMessage::Sample(word(1, 100))).unwrap();
+        drop(data_tx);
+        let mut writer = BinaryFileWriter::with_storage(storage).with_filename("virtual/out.bin");
+        assert_eq!(writer.work(&inputs, &[]).unwrap(), 1);
+
+        let error = writer.work(&inputs, &[]).unwrap_err();
+
+        assert!(
+            matches!(error, WorkError::NodeError(message) if message.contains("controlled flush failure"))
+        );
     }
 
     #[test]

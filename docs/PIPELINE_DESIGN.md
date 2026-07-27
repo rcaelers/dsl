@@ -220,6 +220,11 @@ node performs at most one send per output per `work()` call.
 | Logic / control | `WordMatcher` (pattern & mask, comparison ops, trigger at word start/end), `SrLatch`, `LogicGate` (NOT/AND/NAND/OR/NOR/XOR/XNOR over variadic inputs), `TriggerCounter`, `TextFormatter` (template substitution, up to 4 inputs merged in timestamp order), `BufferNode` (explicit decoupling) |
 | Sinks | `BinaryFileWriter` (filename-level–driven file rollover; never blocks on `Filename`), `TextFileWriter`, `TgckRecorder` (per-capture line-boundary CSV), `DerivedDataCollector` (pushes lanes into the shared `DerivedLanes` store; see [LOGIC_ANALYZER_VIEWER_DESIGN.md](LOGIC_ANALYZER_VIEWER_DESIGN.md)) |
 
+Native binary, CSV-word, and text file sinks access files through the processing-owned
+`OutputStorage` contract. The production adapter owns directory creation and file open/append
+semantics. Sink logic receives only writable handles, allowing deterministic storage failures and
+in-memory output verification without changing rollover or batching behavior.
+
 Two merge disciplines exist, chosen deliberately per node:
 
 - **Strict timestamp merge** (`LogicGate`): keeps every input's current level plus one

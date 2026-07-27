@@ -1,8 +1,6 @@
-use egui::Pos2;
-
 use logic_analyzer_graph_api::node::GraphNodeRegistration;
 use logic_analyzer_graph_api::node_support::PortKind;
-use node_graph::{NodeGraphWidget, NodeTypeRegistry};
+use node_graph::api::{GraphDocumentBuilder, NodeTypeRegistry};
 
 pub(crate) fn assert_node_registration_contract(stable_id: &str) {
     assert_node_registration_contract_with_state(stable_id, None);
@@ -20,22 +18,22 @@ pub(crate) fn assert_node_registration_contract_with_state(
     let mut node_types = NodeTypeRegistry::new();
     registration.apply_node(&mut node_types);
 
-    let mut widget = NodeGraphWidget::new(node_types);
-    let target = widget
-        .add_node_at(registration.name(), Pos2::new(300.0, 100.0))
+    let mut document = GraphDocumentBuilder::new(node_types);
+    let target = document
+        .add_node(registration.name())
         .unwrap_or_else(|| panic!("isolated registry did not create '{}'", registration.name()));
 
     if let Some(state) = state {
-        widget.set_node_state(target, state);
+        document.set_node_state(target, state);
     }
 
-    let state = widget.graph().nodes[&target].state.clone();
+    let state = document.graph().nodes[&target].state.clone();
     let Some(builder) = registration.builder() else {
         return;
     };
 
-    let target_inputs = widget.graph().nodes[&target].inputs.clone();
-    let target_outputs = widget.graph().nodes[&target].outputs.clone();
+    let target_inputs = document.graph().nodes[&target].inputs.clone();
+    let target_outputs = document.graph().nodes[&target].outputs.clone();
     let mut required_inputs = Vec::new();
     for (index, socket) in target_inputs.iter().enumerate() {
         if !socket.visible || !builder.input_required(socket, &state) {

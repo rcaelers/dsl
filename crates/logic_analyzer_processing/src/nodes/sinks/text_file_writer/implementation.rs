@@ -16,9 +16,9 @@
 //! name windows without lines produce no file at all.
 
 use std::collections::VecDeque;
-use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use tracing::{debug, info, warn};
 
@@ -26,6 +26,8 @@ use signal_processing::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, TextSample, WorkError,
     WorkResult,
 };
+
+use super::super::output_storage::{NativeOutputStorage, OutputFile, OutputStorage};
 
 /// Sink appending [`TextSample`] lines to files named by another
 /// [`TextSample`] level.
@@ -43,13 +45,18 @@ pub struct TextFileWriter {
     pending_names: VecDeque<TextSample>,
 
     current_name: Option<String>,
-    current_file: Option<BufWriter<File>>,
+    current_file: Option<BufWriter<Box<dyn OutputFile>>>,
+    storage: Arc<dyn OutputStorage>,
     lines_in_file: u64,
     last_line_ts: u64,
 }
 
 impl TextFileWriter {
     pub fn new() -> Self {
+        Self::with_storage(Arc::new(NativeOutputStorage))
+    }
+
+    fn with_storage(storage: Arc<dyn OutputStorage>) -> Self {
         Self {
             name: "text_file_writer".to_string(),
             lines_buffer: VecDeque::new(),
@@ -57,6 +64,7 @@ impl TextFileWriter {
             pending_names: VecDeque::new(),
             current_name: None,
             current_file: None,
+            storage,
             lines_in_file: 0,
             last_line_ts: 0,
         }
@@ -106,20 +114,19 @@ impl TextFileWriter {
         Ok(())
     }
 
-    fn ensure_file_open(&mut self) -> WorkResult<&mut BufWriter<File>> {
+    fn ensure_file_open(&mut self) -> WorkResult<&mut BufWriter<Box<dyn OutputFile>>> {
         if self.current_file.is_none() {
             let name = self
                 .current_name
                 .as_deref()
                 .ok_or_else(|| WorkError::NodeError("No filename set".to_string()))?;
             let path = PathBuf::from(name);
-            if let Some(parent) = path.parent()
-                && !parent.as_os_str().is_empty()
-            {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| WorkError::NodeError(format!("creating {parent:?}: {e}")))?;
-            }
-            let file = File::create(&path)
+            self.storage
+                .create_parent_dirs(&path)
+                .map_err(|e| WorkError::NodeError(format!("creating parent for {path:?}: {e}")))?;
+            let file = self
+                .storage
+                .create(&path)
                 .map_err(|e| WorkError::NodeError(format!("creating {path:?}: {e}")))?;
             info!("[{}] created {}", self.name, path.display());
             self.current_file = Some(BufWriter::new(file));
@@ -226,10 +233,15 @@ impl ProcessNode for TextFileWriter {
 
 #[cfg(test)]
 mod tests {
+    use std::io::ErrorKind;
+    use std::sync::Arc;
+
     use crossbeam_channel::bounded;
+
     use signal_processing::{ChannelMessage, Watchdog};
 
     use super::*;
+    use crate::nodes::sinks::output_storage::TestOutputStorage;
 
     struct Rig {
         lines_tx: crossbeam_channel::Sender<ChannelMessage<TextSample>>,
@@ -286,6 +298,31 @@ mod tests {
         run(rig, &mut TextFileWriter::new());
 
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "a,b,c\n1,2,3\n");
+    }
+
+    #[test]
+    fn storage_write_failure_is_reported_as_a_node_error() {
+        let storage = Arc::new(TestOutputStorage::failing_write(ErrorKind::Other));
+        let rig = rig();
+        rig.name_tx
+            .send(ChannelMessage::Sample(TextSample::new(
+                "virtual/out.txt",
+                0,
+            )))
+            .unwrap();
+        rig.lines_tx
+            .send(ChannelMessage::Sample(TextSample::new(
+                "x".repeat(16_384),
+                10,
+            )))
+            .unwrap();
+        let mut writer = TextFileWriter::with_storage(storage);
+
+        let error = writer.work(&rig.inputs, &[]).unwrap_err();
+
+        assert!(
+            matches!(error, WorkError::NodeError(message) if message.contains("controlled write failure"))
+        );
     }
 
     #[test]

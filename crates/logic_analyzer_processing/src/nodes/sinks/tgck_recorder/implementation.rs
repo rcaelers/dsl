@@ -502,4 +502,56 @@ mod tests {
         // ...but no CSV rows were ever produced.
         assert!(drain(&rows_rx).is_empty());
     }
+
+    #[test]
+    fn missing_words_input_is_reported_before_processing() {
+        let mut recorder = TgckRecorder::new();
+
+        assert!(matches!(
+            recorder.work(&[], &[]),
+            Err(WorkError::NodeError(message)) if message == "Missing words input"
+        ));
+    }
+
+    #[test]
+    fn missing_filename_input_is_reported_after_receiving_a_word() {
+        let watchdog = Watchdog::new();
+        let (words_tx, words_rx) = bounded(1);
+        words_tx.send(ChannelMessage::Sample(word(100))).unwrap();
+        let inputs = [InputPort::new_with_watchdog(
+            words_rx, &watchdog, "tgck", "words",
+        )];
+        let mut recorder = TgckRecorder::new();
+
+        assert!(matches!(
+            recorder.work(&inputs, &[]),
+            Err(WorkError::NodeError(message)) if message == "Missing filename input"
+        ));
+    }
+
+    #[test]
+    fn missing_tgck_input_is_reported_after_receiving_required_levels() {
+        let watchdog = Watchdog::new();
+        let (words_tx, words_rx) = bounded(1);
+        let (name_tx, name_rx) = bounded(1);
+        words_tx.send(ChannelMessage::Sample(word(100))).unwrap();
+        name_tx
+            .send(ChannelMessage::Sample(TextSample::new("future.bin", 200)))
+            .unwrap();
+        let inputs = [
+            InputPort::new_with_watchdog(words_rx, &watchdog, "tgck", "words"),
+            InputPort::disconnected().with_watchdog(
+                watchdog.clone(),
+                "tgck".to_string(),
+                "tgck".to_string(),
+            ),
+            InputPort::new_with_watchdog(name_rx, &watchdog, "tgck", "filename"),
+        ];
+        let mut recorder = TgckRecorder::new();
+
+        assert!(matches!(
+            recorder.work(&inputs, &[]),
+            Err(WorkError::NodeError(message)) if message == "Missing tgck input"
+        ));
+    }
 }

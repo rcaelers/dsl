@@ -110,3 +110,74 @@ impl ProcessNode for DiscardTextWriter {
         Ok(1)
     }
 }
+
+#[cfg(test)]
+mod implementation_tests {
+    use crossbeam_channel::bounded;
+    use signal_processing::{ChannelMessage, Watchdog};
+
+    use super::*;
+
+    #[test]
+    fn word_writer_requires_a_typed_data_input_and_accepts_an_optional_filename_input() {
+        let mut missing = DiscardWordWriter::new("discard-words");
+        assert!(matches!(
+            missing.work(&[], &[]),
+            Err(WorkError::NodeError(message)) if message == "Missing data input"
+        ));
+
+        let watchdog = Watchdog::new();
+        let (sender, receiver) = bounded(1);
+        sender
+            .send(ChannelMessage::Sample(Word::new(0x42, 10)))
+            .unwrap();
+        drop(sender);
+        let inputs = [InputPort::new_with_watchdog(
+            receiver,
+            &watchdog,
+            "discard-words",
+            "data",
+        )];
+
+        assert_eq!(missing.work(&inputs, &[]).unwrap(), 1);
+        assert!(matches!(
+            missing.work(&inputs, &[]),
+            Err(WorkError::Shutdown)
+        ));
+    }
+
+    #[test]
+    fn text_writer_requires_a_typed_lines_input_and_drains_filename_levels() {
+        let mut missing = DiscardTextWriter::new("discard-text");
+        assert!(matches!(
+            missing.work(&[], &[]),
+            Err(WorkError::NodeError(message)) if message == "Missing lines input"
+        ));
+
+        let watchdog = Watchdog::new();
+        let (line_sender, line_receiver) = bounded(1);
+        let (name_sender, name_receiver) = bounded(2);
+        line_sender
+            .send(ChannelMessage::Sample(TextSample::new("line", 10)))
+            .unwrap();
+        name_sender
+            .send(ChannelMessage::Sample(TextSample::new("first.txt", 0)))
+            .unwrap();
+        name_sender
+            .send(ChannelMessage::Sample(TextSample::new("second.txt", 5)))
+            .unwrap();
+        drop(line_sender);
+        drop(name_sender);
+        let inputs = [
+            InputPort::new_with_watchdog(line_receiver, &watchdog, "discard-text", "lines"),
+            InputPort::new_with_watchdog(name_receiver, &watchdog, "discard-text", "filename"),
+        ];
+
+        assert_eq!(missing.work(&inputs, &[]).unwrap(), 1);
+        assert!(missing.filenames.is_empty());
+        assert!(matches!(
+            missing.work(&inputs, &[]),
+            Err(WorkError::Shutdown)
+        ));
+    }
+}

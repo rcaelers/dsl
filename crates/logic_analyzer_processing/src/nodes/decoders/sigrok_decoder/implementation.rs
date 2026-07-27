@@ -638,6 +638,7 @@ fn execution_error(error: String) -> WorkError {
 
 #[cfg(test)]
 mod implementation_tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
 
     use crossbeam_channel::{Receiver as ChannelReceiver, bounded};
@@ -733,6 +734,251 @@ mod implementation_tests {
             &config.input,
             SigrokExecutionInput::Protocol(protocols) if protocols == &["spi"]
         ));
+    }
+
+    #[test]
+    fn execution_factory_failure_is_returned_by_decoder_construction() {
+        let result = SigrokDecoder::with_execution_factory(
+            protocol_config(),
+            &FailingExecutionFactory::new(TestFailure::Spawn),
+        );
+
+        assert_eq!(result.err().as_deref(), Some("controlled spawn failure"));
+    }
+
+    #[test]
+    fn protocol_ingress_and_output_poll_failures_are_node_errors() {
+        for (failure, expected) in [
+            (TestFailure::PushProtocol, "controlled protocol failure"),
+            (TestFailure::TryOutput, "controlled output poll failure"),
+        ] {
+            let mut decoder = SigrokDecoder::with_execution_factory(
+                protocol_config(),
+                &FailingExecutionFactory::new(failure),
+            )
+            .unwrap();
+            let inputs = protocol_inputs(Some(protocol_packet()));
+
+            assert_node_error(decoder.work(&inputs, &[]), expected);
+        }
+    }
+
+    #[test]
+    fn raw_logic_ingress_failure_is_a_node_error() {
+        let mut decoder = SigrokDecoder::with_execution_factory(
+            raw_config(),
+            &FailingExecutionFactory::new(TestFailure::PushChunk),
+        )
+        .unwrap();
+        let watchdog = Watchdog::new();
+        let (sender, receiver) = bounded(1);
+        sender
+            .send(ChannelMessage::Sample(SampleBlock::new(
+                vec![0],
+                0,
+                1,
+                1_000,
+            )))
+            .unwrap();
+        let inputs = [InputPort::new_with_watchdog(
+            receiver,
+            &watchdog,
+            "sigrok-test",
+            "logic",
+        )];
+
+        assert_node_error(decoder.work(&inputs, &[]), "controlled logic chunk failure");
+    }
+
+    #[test]
+    fn finalization_failures_from_the_execution_port_are_node_errors() {
+        for (failure, expected) in [
+            (TestFailure::Finish, "controlled finish failure"),
+            (TestFailure::ReceiveOutput, "controlled output wait failure"),
+            (TestFailure::Join, "controlled join failure"),
+        ] {
+            let mut decoder = SigrokDecoder::with_execution_factory(
+                protocol_config(),
+                &FailingExecutionFactory::new(failure),
+            )
+            .unwrap();
+            let inputs = protocol_inputs(None);
+
+            assert_node_error(decoder.work(&inputs, &[]), expected);
+        }
+    }
+
+    fn protocol_config() -> SigrokDecoderConfig {
+        SigrokDecoderConfig {
+            decoder_root: "virtual/decoders".into(),
+            decoder_id: "failure_fixture".into(),
+            sample_rate: 1_000_000,
+            channels: Vec::new(),
+            protocol_inputs: vec!["fixture".into()],
+            options: BTreeMap::new(),
+            annotation_rows_by_class: Vec::new(),
+            binary_class_count: 0,
+            logic_groups: Vec::new(),
+        }
+    }
+
+    fn raw_config() -> SigrokDecoderConfig {
+        SigrokDecoderConfig {
+            decoder_root: "virtual/decoders".into(),
+            decoder_id: "failure_fixture".into(),
+            sample_rate: 1_000_000,
+            channels: vec![SigrokChannel {
+                name: "logic".into(),
+                connected: true,
+                initial_pin: SigrokInitialPin::Low,
+            }],
+            protocol_inputs: Vec::new(),
+            options: BTreeMap::new(),
+            annotation_rows_by_class: Vec::new(),
+            binary_class_count: 0,
+            logic_groups: Vec::new(),
+        }
+    }
+
+    fn protocol_packet() -> ProtocolPacket {
+        ProtocolPacket {
+            start_sample: 0,
+            end_sample: 1,
+            start_time_ns: 0,
+            end_time_ns: 1_000,
+            protocol_id: "fixture".into(),
+            value: ProtocolValue::String("packet".into()),
+        }
+    }
+
+    fn protocol_inputs(packet: Option<ProtocolPacket>) -> Vec<InputPort> {
+        let watchdog = Watchdog::new();
+        let (sender, receiver) = bounded(1);
+        if let Some(packet) = packet {
+            sender.send(ChannelMessage::Sample(packet)).unwrap();
+        }
+        drop(sender);
+        vec![InputPort::new_with_watchdog(
+            receiver,
+            &watchdog,
+            "sigrok-test",
+            "packets",
+        )]
+    }
+
+    fn assert_node_error(result: WorkResult<usize>, expected: &str) {
+        assert!(
+            matches!(result, Err(WorkError::NodeError(message)) if message == expected),
+            "expected node error: {expected}"
+        );
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum TestFailure {
+        Spawn,
+        PushChunk,
+        PushProtocol,
+        TryOutput,
+        Finish,
+        ReceiveOutput,
+        Join,
+    }
+
+    struct FailingExecutionFactory {
+        failure: TestFailure,
+    }
+
+    impl FailingExecutionFactory {
+        fn new(failure: TestFailure) -> Self {
+            Self { failure }
+        }
+    }
+
+    impl SigrokExecutionFactory for FailingExecutionFactory {
+        fn spawn(
+            &self,
+            _config: SigrokExecutionConfig,
+        ) -> Result<Box<dyn SigrokExecution>, String> {
+            if self.failure == TestFailure::Spawn {
+                return Err("controlled spawn failure".into());
+            }
+            Ok(Box::new(FailingExecution {
+                failure: self.failure,
+                finished: AtomicBool::new(false),
+            }))
+        }
+    }
+
+    struct FailingExecution {
+        failure: TestFailure,
+        finished: AtomicBool,
+    }
+
+    impl SigrokExecution for FailingExecution {
+        fn push_chunk(&self, _chunk: LogicChunk) -> Result<(), String> {
+            if self.failure == TestFailure::PushChunk {
+                Err("controlled logic chunk failure".into())
+            } else {
+                Ok(())
+            }
+        }
+
+        fn push_protocol_packet(&self, _packet: ProtocolPacket) -> Result<(), String> {
+            if self.failure == TestFailure::PushProtocol {
+                Err("controlled protocol failure".into())
+            } else {
+                Ok(())
+            }
+        }
+
+        fn finish(&self) -> Result<(), String> {
+            if self.failure == TestFailure::Finish {
+                return Err("controlled finish failure".into());
+            }
+            if self.failure != TestFailure::ReceiveOutput {
+                self.finished.store(true, Ordering::Relaxed);
+            }
+            Ok(())
+        }
+
+        fn cancellation(&self) -> Arc<dyn NodeCancellation> {
+            Arc::new(TestCancellation)
+        }
+
+        fn try_output(&self) -> Result<Option<SigrokExecutionOutput>, String> {
+            if self.failure == TestFailure::TryOutput {
+                Err("controlled output poll failure".into())
+            } else {
+                Ok(None)
+            }
+        }
+
+        fn registrations(&self) -> Vec<OutputRegistration> {
+            Vec::new()
+        }
+
+        fn is_finished(&self) -> bool {
+            self.finished.load(Ordering::Relaxed)
+        }
+
+        fn receive_output(
+            &self,
+            _timeout: Duration,
+        ) -> Result<Option<SigrokExecutionOutput>, String> {
+            if self.failure == TestFailure::ReceiveOutput {
+                Err("controlled output wait failure".into())
+            } else {
+                Ok(None)
+            }
+        }
+
+        fn join(&mut self) -> Result<(), String> {
+            if self.failure == TestFailure::Join {
+                Err("controlled join failure".into())
+            } else {
+                Ok(())
+            }
+        }
     }
 
     #[derive(Default)]

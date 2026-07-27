@@ -28,38 +28,15 @@ crate under test.
      switches, and tests substitute implementations only at explicit trait
      boundaries.
 
-2. **Compiler and graph-node isolation:**
-   - Replace compiler tests' use of inventory-populated
-     `BuilderRegistry::standard()` with an injected runtime-builder catalog.
-     Keep inventory discovery as the production catalog adapter.
-   - Let compiler tests register minimal fake `RuntimeBuilder`
-     implementations locally and exercise lowering, execution, subscriptions,
-     source readiness, and error propagation without linking
-     `logic_analyzer_graph_nodes`.
+2. **Graph-node builder isolation:**
    - Give graph-node tests an API-level fake `NodeBuildContext`, typed fake
      endpoints, and contract assertions so each concrete builder can be tested
      without `logic_analyzer_graph_compiler`.
-   - Move full catalog + compiler + node scenarios to a top-level integration
-     test package that explicitly owns that composition. It must use public
-     facades only and checked-in graph/fixture data.
-   - Remove cross-crate `test-support` features that now only expose
-     implementation helpers for integration composition.
-   - Completion gate: compiler and graph-node crate tests pass independently,
-     and their Cargo dependency graphs contain no test-only cycle.
+   - Completion gate: every concrete builder exercises successful lowering and
+     malformed state/input errors directly through graph-API fakes, without a
+     compiler or graph widget dependency.
 
-3. **Concrete processing boundaries:**
-   - Retain `LogicAnalyzer`, `CaptureDataSource`, `CaptureIndex`,
-     `PreparedAcquisition`, and `UsbTransport` as the principal substitution
-     seams. Move code that bypasses them back behind the appropriate owner
-     facade.
-   - Keep `UsbTransport` crate-private to the U3Pro16 feature and maintain a
-     deterministic scripted transport that validates command order, queued
-     reads, timeouts, short transfers, cancellation, and cleanup.
-   - Completion gate: every processing source, decoder, and sink has success
-     and failure coverage through deterministic input, transport, storage, or
-     host implementations.
-
-4. **Fixtures and external validation:**
+3. **Fixtures and external validation:**
    - Store required fixture data under the owning crate's `test_data/`
      directory, or generate it deterministically in the test. Do not read a
      sibling crate's fixtures or repository-adjacent directories such as
@@ -69,7 +46,7 @@ crate under test.
      protocol input, annotations, binary output, metadata, generated logic,
      malformed metadata, and runtime failure as needed.
 
-5. **Reusable contract suites and CI:**
+4. **Reusable contract suites and CI:**
    - Put reusable conformance assertions beside the trait owner. Implementor
      crates invoke them with local constructors/factories rather than importing
      another concrete implementation.
