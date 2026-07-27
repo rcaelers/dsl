@@ -111,15 +111,53 @@ pub struct SigrokCatalogSnapshot {
     pub diagnostics: Vec<SigrokCatalogDiagnostic>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SigrokSearchPathError {
+    Missing,
+    Unreadable(String),
+}
+
+pub trait SigrokSearchPathDiscovery: Send + Sync {
+    fn normalize(&self, path: &Path) -> PathBuf;
+
+    fn decoder_packages(&self, path: &Path) -> Result<Vec<PathBuf>, SigrokSearchPathError>;
+}
+
+pub trait SigrokPackageDiscovery: Send + Sync {
+    fn discover(&self, decoder_root: &Path, id: &str) -> Result<SigrokDecoderDescriptor, String>;
+}
+
 pub struct SigrokDecoderCatalog {
     snapshots: Mutex<HashMap<Vec<PathBuf>, Arc<SigrokCatalogSnapshot>>>,
     scan_lock: Mutex<()>,
+    search_paths: Arc<dyn SigrokSearchPathDiscovery>,
+    packages: Arc<dyn SigrokPackageDiscovery>,
+}
+
+impl Default for SigrokDecoderCatalog {
+    fn default() -> Self {
+        Self::with_discovery(
+            Arc::new(FilesystemSigrokSearchPathDiscovery),
+            Arc::new(PythonSigrokPackageDiscovery),
+        )
+    }
 }
 
 impl SigrokDecoderCatalog {
+    pub fn with_discovery(
+        search_paths: Arc<dyn SigrokSearchPathDiscovery>,
+        packages: Arc<dyn SigrokPackageDiscovery>,
+    ) -> Self {
+        Self {
+            snapshots: Mutex::new(HashMap::new()),
+            scan_lock: Mutex::new(()),
+            search_paths,
+            packages,
+        }
+    }
+
     pub fn snapshot(&self, search_paths: &[PathBuf]) -> Arc<SigrokCatalogSnapshot> {
-        let key = normalized_search_paths(search_paths);
+        let key = normalized_search_paths(search_paths, self.search_paths.as_ref());
         if let Some(snapshot) = self.snapshots.lock().unwrap().get(&key).cloned() {
             return snapshot;
         }
@@ -131,15 +169,50 @@ impl SigrokDecoderCatalog {
     }
 
     pub fn refresh(&self, search_paths: &[PathBuf]) -> Arc<SigrokCatalogSnapshot> {
-        let key = normalized_search_paths(search_paths);
+        let key = normalized_search_paths(search_paths, self.search_paths.as_ref());
         let _scan = self.scan_lock.lock().unwrap();
         self.store_scan(key)
     }
 
     fn store_scan(&self, key: Vec<PathBuf>) -> Arc<SigrokCatalogSnapshot> {
-        let snapshot = Arc::new(scan_catalog(&key));
+        let snapshot = Arc::new(scan_catalog(
+            &key,
+            self.search_paths.as_ref(),
+            self.packages.as_ref(),
+        ));
         self.snapshots.lock().unwrap().insert(key, snapshot.clone());
         snapshot
+    }
+}
+
+struct FilesystemSigrokSearchPathDiscovery;
+
+impl SigrokSearchPathDiscovery for FilesystemSigrokSearchPathDiscovery {
+    fn normalize(&self, path: &Path) -> PathBuf {
+        path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    }
+
+    fn decoder_packages(&self, path: &Path) -> Result<Vec<PathBuf>, SigrokSearchPathError> {
+        if !path.exists() {
+            return Err(SigrokSearchPathError::Missing);
+        }
+        let directory = std::fs::read_dir(path)
+            .map_err(|error| SigrokSearchPathError::Unreadable(error.to_string()))?;
+        let mut packages = directory
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|package| package.is_dir() && package.join("pd.py").is_file())
+            .collect::<Vec<_>>();
+        packages.sort();
+        Ok(packages)
+    }
+}
+
+struct PythonSigrokPackageDiscovery;
+
+impl SigrokPackageDiscovery for PythonSigrokPackageDiscovery {
+    fn discover(&self, decoder_root: &Path, id: &str) -> Result<SigrokDecoderDescriptor, String> {
+        discover_sigrok_decoder(decoder_root, id)
     }
 }
 
@@ -172,36 +245,43 @@ pub fn discover_sigrok_decoder(
     })
 }
 
-fn normalized_search_paths(search_paths: &[PathBuf]) -> Vec<PathBuf> {
+fn normalized_search_paths(
+    search_paths: &[PathBuf],
+    discovery: &dyn SigrokSearchPathDiscovery,
+) -> Vec<PathBuf> {
     let mut seen = HashSet::new();
     search_paths
         .iter()
         .filter_map(|path| {
-            let path = path.canonicalize().unwrap_or_else(|_| path.clone());
+            let path = discovery.normalize(path);
             seen.insert(path.clone()).then_some(path)
         })
         .collect()
 }
 
-fn scan_catalog(search_paths: &[PathBuf]) -> SigrokCatalogSnapshot {
+fn scan_catalog(
+    search_paths: &[PathBuf],
+    search_path_discovery: &dyn SigrokSearchPathDiscovery,
+    package_discovery: &dyn SigrokPackageDiscovery,
+) -> SigrokCatalogSnapshot {
     let mut snapshot = SigrokCatalogSnapshot::default();
     let mut decoder_ids = HashMap::<String, PathBuf>::new();
     for decoder_root in search_paths {
-        if !decoder_root.exists() {
-            snapshot.diagnostics.push(SigrokCatalogDiagnostic {
-                kind: SigrokCatalogDiagnosticKind::MissingSearchPath,
-                path: decoder_root.clone(),
-                decoder_id: None,
-                message: format!(
-                    "Sigrok decoder search path does not exist: {}",
-                    decoder_root.display()
-                ),
-            });
-            continue;
-        }
-        let directory = match std::fs::read_dir(decoder_root) {
-            Ok(directory) => directory,
-            Err(error) => {
+        let packages = match search_path_discovery.decoder_packages(decoder_root) {
+            Ok(packages) => packages,
+            Err(SigrokSearchPathError::Missing) => {
+                snapshot.diagnostics.push(SigrokCatalogDiagnostic {
+                    kind: SigrokCatalogDiagnosticKind::MissingSearchPath,
+                    path: decoder_root.clone(),
+                    decoder_id: None,
+                    message: format!(
+                        "Sigrok decoder search path does not exist: {}",
+                        decoder_root.display()
+                    ),
+                });
+                continue;
+            }
+            Err(SigrokSearchPathError::Unreadable(error)) => {
                 snapshot.diagnostics.push(SigrokCatalogDiagnostic {
                     kind: SigrokCatalogDiagnosticKind::UnreadableSearchPath,
                     path: decoder_root.clone(),
@@ -214,12 +294,6 @@ fn scan_catalog(search_paths: &[PathBuf]) -> SigrokCatalogSnapshot {
                 continue;
             }
         };
-        let mut packages = directory
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .filter(|path| path.is_dir() && path.join("pd.py").is_file())
-            .collect::<Vec<_>>();
-        packages.sort();
         for package in packages {
             let Some(decoder_id) = package
                 .file_name()
@@ -246,7 +320,7 @@ fn scan_catalog(search_paths: &[PathBuf]) -> SigrokCatalogSnapshot {
                 });
                 continue;
             }
-            match discover_sigrok_decoder(decoder_root, &decoder_id) {
+            match package_discovery.discover(decoder_root, &decoder_id) {
                 Ok(descriptor) => {
                     decoder_ids.insert(decoder_id, decoder_root.clone());
                     snapshot.entries.push(SigrokCatalogEntry {
@@ -569,13 +643,112 @@ fn package_fingerprint(package: &Path) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::fs;
     use std::sync::{Arc, Barrier, Mutex, OnceLock};
 
     use super::*;
 
+    #[derive(Default)]
+    struct TestSearchPathDiscovery {
+        packages: HashMap<PathBuf, Result<Vec<PathBuf>, SigrokSearchPathError>>,
+    }
+
+    impl TestSearchPathDiscovery {
+        fn with_packages(mut self, root: &str, package_ids: &[&str]) -> Self {
+            let root = PathBuf::from(root);
+            self.packages.insert(
+                root.clone(),
+                Ok(package_ids.iter().map(|id| root.join(id)).collect()),
+            );
+            self
+        }
+
+        fn with_error(mut self, root: &str, error: SigrokSearchPathError) -> Self {
+            self.packages.insert(PathBuf::from(root), Err(error));
+            self
+        }
+    }
+
+    impl SigrokSearchPathDiscovery for TestSearchPathDiscovery {
+        fn normalize(&self, path: &Path) -> PathBuf {
+            path.to_path_buf()
+        }
+
+        fn decoder_packages(&self, path: &Path) -> Result<Vec<PathBuf>, SigrokSearchPathError> {
+            self.packages
+                .get(path)
+                .cloned()
+                .unwrap_or(Err(SigrokSearchPathError::Missing))
+        }
+    }
+
+    #[derive(Default)]
+    struct TestPackageDiscovery {
+        descriptors: HashMap<(PathBuf, String), Result<SigrokDecoderDescriptor, String>>,
+        calls: Mutex<Vec<(PathBuf, String)>>,
+    }
+
+    impl TestPackageDiscovery {
+        fn with_descriptor(mut self, root: &str, descriptor: SigrokDecoderDescriptor) -> Self {
+            self.descriptors
+                .insert((PathBuf::from(root), descriptor.id.clone()), Ok(descriptor));
+            self
+        }
+
+        fn with_error(mut self, root: &str, id: &str, error: &str) -> Self {
+            self.descriptors
+                .insert((PathBuf::from(root), id.to_owned()), Err(error.to_owned()));
+            self
+        }
+
+        fn calls(&self) -> Vec<(PathBuf, String)> {
+            self.calls.lock().unwrap().clone()
+        }
+    }
+
+    impl SigrokPackageDiscovery for TestPackageDiscovery {
+        fn discover(
+            &self,
+            decoder_root: &Path,
+            id: &str,
+        ) -> Result<SigrokDecoderDescriptor, String> {
+            self.calls
+                .lock()
+                .unwrap()
+                .push((decoder_root.to_path_buf(), id.to_owned()));
+            self.descriptors
+                .get(&(decoder_root.to_path_buf(), id.to_owned()))
+                .cloned()
+                .unwrap_or_else(|| Err(format!("no descriptor for {id}")))
+        }
+    }
+
+    fn test_descriptor(id: &str, name: &str, license: &str) -> SigrokDecoderDescriptor {
+        SigrokDecoderDescriptor {
+            api_version: 3,
+            id: id.to_owned(),
+            name: name.to_owned(),
+            long_name: name.to_owned(),
+            description: "Test descriptor".into(),
+            license: license.to_owned(),
+            inputs: vec!["logic".into()],
+            outputs: Vec::new(),
+            tags: vec!["Test".into()],
+            channels: Vec::new(),
+            optional_channels: Vec::new(),
+            options: Vec::new(),
+            annotations: Vec::new(),
+            annotation_rows: Vec::new(),
+            binary: Vec::new(),
+            logic_output_channels: Vec::new(),
+            registered_outputs: Vec::new(),
+            package_fingerprint: format!("fingerprint-{id}"),
+        }
+    }
+
     #[test]
-    fn checked_in_fixture_decoder_can_be_discovered_and_started() {
+    fn generated_fixture_decoder_can_be_discovered_and_started() {
         let directory = tempfile::tempdir().unwrap();
         write_fixture_decoder(directory.path(), "fixture_logic", "Fixture Logic", "mit");
         let _guard = python_test_lock().lock().unwrap();
@@ -591,7 +764,7 @@ mod tests {
     }
 
     #[test]
-    fn checked_in_tuple_channels_are_discovered() {
+    fn generated_tuple_channels_are_discovered() {
         let directory = tempfile::tempdir().unwrap();
         write_tuple_channel_fixture(directory.path());
         let _guard = python_test_lock().lock().unwrap();
@@ -658,12 +831,17 @@ mod tests {
 
     #[test]
     fn catalog_caches_ordered_search_results_and_reports_duplicates() {
-        let directory = tempfile::tempdir().unwrap();
-        let first = directory.path().join("first");
-        let second = directory.path().join("second");
-        write_fixture_decoder(&first, "fixture", "First fixture", "mit");
-        write_fixture_decoder(&second, "fixture", "Second fixture", "gplv2+");
-        let catalog = SigrokDecoderCatalog::default();
+        let first = PathBuf::from("virtual/first");
+        let second = PathBuf::from("virtual/second");
+        let search_paths = TestSearchPathDiscovery::default()
+            .with_packages("virtual/first", &["fixture"])
+            .with_packages("virtual/second", &["fixture"]);
+        let packages = Arc::new(TestPackageDiscovery::default().with_descriptor(
+            "virtual/first",
+            test_descriptor("fixture", "First fixture", "mit"),
+        ));
+        let catalog =
+            SigrokDecoderCatalog::with_discovery(Arc::new(search_paths), packages.clone());
 
         let snapshot = catalog.snapshot(&[first.clone(), second.clone()]);
 
@@ -679,22 +857,46 @@ mod tests {
             &catalog.snapshot(&[first.clone(), second.clone()])
         ));
         assert!(!Arc::ptr_eq(&snapshot, &catalog.refresh(&[first, second])));
+        assert_eq!(packages.calls().len(), 2);
     }
 
     #[test]
     fn catalog_keeps_missing_paths_as_structured_diagnostics() {
-        let directory = tempfile::tempdir().unwrap();
-        let missing = directory.path().join("missing");
-
-        let snapshot = SigrokDecoderCatalog::default().snapshot(std::slice::from_ref(&missing));
+        let missing = PathBuf::from("virtual/missing");
+        let unreadable = PathBuf::from("virtual/unreadable");
+        let invalid = PathBuf::from("virtual/invalid");
+        let search_paths = TestSearchPathDiscovery::default()
+            .with_error("virtual/missing", SigrokSearchPathError::Missing)
+            .with_error(
+                "virtual/unreadable",
+                SigrokSearchPathError::Unreadable("controlled read error".into()),
+            )
+            .with_packages("virtual/invalid", &["broken"]);
+        let packages = TestPackageDiscovery::default().with_error(
+            "virtual/invalid",
+            "broken",
+            "controlled package error",
+        );
+        let snapshot =
+            SigrokDecoderCatalog::with_discovery(Arc::new(search_paths), Arc::new(packages))
+                .snapshot(&[missing.clone(), unreadable.clone(), invalid.clone()]);
 
         assert!(snapshot.entries.is_empty());
-        assert_eq!(snapshot.diagnostics.len(), 1);
-        assert_eq!(
-            snapshot.diagnostics[0].kind,
-            SigrokCatalogDiagnosticKind::MissingSearchPath
-        );
-        assert_eq!(snapshot.diagnostics[0].path, missing);
+        assert_eq!(snapshot.diagnostics.len(), 3);
+        assert!(snapshot.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == SigrokCatalogDiagnosticKind::MissingSearchPath
+                && diagnostic.path == missing
+        }));
+        assert!(snapshot.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == SigrokCatalogDiagnosticKind::UnreadableSearchPath
+                && diagnostic.path == unreadable
+                && diagnostic.message.contains("controlled read error")
+        }));
+        assert!(snapshot.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == SigrokCatalogDiagnosticKind::InvalidDecoder
+                && diagnostic.path == invalid.join("broken")
+                && diagnostic.message == "controlled package error"
+        }));
     }
 
     #[test]

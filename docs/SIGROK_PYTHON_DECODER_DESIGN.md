@@ -117,6 +117,13 @@ which implementation wins. Saved graphs retain
 the decoder ID, compatibility profile, relevant package fingerprint, configured channel mapping,
 options, and protocol input/output schema.
 
+Catalog policy is independent of both host effects involved in discovery. A
+`SigrokSearchPathDiscovery` implementation normalizes configured roots and enumerates decoder
+packages, while `SigrokPackageDiscovery` inspects one package and returns its validated descriptor.
+The native adapters use the filesystem and PyO3 host respectively. Catalog tests inject virtual
+paths and descriptors, so ordering, duplicate handling, diagnostics, caching, and refresh behavior
+do not import Python packages or depend on host directories.
+
 The native Preferences window owns an ordered collection of external decoder directories. Adding,
 removing, or rescanning directories starts discovery on a background thread; the UI continues to
 render and reports scan progress and package diagnostics. The collection is persisted in the

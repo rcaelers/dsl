@@ -129,7 +129,7 @@ class Decoder(srd.Decoder):
 }
 
 #[test]
-fn checked_in_logic_decoder_runs_through_the_worker() {
+fn generated_logic_decoder_runs_through_the_worker() {
     let fixture = DecoderFixture::new(
         "edge_decoder",
         r#"

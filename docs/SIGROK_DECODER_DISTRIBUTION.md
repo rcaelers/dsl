@@ -25,7 +25,8 @@ backend is a separate complete implementation boundary.
 
 ## Validation
 
-Catalog tests cover ordered paths, duplicate IDs, missing directories, decoder metadata including
-licenses, cache reuse, and explicit refresh. The ignored complete-tree performance test scans a
-developer-supplied standard decoder tree and requires SPI discovery within thirty seconds. Generic
-UI, compiler, viewer, and node-graph architecture tests reject Sigrok-specific host cases.
+Catalog tests use injected search-path and package-discovery implementations to cover ordered
+paths, duplicate IDs, missing and unreadable directories, invalid packages, cache reuse, and
+explicit refresh without executing Python. Separate project-owned decoder fixtures cover Python
+metadata including licenses and runtime behavior. Generic UI, compiler, viewer, and node-graph
+architecture tests reject Sigrok-specific host cases.

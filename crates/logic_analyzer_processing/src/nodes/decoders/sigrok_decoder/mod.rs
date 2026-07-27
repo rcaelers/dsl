@@ -17,5 +17,6 @@ pub use crate::support::sigrokdecode::discovery::{
     SigrokAnnotationClassDescriptor, SigrokAnnotationRowDescriptor, SigrokCatalogDiagnostic,
     SigrokCatalogDiagnosticKind, SigrokCatalogEntry, SigrokCatalogSnapshot, SigrokDecoderCatalog,
     SigrokDecoderChannelDescriptor, SigrokDecoderDescriptor, SigrokDecoderOptionDescriptor,
-    SigrokOutputKind, SigrokScalarValue, discover_sigrok_decoder,
+    SigrokOutputKind, SigrokPackageDiscovery, SigrokScalarValue, SigrokSearchPathDiscovery,
+    SigrokSearchPathError, discover_sigrok_decoder,
 };
