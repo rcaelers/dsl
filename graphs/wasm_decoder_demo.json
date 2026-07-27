@@ -320,11 +320,19 @@
       },
       "selected": false,
       "state": {
-        "channels": {
-          "max": 32,
-          "min": 1,
-          "value": 11
-        },
+        "channel_names": [
+          "Ch 0",
+          "Ch 1",
+          "Ch 2",
+          "Ch 3",
+          "Ch 4",
+          "Ch 5",
+          "Ch 6",
+          "Ch 7",
+          "Ch 8",
+          "Ch 9",
+          "Ch 10"
+        ],
         "demo_data": true,
         "file": {
           "dialog_title": "Select sigrok capture",
@@ -338,7 +346,8 @@
           ],
           "save": false,
           "value": ""
-        }
+        },
+        "metadata_path": ""
       },
       "title": "Sigrok File Source",
       "type_name": "Sigrok File Source"

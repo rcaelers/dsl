@@ -1,0 +1,1035 @@
+{
+  "connections": [
+    {
+      "from": {
+        "direction": "Output",
+        "index": 0,
+        "node": 0
+      },
+      "to": {
+        "direction": "Input",
+        "index": 0,
+        "node": 1
+      }
+    },
+    {
+      "from": {
+        "direction": "Output",
+        "index": 1,
+        "node": 0
+      },
+      "to": {
+        "direction": "Input",
+        "index": 1,
+        "node": 1
+      }
+    },
+    {
+      "from": {
+        "direction": "Output",
+        "index": 0,
+        "node": 0
+      },
+      "to": {
+        "direction": "Input",
+        "index": 0,
+        "node": 2
+      }
+    },
+    {
+      "from": {
+        "direction": "Output",
+        "index": 1,
+        "node": 0
+      },
+      "to": {
+        "direction": "Input",
+        "index": 1,
+        "node": 2
+      }
+    }
+  ],
+  "extensions": {
+    "logic_analyzer_graph.payload_subscriptions": {
+      "subscriptions": [
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 0
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 1
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 2
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 3
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 4
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 5
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 6
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 7
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.word/v1",
+          "target": {
+            "ShowInView": {
+              "node": 1,
+              "output": 0
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.word/v1",
+          "target": {
+            "ShowInView": {
+              "node": 1,
+              "output": 1
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.word/v1",
+          "target": {
+            "ShowInView": {
+              "node": 1,
+              "output": 2
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.protocol-packet/v1",
+          "target": {
+            "ShowInView": {
+              "node": 1,
+              "output": 3
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.word/v1",
+          "target": {
+            "ShowInView": {
+              "node": 2,
+              "output": 0
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.protocol-packet/v1",
+          "target": {
+            "ShowInView": {
+              "node": 2,
+              "output": 1
+            }
+          }
+        }
+      ],
+      "version": 1
+    },
+    "logic_analyzer_ui.panel_layout": {
+      "decoder_panels": {
+        "panels": {}
+      },
+      "layout": {
+        "maximized": null,
+        "next_id": 2,
+        "root": {
+          "axis": "horizontal",
+          "first": {
+            "kind": "panel",
+            "panel": {
+              "content": "logic_analyzer",
+              "id": "logic_analyzer",
+              "title_bar_position": "top"
+            }
+          },
+          "fraction": 0.41999998688697815,
+          "id": 1,
+          "kind": "split",
+          "second": {
+            "kind": "panel",
+            "panel": {
+              "content": "node_graph",
+              "id": "node_graph",
+              "title_bar_position": "top"
+            }
+          }
+        }
+      },
+      "plugin_panels": {
+        "panels": {}
+      }
+    }
+  },
+  "frames": [],
+  "next_frame_id": 0,
+  "next_id": 5,
+  "nodes": {
+    "0": {
+      "collapsed": false,
+      "header_color": [
+        100,
+        75,
+        140,
+        255
+      ],
+      "id": 0,
+      "inputs": [
+        {
+          "schema_id": "File"
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Channels"
+        }
+      ],
+      "kind": "Regular",
+      "muted": false,
+      "outputs": [
+        {
+          "schema_id": "Ch 0",
+          "show_in_view": true
+        },
+        {
+          "def_index": 1,
+          "schema_id": "Ch 1",
+          "show_in_view": true
+        },
+        {
+          "def_index": 2,
+          "schema_id": "Ch 2",
+          "show_in_view": true
+        },
+        {
+          "def_index": 3,
+          "schema_id": "Ch 3",
+          "show_in_view": true
+        },
+        {
+          "def_index": 4,
+          "schema_id": "Ch 4",
+          "show_in_view": true
+        },
+        {
+          "def_index": 5,
+          "schema_id": "Ch 5",
+          "show_in_view": true
+        },
+        {
+          "def_index": 6,
+          "schema_id": "Ch 6",
+          "show_in_view": true
+        },
+        {
+          "def_index": 7,
+          "schema_id": "Ch 7",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 8",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 9",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 10",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 11",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 12",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 13",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 14",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 15",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 16",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 17",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 18",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 19",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 20",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 21",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 22",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 23",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 24",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 25",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 26",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 27",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 28",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 29",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 30",
+          "show_in_view": true
+        },
+        {
+          "def_index": 18446744073709551615,
+          "schema_id": "Ch 31",
+          "show_in_view": true
+        }
+      ],
+      "pos": {
+        "x": 825.02734375,
+        "y": 280.2890625
+      },
+      "selected": false,
+      "state": {
+        "channel_names": [
+          "SCL",
+          "SDA",
+          "D2",
+          "D3",
+          "D4",
+          "D5",
+          "D6",
+          "D7"
+        ],
+        "demo_data": false,
+        "file": {
+          "dialog_title": "Select sigrok capture",
+          "filters": [
+            {
+              "extensions": [
+                "sr"
+              ],
+              "name": "Sigrok captures"
+            }
+          ],
+          "save": false,
+          "value": "/Users/robc/src/dslogic/sigrok-dumps/i2c/eeprom_24xx/microchip_24lc64/instrustar_isds205x_powerup_scope.sr"
+        },
+        "metadata_path": "/Users/robc/src/dslogic/sigrok-dumps/i2c/eeprom_24xx/microchip_24lc64/instrustar_isds205x_powerup_scope.sr",
+        "signal_visibility_initialized": true
+      },
+      "title": "Sigrok File Source",
+      "type_name": "Sigrok File Source"
+    },
+    "1": {
+      "collapsed": false,
+      "header_color": [
+        60,
+        100,
+        160,
+        255
+      ],
+      "id": 1,
+      "inputs": [
+        {
+          "schema_id": "scl"
+        },
+        {
+          "def_index": 1,
+          "schema_id": "sda"
+        }
+      ],
+      "kind": "Regular",
+      "muted": false,
+      "outputs": [
+        {
+          "schema_id": "annotations",
+          "show_in_view": true
+        },
+        {
+          "def_index": 1,
+          "schema_id": "binary",
+          "show_in_view": true
+        },
+        {
+          "def_index": 2,
+          "schema_id": "metadata",
+          "show_in_view": true
+        },
+        {
+          "def_index": 3,
+          "schema_id": "packets",
+          "show_in_view": true
+        }
+      ],
+      "pos": {
+        "x": 1284.11328125,
+        "y": 171.921875
+      },
+      "selected": false,
+      "state": {
+        "annotation_class_count": 11,
+        "annotation_rows": [
+          {
+            "classes": [
+              5
+            ]
+          },
+          {
+            "classes": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              6,
+              7,
+              8,
+              9
+            ]
+          },
+          {
+            "classes": [
+              10
+            ]
+          }
+        ],
+        "binary_class_count": 4,
+        "catalog": {
+          "search_paths": "/Users/robc/src/dsl/crates/logic_analyzer_graph_nodes/../../../dslogic/libsigrokdecode/decoders",
+          "selected_id": "i2c"
+        },
+        "channels": [
+          {
+            "enabled": {
+              "value": true
+            },
+            "id": "scl",
+            "initial_pin": {
+              "value": "Same as first sample",
+              "variants": [
+                "Low",
+                "High",
+                "Same as first sample"
+              ]
+            },
+            "label": "SCL",
+            "required": true
+          },
+          {
+            "enabled": {
+              "value": true
+            },
+            "id": "sda",
+            "initial_pin": {
+              "value": "Same as first sample",
+              "variants": [
+                "Low",
+                "High",
+                "Same as first sample"
+              ]
+            },
+            "label": "SDA",
+            "required": true
+          }
+        ],
+        "decoder_id": "i2c",
+        "decoder_name": "I²C",
+        "decoder_root": "/Users/robc/src/dslogic/libsigrokdecode/decoders",
+        "logic_groups": [],
+        "options": [
+          {
+            "control": {
+              "Choice": {
+                "selected": {
+                  "value": "shifted",
+                  "variants": [
+                    "shifted",
+                    "unshifted"
+                  ]
+                },
+                "values": [
+                  {
+                    "String": "shifted"
+                  },
+                  {
+                    "String": "unshifted"
+                  }
+                ]
+              }
+            },
+            "id": "address_format",
+            "label": "Displayed slave address format"
+          }
+        ],
+        "outputs": [
+          "Annotation",
+          "Binary",
+          "Metadata",
+          "ProtocolPacket"
+        ],
+        "package_fingerprint": "0e05bf3432cce6ce2d9c907f6eaa18253d7e23ddd1c70e8646ba1ab38167e57f",
+        "protocol_inputs": [],
+        "protocol_outputs": [
+          "i2c"
+        ],
+        "sample_rate": {
+          "max": 2147483647,
+          "min": 1,
+          "value": 1000000
+        },
+        "schema_version": 2
+      },
+      "title": "I²C · Sigrok",
+      "type_name": "Sigrok Decoder"
+    },
+    "2": {
+      "collapsed": false,
+      "header_color": [
+        60,
+        100,
+        160,
+        255
+      ],
+      "id": 2,
+      "inputs": [
+        {
+          "schema_id": "SCL"
+        },
+        {
+          "def_index": 1,
+          "schema_id": "SDA"
+        }
+      ],
+      "kind": "Regular",
+      "muted": false,
+      "outputs": [
+        {
+          "schema_id": "Words",
+          "show_in_view": true
+        },
+        {
+          "def_index": 1,
+          "schema_id": "packets",
+          "show_in_view": true
+        }
+      ],
+      "pos": {
+        "x": 1301.16796875,
+        "y": 436.703125
+      },
+      "selected": false,
+      "state": null,
+      "title": "I2C Decoder",
+      "type_name": "I2C Decoder"
+    },
+    "3": {
+      "collapsed": false,
+      "header_color": [
+        60,
+        100,
+        160,
+        255
+      ],
+      "id": 3,
+      "inputs": [
+        {
+          "schema_id": "protocol_packets"
+        }
+      ],
+      "kind": "Regular",
+      "muted": false,
+      "outputs": [
+        {
+          "schema_id": "annotations"
+        },
+        {
+          "def_index": 1,
+          "schema_id": "binary"
+        }
+      ],
+      "pos": {
+        "x": 1827.28515625,
+        "y": 167.65234375
+      },
+      "selected": false,
+      "state": {
+        "annotation_class_count": 21,
+        "annotation_rows": [
+          {
+            "classes": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          },
+          {
+            "classes": [
+              6,
+              7,
+              8
+            ]
+          },
+          {
+            "classes": [
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20
+            ]
+          },
+          {
+            "classes": [
+              0
+            ]
+          }
+        ],
+        "binary_class_count": 1,
+        "catalog": {
+          "search_paths": "/Users/robc/src/dsl/crates/logic_analyzer_graph_nodes/../../../dslogic/libsigrokdecode/decoders",
+          "selected_id": "eeprom24xx"
+        },
+        "channels": [],
+        "decoder_id": "eeprom24xx",
+        "decoder_name": "24xx EEPROM",
+        "decoder_root": "/Users/robc/src/dslogic/libsigrokdecode/decoders",
+        "logic_groups": [],
+        "options": [
+          {
+            "control": {
+              "Choice": {
+                "selected": {
+                  "value": "generic",
+                  "variants": [
+                    "generic",
+                    "microchip_24aa65",
+                    "microchip_24lc65",
+                    "microchip_24c65",
+                    "microchip_24aa64",
+                    "microchip_24lc64",
+                    "microchip_24aa02uid",
+                    "microchip_24aa025uid",
+                    "microchip_24aa025uid_sot23",
+                    "onsemi_cat24c256",
+                    "onsemi_cat24m01",
+                    "siemens_slx_24c01",
+                    "siemens_slx_24c02",
+                    "st_m24c01",
+                    "st_m24c02",
+                    "st_m24c32",
+                    "xicor_x24c02"
+                  ]
+                },
+                "values": [
+                  {
+                    "String": "generic"
+                  },
+                  {
+                    "String": "microchip_24aa65"
+                  },
+                  {
+                    "String": "microchip_24lc65"
+                  },
+                  {
+                    "String": "microchip_24c65"
+                  },
+                  {
+                    "String": "microchip_24aa64"
+                  },
+                  {
+                    "String": "microchip_24lc64"
+                  },
+                  {
+                    "String": "microchip_24aa02uid"
+                  },
+                  {
+                    "String": "microchip_24aa025uid"
+                  },
+                  {
+                    "String": "microchip_24aa025uid_sot23"
+                  },
+                  {
+                    "String": "onsemi_cat24c256"
+                  },
+                  {
+                    "String": "onsemi_cat24m01"
+                  },
+                  {
+                    "String": "siemens_slx_24c01"
+                  },
+                  {
+                    "String": "siemens_slx_24c02"
+                  },
+                  {
+                    "String": "st_m24c01"
+                  },
+                  {
+                    "String": "st_m24c02"
+                  },
+                  {
+                    "String": "st_m24c32"
+                  },
+                  {
+                    "String": "xicor_x24c02"
+                  }
+                ]
+              }
+            },
+            "id": "chip",
+            "label": "Chip"
+          },
+          {
+            "control": {
+              "Integer": {
+                "max": 2147483647,
+                "min": -2147483648,
+                "value": 0
+              }
+            },
+            "id": "addr_counter",
+            "label": "Initial address counter value"
+          }
+        ],
+        "outputs": [
+          "Annotation",
+          "Binary"
+        ],
+        "package_fingerprint": "09f47a8dd59edd173b9d5a512bde646d18520406e34fefc02485420569351193",
+        "protocol_inputs": [
+          "i2c"
+        ],
+        "protocol_outputs": [],
+        "sample_rate": {
+          "max": 2147483647,
+          "min": 1,
+          "value": 1000000
+        },
+        "schema_version": 2
+      },
+      "title": "24xx EEPROM · Sigrok",
+      "type_name": "Sigrok Decoder"
+    },
+    "4": {
+      "collapsed": false,
+      "header_color": [
+        60,
+        100,
+        160,
+        255
+      ],
+      "id": 4,
+      "inputs": [
+        {
+          "schema_id": "protocol_packets"
+        }
+      ],
+      "kind": "Regular",
+      "muted": false,
+      "outputs": [
+        {
+          "schema_id": "annotations"
+        },
+        {
+          "def_index": 1,
+          "schema_id": "binary"
+        }
+      ],
+      "pos": {
+        "x": 1789.5703125,
+        "y": 430.79296875
+      },
+      "selected": false,
+      "state": {
+        "annotation_class_count": 21,
+        "annotation_rows": [
+          {
+            "classes": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          },
+          {
+            "classes": [
+              6,
+              7,
+              8
+            ]
+          },
+          {
+            "classes": [
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20
+            ]
+          },
+          {
+            "classes": [
+              0
+            ]
+          }
+        ],
+        "binary_class_count": 1,
+        "catalog": {
+          "search_paths": "/Users/robc/src/dsl/crates/logic_analyzer_graph_nodes/../../../dslogic/libsigrokdecode/decoders",
+          "selected_id": "eeprom24xx"
+        },
+        "channels": [],
+        "decoder_id": "eeprom24xx",
+        "decoder_name": "24xx EEPROM",
+        "decoder_root": "/Users/robc/src/dslogic/libsigrokdecode/decoders",
+        "logic_groups": [],
+        "options": [
+          {
+            "control": {
+              "Choice": {
+                "selected": {
+                  "value": "generic",
+                  "variants": [
+                    "generic",
+                    "microchip_24aa65",
+                    "microchip_24lc65",
+                    "microchip_24c65",
+                    "microchip_24aa64",
+                    "microchip_24lc64",
+                    "microchip_24aa02uid",
+                    "microchip_24aa025uid",
+                    "microchip_24aa025uid_sot23",
+                    "onsemi_cat24c256",
+                    "onsemi_cat24m01",
+                    "siemens_slx_24c01",
+                    "siemens_slx_24c02",
+                    "st_m24c01",
+                    "st_m24c02",
+                    "st_m24c32",
+                    "xicor_x24c02"
+                  ]
+                },
+                "values": [
+                  {
+                    "String": "generic"
+                  },
+                  {
+                    "String": "microchip_24aa65"
+                  },
+                  {
+                    "String": "microchip_24lc65"
+                  },
+                  {
+                    "String": "microchip_24c65"
+                  },
+                  {
+                    "String": "microchip_24aa64"
+                  },
+                  {
+                    "String": "microchip_24lc64"
+                  },
+                  {
+                    "String": "microchip_24aa02uid"
+                  },
+                  {
+                    "String": "microchip_24aa025uid"
+                  },
+                  {
+                    "String": "microchip_24aa025uid_sot23"
+                  },
+                  {
+                    "String": "onsemi_cat24c256"
+                  },
+                  {
+                    "String": "onsemi_cat24m01"
+                  },
+                  {
+                    "String": "siemens_slx_24c01"
+                  },
+                  {
+                    "String": "siemens_slx_24c02"
+                  },
+                  {
+                    "String": "st_m24c01"
+                  },
+                  {
+                    "String": "st_m24c02"
+                  },
+                  {
+                    "String": "st_m24c32"
+                  },
+                  {
+                    "String": "xicor_x24c02"
+                  }
+                ]
+              }
+            },
+            "id": "chip",
+            "label": "Chip"
+          },
+          {
+            "control": {
+              "Integer": {
+                "max": 2147483647,
+                "min": -2147483648,
+                "value": 0
+              }
+            },
+            "id": "addr_counter",
+            "label": "Initial address counter value"
+          }
+        ],
+        "outputs": [
+          "Annotation",
+          "Binary"
+        ],
+        "package_fingerprint": "09f47a8dd59edd173b9d5a512bde646d18520406e34fefc02485420569351193",
+        "protocol_inputs": [
+          "i2c"
+        ],
+        "protocol_outputs": [],
+        "sample_rate": {
+          "max": 2147483647,
+          "min": 1,
+          "value": 1000000
+        },
+        "schema_version": 2
+      },
+      "title": "24xx EEPROM · Sigrok",
+      "type_name": "Sigrok Decoder"
+    }
+  }
+}
