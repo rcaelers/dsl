@@ -118,6 +118,7 @@ pub enum NativeMenuCommand {
     ClearDerivedCaches,
     ShowLogicAnalyzer,
     ShowNodeGraph,
+    ShowLog,
     ShowWatches,
     ShowTriggers,
     ShowDecoder,

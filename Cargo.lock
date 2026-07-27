@@ -2286,6 +2286,7 @@ dependencies = [
  "signal-processing",
  "tempfile",
  "trigger-editor",
+ "web-time",
 ]
 
 [[package]]

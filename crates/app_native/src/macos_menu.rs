@@ -121,6 +121,11 @@ define_class!(
             dispatch_native_menu_command(NativeMenuCommand::ShowNodeGraph);
         }
 
+        #[unsafe(method(showLog:))]
+        fn show_log(&self, _sender: &AnyObject) {
+            dispatch_native_menu_command(NativeMenuCommand::ShowLog);
+        }
+
         #[unsafe(method(showWatches:))]
         fn show_watches(&self, _sender: &AnyObject) {
             dispatch_native_menu_command(NativeMenuCommand::ShowWatches);
@@ -357,6 +362,13 @@ pub(crate) fn install(recent_files: &[PathBuf]) {
             &handler,
         ));
         view_menu.addItem(&NSMenuItem::separatorItem(mtm));
+        view_menu.addItem(&menu_item_with_symbol(
+            mtm,
+            ns_string!("Log"),
+            sel!(showLog:),
+            ns_string!("list.bullet.rectangle"),
+            &handler,
+        ));
         view_menu.addItem(&menu_item_with_symbol(
             mtm,
             ns_string!("Watches"),

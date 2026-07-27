@@ -5,9 +5,10 @@
 //! pick up an edit, the current compile-error summary) stays in the toolbar
 //! next to Run/Stop instead — that's not a toast's job.
 
-use egui::{Color32, Context};
+use egui::{Color32, Context, Ui};
+use web_time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Severity {
     Info,
     Warning,
@@ -24,63 +25,145 @@ struct Toast {
     dismissed: bool,
 }
 
+struct ToastHistoryEntry {
+    text: String,
+    source: String,
+    time: String,
+    severity: Severity,
+}
+
+/// A user-facing origin for a notification in the Log panel.
+pub(crate) enum ToastSource {
+    Global,
+    Panel(String),
+    Node(String),
+    Socket { node: String, socket: String },
+}
+
+impl ToastSource {
+    pub(crate) fn panel(name: impl Into<String>) -> Self {
+        Self::Panel(name.into())
+    }
+
+    pub(crate) fn node(name: impl Into<String>) -> Self {
+        Self::Node(name.into())
+    }
+
+    pub(crate) fn socket(node: impl Into<String>, socket: impl Into<String>) -> Self {
+        Self::Socket {
+            node: node.into(),
+            socket: socket.into(),
+        }
+    }
+
+    fn label(&self) -> String {
+        match self {
+            Self::Global => "Global".to_owned(),
+            Self::Panel(name) => format!("Panel: {name}"),
+            Self::Node(name) => format!("Node: {name}"),
+            Self::Socket { node, socket } => format!("Socket: {node} / {socket}"),
+        }
+    }
+}
+
 /// Info toasts fade out this many seconds after appearing.
 const FADE_AFTER_S: f64 = 4.0;
 /// The fade is a linear alpha ramp over this final stretch.
 const FADE_RAMP_S: f64 = 1.0;
-
 #[derive(Default)]
-pub(crate) struct Toasts(Vec<Toast>);
+pub(crate) struct Toasts {
+    active: Vec<Toast>,
+    history: Vec<ToastHistoryEntry>,
+}
 
 impl Toasts {
     /// Fades out on its own after ~4s.
     pub(crate) fn info(&mut self, text: impl Into<String>) {
-        self.0.push(Toast {
-            text: text.into(),
-            severity: Severity::Info,
-            created: None,
-            dismissed: false,
-        });
+        self.info_from(ToastSource::Global, text);
+    }
+
+    pub(crate) fn info_from(&mut self, source: ToastSource, text: impl Into<String>) {
+        self.push(Severity::Info, text.into(), source);
     }
 
     /// Persists until dismissed (✕) or the toast stack scrolls it away.
     pub(crate) fn error(&mut self, text: impl Into<String>) {
-        self.0.push(Toast {
-            text: text.into(),
-            severity: Severity::Error,
-            created: None,
-            dismissed: false,
-        });
+        self.error_from(ToastSource::Global, text);
+    }
+
+    pub(crate) fn error_from(&mut self, source: ToastSource, text: impl Into<String>) {
+        self.push(Severity::Error, text.into(), source);
     }
 
     /// Persists until dismissed, without presenting a successful operation as a failure.
     pub(crate) fn warning(&mut self, text: impl Into<String>) {
-        self.0.push(Toast {
-            text: text.into(),
-            severity: Severity::Warning,
+        self.warning_from(ToastSource::Global, text);
+    }
+
+    pub(crate) fn warning_from(&mut self, source: ToastSource, text: impl Into<String>) {
+        self.push(Severity::Warning, text.into(), source);
+    }
+
+    fn push(&mut self, severity: Severity, text: String, source: ToastSource) {
+        self.active.push(Toast {
+            text: text.clone(),
+            severity,
             created: None,
             dismissed: false,
         });
+        self.history.push(ToastHistoryEntry {
+            text,
+            source: source.label(),
+            time: current_time_label(),
+            severity,
+        });
+    }
+
+    /// Draws the durable in-session notification history for the Log panel.
+    pub(crate) fn show_history(&self, ui: &mut Ui) {
+        if self.history.is_empty() {
+            ui.centered_and_justified(|ui| {
+                ui.label(egui::RichText::new("No messages yet").weak());
+            });
+            return;
+        }
+
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for entry in self.history.iter().rev() {
+                    let (label, color) = severity_presentation(entry.severity);
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.weak(&entry.time);
+                            ui.colored_label(color, label);
+                            ui.weak(&entry.source);
+                        });
+                        ui.label(&entry.text);
+                    });
+                    ui.add_space(4.0);
+                }
+            });
     }
 
     /// Draws the toast stack bottom-right and prunes expired/dismissed
     /// entries. Call once per frame; cheap no-op when nothing's pending.
     pub(crate) fn show(&mut self, ctx: &Context) {
-        if self.0.is_empty() {
+        if self.active.is_empty() {
             return;
         }
         let now = ctx.input(|i| i.time);
-        for toast in &mut self.0 {
+        for toast in &mut self.active {
             if toast.created.is_none() {
                 toast.created = Some(now);
             }
         }
-        self.0.retain(|toast| {
+        self.active.retain(|toast| {
             !toast.dismissed
                 && (toast.severity != Severity::Info
                     || now - toast.created.unwrap_or(now) < FADE_AFTER_S)
         });
-        if self.0.is_empty() {
+        if self.active.is_empty() {
             return;
         }
 
@@ -91,7 +174,7 @@ impl Toasts {
             .interactable(true)
             .show(ctx, |ui| {
                 ui.vertical(|ui| {
-                    for (index, toast) in self.0.iter().enumerate().rev() {
+                    for (index, toast) in self.active.iter().enumerate().rev() {
                         let elapsed = now - toast.created.unwrap_or(now);
                         let alpha = if toast.severity != Severity::Info {
                             1.0
@@ -143,14 +226,57 @@ impl Toasts {
                 });
             });
         if let Some(index) = dismiss {
-            self.0[index].dismissed = true;
+            self.active[index].dismissed = true;
         }
 
-        let any_fading = self.0.iter().any(|t| t.severity == Severity::Info);
+        let any_fading = self.active.iter().any(|t| t.severity == Severity::Info);
         ctx.request_repaint_after(std::time::Duration::from_millis(if any_fading {
             16
         } else {
             250
         }));
+    }
+}
+
+fn current_time_label() -> String {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        % 86_400;
+    format!(
+        "{:02}:{:02}:{:02} UTC",
+        seconds / 3_600,
+        (seconds / 60) % 60,
+        seconds % 60,
+    )
+}
+
+fn severity_presentation(severity: Severity) -> (&'static str, Color32) {
+    match severity {
+        Severity::Info => ("Info", Color32::from_rgb(190, 190, 190)),
+        Severity::Warning => ("Warning", Color32::from_rgb(245, 222, 177)),
+        Severity::Error => ("Error", Color32::from_rgb(240, 160, 160)),
+    }
+}
+
+#[cfg(test)]
+mod toast_tests {
+    use super::{Severity, ToastSource, Toasts};
+
+    #[test]
+    fn history_retains_expiring_and_dismissible_toasts_with_their_source() {
+        let mut toasts = Toasts::default();
+        toasts.info("capture loaded");
+        toasts.warning_from(ToastSource::panel("Triggers"), "capture warning");
+        toasts.error_from(ToastSource::socket("SPI decoder", "MOSI"), "capture failed");
+
+        assert_eq!(toasts.history.len(), 3);
+        assert_eq!(toasts.history[0].text, "capture loaded");
+        assert_eq!(toasts.history[0].source, "Global");
+        assert_eq!(toasts.history[1].severity, Severity::Warning);
+        assert_eq!(toasts.history[1].source, "Panel: Triggers");
+        assert_eq!(toasts.history[2].source, "Socket: SPI decoder / MOSI");
+        assert!(toasts.history[2].time.ends_with(" UTC"));
     }
 }

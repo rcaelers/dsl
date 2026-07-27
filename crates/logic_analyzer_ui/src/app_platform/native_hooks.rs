@@ -83,6 +83,10 @@ impl App {
                     self.show_primary_panel("node_graph");
                     continue;
                 }
+                NativeMenuCommand::ShowLog => {
+                    self.show_auxiliary_panel("log");
+                    continue;
+                }
                 NativeMenuCommand::ShowWatches => {
                     self.show_auxiliary_panel("watches");
                     continue;

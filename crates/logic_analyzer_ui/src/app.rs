@@ -34,7 +34,7 @@ use crate::live_capture::{
 use crate::plugin_panel::{PluginPanelIcon, PluginPanelRegistry, PluginPanels, PluginPanelsState};
 use crate::preferences::PreferencesWindow;
 use crate::sampling_overlay_presentation::sampling_overlay_presentation;
-use crate::toast::Toasts;
+use crate::toast::{ToastSource, Toasts};
 use crate::viewer_selection::{
     set_viewer_output_selected, synchronize_viewer_compatibility, viewer_output_selections,
 };
@@ -270,11 +270,14 @@ impl App {
                     })
             });
         let Some((source_node, request)) = request else {
-            self.toasts
-                .error("That trigger input is no longer available");
+            self.toasts.error_from(
+                ToastSource::panel("Triggers"),
+                "That trigger input is no longer available",
+            );
             self.refresh_simple_trigger_ui();
             return;
         };
+        let toast_source = self.toast_source_for_node(source_node);
         let state = match self.graph_service.apply_live_capture_edit(
             self.node_graph.graph(),
             source_node,
@@ -282,14 +285,16 @@ impl App {
         ) {
             Ok(state) => state,
             Err(error) => {
-                self.toasts.error(error);
+                self.toasts.error_from(toast_source, error);
                 self.refresh_simple_trigger_ui();
                 return;
             }
         };
         if !self.node_graph.edit_node_state(source_node, state) {
-            self.toasts
-                .error("The trigger could not be changed while the graph is read-only");
+            self.toasts.error_from(
+                self.toast_source_for_node(source_node),
+                "The trigger could not be changed while the graph is read-only",
+            );
             self.refresh_simple_trigger_ui();
             return;
         }
@@ -304,11 +309,14 @@ impl App {
             .as_ref()
             .map(|configuration| configuration.source_node)
         else {
-            self.toasts
-                .error("The trigger-configurable source is no longer available");
+            self.toasts.error_from(
+                ToastSource::panel("Triggers"),
+                "The trigger-configurable source is no longer available",
+            );
             self.refresh_trigger_configuration();
             return;
         };
+        let toast_source = self.toast_source_for_node(source_node);
         let request = LiveCaptureEdit::SetTriggerProgram { program };
         let state = match self.graph_service.apply_live_capture_edit(
             self.node_graph.graph(),
@@ -317,14 +325,16 @@ impl App {
         ) {
             Ok(state) => state,
             Err(error) => {
-                self.toasts.error(error);
+                self.toasts.error_from(toast_source, error);
                 self.refresh_trigger_configuration();
                 return;
             }
         };
         if !self.node_graph.edit_node_state(source_node, state) {
-            self.toasts
-                .error("The trigger could not be changed while the graph is read-only");
+            self.toasts.error_from(
+                self.toast_source_for_node(source_node),
+                "The trigger could not be changed while the graph is read-only",
+            );
         }
         self.capture_availability =
             capture_availability(self.node_graph.graph(), self.graph_service.as_ref());
@@ -347,6 +357,28 @@ impl App {
             .collect();
         self.logic_analyzer
             .set_channels_with_duration(channels, duration_us);
+    }
+
+    fn toast_source_for_node(&self, node_id: NodeId) -> ToastSource {
+        let title = self
+            .node_graph
+            .graph()
+            .nodes
+            .get(&node_id)
+            .map(|node| node.title.clone())
+            .unwrap_or_else(|| "Removed node".to_owned());
+        ToastSource::node(title)
+    }
+
+    fn toast_source_for_socket(&self, node_id: NodeId, socket: impl Into<String>) -> ToastSource {
+        let node = self
+            .node_graph
+            .graph()
+            .nodes
+            .get(&node_id)
+            .map(|node| node.title.clone())
+            .unwrap_or_else(|| "Removed node".to_owned());
+        ToastSource::socket(node, socket)
     }
 
     pub fn new(cc: &eframe::CreationContext) -> Self {
@@ -373,8 +405,11 @@ impl App {
                         self.node_graph
                             .set_node_badge(node, Some(NodeBadge::warning(&warning.message)));
                         self.error_badges.push(node);
+                        let source = self.toast_source_for_node(node);
+                        self.toasts.warning_from(source, warning.message);
+                    } else {
+                        self.toasts.warning(warning.message);
                     }
-                    self.toasts.warning(warning.message);
                 }
             }
             Ok(_) => {}
@@ -1820,7 +1855,8 @@ impl App {
         )
         .show(ui);
         if let Some(error) = response.error {
-            self.toasts.error(error);
+            self.toasts
+                .error_from(ToastSource::panel("Triggers"), error);
         }
         if let Some(program) = response.program {
             self.apply_trigger_program_edit(program);
@@ -1855,6 +1891,7 @@ impl App {
         &self,
     ) -> Vec<(String, String, panel_layout::PanelIcon)> {
         let mut panels = vec![
+            ("Log".to_owned(), "log".to_owned(), PanelIcon::List),
             ("Watches".to_owned(), "watches".to_owned(), PanelIcon::List),
             (
                 "Triggers".to_owned(),
@@ -2288,6 +2325,9 @@ impl eframe::App for App {
                 .icon(PanelIcon::Network)
                 .minimum_width(220.0)
                 .singleton(),
+            PanelSpec::new("log", "Log", 160.0)
+                .icon(PanelIcon::List)
+                .minimum_width(240.0),
             PanelSpec::new("watches", "Watches", 120.0)
                 .icon(PanelIcon::List)
                 .minimum_width(180.0),
@@ -2349,7 +2389,8 @@ impl eframe::App for App {
                     self.refresh_graph_output_selections();
                     self.node_graph.show(panel_ui);
                     if let Some(message) = self.node_graph.take_io_status() {
-                        self.toasts.info(message);
+                        self.toasts
+                            .info_from(ToastSource::panel("Node Graph"), message);
                     }
                     if let Some((node_id, action_id)) = self.node_graph.take_node_context_action() {
                         self.handle_node_context_action(node_id, &action_id);
@@ -2372,9 +2413,11 @@ impl eframe::App for App {
                                 &id,
                                 selected,
                             ) {
-                                self.toasts.error(format!(
-                                    "Could not update the viewer selection: {error}"
-                                ));
+                                let source = self.toast_source_for_socket(node_id, id);
+                                self.toasts.error_from(
+                                    source,
+                                    format!("Could not update the viewer selection: {error}"),
+                                );
                             } else {
                                 self.synchronize_payload_subscription_manifest(false);
                             }
@@ -2382,6 +2425,9 @@ impl eframe::App for App {
                     }
                     self.platform_after_graph();
                 }
+                PanelSlot::Body {
+                    content_id: "log", ..
+                } => self.toasts.show_history(panel_ui),
                 PanelSlot::Body {
                     content_id: "watches",
                     ..
@@ -2401,7 +2447,8 @@ impl eframe::App for App {
                     ..
                 } => {
                     if let Some(warning) = self.plugin_panels.show(content_id, panel_id, panel_ui) {
-                        self.toasts.warning(warning);
+                        self.toasts
+                            .warning_from(ToastSource::panel(content_id), warning);
                     }
                 }
                 PanelSlot::TitleBar { .. } => {}
