@@ -118,11 +118,8 @@ impl GraphService for FakeGraphService {
         *self.subscriptions.lock().unwrap() = subscriptions.outputs().collect();
     }
 
-    fn synchronize_prepared_capture(
-        &mut self,
-        _graph: &GraphState,
-    ) -> Result<SourcePreparationUpdate, String> {
-        Ok(SourcePreparationUpdate::Unchanged)
+    fn synchronize_prepared_capture(&mut self, _graph: &GraphState) -> SourcePreparationUpdate {
+        SourcePreparationUpdate::Unchanged
     }
 
     fn reset_prepared_capture(&mut self) {}

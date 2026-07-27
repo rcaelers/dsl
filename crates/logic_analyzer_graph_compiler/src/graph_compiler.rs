@@ -54,16 +54,16 @@ impl GraphCompiler {
     }
 
     /// Advances source-owned preload/index preparation and returns only state changes.
-    pub fn synchronize_prepared_capture(
-        &mut self,
-        graph: &GraphState,
-    ) -> Result<SourcePreparationUpdate, String> {
+    pub fn synchronize_prepared_capture(&mut self, graph: &GraphState) -> SourcePreparationUpdate {
         let discovered = graph::discover_capture_presentation_with_subscriptions(
             graph,
             &self.builders,
             &self.output_subscriptions,
-        )?;
-        Ok(self.source_preparation.synchronize(discovered))
+        );
+        match discovered {
+            Ok(discovered) => self.source_preparation.synchronize(discovered),
+            Err(error) => self.source_preparation.fail(error),
+        }
     }
 
     /// Forgets source preparation state so the current graph is prepared again.

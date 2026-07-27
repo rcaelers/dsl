@@ -82,6 +82,22 @@ impl SourcePreparation {
         self.status = SourcePreparationStatus::Empty;
     }
 
+    /// Records a discovery failure once, cancelling any preparation superseded by it.
+    pub(crate) fn fail(&mut self, error: String) -> SourcePreparationUpdate {
+        let unchanged = matches!(
+            &self.status,
+            SourcePreparationStatus::Failed(previous) if previous == &error
+        );
+        self.identity = None;
+        self.task = None;
+        self.status = SourcePreparationStatus::Failed(error.clone());
+        if unchanged {
+            SourcePreparationUpdate::Unchanged
+        } else {
+            SourcePreparationUpdate::Failed(error)
+        }
+    }
+
     pub(crate) fn status(&self) -> SourcePreparationStatus {
         self.status.clone()
     }
@@ -510,6 +526,24 @@ mod source_preparation_tests {
         assert_eq!(executor.cancelled_count(), 1);
         assert_eq!(*open_count.lock().unwrap(), 0);
         assert_eq!(preparation.status(), SourcePreparationStatus::Empty);
+    }
+
+    #[test]
+    fn unchanged_discovery_failure_is_reported_once() {
+        let mut preparation = SourcePreparation::new();
+
+        assert!(matches!(
+            preparation.fail("two sources are enabled".into()),
+            SourcePreparationUpdate::Failed(error) if error == "two sources are enabled"
+        ));
+        assert!(matches!(
+            preparation.fail("two sources are enabled".into()),
+            SourcePreparationUpdate::Unchanged
+        ));
+        assert_eq!(
+            preparation.status(),
+            SourcePreparationStatus::Failed("two sources are enabled".into())
+        );
     }
 
     #[test]

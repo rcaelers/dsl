@@ -64,6 +64,21 @@ impl SourcePreparation {
         self.status = SourcePreparationStatus::Empty;
     }
 
+    /// Records a discovery failure once until a successful preparation changes state.
+    pub(crate) fn fail(&mut self, error: String) -> SourcePreparationUpdate {
+        let unchanged = matches!(
+            &self.status,
+            SourcePreparationStatus::Failed(previous) if previous == &error
+        );
+        self.identity = None;
+        self.status = SourcePreparationStatus::Failed(error.clone());
+        if unchanged {
+            SourcePreparationUpdate::Unchanged
+        } else {
+            SourcePreparationUpdate::Failed(error)
+        }
+    }
+
     pub(crate) fn status(&self) -> SourcePreparationStatus {
         self.status.clone()
     }

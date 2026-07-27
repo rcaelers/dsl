@@ -116,17 +116,9 @@ impl App {
         if self.logic_analyzer.has_growing_capture() {
             return;
         }
-        let update = match self
+        let update = self
             .graph_service
-            .synchronize_prepared_capture(self.node_graph.graph())
-        {
-            Ok(update) => update,
-            Err(error) => {
-                self.toasts
-                    .error(format!("Could not prepare capture source: {error}"));
-                return;
-            }
-        };
+            .synchronize_prepared_capture(self.node_graph.graph());
         match update {
             compiler::SourcePreparationUpdate::Unchanged => {}
             compiler::SourcePreparationUpdate::Preparing => {

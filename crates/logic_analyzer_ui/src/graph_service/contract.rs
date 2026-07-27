@@ -47,10 +47,7 @@ pub(crate) trait GraphRun {
 pub(crate) trait GraphService: CaptureFeatureDiscovery + PlatformGraphService {
     fn set_output_subscriptions(&mut self, subscriptions: OutputSubscriptionPlan);
 
-    fn synchronize_prepared_capture(
-        &mut self,
-        graph: &GraphState,
-    ) -> Result<SourcePreparationUpdate, String>;
+    fn synchronize_prepared_capture(&mut self, graph: &GraphState) -> SourcePreparationUpdate;
 
     fn reset_prepared_capture(&mut self);
 

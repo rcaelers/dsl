@@ -99,10 +99,7 @@ impl GraphService for GraphCompiler {
         GraphCompiler::set_output_subscriptions(self, subscriptions);
     }
 
-    fn synchronize_prepared_capture(
-        &mut self,
-        graph: &GraphState,
-    ) -> Result<SourcePreparationUpdate, String> {
+    fn synchronize_prepared_capture(&mut self, graph: &GraphState) -> SourcePreparationUpdate {
         GraphCompiler::synchronize_prepared_capture(self, graph)
     }
 
