@@ -2477,6 +2477,21 @@ mod font_tests {
                 egui::Key::Space,
             ))
         );
+        assert_eq!(
+            bindings.shortcut(&["node_graph"], "delete"),
+            Some(egui::KeyboardShortcut::new(
+                egui::Modifiers::NONE,
+                egui::Key::X,
+            ))
+        );
+        assert_eq!(
+            bindings
+                .bindings(&["node_graph"], "delete")
+                .into_iter()
+                .map(|binding| binding.to_string())
+                .collect::<Vec<_>>(),
+            ["X", "Delete"]
+        );
     }
 
     #[test]
