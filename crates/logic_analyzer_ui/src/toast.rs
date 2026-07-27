@@ -5,6 +5,8 @@
 //! pick up an edit, the current compile-error summary) stays in the toolbar
 //! next to Run/Stop instead — that's not a toast's job.
 
+use std::cmp::Reverse;
+
 use egui::{Color32, Context, Ui};
 use web_time::{SystemTime, UNIX_EPOCH};
 
@@ -29,6 +31,8 @@ struct ToastHistoryEntry {
     text: String,
     source: String,
     time: String,
+    timestamp_seconds: u64,
+    sequence: u64,
     severity: Severity,
 }
 
@@ -74,6 +78,7 @@ const FADE_RAMP_S: f64 = 1.0;
 pub(crate) struct Toasts {
     active: Vec<Toast>,
     history: Vec<ToastHistoryEntry>,
+    history_sequence: u64,
 }
 
 impl Toasts {
@@ -105,6 +110,7 @@ impl Toasts {
     }
 
     fn push(&mut self, severity: Severity, text: String, source: ToastSource) {
+        let (timestamp_seconds, time) = current_time();
         self.active.push(Toast {
             text: text.clone(),
             severity,
@@ -114,9 +120,18 @@ impl Toasts {
         self.history.push(ToastHistoryEntry {
             text,
             source: source.label(),
-            time: current_time_label(),
+            time,
+            timestamp_seconds,
+            sequence: self.history_sequence,
             severity,
         });
+        self.history_sequence = self.history_sequence.saturating_add(1);
+    }
+
+    fn history_display_order(&self) -> Vec<&ToastHistoryEntry> {
+        let mut entries = self.history.iter().collect::<Vec<_>>();
+        entries.sort_by_key(|entry| (Reverse(entry.timestamp_seconds), entry.sequence));
+        entries
     }
 
     /// Draws the durable in-session notification history for the Log panel.
@@ -131,7 +146,7 @@ impl Toasts {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                for entry in self.history.iter().rev() {
+                for entry in self.history_display_order() {
                     let (label, color) = severity_presentation(entry.severity);
                     egui::Frame::group(ui.style()).show(ui, |ui| {
                         ui.horizontal(|ui| {
@@ -238,17 +253,20 @@ impl Toasts {
     }
 }
 
-fn current_time_label() -> String {
-    let seconds = SystemTime::now()
+fn current_time() -> (u64, String) {
+    let timestamp_seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs()
-        % 86_400;
-    format!(
-        "{:02}:{:02}:{:02} UTC",
-        seconds / 3_600,
-        (seconds / 60) % 60,
-        seconds % 60,
+        .as_secs();
+    let seconds = timestamp_seconds % 86_400;
+    (
+        timestamp_seconds,
+        format!(
+            "{:02}:{:02}:{:02} UTC",
+            seconds / 3_600,
+            (seconds / 60) % 60,
+            seconds % 60,
+        ),
     )
 }
 
@@ -262,7 +280,7 @@ fn severity_presentation(severity: Severity) -> (&'static str, Color32) {
 
 #[cfg(test)]
 mod toast_tests {
-    use super::{Severity, ToastSource, Toasts};
+    use super::{Severity, ToastHistoryEntry, ToastSource, Toasts};
 
     #[test]
     fn history_retains_expiring_and_dismissible_toasts_with_their_source() {
@@ -278,5 +296,43 @@ mod toast_tests {
         assert_eq!(toasts.history[1].source, "Panel: Triggers");
         assert_eq!(toasts.history[2].source, "Socket: SPI decoder / MOSI");
         assert!(toasts.history[2].time.ends_with(" UTC"));
+    }
+
+    #[test]
+    fn history_keeps_creation_order_for_entries_with_the_same_second() {
+        let toasts = Toasts {
+            history: vec![
+                history_entry("migration one", 100, 0),
+                history_entry("migration two", 100, 1),
+                history_entry("Loaded graph", 100, 2),
+                history_entry("Saved graph", 101, 3),
+            ],
+            ..Default::default()
+        };
+
+        assert_eq!(
+            toasts
+                .history_display_order()
+                .into_iter()
+                .map(|entry| entry.text.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "Saved graph",
+                "migration one",
+                "migration two",
+                "Loaded graph"
+            ]
+        );
+    }
+
+    fn history_entry(text: &str, timestamp_seconds: u64, sequence: u64) -> ToastHistoryEntry {
+        ToastHistoryEntry {
+            text: text.to_owned(),
+            source: "Global".to_owned(),
+            time: "00:00:00 UTC".to_owned(),
+            timestamp_seconds,
+            sequence,
+            severity: Severity::Info,
+        }
     }
 }

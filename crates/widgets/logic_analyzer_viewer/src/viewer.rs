@@ -595,8 +595,12 @@ impl LogicAnalyzerViewer {
         // inside the viewer, including labels and trigger controls, so the
         // documented click-to-stop gesture is never intercepted by another
         // interaction first.
+        let edge_measurement_button = self
+            .input_bindings
+            .pointer_button(&["logic_analyzer"], "measure_edge_delta")
+            .unwrap_or(egui::PointerButton::Primary);
         let mut edge_measurement_active = self.edge_delta_measurement.is_some()
-            && self.handle_edge_measurement_input(ui, &response, layout);
+            && self.handle_edge_measurement_input(ui, &response, layout, edge_measurement_button);
         let trigger_input =
             !edge_measurement_active && self.handle_simple_trigger_input(ui, &response, layout);
         let row_rename_started = !edge_measurement_active
@@ -609,7 +613,12 @@ impl LogicAnalyzerViewer {
             edge_measurement_active = !trigger_input
                 && !row_rename_started
                 && !row_dragging
-                && self.handle_edge_measurement_input(ui, &response, layout);
+                && self.handle_edge_measurement_input(
+                    ui,
+                    &response,
+                    layout,
+                    edge_measurement_button,
+                );
         }
         let cursor_input = if edge_measurement_active {
             crate::types::CursorInput::default()

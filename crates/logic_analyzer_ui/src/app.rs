@@ -2131,8 +2131,18 @@ fn draw_modifier_badge(ui: &mut egui::Ui, key: &str, active: bool) {
 }
 
 fn draw_mouse_badge(ui: &mut egui::Ui, button: MouseButtonHint, gesture: Option<PointerGesture>) {
-    let double_click = gesture == Some(PointerGesture::DoubleClick);
-    let width = if double_click { 38.0 } else { 22.0 };
+    let gesture_marker = match gesture {
+        Some(PointerGesture::DoubleClick) => Some("2×"),
+        Some(PointerGesture::Press) => Some("↓"),
+        Some(PointerGesture::Release) => Some("↑"),
+        Some(PointerGesture::Hold) => Some("…"),
+        Some(PointerGesture::Click | PointerGesture::Drag) | None => None,
+    };
+    let width = if gesture == Some(PointerGesture::Drag) || gesture_marker.is_some() {
+        38.0
+    } else {
+        22.0
+    };
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 22.0), egui::Sense::hover());
     let mouse = egui::Rect::from_min_size(rect.min, egui::vec2(22.0, 22.0)).shrink(1.0);
     let divider_y = mouse.top() + 8.0;
@@ -2177,11 +2187,21 @@ fn draw_mouse_badge(ui: &mut egui::Ui, button: MouseButtonHint, gesture: Option<
         ],
         stroke,
     );
-    if double_click {
+    if gesture == Some(PointerGesture::Drag) {
+        let start = egui::pos2(mouse.right() + 3.0, rect.center().y);
+        let end = egui::pos2(rect.right() - 2.0, rect.center().y);
+        ui.painter().line_segment([start, end], stroke);
+        for (tip, direction) in [(start, -1.0), (end, 1.0)] {
+            ui.painter()
+                .line_segment([tip, tip + egui::vec2(-direction * 3.0, -3.0)], stroke);
+            ui.painter()
+                .line_segment([tip, tip + egui::vec2(-direction * 3.0, 3.0)], stroke);
+        }
+    } else if let Some(marker) = gesture_marker {
         ui.painter().text(
             egui::pos2(mouse.right() + 8.0, rect.center().y),
             egui::Align2::CENTER_CENTER,
-            "2×",
+            marker,
             egui::FontId::proportional(10.0),
             egui::Color32::from_rgb(200, 200, 200),
         );
@@ -2537,6 +2557,17 @@ mod font_tests {
                 .collect::<Vec<_>>(),
             ["X", "Delete"]
         );
+        assert_eq!(
+            bindings.pointer_trigger(
+                &["logic_analyzer"],
+                "measure_edge_delta",
+                egui::Modifiers::NONE,
+            ),
+            Some((
+                egui::PointerButton::Primary,
+                input_bindings::PointerGesture::Click,
+            ))
+        );
     }
 
     #[test]
@@ -2617,6 +2648,32 @@ mod font_tests {
             .map(|binding| binding.label.as_str())
             .collect();
         assert_eq!(boundary, ["Resize Panels", "Panel Options"]);
+
+        let viewer: Vec<_> = bindings
+            .status_bindings(&["logic_analyzer"], egui::Modifiers::NONE)
+            .into_iter()
+            .filter_map(|binding| StatusAction::from_binding(binding, egui::Modifiers::NONE))
+            .collect();
+        assert!(viewer.iter().any(|action| {
+            action.label == "Measure Edge Delta"
+                && matches!(
+                    &action.input,
+                    super::StatusInput::Mouse {
+                        gesture: Some(super::PointerGesture::Click),
+                        ..
+                    }
+                )
+        }));
+        assert!(viewer.iter().any(|action| {
+            action.label == "Pan View"
+                && matches!(
+                    &action.input,
+                    super::StatusInput::Mouse {
+                        gesture: Some(super::PointerGesture::Drag),
+                        ..
+                    }
+                )
+        }));
 
         let resizing: Vec<_> = bindings
             .status_bindings(&["panel_boundary.dragging"], egui::Modifiers::NONE)

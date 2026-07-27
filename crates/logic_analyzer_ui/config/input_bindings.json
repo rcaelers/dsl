@@ -11,6 +11,7 @@
     { "context": "panel", "action": "toggle_maximize", "label": "Maximize / Restore Area", "input": "key", "key": "space", "modifiers": { "control": true }, "menu": true },
 
     { "context": "logic_analyzer", "action": "pan", "label": "Pan View", "input": "pointer", "button": "primary", "gesture": "drag" },
+    { "context": "logic_analyzer", "action": "measure_edge_delta", "label": "Measure Edge Delta", "input": "pointer", "button": "primary", "gesture": "click" },
     { "context": "logic_analyzer", "action": "zoom", "label": "Zoom", "input": "wheel", "axis": "vertical" },
     { "context": "logic_analyzer", "action": "fit", "label": "Fit", "input": "key", "key": "home" },
     { "context": "logic_analyzer", "action": "fit_alternate", "label": "Fit", "input": "key", "key": "f", "status": false },

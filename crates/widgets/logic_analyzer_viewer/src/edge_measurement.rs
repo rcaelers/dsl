@@ -18,18 +18,19 @@ impl LogicAnalyzerViewer {
         ui: &Ui,
         response: &Response,
         layout: AnalyzerLayout,
+        button: PointerButton,
     ) -> bool {
         if self.edge_delta_measurement.is_some() {
             let cancelled = ui
                 .ctx()
                 .input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
-            if cancelled || response.clicked_by(PointerButton::Primary) {
+            if cancelled || response.clicked_by(button) {
                 self.edge_delta_measurement = None;
             }
             return true;
         }
 
-        if !response.clicked_by(PointerButton::Primary) {
+        if !response.clicked_by(button) {
             return false;
         }
         let Some(pointer) = response.interact_pointer_pos() else {
