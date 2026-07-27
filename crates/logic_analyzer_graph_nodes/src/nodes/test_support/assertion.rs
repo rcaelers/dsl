@@ -21,6 +21,13 @@ pub(crate) fn assert_node_registration_contract_without_runtime(stable_id: &str)
     assert_node_registration_contract_impl(stable_id, None, false);
 }
 
+pub(crate) fn assert_node_registration_contract_without_runtime_with_state(
+    stable_id: &str,
+    state: serde_json::Value,
+) {
+    assert_node_registration_contract_impl(stable_id, Some(state), false);
+}
+
 fn assert_node_registration_contract_impl(
     stable_id: &str,
     state: Option<serde_json::Value>,

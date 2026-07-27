@@ -1,44 +1,5 @@
 # TODO
 
-## Test isolation
-
-Implement the dependency-ordered plan below against
-[Testing Strategy](docs/TESTING_STRATEGY.md). A crate's ordinary tests may use
-its normal production dependencies through their supported APIs, but must not
-add a dev-dependency on a concrete sibling production component merely to
-assemble a realistic application. Prefer substitutable traits at actual
-component boundaries, with deterministic test implementations owned by the
-crate under test.
-
-1. **Trait-seam rules:**
-   - Introduce a trait where production code crosses a replaceable boundary:
-     registries/catalogs, storage and artifact opening, task execution, clocks,
-     hardware transports, dialogs, exports, and application services.
-   - Keep a trait private or `pub(crate)` when all implementations belong to
-     one crate. Expose it through a supported facade only when another crate
-     must provide an implementation in production. Do not make implementation
-     structs public merely so tests can construct them.
-   - Define traits in the component that owns the capability or, for a narrow
-     consumer-specific port, in the consuming component. Avoid generic
-     "mockable" wrappers that have no architectural responsibility.
-   - Give each trait a production adapter and a small deterministic test
-     implementation. Test failure, delay, cancellation, partial progress, and
-     ordering through the trait rather than through sleeps or real host state.
-   - Completion gate: production orchestration contains no `cfg(test)` behavior
-     switches, and tests substitute implementations only at explicit trait
-     boundaries.
-
-2. **Reusable contract suites and CI:**
-   - Put reusable conformance assertions beside the trait owner. Implementor
-     crates invoke them with local constructors/factories rather than importing
-     another concrete implementation.
-   - Cover capture providers, capture indexes, persistent stores, runtime
-     builders, payload adapters, and compiler/UI service ports with shared
-     behavioral contracts where multiple implementations exist.
-   - Completion gate: each crate can be tested independently, integration
-     failures identify the composing package, and no portable test outcome
-     depends on undeclared machine state.
-
 ## Logic-analyzer viewer
 
 - Add global and per-lane height zoom, using modifier + scroll-wheel input.

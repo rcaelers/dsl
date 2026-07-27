@@ -1,6 +1,9 @@
 //! Runtime builder for `DSL File Source`.
 //! Native-only: no filesystem in the browser.
 
+use std::path::Path;
+use std::sync::Arc;
+
 use serde_json::Value;
 
 use logic_analyzer_graph_api::node::RuntimeBuilder;
@@ -11,11 +14,52 @@ use logic_analyzer_graph_api::node_support::{
 use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
 use node_graph::api::Socket;
 use signal_processing::{
-    DEFAULT_DERIVED_DATA_MAX_ENTRIES, DerivedDataRetention, ProcessNode, Sample, SampleBlock,
+    DEFAULT_DERIVED_DATA_MAX_ENTRIES, DerivedDataRetention, IndexedCapturePresentation,
+    ProcessNode, Sample, SampleBlock,
 };
 
-#[derive(Default)]
-pub(crate) struct FileSourceBuilder;
+trait DslFileArtifacts: Send + Sync {
+    fn open(&self, name: &str, path: &Path) -> Result<Box<dyn ProcessNode>, String>;
+    fn indexed_presentation(&self, path: &Path) -> IndexedCapturePresentation;
+    fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String>;
+}
+
+struct NativeDslFileArtifacts;
+
+impl DslFileArtifacts for NativeDslFileArtifacts {
+    fn open(&self, name: &str, path: &Path) -> Result<Box<dyn ProcessNode>, String> {
+        DslFileSource::new(path)
+            .map(|source| Box::new(source.with_name(name)) as Box<dyn ProcessNode>)
+            .map_err(|error| error.to_string())
+    }
+
+    fn indexed_presentation(&self, path: &Path) -> IndexedCapturePresentation {
+        DslFileSource::indexed_capture_presentation(path)
+    }
+
+    fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String> {
+        DslFileSource::capture_cache_identity(path).map_err(|error| error.to_string())
+    }
+}
+
+pub(crate) struct FileSourceBuilder {
+    artifacts: Arc<dyn DslFileArtifacts>,
+}
+
+impl Default for FileSourceBuilder {
+    fn default() -> Self {
+        Self {
+            artifacts: Arc::new(NativeDslFileArtifacts),
+        }
+    }
+}
+
+#[cfg(test)]
+impl FileSourceBuilder {
+    fn with_artifacts(artifacts: Arc<dyn DslFileArtifacts>) -> Self {
+        Self { artifacts }
+    }
+}
 
 impl RuntimeBuilder for FileSourceBuilder {
     fn is_source(&self) -> bool {
@@ -65,7 +109,7 @@ impl RuntimeBuilder for FileSourceBuilder {
         if path.as_os_str().is_empty() {
             return Ok(None);
         }
-        let indexed = DslFileSource::indexed_capture_presentation(&path);
+        let indexed = self.artifacts.indexed_presentation(&path);
         Ok(Some(CapturePresentation::Indexed {
             identity: indexed.identity,
             factory: indexed.factory,
@@ -82,7 +126,8 @@ impl RuntimeBuilder for FileSourceBuilder {
         if state.file.value.trim().is_empty() {
             return CaptureCacheIdentity::Dynamic;
         }
-        DslFileSource::capture_cache_identity(&state.file.value)
+        self.artifacts
+            .cache_identity(Path::new(&state.file.value))
             .map(CaptureCacheIdentity::Stable)
             .unwrap_or(CaptureCacheIdentity::Dynamic)
     }
@@ -97,9 +142,151 @@ impl RuntimeBuilder for FileSourceBuilder {
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state: super::definition::DslFileSourceState = parse_state(state)?;
-        let source = DslFileSource::new(&state.file.value)
-            .map_err(|e| format!("cannot open '{}': {e}", state.file.value))?
-            .with_name(name);
-        Ok(Box::new(source))
+        self.artifacts
+            .open(name, Path::new(&state.file.value))
+            .map_err(|error| format!("cannot open '{}': {error}", state.file.value))
+    }
+}
+
+#[cfg(test)]
+mod builder_tests {
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    use node_graph::NodeDef;
+
+    use super::super::definition::DslFileSource;
+    use super::*;
+    use crate::nodes::test_support::{TestCaptureIndexFactory, TestProcessNode};
+
+    #[derive(Default)]
+    struct FakeArtifacts {
+        operations: Mutex<Vec<String>>,
+        open_error: Option<String>,
+        identity_error: bool,
+    }
+
+    impl DslFileArtifacts for FakeArtifacts {
+        fn open(&self, name: &str, path: &Path) -> Result<Box<dyn ProcessNode>, String> {
+            self.operations
+                .lock()
+                .unwrap()
+                .push(format!("open:{}:{name}", path.display()));
+            if let Some(error) = &self.open_error {
+                return Err(error.clone());
+            }
+            Ok(Box::new(TestProcessNode::new(name)))
+        }
+
+        fn indexed_presentation(&self, path: &Path) -> IndexedCapturePresentation {
+            self.operations
+                .lock()
+                .unwrap()
+                .push(format!("presentation:{}", path.display()));
+            IndexedCapturePresentation {
+                identity: path.to_owned(),
+                factory: Box::new(TestCaptureIndexFactory::new(path)),
+            }
+        }
+
+        fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String> {
+            self.operations
+                .lock()
+                .unwrap()
+                .push(format!("identity:{}", path.display()));
+            if self.identity_error {
+                Err("controlled identity failure".into())
+            } else {
+                Ok([0x5A; 32])
+            }
+        }
+    }
+
+    #[test]
+    fn artifact_backend_drives_lowering_presentation_and_cache_identity() {
+        let artifacts = Arc::new(FakeArtifacts::default());
+        let builder = FileSourceBuilder::with_artifacts(artifacts.clone());
+        let state = fixture_state("fixture.dsl");
+        let mut context = crate::nodes::test_support::TestNodeBuildContext::default();
+
+        let presentation = builder.capture_presentation(&state).unwrap().unwrap();
+        let CapturePresentation::Indexed { identity, factory } = presentation else {
+            panic!("file source must publish an indexed presentation");
+        };
+        assert_eq!(identity, PathBuf::from("fixture.dsl"));
+        assert_eq!(factory.display_name(), "fixture.dsl");
+        assert_eq!(
+            builder.capture_cache_identity(&state, &ResolvedInputs::default()),
+            CaptureCacheIdentity::Stable([0x5A; 32])
+        );
+        let runtime = builder
+            .build(
+                "Fixture file",
+                &state,
+                &ResolvedInputs::default(),
+                &mut context,
+            )
+            .unwrap();
+        assert_eq!(runtime.name(), "Fixture file");
+        assert_eq!(
+            &*artifacts.operations.lock().unwrap(),
+            &[
+                "presentation:fixture.dsl",
+                "identity:fixture.dsl",
+                "open:fixture.dsl:Fixture file",
+            ]
+        );
+    }
+
+    #[test]
+    fn artifact_failures_are_reported_without_host_files() {
+        let artifacts = Arc::new(FakeArtifacts {
+            open_error: Some("controlled open failure".into()),
+            identity_error: true,
+            ..FakeArtifacts::default()
+        });
+        let builder = FileSourceBuilder::with_artifacts(artifacts);
+        let state = fixture_state("missing.dsl");
+        let mut context = crate::nodes::test_support::TestNodeBuildContext::default();
+
+        assert_eq!(
+            builder.capture_cache_identity(&state, &ResolvedInputs::default()),
+            CaptureCacheIdentity::Dynamic
+        );
+        let error = builder
+            .build(
+                "Missing file",
+                &state,
+                &ResolvedInputs::default(),
+                &mut context,
+            )
+            .err()
+            .expect("controlled open failure must be preserved");
+        assert_eq!(error, "cannot open 'missing.dsl': controlled open failure");
+    }
+
+    #[test]
+    fn malformed_state_is_rejected_before_artifact_access() {
+        let artifacts = Arc::new(FakeArtifacts::default());
+        let builder = FileSourceBuilder::with_artifacts(artifacts.clone());
+        let mut context = crate::nodes::test_support::TestNodeBuildContext::default();
+
+        let error = builder
+            .build(
+                "Malformed file",
+                &Value::Null,
+                &ResolvedInputs::default(),
+                &mut context,
+            )
+            .err()
+            .expect("malformed state must fail");
+        assert!(error.starts_with("invalid node state:"));
+        assert!(artifacts.operations.lock().unwrap().is_empty());
+    }
+
+    fn fixture_state(path: &str) -> Value {
+        let mut state = serde_json::to_value(DslFileSource::state()).unwrap();
+        state["file"]["value"] = path.into();
+        state
     }
 }

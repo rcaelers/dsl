@@ -22,7 +22,6 @@ inventory = { workspace = true }
 [dev-dependencies]
 logic-analyzer-test-support = { path = "../logic_analyzer_test_support" }
 tempfile = { workspace = true }
-zip = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 dirs = { workspace = true }

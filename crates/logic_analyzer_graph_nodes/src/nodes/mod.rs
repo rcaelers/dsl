@@ -1,8 +1,6 @@
 //! Concrete graph-node definitions, builders, registrations, and test fixtures.
 
 #[cfg(test)]
-mod test_graphs;
-#[cfg(test)]
 mod test_support;
 
 pub(crate) mod decoders;

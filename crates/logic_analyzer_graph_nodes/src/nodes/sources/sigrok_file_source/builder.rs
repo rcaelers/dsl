@@ -1,5 +1,8 @@
 //! Runtime builder for `Sigrok File Source`.
 
+use std::path::Path;
+use std::sync::Arc;
+
 use serde_json::Value;
 
 use logic_analyzer_graph_api::node::RuntimeBuilder;
@@ -10,10 +13,50 @@ use logic_analyzer_graph_api::node_support::{
 use logic_analyzer_processing::nodes::sources::sigrok_file::SigrokFileSource;
 use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
 use node_graph::api::Socket;
-use signal_processing::{ProcessNode, Sample, SampleBlock};
+use signal_processing::{IndexedCapturePresentation, ProcessNode, Sample, SampleBlock};
 
-#[derive(Default)]
-pub(crate) struct SigrokFileSourceBuilder;
+trait SigrokFileArtifacts: Send + Sync {
+    fn open(&self, name: &str, path: &Path) -> Result<Box<dyn ProcessNode>, String>;
+    fn indexed_presentation(&self, path: &Path) -> IndexedCapturePresentation;
+    fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String>;
+}
+
+struct NativeSigrokFileArtifacts;
+
+impl SigrokFileArtifacts for NativeSigrokFileArtifacts {
+    fn open(&self, name: &str, path: &Path) -> Result<Box<dyn ProcessNode>, String> {
+        SigrokFileSource::new(path)
+            .map(|source| Box::new(source.with_name(name)) as Box<dyn ProcessNode>)
+            .map_err(|error| error.to_string())
+    }
+
+    fn indexed_presentation(&self, path: &Path) -> IndexedCapturePresentation {
+        SigrokFileSource::indexed_capture_presentation(path)
+    }
+
+    fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String> {
+        SigrokFileSource::capture_cache_identity(path).map_err(|error| error.to_string())
+    }
+}
+
+pub(crate) struct SigrokFileSourceBuilder {
+    artifacts: Arc<dyn SigrokFileArtifacts>,
+}
+
+impl Default for SigrokFileSourceBuilder {
+    fn default() -> Self {
+        Self {
+            artifacts: Arc::new(NativeSigrokFileArtifacts),
+        }
+    }
+}
+
+#[cfg(test)]
+impl SigrokFileSourceBuilder {
+    fn with_artifacts(artifacts: Arc<dyn SigrokFileArtifacts>) -> Self {
+        Self { artifacts }
+    }
+}
 
 impl RuntimeBuilder for SigrokFileSourceBuilder {
     fn is_source(&self) -> bool {
@@ -87,7 +130,7 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
         if path.as_os_str().is_empty() {
             return Ok(None);
         }
-        let indexed = SigrokFileSource::indexed_capture_presentation(&path);
+        let indexed = self.artifacts.indexed_presentation(&path);
         Ok(Some(CapturePresentation::Indexed {
             identity: indexed.identity,
             factory: indexed.factory,
@@ -104,7 +147,8 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
         if state.demo_data {
             return CaptureCacheIdentity::NotCapture;
         }
-        SigrokFileSource::capture_cache_identity(&state.file.value)
+        self.artifacts
+            .cache_identity(Path::new(&state.file.value))
             .map(CaptureCacheIdentity::Stable)
             .unwrap_or(CaptureCacheIdentity::Dynamic)
     }
@@ -129,8 +173,166 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
                     .with_name(name),
             ));
         }
-        SigrokFileSource::new(&state.file.value)
-            .map(|source| Box::new(source.with_name(name)) as Box<dyn ProcessNode>)
+        self.artifacts
+            .open(name, Path::new(&state.file.value))
             .map_err(|error| format!("cannot open '{}': {error}", state.file.value))
+    }
+}
+
+#[cfg(test)]
+mod builder_tests {
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    use node_graph::NodeDef;
+
+    use super::super::definition::SigrokFileSource;
+    use super::*;
+    use crate::nodes::test_support::{TestCaptureIndexFactory, TestProcessNode};
+
+    #[derive(Default)]
+    struct FakeArtifacts {
+        operations: Mutex<Vec<String>>,
+        open_error: Option<String>,
+        identity_error: bool,
+    }
+
+    impl SigrokFileArtifacts for FakeArtifacts {
+        fn open(&self, name: &str, path: &Path) -> Result<Box<dyn ProcessNode>, String> {
+            self.operations
+                .lock()
+                .unwrap()
+                .push(format!("open:{}:{name}", path.display()));
+            if let Some(error) = &self.open_error {
+                return Err(error.clone());
+            }
+            Ok(Box::new(TestProcessNode::new(name)))
+        }
+
+        fn indexed_presentation(&self, path: &Path) -> IndexedCapturePresentation {
+            self.operations
+                .lock()
+                .unwrap()
+                .push(format!("presentation:{}", path.display()));
+            IndexedCapturePresentation {
+                identity: path.to_owned(),
+                factory: Box::new(TestCaptureIndexFactory::new(path)),
+            }
+        }
+
+        fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String> {
+            self.operations
+                .lock()
+                .unwrap()
+                .push(format!("identity:{}", path.display()));
+            if self.identity_error {
+                Err("controlled identity failure".into())
+            } else {
+                Ok([0xA5; 32])
+            }
+        }
+    }
+
+    #[test]
+    fn non_demo_artifacts_drive_lowering_presentation_and_cache_identity() {
+        let artifacts = Arc::new(FakeArtifacts::default());
+        let builder = SigrokFileSourceBuilder::with_artifacts(artifacts.clone());
+        let state = fixture_state("fixture.sr");
+        let mut context = crate::nodes::test_support::TestNodeBuildContext::default();
+
+        let presentation = builder.capture_presentation(&state).unwrap().unwrap();
+        let CapturePresentation::Indexed { identity, factory } = presentation else {
+            panic!("file source must publish an indexed presentation");
+        };
+        assert_eq!(identity, PathBuf::from("fixture.sr"));
+        assert_eq!(factory.display_name(), "fixture.sr");
+        assert_eq!(
+            builder.capture_cache_identity(&state, &ResolvedInputs::default()),
+            CaptureCacheIdentity::Stable([0xA5; 32])
+        );
+        let runtime = builder
+            .build(
+                "Fixture session",
+                &state,
+                &ResolvedInputs::default(),
+                &mut context,
+            )
+            .unwrap();
+        assert_eq!(runtime.name(), "Fixture session");
+        assert_eq!(
+            &*artifacts.operations.lock().unwrap(),
+            &[
+                "presentation:fixture.sr",
+                "identity:fixture.sr",
+                "open:fixture.sr:Fixture session",
+            ]
+        );
+    }
+
+    #[test]
+    fn non_demo_artifact_failures_are_deterministic() {
+        let artifacts = Arc::new(FakeArtifacts {
+            open_error: Some("controlled session failure".into()),
+            identity_error: true,
+            ..FakeArtifacts::default()
+        });
+        let builder = SigrokFileSourceBuilder::with_artifacts(artifacts);
+        let state = fixture_state("missing.sr");
+        let mut context = crate::nodes::test_support::TestNodeBuildContext::default();
+
+        assert_eq!(
+            builder.capture_cache_identity(&state, &ResolvedInputs::default()),
+            CaptureCacheIdentity::Dynamic
+        );
+        let error = builder
+            .build(
+                "Missing session",
+                &state,
+                &ResolvedInputs::default(),
+                &mut context,
+            )
+            .err()
+            .expect("controlled open failure must be preserved");
+        assert_eq!(
+            error,
+            "cannot open 'missing.sr': controlled session failure"
+        );
+    }
+
+    #[test]
+    fn demo_data_bypasses_file_artifacts() {
+        let artifacts = Arc::new(FakeArtifacts::default());
+        let builder = SigrokFileSourceBuilder::with_artifacts(artifacts.clone());
+        let mut state = SigrokFileSource::state();
+        state.demo_data = true;
+        state.channel_names = vec!["Demo".into()];
+        let state = serde_json::to_value(state).unwrap();
+        let mut context = crate::nodes::test_support::TestNodeBuildContext::default();
+
+        assert!(matches!(
+            builder.capture_presentation(&state).unwrap(),
+            Some(CapturePresentation::InMemory { .. })
+        ));
+        assert_eq!(
+            builder.capture_cache_identity(&state, &ResolvedInputs::default()),
+            CaptureCacheIdentity::NotCapture
+        );
+        let runtime = builder
+            .build(
+                "Demo session",
+                &state,
+                &ResolvedInputs::default(),
+                &mut context,
+            )
+            .unwrap();
+        assert_eq!(runtime.name(), "Demo session");
+        assert!(artifacts.operations.lock().unwrap().is_empty());
+    }
+
+    fn fixture_state(path: &str) -> Value {
+        let mut state = SigrokFileSource::state();
+        state.file.value = path.into();
+        state.channel_names = vec!["Clock".into()];
+        serde_json::to_value(state).unwrap()
     }
 }

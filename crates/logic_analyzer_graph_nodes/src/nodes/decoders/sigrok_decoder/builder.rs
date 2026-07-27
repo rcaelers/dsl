@@ -16,12 +16,61 @@ use signal_processing::{ProcessNode, ProtocolPacket, SampleBlock, Word};
 
 use super::definition::{SavedOptionControl, SavedOutputKind, SavedScalar, SigrokDecoderState};
 
-#[derive(Default)]
-pub(crate) struct SigrokDecoderBuilder;
+trait SigrokDecoderBackend: Send + Sync {
+    fn discover(
+        &self,
+        decoder_root: &std::path::Path,
+        decoder_id: &str,
+    ) -> Result<SigrokDecoderDescriptor, String>;
+
+    fn create(
+        &self,
+        name: &str,
+        config: SigrokDecoderConfig,
+    ) -> Result<Box<dyn ProcessNode>, String>;
+}
+
+struct PythonSigrokDecoderBackend;
+
+impl SigrokDecoderBackend for PythonSigrokDecoderBackend {
+    fn discover(
+        &self,
+        decoder_root: &std::path::Path,
+        decoder_id: &str,
+    ) -> Result<SigrokDecoderDescriptor, String> {
+        discover_sigrok_decoder(decoder_root, decoder_id)
+    }
+
+    fn create(
+        &self,
+        name: &str,
+        config: SigrokDecoderConfig,
+    ) -> Result<Box<dyn ProcessNode>, String> {
+        SigrokDecoder::new(config)
+            .map(|decoder| Box::new(decoder.with_name(name)) as Box<dyn ProcessNode>)
+    }
+}
+
+pub(crate) struct SigrokDecoderBuilder {
+    backend: Arc<dyn SigrokDecoderBackend>,
+}
+
+impl Default for SigrokDecoderBuilder {
+    fn default() -> Self {
+        Self {
+            backend: Arc::new(PythonSigrokDecoderBackend),
+        }
+    }
+}
 
 impl SigrokDecoderBuilder {
     fn parsed(state: &Value) -> Result<SigrokDecoderState, String> {
         parse_state(state)
+    }
+
+    #[cfg(test)]
+    fn with_backend(backend: Arc<dyn SigrokDecoderBackend>) -> Self {
+        Self { backend }
     }
 }
 
@@ -127,7 +176,9 @@ impl RuntimeBuilder for SigrokDecoderBuilder {
         if state.decoder_id.is_empty() {
             return Err("No Sigrok decoder is selected".to_owned());
         }
-        let current = discover_sigrok_decoder(&state.decoder_root, &state.decoder_id)?;
+        let current = self
+            .backend
+            .discover(&state.decoder_root, &state.decoder_id)?;
         if current.package_fingerprint != state.package_fingerprint {
             return Err(format!(
                 "Sigrok decoder '{}' changed since this graph was saved; reselect it to migrate its channels and options",
@@ -166,22 +217,23 @@ impl RuntimeBuilder for SigrokDecoderBuilder {
             }
         }
         let sample_rate = state.sample_rate()?;
-        let decoder = SigrokDecoder::new(SigrokDecoderConfig {
-            decoder_root: state.decoder_root,
-            decoder_id: state.decoder_id,
-            sample_rate,
-            channels,
-            protocol_inputs: state.protocol_inputs,
-            options,
-            annotation_rows_by_class: annotation_rows_by_class
-                .into_iter()
-                .map(Arc::from)
-                .collect(),
-            binary_class_count: state.binary_class_count,
-            logic_groups: state.logic_groups,
-        })?
-        .with_name(name);
-        Ok(Box::new(decoder))
+        self.backend.create(
+            name,
+            SigrokDecoderConfig {
+                decoder_root: state.decoder_root,
+                decoder_id: state.decoder_id,
+                sample_rate,
+                channels,
+                protocol_inputs: state.protocol_inputs,
+                options,
+                annotation_rows_by_class: annotation_rows_by_class
+                    .into_iter()
+                    .map(Arc::from)
+                    .collect(),
+                binary_class_count: state.binary_class_count,
+                logic_groups: state.logic_groups,
+            },
+        )
     }
 }
 
@@ -269,4 +321,201 @@ fn validate_descriptor_schema(
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod builder_tests {
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
+
+    use super::*;
+    use crate::nodes::test_support::{
+        TestNodeBuildContext, TestProcessNode, test_sigrok_logic_descriptor,
+    };
+
+    struct FakeBackend {
+        descriptor: SigrokDecoderDescriptor,
+        discovery_error: Option<String>,
+        create_error: Option<String>,
+        discoveries: Mutex<Vec<(PathBuf, String)>>,
+        creation: Mutex<Option<(String, SigrokDecoderConfig)>>,
+    }
+
+    impl FakeBackend {
+        fn new(descriptor: SigrokDecoderDescriptor) -> Self {
+            Self {
+                descriptor,
+                discovery_error: None,
+                create_error: None,
+                discoveries: Mutex::new(Vec::new()),
+                creation: Mutex::new(None),
+            }
+        }
+    }
+
+    impl SigrokDecoderBackend for FakeBackend {
+        fn discover(
+            &self,
+            decoder_root: &Path,
+            decoder_id: &str,
+        ) -> Result<SigrokDecoderDescriptor, String> {
+            self.discoveries
+                .lock()
+                .unwrap()
+                .push((decoder_root.to_owned(), decoder_id.to_owned()));
+            if let Some(error) = &self.discovery_error {
+                Err(error.clone())
+            } else {
+                Ok(self.descriptor.clone())
+            }
+        }
+
+        fn create(
+            &self,
+            name: &str,
+            config: SigrokDecoderConfig,
+        ) -> Result<Box<dyn ProcessNode>, String> {
+            *self.creation.lock().unwrap() = Some((name.to_owned(), config));
+            if let Some(error) = &self.create_error {
+                Err(error.clone())
+            } else {
+                Ok(Box::new(TestProcessNode::new(name)))
+            }
+        }
+    }
+
+    #[test]
+    fn saved_descriptor_lowers_through_the_injected_backend() {
+        let descriptor = test_sigrok_logic_descriptor();
+        let backend = Arc::new(FakeBackend::new(descriptor.clone()));
+        let builder = SigrokDecoderBuilder::with_backend(backend.clone());
+        let root = PathBuf::from("virtual/sigrok-decoders");
+        let state = SigrokDecoderState::from_descriptor(root.clone(), &descriptor);
+        let state = serde_json::to_value(state).unwrap();
+        let mut context = TestNodeBuildContext::default();
+
+        let runtime = builder
+            .build(
+                "Fixture decoder",
+                &state,
+                &ResolvedInputs::default(),
+                &mut context,
+            )
+            .unwrap();
+
+        assert_eq!(runtime.name(), "Fixture decoder");
+        assert_eq!(
+            &*backend.discoveries.lock().unwrap(),
+            &[(root.clone(), "test_logic".to_owned())]
+        );
+        let creation = backend.creation.lock().unwrap();
+        let (name, config) = creation.as_ref().expect("runtime creation was requested");
+        assert_eq!(name, "Fixture decoder");
+        assert_eq!(config.decoder_root, root);
+        assert_eq!(config.decoder_id, "test_logic");
+        assert_eq!(config.sample_rate, 1_000_000);
+        assert_eq!(
+            config
+                .channels
+                .iter()
+                .map(|channel| (channel.name.as_str(), channel.connected))
+                .collect::<Vec<_>>(),
+            [("mosi", true), ("cs", false)]
+        );
+        assert!(config.protocol_inputs.is_empty());
+        assert_eq!(config.annotation_rows_by_class.len(), 1);
+        assert_eq!(&*config.annotation_rows_by_class[0], &[0]);
+        assert_eq!(config.binary_class_count, 1);
+        assert_eq!(config.logic_groups, ["Generated"]);
+    }
+
+    #[test]
+    fn discovery_and_runtime_failures_remain_separate() {
+        let descriptor = test_sigrok_logic_descriptor();
+        let root = PathBuf::from("virtual/sigrok-decoders");
+        let state =
+            serde_json::to_value(SigrokDecoderState::from_descriptor(root, &descriptor)).unwrap();
+        let mut context = TestNodeBuildContext::default();
+
+        let discovery_backend = Arc::new(FakeBackend {
+            discovery_error: Some("controlled discovery failure".into()),
+            ..FakeBackend::new(descriptor.clone())
+        });
+        let discovery_error = SigrokDecoderBuilder::with_backend(discovery_backend.clone())
+            .build(
+                "Fixture decoder",
+                &state,
+                &ResolvedInputs::default(),
+                &mut context,
+            )
+            .err()
+            .expect("discovery failure must be preserved");
+        assert_eq!(discovery_error, "controlled discovery failure");
+        assert!(discovery_backend.creation.lock().unwrap().is_none());
+
+        let runtime_backend = Arc::new(FakeBackend {
+            create_error: Some("controlled runtime failure".into()),
+            ..FakeBackend::new(descriptor)
+        });
+        let runtime_error = SigrokDecoderBuilder::with_backend(runtime_backend.clone())
+            .build(
+                "Fixture decoder",
+                &state,
+                &ResolvedInputs::default(),
+                &mut context,
+            )
+            .err()
+            .expect("runtime failure must be preserved");
+        assert_eq!(runtime_error, "controlled runtime failure");
+        assert!(runtime_backend.creation.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn changed_package_is_rejected_before_runtime_creation() {
+        let saved = test_sigrok_logic_descriptor();
+        let mut changed = saved.clone();
+        changed.package_fingerprint = "changed-fingerprint".into();
+        let backend = Arc::new(FakeBackend::new(changed));
+        let builder = SigrokDecoderBuilder::with_backend(backend.clone());
+        let state = serde_json::to_value(SigrokDecoderState::from_descriptor(
+            PathBuf::from("virtual/sigrok-decoders"),
+            &saved,
+        ))
+        .unwrap();
+        let mut context = TestNodeBuildContext::default();
+
+        let error = builder
+            .build(
+                "Changed decoder",
+                &state,
+                &ResolvedInputs::default(),
+                &mut context,
+            )
+            .err()
+            .expect("changed package must fail");
+
+        assert!(error.contains("changed since this graph was saved"));
+        assert!(backend.creation.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn malformed_state_is_rejected_before_discovery() {
+        let backend = Arc::new(FakeBackend::new(test_sigrok_logic_descriptor()));
+        let builder = SigrokDecoderBuilder::with_backend(backend.clone());
+        let mut context = TestNodeBuildContext::default();
+
+        let error = builder
+            .build(
+                "Malformed decoder",
+                &Value::Null,
+                &ResolvedInputs::default(),
+                &mut context,
+            )
+            .err()
+            .expect("malformed state must fail");
+
+        assert!(error.starts_with("invalid node state:"));
+        assert!(backend.discoveries.lock().unwrap().is_empty());
+        assert!(backend.creation.lock().unwrap().is_none());
+    }
 }

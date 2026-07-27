@@ -8,41 +8,17 @@ inventory::submit! {
 
 #[cfg(test)]
 mod registration_tests {
-    use std::fs::File;
-    use std::io::Write;
-
-    use zip::ZipWriter;
-    use zip::write::SimpleFileOptions;
-
     use node_graph::NodeDef;
 
     use super::super::definition::DslFileSource;
 
     #[test]
-    fn dsl_file_source_registration_contract_accepts_a_checked_in_format() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("one-channel.dsl");
-        let file = File::create(&path).unwrap();
-        let mut archive = ZipWriter::new(file);
-        archive
-            .start_file("header", SimpleFileOptions::default())
-            .unwrap();
-        archive
-            .write_all(
-                b"total probes = 1\nsamplerate = 1 MHz\ntotal samples = 8\ntotal blocks = 1\nprobe0 = Clock\n",
-            )
-            .unwrap();
-        archive
-            .start_file("L-0/0", SimpleFileOptions::default())
-            .unwrap();
-        archive.write_all(&[0]).unwrap();
-        archive.finish().unwrap();
-
+    fn dsl_file_source_registration_contract_is_self_consistent() {
         let mut state = serde_json::to_value(DslFileSource::state()).unwrap();
-        state["file"]["value"] = path.display().to_string().into();
-        crate::nodes::test_support::assert_node_registration_contract_with_state(
+        state["channel_names"] = serde_json::json!(["Clock"]);
+        crate::nodes::test_support::assert_node_registration_contract_without_runtime_with_state(
             "org.logicconduit.graph-node.dsl-file-source/v1",
-            Some(state),
+            state,
         );
     }
 }

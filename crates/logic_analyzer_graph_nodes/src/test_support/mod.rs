@@ -2,4 +2,4 @@
 
 mod implementation;
 
-pub(crate) use implementation::{build_registry, node_name};
+pub(crate) use implementation::build_registry;

@@ -6,8 +6,8 @@ use egui::{Color32, Rect, Ui};
 use serde::{Deserialize, Serialize};
 
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
-    SigrokCatalogEntry, SigrokDecoderCatalog, SigrokDecoderDescriptor, SigrokOutputKind,
-    SigrokScalarValue,
+    SigrokCatalogEntry, SigrokCatalogSnapshot, SigrokDecoderCatalog, SigrokDecoderDescriptor,
+    SigrokOutputKind, SigrokScalarValue,
 };
 use node_graph::{
     BoolValue, EnumValue, FloatValue, InlineControl, InputDef, IntValue, NodeBadge, NodeDef,
@@ -589,6 +589,10 @@ fn refresh_catalog(state: &mut SigrokDecoderState) {
     } else {
         catalog().snapshot(&search_paths)
     };
+    apply_catalog_snapshot(state, &snapshot);
+}
+
+fn apply_catalog_snapshot(state: &mut SigrokDecoderState, snapshot: &SigrokCatalogSnapshot) {
     state.catalog.entries = snapshot.entries.iter().map(catalog_choice).collect();
     state.catalog.diagnostics = snapshot
         .diagnostics
@@ -783,19 +787,20 @@ fn output_definition(output: SavedOutputKind) -> OutputDef<SigrokDecoderState> {
 
 #[cfg(test)]
 mod definition_tests {
+    use node_graph::api::{GraphDocumentBuilder, NodeTypeRegistry};
+
     use super::*;
+    use crate::nodes::test_support::test_sigrok_logic_descriptor;
 
     #[test]
     fn instance_schema_uses_saved_stable_channels_options_and_outputs() {
         let state = fixture_state();
-        let mut registry = node_graph::NodeTypeRegistry::new();
+        let mut registry = NodeTypeRegistry::new();
         registry.register::<SigrokDecoderDefinition>();
-        let mut widget = node_graph::NodeGraphWidget::new(registry);
-        let node = widget
-            .add_node_at(SigrokDecoderDefinition::name(), egui::Pos2::ZERO)
-            .unwrap();
-        assert!(widget.set_node_state(node, serde_json::to_value(state).unwrap()));
-        let node = &widget.graph().nodes[&node];
+        let mut document = GraphDocumentBuilder::new(registry);
+        let node = document.add_node(SigrokDecoderDefinition::name()).unwrap();
+        assert!(document.set_node_state(node, serde_json::to_value(state).unwrap()));
+        let node = &document.graph().nodes[&node];
         assert_eq!(
             node.inputs
                 .iter()
@@ -825,36 +830,52 @@ mod definition_tests {
                 .collect::<Vec<_>>(),
             ["Words", "Words", "Signal", "Words", "Protocol Packet"]
         );
-
-        let saved = serde_json::to_string(widget.graph()).unwrap();
-        let mut registry = node_graph::NodeTypeRegistry::new();
-        registry.register::<SigrokDecoderDefinition>();
-        let mut restored = node_graph::NodeGraphWidget::new(registry);
-        restored.set_graph(serde_json::from_str(&saved).unwrap());
-        let node = &restored.graph().nodes[&node.id];
-        assert_eq!(node.inputs[0].name, "Clock");
-        assert_eq!(node.outputs[4].name, "Packets");
     }
 
     #[test]
     fn legacy_saved_state_migrates_with_a_visible_warning() {
         let mut state = fixture_state();
         state.schema_version = 0;
-        let mut registry = node_graph::NodeTypeRegistry::new();
+        let mut registry = NodeTypeRegistry::new();
         registry.register::<SigrokDecoderDefinition>();
-        let mut widget = node_graph::NodeGraphWidget::new(registry);
-        let node = widget
-            .add_node_at(SigrokDecoderDefinition::name(), egui::Pos2::ZERO)
-            .unwrap();
-        assert!(widget.set_node_state(node, serde_json::to_value(state).unwrap()));
+        let mut document = GraphDocumentBuilder::new(registry);
+        let node = document.add_node(SigrokDecoderDefinition::name()).unwrap();
+        assert!(document.set_node_state(node, serde_json::to_value(state).unwrap()));
         let state: SigrokDecoderState =
-            serde_json::from_value(widget.graph().nodes[&node].state.clone()).unwrap();
+            serde_json::from_value(document.graph().nodes[&node].state.clone()).unwrap();
         assert_eq!(state.schema_version, CURRENT_SCHEMA_VERSION);
         assert!(
-            widget.graph().nodes[&node]
+            document.graph().nodes[&node]
                 .badge
                 .as_ref()
                 .is_some_and(|badge| badge.text.contains("Upgraded"))
+        );
+    }
+
+    #[test]
+    fn legacy_protocol_contracts_migrate_from_an_injected_catalog_snapshot() {
+        let decoder_root = PathBuf::from("virtual/sigrok-decoders");
+        let descriptor = test_sigrok_logic_descriptor();
+        let mut state = SigrokDecoderState::from_descriptor(decoder_root.clone(), &descriptor);
+        state.schema_version = 1;
+        state.protocol_outputs.clear();
+        let snapshot = SigrokCatalogSnapshot {
+            entries: vec![SigrokCatalogEntry {
+                decoder_root,
+                descriptor,
+            }],
+            diagnostics: Vec::new(),
+        };
+
+        apply_catalog_snapshot(&mut state, &snapshot);
+
+        assert_eq!(state.schema_version, PROTOCOL_CONTRACT_SCHEMA_VERSION);
+        assert_eq!(state.protocol_outputs, ["test_logic"]);
+        assert!(
+            state
+                .compatibility_warning
+                .as_deref()
+                .is_some_and(|warning| warning.contains("protocol connection contracts"))
         );
     }
 
