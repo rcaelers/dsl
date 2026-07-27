@@ -463,9 +463,12 @@ impl App {
     /// is outstanding — Save/Don't Save/Cancel, same dialog for all three
     /// (Phase 5.1).
     fn show_guarded_action_dialog(&mut self, ctx: &egui::Context) {
-        if self.platform.pending_guarded_action.is_none() {
-            return;
-        }
+        let continuation = match self.platform.pending_guarded_action.as_ref() {
+            Some(GuardedAction::Quit) => "quitting",
+            Some(GuardedAction::New) => "creating a new graph",
+            Some(GuardedAction::LoadPath(_)) => "opening another graph",
+            None => return,
+        };
 
         enum DialogChoice {
             Save,
@@ -474,24 +477,84 @@ impl App {
         }
 
         let mut choice = None;
-        egui::Window::new("Save changes?")
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+        let warning_color = egui::Color32::from_rgb(240, 180, 70);
+        let discard_color = egui::Color32::from_rgb(135, 55, 50);
+        let style = ctx.style_of(ctx.theme());
+        let modal = egui::Modal::new(egui::Id::new("unsaved-graph-changes"))
+            .backdrop_color(egui::Color32::from_black_alpha(190))
+            .frame(
+                egui::Frame::popup(&style)
+                    .fill(egui::Color32::from_rgb(47, 39, 25))
+                    .stroke(egui::Stroke::new(2.0, warning_color))
+                    .inner_margin(egui::Margin::symmetric(28, 24)),
+            )
             .show(ctx, |ui| {
-                ui.label("Save changes to the graph before continuing?");
+                ui.set_min_width(430.0);
+                ui.label(
+                    egui::RichText::new("Unsaved changes")
+                        .size(26.0)
+                        .strong()
+                        .color(warning_color),
+                );
+                ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Your graph has changes that have not been saved. Save before {continuation}?"
+                    ))
+                    .size(16.0),
+                );
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new(
+                        "Choosing Don’t Save permanently discards those changes.",
+                    )
+                    .color(egui::Color32::from_rgb(245, 175, 165)),
+                );
+                ui.add_space(20.0);
+
                 ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
-                        choice = Some(DialogChoice::Save);
-                    }
-                    if ui.button("Don't Save").clicked() {
-                        choice = Some(DialogChoice::Discard);
-                    }
-                    if ui.button("Cancel").clicked() {
+                    if ui
+                        .add_sized([108.0, 32.0], egui::Button::new("Keep Editing"))
+                        .clicked()
+                    {
                         choice = Some(DialogChoice::Cancel);
                     }
+                    let remaining_width = ui.available_width();
+                    ui.allocate_ui_with_layout(
+                        egui::Vec2::new(remaining_width, 32.0),
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            if ui
+                                .add_sized(
+                                    [132.0, 32.0],
+                                    egui::Button::new("Save Changes")
+                                        .fill(ui.visuals().selection.bg_fill),
+                                )
+                                .clicked()
+                            {
+                                choice = Some(DialogChoice::Save);
+                            }
+                            ui.add_space(8.0);
+                            if ui
+                                .add_sized(
+                                    [112.0, 32.0],
+                                    egui::Button::new("Don’t Save").fill(discard_color),
+                                )
+                                .clicked()
+                            {
+                                choice = Some(DialogChoice::Discard);
+                            }
+                        },
+                    );
                 });
             });
+
+        if choice.is_none()
+            && modal.is_top_modal
+            && ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
+            choice = Some(DialogChoice::Cancel);
+        }
 
         match choice {
             // Save can itself open a blocking Save As dialog and be
