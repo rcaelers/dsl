@@ -41,13 +41,12 @@ impl LogicAnalyzerViewer {
             return;
         }
         edges.retain(|(time_us, _)| sampling_is_active(channels, overlay, *time_us));
-        thin_sampling_edges(
-            &mut edges,
+        if !sampling_edges_are_spaced(
+            &edges,
             self.visible_start_us,
             visible_end_us,
             layout.wave_rect.width(),
-        );
-        if edges.is_empty() {
+        ) {
             return;
         }
 
@@ -91,27 +90,22 @@ impl LogicAnalyzerViewer {
     }
 }
 
-fn thin_sampling_edges(
-    edges: &mut Vec<(f64, bool)>,
+fn sampling_edges_are_spaced(
+    edges: &[(f64, bool)],
     visible_start_us: f64,
     visible_end_us: f64,
     width: f32,
-) {
+) -> bool {
     let visible_span_us = visible_end_us - visible_start_us;
     if width <= 0.0 || visible_span_us <= 0.0 {
-        edges.clear();
-        return;
+        return false;
     }
     let pixels_per_us = f64::from(width) / visible_span_us;
-    let mut last_x = f64::NEG_INFINITY;
-    edges.retain(|(time_us, _)| {
-        let x = (*time_us - visible_start_us) * pixels_per_us;
-        if x - last_x < MARKER_SPACING_PX {
-            return false;
-        }
-        last_x = x;
-        true
-    });
+    edges.windows(2).all(|pair| {
+        let first_x = (pair[0].0 - visible_start_us) * pixels_per_us;
+        let second_x = (pair[1].0 - visible_start_us) * pixels_per_us;
+        second_x - first_x >= MARKER_SPACING_PX
+    })
 }
 
 fn sampling_is_active(channels: &[LogicChannel], overlay: &SamplingOverlay, time_us: f64) -> bool {
@@ -348,15 +342,15 @@ mod tests {
     }
 
     #[test]
-    fn dense_sampling_edges_are_thinned_to_six_screen_pixels() {
-        let mut edges = vec![
+    fn dense_sampling_edges_hide_the_complete_overlay() {
+        let edges = vec![
             (0.0, true),
             (1.0, true),
             (2.0, true),
             (6.0, true),
             (12.0, true),
         ];
-        thin_sampling_edges(&mut edges, 0.0, 100.0, 100.0);
-        assert_eq!(edges, vec![(0.0, true), (6.0, true), (12.0, true)]);
+        assert!(!sampling_edges_are_spaced(&edges, 0.0, 100.0, 100.0));
+        assert!(sampling_edges_are_spaced(&edges[3..], 0.0, 100.0, 100.0));
     }
 }
