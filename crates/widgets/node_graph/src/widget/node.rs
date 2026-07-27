@@ -901,7 +901,8 @@ fn draw_socket_indicators(
         SocketDirection::Input => -1.0,
         SocketDirection::Output => 1.0,
     };
-    let mut offset = SOCKET_RADIUS * zoom + 3.0;
+    let gap = 3.0 * zoom;
+    let mut offset = SOCKET_RADIUS * zoom + gap;
     for presentation in indicators
         .values()
         .filter_map(|by_socket| by_socket.get(&socket))
@@ -910,10 +911,10 @@ fn draw_socket_indicators(
         let size = presentation.size(zoom).max(Vec2::ZERO);
         let center = Pos2::new(
             socket_pos.x + direction * (offset + size.x * 0.5),
-            socket_pos.y - if connected { size.y + 2.0 } else { 0.0 },
+            socket_pos.y - if connected { size.y + 2.0 * zoom } else { 0.0 },
         );
         presentation.draw(painter, Rect::from_center_size(center, size), zoom);
-        offset += size.x + 3.0;
+        offset += size.x + gap;
     }
 }
 

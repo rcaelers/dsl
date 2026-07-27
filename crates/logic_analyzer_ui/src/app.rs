@@ -46,12 +46,10 @@ struct ViewerSocketIndicator;
 
 impl SocketIndicatorPresentation for ViewerSocketIndicator {
     fn size(&self, zoom: f32) -> egui::Vec2 {
-        let scale = zoom.clamp(0.65, 1.25);
-        egui::Vec2::new(12.0 * scale, 7.4 * scale)
+        egui::Vec2::new(12.0 * zoom, 7.4 * zoom)
     }
 
     fn draw(&self, painter: &egui::Painter, rect: egui::Rect, zoom: f32) {
-        let scale = zoom.clamp(0.65, 1.25);
         let center = rect.center();
         let half_width = rect.width() * 0.5;
         let half_height = rect.height() * 0.5;
@@ -65,9 +63,9 @@ impl SocketIndicatorPresentation for ViewerSocketIndicator {
                 egui::Pos2::new(center.x - half_width * 0.45, center.y + half_height),
             ],
             egui::Color32::from_black_alpha(210),
-            egui::Stroke::new(1.2 * scale, egui::Color32::from_rgb(190, 225, 205)),
+            egui::Stroke::new(1.2 * zoom, egui::Color32::from_rgb(190, 225, 205)),
         ));
-        painter.circle_filled(center, 1.65 * scale, egui::Color32::from_rgb(110, 205, 145));
+        painter.circle_filled(center, 1.65 * zoom, egui::Color32::from_rgb(110, 205, 145));
     }
 }
 
@@ -2504,12 +2502,12 @@ impl eframe::App for App {
 
 #[cfg(test)]
 mod font_tests {
-    use node_graph::{GraphState, NodeId};
+    use node_graph::{GraphState, NodeId, SocketIndicatorPresentation};
 
     use super::{
-        PluginPanelsState, SavedViewerRow, StatusAction, install_fonts, load_symbol_fonts,
-        save_panel_layout, save_sampling_overlay, save_viewer_lane_order, saved_panel_layout,
-        saved_sampling_overlay, saved_viewer_lane_order,
+        PluginPanelsState, SavedViewerRow, StatusAction, ViewerSocketIndicator, install_fonts,
+        load_symbol_fonts, save_panel_layout, save_sampling_overlay, save_viewer_lane_order,
+        saved_panel_layout, saved_sampling_overlay, saved_viewer_lane_order,
     };
 
     #[test]
@@ -2539,6 +2537,14 @@ mod font_tests {
                 .collect::<Vec<_>>(),
             ["X", "Delete"]
         );
+    }
+
+    #[test]
+    fn viewer_socket_indicator_scales_with_graph_zoom() {
+        let indicator = ViewerSocketIndicator;
+
+        assert_eq!(indicator.size(0.5), egui::vec2(6.0, 3.7));
+        assert_eq!(indicator.size(3.0), egui::vec2(36.0, 22.2));
     }
 
     #[test]
