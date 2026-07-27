@@ -272,6 +272,13 @@ executors can retain, complete, fail, or disconnect the same task without thread
 production capture files. Dropping a pending task detaches its eventual result when the source is
 reset or replaced.
 
+Derived-cache discovery and cleanup use a separate compiler-owned backend contract. The native
+adapter asks `signal_processing` to validate persistent annotation stores and enforce the cache
+budget; the compiler sees only hit, miss, or unreadable availability. Only a confirmed hit removes
+the corresponding producer path. Missing or corrupt data remains connected and is regenerated,
+and cleanup failure does not change graph correctness. Persistent-store publication, cancellation,
+corruption recovery, and filesystem cleanup remain owned and tested by `signal_processing`.
+
 The resulting dependency direction is:
 
 ```text

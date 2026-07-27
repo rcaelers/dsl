@@ -2378,7 +2378,9 @@ pub(crate) fn start_app_run_with_source_overrides_and_subscriptions(
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use std::sync::Arc;
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex};
 
     use egui::Pos2;
 
@@ -2395,6 +2397,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::derived_cache_backend::{DerivedCacheBackend, DerivedCacheLookup};
 
     const CONTRACT_SOURCE: &str = "Contract Source";
     const CONTRACT_LIVE_SOURCE: &str = "Contract Live Source";
@@ -2402,6 +2405,59 @@ mod tests {
     const CONTRACT_TRANSFORM: &str = "Contract Transform";
     const CONTRACT_CONVERSION: &str = "Contract Conversion";
     const CONTRACT_SINK: &str = "Contract Sink";
+
+    #[derive(Default)]
+    struct TestDerivedCacheBackend {
+        lookups: HashMap<[u8; 32], DerivedCacheLookup>,
+        cleanup_calls: Mutex<Vec<TestCleanupCall>>,
+        cleanup_error: Option<String>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct TestCleanupCall {
+        directory: PathBuf,
+        max_total_bytes: u64,
+        pinned_keys: Vec<[u8; 32]>,
+    }
+
+    impl TestDerivedCacheBackend {
+        fn with_lookup(mut self, key: [u8; 32], lookup: DerivedCacheLookup) -> Self {
+            self.lookups.insert(key, lookup);
+            self
+        }
+
+        fn with_cleanup_error(mut self, error: &str) -> Self {
+            self.cleanup_error = Some(error.to_owned());
+            self
+        }
+
+        fn cleanup_calls(&self) -> Vec<TestCleanupCall> {
+            self.cleanup_calls.lock().unwrap().clone()
+        }
+    }
+
+    impl DerivedCacheBackend for TestDerivedCacheBackend {
+        fn cleanup(
+            &self,
+            directory: &Path,
+            max_total_bytes: u64,
+            pinned_keys: &[[u8; 32]],
+        ) -> Result<(), String> {
+            self.cleanup_calls.lock().unwrap().push(TestCleanupCall {
+                directory: directory.to_path_buf(),
+                max_total_bytes,
+                pinned_keys: pinned_keys.to_vec(),
+            });
+            self.cleanup_error.clone().map_or(Ok(()), Err)
+        }
+
+        fn lookup(&self, config: &PersistentStoreConfig) -> DerivedCacheLookup {
+            self.lookups
+                .get(&config.cache_key)
+                .copied()
+                .unwrap_or(DerivedCacheLookup::Miss)
+        }
+    }
 
     struct ContractSourceDefinition;
 
@@ -3527,15 +3583,13 @@ mod tests {
 
     #[test]
     fn persistent_cache_hit_prunes_producer_used_only_by_cached_derived_lane() {
-        use signal_processing::{IndexedAnnotationWriter, LiveStoreConfig};
-
-        let directory = tempfile::tempdir().unwrap();
         let (mut widget, registry, producer) = selectable_word_output_contract();
         let explicit_sink = node_by_def(&widget, CONTRACT_SINK);
         widget.graph_mut().remove_node(explicit_sink);
 
         let mut compiled = lower(widget.graph(), &registry).unwrap();
-        cache_platform::configure_directory(&mut compiled, Some(directory.path()));
+        let directory = Path::new("controlled-cache");
+        cache_platform::configure_directory(&mut compiled, Some(directory));
         let caches = compiled
             .nodes
             .iter()
@@ -3543,19 +3597,13 @@ mod tests {
             .flat_map(|node| node.derived_word_caches.iter().flatten().cloned())
             .collect::<Vec<_>>();
         assert!(!caches.is_empty());
-        for cache in caches {
-            let (mut writer, store) = IndexedAnnotationWriter::create(LiveStoreConfig {
-                directory: directory.path().to_path_buf(),
-                persistence: Some(cache),
-                ..LiveStoreConfig::default()
-            })
-            .unwrap();
-            writer.append(Word::new(0x48, 0)).unwrap();
-            writer.finish().unwrap();
-            drop((writer, store));
-        }
+        let backend = caches.iter().fold(
+            TestDerivedCacheBackend::default().with_cleanup_error("controlled cleanup failure"),
+            |backend, config| backend.with_lookup(config.cache_key, DerivedCacheLookup::Hit),
+        );
 
-        let (execution, pruned) = cache_platform::prepare_execution(&compiled, &registry);
+        let (execution, pruned) =
+            cache_platform::prepare_execution_with_backend(&compiled, &registry, &backend);
 
         assert!(pruned);
         assert!(execution.nodes.iter().all(|node| node.id != producer));
@@ -3571,6 +3619,59 @@ mod tests {
                 .iter()
                 .all(|edge| edge.kind != PortKind::of::<Word>())
         );
+        let cleanup_calls = backend.cleanup_calls();
+        assert_eq!(cleanup_calls.len(), 1);
+        assert_eq!(cleanup_calls[0].directory, directory);
+        assert_eq!(cleanup_calls[0].max_total_bytes, caches[0].max_cache_bytes);
+        assert_eq!(
+            cleanup_calls[0].pinned_keys,
+            caches
+                .iter()
+                .map(|config| config.cache_key)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn missing_or_unreadable_persistent_caches_keep_the_producer_connected() {
+        let (mut widget, registry, producer) = selectable_word_output_contract();
+        let explicit_sink = node_by_def(&widget, CONTRACT_SINK);
+        widget.graph_mut().remove_node(explicit_sink);
+        let mut compiled = lower(widget.graph(), &registry).unwrap();
+        cache_platform::configure_directory(&mut compiled, Some(Path::new("controlled-cache")));
+        let cache_keys = compiled
+            .nodes
+            .iter()
+            .filter(|node| node.data_collector)
+            .flat_map(|node| node.derived_word_caches.iter().flatten())
+            .map(|config| config.cache_key)
+            .collect::<Vec<_>>();
+        let backend = cache_keys.iter().enumerate().fold(
+            TestDerivedCacheBackend::default(),
+            |backend, (index, key)| {
+                backend.with_lookup(
+                    *key,
+                    if index == 0 {
+                        DerivedCacheLookup::Unreadable
+                    } else {
+                        DerivedCacheLookup::Miss
+                    },
+                )
+            },
+        );
+
+        let (execution, pruned) =
+            cache_platform::prepare_execution_with_backend(&compiled, &registry, &backend);
+
+        assert!(!pruned);
+        assert!(execution.nodes.iter().any(|node| node.id == producer));
+        assert!(
+            execution
+                .edges
+                .iter()
+                .any(|edge| edge.kind == PortKind::of::<Word>())
+        );
+        assert_eq!(backend.cleanup_calls().len(), 1);
     }
 
     #[test]

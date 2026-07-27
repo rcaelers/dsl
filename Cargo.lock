@@ -2216,7 +2216,6 @@ dependencies = [
  "serde",
  "serde_json",
  "signal-processing",
- "tempfile",
 ]
 
 [[package]]

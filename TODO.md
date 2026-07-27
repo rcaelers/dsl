@@ -47,17 +47,7 @@ crate under test.
    - Completion gate: compiler and graph-node crate tests pass independently,
      and their Cargo dependency graphs contain no test-only cycle.
 
-3. **Compiler host-effect isolation:**
-   - Put derived-cache creation/cleanup and persistent artifact access behind
-     their existing generic storage contracts or a narrowly owned backend
-     trait. Test cache hit, miss, corruption, cancellation, and cleanup in
-     temporary crate-owned storage.
-   - Inject time where readiness, retry, timeout, or polling behavior is under
-     test. Do not use wall-clock sleeps to establish ordering.
-   - Completion gate: derived-cache behavior is deterministic at its storage
-     and time boundaries without depending on production artifacts.
-
-4. **Concrete processing boundaries:**
+3. **Concrete processing boundaries:**
    - Retain `LogicAnalyzer`, `CaptureDataSource`, `CaptureIndex`,
      `PreparedAcquisition`, and `UsbTransport` as the principal substitution
      seams. Move code that bypasses them back behind the appropriate owner
@@ -75,7 +65,7 @@ crate under test.
      and failure coverage through deterministic input, transport, storage, or
      host implementations.
 
-5. **Fixtures and external validation:**
+4. **Fixtures and external validation:**
    - Store required fixture data under the owning crate's `test_data/`
      directory, or generate it deterministically in the test. Do not read a
      sibling crate's fixtures or repository-adjacent directories such as
@@ -85,7 +75,7 @@ crate under test.
      protocol input, annotations, binary output, metadata, generated logic,
      malformed metadata, and runtime failure as needed.
 
-6. **Reusable contract suites and CI:**
+5. **Reusable contract suites and CI:**
    - Put reusable conformance assertions beside the trait owner. Implementor
      crates invoke them with local constructors/factories rather than importing
      another concrete implementation.

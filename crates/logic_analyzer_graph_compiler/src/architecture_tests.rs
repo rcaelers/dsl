@@ -182,11 +182,30 @@ fn compiler_has_no_production_ui_dependencies() {
 }
 
 #[test]
+fn compiler_cache_policy_uses_its_storage_backend_contract() {
+    let policy = implementation_source(include_str!("cache_platform_native.rs"));
+    assert!(!policy.contains("IndexedAnnotationStore"));
+    assert!(!policy.contains("signal_processing::cleanup_cache"));
+
+    let adapter = implementation_source(include_str!("derived_cache_backend_native.rs"));
+    assert!(adapter.contains("IndexedAnnotationStore::open_persistent"));
+    assert!(adapter.contains("signal_processing::cleanup_cache"));
+}
+
+#[test]
 fn compiler_uses_only_the_node_graph_api_namespace() {
     let sources = [
         ("cache native", include_str!("cache_platform_native.rs")),
         ("cache wasm", include_str!("cache_platform_wasm.rs")),
         ("data collector", include_str!("data_collector.rs")),
+        (
+            "derived-cache contract",
+            include_str!("derived_cache_backend.rs"),
+        ),
+        (
+            "derived-cache native adapter",
+            include_str!("derived_cache_backend_native.rs"),
+        ),
         ("errors", include_str!("errors.rs")),
         ("compiler facade", include_str!("graph_compiler.rs")),
         ("subscriptions", include_str!("output_subscription.rs")),

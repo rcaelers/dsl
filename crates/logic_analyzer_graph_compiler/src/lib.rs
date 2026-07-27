@@ -6,6 +6,10 @@
 //! integration belong in `logic-analyzer-ui`.
 
 mod data_collector;
+#[cfg(not(target_arch = "wasm32"))]
+mod derived_cache_backend;
+#[cfg(not(target_arch = "wasm32"))]
+mod derived_cache_backend_native;
 mod errors;
 mod graph;
 mod graph_compiler;

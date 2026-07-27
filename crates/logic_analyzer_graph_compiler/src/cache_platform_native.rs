@@ -8,9 +8,11 @@ use serde_json::Value;
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::CaptureCacheIdentity;
 use node_graph::api::{GraphState, NodeId};
-use signal_processing::{IndexedAnnotationStore, PersistentStoreConfig};
+use signal_processing::PersistentStoreConfig;
 
 use super::OutputSubscriptionPlan;
+use super::derived_cache_backend::{DerivedCacheBackend, DerivedCacheLookup};
+use super::derived_cache_backend_native::NativeDerivedCacheBackend;
 use super::errors::CompileError;
 use super::graph::{BuilderRegistry, CompiledEdge, CompiledGraph, compiled_node};
 const DERIVED_CACHE_ABI_VERSION: u32 = 2;
@@ -69,7 +71,15 @@ pub(crate) fn prepare_execution(
     compiled: &CompiledGraph,
     registry: &BuilderRegistry,
 ) -> (CompiledGraph, bool) {
-    prepare_cache(compiled);
+    prepare_execution_with_backend(compiled, registry, &NativeDerivedCacheBackend)
+}
+
+pub(crate) fn prepare_execution_with_backend(
+    compiled: &CompiledGraph,
+    registry: &BuilderRegistry,
+    backend: &dyn DerivedCacheBackend,
+) -> (CompiledGraph, bool) {
+    prepare_cache(compiled, backend);
 
     let mut execution = compiled.clone();
     let mut cached_inputs = HashSet::new();
@@ -81,11 +91,7 @@ pub(crate) fn prepare_execution(
             let Some(config) = config else {
                 continue;
             };
-            if IndexedAnnotationStore::open_persistent(config)
-                .ok()
-                .flatten()
-                .is_some()
-            {
+            if backend.lookup(config) == DerivedCacheLookup::Hit {
                 cached_inputs.insert((collector.id, format!("in{member}")));
             }
         }
@@ -123,7 +129,7 @@ pub(crate) fn prepare_execution(
     (execution, true)
 }
 
-fn prepare_cache(compiled: &CompiledGraph) {
+fn prepare_cache(compiled: &CompiledGraph, backend: &dyn DerivedCacheBackend) {
     let configs: Vec<_> = compiled
         .nodes
         .iter()
@@ -133,7 +139,7 @@ fn prepare_cache(compiled: &CompiledGraph) {
         return;
     };
     let pinned: Vec<_> = configs.iter().map(|config| config.cache_key).collect();
-    let _ = signal_processing::cleanup_cache(&first.directory, first.max_cache_bytes, &pinned);
+    let _ = backend.cleanup(&first.directory, first.max_cache_bytes, &pinned);
 }
 
 pub(crate) fn cache_configs_by_node(

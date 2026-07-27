@@ -34,6 +34,10 @@ hardware, or network access.
   the default `logic-analyzer-ui` test dependency graph. End-to-end UI,
   compiler, and built-in-node composition belongs to the top-level integration
   package.
+- Compiler source-preparation tests use immediate or manually controlled task
+  executors, and compiler cache-pruning tests inject cache availability and
+  cleanup outcomes by key. Native worker and persistent-store conformance is
+  tested by the component that owns each adapter.
 
 ## Continuous integration
 
