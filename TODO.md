@@ -48,18 +48,14 @@ crate under test.
      and their Cargo dependency graphs contain no test-only cycle.
 
 3. **Compiler host-effect isolation:**
-   - Put source preparation behind a task-executor trait and an indexed-capture
-     opener/factory contract. Production uses the native worker and existing
-     capture factories; tests use immediate and manually controlled executors.
    - Put derived-cache creation/cleanup and persistent artifact access behind
      their existing generic storage contracts or a narrowly owned backend
      trait. Test cache hit, miss, corruption, cancellation, and cleanup in
      temporary crate-owned storage.
    - Inject time where readiness, retry, timeout, or polling behavior is under
      test. Do not use wall-clock sleeps to establish ordering.
-   - Completion gate: compiler tests can deterministically hold, complete, or
-     fail every asynchronous preparation operation without starting real
-     workers or opening production capture files.
+   - Completion gate: derived-cache behavior is deterministic at its storage
+     and time boundaries without depending on production artifacts.
 
 4. **Concrete processing boundaries:**
    - Retain `LogicAnalyzer`, `CaptureDataSource`, `CaptureIndex`,

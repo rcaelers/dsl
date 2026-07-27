@@ -20,6 +20,10 @@ mod source_preparation;
 #[path = "source_preparation_wasm.rs"]
 mod source_preparation;
 mod source_preparation_contract;
+#[cfg(not(target_arch = "wasm32"))]
+mod source_preparation_executor;
+#[cfg(not(target_arch = "wasm32"))]
+mod source_preparation_executor_native;
 
 #[cfg(test)]
 mod architecture_tests;

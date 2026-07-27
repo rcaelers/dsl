@@ -266,6 +266,12 @@ source and storage implementations own their platform details. The UI remains in
 it polls preparation, attaches completed data, and reflects completion in the active run's
 readiness registry.
 
+Indexed preparation is submitted through a compiler-owned task-executor contract. The native
+adapter runs the source-provided `CaptureIndexFactory` on a named worker, while deterministic test
+executors can retain, complete, fail, or disconnect the same task without threads, clocks, or
+production capture files. Dropping a pending task detaches its eventual result when the source is
+reset or replaced.
+
 The resulting dependency direction is:
 
 ```text
