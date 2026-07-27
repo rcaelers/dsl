@@ -4,19 +4,16 @@
 //! and outputs Sample streams per channel (run-length encoded for efficiency).
 //!
 //! Each broadcast destination runs in its own independent reading thread, so a slow consumer
-//! on one destination never blocks other destinations. All threads share a single ZipArchive
+//! on one destination never blocks other destinations. All threads share one capture archive
 //! and block cache via `Arc<Mutex<..>>`.
 
 use std::collections::{HashMap, VecDeque};
-use std::fs::File;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 use tracing::{debug, info, warn};
-use zip::ZipArchive;
 
 use signal_processing::capture::{BlockData, CaptureMetadata, CaptureTransition};
 use signal_processing::waveform_index::IndexSampler;
@@ -26,7 +23,7 @@ use signal_processing::{
     WorkResult,
 };
 
-use super::super::capture_archive::zip_error;
+use crate::support::capture_archive::{CaptureArchive, ZipCaptureArchive};
 use crate::support::capture_format::get_packed_bit;
 use crate::support::capture_index::capture_cache_identity;
 use crate::support::dsl_file::{DslChunkedCaptureReader, DslFileCaptureDataSource, parse_header};
@@ -34,6 +31,7 @@ const DEFAULT_BLOCK_CACHE_WINDOWS: usize = 2;
 
 type BlockKey = (usize, u64);
 type BlockCache = Arc<Mutex<BoundedBlockCache>>;
+type SharedCaptureArchive = Arc<Mutex<Box<dyn CaptureArchive>>>;
 
 struct BoundedBlockCache {
     entries: HashMap<BlockKey, BlockData>,
@@ -184,7 +182,7 @@ impl EdgeQuery for DslChannelEdgeIndex {
 ///
 /// If a channel is broadcast to multiple receivers, each receiver gets its own independent
 /// reading thread. This eliminates head-of-line blocking: slow consumers don't block fast ones.
-/// All threads share a single ZipArchive and block cache via `Arc<Mutex<..>>`.
+/// All threads share a single capture archive and block cache via `Arc<Mutex<..>>`.
 ///
 /// Example: If channel 0 connects to both `spi_decoder` and `parallel_decoder`, two threads
 /// are spawned:
@@ -211,7 +209,7 @@ pub struct DslFileSource {
     name: String,
     // File access (shared across all channel threads)
     path: PathBuf,
-    archive: Arc<Mutex<ZipArchive<File>>>,
+    archive: SharedCaptureArchive,
     header: CaptureMetadata,
     blocks: BlockCache,
 
@@ -255,9 +253,12 @@ impl DslFileSource {
     /// Create a new DSL file source from a file path
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
-        let file = File::open(&path)?;
-        let mut archive = ZipArchive::new(file).map_err(zip_error)?;
-        let header = parse_header(&mut archive)?;
+        let archive = Box::new(ZipCaptureArchive::open(&path)?);
+        Self::from_archive(path, archive)
+    }
+
+    fn from_archive(path: PathBuf, mut archive: Box<dyn CaptureArchive>) -> Result<Self> {
+        let header = parse_header(archive.as_mut())?;
 
         let num_channels = header.total_probes;
 
@@ -376,7 +377,7 @@ impl DslFileSource {
 
     // ── Associated Functions (Helpers) ──────────────────────────────────
     fn load_block(
-        archive: &Arc<Mutex<ZipArchive<File>>>,
+        archive: &SharedCaptureArchive,
         blocks: &BlockCache,
         channel: usize,
         block_num: u64,
@@ -394,11 +395,9 @@ impl DslFileSource {
             return Ok(data);
         }
         let block_name = format!("L-{channel}/{block_num}");
-        let mut file = archive_guard
-            .by_name(&block_name)
-            .map_err(|_| Error::InvalidBlock(block_num))?;
-        let mut bytes = Vec::with_capacity(file.size() as usize);
-        file.read_to_end(&mut bytes)?;
+        let bytes = archive_guard
+            .read_entry(&block_name)?
+            .ok_or(Error::InvalidBlock(block_num))?;
         let data = BlockData::from(bytes);
         blocks.lock().unwrap().insert(key, data.clone());
         Ok(data)
@@ -406,7 +405,7 @@ impl DslFileSource {
 
     /// Worker thread that reads one channel's data and sends to one destination.
     ///
-    /// Each thread loads blocks from the shared ZipArchive + cache, walks bits
+    /// Each thread loads blocks from the shared archive + cache, walks bits
     /// to detect edges, and sends Samples to its destination. Threads are
     /// fully independent — if a channel is broadcast to multiple destinations,
     /// each destination gets its own thread reading the same channel data.
@@ -844,7 +843,7 @@ impl Drop for DslFileSource {
 
 /// Configuration for a per-channel reader thread
 struct ChannelReaderConfig {
-    archive: Arc<Mutex<ZipArchive<File>>>,
+    archive: SharedCaptureArchive,
     blocks: BlockCache,
     channel: usize,
     header: CaptureMetadata,
@@ -862,7 +861,7 @@ struct BlockDestination {
 
 /// Configuration for one destination node's aligned block reader.
 struct BlockReaderGroupConfig {
-    archive: Arc<Mutex<ZipArchive<File>>>,
+    archive: SharedCaptureArchive,
     blocks: BlockCache,
     indexed_blocks: Option<Arc<Mutex<DslChunkedCaptureReader>>>,
     destinations: Vec<BlockDestination>,
@@ -892,6 +891,8 @@ fn block_destination_group(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+    use std::fs::File;
     use std::io::Write;
 
     use signal_processing::ProcessNode;
@@ -1104,29 +1105,62 @@ mod tests {
         (directory, path)
     }
 
+    fn dsl_source() -> DslFileSource {
+        DslFileSource::from_archive(
+            PathBuf::from("virtual/fixture.dsl"),
+            Box::new(TestCaptureArchive::fixture()),
+        )
+        .unwrap()
+    }
+
+    #[derive(Default)]
+    struct TestCaptureArchive {
+        entries: BTreeMap<String, Vec<u8>>,
+    }
+
+    impl TestCaptureArchive {
+        fn fixture() -> Self {
+            let mut entries = BTreeMap::from([(
+                "header".to_owned(),
+                b"total probes = 8\nsamplerate = 1 MHz\ntotal samples = 1024\ntotal blocks = 1\nprobe0 = D0\nprobe1 = D1\nprobe2 = D2\nprobe3 = D3\nprobe4 = D4\nprobe5 = D5\nprobe6 = D6\nprobe7 = D7\n"
+                    .to_vec(),
+            )]);
+            for channel in 0..8 {
+                entries.insert(
+                    format!("L-{channel}/0"),
+                    vec![if channel % 2 == 0 { 0xAA } else { 0x55 }; 128],
+                );
+            }
+            Self { entries }
+        }
+    }
+
+    impl CaptureArchive for TestCaptureArchive {
+        fn entry_names(&self) -> Vec<String> {
+            self.entries.keys().cloned().collect()
+        }
+
+        fn entry_size(&mut self, name: &str) -> Result<Option<u64>> {
+            Ok(self.entries.get(name).map(|entry| entry.len() as u64))
+        }
+
+        fn read_entry(&mut self, name: &str) -> Result<Option<Vec<u8>>> {
+            Ok(self.entries.get(name).cloned())
+        }
+    }
+
     #[test]
     fn test_dsl_file_source_new_valid() {
-        let (_directory, path) = dsl_fixture();
-        let result = DslFileSource::new(path);
-        assert!(
-            result.is_ok(),
-            "Failed to create DslFileSource: {:?}",
-            result.err()
-        );
-
-        if let Ok(source) = result {
-            assert_eq!(source.num_channels(), source.header().total_probes);
-            assert_eq!(source.num_inputs(), 0); // Source node
-            assert_eq!(source.num_outputs(), source.header().total_probes);
-            assert_eq!(source.name(), "dsl_file_source");
-
-            // Check header parsing
-            let header = source.header();
-            assert!(header.total_probes > 0);
-            assert!(header.total_samples > 0);
-            assert!(header.samplerate_hz > 0.0);
-            assert!(header.sample_period > 0.0);
-        }
+        let source = dsl_source();
+        assert_eq!(source.num_channels(), source.header().total_probes);
+        assert_eq!(source.num_inputs(), 0);
+        assert_eq!(source.num_outputs(), source.header().total_probes);
+        assert_eq!(source.name(), "dsl_file_source");
+        let header = source.header();
+        assert!(header.total_probes > 0);
+        assert!(header.total_samples > 0);
+        assert!(header.samplerate_hz > 0.0);
+        assert!(header.sample_period > 0.0);
     }
 
     #[test]
@@ -1137,185 +1171,96 @@ mod tests {
 
     #[test]
     fn test_dsl_file_source_builder_methods() {
-        let (_directory, path) = dsl_fixture();
-        let result = DslFileSource::new(path);
-        assert!(result.is_ok());
-
-        if let Ok(source) = result {
-            let source = source.with_name("custom_source");
-
-            assert_eq!(source.name(), "custom_source");
-        }
+        let source = dsl_source().with_name("custom_source");
+        assert_eq!(source.name(), "custom_source");
     }
 
     #[test]
     fn test_dsl_file_source_getters() {
-        let (_directory, path) = dsl_fixture();
-        let result = DslFileSource::new(path);
-        assert!(result.is_ok());
-
-        if let Ok(source) = result {
-            assert!(source.total_probes() > 0);
-            assert!(source.total_samples() > 0);
-            assert!(source.samplerate_hz() > 0.0);
-            assert!(source.sample_period() > 0.0);
-            assert!(source.capture_duration() > 0.0);
-
-            // Verify relationships
-            let expected_duration = source.total_samples() as f64 * source.sample_period();
-            assert!((source.capture_duration() - expected_duration).abs() < 0.0001);
-        }
+        let source = dsl_source();
+        assert!(source.total_probes() > 0);
+        assert!(source.total_samples() > 0);
+        assert!(source.samplerate_hz() > 0.0);
+        assert!(source.sample_period() > 0.0);
+        assert!(source.capture_duration() > 0.0);
+        let expected_duration = source.total_samples() as f64 * source.sample_period();
+        assert!((source.capture_duration() - expected_duration).abs() < 0.0001);
     }
 
     #[test]
     fn test_dsl_file_source_worknode_methods() {
-        let (_directory, path) = dsl_fixture();
-        let result = DslFileSource::new(path);
-        assert!(result.is_ok());
-
-        if let Ok(source) = result {
-            // Should not be stopped initially (no threads spawned yet)
-            assert!(!source.should_stop());
-
-            // After marking spawned with 0 threads completed, still shouldn't stop
-            // (threads_spawned is false initially)
-            assert!(!source.threads_spawned);
-        }
+        let source = dsl_source();
+        assert!(!source.should_stop());
+        assert!(!source.threads_spawned);
     }
 
     #[test]
     fn test_dsl_file_source_read_bit_valid() {
-        let (_directory, path) = dsl_fixture();
-        let result = DslFileSource::new(path);
-        assert!(result.is_ok());
-
-        if let Ok(source) = result {
-            // Read first bit from first channel
-            let bit_result = source.read_bit(0, 0);
-            assert!(
-                bit_result.is_ok(),
-                "Failed to read bit: {:?}",
-                bit_result.err()
-            );
-
-            // Read from another channel
-            let bit_result = source.read_bit(5, 100);
-            assert!(bit_result.is_ok());
-        }
+        let source = dsl_source();
+        let bit_result = source.read_bit(0, 0);
+        assert!(
+            bit_result.is_ok(),
+            "Failed to read bit: {:?}",
+            bit_result.err()
+        );
+        assert!(source.read_bit(5, 100).is_ok());
     }
 
     #[test]
     fn test_dsl_file_source_read_bit_invalid_channel() {
-        let (_directory, path) = dsl_fixture();
-        let result = DslFileSource::new(path);
-        assert!(result.is_ok());
-
-        if let Ok(source) = result {
-            // Try to read from channel beyond total_probes
-            let bit_result = source.read_bit(99, 0);
-            assert!(bit_result.is_err());
-
-            if let Err(e) = bit_result {
-                match e {
-                    Error::InvalidProbe(_) => {}
-                    _ => panic!("Expected InvalidProbe error, got {:?}", e),
-                }
-            }
-        }
+        let error = dsl_source().read_bit(99, 0).unwrap_err();
+        assert!(matches!(error, Error::InvalidProbe(_)));
     }
 
     #[test]
     fn test_dsl_file_source_read_bit_invalid_position() {
-        let (_directory, path) = dsl_fixture();
-        let result = DslFileSource::new(path);
-        assert!(result.is_ok());
-
-        if let Ok(source) = result {
-            // Try to read beyond total_samples
-            let bit_result = source.read_bit(0, u64::MAX);
-            assert!(bit_result.is_err());
-
-            if let Err(e) = bit_result {
-                match e {
-                    Error::OutOfBounds(_) => {}
-                    _ => panic!("Expected OutOfBounds error, got {:?}", e),
-                }
-            }
-        }
+        let error = dsl_source().read_bit(0, u64::MAX).unwrap_err();
+        assert!(matches!(error, Error::OutOfBounds(_)));
     }
 
     #[test]
     fn test_dsl_file_source_header_fields() {
-        let (_directory, path) = dsl_fixture();
-        let result = DslFileSource::new(path);
-        assert!(result.is_ok());
-
-        if let Ok(source) = result {
-            let header = source.header();
-
-            // Verify header fields are populated
-            assert!(header.total_probes >= 8);
-            assert!(header.total_samples > 0);
-            assert!(header.total_blocks > 0);
-            assert!(header.samples_per_block > 0);
-            assert!(!header.samplerate.is_empty());
-            assert!(header.samplerate_hz > 0.0);
-            assert!(header.sample_period > 0.0);
-            assert!(header.probe_names.len() == header.total_probes);
-
-            // Verify sample rate calculation
-            let expected_period = 1.0 / header.samplerate_hz;
-            assert!((header.sample_period - expected_period).abs() < 1e-10);
-
-            let average_per_block = header.total_samples / header.total_blocks;
-            assert!(header.samples_per_block >= average_per_block);
-            assert_eq!(header.samples_per_block, 1024);
-        }
+        let source = dsl_source();
+        let header = source.header();
+        assert!(header.total_probes >= 8);
+        assert!(header.total_samples > 0);
+        assert!(header.total_blocks > 0);
+        assert!(header.samples_per_block > 0);
+        assert!(!header.samplerate.is_empty());
+        assert!(header.samplerate_hz > 0.0);
+        assert!(header.sample_period > 0.0);
+        assert!(header.probe_names.len() == header.total_probes);
+        let expected_period = 1.0 / header.samplerate_hz;
+        assert!((header.sample_period - expected_period).abs() < 1e-10);
+        let average_per_block = header.total_samples / header.total_blocks;
+        assert!(header.samples_per_block >= average_per_block);
+        assert_eq!(header.samples_per_block, 1024);
     }
 
     #[test]
     fn test_dsl_file_source_block_caching() {
-        let (_directory, path) = dsl_fixture();
-        let result = DslFileSource::new(path);
-        assert!(result.is_ok());
-
-        if let Ok(source) = result {
-            // Read same bit twice - second read should use cache
-            let bit1 = source.read_bit(0, 0);
-            let bit2 = source.read_bit(0, 0);
-
-            assert!(bit1.is_ok());
-            assert!(bit2.is_ok());
-            assert_eq!(bit1.unwrap(), bit2.unwrap());
-
-            // Cache should have entry
-            let cache = source.blocks.lock().unwrap();
-            assert!(!cache.is_empty(), "Cache should not be empty after reads");
-        }
+        let source = dsl_source();
+        let bit1 = source.read_bit(0, 0);
+        let bit2 = source.read_bit(0, 0);
+        assert!(bit1.is_ok());
+        assert_eq!(bit1.unwrap(), bit2.unwrap());
+        let cache = source.blocks.lock().unwrap();
+        assert!(!cache.is_empty(), "Cache should not be empty after reads");
     }
 
     #[test]
     fn test_dsl_file_source_multiple_channels() {
-        let (_directory, path) = dsl_fixture();
-        let result = DslFileSource::new(path);
-        assert!(result.is_ok());
-
-        if let Ok(source) = result {
-            // Read same position from multiple channels
-            let mut channel_values = Vec::new();
-            for ch in 0..8 {
-                let bit_result = source.read_bit(ch, 1000);
-                assert!(
-                    bit_result.is_ok(),
-                    "Failed to read channel {}: {:?}",
-                    ch,
-                    bit_result.err()
-                );
-                channel_values.push(bit_result.unwrap());
-            }
-
-            // Should be able to read from all channels
-            assert_eq!(channel_values.len(), 8);
+        let source = dsl_source();
+        let mut channel_values = Vec::new();
+        for channel in 0..8 {
+            let bit_result = source.read_bit(channel, 1000);
+            assert!(
+                bit_result.is_ok(),
+                "Failed to read channel {channel}: {:?}",
+                bit_result.err()
+            );
+            channel_values.push(bit_result.unwrap());
         }
+        assert_eq!(channel_values.len(), 8);
     }
 }

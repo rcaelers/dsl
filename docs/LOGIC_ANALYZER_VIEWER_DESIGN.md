@@ -63,6 +63,11 @@ Samples are divided into fixed-size **blocks** (`samples_per_block`, commonly `2
 16,777,216` samples). Each `L-{channel}/{block}` ZIP entry holds one block's packed bits for
 one channel.
 
+Concrete DSL and Sigrok parsers access container entries through the processing-owned
+`CaptureArchive` contract. The native adapter opens ZIP files, while parser and replay-source tests
+inject in-memory archives. ZIP-specific validation remains confined to the adapter and complete
+indexed-reader integration tests.
+
 ---
 
 ## Architecture

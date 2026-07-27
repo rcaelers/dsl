@@ -38,6 +38,10 @@ hardware, or network access.
   executors, and compiler cache-pruning tests inject cache availability and
   cleanup outcomes by key. Native worker and persistent-store conformance is
   tested by the component that owns each adapter.
+- Capture-file parsers and replay sources consume the processing-owned
+  `CaptureArchive` contract. Their unit tests inject in-memory entries; a
+  focused generated-file test covers the native ZIP adapter, while generated
+  archive and sidecar integration tests cover the complete indexed-reader path.
 
 ## Continuous integration
 

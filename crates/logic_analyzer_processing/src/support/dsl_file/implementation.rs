@@ -1,12 +1,10 @@
 //! Random-access DSLogic `.dsl` capture-file support.
 
 use std::collections::{HashMap, VecDeque};
-use std::fs::{self, File};
-use std::io::Read;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use tracing::debug;
-use zip::ZipArchive;
 
 #[cfg(test)]
 use signal_processing::capture::CaptureSampledWindow;
@@ -17,11 +15,8 @@ use signal_processing::capture::{
 use signal_processing::waveform_index::IndexSampler;
 use signal_processing::{Error, Result};
 
+use crate::support::capture_archive::{CaptureArchive, ZipCaptureArchive};
 use crate::support::capture_format::{get_packed_bit, parse_sample_rate};
-
-fn zip_error(error: zip::result::ZipError) -> Error {
-    Error::ParseError(format!("capture archive error: {error}"))
-}
 
 /// Windowed DSLogic capture reader for interactive viewers.
 ///
@@ -29,7 +24,7 @@ fn zip_error(error: zip::result::ZipError) -> Error {
 /// optimized for repeated random-access viewport reads and keeps only a bounded
 /// number of packed-bit ZIP blocks in memory.
 pub(crate) struct DslCaptureReader {
-    archive: ZipArchive<File>,
+    archive: Box<dyn CaptureArchive>,
     header: CaptureMetadata,
     cache: HashMap<(usize, u64), BlockData>,
     cache_order: VecDeque<(usize, u64)>,
@@ -47,10 +42,11 @@ impl DslCaptureReader {
     const DEFAULT_MAX_CACHED_BLOCKS: usize = 1;
 
     pub(crate) fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let path = path.as_ref().to_path_buf();
-        let file = File::open(&path)?;
-        let mut archive = ZipArchive::new(file).map_err(zip_error)?;
-        let header = parse_header(&mut archive)?;
+        Self::from_archive(Box::new(ZipCaptureArchive::open(path)?))
+    }
+
+    pub(crate) fn from_archive(mut archive: Box<dyn CaptureArchive>) -> Result<Self> {
+        let header = parse_header(archive.as_mut())?;
 
         Ok(Self {
             archive,
@@ -109,12 +105,10 @@ impl DslCaptureReader {
         let (channel, block_num) = key;
         let block_name = format!("L-{}/{}", channel, block_num);
         let data = {
-            let mut file = self
+            let data = self
                 .archive
-                .by_name(&block_name)
-                .map_err(|_| Error::InvalidBlock(block_num))?;
-            let mut data = Vec::new();
-            file.read_to_end(&mut data)?;
+                .read_entry(&block_name)?
+                .ok_or(Error::InvalidBlock(block_num))?;
             BlockData::from(data)
         };
 
@@ -175,8 +169,7 @@ impl DslFileCaptureDataSource {
     pub(crate) fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         let source_len = fs::metadata(&path)?.len();
-        let file = File::open(&path)?;
-        let mut archive = ZipArchive::new(file).map_err(zip_error)?;
+        let mut archive = ZipCaptureArchive::open(&path)?;
         let header = parse_header(&mut archive)?;
         let index_path = dsl_sidecar_path(&path);
 
@@ -230,14 +223,12 @@ fn dsl_sidecar_path(path: &Path) -> PathBuf {
     name.push_str(".idx");
     path.with_file_name(name)
 }
-pub(crate) fn parse_header(archive: &mut ZipArchive<File>) -> Result<CaptureMetadata> {
-    let mut header_file = archive
-        .by_name("header")
-        .map_err(|e| Error::ParseError(format!("Cannot find header file: {}", e)))?;
-
-    let mut header_content = String::new();
-    header_file.read_to_string(&mut header_content)?;
-    drop(header_file); // Explicitly drop to release archive borrow
+pub(crate) fn parse_header(archive: &mut dyn CaptureArchive) -> Result<CaptureMetadata> {
+    let header_content = archive
+        .read_entry("header")?
+        .ok_or_else(|| Error::ParseError("Cannot find header file".into()))?;
+    let header_content = String::from_utf8(header_content)
+        .map_err(|_| Error::ParseError("DSL header is not UTF-8".into()))?;
 
     let mut total_probes: Option<usize> = None;
     let mut samplerate: Option<String> = None;
@@ -288,10 +279,10 @@ pub(crate) fn parse_header(archive: &mut ZipArchive<File>) -> Result<CaptureMeta
     // decompressing the first 2 MiB block just to discover its size.
     let samples_per_block = {
         let block_name = "L-0/0";
-        let file = archive
-            .by_name(block_name)
-            .map_err(|_| Error::ParseError("Could not read first block".to_string()))?;
-        file.size() * 8
+        archive
+            .entry_size(block_name)?
+            .ok_or_else(|| Error::ParseError("Could not read first block".to_string()))?
+            * 8
     };
 
     debug!(

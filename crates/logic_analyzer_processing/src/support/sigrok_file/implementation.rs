@@ -1,10 +1,6 @@
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-use zip::ZipArchive;
 
 use signal_processing::capture::{
     BlockCaptureSource, BlockData, CaptureDataSource, CaptureFingerprint, CaptureMetadata,
@@ -12,9 +8,11 @@ use signal_processing::capture::{
 };
 use signal_processing::{Error, Result};
 
+use crate::support::capture_archive::{CaptureArchive, ZipCaptureArchive};
 use crate::support::capture_format::parse_sample_rate;
 
 /// Decoded sigrok capture data shared by a file source and random-access reader.
+#[derive(Clone, Debug)]
 pub(crate) struct SigrokCapture {
     header: CaptureMetadata,
     samples: Arc<[u8]>,
@@ -23,14 +21,21 @@ pub(crate) struct SigrokCapture {
 
 impl SigrokCapture {
     pub(crate) fn open(path: impl AsRef<Path>, minimum_channels: u8) -> Result<Self> {
+        let mut archive = ZipCaptureArchive::open(path)?;
+        Self::from_archive(&mut archive, minimum_channels)
+    }
+
+    pub(crate) fn from_archive(
+        archive: &mut dyn CaptureArchive,
+        minimum_channels: u8,
+    ) -> Result<Self> {
         if !(1..=32).contains(&minimum_channels) {
             return Err(Error::ParseError(format!(
                 "num_channels must be 1-32, got {minimum_channels}"
             )));
         }
 
-        let mut archive = ZipArchive::new(File::open(path)?).map_err(zip_error)?;
-        let version = read_zip_text(&mut archive, "version")?;
+        let version = read_archive_text(archive, "version")?;
         if !matches!(version.trim(), "1" | "2") {
             return Err(Error::ParseError(format!(
                 "unsupported sigrok session version '{}' (expected 1 or 2)",
@@ -38,7 +43,7 @@ impl SigrokCapture {
             )));
         }
 
-        let metadata = parse_ini(&read_zip_text(&mut archive, "metadata")?);
+        let metadata = parse_ini(&read_archive_text(archive, "metadata")?);
         let device = metadata
             .iter()
             .find(|(section, values)| {
@@ -79,14 +84,14 @@ impl SigrokCapture {
             .transpose()?;
 
         let mut logic_entries: Vec<String> = archive
-            .file_names()
+            .entry_names()
+            .into_iter()
             .filter(|name| {
-                *name == capturefile
+                name == capturefile
                     || name
                         .strip_prefix(&format!("{capturefile}-"))
                         .is_some_and(|suffix| suffix.parse::<u64>().is_ok())
             })
-            .map(str::to_owned)
             .collect();
         logic_entries.sort_by_key(|name| {
             name.strip_prefix(&format!("{capturefile}-"))
@@ -100,8 +105,10 @@ impl SigrokCapture {
         }
         let mut samples = Vec::new();
         for entry in logic_entries {
-            let mut logic = archive.by_name(&entry).map_err(zip_error)?;
-            logic.read_to_end(&mut samples)?;
+            let logic = archive
+                .read_entry(&entry)?
+                .ok_or_else(|| Error::ParseError(format!("missing capture data entry: {entry}")))?;
+            samples.extend_from_slice(&logic);
         }
         if samples.len() % unitsize != 0 {
             return Err(Error::ParseError(format!(
@@ -160,10 +167,8 @@ pub(crate) struct SigrokCaptureReader {
 }
 
 impl SigrokCaptureReader {
-    pub(crate) fn open(path: impl AsRef<Path>) -> Result<Self> {
-        Ok(Self {
-            capture: SigrokCapture::open(path, 1)?,
-        })
+    fn from_capture(capture: SigrokCapture) -> Self {
+        Self { capture }
     }
 }
 impl CaptureSource for SigrokCaptureReader {
@@ -203,28 +208,41 @@ impl BlockCaptureSource for SigrokCaptureReader {
 #[derive(Debug, Clone)]
 pub(crate) struct SigrokFileCaptureDataSource {
     path: PathBuf,
-    header: CaptureMetadata,
+    capture: SigrokCapture,
     source_len: u64,
 }
 impl SigrokFileCaptureDataSource {
     pub(crate) fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         let source_len = std::fs::metadata(&path)?.len();
-        let header = SigrokCapture::open(&path, 1)?.metadata().clone();
+        let capture = SigrokCapture::open(&path, 1)?;
         Ok(Self {
             path,
-            header,
+            capture,
             source_len,
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_capture(
+        path: impl Into<PathBuf>,
+        source_len: u64,
+        capture: SigrokCapture,
+    ) -> Self {
+        Self {
+            path: path.into(),
+            capture,
+            source_len,
+        }
     }
 }
 impl CaptureDataSource for SigrokFileCaptureDataSource {
     type Reader = SigrokCaptureReader;
     fn open_reader(&self) -> Result<Self::Reader> {
-        SigrokCaptureReader::open(&self.path)
+        Ok(SigrokCaptureReader::from_capture(self.capture.clone()))
     }
     fn metadata(&self) -> &CaptureMetadata {
-        &self.header
+        self.capture.metadata()
     }
     fn fingerprint(&self) -> CaptureFingerprint {
         CaptureFingerprint {
@@ -251,16 +269,12 @@ fn sigrok_sidecar_path(path: &Path) -> PathBuf {
             .unwrap_or("capture.sr")
     ))
 }
-fn zip_error(error: zip::result::ZipError) -> Error {
-    Error::ParseError(format!("capture archive error: {error}"))
-}
-fn read_zip_text(archive: &mut ZipArchive<File>, name: &str) -> Result<String> {
-    let mut file = archive
-        .by_name(name)
-        .map_err(|_| Error::ParseError(format!("missing required field: {name}")))?;
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
-    Ok(contents)
+fn read_archive_text(archive: &mut dyn CaptureArchive, name: &str) -> Result<String> {
+    let contents = archive
+        .read_entry(name)?
+        .ok_or_else(|| Error::ParseError(format!("missing required field: {name}")))?;
+    String::from_utf8(contents)
+        .map_err(|_| Error::ParseError(format!("capture field is not UTF-8: {name}")))
 }
 fn parse_ini(text: &str) -> BTreeMap<String, BTreeMap<String, String>> {
     let mut sections = BTreeMap::new();

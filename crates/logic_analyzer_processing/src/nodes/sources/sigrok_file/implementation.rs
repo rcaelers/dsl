@@ -148,8 +148,12 @@ impl SigrokFileSource {
 
     pub fn new(path: impl AsRef<Path>) -> Result<Self> {
         let capture = SigrokCapture::open(path, 1)?;
+        Ok(Self::from_capture(capture))
+    }
+
+    fn from_capture(capture: SigrokCapture) -> Self {
         let num_channels = capture.metadata().total_probes;
-        Ok(Self {
+        Self {
             name: "sigrok_file_source".into(),
             capture,
             num_channels,
@@ -158,7 +162,7 @@ impl SigrokFileSource {
             threads: None,
             spawned: false,
             num_threads: 0,
-        })
+        }
     }
 
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
@@ -272,34 +276,31 @@ impl Drop for SigrokFileSource {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::collections::BTreeMap;
 
     use signal_processing::capture::{CaptureDataSource, CaptureSource};
 
     use super::*;
+    use crate::support::capture_archive::CaptureArchive;
     use crate::support::sigrok_file::SigrokFileCaptureDataSource;
 
-    fn fixture(version: &str, chunked: bool) -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
-        let file = std::fs::File::create(dir.path().join("hello.sr")).unwrap();
-        let mut archive = zip::ZipWriter::new(file);
-        let options = zip::write::SimpleFileOptions::default();
-        archive.start_file("version", options).unwrap();
-        archive.write_all(version.as_bytes()).unwrap();
-        archive.start_file("metadata", options).unwrap();
-        archive.write_all(b"[device 1]\ncapturefile=logic-1\ntotal probes=8\nsamplerate=1 MHz\nprobe1=TX\nunitsize=1\n").unwrap();
-        archive
-            .start_file(if chunked { "logic-1-1" } else { "logic-1" }, options)
-            .unwrap();
-        archive.write_all(&[0, 1, 1, 0, 0, 1, 0, 1]).unwrap();
-        archive.finish().unwrap();
-        dir
+    fn fixture(version: &str, chunked: bool) -> SigrokCapture {
+        let mut archive = TestCaptureArchive::default()
+            .with_entry("version", version.as_bytes())
+            .with_entry(
+                "metadata",
+                b"[device 1]\ncapturefile=logic-1\ntotal probes=8\nsamplerate=1 MHz\nprobe1=TX\nunitsize=1\n",
+            )
+            .with_entry(
+                if chunked { "logic-1-1" } else { "logic-1" },
+                &[0, 1, 1, 0, 0, 1, 0, 1],
+            );
+        SigrokCapture::from_archive(&mut archive, 1).unwrap()
     }
 
     #[test]
-    fn opens_checked_in_pulseview_capture() {
-        let dir = fixture("2", true);
-        let source = SigrokFileSource::new(dir.path().join("hello.sr")).unwrap();
+    fn source_uses_an_injected_version_two_capture() {
+        let source = SigrokFileSource::from_capture(fixture("2", true));
         assert_eq!(source.header().total_probes, 8);
         assert_eq!(source.header().samplerate_hz, 1_000_000.0);
         assert_eq!(source.header().total_samples, 8);
@@ -309,16 +310,17 @@ mod tests {
 
     #[test]
     fn data_source_is_private_support_for_the_node() {
-        let dir = fixture("2", true);
-        let source = SigrokFileCaptureDataSource::open(dir.path().join("hello.sr")).unwrap();
+        let source =
+            SigrokFileCaptureDataSource::from_capture("virtual/hello.sr", 123, fixture("2", true));
         assert_eq!(source.metadata().total_samples, 8);
         assert_eq!(source.open_reader().unwrap().metadata().total_probes, 8);
+        assert_eq!(source.fingerprint().revision, 123);
     }
 
     #[test]
     fn opens_version_one_session_with_unchunked_logic_data() {
-        let dir = fixture("1", false);
-        let source = SigrokFileSource::new(dir.path().join("hello.sr")).unwrap();
+        let capture = fixture("1", false);
+        let source = SigrokFileSource::from_capture(capture.clone());
         assert_eq!(source.header().total_probes, 8);
         assert_eq!(source.header().total_samples, 8);
         assert!(
@@ -328,10 +330,37 @@ mod tests {
                 .all(|port| { port.sample_kinds == [SampleKind::Block, SampleKind::Edge] })
         );
 
-        let data_source = SigrokFileCaptureDataSource::open(dir.path().join("hello.sr")).unwrap();
+        let data_source =
+            SigrokFileCaptureDataSource::from_capture("virtual/hello.sr", 123, capture);
         assert_eq!(
             data_source.open_reader().unwrap().metadata().total_samples,
             8
         );
+    }
+
+    #[derive(Default)]
+    struct TestCaptureArchive {
+        entries: BTreeMap<String, Vec<u8>>,
+    }
+
+    impl TestCaptureArchive {
+        fn with_entry(mut self, name: &str, data: &[u8]) -> Self {
+            self.entries.insert(name.to_owned(), data.to_vec());
+            self
+        }
+    }
+
+    impl CaptureArchive for TestCaptureArchive {
+        fn entry_names(&self) -> Vec<String> {
+            self.entries.keys().cloned().collect()
+        }
+
+        fn entry_size(&mut self, name: &str) -> Result<Option<u64>> {
+            Ok(self.entries.get(name).map(|entry| entry.len() as u64))
+        }
+
+        fn read_entry(&mut self, name: &str) -> Result<Option<Vec<u8>>> {
+            Ok(self.entries.get(name).cloned())
+        }
     }
 }
