@@ -2385,7 +2385,7 @@ fn swap_panel_contents(mut node: Option<&mut LayoutNode>, first_id: &str, second
         return false;
     };
     first.content = second_content;
-    let Some(second) = find_panel_mut(node.as_deref_mut(), second_id) else {
+    let Some(second) = find_panel_mut(node, second_id) else {
         return false;
     };
     second.content = first_content;
