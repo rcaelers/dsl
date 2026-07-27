@@ -671,7 +671,7 @@ impl PanelLayout {
                 boundary_interaction,
                 extended_boundary_guide,
                 boundary_break_available,
-            ) = self.handle_boundaries(ui, &boundaries, root_rect);
+            ) = self.handle_boundaries(ui, &boundaries, &base_geometries, root_rect);
             if actions
                 .iter()
                 .any(|action| matches!(action, LayoutAction::SetFraction { .. }))
@@ -804,6 +804,7 @@ impl PanelLayout {
         &mut self,
         ui: &mut Ui,
         boundaries: &[BoundaryGeometry],
+        panels: &[PanelGeometry],
         root_rect: Rect,
     ) -> BoundaryHandling {
         let mut actions = Vec::new();
@@ -874,9 +875,12 @@ impl PanelLayout {
                 actions.extend(resize_actions);
             }
             if response.secondary_clicked() {
+                let pointer = ui.input(|input| input.pointer.interact_pos());
                 self.boundary_context = Some(BoundaryContext {
                     split_id: boundary.id,
                     axis: boundary.axis,
+                    adjacent_panels: pointer
+                        .and_then(|pointer| adjacent_panels_at_boundary(panels, boundary, pointer)),
                 });
             }
 
@@ -903,6 +907,22 @@ impl PanelLayout {
                     actions.push(LayoutAction::Join {
                         split_id: context.split_id,
                         keep: second_keep,
+                    });
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(
+                        context.adjacent_panels.is_some(),
+                        egui::Button::new("Swap Content"),
+                    )
+                    .clicked()
+                {
+                    let Some((first_panel_id, second_panel_id)) = context.adjacent_panels else {
+                        return;
+                    };
+                    actions.push(LayoutAction::SwapContent {
+                        first_panel_id,
+                        second_panel_id,
                     });
                     ui.close();
                 }
@@ -1378,6 +1398,15 @@ impl PanelLayout {
                 }
                 join_split(self.state.root.as_mut(), split_id, keep);
             }
+            LayoutAction::SwapContent {
+                first_panel_id,
+                second_panel_id,
+            } => {
+                if self.state.maximized.is_some() {
+                    self.restore_maximized();
+                }
+                swap_panel_contents(self.state.root.as_mut(), &first_panel_id, &second_panel_id);
+            }
             LayoutAction::BreakSplit {
                 split_id,
                 band,
@@ -1536,6 +1565,7 @@ pub type VerticalPanelLayout = PanelLayout;
 struct BoundaryContext {
     split_id: u64,
     axis: SplitAxis,
+    adjacent_panels: Option<(String, String)>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1842,6 +1872,10 @@ enum LayoutAction {
         split_id: u64,
         keep: SplitSide,
     },
+    SwapContent {
+        first_panel_id: String,
+        second_panel_id: String,
+    },
     BreakSplit {
         split_id: u64,
         band: SplitSide,
@@ -2067,6 +2101,36 @@ fn panel_at_pointer(panels: &[PanelGeometry], pointer: egui::Pos2) -> Option<&Pa
     panels
         .iter()
         .find(|panel| panel.panel_rect.contains(pointer))
+}
+
+fn adjacent_panels_at_boundary(
+    panels: &[PanelGeometry],
+    boundary: &BoundaryGeometry,
+    pointer: egui::Pos2,
+) -> Option<(String, String)> {
+    let (first_point, second_point) = match boundary.axis {
+        SplitAxis::Horizontal => {
+            let x = pointer
+                .x
+                .clamp(boundary.parent_rect.left(), boundary.parent_rect.right());
+            (
+                egui::pos2(x, boundary.rect.top() - 0.5),
+                egui::pos2(x, boundary.rect.bottom() + 0.5),
+            )
+        }
+        SplitAxis::Vertical => {
+            let y = pointer
+                .y
+                .clamp(boundary.parent_rect.top(), boundary.parent_rect.bottom());
+            (
+                egui::pos2(boundary.rect.left() - 0.5, y),
+                egui::pos2(boundary.rect.right() + 0.5, y),
+            )
+        }
+    };
+    let first = panel_at_pointer(panels, first_point)?;
+    let second = panel_at_pointer(panels, second_point)?;
+    (first.panel_id != second.panel_id).then(|| (first.panel_id.clone(), second.panel_id.clone()))
 }
 
 fn split_rects(
@@ -2301,6 +2365,31 @@ fn set_split_fraction(node: Option<&mut LayoutNode>, split_id: u64, fraction: f3
         }
         _ => false,
     }
+}
+
+fn swap_panel_contents(mut node: Option<&mut LayoutNode>, first_id: &str, second_id: &str) -> bool {
+    if first_id == second_id {
+        return false;
+    }
+    let Some(first_content) =
+        find_panel(node.as_deref(), first_id).map(|panel| panel.content.clone())
+    else {
+        return false;
+    };
+    let Some(second_content) =
+        find_panel(node.as_deref(), second_id).map(|panel| panel.content.clone())
+    else {
+        return false;
+    };
+    let Some(first) = find_panel_mut(node.as_deref_mut(), first_id) else {
+        return false;
+    };
+    first.content = second_content;
+    let Some(second) = find_panel_mut(node.as_deref_mut(), second_id) else {
+        return false;
+    };
+    second.content = first_content;
+    true
 }
 
 fn break_split(
@@ -2745,6 +2834,59 @@ mod tests {
                 ("Join Down", SplitSide::First),
             )
         );
+    }
+
+    #[test]
+    fn swapping_a_boundary_exchanges_only_the_adjacent_panels() {
+        let mut layout = PanelLayout::new([("viewer", 0.4), ("graph", 0.6)]);
+        assert!(layout.ensure_right_column_content("decoder", &["decoder"], 0.75));
+        let rect = Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let (panels, boundaries) = layout.geometries(rect, &specs());
+        let viewer = panels
+            .iter()
+            .find(|panel| panel.content_id == "viewer")
+            .unwrap();
+        let root_boundary = boundaries
+            .iter()
+            .find(|boundary| boundary.axis == SplitAxis::Vertical)
+            .unwrap();
+        let (viewer_panel_id, decoder_panel_id) =
+            adjacent_panels_at_boundary(&panels, root_boundary, viewer.panel_rect.center())
+                .unwrap();
+        assert_eq!(
+            find_panel(layout.state.root.as_ref(), &viewer_panel_id)
+                .unwrap()
+                .content,
+            "viewer"
+        );
+        assert_eq!(
+            find_panel(layout.state.root.as_ref(), &decoder_panel_id)
+                .unwrap()
+                .content,
+            "decoder"
+        );
+
+        layout.apply_action(
+            LayoutAction::SwapContent {
+                first_panel_id: viewer_panel_id.clone(),
+                second_panel_id: decoder_panel_id.clone(),
+            },
+            &specs(),
+        );
+
+        assert_eq!(
+            find_panel(layout.state.root.as_ref(), &viewer_panel_id)
+                .unwrap()
+                .content,
+            "decoder"
+        );
+        assert_eq!(
+            find_panel(layout.state.root.as_ref(), &decoder_panel_id)
+                .unwrap()
+                .content,
+            "viewer"
+        );
+        assert!(find_panel_by_content(layout.state.root.as_ref(), "graph").is_some());
     }
 
     #[test]
