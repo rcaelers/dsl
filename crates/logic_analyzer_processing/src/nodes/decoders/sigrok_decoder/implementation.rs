@@ -3,23 +3,22 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString, PyTuple};
-
 use signal_processing::{
     InputPort, NodeCancellation, OutputPort, PortDirection, PortSchema, ProcessNode,
     ProtocolPacket, ProtocolValue, SampleBlock, Word, WorkError, WorkResult,
 };
 
+use super::execution::{
+    PythonSigrokExecutionFactory, SigrokExecution, SigrokExecutionConfig, SigrokExecutionFactory,
+    SigrokExecutionInput, SigrokExecutionOptionValue, SigrokExecutionOutput,
+};
 use crate::support::sigrokdecode::{
-    DecoderOutput, DecoderWorker, InitialPin, LogicChunk, MetadataType, OUTPUT_ANN, OUTPUT_BINARY,
-    OUTPUT_LOGIC, OUTPUT_META, OUTPUT_PYTHON, OptionValue, OutputRegistration, WorkerConfig,
-    WorkerError, WorkerInputConfig,
+    InitialPin, LogicChunk, MetadataType, OUTPUT_ANN, OUTPUT_BINARY, OUTPUT_LOGIC, OUTPUT_META,
+    OUTPUT_PYTHON, OutputRegistration,
 };
 
 const OUTPUT_QUEUE_CAPACITY: usize = 65_536;
 const OUTPUT_WAIT: Duration = Duration::from_millis(2);
-const VALUE_RECURSION_LIMIT: usize = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SigrokInitialPin {
@@ -68,13 +67,19 @@ pub struct SigrokDecoder {
     input_buffers: Vec<VecDeque<SampleBlock>>,
     protocol_inputs: Vec<String>,
     protocol_buffer: VecDeque<ProtocolPacket>,
-    worker: DecoderWorker,
+    execution: Box<dyn SigrokExecution>,
     finished: bool,
 }
 
 impl SigrokDecoder {
     pub fn new(config: SigrokDecoderConfig) -> Result<Self, String> {
-        Python::initialize();
+        Self::with_execution_factory(config, &PythonSigrokExecutionFactory)
+    }
+
+    fn with_execution_factory(
+        config: SigrokDecoderConfig,
+        execution_factory: &dyn SigrokExecutionFactory,
+    ) -> Result<Self, String> {
         if config.sample_rate == 0 {
             return Err("Sigrok decoder sample rate must be positive".into());
         }
@@ -110,28 +115,31 @@ impl SigrokDecoder {
             .iter()
             .map(|(name, value)| {
                 let value = match value {
-                    SigrokOptionValue::Bool(value) => OptionValue::Bool(*value),
-                    SigrokOptionValue::Integer(value) => OptionValue::Integer(*value),
-                    SigrokOptionValue::Float(value) => OptionValue::Float(*value),
-                    SigrokOptionValue::String(value) => OptionValue::String(value.clone()),
+                    SigrokOptionValue::Bool(value) => SigrokExecutionOptionValue::Bool(*value),
+                    SigrokOptionValue::Integer(value) => {
+                        SigrokExecutionOptionValue::Integer(*value)
+                    }
+                    SigrokOptionValue::Float(value) => SigrokExecutionOptionValue::Float(*value),
+                    SigrokOptionValue::String(value) => {
+                        SigrokExecutionOptionValue::String(value.clone())
+                    }
                 };
                 (name.clone(), value)
             })
             .collect();
-        let worker_input = if config.protocol_inputs.is_empty() {
-            WorkerInputConfig::Logic(channel_initial)
+        let execution_input = if config.protocol_inputs.is_empty() {
+            SigrokExecutionInput::Logic(channel_initial)
         } else {
-            WorkerInputConfig::Protocol(config.protocol_inputs.clone())
+            SigrokExecutionInput::Protocol(config.protocol_inputs.clone())
         };
-        let worker = DecoderWorker::spawn(WorkerConfig {
+        let execution = execution_factory.spawn(SigrokExecutionConfig {
             decoder_root: config.decoder_root.clone(),
             decoder_id: config.decoder_id.clone(),
             sample_rate: config.sample_rate,
-            input: worker_input,
+            input: execution_input,
             options,
             queue_capacity: OUTPUT_QUEUE_CAPACITY,
-        })
-        .map_err(|error| error.to_string())?;
+        })?;
         Ok(Self {
             name: format!("sigrok_{}", config.decoder_id),
             decoder_id: config.decoder_id,
@@ -144,7 +152,7 @@ impl SigrokDecoder {
             input_buffers: (0..connected_count).map(|_| VecDeque::new()).collect(),
             protocol_inputs: config.protocol_inputs,
             protocol_buffer: VecDeque::new(),
-            worker,
+            execution,
             finished: false,
         })
     }
@@ -256,9 +264,9 @@ impl SigrokDecoder {
     }
 
     fn drain_outputs(&mut self, outputs: &[OutputPort]) -> WorkResult<usize> {
-        let registrations = self.worker.registrations();
+        let registrations = self.execution.registrations();
         let mut converted = Vec::new();
-        while let Some(output) = self.worker.try_output().map_err(worker_error)? {
+        while let Some(output) = self.execution.try_output().map_err(execution_error)? {
             converted.push(self.convert_output(output, &registrations)?);
         }
         let count = converted.len();
@@ -269,20 +277,20 @@ impl SigrokDecoder {
     }
 
     fn finalize(&mut self, outputs: &[OutputPort]) -> WorkResult<usize> {
-        self.worker.finish().map_err(worker_error)?;
+        self.execution.finish().map_err(execution_error)?;
         let mut count = 0;
-        while !self.worker.is_finished() {
+        while !self.execution.is_finished() {
             if let Some(output) = self
-                .worker
+                .execution
                 .receive_output(OUTPUT_WAIT)
-                .map_err(worker_error)?
+                .map_err(execution_error)?
             {
-                let registrations = self.worker.registrations();
+                let registrations = self.execution.registrations();
                 send_output(outputs, self.convert_output(output, &registrations)?)?;
                 count += 1;
             }
         }
-        self.worker.join().map_err(worker_error)?;
+        self.execution.join().map_err(execution_error)?;
         count += self.drain_outputs(outputs)?;
         self.finished = true;
         Ok(count)
@@ -290,7 +298,7 @@ impl SigrokDecoder {
 
     fn convert_output(
         &self,
-        output: DecoderOutput,
+        output: SigrokExecutionOutput,
         registrations: &[OutputRegistration],
     ) -> WorkResult<ConvertedOutput> {
         let registration = registrations.get(output.output_id).ok_or_else(|| {
@@ -301,20 +309,18 @@ impl SigrokDecoder {
         })?;
         let start_time_ns = self.sample_time_ns(output.start_sample);
         let end_time_ns = self.sample_time_ns(output.end_sample);
-        Python::attach(|py| {
-            convert_python_output(
-                output.data.bind(py),
-                registration,
-                start_time_ns,
-                end_time_ns,
-                output.start_sample,
-                output.end_sample,
-                &self.decoder_id,
-                &self.annotation_rows_by_class,
-                self.binary_class_count,
-                &self.logic_groups,
-            )
-        })
+        convert_output(
+            &output.data,
+            registration,
+            start_time_ns,
+            end_time_ns,
+            output.start_sample,
+            output.end_sample,
+            &self.decoder_id,
+            &self.annotation_rows_by_class,
+            self.binary_class_count,
+            &self.logic_groups,
+        )
         .map_err(|error| WorkError::NodeError(format!("invalid Sigrok decoder output: {error}")))
     }
 
@@ -373,15 +379,15 @@ impl ProcessNode for SigrokDecoder {
     }
 
     fn cancellation(&self) -> Option<Arc<dyn NodeCancellation>> {
-        Some(self.worker.cancellation())
+        Some(self.execution.cancellation())
     }
 
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
         if self.finished {
             return Err(WorkError::Shutdown);
         }
-        if self.worker.is_finished() {
-            self.worker.join().map_err(worker_error)?;
+        if self.execution.is_finished() {
+            self.execution.join().map_err(execution_error)?;
             self.finished = true;
             return Err(WorkError::NodeError(
                 "Sigrok decoder stopped before its inputs ended".into(),
@@ -396,21 +402,9 @@ impl ProcessNode for SigrokDecoder {
                     Ok(count)
                 };
             };
-            let value = Python::attach(|py| sigrok_value_to_python(py, &packet.value, 0)).map_err(
-                |error| {
-                    WorkError::NodeError(format!(
-                        "could not reconstruct Sigrok protocol packet: {error}"
-                    ))
-                },
-            )?;
-            self.worker
-                .push_protocol_packet(
-                    packet.start_sample,
-                    packet.end_sample,
-                    packet.protocol_id,
-                    value,
-                )
-                .map_err(worker_error)?;
+            self.execution
+                .push_protocol_packet(packet)
+                .map_err(execution_error)?;
             return Ok(1 + self.drain_outputs(outputs)?);
         }
         let Some(chunk) = self.acquire_chunk(inputs)? else {
@@ -422,7 +416,7 @@ impl ProcessNode for SigrokDecoder {
             };
         };
         let sample_count = chunk.sample_count();
-        self.worker.push_chunk(chunk).map_err(worker_error)?;
+        self.execution.push_chunk(chunk).map_err(execution_error)?;
         Ok(sample_count + self.drain_outputs(outputs)?)
     }
 }
@@ -467,8 +461,8 @@ fn send_output(outputs: &[OutputPort], output: ConvertedOutput) -> WorkResult<()
 }
 
 #[allow(clippy::too_many_arguments)]
-fn convert_python_output(
-    data: &Bound<'_, PyAny>,
+fn convert_output(
+    data: &ProtocolValue,
     registration: &OutputRegistration,
     start_time_ns: u64,
     end_time_ns: u64,
@@ -478,26 +472,20 @@ fn convert_python_output(
     annotation_rows_by_class: &[Arc<[usize]>],
     binary_class_count: usize,
     logic_groups: &[String],
-) -> PyResult<ConvertedOutput> {
+) -> Result<ConvertedOutput, String> {
     match registration.output_type {
         OUTPUT_ANN => {
-            let data = data.cast::<PyList>()?;
+            let data = list_value(data, "annotation")?;
             require_length(data.len(), 2, "annotation")?;
-            let class: usize = data.get_item(0)?.extract()?;
+            let class = usize_value(&data[0], "annotation class")?;
             let _rows = annotation_rows_by_class
                 .get(class)
                 .cloned()
-                .ok_or_else(|| {
-                    pyo3::exceptions::PyValueError::new_err(format!(
-                        "annotation class {class} is not declared"
-                    ))
-                })?;
-            let texts = data
-                .get_item(1)?
-                .cast::<PyList>()?
+                .ok_or_else(|| format!("annotation class {class} is not declared"))?;
+            let texts = list_value(&data[1], "annotation texts")?
                 .iter()
-                .map(|text| text.extract())
-                .collect::<PyResult<Vec<String>>>()?;
+                .map(|text| string_value(text, "annotation text").map(ToOwned::to_owned))
+                .collect::<Result<Vec<String>, String>>()?;
             let label = texts.first().cloned().unwrap_or_default();
             Ok(ConvertedOutput::Annotation(Word::labeled(
                 class as u64,
@@ -507,15 +495,13 @@ fn convert_python_output(
             )))
         }
         OUTPUT_BINARY => {
-            let data = data.cast::<PyList>()?;
+            let data = list_value(data, "binary output")?;
             require_length(data.len(), 2, "binary output")?;
-            let class: usize = data.get_item(0)?.extract()?;
+            let class = usize_value(&data[0], "binary class")?;
             if class >= binary_class_count {
-                return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                    "binary class {class} is not declared"
-                )));
+                return Err(format!("binary class {class} is not declared"));
             }
-            let bytes: Arc<[u8]> = data.get_item(1)?.cast::<PyBytes>()?.as_bytes().into();
+            let bytes = bytes_value(&data[1], "binary data")?;
             Ok(ConvertedOutput::Binary(Word::bytes_with_tag(
                 class as u64,
                 bytes,
@@ -524,15 +510,14 @@ fn convert_python_output(
             )))
         }
         OUTPUT_LOGIC => {
-            let data = data.cast::<PyList>()?;
+            let data = list_value(data, "generated logic output")?;
             require_length(data.len(), 2, "generated logic output")?;
-            let group_index: usize = data.get_item(0)?.extract()?;
-            let _group = logic_groups.get(group_index).cloned().ok_or_else(|| {
-                pyo3::exceptions::PyValueError::new_err(format!(
-                    "logic group {group_index} is not declared"
-                ))
-            })?;
-            let samples: Arc<[u8]> = data.get_item(1)?.cast::<PyBytes>()?.as_bytes().into();
+            let group_index = usize_value(&data[0], "logic group")?;
+            let _group = logic_groups
+                .get(group_index)
+                .cloned()
+                .ok_or_else(|| format!("logic group {group_index} is not declared"))?;
+            let samples = bytes_value(&data[1], "generated logic samples")?;
             let sample_count = end_sample
                 .saturating_sub(start_sample)
                 .saturating_sub(1)
@@ -550,18 +535,18 @@ fn convert_python_output(
             )))
         }
         OUTPUT_META => {
-            let metadata = registration.metadata.as_ref().ok_or_else(|| {
-                pyo3::exceptions::PyValueError::new_err(
-                    "metadata output has no registration descriptor",
-                )
-            })?;
+            let metadata = registration
+                .metadata
+                .as_ref()
+                .ok_or_else(|| "metadata output has no registration descriptor".to_owned())?;
             let (value, display) = match metadata.value_type {
                 MetadataType::Integer => {
-                    let value: i64 = data.extract()?;
+                    let value = i64::try_from(integer_value(data, "integer metadata")?)
+                        .map_err(|_| "integer metadata exceeds the supported range".to_owned())?;
                     (value as u64, format!("{}: {value}", metadata.name))
                 }
                 MetadataType::Float => {
-                    let value: f64 = data.extract()?;
+                    let value = float_value(data, "floating-point metadata")?;
                     (value.to_bits(), format!("{}: {value}", metadata.name))
                 }
             };
@@ -581,110 +566,59 @@ fn convert_python_output(
                 .protocol_id
                 .clone()
                 .unwrap_or_else(|| decoder_id.to_owned()),
-            value: convert_value(data, 0)?,
+            value: data.clone(),
         })),
-        output_type => Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "unsupported output type {output_type}"
-        ))),
+        output_type => Err(format!("unsupported output type {output_type}")),
     }
 }
 
-fn sigrok_value_to_python(
-    py: Python<'_>,
-    value: &ProtocolValue,
-    depth: usize,
-) -> PyResult<Py<PyAny>> {
-    if depth >= VALUE_RECURSION_LIMIT {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "protocol packet nesting exceeds 64 levels",
-        ));
-    }
-    let value = match value {
-        ProtocolValue::Null => return Ok(py.None()),
-        ProtocolValue::Bool(value) => PyBool::new(py, *value).to_owned().into_any(),
-        ProtocolValue::Integer(value) => PyInt::new(py, *value).into_any(),
-        ProtocolValue::Float(value) => PyFloat::new(py, *value).into_any(),
-        ProtocolValue::String(value) => PyString::new(py, value).into_any(),
-        ProtocolValue::Bytes(value) => PyBytes::new(py, value).into_any(),
-        ProtocolValue::List(values) => {
-            let result = PyList::empty(py);
-            for value in values {
-                result.append(sigrok_value_to_python(py, value, depth + 1)?)?;
-            }
-            result.into_any()
-        }
-        ProtocolValue::Tuple(values) => {
-            let values = values
-                .iter()
-                .map(|value| sigrok_value_to_python(py, value, depth + 1))
-                .collect::<PyResult<Vec<_>>>()?;
-            PyTuple::new(py, values)?.into_any()
-        }
-        ProtocolValue::Mapping(values) => {
-            let result = PyDict::new(py);
-            for (key, value) in values {
-                result.set_item(key, sigrok_value_to_python(py, value, depth + 1)?)?;
-            }
-            result.into_any()
-        }
-    };
-    Ok(value.unbind())
-}
-
-fn convert_value(value: &Bound<'_, PyAny>, depth: usize) -> PyResult<ProtocolValue> {
-    if depth >= VALUE_RECURSION_LIMIT {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "protocol packet nesting exceeds 64 levels",
-        ));
-    }
-    if value.is_none() {
-        Ok(ProtocolValue::Null)
-    } else if value.is_instance_of::<PyBool>() {
-        Ok(ProtocolValue::Bool(value.extract()?))
-    } else if value.is_instance_of::<PyInt>() {
-        Ok(ProtocolValue::Integer(value.extract()?))
-    } else if value.is_instance_of::<PyFloat>() {
-        Ok(ProtocolValue::Float(value.extract()?))
-    } else if value.is_instance_of::<PyString>() {
-        Ok(ProtocolValue::String(value.extract()?))
-    } else if let Ok(value) = value.cast::<PyBytes>() {
-        Ok(ProtocolValue::Bytes(value.as_bytes().into()))
-    } else if let Ok(value) = value.cast::<PyList>() {
-        Ok(ProtocolValue::List(
-            value
-                .iter()
-                .map(|item| convert_value(&item, depth + 1))
-                .collect::<PyResult<_>>()?,
-        ))
-    } else if let Ok(value) = value.cast::<PyTuple>() {
-        Ok(ProtocolValue::Tuple(
-            value
-                .iter()
-                .map(|item| convert_value(&item, depth + 1))
-                .collect::<PyResult<_>>()?,
-        ))
-    } else if let Ok(value) = value.cast::<PyDict>() {
-        Ok(ProtocolValue::Mapping(
-            value
-                .iter()
-                .map(|(key, value)| Ok((key.extract()?, convert_value(&value, depth + 1)?)))
-                .collect::<PyResult<_>>()?,
-        ))
-    } else {
-        Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "unsupported protocol packet value {}",
-            value.get_type().name()?
-        )))
+fn list_value<'a>(value: &'a ProtocolValue, name: &str) -> Result<&'a [ProtocolValue], String> {
+    match value {
+        ProtocolValue::List(values) => Ok(values),
+        _ => Err(format!("{name} must be a list")),
     }
 }
 
-fn require_length(actual: usize, expected: usize, name: &str) -> PyResult<()> {
+fn usize_value(value: &ProtocolValue, name: &str) -> Result<usize, String> {
+    let value = integer_value(value, name)?;
+    usize::try_from(value).map_err(|_| format!("{name} must be a non-negative integer"))
+}
+
+fn integer_value(value: &ProtocolValue, name: &str) -> Result<i128, String> {
+    match value {
+        ProtocolValue::Integer(value) => Ok(*value),
+        _ => Err(format!("{name} must be an integer")),
+    }
+}
+
+fn float_value(value: &ProtocolValue, name: &str) -> Result<f64, String> {
+    match value {
+        ProtocolValue::Float(value) => Ok(*value),
+        _ => Err(format!("{name} must be a float")),
+    }
+}
+
+fn string_value<'a>(value: &'a ProtocolValue, name: &str) -> Result<&'a str, String> {
+    match value {
+        ProtocolValue::String(value) => Ok(value),
+        _ => Err(format!("{name} must be a string")),
+    }
+}
+
+fn bytes_value(value: &ProtocolValue, name: &str) -> Result<Arc<[u8]>, String> {
+    match value {
+        ProtocolValue::Bytes(value) => Ok(value.clone()),
+        _ => Err(format!("{name} must be bytes")),
+    }
+}
+
+fn require_length(actual: usize, expected: usize, name: &str) -> Result<(), String> {
     if actual == expected {
         Ok(())
     } else {
-        Err(pyo3::exceptions::PyValueError::new_err(format!(
+        Err(format!(
             "{name} must have {expected} elements, got {actual}"
-        )))
+        ))
     }
 }
 
@@ -698,13 +632,13 @@ fn sample_time_ns(sample: u64, timestamp_step_ns: Option<u64>, sample_rate: u64)
     )
 }
 
-fn worker_error(error: WorkerError) -> WorkError {
-    WorkError::NodeError(error.to_string())
+fn execution_error(error: String) -> WorkError {
+    WorkError::NodeError(error)
 }
 
 #[cfg(test)]
 mod implementation_tests {
-    use std::fs;
+    use std::sync::{Arc, Mutex};
 
     use crossbeam_channel::{Receiver as ChannelReceiver, bounded};
 
@@ -718,50 +652,30 @@ mod implementation_tests {
     }
 
     #[test]
-    fn protocol_input_reconstructs_owned_values_for_stacked_decode_calls() {
-        let directory = tempfile::tempdir().unwrap();
-        let package = directory.path().join("stacked_fixture");
-        fs::create_dir(&package).unwrap();
-        fs::write(package.join("__init__.py"), "from .pd import Decoder\n").unwrap();
-        fs::write(
-            package.join("pd.py"),
-            r#"
-import sigrokdecode as srd
-
-class Decoder(srd.Decoder):
-    def start(self):
-        self.ann = self.register(srd.OUTPUT_ANN)
-    def decode(self, ss, es, data):
-        kind, number, details = data
-        assert kind == 'DATA'
-        assert number == 165
-        assert details == {'valid': True, 'bytes': b'\x10\x20'}
-        self.put(ss, es, self.ann, [0, [f'{kind}:{number}:{details["valid"]}']])
-"#,
-        )
-        .unwrap();
-
+    fn protocol_input_and_outputs_use_the_injected_execution_contract() {
+        let execution_factory = TestExecutionFactory::default();
         let watchdog = Watchdog::new();
         let (input_sender, input_receiver) = bounded(4);
+        let packet = ProtocolPacket {
+            start_sample: 12,
+            end_sample: 20,
+            start_time_ns: 12_000,
+            end_time_ns: 20_000,
+            protocol_id: "spi".into(),
+            value: ProtocolValue::Tuple(vec![
+                ProtocolValue::String("DATA".into()),
+                ProtocolValue::Integer(165),
+                ProtocolValue::Mapping(BTreeMap::from([
+                    ("valid".into(), ProtocolValue::Bool(true)),
+                    (
+                        "bytes".into(),
+                        ProtocolValue::Bytes(Arc::from([0x10, 0x20])),
+                    ),
+                ])),
+            ]),
+        };
         input_sender
-            .send(ChannelMessage::Sample(ProtocolPacket {
-                start_sample: 12,
-                end_sample: 20,
-                start_time_ns: 12_000,
-                end_time_ns: 20_000,
-                protocol_id: "spi".into(),
-                value: ProtocolValue::Tuple(vec![
-                    ProtocolValue::String("DATA".into()),
-                    ProtocolValue::Integer(165),
-                    ProtocolValue::Mapping(BTreeMap::from([
-                        ("valid".into(), ProtocolValue::Bool(true)),
-                        (
-                            "bytes".into(),
-                            ProtocolValue::Bytes(Arc::from([0x10, 0x20])),
-                        ),
-                    ])),
-                ]),
-            }))
+            .send(ChannelMessage::Sample(packet.clone()))
             .unwrap();
         drop(input_sender);
         let inputs = vec![InputPort::new_with_watchdog(
@@ -782,17 +696,20 @@ class Decoder(srd.Decoder):
             metadata_output,
             packet_output,
         ];
-        let mut decoder = SigrokDecoder::new(SigrokDecoderConfig {
-            decoder_root: directory.path().to_owned(),
-            decoder_id: "stacked_fixture".into(),
-            sample_rate: 1_000_000,
-            channels: Vec::new(),
-            protocol_inputs: vec!["spi".into()],
-            options: BTreeMap::new(),
-            annotation_rows_by_class: vec![Arc::from([0])],
-            binary_class_count: 0,
-            logic_groups: Vec::new(),
-        })
+        let mut decoder = SigrokDecoder::with_execution_factory(
+            SigrokDecoderConfig {
+                decoder_root: "virtual/decoders".into(),
+                decoder_id: "stacked_fixture".into(),
+                sample_rate: 1_000_000,
+                channels: Vec::new(),
+                protocol_inputs: vec!["spi".into()],
+                options: BTreeMap::new(),
+                annotation_rows_by_class: vec![Arc::from([0])],
+                binary_class_count: 0,
+                logic_groups: Vec::new(),
+            },
+            &execution_factory,
+        )
         .unwrap();
         loop {
             match decoder.work(&inputs, &outputs) {
@@ -806,7 +723,105 @@ class Decoder(srd.Decoder):
         assert_eq!(annotations.len(), 1);
         assert_eq!(annotations[0].timestamp_ns, 12_000);
         assert_eq!(annotations[0].end_ns(), 20_000);
-        assert_eq!(word_text(&annotations[0]), "DATA:165:True");
+        assert_eq!(word_text(&annotations[0]), "DATA:165:true");
+        let state = execution_factory.state.lock().unwrap();
+        assert_eq!(state.packets, [packet]);
+        let config = state.config.as_ref().unwrap();
+        assert_eq!(config.decoder_root, PathBuf::from("virtual/decoders"));
+        assert_eq!(config.decoder_id, "stacked_fixture");
+        assert!(matches!(
+            &config.input,
+            SigrokExecutionInput::Protocol(protocols) if protocols == &["spi"]
+        ));
+    }
+
+    #[derive(Default)]
+    struct TestExecutionFactory {
+        state: Arc<Mutex<TestExecutionState>>,
+    }
+
+    #[derive(Default)]
+    struct TestExecutionState {
+        config: Option<SigrokExecutionConfig>,
+        packets: Vec<ProtocolPacket>,
+        outputs: VecDeque<SigrokExecutionOutput>,
+        finished: bool,
+    }
+
+    impl SigrokExecutionFactory for TestExecutionFactory {
+        fn spawn(&self, config: SigrokExecutionConfig) -> Result<Box<dyn SigrokExecution>, String> {
+            self.state.lock().unwrap().config = Some(config);
+            Ok(Box::new(TestExecution {
+                state: Arc::clone(&self.state),
+            }))
+        }
+    }
+
+    struct TestExecution {
+        state: Arc<Mutex<TestExecutionState>>,
+    }
+
+    impl SigrokExecution for TestExecution {
+        fn push_chunk(&self, _chunk: LogicChunk) -> Result<(), String> {
+            Err("test execution accepts only protocol input".into())
+        }
+
+        fn push_protocol_packet(&self, packet: ProtocolPacket) -> Result<(), String> {
+            let mut state = self.state.lock().unwrap();
+            state.outputs.push_back(SigrokExecutionOutput {
+                start_sample: packet.start_sample,
+                end_sample: packet.end_sample,
+                output_id: 0,
+                data: ProtocolValue::List(vec![
+                    ProtocolValue::Integer(0),
+                    ProtocolValue::List(vec![ProtocolValue::String("DATA:165:true".into())]),
+                ]),
+            });
+            state.packets.push(packet);
+            Ok(())
+        }
+
+        fn finish(&self) -> Result<(), String> {
+            self.state.lock().unwrap().finished = true;
+            Ok(())
+        }
+
+        fn cancellation(&self) -> Arc<dyn NodeCancellation> {
+            Arc::new(TestCancellation)
+        }
+
+        fn try_output(&self) -> Result<Option<SigrokExecutionOutput>, String> {
+            Ok(self.state.lock().unwrap().outputs.pop_front())
+        }
+
+        fn registrations(&self) -> Vec<OutputRegistration> {
+            vec![OutputRegistration {
+                output_type: OUTPUT_ANN,
+                protocol_id: None,
+                metadata: None,
+            }]
+        }
+
+        fn is_finished(&self) -> bool {
+            self.state.lock().unwrap().finished
+        }
+
+        fn receive_output(
+            &self,
+            _timeout: Duration,
+        ) -> Result<Option<SigrokExecutionOutput>, String> {
+            self.try_output()
+        }
+
+        fn join(&mut self) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    struct TestCancellation;
+
+    impl NodeCancellation for TestCancellation {
+        fn request_cancel(&self) {}
     }
 
     fn word_text(word: &Word) -> String {

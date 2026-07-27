@@ -1,6 +1,8 @@
 //! Sigrok Python decoder runtime and discovery contracts.
 
 #[cfg(not(target_arch = "wasm32"))]
+mod execution;
+#[cfg(not(target_arch = "wasm32"))]
 mod implementation;
 #[cfg(all(not(target_arch = "wasm32"), feature = "developer-tools"))]
 mod upstream_validation;

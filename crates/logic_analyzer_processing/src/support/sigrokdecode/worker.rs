@@ -247,9 +247,10 @@ fn run_decoder(
                 Err(error) => Err(error),
             },
             WorkerInputConfig::Protocol(accepted_protocols) => loop {
-                match protocol_input.recv().map_err(|_| {
+                let message = py.detach(|| protocol_input.recv()).map_err(|_| {
                     pyo3::exceptions::PyRuntimeError::new_err("protocol input closed")
-                })? {
+                })?;
+                match message {
                     ProtocolInputMessage::Packet {
                         start_sample,
                         end_sample,

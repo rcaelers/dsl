@@ -124,6 +124,13 @@ The native adapters use the filesystem and PyO3 host respectively. Catalog tests
 paths and descriptors, so ordering, duplicate handling, diagnostics, caching, and refresh behavior
 do not import Python packages or depend on host directories.
 
+The processing node controls execution through `SigrokExecution` and creates implementations with
+`SigrokExecutionFactory`. This contract exchanges logic chunks, protocol packets, registrations,
+and outputs as Rust-owned values. The native adapter alone converts `ProtocolValue` to and from
+Python objects and delegates scheduling to the decoder worker. Processing-node tests inject a
+deterministic execution implementation; focused adapter tests generate their own decoder package
+and cover the Python boundary.
+
 The native Preferences window owns an ordered collection of external decoder directories. Adding,
 removing, or rescanning directories starts discovery on a background thread; the UI continues to
 render and reports scan progress and package diagnostics. The collection is persisted in the
@@ -212,8 +219,8 @@ receiving decoder's declared inputs. Routing uses those declared IDs, not decode
 integers, floats, strings, bytes, lists, tuples, and string-keyed mappings. Native decoder nodes can
 emit the same type when they implement an explicitly documented protocol contract; the native I²C
 decoder, for example, emits the standard Sigrok `i2c` packet vocabulary as well as native words.
-A packet that cannot be represented produces a structured compatibility error. A receiving Sigrok
-node reconstructs the corresponding Python value before invoking
+A packet that cannot be represented produces a structured compatibility error. The native Sigrok
+execution adapter reconstructs the corresponding Python value before invoking
 `decode(start_sample, end_sample, data)`.
 
 ## Output payloads
@@ -297,8 +304,9 @@ The current native distribution policy and review boundary are defined in
 ## Verification strategy
 
 The scheduler and converters have Rust unit tests for every condition, boundary, EOF, malformed
-value, and cancellation case. Small fixture decoders exercise Python subclassing, metadata,
-options, all output types, protocol-packet conversion, exceptions, and teardown.
+value, and cancellation case. Processing-node tests use an injected deterministic execution
+implementation. Small generated fixture decoders exercise the native adapter's Python subclassing,
+metadata, options, all output types, protocol-packet conversion, exceptions, and teardown.
 
 Compatibility tests run representative unmodified decoders over deterministic captures. A
 test-only oracle may execute the same capture through `libsigrokdecode` and compare normalized

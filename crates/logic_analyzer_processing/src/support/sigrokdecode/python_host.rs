@@ -114,15 +114,15 @@ impl HostDecoder {
         output_id: usize,
         data: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
-        self.bridge()?
-            .put(DecoderOutput {
-                start_sample,
-                end_sample,
-                output_id,
-                data: data.clone().unbind(),
-            })
+        let bridge = self.bridge()?;
+        let output = DecoderOutput {
+            start_sample,
+            end_sample,
+            output_id,
+            data: data.clone().unbind(),
+        };
+        py.detach(move || bridge.put(output))
             .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
-        let _ = py;
         Ok(())
     }
 

@@ -28,5 +28,6 @@ backend is a separate complete implementation boundary.
 Catalog tests use injected search-path and package-discovery implementations to cover ordered
 paths, duplicate IDs, missing and unreadable directories, invalid packages, cache reuse, and
 explicit refresh without executing Python. Separate project-owned decoder fixtures cover Python
-metadata including licenses and runtime behavior. Generic UI, compiler, viewer, and node-graph
+metadata including licenses and native-adapter behavior. Runtime-node tests inject the Rust-owned
+execution contract and do not load a Python package. Generic UI, compiler, viewer, and node-graph
 architecture tests reject Sigrok-specific host cases.
