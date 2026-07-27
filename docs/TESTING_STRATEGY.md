@@ -28,6 +28,12 @@ hardware, or network access.
   use a workspace dependency in tests when it is already part of that crate's
   production contract, or may use the neutral test-support crate for shared
   deterministic data models.
+- UI component tests use local graph, host, capture-export, and acquisition
+  implementations. Native dialog and filesystem-export adapters are optional
+  production capabilities enabled by the native application crate, not part of
+  the default `logic-analyzer-ui` test dependency graph. End-to-end UI,
+  compiler, and built-in-node composition belongs to the top-level integration
+  package.
 
 ## Continuous integration
 

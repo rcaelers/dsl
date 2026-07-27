@@ -43,7 +43,9 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
   platform-neutral contract in complete platform-selected modules. Its private
   `CaptureExportService` port owns asynchronous export startup, progress, cancellation, and
   completion; `CaptureCoordinator` supplies only a finalized session identity and retains capture
-  lifecycle policy.
+  lifecycle policy. Native dialog and filesystem-export adapters are enabled only by the native
+  application host; the default UI crate build uses unavailable adapters so its component tests do
+  not link those concrete backends.
 - Workspace-level integration tests own end-to-end compositions spanning concrete graph nodes,
   processing nodes, and the generic compiler. Component crates keep only tests of their own
   contracts and private implementation mechanics; composition-only dependencies do not appear in

@@ -5,8 +5,11 @@ mod architecture_tests;
 mod contract;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod host_service_tests;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "native-host"))]
 #[path = "native.rs"]
+mod implementation;
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "native-host")))]
+#[path = "unavailable_native.rs"]
 mod implementation;
 #[cfg(target_arch = "wasm32")]
 #[path = "wasm.rs"]

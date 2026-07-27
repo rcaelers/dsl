@@ -2,8 +2,11 @@
 
 mod builtins;
 mod control;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "native-file-dialog"))]
 #[path = "file_dialog_native.rs"]
+mod file_dialog;
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "native-file-dialog")))]
+#[path = "file_dialog_unavailable.rs"]
 mod file_dialog;
 #[cfg(target_arch = "wasm32")]
 #[path = "file_dialog_web.rs"]

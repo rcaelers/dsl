@@ -4,6 +4,10 @@ version.workspace = true
 edition = "2024"
 authors = ["Rob Caelers <rob.caelers@gmail.com>"]
 
+[features]
+default = []
+native-file-dialog = ["dep:rfd"]
+
 [lib]
 name = "node_graph"
 path = "src/lib.rs"
@@ -12,6 +16,6 @@ path = "src/lib.rs"
 input-bindings = { path = "../../input_bindings" }
 widget-support = { path = "../widget_support" }
 egui = { workspace = true, features = ["serde"] }
-rfd = { workspace = true }
+rfd = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

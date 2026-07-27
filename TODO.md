@@ -61,13 +61,7 @@ crate under test.
      fail every asynchronous preparation operation without starting real
      workers or opening production capture files.
 
-4. **UI isolation:**
-   - Move end-to-end UI + compiler + built-in-node workflows to the top-level
-     integration test package.
-   - Completion gate: `logic_analyzer_ui` tests run with no built-in node
-     registrations, USB backend, native dialog, or filesystem export backend.
-
-5. **Concrete processing boundaries:**
+4. **Concrete processing boundaries:**
    - Retain `LogicAnalyzer`, `CaptureDataSource`, `CaptureIndex`,
      `PreparedAcquisition`, and `UsbTransport` as the principal substitution
      seams. Move code that bypasses them back behind the appropriate owner
@@ -85,7 +79,7 @@ crate under test.
      and failure coverage through deterministic input, transport, storage, or
      host implementations.
 
-6. **Fixtures and external validation:**
+5. **Fixtures and external validation:**
    - Store required fixture data under the owning crate's `test_data/`
      directory, or generate it deterministically in the test. Do not read a
      sibling crate's fixtures or repository-adjacent directories such as
@@ -95,7 +89,7 @@ crate under test.
      protocol input, annotations, binary output, metadata, generated logic,
      malformed metadata, and runtime failure as needed.
 
-7. **Reusable contract suites and CI:**
+6. **Reusable contract suites and CI:**
    - Put reusable conformance assertions beside the trait owner. Implementor
      crates invoke them with local constructors/factories rather than importing
      another concrete implementation.

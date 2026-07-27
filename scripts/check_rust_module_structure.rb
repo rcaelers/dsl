@@ -152,6 +152,31 @@ if graph_nodes_manifest.match?(/^logic-analyzer-graph-compiler\s*=/)
   errors << "crates/logic_analyzer_graph_nodes/Cargo.toml: built-in nodes and their isolated tests must use graph API contracts, not the compiler"
 end
 
+ui_manifest = File.read(File.join(ROOT, "crates/logic_analyzer_ui/Cargo.toml"))
+unless ui_manifest.match?(/^default\s*=\s*\[\s*\]\s*$/)
+  errors << "crates/logic_analyzer_ui/Cargo.toml: default features must keep UI component tests host-backend-free"
+end
+%w[logic-analyzer-capture-export rfd].each do |dependency|
+  declaration = ui_manifest.lines.find { |line| line.match?(/^#{Regexp.escape(dependency)}\s*=/) }
+  unless declaration&.include?("optional = true")
+    errors << "crates/logic_analyzer_ui/Cargo.toml: #{dependency} must be an optional native-host adapter dependency"
+  end
+end
+unless ui_manifest.match?(/^native-host\s*=\s*\[[^\]]*dep:logic-analyzer-capture-export[^\]]*dep:rfd[^\]]*node-graph\/native-file-dialog[^\]]*\]/m)
+  errors << "crates/logic_analyzer_ui/Cargo.toml: native-host must enable application, node-graph, and capture-export adapters"
+end
+
+node_graph_manifest = File.read(File.join(ROOT, "crates/widgets/node_graph/Cargo.toml"))
+rfd_declaration = node_graph_manifest.lines.find { |line| line.match?(/^rfd\s*=/) }
+unless node_graph_manifest.match?(/^default\s*=\s*\[\s*\]\s*$/) && rfd_declaration&.include?("optional = true") && node_graph_manifest.match?(/^native-file-dialog\s*=\s*\[[^\]]*dep:rfd[^\]]*\]/)
+  errors << "crates/widgets/node_graph/Cargo.toml: rfd must be owned by the optional native-file-dialog capability"
+end
+
+native_app_manifest = File.read(File.join(ROOT, "crates/app_native/Cargo.toml"))
+unless native_app_manifest.match?(/^logic-analyzer-ui\s*=\s*\{[^}]*features\s*=\s*\[[^\]]*\"native-host\"/)
+  errors << "crates/app_native/Cargo.toml: the native application must enable logic-analyzer-ui/native-host"
+end
+
 Dir.glob(File.join(ROOT, "plugins/*/Cargo.toml")).sort.each do |manifest_path|
   manifest = File.read(manifest_path)
   production_manifest = manifest.split(/^\[dev-dependencies\]\s*$/, 2).first
