@@ -313,16 +313,19 @@ Per-frame flow in `show()`:
 
 1. `process_worker_responses()` — drain the background worker's channel (native only).
 2. `ensure_row_order()` — reconcile the row list against current channels + derived lanes.
-3. Row-label input (rename double-click, drag reorder), cursor input, fit-to-view
-   (double-click / `F`), then pan/zoom input.
+3. Row-label input (rename double-click, drag reorder), edge-delta measurement, cursor input,
+   fit-to-view (double-click / `F`), then pan/zoom input.
 4. `sample_visible_window()` — recompute `(start_sample, end_sample, target_points)` for the
    current view/viewport; if unchanged since last frame, skip the query. Otherwise call
    `sampled_window` synchronously on the UI thread and convert the result into
    `LogicChannel`s. What is drawn is therefore always exactly the current view — there is no
    separate asynchronous refinement pass that could disagree with it.
-5. `sample_hover_measurement()` — refresh the pulse measurement under the pointer.
+5. `sample_hover_measurement()` — refresh the pulse measurement under the pointer unless an
+   edge-delta measurement is active; an active edge-delta measurement instead resolves its
+   endpoint from the pointer.
 6. `draw()` — header, ruler, row labels, channel waveforms, derived lanes, pointer marker,
-   measurement tooltip, time cursors; then the color-profile selector overlay.
+   pulse and edge-delta measurement overlays, time cursors; then the color-profile selector
+   overlay.
 7. Repaint scheduling: while opening (no `CaptureInfo` yet) repaint every ~16 ms; while
    indexing or waiting for the sampler, every ~100 ms. Otherwise egui's normal
    repaint-on-input applies.
@@ -399,6 +402,20 @@ data, then resolves any open boundary by searching outward (`prev_transition_at_
 `next_transition_after`) so width/period/duty-cycle are exact and independent of zoom level or
 query-window size. In-memory channels (no sampler) measure from their `transitions` directly.
 
+### Edge-delta measurement
+
+A primary click on a real transition starts an edge-delta measurement. Its source remains the
+selected edge, while the endpoint follows the pointer across raw and derived rows. The endpoint
+uses the target row's transition projection: when its nearest transition is within six screen
+pixels it snaps to that exact edge; otherwise its time and vertical position remain free at the
+pointer. Indexed raw rows resolve candidate edges through the capture index's predecessor and
+successor transition queries, so snapping remains exact when the displayed waveform is a summary
+band. Derived rows use their renderer-provided generic transition projection.
+
+The viewer draws a Bézier leader from the source edge to the endpoint and a `Δt` popup. A second
+primary click or `Escape` stops the interaction. While active, this interaction owns the primary
+click so cursor, row-label, trigger, and pan gestures cannot consume the stop action.
+
 ### Cursors
 
 DSView-style vertical time cursors are added by double-clicking the time canvas, dragged by their
@@ -418,6 +435,8 @@ cursor creation suppresses fit-to-capture for the same event.
 | Drag a cursor flag/line | Move that cursor |
 | Double-click a row label | Rename the row |
 | Drag a row label | Reorder rows |
+| Click a waveform edge | Start edge-delta measurement; endpoint snaps near an edge on any row or follows freely elsewhere |
+| `Esc` or primary click during edge-delta measurement | Stop edge-delta measurement |
 | Header-bar combo (right) | Switch color profile (DSView / Classic) |
 
 ---

@@ -36,7 +36,7 @@ viewer.show(ui);                               // fills the available rect
 ```
 
 `show` is self-contained: it drains lower-level file-worker messages, handles all interaction
-(pan, zoom, cursors, row rename/reorder, hover measurement), samples the visible window,
+(pan, zoom, cursors, row rename/reorder, hover measurement, edge-delta measurement), samples the visible window,
 paints, and schedules repaints while a capture is opening or indexing.
 
 ## Feeding data
@@ -128,6 +128,7 @@ executes while the runtime lane store is locked.
 | Double-click row label | Rename the row (viewer-local; underlying data untouched) |
 | Drag row label | Reorder rows |
 | Hover a waveform | Pulse measurement tooltip (width/period/duty), exact at any zoom |
+| Click a waveform edge | Start an edge-delta measurement; the endpoint follows freely and snaps when it is near an edge on any raw or derived lane. `Esc` or the next left click stops it. |
 | Combo box, header right | Color profile: DSView (default) / Classic |
 
 ## wasm

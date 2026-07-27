@@ -21,11 +21,13 @@ consumes that integration and must not contain concrete node/compiler implementa
 
 ## Application shells (`crates/app_native`, `crates/app_web`)
 
-One window, split by a draggable horizontal splitter:
+The application window uses a persistent panel layout. The default places the Logic Analyzer above
+the Node Graph; auxiliary panels occupy a right column when opened. Users can close any panel and
+restore it through the View menu without changing the saved layout of the other panels:
 
 ```text
 ┌──────────────────────────────────────────────┐
-│ File menu (Load / Save / Save As / Quit)     │
+│ File / View menus                            │
 ├──────────────────────────────────────────────┤
 │ LogicAnalyzerViewer         (top pane)       │
 ├━━━━━━━━ splitter ━━━━━━━━━━━━━━━━━━━━━━━━━━━━┤
@@ -35,9 +37,13 @@ One window, split by a draggable horizontal splitter:
 └──────────────────────────────────────────────┘
 ```
 
-- `App::build` creates the node-type registry (`nodes::build_registry()`), the builder
-  registry (`compiler::BuilderRegistry::standard()`), applies compile-time inventory submissions,
-  and installs a platform symbol font (menu glyphs).
+The View menu restores the primary Logic Analyzer and Node Graph panels, and opens auxiliary Log,
+Watches, Triggers, Decoder, and registered plug-in panels. Reset Layout restores the default
+primary-panel arrangement. The macOS menu bar exposes the same panel commands.
+
+- `App::build` creates the editor node-type registry from graph-node inventory, composes the
+  UI-owned graph and host service ports, and installs the platform symbol font used by menu
+  glyphs. The graph service owns the inventory-derived runtime-builder registry.
 - Graphs are saved/loaded as the editor's JSON document (`⌘O` / `⌘S` / `⇧⌘S`); the binary
   accepts a graph file argument (`logic-conduit graphs/spi_controlled_decode.json`). Example graphs live in
   [graphs/](../graphs).
@@ -54,10 +60,12 @@ One window, split by a draggable horizontal splitter:
 - File commands include New, Open, Open Recent, Save, and Save As. Destructive actions over
   an unsaved graph share one save/discard/cancel guard; recent paths are deduplicated and
   persisted.
-- `eframe` storage retains the analyzer split, node-graph panel/minimap preferences, recent
-  files, and dialog directory. The viewport uses eframe's own persisted geometry.
-- Transient file/edit/live-run results use dismissible, self-expiring toasts; persistent run
-  state remains in the toolbar. The toolbar also shows the active pane's contextual hint.
+- `eframe` storage retains panel layout, node-graph panel/minimap preferences, recent files, and
+  dialog directory. The viewport uses eframe's own persisted geometry.
+- Transient file/edit/live-run results use dismissible, self-expiring toasts; persistent run state
+  remains in the toolbar. Every toast is also retained for the current session in the Log panel
+  with its UTC time, severity, and user-facing source (`Global`, a panel, a node, or a node
+  socket). The toolbar also shows the active pane's contextual hint.
 - Run and Stop are shared guarded commands used by toolbar and menus. Their shortcuts are
   `Cmd/Ctrl+R` and `Cmd/Ctrl+.` respectively.
 

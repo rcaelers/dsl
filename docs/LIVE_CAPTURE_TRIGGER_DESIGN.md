@@ -1,9 +1,5 @@
 # Live Capture and Trigger Control
 
-> Status: the foundation described under **Current baseline** and the delivery phases explicitly
-> marked complete are implemented. Other behavior under **Proposed future design** is not yet
-> implemented. Actionable work is tracked in [TODO.md](../TODO.md).
-
 This design adds interactive triggering, live waveform display, lossless host upload, live graph
 processing, and post-capture re-analysis for hardware logic-analyzer sources such as the DSLogic
 U3Pro16. It deliberately separates capture control from graph replay so the first implementation
@@ -158,18 +154,18 @@ The UI-independent live-capture foundation is also present:
   of newly summarized chunks.
 
 The native fakes, U3Pro16 buffered and streaming providers, and application coordinator are
-selected as complete platform modules. Feature-gated test sources and both fakes are used by
+selected as whole platform modules. Feature-gated test sources and both fakes are used by
 conformance composition. Native capture sessions
 use checksummed commit records, interruption-safe bounded reclamation, explicit pinning, and a
 single replaceable working repository. Finalized captures expose pinned, cancellable background
 save without routing format logic through the UI. The existing `LogicAnalyzerSource` direct graph-
 run path remains available.
 
-## Proposed future design
+## Live-capture design
 
-### Scope of the first complete release slice
+### Supported scope
 
-The first complete release slice supports exactly one live capture source and keeps the node graph
+The live-capture workflow supports exactly one live capture source and keeps the node graph
 fixed from Start until the capture and any downstream analysis drain finish. It provides:
 
 - trigger controls beside each enabled physical input lane;
@@ -182,10 +178,8 @@ fixed from Start until the capture and any downstream analysis drain finish. It 
 - live graph processing from an independent cursor over the uploaded stream; and
 - Run-based re-analysis of the finalized capture with fresh derived-data stores.
 
-This behavior is delivered through the small, dependency-ordered phases below. No phase needs to
-implement the whole release slice at once. Multiple live sources, repeated frames, advanced trigger
-stages, and the separately scoped extended workflows use the same contracts rather than replacing
-the first implementation.
+Multiple live sources, repeated frames, advanced trigger stages, and extended workflows use the
+same contracts rather than replacing this workflow.
 
 ### Terminology
 
@@ -962,7 +956,7 @@ commit records are flushed at bounded intervals, with the interval chosen so it 
 device reader. Replacement waits for capture-owned pins and workers before deleting the directory,
 so no store or index is removed while a consumer can still access it.
 
-### Later live-capture capabilities
+### Proposed future capabilities
 
 The contracts reserve capability operations for these later additions without requiring them in
 the first vertical slice:
@@ -1039,256 +1033,10 @@ native application service.
 - Abrupt termination leaves a recoverable commit-log prefix; recovery never guesses that an
   uncommitted tail is valid.
 
-### Delivery plan
+### Future work
 
-The phases below are dependency ordered and intentionally produce runnable vertical increments.
-Each phase has one principal risk and a completion gate. A phase may use several pull requests, but
-work on the next phase starts only after its gate passes. Every gate includes focused tests,
-`cargo test --workspace`, and
-`cargo check -p logic-analyzer-app-web --target wasm32-unknown-unknown`. Native-only implementations
-remain behind whole-module platform boundaries so the wasm check does not spread conditional code.
-
-The existing `LogicAnalyzerSource` graph-run path remains operational while Phases 1–7 build on and
-prove the parallel session foundation. The fake source uses live analysis in Phase 4; the concrete
-U3Pro16 graph path switches only in Phases 8–9. Early phases therefore do not leave ordinary graph
-runs half-migrated. Test providers are registered only by test/development composition and never by
-matching their names in application or generic code.
-
-#### Phase 1 — Minimal authoritative store
-
-Status: **complete**.
-
-- Implement sequential native raw staging, the smallest durable commit log, a committed-prefix
-  cursor, finalization, and a reader for finalized sessions.
-- Use the bounded reusable chunk pool and share/adopt canonical chunks rather than creating a
-  second acquisition-sized queue.
-- Defer incremental waveform summaries, retention reclamation, crash recovery, cleanup policy, and
-  export.
-
-Gate: fake-provider input is committed and replayed byte-for-byte across unaligned chunk and sample
-boundaries; a deliberately paused reader does not block acquisition; resident memory reaches a
-fixed bound during a long synthetic capture.
-
-#### Phase 2 — Immediate-capture application integration
-
-Status: **complete**.
-
-- Add the optional generic `LiveCaptureFeature` discovery contract to `RuntimeBuilder` and expose
-  the fake provider through test/development registration.
-- Add the application capture coordinator, title-bar Start/Stop, basic status, orderly drain, and
-  graph read-only state while capture is active.
-- Support immediate capture only. Do not add trigger controls, policies, waveform display, or graph
-  processing yet.
-
-Gate: an application integration test starts and stops the fake source through the same commands as
-the title bar, displays every lifecycle state, restores graph editing after drain, and produces a
-finalized session.
-
-#### Phase 3 — Growing live waveform
-
-Status: **complete**.
-
-- Evolve the capture query into a growing timeline and build incremental waveform summaries from
-  committed chunks.
-- Connect the viewer to placeholder/live physical lanes and add Follow Newest, Pause Display, and
-  Go Live behavior.
-- Keep graph analysis independent and disabled for this phase.
-
-Gate: the fake waveform becomes visible before capture completes, paused display does not delay
-acquisition, Go Live catches up, and the finalized waveform matches the fake input at exact and
-summary zoom levels.
-
-#### Phase 4 — Independent live graph analysis
-
-Status: **complete**.
-
-- Add the independent analysis cursor and feed the fixed compiled graph from committed raw chunks.
-- Start at the immediate recording origin, expose graph lag, and let a lagging graph catch up from
-  the store rather than retaining hot acquisition chunks.
-- Do not add post-capture Run replay or triggers yet.
-
-Gate: a deliberately throttled decoder falls behind without slowing acquisition, subsequently
-catches up without a sequence gap, and produces the same derived output as processing the same
-finite fake input.
-
-#### Phase 5 — Finalized-session Run replay
-
-Status: **complete**.
-
-- Add node-ID source overrides and make Run read the finalized raw session without opening a live
-  provider.
-- Recreate derived stores for each replay and preserve the captured channel/timebase metadata.
-
-Gate: live-derived and replay-derived outputs for a finalized fake session are byte-for-byte equal,
-and an instrumented provider proves that replay performs no discovery, open, or device operation.
-
-#### Phase 6 — Portable simple triggering
-
-Status: **complete**.
-
-- Add the common Ignore/Low/High/Rising/Falling/Either trigger model, neutral feature edits,
-  per-lane icons, Armed/Triggered status, and recording-origin gating.
-- Persist the requested trigger in the test/development feature and establish the explicit
-  migration/diagnostic contract, but lower and exercise it against a trigger-capable fake provider
-  before using real hardware. Concrete U3Pro16 state migration remains in Phase 8.
-- Exclude advanced stages, serial triggers, trigger placement, timeout actions, and Force Trigger.
-
-Gate: every simple condition and disabled-channel case has a deterministic trigger sample; the
-viewer marks it; graph output begins at the defined recording origin; save/load and migration tests
-preserve the requested trigger with user-visible compatibility diagnostics.
-
-#### Phase 7 — Provider-neutrality conformance
-
-Status: **complete**.
-
-- Add the second deliberately different fake provider required by the architecture: it buffers on
-  the device, exposes data only during upload, lacks Force Trigger, and advertises a different
-  setting matrix and non-contiguous, bank-qualified channel identifiers.
-- Run both providers through the same lifecycle, store, coordinator, viewer, graph, replay, and
-  trigger contract suites without provider-specific branches in generic code.
-- Keep real hardware and new product behavior out of this phase; it exists to challenge the
-  contracts before they become expensive to change.
-
-Gate: both fake providers pass the shared conformance suite, registration requires no generic
-source edits, and architecture tests find no provider/model-name branches in the application,
-compiler core, viewer, session coordinator, or store.
-
-#### Phase 8 — U3Pro16 device-buffered acquisition
-
-Status: **complete**.
-
-- Register the concrete U3Pro16 live feature, evolve its saved state explicitly, and lower generic
-  channel, rate, depth, simple-trigger, and timebase requests into its provider representation.
-- Negotiate an immutable device-buffered plan, publish the actual trigger position, upload all
-  returned chunks, and preserve the expanded logical sample stream losslessly across arbitrary USB
-  transfer boundaries. Hardware RLE remains a negotiated device-memory setting because this FPGA
-  expands it before upload.
-- Keep host streaming and the broader capture-policy UI out of this phase.
-
-Gate: packet-fixture tests cover configuration and trigger-header translation; an ignored hardware
-test completes one buffered capture and replay; generic crates contain no U3/model/port-name
-branches.
-
-#### Phase 9 — U3Pro16 host streaming and sustained ingest
-
-Status: **complete**.
-
-- Add the separate host-streamed acquisition profile, its channel/rate/link matrix, live delivery,
-  stop behavior, and explicit overflow/integrity handling.
-- Benchmark acquisition, canonicalization, staging writes, summary work, graph lag, and resident
-  memory at representative channel/rate classes.
-- Optimize only a measured limiting stage; do not make a speculative codec or scheduler a phase
-  prerequisite.
-
-Gate: long captures have duration-independent resident memory, a slow optional consumer cannot
-block the device reader, unsupported rate tuples are rejected, and every loss/overflow condition is
-reported rather than silently discarded.
-
-#### Phase 10 — Capture policies and health controls
-
-Status: **complete**.
-
-- Add finite completion, rolling-retention policy and safe-boundary planning, trigger placement,
-  timeout actions, Capture Now, Force Trigger, Abort, capacity estimates, and health/lag telemetry
-  through advertised capabilities.
-- Persist requested policy in the concrete graph state and negotiated effective values in the
-  captured session.
-
-Gate: the deterministic providers cover every supported policy composition and rejection path;
-pinning and reclamation never remove required data; UI commands never imply an unsupported device
-operation.
-
-#### Phase 11 — Recovery and session ownership
-
-- Add recovery after every durable commit step, durable execution of bounded reclamation,
-  incomplete-session presentation, cleanup and pinning, recent-session ownership, and explicit
-  keep/discard decisions.
-- Keep export out of this phase so lifecycle and deletion safety are verified independently.
-
-Gate: fault-injection tests recover exactly the committed prefix or return a structured corruption
-error, and no pinned viewer, analysis, or future-export session can be removed.
-
-#### Phase 12 — Export
-
-- Raw DSL and supported portable interchange export stream from pinned finalized sessions on a
-  background worker with bounded buffers, progress, cancellation, and temporary-file installation.
-- Format descriptors make trigger and derived-data representation capabilities explicit; raw-only
-  actions never imply that derived lanes were included.
-
-Gate: exported raw captures reopen with identical channels, sample rate/timebase, samples, and
-trigger position; unsupported derived values produce an explicit warning rather than omission.
-
-#### Phase 13 — Extended live workflows
-
-##### Phase 13.1 — Configuration epochs
-
-- Permit recording-time graph editing and apply only builder-declared hot configuration at an
-  explicit durable-source and recording-relative sample/time boundary.
-- Persist pending and resolved graph revisions without protocol or node-name knowledge in generic
-  runtime/viewer infrastructure; defer structural, source, and acquisition edits visibly.
-
-Gate: deterministic native and cooperative-runtime tests prove that queued events before the
-boundary use the old configuration and events at/after it use the new configuration; interrupted
-pending records recover explicitly, retention preserves their original coordinate, and native/wasm
-builds retain the same platform-neutral scheduling contract.
-
-##### Phase 13.2 — Advanced-trigger contract
-
-- Add the provider-neutral schema/program model, typed registered operands, structured validation,
-  capability negotiation, common-digital/simple-program bridge, and neutral concrete-owner edit
-  routing.
-- Keep panel widgets, concrete saved programs/migrations, and provider execution out of this phase.
-
-Gate: two deliberately different schemas accept every supported composition and reject schema,
-limit, channel, predicate, operand, range, count, and revision violations with stable diagnostics;
-serde round trips preserve neutral programs; routing tests prove a plugin builder receives the
-program without generic name/ID interpretation; native and wasm builds use the same data contract.
-
-##### Phase 13.3 — Advanced Triggers panel
-
-- Discover pure trigger configuration independently of acquisition backend availability and expose
-  schema, active opaque channels, saved program, and common lane projection.
-- Edit schema-declared stages, predicates, counts, and typed operands through a reusable generic
-  widget that emits neutral whole-program edits.
-- Persist programs in owning concrete source states, migrate legacy simple conditions visibly, and
-  keep lane controls and the panel on the same program model.
-- Keep concrete advanced-program execution out of this phase; built-in schemas advertise only the
-  subset their current execution paths lower.
-
-Gate: a feature-rich synthetic schema exercises every editor operation and operand kind; native and
-wasm discovery do not require acquisition; lane and panel edits survive graph JSON round trips;
-legacy simple states migrate to byte-equivalent common programs with visible warnings; malformed or
-incompatible saved programs reset explicitly; no generic crate branches on provider IDs or names.
-
-##### Phase 13.4 — Concrete advanced-trigger execution
-
-- Lower schema-validated programs in each owning source feature rather than interpreting trigger
-  IDs or capabilities in generic compiler, UI, or runtime code.
-- Execute the deterministic demo's staged digital algebra with state preserved across chunk
-  boundaries.
-- Lower the documented U3Pro16 subset into hardware stages and verify the exact settings packet
-  independently of attached hardware.
-
-Gate: deterministic tests cover every advertised logic operator, inversion, both count modes,
-ordered stages, and a stage/count transition crossing a chunk boundary; a graph edit reaches the
-provider and produces the same trigger sample after JSON reload; U3Pro16 tests cover schema limits,
-opaque-channel lowering, and a checked-in multi-stage packet fixture including mask, value, edge,
-logic, inversion, contiguous mode, and count words; legacy one-stage simple triggers retain their
-behavior; native and wasm builds retain the same saved-program contract without native execution
-leaking into wasm.
-
-##### Proposed future phases 13.5–13.9
-
-- **13.5 Repeated and segmented acquisition:** frame identity, per-frame origins/triggers, bounded
-  storage, replay, and navigation.
-- **13.6 Live search and measurements:** committed-prefix coverage and lag.
-- **13.7 Notifications and power integration:** host capabilities for lifecycle/integrity events
-  and sleep inhibition.
-- **13.8 Automation:** the same validated coordinator commands through a UI-independent service.
-- **13.9 Source synchronization:** external trigger/clock contracts and shared-timeline alignment.
-
-Each future phase receives a focused design amendment and acceptance gate before implementation;
-Phase 13 is not a single release-blocking batch.
+Actionable live-capture work is tracked in [TODO.md](../TODO.md). New capabilities receive a
+design amendment with explicit contracts and focused acceptance criteria before implementation.
 
 ### Verification strategy
 

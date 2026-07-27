@@ -1,4 +1,4 @@
-# Plugin-Extensible Payload Design
+# Plugin-Extensible Payload and Presentation Design
 
 ## Current architecture
 
@@ -175,6 +175,32 @@ construction and negotiation, retention limits, bounded dense snapshots, timelin
 lock release, and saved-panel-state diagnostics. Architecture tests reject built-in payload and
 protocol checks in generic collection, compiler, and viewer paths. CI compiles the example plugin
 on native targets as part of the workspace and explicitly on `wasm32-unknown-unknown`.
+
+### View-lane ownership
+
+Payload owners declare presentation through stable, protocol-neutral metadata. A presentation
+selects either a default singleton row or an explicit compound group containing ordered tracks.
+Group and track identities are opaque keys, not display strings; graph lowering namespaces local
+keys with the producer and output identity so independently configured instances cannot collide.
+
+The compiler preserves this metadata without inspecting its values. The UI binds it to the viewer
+presentation registry, which owns row geometry, ordering, renaming, clipping, time transforms,
+and bounded interaction. A renderer receives only a bounded immutable snapshot, a theme, and a
+value interaction context after retained-lane locks have been released. It may format concrete
+values, select eligible snap boundaries, and choose track geometry, but it performs no storage I/O
+and cannot access mutable viewer or collector state.
+
+The standard payload registrations provide digital, word, marker, numeric, and text singleton
+presentations. A concrete decoder can instead register a compound presentation: UART contributes
+bit-detail and frame tracks; SPI contributes independent MOSI and optional MISO groups with bit
+and data tracks. These are concrete adapter decisions, so generic graph, compiler, and viewer
+code never identifies decoder names, socket labels, protocol sentinel values, or display text.
+
+Presentation metadata is derived from current node definitions and renderer registrations, not
+serialized renderer objects. Saved documents persist stable payload identities and selected output
+subscriptions. If a feature changes its state or socket schema, that concrete feature migrates the
+document at its load boundary and emits a user-visible warning; generic viewer and compiler code
+does not repair protocol wiring.
 
 ### Crate ownership
 

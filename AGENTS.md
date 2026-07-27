@@ -13,7 +13,7 @@
   handling with user-visible warnings; do not hide compatibility work in
   generic viewer/compiler code.
 
-See `docs/DECODER_VIEW_LANE_DESIGN.md` for the detailed viewer-lane decision.
+See `docs/PLUGIN_EXTENSIBLE_PAYLOAD_DESIGN.md` for the detailed payload and viewer-lane decision.
 
 # Crate boundaries
 
