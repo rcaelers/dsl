@@ -149,6 +149,13 @@ impl<'a> PanelContext<'a> {
 /// implementation. Returning `true` reports a node-state edit and causes the
 /// normal `NodeDef::on_update` path to run.
 pub trait NodePanelPresentation<S>: 'static {
+    /// Returns the preferred screen-space height for this panel when it can
+    /// derive one from its state or host-owned data. The widget otherwise uses
+    /// the panel metadata height.
+    fn preferred_height(&self, _state: &S, _data: Option<&(dyn Any + Send + Sync)>) -> Option<f32> {
+        None
+    }
+
     fn draw(&self, state: &mut S, ui: &mut Ui, context: &mut PanelContext<'_>) -> bool;
 }
 
@@ -176,6 +183,29 @@ impl<S> PropertyPanelPresentation<S> {
 }
 
 impl<S: 'static> NodePanelPresentation<S> for PropertyPanelPresentation<S> {
+    fn preferred_height(&self, _state: &S, _data: Option<&(dyn Any + Send + Sync)>) -> Option<f32> {
+        const TITLE_HEIGHT: f32 = 22.0;
+        const SUBTITLE_HEIGHT: f32 = 16.0;
+        const TITLE_GAP: f32 = 6.0;
+        const SECTION_HEADER_HEIGHT: f32 = 26.0;
+        const DEFAULT_ROW_HEIGHT: f32 = 24.0;
+
+        let subtitle_height = self.subtitle.as_ref().map_or(0.0, |_| SUBTITLE_HEIGHT);
+        let sections_height = self
+            .sections
+            .iter()
+            .map(|section| {
+                SECTION_HEADER_HEIGHT
+                    + section
+                        .props
+                        .iter()
+                        .map(|prop| prop.panel_height.unwrap_or(DEFAULT_ROW_HEIGHT))
+                        .sum::<f32>()
+            })
+            .sum::<f32>();
+        Some(TITLE_HEIGHT + subtitle_height + TITLE_GAP + sections_height)
+    }
+
     fn draw(&self, state: &mut S, ui: &mut Ui, context: &mut PanelContext<'_>) -> bool {
         ui.label(RichText::new(&self.title).size(15.0).strong());
         if let Some(subtitle) = &self.subtitle {
@@ -255,6 +285,16 @@ impl<S: 'static> NodePanelDef<S> {
 
     pub(crate) fn panel_metadata(&self) -> PanelMetadata {
         self.metadata
+    }
+
+    pub(crate) fn preferred_height(
+        &self,
+        state: &S,
+        data: Option<&(dyn Any + Send + Sync)>,
+    ) -> Option<f32> {
+        self.presentation
+            .preferred_height(state, data)
+            .or(self.metadata.height())
     }
 
     pub(crate) fn draw(&self, state: &mut S, ui: &mut Ui, context: &mut PanelContext<'_>) -> bool {

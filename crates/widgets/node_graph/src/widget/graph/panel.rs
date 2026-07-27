@@ -5,6 +5,8 @@
 //! at full size, unaffected by graph zoom; edits mutate the same node state
 //! as inline controls and run `on_update` through the same path.
 
+use std::sync::Arc;
+
 use egui::{
     Align, Align2, Color32, CursorIcon, FontId, Layout, Pos2, Rect, RichText, Sense, Stroke, Ui,
     UiBuilder, Vec2,
@@ -101,12 +103,41 @@ impl NodeGraphWidget {
     fn panel_height(&self, canvas_rect: Rect) -> f32 {
         let natural = if self.panel.active_tab.as_deref() == Some("node") {
             self.node_panel_height()
-        } else if self.panel.active_tab.is_some() {
-            canvas_rect.height()
+        } else if let Some(tab_id) = self.panel.active_tab.as_deref() {
+            self.contributed_panel_height(tab_id)
         } else {
             0.0
         };
         natural.clamp(0.0, canvas_rect.height().max(0.0))
+    }
+
+    fn contributed_panel_height(&self, tab_id: &str) -> f32 {
+        let Some(node_id) = self.panel_target() else {
+            return 0.0;
+        };
+        let Some(instance) = self.runtime.get(&node_id) else {
+            return 0.0;
+        };
+        let matching_panels = instance
+            .panels()
+            .into_iter()
+            .enumerate()
+            .filter(|(_, panel)| panel.tab_id == tab_id)
+            .collect::<Vec<_>>();
+        if matching_panels.is_empty() {
+            return 0.0;
+        }
+
+        let panel_height = matching_panels
+            .iter()
+            .map(|(index, panel)| {
+                let data = self.panel_data.get(&(node_id, panel.id.clone()));
+                instance
+                    .panel_preferred_height(*index, data.map(Arc::as_ref))
+                    .unwrap_or(PANEL_TITLE_BLOCK_HEIGHT)
+            })
+            .sum::<f32>();
+        PANEL_MARGIN_Y * 2.0 + panel_height + PANEL_SECTION_GAP * matching_panels.len() as f32
     }
 
     fn node_panel_height(&self) -> f32 {
@@ -131,9 +162,14 @@ impl NodeGraphWidget {
             for panel in instance
                 .panels()
                 .into_iter()
-                .filter(|panel| panel.tab_id == "node")
+                .enumerate()
+                .filter(|(_, panel)| panel.tab_id == "node")
             {
-                height += panel.metadata.height().unwrap_or(PANEL_TITLE_BLOCK_HEIGHT);
+                let (index, panel) = panel;
+                let data = self.panel_data.get(&(node_id, panel.id.clone()));
+                height += instance
+                    .panel_preferred_height(index, data.map(Arc::as_ref))
+                    .unwrap_or(PANEL_TITLE_BLOCK_HEIGHT);
                 height += PANEL_SECTION_GAP;
             }
         }
@@ -251,19 +287,22 @@ impl NodeGraphWidget {
             self.show_empty_node_panel(ui, panel_rect);
             return;
         };
-        let contributed_panels = self
-            .runtime
-            .get(&node_id)
-            .map(|instance| instance.panels())
-            .unwrap_or_default()
-            .into_iter()
-            .enumerate()
-            .filter(|(_, panel)| panel.tab_id == "node")
-            .map(|(index, panel)| {
-                let data = self.panel_data.get(&(node_id, panel.id.clone())).cloned();
-                (index, panel.id, panel.metadata, data)
-            })
-            .collect::<Vec<_>>();
+        let contributed_panels =
+            self.runtime
+                .get(&node_id)
+                .map(|instance| instance.panels())
+                .unwrap_or_default()
+                .into_iter()
+                .enumerate()
+                .filter(|(_, panel)| panel.tab_id == "node")
+                .map(|(index, panel)| {
+                    let data = self.panel_data.get(&(node_id, panel.id.clone())).cloned();
+                    let height = self.runtime.get(&node_id).and_then(|instance| {
+                        instance.panel_preferred_height(index, data.as_deref())
+                    });
+                    (index, panel.id, panel.metadata, data, height)
+                })
+                .collect::<Vec<_>>();
 
         let painter = ui.painter_at(panel_rect);
         painter.rect_filled(panel_rect, 0.0, Color32::from_rgb(38, 38, 38));
@@ -369,11 +408,12 @@ impl NodeGraphWidget {
                                     });
                             }
 
-                            for (index, panel_id, metadata, data) in &contributed_panels {
+                            for (index, panel_id, metadata, data, height) in &contributed_panels {
                                 ui.push_id(("node-tab-panel", panel_id), |ui| {
                                     let mut action = None;
-                                    let height =
-                                        metadata.height().unwrap_or_else(|| ui.available_height());
+                                    let height = height.unwrap_or_else(|| {
+                                        metadata.height().unwrap_or_else(|| ui.available_height())
+                                    });
                                     let (rect, _) = ui.allocate_exact_size(
                                         Vec2::new(ui.available_width(), height),
                                         Sense::hover(),
@@ -452,7 +492,12 @@ impl NodeGraphWidget {
             .filter(|(_, panel)| panel.tab_id == tab_id)
             .map(|(index, panel)| {
                 let data = self.panel_data.get(&(node_id, panel.id.clone())).cloned();
-                (index, panel.id.clone(), panel.metadata, data)
+                let height = self
+                    .runtime
+                    .get(&node_id)
+                    .and_then(|instance| instance.panel_preferred_height(index, data.as_deref()))
+                    .unwrap_or(PANEL_TITLE_BLOCK_HEIGHT);
+                (index, panel.id.clone(), panel.metadata, data, height)
             })
             .collect::<Vec<_>>();
 
@@ -465,10 +510,9 @@ impl NodeGraphWidget {
             |ui| {
                 ui.set_clip_rect(panel_rect);
                 ui.push_id(("node-panels", node_id.0, tab_id), |ui| {
-                    for (index, panel_id, metadata, data) in &matching_panels {
-                        let height = metadata.height().unwrap_or_else(|| ui.available_height());
+                    for (index, panel_id, metadata, data, height) in &matching_panels {
                         let (rect, _) = ui.allocate_exact_size(
-                            Vec2::new(ui.available_width(), height),
+                            Vec2::new(ui.available_width(), *height),
                             Sense::hover(),
                         );
                         ui.scope_builder(
@@ -515,5 +559,88 @@ impl NodeGraphWidget {
         if changed {
             self.run_update(node_id);
         }
+    }
+}
+
+#[cfg(test)]
+mod panel_tests {
+    use std::any::Any;
+
+    use egui::{Pos2, Rect, Ui, Vec2};
+    use serde::{Deserialize, Serialize};
+
+    use super::NodeGraphWidget;
+    use crate::api::{NodeDef, NodePanelDef, NodePanelPresentation, PanelContext};
+    use crate::runtime::NodeTypeRegistry;
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct TestState;
+
+    struct DynamicHeightPanel;
+
+    impl NodePanelPresentation<TestState> for DynamicHeightPanel {
+        fn preferred_height(
+            &self,
+            _state: &TestState,
+            data: Option<&(dyn Any + Send + Sync)>,
+        ) -> Option<f32> {
+            data.and_then(|data| data.downcast_ref::<f32>()).copied()
+        }
+
+        fn draw(
+            &self,
+            _state: &mut TestState,
+            _ui: &mut Ui,
+            _context: &mut PanelContext<'_>,
+        ) -> bool {
+            false
+        }
+    }
+
+    struct TestNode;
+
+    impl NodeDef for TestNode {
+        type State = TestState;
+
+        fn name() -> &'static str {
+            "Panel height test"
+        }
+
+        fn category() -> &'static str {
+            "Test"
+        }
+
+        fn inputs() -> Vec<crate::api::InputDef<TestState>> {
+            Vec::new()
+        }
+
+        fn outputs() -> Vec<crate::api::OutputDef<TestState>> {
+            Vec::new()
+        }
+
+        fn state() -> TestState {
+            TestState
+        }
+
+        fn panels() -> Vec<NodePanelDef<TestState>> {
+            vec![NodePanelDef::new("dynamic", "view", DynamicHeightPanel)]
+        }
+    }
+
+    #[test]
+    fn contributed_tab_height_follows_its_panels_content_height() {
+        let mut registry = NodeTypeRegistry::new();
+        registry.register::<TestNode>();
+        let mut widget = NodeGraphWidget::new(registry);
+        let node = widget
+            .add_node_at(TestNode::name(), Pos2::ZERO)
+            .expect("test node is registered");
+        widget.set_panel_data(node, "dynamic", 80.0_f32);
+        widget.panel.active_tab = Some("view".into());
+
+        let canvas = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 800.0));
+        let panel = widget.panel_rect(canvas).expect("view panel is open");
+
+        assert_eq!(panel.height(), 100.0);
     }
 }

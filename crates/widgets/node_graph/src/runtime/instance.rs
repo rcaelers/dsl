@@ -1,3 +1,5 @@
+use std::any::Any;
+
 use egui::{Rect, Ui};
 use serde_json::Value;
 
@@ -54,6 +56,11 @@ pub(crate) trait NodeInstance {
     ) -> bool;
     fn panel_sections(&self) -> Vec<PanelSectionMeta>;
     fn panels(&self) -> Vec<NodePanelMeta>;
+    fn panel_preferred_height(
+        &self,
+        index: usize,
+        data: Option<&(dyn Any + Send + Sync)>,
+    ) -> Option<f32>;
     fn draw_panel_prop(
         &mut self,
         section: usize,
@@ -154,6 +161,16 @@ impl<T: NodeDef> NodeInstance for TypedNode<T> {
                 metadata: panel.panel_metadata(),
             })
             .collect()
+    }
+
+    fn panel_preferred_height(
+        &self,
+        index: usize,
+        data: Option<&(dyn Any + Send + Sync)>,
+    ) -> Option<f32> {
+        self.panels
+            .get(index)
+            .and_then(|panel| panel.preferred_height(&self.state, data))
     }
 
     fn draw_panel_prop(
