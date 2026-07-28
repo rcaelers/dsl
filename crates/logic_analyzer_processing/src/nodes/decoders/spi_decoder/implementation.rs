@@ -46,8 +46,9 @@ pub enum SpiMode {
 /// SPI decoder node
 ///
 /// Inputs: cs, clk, mosi (optional), miso (optional) — Sample channels
-/// Outputs: `mosi_words` (if `has_mosi`), `miso_words` (if `has_miso`) —
-/// independent `Word` streams, one per configured line.
+/// Outputs: stable MOSI and MISO word, bit-detail, and framed-data streams.
+/// A direction without a connected input simply emits no samples on its
+/// corresponding outputs.
 pub struct SpiDecoder {
     name: String,
     mode: SpiMode,
@@ -272,7 +273,7 @@ impl ProcessNode for SpiDecoder {
     }
 
     fn num_outputs(&self) -> usize {
-        3 * (usize::from(self.has_mosi) + usize::from(self.has_miso))
+        6
     }
 
     fn input_schema(&self) -> Vec<signal_processing::PortSchema> {
@@ -307,44 +308,22 @@ impl ProcessNode for SpiDecoder {
     fn output_schema(&self) -> Vec<signal_processing::PortSchema> {
         use signal_processing::{PortDirection, PortSchema};
 
-        // Each configured direction retains its legacy word stream and adds
-        // the bit-detail/data pair used by the compound viewer lane.
-        let mut schemas = Vec::new();
-        if self.has_mosi {
-            schemas.push(PortSchema::new::<Word>(
-                "mosi_words",
-                schemas.len(),
-                PortDirection::Output,
-            ));
-            schemas.push(PortSchema::new::<Word>(
-                "mosi_bits",
-                schemas.len(),
-                PortDirection::Output,
-            ));
-            schemas.push(PortSchema::new::<Word>(
-                "mosi_data",
-                schemas.len(),
-                PortDirection::Output,
-            ));
-        }
-        if self.has_miso {
-            schemas.push(PortSchema::new::<Word>(
-                "miso_words",
-                schemas.len(),
-                PortDirection::Output,
-            ));
-            schemas.push(PortSchema::new::<Word>(
-                "miso_bits",
-                schemas.len(),
-                PortDirection::Output,
-            ));
-            schemas.push(PortSchema::new::<Word>(
-                "miso_data",
-                schemas.len(),
-                PortDirection::Output,
-            ));
-        }
-        schemas
+        // The graph node declares every direction as a stable socket, even
+        // when its optional input is disconnected. Keep the runtime port
+        // contract equally stable so generic collectors can subscribe to a
+        // declared output without needing to understand SPI wiring.
+        [
+            "mosi_words",
+            "mosi_bits",
+            "mosi_data",
+            "miso_words",
+            "miso_bits",
+            "miso_data",
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, name)| PortSchema::new::<Word>(name, index, PortDirection::Output))
+        .collect()
     }
 
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
@@ -433,7 +412,7 @@ impl SpiDecoder {
         // Each direction owns three adjacent outputs: legacy words, bit
         // detail, and framed data. All are optional when unconnected.
         let mosi_base = 0;
-        let miso_base = 3 * usize::from(self.has_mosi);
+        let miso_base = 3;
         let mosi_output = self
             .has_mosi
             .then(|| outputs.get(mosi_base).and_then(|port| port.get::<Word>()))
@@ -761,7 +740,7 @@ impl SpiDecoder {
             None
         };
         let mosi_base = 0;
-        let miso_base = 3 * usize::from(has_mosi);
+        let miso_base = 3;
         let mosi_output = has_mosi
             .then(|| outputs.get(mosi_base).and_then(|port| port.get::<Word>()))
             .flatten();
@@ -1145,6 +1124,28 @@ mod tests {
         assert!(decoder.has_mosi);
         assert!(!decoder.has_miso);
         assert_eq!(decoder.channel_buffers.len(), 3); // CS, CLK, MOSI
+    }
+
+    #[test]
+    fn optional_miso_keeps_the_declared_output_port_contract() {
+        let decoder = SpiDecoder::new(SpiMode::Mode0, 8, true, false);
+
+        assert_eq!(decoder.num_outputs(), 6);
+        assert_eq!(
+            decoder
+                .output_schema()
+                .into_iter()
+                .map(|schema| schema.name)
+                .collect::<Vec<_>>(),
+            [
+                "mosi_words",
+                "mosi_bits",
+                "mosi_data",
+                "miso_words",
+                "miso_bits",
+                "miso_data",
+            ]
+        );
     }
 
     #[test]
