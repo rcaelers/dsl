@@ -4,8 +4,8 @@ use egui::Color32;
 use serde::{Deserialize, Serialize};
 
 use node_graph::{
-    BoolValue, EnumValue, InputDef, IntValue, NodeBadge, NodeDef, NodePanelDef, OutputDef,
-    PanelMetadata, PanelSection, PropDef, PropertyPanelPresentation, Socket,
+    EnumValue, InputDef, IntValue, NodeBadge, NodeDef, NodePanelDef, OutputDef, PanelMetadata,
+    PanelSection, PropDef, PropertyPanelPresentation, Socket,
 };
 
 use crate::sockets::{COLOR_DECODERS, Signal, Words};
@@ -21,7 +21,6 @@ pub(crate) struct SpiDecoderState {
     pub(crate) cpha: EnumValue,
     pub(crate) bit_order: EnumValue,
     pub(crate) cs_polarity: EnumValue,
-    pub(crate) has_miso: BoolValue,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -84,7 +83,6 @@ impl NodeDef for SpiDecoder {
             cpha: EnumValue::new(0, &["0", "1"]),
             bit_order: EnumValue::new(0, &["MSB first", "LSB first"]),
             cs_polarity: EnumValue::new(0, &["Active low", "Active high", "Disabled"]),
-            has_miso: BoolValue::new(true),
         }
     }
 
@@ -99,7 +97,6 @@ impl NodeDef for SpiDecoder {
                 PropDef::control("cs_polarity", "CS# polarity", |state| {
                     &mut state.cs_polarity
                 }),
-                PropDef::control("has_miso", "Has MISO", |state| &mut state.has_miso),
             ],
         )]
     }
@@ -156,18 +153,15 @@ impl NodeDef for SpiDecoder {
                     .to_owned(),
             );
         }
-        // The node editor exposes the connectable word outputs. Bits/Data
-        // remain available to the generic View panel and compiler through
-        // definition-owned presentation metadata.
-        if let Some(miso_words) = outputs.get_mut(1) {
-            miso_words.visible = state.has_miso.value;
-        }
+        // MISO is optional because it may be unconnected, not because the
+        // node hides a socket. Keep every declared socket available so a
+        // graph can be wired directly without first changing node state.
         if let Some(miso) = inputs.get_mut(2) {
-            miso.visible = state.has_miso.value;
+            miso.visible = true;
         }
-        for index in [4, 5] {
+        for index in [1, 4, 5] {
             if let Some(miso_output) = outputs.get_mut(index) {
-                miso_output.visible = state.has_miso.value;
+                miso_output.visible = true;
             }
         }
     }
@@ -192,6 +186,28 @@ mod tests {
 
         let state: SpiDecoderState = serde_json::from_value(value).unwrap();
         assert_eq!(state.display_format.selected(), "Hex");
+    }
+
+    #[test]
+    fn legacy_has_miso_setting_is_ignored_and_all_sockets_stay_visible() {
+        let mut widget = node_graph::NodeGraphWidget::new(crate::test_support::build_registry());
+        let node_id = widget
+            .add_node_at(SpiDecoder::name(), egui::Pos2::ZERO)
+            .unwrap();
+        let mut graph = widget.graph().clone();
+        let saved = graph.nodes.get_mut(&node_id).unwrap();
+        saved.state["has_miso"] = serde_json::Value::Bool(false);
+        saved.inputs[2].visible = false;
+        saved.outputs[1].visible = false;
+        saved.outputs[4].visible = false;
+        saved.outputs[5].visible = false;
+        widget.set_graph(graph);
+
+        let node = &widget.graph().nodes[&node_id];
+        assert!(node.inputs[2].visible);
+        assert!(node.outputs[1].visible);
+        assert!(node.outputs[4].visible);
+        assert!(node.outputs[5].visible);
     }
 
     #[test]

@@ -74,13 +74,9 @@ impl RuntimeBuilder for SpiDecoderBuilder {
         } else {
             SamplingEdge::Falling
         };
-        let mut sampled_input_groups = vec![1];
-        if state.has_miso.value {
-            sampled_input_groups.push(2);
-        }
         Some(SamplingOverlayDescriptor {
             clock_input: 0,
-            sampled_input_groups,
+            sampled_input_groups: vec![1, 2],
             edge,
             qualifiers: match Self::cs_polarity(&state) {
                 CsPolarity::ActiveLow => vec![SamplingQualifierDescriptor {
@@ -113,18 +109,17 @@ impl RuntimeBuilder for SpiDecoderBuilder {
             _ => None,
         }
     }
-    fn output_port(&self, socket: &Socket, state: &Value, kind: PortKind) -> Option<String> {
+    fn output_port(&self, socket: &Socket, _state: &Value, kind: PortKind) -> Option<String> {
         if kind != PortKind::of::<Word>() {
             return None;
         }
-        let has_miso = Self::parsed(state).ok()?.has_miso.value;
         match socket.def_index {
             0 => Some("mosi_words".into()),
-            1 if has_miso => Some("miso_words".into()),
+            1 => Some("miso_words".into()),
             2 => Some("mosi_bits".into()),
             3 => Some("mosi_data".into()),
-            4 if has_miso => Some("miso_bits".into()),
-            5 if has_miso => Some("miso_data".into()),
+            4 => Some("miso_bits".into()),
+            5 => Some("miso_data".into()),
             _ => None,
         }
     }
@@ -133,16 +128,17 @@ impl RuntimeBuilder for SpiDecoderBuilder {
             return true;
         };
         match socket.def_index {
-            2 => state.has_miso.value,
+            0 | 1 => true,
+            2 => false,
             3 => Self::cs_polarity(&state) != CsPolarity::Disabled,
-            _ => true,
+            _ => false,
         }
     }
     fn build(
         &self,
         name: &str,
         state: &Value,
-        _resolved: &ResolvedInputs,
+        resolved: &ResolvedInputs,
         ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state = Self::parsed(state)?;
@@ -162,7 +158,7 @@ impl RuntimeBuilder for SpiDecoderBuilder {
             mode,
             state.word_size.value.clamp(1, 64) as usize,
             true,
-            state.has_miso.value,
+            resolved.member_count(2) > 0,
             Self::cs_polarity(&state),
         )
         .with_bit_order(bit_order)
@@ -198,5 +194,24 @@ mod tests {
                 .unwrap();
             assert_eq!(descriptor.edge, expected);
         }
+    }
+
+    #[test]
+    fn miso_is_optional_and_its_ports_are_offered_without_a_node_toggle() {
+        let mut widget = node_graph::NodeGraphWidget::new(crate::test_support::build_registry());
+        let node_id = widget
+            .add_node_at(SpiDecoder::name(), egui::Pos2::ZERO)
+            .unwrap();
+        let node = &widget.graph().nodes[&node_id];
+        let builder = SpiDecoderBuilder;
+        let state = serde_json::to_value(SpiDecoder::state()).unwrap();
+
+        assert!(node.inputs[2].visible);
+        assert!(node.outputs[1].visible);
+        assert!(!builder.input_required(&node.inputs[2], &state));
+        assert_eq!(
+            builder.output_port(&node.outputs[1], &state, PortKind::of::<Word>()),
+            Some("miso_words".to_owned())
+        );
     }
 }

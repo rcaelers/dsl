@@ -4,8 +4,7 @@ use egui::Color32;
 use serde::{Deserialize, Serialize};
 
 use node_graph::{
-    BoolValue, EnumValue, InputDef, NodeBadge, NodeDef, OutputDef, PanelSection, PropDef, Socket,
-    StringValue,
+    EnumValue, InputDef, NodeBadge, NodeDef, OutputDef, PanelSection, PropDef, Socket, StringValue,
 };
 
 use crate::sockets::{COLOR_LOGIC, Signal, Trigger, Words};
@@ -43,7 +42,6 @@ pub(crate) struct WordMatcherState {
     /// Whether the trigger lands at the matched word's start or end.
     #[serde(default = "default_trigger_at")]
     pub(crate) trigger_at: EnumValue,
-    pub(crate) pulse_output: BoolValue,
 }
 
 pub(crate) struct WordMatcher;
@@ -77,7 +75,6 @@ impl NodeDef for WordMatcher {
             mask: StringValue::new("0xFFFFFF"),
             op: default_match_op(),
             trigger_at: default_trigger_at(),
-            pulse_output: BoolValue::new(false),
         }
     }
 
@@ -98,16 +95,13 @@ impl NodeDef for WordMatcher {
                 PropDef::control("op", "Compare", |state| &mut state.op),
                 PropDef::control("mask", "Mask", |state| &mut state.mask),
                 PropDef::control("trigger_at", "Trigger at", |state| &mut state.trigger_at),
-                PropDef::control("pulse_output", "Pulse output", |state| {
-                    &mut state.pulse_output
-                }),
             ],
         )]
     }
 
-    fn on_update(state: &mut Self::State, _inputs: &mut [Socket], outputs: &mut [Socket]) {
+    fn on_update(_state: &mut Self::State, _inputs: &mut [Socket], outputs: &mut [Socket]) {
         if let Some(matched) = outputs.get_mut(1) {
-            matched.visible = state.pulse_output.value;
+            matched.visible = true;
         }
     }
 

@@ -26,7 +26,6 @@ pub(crate) struct UartDecoderState {
     pub(crate) stop_bits: EnumValue,
     pub(crate) bit_order: EnumValue,
     pub(crate) invert: BoolValue,
-    pub(crate) error_output: BoolValue,
 }
 
 const BAUD_PRESETS: &[&str] = &[
@@ -109,7 +108,6 @@ impl NodeDef for UartDecoder {
             stop_bits: EnumValue::new(2, &["0", "0.5", "1", "1.5", "2"]),
             bit_order: EnumValue::new(0, &["LSB first", "MSB first"]),
             invert: BoolValue::new(false),
-            error_output: BoolValue::new(false),
         }
     }
 
@@ -129,9 +127,6 @@ impl NodeDef for UartDecoder {
                 PropDef::control("stop_bits", "Stop bits", |state| &mut state.stop_bits),
                 PropDef::control("bit_order", "Bit order", |state| &mut state.bit_order),
                 PropDef::control("invert", "Invert signal", |state| &mut state.invert),
-                PropDef::control("error_output", "Error output", |state| {
-                    &mut state.error_output
-                }),
             ],
         )]
     }
@@ -158,7 +153,7 @@ impl NodeDef for UartDecoder {
         ]
     }
 
-    fn on_update(state: &mut Self::State, _inputs: &mut [Socket], outputs: &mut [Socket]) {
+    fn on_update(_state: &mut Self::State, _inputs: &mut [Socket], outputs: &mut [Socket]) {
         // Runtime port 0 is the legacy `words` stream. Keep it alive for
         // older graphs that are already wired to it, but remove it from the
         // node and View panels; new graphs use the framed Data output.
@@ -166,7 +161,7 @@ impl NodeDef for UartDecoder {
             words.visible = false;
         }
         if let Some(error) = outputs.get_mut(1) {
-            error.visible = state.error_output.value;
+            error.visible = true;
         }
     }
 }
