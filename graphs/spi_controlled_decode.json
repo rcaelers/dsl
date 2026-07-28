@@ -277,6 +277,391 @@
       }
     }
   ],
+  "extensions": {
+    "logic_analyzer_graph.payload_subscriptions": {
+      "subscriptions": [
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 0
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 1
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 2
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 3
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 4
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 5
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 6
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 7
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 8
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 9
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 10
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.word/v1",
+          "target": {
+            "ShowInView": {
+              "node": 1,
+              "output": 2
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.word/v1",
+          "target": {
+            "ShowInView": {
+              "node": 1,
+              "output": 3
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.trigger/v1",
+          "target": {
+            "ShowInView": {
+              "node": 2,
+              "output": 0
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.trigger/v1",
+          "target": {
+            "ShowInView": {
+              "node": 3,
+              "output": 0
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 5,
+              "output": 0
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.text-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 6,
+              "output": 0
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 7,
+              "output": 0
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.word/v1",
+          "target": {
+            "ShowInView": {
+              "node": 8,
+              "output": 0
+            }
+          }
+        }
+      ],
+      "version": 1
+    },
+    "logic_analyzer_graph.viewer_selections": {
+      "selections": [
+        {
+          "endpoint": {
+            "node": 0,
+            "output": "Ch 0"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 0,
+            "output": "Ch 1"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 0,
+            "output": "Ch 2"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 0,
+            "output": "Ch 3"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 0,
+            "output": "Ch 4"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 0,
+            "output": "Ch 5"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 0,
+            "output": "Ch 6"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 0,
+            "output": "Ch 7"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 0,
+            "output": "Ch 8"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 0,
+            "output": "Ch 9"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 0,
+            "output": "Ch 10"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 1,
+            "output": "MOSI Bits"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 1,
+            "output": "MOSI Data"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 1,
+            "output": "MISO Bits"
+          },
+          "selected": false
+        },
+        {
+          "endpoint": {
+            "node": 1,
+            "output": "MISO Data"
+          },
+          "selected": false
+        },
+        {
+          "endpoint": {
+            "node": 2,
+            "output": "Match"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 2,
+            "output": "Matched"
+          },
+          "selected": false
+        },
+        {
+          "endpoint": {
+            "node": 3,
+            "output": "Match"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 3,
+            "output": "Matched"
+          },
+          "selected": false
+        },
+        {
+          "endpoint": {
+            "node": 4,
+            "output": "Count"
+          },
+          "selected": false
+        },
+        {
+          "endpoint": {
+            "node": 5,
+            "output": "Q"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 6,
+            "output": "Text"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 7,
+            "output": "Out"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 8,
+            "output": "Words"
+          },
+          "selected": true
+        }
+      ],
+      "version": 1
+    },
+    "logic_analyzer_ui.panel_layout": {
+      "decoder_panels": {
+        "panels": {}
+      },
+      "layout": {
+        "maximized": null,
+        "next_id": 2,
+        "root": {
+          "axis": "horizontal",
+          "first": {
+            "kind": "panel",
+            "panel": {
+              "content": "logic_analyzer",
+              "id": "logic_analyzer",
+              "title_bar_position": "top"
+            }
+          },
+          "fraction": 0.4733482897281647,
+          "id": 1,
+          "kind": "split",
+          "second": {
+            "kind": "panel",
+            "panel": {
+              "content": "node_graph",
+              "id": "node_graph",
+              "title_bar_position": "top"
+            }
+          }
+        }
+      },
+      "plugin_panels": {
+        "panels": {}
+      }
+    }
+  },
   "frames": [],
   "next_frame_id": 0,
   "next_id": 12,
@@ -291,107 +676,55 @@
       ],
       "id": 0,
       "inputs": [
-        {},
         {
-          "def_index": 1
+          "schema_id": "File"
         }
       ],
       "kind": "Regular",
       "muted": false,
       "outputs": [
-        {},
         {
-          "def_index": 1
+          "schema_id": "Ch 0"
         },
         {
-          "def_index": 2
+          "def_index": 1,
+          "schema_id": "Ch 1"
         },
         {
-          "def_index": 3
+          "def_index": 2,
+          "schema_id": "Ch 2"
         },
         {
-          "def_index": 4
+          "def_index": 3,
+          "schema_id": "Ch 3"
         },
         {
-          "def_index": 5
+          "def_index": 4,
+          "schema_id": "Ch 4"
         },
         {
-          "def_index": 6
+          "def_index": 5,
+          "schema_id": "Ch 5"
         },
         {
-          "def_index": 7
+          "def_index": 6,
+          "schema_id": "Ch 6"
         },
         {
-          "def_index": 8
+          "def_index": 7,
+          "schema_id": "Ch 7"
         },
         {
-          "def_index": 9
+          "def_index": 8,
+          "schema_id": "Ch 8"
         },
         {
-          "def_index": 10
+          "def_index": 9,
+          "schema_id": "Ch 9"
         },
         {
-          "def_index": 11
-        },
-        {
-          "def_index": 12
-        },
-        {
-          "def_index": 13
-        },
-        {
-          "def_index": 14
-        },
-        {
-          "def_index": 15
-        },
-        {
-          "def_index": 16
-        },
-        {
-          "def_index": 17
-        },
-        {
-          "def_index": 18
-        },
-        {
-          "def_index": 19
-        },
-        {
-          "def_index": 20
-        },
-        {
-          "def_index": 21
-        },
-        {
-          "def_index": 22
-        },
-        {
-          "def_index": 23
-        },
-        {
-          "def_index": 24
-        },
-        {
-          "def_index": 25
-        },
-        {
-          "def_index": 26
-        },
-        {
-          "def_index": 27
-        },
-        {
-          "def_index": 28
-        },
-        {
-          "def_index": 29
-        },
-        {
-          "def_index": 30
-        },
-        {
-          "def_index": 31
+          "def_index": 10,
+          "schema_id": "Ch 10"
         }
       ],
       "pos": {
@@ -400,11 +733,19 @@
       },
       "selected": false,
       "state": {
-        "channels": {
-          "max": 32,
-          "min": 1,
-          "value": 11
-        },
+        "channel_names": [
+          "0",
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10"
+        ],
         "file": {
           "dialog_title": "Select DSLogic capture",
           "filters": [
@@ -417,7 +758,8 @@
           ],
           "save": false,
           "value": "_captures/wipneus5.dsl"
-        }
+        },
+        "metadata_path": "_captures/wipneus5.dsl"
       },
       "title": "DSL File Source",
       "type_name": "DSL File Source"
@@ -432,37 +774,47 @@
       ],
       "id": 1,
       "inputs": [
-        {},
         {
-          "def_index": 1
+          "schema_id": "CLK"
         },
         {
-          "def_index": 2
+          "def_index": 1,
+          "schema_id": "MOSI"
         },
         {
-          "def_index": 3
+          "def_index": 2,
+          "schema_id": "MISO"
+        },
+        {
+          "def_index": 3,
+          "schema_id": "CS#"
         }
       ],
       "kind": "Regular",
       "muted": false,
       "outputs": [
-        {},
         {
-          "def_index": 1
+          "schema_id": "MOSI Words"
+        },
+        {
+          "def_index": 1,
+          "schema_id": "MISO Words"
         },
         {
           "def_index": 2,
-          "show_in_view": true
+          "schema_id": "MOSI Bits"
         },
         {
           "def_index": 3,
-          "show_in_view": true
+          "schema_id": "MOSI Data"
         },
         {
-          "def_index": 4
+          "def_index": 4,
+          "schema_id": "MISO Bits"
         },
         {
-          "def_index": 5
+          "def_index": 5,
+          "schema_id": "MISO Data"
         }
       ],
       "pos": {
@@ -511,9 +863,6 @@
             "Hex + ASCII"
           ]
         },
-        "has_miso": {
-          "value": false
-        },
         "schema_version": 1,
         "word_size": {
           "max": 32,
@@ -534,16 +883,19 @@
       ],
       "id": 2,
       "inputs": [
-        {}
+        {
+          "schema_id": "Words"
+        }
       ],
       "kind": "Regular",
       "muted": false,
       "outputs": [
         {
-          "show_in_view": true
+          "schema_id": "Match"
         },
         {
-          "def_index": 1
+          "def_index": 1,
+          "schema_id": "Matched"
         }
       ],
       "pos": {
@@ -569,9 +921,6 @@
         "pattern": {
           "value": "0x600081"
         },
-        "pulse_output": {
-          "value": false
-        },
         "trigger_at": {
           "value": "Word end",
           "variants": [
@@ -593,16 +942,19 @@
       ],
       "id": 3,
       "inputs": [
-        {}
+        {
+          "schema_id": "Words"
+        }
       ],
       "kind": "Regular",
       "muted": false,
       "outputs": [
         {
-          "show_in_view": true
+          "schema_id": "Match"
         },
         {
-          "def_index": 1
+          "def_index": 1,
+          "schema_id": "Matched"
         }
       ],
       "pos": {
@@ -628,9 +980,6 @@
         "pattern": {
           "value": "0x600000"
         },
-        "pulse_output": {
-          "value": false
-        },
         "trigger_at": {
           "value": "Word end",
           "variants": [
@@ -652,12 +1001,16 @@
       ],
       "id": 4,
       "inputs": [
-        {}
+        {
+          "schema_id": "Trigger"
+        }
       ],
       "kind": "Regular",
       "muted": false,
       "outputs": [
-        {}
+        {
+          "schema_id": "Count"
+        }
       ],
       "pos": {
         "x": 900.0,
@@ -689,16 +1042,19 @@
       ],
       "id": 5,
       "inputs": [
-        {},
         {
-          "def_index": 1
+          "schema_id": "Set"
+        },
+        {
+          "def_index": 1,
+          "schema_id": "Reset"
         }
       ],
       "kind": "Regular",
       "muted": false,
       "outputs": [
         {
-          "show_in_view": true
+          "schema_id": "Q"
         }
       ],
       "pos": {
@@ -724,14 +1080,18 @@
       ],
       "id": 6,
       "inputs": [
-        {},
-        {}
+        {
+          "schema_id": "Value"
+        },
+        {
+          "schema_id": "Value"
+        }
       ],
       "kind": "Regular",
       "muted": false,
       "outputs": [
         {
-          "show_in_view": true
+          "schema_id": "Text"
         }
       ],
       "pos": {
@@ -757,15 +1117,21 @@
       ],
       "id": 7,
       "inputs": [
-        {},
-        {},
-        {}
+        {
+          "schema_id": "In"
+        },
+        {
+          "schema_id": "In"
+        },
+        {
+          "schema_id": "In"
+        }
       ],
       "kind": "Regular",
       "muted": false,
       "outputs": [
         {
-          "show_in_view": true
+          "schema_id": "Out"
         }
       ],
       "pos": {
@@ -800,46 +1166,59 @@
       ],
       "id": 8,
       "inputs": [
-        {},
         {
-          "def_index": 1
+          "schema_id": "Clock"
         },
         {
-          "def_index": 1
+          "def_index": 1,
+          "schema_id": "D"
         },
         {
-          "def_index": 1
+          "def_index": 1,
+          "schema_id": "D"
         },
         {
-          "def_index": 1
+          "def_index": 1,
+          "schema_id": "D"
         },
         {
-          "def_index": 1
+          "def_index": 1,
+          "schema_id": "D"
         },
         {
-          "def_index": 1
+          "def_index": 1,
+          "schema_id": "D"
         },
         {
-          "def_index": 1
+          "def_index": 1,
+          "schema_id": "D"
         },
         {
-          "def_index": 1
+          "def_index": 1,
+          "schema_id": "D"
         },
         {
-          "def_index": 1
+          "def_index": 1,
+          "schema_id": "D"
         },
         {
-          "def_index": 2
+          "def_index": 1,
+          "schema_id": "D"
         },
         {
-          "def_index": 3
+          "def_index": 2,
+          "schema_id": "CS"
+        },
+        {
+          "def_index": 3,
+          "schema_id": "Enable"
         }
       ],
       "kind": "Regular",
       "muted": false,
       "outputs": [
         {
-          "show_in_view": true
+          "schema_id": "Words"
         }
       ],
       "pos": {
@@ -911,9 +1290,12 @@
       ],
       "id": 9,
       "inputs": [
-        {},
         {
-          "def_index": 1
+          "schema_id": "Data"
+        },
+        {
+          "def_index": 1,
+          "schema_id": "Filename"
         }
       ],
       "kind": "Regular",
