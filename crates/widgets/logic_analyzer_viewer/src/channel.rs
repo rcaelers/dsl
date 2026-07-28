@@ -13,10 +13,17 @@ use crate::lanes::{
 };
 use crate::sampling::sample_to_us;
 use crate::types::{
-    AnalyzerLayout, RowDragState, RowKey, RowLabel, RowRenameState, Transition, ViewerRowId,
-    WaveformSegment, WaveformSegmentKind,
+    AnalyzerLayout, RowDragState, RowKey, RowLabel, RowRenameState, Transition, ViewerRowHeight,
+    ViewerRowHeightSettings, ViewerRowId, WaveformSegment, WaveformSegmentKind,
 };
 use crate::viewer::LogicAnalyzerViewer;
+
+const MIN_ROW_HEIGHT_SCALE: f32 = 0.4;
+const MAX_ROW_HEIGHT_SCALE: f32 = 3.0;
+
+fn clamp_row_height_scale(scale: f32) -> f32 {
+    scale.clamp(MIN_ROW_HEIGHT_SCALE, MAX_ROW_HEIGHT_SCALE)
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct LogicChannel {
@@ -81,10 +88,11 @@ impl LogicAnalyzerViewer {
                 .cloned(),
             RowKey::Channel(_) => None,
         };
-        if let Some(group) = group {
-            return group.renderer.row_height(&group, default_height);
-        }
-        default_height
+        let intrinsic_height = group.map_or(default_height, |group| {
+            group.renderer.row_height(&group, default_height)
+        });
+        let row_scale = self.row_height_scales.get(key).copied().unwrap_or(1.0);
+        (intrinsic_height * self.global_row_height_scale * row_scale).clamp(12.0, 320.0)
     }
 
     /// What to show for one row's label, whatever it is — the only place
@@ -405,6 +413,75 @@ impl LogicAnalyzerViewer {
     /// restoration does not set it.
     pub fn take_viewer_row_order_changed(&mut self) -> bool {
         std::mem::take(&mut self.row_order_changed)
+    }
+
+    /// Current row-height settings expressed with host-stable row identities.
+    pub fn viewer_row_height_settings(&self) -> ViewerRowHeightSettings {
+        let mut rows = self
+            .row_height_scales
+            .iter()
+            .map(|(row, &scale)| ViewerRowHeight {
+                row: ViewerRowId::from(row),
+                scale,
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by(|left, right| left.row.cmp(&right.row));
+        ViewerRowHeightSettings {
+            global_scale: self.global_row_height_scale,
+            rows,
+        }
+    }
+
+    /// Applies host-restored height settings. Unknown rows are retained so a
+    /// derived lane that appears later receives its saved height.
+    pub fn apply_viewer_row_height_settings(&mut self, settings: &ViewerRowHeightSettings) {
+        self.global_row_height_scale = clamp_row_height_scale(settings.global_scale);
+        self.row_height_scales = settings
+            .rows
+            .iter()
+            .map(|height| {
+                (
+                    RowKey::from(&height.row),
+                    clamp_row_height_scale(height.scale),
+                )
+            })
+            .filter(|(_, scale)| (*scale - 1.0).abs() > f32::EPSILON)
+            .collect();
+        self.row_height_changed = false;
+    }
+
+    /// Resets both global and per-row height adjustments.
+    pub fn reset_viewer_row_heights(&mut self) {
+        if self.global_row_height_scale != 1.0 || !self.row_height_scales.is_empty() {
+            self.global_row_height_scale = 1.0;
+            self.row_height_scales.clear();
+            self.row_height_changed = true;
+        }
+    }
+
+    pub fn take_viewer_row_height_changed(&mut self) -> bool {
+        std::mem::take(&mut self.row_height_changed)
+    }
+
+    pub(crate) fn zoom_row_height_for_key(&mut self, key: &RowKey, factor: f32) {
+        if !self.row_order.contains(key) {
+            return;
+        }
+        let scale = clamp_row_height_scale(
+            self.row_height_scales.get(key).copied().unwrap_or(1.0) * factor,
+        );
+        if (scale - 1.0).abs() < 0.001 {
+            self.row_height_scales.remove(key);
+        } else {
+            self.row_height_scales.insert(key.clone(), scale);
+        }
+        self.row_height_changed = true;
+    }
+
+    pub(crate) fn zoom_all_row_heights(&mut self, factor: f32) {
+        self.global_row_height_scale =
+            clamp_row_height_scale(self.global_row_height_scale * factor);
+        self.row_height_changed = true;
     }
 
     pub(crate) fn apply_channel_order(&self, channels: &mut [LogicChannel]) {
@@ -1026,6 +1103,39 @@ mod tests {
 
         assert_eq!(&viewer.viewer_row_order()[..requested.len()], &requested);
         assert!(!viewer.take_viewer_row_order_changed());
+    }
+
+    #[test]
+    fn row_height_settings_preserve_global_and_per_row_adjustments() {
+        let mut viewer = viewer_with_channels(2);
+        let default_height = viewer.display_row_height(&viewer.row_order[0], 30.0);
+
+        let first_row = viewer.row_order[0].clone();
+        viewer.zoom_row_height_for_key(&first_row, 2.0);
+        assert_eq!(
+            viewer.display_row_height(&viewer.row_order[0], 30.0),
+            default_height * 2.0
+        );
+        assert!(viewer.take_viewer_row_height_changed());
+
+        let settings = viewer.viewer_row_height_settings();
+        let mut restored = viewer_with_channels(2);
+        restored.apply_viewer_row_height_settings(&settings);
+        assert_eq!(
+            restored.display_row_height(&restored.row_order[0], 30.0),
+            default_height * 2.0
+        );
+
+        restored.zoom_all_row_heights(0.5);
+        assert_eq!(
+            restored.display_row_height(&restored.row_order[0], 30.0),
+            default_height
+        );
+        restored.reset_viewer_row_heights();
+        assert_eq!(
+            restored.display_row_height(&restored.row_order[0], 30.0),
+            default_height
+        );
     }
 
     #[test]

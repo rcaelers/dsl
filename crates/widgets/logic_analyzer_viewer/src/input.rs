@@ -5,7 +5,39 @@ use crate::viewer::LogicAnalyzerViewer;
 
 const SCROLL_INPUT_EPSILON: f32 = 0.5;
 
+fn height_zoom_factor(scroll_delta: f32) -> f32 {
+    (scroll_delta * 0.00075).exp().clamp(0.8, 1.25)
+}
+
+fn dampen_height_zoom_factor(factor: f32) -> f32 {
+    factor.powf(0.3).clamp(0.8, 1.25)
+}
+
 impl LogicAnalyzerViewer {
+    fn height_zoom_row(&mut self, ui: &Ui, layout: AnalyzerLayout) -> Option<()> {
+        if let Some(row) = self.row_height_zoom_target.as_ref()
+            && self.row_order.contains(row)
+        {
+            return Some(());
+        }
+
+        let pointer = ui.input(|input| input.pointer.hover_pos())?;
+        let row = self.row_at_vertical(layout.wave_rect.top(), pointer.y, layout.row_height)?;
+        self.row_height_zoom_target = self.row_order.get(row).cloned();
+        self.row_height_zoom_target.as_ref().map(|_| ())
+    }
+
+    fn zoom_height_target(&mut self, ui: &Ui, layout: AnalyzerLayout, factor: f32) -> bool {
+        if self.height_zoom_row(ui, layout).is_none() {
+            return false;
+        }
+        if let Some(row) = self.row_height_zoom_target.clone() {
+            self.zoom_row_height_for_key(&row, factor);
+            return true;
+        }
+        false
+    }
+
     pub(crate) fn handle_input(
         &mut self,
         ui: &Ui,
@@ -16,6 +48,10 @@ impl LogicAnalyzerViewer {
         let wave_rect = layout.wave_rect;
         if wave_rect.width() <= 1.0 {
             return;
+        }
+
+        if !ui.input(|input| input.modifiers.ctrl) {
+            self.row_height_zoom_target = None;
         }
 
         if dragging {
@@ -49,22 +85,44 @@ impl LogicAnalyzerViewer {
                     ((pos.x - wave_rect.left()) / wave_rect.width()).clamp(0.0, 1.0)
                 }) as f64;
 
-            // Vertical scroll always zooms here (Saleae/PulseView
-            // convention — deliberately unconditional on Ctrl, so the
-            // graph-editor habit of holding Ctrl to zoom still works and
-            // never does something surprising, per the Phase 6.4 decision).
+            let modifiers = ui.input(|input| input.modifiers);
+            let mut height_zoom_handled = false;
             if scroll_delta.y.abs() > SCROLL_INPUT_EPSILON {
-                let factor = (1.0_f64 - scroll_delta.y as f64 * 0.0015).clamp(0.35, 2.5);
-                self.zoom_time_axis(factor, pointer_x);
+                if modifiers.ctrl {
+                    if modifiers.shift {
+                        self.row_height_zoom_target = None;
+                        self.zoom_all_row_heights(height_zoom_factor(scroll_delta.y));
+                        height_zoom_handled = true;
+                    } else {
+                        height_zoom_handled =
+                            self.zoom_height_target(ui, layout, height_zoom_factor(scroll_delta.y));
+                    }
+                } else {
+                    let factor = (1.0_f64 - scroll_delta.y as f64 * 0.0015).clamp(0.35, 2.5);
+                    self.zoom_time_axis(factor, pointer_x);
+                }
             }
 
             // Trackpad pinch/magnify: `zoom_delta` isn't carried by
             // `smooth_scroll_delta` at all, so without this a pinch gesture
             // did nothing here even though the graph editor already
             // supports it (Phase 6.4).
-            let zoom_gesture = ui.input(|input| input.zoom_delta()) as f64;
-            if (zoom_gesture - 1.0).abs() > 0.001 {
-                self.zoom_time_axis((1.0 / zoom_gesture).clamp(0.35, 2.5), pointer_x);
+            let zoom_gesture = ui.input(|input| input.zoom_delta());
+            if modifiers.ctrl {
+                if !height_zoom_handled && (zoom_gesture - 1.0).abs() > 0.001 {
+                    if modifiers.shift {
+                        self.row_height_zoom_target = None;
+                        self.zoom_all_row_heights(dampen_height_zoom_factor(zoom_gesture));
+                    } else {
+                        self.zoom_height_target(
+                            ui,
+                            layout,
+                            dampen_height_zoom_factor(zoom_gesture),
+                        );
+                    }
+                }
+            } else if (zoom_gesture - 1.0).abs() > 0.001 {
+                self.zoom_time_axis((1.0 / zoom_gesture as f64).clamp(0.35, 2.5), pointer_x);
             }
         }
     }
@@ -150,6 +208,18 @@ mod tests {
         viewer.zoom_time_axis(2.0, 0.5);
 
         assert!((viewer.visible_span_us - 2000.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn height_zoom_scroll_direction_matches_time_zoom_magnification() {
+        assert!(height_zoom_factor(10.0) > 1.0);
+        assert!(height_zoom_factor(-10.0) < 1.0);
+    }
+
+    #[test]
+    fn height_zoom_gesture_is_dampened() {
+        assert!(dampen_height_zoom_factor(1.5) < 1.5);
+        assert!(dampen_height_zoom_factor(0.5) > 0.5);
     }
 
     #[test]

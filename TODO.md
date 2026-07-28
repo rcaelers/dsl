@@ -4,7 +4,6 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ## Logic-analyzer viewer
 
-- [viewer.height-zoom] Add global and per-lane height zoom, using modifier + scroll-wheel input.
 - [viewer.multiple-sources] Support displaying multiple capture sources in the logic-analyzer viewer.
 - [viewer.source-selection] Let the viewer select which source is visible while the one-source display restriction
   remains.

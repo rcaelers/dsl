@@ -72,6 +72,13 @@ impl App {
                 }
                 ui.separator();
                 if panel_layout::PanelIcon::Reset
+                    .menu_item(ui, "Reset Lane Heights")
+                    .clicked()
+                {
+                    self.reset_viewer_lane_heights();
+                    ui.close();
+                }
+                if panel_layout::PanelIcon::Reset
                     .menu_item(ui, "Reset Layout")
                     .clicked()
                 {

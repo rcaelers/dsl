@@ -38,6 +38,14 @@ pub struct LogicAnalyzerViewer {
     /// source of truth for row order, kept in sync by `ensure_row_order`.
     pub(crate) row_order: Vec<RowKey>,
     pub(crate) row_order_changed: bool,
+    /// User-selected height multipliers; keys are stable row identities.
+    pub(crate) row_height_scales: HashMap<RowKey, f32>,
+    pub(crate) global_row_height_scale: f32,
+    pub(crate) row_height_changed: bool,
+    /// Row captured when a Ctrl-scroll resize gesture starts. Retaining the
+    /// stable identity prevents the pointer from switching rows as the
+    /// resized row moves its neighbours.
+    pub(crate) row_height_zoom_target: Option<RowKey>,
     pub(crate) row_drag: Option<RowDragState>,
     pub(crate) channel_names: HashMap<usize, String>,
     pub(crate) derived_names: HashMap<ViewerLaneGroupId, String>,
@@ -110,6 +118,10 @@ impl LogicAnalyzerViewer {
             ),
             row_order: Vec::new(),
             row_order_changed: false,
+            row_height_scales: HashMap::new(),
+            global_row_height_scale: 1.0,
+            row_height_changed: false,
+            row_height_zoom_target: None,
             channels: Vec::new(),
             visible_capture_channels: None,
             row_drag: None,

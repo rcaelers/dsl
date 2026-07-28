@@ -122,6 +122,7 @@ pub enum NativeMenuCommand {
     ShowWatches,
     ShowTriggers,
     ShowDecoder,
+    ResetLaneHeights,
     ResetLayout,
 }
 

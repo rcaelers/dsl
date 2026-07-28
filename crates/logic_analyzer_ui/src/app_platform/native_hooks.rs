@@ -99,6 +99,10 @@ impl App {
                     self.show_auxiliary_panel("decoder");
                     continue;
                 }
+                NativeMenuCommand::ResetLaneHeights => {
+                    self.reset_viewer_lane_heights();
+                    continue;
+                }
                 NativeMenuCommand::ResetLayout => {
                     self.reset_panel_layout();
                     continue;
@@ -237,6 +241,7 @@ impl App {
                 self.synchronize_payload_subscription_manifest(true);
                 self.restore_sampling_overlay_setting();
                 self.restore_viewer_lane_order_setting();
+                self.restore_viewer_lane_height_setting();
                 self.restore_panel_layout_setting();
                 self.platform.current_file = Some(path.clone());
                 self.mark_graph_saved();
@@ -271,6 +276,7 @@ impl App {
         self.node_graph.new_graph();
         self.restore_sampling_overlay_setting();
         self.restore_viewer_lane_order_setting();
+        self.restore_viewer_lane_height_setting();
         self.restore_panel_layout_setting();
         self.platform.derived_cache_nodes.clear();
         self.platform.current_file = None;
@@ -810,6 +816,13 @@ impl App {
                     }
                 }
                 ui.separator();
+                if panel_layout::PanelIcon::Reset
+                    .menu_item(ui, "Reset Lane Heights")
+                    .clicked()
+                {
+                    self.reset_viewer_lane_heights();
+                    ui.close();
+                }
                 if panel_layout::PanelIcon::Reset
                     .menu_item(ui, "Reset Layout")
                     .clicked()

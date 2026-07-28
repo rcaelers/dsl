@@ -141,6 +141,11 @@ define_class!(
             dispatch_native_menu_command(NativeMenuCommand::ShowDecoder);
         }
 
+        #[unsafe(method(resetLaneHeights:))]
+        fn reset_lane_heights(&self, _sender: &AnyObject) {
+            dispatch_native_menu_command(NativeMenuCommand::ResetLaneHeights);
+        }
+
         #[unsafe(method(resetLayout:))]
         fn reset_layout(&self, _sender: &AnyObject) {
             dispatch_native_menu_command(NativeMenuCommand::ResetLayout);
@@ -391,6 +396,13 @@ pub(crate) fn install(recent_files: &[PathBuf]) {
             &handler,
         ));
         view_menu.addItem(&NSMenuItem::separatorItem(mtm));
+        view_menu.addItem(&menu_item_with_symbol(
+            mtm,
+            ns_string!("Reset Lane Heights"),
+            sel!(resetLaneHeights:),
+            ns_string!("arrow.up.and.down"),
+            &handler,
+        ));
         view_menu.addItem(&menu_item_with_symbol(
             mtm,
             ns_string!("Reset Layout"),

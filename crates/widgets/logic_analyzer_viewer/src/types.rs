@@ -5,10 +5,26 @@ use signal_processing::CaptureMetadata;
 use crate::lanes::ViewerLaneGroupId;
 
 /// Stable identity of one displayed viewer row for host-owned persistence.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ViewerRowId {
     Channel(usize),
     Derived(ViewerLaneGroupId),
+}
+
+/// A user-selected height multiplier for one stable viewer row.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ViewerRowHeight {
+    pub row: ViewerRowId,
+    pub scale: f32,
+}
+
+/// Host-owned viewer-row height settings. The global scale applies to every
+/// row, including rows that appear after the setting is restored; individual
+/// row scales refine it for rows the user adjusted directly.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ViewerRowHeightSettings {
+    pub global_scale: f32,
+    pub rows: Vec<ViewerRowHeight>,
 }
 
 /// Color profile for the viewer. DSView (Tango-based channel colors, bright

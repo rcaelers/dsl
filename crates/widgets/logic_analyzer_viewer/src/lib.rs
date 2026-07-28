@@ -37,5 +37,5 @@ pub use lanes::{
 pub use renderer_registration::{ViewerLaneRendererRegistration, viewer_lane_renderer};
 pub use sampling_overlay::{SamplingEdge, SamplingOverlay, SamplingQualifier};
 pub use simple_trigger::{SimpleTriggerEdit, SimpleTriggerLane};
-pub use types::{ColorProfile, ViewerRowId};
+pub use types::{ColorProfile, ViewerRowHeight, ViewerRowHeightSettings, ViewerRowId};
 pub use viewer::{ChannelSignal, LogicAnalyzerViewer};

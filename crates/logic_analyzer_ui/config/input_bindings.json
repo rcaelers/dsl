@@ -13,6 +13,8 @@
     { "context": "logic_analyzer", "action": "pan", "label": "Pan View", "input": "pointer", "button": "primary", "gesture": "drag" },
     { "context": "logic_analyzer", "action": "measure_edge_delta", "label": "Measure Edge Delta", "input": "pointer", "button": "primary", "gesture": "click" },
     { "context": "logic_analyzer", "action": "zoom", "label": "Zoom", "input": "wheel", "axis": "vertical" },
+    { "context": "logic_analyzer", "action": "zoom_lane_height", "label": "Zoom Lane Height", "input": "wheel", "axis": "vertical", "modifiers": { "control": true } },
+    { "context": "logic_analyzer", "action": "zoom_all_lane_heights", "label": "Zoom All Lane Heights", "input": "wheel", "axis": "vertical", "modifiers": { "control": true, "shift": true } },
     { "context": "logic_analyzer", "action": "fit", "label": "Fit", "input": "key", "key": "home" },
     { "context": "logic_analyzer", "action": "fit_alternate", "label": "Fit", "input": "key", "key": "f", "status": false },
     { "context": "logic_analyzer", "action": "fit_pointer", "label": "Fit", "input": "pointer", "button": "primary", "gesture": "double_click", "status": false },

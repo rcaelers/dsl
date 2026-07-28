@@ -10,8 +10,8 @@ use logic_analyzer_graph_api::node_support::{
 };
 use logic_analyzer_graph_compiler as compiler;
 use logic_analyzer_viewer::{
-    LogicAnalyzerViewer, SimpleTriggerEdit, SimpleTriggerLane, ViewerLaneGroupId, ViewerRowId,
-    WaveformPresentationRegistry,
+    LogicAnalyzerViewer, SimpleTriggerEdit, SimpleTriggerLane, ViewerLaneGroupId, ViewerRowHeight,
+    ViewerRowHeightSettings, ViewerRowId, WaveformPresentationRegistry,
 };
 use node_graph::{
     GraphState, NodeBadge, NodeContextAction, NodeGraphWidget, NodeId, PanelTabDef,
@@ -71,6 +71,7 @@ impl SocketIndicatorPresentation for ViewerSocketIndicator {
 
 const SAMPLING_OVERLAY_EXTENSION: &str = "logic_analyzer_ui.sampling_overlay";
 const VIEWER_LANE_ORDER_EXTENSION: &str = "logic_analyzer_ui.viewer_lane_order";
+const VIEWER_LANE_HEIGHTS_EXTENSION: &str = "logic_analyzer_ui.viewer_lane_heights";
 const PANEL_LAYOUT_EXTENSION: &str = "logic_analyzer_ui.panel_layout";
 
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
@@ -102,6 +103,56 @@ impl From<&SavedViewerRow> for ViewerRowId {
         match value {
             SavedViewerRow::Channel(index) => Self::Channel(*index),
             SavedViewerRow::Derived(group) => Self::Derived(ViewerLaneGroupId::new(group.clone())),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+struct SavedViewerRowHeight {
+    row: SavedViewerRow,
+    scale: f32,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+struct SavedViewerRowHeightSettings {
+    #[serde(default = "default_viewer_row_height_scale")]
+    global_scale: f32,
+    #[serde(default)]
+    rows: Vec<SavedViewerRowHeight>,
+}
+
+fn default_viewer_row_height_scale() -> f32 {
+    1.0
+}
+
+impl From<&ViewerRowHeightSettings> for SavedViewerRowHeightSettings {
+    fn from(value: &ViewerRowHeightSettings) -> Self {
+        Self {
+            global_scale: value.global_scale,
+            rows: value
+                .rows
+                .iter()
+                .map(|height| SavedViewerRowHeight {
+                    row: SavedViewerRow::from(&height.row),
+                    scale: height.scale,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl From<&SavedViewerRowHeightSettings> for ViewerRowHeightSettings {
+    fn from(value: &SavedViewerRowHeightSettings) -> Self {
+        Self {
+            global_scale: value.global_scale,
+            rows: value
+                .rows
+                .iter()
+                .map(|height| ViewerRowHeight {
+                    row: ViewerRowId::from(&height.row),
+                    scale: height.scale,
+                })
+                .collect(),
         }
     }
 }
@@ -146,6 +197,34 @@ fn save_viewer_lane_order(
         Ok(())
     } else {
         graph.set_extension(VIEWER_LANE_ORDER_EXTENSION, order)
+    }
+}
+
+fn saved_viewer_lane_heights(
+    graph: &GraphState,
+) -> Result<ViewerRowHeightSettings, serde_json::Error> {
+    Ok(graph
+        .extension::<SavedViewerRowHeightSettings>(VIEWER_LANE_HEIGHTS_EXTENSION)?
+        .as_ref()
+        .map(ViewerRowHeightSettings::from)
+        .unwrap_or(ViewerRowHeightSettings {
+            global_scale: 1.0,
+            rows: Vec::new(),
+        }))
+}
+
+fn save_viewer_lane_heights(
+    graph: &mut GraphState,
+    settings: &ViewerRowHeightSettings,
+) -> Result<(), serde_json::Error> {
+    if settings.global_scale == 1.0 && settings.rows.is_empty() {
+        graph.remove_extension(VIEWER_LANE_HEIGHTS_EXTENSION);
+        Ok(())
+    } else {
+        graph.set_extension(
+            VIEWER_LANE_HEIGHTS_EXTENSION,
+            SavedViewerRowHeightSettings::from(settings),
+        )
     }
 }
 
@@ -391,6 +470,7 @@ impl App {
         app.synchronize_payload_subscription_manifest(true);
         app.restore_sampling_overlay_setting();
         app.restore_viewer_lane_order_setting();
+        app.restore_viewer_lane_height_setting();
         app.restore_panel_layout_setting();
         app
     }
@@ -653,6 +733,35 @@ impl App {
             .map(ViewerRowId::from)
             .collect::<Vec<_>>();
         self.logic_analyzer.apply_viewer_row_order(&requested);
+    }
+
+    pub(crate) fn restore_viewer_lane_height_setting(&mut self) {
+        match saved_viewer_lane_heights(self.node_graph.graph()) {
+            Ok(settings) => self
+                .logic_analyzer
+                .apply_viewer_row_height_settings(&settings),
+            Err(error) => {
+                self.reset_viewer_lane_heights();
+                self.toasts.error(format!(
+                    "Could not restore the viewer lane heights: {error}"
+                ));
+            }
+        }
+    }
+
+    fn sync_viewer_lane_heights(&mut self) {
+        if self.logic_analyzer.take_viewer_row_height_changed() {
+            let settings = self.logic_analyzer.viewer_row_height_settings();
+            if let Err(error) = save_viewer_lane_heights(self.node_graph.graph_mut(), &settings) {
+                self.toasts
+                    .error(format!("Could not save the viewer lane heights: {error}"));
+            }
+        }
+    }
+
+    pub(crate) fn reset_viewer_lane_heights(&mut self) {
+        self.logic_analyzer.reset_viewer_row_heights();
+        self.sync_viewer_lane_heights();
     }
 
     fn refresh_sampling_overlay_ui(&mut self) {
@@ -2395,6 +2504,7 @@ impl eframe::App for App {
                 } => {
                     self.logic_analyzer.show(panel_ui);
                     self.sync_viewer_lane_order();
+                    self.sync_viewer_lane_heights();
                     if let Some(edit) = self.logic_analyzer.take_simple_trigger_edit() {
                         self.apply_simple_trigger_edit(edit);
                     }
@@ -2526,8 +2636,9 @@ mod font_tests {
 
     use super::{
         PluginPanelsState, SavedViewerRow, StatusAction, ViewerSocketIndicator, install_fonts,
-        load_symbol_fonts, save_panel_layout, save_sampling_overlay, save_viewer_lane_order,
-        saved_panel_layout, saved_sampling_overlay, saved_viewer_lane_order,
+        load_symbol_fonts, save_panel_layout, save_sampling_overlay, save_viewer_lane_heights,
+        save_viewer_lane_order, saved_panel_layout, saved_sampling_overlay,
+        saved_viewer_lane_heights, saved_viewer_lane_order,
     };
 
     #[test]
@@ -2607,6 +2718,39 @@ mod font_tests {
 
         save_viewer_lane_order(&mut restored, &[]).unwrap();
         assert!(saved_viewer_lane_order(&restored).unwrap().is_empty());
+    }
+
+    #[test]
+    fn viewer_lane_heights_round_trip_with_the_graph_document() {
+        let mut graph = GraphState::default();
+        let settings = logic_analyzer_viewer::ViewerRowHeightSettings {
+            global_scale: 1.25,
+            rows: vec![logic_analyzer_viewer::ViewerRowHeight {
+                row: logic_analyzer_viewer::ViewerRowId::Channel(3),
+                scale: 1.5,
+            }],
+        };
+        save_viewer_lane_heights(&mut graph, &settings).unwrap();
+
+        let json = serde_json::to_string(&graph).unwrap();
+        let mut restored: GraphState = serde_json::from_str(&json).unwrap();
+        assert_eq!(saved_viewer_lane_heights(&restored).unwrap(), settings);
+
+        save_viewer_lane_heights(
+            &mut restored,
+            &logic_analyzer_viewer::ViewerRowHeightSettings {
+                global_scale: 1.0,
+                rows: Vec::new(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            saved_viewer_lane_heights(&restored).unwrap(),
+            logic_analyzer_viewer::ViewerRowHeightSettings {
+                global_scale: 1.0,
+                rows: Vec::new(),
+            }
+        );
     }
 
     #[test]
