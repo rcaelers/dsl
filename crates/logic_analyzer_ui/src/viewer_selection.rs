@@ -12,7 +12,7 @@ const EXTENSION: &str = "logic_analyzer_graph.viewer_selections";
 const VERSION: u32 = 1;
 const PAYLOAD_EXTENSION: &str = "logic_analyzer_graph.payload_subscriptions";
 const PAYLOAD_VERSION: u32 = 1;
-pub(crate) const LEGACY_VIEWER_NODE_ID: &str = "org.logicconduit.graph-node.viewer/v1";
+pub(crate) const LEGACY_VIEWER_NODE_ID: &str = "org.logicconduit.graph-node.sinks.viewer/v1";
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
 struct SavedEndpoint {

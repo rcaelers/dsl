@@ -2,7 +2,7 @@ inventory::submit! {
     logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
         super::definition::DslFileSource,
         super::builder::FileSourceBuilder,
-    >("org.logicconduit.graph-node.dsl-file-source/v1")
+    >("org.logicconduit.graph-node.sources.dsl-file-source/v1")
         .requiring_payloads(&["org.logicconduit.digital-sample/v1"])
 }
 
@@ -17,7 +17,7 @@ mod registration_tests {
         let mut state = serde_json::to_value(DslFileSource::state()).unwrap();
         state["channel_names"] = serde_json::json!(["Clock"]);
         crate::nodes::test_support::assert_node_registration_contract_without_runtime_with_state(
-            "org.logicconduit.graph-node.dsl-file-source/v1",
+            "org.logicconduit.graph-node.sources.dsl-file-source/v1",
             state,
         );
     }

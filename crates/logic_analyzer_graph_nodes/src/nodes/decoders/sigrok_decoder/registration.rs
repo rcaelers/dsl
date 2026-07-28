@@ -2,7 +2,7 @@ inventory::submit! {
     logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
         super::definition::SigrokDecoderDefinition,
         super::builder::SigrokDecoderBuilder,
-    >("org.logicconduit.graph-node.sigrok-decoder/v1").requiring_payloads(&[
+    >("org.logicconduit.graph-node.decoders.sigrok-decoder/v1").requiring_payloads(&[
         "org.logicconduit.digital-sample/v1",
         "org.logicconduit.word/v1",
         "org.logicconduit.protocol-packet/v1",
@@ -35,7 +35,7 @@ mod registration_tests {
             }
         }
         crate::nodes::test_support::assert_node_registration_contract_without_runtime_with_state(
-            "org.logicconduit.graph-node.sigrok-decoder/v1",
+            "org.logicconduit.graph-node.decoders.sigrok-decoder/v1",
             serde_json::to_value(state).unwrap(),
         );
     }
@@ -47,7 +47,7 @@ mod registration_tests {
         assert_eq!(descriptor.inputs, ["test_logic"]);
         let state = SigrokDecoderState::from_descriptor(decoder_root, &descriptor);
         crate::nodes::test_support::assert_node_registration_contract_without_runtime_with_state(
-            "org.logicconduit.graph-node.sigrok-decoder/v1",
+            "org.logicconduit.graph-node.decoders.sigrok-decoder/v1",
             serde_json::to_value(state).unwrap(),
         );
     }

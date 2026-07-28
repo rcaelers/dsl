@@ -2,7 +2,7 @@ inventory::submit! {
     logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
         super::definition::SpiDecoder,
         super::builder::SpiDecoderBuilder,
-    >("org.logicconduit.graph-node.spi-decoder/v1").requiring_payloads(&[
+    >("org.logicconduit.graph-node.decoders.spi-decoder/v1").requiring_payloads(&[
         "org.logicconduit.digital-sample/v1",
         "org.logicconduit.word/v1",
     ])
@@ -13,7 +13,7 @@ mod registration_tests {
     #[test]
     fn spi_decoder_registration_contract_is_self_consistent() {
         crate::nodes::test_support::assert_node_registration_contract(
-            "org.logicconduit.graph-node.spi-decoder/v1",
+            "org.logicconduit.graph-node.decoders.spi-decoder/v1",
         );
     }
 }

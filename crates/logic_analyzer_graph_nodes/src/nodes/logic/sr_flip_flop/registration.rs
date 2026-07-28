@@ -2,7 +2,7 @@ inventory::submit! {
     logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
         super::definition::SrFlipFlop,
         super::builder::SrFlipFlopBuilder,
-    >("org.logicconduit.graph-node.sr-flip-flop/v1").requiring_payloads(&[
+    >("org.logicconduit.graph-node.logic.sr-flip-flop/v1").requiring_payloads(&[
         "org.logicconduit.digital-sample/v1",
         "org.logicconduit.trigger/v1",
     ])
@@ -13,7 +13,7 @@ mod registration_tests {
     #[test]
     fn sr_flip_flop_registration_contract_is_self_consistent() {
         crate::nodes::test_support::assert_node_registration_contract(
-            "org.logicconduit.graph-node.sr-flip-flop/v1",
+            "org.logicconduit.graph-node.logic.sr-flip-flop/v1",
         );
     }
 }
