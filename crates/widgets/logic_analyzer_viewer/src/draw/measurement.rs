@@ -215,7 +215,7 @@ impl LogicAnalyzerViewer {
         // only the gap to the neighboring event is meaningful — no
         // High/Low split, no Period, no Frequency, no Duty Cycle.
         let (label, other_label) = if measurement.is_event {
-            ("Time between events", None)
+            ("Δt", None)
         } else if measurement.value {
             ("High", Some("Low"))
         } else {
