@@ -97,7 +97,7 @@ traces, decoded-word boxes, and trigger markers.
 |---|---|
 | Sources | DSL File Source · Sigrok File Source · DSLogic U3Pro16 (live USB capture) |
 | Decoders | SPI Decoder · UART Decoder · Parallel Decoder (1–64-bit bus, SDR/DDR/level sampling) · I2C Decoder (placeholder — editable but not yet runnable) |
-| Logic | Word Field Extractor · Word Matcher · SR Flip-Flop · Logic Gate (NOT/AND/OR/XOR/…) · Counter · String Formatter · Buffer |
+| Logic | Packet Framer · Word Field Extractor · Word Matcher · SR Flip-Flop · Logic Gate (NOT/AND/OR/XOR/…) · Counter · String Formatter · Buffer |
 | Sinks | File Writer · Text File Writer · TGCK Recorder · Viewer |
 
 A typical trigger-and-capture graph: decode SPI commands, match start/stop words, drive an
@@ -167,7 +167,13 @@ compile-time extension: build with
 
 Loadable pipeline examples live in [graphs/](graphs). They include file-backed
 SPI processing, direct DSLogic U3Pro16 capture graphs, and the self-contained
-[`word_field_extractor_demo.json`](graphs/word_field_extractor_demo.json):
+[`word_field_extractor_demo.json`](graphs/word_field_extractor_demo.json) and
+[`packet_framer_demo.json`](graphs/packet_framer_demo.json):
+
+The packet-framer demo combines a fixed word count, a Word Matcher Boundary,
+and a synthetic capture channel used as an active-high Gate. Its explicit Word
+buffer lets the sparse Boundary branch advance independently of packet output
+backpressure.
 
 ```bash
 cargo run --release --bin logic-conduit -- graphs/spi_controlled_decode.json

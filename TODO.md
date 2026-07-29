@@ -32,10 +32,15 @@ Task IDs start with their ownership category and remain stable when task wording
 - [derived.cache.inventory] Add read-only derived-cache inventory/usage reporting to complement the existing clear-cache
   commands. Active mapped entries must remain pinned and visible as retained.
 
+### Node graph editor
+
+- [graph.editor.socket-renaming] Add generic instance-local socket renaming. Node definitions explicitly mark which input and
+  output sockets are renameable; sockets without that capability remain definition-owned. Preserve stable schema IDs and
+  runtime port contracts independently from display names, persist user overrides in saved graphs, and provide a way to reset
+  a renamed socket to its definition-provided label.
+
 ### Graph nodes
 
-- [graph.nodes.packet-framer] Add a packet/framer node that groups words by delimiter, length, inter-word gap, chip-select
-  activity, or trigger boundaries and emits generic packet/table/viewer data.
 - [graph.nodes.event-controls] Add signal-to-trigger edge detection (rising, falling, or both), debounce/minimum-pulse-width
   qualification, a signal/event gate, and delay/holdoff/rearm controls.
 - [graph.nodes.word-matcher] Extend `Word Matcher` with range/set predicates, match-count and holdoff/rearm options, and an

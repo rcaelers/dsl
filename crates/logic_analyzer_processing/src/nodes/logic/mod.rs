@@ -2,6 +2,7 @@
 
 pub mod buffer;
 pub mod logic_gate;
+pub mod packet_framer;
 pub mod sr_latch;
 pub mod text_formatter;
 pub mod trigger_counter;

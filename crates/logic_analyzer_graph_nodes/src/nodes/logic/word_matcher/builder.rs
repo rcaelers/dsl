@@ -12,8 +12,6 @@ use logic_analyzer_processing::nodes::logic::word_matcher::{MatchOp, TriggerAt, 
 use node_graph::api::Socket;
 use signal_processing::{ConfigValue, NodeConfig, ProcessNode, Sample, Trigger, Word};
 
-use super::definition::parse_hex;
-
 #[derive(Default)]
 pub(crate) struct WordMatcherBuilder;
 
@@ -68,8 +66,8 @@ impl RuntimeBuilder for WordMatcherBuilder {
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state: super::definition::WordMatcherState = parse_state(state)?;
-        let pattern = parse_hex(&state.pattern.value)?;
-        let mask = parse_hex(&state.mask.value)?;
+        let pattern = super::super::word_value::parse_hex_u64(&state.pattern.value)?;
+        let mask = super::super::word_value::parse_hex_u64(&state.mask.value)?;
         let (op, _) = Self::match_op(state.op.selected());
         let (trigger_at, _) = Self::trigger_at(state.trigger_at.selected());
         Ok(Box::new(
@@ -85,11 +83,11 @@ impl RuntimeBuilder for WordMatcherBuilder {
         let mut config = NodeConfig::new();
         config.insert(
             "pattern".into(),
-            ConfigValue::U64(parse_hex(&state.pattern.value).ok()?),
+            ConfigValue::U64(super::super::word_value::parse_hex_u64(&state.pattern.value).ok()?),
         );
         config.insert(
             "mask".into(),
-            ConfigValue::U64(parse_hex(&state.mask.value).ok()?),
+            ConfigValue::U64(super::super::word_value::parse_hex_u64(&state.mask.value).ok()?),
         );
         let (_, op_name) = Self::match_op(state.op.selected());
         config.insert("op".into(), ConfigValue::Text(op_name.into()));

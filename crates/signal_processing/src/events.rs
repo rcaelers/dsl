@@ -80,6 +80,8 @@ pub enum ProtocolValue {
 /// Timestamped structured value exchanged by stacked protocol decoders.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProtocolPacket {
+    /// Source-domain sample coordinates. Producers derived from payloads that
+    /// carry time but no sample position set both sample coordinates to zero.
     pub start_sample: u64,
     pub end_sample: u64,
     pub start_time_ns: u64,

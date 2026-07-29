@@ -29,7 +29,10 @@ impl NodeGraphWidget {
             .graph
             .nodes
             .iter()
-            .map(|(&id, node)| (id, NodeWidget::new(&self.graph, id, node)))
+            .map(|(&id, node)| {
+                let status = self.node_statuses.get(&id).map(String::as_str);
+                (id, NodeWidget::new(&self.graph, id, node, status))
+            })
             .collect();
 
         let node_rects: HashMap<NodeId, Rect> = nodes

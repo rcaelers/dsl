@@ -1,18 +1,17 @@
 //! `Buffer` graph-node definition (`docs/PIPELINE_DESIGN.md`, flow control) — an explicit,
-//! user-placed decoupling point. Wires to/from anything (`AnySocket`); the
-//! payload kind it actually carries is picked explicitly via `kind`, not
-//! inferred — the compiler's kind negotiation has no way to express
-//! "whatever kind my input resolved to" for a genuinely generic passthrough
-//! (see the sibling `builder` module).
+//! user-placed decoupling point. Its input and output expose the payload kind
+//! selected in its state, matching the concrete runtime selected by the
+//! sibling builder.
 
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
 use node_graph::{
-    AnySocket, EnumValue, InputDef, IntValue, NodeDef, OutputDef, PanelSection, PropDef,
+    EnumValue, InputDef, IntValue, NodeDef, NodeInstanceSchema, OutputDef, PanelSection, PropDef,
+    SocketDef,
 };
 
-use crate::sockets::COLOR_LOGIC;
+use crate::sockets::{COLOR_LOGIC, Number, Signal, Text, Trigger, Words};
 
 /// Which built-in payload kind flows through a given `Buffer` instance —
 /// order matches the dropdown and the sibling builder's
@@ -26,6 +25,16 @@ pub(crate) struct BufferState {
 }
 
 pub(crate) struct Buffer;
+
+fn passthrough_schema<T: SocketDef>() -> NodeInstanceSchema<BufferState> {
+    NodeInstanceSchema::new(
+        vec![InputDef::new::<T>("In")],
+        vec![OutputDef::new::<T>("Out")],
+    )
+    .panel(Buffer::panel())
+    .panels(Buffer::panels())
+}
+
 impl NodeDef for Buffer {
     type State = BufferState;
 
@@ -40,15 +49,11 @@ impl NodeDef for Buffer {
     }
 
     fn inputs() -> Vec<InputDef<Self::State>> {
-        vec![InputDef::new::<AnySocket>("In")]
+        vec![InputDef::new::<Signal>("In")]
     }
 
     fn outputs() -> Vec<OutputDef<Self::State>> {
-        // Stays visually `Any`-styled regardless of the resolved kind —
-        // only inputs get visual type resolution today
-        // (`docs/NODE_GRAPH_DESIGN.md`: "the only polymorphic output is the
-        // reroute node's `Any`"). Cosmetic only.
-        vec![OutputDef::new::<AnySocket>("Out")]
+        vec![OutputDef::new::<Signal>("Out")]
     }
 
     fn state() -> Self::State {
@@ -62,6 +67,18 @@ impl NodeDef for Buffer {
         vec![crate::presentation::viewer_outputs_panel()]
     }
 
+    fn instance_schema(state: &Self::State) -> NodeInstanceSchema<Self::State> {
+        match state.kind.selected() {
+            "Word" => passthrough_schema::<Words>(),
+            "Number" => passthrough_schema::<Number>(),
+            "Text" => passthrough_schema::<Text>(),
+            "Trigger" => passthrough_schema::<Trigger>(),
+            // Sample blocks are a transport representation of a signal and
+            // therefore retain the graph-level Signal socket contract.
+            _ => passthrough_schema::<Signal>(),
+        }
+    }
+
     fn panel() -> Vec<PanelSection<Self::State>> {
         vec![PanelSection::new(
             "Options",
@@ -70,5 +87,33 @@ impl NodeDef for Buffer {
                 PropDef::control("capacity", "Capacity", |state| &mut state.capacity),
             ],
         )]
+    }
+}
+
+#[cfg(test)]
+mod definition_tests {
+    use node_graph::api::GraphDocumentBuilder;
+    use node_graph::{NodeDef, NodeTypeRegistry};
+
+    use super::Buffer;
+
+    #[test]
+    fn selected_payload_kind_is_exposed_on_both_sides() {
+        let mut registry = NodeTypeRegistry::new();
+        registry.register::<Buffer>();
+        let mut document = GraphDocumentBuilder::new(registry);
+        let node_id = document
+            .add_node(Buffer::name())
+            .expect("registered Buffer");
+        let mut state = Buffer::state();
+        state.kind.select("Word");
+
+        assert!(document.set_node_state(node_id, serde_json::to_value(state).unwrap(),));
+
+        let node = &document.graph().nodes[&node_id];
+        assert_eq!(node.inputs[0].effective_type(), "Words");
+        assert_eq!(node.outputs[0].effective_type(), "Words");
+        assert_eq!(node.inputs[0].color, node.outputs[0].color);
+        assert_eq!(node.inputs[0].shape, node.outputs[0].shape);
     }
 }

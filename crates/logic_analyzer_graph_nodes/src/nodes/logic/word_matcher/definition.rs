@@ -23,15 +23,6 @@ pub(crate) fn default_trigger_at() -> EnumValue {
     EnumValue::new(1, TRIGGER_AT)
 }
 
-pub(crate) fn parse_hex(text: &str) -> Result<u64, String> {
-    let trimmed = text.trim();
-    let digits = trimmed
-        .strip_prefix("0x")
-        .or_else(|| trimmed.strip_prefix("0X"))
-        .unwrap_or(trimmed);
-    u64::from_str_radix(digits, 16).map_err(|_| format!("'{text}' is not a hex value"))
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct WordMatcherState {
     pub(crate) pattern: StringValue,
@@ -106,10 +97,10 @@ impl NodeDef for WordMatcher {
     }
 
     fn badge(state: &Self::State) -> Option<NodeBadge> {
-        if parse_hex(&state.pattern.value).is_err() {
+        if super::super::word_value::parse_hex_u64(&state.pattern.value).is_err() {
             return Some(NodeBadge::error("Invalid hex pattern"));
         }
-        if parse_hex(&state.mask.value).is_err() {
+        if super::super::word_value::parse_hex_u64(&state.mask.value).is_err() {
             return Some(NodeBadge::error("Invalid hex mask"));
         }
         None

@@ -10,7 +10,7 @@ use crate::widget::graph::SocketIndicatorRegistry;
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 
-const NODE_WIDTH: f32 = 200.0;
+const MIN_NODE_WIDTH: f32 = 200.0;
 const NODE_HEADER_HEIGHT: f32 = 22.0;
 const SOCKET_ROW_HEIGHT: f32 = 22.0;
 const PROP_ROW_HEIGHT: f32 = 22.0;
@@ -21,6 +21,11 @@ const NODE_ROUNDING: f32 = 5.0;
 const SOCKET_AREA: f32 = 14.0;
 const REROUTE_SIZE: f32 = 24.0;
 const COLLAPSE_TOGGLE_SIZE: f32 = 18.0;
+const HEADER_TEXT_GAP: f32 = 6.0;
+const HEADER_RIGHT_PADDING: f32 = 6.0;
+const TITLE_FONT_SIZE: f32 = 14.0;
+const STATUS_FONT_SIZE: f32 = 10.0;
+const COLLAPSED_TITLE_OFFSET: f32 = 32.0;
 
 // ── Private layout ────────────────────────────────────────────────────────────
 
@@ -40,7 +45,51 @@ fn socket_is_laid_out(visible: bool, hidden: bool, connected: bool) -> bool {
     connected || (visible && !hidden)
 }
 
-fn compute_node_layout(graph: &GraphState, node_id: NodeId, node: &Node) -> NodeLayout {
+fn estimated_text_width(text: &str, font_size: f32) -> f32 {
+    text.chars()
+        .map(|character| {
+            let em_width = match character {
+                ' ' => 0.35,
+                'i' | 'j' | 'l' | 'I' | '!' | '|' | '.' | ',' | ':' | ';' | '\'' => 0.35,
+                'm' | 'w' | 'M' | 'W' | '@' | '%' => 0.9,
+                character if character.is_ascii_uppercase() => 0.7,
+                character if character.is_ascii() => 0.6,
+                _ => 1.0,
+            };
+            em_width * font_size
+        })
+        .sum()
+}
+
+fn node_width(node: &Node, status: Option<&str>) -> f32 {
+    node_width_for_header(&node.title, node.collapsed, status)
+}
+
+fn node_width_for_header(title: &str, collapsed: bool, status: Option<&str>) -> f32 {
+    let title = if collapsed {
+        truncate_title(title)
+    } else {
+        title.to_owned()
+    };
+    let title_width = estimated_text_width(&title, TITLE_FONT_SIZE);
+
+    if collapsed {
+        return MIN_NODE_WIDTH.max(COLLAPSED_TITLE_OFFSET + title_width + HEADER_RIGHT_PADDING);
+    }
+
+    let left_reserve = NODE_PADDING + COLLAPSE_TOGGLE_SIZE + HEADER_TEXT_GAP;
+    let right_reserve = status.map_or(HEADER_RIGHT_PADDING, |status| {
+        HEADER_RIGHT_PADDING + estimated_text_width(status, STATUS_FONT_SIZE) + HEADER_TEXT_GAP
+    });
+    MIN_NODE_WIDTH.max(title_width + 2.0 * left_reserve.max(right_reserve))
+}
+
+fn compute_node_layout(
+    graph: &GraphState,
+    node_id: NodeId,
+    node: &Node,
+    status: Option<&str>,
+) -> NodeLayout {
     if node.kind == NodeKind::Reroute {
         let cy = node.pos.y + REROUTE_SIZE / 2.0;
         let node_rect = Rect::from_min_size(node.pos, Vec2::splat(REROUTE_SIZE));
@@ -58,6 +107,7 @@ fn compute_node_layout(graph: &GraphState, node_id: NodeId, node: &Node) -> Node
     }
 
     if node.collapsed {
+        let node_width = node_width(node, status);
         let visible_inputs = node
             .inputs
             .iter()
@@ -93,7 +143,7 @@ fn compute_node_layout(graph: &GraphState, node_id: NodeId, node: &Node) -> Node
         let socket_rows = visible_inputs.max(visible_outputs).max(1);
         let height = (NODE_HEADER_HEIGHT * 1.8)
             .max(socket_rows as f32 * COLLAPSED_SOCKET_SPACING + NODE_PADDING * 2.0);
-        let node_rect = Rect::from_min_size(node.pos, Vec2::new(NODE_WIDTH, height));
+        let node_rect = Rect::from_min_size(node.pos, Vec2::new(node_width, height));
         let header_rect = node_rect;
         let collapse_toggle_rect = Rect::from_center_size(
             Pos2::new(node.pos.x + 18.0, node.pos.y + height * 0.5),
@@ -139,7 +189,7 @@ fn compute_node_layout(graph: &GraphState, node_id: NodeId, node: &Node) -> Node
                 continue;
             }
             output_socket_pos[index] = Some(Pos2::new(
-                node.pos.x + NODE_WIDTH,
+                node.pos.x + node_width,
                 node.pos.y
                     + NODE_PADDING
                     + output_row as f32 * COLLAPSED_SOCKET_SPACING
@@ -161,6 +211,7 @@ fn compute_node_layout(graph: &GraphState, node_id: NodeId, node: &Node) -> Node
         };
     }
 
+    let node_width = node_width(node, status);
     let body_top = node.pos.y + NODE_HEADER_HEIGHT + NODE_PADDING;
 
     let mut output_socket_pos = vec![None; node.outputs.len()];
@@ -180,13 +231,13 @@ fn compute_node_layout(graph: &GraphState, node_id: NodeId, node: &Node) -> Node
         }
         let row_y = body_top + vis_row as f32 * SOCKET_ROW_HEIGHT;
         output_socket_pos[i] = Some(Pos2::new(
-            node.pos.x + NODE_WIDTH,
+            node.pos.x + node_width,
             row_y + SOCKET_ROW_HEIGHT * 0.5,
         ));
         if s.has_control {
             output_widget_rects[i] = Some(Rect::from_min_size(
                 Pos2::new(node.pos.x + 4.0, row_y + 2.0),
-                Vec2::new(NODE_WIDTH - SOCKET_AREA - 4.0, SOCKET_ROW_HEIGHT - 4.0),
+                Vec2::new(node_width - SOCKET_AREA - 4.0, SOCKET_ROW_HEIGHT - 4.0),
             ));
         }
         vis_row += 1;
@@ -202,7 +253,7 @@ fn compute_node_layout(graph: &GraphState, node_id: NodeId, node: &Node) -> Node
             let y = prop_start_y + i as f32 * PROP_ROW_HEIGHT;
             Rect::from_min_size(
                 Pos2::new(node.pos.x + 4.0, y + 1.0),
-                Vec2::new(NODE_WIDTH - 8.0, PROP_ROW_HEIGHT - 2.0),
+                Vec2::new(node_width - 8.0, PROP_ROW_HEIGHT - 2.0),
             )
         })
         .collect();
@@ -229,7 +280,7 @@ fn compute_node_layout(graph: &GraphState, node_id: NodeId, node: &Node) -> Node
         if has_control {
             input_widget_rects[i] = Some(Rect::from_min_size(
                 Pos2::new(node.pos.x + SOCKET_AREA, row_y + 2.0),
-                Vec2::new(NODE_WIDTH - SOCKET_AREA - 4.0, SOCKET_ROW_HEIGHT - 4.0),
+                Vec2::new(node_width - SOCKET_AREA - 4.0, SOCKET_ROW_HEIGHT - 4.0),
             ));
         }
         vis_row += 1;
@@ -239,8 +290,8 @@ fn compute_node_layout(graph: &GraphState, node_id: NodeId, node: &Node) -> Node
 
     let body_h = NODE_PADDING + output_h + prop_h + input_h + NODE_PADDING;
     let node_rect =
-        Rect::from_min_size(node.pos, Vec2::new(NODE_WIDTH, NODE_HEADER_HEIGHT + body_h));
-    let header_rect = Rect::from_min_size(node.pos, Vec2::new(NODE_WIDTH, NODE_HEADER_HEIGHT));
+        Rect::from_min_size(node.pos, Vec2::new(node_width, NODE_HEADER_HEIGHT + body_h));
+    let header_rect = Rect::from_min_size(node.pos, Vec2::new(node_width, NODE_HEADER_HEIGHT));
     let collapse_toggle_rect = Rect::from_center_size(
         Pos2::new(
             node.pos.x + NODE_PADDING + COLLAPSE_TOGGLE_SIZE * 0.5,
@@ -293,9 +344,14 @@ pub(crate) struct NodeControlContext<'a> {
 }
 
 impl NodeWidget {
-    pub(crate) fn new(graph: &GraphState, node_id: NodeId, node: &Node) -> Self {
+    pub(crate) fn new(
+        graph: &GraphState,
+        node_id: NodeId,
+        node: &Node,
+        status: Option<&str>,
+    ) -> Self {
         Self {
-            layout: compute_node_layout(graph, node_id, node),
+            layout: compute_node_layout(graph, node_id, node, status),
         }
     }
 
@@ -394,14 +450,17 @@ impl NodeWidget {
             egui::StrokeKind::Outside,
         );
 
-        let title_sz = (14.0 * view.zoom).clamp(8.0, 18.0);
+        let title_sz = (TITLE_FONT_SIZE * view.zoom).clamp(8.0, 18.0);
         draw_collapse_toggle(
             painter,
             to_screen_rect(l.collapse_toggle_rect, view, origin),
             node.collapsed,
         );
         let title_pos = if node.collapsed {
-            Pos2::new(header_s.min.x + sz(32.0), header_s.center().y)
+            Pos2::new(
+                header_s.min.x + sz(COLLAPSED_TITLE_OFFSET),
+                header_s.center().y,
+            )
         } else {
             header_s.center()
         };
@@ -432,7 +491,7 @@ impl NodeWidget {
                 Pos2::new(header_s.right() - sz(6.0), header_s.center().y),
                 egui::Align2::RIGHT_CENTER,
                 status,
-                FontId::proportional((10.0 * view.zoom).clamp(7.0, 12.0)),
+                FontId::proportional((STATUS_FONT_SIZE * view.zoom).clamp(7.0, 12.0)),
                 Color32::from_rgba_premultiplied(230, 230, 230, 220),
             );
         }
@@ -496,7 +555,7 @@ impl NodeWidget {
         let sep_color = Color32::from_rgb(62, 62, 62);
         for &sep_y in &l.section_sep_y {
             let p1 = s(Pos2::new(node.pos.x + 4.0, sep_y));
-            let p2 = s(Pos2::new(node.pos.x + NODE_WIDTH - 4.0, sep_y));
+            let p2 = s(Pos2::new(l.node_rect.max.x - 4.0, sep_y));
             painter.line_segment([p1, p2], Stroke::new(1.0_f32, sep_color));
         }
 
@@ -930,7 +989,11 @@ fn socket_outline_color(color: Color32) -> Color32 {
 
 #[cfg(test)]
 mod tests {
-    use super::socket_is_laid_out;
+    use super::{
+        COLLAPSE_TOGGLE_SIZE, HEADER_RIGHT_PADDING, HEADER_TEXT_GAP, MIN_NODE_WIDTH, NODE_PADDING,
+        STATUS_FONT_SIZE, TITLE_FONT_SIZE, estimated_text_width, node_width_for_header,
+        socket_is_laid_out,
+    };
 
     #[test]
     fn connected_sockets_remain_visible_despite_definition_or_user_hiding() {
@@ -938,5 +1001,30 @@ mod tests {
         assert!(socket_is_laid_out(true, true, true));
         assert!(!socket_is_laid_out(false, false, false));
         assert!(!socket_is_laid_out(true, true, false));
+    }
+
+    #[test]
+    fn short_headers_keep_the_standard_node_width() {
+        assert_eq!(
+            node_width_for_header("Buffer", false, Some("89")),
+            MIN_NODE_WIDTH
+        );
+    }
+
+    #[test]
+    fn long_headers_expand_past_the_toggle_and_status() {
+        let title = "Frame by Length, Boundary, or Gate";
+        let status = "12.3k";
+        let width = node_width_for_header(title, false, Some(status));
+        let title_width = estimated_text_width(title, TITLE_FONT_SIZE);
+        let status_width = estimated_text_width(status, STATUS_FONT_SIZE);
+        let title_left = (width - title_width) * 0.5;
+        let title_right = title_left + title_width;
+        let toggle_right = NODE_PADDING + COLLAPSE_TOGGLE_SIZE;
+        let status_left = width - HEADER_RIGHT_PADDING - status_width;
+
+        assert!(width > MIN_NODE_WIDTH);
+        assert!(title_left >= toggle_right + HEADER_TEXT_GAP);
+        assert!(title_right + HEADER_TEXT_GAP <= status_left);
     }
 }

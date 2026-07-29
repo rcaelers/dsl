@@ -42,6 +42,13 @@ The built-in numeric and text adapters retain their respective `i64` and `String
 their queries. Their graph-owned presentation adapters format bounded values only while rendering;
 the generic collector does not convert a payload into display text.
 
+The shared `ProtocolPacket` presentation dispatches each retained packet through a compile-time
+formatter registration keyed by its exact `protocol_id`. Protocol owners register only a bounded
+display projection; the generic packet payload renderer retains ownership of timeline geometry,
+clipping, and drawing. A missing or ambiguous registration uses a bounded protocol-neutral value
+formatter, so mixed-protocol lanes and packets contributed by unavailable presentation plugins
+remain readable without name-based cases in the viewer.
+
 The built-in word adapter exposes `CollectedWordLaneQuery` as its concrete query contract. `Word`
 represents both ordinary numeric decoder values and arbitrary-width byte values, with optional
 text supplied by the decoder. Its indexed storage, waveform snapshots, and table rows preserve
