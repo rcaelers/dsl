@@ -53,16 +53,15 @@ impl NodeGraphWidget {
         };
     }
 
-    /// The node the panel shows: the active (most recently clicked/added)
-    /// regular node if it still exists, otherwise the newest regular selected
-    /// node. Canvas deselection does not clear the active node; the side tab
-    /// owns panel visibility.
+    /// The selected node the panel shows: the active (most recently clicked)
+    /// regular node while it remains selected, otherwise the newest selected
+    /// regular node.
     fn panel_target(&self) -> Option<NodeId> {
         let shown = |id: &NodeId| {
             self.graph
                 .nodes
                 .get(id)
-                .is_some_and(|node| node.kind == NodeKind::Regular)
+                .is_some_and(|node| node.kind == NodeKind::Regular && node.selected)
                 && self.runtime.contains_key(id)
         };
         self.active_node.filter(shown).or_else(|| {
@@ -635,6 +634,12 @@ mod panel_tests {
         let node = widget
             .add_node_at(TestNode::name(), Pos2::ZERO)
             .expect("test node is registered");
+        widget
+            .graph
+            .nodes
+            .get_mut(&node)
+            .expect("test node exists")
+            .selected = true;
         widget.set_panel_data(node, "dynamic", 80.0_f32);
         widget.panel.active_tab = Some("view".into());
 
@@ -642,5 +647,32 @@ mod panel_tests {
         let panel = widget.panel_rect(canvas).expect("view panel is open");
 
         assert_eq!(panel.height(), 100.0);
+    }
+
+    #[test]
+    fn node_and_view_panels_stop_targeting_a_deselected_node() {
+        let mut registry = NodeTypeRegistry::new();
+        registry.register::<TestNode>();
+        let mut widget = NodeGraphWidget::new(registry);
+        let node = widget
+            .add_node_at(TestNode::name(), Pos2::ZERO)
+            .expect("test node is registered");
+        widget
+            .graph
+            .nodes
+            .get_mut(&node)
+            .expect("test node exists")
+            .selected = true;
+
+        assert_eq!(widget.panel_target(), Some(node));
+
+        widget
+            .graph
+            .nodes
+            .get_mut(&node)
+            .expect("test node exists")
+            .selected = false;
+
+        assert_eq!(widget.panel_target(), None);
     }
 }
