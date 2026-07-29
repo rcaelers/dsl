@@ -162,14 +162,14 @@ impl RuntimeBuilder for SigrokDecoderBuilder {
         state
             .channels
             .get(socket.def_index)
-            .is_none_or(|channel| channel.required || channel.enabled.value)
+            .is_none_or(|channel| channel.required)
     }
 
     fn build(
         &self,
         name: &str,
         state: &Value,
-        _resolved: &ResolvedInputs,
+        resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state = Self::parsed(state)?;
@@ -189,9 +189,10 @@ impl RuntimeBuilder for SigrokDecoderBuilder {
         let channels = state
             .channels
             .iter()
-            .map(|channel| SigrokChannel {
+            .enumerate()
+            .map(|(index, channel)| SigrokChannel {
                 name: channel.id.clone(),
-                connected: channel.required || channel.enabled.value,
+                connected: resolved.kind(index).is_some(),
                 initial_pin: match channel.initial_pin.selected() {
                     "Low" => SigrokInitialPin::Low,
                     "High" => SigrokInitialPin::High,
@@ -328,6 +329,9 @@ mod builder_tests {
     use std::path::{Path, PathBuf};
     use std::sync::Mutex;
 
+    use logic_analyzer_graph_api::node_support::ResolvedInput;
+    use node_graph::NodeId;
+
     use super::*;
     use crate::nodes::test_support::{
         TestNodeBuildContext, TestProcessNode, test_sigrok_logic_descriptor,
@@ -384,6 +388,28 @@ mod builder_tests {
         }
     }
 
+    fn resolved_channels(indices: &[usize]) -> ResolvedInputs {
+        let mut resolved = ResolvedInputs::default();
+        for &index in indices {
+            resolved.insert(
+                index,
+                0,
+                ResolvedInput {
+                    kind: PortKind::of::<SampleBlock>(),
+                    source: format!("source_{index}"),
+                    source_node: NodeId(100 + index as u32),
+                    source_node_title: format!("Source {index}"),
+                    word_display_format: None,
+                    lane_presentation: None,
+                    default_lane_presentation: None,
+                    decoder_table_column: None,
+                    capture_channel: Some(index),
+                },
+            );
+        }
+        resolved
+    }
+
     #[test]
     fn saved_descriptor_lowers_through_the_injected_backend() {
         let descriptor = test_sigrok_logic_descriptor();
@@ -393,14 +419,10 @@ mod builder_tests {
         let state = SigrokDecoderState::from_descriptor(root.clone(), &descriptor);
         let state = serde_json::to_value(state).unwrap();
         let mut context = TestNodeBuildContext::default();
+        let resolved = resolved_channels(&[0]);
 
         let runtime = builder
-            .build(
-                "Fixture decoder",
-                &state,
-                &ResolvedInputs::default(),
-                &mut context,
-            )
+            .build("Fixture decoder", &state, &resolved, &mut context)
             .unwrap();
 
         assert_eq!(runtime.name(), "Fixture decoder");
@@ -427,6 +449,35 @@ mod builder_tests {
         assert_eq!(&*config.annotation_rows_by_class[0], &[0]);
         assert_eq!(config.binary_class_count, 1);
         assert_eq!(config.logic_groups, ["Generated"]);
+    }
+
+    #[test]
+    fn optional_channel_presence_follows_the_graph_connection() {
+        let descriptor = test_sigrok_logic_descriptor();
+        let backend = Arc::new(FakeBackend::new(descriptor.clone()));
+        let builder = SigrokDecoderBuilder::with_backend(backend.clone());
+        let state = serde_json::to_value(SigrokDecoderState::from_descriptor(
+            PathBuf::from("virtual/sigrok-decoders"),
+            &descriptor,
+        ))
+        .unwrap();
+        let mut context = TestNodeBuildContext::default();
+        let resolved = resolved_channels(&[0, 1]);
+
+        builder
+            .build("Fixture decoder", &state, &resolved, &mut context)
+            .unwrap();
+
+        let creation = backend.creation.lock().unwrap();
+        let (_, config) = creation.as_ref().expect("runtime creation was requested");
+        assert_eq!(
+            config
+                .channels
+                .iter()
+                .map(|channel| (channel.name.as_str(), channel.connected))
+                .collect::<Vec<_>>(),
+            [("mosi", true), ("cs", true)]
+        );
     }
 
     #[test]

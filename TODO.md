@@ -53,10 +53,6 @@ Task IDs start with their ownership category and remain stable when task wording
   presentation metadata. Run scripts behind a versioned worker boundary with cancellation,
   diagnostics, resource limits, deterministic test fixtures, and an unavailable-platform error;
   do not let scripts access widget state or make the compiler infer contracts from Python code.
-- [graph.nodes.optional-ports] Keep optional ports declared and visible. Their runtime behavior is selected from whether they
-  are connected, rather than from node properties such as “Has MISO”, “Pulse output”, or “Error
-  output”. Preserve hidden ports only for explicit saved-graph compatibility or structurally
-  unavailable capabilities.
 
 ### Multi-source timeline
 

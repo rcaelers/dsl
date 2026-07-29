@@ -190,6 +190,10 @@ The scheduler implements the API-version-3 condition language directly:
 - optional disconnected channels, represented by the Sigrok-compatible open-channel value;
 - a `matched` tuple identifying every alternative condition that matched at the returned sample.
 
+Required and optional channels are all declared as visible graph sockets. A required socket must be
+connected for lowering to succeed; an optional channel is present in the decoder worker exactly
+when its socket is connected, with no separate enable setting.
+
 All positions are absolute sample numbers. Edge evaluation preserves the previous pin state across
 processing chunks, including a transition at a chunk boundary. Initial pin policy is explicit and
 covered by compatibility tests.

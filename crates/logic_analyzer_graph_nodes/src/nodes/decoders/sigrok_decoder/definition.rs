@@ -17,7 +17,8 @@ use node_graph::{
 use crate::sockets::{COLOR_DECODERS, ProtocolPackets, Signal, Words};
 
 const PROTOCOL_CONTRACT_SCHEMA_VERSION: u8 = 2;
-const CURRENT_SCHEMA_VERSION: u8 = 3;
+const STANDARD_PAYLOAD_SCHEMA_VERSION: u8 = 3;
+const CURRENT_SCHEMA_VERSION: u8 = 4;
 
 #[derive(Clone, Debug)]
 pub(crate) struct CatalogChoice {
@@ -172,7 +173,6 @@ pub(crate) struct SavedChannel {
     pub(crate) id: String,
     pub(crate) label: String,
     pub(crate) required: bool,
-    pub(crate) enabled: BoolValue,
     pub(crate) initial_pin: EnumValue,
 }
 
@@ -323,7 +323,6 @@ impl SigrokDecoderState {
                 id: channel.id.clone(),
                 label: channel.name.clone(),
                 required: true,
-                enabled: BoolValue::new(true),
                 initial_pin: initial_pin_control(),
             })
             .chain(
@@ -334,7 +333,6 @@ impl SigrokDecoderState {
                         id: channel.id.clone(),
                         label: channel.name.clone(),
                         required: false,
-                        enabled: BoolValue::new(false),
                         initial_pin: initial_pin_control(),
                     }),
             )
@@ -473,13 +471,6 @@ impl NodeDef for SigrokDecoderDefinition {
             ));
         }
         for (index, channel) in state.channels.iter().enumerate() {
-            if !channel.required {
-                settings.push(PropDef::instance_control(
-                    format!("channel.{}.enabled", channel.id),
-                    format!("Enable {}", channel.label),
-                    move |state: &mut SigrokDecoderState| &mut state.channels[index].enabled,
-                ));
-            }
             settings.push(PropDef::instance_control(
                 format!("channel.{}.initial", channel.id),
                 format!("{} initial level", channel.label),
@@ -528,24 +519,26 @@ impl NodeDef for SigrokDecoderDefinition {
                     .to_owned(),
             );
         }
-        if state.schema_version < CURRENT_SCHEMA_VERSION {
-            state.schema_version = CURRENT_SCHEMA_VERSION;
+        if state.schema_version < STANDARD_PAYLOAD_SCHEMA_VERSION {
+            state.schema_version = STANDARD_PAYLOAD_SCHEMA_VERSION;
             let message = "Upgraded Sigrok outputs to the standard Word, Signal, and Protocol Packet payload contracts; existing socket identities were preserved";
             state.compatibility_warning = Some(match state.compatibility_warning.take() {
                 Some(existing) => format!("{existing}; {message}"),
                 None => message.to_owned(),
             });
         }
-        for input in inputs.iter_mut() {
-            input.visible =
-                if input.def_index == state.channels.len() && !state.protocol_inputs.is_empty() {
-                    true
-                } else {
-                    state
-                        .channels
-                        .get(input.def_index)
-                        .is_some_and(|channel| channel.required || channel.enabled.value)
-                };
+        if state.schema_version < CURRENT_SCHEMA_VERSION {
+            state.schema_version = CURRENT_SCHEMA_VERSION;
+            if state.channels.iter().any(|channel| !channel.required) {
+                let message = "Updated optional Sigrok channels to use graph connections; optional sockets are now always visible";
+                state.compatibility_warning = Some(match state.compatibility_warning.take() {
+                    Some(existing) => format!("{existing}; {message}"),
+                    None => message.to_owned(),
+                });
+            }
+        }
+        for input in inputs {
+            input.visible = true;
         }
     }
 
@@ -809,7 +802,7 @@ mod definition_tests {
             ["Clock", "Data"]
         );
         assert!(node.inputs[0].visible);
-        assert!(!node.inputs[1].visible);
+        assert!(node.inputs[1].visible);
         assert_eq!(
             node.outputs
                 .iter()
@@ -853,6 +846,29 @@ mod definition_tests {
     }
 
     #[test]
+    fn legacy_optional_channel_toggle_migrates_to_an_always_visible_socket() {
+        let mut state = serde_json::to_value(fixture_state()).unwrap();
+        state["schema_version"] = serde_json::json!(STANDARD_PAYLOAD_SCHEMA_VERSION);
+        state["channels"][1]["enabled"] = serde_json::json!(false);
+        let mut registry = NodeTypeRegistry::new();
+        registry.register::<SigrokDecoderDefinition>();
+        let mut document = GraphDocumentBuilder::new(registry);
+        let node = document.add_node(SigrokDecoderDefinition::name()).unwrap();
+
+        assert!(document.set_node_state(node, state));
+
+        let node = &document.graph().nodes[&node];
+        assert!(node.inputs[1].visible);
+        assert_eq!(node.state["schema_version"], CURRENT_SCHEMA_VERSION);
+        assert!(node.state["channels"][1].get("enabled").is_none());
+        assert!(node.badge.as_ref().is_some_and(|badge| {
+            badge
+                .text
+                .contains("optional Sigrok channels to use graph connections")
+        }));
+    }
+
+    #[test]
     fn legacy_protocol_contracts_migrate_from_an_injected_catalog_snapshot() {
         let decoder_root = PathBuf::from("virtual/sigrok-decoders");
         let descriptor = test_sigrok_logic_descriptor();
@@ -892,14 +908,12 @@ mod definition_tests {
                     id: "clk".into(),
                     label: "Clock".into(),
                     required: true,
-                    enabled: BoolValue::new(true),
                     initial_pin: initial_pin_control(),
                 },
                 SavedChannel {
                     id: "data".into(),
                     label: "Data".into(),
                     required: false,
-                    enabled: BoolValue::new(false),
                     initial_pin: initial_pin_control(),
                 },
             ],

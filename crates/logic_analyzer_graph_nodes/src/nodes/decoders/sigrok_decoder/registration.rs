@@ -25,15 +25,10 @@ mod registration_tests {
     fn logic_decoder_registration_contract_uses_saved_metadata() {
         let decoder_root = std::path::PathBuf::from("virtual/sigrok-decoders");
         let descriptor = test_sigrok_logic_descriptor();
-        let mut state = super::super::definition::SigrokDecoderState::from_descriptor(
+        let state = super::super::definition::SigrokDecoderState::from_descriptor(
             decoder_root,
             &descriptor,
         );
-        for channel in &mut state.channels {
-            if matches!(channel.id.as_str(), "mosi" | "cs") {
-                channel.enabled.value = true;
-            }
-        }
         crate::nodes::test_support::assert_node_registration_contract_without_runtime_with_state(
             "org.logicconduit.graph-node.decoders.sigrok-decoder/v1",
             serde_json::to_value(state).unwrap(),
