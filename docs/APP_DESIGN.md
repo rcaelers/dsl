@@ -120,10 +120,10 @@ Demo Source. Capture-source outputs opt out of the View-panel lane selector beca
 presentation already shows those channels. The SPI node presents only its connectable MOSI/MISO
 Words sockets in the editor; generic output-presentation metadata keeps its compound Bits/Data
 lanes selectable in the View panel and makes each Words socket's eye summarize its pair. Decoders:
-SPI, UART, Binary (parallel bus, SDR/DDR), and
+SPI, UART, Parallel Decoder (parallel bus, SDR/DDR/level sampling), and
 an I2C placeholder (a `NodeDef` with no builder: editable, not runnable).
-Logic: Word Matcher, SR Flip-Flop, Logic Gate (op enum retitles the node; NOT caps the
-variadic group at one), Buffer, Counter, String Formatter. Sinks: File Writer (inline save
+Logic: Word Field Extractor, Word Matcher, SR Flip-Flop, Logic Gate (op enum retitles the node;
+NOT caps the variadic group at one), Buffer, Counter, String Formatter. Sinks: File Writer (inline save
 dialog while `Filename` is unconnected; a connected text stream hides it and wins), Text
 File Writer, TGCK Recorder, Viewer (variadic input accepting
 `Signal | Words | Trigger | Number | Text`).

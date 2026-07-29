@@ -12,7 +12,7 @@ use crate::sockets::{COLOR_DECODERS, Signal, Words};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct ParallelDecoderState {
-    #[serde(default = "super::super::display_format::default_display_format")]
+    #[serde(default = "crate::presentation::default_word_display_format")]
     pub(crate) display_format: EnumValue,
     pub(crate) sample_on: EnumValue,
     #[serde(default = "default_input_strategy")]
@@ -58,7 +58,7 @@ impl NodeDef for ParallelDecoder {
 
     fn state() -> Self::State {
         ParallelDecoderState {
-            display_format: super::super::display_format::default_display_format(),
+            display_format: crate::presentation::default_word_display_format(),
             sample_on: EnumValue::new(
                 0,
                 &[

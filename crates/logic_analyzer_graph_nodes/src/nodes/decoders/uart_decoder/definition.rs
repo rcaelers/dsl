@@ -8,12 +8,11 @@ use node_graph::{
     PanelSection, PropDef, PropertyPanelPresentation, Socket,
 };
 
-use super::super::display_format::default_display_format;
 use crate::sockets::{COLOR_DECODERS, Signal, Trigger, Words};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct UartDecoderState {
-    #[serde(default = "default_display_format")]
+    #[serde(default = "crate::presentation::default_word_display_format")]
     pub(crate) display_format: EnumValue,
     /// A common baud-rate preset, or `Custom` to use `baud_rate` below.
     #[serde(default = "default_baud_preset")]
@@ -99,7 +98,7 @@ impl NodeDef for UartDecoder {
 
     fn state() -> Self::State {
         UartDecoderState {
-            display_format: default_display_format(),
+            display_format: crate::presentation::default_word_display_format(),
             baud_preset: EnumValue::new(12, BAUD_PRESETS),
             baud_rate: IntValue::new(1_000_000, 300, 100_000_000),
             data_bits: IntValue::new(8, 5, 9),

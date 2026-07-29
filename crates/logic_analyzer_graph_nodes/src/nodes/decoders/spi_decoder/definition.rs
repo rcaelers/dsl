@@ -14,7 +14,7 @@ use crate::sockets::{COLOR_DECODERS, Signal, Words};
 pub(crate) struct SpiDecoderState {
     #[serde(flatten)]
     pub(crate) metadata: SpiDecoderMetadata,
-    #[serde(default = "super::super::display_format::default_display_format")]
+    #[serde(default = "crate::presentation::default_word_display_format")]
     pub(crate) display_format: EnumValue,
     pub(crate) word_size: IntValue,
     pub(crate) cpol: EnumValue,
@@ -77,7 +77,7 @@ impl NodeDef for SpiDecoder {
     fn state() -> Self::State {
         SpiDecoderState {
             metadata: SpiDecoderMetadata::current(),
-            display_format: super::super::display_format::default_display_format(),
+            display_format: crate::presentation::default_word_display_format(),
             word_size: IntValue::new(8, 1, 64),
             cpol: EnumValue::new(0, &["0", "1"]),
             cpha: EnumValue::new(0, &["0", "1"]),

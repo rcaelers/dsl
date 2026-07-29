@@ -97,7 +97,7 @@ traces, decoded-word boxes, and trigger markers.
 |---|---|
 | Sources | DSL File Source · Sigrok File Source · DSLogic U3Pro16 (live USB capture) |
 | Decoders | SPI Decoder · UART Decoder · Parallel Decoder (1–64-bit bus, SDR/DDR/level sampling) · I2C Decoder (placeholder — editable but not yet runnable) |
-| Logic | Word Matcher · SR Flip-Flop · Logic Gate (NOT/AND/OR/XOR/…) · Counter · String Formatter · Buffer |
+| Logic | Word Field Extractor · Word Matcher · SR Flip-Flop · Logic Gate (NOT/AND/OR/XOR/…) · Counter · String Formatter · Buffer |
 | Sinks | File Writer · Text File Writer · TGCK Recorder · Viewer |
 
 A typical trigger-and-capture graph: decode SPI commands, match start/stop words, drive an
@@ -166,7 +166,8 @@ compile-time extension: build with
 `--features example-plugin`).
 
 Loadable pipeline examples live in [graphs/](graphs). They include file-backed
-SPI processing and direct DSLogic U3Pro16 capture graphs:
+SPI processing, direct DSLogic U3Pro16 capture graphs, and the self-contained
+[`word_field_extractor_demo.json`](graphs/word_field_extractor_demo.json):
 
 ```bash
 cargo run --release --bin logic-conduit -- graphs/spi_controlled_decode.json

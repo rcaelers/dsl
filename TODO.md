@@ -34,8 +34,6 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ### Graph nodes
 
-- [graph.nodes.word-field-extractor] Add a word-field extractor that selects arbitrary bit ranges, applies mask/shift operations,
-  and emits named, formatted `Word` payloads.
 - [graph.nodes.packet-framer] Add a packet/framer node that groups words by delimiter, length, inter-word gap, chip-select
   activity, or trigger boundaries and emits generic packet/table/viewer data.
 - [graph.nodes.event-controls] Add signal-to-trigger edge detection (rising, falling, or both), debounce/minimum-pulse-width
