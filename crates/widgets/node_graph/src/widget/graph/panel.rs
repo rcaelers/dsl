@@ -28,9 +28,9 @@ const PANEL_SECTION_GAP: f32 = 4.0;
 const PANEL_MEASUREMENT_PADDING: f32 = 1.0;
 
 pub(crate) struct PanelState {
-    pub active_tab: Option<String>,
-    pub width: f32,
-    measured_node_height: Option<(NodeId, f32)>,
+    pub(crate) active_tab: Option<String>,
+    pub(crate) width: f32,
+    pub(crate) measured_node_height: Option<(NodeId, f32)>,
 }
 
 impl Default for PanelState {

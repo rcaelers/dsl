@@ -129,20 +129,18 @@ impl RuntimeBuilder for CursorMarkerBuilder {
         Ok(vec![TimelineMarkerReferenceBindingDescriptor {
             id: "cursor".into(),
             selected: state
-                .cursor
-                .selected
+                .selected_cursor()
                 .map(|number| TimelineMarkerReference::Cursor { number }),
-            timestamp_ns: state.cursor.timestamp.value_ns,
+            timestamp_ns: state.timestamp_ns(),
             choices: state
-                .cursor
-                .choices
-                .into_iter()
+                .cursor_choices()
+                .iter()
                 .map(|choice| {
                     TimelineMarkerReferenceChoice::new(
                         TimelineMarkerReference::Cursor {
                             number: choice.number,
                         },
-                        choice.label,
+                        choice.label.clone(),
                         choice.timestamp_ns,
                     )
                 })
@@ -160,7 +158,7 @@ impl RuntimeBuilder for CursorMarkerBuilder {
         if id != "cursor" {
             return Err(format!("unknown timeline reference '{id}'"));
         }
-        state.cursor.choices = choices
+        let choices = choices
             .iter()
             .map(|choice| match choice.reference {
                 TimelineMarkerReference::Cursor { number } => {
@@ -172,24 +170,7 @@ impl RuntimeBuilder for CursorMarkerBuilder {
                 }
             })
             .collect();
-        if !state.cursor.selected.is_some_and(|selected| {
-            state
-                .cursor
-                .choices
-                .iter()
-                .any(|choice| choice.number == selected)
-        }) {
-            state.cursor.selected = state.cursor.choices.first().map(|choice| choice.number);
-        }
-        if let Some(choice) = state.cursor.selected.and_then(|selected| {
-            state
-                .cursor
-                .choices
-                .iter()
-                .find(|choice| choice.number == selected)
-        }) {
-            state.cursor.timestamp.value_ns = choice.timestamp_ns;
-        }
+        state.synchronize_cursor_choices(choices);
         serde_json::to_value(state)
             .map(Some)
             .map_err(|error| error.to_string())
@@ -203,7 +184,7 @@ impl RuntimeBuilder for CursorMarkerBuilder {
         ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state: super::definition::CursorMarkerState = parse_state(state)?;
-        let number = state.cursor.selected.ok_or_else(|| {
+        let number = state.selected_cursor().ok_or_else(|| {
             "no cursor is available; add a cursor in the logic analyzer view".to_owned()
         })?;
         let marker = ctx

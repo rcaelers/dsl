@@ -4,7 +4,7 @@ use egui::Color32;
 
 use node_graph::{InputDef, NodeBadge, NodeDef, NodePanelDef, OutputDef, PanelSection};
 
-use super::super::parallel_decoder::{ParallelDecoder, ParallelDecoderState};
+use super::definition::{ParallelDecoder, ParallelDecoderState};
 use crate::sockets::{COLOR_DECODERS, Signal, Words};
 
 pub(crate) struct BinaryDecoder;

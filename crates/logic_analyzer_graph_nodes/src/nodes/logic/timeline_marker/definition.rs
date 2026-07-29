@@ -122,9 +122,9 @@ pub(crate) struct CursorChoiceValue {
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct CursorSelectionValue {
-    pub(crate) selected: Option<u32>,
-    pub(crate) choices: Vec<CursorChoiceValue>,
-    pub(crate) timestamp: MarkerTimeValue,
+    selected: Option<u32>,
+    choices: Vec<CursorChoiceValue>,
+    timestamp: MarkerTimeValue,
     #[serde(skip)]
     migrated_from_numeric: bool,
 }
@@ -221,9 +221,43 @@ impl InlineControl for CursorSelectionValue {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct CursorMarkerState {
-    pub(crate) cursor: CursorSelectionValue,
+    cursor: CursorSelectionValue,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     compatibility_warning: Option<String>,
+}
+
+impl CursorMarkerState {
+    pub(crate) fn selected_cursor(&self) -> Option<u32> {
+        self.cursor.selected
+    }
+
+    pub(crate) fn timestamp_ns(&self) -> u64 {
+        self.cursor.timestamp.value_ns
+    }
+
+    pub(crate) fn cursor_choices(&self) -> &[CursorChoiceValue] {
+        &self.cursor.choices
+    }
+
+    pub(crate) fn synchronize_cursor_choices(&mut self, choices: Vec<CursorChoiceValue>) {
+        self.cursor.choices = choices;
+        if !self.cursor.selected.is_some_and(|selected| {
+            self.cursor
+                .choices
+                .iter()
+                .any(|choice| choice.number == selected)
+        }) {
+            self.cursor.selected = self.cursor.choices.first().map(|choice| choice.number);
+        }
+        if let Some(choice) = self.cursor.selected.and_then(|selected| {
+            self.cursor
+                .choices
+                .iter()
+                .find(|choice| choice.number == selected)
+        }) {
+            self.cursor.timestamp.value_ns = choice.timestamp_ns;
+        }
+    }
 }
 
 pub(crate) struct CursorMarker;
