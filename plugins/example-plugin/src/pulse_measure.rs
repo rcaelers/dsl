@@ -16,7 +16,8 @@ use logic_analyzer_graph_api::node_support::{
 };
 use node_graph::api::{InputDef, NodeDef, OutputDef, Socket, SocketDef, SocketShape};
 use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Sample, WorkError, WorkResult,
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Sample, WorkError, WorkOutcome,
+    WorkResult,
 };
 
 // ── Runtime payload ──────────────────────────────────────────────────────────
@@ -179,6 +180,13 @@ impl ProcessNode for PulseMeasureNode {
             PortDirection::Output,
         )]
     }
+    fn work_outcome(
+        &mut self,
+        inputs: &[InputPort],
+        outputs: &[OutputPort],
+    ) -> WorkResult<WorkOutcome> {
+        self.work(inputs, outputs).map(WorkOutcome::progressed)
+    }
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
         let mut input = inputs
             .first()
@@ -190,6 +198,7 @@ impl ProcessNode for PulseMeasureNode {
             .ok_or_else(|| WorkError::NodeError("Missing pulse output".to_string()))?;
 
         let sample = input.recv()?;
+        let mut produced = 0;
         if let Some(prev) = self.prev
             && prev.value
         {
@@ -197,9 +206,10 @@ impl ProcessNode for PulseMeasureNode {
                 width_ns: sample.start_time_ns.saturating_sub(prev.start_time_ns),
                 start_time_ns: prev.start_time_ns,
             })?;
+            produced = 1;
         }
         self.prev = Some(sample);
-        Ok(1)
+        Ok(produced)
     }
 }
 

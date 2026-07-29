@@ -35,8 +35,13 @@ The single node trait ([node.rs](../crates/signal_processing/src/node.rs)). Sour
 0 inputs, sinks 0 outputs, processors both.
 
 - `work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize>` —
-  process one batch; the scheduler loops it. Blocking `recv`/`send` inside `work()` is
-  normal; `Err(WorkError::Shutdown)` ends the node.
+  process one batch; the returned count is the number of produced items shown in runtime
+  progress counters. Blocking `recv`/`send` inside `work()` is normal;
+  `Err(WorkError::Shutdown)` ends the node.
+- `work_outcome(...) -> WorkResult<WorkOutcome>` — scheduler-facing progress. The default
+  derives progress from the produced-item count. Filters, framers, matchers, and other nodes
+  that can consume input or advance state without emitting an item return
+  `WorkOutcome::progressed(0)` for those calls.
 - `input_schema()` / `output_schema()` — named, typed ports (`PortSchema` carries the
   `TypeId`); this is what makes graph wiring name-based and type-checked.
 - `is_self_threading()` — a node that manages its own worker threads (e.g. `DslFileSource`
@@ -208,8 +213,10 @@ subscriber-list machinery — live add/remove/restart/reconfigure and sticky pri
 identically — but never blocks: `pump(budget)` (driven from the UI frame loop) only calls a
 node's `work()` when every input is ready **and** no output would block
 (`SharedSenders::would_block`). A blocked-downstream node is skipped for that pump cycle and
-retried once the consumer drains. This relies on one invariant: on the cooperative backend a
-node performs at most one send per output per `work()` call.
+retried once the consumer drains. `WorkOutcome::made_progress` keeps the pump running when a
+node consumed input but deliberately produced no output; the independent produced-item count
+continues to drive node-header counters. This relies on one invariant: on the cooperative backend
+a node performs at most one send per output per `work()` call.
 
 ## Node library
 

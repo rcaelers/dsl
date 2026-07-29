@@ -77,7 +77,7 @@ impl Scheduler {
         let handle = thread::spawn(move || {
             if node.is_self_threading() {
                 // Self-threading node: call work() once to start internal threads
-                if let Err(e) = node.work(&inputs, &outputs) {
+                if let Err(e) = node.work_outcome(&inputs, &outputs) {
                     error!(
                         "[{}] Failed to start self-threading node: {}",
                         thread_name, e
@@ -113,9 +113,9 @@ impl Scheduler {
                         break;
                     }
 
-                    match node.work(&inputs, &outputs) {
-                        Ok(n) => {
-                            items_produced += n;
+                    match node.work_outcome(&inputs, &outputs) {
+                        Ok(outcome) => {
+                            items_produced += outcome.produced_items();
                         }
                         Err(e) => {
                             error!("[{}] Work error: {}", thread_name, e);

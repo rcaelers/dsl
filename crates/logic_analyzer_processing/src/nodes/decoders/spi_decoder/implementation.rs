@@ -25,7 +25,7 @@ use tracing::{debug, trace};
 use signal_processing::capture::CaptureTransition;
 use signal_processing::{
     EdgeQuery, InputPort, OutputPort, ProcessNode, ProtocolKind, Receiver, Sample,
-    SamplingActivity, Word, WorkError, WorkResult,
+    SamplingActivity, Word, WorkError, WorkOutcome, WorkResult,
 };
 
 use crate::types::{BitOrder, CsPolarity};
@@ -324,6 +324,14 @@ impl ProcessNode for SpiDecoder {
         .enumerate()
         .map(|(index, name)| PortSchema::new::<Word>(name, index, PortDirection::Output))
         .collect()
+    }
+
+    fn work_outcome(
+        &mut self,
+        inputs: &[InputPort],
+        outputs: &[OutputPort],
+    ) -> WorkResult<WorkOutcome> {
+        self.work(inputs, outputs).map(WorkOutcome::progressed)
     }
 
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {

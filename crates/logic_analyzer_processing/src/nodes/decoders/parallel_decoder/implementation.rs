@@ -15,7 +15,7 @@ use tracing::debug;
 use signal_processing::SamplingActivity;
 use signal_processing::capture::CaptureTransition;
 use signal_processing::EdgeQuery;
-use signal_processing::{WorkError, WorkResult};
+use signal_processing::{WorkError, WorkOutcome, WorkResult};
 use signal_processing::Word;
 use signal_processing::{InputProtocolCandidate, ProcessNode};
 use signal_processing::{InputPort, OutputPort};
@@ -388,6 +388,14 @@ impl ProcessNode for ParallelDecoder {
             }
         }
         selected
+    }
+
+    fn work_outcome(
+        &mut self,
+        inputs: &[InputPort],
+        outputs: &[OutputPort],
+    ) -> WorkResult<WorkOutcome> {
+        self.work(inputs, outputs).map(WorkOutcome::progressed)
     }
 
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {

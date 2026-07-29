@@ -410,24 +410,6 @@
           }
         },
         {
-          "payload": "org.logicconduit.trigger/v1",
-          "target": {
-            "ShowInView": {
-              "node": 2,
-              "output": 0
-            }
-          }
-        },
-        {
-          "payload": "org.logicconduit.trigger/v1",
-          "target": {
-            "ShowInView": {
-              "node": 3,
-              "output": 0
-            }
-          }
-        },
-        {
           "payload": "org.logicconduit.digital-sample/v1",
           "target": {
             "ShowInView": {
@@ -450,15 +432,6 @@
           "target": {
             "ShowInView": {
               "node": 7,
-              "output": 0
-            }
-          }
-        },
-        {
-          "payload": "org.logicconduit.word/v1",
-          "target": {
-            "ShowInView": {
-              "node": 8,
               "output": 0
             }
           }
@@ -576,16 +549,44 @@
         {
           "endpoint": {
             "node": 2,
-            "output": "Match"
+            "output": "match"
           },
-          "selected": true
+          "selected": false
+        },
+        {
+          "endpoint": {
+            "node": 2,
+            "output": "matched"
+          },
+          "selected": false
+        },
+        {
+          "endpoint": {
+            "node": 2,
+            "output": "matching_words"
+          },
+          "selected": false
         },
         {
           "endpoint": {
             "node": 3,
-            "output": "Match"
+            "output": "match"
           },
-          "selected": true
+          "selected": false
+        },
+        {
+          "endpoint": {
+            "node": 3,
+            "output": "matched"
+          },
+          "selected": false
+        },
+        {
+          "endpoint": {
+            "node": 3,
+            "output": "matching_words"
+          },
+          "selected": false
         },
         {
           "endpoint": {
@@ -618,9 +619,9 @@
         {
           "endpoint": {
             "node": 8,
-            "output": "Words"
+            "output": "words"
           },
-          "selected": true
+          "selected": false
         }
       ],
       "version": 1
@@ -964,9 +965,6 @@
             "Hex + ASCII"
           ]
         },
-        "has_miso": {
-          "value": true
-        },
         "schema_version": 1,
         "word_size": {
           "max": 64,
@@ -988,18 +986,26 @@
       "id": 2,
       "inputs": [
         {
-          "schema_id": "Words"
+          "schema_id": "words"
+        },
+        {
+          "def_index": 1,
+          "schema_id": "rearm"
         }
       ],
       "kind": "Regular",
       "muted": false,
       "outputs": [
         {
-          "schema_id": "Match"
+          "schema_id": "match"
         },
         {
           "def_index": 1,
-          "schema_id": "Matched"
+          "schema_id": "matched"
+        },
+        {
+          "def_index": 2,
+          "schema_id": "matching_words"
         }
       ],
       "pos": {
@@ -1008,8 +1014,18 @@
       },
       "selected": false,
       "state": {
+        "holdoff_us": {
+          "max": 2000000000,
+          "min": 0,
+          "value": 0
+        },
         "mask": {
           "value": "0xFF"
+        },
+        "match_count": {
+          "max": 1000000,
+          "min": 1,
+          "value": 1
         },
         "op": {
           "value": "==",
@@ -1025,8 +1041,23 @@
         "pattern": {
           "value": "0x9A"
         },
-        "pulse_output": {
-          "value": false
+        "predicate": {
+          "value": "Compare",
+          "variants": [
+            "Compare",
+            "Inclusive range",
+            "Set"
+          ]
+        },
+        "range_max": {
+          "value": "0xFF"
+        },
+        "range_min": {
+          "value": "0x00"
+        },
+        "schema_version": 2,
+        "set_values": {
+          "value": "0x00, 0xFF"
         },
         "trigger_at": {
           "value": "Word end",
@@ -1050,18 +1081,26 @@
       "id": 3,
       "inputs": [
         {
-          "schema_id": "Words"
+          "schema_id": "words"
+        },
+        {
+          "def_index": 1,
+          "schema_id": "rearm"
         }
       ],
       "kind": "Regular",
       "muted": false,
       "outputs": [
         {
-          "schema_id": "Match"
+          "schema_id": "match"
         },
         {
           "def_index": 1,
-          "schema_id": "Matched"
+          "schema_id": "matched"
+        },
+        {
+          "def_index": 2,
+          "schema_id": "matching_words"
         }
       ],
       "pos": {
@@ -1070,8 +1109,18 @@
       },
       "selected": false,
       "state": {
+        "holdoff_us": {
+          "max": 2000000000,
+          "min": 0,
+          "value": 0
+        },
         "mask": {
           "value": "0xFF"
+        },
+        "match_count": {
+          "max": 1000000,
+          "min": 1,
+          "value": 1
         },
         "op": {
           "value": "==",
@@ -1087,8 +1136,23 @@
         "pattern": {
           "value": "0xDE"
         },
-        "pulse_output": {
-          "value": false
+        "predicate": {
+          "value": "Compare",
+          "variants": [
+            "Compare",
+            "Inclusive range",
+            "Set"
+          ]
+        },
+        "range_max": {
+          "value": "0xFF"
+        },
+        "range_min": {
+          "value": "0x00"
+        },
+        "schema_version": 2,
+        "set_values": {
+          "value": "0x00, 0xFF"
         },
         "trigger_at": {
           "value": "Word end",
@@ -1277,58 +1341,58 @@
       "id": 8,
       "inputs": [
         {
-          "schema_id": "Clock"
+          "schema_id": "strobe"
         },
         {
           "def_index": 1,
-          "schema_id": "D"
+          "schema_id": "data"
         },
         {
           "def_index": 1,
-          "schema_id": "D"
+          "schema_id": "data"
         },
         {
           "def_index": 1,
-          "schema_id": "D"
+          "schema_id": "data"
         },
         {
           "def_index": 1,
-          "schema_id": "D"
+          "schema_id": "data"
         },
         {
           "def_index": 1,
-          "schema_id": "D"
+          "schema_id": "data"
         },
         {
           "def_index": 1,
-          "schema_id": "D"
+          "schema_id": "data"
         },
         {
           "def_index": 1,
-          "schema_id": "D"
+          "schema_id": "data"
         },
         {
           "def_index": 1,
-          "schema_id": "D"
+          "schema_id": "data"
         },
         {
           "def_index": 1,
-          "schema_id": "D"
+          "schema_id": "data"
         },
         {
           "def_index": 2,
-          "schema_id": "CS"
+          "schema_id": "cs"
         },
         {
           "def_index": 3,
-          "schema_id": "Enable"
+          "schema_id": "enable"
         }
       ],
       "kind": "Regular",
       "muted": false,
       "outputs": [
         {
-          "schema_id": "Words"
+          "schema_id": "words"
         }
       ],
       "pos": {
@@ -1382,7 +1446,7 @@
           ]
         },
         "word_size": {
-          "max": 8,
+          "max": 64,
           "min": 1,
           "value": 1
         }

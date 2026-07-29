@@ -178,19 +178,40 @@ mod demo_graph_tests {
         for demo in EMBEDDED_DEMOS {
             let graph: node_graph::GraphState = serde_json::from_str(demo.json).unwrap();
             for node in graph.nodes.values() {
-                if registry.category_of(node.def_name()).is_none() {
-                    // The UI deliberately excludes this obsolete node from
-                    // its catalog and migrates it to an output subscription
-                    // while loading the saved graph.
-                    assert_eq!(
-                        node.def_name(),
-                        "Viewer",
-                        "demo '{}' uses unregistered node '{}'",
-                        demo.name,
-                        node.def_name()
-                    );
-                }
+                assert!(
+                    registry.category_of(node.def_name()).is_some(),
+                    "demo '{}' uses unregistered node '{}'",
+                    demo.name,
+                    node.def_name()
+                );
+                assert!(
+                    node.inputs
+                        .iter()
+                        .chain(&node.outputs)
+                        .all(|socket| socket.def_index != usize::MAX),
+                    "demo '{}' retains a removed socket on '{}'",
+                    demo.name,
+                    node.title
+                );
+                assert!(
+                    node.outputs
+                        .iter()
+                        .all(|socket| !socket.extensions.contains_key("show_in_view")),
+                    "demo '{}' retains a legacy viewer selection on '{}'",
+                    demo.name,
+                    node.title
+                );
             }
+            let mut widget =
+                node_graph::NodeGraphWidget::new(logic_analyzer_ui::build_node_registry());
+            widget.set_graph(graph);
+            let restored = widget.snapshot_value().unwrap();
+            let saved: serde_json::Value = serde_json::from_str(demo.json).unwrap();
+            assert_eq!(
+                restored, saved,
+                "demo '{}' is not saved with the current node schema",
+                demo.name
+            );
         }
     }
 }

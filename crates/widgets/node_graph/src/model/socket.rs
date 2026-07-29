@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use egui::Color32;
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::ids::SocketDirection;
 
@@ -55,7 +56,14 @@ pub struct Socket {
     /// Which `InputDef`/`OutputDef` of the node definition this socket came
     /// from. Socket and def counts diverge once variadic groups grow, so all
     /// def lookups (controls, restore) go through this instead of position.
-    #[serde(default, skip_serializing_if = "is_zero")]
+    /// Removed stable-ID sockets use `usize::MAX` internally; its serialized
+    /// `u64::MAX` sentinel maps back to the local pointer width when loaded.
+    #[serde(
+        default,
+        skip_serializing_if = "is_zero",
+        serialize_with = "serialize_def_index",
+        deserialize_with = "deserialize_def_index"
+    )]
     pub def_index: usize,
     /// Present when this socket belongs to a variadic group.
     #[serde(default, skip_serializing)]
@@ -96,6 +104,33 @@ fn is_false(value: &bool) -> bool {
 
 fn is_zero(value: &usize) -> bool {
     *value == 0
+}
+
+fn serialize_def_index<S>(value: &usize, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let portable = if *value == usize::MAX {
+        u64::MAX
+    } else {
+        *value as u64
+    };
+    serializer.serialize_u64(portable)
+}
+
+fn deserialize_def_index<'de, D>(deserializer: D) -> Result<usize, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let portable = u64::deserialize(deserializer)?;
+    if portable == u64::MAX {
+        return Ok(usize::MAX);
+    }
+    usize::try_from(portable).map_err(|_| {
+        D::Error::custom(format!(
+            "socket definition index {portable} exceeds this platform's index range"
+        ))
+    })
 }
 
 impl Socket {
@@ -252,5 +287,18 @@ mod tests {
             Some(&serde_json::json!(false))
         );
         assert!(restored.is_variadic_placeholder());
+    }
+
+    #[test]
+    fn removed_socket_definition_index_has_a_platform_independent_sentinel() {
+        let mut removed = socket("Trigger");
+        removed.schema_id = "removed-output".to_owned();
+        removed.def_index = usize::MAX;
+
+        let value = serde_json::to_value(&removed).unwrap();
+        assert_eq!(value["def_index"], serde_json::json!(u64::MAX));
+
+        let restored: Socket = serde_json::from_value(value).unwrap();
+        assert_eq!(restored.def_index, usize::MAX);
     }
 }

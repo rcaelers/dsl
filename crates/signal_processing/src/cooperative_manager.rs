@@ -10,11 +10,10 @@
 //! sent without blocking, and `pump` itself must be driven externally (the
 //! UI frame loop on wasm) rather than running to completion on its own.
 //!
-//! Input readiness ("would `work()` block reading?") is tracked per input
-//! via a small closed-set dispatch on the port's `TypeId` ([`make_probe`]),
-//! because the type-erased channel handed back by
-//! [`ErasedSharedSenders::subscribe`] can only be downcast against a
-//! concrete `T`. A `closed` flag (shared with the producer's output list)
+//! Input readiness ("would `work()` block reading?") is tracked per input by
+//! a type-erased readiness handle created alongside the typed receiver by the
+//! channel registry. This keeps the scheduler open to every registered
+//! payload type. A `closed` flag (shared with the producer's output list)
 //! keeps a drained-and-finished input permanently "ready" — without it, a
 //! multi-input node that keeps running after one producer finishes (e.g.
 //! anything built on `ReceiverSelector`) would never be polled again once
@@ -44,21 +43,18 @@
 //! that fans out many sends from one `work()` call would reopen the
 //! deadlock this check exists to close.
 
-use std::any::{Any, TypeId};
+use std::any::TypeId;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crossbeam_channel::Receiver as CrossbeamReceiver;
-
 use super::errors::WorkError;
-use super::events::{NumberSample, TextSample, Trigger, Word};
+use super::events::{NumberSample, TextSample};
 use super::manager::{DisconnectEvent, InputSub, NodeSpec};
 use super::node::{ConfigOutcome, ConfigurationBoundary, InputScheduling, NodeConfig, ProcessNode};
 use super::ports::{InputPort, OutputPort, StreamReadiness};
-use super::sample::{Sample, SampleBlock};
-use super::sender::ChannelMessage;
-use super::type_registry::{ErasedSharedSenders, TYPE_REGISTRY};
+use super::sample::Sample;
+use super::type_registry::{ErasedReceiverReadiness, ErasedSharedSenders, TYPE_REGISTRY};
 use super::watchdog::Watchdog;
 
 /// Level streams get sticky lists; kept in sync with
@@ -80,37 +76,17 @@ fn is_level_type(type_id: TypeId) -> bool {
         || type_id == TypeId::of::<TextSample>()
 }
 
-/// Per-input readiness check, dispatched on the port's registered payload
-/// type. Covers every built-in runtime payload type.
+/// Per-input readiness check supplied by the registered channel type.
 enum Probe {
     Disconnected,
-    Sample(CrossbeamReceiver<ChannelMessage<Sample>>, Arc<AtomicBool>),
-    SampleBlock(
-        CrossbeamReceiver<ChannelMessage<SampleBlock>>,
-        Arc<AtomicBool>,
-    ),
-    Word(CrossbeamReceiver<ChannelMessage<Word>>, Arc<AtomicBool>),
-    Trigger(CrossbeamReceiver<ChannelMessage<Trigger>>, Arc<AtomicBool>),
-    Number(
-        CrossbeamReceiver<ChannelMessage<NumberSample>>,
-        Arc<AtomicBool>,
-    ),
-    Text(
-        CrossbeamReceiver<ChannelMessage<TextSample>>,
-        Arc<AtomicBool>,
-    ),
+    Connected(Box<dyn ErasedReceiverReadiness>, Arc<AtomicBool>),
 }
 
 impl Probe {
     fn producer_closed(&self) -> bool {
         match self {
             Self::Disconnected => true,
-            Self::Sample(_, closed)
-            | Self::SampleBlock(_, closed)
-            | Self::Word(_, closed)
-            | Self::Trigger(_, closed)
-            | Self::Number(_, closed)
-            | Self::Text(_, closed) => closed.load(Ordering::Acquire),
+            Self::Connected(_, closed) => closed.load(Ordering::Acquire),
         }
     }
 
@@ -124,41 +100,9 @@ impl Probe {
         };
         match self {
             Self::Disconnected => true,
-            Self::Sample(rx, closed) => ready(rx.is_empty(), closed),
-            Self::SampleBlock(rx, closed) => ready(rx.is_empty(), closed),
-            Self::Word(rx, closed) => ready(rx.is_empty(), closed),
-            Self::Trigger(rx, closed) => ready(rx.is_empty(), closed),
-            Self::Number(rx, closed) => ready(rx.is_empty(), closed),
-            Self::Text(rx, closed) => ready(rx.is_empty(), closed),
+            Self::Connected(readiness, closed) => ready(readiness.is_empty(), closed),
         }
     }
-}
-
-/// Builds a probe for `boxed` (the receiver `ErasedSharedSenders::subscribe`
-/// just handed back) without consuming it — `downcast_ref` + `clone` leaves
-/// the box intact for the caller to also pass to `InputPort::from_type_erased`.
-fn make_probe(
-    type_id: TypeId,
-    boxed: &(dyn Any + Send),
-    closed: Arc<AtomicBool>,
-) -> Result<Probe, String> {
-    macro_rules! try_type {
-        ($ty:ty, $variant:ident) => {
-            if type_id == TypeId::of::<$ty>() {
-                return boxed
-                    .downcast_ref::<CrossbeamReceiver<ChannelMessage<$ty>>>()
-                    .map(|rx| Probe::$variant(rx.clone(), closed))
-                    .ok_or_else(|| "receiver type mismatch".to_string());
-            }
-        };
-    }
-    try_type!(Sample, Sample);
-    try_type!(SampleBlock, SampleBlock);
-    try_type!(Word, Word);
-    try_type!(Trigger, Trigger);
-    try_type!(NumberSample, Number);
-    try_type!(TextSample, Text);
-    Err("port type not supported by the cooperative runner".to_string())
 }
 
 struct OutputList {
@@ -283,13 +227,16 @@ impl CooperativeManager {
                     }
                     let closed = Arc::clone(&output.closed);
                     let label = Some(format!("{}.{}", name, input_schemas[index].name));
-                    let (id, rx_box) = output
+                    let subscription = output
                         .list
                         .subscribe_with_label(sub.buffer, sub.policy, label);
-                    let probe = make_probe(output.type_id, rx_box.as_ref(), closed)?;
-                    input_subs.push((sub.from_node.clone(), sub.from_port.clone(), id));
-                    probes.push(probe);
-                    InputPort::from_type_erased(rx_box)
+                    input_subs.push((
+                        sub.from_node.clone(),
+                        sub.from_port.clone(),
+                        subscription.id,
+                    ));
+                    probes.push(Probe::Connected(subscription.readiness, closed));
+                    InputPort::from_type_erased(subscription.receiver)
                 }
             };
             input_ports.push(port.with_watchdog(self.watchdog.clone(), name.clone(), port_name));
@@ -441,13 +388,16 @@ impl CooperativeManager {
                     }
                     let closed = Arc::clone(&output.closed);
                     let label = Some(format!("{}.{}", name, input_schemas[index].name));
-                    let (id, rx_box) = output
+                    let subscription = output
                         .list
                         .subscribe_with_label(sub.buffer, sub.policy, label);
-                    let probe = make_probe(output.type_id, rx_box.as_ref(), closed)?;
-                    input_subs.push((sub.from_node.clone(), sub.from_port.clone(), id));
-                    probes.push(probe);
-                    InputPort::from_type_erased(rx_box)
+                    input_subs.push((
+                        sub.from_node.clone(),
+                        sub.from_port.clone(),
+                        subscription.id,
+                    ));
+                    probes.push(Probe::Connected(subscription.readiness, closed));
+                    InputPort::from_type_erased(subscription.receiver)
                 }
             };
             input_ports.push(port.with_watchdog(self.watchdog.clone(), name.to_owned(), port_name));
@@ -595,12 +545,10 @@ impl CooperativeManager {
                     continue;
                 }
                 calls += 1;
-                match node.node.work(&node.inputs, &node.outputs) {
-                    Ok(items) => {
-                        if items > 0 {
-                            node.items += items as u64;
-                            made_progress = true;
-                        }
+                match node.node.work_outcome(&node.inputs, &node.outputs) {
+                    Ok(outcome) => {
+                        node.items += outcome.produced_items() as u64;
+                        made_progress |= outcome.made_progress();
                         if node.node.should_stop() {
                             node.done = true;
                             for output in node.output_lists.values() {
@@ -657,7 +605,7 @@ mod tests {
     use super::*;
     use crate::errors::WorkResult;
     use crate::events::NumberSample;
-    use crate::node::ConfigValue;
+    use crate::node::{ConfigValue, WorkOutcome};
     use crate::ports::{PortDirection, PortSchema};
 
     /// Emits `NumberSample { value: i, start_time_ns: i }` for i in 0..max, one
@@ -697,6 +645,109 @@ mod tests {
                 start_time_ns: self.next as u64,
             })?;
             self.next += 1;
+            Ok(1)
+        }
+    }
+
+    struct BatchSource {
+        done: bool,
+        max: i64,
+    }
+
+    impl ProcessNode for BatchSource {
+        fn name(&self) -> &str {
+            "batch_source"
+        }
+
+        fn num_inputs(&self) -> usize {
+            0
+        }
+
+        fn num_outputs(&self) -> usize {
+            1
+        }
+
+        fn output_schema(&self) -> Vec<PortSchema> {
+            vec![PortSchema::new::<NumberSample>(
+                "out",
+                0,
+                PortDirection::Output,
+            )]
+        }
+
+        fn work(&mut self, _inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
+            if self.done {
+                return Err(WorkError::Shutdown);
+            }
+            let output = outputs[0]
+                .get::<NumberSample>()
+                .ok_or_else(|| WorkError::NodeError("missing output".into()))?;
+            let samples = (0..self.max)
+                .map(|value| NumberSample {
+                    value,
+                    start_time_ns: value as u64,
+                })
+                .collect::<Vec<_>>();
+            output.send_batch(samples)?;
+            self.done = true;
+            Ok(self.max as usize)
+        }
+    }
+
+    struct SparseFilter {
+        match_value: i64,
+        buffer: VecDeque<NumberSample>,
+    }
+
+    impl ProcessNode for SparseFilter {
+        fn name(&self) -> &str {
+            "sparse_filter"
+        }
+
+        fn num_inputs(&self) -> usize {
+            1
+        }
+
+        fn num_outputs(&self) -> usize {
+            1
+        }
+
+        fn input_schema(&self) -> Vec<PortSchema> {
+            vec![PortSchema::new::<NumberSample>(
+                "in",
+                0,
+                PortDirection::Input,
+            )]
+        }
+
+        fn output_schema(&self) -> Vec<PortSchema> {
+            vec![PortSchema::new::<NumberSample>(
+                "out",
+                0,
+                PortDirection::Output,
+            )]
+        }
+
+        fn work_outcome(
+            &mut self,
+            inputs: &[InputPort],
+            outputs: &[OutputPort],
+        ) -> WorkResult<WorkOutcome> {
+            self.work(inputs, outputs).map(WorkOutcome::progressed)
+        }
+
+        fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
+            let mut input = inputs[0]
+                .get::<NumberSample>(&mut self.buffer)
+                .ok_or_else(|| WorkError::NodeError("missing input".into()))?;
+            let sample = input.recv()?;
+            if sample.value != self.match_value {
+                return Ok(0);
+            }
+            let output = outputs[0]
+                .get::<NumberSample>()
+                .ok_or_else(|| WorkError::NodeError("missing output".into()))?;
+            output.send(sample)?;
             Ok(1)
         }
     }
@@ -831,6 +882,83 @@ mod tests {
         open: Arc<AtomicBool>,
     }
 
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct CustomPayload(u64);
+
+    struct CustomSource {
+        next: u64,
+        max: u64,
+    }
+
+    impl ProcessNode for CustomSource {
+        fn name(&self) -> &str {
+            "custom_source"
+        }
+
+        fn num_inputs(&self) -> usize {
+            0
+        }
+
+        fn num_outputs(&self) -> usize {
+            1
+        }
+
+        fn output_schema(&self) -> Vec<PortSchema> {
+            vec![PortSchema::new::<CustomPayload>(
+                "out",
+                0,
+                PortDirection::Output,
+            )]
+        }
+
+        fn work(&mut self, _inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
+            if self.next >= self.max {
+                return Err(WorkError::Shutdown);
+            }
+            let output = outputs[0]
+                .get::<CustomPayload>()
+                .ok_or_else(|| WorkError::NodeError("missing custom output".into()))?;
+            output.send(CustomPayload(self.next))?;
+            self.next += 1;
+            Ok(1)
+        }
+    }
+
+    struct CustomSink {
+        store: Arc<Mutex<Vec<CustomPayload>>>,
+        buffer: VecDeque<CustomPayload>,
+    }
+
+    impl ProcessNode for CustomSink {
+        fn name(&self) -> &str {
+            "custom_sink"
+        }
+
+        fn num_inputs(&self) -> usize {
+            1
+        }
+
+        fn num_outputs(&self) -> usize {
+            0
+        }
+
+        fn input_schema(&self) -> Vec<PortSchema> {
+            vec![PortSchema::new::<CustomPayload>(
+                "in",
+                0,
+                PortDirection::Input,
+            )]
+        }
+
+        fn work(&mut self, inputs: &[InputPort], _outputs: &[OutputPort]) -> WorkResult<usize> {
+            let mut input = inputs[0]
+                .get::<CustomPayload>(&mut self.buffer)
+                .ok_or_else(|| WorkError::NodeError("missing custom input".into()))?;
+            self.store.lock().unwrap().push(input.recv()?);
+            Ok(1)
+        }
+    }
+
     impl ProcessNode for GatedSink {
         fn name(&self) -> &str {
             "gated_sink"
@@ -879,6 +1007,74 @@ mod tests {
             }),
             inputs: vec![sub(from, port)],
         }
+    }
+
+    #[test]
+    fn registered_custom_payload_runs_without_scheduler_type_cases() {
+        crate::register_type::<CustomPayload>();
+        let mut manager = CooperativeManager::new();
+        let values = Arc::new(Mutex::new(Vec::new()));
+
+        manager
+            .add_node(NodeSpec {
+                name: "custom_source".into(),
+                node: Box::new(CustomSource { next: 0, max: 3 }),
+                inputs: vec![],
+            })
+            .unwrap();
+        manager
+            .add_node(NodeSpec {
+                name: "custom_sink".into(),
+                node: Box::new(CustomSink {
+                    store: Arc::clone(&values),
+                    buffer: VecDeque::new(),
+                }),
+                inputs: vec![sub("custom_source", "out")],
+            })
+            .unwrap();
+
+        manager.pump(100);
+
+        assert!(manager.is_finished());
+        assert_eq!(
+            values.lock().unwrap().as_slice(),
+            [CustomPayload(0), CustomPayload(1), CustomPayload(2)]
+        );
+    }
+
+    #[test]
+    fn zero_output_calls_can_still_advance_a_sparse_pipeline() {
+        let mut manager = CooperativeManager::new();
+        let values = Arc::new(Mutex::new(Vec::new()));
+
+        manager
+            .add_node(NodeSpec {
+                name: "source".into(),
+                node: Box::new(BatchSource {
+                    done: false,
+                    max: 100,
+                }),
+                inputs: vec![],
+            })
+            .unwrap();
+        manager
+            .add_node(NodeSpec {
+                name: "filter".into(),
+                node: Box::new(SparseFilter {
+                    match_value: 99,
+                    buffer: VecDeque::new(),
+                }),
+                inputs: vec![sub("source", "out")],
+            })
+            .unwrap();
+        manager
+            .add_node(collect_spec("sink", "filter", "out", &values))
+            .unwrap();
+
+        manager.pump(1_000);
+
+        assert!(manager.is_finished());
+        assert_eq!(values.lock().unwrap().as_slice(), [99]);
     }
 
     #[test]

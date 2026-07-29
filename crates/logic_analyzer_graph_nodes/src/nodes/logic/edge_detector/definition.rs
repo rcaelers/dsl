@@ -4,7 +4,7 @@ use egui::Color32;
 use serde::{Deserialize, Serialize};
 
 use node_graph::{
-    EnumValue, InputDef, IntValue, NodeDef, OutputDef, PanelSection, PropDef, Socket,
+    EnumValue, InputDef, IntValue, NodeBadge, NodeDef, OutputDef, PanelSection, PropDef, Socket,
 };
 
 use crate::sockets::{COLOR_LOGIC, Signal, Trigger};
@@ -16,6 +16,8 @@ pub(crate) struct EdgeDetectorState {
     pub(crate) edge: EnumValue,
     pub(crate) debounce_us: IntValue,
     pub(crate) minimum_pulse_width_us: IntValue,
+    #[serde(skip)]
+    pub(crate) compatibility_warning: Option<String>,
 }
 
 pub(crate) struct EdgeDetector;
@@ -48,7 +50,36 @@ impl NodeDef for EdgeDetector {
             edge: EnumValue::new(0, &["Rising", "Falling", "Both"]),
             debounce_us: IntValue::new(0, 0, MAX_TIME_US),
             minimum_pulse_width_us: IntValue::new(0, 0, MAX_TIME_US),
+            compatibility_warning: None,
         }
+    }
+
+    fn migrate_saved_sockets(
+        state: &mut Self::State,
+        _inputs: &mut Vec<Socket>,
+        outputs: &mut Vec<Socket>,
+    ) {
+        let Some(mut legacy_index) = outputs
+            .iter()
+            .position(|output| output.schema_id == "events")
+        else {
+            return;
+        };
+
+        if let Some(current_index) = outputs
+            .iter()
+            .position(|output| output.schema_id == "trigger")
+        {
+            outputs.remove(current_index);
+            if current_index < legacy_index {
+                legacy_index -= 1;
+            }
+        }
+        outputs[legacy_index].schema_id = "trigger".to_owned();
+        state.compatibility_warning = Some(
+            "Updated the legacy Edge Detector output identity; existing connections were preserved"
+                .to_owned(),
+        );
     }
 
     fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
@@ -78,5 +109,39 @@ impl NodeDef for EdgeDetector {
             value.max = MAX_TIME_US;
             value.value = value.value.clamp(0, MAX_TIME_US);
         }
+    }
+
+    fn badge(state: &Self::State) -> Option<NodeBadge> {
+        state.compatibility_warning.as_ref().map(NodeBadge::warning)
+    }
+}
+
+#[cfg(test)]
+mod definition_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_output_identity_replaces_a_reconciled_duplicate() {
+        let mut widget = node_graph::NodeGraphWidget::new(crate::test_support::build_registry());
+        let node = widget
+            .add_node_at(EdgeDetector::name(), egui::Pos2::ZERO)
+            .unwrap();
+        let mut graph = widget.graph().clone();
+        let saved = graph.nodes.get_mut(&node).unwrap();
+        let current = saved.outputs[0].clone();
+        saved.outputs[0].schema_id = "events".to_owned();
+        saved.outputs.push(current);
+
+        widget.set_graph(graph);
+
+        let restored = &widget.graph().nodes[&node];
+        assert_eq!(restored.outputs.len(), 1);
+        assert_eq!(restored.outputs[0].schema_id, "trigger");
+        assert!(
+            restored
+                .badge
+                .as_ref()
+                .is_some_and(|badge| badge.text.contains("connections were preserved"))
+        );
     }
 }

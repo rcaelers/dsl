@@ -4,8 +4,8 @@ use egui::Color32;
 use serde::{Deserialize, Serialize};
 
 use node_graph::{
-    EnumValue, InputDef, IntValue, NodeDef, NodePanelDef, OutputDef, PanelMetadata, PanelSection,
-    PropDef, PropertyPanelPresentation, Socket,
+    EnumValue, InputDef, IntValue, NodeBadge, NodeDef, NodePanelDef, OutputDef, PanelMetadata,
+    PanelSection, PropDef, PropertyPanelPresentation, Socket,
 };
 
 use crate::sockets::{COLOR_DECODERS, Signal, Words};
@@ -20,6 +20,8 @@ pub(crate) struct ParallelDecoderState {
     pub(crate) word_size: IntValue,
     pub(crate) endianness: EnumValue,
     pub(crate) cs_polarity: EnumValue,
+    #[serde(skip)]
+    pub(crate) compatibility_warning: Option<String>,
 }
 
 pub(crate) fn default_input_strategy() -> EnumValue {
@@ -73,7 +75,35 @@ impl NodeDef for ParallelDecoder {
             word_size: IntValue::new(1, 1, 64),
             endianness: EnumValue::new(0, &["Little", "Big"]),
             cs_polarity: EnumValue::new(0, &["Disabled", "Active low", "Active high"]),
+            compatibility_warning: None,
         }
+    }
+
+    fn migrate_saved_sockets(
+        state: &mut Self::State,
+        _inputs: &mut Vec<Socket>,
+        outputs: &mut Vec<Socket>,
+    ) {
+        let Some(mut legacy_index) = outputs
+            .iter()
+            .position(|output| output.schema_id == "Words")
+        else {
+            return;
+        };
+        if let Some(current_index) = outputs
+            .iter()
+            .position(|output| output.schema_id == "words")
+        {
+            outputs.remove(current_index);
+            if current_index < legacy_index {
+                legacy_index -= 1;
+            }
+        }
+        outputs[legacy_index].schema_id = "words".to_owned();
+        state.compatibility_warning = Some(
+            "Updated the legacy Parallel Decoder output identity; existing connections were preserved"
+                .to_owned(),
+        );
     }
 
     fn panel() -> Vec<PanelSection<Self::State>> {
@@ -118,6 +148,10 @@ impl NodeDef for ParallelDecoder {
         state.word_size.max = 64;
         state.word_size.value = state.word_size.value.clamp(1, 64);
     }
+
+    fn badge(state: &Self::State) -> Option<NodeBadge> {
+        state.compatibility_warning.as_ref().map(NodeBadge::warning)
+    }
 }
 
 #[cfg(test)]
@@ -153,5 +187,31 @@ mod definition_tests {
         ParallelDecoder::on_update(&mut state, &mut [], &mut []);
 
         assert_eq!(state.word_size.max, 64);
+    }
+
+    #[test]
+    fn legacy_output_identity_migrates_before_reconciliation() {
+        let mut widget = node_graph::NodeGraphWidget::new(crate::test_support::build_registry());
+        let node = widget
+            .add_node_at(ParallelDecoder::name(), egui::Pos2::ZERO)
+            .unwrap();
+        let mut graph = widget.graph().clone();
+        let saved = graph.nodes.get_mut(&node).unwrap();
+        let current = saved.outputs[0].clone();
+        saved.outputs[0].schema_id = "Words".to_owned();
+        saved.outputs.push(current);
+
+        widget.set_graph(graph);
+
+        let restored = &widget.graph().nodes[&node];
+        assert_eq!(restored.outputs[0].schema_id, "words");
+        assert_eq!(restored.outputs.len(), 1);
+        assert_eq!(restored.outputs[0].def_index, 0);
+        assert!(
+            restored
+                .badge
+                .as_ref()
+                .is_some_and(|badge| badge.text.contains("connections were preserved"))
+        );
     }
 }

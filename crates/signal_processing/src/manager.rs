@@ -414,9 +414,13 @@ impl PipelineManager {
                             .with_edge_query(Some(handle))
                     } else {
                         let label = Some(format!("{}.{}", name, input_schemas[index].name));
-                        let (id, rx) = list.subscribe_with_label(sub.buffer, sub.policy, label);
-                        input_subs.push((sub.from_node.clone(), sub.from_port.clone(), id));
-                        InputPort::from_type_erased(rx)
+                        let subscription = list.subscribe_with_label(sub.buffer, sub.policy, label);
+                        input_subs.push((
+                            sub.from_node.clone(),
+                            sub.from_port.clone(),
+                            subscription.id,
+                        ));
+                        InputPort::from_type_erased(subscription.receiver)
                     }
                 }
             };
@@ -534,7 +538,7 @@ impl PipelineManager {
             .spawn(move || {
                 if node.is_self_threading() {
                     // Start internal threads once, then supervise.
-                    if let Err(e) = node.work(&inputs, &outputs) {
+                    if let Err(e) = node.work_outcome(&inputs, &outputs) {
                         error!("[{thread_name}] failed to start: {e}");
                     } else {
                         loop {
@@ -559,10 +563,13 @@ impl PipelineManager {
                         if thread_stop.load(Ordering::Relaxed) || node.should_stop() {
                             break;
                         }
-                        match node.work(&inputs, &outputs) {
-                            Ok(items) => {
-                                if items > 0 {
-                                    thread_items.fetch_add(items as u64, Ordering::Relaxed);
+                        match node.work_outcome(&inputs, &outputs) {
+                            Ok(outcome) => {
+                                if outcome.produced_items() > 0 {
+                                    thread_items.fetch_add(
+                                        outcome.produced_items() as u64,
+                                        Ordering::Relaxed,
+                                    );
                                 }
                             }
                             Err(WorkError::Shutdown) => {
@@ -751,9 +758,13 @@ impl PipelineManager {
                             .with_edge_query(Some(handle))
                     } else {
                         let label = Some(format!("{}.{}", name, input_schemas[index].name));
-                        let (id, rx) = list.subscribe_with_label(sub.buffer, sub.policy, label);
-                        input_subs.push((sub.from_node.clone(), sub.from_port.clone(), id));
-                        InputPort::from_type_erased(rx)
+                        let subscription = list.subscribe_with_label(sub.buffer, sub.policy, label);
+                        input_subs.push((
+                            sub.from_node.clone(),
+                            sub.from_port.clone(),
+                            subscription.id,
+                        ));
+                        InputPort::from_type_erased(subscription.receiver)
                     }
                 }
             };

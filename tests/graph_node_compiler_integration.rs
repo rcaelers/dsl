@@ -54,6 +54,63 @@ fn selected_outputs(graph: &GraphState) -> Vec<(NodeId, usize)> {
 }
 
 #[test]
+fn all_bundled_demo_documents_load_and_lower_without_schema_repair() {
+    let demos = [
+        (
+            "Decoder Pipeline",
+            include_str!("../crates/app_web/data/wasm_decoder_demo.json"),
+        ),
+        (
+            "WASM Decoder",
+            include_str!("../graphs/wasm_decoder_demo.json"),
+        ),
+        (
+            "Event Controls",
+            include_str!("../graphs/event_controls_demo.json"),
+        ),
+        (
+            "Packet Framer",
+            include_str!("../graphs/packet_framer_demo.json"),
+        ),
+        (
+            "Word Field Extractor",
+            include_str!("../graphs/word_field_extractor_demo.json"),
+        ),
+        (
+            "Word Matcher",
+            include_str!("../graphs/word_matcher_demo.json"),
+        ),
+    ];
+
+    for (name, json) in demos {
+        let document: serde_json::Value = serde_json::from_str(json)
+            .unwrap_or_else(|error| panic!("{name} should deserialize: {error}"));
+        let subscriptions =
+            document["extensions"]["logic_analyzer_graph.payload_subscriptions"]["subscriptions"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|subscription| {
+                    let target = &subscription["target"]["ShowInView"];
+                    Some((
+                        NodeId(u32::try_from(target["node"].as_u64()?).ok()?),
+                        usize::try_from(target["output"].as_u64()?).ok()?,
+                    ))
+                })
+                .collect::<OutputSubscriptionPlan>();
+        let graph: GraphState = serde_json::from_value(document)
+            .unwrap_or_else(|error| panic!("{name} should deserialize as a graph: {error}"));
+        let mut widget = NodeGraphWidget::new(nodes::build_registry());
+        widget.set_graph(graph);
+        let mut compiler = GraphCompiler::new();
+        compiler.set_output_subscriptions(subscriptions);
+        compiler
+            .lower(widget.graph())
+            .unwrap_or_else(|errors| panic!("{name} should lower: {errors:?}"));
+    }
+}
+
+#[test]
 fn binary_decoder_demo_fixture_lowers_with_built_in_nodes() {
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
     nodes::build_binary_decoder_demo(&mut widget);
@@ -168,6 +225,27 @@ fn event_controls_demo_fixture_loads_lowers_and_executes() {
             .any(|name| name.contains("Automatic Rearm"))
     );
     assert!(lane_names.iter().any(|name| name.contains("Manual Rearm")));
+}
+
+#[test]
+fn packet_framer_demo_fixture_loads_and_lowers() {
+    let graph: GraphState = serde_json::from_str(include_str!("../graphs/packet_framer_demo.json"))
+        .expect("packet-framer demo should deserialize");
+    let mut widget = NodeGraphWidget::new(nodes::build_registry());
+    widget.set_graph(graph);
+
+    let mut compiler = GraphCompiler::new();
+    compiler.set_output_subscriptions([(NodeId(2), 0)].into_iter().collect());
+    let compiled = compiler
+        .lower(widget.graph())
+        .expect("packet-framer demo should lower");
+
+    assert!(
+        compiled
+            .nodes
+            .iter()
+            .any(|node| node.builder == "Packet Framer")
+    );
 }
 
 #[test]

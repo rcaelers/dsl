@@ -96,6 +96,10 @@ The collector owns no protocol, payload, viewer, table, or panel knowledge. It s
 object-safe lane ingestors. Each ingestor is constructed by the adapter registered for one payload
 type.
 
+The runtime channel registry creates both the typed receiver and a type-erased readiness handle.
+The cooperative runner schedules that handle without comparing payload `TypeId`s, so any
+registered plugin payload has the same native and single-threaded execution path.
+
 ### Stable identities
 
 An adapter combines the registered process-local Rust `TypeId` and stable payload identifier such

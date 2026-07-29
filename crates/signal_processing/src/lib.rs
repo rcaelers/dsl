@@ -135,7 +135,7 @@ pub use live_capture_store::*;
 pub use manager::{DisconnectEvent, InputSub, NodeSpec, PipelineManager};
 pub use node::{
     ConfigOutcome, ConfigValue, ConfigurationBoundary, ConfigurationScheduler,
-    InputProtocolCandidate, NodeCancellation, NodeConfig, ProcessNode,
+    InputProtocolCandidate, NodeCancellation, NodeConfig, ProcessNode, WorkOutcome,
 };
 pub use payload::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,

@@ -935,6 +935,10 @@ impl App {
                 self.node_graph
                     .set_node_badge(id, Some(NodeBadge::error(&error.message)));
                 self.error_badges.push(id);
+                let source = self.toast_source_for_node(id);
+                self.toasts.error_from(source, &error.message);
+            } else {
+                self.toasts.error(&error.message);
             }
         }
         let summary = errors

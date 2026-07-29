@@ -388,14 +388,21 @@
         {
           "endpoint": {
             "node": 4,
-            "output": "Match"
+            "output": "match"
           },
           "selected": false
         },
         {
           "endpoint": {
             "node": 4,
-            "output": "Matched"
+            "output": "matched"
+          },
+          "selected": false
+        },
+        {
+          "endpoint": {
+            "node": 4,
+            "output": "matching_words"
           },
           "selected": false
         },
@@ -754,18 +761,26 @@
       "id": 4,
       "inputs": [
         {
-          "schema_id": "Words"
+          "schema_id": "words"
+        },
+        {
+          "def_index": 1,
+          "schema_id": "rearm"
         }
       ],
       "kind": "Regular",
       "muted": false,
       "outputs": [
         {
-          "schema_id": "Match"
+          "schema_id": "match"
         },
         {
           "def_index": 1,
-          "schema_id": "Matched"
+          "schema_id": "matched"
+        },
+        {
+          "def_index": 2,
+          "schema_id": "matching_words"
         }
       ],
       "pos": {
@@ -774,8 +789,18 @@
       },
       "selected": false,
       "state": {
+        "holdoff_us": {
+          "max": 2000000000,
+          "min": 0,
+          "value": 0
+        },
         "mask": {
           "value": "0xFF"
+        },
+        "match_count": {
+          "max": 1000000,
+          "min": 1,
+          "value": 1
         },
         "op": {
           "value": "==",
@@ -790,6 +815,24 @@
         },
         "pattern": {
           "value": "0x45"
+        },
+        "predicate": {
+          "value": "Compare",
+          "variants": [
+            "Compare",
+            "Inclusive range",
+            "Set"
+          ]
+        },
+        "range_max": {
+          "value": "0xFF"
+        },
+        "range_min": {
+          "value": "0x00"
+        },
+        "schema_version": 2,
+        "set_values": {
+          "value": "0x00, 0xFF"
         },
         "trigger_at": {
           "value": "Word start",

@@ -193,13 +193,34 @@ impl NodeDef for WordMatcher {
         predicate_panel(&Self::state())
     }
 
-    fn on_update(state: &mut Self::State, _inputs: &mut [Socket], _outputs: &mut [Socket]) {
-        if state.schema_version < CURRENT_SCHEMA_VERSION {
-            state.schema_version = CURRENT_SCHEMA_VERSION;
+    fn migrate_saved_sockets(
+        state: &mut Self::State,
+        inputs: &mut Vec<Socket>,
+        outputs: &mut Vec<Socket>,
+    ) {
+        let migrated = migrate_socket_identity(inputs, "Words", "words")
+            | migrate_socket_identity(outputs, "Match", "match")
+            | migrate_socket_identity(outputs, "Matched", "matched")
+            | migrate_socket_identity(outputs, "Matching Words", "matching_words");
+        if migrated {
             state.compatibility_warning = Some(
-                "Upgraded the saved Word Matcher with predicate, rearm, and matching-word controls"
+                "Updated legacy Word Matcher socket identities; existing connections were preserved"
                     .to_owned(),
             );
+        }
+    }
+
+    fn on_update(state: &mut Self::State, _inputs: &mut [Socket], _outputs: &mut [Socket]) {
+        if state.schema_version < CURRENT_SCHEMA_VERSION {
+            let sockets_migrated = state.compatibility_warning.is_some();
+            state.schema_version = CURRENT_SCHEMA_VERSION;
+            state.compatibility_warning = Some(if sockets_migrated {
+                "Upgraded the saved Word Matcher with predicate, rearm, matching-word controls, and current socket identities; existing connections were preserved"
+                    .to_owned()
+            } else {
+                "Upgraded the saved Word Matcher with predicate, rearm, and matching-word controls"
+                    .to_owned()
+            });
         }
         state.match_count.min = 1;
         state.match_count.max = MAX_MATCH_COUNT;
@@ -234,6 +255,24 @@ impl NodeDef for WordMatcher {
             .map(NodeBadge::error)
             .or_else(|| state.compatibility_warning.as_ref().map(NodeBadge::warning))
     }
+}
+
+fn migrate_socket_identity(sockets: &mut Vec<Socket>, legacy: &str, current: &str) -> bool {
+    let Some(mut legacy_index) = sockets.iter().position(|socket| socket.schema_id == legacy)
+    else {
+        return false;
+    };
+    if let Some(current_index) = sockets
+        .iter()
+        .position(|socket| socket.schema_id == current)
+    {
+        sockets.remove(current_index);
+        if current_index < legacy_index {
+            legacy_index -= 1;
+        }
+    }
+    sockets[legacy_index].schema_id = current.to_owned();
+    true
 }
 
 fn predicate_panel(state: &WordMatcherState) -> Vec<PanelSection<WordMatcherState>> {
@@ -298,6 +337,51 @@ mod definition_tests {
         assert_eq!(state.predicate.selected(), "Compare");
         assert_eq!(state.match_count.value, 1);
         assert!(WordMatcher::badge(&state).is_some_and(|badge| badge.text.contains("Upgraded")));
+    }
+
+    #[test]
+    fn legacy_socket_identities_migrate_before_reconciliation() {
+        let mut widget = node_graph::NodeGraphWidget::new(crate::test_support::build_registry());
+        let node = widget
+            .add_node_at(WordMatcher::name(), egui::Pos2::ZERO)
+            .unwrap();
+        let mut graph = widget.graph().clone();
+        let saved = graph.nodes.get_mut(&node).unwrap();
+        let current_words_input = saved.inputs[0].clone();
+        saved.inputs[0].schema_id = "Words".to_owned();
+        saved.inputs.push(current_words_input);
+        let current_outputs = saved.outputs.clone();
+        saved.outputs[0].schema_id = "Match".to_owned();
+        saved.outputs[1].schema_id = "Matched".to_owned();
+        saved.outputs[2].schema_id = "Matching Words".to_owned();
+        saved.outputs.extend(current_outputs);
+        saved.state["schema_version"] = serde_json::json!(0);
+
+        widget.set_graph(graph);
+
+        let restored = &widget.graph().nodes[&node];
+        assert_eq!(
+            restored
+                .inputs
+                .iter()
+                .map(|socket| socket.schema_id.as_str())
+                .collect::<Vec<_>>(),
+            ["words", "rearm"]
+        );
+        assert_eq!(
+            restored
+                .outputs
+                .iter()
+                .map(|socket| socket.schema_id.as_str())
+                .collect::<Vec<_>>(),
+            ["match", "matched", "matching_words"]
+        );
+        assert!(
+            restored
+                .badge
+                .as_ref()
+                .is_some_and(|badge| badge.text.contains("existing connections were preserved"))
+        );
     }
 
     #[test]

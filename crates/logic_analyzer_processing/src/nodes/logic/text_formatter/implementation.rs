@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use signal_processing::{
     ConfigOutcome, ConfigValue, ConfigurationBoundary, ConfigurationScheduler, InputPort,
     NodeConfig, NumberSample, OutputPort, PortDirection, PortSchema, ProcessNode, TextSample,
-    WorkError, WorkResult,
+    WorkError, WorkOutcome, WorkResult,
 };
 
 /// Substitutes value placeholders in `template`:
@@ -226,6 +226,14 @@ impl ProcessNode for TextFormatter {
             0,
             PortDirection::Output,
         )]
+    }
+
+    fn work_outcome(
+        &mut self,
+        inputs: &[InputPort],
+        outputs: &[OutputPort],
+    ) -> WorkResult<WorkOutcome> {
+        self.work(inputs, outputs).map(WorkOutcome::progressed)
     }
 
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {

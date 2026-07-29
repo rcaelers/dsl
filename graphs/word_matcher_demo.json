@@ -1074,10 +1074,6 @@
       "muted": false,
       "outputs": [
         {
-          "def_index": 18446744073709551615,
-          "schema_id": "events"
-        },
-        {
           "schema_id": "trigger"
         }
       ],

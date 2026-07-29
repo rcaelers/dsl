@@ -341,7 +341,8 @@ fn create_node<T: NodeDef>(id: NodeId, pos: Pos2) -> NodeRuntime {
 }
 
 fn restore_node<T: NodeDef>(node: &mut Node) -> Box<dyn NodeInstance> {
-    let state = serde_json::from_value(node.state.clone()).unwrap_or_else(|_| T::state());
+    let mut state = serde_json::from_value(node.state.clone()).unwrap_or_else(|_| T::state());
+    T::migrate_saved_sockets(&mut state, &mut node.inputs, &mut node.outputs);
     let schema = T::instance_schema(&state);
     let inputs = schema.inputs;
     let outputs = schema.outputs;

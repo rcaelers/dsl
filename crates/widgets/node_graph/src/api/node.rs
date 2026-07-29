@@ -379,6 +379,18 @@ pub trait NodeDef: 'static {
         Self: Sized,
     {
     }
+    /// Rewrites node-owned socket identities from older saved schemas before
+    /// generic reconciliation matches them against the current definitions.
+    /// Implementations also record any user-visible compatibility warning in
+    /// their state.
+    fn migrate_saved_sockets(
+        _state: &mut Self::State,
+        _inputs: &mut Vec<Socket>,
+        _outputs: &mut Vec<Socket>,
+    ) where
+        Self: Sized,
+    {
+    }
     /// Status message shown under the node, recomputed after every state
     /// update (validation notes, clamped settings, …).
     fn badge(_state: &Self::State) -> Option<NodeBadge>

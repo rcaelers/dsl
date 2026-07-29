@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 use signal_processing::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, ProtocolPacket, ProtocolValue,
-    Sample, Trigger, Word, WordPayload, WorkError, WorkResult,
+    Sample, Trigger, Word, WordPayload, WorkError, WorkOutcome, WorkResult,
 };
 
 pub const PACKET_FRAME_PROTOCOL_ID: &str = "org.logicconduit.packet-frame/v1";
@@ -288,6 +288,14 @@ impl ProcessNode for PacketFramer {
             0,
             PortDirection::Output,
         )]
+    }
+
+    fn work_outcome(
+        &mut self,
+        inputs: &[InputPort],
+        outputs: &[OutputPort],
+    ) -> WorkResult<WorkOutcome> {
+        self.work(inputs, outputs).map(WorkOutcome::progressed)
     }
 
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {

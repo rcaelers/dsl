@@ -4,7 +4,7 @@ use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crossbeam_channel::{Sender as CrossbeamSender, bounded};
+use crossbeam_channel::{Receiver as CrossbeamReceiver, Sender as CrossbeamSender, bounded};
 
 use super::sender::{ChannelMessage, OverflowPolicy, Sender, SharedSenders};
 
@@ -16,7 +16,7 @@ pub(crate) trait ErasedSharedSenders: Send + Sync {
         buffer: usize,
         policy: OverflowPolicy,
         label: Option<String>,
-    ) -> (u64, Box<dyn Any + Send>);
+    ) -> ErasedSubscription;
     fn unsubscribe(&self, id: u64);
     /// EOS to all subscribers; late joiners get an immediate EOS.
     fn close(&self);
@@ -30,15 +30,43 @@ pub(crate) trait ErasedSharedSenders: Send + Sync {
     fn would_block(&self) -> bool;
 }
 
+/// Type-erased input readiness used by the single-threaded runner without
+/// constraining channels to a closed set of payload types.
+pub(crate) trait ErasedReceiverReadiness: Send {
+    fn is_empty(&self) -> bool;
+}
+
+/// A typed receiver accompanied by the type-erased readiness view needed by
+/// the cooperative scheduler.
+pub(crate) struct ErasedSubscription {
+    pub(crate) id: u64,
+    pub(crate) receiver: Box<dyn Any + Send>,
+    pub(crate) readiness: Box<dyn ErasedReceiverReadiness>,
+}
+
+struct ReceiverReadiness<T> {
+    receiver: CrossbeamReceiver<ChannelMessage<T>>,
+}
+
+impl<T: Send + 'static> ErasedReceiverReadiness for ReceiverReadiness<T> {
+    fn is_empty(&self) -> bool {
+        self.receiver.is_empty()
+    }
+}
+
 impl<T: Clone + Send + Sync + 'static> ErasedSharedSenders for SharedSenders<T> {
     fn subscribe_with_label(
         &self,
         buffer: usize,
         policy: OverflowPolicy,
         label: Option<String>,
-    ) -> (u64, Box<dyn Any + Send>) {
+    ) -> ErasedSubscription {
         let (id, rx) = SharedSenders::subscribe_with_label(self, buffer, policy, label);
-        (id, Box::new(rx) as Box<dyn Any + Send>)
+        ErasedSubscription {
+            id,
+            receiver: Box::new(rx.clone()),
+            readiness: Box::new(ReceiverReadiness { receiver: rx }),
+        }
     }
     fn unsubscribe(&self, id: u64) {
         SharedSenders::unsubscribe(self, id);

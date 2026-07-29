@@ -6,7 +6,7 @@ use tracing::{debug, warn};
 
 use signal_processing::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Sample, Trigger, WorkError,
-    WorkResult,
+    WorkOutcome, WorkResult,
 };
 
 /// Set/reset latch over [`Trigger`] streams.
@@ -72,6 +72,14 @@ impl ProcessNode for SrLatch {
 
     fn output_schema(&self) -> Vec<PortSchema> {
         vec![PortSchema::new::<Sample>("q", 0, PortDirection::Output)]
+    }
+
+    fn work_outcome(
+        &mut self,
+        inputs: &[InputPort],
+        outputs: &[OutputPort],
+    ) -> WorkResult<WorkOutcome> {
+        self.work(inputs, outputs).map(WorkOutcome::progressed)
     }
 
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {

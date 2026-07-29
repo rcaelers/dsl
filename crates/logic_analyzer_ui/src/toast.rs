@@ -1,9 +1,10 @@
 //! Transient toasts are the single place `App` reports one-off events (file
 //! loaded/saved, node(s)
 //! copied/pasted, a live edit applied or failed) without them pinning a
-//! toolbar label forever. Ongoing *state* (a run that needs a restart to
-//! pick up an edit, the current compile-error summary) stays in the toolbar
-//! next to Run/Stop instead — that's not a toast's job.
+//! toolbar label forever. Ongoing *state* (such as a run that needs a restart
+//! to pick up an edit) stays in the toolbar next to Run/Stop. A failed compile
+//! attempt is also recorded here so its diagnostics remain available in the
+//! Log panel after the toolbar summary changes.
 
 use std::cmp::Reverse;
 

@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 
 use signal_processing::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Sample, Trigger, WorkError,
-    WorkResult,
+    WorkOutcome, WorkResult,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,6 +105,14 @@ impl ProcessNode for EventGate {
             0,
             PortDirection::Output,
         )]
+    }
+
+    fn work_outcome(
+        &mut self,
+        inputs: &[InputPort],
+        outputs: &[OutputPort],
+    ) -> WorkResult<WorkOutcome> {
+        self.work(inputs, outputs).map(WorkOutcome::progressed)
     }
 
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {

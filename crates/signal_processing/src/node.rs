@@ -95,6 +95,54 @@ pub enum InputScheduling {
     Any,
 }
 
+/// Result of one scheduler-visible [`ProcessNode::work`] call.
+///
+/// `produced_items` remains the value used for node progress counters. The
+/// separate `made_progress` bit tells a cooperative runner that the call
+/// consumed input or advanced internal state even when it intentionally
+/// emitted nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WorkOutcome {
+    produced_items: usize,
+    made_progress: bool,
+}
+
+impl WorkOutcome {
+    /// No input was consumed, no state advanced, and no item was produced.
+    pub const fn idle() -> Self {
+        Self {
+            produced_items: 0,
+            made_progress: false,
+        }
+    }
+
+    /// Derives progress from an existing `work()` produced-item count.
+    pub const fn from_produced(produced_items: usize) -> Self {
+        Self {
+            produced_items,
+            made_progress: produced_items > 0,
+        }
+    }
+
+    /// Reports scheduler progress independently of the produced-item count.
+    pub const fn progressed(produced_items: usize) -> Self {
+        Self {
+            produced_items,
+            made_progress: true,
+        }
+    }
+
+    /// Number of output items produced for runtime progress counters.
+    pub const fn produced_items(self) -> usize {
+        self.produced_items
+    }
+
+    /// Whether a cooperative scheduler should continue its current pump.
+    pub const fn made_progress(self) -> bool {
+        self.made_progress
+    }
+}
+
 /// A processing node that transforms data
 /// - Sources have 0 inputs and N outputs
 /// - Sinks have N inputs and 0 outputs
@@ -187,6 +235,17 @@ pub trait ProcessNode: Send {
     /// only stalls the one node's own thread.
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize>;
 
+    /// Scheduler-facing form of [`Self::work`]. Nodes that can consume input
+    /// or advance state while producing zero items override this method and
+    /// return [`WorkOutcome::progressed`].
+    fn work_outcome(
+        &mut self,
+        inputs: &[InputPort],
+        outputs: &[OutputPort],
+    ) -> WorkResult<WorkOutcome> {
+        self.work(inputs, outputs).map(WorkOutcome::from_produced)
+    }
+
     /// Apply a configuration change while running (between `work()` calls).
     /// The default declines, telling the supervisor to restart the node
     /// in place with a freshly built instance.
@@ -270,6 +329,13 @@ impl ProcessNode for Box<dyn ProcessNode> {
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
         (**self).work(inputs, outputs)
     }
+    fn work_outcome(
+        &mut self,
+        inputs: &[InputPort],
+        outputs: &[OutputPort],
+    ) -> WorkResult<WorkOutcome> {
+        (**self).work_outcome(inputs, outputs)
+    }
     fn apply_config(&mut self, config: &NodeConfig) -> ConfigOutcome {
         (**self).apply_config(config)
     }
@@ -325,16 +391,26 @@ mod tests {
         fn work(&mut self, _inputs: &[InputPort], _outputs: &[OutputPort]) -> WorkResult<usize> {
             unreachable!()
         }
+
+        fn work_outcome(
+            &mut self,
+            _inputs: &[InputPort],
+            _outputs: &[OutputPort],
+        ) -> WorkResult<WorkOutcome> {
+            Ok(WorkOutcome::progressed(0))
+        }
     }
 
     #[test]
-    fn boxed_process_node_forwards_protocol_selection() {
-        let node: Box<dyn ProcessNode> = Box::new(StreamSelectingNode);
+    fn boxed_process_node_forwards_overridden_contracts() {
+        let mut node: Box<dyn ProcessNode> = Box::new(StreamSelectingNode);
         let selected = node.select_input_protocols(&[Some(InputProtocolCandidate {
             offered: vec![ProtocolKind::EdgeQuery, ProtocolKind::Stream],
             edge_query: None,
         })]);
+        let outcome = node.work_outcome(&[], &[]).unwrap();
 
         assert_eq!(selected, vec![Some(ProtocolKind::Stream)]);
+        assert_eq!(outcome, WorkOutcome::progressed(0));
     }
 }

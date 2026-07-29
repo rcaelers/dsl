@@ -3,7 +3,8 @@
 use std::collections::VecDeque;
 
 use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Trigger, WorkError, WorkResult,
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Trigger, WorkError, WorkOutcome,
+    WorkResult,
 };
 
 pub struct EventControl {
@@ -97,6 +98,14 @@ impl ProcessNode for EventControl {
             0,
             PortDirection::Output,
         )]
+    }
+
+    fn work_outcome(
+        &mut self,
+        inputs: &[InputPort],
+        outputs: &[OutputPort],
+    ) -> WorkResult<WorkOutcome> {
+        self.work(inputs, outputs).map(WorkOutcome::progressed)
     }
 
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {

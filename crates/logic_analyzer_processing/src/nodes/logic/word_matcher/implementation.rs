@@ -8,7 +8,7 @@ use tracing::debug;
 use signal_processing::{
     ConfigOutcome, ConfigValue, ConfigurationBoundary, ConfigurationScheduler, InputPort,
     NodeConfig, OutputPort, PortDirection, PortSchema, ProcessNode, Sample, Trigger, Word,
-    WorkError, WorkResult,
+    WorkError, WorkOutcome, WorkResult,
 };
 
 /// Comparison applied between the masked word and the masked pattern.
@@ -434,6 +434,14 @@ impl ProcessNode for WordMatcher {
             PortSchema::new::<Sample>("matched", 1, PortDirection::Output),
             PortSchema::new::<Word>("matching_words", 2, PortDirection::Output),
         ]
+    }
+
+    fn work_outcome(
+        &mut self,
+        inputs: &[InputPort],
+        outputs: &[OutputPort],
+    ) -> WorkResult<WorkOutcome> {
+        self.work(inputs, outputs).map(WorkOutcome::progressed)
     }
 
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {

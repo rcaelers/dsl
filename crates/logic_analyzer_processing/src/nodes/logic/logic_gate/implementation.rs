@@ -7,7 +7,7 @@ use tracing::{debug, warn};
 
 use signal_processing::{
     EdgeQuery, InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, ProtocolKind, Sample,
-    WorkError, WorkResult,
+    WorkError, WorkOutcome, WorkResult,
 };
 
 /// Boolean operation of a [`LogicGate`].
@@ -142,6 +142,14 @@ impl ProcessNode for LogicGate {
 
     fn output_schema(&self) -> Vec<PortSchema> {
         vec![PortSchema::new::<Sample>("out", 0, PortDirection::Output)]
+    }
+
+    fn work_outcome(
+        &mut self,
+        inputs: &[InputPort],
+        outputs: &[OutputPort],
+    ) -> WorkResult<WorkOutcome> {
+        self.work(inputs, outputs).map(WorkOutcome::progressed)
     }
 
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
