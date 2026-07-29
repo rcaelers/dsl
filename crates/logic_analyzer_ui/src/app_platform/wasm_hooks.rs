@@ -41,6 +41,7 @@ impl App {
         };
         let run_shortcut = shortcut("run");
         let stop_shortcut = shortcut("stop");
+        let mut demo_to_load = None;
 
         if ui.input_mut(|input| input.consume_shortcut(&run_shortcut)) {
             self.run_command();
@@ -86,6 +87,16 @@ impl App {
                     ui.close();
                 }
             });
+            if !self.demo_graphs.is_empty() {
+                ui.menu_button("Demos", |ui| {
+                    for (index, demo) in self.demo_graphs.iter().enumerate() {
+                        if ui.button(demo.name()).clicked() {
+                            demo_to_load = Some(index);
+                            ui.close();
+                        }
+                    }
+                });
+            }
             ui.menu_button("Pipeline", |ui| {
                 let unavailable = self.run_unavailable_reason();
                 let run = ui.add_enabled(
@@ -117,6 +128,9 @@ impl App {
                 }
             });
         });
+        if let Some(index) = demo_to_load {
+            self.load_demo_graph(index);
+        }
     }
 
     pub(crate) fn platform_sync_capture(&mut self) {

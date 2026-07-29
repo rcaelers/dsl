@@ -131,12 +131,14 @@ dialog while `Filename` is unconnected; a connected text stream hides it and win
 File Writer, TGCK Recorder, Viewer (variadic input accepting
 `Signal | Words | Trigger | Number | Text`).
 
-The native application loads graphs selected by the user. The wasm application embeds and loads
-`crates/app_web/data/wasm_decoder_demo.json`, a self-contained one-minute SPI-controlled
-parallel-bus capture backed by `Sigrok File Source` with explicit synthetic-capture metadata.
-Programmatic graph construction is confined to crate-local unit fixtures and the top-level
-integration-test support package. File-backed test fixtures live under the owning crate's
-`test_data/` directory. The editable examples in `graphs/` are not code dependencies.
+The native application loads graphs selected by the user. The wasm application embeds a named
+demo catalog and exposes it through its Demos menu. The self-contained one-minute SPI-controlled
+parallel-bus capture in `crates/app_web/data/wasm_decoder_demo.json` is the first catalog entry and
+therefore remains the startup graph. Every `graphs/*_demo.json` document is also embedded and can
+replace the current graph without filesystem access; a web-crate test keeps the catalog synchronized
+with that directory. Programmatic graph construction is confined to crate-local unit fixtures and
+the top-level integration-test support package. File-backed test fixtures live under the owning
+crate's `test_data/` directory. Other editable examples in `graphs/` are not code dependencies.
 
 ## Graph → pipeline compiler
 
@@ -249,6 +251,6 @@ before creating the application, so WASM inventory submissions are populated bef
 ## wasm
 
 The same `App` compiles to `wasm32-unknown-unknown`: no native file dialogs, USB access, or
-threads. The demo graph runs on the `CooperativeManager` pumped from the frame loop. The same graph
-node features are registered on both platforms; whole-file WASM builder implementations provide
-synthetic sources and discard writers where native facilities do not exist.
+threads. A selected demo graph runs on the `CooperativeManager` pumped from the frame loop. The
+same graph node features are registered on both platforms; whole-file WASM builder implementations
+provide synthetic sources and discard writers where native facilities do not exist.

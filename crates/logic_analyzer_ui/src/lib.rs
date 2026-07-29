@@ -22,7 +22,7 @@ mod viewer_selection;
 
 use std::sync::OnceLock;
 
-pub use app::App;
+pub use app::{App, DemoGraph};
 #[cfg(target_os = "macos")]
 pub use app_platform::{
     NativeMenuCommand, dispatch_native_menu_command, set_recent_files_listener,

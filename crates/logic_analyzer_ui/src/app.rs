@@ -248,6 +248,26 @@ fn save_panel_layout(
     )
 }
 
+/// A named graph document supplied by an application host for its Demos menu.
+#[derive(Clone)]
+pub struct DemoGraph {
+    name: String,
+    graph: GraphState,
+}
+
+impl DemoGraph {
+    pub fn new(name: impl Into<String>, graph: GraphState) -> Self {
+        Self {
+            name: name.into(),
+            graph,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
 pub struct App {
     pub(crate) node_graph: NodeGraphWidget,
     pub(crate) logic_analyzer: LogicAnalyzerViewer,
@@ -278,6 +298,7 @@ pub struct App {
     pub(crate) about: AboutWindow,
     pub(crate) preferences: PreferencesWindow,
     pub(crate) node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
+    pub(crate) demo_graphs: Vec<DemoGraph>,
     /// Nodes badged with compile errors; cleared on the next Run.
     pub(crate) error_badges: Vec<NodeId>,
     /// Last time the running pipeline was diffed against the edited graph.
@@ -466,13 +487,64 @@ impl App {
     /// application. The host owns where that graph comes from.
     pub fn new_with_graph(cc: &eframe::CreationContext, graph: node_graph::GraphState) -> Self {
         let mut app = Self::build(cc, Vec::new());
-        app.node_graph.set_graph(graph);
-        app.synchronize_payload_subscription_manifest(true);
-        app.restore_sampling_overlay_setting();
-        app.restore_viewer_lane_order_setting();
-        app.restore_viewer_lane_height_setting();
-        app.restore_panel_layout_setting();
+        app.apply_graph_document(graph);
         app
+    }
+
+    /// Builds the application with host-supplied demo documents. The first
+    /// entry is loaded at startup and remains available from the Demos menu.
+    pub fn new_with_demo_graphs(cc: &eframe::CreationContext, demo_graphs: Vec<DemoGraph>) -> Self {
+        let default_graph = demo_graphs.first().map(|demo| demo.graph.clone());
+        let mut app = Self::build(cc, Vec::new());
+        app.demo_graphs = demo_graphs;
+        if let Some(graph) = default_graph {
+            app.apply_graph_document(graph);
+        }
+        app
+    }
+
+    fn apply_graph_document(&mut self, graph: GraphState) {
+        self.node_graph.set_graph(graph);
+        self.synchronize_payload_subscription_manifest(true);
+        self.restore_sampling_overlay_setting();
+        self.restore_viewer_lane_order_setting();
+        self.restore_viewer_lane_height_setting();
+        self.restore_panel_layout_setting();
+    }
+
+    pub fn load_demo_graph(&mut self, index: usize) {
+        let Some((name, graph)) = self
+            .demo_graphs
+            .get(index)
+            .map(|demo| (demo.name.clone(), demo.graph.clone()))
+        else {
+            return;
+        };
+        if self.capture.is_active() || self.is_capture_analysis_active() {
+            self.toasts
+                .error("Stop the active capture before loading a demo");
+            return;
+        }
+        if let Some(run) = &mut self.run {
+            run.stop();
+        }
+        self.capture.clear_completed();
+        self.capture_graph = None;
+        self.capture_analysis = None;
+        self.capture_analysis_error = None;
+        self.capture_epoch_observed_graph = None;
+        self.capture_epoch_request_in_flight = false;
+        self.run_message = None;
+        self.error_badges.clear();
+        self.logic_analyzer.clear_capture();
+        self.logic_analyzer
+            .set_derived_lanes(signal_processing::DerivedLanes::new());
+        self.platform_restore_graph_capture();
+        self.apply_graph_document(graph);
+        self.capture_availability =
+            capture_availability(self.node_graph.graph(), self.graph_service.as_ref());
+        self.refresh_trigger_configuration();
+        self.toasts.info(format!("Loaded demo {name}"));
     }
 
     pub(crate) fn synchronize_payload_subscription_manifest(&mut self, report_warnings: bool) {
@@ -638,6 +710,7 @@ impl App {
             about: AboutWindow::new(),
             preferences: PreferencesWindow::new(),
             node_catalogs,
+            demo_graphs: Vec::new(),
             error_badges: Vec::new(),
             last_live_sync: -1.0,
             sampling_overlay_candidates: Vec::new(),

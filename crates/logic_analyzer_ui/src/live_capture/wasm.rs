@@ -39,6 +39,8 @@ impl CaptureCoordinator {
     }
 
     pub(crate) fn request_cancel_export(&mut self) {}
+
+    pub(crate) fn clear_completed(&mut self) {}
 }
 
 impl CaptureCoordinatorContract for CaptureCoordinator {
