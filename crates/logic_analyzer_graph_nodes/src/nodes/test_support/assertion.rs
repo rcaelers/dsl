@@ -184,6 +184,7 @@ fn resolved_inputs(
                 kind,
                 source: format!("fixture_{}_{}", socket.def_index, *member),
                 source_node: NodeId(10_000 + socket.def_index as u32),
+                source_output: socket.def_index,
                 source_node_title: "Fixture source".to_owned(),
                 word_display_format: None,
                 lane_presentation: None,

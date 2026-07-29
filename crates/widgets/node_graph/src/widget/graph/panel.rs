@@ -334,6 +334,7 @@ impl NodeGraphWidget {
 
         let content = panel_rect.shrink2(Vec2::new(10.0, 8.0));
         let mut changed = false;
+        let mut contributed_changed = false;
         let previous_title = node.title.clone();
         let mut pending_panel_action = None;
         let mut measured_height = None;
@@ -437,8 +438,10 @@ impl NodeGraphWidget {
                                                 data.as_deref(),
                                                 &mut action,
                                             );
-                                            changed |=
+                                            let panel_changed =
                                                 instance.draw_panel(*index, ui, &mut context);
+                                            changed |= panel_changed;
+                                            contributed_changed |= panel_changed;
                                         },
                                     );
                                     if let Some(payload) = action {
@@ -465,6 +468,7 @@ impl NodeGraphWidget {
         if changed {
             self.run_update(node_id);
         }
+        self.contributed_panel_state_changed |= contributed_changed;
         if let Some((panel_id, payload)) = pending_panel_action {
             self.panel_action = Some(crate::api::PanelAction::new(node_id, panel_id, payload));
         }
@@ -578,6 +582,7 @@ impl NodeGraphWidget {
 
         if changed {
             self.run_update(node_id);
+            self.contributed_panel_state_changed = true;
         }
     }
 }
@@ -611,9 +616,9 @@ mod panel_tests {
             &self,
             _state: &mut TestState,
             _ui: &mut Ui,
-            _context: &mut PanelContext<'_>,
+            context: &mut PanelContext<'_>,
         ) -> bool {
-            false
+            context.data::<bool>().copied().unwrap_or(false)
         }
     }
 
@@ -668,6 +673,35 @@ mod panel_tests {
         let panel = widget.panel_rect(canvas).expect("view panel is open");
 
         assert_eq!(panel.height(), 100.0);
+    }
+
+    #[test]
+    fn contributed_panel_state_changes_are_reported_once_to_the_host() {
+        let mut registry = NodeTypeRegistry::new();
+        registry.register::<TestNode>();
+        let mut widget = NodeGraphWidget::new(registry);
+        let node = widget
+            .add_node_at(TestNode::name(), Pos2::ZERO)
+            .expect("test node is registered");
+        widget
+            .graph
+            .nodes
+            .get_mut(&node)
+            .expect("test node exists")
+            .selected = true;
+        widget.set_panel_data(node, "dynamic", true);
+
+        let context = egui::Context::default();
+        let _ = context.run_ui(Default::default(), |ui| {
+            widget.show_contributed_panels(
+                ui,
+                Rect::from_min_size(Pos2::ZERO, Vec2::new(300.0, 200.0)),
+                "view",
+            );
+        });
+
+        assert!(widget.take_contributed_panel_state_changed());
+        assert!(!widget.take_contributed_panel_state_changed());
     }
 
     #[test]

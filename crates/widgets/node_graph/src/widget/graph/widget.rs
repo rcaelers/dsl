@@ -63,6 +63,7 @@ pub struct NodeGraphWidget {
     /// passes the opaque value to that panel's presentation.
     pub(crate) panel_data: HashMap<(NodeId, String), Arc<dyn Any + Send + Sync>>,
     pub(crate) panel_action: Option<PanelAction>,
+    pub(crate) contributed_panel_state_changed: bool,
     /// Transient socket decorations grouped by host-owned namespace so one
     /// feature can replace or clear its indicators without touching another.
     pub(crate) socket_indicators: SocketIndicatorRegistry,
@@ -177,6 +178,7 @@ impl NodeGraphWidget {
             node_context_action_request: None,
             panel_data: HashMap::new(),
             panel_action: None,
+            contributed_panel_state_changed: false,
             socket_indicators: BTreeMap::new(),
             panel_tabs: vec![PanelTabDef::new("node", "Node")],
             editing_enabled: true,
@@ -195,6 +197,11 @@ impl NodeGraphWidget {
 
     pub fn graph_mut(&mut self) -> &mut GraphState {
         &mut self.graph
+    }
+
+    /// Reports whether a node-contributed panel changed node state this frame.
+    pub fn take_contributed_panel_state_changed(&mut self) -> bool {
+        std::mem::take(&mut self.contributed_panel_state_changed)
     }
 
     pub fn editing_enabled(&self) -> bool {
@@ -510,6 +517,7 @@ impl NodeGraphWidget {
     pub fn set_graph(&mut self, graph: GraphState) {
         self.graph = graph;
         self.graph.fixup_reroute_outputs();
+        self.contributed_panel_state_changed = false;
         self.external_badges.clear();
         self.node_statuses.clear();
         self.active_node = None;

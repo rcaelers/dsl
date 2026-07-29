@@ -47,6 +47,10 @@ impl ParallelDecoderBuilder {
 }
 
 impl RuntimeBuilder for ParallelDecoderBuilder {
+    fn execution_state(&self, state: &Value) -> Value {
+        crate::presentation::without_display_format(state)
+    }
+
     fn decoder_table_column(
         &self,
         socket: &Socket,

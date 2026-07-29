@@ -14,6 +14,10 @@ use signal_processing::{ProcessNode, Word};
 pub(crate) struct WordFieldExtractorBuilder;
 
 impl RuntimeBuilder for WordFieldExtractorBuilder {
+    fn execution_state(&self, state: &Value) -> Value {
+        crate::presentation::without_display_format(state)
+    }
+
     fn word_display_format(&self, socket: &Socket, state: &Value) -> Option<String> {
         (socket.def_index == 0)
             .then(|| parse_state::<super::definition::WordFieldExtractorState>(state).ok())

@@ -144,6 +144,7 @@ mod collected_output_presentation_tests {
                 kind: PortKind::of::<Word>(),
                 source: format!("Decoder.{track}"),
                 source_node: NodeId(7),
+                source_output: member,
                 source_node_title: "Decoder".to_owned(),
                 word_display_format: None,
                 lane_presentation: Some(LanePresentationDescriptor::new(

@@ -53,6 +53,13 @@ pub trait LiveCaptureFeature: Send {
 }
 
 pub trait RuntimeBuilder {
+    /// Returns the part of saved node state that can affect runtime behavior.
+    ///
+    /// Presentation-only controls override this projection so changing them
+    /// refreshes host views without restarting the processing node.
+    fn execution_state(&self, state: &Value) -> Value {
+        state.clone()
+    }
     fn is_source(&self) -> bool {
         false
     }

@@ -146,6 +146,7 @@ pub struct ResolvedInput {
     pub kind: PortKind,
     pub source: String,
     pub source_node: NodeId,
+    pub source_output: usize,
     pub source_node_title: String,
     pub word_display_format: Option<String>,
     pub lane_presentation: Option<LanePresentationDescriptor>,

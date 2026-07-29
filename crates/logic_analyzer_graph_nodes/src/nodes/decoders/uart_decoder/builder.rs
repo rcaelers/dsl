@@ -18,6 +18,10 @@ use signal_processing::{ProcessNode, Sample, Trigger, Word};
 pub(crate) struct UartDecoderBuilder;
 
 impl RuntimeBuilder for UartDecoderBuilder {
+    fn execution_state(&self, state: &Value) -> Value {
+        crate::presentation::without_display_format(state)
+    }
+
     fn lane_presentation(
         &self,
         socket: &Socket,

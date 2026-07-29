@@ -736,13 +736,22 @@ impl App {
 
     fn refresh_graph_output_selections(&mut self) {
         let selections = viewer_output_selections(self.node_graph.graph());
-        self.graph_service.set_output_subscriptions(
-            selections
-                .iter()
-                .filter(|selection| selection.selected)
-                .map(|selection| (selection.node, selection.output))
-                .collect(),
-        );
+        let graph = self.node_graph.graph();
+        let connected_nodes = graph
+            .connections
+            .iter()
+            .flat_map(|connection| [connection.from.node, connection.to.node])
+            .collect::<std::collections::HashSet<_>>();
+        let mut subscriptions = compiler::OutputSubscriptionPlan::new();
+        for selection in &selections {
+            if selection.selected || connected_nodes.contains(&selection.node) {
+                subscriptions.retain(selection.node, selection.output);
+            }
+            if selection.selected {
+                subscriptions.subscribe(selection.node, selection.output);
+            }
+        }
+        self.graph_service.set_output_subscriptions(subscriptions);
         let mut by_node: HashMap<NodeId, Vec<ViewerOutputPanelEntry>> = HashMap::new();
         self.node_graph.clear_panel_data(VIEWER_OUTPUT_PANEL_ID);
         self.node_graph
@@ -1366,6 +1375,60 @@ impl App {
 
     pub(crate) fn is_running(&self) -> bool {
         self.run.as_ref().is_some_and(|run| !run.is_finished())
+    }
+
+    fn bind_current_run_presentations(&mut self) {
+        let Some(run) = self.run.as_ref() else {
+            return;
+        };
+        let waveform_presentations = waveform_presentation_registry(run.output_subscriptions());
+        let table_presentations = decoder_table_registry(run.table_subscriptions());
+        let lanes = run.derived_lanes().clone();
+        match waveform_presentations {
+            Ok(presentations) => self
+                .logic_analyzer
+                .set_waveform_presentations(presentations),
+            Err(error) => self.toasts.error(format!(
+                "Could not bind collected output presentation: {error}"
+            )),
+        }
+        match table_presentations {
+            Ok(tables) => self.decoder_panels.set_run_data(lanes, tables),
+            Err(error) => self.toasts.error(format!(
+                "Could not bind decoder-table presentation: {error}"
+            )),
+        }
+    }
+
+    fn apply_view_configuration_to_run(&mut self) {
+        if let Ok(Some(feature)) = self
+            .graph_service
+            .discover_live_capture_feature(self.node_graph.graph())
+        {
+            self.logic_analyzer
+                .set_visible_capture_channels(feature.visible_channels().iter().copied());
+        }
+        if self.run.is_none() {
+            return;
+        }
+        let result = {
+            let run = self.run.as_mut().expect("run existence checked above");
+            self.graph_service
+                .apply_run(run.as_mut(), self.node_graph.graph())
+        };
+        match result {
+            Ok(_) => self.bind_current_run_presentations(),
+            Err(compiler::ApplyError::Compile(_)) => {}
+            Err(compiler::ApplyError::NeedsFullRestart(reason)) => {
+                self.run_message = Some((
+                    format!("view update could not use cached data: {reason}"),
+                    true,
+                ));
+            }
+            Err(compiler::ApplyError::Apply(message)) => {
+                self.toasts.error(format!("view update failed: {message}"))
+            }
+        }
     }
 
     fn is_stopping(&self) -> bool {
@@ -2866,6 +2929,7 @@ impl eframe::App for App {
         let mut panel_layout = std::mem::take(&mut self.panel_layout);
         panel_layout
             .set_maximize_shortcut(self.input_bindings.shortcut(&["panel"], "toggle_maximize"));
+        let mut viewer_subscriptions_changed = false;
         let layout_response = panel_layout.show(
             ui,
             viewport_rect,
@@ -2938,6 +3002,7 @@ impl eframe::App for App {
                                 );
                             } else {
                                 self.synchronize_payload_subscription_manifest(false);
+                                viewer_subscriptions_changed = true;
                             }
                         }
                     }
@@ -2973,6 +3038,12 @@ impl eframe::App for App {
             },
         );
         self.panel_layout = panel_layout;
+
+        let view_panel_state_changed = self.node_graph.take_contributed_panel_state_changed();
+        if viewer_subscriptions_changed || view_panel_state_changed {
+            self.apply_view_configuration_to_run();
+            ui.ctx().request_repaint();
+        }
 
         let viewer_cursors_changed = self.sync_timeline_cursor_setting();
         self.synchronize_timeline_marker_references(viewer_cursors_changed);

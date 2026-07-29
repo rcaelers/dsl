@@ -95,6 +95,7 @@ mod decoder_table_presentation_tests {
                 kind: PortKind::of::<Word>(),
                 source: format!("Decoder.{key}"),
                 source_node: NodeId(9),
+                source_output: order,
                 source_node_title: "Decoder".to_owned(),
                 word_display_format: None,
                 lane_presentation: None,

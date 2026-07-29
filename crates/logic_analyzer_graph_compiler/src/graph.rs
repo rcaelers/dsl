@@ -1080,35 +1080,68 @@ fn member_index(node: &Node, socket_index: usize) -> usize {
         .count()
 }
 
-/// Fixed ids for compiler-synthesized collectors. Stable ids keep live
-/// diffing deterministic across repeated lowering.
-/// Kept constant (rather than derived from the graph's own ids) so
-/// live-diffing sees the same node across `lower()` calls while the watched
-/// set is unchanged, regardless of how many real nodes come and go.
-const AUTO_OUTPUT_SUBSCRIPTION_NODE_ID: NodeId = NodeId(u32::MAX);
+/// Compiler-synthesized collector identities are stable across repeated
+/// lowering. Table data shares one collector; retained outputs use one
+/// collector per producer so adding another producer never restarts an
+/// existing cache.
 const AUTO_DATA_COLLECTOR_NODE_ID: NodeId = NodeId(u32::MAX - 1);
 
-/// Adds application-requested and table-retention collectors through the
+fn auto_output_collector_node_id(producer: NodeId, graph: &GraphState) -> NodeId {
+    let mut candidate = u32::MAX.wrapping_sub(2).wrapping_sub(producer.0);
+    loop {
+        let id = NodeId(candidate);
+        if id != AUTO_DATA_COLLECTOR_NODE_ID && !graph.nodes.contains_key(&id) {
+            return id;
+        }
+        candidate = candidate.wrapping_sub(1);
+    }
+}
+
+/// Adds presentation-neutral retention and table collectors through the
 /// same generic sink and edge-negotiation path as explicit graph sinks.
 fn with_output_collectors(
     graph: &GraphState,
     registry: &BuilderRegistry,
     subscriptions: &OutputSubscriptionPlan,
 ) -> GraphState {
+    let subscribable = registry.subscribable_payload_kinds();
     let mut watched: Vec<(SocketId, String)> = graph
         .nodes
         .iter()
         .filter(|(_, node)| node.kind == NodeKind::Regular)
         .flat_map(|(&id, node)| {
+            let subscribable = &subscribable;
             node.outputs
                 .iter()
                 .enumerate()
                 .filter(move |(index, output)| {
-                    output.visible
-                        && subscriptions.contains(id, *index)
-                        && registry.get(node.def_name()).is_none_or(|builder| {
-                            builder.viewer_channel_origin(output, &node.state).is_none()
-                        })
+                    let Some(builder) = registry.get(node.def_name()) else {
+                        return false;
+                    };
+                    let connected = graph.connections.iter().any(|connection| {
+                        connection.from.node == id && connection.from.index == *index
+                    });
+                    let already_collected = graph.connections.iter().any(|connection| {
+                        connection.from.node == id
+                            && connection.from.index == *index
+                            && graph
+                                .nodes
+                                .get(&connection.to.node)
+                                .and_then(|target| registry.get(target.def_name()))
+                                .is_some_and(|target| {
+                                    target.is_data_collector() || target.is_data_subscription()
+                                })
+                    });
+                    (connected || subscriptions.is_retained(id, *index))
+                        && !already_collected
+                        && builder.viewer_channel_origin(output, &node.state).is_none()
+                        && builder
+                            .offered_kinds(output, &node.state)
+                            .into_iter()
+                            .any(|kind| {
+                                subscribable.contains(&kind)
+                                    && builder.output_port(output, &node.state, kind).is_some()
+                            })
                 })
                 .map(move |(index, output)| {
                     (
@@ -1138,7 +1171,9 @@ fn with_output_collectors(
                 .iter()
                 .enumerate()
                 .filter(|(index, output)| {
-                    let collected_for_view = output.visible && subscriptions.contains(id, *index);
+                    let retained = watched
+                        .iter()
+                        .any(|(socket, _)| socket.node == id && socket.index == *index);
                     let collected_by_explicit_sink = graph.connections.iter().any(|connection| {
                         connection.from.node == id
                             && connection.from.index == *index
@@ -1150,7 +1185,7 @@ fn with_output_collectors(
                                     builder.is_data_collector() || builder.is_data_subscription()
                                 })
                     });
-                    !collected_for_view
+                    !retained
                         && !collected_by_explicit_sink
                         && builder.decoder_table_column(output, &node.state).is_some()
                         && builder
@@ -1175,56 +1210,63 @@ fn with_output_collectors(
     tabled.sort_by_key(|(socket, _)| (socket.node.0, socket.index));
 
     let mut graph = graph.clone();
-    let inputs: Vec<Socket> = watched
-        .iter()
-        .map(|(_, label)| Socket {
-            schema_id: String::new(),
-            name: label.clone(),
-            type_name: "Any".to_owned(),
-            color: Default::default(),
-            shape: SocketShape::Circle,
-            allowed: Vec::new(),
-            resolved_type: None,
-            def_index: 0,
-            variadic: Some(VariadicInfo {
-                base: "In".to_owned(),
-                max: watched.len(),
-                placeholder: false,
-            }),
-            visible: false,
-            editor_visible: false,
-            hidden: true,
-            has_control: false,
-            extensions: Default::default(),
-        })
-        .collect();
-    if !inputs.is_empty() {
+    let mut first = 0;
+    while first < watched.len() {
+        let producer = watched[first].0.node;
+        let end = watched[first..]
+            .iter()
+            .position(|(socket, _)| socket.node != producer)
+            .map_or(watched.len(), |offset| first + offset);
+        let retained = &watched[first..end];
+        let collector_id = auto_output_collector_node_id(producer, &graph);
+        let inputs: Vec<Socket> = retained
+            .iter()
+            .map(|(_, label)| Socket {
+                schema_id: String::new(),
+                name: label.clone(),
+                type_name: "Any".to_owned(),
+                color: Default::default(),
+                shape: SocketShape::Circle,
+                allowed: Vec::new(),
+                resolved_type: None,
+                def_index: 0,
+                variadic: Some(VariadicInfo {
+                    base: "In".to_owned(),
+                    max: retained.len(),
+                    placeholder: false,
+                }),
+                visible: false,
+                editor_visible: false,
+                hidden: true,
+                has_control: false,
+                extensions: Default::default(),
+            })
+            .collect();
         let mut collector = Node::blank(
-            AUTO_OUTPUT_SUBSCRIPTION_NODE_ID,
+            collector_id,
             crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME,
             Default::default(),
         );
-        collector.title = "Output Subscription Collector".to_owned();
+        collector.title = "Retained Output Collector".to_owned();
         collector.inputs = inputs;
         collector.state = Value::Null;
-        graph
-            .nodes
-            .insert(AUTO_OUTPUT_SUBSCRIPTION_NODE_ID, collector);
+        graph.nodes.insert(collector_id, collector);
         graph
             .connections
             .extend(
-                watched
-                    .into_iter()
+                retained
+                    .iter()
                     .enumerate()
                     .map(|(member, (from, _))| Connection {
-                        from,
+                        from: *from,
                         to: SocketId {
-                            node: AUTO_OUTPUT_SUBSCRIPTION_NODE_ID,
+                            node: collector_id,
                             index: member,
                             direction: SocketDirection::Input,
                         },
                     }),
             );
+        first = end;
     }
     if !tabled.is_empty() {
         let inputs = tabled
@@ -1452,11 +1494,12 @@ pub(crate) fn lower_with_subscriptions(
                 kind,
                 source: format!("{}.{}", from_node.title, from_socket.name),
                 source_node: wire.from.node,
+                source_output: wire.from.index,
                 source_node_title: from_node.title.clone(),
                 word_display_format: from_builder
                     .word_display_format(from_socket, &from_node.state),
                 lane_presentation: from_builder.lane_presentation(from_socket, &from_node.state),
-                default_lane_presentation: data_subscription
+                default_lane_presentation: registered_collection
                     .then(|| registry.payload_subscription_presentation(kind))
                     .flatten(),
                 decoder_table_column: from_builder
@@ -1830,34 +1873,40 @@ fn collected_table_subscriptions(
 fn collected_output_subscriptions(
     compiled: &CompiledGraph,
     registry: &BuilderRegistry,
+    subscriptions: &OutputSubscriptionPlan,
 ) -> Vec<CollectedOutputSubscription> {
     compiled
         .nodes
         .iter()
         .filter_map(|node| {
             let builder = registry.get(&node.builder)?;
-            builder.is_data_subscription().then(|| {
-                let lanes = builder
-                    .collected_lane_names(&node.state, &node.resolved)
-                    .into_iter()
-                    .filter_map(|(member, lane_name)| {
-                        node.resolved
-                            .get(0, member)
-                            .cloned()
-                            .map(|input| CollectedOutputLane {
-                                source_label: builder
-                                    .collected_source_label(&node.state, &input.source_node_title),
-                                member,
-                                lane_name,
-                                input,
+            node.data_collector
+                .then(|| {
+                    let lanes: Vec<CollectedOutputLane> = builder
+                        .collected_lane_names(&node.state, &node.resolved)
+                        .into_iter()
+                        .filter_map(|(member, lane_name)| {
+                            node.resolved.get(0, member).cloned().and_then(|input| {
+                                subscriptions
+                                    .contains(input.source_node, input.source_output)
+                                    .then(|| CollectedOutputLane {
+                                        source_label: builder.collected_source_label(
+                                            &node.state,
+                                            &input.source_node_title,
+                                        ),
+                                        member,
+                                        lane_name,
+                                        input,
+                                    })
                             })
+                        })
+                        .collect();
+                    (!lanes.is_empty()).then_some(CollectedOutputSubscription {
+                        runtime_name: node.runtime_name.clone(),
+                        lanes,
                     })
-                    .collect();
-                CollectedOutputSubscription {
-                    runtime_name: node.runtime_name.clone(),
-                    lanes,
-                }
-            })
+                })
+                .flatten()
         })
         .collect()
 }
@@ -2016,16 +2065,17 @@ fn diff(
         let old_node = compiled_node(old, id);
         let new_node = compiled_node(new, id);
         let wiring_changed = wiring_of(old, id) != wiring_of(new, id);
-        let state_changed = old_node.state != new_node.state;
+        let builder = registry
+            .get(&new_node.builder)
+            .ok_or_else(|| format!("no builder for '{}'", new_node.builder))?;
+        let state_changed =
+            builder.execution_state(&old_node.state) != builder.execution_state(&new_node.state);
         if !wiring_changed && !state_changed {
             continue;
         }
         if is_source(new, id) {
             return Err("the source node changed".into());
         }
-        let builder = registry
-            .get(&new_node.builder)
-            .ok_or_else(|| format!("no builder for '{}'", new_node.builder))?;
         if !wiring_changed
             && state_changed
             && let Some(config) = builder.hot_config(&new_node.state)
@@ -2135,7 +2185,8 @@ fn start_live_inner(
     ctx.sampling_overlays
         .clone_from(&compiled.sampling_overlays);
     ctx.sampling_activities = sampling_activity_map(&compiled);
-    ctx.collected_output_subscriptions = collected_output_subscriptions(&compiled, registry);
+    ctx.collected_output_subscriptions =
+        collected_output_subscriptions(&compiled, registry, subscriptions);
     ctx.collected_table_subscriptions = collected_table_subscriptions(&compiled, registry);
     let mut manager = AppManager::new();
     let mut names: HashMap<NodeId, String> = HashMap::new();
@@ -2271,7 +2322,8 @@ impl LiveRun {
         cache_platform::configure_directory(&mut new, self.persistent_cache_directory.as_deref());
         let edits = diff(&self.compiled, &new, registry).map_err(ApplyError::NeedsFullRestart)?;
         if edits.is_empty() {
-            self.collected_output_subscriptions = collected_output_subscriptions(&new, registry);
+            self.collected_output_subscriptions =
+                collected_output_subscriptions(&new, registry, subscriptions);
             self.collected_table_subscriptions = collected_table_subscriptions(&new, registry);
             self.compiled = new;
             return Ok(ApplySummary::default());
@@ -2290,7 +2342,11 @@ impl LiveRun {
             persistent_cache_directory: self.persistent_cache_directory.clone(),
             sampling_overlays: new.sampling_overlays.clone(),
             sampling_activities: sampling_activity_map(&new),
-            collected_output_subscriptions: collected_output_subscriptions(&new, registry),
+            collected_output_subscriptions: collected_output_subscriptions(
+                &new,
+                registry,
+                subscriptions,
+            ),
             collected_table_subscriptions: collected_table_subscriptions(&new, registry),
             diagnostics: self.diagnostics.clone(),
             source_readiness: self.source_readiness.clone(),
@@ -2366,7 +2422,8 @@ impl LiveRun {
                 }
             }
         }
-        self.collected_output_subscriptions = collected_output_subscriptions(&new, registry);
+        self.collected_output_subscriptions =
+            collected_output_subscriptions(&new, registry, subscriptions);
         self.collected_table_subscriptions = collected_table_subscriptions(&new, registry);
         self.compiled = new;
         Ok(summary)
@@ -2389,7 +2446,8 @@ impl LiveRun {
         cache_platform::configure_directory(&mut new, self.persistent_cache_directory.as_deref());
         let edits = diff(&self.compiled, &new, registry).map_err(ApplyError::NeedsFullRestart)?;
         if edits.is_empty() {
-            self.collected_output_subscriptions = collected_output_subscriptions(&new, registry);
+            self.collected_output_subscriptions =
+                collected_output_subscriptions(&new, registry, subscriptions);
             self.collected_table_subscriptions = collected_table_subscriptions(&new, registry);
             self.compiled = new;
             return Ok(ApplySummary::default());
@@ -2435,7 +2493,8 @@ impl LiveRun {
                 .reconfigure_at(&name, config, boundary)
                 .map_err(ApplyError::Apply)?;
         }
-        self.collected_output_subscriptions = collected_output_subscriptions(&new, registry);
+        self.collected_output_subscriptions =
+            collected_output_subscriptions(&new, registry, subscriptions);
         self.collected_table_subscriptions = collected_table_subscriptions(&new, registry);
         self.compiled = new;
         Ok(ApplySummary {
@@ -2874,6 +2933,16 @@ mod tests {
     }
 
     impl RuntimeBuilder for ContractBuilder {
+        fn execution_state(&self, state: &Value) -> Value {
+            let mut execution = state.clone();
+            if self.presentation
+                && let Some(fields) = execution.as_object_mut()
+            {
+                fields.remove("display_format");
+            }
+            execution
+        }
+
         fn is_source(&self) -> bool {
             self.source
         }
@@ -3588,7 +3657,7 @@ mod tests {
     }
 
     #[test]
-    fn unwatching_the_only_output_drops_the_output_subscription_collector() {
+    fn hiding_an_output_keeps_its_connected_data_cached() {
         let (mut document, registry, node_id) = selectable_output_contract();
         let (_, output_index) = first_watched_selectable_output(&document, &registry);
         let watched = lower(document.graph(), &registry).unwrap();
@@ -3602,8 +3671,39 @@ mod tests {
             compiled
                 .nodes
                 .iter()
-                .all(|node| node.builder != crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME)
+                .any(|node| node.builder == crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME)
         );
+        assert!(diff(&watched, &compiled, &registry).unwrap().is_empty());
+        let subscriptions = test_output_subscriptions(document.graph(), &registry);
+        assert!(collected_output_subscriptions(&compiled, &registry, &subscriptions).is_empty());
+    }
+
+    #[test]
+    fn retained_output_visibility_is_a_metadata_only_change() {
+        let (mut document, registry, producer) = selectable_output_contract();
+        let sink = node_by_def(&document, CONTRACT_SINK);
+        document.graph_mut().remove_node(sink);
+
+        let mut visible = OutputSubscriptionPlan::new();
+        visible.subscribe(producer, 0);
+        let compiled_visible =
+            lower_with_subscriptions(document.graph(), &registry, &visible).unwrap();
+        assert_eq!(
+            collected_output_subscriptions(&compiled_visible, &registry, &visible).len(),
+            1
+        );
+
+        let mut hidden = OutputSubscriptionPlan::new();
+        hidden.retain(producer, 0);
+        let compiled_hidden =
+            lower_with_subscriptions(document.graph(), &registry, &hidden).unwrap();
+
+        assert!(
+            diff(&compiled_visible, &compiled_hidden, &registry)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(collected_output_subscriptions(&compiled_hidden, &registry, &hidden).is_empty());
     }
 
     #[test]
@@ -3620,7 +3720,6 @@ mod tests {
                 .unwrap()
                 .id
         };
-        assert_eq!(viewer_id(&first), AUTO_OUTPUT_SUBSCRIPTION_NODE_ID);
         assert_eq!(viewer_id(&first), viewer_id(&second));
     }
 
@@ -3840,7 +3939,8 @@ mod tests {
 
         let build_groups = |document: &GraphDocumentBuilder| {
             let compiled = lower(document.graph(), &builders).unwrap();
-            let mut groups = collected_output_subscriptions(&compiled, &builders)
+            let subscriptions = test_output_subscriptions(document.graph(), &builders);
+            let mut groups = collected_output_subscriptions(&compiled, &builders, &subscriptions)
                 .iter()
                 .flat_map(|subscription| &subscription.lanes)
                 .filter_map(|lane| {
@@ -4232,6 +4332,36 @@ mod tests {
     }
 
     #[test]
+    fn diff_ignores_builder_declared_presentation_only_state() {
+        let (mut document, mut registry, _source, transform, _sink) = contract_pipeline(
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            PortKind::of::<Sample>(),
+            true,
+        );
+        registry.insert_test_builder(
+            CONTRACT_TRANSFORM,
+            Box::new(ContractBuilder::presenting_transform(
+                PortKind::of::<Sample>(),
+            )),
+        );
+        document.set_node_state(
+            transform,
+            serde_json::json!({ "runtime": 1, "display_format": "Hex" }),
+        );
+        let old = lower(document.graph(), &registry).unwrap();
+
+        document.set_node_state(
+            transform,
+            serde_json::json!({ "runtime": 1, "display_format": "Binary" }),
+        );
+
+        let new = lower(document.graph(), &registry).unwrap();
+        assert!(diff(&old, &new, &registry).unwrap().is_empty());
+    }
+
+    #[test]
     fn diff_rejects_source_fed_restart() {
         let (mut document, registry, _source, transform, _sink) = contract_pipeline(
             PortKind::of::<Sample>(),
@@ -4250,7 +4380,7 @@ mod tests {
     }
 
     #[test]
-    fn diff_classifies_tap_attach_as_add_plus_viewer_restart() {
+    fn diff_classifies_tap_attach_as_adds_without_restarting_existing_caches() {
         let (mut document, registry, existing_transform) = selectable_output_contract();
         let old = lower(document.graph(), &registry).unwrap();
 
@@ -4266,10 +4396,24 @@ mod tests {
                 .any(|edit| matches!(edit, LiveEdit::Add(id) if *id == tap)),
             "{edits:?}"
         );
+        let added_collector = new
+            .nodes
+            .iter()
+            .find(|node| {
+                node.builder == crate::OUTPUT_SUBSCRIPTION_BUILDER_NAME
+                    && !old.nodes.iter().any(|old_node| old_node.id == node.id)
+            })
+            .expect("the new producer has its own retained-output collector")
+            .id;
         assert!(
             edits
                 .iter()
-                .any(|edit| matches!(edit, LiveEdit::Restart(id) if *id == AUTO_OUTPUT_SUBSCRIPTION_NODE_ID)),
+                .any(|edit| matches!(edit, LiveEdit::Add(id) if *id == added_collector))
+        );
+        assert!(
+            edits
+                .iter()
+                .all(|edit| !matches!(edit, LiveEdit::Restart(_))),
             "{edits:?}"
         );
         assert_eq!(edits.len(), 2, "{edits:?}");

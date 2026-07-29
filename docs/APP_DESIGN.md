@@ -231,6 +231,16 @@ ignored (the running pipeline continues; the diff retries once the graph is vali
 via the manager; final progress counts stick. Each run swaps a fresh `DerivedLanes` store
 into the viewer so stale lanes vanish atomically.
 
+Node-contributed View panels also report state changes directly to the host. The app applies those
+changes and rebuilds waveform/table presentation registries in the same frame rather than waiting
+for the periodic live-edit pass. A builder's `execution_state` projection excludes
+presentation-only fields such as `display_format`, so changing a format refreshes already-collected
+lanes without restarting the decoder. Retention and presentation are separate contracts: every
+collectable connected output, plus every view-capable output on a participating node, is retained
+independently of its current visibility. Viewer lane selection only rebinds presentation metadata
+to those cached lanes. The same metadata-only path applies while processing is active and after it
+has completed; a View panel change never restarts or reruns the processing graph.
+
 The correctness gate for the whole compile path is the golden test: the compiled startup
 graph must produce byte-identical output to the hand-written pipeline example on a real
 capture (`cargo test -p logic-analyzer-graph-compiler --release -- --ignored golden`), run through the live

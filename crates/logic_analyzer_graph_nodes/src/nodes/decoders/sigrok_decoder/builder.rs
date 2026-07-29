@@ -398,6 +398,7 @@ mod builder_tests {
                     kind: PortKind::of::<SampleBlock>(),
                     source: format!("source_{index}"),
                     source_node: NodeId(100 + index as u32),
+                    source_output: index,
                     source_node_title: format!("Source {index}"),
                     word_display_format: None,
                     lane_presentation: None,

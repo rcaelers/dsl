@@ -32,6 +32,10 @@ impl SpiDecoderBuilder {
 }
 
 impl RuntimeBuilder for SpiDecoderBuilder {
+    fn execution_state(&self, state: &Value) -> Value {
+        crate::presentation::without_display_format(state)
+    }
+
     fn viewer_output_control(
         &self,
         socket: &Socket,

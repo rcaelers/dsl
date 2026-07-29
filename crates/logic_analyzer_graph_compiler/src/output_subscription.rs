@@ -1,14 +1,14 @@
 use logic_analyzer_graph_api::node_support::ResolvedInput;
 use node_graph::api::NodeId;
 
-/// Application-supplied outputs whose produced data must be collected.
+/// Application-supplied retained outputs and the subset currently presented.
 ///
-/// The compiler treats these endpoints as runtime subscriptions. It does not
-/// interpret why an application subscribed or how the collected data is
-/// presented.
+/// Retention affects runtime collection. Visibility only selects metadata for
+/// consumers of already-retained lanes; changing it does not alter execution.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OutputSubscriptionPlan {
-    outputs: Vec<(NodeId, usize)>,
+    visible_outputs: Vec<(NodeId, usize)>,
+    retained_outputs: Vec<(NodeId, usize)>,
 }
 
 /// One retained lane produced for an application output subscription.
@@ -40,17 +40,33 @@ impl OutputSubscriptionPlan {
     }
 
     pub fn subscribe(&mut self, node: NodeId, output: usize) {
+        self.retain(node, output);
         if !self.contains(node, output) {
-            self.outputs.push((node, output));
+            self.visible_outputs.push((node, output));
+        }
+    }
+
+    /// Retains an endpoint for later consumers without making it visible.
+    pub fn retain(&mut self, node: NodeId, output: usize) {
+        if !self.is_retained(node, output) {
+            self.retained_outputs.push((node, output));
         }
     }
 
     pub fn contains(&self, node: NodeId, output: usize) -> bool {
-        self.outputs.contains(&(node, output))
+        self.visible_outputs.contains(&(node, output))
+    }
+
+    pub fn is_retained(&self, node: NodeId, output: usize) -> bool {
+        self.retained_outputs.contains(&(node, output))
     }
 
     pub fn outputs(&self) -> impl Iterator<Item = (NodeId, usize)> + '_ {
-        self.outputs.iter().copied()
+        self.visible_outputs.iter().copied()
+    }
+
+    pub fn retained_outputs(&self) -> impl Iterator<Item = (NodeId, usize)> + '_ {
+        self.retained_outputs.iter().copied()
     }
 }
 
@@ -78,5 +94,18 @@ mod output_subscription_tests {
             plan.outputs().collect::<Vec<_>>(),
             vec![(NodeId(2), 3), (NodeId(1), 4)]
         );
+        assert_eq!(
+            plan.retained_outputs().collect::<Vec<_>>(),
+            vec![(NodeId(2), 3), (NodeId(1), 4)]
+        );
+    }
+
+    #[test]
+    fn retained_outputs_do_not_become_visible() {
+        let mut plan = OutputSubscriptionPlan::new();
+        plan.retain(NodeId(2), 3);
+
+        assert!(!plan.contains(NodeId(2), 3));
+        assert!(plan.is_retained(NodeId(2), 3));
     }
 }
