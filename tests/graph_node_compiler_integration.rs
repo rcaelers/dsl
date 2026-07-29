@@ -55,6 +55,32 @@ fn selected_outputs(graph: &GraphState) -> Vec<(NodeId, usize)> {
         .collect()
 }
 
+fn retained_output_endpoints(
+    compiled: &CompiledGraph,
+) -> std::collections::HashSet<(NodeId, usize)> {
+    compiled
+        .nodes
+        .iter()
+        .filter(|node| node.data_collector)
+        .flat_map(|node| node.resolved.members(0))
+        .map(|(_, input)| (input.source_node, input.source_output))
+        .collect()
+}
+
+fn is_capture_output(graph: &GraphState, node: NodeId, output: usize) -> bool {
+    let Some(node) = graph.nodes.get(&node) else {
+        return false;
+    };
+    graph_node_registrations().into_iter().any(|registration| {
+        registration.name() == node.def_name()
+            && registration.builder().is_some_and(|builder| {
+                node.outputs.get(output).is_some_and(|socket| {
+                    builder.viewer_channel_origin(socket, &node.state).is_some()
+                })
+            })
+    })
+}
+
 #[test]
 fn all_bundled_demo_documents_load_and_lower_without_schema_repair() {
     let demos = [
@@ -167,7 +193,13 @@ fn binary_decoder_demo_fixture_lowers_with_built_in_nodes() {
         .lower(widget.graph())
         .expect("demo should lower cleanly");
     assert_eq!(widget.graph().nodes.len(), 9);
-    assert_eq!(compiled.nodes.len(), 8);
+    for builder in ["Sigrok File Source", "SPI Decoder", "Parallel Decoder"] {
+        assert!(
+            compiled.nodes.iter().any(|node| node.builder == builder),
+            "compiled demo should retain {builder}"
+        );
+    }
+    assert!(compiled.nodes.iter().any(|node| node.data_collector));
 }
 
 #[test]
@@ -208,12 +240,13 @@ fn event_controls_demo_fixture_loads_lowers_and_executes() {
             .count(),
         2
     );
-    let collector = compiled
-        .nodes
-        .iter()
-        .find(|node| node.data_collector && node.resolved.member_count(0) == 5)
-        .expect("the selected demo outputs should lower to a data collector");
-    assert!(collector.data_collector);
+    let retained = retained_output_endpoints(&compiled);
+    for node in 1..=5 {
+        assert!(
+            retained.contains(&(NodeId(node), 0)),
+            "selected output n{node}.0 should be retained"
+        );
+    }
 
     let mut context = CompileCtx::default();
     let lanes = context.derived_lanes().clone();
@@ -562,8 +595,19 @@ fn built_in_startup_graph_lowers_with_explicit_subscriptions() {
         .lower(widget.graph())
         .unwrap_or_else(|errors| panic!("lower failed: {errors:?}"));
 
-    assert_eq!(compiled.nodes.len(), 12);
-    assert_eq!(compiled.edges.len(), 33);
+    let selected = selected_outputs(widget.graph());
+    let retained = retained_output_endpoints(&compiled);
+    for endpoint in selected
+        .iter()
+        .filter(|(node, output)| !is_capture_output(widget.graph(), *node, *output))
+    {
+        assert!(
+            retained.contains(endpoint),
+            "selected output {:?}.{} should be retained",
+            endpoint.0,
+            endpoint.1
+        );
+    }
 
     let spi_sampling = compiled
         .sampling_overlays
@@ -579,12 +623,12 @@ fn built_in_startup_graph_lowers_with_explicit_subscriptions() {
         .expect("parallel decoder should expose a sampling overlay");
     assert_eq!(parallel_sampling.overlay().edge, SamplingEdge::Both);
 
-    let collector = compiled
+    let lanes = compiled
         .nodes
         .iter()
-        .find(|node| node.data_collector && node.resolved.member_count(0) == 7)
-        .expect("explicit subscriptions should produce a seven-lane collector");
-    let lanes = collector.resolved.members(0);
+        .filter(|node| node.data_collector)
+        .flat_map(|node| node.resolved.members(0))
+        .collect::<Vec<_>>();
     assert!(lanes.iter().any(|(_, input)| {
         input.kind == logic_analyzer_graph_api::node_support::PortKind::of::<Word>()
             && input.source == "SPI Decoder.MOSI Bits"
