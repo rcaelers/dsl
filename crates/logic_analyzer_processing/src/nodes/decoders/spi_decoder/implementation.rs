@@ -17,18 +17,20 @@
 //! Because each data value is obtained by blocking recv (not try_recv),
 //! the race condition from the old batch-decode approach is eliminated.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use tracing::{debug, trace};
 
 use signal_processing::capture::CaptureTransition;
 use signal_processing::{
-    EdgeQuery, InputPort, OutputPort, ProcessNode, ProtocolKind, Receiver, Sample,
-    SamplingActivity, Word, WorkError, WorkOutcome, WorkResult,
+    EdgeQuery, InputPort, OutputPort, ProcessNode, ProtocolKind, ProtocolPacket, ProtocolValue,
+    Receiver, Sample, SamplingActivity, Word, WorkError, WorkOutcome, WorkResult,
 };
 
 use crate::types::{BitOrder, CsPolarity};
+
+pub const SPI_TRANSACTION_PROTOCOL_ID: &str = "org.logicconduit.spi-transaction/v1";
 
 /// SPI clock polarity and phase mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,7 +48,8 @@ pub enum SpiMode {
 /// SPI decoder node
 ///
 /// Inputs: cs, clk, mosi (optional), miso (optional) — Sample channels
-/// Outputs: stable MOSI and MISO word, bit-detail, and framed-data streams.
+/// Outputs: stable MOSI and MISO word, bit-detail, framed-data, and
+/// chip-select-bounded transaction streams.
 /// A direction without a connected input simply emits no samples on its
 /// corresponding outputs.
 pub struct SpiDecoder {
@@ -85,12 +88,86 @@ pub struct SpiDecoder {
     query_bit_timestamps: Vec<u64>,
     query_mosi_bits: Vec<bool>,
     query_miso_bits: Vec<bool>,
+    query_transaction_start: Option<u64>,
+    query_transaction_mosi_words: Vec<u64>,
+    query_transaction_miso_words: Vec<u64>,
+    query_window_deasserted: bool,
     cs_activity: Option<SamplingActivity>,
 }
 
 struct SpiWordAnnotations {
     bits: Vec<Word>,
     data: Word,
+}
+
+struct SpiTransaction<'a> {
+    start_sample: u64,
+    end_sample: u64,
+    start_time_ns: u64,
+    end_time_ns: u64,
+    word_bits: usize,
+    mosi_words: &'a [u64],
+    miso_words: &'a [u64],
+    has_mosi: bool,
+    has_miso: bool,
+    incomplete_bits: usize,
+    cs_deasserted: bool,
+}
+
+fn spi_transaction_packet(transaction: SpiTransaction<'_>) -> ProtocolPacket {
+    let complete = transaction.incomplete_bits == 0 && transaction.cs_deasserted;
+    let mut diagnostics = Vec::new();
+    if transaction.incomplete_bits > 0 {
+        diagnostics.push(ProtocolValue::String(format!(
+            "incomplete word: {}/{} bits",
+            transaction.incomplete_bits, transaction.word_bits
+        )));
+    }
+    if !transaction.cs_deasserted {
+        diagnostics.push(ProtocolValue::String(
+            "chip select remained active at end of capture".to_owned(),
+        ));
+    }
+    let words = |present: bool, values: &[u64]| {
+        if present {
+            ProtocolValue::List(
+                values
+                    .iter()
+                    .copied()
+                    .map(|value| ProtocolValue::Integer(i128::from(value)))
+                    .collect(),
+            )
+        } else {
+            ProtocolValue::Null
+        }
+    };
+    ProtocolPacket {
+        start_sample: transaction.start_sample,
+        end_sample: transaction.end_sample,
+        start_time_ns: transaction.start_time_ns,
+        end_time_ns: transaction.end_time_ns,
+        protocol_id: SPI_TRANSACTION_PROTOCOL_ID.to_owned(),
+        value: ProtocolValue::Mapping(BTreeMap::from([
+            ("complete".to_owned(), ProtocolValue::Bool(complete)),
+            ("diagnostics".to_owned(), ProtocolValue::List(diagnostics)),
+            (
+                "incomplete_bits".to_owned(),
+                ProtocolValue::Integer(transaction.incomplete_bits as i128),
+            ),
+            (
+                "miso".to_owned(),
+                words(transaction.has_miso, transaction.miso_words),
+            ),
+            (
+                "mosi".to_owned(),
+                words(transaction.has_mosi, transaction.mosi_words),
+            ),
+            (
+                "word_bits".to_owned(),
+                ProtocolValue::Integer(transaction.word_bits as i128),
+            ),
+        ])),
+    }
 }
 
 fn spi_word_annotations(
@@ -184,6 +261,10 @@ impl SpiDecoder {
             query_bit_timestamps: Vec::with_capacity(bits_per_word),
             query_mosi_bits: Vec::with_capacity(bits_per_word),
             query_miso_bits: Vec::with_capacity(bits_per_word),
+            query_transaction_start: None,
+            query_transaction_mosi_words: Vec::new(),
+            query_transaction_miso_words: Vec::new(),
+            query_window_deasserted: false,
             cs_activity: None,
         }
     }
@@ -273,7 +354,7 @@ impl ProcessNode for SpiDecoder {
     }
 
     fn num_outputs(&self) -> usize {
-        6
+        7
     }
 
     fn input_schema(&self) -> Vec<signal_processing::PortSchema> {
@@ -312,7 +393,7 @@ impl ProcessNode for SpiDecoder {
         // when its optional input is disconnected. Keep the runtime port
         // contract equally stable so generic collectors can subscribe to a
         // declared output without needing to understand SPI wiring.
-        [
+        let mut schemas = [
             "mosi_words",
             "mosi_bits",
             "mosi_data",
@@ -323,7 +404,13 @@ impl ProcessNode for SpiDecoder {
         .into_iter()
         .enumerate()
         .map(|(index, name)| PortSchema::new::<Word>(name, index, PortDirection::Output))
-        .collect()
+        .collect::<Vec<_>>();
+        schemas.push(PortSchema::new::<ProtocolPacket>(
+            "transactions",
+            6,
+            PortDirection::Output,
+        ));
+        schemas
     }
 
     fn work_outcome(
@@ -478,6 +565,7 @@ impl SpiDecoder {
         let mut mosi_data_batch = Vec::new();
         let mut miso_bits_batch = Vec::new();
         let mut miso_data_batch = Vec::new();
+        let mut transaction_batch = Vec::new();
         let mut raw_edges = Vec::<CaptureTransition>::new();
         let mut sample_positions = Vec::<u64>::new();
         let mut mosi_values = Vec::<bool>::new();
@@ -507,13 +595,19 @@ impl SpiDecoder {
                     };
                     edge.sample
                 };
-                let inactive_time = cs_query
+                let inactive_edge = cs_query
                     .next_edge_with_value(cs_active_start, inactive_value, total_samples)
-                    .map_err(query_err)?
-                    .map_or(total_samples, |edge| edge.sample);
+                    .map_err(query_err)?;
+                let (inactive_time, cs_deasserted) = inactive_edge
+                    .map(|edge| (edge.sample, true))
+                    .unwrap_or((total_samples, cs_polarity == CsPolarity::Disabled));
 
                 self.query_window_end = Some(inactive_time);
                 self.query_clk_position = cs_active_start;
+                self.query_transaction_start = Some(cs_active_start);
+                self.query_transaction_mosi_words.clear();
+                self.query_transaction_miso_words.clear();
+                self.query_window_deasserted = cs_deasserted;
                 if let Some(activity) = &self.cs_activity {
                     activity.record_interval(
                         position_to_ns(cs_active_start),
@@ -620,6 +714,12 @@ impl SpiDecoder {
                 if miso_output.is_some() {
                     miso_batch.push(Word::spanning(self.query_miso_word, timestamp, duration));
                 }
+                if self.has_mosi {
+                    self.query_transaction_mosi_words.push(self.query_mosi_word);
+                }
+                if self.has_miso {
+                    self.query_transaction_miso_words.push(self.query_miso_word);
+                }
                 if let Some(annotations) = spi_word_annotations(
                     self.query_mosi_word,
                     &self.query_mosi_bits,
@@ -646,12 +746,32 @@ impl SpiDecoder {
             }
 
             if window_exhausted {
+                let incomplete_bits = self.query_bits_collected;
                 if self.query_bits_collected > 0 {
                     debug!(
                         "Incomplete word: {}/{} bits",
                         self.query_bits_collected, bits_per_word
                     );
                 }
+                let transaction_start = self
+                    .query_transaction_start
+                    .take()
+                    .expect("an open query window has a transaction start");
+                transaction_batch.push(spi_transaction_packet(SpiTransaction {
+                    start_sample: transaction_start,
+                    end_sample: window_end,
+                    start_time_ns: position_to_ns(transaction_start),
+                    end_time_ns: position_to_ns(window_end),
+                    word_bits: bits_per_word,
+                    mosi_words: &self.query_transaction_mosi_words,
+                    miso_words: &self.query_transaction_miso_words,
+                    has_mosi: self.has_mosi,
+                    has_miso: self.has_miso,
+                    incomplete_bits,
+                    cs_deasserted: self.query_window_deasserted,
+                }));
+                self.query_transaction_mosi_words.clear();
+                self.query_transaction_miso_words.clear();
                 self.query_mosi_word = 0;
                 self.query_miso_word = 0;
                 self.query_bits_collected = 0;
@@ -682,12 +802,16 @@ impl SpiDecoder {
         if let Some(output) = miso_data_output {
             output.send_batch(miso_data_batch)?;
         }
+        let transactions_emitted = transaction_batch.len();
+        if let Some(output) = outputs.get(6).and_then(|port| port.get::<ProtocolPacket>()) {
+            output.send_batch(transaction_batch)?;
+        }
 
         self.tx_count += words_emitted as u64;
         if capture_exhausted {
             Err(WorkError::Shutdown)
         } else {
-            Ok(words_emitted)
+            Ok(words_emitted.max(transactions_emitted))
         }
     }
 
@@ -802,12 +926,12 @@ impl SpiDecoder {
 
         // ── 2. Get CS inactive edge to know the full CS window ───────────
         let mut cs_terminal_time = cs_active_start;
-        let cs_inactive_time = loop {
+        let (cs_inactive_time, cs_deasserted) = loop {
             match cs.recv() {
                 Ok(edge) => {
                     cs_terminal_time = edge.start_time_ns;
                     if !cs_is_active(edge.value) {
-                        break edge.start_time_ns;
+                        break (edge.start_time_ns, true);
                     }
                 }
                 // Capture-backed edge streams terminate with a same-level
@@ -815,7 +939,7 @@ impl SpiDecoder {
                 // use that terminal sample as the bounded end of the final
                 // transaction so its complete words are not discarded.
                 Err(WorkError::Shutdown) if cs_terminal_time > cs_active_start => {
-                    break cs_terminal_time;
+                    break (cs_terminal_time, cs_polarity == CsPolarity::Disabled);
                 }
                 Err(error) => return Err(error),
             }
@@ -848,6 +972,9 @@ impl SpiDecoder {
         let mut mosi_data_batch = Vec::new();
         let mut miso_bits_batch = Vec::new();
         let mut miso_data_batch = Vec::new();
+        let mut transaction_mosi_words = Vec::new();
+        let mut transaction_miso_words = Vec::new();
+        let mut incomplete_bits = 0usize;
 
         'word_loop: loop {
             let mut mosi_word: u64 = 0;
@@ -866,7 +993,10 @@ impl SpiDecoder {
             loop {
                 let edge = match clk.recv() {
                     Ok(edge) => edge,
-                    Err(WorkError::Shutdown) => break 'word_loop,
+                    Err(WorkError::Shutdown) => {
+                        incomplete_bits = bits_collected;
+                        break 'word_loop;
+                    }
                     Err(error) => return Err(error),
                 };
 
@@ -876,6 +1006,7 @@ impl SpiDecoder {
 
                     if bits_collected > 0 && bits_collected < bits_per_word {
                         debug!("Incomplete word: {}/{} bits", bits_collected, bits_per_word);
+                        incomplete_bits = bits_collected;
                     }
 
                     break 'word_loop;
@@ -976,6 +1107,12 @@ impl SpiDecoder {
                 if miso_output.is_some() {
                     miso_batch.push(Word::spanning(miso_word, timestamp, duration));
                 }
+                if has_mosi {
+                    transaction_mosi_words.push(mosi_word);
+                }
+                if has_miso {
+                    transaction_miso_words.push(miso_word);
+                }
                 if let Some(annotations) =
                     spi_word_annotations(mosi_word, &mosi_bits, &bit_timestamps)
                 {
@@ -1009,12 +1146,28 @@ impl SpiDecoder {
         if let Some(output) = miso_data_output {
             output.send_batch(miso_data_batch)?;
         }
+        let transaction = spi_transaction_packet(SpiTransaction {
+            start_sample: 0,
+            end_sample: 0,
+            start_time_ns: cs_active_start,
+            end_time_ns: cs_inactive_time,
+            word_bits: bits_per_word,
+            mosi_words: &transaction_mosi_words,
+            miso_words: &transaction_miso_words,
+            has_mosi,
+            has_miso,
+            incomplete_bits,
+            cs_deasserted,
+        });
+        if let Some(output) = outputs.get(6).and_then(|port| port.get::<ProtocolPacket>()) {
+            output.send(transaction)?;
+        }
 
         // Write back mutable state
         self.prev_clk = prev_clk;
         self.tx_count += words_emitted as u64;
 
-        Ok(words_emitted)
+        Ok(words_emitted.max(1))
     }
 }
 
@@ -1138,7 +1291,7 @@ mod tests {
     fn optional_miso_keeps_the_declared_output_port_contract() {
         let decoder = SpiDecoder::new(SpiMode::Mode0, 8, true, false);
 
-        assert_eq!(decoder.num_outputs(), 6);
+        assert_eq!(decoder.num_outputs(), 7);
         assert_eq!(
             decoder
                 .output_schema()
@@ -1152,6 +1305,7 @@ mod tests {
                 "miso_words",
                 "miso_bits",
                 "miso_data",
+                "transactions",
             ]
         );
     }
@@ -1173,6 +1327,37 @@ mod tests {
         let decoder_high =
             SpiDecoder::with_cs_polarity(SpiMode::Mode0, 8, true, false, CsPolarity::ActiveHigh);
         assert_eq!(decoder_high.cs_polarity, CsPolarity::ActiveHigh);
+    }
+
+    #[test]
+    fn incomplete_transaction_reports_partial_word_and_active_cs() {
+        let packet = spi_transaction_packet(SpiTransaction {
+            start_sample: 10,
+            end_sample: 20,
+            start_time_ns: 100,
+            end_time_ns: 200,
+            word_bits: 8,
+            mosi_words: &[0x12],
+            miso_words: &[],
+            has_mosi: true,
+            has_miso: false,
+            incomplete_bits: 3,
+            cs_deasserted: false,
+        });
+
+        let ProtocolValue::Mapping(fields) = packet.value else {
+            panic!("transaction value should be a mapping");
+        };
+        assert_eq!(fields["complete"], ProtocolValue::Bool(false));
+        assert_eq!(fields["incomplete_bits"], ProtocolValue::Integer(3));
+        assert_eq!(fields["miso"], ProtocolValue::Null);
+        assert_eq!(
+            fields["diagnostics"],
+            ProtocolValue::List(vec![
+                ProtocolValue::String("incomplete word: 3/8 bits".to_owned()),
+                ProtocolValue::String("chip select remained active at end of capture".to_owned()),
+            ])
+        );
     }
 
     #[test]
@@ -1326,6 +1511,7 @@ mod tests {
         let (miso_words, miso_words_rx) = output();
         let (miso_bits, miso_bits_rx) = output();
         let (miso_data, miso_data_rx) = output();
+        let (transactions_tx, transactions_rx) = bounded::<ChannelMessage<ProtocolPacket>>(16);
         let outputs = [
             OutputPort::new_with_watchdog(mosi_words, &wd, "spi", "mosi_words"),
             OutputPort::new_with_watchdog(mosi_bits, &wd, "spi", "mosi_bits"),
@@ -1333,6 +1519,12 @@ mod tests {
             OutputPort::new_with_watchdog(miso_words, &wd, "spi", "miso_words"),
             OutputPort::new_with_watchdog(miso_bits, &wd, "spi", "miso_bits"),
             OutputPort::new_with_watchdog(miso_data, &wd, "spi", "miso_data"),
+            OutputPort::new_with_watchdog(
+                Sender::new(vec![transactions_tx]),
+                &wd,
+                "spi",
+                "transactions",
+            ),
         ];
 
         let mut decoder = SpiDecoder::new(SpiMode::Mode0, 4, true, true);
@@ -1382,6 +1574,29 @@ mod tests {
         );
         assert_eq!(collect(mosi_data_rx), vec![Word::spanning(0b1010, 0, 800)]);
         assert_eq!(collect(miso_data_rx), vec![Word::spanning(0b0101, 0, 800)]);
+        let transaction = transactions_rx
+            .try_iter()
+            .find_map(|message| match message {
+                ChannelMessage::Sample(packet) => Some(packet),
+                ChannelMessage::Batch(mut packets) => packets.pop(),
+                ChannelMessage::EndOfStream => None,
+            })
+            .expect("the CS window should emit one transaction");
+        assert_eq!(transaction.protocol_id, SPI_TRANSACTION_PROTOCOL_ID);
+        assert_eq!(transaction.start_time_ns, 0);
+        assert_eq!(transaction.end_time_ns, 1_000);
+        let ProtocolValue::Mapping(fields) = transaction.value else {
+            panic!("transaction value should be a mapping");
+        };
+        assert_eq!(fields["complete"], ProtocolValue::Bool(true));
+        assert_eq!(
+            fields["mosi"],
+            ProtocolValue::List(vec![ProtocolValue::Integer(0b1010)])
+        );
+        assert_eq!(
+            fields["miso"],
+            ProtocolValue::List(vec![ProtocolValue::Integer(0b0101)])
+        );
     }
 
     #[test]

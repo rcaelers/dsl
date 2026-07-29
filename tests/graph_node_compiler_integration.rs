@@ -10,8 +10,8 @@ use node_graph::{GraphState, NodeGraphWidget, NodeId};
 use signal_processing::{
     Annotation, CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId,
     CollectedLaneSnapshotRequest, DerivedLanes, DigitalLaneSnapshot, NativeCaptureStore,
-    NativeCaptureStoreConfig, NumberLaneSnapshot, Sample, SampleBlock, SamplingEdge,
-    TextLaneSnapshot, Trigger, Word,
+    NativeCaptureStoreConfig, NumberLaneSnapshot, ProtocolPacketLaneSnapshot, ProtocolValue,
+    Sample, SampleBlock, SamplingEdge, TextLaneSnapshot, Trigger, Word,
 };
 
 use integration_tests_support as nodes;
@@ -71,6 +71,14 @@ fn all_bundled_demo_documents_load_and_lower_without_schema_repair() {
         (
             "Packet Framer",
             include_str!("../graphs/packet_framer_demo.json"),
+        ),
+        (
+            "SPI Transactions",
+            include_str!("../graphs/spi_transaction_demo.json"),
+        ),
+        (
+            "I²C Transactions",
+            include_str!("../graphs/i2c_transaction_demo.json"),
         ),
         (
             "Word Field Extractor",
@@ -248,6 +256,98 @@ fn packet_framer_demo_fixture_loads_and_lowers() {
     );
 }
 
+fn transaction_packets(json: &str, output: usize) -> Vec<signal_processing::ProtocolPacket> {
+    let graph: GraphState = serde_json::from_str(json).expect("demo should deserialize");
+    let mut widget = NodeGraphWidget::new(nodes::build_registry());
+    widget.set_graph(graph);
+    let mut compiler = GraphCompiler::new();
+    compiler.set_output_subscriptions([(NodeId(1), output)].into_iter().collect());
+    let mut context = CompileCtx::default();
+    let lanes = context.derived_lanes().clone();
+    let mut run = compiler
+        .start_app_run(widget.graph(), &mut context)
+        .expect("transaction demo should start");
+    run.wait();
+
+    lanes
+        .opaque_lanes()
+        .into_iter()
+        .find_map(|lane| {
+            lane.snapshot(CollectedLaneSnapshotRequest {
+                start_time_ns: 0,
+                end_time_ns: u64::MAX,
+                max_items: 4_096,
+            })
+            .and_then(|snapshot| snapshot.value::<ProtocolPacketLaneSnapshot>())
+        })
+        .expect("transaction output should publish protocol packets")
+        .packets()
+        .to_vec()
+}
+
+#[test]
+fn spi_transaction_demo_executes_complete_and_incomplete_cs_windows() {
+    let packets = transaction_packets(include_str!("../graphs/spi_transaction_demo.json"), 6);
+
+    assert_eq!(packets.len(), 25);
+    assert!(
+        packets
+            .iter()
+            .all(|packet| { packet.protocol_id == "org.logicconduit.spi-transaction/v1" })
+    );
+    assert_eq!(
+        packets
+            .iter()
+            .filter(|packet| {
+                matches!(
+                    &packet.value,
+                    ProtocolValue::Mapping(fields)
+                        if fields.get("complete") == Some(&ProtocolValue::Bool(false))
+                )
+            })
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn i2c_transaction_demo_executes_repeated_start_read_and_write_framing() {
+    let packets = transaction_packets(include_str!("../graphs/i2c_transaction_demo.json"), 1);
+    let commands = packets
+        .iter()
+        .filter_map(|packet| match &packet.value {
+            ProtocolValue::List(values) => match values.first() {
+                Some(ProtocolValue::String(command)) => Some(command.as_str()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    for (command, expected_count) in [
+        ("START", 12),
+        ("ADDRESS WRITE", 12),
+        ("DATA WRITE", 12),
+        ("START REPEAT", 12),
+        ("ADDRESS READ", 12),
+        ("DATA READ", 12),
+        ("ACK", 36),
+        ("NACK", 12),
+        ("STOP", 12),
+        ("BITS", 48),
+    ] {
+        assert_eq!(
+            commands
+                .iter()
+                .filter(|candidate| **candidate == command)
+                .count(),
+            expected_count,
+            "unexpected I²C event count for {command}"
+        );
+    }
+    assert_eq!(packets.len(), 180, "the dedicated bus has no extra events");
+}
+
 #[test]
 fn word_matcher_demo_fixture_loads_lowers_and_executes() {
     let graph: GraphState = serde_json::from_str(include_str!("../graphs/word_matcher_demo.json"))
@@ -347,7 +447,7 @@ fn built_in_startup_graph_lowers_with_explicit_subscriptions() {
         .unwrap_or_else(|errors| panic!("lower failed: {errors:?}"));
 
     assert_eq!(compiled.nodes.len(), 12);
-    assert_eq!(compiled.edges.len(), 32);
+    assert_eq!(compiled.edges.len(), 33);
 
     let spi_sampling = compiled
         .sampling_overlays

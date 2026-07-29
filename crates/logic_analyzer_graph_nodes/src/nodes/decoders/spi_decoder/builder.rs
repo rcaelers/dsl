@@ -8,10 +8,12 @@ use logic_analyzer_graph_api::node_support::{
     ResolvedInputs, SamplingOverlayDescriptor, SamplingQualifierDescriptor, ViewerOutputControl,
     parse_state,
 };
-use logic_analyzer_processing::nodes::decoders::spi_decoder::{SpiDecoder, SpiMode};
+use logic_analyzer_processing::nodes::decoders::spi_decoder::{
+    SPI_TRANSACTION_PROTOCOL_ID, SpiDecoder, SpiMode,
+};
 use logic_analyzer_processing::types::{BitOrder, CsPolarity};
 use node_graph::api::Socket;
-use signal_processing::{ProcessNode, Sample, SamplingEdge, Word};
+use signal_processing::{ProcessNode, ProtocolPacket, Sample, SamplingEdge, Word};
 
 #[derive(Default)]
 pub(crate) struct SpiDecoderBuilder;
@@ -38,6 +40,7 @@ impl RuntimeBuilder for SpiDecoderBuilder {
         match socket.def_index {
             2 | 3 => Some(ViewerOutputControl::new(false, [0])),
             4 | 5 => Some(ViewerOutputControl::new(false, [1])),
+            6 => Some(ViewerOutputControl::new(false, [6])),
             _ => Some(ViewerOutputControl::Hidden),
         }
     }
@@ -97,8 +100,18 @@ impl RuntimeBuilder for SpiDecoderBuilder {
     fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Sample>()]
     }
-    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
-        vec![PortKind::of::<Word>()]
+    fn offered_kinds(&self, socket: &Socket, _state: &Value) -> Vec<PortKind> {
+        if socket.def_index == 6 {
+            vec![PortKind::of_named::<ProtocolPacket>("Protocol Packet")]
+        } else {
+            vec![PortKind::of::<Word>()]
+        }
+    }
+    fn offered_connection_contracts(&self, socket: &Socket, _state: &Value) -> Vec<String> {
+        (socket.def_index == 6)
+            .then(|| SPI_TRANSACTION_PROTOCOL_ID.to_owned())
+            .into_iter()
+            .collect()
     }
     fn input_port(&self, socket: &Socket, _: usize, _: &Value, _: PortKind) -> Option<String> {
         match socket.def_index {
@@ -110,18 +123,22 @@ impl RuntimeBuilder for SpiDecoderBuilder {
         }
     }
     fn output_port(&self, socket: &Socket, _state: &Value, kind: PortKind) -> Option<String> {
-        if kind != PortKind::of::<Word>() {
-            return None;
+        if socket.def_index == 6 && kind == PortKind::of_named::<ProtocolPacket>("Protocol Packet")
+        {
+            return Some("transactions".to_owned());
         }
-        match socket.def_index {
-            0 => Some("mosi_words".into()),
-            1 => Some("miso_words".into()),
-            2 => Some("mosi_bits".into()),
-            3 => Some("mosi_data".into()),
-            4 => Some("miso_bits".into()),
-            5 => Some("miso_data".into()),
-            _ => None,
+        if kind == PortKind::of::<Word>() {
+            return match socket.def_index {
+                0 => Some("mosi_words".into()),
+                1 => Some("miso_words".into()),
+                2 => Some("mosi_bits".into()),
+                3 => Some("mosi_data".into()),
+                4 => Some("miso_bits".into()),
+                5 => Some("miso_data".into()),
+                _ => None,
+            };
         }
+        None
     }
     fn input_required(&self, socket: &Socket, state: &Value) -> bool {
         let Ok(state) = Self::parsed(state) else {

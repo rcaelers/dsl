@@ -5,6 +5,7 @@ use std::path::Path;
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
+use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
 use node_graph::{
     FileValue, InputDef, IntValue, NodeBadge, NodeDef, NodeInstanceSchema, OutputDef, Socket,
 };
@@ -12,7 +13,7 @@ use node_graph::{
 use super::metadata_platform;
 use crate::sockets::{COLOR_SOURCES, Signal, TextPath};
 
-const DEFAULT_DEMO_CHANNELS: usize = 11;
+const DEFAULT_DEMO_CHANNELS: usize = SyntheticCaptureSource::authored_channel_count();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct SigrokFileSourceState {

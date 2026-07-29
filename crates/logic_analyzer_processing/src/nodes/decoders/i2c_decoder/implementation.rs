@@ -5,6 +5,8 @@ use signal_processing::{
     SampleBlock, Word, WorkError, WorkResult,
 };
 
+pub const I2C_PROTOCOL_ID: &str = "i2c";
+
 #[derive(Clone, Copy, Debug)]
 struct SampledBit {
     value: bool,
@@ -107,7 +109,7 @@ impl I2cDecoder {
             end_sample,
             start_time_ns: start_sample.saturating_mul(timestamp_step),
             end_time_ns: end_sample.saturating_mul(timestamp_step),
-            protocol_id: "i2c".into(),
+            protocol_id: I2C_PROTOCOL_ID.into(),
             value: ProtocolValue::List(vec![ProtocolValue::String(command.into()), data]),
         }
     }
@@ -367,6 +369,83 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(commands, ["START", "BITS", "ADDRESS WRITE", "ACK", "STOP"]);
-        assert!(packets.iter().all(|packet| packet.protocol_id == "i2c"));
+        assert!(
+            packets
+                .iter()
+                .all(|packet| packet.protocol_id == I2C_PROTOCOL_ID)
+        );
+    }
+
+    #[test]
+    fn repeated_start_reframes_address_direction_data_and_acknowledgements() {
+        fn push(scl: &mut Vec<bool>, sda: &mut Vec<bool>, clock: bool, data: bool) {
+            scl.push(clock);
+            sda.push(data);
+        }
+        fn byte(scl: &mut Vec<bool>, sda: &mut Vec<bool>, value: u8) {
+            for bit in (0..8).rev() {
+                let value = value & (1 << bit) != 0;
+                push(scl, sda, false, value);
+                push(scl, sda, true, value);
+            }
+        }
+        fn acknowledge(scl: &mut Vec<bool>, sda: &mut Vec<bool>, ack: bool) {
+            push(scl, sda, false, !ack);
+            push(scl, sda, true, !ack);
+        }
+
+        let mut scl = vec![true];
+        let mut sda = vec![true];
+
+        push(&mut scl, &mut sda, true, false); // START
+        byte(&mut scl, &mut sda, 0xa0); // 0x50 write
+        acknowledge(&mut scl, &mut sda, true);
+        byte(&mut scl, &mut sda, 0x12);
+        acknowledge(&mut scl, &mut sda, true);
+        push(&mut scl, &mut sda, false, true);
+        push(&mut scl, &mut sda, true, true);
+        push(&mut scl, &mut sda, true, false); // repeated START
+        byte(&mut scl, &mut sda, 0xa1); // 0x50 read
+        acknowledge(&mut scl, &mut sda, true);
+        byte(&mut scl, &mut sda, 0xab);
+        acknowledge(&mut scl, &mut sda, false);
+        push(&mut scl, &mut sda, false, false);
+        push(&mut scl, &mut sda, true, false);
+        push(&mut scl, &mut sda, true, true); // STOP
+
+        let mut decoder = I2cDecoder::new();
+        let (words, packets) = decoder.process_blocks(&blocks(&scl, &sda));
+        assert_eq!(
+            words.iter().map(|word| word.value).collect::<Vec<_>>(),
+            [0x50, 0x12, 0x50, 0xab]
+        );
+        let commands = packets
+            .iter()
+            .filter_map(|packet| match &packet.value {
+                ProtocolValue::List(values) => match values.first() {
+                    Some(ProtocolValue::String(command)) if command != "BITS" => {
+                        Some(command.as_str())
+                    }
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            commands,
+            [
+                "START",
+                "ADDRESS WRITE",
+                "ACK",
+                "DATA WRITE",
+                "ACK",
+                "START REPEAT",
+                "ADDRESS READ",
+                "ACK",
+                "DATA READ",
+                "NACK",
+                "STOP",
+            ]
+        );
     }
 }

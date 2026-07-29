@@ -50,6 +50,16 @@ const EMBEDDED_DEMOS: &[EmbeddedDemo] = &[
         json: include_str!("../../../graphs/packet_framer_demo.json"),
     },
     EmbeddedDemo {
+        name: "SPI Transactions",
+        source: "graphs/spi_transaction_demo.json",
+        json: include_str!("../../../graphs/spi_transaction_demo.json"),
+    },
+    EmbeddedDemo {
+        name: "I²C Transactions",
+        source: "graphs/i2c_transaction_demo.json",
+        json: include_str!("../../../graphs/i2c_transaction_demo.json"),
+    },
+    EmbeddedDemo {
         name: "Word Field Extractor",
         source: "graphs/word_field_extractor_demo.json",
         json: include_str!("../../../graphs/word_field_extractor_demo.json"),

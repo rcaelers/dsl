@@ -9,7 +9,7 @@ use logic_analyzer_graph_api::node_support::{
 };
 use logic_analyzer_viewer::{
     OpaqueLaneDrawContext, ViewerLaneRenderer, ViewerLaneRendererRegistration, ViewerLaneTrack,
-    draw_span_snapshot,
+    draw_event_snapshot, draw_span_snapshot,
 };
 use signal_processing::{
     OpaqueCollectedLaneSnapshot, ProtocolPacket, ProtocolPacketLaneSnapshot, ProtocolValue,
@@ -36,41 +36,45 @@ impl ViewerLaneRenderer for ProtocolPacketRenderer {
         else {
             return false;
         };
-        let values = snapshot
-            .packets()
-            .iter()
-            .map(|packet| {
-                (
-                    packet.start_time_ns,
-                    packet.end_time_ns,
-                    packet_label(packet),
-                )
-            })
-            .collect::<Vec<_>>();
-        draw_span_snapshot(&context, &values, context.theme.accent);
         if !snapshot.activity_spans().is_empty() {
             let activity = snapshot
                 .activity_spans()
                 .iter()
-                .map(|&(start, end)| (start, end, String::new()))
+                .map(|&(start, end)| (start, end, "…".to_owned()))
                 .collect::<Vec<_>>();
             draw_span_snapshot(&context, &activity, context.theme.accent);
         }
+        let mut spans = Vec::new();
+        let mut events = Vec::new();
+        for packet in snapshot.packets() {
+            let display = packet_display(packet);
+            if !display.is_visible() {
+                continue;
+            }
+            if display.is_marker() {
+                events.push((packet.start_time_ns, display.label().to_owned()));
+            } else {
+                spans.push((
+                    packet.start_time_ns,
+                    packet.end_time_ns,
+                    display.label().to_owned(),
+                ));
+            }
+        }
+        draw_span_snapshot(&context, &spans, context.theme.accent);
+        draw_event_snapshot(&context, &events, context.theme.accent);
         true
     }
 }
 
-fn packet_label(packet: &ProtocolPacket) -> String {
-    protocol_packet_display(packet)
-        .map(|display| display.label().to_owned())
-        .unwrap_or_else(|| {
-            let display = ProtocolPacketDisplay::new(format!(
-                "{} · {}",
-                packet.protocol_id,
-                generic_value_label(&packet.value, 0)
-            ));
-            display.label().to_owned()
-        })
+fn packet_display(packet: &ProtocolPacket) -> ProtocolPacketDisplay {
+    protocol_packet_display(packet).unwrap_or_else(|| {
+        ProtocolPacketDisplay::new(format!(
+            "{} · {}",
+            packet.protocol_id,
+            generic_value_label(&packet.value, 0)
+        ))
+    })
 }
 
 fn generic_value_label(value: &ProtocolValue, depth: usize) -> String {
@@ -192,7 +196,7 @@ mod protocol_packet_tests {
         ]));
 
         assert_eq!(
-            packet_label(&packet("org.example.unknown/v1", value)),
+            packet_display(&packet("org.example.unknown/v1", value)).label(),
             "org.example.unknown/v1 · {\"bytes\": h'12AB', \"data\": [\"ACK\", 42]}"
         );
     }

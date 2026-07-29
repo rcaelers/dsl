@@ -8,7 +8,7 @@ use node_graph::{
     PanelSection, PropDef, PropertyPanelPresentation, Socket,
 };
 
-use crate::sockets::{COLOR_DECODERS, Signal, Words};
+use crate::sockets::{COLOR_DECODERS, ProtocolPackets, Signal, Words};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct SpiDecoderState {
@@ -71,6 +71,7 @@ impl NodeDef for SpiDecoder {
             OutputDef::new::<Words>("MOSI Data").editor_visible(false),
             OutputDef::new::<Words>("MISO Bits").editor_visible(false),
             OutputDef::new::<Words>("MISO Data").editor_visible(false),
+            OutputDef::new::<ProtocolPackets>("Transactions").stable_id("transactions"),
         ]
     }
 
@@ -220,9 +221,10 @@ mod tests {
 
         assert!(node.outputs[0].editor_visible);
         assert!(node.outputs[1].editor_visible);
-        for output in &node.outputs[2..] {
+        for output in &node.outputs[2..6] {
             assert!(!output.editor_visible);
         }
+        assert!(node.outputs[6].editor_visible);
     }
 
     #[test]

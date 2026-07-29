@@ -2,4 +2,4 @@
 
 mod implementation;
 
-pub use implementation::{SpiDecoder, SpiMode};
+pub use implementation::{SPI_TRANSACTION_PROTOCOL_ID, SpiDecoder, SpiMode};

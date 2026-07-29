@@ -899,24 +899,28 @@
           "schema_id": "MOSI Words"
         },
         {
-          "def_index": 1,
-          "schema_id": "MISO Words"
+          "schema_id": "MISO Words",
+          "def_index": 1
         },
         {
-          "def_index": 2,
-          "schema_id": "MOSI Bits"
+          "schema_id": "MOSI Bits",
+          "def_index": 2
         },
         {
-          "def_index": 3,
-          "schema_id": "MOSI Data"
+          "schema_id": "MOSI Data",
+          "def_index": 3
         },
         {
-          "def_index": 4,
-          "schema_id": "MISO Bits"
+          "schema_id": "MISO Bits",
+          "def_index": 4
         },
         {
-          "def_index": 5,
-          "schema_id": "MISO Data"
+          "schema_id": "MISO Data",
+          "def_index": 5
+        },
+        {
+          "schema_id": "transactions",
+          "def_index": 6
         }
       ],
       "pos": {

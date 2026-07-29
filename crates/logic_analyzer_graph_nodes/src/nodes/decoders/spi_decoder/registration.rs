@@ -5,6 +5,7 @@ inventory::submit! {
     >("org.logicconduit.graph-node.decoders.spi-decoder/v1").requiring_payloads(&[
         "org.logicconduit.digital-sample/v1",
         "org.logicconduit.word/v1",
+        "org.logicconduit.protocol-packet/v1",
     ])
 }
 

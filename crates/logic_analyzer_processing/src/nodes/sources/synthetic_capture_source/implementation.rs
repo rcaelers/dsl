@@ -5,17 +5,21 @@ use signal_processing::{
     WorkResult,
 };
 
-const CHANNEL_COUNT: usize = 11;
+const DEFAULT_CHANNEL_COUNT: usize = 11;
+const AUTHORED_CHANNEL_COUNT: usize = 13;
+const I2C_SCL_CHANNEL: usize = 11;
+const I2C_SDA_CHANNEL: usize = 12;
 const SAMPLE_COUNT: usize = 60_000;
 const TIMESTAMP_STEP_NS: u64 = 1_000_000;
 const CYCLE_SAMPLES: usize = 5_000;
 const CYCLE_COUNT: usize = 12;
 
 /// In-memory capture containing an eight-bit parallel bus and repeated SPI
-/// transactions. Channels intentionally match the controlled-decoder
-/// example: D0..D7 are Ch 0..7, SPI uses CS=8/CLK=7/MOSI=6/MISO=5, and the
-/// parallel strobe is Ch 10. Twelve activity groups span a one-minute
-/// timeline. SPI markers drive the graph's latch and parallel enable gate.
+/// transactions and a repeated-start I²C exchange. Channels intentionally match the controlled-decoder
+/// example: D0..D7 are Ch 0..7, SPI uses CS=8/CLK=7/MOSI=6/MISO=5, the
+/// parallel strobe is Ch 10, and the dedicated I²C bus uses SCL=11/SDA=12.
+/// Twelve activity groups span a one-minute timeline. SPI markers drive the
+/// graph's latch and parallel enable gate.
 pub struct SyntheticCaptureSource {
     name: String,
     channel_count: usize,
@@ -26,7 +30,7 @@ impl SyntheticCaptureSource {
     pub fn new() -> Self {
         Self {
             name: "synthetic_capture_source".to_owned(),
-            channel_count: CHANNEL_COUNT,
+            channel_count: DEFAULT_CHANNEL_COUNT,
             emitted: false,
         }
     }
@@ -44,19 +48,21 @@ impl SyntheticCaptureSource {
         self
     }
 
+    /// Number of distinct channels authored by the mixed-protocol fixture.
+    pub const fn authored_channel_count() -> usize {
+        AUTHORED_CHANNEL_COUNT
+    }
+
     /// Edge-form raw channels for displaying this generated capture before
     /// the processing graph starts.
     pub fn preview_channels() -> Vec<Vec<Sample>> {
-        demo_channels()
-            .iter()
-            .map(|channel| edges(channel))
-            .collect()
+        Self::preview_channels_with_count(DEFAULT_CHANNEL_COUNT)
     }
 
     pub fn preview_channels_with_count(channel_count: usize) -> Vec<Vec<Sample>> {
         let channels = demo_channels();
         (0..channel_count.clamp(1, 32))
-            .map(|channel| edges(&channels[channel % CHANNEL_COUNT]))
+            .map(|channel| edges(&channels[channel % AUTHORED_CHANNEL_COUNT]))
             .collect()
     }
 }
@@ -110,7 +116,7 @@ impl ProcessNode for SyntheticCaptureSource {
 
         let channels = demo_channels();
         for channel in 0..self.channel_count {
-            let values = &channels[channel % CHANNEL_COUNT];
+            let values = &channels[channel % AUTHORED_CHANNEL_COUNT];
             if let Some(output) = outputs.get(channel).and_then(|port| port.get::<Sample>()) {
                 output.send_batch(edges(values))?;
             }
@@ -132,8 +138,10 @@ impl ProcessNode for SyntheticCaptureSource {
 }
 
 fn demo_channels() -> Vec<Vec<bool>> {
-    let mut channels = vec![vec![false; SAMPLE_COUNT]; CHANNEL_COUNT];
+    let mut channels = vec![vec![false; SAMPLE_COUNT]; AUTHORED_CHANNEL_COUNT];
     set_range(&mut channels[8], 0, SAMPLE_COUNT, true); // CS idle / bus enabled
+    set_range(&mut channels[I2C_SCL_CHANNEL], 0, SAMPLE_COUNT, true);
+    set_range(&mut channels[I2C_SDA_CHANNEL], 0, SAMPLE_COUNT, true);
 
     for cycle in 0..CYCLE_COUNT {
         let base = cycle * CYCLE_SAMPLES;
@@ -159,6 +167,10 @@ fn demo_channels() -> Vec<Vec<bool>> {
             base + 1_440,
             &[0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80],
         );
+        add_i2c_exchange(&mut channels, base + 1_800);
+        if cycle == 0 {
+            add_incomplete_spi_transaction(&mut channels, base + 2_700);
+        }
     }
     // Give raw viewers an explicit endpoint at almost exactly one minute.
     set_range(&mut channels[10], SAMPLE_COUNT - 2, SAMPLE_COUNT - 1, true);
@@ -208,6 +220,70 @@ fn add_spi_transaction(channels: &mut [Vec<bool>], start: usize, mosi: &[u8], mi
     }
 }
 
+fn add_incomplete_spi_transaction(channels: &mut [Vec<bool>], start: usize) {
+    const BIT_SAMPLES: usize = 10;
+    const BITS: usize = 5;
+    let end = start + BITS * BIT_SAMPLES + 16;
+    set_range(&mut channels[8], start, end, false);
+    for bit in 0..BITS {
+        let bit_start = start + 8 + bit * BIT_SAMPLES;
+        set_range(
+            &mut channels[6],
+            bit_start,
+            bit_start + BIT_SAMPLES,
+            0b10110 & (1 << (BITS - 1 - bit)) != 0,
+        );
+        set_range(&mut channels[7], bit_start + 3, bit_start + 7, true);
+    }
+}
+
+fn add_i2c_exchange(channels: &mut [Vec<bool>], start: usize) {
+    const PHASE_SAMPLES: usize = 4;
+    let mut cursor = start;
+    let phase = |channels: &mut [Vec<bool>], cursor: &mut usize, scl: bool, sda: bool| {
+        set_range(
+            &mut channels[I2C_SCL_CHANNEL],
+            *cursor,
+            *cursor + PHASE_SAMPLES,
+            scl,
+        );
+        set_range(
+            &mut channels[I2C_SDA_CHANNEL],
+            *cursor,
+            *cursor + PHASE_SAMPLES,
+            sda,
+        );
+        *cursor += PHASE_SAMPLES;
+    };
+    let byte = |channels: &mut [Vec<bool>], cursor: &mut usize, value: u8| {
+        for bit in (0..8).rev() {
+            let data = value & (1 << bit) != 0;
+            phase(channels, cursor, false, data);
+            phase(channels, cursor, true, data);
+        }
+    };
+    let acknowledge = |channels: &mut [Vec<bool>], cursor: &mut usize, ack: bool| {
+        phase(channels, cursor, false, !ack);
+        phase(channels, cursor, true, !ack);
+    };
+
+    phase(channels, &mut cursor, true, false); // START
+    byte(channels, &mut cursor, 0xa0); // address 0x50, write
+    acknowledge(channels, &mut cursor, true);
+    byte(channels, &mut cursor, 0x12);
+    acknowledge(channels, &mut cursor, true);
+    phase(channels, &mut cursor, false, true);
+    phase(channels, &mut cursor, true, true);
+    phase(channels, &mut cursor, true, false); // repeated START
+    byte(channels, &mut cursor, 0xa1); // address 0x50, read
+    acknowledge(channels, &mut cursor, true);
+    byte(channels, &mut cursor, 0xab);
+    acknowledge(channels, &mut cursor, false);
+    phase(channels, &mut cursor, false, false);
+    phase(channels, &mut cursor, true, false);
+    phase(channels, &mut cursor, true, true); // STOP
+}
+
 fn set_range(channel: &mut [bool], start: usize, end: usize, value: bool) {
     channel[start..end].fill(value);
 }
@@ -242,7 +318,7 @@ mod tests {
     #[test]
     fn capture_spans_one_minute_with_repeated_activity() {
         let channels = demo_channels();
-        assert_eq!(channels.len(), CHANNEL_COUNT);
+        assert_eq!(channels.len(), AUTHORED_CHANNEL_COUNT);
         assert!(channels.iter().all(|channel| channel.len() == SAMPLE_COUNT));
         assert_eq!(edges(&channels[10]).len(), 579); // initial + 288 strobes + endpoint pulse
         assert_eq!(
@@ -250,7 +326,7 @@ mod tests {
                 .iter()
                 .filter(|sample| !sample.value)
                 .count(),
-            24
+            25
         );
         assert_eq!(
             edges(&channels[10]).last().unwrap().start_time_ns,
@@ -296,34 +372,45 @@ mod tests {
         );
 
         let spi_words = |data_channel: usize| {
-            edges(&channels[7])
-                .into_iter()
-                .filter(|sample| sample.value)
-                .filter(|sample| {
-                    let position = (sample.start_time_ns / TIMESTAMP_STEP_NS) as usize;
-                    !channels[8][position]
-                })
-                .map(|sample| {
-                    let position = (sample.start_time_ns / TIMESTAMP_STEP_NS) as usize;
-                    channels[data_channel][position]
-                })
-                .collect::<Vec<_>>()
-                .as_chunks::<8>()
-                .0
-                .iter()
-                .map(|bits| {
+            let clock_edges = edges(&channels[7]);
+            let chip_select_edges = edges(&channels[8]);
+            let mut words = Vec::new();
+            let mut incomplete_bit_counts = Vec::new();
+            for (index, edge) in chip_select_edges.iter().enumerate() {
+                if edge.value {
+                    continue;
+                }
+                let end = chip_select_edges[index + 1].start_time_ns;
+                let bits = clock_edges
+                    .iter()
+                    .filter(|clock| {
+                        clock.value
+                            && clock.start_time_ns >= edge.start_time_ns
+                            && clock.start_time_ns < end
+                    })
+                    .map(|clock| {
+                        let position = (clock.start_time_ns / TIMESTAMP_STEP_NS) as usize;
+                        channels[data_channel][position]
+                    })
+                    .collect::<Vec<_>>();
+                let (complete_words, incomplete_bits) = bits.as_chunks::<8>();
+                words.extend(complete_words.iter().map(|bits| {
                     bits.iter()
                         .fold(0u8, |word, bit| (word << 1) | u8::from(*bit))
-                })
-                .collect::<Vec<_>>()
+                }));
+                if !incomplete_bits.is_empty() {
+                    incomplete_bit_counts.push(incomplete_bits.len());
+                }
+            }
+            (words, incomplete_bit_counts)
         };
         assert_eq!(
             spi_words(6),
-            [0x9a, 0xbc, 0x42, 0xde, 0xad].repeat(CYCLE_COUNT)
+            ([0x9a, 0xbc, 0x42, 0xde, 0xad].repeat(CYCLE_COUNT), vec![5])
         );
         assert_eq!(
             spi_words(5),
-            [0x11, 0x22, 0x33, 0xbe, 0xef].repeat(CYCLE_COUNT)
+            ([0x11, 0x22, 0x33, 0xbe, 0xef].repeat(CYCLE_COUNT), vec![5])
         );
     }
 }

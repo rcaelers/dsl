@@ -41,9 +41,6 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ### Graph nodes
 
-- [graph.nodes.transaction-decoders] Add transaction-level SPI presentation, including chip-select-bounded transfers and incomplete
-  transfer diagnostics; extend the native I²C node with address/data/ACK framing and repeated
-  starts.
 - [graph.nodes.measurement-statistics] Add generic measurement and statistics nodes for frequency, duty cycle, pulse width,
   inter-event timing, counts, and histograms.
 - [graph.nodes.timeline-markers] Introduce persisted, named graph timeline markers controlled by the host UI through an explicit

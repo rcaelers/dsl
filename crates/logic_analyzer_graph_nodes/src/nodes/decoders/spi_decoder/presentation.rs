@@ -1,15 +1,21 @@
 //! Viewer presentation for SPI-derived lanes.
 
+use std::fmt::Write;
 use std::sync::Arc;
 
+use logic_analyzer_graph_api::node::{
+    ProtocolPacketDisplay, ProtocolPacketPresentationRegistration,
+};
 use logic_analyzer_graph_api::node_support::{
     DecoderTableCellMode, DecoderTableColumnDescriptor, LaneBadgeDescriptor,
     LanePresentationDescriptor,
 };
+use logic_analyzer_processing::nodes::decoders::spi_decoder::SPI_TRANSACTION_PROTOCOL_ID;
 use logic_analyzer_viewer::{
-    AnnotationVisual, DerivedLaneId, ViewerLaneGroup, ViewerLaneRenderer,
-    ViewerLaneRendererRegistration, ViewerLaneTheme, ViewerLaneTrackId,
+    AnnotationVisual, DefaultViewerLaneRenderer, DerivedLaneId, ViewerLaneGroup,
+    ViewerLaneRenderer, ViewerLaneRendererRegistration, ViewerLaneTheme, ViewerLaneTrackId,
 };
+use signal_processing::{ProtocolPacket, ProtocolValue};
 
 use crate::payloads::WordSnapshotRenderer;
 
@@ -77,6 +83,18 @@ pub(crate) fn spi_output_presentation(def_index: usize) -> Option<LanePresentati
 }
 
 pub(crate) fn spi_table_column(def_index: usize) -> Option<DecoderTableColumnDescriptor> {
+    if def_index == 6 {
+        return Some(DecoderTableColumnDescriptor::new(
+            "transactions",
+            "transaction",
+            "Transaction",
+            0,
+            true,
+            DecoderTableCellMode::Single,
+            "transaction",
+            SPI_TRANSACTION_TABLE_RENDERER,
+        ));
+    }
     let (column_key, label, order, row_anchor, mode, track_key) = match def_index {
         2 => (
             "mosi_bits",
@@ -126,6 +144,85 @@ pub(crate) fn spi_table_column(def_index: usize) -> Option<DecoderTableColumnDes
 
 const SPI_WAVEFORM_RENDERER: &str = "org.logicconduit.renderer.spi-waveform/v1";
 const SPI_TABLE_RENDERER: &str = "org.logicconduit.renderer.spi-table/v1";
+const SPI_TRANSACTION_TABLE_RENDERER: &str = "org.logicconduit.renderer.spi-transaction-table/v1";
+
+inventory::submit! {
+    ProtocolPacketPresentationRegistration::new(
+        SPI_TRANSACTION_PROTOCOL_ID,
+        spi_transaction_display,
+    )
+}
+
+inventory::submit! {
+    ViewerLaneRendererRegistration::new(SPI_TRANSACTION_TABLE_RENDERER, || {
+        Arc::new(DefaultViewerLaneRenderer)
+    })
+}
+
+fn spi_transaction_display(packet: &ProtocolPacket) -> ProtocolPacketDisplay {
+    ProtocolPacketDisplay::new(spi_transaction_label(packet))
+}
+
+fn spi_transaction_label(packet: &ProtocolPacket) -> String {
+    let ProtocolValue::Mapping(fields) = &packet.value else {
+        return packet.display_text();
+    };
+    let digits = fields
+        .get("word_bits")
+        .and_then(|value| match value {
+            ProtocolValue::Integer(bits) if *bits > 0 => usize::try_from(*bits).ok(),
+            _ => None,
+        })
+        .map_or(2, |bits| bits.div_ceil(4));
+    let mut parts = Vec::new();
+    for (key, label) in [("mosi", "MOSI"), ("miso", "MISO")] {
+        let Some(ProtocolValue::List(words)) = fields.get(key) else {
+            continue;
+        };
+        let mut text = format!("{label} [");
+        for (index, word) in words.iter().take(8).enumerate() {
+            if index > 0 {
+                text.push(' ');
+            }
+            match word {
+                ProtocolValue::Integer(value) if *value >= 0 => {
+                    let _ = write!(text, "{value:0digits$X}");
+                }
+                _ => text.push('?'),
+            }
+        }
+        if words.len() > 8 {
+            let _ = write!(text, " … +{}", words.len() - 8);
+        }
+        text.push(']');
+        parts.push(text);
+    }
+    if fields.get("complete") == Some(&ProtocolValue::Bool(false)) {
+        let diagnostics = fields
+            .get("diagnostics")
+            .and_then(|value| match value {
+                ProtocolValue::List(values) => Some(values),
+                _ => None,
+            })
+            .into_iter()
+            .flatten()
+            .filter_map(|value| match value {
+                ProtocolValue::String(diagnostic) => Some(diagnostic.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if diagnostics.is_empty() {
+            parts.push("Incomplete".to_owned());
+        } else {
+            parts.push(format!("Incomplete ({})", diagnostics.join("; ")));
+        }
+    }
+    if parts.is_empty() {
+        packet.display_text()
+    } else {
+        parts.join(" · ")
+    }
+}
 
 inventory::submit! {
     ViewerLaneRendererRegistration::new(SPI_WAVEFORM_RENDERER, || {
@@ -138,7 +235,10 @@ inventory::submit! {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use egui::{Color32, Stroke};
+
     use logic_analyzer_viewer::ViewerLaneBadge;
 
     use super::*;
@@ -205,5 +305,46 @@ mod tests {
         let rects = group.track_rects(0.0, 60.0);
         assert_eq!(rects[0].2, 30.0);
         assert_eq!(rects[1].2, 30.0);
+    }
+
+    #[test]
+    fn transaction_packet_shows_both_directions_and_completion() {
+        let packet = ProtocolPacket {
+            start_sample: 0,
+            end_sample: 0,
+            start_time_ns: 10,
+            end_time_ns: 20,
+            protocol_id: SPI_TRANSACTION_PROTOCOL_ID.to_owned(),
+            value: ProtocolValue::Mapping(BTreeMap::from([
+                ("complete".to_owned(), ProtocolValue::Bool(false)),
+                (
+                    "diagnostics".to_owned(),
+                    ProtocolValue::List(vec![ProtocolValue::String(
+                        "incomplete word: 5/8 bits".to_owned(),
+                    )]),
+                ),
+                ("word_bits".to_owned(), ProtocolValue::Integer(8)),
+                (
+                    "mosi".to_owned(),
+                    ProtocolValue::List(vec![
+                        ProtocolValue::Integer(0x9a),
+                        ProtocolValue::Integer(0xbc),
+                    ]),
+                ),
+                (
+                    "miso".to_owned(),
+                    ProtocolValue::List(vec![
+                        ProtocolValue::Integer(0x11),
+                        ProtocolValue::Integer(0x22),
+                    ]),
+                ),
+            ])),
+        };
+
+        assert_eq!(
+            spi_transaction_label(&packet),
+            "MOSI [9A BC] · MISO [11 22] · Incomplete (incomplete word: 5/8 bits)"
+        );
+        assert_eq!(spi_table_column(6).unwrap().source_key, "transactions");
     }
 }

@@ -1,8 +1,10 @@
 use serde_json::Value;
 
 use logic_analyzer_graph_api::node::RuntimeBuilder;
-use logic_analyzer_graph_api::node_support::{NodeBuildContext, PortKind, ResolvedInputs};
-use logic_analyzer_processing::nodes::decoders::i2c_decoder::I2cDecoder;
+use logic_analyzer_graph_api::node_support::{
+    DecoderTableColumnDescriptor, NodeBuildContext, PortKind, ResolvedInputs,
+};
+use logic_analyzer_processing::nodes::decoders::i2c_decoder::{I2C_PROTOCOL_ID, I2cDecoder};
 use node_graph::api::Socket;
 use signal_processing::{ProcessNode, ProtocolPacket, SampleBlock, Word};
 
@@ -10,6 +12,14 @@ use signal_processing::{ProcessNode, ProtocolPacket, SampleBlock, Word};
 pub(crate) struct I2cDecoderBuilder;
 
 impl RuntimeBuilder for I2cDecoderBuilder {
+    fn decoder_table_column(
+        &self,
+        socket: &Socket,
+        _state: &Value,
+    ) -> Option<DecoderTableColumnDescriptor> {
+        super::presentation::i2c_table_column(socket.def_index)
+    }
+
     fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<SampleBlock>()]
     }
@@ -24,7 +34,7 @@ impl RuntimeBuilder for I2cDecoderBuilder {
 
     fn offered_connection_contracts(&self, socket: &Socket, _state: &Value) -> Vec<String> {
         if socket.def_index == 1 {
-            vec!["i2c".to_owned()]
+            vec![I2C_PROTOCOL_ID.to_owned()]
         } else {
             Vec::new()
         }

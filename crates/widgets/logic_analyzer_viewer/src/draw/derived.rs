@@ -269,6 +269,62 @@ pub fn draw_span_snapshot(
     }
 }
 
+/// Draws instantaneous, labeled events without implying that the event owns
+/// a duration on the timeline.
+pub fn draw_event_snapshot(
+    context: &OpaqueLaneDrawContext<'_>,
+    events: &[(u64, String)],
+    color: Color32,
+) {
+    let marker_top = context.top + context.height * 0.12;
+    let marker_bottom = context.top + context.height * 0.88;
+    let label_height = (context.height * 0.48).clamp(14.0, 20.0);
+    for (time_ns, label) in events {
+        if *time_ns < context.visible_start_ns || *time_ns > context.visible_end_ns {
+            continue;
+        }
+        let x = context
+            .time_to_x(*time_ns)
+            .clamp(context.wave_rect.left(), context.wave_rect.right());
+        context.painter.line_segment(
+            [Pos2::new(x, marker_top), Pos2::new(x, marker_bottom)],
+            Stroke::new(1.5, color),
+        );
+        if label.is_empty() {
+            continue;
+        }
+
+        let label_width = annotation_label_width(label);
+        let gap = 3.0;
+        let left = if x + gap + label_width <= context.wave_rect.right() {
+            x + gap
+        } else {
+            (x - gap - label_width).max(context.wave_rect.left())
+        };
+        let rect = Rect::from_center_size(
+            Pos2::new(left + label_width / 2.0, context.top + context.height / 2.0),
+            egui::vec2(label_width, label_height),
+        )
+        .intersect(context.wave_rect);
+        if rect.width() < label_width {
+            continue;
+        }
+        context
+            .painter
+            .rect_filled(rect, 2.0, context.theme.background);
+        context
+            .painter
+            .rect_stroke(rect, 2.0, Stroke::new(1.0, color), egui::StrokeKind::Inside);
+        context.painter.text(
+            rect.center(),
+            Align2::CENTER_CENTER,
+            label,
+            FontId::monospace(11.0),
+            context.theme.foreground,
+        );
+    }
+}
+
 /// Draws bounded dense value activity supplied by a lane query.
 pub fn draw_value_activity(
     context: &OpaqueLaneDrawContext<'_>,

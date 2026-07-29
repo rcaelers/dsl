@@ -1,0 +1,240 @@
+{
+  "nodes": {
+    "0": {
+      "id": 0,
+      "kind": "Regular",
+      "title": "Synthetic Transaction Bus",
+      "type_name": "Sigrok File Source",
+      "header_color": [
+        100,
+        75,
+        140,
+        255
+      ],
+      "pos": {
+        "x": 40.0,
+        "y": 220.0
+      },
+      "inputs": [
+        {
+          "schema_id": "File"
+        }
+      ],
+      "outputs": [
+        {
+          "schema_id": "Ch 0"
+        },
+        {
+          "schema_id": "Ch 1",
+          "def_index": 1
+        },
+        {
+          "schema_id": "Ch 2",
+          "def_index": 2
+        },
+        {
+          "schema_id": "Ch 3",
+          "def_index": 3
+        },
+        {
+          "schema_id": "Ch 4",
+          "def_index": 4
+        },
+        {
+          "schema_id": "Ch 5",
+          "def_index": 5
+        },
+        {
+          "schema_id": "Ch 6",
+          "def_index": 6
+        },
+        {
+          "schema_id": "Ch 7",
+          "def_index": 7
+        },
+        {
+          "schema_id": "Ch 8",
+          "def_index": 8
+        },
+        {
+          "schema_id": "Ch 9",
+          "def_index": 9
+        },
+        {
+          "schema_id": "Ch 10",
+          "def_index": 10
+        },
+        {
+          "schema_id": "Ch 11",
+          "def_index": 11
+        },
+        {
+          "schema_id": "Ch 12",
+          "def_index": 12
+        }
+      ],
+      "collapsed": false,
+      "muted": false,
+      "state": {
+        "channel_names": [
+          "Ch 0",
+          "Ch 1",
+          "Ch 2",
+          "Ch 3",
+          "Ch 4",
+          "Ch 5",
+          "Ch 6",
+          "Ch 7",
+          "Ch 8",
+          "Ch 9",
+          "Ch 10",
+          "Ch 11",
+          "Ch 12"
+        ],
+        "demo_data": true,
+        "file": {
+          "dialog_title": "Select sigrok capture",
+          "filters": [
+            {
+              "extensions": [
+                "sr"
+              ],
+              "name": "Sigrok captures"
+            }
+          ],
+          "save": false,
+          "value": ""
+        },
+        "metadata_path": ""
+      },
+      "selected": false
+    },
+    "1": {
+      "id": 1,
+      "kind": "Regular",
+      "title": "Decode Address, Data, ACK, and Repeated Start",
+      "type_name": "I2C Decoder",
+      "header_color": [
+        60,
+        100,
+        160,
+        255
+      ],
+      "pos": {
+        "x": 420.0,
+        "y": 220.0
+      },
+      "inputs": [
+        {
+          "schema_id": "SCL"
+        },
+        {
+          "schema_id": "SDA",
+          "def_index": 1
+        }
+      ],
+      "outputs": [
+        {
+          "schema_id": "Words"
+        },
+        {
+          "schema_id": "packets",
+          "def_index": 1
+        }
+      ],
+      "collapsed": false,
+      "muted": false,
+      "state": null,
+      "selected": false
+    }
+  },
+  "connections": [
+    {
+      "from": {
+        "node": 0,
+        "index": 11,
+        "direction": "Output"
+      },
+      "to": {
+        "node": 1,
+        "index": 0,
+        "direction": "Input"
+      }
+    },
+    {
+      "from": {
+        "node": 0,
+        "index": 12,
+        "direction": "Output"
+      },
+      "to": {
+        "node": 1,
+        "index": 1,
+        "direction": "Input"
+      }
+    }
+  ],
+  "frames": [],
+  "next_id": 2,
+  "next_frame_id": 0,
+  "extensions": {
+    "logic_analyzer_graph.payload_subscriptions": {
+      "subscriptions": [
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 11
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 12
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.protocol-packet/v1",
+          "target": {
+            "ShowInView": {
+              "node": 1,
+              "output": 1
+            }
+          }
+        }
+      ],
+      "version": 1
+    },
+    "logic_analyzer_graph.viewer_selections": {
+      "selections": [
+        {
+          "endpoint": {
+            "node": 0,
+            "output": "Ch 11"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 0,
+            "output": "Ch 12"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 1,
+            "output": "packets"
+          },
+          "selected": true
+        }
+      ],
+      "version": 1
+    }
+  }
+}
