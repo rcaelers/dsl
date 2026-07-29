@@ -2,4 +2,4 @@
 
 mod implementation;
 
-pub use implementation::{MatchOp, TriggerAt, WordMatcher};
+pub use implementation::{MatchOp, PredicateMode, TriggerAt, WordMatcher};

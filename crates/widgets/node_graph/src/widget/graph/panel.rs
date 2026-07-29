@@ -25,10 +25,12 @@ const PANEL_MARGIN_Y: f32 = 8.0;
 const PANEL_TITLE_BLOCK_HEIGHT: f32 = 44.0;
 const COLLAPSING_HEADER_HEIGHT: f32 = 26.0;
 const PANEL_SECTION_GAP: f32 = 4.0;
+const PANEL_MEASUREMENT_PADDING: f32 = 1.0;
 
 pub(crate) struct PanelState {
     pub active_tab: Option<String>,
     pub width: f32,
+    measured_node_height: Option<(NodeId, f32)>,
 }
 
 impl Default for PanelState {
@@ -36,6 +38,7 @@ impl Default for PanelState {
         Self {
             active_tab: Some("node".to_owned()),
             width: 300.0,
+            measured_node_height: None,
         }
     }
 }
@@ -143,6 +146,11 @@ impl NodeGraphWidget {
         let Some(node_id) = self.panel_target() else {
             return PANEL_MARGIN_Y * 2.0 + PANEL_TITLE_BLOCK_HEIGHT;
         };
+        if let Some((measured_node, height)) = self.panel.measured_node_height
+            && measured_node == node_id
+        {
+            return height;
+        }
         let mut height = PANEL_MARGIN_Y * 2.0
             + PANEL_TITLE_BLOCK_HEIGHT
             + COLLAPSING_HEADER_HEIGHT
@@ -327,13 +335,14 @@ impl NodeGraphWidget {
         let content = panel_rect.shrink2(Vec2::new(10.0, 8.0));
         let mut changed = false;
         let mut pending_panel_action = None;
+        let mut measured_height = None;
         ui.scope_builder(
             UiBuilder::new()
                 .max_rect(content)
                 .layout(Layout::top_down(Align::Min)),
             |ui| {
                 ui.set_clip_rect(panel_rect);
-                egui::ScrollArea::vertical()
+                let output = egui::ScrollArea::vertical()
                     .id_salt("props-panel-scroll")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
@@ -438,8 +447,15 @@ impl NodeGraphWidget {
                             }
                         });
                     });
+                measured_height = Some(
+                    output.content_size.y.ceil() + PANEL_MARGIN_Y * 2.0 + PANEL_MEASUREMENT_PADDING,
+                );
             },
         );
+
+        if let Some(height) = measured_height {
+            self.panel.measured_node_height = Some((node_id, height));
+        }
 
         if changed {
             self.run_update(node_id);
@@ -647,6 +663,41 @@ mod panel_tests {
         let panel = widget.panel_rect(canvas).expect("view panel is open");
 
         assert_eq!(panel.height(), 100.0);
+    }
+
+    #[test]
+    fn node_panel_uses_measured_content_height_and_clamps_to_the_canvas() {
+        let mut registry = NodeTypeRegistry::new();
+        registry.register::<TestNode>();
+        let mut widget = NodeGraphWidget::new(registry);
+        let node = widget
+            .add_node_at(TestNode::name(), Pos2::ZERO)
+            .expect("test node is registered");
+        widget
+            .graph
+            .nodes
+            .get_mut(&node)
+            .expect("test node exists")
+            .selected = true;
+        widget.panel.measured_node_height = Some((node, 480.0));
+
+        let spacious_canvas = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 800.0));
+        assert_eq!(
+            widget
+                .panel_rect(spacious_canvas)
+                .expect("node panel is open")
+                .height(),
+            480.0
+        );
+
+        let short_canvas = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 300.0));
+        assert_eq!(
+            widget
+                .panel_rect(short_canvas)
+                .expect("node panel is open")
+                .height(),
+            300.0
+        );
     }
 
     #[test]

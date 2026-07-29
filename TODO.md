@@ -41,9 +41,6 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ### Graph nodes
 
-- [graph.nodes.word-matcher] Extend `Word Matcher` with range/set predicates, match-count and holdoff/rearm options, and an
-  optional matched-word output. Its existing trigger placement remains explicit: word start or
-  word end.
 - [graph.nodes.transaction-decoders] Add transaction-level SPI presentation, including chip-select-bounded transfers and incomplete
   transfer diagnostics; extend the native I²C node with address/data/ACK framing and repeated
   starts.

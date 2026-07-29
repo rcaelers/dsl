@@ -97,7 +97,7 @@ traces, decoded-word boxes, and trigger markers.
 |---|---|
 | Sources | DSL File Source · Sigrok File Source · DSLogic U3Pro16 (live USB capture) |
 | Decoders | SPI Decoder · UART Decoder · Parallel Decoder (1–64-bit bus, SDR/DDR/level sampling) · I2C Decoder (placeholder — editable but not yet runnable) |
-| Logic | Packet Framer · Word Field Extractor · Word Matcher · Edge Detector · Event Gate · Event Control · SR Flip-Flop · Logic Gate (NOT/AND/OR/XOR/…) · Counter · String Formatter · Buffer |
+| Logic | Packet Framer · Word Field Extractor · Word Matcher (compare/range/set, counting, holdoff/rearm) · Edge Detector · Event Gate · Event Control · SR Flip-Flop · Logic Gate (NOT/AND/OR/XOR/…) · Counter · String Formatter · Buffer |
 | Sinks | File Writer · Text File Writer · TGCK Recorder · Viewer |
 
 A typical trigger-and-capture graph: decode SPI commands, match start/stop words, drive an
@@ -167,9 +167,10 @@ compile-time extension: build with
 
 Loadable pipeline examples live in [graphs/](graphs). They include file-backed
 SPI processing, direct DSLogic U3Pro16 capture graphs, and the self-contained
-[`word_field_extractor_demo.json`](graphs/word_field_extractor_demo.json) and
-[`packet_framer_demo.json`](graphs/packet_framer_demo.json), and
-[`event_controls_demo.json`](graphs/event_controls_demo.json):
+[`word_field_extractor_demo.json`](graphs/word_field_extractor_demo.json),
+[`packet_framer_demo.json`](graphs/packet_framer_demo.json),
+[`event_controls_demo.json`](graphs/event_controls_demo.json), and
+[`word_matcher_demo.json`](graphs/word_matcher_demo.json):
 
 The packet-framer demo combines a fixed word count, a Word Matcher Boundary,
 and a synthetic capture channel used as an active-high Gate. Its explicit Word
@@ -179,6 +180,10 @@ backpressure.
 The event-controls demo qualifies rising strobe edges, gates them with a
 synthetic signal, and compares automatic holdoff and delay with a branch that
 is explicitly rearmed by falling chip-select edges.
+
+The word-matcher demo compares exact, inclusive-range, and set predicates. It
+also demonstrates every-Nth-match selection, holdoff, explicit rearming, and
+the matching-word output.
 
 ```bash
 cargo run --release --bin logic-conduit -- graphs/spi_controlled_decode.json

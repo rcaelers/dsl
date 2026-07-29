@@ -71,6 +71,26 @@ impl TriggerAt {
     }
 }
 
+/// Predicate family applied to the masked numeric word value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PredicateMode {
+    #[default]
+    Compare,
+    InclusiveRange,
+    Set,
+}
+
+impl PredicateMode {
+    pub fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "compare" => Self::Compare,
+            "range" => Self::InclusiveRange,
+            "set" => Self::Set,
+            _ => return None,
+        })
+    }
+}
+
 /// Emits a [`Trigger`] for every word where `(word & mask) OP (pattern &
 /// mask)` holds (`OP` = [`MatchOp`], `==` by default). The trigger lands at
 /// the word's end by default ([`TriggerAt`]).
@@ -85,9 +105,24 @@ pub struct WordMatcher {
     mask: u64,
     op: MatchOp,
     trigger_at: TriggerAt,
+    predicate_mode: PredicateMode,
+    range_min: u64,
+    range_max: u64,
+    set_values: Vec<u64>,
+    match_count: u64,
+    holdoff_ns: u64,
+    manual_rearm: bool,
+    armed: bool,
+    next_allowed_ns: u64,
+    eligible_matches: u64,
     /// Width of the visualization pulse on the `matched` output.
     pulse_ns: u64,
     input_buffer: VecDeque<Word>,
+    rearm_buffer: VecDeque<Trigger>,
+    word_head: Option<Word>,
+    rearm_head: Option<Trigger>,
+    word_eos: bool,
+    rearm_eos: bool,
     matches: u64,
     /// End of the previously emitted pulse (monotonicity guard).
     last_pulse_end: u64,
@@ -95,12 +130,18 @@ pub struct WordMatcher {
     scheduled_settings: Arc<Mutex<VecDeque<(ConfigurationBoundary, NodeConfig)>>>,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 struct MatcherSettings {
     pattern: u64,
     mask: u64,
     op: MatchOp,
     trigger_at: TriggerAt,
+    predicate_mode: PredicateMode,
+    range_min: u64,
+    range_max: u64,
+    set_values: Vec<u64>,
+    match_count: u64,
+    holdoff_ns: u64,
 }
 
 struct WordMatcherConfigurationScheduler {
@@ -139,8 +180,23 @@ impl WordMatcher {
             mask,
             op: MatchOp::default(),
             trigger_at: TriggerAt::default(),
+            predicate_mode: PredicateMode::default(),
+            range_min: 0,
+            range_max: u64::MAX,
+            set_values: Vec::new(),
+            match_count: 1,
+            holdoff_ns: 0,
+            manual_rearm: false,
+            armed: true,
+            next_allowed_ns: 0,
+            eligible_matches: 0,
             pulse_ns: 1_000,
             input_buffer: VecDeque::new(),
+            rearm_buffer: VecDeque::new(),
+            word_head: None,
+            rearm_head: None,
+            word_eos: false,
+            rearm_eos: false,
             matches: 0,
             last_pulse_end: 0,
             started: false,
@@ -163,6 +219,34 @@ impl WordMatcher {
         self
     }
 
+    pub fn with_inclusive_range(mut self, minimum: u64, maximum: u64) -> Self {
+        self.predicate_mode = PredicateMode::InclusiveRange;
+        self.range_min = minimum;
+        self.range_max = maximum;
+        self
+    }
+
+    pub fn with_set(mut self, values: Vec<u64>) -> Self {
+        self.predicate_mode = PredicateMode::Set;
+        self.set_values = values;
+        self
+    }
+
+    pub fn with_match_count(mut self, match_count: u64) -> Self {
+        self.match_count = match_count.max(1);
+        self
+    }
+
+    pub fn with_holdoff_ns(mut self, holdoff_ns: u64) -> Self {
+        self.holdoff_ns = holdoff_ns;
+        self
+    }
+
+    pub fn with_manual_rearm(mut self, manual_rearm: bool) -> Self {
+        self.manual_rearm = manual_rearm;
+        self
+    }
+
     pub fn with_pulse_ns(mut self, pulse_ns: u64) -> Self {
         self.pulse_ns = pulse_ns.max(1);
         self
@@ -174,6 +258,12 @@ impl WordMatcher {
             mask: self.mask,
             op: self.op,
             trigger_at: self.trigger_at,
+            predicate_mode: self.predicate_mode,
+            range_min: self.range_min,
+            range_max: self.range_max,
+            set_values: self.set_values.clone(),
+            match_count: self.match_count,
+            holdoff_ns: self.holdoff_ns,
         }
     }
 
@@ -189,6 +279,20 @@ impl WordMatcher {
                 ("trigger_at", ConfigValue::Text(at)) => {
                     settings.trigger_at = TriggerAt::parse(at).ok_or(())?;
                 }
+                ("predicate", ConfigValue::Text(predicate)) => {
+                    settings.predicate_mode = PredicateMode::parse(predicate).ok_or(())?;
+                }
+                ("range_min", ConfigValue::U64(minimum)) => settings.range_min = *minimum,
+                ("range_max", ConfigValue::U64(maximum)) => settings.range_max = *maximum,
+                ("set", ConfigValue::Text(values)) => {
+                    settings.set_values = parse_set_values(values).ok_or(())?;
+                }
+                ("match_count", ConfigValue::U64(match_count)) if *match_count > 0 => {
+                    settings.match_count = *match_count;
+                }
+                ("holdoff_ns", ConfigValue::U64(holdoff_ns)) => {
+                    settings.holdoff_ns = *holdoff_ns;
+                }
                 _ => return Err(()),
             }
         }
@@ -200,6 +304,12 @@ impl WordMatcher {
         self.mask = settings.mask;
         self.op = settings.op;
         self.trigger_at = settings.trigger_at;
+        self.predicate_mode = settings.predicate_mode;
+        self.range_min = settings.range_min;
+        self.range_max = settings.range_max;
+        self.set_values = settings.set_values;
+        self.match_count = settings.match_count.max(1);
+        self.holdoff_ns = settings.holdoff_ns;
     }
 
     fn apply_scheduled_settings(&mut self, timestamp_ns: u64) {
@@ -222,6 +332,63 @@ impl WordMatcher {
             self.apply_settings(settings);
         }
     }
+
+    fn predicate_matches(&self, value: u64) -> bool {
+        let value = value & self.mask;
+        match self.predicate_mode {
+            PredicateMode::Compare => self.op.matches(value, self.pattern & self.mask),
+            PredicateMode::InclusiveRange => {
+                let minimum = self.range_min & self.mask;
+                let maximum = self.range_max & self.mask;
+                minimum <= maximum && (minimum..=maximum).contains(&value)
+            }
+            PredicateMode::Set => self
+                .set_values
+                .iter()
+                .any(|candidate| candidate & self.mask == value),
+        }
+    }
+
+    fn fill_heads(&mut self, inputs: &[InputPort]) -> WorkResult<()> {
+        if self.word_head.is_none() && !self.word_eos {
+            let mut receiver = inputs
+                .first()
+                .and_then(|port| port.get::<Word>(&mut self.input_buffer))
+                .ok_or_else(|| WorkError::NodeError("Missing words input".to_owned()))?;
+            match receiver.recv() {
+                Ok(word) => self.word_head = Some(word),
+                Err(WorkError::Shutdown) => self.word_eos = true,
+                Err(error) => return Err(error),
+            }
+        }
+        if self.manual_rearm && self.rearm_head.is_none() && !self.rearm_eos {
+            let mut receiver = inputs
+                .get(1)
+                .and_then(|port| port.get::<Trigger>(&mut self.rearm_buffer))
+                .ok_or_else(|| WorkError::NodeError("Missing rearm input".to_owned()))?;
+            match receiver.recv() {
+                Ok(rearm) => self.rearm_head = Some(rearm),
+                Err(WorkError::Shutdown) => self.rearm_eos = true,
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    }
+}
+
+fn parse_set_values(values: &str) -> Option<Vec<u64>> {
+    values
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            value
+                .strip_prefix("0x")
+                .or_else(|| value.strip_prefix("0X"))
+                .map_or_else(|| value.parse(), |hex| u64::from_str_radix(hex, 16))
+                .ok()
+        })
+        .collect()
 }
 
 impl ProcessNode for WordMatcher {
@@ -230,15 +397,18 @@ impl ProcessNode for WordMatcher {
     }
 
     fn num_inputs(&self) -> usize {
-        1
-    }
-
-    fn num_outputs(&self) -> usize {
         2
     }
 
+    fn num_outputs(&self) -> usize {
+        3
+    }
+
     fn input_schema(&self) -> Vec<PortSchema> {
-        vec![PortSchema::new::<Word>("words", 0, PortDirection::Input)]
+        vec![
+            PortSchema::new::<Word>("words", 0, PortDirection::Input),
+            PortSchema::new::<Trigger>("rearm", 1, PortDirection::Input),
+        ]
     }
 
     /// Hot-appliable: `pattern` / `mask` (U64), `op`, and `trigger_at`.
@@ -262,21 +432,33 @@ impl ProcessNode for WordMatcher {
         vec![
             PortSchema::new::<Trigger>("trigger", 0, PortDirection::Output),
             PortSchema::new::<Sample>("matched", 1, PortDirection::Output),
+            PortSchema::new::<Word>("matching_words", 2, PortDirection::Output),
         ]
     }
 
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
-        let mut input = inputs
-            .first()
-            .and_then(|port| port.get::<Word>(&mut self.input_buffer))
-            .ok_or_else(|| WorkError::NodeError("Missing words input".to_string()))?;
+        self.fill_heads(inputs)?;
+        if self.word_head.is_none() && self.word_eos {
+            return Err(WorkError::Shutdown);
+        }
 
-        let trigger_out = outputs
-            .first()
-            .and_then(|port| port.get::<Trigger>())
-            .ok_or_else(|| WorkError::NodeError("Missing trigger output".to_string()))?;
+        let rearm_precedes_word = self.manual_rearm
+            && self.rearm_head.is_some_and(|rearm| {
+                self.word_head
+                    .as_ref()
+                    .is_none_or(|word| rearm.timestamp_ns <= word.timestamp_ns)
+            });
+        if rearm_precedes_word {
+            self.rearm_head.take();
+            self.armed = true;
+            self.eligible_matches = 0;
+            return Ok(0);
+        }
+
+        let trigger_out = outputs.first().and_then(|port| port.get::<Trigger>());
         // Optional visualization lane; None when unconnected.
         let pulse_out = outputs.get(1).and_then(|port| port.get::<Sample>());
+        let word_out = outputs.get(2).and_then(|port| port.get::<Word>());
 
         // Level-stream contract: the pulse lane is a level, low at t=0.
         if !self.started {
@@ -286,20 +468,34 @@ impl ProcessNode for WordMatcher {
             }
         }
 
-        let word = input.recv()?;
+        let word = self.word_head.take().expect("word head was selected");
         self.apply_scheduled_settings(word.timestamp_ns);
         let value = word.value;
-        if self.op.matches(value & self.mask, self.pattern & self.mask) {
+        if self.predicate_matches(value) {
             let ts = match self.trigger_at {
                 TriggerAt::Start => word.timestamp_ns,
                 TriggerAt::End => word.end_ns(),
             };
+            if ts < self.next_allowed_ns || (self.manual_rearm && !self.armed) {
+                return Ok(0);
+            }
+            self.eligible_matches = self.eligible_matches.saturating_add(1);
+            if self.eligible_matches < self.match_count {
+                return Ok(0);
+            }
+            self.eligible_matches = 0;
+            self.next_allowed_ns = ts.saturating_add(self.holdoff_ns);
+            if self.manual_rearm {
+                self.armed = false;
+            }
             self.matches += 1;
             debug!(
                 "[{}] match #{}: 0x{:06X} at {}ns",
                 self.name, self.matches, value, ts
             );
-            trigger_out.send(Trigger::new(ts))?;
+            if let Some(trigger) = &trigger_out {
+                trigger.send(Trigger::new(ts))?;
+            }
             if let Some(pulse) = &pulse_out {
                 if ts >= self.last_pulse_end {
                     pulse.send(Sample::new(true, ts))?;
@@ -311,6 +507,9 @@ impl ProcessNode for WordMatcher {
                         self.name, ts, self.last_pulse_end
                     );
                 }
+            }
+            if let Some(output) = &word_out {
+                output.send(word)?;
             }
             return Ok(1);
         }
@@ -553,5 +752,111 @@ mod tests {
             })
             .collect();
         assert_eq!(timestamps, vec![100, 200]);
+    }
+
+    fn run_extended(
+        mut matcher: WordMatcher,
+        words: &[(u64, u64)],
+        rearms: &[u64],
+    ) -> (Vec<u64>, Vec<u64>) {
+        let watchdog = Watchdog::new();
+        let (word_tx, word_rx) = bounded::<ChannelMessage<Word>>(32);
+        for (value, timestamp_ns) in words {
+            word_tx
+                .send(ChannelMessage::Sample(Word::new(*value, *timestamp_ns)))
+                .unwrap();
+        }
+        drop(word_tx);
+        let (rearm_tx, rearm_rx) = bounded::<ChannelMessage<Trigger>>(32);
+        for timestamp_ns in rearms {
+            rearm_tx
+                .send(ChannelMessage::Sample(Trigger::new(*timestamp_ns)))
+                .unwrap();
+        }
+        drop(rearm_tx);
+        let inputs = [
+            InputPort::new_with_watchdog(word_rx, &watchdog, "matcher", "words"),
+            InputPort::new_with_watchdog(rearm_rx, &watchdog, "matcher", "rearm"),
+        ];
+        let (trigger_tx, trigger_rx) = bounded::<ChannelMessage<Trigger>>(32);
+        let (pulse_tx, _pulse_rx) = bounded::<ChannelMessage<Sample>>(32);
+        let (matching_word_tx, matching_word_rx) = bounded::<ChannelMessage<Word>>(32);
+        let outputs = [
+            OutputPort::new_with_watchdog(
+                Sender::new(vec![trigger_tx]),
+                &watchdog,
+                "matcher",
+                "trigger",
+            ),
+            OutputPort::new_with_watchdog(
+                Sender::new(vec![pulse_tx]),
+                &watchdog,
+                "matcher",
+                "matched",
+            ),
+            OutputPort::new_with_watchdog(
+                Sender::new(vec![matching_word_tx]),
+                &watchdog,
+                "matcher",
+                "matching_words",
+            ),
+        ];
+        run_to_shutdown(&mut matcher, &inputs, &outputs);
+        let triggers = trigger_rx
+            .try_iter()
+            .filter_map(|message| match message {
+                ChannelMessage::Sample(trigger) => Some(trigger.timestamp_ns),
+                _ => None,
+            })
+            .collect();
+        let matching_words = matching_word_rx
+            .try_iter()
+            .filter_map(|message| match message {
+                ChannelMessage::Sample(word) => Some(word.value),
+                _ => None,
+            })
+            .collect();
+        (triggers, matching_words)
+    }
+
+    #[test]
+    fn range_and_set_predicates_emit_the_matching_words() {
+        let words = [(0x10, 1), (0x20, 2), (0x30, 3), (0x40, 4), (0x50, 5)];
+        assert_eq!(
+            run_extended(
+                WordMatcher::new(0, u64::MAX).with_inclusive_range(0x20, 0x40),
+                &words,
+                &[],
+            ),
+            (vec![2, 3, 4], vec![0x20, 0x30, 0x40])
+        );
+        assert_eq!(
+            run_extended(
+                WordMatcher::new(0, u64::MAX).with_set(vec![0x10, 0x50]),
+                &words,
+                &[],
+            ),
+            (vec![1, 5], vec![0x10, 0x50])
+        );
+    }
+
+    #[test]
+    fn match_count_and_holdoff_apply_before_outputs() {
+        let matcher = WordMatcher::new(1, u64::MAX)
+            .with_match_count(2)
+            .with_holdoff_ns(25);
+        assert_eq!(
+            run_extended(matcher, &[(1, 10), (1, 20), (1, 30), (1, 50), (1, 80)], &[],),
+            (vec![20, 80], vec![1, 1])
+        );
+    }
+
+    #[test]
+    fn explicit_rearm_allows_the_next_matching_word() {
+        let matcher = WordMatcher::new(1, u64::MAX).with_manual_rearm(true);
+        assert_eq!(
+            run_extended(matcher, &[(1, 10), (1, 20), (1, 30), (1, 40)], &[25]),
+            (vec![10, 30], vec![1, 1])
+        );
     }
 }

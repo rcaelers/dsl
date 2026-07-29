@@ -171,6 +171,78 @@ fn event_controls_demo_fixture_loads_lowers_and_executes() {
 }
 
 #[test]
+fn word_matcher_demo_fixture_loads_lowers_and_executes() {
+    let graph: GraphState = serde_json::from_str(include_str!("../graphs/word_matcher_demo.json"))
+        .expect("word-matcher demo should deserialize");
+    let mut widget = NodeGraphWidget::new(nodes::build_registry());
+    widget.set_graph(graph);
+
+    let mut compiler = GraphCompiler::new();
+    compiler.set_output_subscriptions(
+        [(2, 0), (2, 2), (3, 0), (3, 2), (4, 0), (4, 2)]
+            .into_iter()
+            .map(|(node, output)| (NodeId(node), output))
+            .collect::<OutputSubscriptionPlan>(),
+    );
+    let compiled = compiler
+        .lower(widget.graph())
+        .expect("word-matcher demo should lower");
+    assert_eq!(widget.graph().nodes.len(), 6);
+    assert_eq!(
+        compiled
+            .nodes
+            .iter()
+            .filter(|node| node.builder == "Word Matcher")
+            .count(),
+        3
+    );
+    let explicit_rearm = compiled
+        .nodes
+        .iter()
+        .find(|node| node.id == NodeId(4))
+        .expect("set matcher should be present");
+    assert_eq!(
+        explicit_rearm.resolved.kind(1),
+        Some(logic_analyzer_graph_api::node_support::PortKind::of::<
+            Trigger,
+        >())
+    );
+
+    let mut context = CompileCtx::default();
+    let lanes = context.derived_lanes().clone();
+    let mut run = compiler
+        .start_app_run(widget.graph(), &mut context)
+        .expect("word-matcher demo should start");
+    run.wait();
+
+    let collected = lanes.opaque_lanes();
+    let selected = collected
+        .iter()
+        .filter(|lane| {
+            lane.name().contains("Equal to 0xAB")
+                || lane.name().contains("Every 2nd")
+                || lane.name().contains("Explicit SPI Rearm")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(selected.len(), 6);
+    assert!(
+        selected
+            .iter()
+            .all(|lane| lane.timeline_extent_end_ns().is_some())
+    );
+    assert!(
+        collected
+            .iter()
+            .any(|lane| lane.name().contains("Every 2nd"))
+    );
+    assert!(
+        collected
+            .iter()
+            .any(|lane| lane.name().contains("Explicit SPI Rearm"))
+    );
+}
+
+#[test]
 fn built_in_startup_graph_lowers_with_explicit_subscriptions() {
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
     nodes::populate_startup(&mut widget);
