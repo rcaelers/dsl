@@ -34,6 +34,10 @@ Thread-per-node streaming with bounded channels:
 The single node trait ([node.rs](../crates/signal_processing/src/node.rs)). Sources have
 0 inputs, sinks 0 outputs, processors both.
 
+Runtime builders distinguish a time-domain source from an auxiliary zero-input source. A graph
+has at most one source that establishes its capture/data time domain, while persisted timeline
+markers and similar auxiliary sources may emit values already expressed in that shared domain.
+
 - `work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize>` —
   process one batch; the returned count is the number of produced items shown in runtime
   progress counters. Blocking `recv`/`send` inside `work()` is normal;
@@ -74,6 +78,7 @@ and viewer lanes aligned (including across live-edit rejoins).
 | `SampleBlock` | bulk | Packed raw bits of one channel block (bandwidth path) |
 | `Word` | event | One decoded item with a numeric value, arbitrary-width bytes, or text plus `timestamp_ns` and `duration_ns` — the standard decoded-value type every decoder emits |
 | `Trigger` | event | Instantaneous occurrence (matcher hit), time only |
+| `TimelineMarker` | configuration event | One persisted graph point or host-supplied cursor position transported to marker conversion nodes; names, identities, and external references remain in graph/host contracts |
 | `NumberSample` | level | Integer level change (counter output) |
 | `TextSample` | level | Text level change (formatter output / filename) |
 

@@ -1,9 +1,12 @@
 use std::any::Any;
 
-use logic_analyzer_graph_api::node_support::LiveCaptureEdit;
+use logic_analyzer_graph_api::node_support::{
+    LiveCaptureEdit, TimelineMarkerEdit, TimelineMarkerReferenceBindingEdit,
+};
 use logic_analyzer_graph_compiler::{
     ApplyError, ApplySummary, CollectedOutputSubscription, CollectedTableSubscription, CompileCtx,
-    CompileError, DiscoveredLiveCaptureFeature, DiscoveredTriggerConfiguration, LiveAnalysisSource,
+    CompileError, DiscoveredLiveCaptureFeature, DiscoveredTimelineMarker,
+    DiscoveredTimelineMarkerReferenceBinding, DiscoveredTriggerConfiguration, LiveAnalysisSource,
     LiveCaptureDiscoveryError, OutputSubscriptionPlan, SamplingOverlayCandidate,
     SourcePreparationStatus, SourcePreparationUpdate, SourceProcessOverrides,
     SourceReadinessRegistry,
@@ -69,6 +72,38 @@ pub(crate) trait GraphService: CaptureFeatureDiscovery + PlatformGraphService {
         source_node: NodeId,
         edit: &LiveCaptureEdit,
     ) -> Result<serde_json::Value, String>;
+
+    fn discover_timeline_markers(
+        &self,
+        _graph: &GraphState,
+    ) -> Result<Vec<DiscoveredTimelineMarker>, String> {
+        Ok(Vec::new())
+    }
+
+    fn apply_timeline_marker_edit(
+        &self,
+        _graph: &GraphState,
+        _owner_node: NodeId,
+        _edit: &TimelineMarkerEdit,
+    ) -> Result<serde_json::Value, String> {
+        Err("timeline-marker editing is unavailable".into())
+    }
+
+    fn discover_timeline_marker_reference_bindings(
+        &self,
+        _graph: &GraphState,
+    ) -> Result<Vec<DiscoveredTimelineMarkerReferenceBinding>, String> {
+        Ok(Vec::new())
+    }
+
+    fn apply_timeline_marker_reference_binding_edit(
+        &self,
+        _graph: &GraphState,
+        _owner_node: NodeId,
+        _edit: &TimelineMarkerReferenceBindingEdit,
+    ) -> Result<serde_json::Value, String> {
+        Err("timeline-reference editing is unavailable".into())
+    }
 
     fn graph_contains_node(
         &self,

@@ -9,6 +9,7 @@ mod formatter;
 mod logic_gate;
 mod packet_framer;
 mod sr_flip_flop;
+mod timeline_marker;
 mod word_field_extractor;
 mod word_matcher;
 mod word_value;

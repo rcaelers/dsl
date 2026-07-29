@@ -70,6 +70,8 @@ pub(crate) trait NodeInstance {
         clip_rect: Rect,
     ) -> bool;
     fn draw_panel(&mut self, index: usize, ui: &mut Ui, context: &mut PanelContext<'_>) -> bool;
+    fn bound_title(&mut self) -> Option<String>;
+    fn set_bound_title(&mut self, title: &str) -> bool;
     fn save_state(&self) -> Value;
 }
 
@@ -196,6 +198,21 @@ impl<T: NodeDef> NodeInstance for TypedNode<T> {
         self.panels
             .get(index)
             .is_some_and(|panel| panel.draw(&mut self.state, ui, context))
+    }
+
+    fn bound_title(&mut self) -> Option<String> {
+        T::title(&mut self.state).map(|title| title.value.clone())
+    }
+
+    fn set_bound_title(&mut self, title: &str) -> bool {
+        let Some(bound) = T::title(&mut self.state) else {
+            return false;
+        };
+        if bound.value == title {
+            return false;
+        }
+        title.clone_into(&mut bound.value);
+        true
     }
 
     fn save_state(&self) -> Value {

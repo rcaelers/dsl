@@ -45,9 +45,10 @@ pub(crate) use data_collector::{
 pub use errors::{ApplyError, CompileError};
 pub use graph::{
     ApplySummary, CompileCtx, CompiledEdge, CompiledGraph, CompiledNode,
-    DiscoveredCapturePresentation, DiscoveredLiveCaptureFeature, DiscoveredTriggerConfiguration,
-    LiveAnalysisSource, LiveCaptureDiscoveryError, LiveRun, ResolvedSamplingOverlay,
-    ResolvedSamplingQualifier, SamplingOverlayCandidate, SourceProcessOverrides,
+    DiscoveredCapturePresentation, DiscoveredLiveCaptureFeature, DiscoveredTimelineMarker,
+    DiscoveredTimelineMarkerReferenceBinding, DiscoveredTriggerConfiguration, LiveAnalysisSource,
+    LiveCaptureDiscoveryError, LiveRun, ResolvedSamplingOverlay, ResolvedSamplingQualifier,
+    SamplingOverlayCandidate, SourceProcessOverrides,
 };
 pub use graph_compiler::GraphCompiler;
 pub(crate) use graph_node_registration::{

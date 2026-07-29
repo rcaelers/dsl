@@ -1,7 +1,9 @@
 mod integration_tests_support;
 
 use logic_analyzer_graph_api::node::{RuntimeBuilder, graph_node_registrations};
-use logic_analyzer_graph_api::node_support::{CapturePresentation, ViewerOutputControl};
+use logic_analyzer_graph_api::node_support::{
+    CapturePresentation, TimelineMarkerEdit, TimelineMarkerReference, ViewerOutputControl,
+};
 use logic_analyzer_graph_compiler::{
     CompileCtx, CompiledGraph, GraphCompiler, LiveAnalysisSource, OutputSubscriptionPlan,
     SourceArtifactReadiness, SourceDataKind, SourceProcessOverrides,
@@ -11,7 +13,7 @@ use signal_processing::{
     Annotation, CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId,
     CollectedLaneSnapshotRequest, DerivedLanes, DigitalLaneSnapshot, NativeCaptureStore,
     NativeCaptureStoreConfig, NumberLaneSnapshot, ProtocolPacketLaneSnapshot, ProtocolValue,
-    Sample, SampleBlock, SamplingEdge, TextLaneSnapshot, Trigger, Word,
+    Sample, SampleBlock, SamplingEdge, TextLaneSnapshot, Trigger, TriggerLaneSnapshot, Word,
 };
 
 use integration_tests_support as nodes;
@@ -87,6 +89,10 @@ fn all_bundled_demo_documents_load_and_lower_without_schema_repair() {
         (
             "Word Matcher",
             include_str!("../graphs/word_matcher_demo.json"),
+        ),
+        (
+            "Timeline Markers",
+            include_str!("../graphs/timeline_markers_demo.json"),
         ),
     ];
 
@@ -233,6 +239,116 @@ fn event_controls_demo_fixture_loads_lowers_and_executes() {
             .any(|name| name.contains("Automatic Rearm"))
     );
     assert!(lane_names.iter().any(|name| name.contains("Manual Rearm")));
+}
+
+#[test]
+fn timeline_markers_demo_discovers_moves_and_executes_marker_conversions() {
+    let graph: GraphState =
+        serde_json::from_str(include_str!("../graphs/timeline_markers_demo.json"))
+            .expect("timeline-markers demo should deserialize");
+    let mut widget = NodeGraphWidget::new(nodes::build_registry());
+    widget.set_graph(graph);
+
+    let mut compiler = GraphCompiler::new();
+    compiler.set_output_subscriptions(
+        [
+            (NodeId(2), 0),
+            (NodeId(3), 0),
+            (NodeId(4), 0),
+            (NodeId(6), 0),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    let markers = compiler
+        .discover_timeline_markers(widget.graph())
+        .expect("timeline markers should be discoverable");
+    assert_eq!(markers.len(), 2);
+    assert_eq!(markers[0].marker.name, "Start");
+    assert_eq!(markers[0].marker.timestamp_ns, 200_000);
+    assert_eq!(markers[1].marker.name, "End");
+    assert_eq!(markers[1].marker.timestamp_ns, 650_000);
+
+    let moved = compiler
+        .apply_timeline_marker_edit(
+            widget.graph(),
+            NodeId(0),
+            &TimelineMarkerEdit::SetTimestamp {
+                id: "marker".into(),
+                timestamp_ns: 225_000,
+            },
+        )
+        .expect("host marker edit should route to its owner");
+    assert!(widget.edit_node_state(NodeId(0), moved));
+    assert_eq!(
+        compiler.discover_timeline_markers(widget.graph()).unwrap()[0]
+            .marker
+            .timestamp_ns,
+        225_000
+    );
+
+    let mut context = CompileCtx::default();
+    context.set_timeline_marker(
+        TimelineMarkerReference::Cursor { number: 1 },
+        signal_processing::TimelineMarker::new(425_000),
+    );
+    let lanes = context.derived_lanes().clone();
+    let mut run = compiler
+        .start_app_run(widget.graph(), &mut context)
+        .expect("timeline-markers demo should start");
+    run.wait();
+
+    let collected = lanes.opaque_lanes();
+    let trigger = collected
+        .iter()
+        .find(|lane| lane.name().contains("Event at Start"))
+        .expect("marker trigger should be collected")
+        .snapshot(CollectedLaneSnapshotRequest {
+            start_time_ns: 0,
+            end_time_ns: 1_000_000,
+            max_items: 32,
+        })
+        .and_then(|snapshot| snapshot.value::<TriggerLaneSnapshot>())
+        .expect("marker trigger should retain exact timestamps");
+    let TriggerLaneSnapshot::Exact(timestamps) = trigger.as_ref() else {
+        panic!("marker trigger should be exact");
+    };
+    assert_eq!(timestamps, &[225_000]);
+
+    for (title, expected) in [
+        (
+            "High from Start",
+            vec![Sample::new(false, 0), Sample::new(true, 225_000)],
+        ),
+        (
+            "Inside Start-to-End Window",
+            vec![
+                Sample::new(false, 0),
+                Sample::new(true, 225_000),
+                Sample::new(false, 650_000),
+            ],
+        ),
+        (
+            "High from Cursor 1",
+            vec![Sample::new(false, 0), Sample::new(true, 425_000)],
+        ),
+    ] {
+        let snapshot = collected
+            .iter()
+            .find(|lane| lane.name().contains(title))
+            .unwrap_or_else(|| panic!("missing marker-derived lane '{title}'"))
+            .snapshot(CollectedLaneSnapshotRequest {
+                start_time_ns: 0,
+                end_time_ns: 1_000_000,
+                max_items: 32,
+            })
+            .and_then(|snapshot| snapshot.value::<DigitalLaneSnapshot>())
+            .unwrap_or_else(|| panic!("'{title}' should retain an exact digital level"));
+        let DigitalLaneSnapshot::Exact { samples, .. } = snapshot.as_ref() else {
+            panic!("'{title}' should be exact");
+        };
+        assert_eq!(samples, &expected);
+    }
 }
 
 #[test]

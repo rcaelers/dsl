@@ -113,7 +113,7 @@ pub use edge_query::EdgeQuery;
 pub use errors::{ConnectionError, Error, PortError, Result, WorkError, WorkResult};
 pub use events::{
     Annotation, MAX_ANNOTATION_NS, NumberSample, ProtocolPacket, ProtocolValue, TextSample,
-    Trigger, Word, WordPayload, instantaneous_word_end_ns,
+    TimelineMarker, Trigger, Word, WordPayload, instantaneous_word_end_ns,
 };
 pub use graph::{Connection, GraphBuilder, NodeId};
 use idle::idle_backoff;

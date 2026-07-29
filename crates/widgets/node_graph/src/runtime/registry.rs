@@ -331,6 +331,9 @@ fn build_node<T: NodeDef>(id: NodeId, pos: Pos2, state: T::State) -> NodeRuntime
         panels,
     });
     instance.update(&mut node.inputs, &mut node.outputs);
+    if let Some(title) = instance.bound_title() {
+        node.title = title;
+    }
     node.state = instance.save_state();
     node.badge = instance.badge();
     NodeRuntime { node, instance }
@@ -366,6 +369,9 @@ fn restore_node<T: NodeDef>(node: &mut Node) -> Box<dyn NodeInstance> {
         panels,
     });
     instance.update(&mut node.inputs, &mut node.outputs);
+    if let Some(title) = instance.bound_title() {
+        node.title = title;
+    }
     node.state = instance.save_state();
     node.badge = instance.badge();
     instance
@@ -467,6 +473,8 @@ impl NodeTypeRegistry {
                     runtime.node.title = title.clone();
                     runtime.instance = restore(&mut runtime.node);
                     runtime.node.title = title.clone();
+                    runtime.instance.set_bound_title(&title);
+                    runtime.node.state = runtime.instance.save_state();
                     runtime
                 }),
                 restore,
@@ -663,6 +671,59 @@ mod tests {
         let restored = restore_node::<ContributedPanelNode>(&mut node);
         assert!(restored.panel_sections().is_empty());
         assert_eq!(restored.panels().len(), 1);
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct BoundTitleState {
+        title: StringValue,
+    }
+
+    struct BoundTitleNode;
+
+    impl NodeDef for BoundTitleNode {
+        type State = BoundTitleState;
+
+        fn name() -> &'static str {
+            "Bound title"
+        }
+
+        fn category() -> &'static str {
+            "Test"
+        }
+
+        fn inputs() -> Vec<InputDef<Self::State>> {
+            Vec::new()
+        }
+
+        fn outputs() -> Vec<OutputDef<Self::State>> {
+            Vec::new()
+        }
+
+        fn state() -> Self::State {
+            BoundTitleState {
+                title: StringValue::new("State title"),
+            }
+        }
+
+        fn title(state: &mut Self::State) -> Option<&mut StringValue> {
+            Some(&mut state.title)
+        }
+    }
+
+    #[test]
+    fn bound_title_is_shared_by_saved_state_and_the_displayed_node() {
+        let runtime = create_node::<BoundTitleNode>(NodeId(0), Pos2::ZERO);
+        assert_eq!(runtime.node.title, "State title");
+
+        let mut node = runtime.node;
+        node.title = "Stale display title".to_owned();
+        node.state = serde_json::json!({ "title": { "value": "Restored title" } });
+        let mut instance = restore_node::<BoundTitleNode>(&mut node);
+        assert_eq!(node.title, "Restored title");
+
+        assert!(instance.set_bound_title("Panel edit"));
+        assert_eq!(instance.bound_title().as_deref(), Some("Panel edit"));
+        assert_eq!(instance.save_state()["title"]["value"], "Panel edit");
     }
 
     #[test]

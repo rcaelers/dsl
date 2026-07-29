@@ -560,6 +560,9 @@ impl NodeGraphWidget {
             (self.runtime.get_mut(&id), self.graph.nodes.get_mut(&id))
         {
             instance.update(&mut node.inputs, &mut node.outputs);
+            if let Some(title) = instance.bound_title() {
+                node.title = title;
+            }
             node.state = instance.save_state();
             node.badge = instance.badge();
         }
@@ -568,8 +571,9 @@ impl NodeGraphWidget {
     pub(crate) fn sync_all_node_state(&mut self) {
         for id in self.graph.sorted_node_ids() {
             if let (Some(instance), Some(node)) =
-                (self.runtime.get(&id), self.graph.nodes.get_mut(&id))
+                (self.runtime.get_mut(&id), self.graph.nodes.get_mut(&id))
             {
+                instance.set_bound_title(&node.title);
                 node.state = instance.save_state();
             }
         }

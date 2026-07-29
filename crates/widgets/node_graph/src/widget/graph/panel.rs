@@ -334,6 +334,7 @@ impl NodeGraphWidget {
 
         let content = panel_rect.shrink2(Vec2::new(10.0, 8.0));
         let mut changed = false;
+        let previous_title = node.title.clone();
         let mut pending_panel_action = None;
         let mut measured_height = None;
         ui.scope_builder(
@@ -452,6 +453,10 @@ impl NodeGraphWidget {
                 );
             },
         );
+
+        if node.title != previous_title {
+            changed |= instance.set_bound_title(&node.title);
+        }
 
         if let Some(height) = measured_height {
             self.panel.measured_node_height = Some((node_id, height));

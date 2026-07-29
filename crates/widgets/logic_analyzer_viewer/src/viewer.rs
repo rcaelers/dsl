@@ -12,6 +12,7 @@ use crate::channel::LogicChannel;
 use crate::lanes::{ViewerLaneGroupId, WaveformPresentationRegistry};
 use crate::sampling_overlay::SamplingOverlay;
 use crate::simple_trigger::{SimpleTriggerEdit, SimpleTriggerLane, SimpleTriggerPopup};
+use crate::timeline_marker::{TimelineMarker, TimelineMarkerEdit};
 use crate::types::{
     AnalyzerLayout, CaptureInfo, ColorProfile, EdgeDeltaMeasurement, IndexBuildProgress,
     PulseMeasurement, RowDragState, RowKey, RowRenameState, TimeCursor, Transition,
@@ -77,8 +78,14 @@ pub struct LogicAnalyzerViewer {
     pub(crate) fit_to_capture: bool,
     /// DSView-style time cursors, in creation order. Unbounded.
     pub(crate) cursors: Vec<TimeCursor>,
+    pub(crate) time_cursors_changed: bool,
     /// Index into `cursors` of the cursor currently being dragged.
     pub(crate) drag_cursor: Option<usize>,
+    pub(crate) timeline_markers: Vec<TimelineMarker>,
+    pub(crate) drag_timeline_marker: Option<usize>,
+    pub(crate) timeline_marker_drag_changed: bool,
+    pub(crate) pending_timeline_marker_edit: Option<TimelineMarkerEdit>,
+    pub(crate) timeline_marker_editing_enabled: bool,
     pub(crate) color_profile: ColorProfile,
     /// Retained derived data from the running pipeline. Waveform presentation
     /// subscriptions select which entries appear under the raw channels.
@@ -141,7 +148,13 @@ impl LogicAnalyzerViewer {
             index_progress: None,
             fit_to_capture: false,
             cursors: Vec::new(),
+            time_cursors_changed: false,
             drag_cursor: None,
+            timeline_markers: Vec::new(),
+            drag_timeline_marker: None,
+            timeline_marker_drag_changed: false,
+            pending_timeline_marker_edit: None,
+            timeline_marker_editing_enabled: true,
             color_profile: ColorProfile::DsView,
             derived: None,
             waveform_presentations: WaveformPresentationRegistry::new(),
@@ -632,7 +645,12 @@ impl LogicAnalyzerViewer {
                     edge_measurement_button,
                 );
         }
-        let cursor_input = if edge_measurement_active {
+        let timeline_marker_input = if edge_measurement_active {
+            crate::timeline_marker::TimelineMarkerInput::default()
+        } else {
+            self.handle_timeline_marker_input(ui, &response, layout)
+        };
+        let cursor_input = if edge_measurement_active || timeline_marker_input.active.is_some() {
             crate::types::CursorInput::default()
         } else {
             self.handle_cursor_input(ui, &response, layout)
@@ -670,6 +688,7 @@ impl LogicAnalyzerViewer {
                 .pointer_button(&["logic_analyzer"], "pan")
                 .is_some_and(|button| response.dragged_by(button))
                 && !cursor_input.blocks_pan
+                && !timeline_marker_input.blocks_pan
                 && !edge_measurement_active
                 && !row_dragging,
         );
@@ -687,7 +706,13 @@ impl LogicAnalyzerViewer {
         } else {
             self.sample_hover_measurement(layout, hover_pointer);
         }
-        self.draw(&painter, layout, hover_pointer, cursor_input.active);
+        self.draw(
+            &painter,
+            layout,
+            hover_pointer,
+            cursor_input.active,
+            timeline_marker_input.active,
+        );
         self.show_simple_trigger_popup(ui.ctx());
         self.show_row_rename(ui.ctx());
         if self.has_live_collected_data() {

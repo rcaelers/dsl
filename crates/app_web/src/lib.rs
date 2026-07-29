@@ -69,6 +69,11 @@ const EMBEDDED_DEMOS: &[EmbeddedDemo] = &[
         source: "graphs/word_matcher_demo.json",
         json: include_str!("../../../graphs/word_matcher_demo.json"),
     },
+    EmbeddedDemo {
+        name: "Timeline Markers",
+        source: "graphs/timeline_markers_demo.json",
+        json: include_str!("../../../graphs/timeline_markers_demo.json"),
+    },
 ];
 
 #[cfg(any(target_arch = "wasm32", test))]

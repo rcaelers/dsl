@@ -5,6 +5,9 @@ use signal_processing::CollectedLaneSnapshotRequest;
 use crate::cursor::{cursor_color, cursor_flag_geometry, cursor_flag_label};
 use crate::format::{badge_text_color, format_time, nice_step};
 use crate::lanes::{OpaqueLaneDrawContext, ViewerLaneTheme};
+use crate::timeline_marker::{
+    timeline_marker_color, timeline_marker_flag_geometry, timeline_marker_label,
+};
 use crate::types::{AnalyzerLayout, RowKey};
 use crate::viewer::LogicAnalyzerViewer;
 
@@ -15,6 +18,7 @@ impl LogicAnalyzerViewer {
         layout: AnalyzerLayout,
         pointer: Option<Pos2>,
         active_cursor: Option<usize>,
+        active_timeline_marker: Option<usize>,
     ) {
         let rect = Rect::from_min_max(
             Pos2::new(layout.labels_rect.left(), layout.ruler_rect.top()),
@@ -93,6 +97,7 @@ impl LogicAnalyzerViewer {
             self.draw_edge_delta_measurement(painter, wave_rect, row_height, measurement);
         }
 
+        self.draw_timeline_markers(painter, ruler_rect, wave_rect, active_timeline_marker);
         self.draw_cursors(painter, ruler_rect, wave_rect, active_cursor);
     }
 
@@ -313,7 +318,7 @@ impl LogicAnalyzerViewer {
             if x < wave_rect.left() - 1.0 || x > wave_rect.right() + 1.0 {
                 continue;
             }
-            let color = cursor_color(cursor.number.wrapping_sub(1));
+            let color = cursor_color(cursor.number.wrapping_sub(1) as usize);
             let is_active = active == Some(index);
 
             let label = cursor_flag_label(cursor);
@@ -370,6 +375,58 @@ impl LogicAnalyzerViewer {
                     Pos2::new(close.left() + pad, close.bottom() - pad),
                 ],
                 close_stroke,
+            );
+        }
+    }
+
+    fn draw_timeline_markers(
+        &self,
+        painter: &Painter,
+        ruler_rect: Rect,
+        wave_rect: Rect,
+        active: Option<usize>,
+    ) {
+        let color = timeline_marker_color();
+        for (index, marker) in self.timeline_markers.iter().enumerate() {
+            let x = self.time_to_x_unclamped(wave_rect, marker.time_us);
+            if x < wave_rect.left() - 1.0 || x > wave_rect.right() + 1.0 {
+                continue;
+            }
+            let label = timeline_marker_label(marker);
+            let galley = painter.layout_no_wrap(label, FontId::proportional(10.0), Color32::BLACK);
+            let flag = timeline_marker_flag_geometry(x, ruler_rect, galley.size().x);
+            let is_active = active == Some(index);
+            painter.extend(Shape::dashed_line(
+                &[
+                    Pos2::new(x, flag.bottom()),
+                    Pos2::new(x, wave_rect.bottom()),
+                ],
+                Stroke::new(if is_active { 2.2 } else { 1.5 }, color),
+                5.0,
+                4.0,
+            ));
+            painter.rect_filled(flag, 3.0, color);
+            if is_active {
+                painter.rect_stroke(
+                    flag,
+                    3.0,
+                    Stroke::new(1.0, Color32::WHITE),
+                    StrokeKind::Outside,
+                );
+            }
+            painter.add(Shape::convex_polygon(
+                vec![
+                    Pos2::new(x - 5.0, flag.bottom()),
+                    Pos2::new(x + 5.0, flag.bottom()),
+                    Pos2::new(x, ruler_rect.bottom()),
+                ],
+                color,
+                Stroke::NONE,
+            ));
+            painter.galley(
+                Pos2::new(flag.left() + 6.0, flag.center().y - galley.size().y * 0.5),
+                galley,
+                Color32::BLACK,
             );
         }
     }
@@ -616,6 +673,7 @@ mod frame_tests {
                 badge_width: 32.0,
             },
             Some(Pos2::new(400.0, 60.0)),
+            None,
             None,
         );
         let _ = context.end_pass();

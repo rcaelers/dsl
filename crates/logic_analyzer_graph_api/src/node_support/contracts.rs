@@ -5,7 +5,7 @@ use std::sync::Arc;
 use node_graph::api::NodeId;
 use signal_processing::{
     CaptureChannelId, CaptureIndexFactory, DerivedDataRetention, DerivedLanes,
-    PersistentStoreConfig, SamplingActivity, SamplingEdge, SimpleTriggerCondition,
+    PersistentStoreConfig, SamplingActivity, SamplingEdge, SimpleTriggerCondition, TimelineMarker,
     TriggerEditorSchema, TriggerProgram,
 };
 
@@ -59,6 +59,41 @@ pub trait NodeBuildContext {
     fn derived_data_retention(&self) -> DerivedDataRetention;
     fn derived_word_cache(&self, member: usize) -> Option<&PersistentStoreConfig>;
     fn sampling_activity(&self, runtime_name: &str, input: usize) -> Option<SamplingActivity>;
+    fn timeline_marker(&self, _reference: TimelineMarkerReference) -> Option<TimelineMarker> {
+        None
+    }
+}
+
+/// Host-owned timeline position requested by a concrete graph node.
+///
+/// The compiler transports this key without knowing which widget owns the
+/// referenced value. The application supplies the current value when it
+/// creates a run.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum TimelineMarkerReference {
+    Cursor { number: u32 },
+}
+
+/// One host-owned timeline position available to a node reference control.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TimelineMarkerReferenceChoice {
+    pub reference: TimelineMarkerReference,
+    pub label: String,
+    pub timestamp_ns: u64,
+}
+
+impl TimelineMarkerReferenceChoice {
+    pub fn new(
+        reference: TimelineMarkerReference,
+        label: impl Into<String>,
+        timestamp_ns: u64,
+    ) -> Self {
+        Self {
+            reference,
+            label: label.into(),
+            timestamp_ns,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -290,6 +325,48 @@ pub enum LiveCaptureEdit {
     },
     SetTriggerProgram {
         program: Option<TriggerProgram>,
+    },
+}
+
+/// One persisted timeline marker exposed by a concrete node to an application host.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TimelineMarkerDescriptor {
+    pub id: String,
+    pub name: String,
+    pub timestamp_ns: u64,
+}
+
+impl TimelineMarkerDescriptor {
+    pub fn new(id: impl Into<String>, name: impl Into<String>, timestamp_ns: u64) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            timestamp_ns,
+        }
+    }
+}
+
+/// Host-owned edit routed back to the node that contributed a timeline marker.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TimelineMarkerEdit {
+    SetTimestamp { id: String, timestamp_ns: u64 },
+}
+
+/// A concrete node control bound to one of the host-owned timeline positions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TimelineMarkerReferenceBindingDescriptor {
+    pub id: String,
+    pub selected: Option<TimelineMarkerReference>,
+    pub timestamp_ns: u64,
+    pub choices: Vec<TimelineMarkerReferenceChoice>,
+}
+
+/// Host-owned choices routed to the concrete node that presents the control.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TimelineMarkerReferenceBindingEdit {
+    Synchronize {
+        id: String,
+        choices: Vec<TimelineMarkerReferenceChoice>,
     },
 }
 

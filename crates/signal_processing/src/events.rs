@@ -61,6 +61,22 @@ pub struct Trigger {
     pub timestamp_ns: u64,
 }
 
+/// A persisted point on the shared graph timeline.
+///
+/// The name and stable identity belong to the graph/host contract; processing
+/// nodes only transport the timestamp needed to derive events and levels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TimelineMarker {
+    /// Timestamp in nanoseconds.
+    pub timestamp_ns: u64,
+}
+
+impl TimelineMarker {
+    pub fn new(timestamp_ns: u64) -> Self {
+        Self { timestamp_ns }
+    }
+}
+
 /// Open, protocol-neutral value transported between independently authored
 /// decoder nodes. Concrete protocol contracts determine which shapes are
 /// meaningful on a connection.

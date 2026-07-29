@@ -1,0 +1,236 @@
+{
+  "connections": [
+    {
+      "from": { "direction": "Output", "index": 0, "node": 0 },
+      "to": { "direction": "Input", "index": 0, "node": 2 }
+    },
+    {
+      "from": { "direction": "Output", "index": 0, "node": 0 },
+      "to": { "direction": "Input", "index": 0, "node": 3 }
+    },
+    {
+      "from": { "direction": "Output", "index": 0, "node": 0 },
+      "to": { "direction": "Input", "index": 0, "node": 4 }
+    },
+    {
+      "from": { "direction": "Output", "index": 0, "node": 1 },
+      "to": { "direction": "Input", "index": 1, "node": 4 }
+    },
+    {
+      "from": { "direction": "Output", "index": 0, "node": 5 },
+      "to": { "direction": "Input", "index": 0, "node": 6 }
+    }
+  ],
+  "extensions": {
+    "logic_analyzer_graph.payload_subscriptions": {
+      "subscriptions": [
+        {
+          "payload": "org.logicconduit.trigger/v1",
+          "target": { "ShowInView": { "node": 2, "output": 0 } }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": { "ShowInView": { "node": 3, "output": 0 } }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": { "ShowInView": { "node": 4, "output": 0 } }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": { "ShowInView": { "node": 6, "output": 0 } }
+        }
+      ],
+      "version": 1
+    },
+    "logic_analyzer_graph.viewer_selections": {
+      "selections": [
+        {
+          "endpoint": { "node": 2, "output": "trigger" },
+          "selected": true
+        },
+        {
+          "endpoint": { "node": 3, "output": "signal" },
+          "selected": true
+        },
+        {
+          "endpoint": { "node": 4, "output": "signal" },
+          "selected": true
+        },
+        {
+          "endpoint": { "node": 6, "output": "signal" },
+          "selected": true
+        }
+      ],
+      "version": 1
+    },
+    "logic_analyzer_ui.timeline_cursors": {
+      "version": 1,
+      "cursors": [{ "number": 1, "time_us": 425.0 }]
+    },
+    "logic_analyzer_ui.panel_layout": {
+      "decoder_panels": { "panels": {} },
+      "layout": {
+        "maximized": null,
+        "next_id": 2,
+        "root": {
+          "axis": "horizontal",
+          "first": {
+            "kind": "panel",
+            "panel": {
+              "content": "logic_analyzer",
+              "id": "logic_analyzer",
+              "title_bar_position": "top"
+            }
+          },
+          "fraction": 0.55,
+          "id": 1,
+          "kind": "split",
+          "second": {
+            "kind": "panel",
+            "panel": {
+              "content": "node_graph",
+              "id": "node_graph",
+              "title_bar_position": "top"
+            }
+          }
+        }
+      },
+      "plugin_panels": { "panels": {} }
+    }
+  },
+  "frames": [],
+  "next_frame_id": 0,
+  "next_id": 7,
+  "nodes": {
+    "0": {
+      "collapsed": false,
+      "header_color": [60, 140, 100, 255],
+      "id": 0,
+      "inputs": [],
+      "kind": "Regular",
+      "muted": false,
+      "outputs": [{ "schema_id": "marker" }],
+      "pos": { "x": 40.0, "y": 100.0 },
+      "selected": false,
+      "state": {
+        "name": { "value": "Start" },
+        "timestamp": { "value_ns": 200000 }
+      },
+      "title": "Start",
+      "type_name": "Timeline Marker"
+    },
+    "1": {
+      "collapsed": false,
+      "header_color": [60, 140, 100, 255],
+      "id": 1,
+      "inputs": [],
+      "kind": "Regular",
+      "muted": false,
+      "outputs": [{ "schema_id": "marker" }],
+      "pos": { "x": 40.0, "y": 390.0 },
+      "selected": false,
+      "state": {
+        "name": { "value": "End" },
+        "timestamp": { "value_ns": 650000 }
+      },
+      "title": "End",
+      "type_name": "Timeline Marker"
+    },
+    "2": {
+      "collapsed": false,
+      "header_color": [60, 140, 100, 255],
+      "id": 2,
+      "inputs": [{ "schema_id": "marker" }],
+      "kind": "Regular",
+      "muted": false,
+      "outputs": [{ "schema_id": "trigger" }],
+      "pos": { "x": 390.0, "y": 40.0 },
+      "selected": false,
+      "state": null,
+      "title": "Event at Start",
+      "type_name": "Marker to Trigger"
+    },
+    "3": {
+      "collapsed": false,
+      "header_color": [60, 140, 100, 255],
+      "id": 3,
+      "inputs": [{ "schema_id": "marker" }],
+      "kind": "Regular",
+      "muted": false,
+      "outputs": [{ "schema_id": "signal" }],
+      "pos": { "x": 390.0, "y": 230.0 },
+      "selected": false,
+      "state": {
+        "relation": {
+          "value": "At or after marker",
+          "variants": ["Before marker", "At or after marker"]
+        }
+      },
+      "title": "High from Start",
+      "type_name": "Marker Relation"
+    },
+    "4": {
+      "collapsed": false,
+      "header_color": [60, 140, 100, 255],
+      "id": 4,
+      "inputs": [
+        { "schema_id": "start" },
+        { "def_index": 1, "schema_id": "end" }
+      ],
+      "kind": "Regular",
+      "muted": false,
+      "outputs": [{ "schema_id": "signal" }],
+      "pos": { "x": 390.0, "y": 430.0 },
+      "selected": false,
+      "state": null,
+      "title": "Inside Start-to-End Window",
+      "type_name": "Marker Window"
+    },
+    "5": {
+      "collapsed": false,
+      "header_color": [60, 140, 100, 255],
+      "id": 5,
+      "inputs": [],
+      "kind": "Regular",
+      "muted": false,
+      "outputs": [{ "schema_id": "marker" }],
+      "pos": { "x": 40.0, "y": 670.0 },
+      "selected": false,
+      "state": {
+        "cursor": {
+          "selected": 1,
+          "choices": [
+            {
+              "number": 1,
+              "label": "Cursor 1",
+              "timestamp_ns": 425000
+            }
+          ],
+          "timestamp": { "value_ns": 425000 }
+        }
+      },
+      "title": "Marker from Cursor 1",
+      "type_name": "Cursor Marker"
+    },
+    "6": {
+      "collapsed": false,
+      "header_color": [60, 140, 100, 255],
+      "id": 6,
+      "inputs": [{ "schema_id": "marker" }],
+      "kind": "Regular",
+      "muted": false,
+      "outputs": [{ "schema_id": "signal" }],
+      "pos": { "x": 390.0, "y": 680.0 },
+      "selected": false,
+      "state": {
+        "relation": {
+          "value": "At or after marker",
+          "variants": ["Before marker", "At or after marker"]
+        }
+      },
+      "title": "High from Cursor 1",
+      "type_name": "Marker Relation"
+    }
+  }
+}

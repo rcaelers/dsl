@@ -1,14 +1,17 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use logic_analyzer_graph_api::node_support::LiveCaptureEdit;
+use logic_analyzer_graph_api::node_support::{
+    LiveCaptureEdit, TimelineMarkerEdit, TimelineMarkerReferenceBindingEdit,
+};
 use node_graph::api::{GraphState, NodeId};
 use signal_processing::{ConfigurationBoundary, PayloadRegistry, PersistentStoreConfig};
 
 use super::errors::{ApplyError, CompileError};
 use super::graph::{
     ApplySummary, BuilderRegistry, CompileCtx, CompiledGraph, DiscoveredCapturePresentation,
-    DiscoveredLiveCaptureFeature, DiscoveredTriggerConfiguration, LiveAnalysisSource,
+    DiscoveredLiveCaptureFeature, DiscoveredTimelineMarker,
+    DiscoveredTimelineMarkerReferenceBinding, DiscoveredTriggerConfiguration, LiveAnalysisSource,
     LiveCaptureDiscoveryError, LiveRun, SamplingOverlayCandidate, SourceProcessOverrides,
 };
 use super::source_preparation::SourcePreparation;
@@ -100,6 +103,38 @@ impl GraphCompiler {
         edit: &LiveCaptureEdit,
     ) -> Result<serde_json::Value, String> {
         graph::apply_live_capture_edit(graph, &self.builders, source_node, edit)
+    }
+
+    pub fn discover_timeline_markers(
+        &self,
+        graph: &GraphState,
+    ) -> Result<Vec<DiscoveredTimelineMarker>, String> {
+        graph::discover_timeline_markers(graph, &self.builders)
+    }
+
+    pub fn apply_timeline_marker_edit(
+        &self,
+        graph: &GraphState,
+        owner_node: NodeId,
+        edit: &TimelineMarkerEdit,
+    ) -> Result<serde_json::Value, String> {
+        graph::apply_timeline_marker_edit(graph, &self.builders, owner_node, edit)
+    }
+
+    pub fn discover_timeline_marker_reference_bindings(
+        &self,
+        graph: &GraphState,
+    ) -> Result<Vec<DiscoveredTimelineMarkerReferenceBinding>, String> {
+        graph::discover_timeline_marker_reference_bindings(graph, &self.builders)
+    }
+
+    pub fn apply_timeline_marker_reference_binding_edit(
+        &self,
+        graph: &GraphState,
+        owner_node: NodeId,
+        edit: &TimelineMarkerReferenceBindingEdit,
+    ) -> Result<serde_json::Value, String> {
+        graph::apply_timeline_marker_reference_binding_edit(graph, &self.builders, owner_node, edit)
     }
 
     pub fn lower(&self, graph: &GraphState) -> Result<CompiledGraph, Vec<CompileError>> {

@@ -24,6 +24,8 @@ use logic_analyzer_graph_api::node::{
 use logic_analyzer_graph_api::node_support::{
     CaptureCacheIdentity, CapturePresentation, DefaultLanePresentationDescriptor, LiveCaptureEdit,
     NodeBuildContext, PortKind, ResolvedInput, ResolvedInputs, SimpleTriggerChannel,
+    TimelineMarkerDescriptor, TimelineMarkerEdit, TimelineMarkerReference,
+    TimelineMarkerReferenceBindingDescriptor, TimelineMarkerReferenceBindingEdit,
     TriggerConfigurationFeature,
 };
 use node_graph::api::{
@@ -60,6 +62,7 @@ pub struct CompileCtx {
     derived_data_retention: DerivedDataRetention,
     derived_word_caches: Vec<Option<PersistentStoreConfig>>,
     persistent_cache_directory: Option<std::path::PathBuf>,
+    timeline_markers: HashMap<TimelineMarkerReference, signal_processing::TimelineMarker>,
     /// Clocked-node sampling overlays resolved during lowering. The host
     /// application chooses at most one candidate to display.
     sampling_overlays: Vec<SamplingOverlayCandidate>,
@@ -114,6 +117,17 @@ impl CompileCtx {
     pub fn source_readiness(&self) -> &SourceReadinessRegistry {
         &self.source_readiness
     }
+
+    /// Supplies one host-owned timeline position to nodes materialized for
+    /// this run. Values are snapshots; changing the host position takes
+    /// effect on the next run.
+    pub fn set_timeline_marker(
+        &mut self,
+        reference: TimelineMarkerReference,
+        marker: signal_processing::TimelineMarker,
+    ) {
+        self.timeline_markers.insert(reference, marker);
+    }
 }
 
 impl NodeBuildContext for CompileCtx {
@@ -135,6 +149,13 @@ impl NodeBuildContext for CompileCtx {
         self.sampling_activities
             .get(&(runtime_name.to_owned(), input))
             .cloned()
+    }
+
+    fn timeline_marker(
+        &self,
+        reference: TimelineMarkerReference,
+    ) -> Option<signal_processing::TimelineMarker> {
+        self.timeline_markers.get(&reference).copied()
     }
 }
 
@@ -183,6 +204,20 @@ pub struct DiscoveredTriggerConfiguration {
     pub source_node: NodeId,
     pub source_title: String,
     pub feature: TriggerConfigurationFeature,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiscoveredTimelineMarker {
+    pub owner_node: NodeId,
+    pub owner_title: String,
+    pub marker: TimelineMarkerDescriptor,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiscoveredTimelineMarkerReferenceBinding {
+    pub owner_node: NodeId,
+    pub owner_title: String,
+    pub binding: TimelineMarkerReferenceBindingDescriptor,
 }
 
 pub struct DiscoveredLiveCaptureFeature {
@@ -641,6 +676,111 @@ pub(crate) fn discover_trigger_configuration(
                 .into(),
         }),
     }
+}
+
+/// Discovers every enabled marker through node-owned, protocol-neutral contracts.
+pub(crate) fn discover_timeline_markers(
+    graph: &GraphState,
+    builders: &BuilderRegistry,
+) -> Result<Vec<DiscoveredTimelineMarker>, String> {
+    let mut discovered = Vec::new();
+    for node in graph
+        .nodes
+        .values()
+        .filter(|node| node.kind == NodeKind::Regular && !node.muted)
+    {
+        let Some(builder) = builders.get(node.def_name()) else {
+            continue;
+        };
+        let markers = builder
+            .timeline_markers(&node.state)
+            .map_err(|message| format!("{}: {message}", node.title))?;
+        discovered.extend(markers.into_iter().map(|marker| DiscoveredTimelineMarker {
+            owner_node: node.id,
+            owner_title: node.title.clone(),
+            marker,
+        }));
+    }
+    discovered.sort_by(|left, right| {
+        (left.owner_node.0, left.marker.id.as_str())
+            .cmp(&(right.owner_node.0, right.marker.id.as_str()))
+    });
+    Ok(discovered)
+}
+
+/// Routes a marker edit to the concrete builder that owns it.
+pub(crate) fn apply_timeline_marker_edit(
+    graph: &GraphState,
+    builders: &BuilderRegistry,
+    owner_node: NodeId,
+    edit: &TimelineMarkerEdit,
+) -> Result<Value, String> {
+    let node = graph
+        .nodes
+        .get(&owner_node)
+        .ok_or_else(|| format!("timeline-marker node {owner_node:?} no longer exists"))?;
+    let builder = builders
+        .get(node.def_name())
+        .ok_or_else(|| format!("no runtime builder is registered for {}", node.def_name()))?;
+    builder
+        .apply_timeline_marker_edit(&node.state, edit)?
+        .ok_or_else(|| format!("{} does not support this timeline-marker edit", node.title))
+}
+
+/// Discovers controls which select a host-owned timeline position.
+pub(crate) fn discover_timeline_marker_reference_bindings(
+    graph: &GraphState,
+    builders: &BuilderRegistry,
+) -> Result<Vec<DiscoveredTimelineMarkerReferenceBinding>, String> {
+    let mut discovered = Vec::new();
+    for node in graph
+        .nodes
+        .values()
+        .filter(|node| node.kind == NodeKind::Regular && !node.muted)
+    {
+        let Some(builder) = builders.get(node.def_name()) else {
+            continue;
+        };
+        let bindings = builder
+            .timeline_marker_reference_bindings(&node.state)
+            .map_err(|message| format!("{}: {message}", node.title))?;
+        discovered.extend(bindings.into_iter().map(|binding| {
+            DiscoveredTimelineMarkerReferenceBinding {
+                owner_node: node.id,
+                owner_title: node.title.clone(),
+                binding,
+            }
+        }));
+    }
+    discovered.sort_by(|left, right| {
+        (left.owner_node.0, left.binding.id.as_str())
+            .cmp(&(right.owner_node.0, right.binding.id.as_str()))
+    });
+    Ok(discovered)
+}
+
+/// Routes a host-owned timeline-reference update to its concrete node.
+pub(crate) fn apply_timeline_marker_reference_binding_edit(
+    graph: &GraphState,
+    builders: &BuilderRegistry,
+    owner_node: NodeId,
+    edit: &TimelineMarkerReferenceBindingEdit,
+) -> Result<Value, String> {
+    let node = graph
+        .nodes
+        .get(&owner_node)
+        .ok_or_else(|| format!("timeline-reference node {owner_node:?} no longer exists"))?;
+    let builder = builders
+        .get(node.def_name())
+        .ok_or_else(|| format!("no runtime builder is registered for {}", node.def_name()))?;
+    builder
+        .apply_timeline_marker_reference_binding_edit(&node.state, edit)?
+        .ok_or_else(|| {
+            format!(
+                "{} does not support this timeline-reference edit",
+                node.title
+            )
+        })
 }
 
 /// Routes a portable live-feature edit to the concrete builder that owns `source_node`.
@@ -1179,8 +1319,11 @@ pub(crate) fn lower_with_subscriptions(
     let mut kept: Vec<NodeId> = keep.iter().copied().collect();
     kept.sort_by_key(|id| id.0);
 
-    // Every kept node must have a runtime; exactly one source.
-    let mut source_count = 0usize;
+    // Every kept node must have a runtime. At least one zero-input runtime
+    // source is required, while at most one source may establish the capture
+    // time domain; auxiliary sources carry values already on that timeline.
+    let mut runtime_source_count = 0usize;
+    let mut time_domain_source_count = 0usize;
     let mut derived_data_retention = DerivedDataRetention::Unlimited;
     for &id in &kept {
         let node = &graph.nodes[&id];
@@ -1190,18 +1333,24 @@ pub(crate) fn lower_with_subscriptions(
                 format!("'{}' has no runtime implementation", node.def_name()),
             )),
             Some(builder) if builder.is_source() => {
-                source_count += 1;
-                derived_data_retention = builder.derived_data_retention(&node.state);
+                runtime_source_count += 1;
+                if builder.is_time_domain_source() {
+                    time_domain_source_count += 1;
+                    derived_data_retention = builder.derived_data_retention(&node.state);
+                }
             }
             Some(_) => {}
         }
     }
-    if source_count == 0 {
+    if runtime_source_count == 0 {
         errors.push(CompileError::global("Graph has no data source"));
-    } else if source_count > 1 {
+    } else if time_domain_source_count > 1 {
         for &id in &kept {
             let node = &graph.nodes[&id];
-            if registry.get(node.def_name()).is_some_and(|b| b.is_source()) {
+            if registry
+                .get(node.def_name())
+                .is_some_and(|builder| builder.is_time_domain_source())
+            {
                 errors.push(CompileError::on(
                     id,
                     "Multiple sources: a graph has exactly one time domain",
@@ -1819,7 +1968,7 @@ fn diff(
     let is_source = |compiled: &CompiledGraph, id: NodeId| {
         registry
             .get(&compiled_node(compiled, id).builder)
-            .is_some_and(|builder| builder.is_source())
+            .is_some_and(|builder| builder.is_time_domain_source())
     };
 
     let mut edits: Vec<LiveEdit> = Vec::new();
@@ -1924,6 +2073,7 @@ pub struct LiveRun {
     stop_requested: bool,
     cache_pruned: bool,
     persistent_cache_directory: Option<std::path::PathBuf>,
+    timeline_markers: HashMap<TimelineMarkerReference, signal_processing::TimelineMarker>,
 }
 
 /// One provider-owned source process used only while a live capture follows
@@ -2001,7 +2151,7 @@ fn start_live_inner(
         };
         let is_source = registry
             .get(&node.builder)
-            .is_some_and(RuntimeBuilder::is_source);
+            .is_some_and(RuntimeBuilder::is_time_domain_source);
         if !is_source {
             return Err(vec![CompileError::on(
                 source_node,
@@ -2056,6 +2206,7 @@ fn start_live_inner(
         stop_requested: false,
         cache_pruned,
         persistent_cache_directory: ctx.persistent_cache_directory.clone(),
+        timeline_markers: ctx.timeline_markers.clone(),
     })
 }
 
@@ -2143,6 +2294,7 @@ impl LiveRun {
             collected_table_subscriptions: collected_table_subscriptions(&new, registry),
             diagnostics: self.diagnostics.clone(),
             source_readiness: self.source_readiness.clone(),
+            timeline_markers: self.timeline_markers.clone(),
         };
         let mut summary = ApplySummary::default();
         for edit in edits {

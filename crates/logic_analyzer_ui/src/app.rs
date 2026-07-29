@@ -5,13 +5,17 @@ use std::sync::Arc;
 use input_bindings::{InputBindings, PointerButtonName, PointerGesture, Trigger};
 use logic_analyzer_graph_api::node::DirectoryNodeCatalog;
 use logic_analyzer_graph_api::node_support::{
-    CapturePresentationSignal, LiveCaptureEdit, ViewerOutputPanelAction, ViewerOutputPanelEntry,
-    ViewerOutputPanelModel,
+    CapturePresentationSignal, LiveCaptureEdit, TimelineMarkerEdit as GraphTimelineMarkerEdit,
+    TimelineMarkerReference, TimelineMarkerReferenceBindingDescriptor,
+    TimelineMarkerReferenceBindingEdit, TimelineMarkerReferenceChoice, ViewerOutputPanelAction,
+    ViewerOutputPanelEntry, ViewerOutputPanelModel,
 };
 use logic_analyzer_graph_compiler as compiler;
 use logic_analyzer_viewer::{
-    LogicAnalyzerViewer, SimpleTriggerEdit, SimpleTriggerLane, ViewerLaneGroupId, ViewerRowHeight,
-    ViewerRowHeightSettings, ViewerRowId, WaveformPresentationRegistry,
+    LogicAnalyzerViewer, SimpleTriggerEdit, SimpleTriggerLane, TimeCursor,
+    TimelineMarker as ViewerTimelineMarker, TimelineMarkerEdit as ViewerTimelineMarkerEdit,
+    ViewerLaneGroupId, ViewerRowHeight, ViewerRowHeightSettings, ViewerRowId,
+    WaveformPresentationRegistry,
 };
 use node_graph::{
     GraphState, NodeBadge, NodeContextAction, NodeGraphWidget, NodeId, PanelTabDef,
@@ -72,6 +76,7 @@ impl SocketIndicatorPresentation for ViewerSocketIndicator {
 const SAMPLING_OVERLAY_EXTENSION: &str = "logic_analyzer_ui.sampling_overlay";
 const VIEWER_LANE_ORDER_EXTENSION: &str = "logic_analyzer_ui.viewer_lane_order";
 const VIEWER_LANE_HEIGHTS_EXTENSION: &str = "logic_analyzer_ui.viewer_lane_heights";
+const TIMELINE_CURSORS_EXTENSION: &str = "logic_analyzer_ui.timeline_cursors";
 const PANEL_LAYOUT_EXTENSION: &str = "logic_analyzer_ui.panel_layout";
 
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
@@ -81,6 +86,24 @@ struct SavedPanelLayout {
     decoder_panels: crate::decoder_panel::DecoderPanelsState,
     #[serde(default)]
     plugin_panels: PluginPanelsState,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+struct SavedTimelineCursors {
+    #[serde(default = "timeline_cursor_schema_version")]
+    version: u32,
+    #[serde(default)]
+    cursors: Vec<SavedTimeCursor>,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+struct SavedTimeCursor {
+    number: u32,
+    time_us: f64,
+}
+
+fn timeline_cursor_schema_version() -> u32 {
+    1
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -228,6 +251,46 @@ fn save_viewer_lane_heights(
     }
 }
 
+fn saved_timeline_cursors(graph: &GraphState) -> Result<Vec<TimeCursor>, serde_json::Error> {
+    Ok(graph
+        .extension::<SavedTimelineCursors>(TIMELINE_CURSORS_EXTENSION)?
+        .map(|saved| {
+            saved
+                .cursors
+                .into_iter()
+                .map(|cursor| TimeCursor {
+                    number: cursor.number,
+                    time_us: cursor.time_us,
+                })
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+fn save_timeline_cursors(
+    graph: &mut GraphState,
+    cursors: &[TimeCursor],
+) -> Result<(), serde_json::Error> {
+    if cursors.is_empty() {
+        graph.remove_extension(TIMELINE_CURSORS_EXTENSION);
+        Ok(())
+    } else {
+        graph.set_extension(
+            TIMELINE_CURSORS_EXTENSION,
+            SavedTimelineCursors {
+                version: timeline_cursor_schema_version(),
+                cursors: cursors
+                    .iter()
+                    .map(|cursor| SavedTimeCursor {
+                        number: cursor.number,
+                        time_us: cursor.time_us,
+                    })
+                    .collect(),
+            },
+        )
+    }
+}
+
 fn saved_panel_layout(graph: &GraphState) -> Result<Option<SavedPanelLayout>, serde_json::Error> {
     graph.extension(PANEL_LAYOUT_EXTENSION)
 }
@@ -308,6 +371,27 @@ pub struct App {
     pub(crate) viewer_lane_order: Vec<SavedViewerRow>,
     pub(crate) decoder_panels: DecoderPanels,
     pub(crate) plugin_panels: PluginPanels,
+    pub(crate) timeline_marker_owners: HashMap<String, (NodeId, String)>,
+    pub(crate) timeline_marker_error: Option<String>,
+    pub(crate) timeline_marker_reference_error: Option<String>,
+}
+
+fn timeline_marker_reference_binding_is_synchronized(
+    binding: &TimelineMarkerReferenceBindingDescriptor,
+    choices: &[TimelineMarkerReferenceChoice],
+) -> bool {
+    if binding.choices != choices {
+        return false;
+    }
+    let selected_timestamp = binding.selected.and_then(|selected| {
+        choices
+            .iter()
+            .find(|choice| choice.reference == selected)
+            .map(|choice| choice.timestamp_ns)
+    });
+    selected_timestamp
+        .map(|timestamp_ns| timestamp_ns == binding.timestamp_ns)
+        .unwrap_or(binding.selected.is_none())
 }
 
 impl App {
@@ -439,6 +523,85 @@ impl App {
         self.refresh_trigger_configuration();
     }
 
+    fn refresh_timeline_markers(&mut self) {
+        let mut discovered = match self
+            .graph_service
+            .discover_timeline_markers(self.node_graph.graph())
+        {
+            Ok(discovered) => {
+                self.timeline_marker_error = None;
+                discovered
+            }
+            Err(error) => {
+                if self.timeline_marker_error.as_deref() != Some(&error) {
+                    self.toasts.error_from(
+                        ToastSource::panel("Logic Analyzer"),
+                        format!("Could not load timeline markers: {error}"),
+                    );
+                }
+                self.timeline_marker_error = Some(error);
+                self.timeline_marker_owners.clear();
+                self.logic_analyzer.set_timeline_markers(Vec::new());
+                return;
+            }
+        };
+        discovered.sort_by(|left, right| {
+            (left.owner_node.0, left.marker.id.as_str())
+                .cmp(&(right.owner_node.0, right.marker.id.as_str()))
+        });
+        self.timeline_marker_owners.clear();
+        let markers = discovered
+            .into_iter()
+            .map(|discovered| {
+                let id = format!("{}:{}", discovered.owner_node.0, discovered.marker.id);
+                self.timeline_marker_owners
+                    .insert(id.clone(), (discovered.owner_node, discovered.marker.id));
+                ViewerTimelineMarker {
+                    id,
+                    label: discovered.marker.name,
+                    time_us: discovered.marker.timestamp_ns as f64 / 1_000.0,
+                }
+            })
+            .collect();
+        self.logic_analyzer.set_timeline_markers(markers);
+    }
+
+    fn apply_timeline_marker_edit(&mut self, edit: ViewerTimelineMarkerEdit) {
+        let Some((owner_node, local_id)) = self.timeline_marker_owners.get(&edit.id).cloned()
+        else {
+            self.toasts.error_from(
+                ToastSource::panel("Logic Analyzer"),
+                "That timeline marker is no longer available",
+            );
+            self.refresh_timeline_markers();
+            return;
+        };
+        let request = GraphTimelineMarkerEdit::SetTimestamp {
+            id: local_id,
+            timestamp_ns: (edit.time_us.max(0.0) * 1_000.0).round() as u64,
+        };
+        let state = match self.graph_service.apply_timeline_marker_edit(
+            self.node_graph.graph(),
+            owner_node,
+            &request,
+        ) {
+            Ok(state) => state,
+            Err(error) => {
+                self.toasts
+                    .error_from(self.toast_source_for_node(owner_node), error);
+                self.refresh_timeline_markers();
+                return;
+            }
+        };
+        if !self.node_graph.edit_node_state(owner_node, state) {
+            self.toasts.error_from(
+                self.toast_source_for_node(owner_node),
+                "The timeline marker could not be moved while the graph is read-only",
+            );
+        }
+        self.refresh_timeline_markers();
+    }
+
     pub(crate) fn set_capture_preview(&mut self, signals: Vec<CapturePresentationSignal>) {
         let duration_us = signals
             .iter()
@@ -509,6 +672,7 @@ impl App {
         self.restore_sampling_overlay_setting();
         self.restore_viewer_lane_order_setting();
         self.restore_viewer_lane_height_setting();
+        self.restore_timeline_cursor_setting();
         self.restore_panel_layout_setting();
     }
 
@@ -718,6 +882,9 @@ impl App {
             viewer_lane_order: Vec::new(),
             decoder_panels: DecoderPanels::default(),
             plugin_panels: PluginPanels::new(plugin_panel_registry),
+            timeline_marker_owners: HashMap::new(),
+            timeline_marker_error: None,
+            timeline_marker_reference_error: None,
         }
     }
 
@@ -829,6 +996,144 @@ impl App {
                 self.toasts
                     .error(format!("Could not save the viewer lane heights: {error}"));
             }
+        }
+    }
+
+    pub(crate) fn restore_timeline_cursor_setting(&mut self) {
+        match saved_timeline_cursors(self.node_graph.graph()) {
+            Ok(cursors) => self.logic_analyzer.set_time_cursors(cursors),
+            Err(error) => {
+                self.logic_analyzer.set_time_cursors(Vec::new());
+                self.toasts
+                    .error(format!("Could not restore timeline cursors: {error}"));
+            }
+        }
+    }
+
+    fn sync_timeline_cursor_setting(&mut self) -> bool {
+        if !self.logic_analyzer.take_time_cursors_changed() {
+            return false;
+        }
+        let cursors = self.logic_analyzer.time_cursors().to_vec();
+        if let Err(error) = save_timeline_cursors(self.node_graph.graph_mut(), &cursors) {
+            self.toasts
+                .error(format!("Could not save timeline cursors: {error}"));
+        }
+        true
+    }
+
+    fn timeline_marker_reference_choices(&self) -> Vec<TimelineMarkerReferenceChoice> {
+        self.logic_analyzer
+            .time_cursors()
+            .iter()
+            .map(|cursor| {
+                TimelineMarkerReferenceChoice::new(
+                    TimelineMarkerReference::Cursor {
+                        number: cursor.number,
+                    },
+                    format!("Cursor {}", cursor.number),
+                    (cursor.time_us.max(0.0) * 1_000.0).round() as u64,
+                )
+            })
+            .collect()
+    }
+
+    fn synchronize_timeline_marker_references(&mut self, viewer_changed: bool) {
+        let discovered = match self
+            .graph_service
+            .discover_timeline_marker_reference_bindings(self.node_graph.graph())
+        {
+            Ok(discovered) => {
+                self.timeline_marker_reference_error = None;
+                discovered
+            }
+            Err(error) => {
+                if self.timeline_marker_reference_error.as_deref() != Some(&error) {
+                    self.toasts.error_from(
+                        ToastSource::panel("Logic Analyzer"),
+                        format!("Could not synchronize cursor marker controls: {error}"),
+                    );
+                }
+                self.timeline_marker_reference_error = Some(error);
+                return;
+            }
+        };
+
+        let original_choices = self.timeline_marker_reference_choices();
+        if !viewer_changed {
+            let mut moved = Vec::new();
+            for discovered in &discovered {
+                if discovered.binding.choices != original_choices {
+                    continue;
+                }
+                let Some(selected) = discovered.binding.selected else {
+                    continue;
+                };
+                let Some(choice) = original_choices
+                    .iter()
+                    .find(|choice| choice.reference == selected)
+                else {
+                    continue;
+                };
+                if choice.timestamp_ns == discovered.binding.timestamp_ns
+                    || moved.contains(&selected)
+                {
+                    continue;
+                }
+                match selected {
+                    TimelineMarkerReference::Cursor { number } => {
+                        if self.logic_analyzer.set_time_cursor_time(
+                            number,
+                            discovered.binding.timestamp_ns as f64 / 1_000.0,
+                        ) {
+                            moved.push(selected);
+                        }
+                    }
+                }
+            }
+        }
+
+        let choices = self.timeline_marker_reference_choices();
+        for discovered in discovered {
+            if timeline_marker_reference_binding_is_synchronized(&discovered.binding, &choices) {
+                continue;
+            }
+            let edit = TimelineMarkerReferenceBindingEdit::Synchronize {
+                id: discovered.binding.id,
+                choices: choices.clone(),
+            };
+            match self
+                .graph_service
+                .apply_timeline_marker_reference_binding_edit(
+                    self.node_graph.graph(),
+                    discovered.owner_node,
+                    &edit,
+                ) {
+                Ok(state) => {
+                    if !self.node_graph.set_node_state(discovered.owner_node, state) {
+                        self.toasts.error_from(
+                            self.toast_source_for_node(discovered.owner_node),
+                            "Could not refresh the cursor marker controls",
+                        );
+                    }
+                }
+                Err(error) => self
+                    .toasts
+                    .error_from(self.toast_source_for_node(discovered.owner_node), error),
+            }
+        }
+    }
+
+    fn supply_timeline_cursors(&self, context: &mut compiler::CompileCtx) {
+        for cursor in self.logic_analyzer.time_cursors() {
+            context.set_timeline_marker(
+                TimelineMarkerReference::Cursor {
+                    number: cursor.number,
+                },
+                signal_processing::TimelineMarker::new(
+                    (cursor.time_us.max(0.0) * 1_000.0).round() as u64
+                ),
+            );
         }
     }
 
@@ -1006,6 +1311,7 @@ impl App {
 
         // Fresh lane store per run: stale lanes vanish atomically.
         let mut ctx = compiler::CompileCtx::default();
+        self.supply_timeline_cursors(&mut ctx);
         if replay.is_none() {
             self.platform_prepare_run(&mut ctx);
         }
@@ -1311,6 +1617,7 @@ impl App {
             return;
         }
         let mut ctx = compiler::CompileCtx::default();
+        self.supply_timeline_cursors(&mut ctx);
         self.logic_analyzer
             .set_derived_lanes(ctx.derived_lanes().clone());
         self.logic_analyzer
@@ -2579,11 +2886,17 @@ impl eframe::App for App {
                     content_id: "logic_analyzer",
                     ..
                 } => {
+                    self.refresh_timeline_markers();
+                    self.logic_analyzer
+                        .set_timeline_marker_editing_enabled(self.node_graph.editing_enabled());
                     self.logic_analyzer.show(panel_ui);
                     self.sync_viewer_lane_order();
                     self.sync_viewer_lane_heights();
                     if let Some(edit) = self.logic_analyzer.take_simple_trigger_edit() {
                         self.apply_simple_trigger_edit(edit);
+                    }
+                    if let Some(edit) = self.logic_analyzer.take_timeline_marker_edit() {
+                        self.apply_timeline_marker_edit(edit);
                     }
                 }
                 PanelSlot::Body {
@@ -2661,6 +2974,10 @@ impl eframe::App for App {
         );
         self.panel_layout = panel_layout;
 
+        let viewer_cursors_changed = self.sync_timeline_cursor_setting();
+        self.synchronize_timeline_marker_references(viewer_cursors_changed);
+        self.sync_timeline_cursor_setting();
+
         let viewer = layout_response.content_panel("logic_analyzer");
         let graph = layout_response.content_panel("node_graph");
 
@@ -2709,14 +3026,52 @@ impl eframe::App for App {
 
 #[cfg(test)]
 mod font_tests {
+    use logic_analyzer_graph_api::node_support::{
+        TimelineMarkerReference, TimelineMarkerReferenceBindingDescriptor,
+        TimelineMarkerReferenceChoice,
+    };
     use node_graph::{GraphState, NodeId, SocketIndicatorPresentation};
 
     use super::{
         PluginPanelsState, SavedViewerRow, StatusAction, ViewerSocketIndicator, install_fonts,
-        load_symbol_fonts, save_panel_layout, save_sampling_overlay, save_viewer_lane_heights,
-        save_viewer_lane_order, saved_panel_layout, saved_sampling_overlay,
-        saved_viewer_lane_heights, saved_viewer_lane_order,
+        load_symbol_fonts, save_panel_layout, save_sampling_overlay, save_timeline_cursors,
+        save_viewer_lane_heights, save_viewer_lane_order, saved_panel_layout,
+        saved_sampling_overlay, saved_timeline_cursors, saved_viewer_lane_heights,
+        saved_viewer_lane_order, timeline_marker_reference_binding_is_synchronized,
     };
+
+    #[test]
+    fn empty_cursor_choices_are_a_stable_synchronized_state() {
+        let binding = TimelineMarkerReferenceBindingDescriptor {
+            id: "cursor".into(),
+            selected: None,
+            timestamp_ns: 250_000_000,
+            choices: Vec::new(),
+        };
+
+        assert!(timeline_marker_reference_binding_is_synchronized(
+            &binding,
+            &[]
+        ));
+    }
+
+    #[test]
+    fn cursor_time_changes_require_reference_resynchronization() {
+        let reference = TimelineMarkerReference::Cursor { number: 1 };
+        let previous = TimelineMarkerReferenceChoice::new(reference, "Cursor 1", 10);
+        let binding = TimelineMarkerReferenceBindingDescriptor {
+            id: "cursor".into(),
+            selected: Some(reference),
+            timestamp_ns: 10,
+            choices: vec![previous],
+        };
+        let moved = TimelineMarkerReferenceChoice::new(reference, "Cursor 1", 20);
+
+        assert!(!timeline_marker_reference_binding_is_synchronized(
+            &binding,
+            &[moved]
+        ));
+    }
 
     #[test]
     fn application_input_bindings_are_valid() {
@@ -2777,6 +3132,23 @@ mod font_tests {
 
         save_sampling_overlay(&mut restored, None).unwrap();
         assert_eq!(saved_sampling_overlay(&restored).unwrap(), None);
+    }
+
+    #[test]
+    fn timeline_cursors_round_trip_with_the_graph_document() {
+        let mut graph = GraphState::default();
+        let cursors = vec![logic_analyzer_viewer::TimeCursor {
+            number: 2,
+            time_us: 123.5,
+        }];
+        save_timeline_cursors(&mut graph, &cursors).unwrap();
+
+        let json = serde_json::to_string(&graph).unwrap();
+        let mut restored: GraphState = serde_json::from_str(&json).unwrap();
+        assert_eq!(saved_timeline_cursors(&restored).unwrap(), cursors);
+
+        save_timeline_cursors(&mut restored, &[]).unwrap();
+        assert!(saved_timeline_cursors(&restored).unwrap().is_empty());
     }
 
     #[test]

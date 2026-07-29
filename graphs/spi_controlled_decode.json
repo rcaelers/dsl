@@ -416,6 +416,15 @@
           }
         },
         {
+          "payload": "org.logicconduit.number-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 4,
+              "output": 0
+            }
+          }
+        },
+        {
           "payload": "org.logicconduit.digital-sample/v1",
           "target": {
             "ShowInView": {
@@ -438,6 +447,15 @@
           "target": {
             "ShowInView": {
               "node": 7,
+              "output": 0
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.word/v1",
+          "target": {
+            "ShowInView": {
+              "node": 8,
               "output": 0
             }
           }
@@ -554,29 +572,50 @@
         },
         {
           "endpoint": {
+            "node": 1,
+            "output": "transactions"
+          },
+          "selected": false
+        },
+        {
+          "endpoint": {
             "node": 2,
-            "output": "Match"
+            "output": "match"
           },
           "selected": true
         },
         {
           "endpoint": {
             "node": 2,
-            "output": "Matched"
+            "output": "matched"
+          },
+          "selected": false
+        },
+        {
+          "endpoint": {
+            "node": 2,
+            "output": "matching_words"
           },
           "selected": false
         },
         {
           "endpoint": {
             "node": 3,
-            "output": "Match"
+            "output": "match"
           },
           "selected": true
         },
         {
           "endpoint": {
             "node": 3,
-            "output": "Matched"
+            "output": "matched"
+          },
+          "selected": false
+        },
+        {
+          "endpoint": {
+            "node": 3,
+            "output": "matching_words"
           },
           "selected": false
         },
@@ -585,7 +624,7 @@
             "node": 4,
             "output": "Count"
           },
-          "selected": false
+          "selected": true
         },
         {
           "endpoint": {
@@ -613,7 +652,7 @@
             "node": 8,
             "output": "words"
           },
-          "selected": false
+          "selected": true
         }
       ],
       "version": 1
@@ -635,7 +674,7 @@
               "title_bar_position": "top"
             }
           },
-          "fraction": 0.4733482897281647,
+          "fraction": 0.5331152677536011,
           "id": 1,
           "kind": "split",
           "second": {
@@ -651,7 +690,66 @@
       "plugin_panels": {
         "panels": {}
       }
-    }
+    },
+    "logic_analyzer_ui.viewer_lane_order": [
+      {
+        "Channel": 0
+      },
+      {
+        "Channel": 1
+      },
+      {
+        "Channel": 2
+      },
+      {
+        "Channel": 3
+      },
+      {
+        "Channel": 4
+      },
+      {
+        "Channel": 5
+      },
+      {
+        "Channel": 6
+      },
+      {
+        "Channel": 7
+      },
+      {
+        "Channel": 8
+      },
+      {
+        "Channel": 9
+      },
+      {
+        "Channel": 10
+      },
+      {
+        "Derived": "n4294967295_output_subscription_collector:node:1:mosi"
+      },
+      {
+        "Derived": "n4294967295_output_subscription_collector:lane:2"
+      },
+      {
+        "Derived": "n4294967295_output_subscription_collector:lane:3"
+      },
+      {
+        "Derived": "n4294967295_output_subscription_collector:lane:4"
+      },
+      {
+        "Derived": "n4294967295_output_subscription_collector:lane:5"
+      },
+      {
+        "Derived": "n4294967295_output_subscription_collector:lane:7"
+      },
+      {
+        "Derived": "n4294967295_output_subscription_collector:lane:8"
+      },
+      {
+        "Derived": "n4294967295_output_subscription_collector:lane:6"
+      }
+    ]
   },
   "frames": [],
   "next_frame_id": 0,
@@ -806,13 +904,17 @@
         {
           "def_index": 5,
           "schema_id": "MISO Data"
+        },
+        {
+          "def_index": 6,
+          "schema_id": "transactions"
         }
       ],
       "pos": {
         "x": 276.171875,
         "y": 64.88671875
       },
-      "selected": false,
+      "selected": true,
       "state": {
         "bit_order": {
           "value": "MSB first",
@@ -875,18 +977,26 @@
       "id": 2,
       "inputs": [
         {
-          "schema_id": "Words"
+          "schema_id": "words"
+        },
+        {
+          "def_index": 1,
+          "schema_id": "rearm"
         }
       ],
       "kind": "Regular",
       "muted": false,
       "outputs": [
         {
-          "schema_id": "Match"
+          "schema_id": "match"
         },
         {
           "def_index": 1,
-          "schema_id": "Matched"
+          "schema_id": "matched"
+        },
+        {
+          "def_index": 2,
+          "schema_id": "matching_words"
         }
       ],
       "pos": {
@@ -895,8 +1005,18 @@
       },
       "selected": false,
       "state": {
+        "holdoff_us": {
+          "max": 2000000000,
+          "min": 0,
+          "value": 0
+        },
         "mask": {
           "value": "0xFFFFFF"
+        },
+        "match_count": {
+          "max": 1000000,
+          "min": 1,
+          "value": 1
         },
         "op": {
           "value": "==",
@@ -911,6 +1031,24 @@
         },
         "pattern": {
           "value": "0x600081"
+        },
+        "predicate": {
+          "value": "Compare",
+          "variants": [
+            "Compare",
+            "Inclusive range",
+            "Set"
+          ]
+        },
+        "range_max": {
+          "value": "0xFF"
+        },
+        "range_min": {
+          "value": "0x00"
+        },
+        "schema_version": 2,
+        "set_values": {
+          "value": "0x00, 0xFF"
         },
         "trigger_at": {
           "value": "Word end",
@@ -934,18 +1072,26 @@
       "id": 3,
       "inputs": [
         {
-          "schema_id": "Words"
+          "schema_id": "words"
+        },
+        {
+          "def_index": 1,
+          "schema_id": "rearm"
         }
       ],
       "kind": "Regular",
       "muted": false,
       "outputs": [
         {
-          "schema_id": "Match"
+          "schema_id": "match"
         },
         {
           "def_index": 1,
-          "schema_id": "Matched"
+          "schema_id": "matched"
+        },
+        {
+          "def_index": 2,
+          "schema_id": "matching_words"
         }
       ],
       "pos": {
@@ -954,8 +1100,18 @@
       },
       "selected": false,
       "state": {
+        "holdoff_us": {
+          "max": 2000000000,
+          "min": 0,
+          "value": 0
+        },
         "mask": {
           "value": "0xFFFFFF"
+        },
+        "match_count": {
+          "max": 1000000,
+          "min": 1,
+          "value": 1
         },
         "op": {
           "value": "==",
@@ -970,6 +1126,24 @@
         },
         "pattern": {
           "value": "0x600000"
+        },
+        "predicate": {
+          "value": "Compare",
+          "variants": [
+            "Compare",
+            "Inclusive range",
+            "Set"
+          ]
+        },
+        "range_max": {
+          "value": "0xFF"
+        },
+        "range_min": {
+          "value": "0x00"
+        },
+        "schema_version": 2,
+        "set_values": {
+          "value": "0x00, 0xFF"
         },
         "trigger_at": {
           "value": "Word end",
@@ -1208,10 +1382,6 @@
       "kind": "Regular",
       "muted": false,
       "outputs": [
-        {
-          "def_index": 18446744073709551615,
-          "schema_id": "Words"
-        },
         {
           "schema_id": "words"
         }

@@ -598,6 +598,13 @@ impl NodeGraphWidget {
                 if let Some(node) = self.graph.nodes.get_mut(&state.node_id) {
                     node.title = state.text;
                 }
+                if let (Some(instance), Some(node)) = (
+                    self.runtime.get_mut(&state.node_id),
+                    self.graph.nodes.get(&state.node_id),
+                ) {
+                    instance.set_bound_title(&node.title);
+                }
+                self.run_update(state.node_id);
             }
         } else if cancel {
             self.node_rename = None;

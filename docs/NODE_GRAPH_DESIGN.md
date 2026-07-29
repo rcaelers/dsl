@@ -206,7 +206,9 @@ state and run through the same `on_update` path as inline controls, so visibilit
 clamping, and badges react identically. The persistent widget-level tab strip stays visible even
 without an active node and toggles
 the panel (`N`); the panel body floats over the graph and claims pointer input only within
-its bounds.
+its bounds. A node definition can bind its displayed title to a `StringValue` in its state. For
+such nodes, inline edits, the built-in Name field, rename actions, restoration, and serialization
+keep the title and state value synchronized without protocol- or node-specific widget behavior.
 
 ### External badges and statuses
 

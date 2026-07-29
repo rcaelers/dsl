@@ -11,6 +11,7 @@ mod renderer_registration;
 mod sampling;
 mod sampling_overlay;
 mod simple_trigger;
+mod timeline_marker;
 mod types;
 mod viewer;
 std::cfg_select! {
@@ -37,5 +38,6 @@ pub use lanes::{
 pub use renderer_registration::{ViewerLaneRendererRegistration, viewer_lane_renderer};
 pub use sampling_overlay::{SamplingEdge, SamplingOverlay, SamplingQualifier};
 pub use simple_trigger::{SimpleTriggerEdit, SimpleTriggerLane};
-pub use types::{ColorProfile, ViewerRowHeight, ViewerRowHeightSettings, ViewerRowId};
+pub use timeline_marker::{TimelineMarker, TimelineMarkerEdit};
+pub use types::{ColorProfile, TimeCursor, ViewerRowHeight, ViewerRowHeightSettings, ViewerRowId};
 pub use viewer::{ChannelSignal, LogicAnalyzerViewer};

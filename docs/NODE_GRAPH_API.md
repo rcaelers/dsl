@@ -151,6 +151,8 @@ impl NodeDef for Counter {
   empty state; `node_graph` only allocates its rectangle and optional scroll area.
 - The built-in Node panel is the only panel whose contents are controlled by `node_graph`. It
   contains node identity plus the properties returned by `panel()`.
+- `NodeDef::title()` can opt into binding the displayed node title to one state-owned
+  `StringValue`; the built-in Name editor and inline properties then edit one synchronized value.
 - A panel presentation can inspect opaque, typed host data through `PanelContext::data` and emit
   an opaque typed action through `PanelContext::emit`. The data and action types belong to the
   concrete feature; `node_graph` does not define their fields or meaning.

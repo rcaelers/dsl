@@ -421,7 +421,28 @@ click so cursor, row-label, trigger, and pan gestures cannot consume the stop ac
 DSView-style vertical time cursors are added by double-clicking the time canvas, dragged by their
 flag or line, and numbered with freed numbers reused so a cursor's color (derived from its
 number) stays stable while others come and go. Cursor drag/hover suppresses view panning and
-cursor creation suppresses fit-to-capture for the same event.
+cursor creation suppresses fit-to-capture for the same event. The host stores cursor number/time
+pairs in its graph-document extension and restores them when that document becomes active.
+
+Persisted graph timeline markers are a separate host-owned overlay. The viewer receives marker
+identity, label, and time through a protocol-neutral contract, draws named orange flags on the
+lower ruler row with the same dashed vertical-line rhythm as ordinary cursors, and returns one
+completed move edit to the host after a drag. The host routes that edit to the marker-owning graph
+node, so graph persistence and undo remain outside the widget.
+Marker drags use the same row-aware edge snapping as transient cursors, but markers cannot be
+created or deleted in the viewer. Concrete timeline nodes convert a marker value to a `Trigger`, a
+before/at-or-after `Signal`, or an ordered `[start, end)` window `Signal`. A concrete `Cursor
+Marker` node requests a numbered cursor through the generic build-context reference contract and
+converts the host-supplied position into the same `TimelineMarker` runtime value. Cursor positions
+are snapshotted when a run starts; moving one affects the next run. `Timeline Marker` binds its
+inline name to the generic node title, so the node body and Node panel edit one synchronized value.
+`Cursor Marker` exposes the host's currently available cursors as a choice list both inline and in
+its settings panel; arbitrary cursor numbers cannot be entered. Its settings panel also exposes the
+selected cursor's time through the same typeable nanosecond control as `Timeline Marker`. Selecting
+a cursor adopts that cursor's current time, editing the time moves the selected viewer cursor, and
+moving the viewer cursor refreshes the node. Generic compiler infrastructure only discovers and
+routes the marker-reference binding contract; the application owns the available choices and the
+bidirectional synchronization policy.
 
 ### Interaction summary
 
@@ -433,6 +454,7 @@ cursor creation suppresses fit-to-capture for the same event.
 | `Home` / `F` | Fit whole capture to view |
 | Double-click time canvas | Add a time cursor |
 | Drag a cursor flag/line | Move that cursor |
+| Drag a named timeline-marker flag/line | Move the persisted graph marker |
 | Double-click a row label | Rename the row |
 | Drag a row label | Reorder rows |
 | Click a waveform edge | Start edge-delta measurement; endpoint snaps near an edge on any row or follows freely elsewhere |

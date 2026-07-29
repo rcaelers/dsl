@@ -4,6 +4,40 @@ use crate::types::{AnalyzerLayout, CursorInput, RowKey, TimeCursor, Transition};
 use crate::viewer::LogicAnalyzerViewer;
 
 impl LogicAnalyzerViewer {
+    /// Returns the host-persistable cursor positions in their creation order.
+    pub fn time_cursors(&self) -> &[TimeCursor] {
+        &self.cursors
+    }
+
+    /// Restores host-owned cursors without reporting a user edit.
+    pub fn set_time_cursors(&mut self, cursors: Vec<TimeCursor>) {
+        self.cursors = cursors;
+        self.drag_cursor = None;
+        self.time_cursors_changed = false;
+    }
+
+    /// Moves one host-owned cursor and reports whether its position changed.
+    pub fn set_time_cursor_time(&mut self, number: u32, time_us: f64) -> bool {
+        let Some(cursor) = self
+            .cursors
+            .iter_mut()
+            .find(|cursor| cursor.number == number)
+        else {
+            return false;
+        };
+        if cursor.time_us == time_us {
+            return false;
+        }
+        cursor.time_us = time_us;
+        self.time_cursors_changed = true;
+        true
+    }
+
+    /// Reports and clears the cursor-persistence dirty flag.
+    pub fn take_time_cursors_changed(&mut self) -> bool {
+        std::mem::take(&mut self.time_cursors_changed)
+    }
+
     /// Drives cursor add / hover / drag / delete for one frame.
     ///
     /// Runs before pan/zoom handling so an active cursor drag can suppress
@@ -38,6 +72,7 @@ impl LogicAnalyzerViewer {
             && let Some(index) = flags.iter().position(|(_, close)| close.contains(pointer))
         {
             self.cursors.remove(index);
+            self.time_cursors_changed = true;
             self.drag_cursor = None;
             return state;
         }
@@ -55,6 +90,7 @@ impl LogicAnalyzerViewer {
             let time_us = self.x_to_time(wave_rect, pointer.x);
             let number = next_cursor_number(&self.cursors);
             self.cursors.push(TimeCursor { number, time_us });
+            self.time_cursors_changed = true;
             return state;
         }
 
@@ -90,8 +126,11 @@ impl LogicAnalyzerViewer {
                 {
                     let raw_time_us = self.x_to_time(wave_rect, pointer.x);
                     let time_us = self.snap_cursor_time(wave_rect, pointer, raw_time_us);
-                    if let Some(cursor) = self.cursors.get_mut(index) {
+                    if let Some(cursor) = self.cursors.get_mut(index)
+                        && cursor.time_us != time_us
+                    {
                         cursor.time_us = time_us;
+                        self.time_cursors_changed = true;
                     }
                 }
                 state.blocks_pan = true;
@@ -166,7 +205,7 @@ impl LogicAnalyzerViewer {
     /// Snaps `time_us` to the nearest boundary of the row under the pointer:
     /// signal/event toggles or annotation word starts and ends. Over the
     /// ruler or an empty row the time stays free.
-    fn snap_cursor_time(&mut self, wave_rect: Rect, pointer: Pos2, time_us: f64) -> f64 {
+    pub(crate) fn snap_cursor_time(&mut self, wave_rect: Rect, pointer: Pos2, time_us: f64) -> f64 {
         const SNAP_DISTANCE_PX: f32 = 8.0;
         if pointer.y < wave_rect.top() || pointer.y > wave_rect.bottom() {
             return time_us;
@@ -301,8 +340,8 @@ pub(crate) fn cursor_flag_label(cursor: &TimeCursor) -> String {
 
 /// Smallest positive number not used by an existing cursor, so numbers (and
 /// their colors) are stable while cursors come and go.
-fn next_cursor_number(cursors: &[TimeCursor]) -> usize {
-    let mut used: Vec<usize> = cursors.iter().map(|cursor| cursor.number).collect();
+fn next_cursor_number(cursors: &[TimeCursor]) -> u32 {
+    let mut used: Vec<u32> = cursors.iter().map(|cursor| cursor.number).collect();
     used.sort_unstable();
     let mut number = 1;
     for existing in used {

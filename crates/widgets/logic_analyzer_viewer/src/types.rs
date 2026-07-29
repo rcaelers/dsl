@@ -134,13 +134,13 @@ pub(crate) struct AnalyzerLayout {
 
 /// A vertical time marker (DSView-style "cursor"), added by double-clicking
 /// the time canvas and moved by dragging its flag or line.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct TimeCursor {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TimeCursor {
     /// Display number (1-based). Freed numbers are reused, so a cursor's
     /// number — and the flag color derived from it — stays stable while
     /// other cursors come and go.
-    pub(crate) number: usize,
-    pub(crate) time_us: f64,
+    pub number: u32,
+    pub time_us: f64,
 }
 
 /// Per-frame outcome of cursor interaction, used to keep cursor drags from

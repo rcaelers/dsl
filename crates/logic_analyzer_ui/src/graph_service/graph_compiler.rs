@@ -1,7 +1,10 @@
-use logic_analyzer_graph_api::node_support::LiveCaptureEdit;
+use logic_analyzer_graph_api::node_support::{
+    LiveCaptureEdit, TimelineMarkerEdit, TimelineMarkerReferenceBindingEdit,
+};
 use logic_analyzer_graph_compiler::{
     ApplyError, ApplySummary, CollectedOutputSubscription, CollectedTableSubscription, CompileCtx,
-    CompileError, DiscoveredLiveCaptureFeature, DiscoveredTriggerConfiguration, GraphCompiler,
+    CompileError, DiscoveredLiveCaptureFeature, DiscoveredTimelineMarker,
+    DiscoveredTimelineMarkerReferenceBinding, DiscoveredTriggerConfiguration, GraphCompiler,
     LiveAnalysisSource, LiveCaptureDiscoveryError, LiveRun, OutputSubscriptionPlan,
     SamplingOverlayCandidate, SourcePreparationStatus, SourcePreparationUpdate,
     SourceProcessOverrides, SourceReadinessRegistry,
@@ -132,6 +135,38 @@ impl GraphService for GraphCompiler {
         edit: &LiveCaptureEdit,
     ) -> Result<serde_json::Value, String> {
         GraphCompiler::apply_live_capture_edit(self, graph, source_node, edit)
+    }
+
+    fn discover_timeline_markers(
+        &self,
+        graph: &GraphState,
+    ) -> Result<Vec<DiscoveredTimelineMarker>, String> {
+        GraphCompiler::discover_timeline_markers(self, graph)
+    }
+
+    fn apply_timeline_marker_edit(
+        &self,
+        graph: &GraphState,
+        owner_node: NodeId,
+        edit: &TimelineMarkerEdit,
+    ) -> Result<serde_json::Value, String> {
+        GraphCompiler::apply_timeline_marker_edit(self, graph, owner_node, edit)
+    }
+
+    fn discover_timeline_marker_reference_bindings(
+        &self,
+        graph: &GraphState,
+    ) -> Result<Vec<DiscoveredTimelineMarkerReferenceBinding>, String> {
+        GraphCompiler::discover_timeline_marker_reference_bindings(self, graph)
+    }
+
+    fn apply_timeline_marker_reference_binding_edit(
+        &self,
+        graph: &GraphState,
+        owner_node: NodeId,
+        edit: &TimelineMarkerReferenceBindingEdit,
+    ) -> Result<serde_json::Value, String> {
+        GraphCompiler::apply_timeline_marker_reference_binding_edit(self, graph, owner_node, edit)
     }
 
     fn graph_contains_node(

@@ -6,6 +6,7 @@ mod protocol_packets;
 mod signal;
 mod text;
 mod text_path;
+mod timeline_marker;
 mod trigger;
 mod words;
 
@@ -15,5 +16,6 @@ pub(crate) use protocol_packets::ProtocolPackets;
 pub(crate) use signal::Signal;
 pub(crate) use text::Text;
 pub(crate) use text_path::TextPath;
+pub(crate) use timeline_marker::TimelineMarker;
 pub(crate) use trigger::Trigger;
 pub(crate) use words::Words;

@@ -12,8 +12,9 @@ use signal_processing::{
 use crate::node_support::{
     CaptureCacheIdentity, CapturePresentation, DecoderTableColumnDescriptor,
     LanePresentationDescriptor, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
-    SamplingOverlayDescriptor, SimpleTriggerChannel, SourceDataLifecycle,
-    TriggerConfigurationFeature, ViewerOutputControl,
+    SamplingOverlayDescriptor, SimpleTriggerChannel, SourceDataLifecycle, TimelineMarkerDescriptor,
+    TimelineMarkerEdit, TimelineMarkerReferenceBindingDescriptor,
+    TimelineMarkerReferenceBindingEdit, TriggerConfigurationFeature, ViewerOutputControl,
 };
 
 pub trait CaptureGraphSourceFactory: Send + Sync {
@@ -54,6 +55,12 @@ pub trait LiveCaptureFeature: Send {
 pub trait RuntimeBuilder {
     fn is_source(&self) -> bool {
         false
+    }
+    /// Whether this source establishes the graph's capture/data time domain.
+    /// Auxiliary zero-input sources may emit values already expressed in that
+    /// domain without competing with the capture source.
+    fn is_time_domain_source(&self) -> bool {
+        self.is_source()
     }
     fn source_data_lifecycle(&self) -> Option<SourceDataLifecycle> {
         None
@@ -149,6 +156,29 @@ pub trait RuntimeBuilder {
         &self,
         _state: &Value,
     ) -> Result<Option<TriggerConfigurationFeature>, String> {
+        Ok(None)
+    }
+    fn timeline_markers(&self, _state: &Value) -> Result<Vec<TimelineMarkerDescriptor>, String> {
+        Ok(Vec::new())
+    }
+    fn apply_timeline_marker_edit(
+        &self,
+        _state: &Value,
+        _edit: &TimelineMarkerEdit,
+    ) -> Result<Option<Value>, String> {
+        Ok(None)
+    }
+    fn timeline_marker_reference_bindings(
+        &self,
+        _state: &Value,
+    ) -> Result<Vec<TimelineMarkerReferenceBindingDescriptor>, String> {
+        Ok(Vec::new())
+    }
+    fn apply_timeline_marker_reference_binding_edit(
+        &self,
+        _state: &Value,
+        _edit: &TimelineMarkerReferenceBindingEdit,
+    ) -> Result<Option<Value>, String> {
         Ok(None)
     }
     fn apply_live_capture_edit(

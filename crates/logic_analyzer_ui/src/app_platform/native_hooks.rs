@@ -242,6 +242,7 @@ impl App {
                 self.restore_sampling_overlay_setting();
                 self.restore_viewer_lane_order_setting();
                 self.restore_viewer_lane_height_setting();
+                self.restore_timeline_cursor_setting();
                 self.restore_panel_layout_setting();
                 self.platform.current_file = Some(path.clone());
                 self.mark_graph_saved();
@@ -277,6 +278,7 @@ impl App {
         self.restore_sampling_overlay_setting();
         self.restore_viewer_lane_order_setting();
         self.restore_viewer_lane_height_setting();
+        self.restore_timeline_cursor_setting();
         self.restore_panel_layout_setting();
         self.platform.derived_cache_nodes.clear();
         self.platform.current_file = None;

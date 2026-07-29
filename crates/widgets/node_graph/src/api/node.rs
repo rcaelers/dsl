@@ -5,6 +5,7 @@ use egui::{Color32, Rect, Ui};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+use super::builtins::StringValue;
 use super::control::InlineControl;
 use super::panel::NodePanelDef;
 use super::socket::{SocketDef, SocketWithControlDef};
@@ -337,6 +338,16 @@ pub trait NodeDef: 'static {
     fn state() -> Self::State
     where
         Self: Sized;
+    /// Opts this node into using one state string as its displayed title.
+    /// Inline edits and the generic Node-panel name editor then operate on
+    /// the same value.
+    fn title(state: &mut Self::State) -> Option<&mut StringValue>
+    where
+        Self: Sized,
+    {
+        let _ = state;
+        None
+    }
     /// Returns the deterministic schema for one saved state. Static node
     /// definitions inherit the traditional methods; plugin-owned dynamic
     /// definitions override this method and keep their schema snapshot in

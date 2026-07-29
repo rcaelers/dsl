@@ -43,11 +43,6 @@ Task IDs start with their ownership category and remain stable when task wording
 
 - [graph.nodes.measurement-statistics] Add generic measurement and statistics nodes for frequency, duty cycle, pulse width,
   inter-event timing, counts, and histograms.
-- [graph.nodes.timeline-markers] Introduce persisted, named graph timeline markers controlled by the host UI through an explicit
-  timeline-marker contract. Provide generic nodes that turn a marker into a `Trigger` and turn a
-  marker, before/after relation, or ordered marker pair into a `Signal`; define window membership
-  as a half-open interval `[start, end)` so its transitions and downstream trigger timing are
-  unambiguous. Keep transient measurement cursors separate from these graph-affecting markers.
 - [graph.nodes.script-nodes] Add custom script nodes, initially backed by Python, as a plugin/runtime capability with an
   explicit manifest for input/output payload kinds, state schema, parameter defaults, and
   presentation metadata. Run scripts behind a versioned worker boundary with cancellation,
