@@ -41,8 +41,6 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ### Graph nodes
 
-- [graph.nodes.event-controls] Add signal-to-trigger edge detection (rising, falling, or both), debounce/minimum-pulse-width
-  qualification, a signal/event gate, and delay/holdoff/rearm controls.
 - [graph.nodes.word-matcher] Extend `Word Matcher` with range/set predicates, match-count and holdoff/rearm options, and an
   optional matched-word output. Its existing trigger placement remains explicit: word start or
   word end.

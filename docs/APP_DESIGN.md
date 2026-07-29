@@ -122,7 +122,9 @@ Words sockets in the editor; generic output-presentation metadata keeps its comp
 lanes selectable in the View panel and makes each Words socket's eye summarize its pair. Decoders:
 SPI, UART, Parallel Decoder (parallel bus, SDR/DDR/level sampling), and
 an I2C placeholder (a `NodeDef` with no builder: editable, not runnable).
-Logic: Packet Framer, Word Field Extractor, Word Matcher, SR Flip-Flop, Logic Gate (op enum
+Logic: Packet Framer, Word Field Extractor, Word Matcher, Edge Detector (edge selection,
+debounce, and preceding-pulse qualification), Event Gate (signal-controlled trigger filtering),
+Event Control (delay, holdoff, and optional explicit rearm), SR Flip-Flop, Logic Gate (op enum
 retitles the node; NOT caps the variadic group at one), Buffer, Counter, String Formatter. Sinks: File Writer (inline save
 dialog while `Filename` is unconnected; a connected text stream hides it and wins), Text
 File Writer, TGCK Recorder, Viewer (variadic input accepting

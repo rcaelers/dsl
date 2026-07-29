@@ -100,6 +100,77 @@ fn binary_decoder_demo_fixture_lowers_with_built_in_nodes() {
 }
 
 #[test]
+fn event_controls_demo_fixture_loads_lowers_and_executes() {
+    let graph: GraphState =
+        serde_json::from_str(include_str!("../graphs/event_controls_demo.json"))
+            .expect("event-controls demo should deserialize");
+    let mut widget = NodeGraphWidget::new(nodes::build_registry());
+    widget.set_graph(graph);
+
+    let mut compiler = GraphCompiler::new();
+    compiler.set_output_subscriptions(
+        (1..=5)
+            .map(|node| (NodeId(node), 0))
+            .collect::<OutputSubscriptionPlan>(),
+    );
+    let compiled = compiler
+        .lower(widget.graph())
+        .expect("event-controls demo should lower");
+    assert_eq!(widget.graph().nodes.len(), 6);
+    assert!(
+        compiled
+            .nodes
+            .iter()
+            .any(|node| node.builder == "Edge Detector")
+    );
+    assert!(
+        compiled
+            .nodes
+            .iter()
+            .any(|node| node.builder == "Event Gate")
+    );
+    assert_eq!(
+        compiled
+            .nodes
+            .iter()
+            .filter(|node| node.builder == "Event Control")
+            .count(),
+        2
+    );
+    let collector = compiled
+        .nodes
+        .iter()
+        .find(|node| node.data_collector && node.resolved.member_count(0) == 5)
+        .expect("the selected demo outputs should lower to a data collector");
+    assert!(collector.data_collector);
+
+    let mut context = CompileCtx::default();
+    let lanes = context.derived_lanes().clone();
+    let mut run = compiler
+        .start_app_run(widget.graph(), &mut context)
+        .expect("event-controls demo should start");
+    run.wait();
+
+    let lane_names = lanes
+        .opaque_lanes()
+        .into_iter()
+        .map(|lane| lane.name().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(lane_names.len(), 5);
+    assert!(
+        lane_names
+            .iter()
+            .any(|name| name.contains("Qualified Strobe"))
+    );
+    assert!(
+        lane_names
+            .iter()
+            .any(|name| name.contains("Automatic Rearm"))
+    );
+    assert!(lane_names.iter().any(|name| name.contains("Manual Rearm")));
+}
+
+#[test]
 fn built_in_startup_graph_lowers_with_explicit_subscriptions() {
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
     nodes::populate_startup(&mut widget);

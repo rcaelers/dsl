@@ -2,6 +2,9 @@
 
 mod buffer;
 mod counter;
+mod edge_detector;
+mod event_control;
+mod event_gate;
 mod formatter;
 mod logic_gate;
 mod packet_framer;
