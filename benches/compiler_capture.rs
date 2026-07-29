@@ -30,7 +30,7 @@ const STARTUP_OUTPUTS: [(&str, &str); 7] = [
     ("Match Stop", "Match"),
     ("SR Flip-Flop", "Q"),
     ("Enable Gate", "Out"),
-    ("Binary Decoder", "Words"),
+    ("Parallel Decoder", "Words"),
 ];
 
 fn startup_widget() -> NodeGraphWidget {
@@ -100,12 +100,12 @@ fn attach_matcher_tap(widget: &mut NodeGraphWidget) -> (NodeId, usize) {
     state["mask"]["value"] = "0x0".into();
     assert!(widget.set_node_state(matcher, state));
 
-    let decoder = node_by_definition(widget, "Binary Decoder");
+    let decoder = node_by_definition(widget, "Parallel Decoder");
     let decoder_words = widget.graph().nodes[&decoder]
         .outputs
         .iter()
         .position(|socket| socket.name == "Words")
-        .expect("Binary Decoder has Words output");
+        .expect("Parallel Decoder has Words output");
     let matcher_input = widget.graph().nodes[&matcher]
         .inputs
         .iter()

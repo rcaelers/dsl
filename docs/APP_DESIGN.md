@@ -165,7 +165,7 @@ without editing any compiler file.
 **Kind negotiation** is per edge: `offered(producer) ∩ accepted(consumer)`; empty →
 compile error; multiple → the producer's preference order wins. This resolves the one-UI-
 socket/two-runtime-flavors split: a source offers `Signal` as `[SampleEdge, Block]`, the
-SPI decoder accepts `[SampleEdge]`, the binary decoder `[Block]` — one UI wire fanning out
+SPI decoder accepts `[SampleEdge]`, the parallel decoder `[Block]` — one UI wire fanning out
 to both becomes two runtime connections from the two ports, legal and free. UI-only nodes
 (frames, reroutes) have no builder; the compiler follows wires through reroutes.
 

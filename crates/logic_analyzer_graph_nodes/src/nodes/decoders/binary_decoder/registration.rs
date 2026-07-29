@@ -1,7 +1,7 @@
 inventory::submit! {
     logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
         super::definition::BinaryDecoder,
-        super::builder::BinaryDecoderBuilder,
+        super::super::parallel_decoder::ParallelDecoderBuilder,
     >("org.logicconduit.graph-node.decoders.binary-decoder/v1").requiring_payloads(&[
         "org.logicconduit.digital-sample/v1",
         "org.logicconduit.word/v1",

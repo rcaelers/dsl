@@ -33,8 +33,8 @@
     "8": {
       "id": 8,
       "kind": "Regular",
-      "title": "Binary Decoder",
-      "type_name": "Binary Decoder",
+      "title": "Parallel Decoder",
+      "type_name": "Parallel Decoder",
       "header_color": [
         60,
         100,

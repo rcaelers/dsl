@@ -2,7 +2,9 @@
 
 Task IDs start with their ownership category and remain stable when task wording changes.
 
-## Logic-analyzer viewer
+## User-visible features
+
+### Logic-analyzer viewer
 
 - [viewer.multiple-sources] Support displaying multiple capture sources in the logic-analyzer viewer.
 - [viewer.source-selection] Let the viewer select which source is visible while the one-source display restriction
@@ -11,72 +13,27 @@ Task IDs start with their ownership category and remain stable when task wording
   model.
 - [viewer.live-snapshots] Display live-source snapshots in the viewer through the same `CaptureDataSource` boundary
   used by file captures.
-- [viewer.passive-sampling-overlays] Make sampling-point overlays passive viewer data. Move clock-edge selection, qualifier
-  evaluation, and sampled-value lookup out of `logic_analyzer_viewer` into the owning concrete
-  runtime node or neutral processing infrastructure. Pass explicit, generic sampling-point
-  records and presentation metadata to the viewer so an overlay reflects produced data rather
-  than the viewer interpreting raw channels before the node has run.
 
-## Capture sources
-
-### Consolidate wasm stand-ins behind processing platform facades
-
-- [capture.platform.node-parity] Make `logic_analyzer_graph_nodes` compile the same concrete node definitions and runtime builders on
-  native and wasm. It must describe node state, ports, and presentation contracts without knowing
-  that a wasm runtime is synthetic or that a native runtime uses USB/filesystem resources.
-- [capture.platform.processing-facades] Move selection of real versus synthetic source and sink implementations into whole-file
-  platform facades owned by `logic_analyzer_processing`. The U3Pro16 facade selects the USB-backed
-  implementation natively and a synthetic implementation on wasm; file-source facades select
-  native readers or deterministic in-memory captures; writer facades select filesystem writers or
-  discard sinks.
-- [capture.platform.neutral-factories] Prefer a platform-neutral factory or wrapper with one constructor/configuration surface. Use a
-  type re-export alias only where the native and wasm implementations genuinely satisfy the same
-  API; do not force hardware-only control methods onto synthetic implementations merely to make an
-  alias compile.
-- [capture.platform.presentation-contracts] Pass synthetic capture presentation and runtime capabilities back through explicit processing
-  metadata/contracts. Remove `builder_wasm.rs`, synthetic-presentation helpers, and target-specific
-  builder registration from `logic_analyzer_graph_nodes` once the processing facade owns those choices.
-- [capture.platform.parity-tests] Keep target selection in one processing `platform` boundary per capability and add native/wasm
-  catalog, port-schema, state-option, and lowering-parity tests.
-
-### Live-capture extended workflows
+### Capture sources
 
 - [capture.live.segmented-acquisition] Introduce repeated and segmented acquisition with frame identity, per-frame origin and trigger
   metadata, bounded storage, replay, and viewer navigation.
 - [capture.live.partial-analysis] Add live search and measurements over committed raw/derived prefixes with explicit coverage and
   lag.
-- [capture.live.host-capabilities] Add host capabilities for capture lifecycle, integrity, storage, and sleep inhibition without
-  platform conditionals in consumers.
 - [capture.live.automation-service] Expose the same validated coordinator commands and outcomes through a UI-independent automation
   service.
 - [capture.live.external-timing] Add external trigger/clock contracts and shared-timeline alignment after multi-source viewer
   support is defined.
-- [capture.live.provider-unification] Make file and live sources first-class capture providers, rather than having the app select
-  source types explicitly.
 - [capture.live.snapshot-persistence] Persist/reload live-capture snapshots where appropriate so they can be indexed and revisited.
 - [capture.sigrok.extended-formats] Extend Sigrok support beyond v2 digital `logic-*` data (analog channels and newer format versions).
 
-## Indexed derived data
+### Indexed derived data
 
-- [derived.validation.reference-capture] Run the ignored release-mode writer differential and golden graph tests against the complete
-  reference capture; record output sizes and hashes and ensure temporary artifacts are contained.
 - [derived.cache.inventory] Add read-only derived-cache inventory/usage reporting to complement the existing clear-cache
   commands. Active mapped entries must remain pinned and visible as retained.
-- [derived.performance.ui-latency] Profile egui update, indexed sampling, lane-lock duration, repaint cadence, and input latency
-  while decoding a complete capture; add focused regressions for any reproduced stall.
-- [derived.performance.append-pipeline] Optionally profile the indexed-store append pipeline toward the sub-50-second full-cache stretch
-  target. Optimize only measured builder/encode/write phases while preserving fingerprints,
-  bounded RSS, query latency, and cancellation.
-- [derived.annotations.native-retention] Audit native `DerivedLaneData::Annotations` paths after plugin/wasm compatibility is confirmed;
-  remove only duplicate native retention while preserving wasm, explicit in-memory mode, and
-  storage-failure fallback.
 
-## Graph and runtime
+### Graph nodes
 
-### Node catalog and composition
-
-- [graph.nodes.parallel-decoder] Expose the existing parallel-decoder processing capability as a graph node, with the same
-  protocol-neutral `Word` contracts as the other native decoders.
 - [graph.nodes.word-field-extractor] Add a word-field extractor that selects arbitrary bit ranges, applies mask/shift operations,
   and emits named, formatted `Word` payloads.
 - [graph.nodes.packet-framer] Add a packet/framer node that groups words by delimiter, length, inter-word gap, chip-select
@@ -106,7 +63,59 @@ Task IDs start with their ownership category and remain stable when task wording
   output”. Preserve hidden ports only for explicit saved-graph compatibility or structurally
   unavailable capabilities.
 
-### Node-graph widget
+### Multi-source timeline
+
+- [graph.timeline.shared-clock-model] Define how several source clocks and trigger positions map onto the shared viewer timeline.
+- [graph.timeline.source-grouping] Add graph-level source grouping/alignment metadata and preserve it in saved graphs.
+
+## Refactorings
+
+### Logic-analyzer viewer
+
+- [viewer.passive-sampling-overlays] Make sampling-point overlays passive viewer data. Move clock-edge selection, qualifier
+  evaluation, and sampled-value lookup out of `logic_analyzer_viewer` into the owning concrete
+  runtime node or neutral processing infrastructure. Pass explicit, generic sampling-point
+  records and presentation metadata to the viewer so an overlay reflects produced data rather
+  than the viewer interpreting raw channels before the node has run.
+
+### Capture platform boundaries
+
+- [capture.platform.node-parity] Make `logic_analyzer_graph_nodes` compile the same concrete node definitions and runtime builders on
+  native and wasm. It must describe node state, ports, and presentation contracts without knowing
+  that a wasm runtime is synthetic or that a native runtime uses USB/filesystem resources.
+- [capture.platform.processing-facades] Move selection of real versus synthetic source and sink implementations into whole-file
+  platform facades owned by `logic_analyzer_processing`. The U3Pro16 facade selects the USB-backed
+  implementation natively and a synthetic implementation on wasm; file-source facades select
+  native readers or deterministic in-memory captures; writer facades select filesystem writers or
+  discard sinks.
+- [capture.platform.neutral-factories] Prefer a platform-neutral factory or wrapper with one constructor/configuration surface. Use a
+  type re-export alias only where the native and wasm implementations genuinely satisfy the same
+  API; do not force hardware-only control methods onto synthetic implementations merely to make an
+  alias compile.
+- [capture.platform.presentation-contracts] Pass synthetic capture presentation and runtime capabilities back through explicit processing
+  metadata/contracts. Remove `builder_wasm.rs`, synthetic-presentation helpers, and target-specific
+  builder registration from `logic_analyzer_graph_nodes` once the processing facade owns those choices.
+- [capture.platform.parity-tests] Keep target selection in one processing `platform` boundary per capability and add native/wasm
+  catalog, port-schema, state-option, and lowering-parity tests.
+- [capture.live.host-capabilities] Add host capabilities for capture lifecycle, integrity, storage, and sleep inhibition without
+  platform conditionals in consumers.
+- [capture.live.provider-unification] Make file and live sources first-class capture providers, rather than having the app select
+  source types explicitly.
+
+### Indexed derived data
+
+- [derived.validation.reference-capture] Run the ignored release-mode writer differential and golden graph tests against the complete
+  reference capture; record output sizes and hashes and ensure temporary artifacts are contained.
+- [derived.performance.ui-latency] Profile egui update, indexed sampling, lane-lock duration, repaint cadence, and input latency
+  while decoding a complete capture; add focused regressions for any reproduced stall.
+- [derived.performance.append-pipeline] Optionally profile the indexed-store append pipeline toward the sub-50-second full-cache stretch
+  target. Optimize only measured builder/encode/write phases while preserving fingerprints,
+  bounded RSS, query latency, and cancellation.
+- [derived.annotations.native-retention] Audit native `DerivedLaneData::Annotations` paths after plugin/wasm compatibility is confirmed;
+  remove only duplicate native retention while preserving wasm, explicit in-memory mode, and
+  storage-failure fallback.
+
+### Node-graph ownership
 
 - [graph.widget.panel-data-ownership] Revisit the `set_panel_data` attachment API. Client code has the node and panel IDs and should
   remain the authoritative owner of panel state; `NodeGraphWidget` must not become a general-purpose
@@ -122,11 +131,6 @@ Task IDs start with their ownership category and remain stable when task wording
   document/envelope surrounding the graph. Include unknown-plugin round-tripping, migration,
   copy/paste and subgraph behavior, socket metadata, and eventual extraction of `node_graph` as a
   standalone widget in that decision; do not move the data until the ownership contract is clear.
-
-### Multi-source timeline
-
-- [graph.timeline.shared-clock-model] Define how several source clocks and trigger positions map onto the shared viewer timeline.
-- [graph.timeline.source-grouping] Add graph-level source grouping/alignment metadata and preserve it in saved graphs.
 
 ### Node-graph extraction
 

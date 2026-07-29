@@ -129,7 +129,7 @@ The benchmark's `file` sink writes decoded words through the production binary-f
 therefore covers decoder transport, batch serialization, and filesystem output without retaining
 the decoded stream in memory.
 
-The ignored full-graph benchmark loads the checked-in controlled binary-decoder graph and includes
+The ignored full-graph benchmark loads the checked-in controlled parallel-decoder graph and includes
 its production binary writer and automatically attached indexed viewer lane. This is the regression
 benchmark for end-to-end throughput rather than decoder-kernel throughput alone:
 

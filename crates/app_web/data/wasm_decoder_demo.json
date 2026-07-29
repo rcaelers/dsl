@@ -1388,7 +1388,7 @@
         }
       },
       "title": "Parallel Decoder",
-      "type_name": "Binary Decoder"
+      "type_name": "Parallel Decoder"
     },
     "9": {
       "collapsed": false,

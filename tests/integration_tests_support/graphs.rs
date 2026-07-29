@@ -47,7 +47,7 @@ fn add(widget: &mut NodeGraphWidget, stable_id: &str, x: f32, y: f32) -> NodeId 
 pub(crate) fn build_binary_decoder_demo(widget: &mut NodeGraphWidget) {
     let source = add(
         widget,
-        "org.logicconduit.graph-node.sigrok-file-source/v1",
+        "org.logicconduit.graph-node.sources.sigrok-file-source/v1",
         40.0,
         300.0,
     );
@@ -59,54 +59,54 @@ pub(crate) fn build_binary_decoder_demo(widget: &mut NodeGraphWidget) {
     );
     source_state["demo_data"] = true.into();
     widget.set_node_state(source, source_state);
-    let source_name = node_name("org.logicconduit.graph-node.sigrok-file-source/v1");
+    let source_name = node_name("org.logicconduit.graph-node.sources.sigrok-file-source/v1");
     widget.graph_mut().nodes.get_mut(&source).unwrap().title = source_name.into();
 
     let spi = add(
         widget,
-        "org.logicconduit.graph-node.spi-decoder/v1",
+        "org.logicconduit.graph-node.decoders.spi-decoder/v1",
         360.0,
         80.0,
     );
     let start = add(
         widget,
-        "org.logicconduit.graph-node.word-matcher/v1",
+        "org.logicconduit.graph-node.logic.word-matcher/v1",
         680.0,
         40.0,
     );
     let stop = add(
         widget,
-        "org.logicconduit.graph-node.word-matcher/v1",
+        "org.logicconduit.graph-node.logic.word-matcher/v1",
         680.0,
         230.0,
     );
     let counter = add(
         widget,
-        "org.logicconduit.graph-node.counter/v1",
+        "org.logicconduit.graph-node.logic.counter/v1",
         960.0,
         40.0,
     );
     let latch = add(
         widget,
-        "org.logicconduit.graph-node.sr-flip-flop/v1",
+        "org.logicconduit.graph-node.logic.sr-flip-flop/v1",
         960.0,
         230.0,
     );
     let formatter = add(
         widget,
-        "org.logicconduit.graph-node.string-formatter/v1",
+        "org.logicconduit.graph-node.logic.string-formatter/v1",
         1240.0,
         40.0,
     );
     let gate = add(
         widget,
-        "org.logicconduit.graph-node.logic-gate/v1",
+        "org.logicconduit.graph-node.logic.logic-gate/v1",
         1198.4297,
         592.2656,
     );
     let decoder = add(
         widget,
-        "org.logicconduit.graph-node.binary-decoder/v1",
+        "org.logicconduit.graph-node.decoders.parallel-decoder/v1",
         1520.0,
         300.0,
     );
@@ -151,7 +151,7 @@ pub(crate) fn build_binary_decoder_demo(widget: &mut NodeGraphWidget) {
     connect(widget, (source, "Ch 8"), (gate, "In"));
     connect(widget, (latch, "Q"), (gate, "In"));
     connect(widget, (gate, "Out"), (decoder, "Enable"));
-    connect(widget, (source, "Ch 10"), (decoder, "Clock"));
+    connect(widget, (source, "Ch 10"), (decoder, "Strobe"));
     for bit in 0..8 {
         connect(widget, (source, &format!("Ch {bit}")), (decoder, "D"));
     }
@@ -166,7 +166,7 @@ pub(crate) fn build_binary_decoder_demo(widget: &mut NodeGraphWidget) {
 pub(crate) fn build_live_binary_test(widget: &mut NodeGraphWidget) -> NodeId {
     let source = add(
         widget,
-        "org.logicconduit.graph-node.dslogic-u3pro16/v1",
+        "org.logicconduit.graph-node.sources.dslogic-u3pro16/v1",
         40.0,
         80.0,
     );
@@ -183,14 +183,14 @@ pub(crate) fn build_live_binary_test(widget: &mut NodeGraphWidget) -> NodeId {
 
     let decoder = add(
         widget,
-        "org.logicconduit.graph-node.binary-decoder/v1",
+        "org.logicconduit.graph-node.decoders.parallel-decoder/v1",
         360.0,
         80.0,
     );
     let mut decoder_state = widget.graph().nodes[&decoder].state.clone();
     decoder_state["input_strategy"]["value"] = "Packed stream".into();
     widget.set_node_state(decoder, decoder_state);
-    connect(widget, (source, "Ch 0"), (decoder, "Clock"));
+    connect(widget, (source, "Ch 0"), (decoder, "Strobe"));
     connect(widget, (source, "Ch 1"), (decoder, "D"));
     source
 }
@@ -198,7 +198,7 @@ pub(crate) fn build_live_binary_test(widget: &mut NodeGraphWidget) -> NodeId {
 pub(crate) fn populate_startup(widget: &mut NodeGraphWidget) {
     let source = add(
         widget,
-        "org.logicconduit.graph-node.dsl-file-source/v1",
+        "org.logicconduit.graph-node.sources.dsl-file-source/v1",
         40.0,
         260.0,
     );
@@ -211,55 +211,55 @@ pub(crate) fn populate_startup(widget: &mut NodeGraphWidget) {
     widget.set_node_state(source, source_state);
     let spi = add(
         widget,
-        "org.logicconduit.graph-node.spi-decoder/v1",
+        "org.logicconduit.graph-node.decoders.spi-decoder/v1",
         330.0,
         120.0,
     );
     let start = add(
         widget,
-        "org.logicconduit.graph-node.word-matcher/v1",
+        "org.logicconduit.graph-node.logic.word-matcher/v1",
         620.0,
         40.0,
     );
     let stop = add(
         widget,
-        "org.logicconduit.graph-node.word-matcher/v1",
+        "org.logicconduit.graph-node.logic.word-matcher/v1",
         620.0,
         230.0,
     );
     let counter = add(
         widget,
-        "org.logicconduit.graph-node.counter/v1",
+        "org.logicconduit.graph-node.logic.counter/v1",
         900.0,
         40.0,
     );
     let latch = add(
         widget,
-        "org.logicconduit.graph-node.sr-flip-flop/v1",
+        "org.logicconduit.graph-node.logic.sr-flip-flop/v1",
         900.0,
         230.0,
     );
     let formatter = add(
         widget,
-        "org.logicconduit.graph-node.string-formatter/v1",
+        "org.logicconduit.graph-node.logic.string-formatter/v1",
         1160.0,
         40.0,
     );
     let gate = add(
         widget,
-        "org.logicconduit.graph-node.logic-gate/v1",
+        "org.logicconduit.graph-node.logic.logic-gate/v1",
         1160.0,
         400.0,
     );
     let decoder = add(
         widget,
-        "org.logicconduit.graph-node.binary-decoder/v1",
+        "org.logicconduit.graph-node.decoders.parallel-decoder/v1",
         1440.0,
         260.0,
     );
     let writer = add(
         widget,
-        "org.logicconduit.graph-node.file-writer/v1",
+        "org.logicconduit.graph-node.sinks.file-writer/v1",
         1760.0,
         120.0,
     );
@@ -302,7 +302,7 @@ pub(crate) fn populate_startup(widget: &mut NodeGraphWidget) {
     connect(widget, (source, "Ch 8"), (gate, "In"));
     connect(widget, (latch, "Q"), (gate, "In"));
     connect(widget, (gate, "Out"), (decoder, "Enable"));
-    connect(widget, (source, "Ch 10"), (decoder, "Clock"));
+    connect(widget, (source, "Ch 10"), (decoder, "Strobe"));
     for bit in 0..8 {
         connect(widget, (source, &format!("Ch {bit}")), (decoder, "D"));
     }

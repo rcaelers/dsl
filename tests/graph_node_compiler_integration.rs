@@ -57,7 +57,7 @@ fn selected_outputs(graph: &GraphState) -> Vec<(NodeId, usize)> {
 fn binary_decoder_demo_fixture_lowers_with_built_in_nodes() {
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
     nodes::build_binary_decoder_demo(&mut widget);
-    let source_name = nodes::node_name("org.logicconduit.graph-node.sigrok-file-source/v1");
+    let source_name = nodes::node_name("org.logicconduit.graph-node.sources.sigrok-file-source/v1");
     let compiler = GraphCompiler::new();
     let selected_nodes = selected_outputs(widget.graph())
         .into_iter()
@@ -110,7 +110,7 @@ fn built_in_startup_graph_lowers_with_explicit_subscriptions() {
         ("Match Stop", "Match"),
         ("SR Flip-Flop", "Q"),
         ("Enable Gate", "Out"),
-        ("Binary Decoder", "Words"),
+        ("Parallel Decoder", "Words"),
     ] {
         select_output(&mut widget, node, output);
     }
@@ -125,8 +125,8 @@ fn built_in_startup_graph_lowers_with_explicit_subscriptions() {
         .lower(widget.graph())
         .unwrap_or_else(|errors| panic!("lower failed: {errors:?}"));
 
-    assert_eq!(compiled.nodes.len(), 11);
-    assert_eq!(compiled.edges.len(), 30);
+    assert_eq!(compiled.nodes.len(), 12);
+    assert_eq!(compiled.edges.len(), 32);
 
     let spi_sampling = compiled
         .sampling_overlays
@@ -135,12 +135,12 @@ fn built_in_startup_graph_lowers_with_explicit_subscriptions() {
         .expect("SPI decoder should expose a sampling overlay");
     assert_eq!(spi_sampling.overlay().edge, SamplingEdge::Rising);
     assert!(!spi_sampling.overlay().sampled_channels.is_empty());
-    let binary_sampling = compiled
+    let parallel_sampling = compiled
         .sampling_overlays
         .iter()
-        .find(|candidate| candidate.node_title() == "Binary Decoder")
-        .expect("binary decoder should expose a sampling overlay");
-    assert_eq!(binary_sampling.overlay().edge, SamplingEdge::Both);
+        .find(|candidate| candidate.node_title() == "Parallel Decoder")
+        .expect("parallel decoder should expose a sampling overlay");
+    assert_eq!(parallel_sampling.overlay().edge, SamplingEdge::Both);
 
     let collector = compiled
         .nodes
@@ -165,7 +165,7 @@ fn built_in_startup_graph_lowers_with_explicit_subscriptions() {
     let decoder = compiled
         .nodes
         .iter()
-        .find(|node| node.builder == "Binary Decoder")
+        .find(|node| node.builder == "Parallel Decoder")
         .unwrap();
     assert_eq!(
         spi.resolved.kind(0),
@@ -210,7 +210,7 @@ fn built_in_binary_demo_executes_and_publishes_sampling_and_latch_data() {
     let sampling = context.take_sampling_overlays();
     run.wait();
 
-    for builder in ["Sigrok File Source", "SPI Decoder", "Binary Decoder"] {
+    for builder in ["Sigrok File Source", "SPI Decoder", "Parallel Decoder"] {
         assert!(compiled.nodes.iter().any(|node| node.builder == builder));
     }
 
@@ -350,7 +350,7 @@ fn captured_words(lanes: &DerivedLanes) -> Vec<Annotation> {
                 })
                 .collect()
         })
-        .unwrap_or_else(|| panic!("binary decoder word adapter was not published"))
+        .unwrap_or_else(|| panic!("parallel decoder word adapter was not published"))
 }
 
 fn annotation_bytes(annotations: &[Annotation]) -> Vec<u8> {
@@ -375,7 +375,7 @@ fn built_in_live_analysis_matches_finalized_replay_using_source_override() {
 
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
     let source_node = nodes::build_live_binary_test(&mut widget);
-    select_output(&mut widget, "Binary Decoder", "Words");
+    select_output(&mut widget, "Parallel Decoder", "Words");
     let subscriptions = selected_outputs(widget.graph())
         .into_iter()
         .collect::<OutputSubscriptionPlan>();

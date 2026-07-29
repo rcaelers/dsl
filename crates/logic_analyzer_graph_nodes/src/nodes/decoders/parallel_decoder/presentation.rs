@@ -1,9 +1,9 @@
-//! Viewer presentation for binary-decoder output.
+//! Viewer presentation for parallel-decoder output.
 
 use logic_analyzer_graph_api::node_support::{DecoderTableCellMode, DecoderTableColumnDescriptor};
 use logic_analyzer_viewer::{DefaultViewerLaneRenderer, ViewerLaneRendererRegistration};
 
-pub(crate) fn binary_table_column(def_index: usize) -> Option<DecoderTableColumnDescriptor> {
+pub(crate) fn parallel_table_column(def_index: usize) -> Option<DecoderTableColumnDescriptor> {
     (def_index == 0).then(|| {
         DecoderTableColumnDescriptor::new(
             "decoder",
@@ -13,27 +13,27 @@ pub(crate) fn binary_table_column(def_index: usize) -> Option<DecoderTableColumn
             true,
             DecoderTableCellMode::Single,
             "primary",
-            BINARY_TABLE_RENDERER,
+            PARALLEL_TABLE_RENDERER,
         )
     })
 }
 
-const BINARY_TABLE_RENDERER: &str = "org.logicconduit.renderer.binary-table/v1";
+const PARALLEL_TABLE_RENDERER: &str = "org.logicconduit.renderer.parallel-table/v1";
 
 inventory::submit! {
-    ViewerLaneRendererRegistration::new(BINARY_TABLE_RENDERER, || {
+    ViewerLaneRendererRegistration::new(PARALLEL_TABLE_RENDERER, || {
         std::sync::Arc::new(DefaultViewerLaneRenderer)
     })
 }
 
 #[cfg(test)]
-mod tests {
+mod presentation_tests {
     use super::*;
 
     #[test]
     fn words_are_an_explicit_table_source() {
-        assert!(binary_table_column(1).is_none());
-        let table = binary_table_column(0).unwrap();
+        assert!(parallel_table_column(1).is_none());
+        let table = parallel_table_column(0).unwrap();
         assert_eq!(table.source_key, "decoder");
         assert!(table.row_anchor);
     }

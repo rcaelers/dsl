@@ -11,8 +11,8 @@ use signal_processing::{CaptureChannelId, CaptureDataDelivery, SimpleTriggerCond
 
 use integration_tests_support::{build_live_binary_test, build_registry, node_builder, node_name};
 
-const U3PRO16_ID: &str = "org.logicconduit.graph-node.dslogic-u3pro16/v1";
-const DSL_FILE_SOURCE_ID: &str = "org.logicconduit.graph-node.dsl-file-source/v1";
+const U3PRO16_ID: &str = "org.logicconduit.graph-node.sources.dslogic-u3pro16/v1";
+const DSL_FILE_SOURCE_ID: &str = "org.logicconduit.graph-node.sources.dsl-file-source/v1";
 
 fn select(state: &mut serde_json::Value, field: &str, value: &str) {
     state[field]["value"] = serde_json::Value::String(value.to_owned());
@@ -40,13 +40,15 @@ fn native_hardware_source_registers_and_lowers() {
         .graph()
         .nodes
         .values()
-        .find(|node| node.def_name() == node_name("org.logicconduit.graph-node.binary-decoder/v1"))
-        .expect("binary decoder should be registered");
+        .find(|node| {
+            node.def_name() == node_name("org.logicconduit.graph-node.decoders.parallel-decoder/v1")
+        })
+        .expect("parallel decoder should be registered");
     let words = decoder
         .outputs
         .iter()
         .position(|output| output.name == "Words")
-        .expect("binary decoder exposes words");
+        .expect("parallel decoder exposes words");
     let decoder = decoder.id;
 
     let mut compiler = GraphCompiler::new();
