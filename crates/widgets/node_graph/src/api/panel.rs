@@ -5,6 +5,14 @@ use egui::{RichText, Sense, Ui, Vec2};
 use super::node::PanelSection;
 use crate::model::NodeId;
 
+/// Supplies host-owned, draw-scoped models to node-contributed panels.
+///
+/// The graph widget borrows returned values only for the current `show` call.
+/// Providers remain responsible for model lifetime, replacement, and cleanup.
+pub trait PanelDataProvider {
+    fn panel_data(&self, node: NodeId, panel_id: &str) -> Option<&(dyn Any + Send + Sync)>;
+}
+
 /// An opaque action emitted by a node-contributed panel presentation.
 pub struct PanelAction {
     node: NodeId,
@@ -114,19 +122,19 @@ impl PanelMetadata {
 pub struct PanelContext<'a> {
     editing_enabled: bool,
     data: Option<&'a (dyn Any + Send + Sync)>,
-    action: &'a mut Option<Box<dyn Any + Send>>,
+    actions: &'a mut Vec<Box<dyn Any + Send>>,
 }
 
 impl<'a> PanelContext<'a> {
     pub(crate) fn new(
         editing_enabled: bool,
         data: Option<&'a (dyn Any + Send + Sync)>,
-        action: &'a mut Option<Box<dyn Any + Send>>,
+        actions: &'a mut Vec<Box<dyn Any + Send>>,
     ) -> Self {
         Self {
             editing_enabled,
             data,
-            action,
+            actions,
         }
     }
 
@@ -139,7 +147,7 @@ impl<'a> PanelContext<'a> {
     }
 
     pub fn emit<T: Any + Send>(&mut self, action: T) {
-        *self.action = Some(Box::new(action));
+        self.actions.push(Box::new(action));
     }
 }
 
@@ -309,8 +317,8 @@ mod panel_context_tests {
     #[test]
     fn panel_data_and_actions_remain_typed_and_opaque() {
         let data = String::from("panel-owned");
-        let mut action = None;
-        let mut context = PanelContext::new(true, Some(&data), &mut action);
+        let mut actions = Vec::new();
+        let mut context = PanelContext::new(true, Some(&data), &mut actions);
 
         assert_eq!(
             context.data::<String>().map(String::as_str),
@@ -318,10 +326,12 @@ mod panel_context_tests {
         );
         assert!(context.data::<u32>().is_none());
         context.emit(42_u32);
+        context.emit(43_u32);
 
-        assert_eq!(
-            action.unwrap().downcast::<u32>().ok().map(|value| *value),
-            Some(42)
-        );
+        let values = actions
+            .into_iter()
+            .map(|action| *action.downcast::<u32>().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(values, [42, 43]);
     }
 }

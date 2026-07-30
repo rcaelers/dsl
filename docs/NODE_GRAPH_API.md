@@ -154,8 +154,15 @@ impl NodeDef for Counter {
 - `NodeDef::title()` can opt into binding the displayed node title to one state-owned
   `StringValue`; the built-in Name editor and inline properties then edit one synchronized value.
 - A panel presentation can inspect opaque, typed host data through `PanelContext::data` and emit
-  an opaque typed action through `PanelContext::emit`. The data and action types belong to the
+  opaque typed actions through `PanelContext::emit`. The data and action types belong to the
   concrete feature; `node_graph` does not define their fields or meaning.
+- Host panel models are draw-scoped. The host passes a `PanelDataProvider` to
+  `NodeGraphWidget::show_with_panel_data`; the widget borrows matching `(NodeId, panel ID)` values
+  for height calculation and drawing, and never retains them. The host owns model construction,
+  replacement, cleanup, and any persistence outside node state.
+- `show_with_panel_data` returns every `PanelAction` emitted during that draw. The host handles the
+  actions immediately; the widget does not queue actions between frames. `show` is the convenience
+  form for hosts with no contributed panel data and uses an empty provider.
 - State edits from node-body properties, the built-in Node panel, and node-contributed panels all
   trigger the same update path.
 

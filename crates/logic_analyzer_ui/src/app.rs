@@ -19,8 +19,8 @@ use logic_analyzer_viewer::{
     WaveformPresentationRegistry,
 };
 use node_graph::{
-    GraphState, NodeBadge, NodeContextAction, NodeGraphWidget, NodeId, PanelTabDef,
-    SocketDirection, SocketId, SocketIndicatorPresentation,
+    GraphState, NodeBadge, NodeContextAction, NodeGraphWidget, NodeId, PanelDataProvider,
+    PanelTabDef, SocketDirection, SocketId, SocketIndicatorPresentation,
 };
 use panel_layout::{BoundaryInteraction, PanelIcon, PanelLayout, PanelSlot, PanelSpec};
 use trigger_editor::{TriggerEditor, TriggerEditorChannel};
@@ -48,6 +48,23 @@ const VIEWER_OUTPUT_PANEL_ID: &str = "viewer-outputs";
 const VIEWER_SOCKET_INDICATOR_OWNER: &str = "logic-analyzer.viewer";
 
 struct ViewerSocketIndicator;
+
+struct ViewerOutputPanelData {
+    models: HashMap<NodeId, ViewerOutputPanelModel>,
+}
+
+impl PanelDataProvider for ViewerOutputPanelData {
+    fn panel_data(
+        &self,
+        node: NodeId,
+        panel_id: &str,
+    ) -> Option<&(dyn std::any::Any + Send + Sync)> {
+        (panel_id == VIEWER_OUTPUT_PANEL_ID)
+            .then(|| self.models.get(&node))
+            .flatten()
+            .map(|model| model as &(dyn std::any::Any + Send + Sync))
+    }
+}
 
 impl SocketIndicatorPresentation for ViewerSocketIndicator {
     fn size(&self, zoom: f32) -> egui::Vec2 {
@@ -775,7 +792,7 @@ impl App {
         self.refresh_graph_output_selections();
     }
 
-    fn refresh_graph_output_selections(&mut self) {
+    fn refresh_graph_output_selections(&mut self) -> ViewerOutputPanelData {
         let selections = viewer_output_selections(self.node_graph.graph());
         let graph = self.node_graph.graph();
         let connected_nodes = graph
@@ -794,7 +811,6 @@ impl App {
         }
         self.graph_service.set_output_subscriptions(subscriptions);
         let mut by_node: HashMap<NodeId, Vec<ViewerOutputPanelEntry>> = HashMap::new();
-        self.node_graph.clear_panel_data(VIEWER_OUTPUT_PANEL_ID);
         self.node_graph
             .clear_socket_indicators(VIEWER_SOCKET_INDICATOR_OWNER);
         for selection in selections {
@@ -821,12 +837,11 @@ impl App {
                 }
             }
         }
-        for (node, outputs) in by_node {
-            self.node_graph.set_panel_data(
-                node,
-                VIEWER_OUTPUT_PANEL_ID,
-                ViewerOutputPanelModel { outputs },
-            );
+        ViewerOutputPanelData {
+            models: by_node
+                .into_iter()
+                .map(|(node, outputs)| (node, ViewerOutputPanelModel { outputs }))
+                .collect(),
         }
     }
 
@@ -3009,8 +3024,8 @@ impl eframe::App for App {
                     ..
                 } => {
                     self.platform_before_graph();
-                    self.refresh_graph_output_selections();
-                    self.node_graph.show(panel_ui);
+                    let panel_data = self.refresh_graph_output_selections();
+                    let panel_actions = self.node_graph.show_with_panel_data(panel_ui, &panel_data);
                     if let Some(message) = self.node_graph.take_io_status() {
                         self.toasts
                             .info_from(ToastSource::panel("Node Graph"), message);
@@ -3024,7 +3039,7 @@ impl eframe::App for App {
                             .ctx()
                             .request_repaint_after(std::time::Duration::from_millis(16));
                     }
-                    if let Some(action) = self.node_graph.take_panel_action() {
+                    for action in panel_actions {
                         let node_id = action.node();
                         if action.panel_id() == VIEWER_OUTPUT_PANEL_ID
                             && let Ok(ViewerOutputPanelAction::SetSelected { id, selected }) =

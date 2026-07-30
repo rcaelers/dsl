@@ -10,9 +10,9 @@ mod widget;
 pub use api::{
     AnySocket, BoolSocket, BoolValue, EnumValue, FileSocket, FileValue, FloatSocket, FloatValue,
     InlineControl, InputDef, IntSocket, IntValue, NodeDef, NodeInstanceSchema, NodePanelDef,
-    NodePanelPresentation, OutputDef, PanelAction, PanelContext, PanelMetadata, PanelSection,
-    PanelTabDef, PropDef, PropertyPanelPresentation, SocketDef, SocketIndicatorPresentation,
-    SocketTypeIdentity, SocketWithControlDef, StrSocket, StringValue,
+    NodePanelPresentation, OutputDef, PanelAction, PanelContext, PanelDataProvider, PanelMetadata,
+    PanelSection, PanelTabDef, PropDef, PropertyPanelPresentation, SocketDef,
+    SocketIndicatorPresentation, SocketTypeIdentity, SocketWithControlDef, StrSocket, StringValue,
 };
 pub use model::{
     BadgeSeverity, Connection, Frame, FrameId, GraphMetadata, GraphState, Node, NodeBadge, NodeId,

@@ -173,8 +173,10 @@ Interaction highlights:
   are configured once per widget, and all tabs remain visible for all nodes. A `NodeDef`
   contributes opaque panels by stable panel ID and tab ID. Its
   `NodePanelPresentation` owns the title and complete UI; the widget only supplies layout,
-  scrolling, state-update routing, and opaque typed panel data/action transport. The widget does
-  not define or inspect feature-specific panel models.
+  scrolling, state-update routing, and opaque typed panel data/action transport. Host-derived
+  panel models are borrowed from a `PanelDataProvider` for one draw call and emitted actions are
+  returned to the host from that same call. The widget does not retain, define, or inspect
+  feature-specific panel models or actions.
 - **Socket indicators**: hosts attach transient, owner-namespaced
   `SocketIndicatorPresentation` objects to any input or output `SocketId`. The widget positions
   them and delegates size and drawing to the presentation. It does not assign viewer, validation,

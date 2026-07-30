@@ -101,14 +101,6 @@ Task IDs start with their ownership category and remain stable when task wording
   remove only duplicate native retention while preserving wasm, explicit in-memory mode, and
   storage-failure fallback.
 
-### Node-graph ownership
-
-- [graph.widget.panel-data-ownership] Revisit the `set_panel_data` attachment API. Client code has the node and panel IDs and should
-  remain the authoritative owner of panel state; `NodeGraphWidget` must not become a general-purpose
-  or persistent client-data store. Consider a draw-scoped `PanelDataProvider`/action handler so the
-  widget can borrow panel models without retaining them. Preserve an explicit attachment mechanism
-  only where transient, widget-lifetime data is genuinely useful, and document its ownership,
-  replacement, cleanup, and non-persistence semantics.
 ### Node-graph extraction
 
 - [graph.extraction.standalone-crate] Prepare `node-graph` for an eventual separate repository: replace workspace-inherited

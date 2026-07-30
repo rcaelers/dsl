@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
@@ -12,7 +11,7 @@ use super::interaction::{GraphResponses, InteractionState};
 use super::menu::MenuController;
 use super::panel::PanelState;
 use super::{layout, render};
-use crate::api::{PanelAction, PanelTabDef, SocketIndicatorPresentation};
+use crate::api::{PanelAction, PanelDataProvider, PanelTabDef, SocketIndicatorPresentation};
 use crate::model::{FrameId, GraphState, Node, NodeBadge, NodeId, SocketId};
 use crate::runtime::{NodeInstance, NodeRuntime, NodeTemplate, NodeTypeRegistry};
 use crate::support::ViewState;
@@ -59,10 +58,6 @@ pub struct NodeGraphWidget {
     /// Host-provided, application-neutral node context actions.
     pub(crate) node_context_actions: HashMap<NodeId, Vec<NodeContextAction>>,
     pub(crate) node_context_action_request: Option<(NodeId, String)>,
-    /// Host data is keyed by node and node-owned panel ID. The widget only
-    /// passes the opaque value to that panel's presentation.
-    pub(crate) panel_data: HashMap<(NodeId, String), Arc<dyn Any + Send + Sync>>,
-    pub(crate) panel_action: Option<PanelAction>,
     pub(crate) contributed_panel_state_changed: bool,
     /// Transient socket decorations grouped by host-owned namespace so one
     /// feature can replace or clear its indicators without touching another.
@@ -85,6 +80,18 @@ pub struct NodeContextAction {
 
 pub(crate) type SocketIndicatorRegistry =
     BTreeMap<String, HashMap<SocketId, BTreeMap<String, Arc<dyn SocketIndicatorPresentation>>>>;
+
+struct EmptyPanelDataProvider;
+
+impl PanelDataProvider for EmptyPanelDataProvider {
+    fn panel_data(
+        &self,
+        _node: NodeId,
+        _panel_id: &str,
+    ) -> Option<&(dyn std::any::Any + Send + Sync)> {
+        None
+    }
+}
 
 impl NodeContextAction {
     pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
@@ -176,8 +183,6 @@ impl NodeGraphWidget {
             clear_derived_cache_request: None,
             node_context_actions: HashMap::new(),
             node_context_action_request: None,
-            panel_data: HashMap::new(),
-            panel_action: None,
             contributed_panel_state_changed: false,
             socket_indicators: BTreeMap::new(),
             panel_tabs: vec![PanelTabDef::new("node", "Node")],
@@ -271,25 +276,6 @@ impl NodeGraphWidget {
 
     pub fn take_node_context_action(&mut self) -> Option<(NodeId, String)> {
         self.node_context_action_request.take()
-    }
-
-    pub fn set_panel_data<T: Any + Send + Sync>(
-        &mut self,
-        node: NodeId,
-        panel_id: impl Into<String>,
-        data: T,
-    ) {
-        self.panel_data
-            .insert((node, panel_id.into()), Arc::new(data));
-    }
-
-    pub fn clear_panel_data(&mut self, panel_id: &str) {
-        self.panel_data
-            .retain(|(_, stored_panel_id), _| stored_panel_id != panel_id);
-    }
-
-    pub fn take_panel_action(&mut self) -> Option<PanelAction> {
-        self.panel_action.take()
     }
 
     pub fn set_socket_indicator(
@@ -612,7 +598,19 @@ impl NodeGraphWidget {
 
     // ── Viewport render ───────────────────────────────────────────────────────
 
-    pub fn show(&mut self, ui: &mut Ui) {
+    pub fn show(&mut self, ui: &mut Ui) -> Vec<PanelAction> {
+        self.show_with_panel_data(ui, &EmptyPanelDataProvider)
+    }
+
+    /// Draws the graph using host-owned panel models borrowed for this call.
+    /// Every contributed-panel action emitted during the draw is returned in
+    /// creation order; neither models nor actions are retained by the widget.
+    pub fn show_with_panel_data(
+        &mut self,
+        ui: &mut Ui,
+        panel_data: &dyn PanelDataProvider,
+    ) -> Vec<PanelAction> {
+        let mut panel_actions = Vec::new();
         let rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(rect, Sense::click_and_drag());
         let painter = ui.painter_at(rect);
@@ -625,7 +623,7 @@ impl NodeGraphWidget {
         // The right-side tab strip is always present. The optional panel body
         // floats over the graph and only claims input where it is visible.
         let tab_bar_rect = self.panel_tab_bar_rect(rect);
-        let panel_rect = self.panel_rect(rect);
+        let panel_rect = self.panel_rect(rect, panel_data);
         let content_rect =
             egui::Rect::from_min_max(rect.min, Pos2::new(tab_bar_rect.left(), rect.max.y));
         let layout = self.build_layout(origin);
@@ -661,11 +659,12 @@ impl NodeGraphWidget {
         );
         self.show_socket_tooltip(&responses, hovered_socket);
         if let Some(panel_rect) = panel_rect {
-            self.show_active_panel(ui, panel_rect);
+            self.show_active_panel(ui, panel_rect, panel_data, &mut panel_actions);
         }
         self.show_panel_tab_bar(ui, tab_bar_rect);
         self.show_frame_rename(ui.ctx());
         self.show_node_rename(ui.ctx());
+        panel_actions
     }
 
     /// One-line hint of available actions for the current interaction
