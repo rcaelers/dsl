@@ -1,20 +1,11 @@
-pub use signal_processing::SamplingEdge;
+use signal_processing::SamplingPointStore;
 
-/// Protocol-neutral description of sampling markers drawn over raw capture
-/// channels. Channel numbers are the stable indices used by the capture
-/// presented to the viewer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SamplingQualifier {
-    pub channel: usize,
-    pub active_level: bool,
-}
-
+/// Protocol-neutral presentation of sampling decisions already produced by
+/// a processing node. Channel numbers identify the raw rows on which the
+/// cached values are rendered; the viewer never interprets those channels.
 #[derive(Debug, Clone)]
 pub struct SamplingOverlay {
     pub clock_channel: usize,
     pub sampled_channels: Vec<usize>,
-    pub edge: SamplingEdge,
-    pub qualifiers: Vec<SamplingQualifier>,
-    pub activities: Vec<SamplingActivity>,
+    pub points: SamplingPointStore,
 }
-use signal_processing::SamplingActivity;

@@ -309,7 +309,7 @@ mod builder_tests {
     use std::collections::HashMap;
 
     use signal_processing::{
-        DerivedDataRetention, DerivedLanes, PersistentStoreConfig, SamplingActivity,
+        DerivedDataRetention, DerivedLanes, PersistentStoreConfig, SamplingPointStore,
     };
 
     use super::*;
@@ -333,11 +333,7 @@ mod builder_tests {
             None
         }
 
-        fn sampling_activity(
-            &self,
-            _runtime_name: &str,
-            _input: usize,
-        ) -> Option<SamplingActivity> {
+        fn sampling_points(&self, _runtime_name: &str) -> Option<SamplingPointStore> {
             None
         }
 

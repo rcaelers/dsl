@@ -161,7 +161,6 @@ fn compiler_returns_neutral_sampling_and_table_plans() {
     let implementation = implementation_source(include_str!("graph.rs"));
     assert!(
         !implementation.contains("DecoderTableRegistry")
-            && !implementation.contains("SamplingQualifier {")
             && !implementation.contains("overlay: SamplingOverlay"),
         "compiler runtime context must expose resolved plans instead of constructing UI registries"
     );

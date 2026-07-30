@@ -202,12 +202,6 @@ fn work_parallel(
             window_end,
             strobe.timestamp_step,
         )?;
-        record_enabled_ranges(
-            decoder.enable_activity.as_ref(),
-            strobe.start_position,
-            strobe.timestamp_step,
-            &enabled_ranges,
-        );
         let strobe = strobe.clone();
         let data = blocks.data.clone();
         let cs = blocks.cs.clone();
@@ -281,6 +275,7 @@ fn work_parallel(
         first_ts: decoder.assembly_first_ts,
     };
     let mut last_strobe_value = decoder.last_strobe_value;
+    let mut sampling_point_batch = decoder.sampling_points.as_ref().map(|_| Vec::new());
     let words_emitted = merge_stream_fragment(
         &fragment,
         decoder.mode,
@@ -290,7 +285,11 @@ fn work_parallel(
         decoder.endianness,
         &mut assembly,
         &mut word_batch,
+        sampling_point_batch.as_mut(),
     )?;
+    if let (Some(store), Some(points)) = (&decoder.sampling_points, sampling_point_batch) {
+        store.record_batch(points);
+    }
 
     decoder.next_stream_merge_sequence += 1;
     decoder.last_strobe_value = last_strobe_value;

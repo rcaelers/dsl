@@ -1,8 +1,6 @@
 use egui::{Color32, Painter, Pos2, Shape, Stroke};
 
-use crate::channel::LogicChannel;
-use crate::sampling_overlay::{SamplingEdge, SamplingOverlay};
-use crate::types::{AnalyzerLayout, RowKey, WaveformSegmentKind};
+use crate::types::{AnalyzerLayout, RowKey};
 use crate::viewer::LogicAnalyzerViewer;
 
 const MARKER_SPACING_PX: f64 = 6.0;
@@ -10,20 +8,6 @@ const MARKER_SPACING_PX: f64 = 6.0;
 impl LogicAnalyzerViewer {
     pub(crate) fn draw_sampling_overlay(&self, painter: &Painter, layout: AnalyzerLayout) {
         let Some(overlay) = &self.sampling_overlay else {
-            return;
-        };
-        let channels = if self.has_index_sampler() {
-            let Some(channels) = self.sampling_overlay_channels.as_deref() else {
-                return;
-            };
-            channels
-        } else {
-            &self.channels
-        };
-        let Some(clock) = channels
-            .iter()
-            .find(|channel| channel.index == overlay.clock_channel)
-        else {
             return;
         };
         let Some(clock_row) = self
@@ -34,22 +18,32 @@ impl LogicAnalyzerViewer {
             return;
         };
 
+        if layout.wave_rect.width() <= 0.0 {
+            return;
+        }
         let visible_end_us = self.visible_start_us + self.visible_span_us;
-        let mut edges =
-            visible_sampling_edges(clock, overlay.edge, self.visible_start_us, visible_end_us);
+        let start_ns = us_to_ns(self.visible_start_us);
+        let end_ns = us_to_ns(visible_end_us);
+        let minimum_spacing_ns = minimum_marker_spacing_ns(
+            start_ns,
+            end_ns,
+            layout.wave_rect.width(),
+            MARKER_SPACING_PX,
+        );
+        let Some(points) = overlay.points.points_in_range_with_minimum_spacing(
+            start_ns,
+            end_ns,
+            minimum_spacing_ns,
+        ) else {
+            return;
+        };
+        let edges = points
+            .iter()
+            .map(|point| (point.time_ns as f64 / 1_000.0, point.clock_high))
+            .collect::<Vec<_>>();
         if edges.is_empty() {
             return;
         }
-        edges.retain(|(time_us, _)| sampling_is_active(channels, overlay, *time_us));
-        if !sampling_edges_are_spaced(
-            &edges,
-            self.visible_start_us,
-            visible_end_us,
-            layout.wave_rect.width(),
-        ) {
-            return;
-        }
-
         let clip = painter.with_clip_rect(layout.wave_rect);
         let clock_top = self.row_top(layout.wave_rect.top(), clock_row, layout.row_height);
         let marker_color = Color32::from_rgb(0, 220, 95);
@@ -58,13 +52,7 @@ impl LogicAnalyzerViewer {
             draw_clock_arrow(&clip, x, clock_top, layout.row_height, rising, marker_color);
         }
 
-        for &channel_index in &overlay.sampled_channels {
-            let Some(channel) = channels
-                .iter()
-                .find(|channel| channel.index == channel_index)
-            else {
-                continue;
-            };
+        for (value_index, &channel_index) in overlay.sampled_channels.iter().enumerate() {
             let Some(row) = self
                 .row_order
                 .iter()
@@ -75,10 +63,11 @@ impl LogicAnalyzerViewer {
             let row_top = self.row_top(layout.wave_rect.top(), row, layout.row_height);
             let high_y = row_top + layout.row_height * 0.28;
             let low_y = row_top + layout.row_height * 0.72;
-            for &(time_us, _) in &edges {
-                let Some(value) = channel_value_at(channel, time_us) else {
+            for point in &points {
+                let Some(&value) = point.values.get(value_index) else {
                     continue;
                 };
+                let time_us = point.time_ns as f64 / 1_000.0;
                 let center = Pos2::new(
                     self.time_to_x(layout.wave_rect, time_us),
                     if value { high_y } else { low_y },
@@ -90,114 +79,21 @@ impl LogicAnalyzerViewer {
     }
 }
 
-fn sampling_edges_are_spaced(
-    edges: &[(f64, bool)],
-    visible_start_us: f64,
-    visible_end_us: f64,
+fn us_to_ns(time_us: f64) -> u64 {
+    (time_us * 1_000.0).round().clamp(0.0, u64::MAX as f64) as u64
+}
+
+fn minimum_marker_spacing_ns(
+    visible_start_ns: u64,
+    visible_end_ns: u64,
     width: f32,
-) -> bool {
-    let visible_span_us = visible_end_us - visible_start_us;
-    if width <= 0.0 || visible_span_us <= 0.0 {
-        return false;
+    spacing_px: f64,
+) -> u64 {
+    if width <= 0.0 || visible_start_ns >= visible_end_ns {
+        return u64::MAX;
     }
-    let pixels_per_us = f64::from(width) / visible_span_us;
-    edges.windows(2).all(|pair| {
-        let first_x = (pair[0].0 - visible_start_us) * pixels_per_us;
-        let second_x = (pair[1].0 - visible_start_us) * pixels_per_us;
-        second_x - first_x >= MARKER_SPACING_PX
-    })
-}
-
-fn sampling_is_active(channels: &[LogicChannel], overlay: &SamplingOverlay, time_us: f64) -> bool {
-    let time_ns = (time_us * 1_000.0).round().max(0.0) as u64;
-    overlay
-        .activities
-        .iter()
-        .all(|activity| !activity.has_observations() || activity.is_active_at(time_ns))
-        && overlay.qualifiers.iter().all(|qualifier| {
-            channels
-                .iter()
-                .find(|channel| channel.index == qualifier.channel)
-                .and_then(|channel| channel_value_at(channel, time_us))
-                == Some(qualifier.active_level)
-        })
-}
-
-fn visible_sampling_edges(
-    channel: &LogicChannel,
-    edge: SamplingEdge,
-    start_us: f64,
-    end_us: f64,
-) -> Vec<(f64, bool)> {
-    let mut edges: Vec<(f64, bool)> = if channel.waveform.is_empty() {
-        channel
-            .visible_transitions(start_us, end_us)
-            .0
-            .iter()
-            .filter(|transition| edge.accepts(transition.value))
-            .map(|transition| (transition.time_us, transition.value))
-            .collect()
-    } else {
-        if channel.waveform.iter().any(|segment| {
-            segment.end_us >= start_us
-                && segment.start_us <= end_us
-                && matches!(segment.kind, WaveformSegmentKind::Activity { .. })
-        }) {
-            return Vec::new();
-        }
-        channel
-            .waveform
-            .iter()
-            .filter_map(|segment| match segment.kind {
-                WaveformSegmentKind::Edge { after, .. }
-                    if segment.start_us >= start_us
-                        && segment.start_us <= end_us
-                        && edge.accepts(after) =>
-                {
-                    Some((segment.start_us, after))
-                }
-                _ => None,
-            })
-            .collect()
-    };
-    edges.sort_by(|left, right| left.0.total_cmp(&right.0));
-    edges.dedup_by(|left, right| left.0 == right.0);
-    edges
-}
-
-fn channel_value_at(channel: &LogicChannel, time_us: f64) -> Option<bool> {
-    if channel.waveform.is_empty() {
-        let index = channel
-            .transitions
-            .partition_point(|transition| transition.time_us <= time_us);
-        return Some(
-            index
-                .checked_sub(1)
-                .and_then(|index| channel.transitions.get(index))
-                .map_or(channel.initial, |transition| transition.value),
-        );
-    }
-
-    if let Some(value) = channel
-        .waveform
-        .iter()
-        .find_map(|segment| match segment.kind {
-            WaveformSegmentKind::Edge { after, .. } if segment.start_us == time_us => Some(after),
-            _ => None,
-        })
-    {
-        return Some(value);
-    }
-    channel.waveform.iter().find_map(|segment| {
-        if time_us < segment.start_us || time_us > segment.end_us {
-            return None;
-        }
-        match segment.kind {
-            WaveformSegmentKind::Level { value } => Some(value),
-            WaveformSegmentKind::Edge { after, .. } => Some(after),
-            WaveformSegmentKind::Activity { .. } => None,
-        }
-    })
+    let visible_span_ns = visible_end_ns - visible_start_ns;
+    (visible_span_ns as f64 * spacing_px / f64::from(width)).ceil() as u64
 }
 
 fn draw_clock_arrow(
@@ -232,125 +128,11 @@ fn draw_clock_arrow(
 
 #[cfg(test)]
 mod tests {
-    use signal_processing::SamplingActivity;
-
     use super::*;
-    use crate::sampling_overlay::SamplingQualifier;
-    use crate::types::Transition;
-
-    fn channel() -> LogicChannel {
-        LogicChannel {
-            index: 0,
-            name: "clock".into(),
-            initial: false,
-            transitions: vec![
-                Transition {
-                    time_us: 1.0,
-                    value: true,
-                },
-                Transition {
-                    time_us: 2.0,
-                    value: false,
-                },
-                Transition {
-                    time_us: 3.0,
-                    value: true,
-                },
-            ],
-            waveform: Vec::new(),
-        }
-    }
 
     #[test]
-    fn edge_filter_distinguishes_sdr_and_ddr() {
-        assert_eq!(
-            visible_sampling_edges(&channel(), SamplingEdge::Rising, 0.0, 4.0),
-            vec![(1.0, true), (3.0, true)]
-        );
-        assert_eq!(
-            visible_sampling_edges(&channel(), SamplingEdge::Falling, 0.0, 4.0),
-            vec![(2.0, false)]
-        );
-        assert_eq!(
-            visible_sampling_edges(&channel(), SamplingEdge::Both, 0.0, 4.0).len(),
-            3
-        );
-    }
-
-    #[test]
-    fn samples_level_after_transition_at_the_same_time() {
-        assert_eq!(channel_value_at(&channel(), 0.5), Some(false));
-        assert_eq!(channel_value_at(&channel(), 1.0), Some(true));
-        assert_eq!(channel_value_at(&channel(), 2.5), Some(false));
-    }
-
-    #[test]
-    fn indexed_edge_level_wins_over_the_run_ending_at_that_edge() {
-        let mut channel = channel();
-        channel.transitions.clear();
-        channel.waveform = vec![
-            crate::types::WaveformSegment {
-                start_us: 0.0,
-                end_us: 1.0,
-                kind: WaveformSegmentKind::Level { value: false },
-            },
-            crate::types::WaveformSegment {
-                start_us: 1.0,
-                end_us: 1.0,
-                kind: WaveformSegmentKind::Edge {
-                    before: false,
-                    after: true,
-                },
-            },
-        ];
-        assert_eq!(channel_value_at(&channel, 1.0), Some(true));
-    }
-
-    #[test]
-    fn raw_and_runtime_gates_must_both_be_active() {
-        let mut gate = channel();
-        gate.index = 4;
-        let activity = SamplingActivity::default();
-        activity.record_interval(1_500, 3_500);
-        let overlay = SamplingOverlay {
-            clock_channel: 0,
-            sampled_channels: vec![1],
-            edge: SamplingEdge::Rising,
-            qualifiers: vec![SamplingQualifier {
-                channel: 4,
-                active_level: true,
-            }],
-            activities: vec![activity],
-        };
-
-        assert!(!sampling_is_active(&[gate.clone()], &overlay, 1.0));
-        assert!(!sampling_is_active(&[gate.clone()], &overlay, 2.0));
-        assert!(sampling_is_active(&[gate], &overlay, 3.0));
-    }
-
-    #[test]
-    fn unevaluated_runtime_gate_does_not_hide_pre_run_sampling_points() {
-        let overlay = SamplingOverlay {
-            clock_channel: 0,
-            sampled_channels: vec![1],
-            edge: SamplingEdge::Rising,
-            qualifiers: Vec::new(),
-            activities: vec![SamplingActivity::default()],
-        };
-
-        assert!(sampling_is_active(&[], &overlay, 1.0));
-    }
-
-    #[test]
-    fn dense_sampling_edges_hide_the_complete_overlay() {
-        let edges = vec![
-            (0.0, true),
-            (1.0, true),
-            (2.0, true),
-            (6.0, true),
-            (12.0, true),
-        ];
-        assert!(!sampling_edges_are_spaced(&edges, 0.0, 100.0, 100.0));
-        assert!(sampling_edges_are_spaced(&edges[3..], 0.0, 100.0, 100.0));
+    fn screen_spacing_converts_to_a_conservative_time_distance() {
+        assert_eq!(minimum_marker_spacing_ns(0, 100_000, 100.0, 6.0), 6_000);
+        assert_eq!(minimum_marker_spacing_ns(0, 100, 64.0, 6.0), 10);
     }
 }

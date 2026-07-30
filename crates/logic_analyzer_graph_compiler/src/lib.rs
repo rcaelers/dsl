@@ -47,8 +47,8 @@ pub use graph::{
     ApplySummary, CompileCtx, CompiledEdge, CompiledGraph, CompiledNode,
     DiscoveredCapturePresentation, DiscoveredLiveCaptureFeature, DiscoveredTimelineMarker,
     DiscoveredTimelineMarkerReferenceBinding, DiscoveredTriggerConfiguration, LiveAnalysisSource,
-    LiveCaptureDiscoveryError, LiveRun, ResolvedSamplingOverlay, ResolvedSamplingQualifier,
-    SamplingOverlayCandidate, SourceProcessOverrides,
+    LiveCaptureDiscoveryError, LiveRun, ResolvedSamplingOverlay, SamplingOverlayCandidate,
+    SourceProcessOverrides,
 };
 pub use graph_compiler::GraphCompiler;
 pub(crate) use graph_node_registration::{

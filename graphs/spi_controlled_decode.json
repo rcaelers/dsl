@@ -691,6 +691,7 @@
         "panels": {}
       }
     },
+    "logic_analyzer_ui.sampling_overlay": 1,
     "logic_analyzer_ui.viewer_lane_order": [
       {
         "Channel": 0

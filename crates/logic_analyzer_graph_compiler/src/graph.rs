@@ -39,8 +39,7 @@ use signal_processing::{
     CaptureProviderCapabilities, CaptureSessionPlan, CaptureStartMode, CollectedLaneRequest,
     ConfigurationBoundary, DerivedDataRetention, DerivedLanes, DisconnectEvent, InputSub,
     NodeConfig, OverflowPolicy, PayloadRegistry, PersistentStoreConfig, PreparedAcquisition,
-    ProcessNode, SampleBlock, SamplingActivity, SamplingEdge, SimpleTriggerCondition,
-    TriggerProgram,
+    ProcessNode, SampleBlock, SamplingPointStore, SimpleTriggerCondition, TriggerProgram,
 };
 
 use super::data_collector::DataCollectorBuilder;
@@ -66,7 +65,7 @@ pub struct CompileCtx {
     /// Clocked-node sampling overlays resolved during lowering. The host
     /// application chooses at most one candidate to display.
     sampling_overlays: Vec<SamplingOverlayCandidate>,
-    sampling_activities: HashMap<(String, usize), SamplingActivity>,
+    sampling_points: HashMap<String, SamplingPointStore>,
     collected_output_subscriptions: Vec<CollectedOutputSubscription>,
     collected_table_subscriptions: Vec<CollectedTableSubscription>,
     diagnostics: RunDiagnosticRegistry,
@@ -145,10 +144,8 @@ impl NodeBuildContext for CompileCtx {
             .and_then(Option::as_ref)
     }
 
-    fn sampling_activity(&self, runtime_name: &str, input: usize) -> Option<SamplingActivity> {
-        self.sampling_activities
-            .get(&(runtime_name.to_owned(), input))
-            .cloned()
+    fn sampling_points(&self, runtime_name: &str) -> Option<SamplingPointStore> {
+        self.sampling_points.get(runtime_name).cloned()
     }
 
     fn timeline_marker(
@@ -165,22 +162,13 @@ pub struct SamplingOverlayCandidate {
     node_id: NodeId,
     node_title: String,
     overlay: ResolvedSamplingOverlay,
-    runtime_activities: Vec<(usize, SamplingActivity)>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ResolvedSamplingQualifier {
-    pub channel: usize,
-    pub active_level: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct ResolvedSamplingOverlay {
     pub clock_channel: usize,
     pub sampled_channels: Vec<usize>,
-    pub edge: SamplingEdge,
-    pub qualifiers: Vec<ResolvedSamplingQualifier>,
-    pub activities: Vec<SamplingActivity>,
+    pub points: SamplingPointStore,
 }
 
 impl SamplingOverlayCandidate {
@@ -1593,36 +1581,19 @@ pub(crate) fn lower_with_subscriptions(
                 .resolved
                 .get(descriptor.clock_input, 0)?
                 .capture_channel?;
-            let mut sampled_channels = descriptor
+            let sampled_channels = descriptor
                 .sampled_input_groups
                 .iter()
                 .flat_map(|def_index| compiled_node.resolved.members(*def_index))
                 .filter_map(|(_, input)| input.capture_channel)
-                .collect::<Vec<_>>();
-            sampled_channels.sort_unstable();
-            sampled_channels.dedup();
+                .fold(Vec::new(), |mut channels, channel| {
+                    if !channels.contains(&channel) {
+                        channels.push(channel);
+                    }
+                    channels
+                });
             if sampled_channels.is_empty() {
                 return None;
-            }
-            let mut qualifiers = Vec::new();
-            let mut activities = Vec::new();
-            let mut runtime_activities = Vec::new();
-            for qualifier in descriptor.qualifiers {
-                let Some(input) = compiled_node.resolved.get(qualifier.input, 0) else {
-                    continue;
-                };
-                if let Some(channel) = input.capture_channel {
-                    qualifiers.push(ResolvedSamplingQualifier {
-                        channel,
-                        active_level: qualifier.active_level,
-                    });
-                } else if qualifier.runtime_fallback {
-                    let activity = SamplingActivity::default();
-                    activities.push(activity.clone());
-                    runtime_activities.push((qualifier.input, activity));
-                } else {
-                    return None;
-                }
             }
             Some(SamplingOverlayCandidate {
                 node_id: compiled_node.id,
@@ -1630,11 +1601,8 @@ pub(crate) fn lower_with_subscriptions(
                 overlay: ResolvedSamplingOverlay {
                     clock_channel,
                     sampled_channels,
-                    edge: descriptor.edge,
-                    qualifiers,
-                    activities,
+                    points: SamplingPointStore::default(),
                 },
-                runtime_activities,
             })
         })
         .collect();
@@ -1713,23 +1681,22 @@ pub(crate) fn sampling_overlay_candidates(
         .map(|compiled| compiled.sampling_overlays)
 }
 
-fn sampling_activity_map(compiled: &CompiledGraph) -> HashMap<(String, usize), SamplingActivity> {
+fn sampling_point_map(compiled: &CompiledGraph) -> HashMap<String, SamplingPointStore> {
     compiled
         .sampling_overlays
         .iter()
-        .flat_map(|candidate| {
-            let runtime_name = compiled_node(compiled, candidate.node_id)
-                .runtime_name
-                .clone();
-            candidate
-                .runtime_activities
-                .iter()
-                .map(move |(input, activity)| ((runtime_name.clone(), *input), activity.clone()))
+        .map(|candidate| {
+            (
+                compiled_node(compiled, candidate.node_id)
+                    .runtime_name
+                    .clone(),
+                candidate.overlay.points.clone(),
+            )
         })
         .collect()
 }
 
-fn reuse_sampling_activities(previous: &CompiledGraph, next: &mut CompiledGraph) {
+fn reuse_sampling_points(previous: &CompiledGraph, next: &mut CompiledGraph) {
     for candidate in &mut next.sampling_overlays {
         let Some(previous_candidate) = previous
             .sampling_overlays
@@ -1738,20 +1705,7 @@ fn reuse_sampling_activities(previous: &CompiledGraph, next: &mut CompiledGraph)
         else {
             continue;
         };
-        for (input, activity) in &mut candidate.runtime_activities {
-            if let Some((_, previous_activity)) = previous_candidate
-                .runtime_activities
-                .iter()
-                .find(|(previous_input, _)| previous_input == input)
-            {
-                *activity = previous_activity.clone();
-            }
-        }
-        candidate.overlay.activities = candidate
-            .runtime_activities
-            .iter()
-            .map(|(_, activity)| activity.clone())
-            .collect();
+        candidate.overlay.points = previous_candidate.overlay.points.clone();
     }
 }
 
@@ -2184,7 +2138,7 @@ fn start_live_inner(
     ctx.derived_data_retention = compiled.derived_data_retention;
     ctx.sampling_overlays
         .clone_from(&compiled.sampling_overlays);
-    ctx.sampling_activities = sampling_activity_map(&compiled);
+    ctx.sampling_points = sampling_point_map(&compiled);
     ctx.collected_output_subscriptions =
         collected_output_subscriptions(&compiled, registry, subscriptions);
     ctx.collected_table_subscriptions = collected_table_subscriptions(&compiled, registry);
@@ -2318,7 +2272,7 @@ impl LiveRun {
     ) -> Result<ApplySummary, ApplyError> {
         let mut new = lower_with_subscriptions(graph, registry, subscriptions)
             .map_err(ApplyError::Compile)?;
-        reuse_sampling_activities(&self.compiled, &mut new);
+        reuse_sampling_points(&self.compiled, &mut new);
         cache_platform::configure_directory(&mut new, self.persistent_cache_directory.as_deref());
         let edits = diff(&self.compiled, &new, registry).map_err(ApplyError::NeedsFullRestart)?;
         if edits.is_empty() {
@@ -2341,7 +2295,7 @@ impl LiveRun {
             derived_word_caches: Vec::new(),
             persistent_cache_directory: self.persistent_cache_directory.clone(),
             sampling_overlays: new.sampling_overlays.clone(),
-            sampling_activities: sampling_activity_map(&new),
+            sampling_points: sampling_point_map(&new),
             collected_output_subscriptions: collected_output_subscriptions(
                 &new,
                 registry,
@@ -2442,7 +2396,7 @@ impl LiveRun {
     ) -> Result<ApplySummary, ApplyError> {
         let mut new = lower_with_subscriptions(graph, registry, subscriptions)
             .map_err(ApplyError::Compile)?;
-        reuse_sampling_activities(&self.compiled, &mut new);
+        reuse_sampling_points(&self.compiled, &mut new);
         cache_platform::configure_directory(&mut new, self.persistent_cache_directory.as_deref());
         let edits = diff(&self.compiled, &new, registry).map_err(ApplyError::NeedsFullRestart)?;
         if edits.is_empty() {
@@ -2601,7 +2555,7 @@ mod tests {
         AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureAnalysisChannel,
         CaptureAnalysisSource, CaptureChannelId, CaptureDataDelivery, CaptureProviderCapabilities,
         CaptureSettingCombination, CaptureStoreCursor, ConfigValue, PreparedAcquisition, Sample,
-        SamplingEdge, TextSample, Trigger, TriggerEditorSchema, TriggerIdentifier,
+        SamplingPoint, TextSample, Trigger, TriggerEditorSchema, TriggerIdentifier,
         TriggerLogicOperator, TriggerPredicate, TriggerStage, Word,
     };
 
@@ -3505,9 +3459,9 @@ mod tests {
     }
 
     #[test]
-    fn unchanged_live_lowering_reuses_runtime_sampling_activity() {
-        let activity = SamplingActivity::default();
-        activity.record_interval(100, 200);
+    fn unchanged_live_lowering_reuses_runtime_sampling_points() {
+        let points = SamplingPointStore::default();
+        points.record(SamplingPoint::new(100, true, vec![false]));
         let old = CompiledGraph {
             sampling_overlays: vec![SamplingOverlayCandidate {
                 node_id: NodeId(7),
@@ -3515,16 +3469,12 @@ mod tests {
                 overlay: ResolvedSamplingOverlay {
                     clock_channel: 0,
                     sampled_channels: vec![1],
-                    edge: SamplingEdge::Rising,
-                    qualifiers: Vec::new(),
-                    activities: vec![activity.clone()],
+                    points,
                 },
-                runtime_activities: vec![(2, activity)],
             }],
             ..CompiledGraph::default()
         };
 
-        let replacement = SamplingActivity::default();
         let mut new = CompiledGraph {
             sampling_overlays: vec![SamplingOverlayCandidate {
                 node_id: NodeId(7),
@@ -3532,17 +3482,19 @@ mod tests {
                 overlay: ResolvedSamplingOverlay {
                     clock_channel: 0,
                     sampled_channels: vec![1],
-                    edge: SamplingEdge::Rising,
-                    qualifiers: Vec::new(),
-                    activities: vec![replacement.clone()],
+                    points: SamplingPointStore::default(),
                 },
-                runtime_activities: vec![(2, replacement)],
             }],
             ..CompiledGraph::default()
         };
-        reuse_sampling_activities(&old, &mut new);
-        let reused = &new.sampling_overlays[0].overlay.activities[0];
-        assert!(reused.is_active_at(150));
+        reuse_sampling_points(&old, &mut new);
+        assert_eq!(
+            new.sampling_overlays[0]
+                .overlay
+                .points
+                .points_in_range(0, u64::MAX),
+            [SamplingPoint::new(100, true, vec![false])]
+        );
     }
 
     /// A lone source node with no explicit sink, used to verify that source

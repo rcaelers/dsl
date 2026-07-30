@@ -5,15 +5,14 @@ use serde_json::Value;
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{
     DecoderTableColumnDescriptor, LanePresentationDescriptor, NodeBuildContext, PortKind,
-    ResolvedInputs, SamplingOverlayDescriptor, SamplingQualifierDescriptor, ViewerOutputControl,
-    parse_state,
+    ResolvedInputs, SamplingOverlayDescriptor, ViewerOutputControl, parse_state,
 };
 use logic_analyzer_processing::nodes::decoders::spi_decoder::{
     SPI_TRANSACTION_PROTOCOL_ID, SpiDecoder, SpiMode,
 };
 use logic_analyzer_processing::types::{BitOrder, CsPolarity};
 use node_graph::api::Socket;
-use signal_processing::{ProcessNode, ProtocolPacket, Sample, SamplingEdge, Word};
+use signal_processing::{ProcessNode, ProtocolPacket, Sample, Word};
 
 #[derive(Default)]
 pub(crate) struct SpiDecoderBuilder;
@@ -75,29 +74,10 @@ impl RuntimeBuilder for SpiDecoderBuilder {
     }
 
     fn sampling_overlay(&self, state: &Value) -> Option<SamplingOverlayDescriptor> {
-        let state = Self::parsed(state).ok()?;
-        let edge = if state.cpol.selected() == state.cpha.selected() {
-            SamplingEdge::Rising
-        } else {
-            SamplingEdge::Falling
-        };
+        Self::parsed(state).ok()?;
         Some(SamplingOverlayDescriptor {
             clock_input: 0,
             sampled_input_groups: vec![1, 2],
-            edge,
-            qualifiers: match Self::cs_polarity(&state) {
-                CsPolarity::ActiveLow => vec![SamplingQualifierDescriptor {
-                    input: 3,
-                    active_level: false,
-                    runtime_fallback: true,
-                }],
-                CsPolarity::ActiveHigh => vec![SamplingQualifierDescriptor {
-                    input: 3,
-                    active_level: true,
-                    runtime_fallback: true,
-                }],
-                CsPolarity::Disabled => Vec::new(),
-            },
         })
     }
 
@@ -184,8 +164,8 @@ impl RuntimeBuilder for SpiDecoderBuilder {
         )
         .with_bit_order(bit_order)
         .with_name(name);
-        if let Some(activity) = ctx.sampling_activity(name, 3) {
-            decoder = decoder.with_cs_activity(activity);
+        if let Some(points) = ctx.sampling_points(name) {
+            decoder = decoder.with_sampling_points(points);
         }
         Ok(Box::new(decoder))
     }
@@ -199,21 +179,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sampling_overlay_uses_spi_sampling_edge() {
+    fn sampling_overlay_identifies_clock_and_data_inputs_for_all_spi_modes() {
         let builder = SpiDecoderBuilder;
         let mut state = SpiDecoder::state();
-        for (cpol, cpha, expected) in [
-            ("0", "0", SamplingEdge::Rising),
-            ("0", "1", SamplingEdge::Falling),
-            ("1", "0", SamplingEdge::Falling),
-            ("1", "1", SamplingEdge::Rising),
-        ] {
+        for (cpol, cpha) in [("0", "0"), ("0", "1"), ("1", "0"), ("1", "1")] {
             state.cpol.select(cpol);
             state.cpha.select(cpha);
             let descriptor = builder
                 .sampling_overlay(&serde_json::to_value(&state).unwrap())
                 .unwrap();
-            assert_eq!(descriptor.edge, expected);
+            assert_eq!(descriptor.clock_input, 0);
+            assert_eq!(descriptor.sampled_input_groups, [1, 2]);
         }
     }
 

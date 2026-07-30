@@ -36,7 +36,7 @@ pub use lanes::{
     ViewerLaneTrackId, WaveformPresentationRegistry,
 };
 pub use renderer_registration::{ViewerLaneRendererRegistration, viewer_lane_renderer};
-pub use sampling_overlay::{SamplingEdge, SamplingOverlay, SamplingQualifier};
+pub use sampling_overlay::SamplingOverlay;
 pub use simple_trigger::{SimpleTriggerEdit, SimpleTriggerLane};
 pub use timeline_marker::{TimelineMarker, TimelineMarkerEdit};
 pub use types::{ColorProfile, TimeCursor, ViewerRowHeight, ViewerRowHeightSettings, ViewerRowId};

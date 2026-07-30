@@ -5,14 +5,14 @@ use serde_json::Value;
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{
     DecoderTableColumnDescriptor, NodeBuildContext, PortKind, ResolvedInputs,
-    SamplingOverlayDescriptor, SamplingQualifierDescriptor, parse_state,
+    SamplingOverlayDescriptor, parse_state,
 };
 use logic_analyzer_processing::nodes::decoders::parallel_decoder::{
     ParallelDecoder as ProcessingParallelDecoder, ParallelInputStrategy, StrobeMode,
 };
 use logic_analyzer_processing::types::{CsPolarity, Endianness};
 use node_graph::api::Socket;
-use signal_processing::{ProcessNode, Sample, SampleBlock, SamplingEdge, Word};
+use signal_processing::{ProcessNode, Sample, SampleBlock, Word};
 
 #[derive(Default)]
 pub(crate) struct ParallelDecoderBuilder;
@@ -61,38 +61,13 @@ impl RuntimeBuilder for ParallelDecoderBuilder {
 
     fn sampling_overlay(&self, state: &Value) -> Option<SamplingOverlayDescriptor> {
         let state = Self::parsed(state).ok()?;
-        let edge = match state.sample_on.selected() {
-            "Rising (SDR)" => SamplingEdge::Rising,
-            "Falling (SDR)" => SamplingEdge::Falling,
-            "Both (DDR)" => SamplingEdge::Both,
+        match state.sample_on.selected() {
+            "Rising (SDR)" | "Falling (SDR)" | "Both (DDR)" => {}
             _ => return None,
-        };
+        }
         Some(SamplingOverlayDescriptor {
             clock_input: 0,
             sampled_input_groups: vec![1],
-            edge,
-            qualifiers: {
-                let mut qualifiers = Vec::new();
-                match Self::cs_polarity(&state) {
-                    CsPolarity::ActiveLow => qualifiers.push(SamplingQualifierDescriptor {
-                        input: 2,
-                        active_level: false,
-                        runtime_fallback: false,
-                    }),
-                    CsPolarity::ActiveHigh => qualifiers.push(SamplingQualifierDescriptor {
-                        input: 2,
-                        active_level: true,
-                        runtime_fallback: false,
-                    }),
-                    CsPolarity::Disabled => {}
-                }
-                qualifiers.push(SamplingQualifierDescriptor {
-                    input: 3,
-                    active_level: true,
-                    runtime_fallback: true,
-                });
-                qualifiers
-            },
         })
     }
 
@@ -177,8 +152,8 @@ impl RuntimeBuilder for ParallelDecoderBuilder {
                     _ => ParallelInputStrategy::Auto,
                 })
                 .with_word_assembly(cycles, endianness);
-        if let Some(activity) = ctx.sampling_activity(name, 3) {
-            decoder = decoder.with_enable_activity(activity);
+        if let Some(points) = ctx.sampling_points(name) {
+            decoder = decoder.with_sampling_points(points);
         }
         Ok(Box::new(decoder))
     }
@@ -192,19 +167,19 @@ mod builder_tests {
     use super::*;
 
     #[test]
-    fn sampling_overlay_follows_edge_mode_and_ignores_level_modes() {
+    fn sampling_overlay_is_available_only_for_edge_modes() {
         let builder = ParallelDecoderBuilder;
         let mut state = ParallelDecoder::state();
         for (mode, expected) in [
-            ("Rising (SDR)", Some(SamplingEdge::Rising)),
-            ("Falling (SDR)", Some(SamplingEdge::Falling)),
-            ("Both (DDR)", Some(SamplingEdge::Both)),
-            ("High level", None),
-            ("Low level", None),
+            ("Rising (SDR)", true),
+            ("Falling (SDR)", true),
+            ("Both (DDR)", true),
+            ("High level", false),
+            ("Low level", false),
         ] {
             state.sample_on.select(mode);
             let descriptor = builder.sampling_overlay(&serde_json::to_value(&state).unwrap());
-            assert_eq!(descriptor.map(|descriptor| descriptor.edge), expected);
+            assert_eq!(descriptor.is_some(), expected);
         }
     }
 

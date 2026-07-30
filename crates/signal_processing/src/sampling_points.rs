@@ -1,0 +1,175 @@
+use std::sync::{Arc, RwLock};
+
+/// One sampling decision produced by a clocked processing node.
+///
+/// Values follow the order of the node's declared sampled inputs. The
+/// record deliberately carries no protocol or viewer knowledge.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SamplingPoint {
+    pub time_ns: u64,
+    pub clock_high: bool,
+    pub values: Vec<bool>,
+}
+
+impl SamplingPoint {
+    pub fn new(time_ns: u64, clock_high: bool, values: impl Into<Vec<bool>>) -> Self {
+        Self {
+            time_ns,
+            clock_high,
+            values: values.into(),
+        }
+    }
+}
+
+/// Run-owned, thread-safe cache of sampling decisions produced by a node.
+///
+/// Writers append chronological batches while viewers take inexpensive
+/// snapshots of only the visible time range. Recording an earlier time
+/// replaces stale data from that point onward, which also supports a live
+/// node restarting against the same retained presentation handle.
+#[derive(Clone, Debug, Default)]
+pub struct SamplingPointStore {
+    points: Arc<RwLock<Vec<SamplingPoint>>>,
+}
+
+impl SamplingPointStore {
+    pub fn record(&self, point: SamplingPoint) {
+        self.record_batch([point]);
+    }
+
+    pub fn record_batch(&self, points: impl IntoIterator<Item = SamplingPoint>) {
+        let mut points = points.into_iter().peekable();
+        let Some(first) = points.peek() else {
+            return;
+        };
+
+        let mut stored = self.points.write().unwrap();
+        let keep = stored.partition_point(|point| point.time_ns < first.time_ns);
+        if keep < stored.len() {
+            stored.truncate(keep);
+        }
+
+        for point in points {
+            if stored
+                .last()
+                .is_some_and(|previous| previous.time_ns > point.time_ns)
+            {
+                let keep = stored.partition_point(|stored| stored.time_ns < point.time_ns);
+                stored.truncate(keep);
+            }
+            if stored
+                .last()
+                .is_some_and(|previous| previous.time_ns == point.time_ns)
+            {
+                stored.pop();
+            }
+            stored.push(point);
+        }
+    }
+
+    pub fn points_in_range(&self, start_ns: u64, end_ns: u64) -> Vec<SamplingPoint> {
+        self.points_in_range_with_minimum_spacing(start_ns, end_ns, 0)
+            .unwrap_or_default()
+    }
+
+    /// Returns the complete range only when every adjacent point meets the
+    /// requested spacing. This lets presentation consumers enforce an
+    /// all-or-nothing density policy without first cloning a dense range.
+    pub fn points_in_range_with_minimum_spacing(
+        &self,
+        start_ns: u64,
+        end_ns: u64,
+        minimum_spacing_ns: u64,
+    ) -> Option<Vec<SamplingPoint>> {
+        if start_ns > end_ns {
+            return Some(Vec::new());
+        }
+        let stored = self.points.read().unwrap();
+        let start = stored.partition_point(|point| point.time_ns < start_ns);
+        let end = stored.partition_point(|point| point.time_ns <= end_ns);
+        let visible = &stored[start..end];
+        if visible
+            .windows(2)
+            .any(|pair| pair[1].time_ns.saturating_sub(pair[0].time_ns) < minimum_spacing_ns)
+        {
+            return None;
+        }
+        Some(visible.to_vec())
+    }
+
+    pub fn clear(&self) {
+        self.points.write().unwrap().clear();
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.points.read().unwrap().is_empty()
+    }
+}
+
+#[cfg(test)]
+mod sampling_point_store_tests {
+    use super::*;
+
+    #[test]
+    fn visible_range_is_inclusive_and_ordered() {
+        let store = SamplingPointStore::default();
+        store.record_batch([
+            SamplingPoint::new(10, true, vec![false]),
+            SamplingPoint::new(20, false, vec![true]),
+            SamplingPoint::new(30, true, vec![false]),
+        ]);
+
+        assert_eq!(
+            store.points_in_range(20, 30),
+            vec![
+                SamplingPoint::new(20, false, vec![true]),
+                SamplingPoint::new(30, true, vec![false]),
+            ]
+        );
+    }
+
+    #[test]
+    fn recording_from_an_earlier_time_replaces_stale_points() {
+        let store = SamplingPointStore::default();
+        store.record_batch([
+            SamplingPoint::new(10, true, vec![false]),
+            SamplingPoint::new(30, true, vec![false]),
+        ]);
+        store.record_batch([
+            SamplingPoint::new(20, false, vec![true]),
+            SamplingPoint::new(40, false, vec![true]),
+        ]);
+
+        assert_eq!(
+            store.points_in_range(0, u64::MAX),
+            vec![
+                SamplingPoint::new(10, true, vec![false]),
+                SamplingPoint::new(20, false, vec![true]),
+                SamplingPoint::new(40, false, vec![true]),
+            ]
+        );
+    }
+
+    #[test]
+    fn minimum_spacing_rejects_the_complete_dense_range() {
+        let store = SamplingPointStore::default();
+        store.record_batch([
+            SamplingPoint::new(10, true, vec![false]),
+            SamplingPoint::new(14, false, vec![true]),
+            SamplingPoint::new(30, true, vec![false]),
+        ]);
+
+        assert!(
+            store
+                .points_in_range_with_minimum_spacing(0, 40, 5)
+                .is_none()
+        );
+        assert_eq!(
+            store
+                .points_in_range_with_minimum_spacing(0, 40, 4)
+                .unwrap()
+                .len(),
+            3
+        );
+    }
+}

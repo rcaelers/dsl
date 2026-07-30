@@ -12,11 +12,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use tracing::debug;
 
-use signal_processing::SamplingActivity;
 use signal_processing::capture::CaptureTransition;
 use signal_processing::EdgeQuery;
 use signal_processing::{WorkError, WorkOutcome, WorkResult};
-use signal_processing::Word;
+use signal_processing::{SamplingPoint, SamplingPointStore, Word};
 use signal_processing::{InputProtocolCandidate, ProcessNode};
 use signal_processing::{InputPort, OutputPort};
 use signal_processing::ProtocolKind;
@@ -125,7 +124,7 @@ pub struct ParallelDecoder {
     /// A value of one selects the sequential path.
     parallel_workers: usize,
     parallel_metrics: ParallelDecoderMetrics,
-    enable_activity: Option<SamplingActivity>,
+    sampling_points: Option<SamplingPointStore>,
 }
 
 impl ParallelDecoder {
@@ -178,7 +177,7 @@ impl ParallelDecoder {
             next_stream_merge_sequence: 0,
             parallel_workers: Self::DEFAULT_PARALLEL_WORKERS,
             parallel_metrics: ParallelDecoderMetrics::default(),
-            enable_activity: None,
+            sampling_points: None,
         }
     }
 
@@ -193,8 +192,8 @@ impl ParallelDecoder {
         self
     }
 
-    pub fn with_enable_activity(mut self, activity: SamplingActivity) -> Self {
-        self.enable_activity = Some(activity);
+    pub fn with_sampling_points(mut self, points: SamplingPointStore) -> Self {
+        self.sampling_points = Some(points);
         self
     }
 
@@ -455,8 +454,10 @@ struct AssemblyState {
 struct QueryBuffers {
     edges: Vec<CaptureTransition>,
     positions: Vec<u64>,
+    clock_values: Vec<bool>,
     gate_reset_before: Vec<bool>,
     eligible_positions: Vec<u64>,
+    eligible_clock_values: Vec<bool>,
     reset_before: Vec<bool>,
     cs_values: Vec<bool>,
     data_values: Vec<Vec<bool>>,
@@ -476,6 +477,7 @@ struct StreamBlockState {
 #[derive(Debug, Default)]
 struct DecodeFragmentBuffers {
     positions: Vec<u64>,
+    clock_values: Vec<bool>,
     values: Vec<u64>,
     reset_before: Vec<bool>,
 }
@@ -670,27 +672,6 @@ fn enabled_ranges_for_window(
     Ok(ranges)
 }
 
-fn record_enabled_ranges(
-    activity: Option<&SamplingActivity>,
-    block_start_position: u64,
-    timestamp_step: u64,
-    ranges: &[EnabledRange],
-) {
-    let Some(activity) = activity else {
-        return;
-    };
-    activity.record_intervals(ranges.iter().map(|range| {
-        (
-            block_start_position
-                .saturating_add(range.start as u64)
-                .saturating_mul(timestamp_step),
-            block_start_position
-                .saturating_add(range.end as u64)
-                .saturating_mul(timestamp_step),
-        )
-    }));
-}
-
 #[allow(clippy::too_many_arguments)]
 fn scan_stream_fragment(
     config: StreamScanConfig,
@@ -704,6 +685,7 @@ fn scan_stream_fragment(
     mut buffers: DecodeFragmentBuffers,
 ) -> DecodeFragment {
     buffers.positions.clear();
+    buffers.clock_values.clear();
     buffers.values.clear();
     buffers.reset_before.clear();
     let boundary = enabled_ranges
@@ -769,6 +751,7 @@ fn scan_stream_fragment(
                 }
 
                 buffers.positions.push(position);
+                buffers.clock_values.push(packed_bit(&strobe.data, local_index));
                 buffers.values.push(packed_bus_value(data, local_index));
                 buffers.reset_before.push(reset_before_next);
                 reset_before_next = false;
@@ -799,17 +782,30 @@ fn merge_stream_fragment(
     endianness: Endianness,
     assembly: &mut AssemblyState,
     word_batch: &mut Option<Vec<Word>>,
+    sampling_points: Option<&mut Vec<SamplingPoint>>,
 ) -> WorkResult<u64> {
     let mut words_emitted = 0u64;
     let buffers = &fragment.buffers;
     debug_assert_eq!(buffers.positions.len(), buffers.values.len());
+    debug_assert_eq!(buffers.positions.len(), buffers.clock_values.len());
     debug_assert_eq!(buffers.positions.len(), buffers.reset_before.len());
-    let mut merge_sample = |position: u64, value: u64, reset_before: bool| -> WorkResult<()> {
+    let mut sampling_points = sampling_points;
+    let mut merge_sample =
+        |position: u64, clock_high: bool, value: u64, reset_before: bool| -> WorkResult<()> {
         if reset_before {
             assembly.cycles = 0;
             assembly.value = 0;
         }
         let timestamp_ns = position.saturating_mul(fragment.timestamp_step);
+        if let Some(points) = &mut sampling_points {
+            points.push(SamplingPoint::new(
+                timestamp_ns,
+                clock_high,
+                (0..num_data_bits)
+                    .map(|bit| value & (1 << bit) != 0)
+                    .collect::<Vec<_>>(),
+            ));
+        }
 
         if assembly.cycles == 0 {
             assembly.first_ts = timestamp_ns;
@@ -856,6 +852,7 @@ fn merge_stream_fragment(
             if boundary.cs_eligible {
                 merge_sample(
                     boundary.position,
+                    boundary.strobe_value,
                     boundary.data_value,
                     boundary.reset_before,
                 )?;
@@ -865,10 +862,16 @@ fn merge_stream_fragment(
             }
         }
     }
-    for (index, (&position, &value)) in buffers.positions.iter().zip(&buffers.values).enumerate() {
+    for (index, ((&position, &clock_high), &value)) in buffers
+        .positions
+        .iter()
+        .zip(&buffers.clock_values)
+        .zip(&buffers.values)
+        .enumerate()
+    {
         let reset_before = boundary_reset || buffers.reset_before[index];
         boundary_reset = false;
-        merge_sample(position, value, reset_before)?;
+        merge_sample(position, clock_high, value, reset_before)?;
     }
     if boundary_reset || fragment.reset_after {
         assembly.cycles = 0;
@@ -1011,6 +1014,7 @@ impl ParallelDecoder {
 
         buffers.edges.clear();
         buffers.positions.clear();
+        buffers.clock_values.clear();
         buffers.gate_reset_before.clear();
         let scan_start = self.query_strobe_position;
         if scan_start >= total_samples {
@@ -1029,12 +1033,6 @@ impl ParallelDecoder {
             scan_len,
             timestamp_step,
         )?;
-        record_enabled_ranges(
-            self.enable_activity.as_ref(),
-            scan_start,
-            timestamp_step,
-            &enabled_ranges,
-        );
 
         let mut next_scan_position = scan_end;
         let mut scan_complete = true;
@@ -1058,6 +1056,7 @@ impl ParallelDecoder {
                 };
                 if triggered0 {
                     buffers.positions.push(0);
+                    buffers.clock_values.push(value);
                     buffers.gate_reset_before.push(reset_before_next);
                     reset_before_next = false;
                 }
@@ -1086,6 +1085,7 @@ impl ParallelDecoder {
                     StrobeMode::HighLevel | StrobeMode::LowLevel => false,
                 }) {
                     buffers.positions.push(edge.sample);
+                    buffers.clock_values.push(edge.value);
                     buffers.gate_reset_before.push(reset_before_next);
                     reset_before_next = false;
                 }
@@ -1119,6 +1119,7 @@ impl ParallelDecoder {
         // Enable gating was applied before the clock query. Apply CS after
         // that, still before touching data channels.
         buffers.eligible_positions.clear();
+        buffers.eligible_clock_values.clear();
         buffers.reset_before.clear();
         let mut reset_before_next = false;
         for (trigger_index, &position) in buffers.positions.iter().enumerate() {
@@ -1134,6 +1135,9 @@ impl ParallelDecoder {
 
             buffers.eligible_positions.push(position);
             buffers
+                .eligible_clock_values
+                .push(buffers.clock_values[trigger_index]);
+            buffers
                 .reset_before
                 .push(buffers.gate_reset_before[trigger_index] || reset_before_next);
             reset_before_next = false;
@@ -1144,6 +1148,22 @@ impl ParallelDecoder {
             query
                 .values_at(&buffers.eligible_positions, values)
                 .map_err(query_err)?;
+        }
+
+        if let Some(store) = &self.sampling_points {
+            store.record_batch(buffers.eligible_positions.iter().enumerate().map(
+                |(trigger_index, &position)| {
+                    SamplingPoint::new(
+                        position.saturating_mul(timestamp_step),
+                        buffers.eligible_clock_values[trigger_index],
+                        buffers
+                            .data_values
+                            .iter()
+                            .map(|values| values[trigger_index])
+                            .collect::<Vec<_>>(),
+                    )
+                },
+            ));
         }
 
         let mut words_emitted = 0u64;
@@ -1326,12 +1346,6 @@ impl ParallelDecoder {
             window_end,
             strobe_block.timestamp_step,
         )?;
-        record_enabled_ranges(
-            self.enable_activity.as_ref(),
-            strobe_block.start_position,
-            strobe_block.timestamp_step,
-            &enabled_ranges,
-        );
         let mut fragment = scan_stream_fragment(
             StreamScanConfig {
                 mode: self.mode,
@@ -1362,6 +1376,7 @@ impl ParallelDecoder {
             first_ts: self.assembly_first_ts,
         };
         let mut last_strobe_value = self.last_strobe_value;
+        let mut sampling_point_batch = self.sampling_points.as_ref().map(|_| Vec::new());
         let words_emitted = merge_stream_fragment(
             &fragment,
             self.mode,
@@ -1371,7 +1386,11 @@ impl ParallelDecoder {
             self.endianness,
             &mut assembly,
             &mut word_batch,
+            sampling_point_batch.as_mut(),
         )?;
+        if let (Some(store), Some(points)) = (&self.sampling_points, sampling_point_batch) {
+            store.record_batch(points);
+        }
         blocks.next_sequence += 1;
         self.next_stream_merge_sequence += 1;
 
@@ -1747,6 +1766,7 @@ mod tests {
                 Endianness::Little,
                 &mut assembly,
                 &mut words,
+                None,
             )
             .unwrap();
         }
@@ -2233,34 +2253,6 @@ mod tests {
                 reset_before: true,
             }]
         );
-    }
-
-    #[test]
-    fn enabled_ranges_publish_only_active_intervals() {
-        let activity = SamplingActivity::default();
-        record_enabled_ranges(
-            Some(&activity),
-            100,
-            10,
-            &[
-                EnabledRange {
-                    start: 4,
-                    end: 8,
-                    reset_before: true,
-                },
-                EnabledRange {
-                    start: 12,
-                    end: 16,
-                    reset_before: true,
-                },
-            ],
-        );
-
-        assert!(!activity.is_active_at(1_039));
-        assert!(activity.is_active_at(1_040));
-        assert!(!activity.is_active_at(1_080));
-        assert!(activity.is_active_at(1_120));
-        assert!(!activity.is_active_at(1_160));
     }
 
     #[test]

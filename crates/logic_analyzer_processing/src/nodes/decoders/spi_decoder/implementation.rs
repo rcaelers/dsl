@@ -25,7 +25,7 @@ use tracing::{debug, trace};
 use signal_processing::capture::CaptureTransition;
 use signal_processing::{
     EdgeQuery, InputPort, OutputPort, ProcessNode, ProtocolKind, ProtocolPacket, ProtocolValue,
-    Receiver, Sample, SamplingActivity, Word, WorkError, WorkOutcome, WorkResult,
+    Receiver, Sample, SamplingPoint, SamplingPointStore, Word, WorkError, WorkOutcome, WorkResult,
 };
 
 use crate::types::{BitOrder, CsPolarity};
@@ -92,7 +92,7 @@ pub struct SpiDecoder {
     query_transaction_mosi_words: Vec<u64>,
     query_transaction_miso_words: Vec<u64>,
     query_window_deasserted: bool,
-    cs_activity: Option<SamplingActivity>,
+    sampling_points: Option<SamplingPointStore>,
 }
 
 struct SpiWordAnnotations {
@@ -265,7 +265,7 @@ impl SpiDecoder {
             query_transaction_mosi_words: Vec::new(),
             query_transaction_miso_words: Vec::new(),
             query_window_deasserted: false,
-            cs_activity: None,
+            sampling_points: None,
         }
     }
 
@@ -281,8 +281,8 @@ impl SpiDecoder {
         self
     }
 
-    pub fn with_cs_activity(mut self, activity: SamplingActivity) -> Self {
-        self.cs_activity = Some(activity);
+    pub fn with_sampling_points(mut self, points: SamplingPointStore) -> Self {
+        self.sampling_points = Some(points);
         self
     }
 
@@ -608,12 +608,6 @@ impl SpiDecoder {
                 self.query_transaction_mosi_words.clear();
                 self.query_transaction_miso_words.clear();
                 self.query_window_deasserted = cs_deasserted;
-                if let Some(activity) = &self.cs_activity {
-                    activity.record_interval(
-                        position_to_ns(cs_active_start),
-                        position_to_ns(inactive_time),
-                    );
-                }
                 debug!(
                     "CS window: {:.9}s — {:.9}s ({:.3}µs)",
                     position_to_ns(cs_active_start) as f64 / 1_000_000_000.0,
@@ -663,6 +657,10 @@ impl SpiDecoder {
                 miso_values.clear();
             }
 
+            let mut sampling_point_batch = self
+                .sampling_points
+                .as_ref()
+                .map(|_| Vec::with_capacity(sample_positions.len()));
             for (index, &sample_position) in sample_positions.iter().enumerate() {
                 let clock_edge = sample_position.saturating_add(1);
                 if self.query_first_clock_edge.is_none() {
@@ -682,6 +680,21 @@ impl SpiDecoder {
                 }
                 if miso_query.is_some() && need_miso_annotations {
                     self.query_miso_bits.push(miso_values[index]);
+                }
+                if let Some(points) = &mut sampling_point_batch {
+                    let mut values =
+                        Vec::with_capacity(usize::from(self.has_mosi) + usize::from(self.has_miso));
+                    if self.has_mosi {
+                        values.push(mosi_values[index]);
+                    }
+                    if self.has_miso {
+                        values.push(miso_values[index]);
+                    }
+                    points.push(SamplingPoint::new(
+                        position_to_ns(clock_edge),
+                        sampling_value,
+                        values,
+                    ));
                 }
                 trace!(
                     "bit {}: CLK edge at {:.9}s, MOSI={}",
@@ -743,6 +756,9 @@ impl SpiDecoder {
                 self.query_bit_timestamps.clear();
                 self.query_mosi_bits.clear();
                 self.query_miso_bits.clear();
+            }
+            if let (Some(store), Some(points)) = (&self.sampling_points, sampling_point_batch) {
+                store.record_batch(points);
             }
 
             if window_exhausted {
@@ -944,10 +960,6 @@ impl SpiDecoder {
                 Err(error) => return Err(error),
             }
         };
-        if let Some(activity) = &self.cs_activity {
-            activity.record_interval(cs_active_start, cs_inactive_time);
-        }
-
         debug!(
             "CS window: {:.9}s — {:.9}s ({:.3}µs)",
             cs_active_start as f64 / 1_000_000_000.0,
@@ -974,6 +986,7 @@ impl SpiDecoder {
         let mut miso_data_batch = Vec::new();
         let mut transaction_mosi_words = Vec::new();
         let mut transaction_miso_words = Vec::new();
+        let mut sampling_point_batch = self.sampling_points.as_ref().map(|_| Vec::new());
         let mut incomplete_bits = 0usize;
 
         'word_loop: loop {
@@ -1035,6 +1048,8 @@ impl SpiDecoder {
 
                 // Sample data lines at CLK edge time
                 let sample_time = edge.start_time_ns.saturating_sub(1);
+                let mut sampled_values =
+                    Vec::with_capacity(usize::from(has_mosi) + usize::from(has_miso));
                 if has_mosi {
                     match Self::value_at_time(mosi.as_mut().unwrap(), sample_time)? {
                         Some(mosi_val) => {
@@ -1050,6 +1065,7 @@ impl SpiDecoder {
                             if need_mosi_annotations {
                                 mosi_bits.push(mosi_val);
                             }
+                            sampled_values.push(mosi_val);
                         }
                         None => {
                             // MOSI channel exhausted - signal shutdown
@@ -1068,6 +1084,7 @@ impl SpiDecoder {
                             if need_miso_annotations {
                                 miso_bits.push(miso_val);
                             }
+                            sampled_values.push(miso_val);
                         }
                         None => {
                             // MISO channel exhausted - signal shutdown
@@ -1079,6 +1096,13 @@ impl SpiDecoder {
 
                 if need_bit_timestamps {
                     bit_timestamps.push(edge.start_time_ns);
+                }
+                if let Some(points) = &mut sampling_point_batch {
+                    points.push(SamplingPoint::new(
+                        edge.start_time_ns,
+                        edge.value,
+                        sampled_values,
+                    ));
                 }
                 bits_collected += 1;
                 if bits_collected >= bits_per_word {
@@ -1126,6 +1150,10 @@ impl SpiDecoder {
                     miso_data_batch.push(annotations.data);
                 }
             }
+        }
+
+        if let (Some(store), Some(points)) = (&self.sampling_points, sampling_point_batch) {
+            store.record_batch(points);
         }
 
         if let Some(output) = mosi_output {
@@ -1403,9 +1431,9 @@ mod tests {
                 "mosi_data",
             ),
         ];
-        let activity = SamplingActivity::default();
-        let mut decoder =
-            SpiDecoder::new(SpiMode::Mode0, 4, true, false).with_cs_activity(activity.clone());
+        let sampling_points = SamplingPointStore::default();
+        let mut decoder = SpiDecoder::new(SpiMode::Mode0, 4, true, false)
+            .with_sampling_points(sampling_points.clone());
 
         assert!(matches!(
             decoder.work(&inputs, &outputs),
@@ -1442,10 +1470,12 @@ mod tests {
         assert_eq!(clk_calls.next_edge.load(Ordering::Relaxed), 0);
         assert!(mosi_calls.values_at.load(Ordering::Relaxed) > 0);
         assert_eq!(mosi_calls.value_at.load(Ordering::Relaxed), 0);
-        assert!(!activity.is_active_at(9));
-        assert!(activity.is_active_at(10));
-        assert!(activity.is_active_at(89));
-        assert!(!activity.is_active_at(90));
+        let sampling_points = sampling_points.points_in_range(0, u64::MAX);
+        assert_eq!(sampling_points.len(), 40);
+        assert_eq!(sampling_points.first().unwrap().time_ns, 11);
+        assert_eq!(sampling_points.last().unwrap().time_ns, 89);
+        assert!(sampling_points.iter().all(|point| point.clock_high));
+        assert!(sampling_points.iter().all(|point| point.values == [true]));
     }
 
     /// MOSI and MISO are independent `Word` streams on independent output

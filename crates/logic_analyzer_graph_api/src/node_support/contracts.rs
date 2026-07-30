@@ -5,7 +5,7 @@ use std::sync::Arc;
 use node_graph::api::NodeId;
 use signal_processing::{
     CaptureChannelId, CaptureIndexFactory, DerivedDataRetention, DerivedLanes,
-    PersistentStoreConfig, SamplingActivity, SamplingEdge, SimpleTriggerCondition, TimelineMarker,
+    PersistentStoreConfig, SamplingPointStore, SimpleTriggerCondition, TimelineMarker,
     TriggerEditorSchema, TriggerProgram,
 };
 
@@ -58,7 +58,7 @@ pub trait NodeBuildContext {
     fn derived_lanes(&self) -> &DerivedLanes;
     fn derived_data_retention(&self) -> DerivedDataRetention;
     fn derived_word_cache(&self, member: usize) -> Option<&PersistentStoreConfig>;
-    fn sampling_activity(&self, runtime_name: &str, input: usize) -> Option<SamplingActivity>;
+    fn sampling_points(&self, runtime_name: &str) -> Option<SamplingPointStore>;
     fn timeline_marker(&self, _reference: TimelineMarkerReference) -> Option<TimelineMarker> {
         None
     }
@@ -130,15 +130,6 @@ impl SourceDataLifecycle {
 pub struct SamplingOverlayDescriptor {
     pub clock_input: usize,
     pub sampled_input_groups: Vec<usize>,
-    pub edge: SamplingEdge,
-    pub qualifiers: Vec<SamplingQualifierDescriptor>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SamplingQualifierDescriptor {
-    pub input: usize,
-    pub active_level: bool,
-    pub runtime_fallback: bool,
 }
 
 #[derive(Debug, Clone)]

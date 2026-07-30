@@ -13,7 +13,7 @@ use signal_processing::{
     Annotation, CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId,
     CollectedLaneSnapshotRequest, DerivedLanes, DigitalLaneSnapshot, NativeCaptureStore,
     NativeCaptureStoreConfig, NumberLaneSnapshot, ProtocolPacketLaneSnapshot, ProtocolValue,
-    Sample, SampleBlock, SamplingEdge, TextLaneSnapshot, Trigger, TriggerLaneSnapshot, Word,
+    Sample, SampleBlock, TextLaneSnapshot, Trigger, TriggerLaneSnapshot, Word,
 };
 
 use integration_tests_support as nodes;
@@ -614,14 +614,13 @@ fn built_in_startup_graph_lowers_with_explicit_subscriptions() {
         .iter()
         .find(|candidate| candidate.node_title() == "SPI Decoder")
         .expect("SPI decoder should expose a sampling overlay");
-    assert_eq!(spi_sampling.overlay().edge, SamplingEdge::Rising);
     assert!(!spi_sampling.overlay().sampled_channels.is_empty());
     let parallel_sampling = compiled
         .sampling_overlays
         .iter()
         .find(|candidate| candidate.node_title() == "Parallel Decoder")
         .expect("parallel decoder should expose a sampling overlay");
-    assert_eq!(parallel_sampling.overlay().edge, SamplingEdge::Both);
+    assert!(!parallel_sampling.overlay().sampled_channels.is_empty());
 
     let lanes = compiled
         .nodes
@@ -695,13 +694,20 @@ fn built_in_binary_demo_executes_and_publishes_sampling_and_latch_data() {
         assert!(compiled.nodes.iter().any(|node| node.builder == builder));
     }
 
-    let enable = sampling
+    let parallel_sampling = sampling
         .iter()
         .find(|candidate| candidate.node_title() == "Parallel Decoder")
-        .and_then(|candidate| candidate.overlay().activities.first())
-        .expect("parallel decoder should publish its derived enable activity");
-    assert!(enable.is_active_at(800_000_000));
-    assert!(!enable.is_active_at(1_200_000_000));
+        .expect("parallel decoder should publish sampling points");
+    let points = parallel_sampling
+        .overlay()
+        .points
+        .points_in_range(0, u64::MAX);
+    assert!(!points.is_empty());
+    assert!(
+        points.iter().all(|point| {
+            point.values.len() == parallel_sampling.overlay().sampled_channels.len()
+        })
+    );
 
     let q = lanes
         .opaque_lanes()

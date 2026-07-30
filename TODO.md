@@ -56,14 +56,6 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ## Refactorings
 
-### Logic-analyzer viewer
-
-- [viewer.passive-sampling-overlays] Make sampling-point overlays passive viewer data. Move clock-edge selection, qualifier
-  evaluation, and sampled-value lookup out of `logic_analyzer_viewer` into the owning concrete
-  runtime node or neutral processing infrastructure. Pass explicit, generic sampling-point
-  records and presentation metadata to the viewer so an overlay reflects produced data rather
-  than the viewer interpreting raw channels before the node has run.
-
 ### Capture platform boundaries
 
 - [capture.platform.node-parity] Make `logic_analyzer_graph_nodes` compile the same concrete node definitions and runtime builders on

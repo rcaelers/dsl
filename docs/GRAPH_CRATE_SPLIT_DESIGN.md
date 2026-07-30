@@ -63,7 +63,7 @@ directory-backed namespaces and no application-host operations.
 - capture identity and presentation descriptions;
 - default lane, compound-lane, and decoder-table presentation descriptions expressed through
   stable renderer keys and UI-independent badge colors;
-- sampling overlay and qualifier descriptions;
+- sampling-overlay input descriptions;
 - trigger configuration, simple-trigger channels, and live-capture edits.
 
 The two namespaces are not convenience aliases. An implementer imports traits from `node` and
@@ -75,7 +75,9 @@ root.
 `NodeBuildContext` is the narrow service contract passed to `RuntimeBuilder`. It replaces
 `CompileCtx` in every plugin-visible signature. It exposes only operations required while a
 concrete node is materialized, including derived-lane access, retention and persistent-cache
-configuration, and runtime sampling activity lookup.
+configuration, and run-owned sampling-point storage lookup. Concrete clocked nodes write their
+accepted sampling instants and sampled values to that neutral store only after applying their own
+edge and qualifier semantics.
 
 The compiler owns the concrete context state and implements `NodeBuildContext`. Host-only result
 operations, such as taking resolved sampling candidates and collected subscriber metadata, remain
@@ -105,6 +107,11 @@ substitute local deterministic implementations. The UI constructs the editor's `
 directly from the validated `GraphNodeRegistration` inventory. The compiler consumes the same
 validated inventory only to construct runtime builders and does not expose an editor-registry
 operation.
+
+Resolved sampling overlays contain only raw-row identities and a shared cache of sampling-point
+records produced by the concrete runtime node. The UI adapts that metadata to the generic viewer,
+which queries the visible time range and renders the records without reading raw channels,
+selecting edges, evaluating qualifiers, or looking up sampled values.
 
 Viewer-output discovery, checkbox state, legacy `show_in_view` migration, and persistence of the
 `logic_analyzer_graph.viewer_selections` extension are UI-owned. The compiler facade exposes no
@@ -218,10 +225,12 @@ and produces a completed format-neutral capture index; the UI attaches that inde
 supported file artifacts available in the run registry. The native capture coordinator publishes
 live cache and growing-index availability as each artifact becomes attachable.
 
-Sampling overlays follow the same boundary. `signal_processing::SamplingEdge` is the shared
-runtime concept; the compiler resolves graph inputs to capture channels, qualifiers, and runtime
-activity handles in `ResolvedSamplingOverlay`. The UI converts that plan into the logic-analyzer
-widget's overlay type. The compiler does not construct a widget overlay.
+Sampling overlays follow the same boundary. `signal_processing::SamplingPointStore` is the
+neutral run-owned cache; the compiler resolves only the clock and sampled inputs to capture rows
+and gives the shared store to the concrete runtime node. The node records points after applying
+its own edge, qualifier, and sampled-value semantics. The UI converts the row identities and
+shared store into the logic-analyzer widget's passive overlay type. The compiler does not
+construct a widget overlay, and the widget does not reinterpret raw capture channels.
 
 Decoder-table subscriptions are published as collected table lanes with their resolved producer
 metadata. The UI owns the resolved decoder-table source, column, and registry models, resolves
