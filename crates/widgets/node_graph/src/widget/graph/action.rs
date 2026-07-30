@@ -981,6 +981,79 @@ mod action_tests {
     }
 
     #[test]
+    fn undo_and_redo_preserve_opaque_document_extensions() {
+        let mut widget = test_widget();
+        let before = serde_json::json!({"version": 41, "unknown": {"value": true}});
+        let after = serde_json::json!({"version": 42, "unknown": {"value": false}});
+        widget
+            .graph
+            .set_extension("example.plugin-document", &before)
+            .unwrap();
+        widget.push_undo_snapshot();
+        widget
+            .graph
+            .set_extension("example.plugin-document", &after)
+            .unwrap();
+
+        widget.undo();
+        assert_eq!(
+            widget
+                .graph
+                .extension::<serde_json::Value>("example.plugin-document")
+                .unwrap(),
+            Some(before)
+        );
+
+        widget.redo();
+        assert_eq!(
+            widget
+                .graph
+                .extension::<serde_json::Value>("example.plugin-document")
+                .unwrap(),
+            Some(after)
+        );
+    }
+
+    #[test]
+    fn clipboard_copies_socket_extensions_but_not_document_extensions() {
+        let mut widget = test_widget();
+        let source = widget
+            .add_node_at("Source", Pos2::ZERO)
+            .expect("source node should be created");
+        let node = widget.graph.nodes.get_mut(&source).unwrap();
+        node.selected = true;
+        node.outputs[0].extensions.insert(
+            "example.socket-presentation".to_owned(),
+            serde_json::json!({"version": 3, "style": "accent"}),
+        );
+        widget
+            .graph
+            .set_extension(
+                "example.plugin-document",
+                serde_json::json!({"node": source, "layout": "owner-managed"}),
+            )
+            .unwrap();
+
+        let payload = widget.build_clipboard_payload(&[source]);
+        let serialized = serde_json::to_value(&payload).unwrap();
+        assert!(serialized.get("extensions").is_none());
+
+        assert_eq!(widget.paste_payload(payload, None), 1);
+        let pasted = widget
+            .graph
+            .nodes
+            .values()
+            .find(|node| node.id != source && node.selected)
+            .expect("pasted node should be selected");
+        assert_eq!(
+            pasted.outputs[0]
+                .extensions
+                .get("example.socket-presentation"),
+            Some(&serde_json::json!({"version": 3, "style": "accent"}))
+        );
+    }
+
+    #[test]
     fn add_node_and_connect_leaves_node_unconnected_when_incompatible() {
         let mut widget = test_widget();
         let sink_id = widget

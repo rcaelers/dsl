@@ -23,13 +23,18 @@ pub struct GraphState {
 pub struct GraphMetadata {
     next_id: u32,
     next_frame_id: u32,
-    /// Namespaced, host-owned document state. Generic graph code preserves
-    /// these values without interpreting their contents.
+    /// Namespaced, owner-managed document state. Values belong to the whole
+    /// saved graph, may refer to graph identities, and are not part of copied
+    /// node fragments. Generic graph code only preserves them.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     extensions: BTreeMap<String, serde_json::Value>,
 }
 
 impl GraphState {
+    /// Reads one owner namespace without exposing the extension map itself.
+    ///
+    /// Owners migrate and clean up their own values. A caller that cannot
+    /// understand the stored value must leave it unchanged.
     pub fn extension<T: DeserializeOwned>(
         &self,
         key: &str,
@@ -870,7 +875,7 @@ mod tests {
     }
 
     #[test]
-    fn namespaced_document_extensions_round_trip_but_empty_maps_stay_compatible() {
+    fn opaque_document_and_socket_extensions_round_trip() {
         let mut graph = GraphState::default();
         assert!(
             !serde_json::to_value(&graph)
@@ -880,12 +885,36 @@ mod tests {
                 .contains_key("extensions")
         );
 
-        graph.set_extension("example.selection", NodeId(7)).unwrap();
+        let document_value = serde_json::json!({
+            "version": 37,
+            "plugin_owned": {"node": 7, "future_field": [1, 2, 3]}
+        });
+        graph
+            .set_extension("example.selection", &document_value)
+            .unwrap();
+        let id = graph.next_id();
+        let mut reroute = Node::new_reroute(id, Pos2::ZERO);
+        reroute.inputs[0].extensions.insert(
+            "example.socket-presentation".to_owned(),
+            serde_json::json!({"version": 9, "local_style": "compact"}),
+        );
+        graph.add_node(reroute);
         let json = serde_json::to_string(&graph).unwrap();
         let loaded: GraphState = serde_json::from_str(&json).unwrap();
         assert_eq!(
-            loaded.extension::<NodeId>("example.selection").unwrap(),
-            Some(NodeId(7))
+            loaded
+                .extension::<serde_json::Value>("example.selection")
+                .unwrap(),
+            Some(document_value)
+        );
+        assert_eq!(
+            loaded.nodes[&id].inputs[0]
+                .extensions
+                .get("example.socket-presentation"),
+            Some(&serde_json::json!({
+                "version": 9,
+                "local_style": "compact"
+            }))
         );
 
         let legacy: GraphState = serde_json::from_str(

@@ -163,6 +163,7 @@ pub(crate) fn reconcile_input_sockets<S>(sockets: &mut Vec<Socket>, defs: &[Inpu
             let mut socket = input_socket(index, &defs[index]);
             socket.resolved_type = previous.resolved_type;
             socket.hidden = previous.hidden;
+            socket.extensions = previous.extensions;
             reconciled.push(socket);
         }
         reconciled.extend(
@@ -836,7 +837,7 @@ mod tests {
     }
 
     #[test]
-    fn appended_outputs_preserve_saved_user_state_by_definition_index() {
+    fn output_reconciliation_preserves_socket_extensions_by_stable_schema_position() {
         let old_defs = vec![
             OutputDef::<()>::new::<FloatSocket>("First"),
             OutputDef::<()>::new::<FloatSocket>("Second"),
@@ -844,7 +845,7 @@ mod tests {
         let mut sockets = build_output_sockets(&old_defs);
         sockets[1]
             .extensions
-            .insert("host.selection".to_owned(), serde_json::json!(true));
+            .insert("example.socket-state".to_owned(), serde_json::json!(true));
         sockets[1].hidden = true;
         let new_defs = vec![
             OutputDef::<()>::new::<FloatSocket>("First"),
@@ -856,7 +857,7 @@ mod tests {
 
         assert_eq!(sockets.len(), 3);
         assert_eq!(
-            sockets[1].extensions.get("host.selection"),
+            sockets[1].extensions.get("example.socket-state"),
             Some(&serde_json::json!(true))
         );
         assert!(sockets[1].hidden);
@@ -994,6 +995,10 @@ mod tests {
             },
         );
         let mut node = runtime.node;
+        node.inputs[1].extensions.insert(
+            "example.socket-state".to_owned(),
+            serde_json::json!({"presentation": "compact"}),
+        );
         node.state = serde_json::to_value(InstanceSchemaState {
             expanded: true,
             reversed: true,
@@ -1007,6 +1012,10 @@ mod tests {
         assert_eq!(node.inputs[0].def_index, 1);
         assert_eq!(node.inputs[1].schema_id, "saved-optional");
         assert_eq!(node.inputs[1].def_index, 0);
+        assert_eq!(
+            node.inputs[1].extensions.get("example.socket-state"),
+            Some(&serde_json::json!({"presentation": "compact"}))
+        );
     }
 
     fn test_registry() -> NodeTypeRegistry {

@@ -109,15 +109,6 @@ Task IDs start with their ownership category and remain stable when task wording
   widget can borrow panel models without retaining them. Preserve an explicit attachment mechanism
   only where transient, widget-lifetime data is genuinely useful, and document its ownership,
   replacement, cleanup, and non-persistence semantics.
-- [graph.widget.extension-ownership] Revisit ownership of persistent graph and socket `extensions`. Although opaque, namespaced JSON
-  lets hosts and plugins preserve saved-document metadata without coupling generic graph code to
-  its meaning, it also makes `node_graph::GraphState` responsible for storing application data such
-  as panel layout, viewer lane order, sampling overlays, viewer selections, and payload
-  subscriptions. Decide whether this belongs in the generic graph model or in a host-owned saved
-  document/envelope surrounding the graph. Include unknown-plugin round-tripping, migration,
-  copy/paste and subgraph behavior, socket metadata, and eventual extraction of `node_graph` as a
-  standalone widget in that decision; do not move the data until the ownership contract is clear.
-
 ### Node-graph extraction
 
 - [graph.extraction.standalone-crate] Prepare `node-graph` for an eventual separate repository: replace workspace-inherited

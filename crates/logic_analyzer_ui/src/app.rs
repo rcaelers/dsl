@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -104,6 +105,32 @@ struct SavedTimeCursor {
 
 fn timeline_cursor_schema_version() -> u32 {
     1
+}
+
+#[derive(Debug)]
+enum TimelineCursorExtensionError {
+    Json(serde_json::Error),
+    UnsupportedVersion(u32),
+}
+
+impl fmt::Display for TimelineCursorExtensionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Json(error) => error.fmt(formatter),
+            Self::UnsupportedVersion(version) => write!(
+                formatter,
+                "timeline-cursor extension version {version} is not supported; it was preserved unchanged"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for TimelineCursorExtensionError {}
+
+impl From<serde_json::Error> for TimelineCursorExtensionError {
+    fn from(error: serde_json::Error) -> Self {
+        Self::Json(error)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -251,43 +278,57 @@ fn save_viewer_lane_heights(
     }
 }
 
-fn saved_timeline_cursors(graph: &GraphState) -> Result<Vec<TimeCursor>, serde_json::Error> {
-    Ok(graph
-        .extension::<SavedTimelineCursors>(TIMELINE_CURSORS_EXTENSION)?
-        .map(|saved| {
-            saved
-                .cursors
-                .into_iter()
-                .map(|cursor| TimeCursor {
-                    number: cursor.number,
-                    time_us: cursor.time_us,
-                })
-                .collect()
+fn saved_timeline_cursors(
+    graph: &GraphState,
+) -> Result<Vec<TimeCursor>, TimelineCursorExtensionError> {
+    let Some(saved) = graph.extension::<SavedTimelineCursors>(TIMELINE_CURSORS_EXTENSION)? else {
+        return Ok(Vec::new());
+    };
+    if saved.version != timeline_cursor_schema_version() {
+        return Err(TimelineCursorExtensionError::UnsupportedVersion(
+            saved.version,
+        ));
+    }
+    Ok(saved
+        .cursors
+        .into_iter()
+        .map(|cursor| TimeCursor {
+            number: cursor.number,
+            time_us: cursor.time_us,
         })
-        .unwrap_or_default())
+        .collect())
 }
 
 fn save_timeline_cursors(
     graph: &mut GraphState,
     cursors: &[TimeCursor],
-) -> Result<(), serde_json::Error> {
+) -> Result<(), TimelineCursorExtensionError> {
+    if let Some(saved) = graph.extension::<SavedTimelineCursors>(TIMELINE_CURSORS_EXTENSION)?
+        && saved.version != timeline_cursor_schema_version()
+    {
+        return Err(TimelineCursorExtensionError::UnsupportedVersion(
+            saved.version,
+        ));
+    }
     if cursors.is_empty() {
         graph.remove_extension(TIMELINE_CURSORS_EXTENSION);
         Ok(())
     } else {
-        graph.set_extension(
-            TIMELINE_CURSORS_EXTENSION,
-            SavedTimelineCursors {
-                version: timeline_cursor_schema_version(),
-                cursors: cursors
-                    .iter()
-                    .map(|cursor| SavedTimeCursor {
-                        number: cursor.number,
-                        time_us: cursor.time_us,
-                    })
-                    .collect(),
-            },
-        )
+        graph
+            .set_extension(
+                TIMELINE_CURSORS_EXTENSION,
+                SavedTimelineCursors {
+                    version: timeline_cursor_schema_version(),
+                    cursors: cursors
+                        .iter()
+                        .map(|cursor| SavedTimeCursor {
+                            number: cursor.number,
+                            time_us: cursor.time_us,
+                        })
+                        .collect(),
+                },
+            )
+            .map_err(Into::into)
     }
 }
 
@@ -3104,11 +3145,12 @@ mod font_tests {
     use node_graph::{GraphState, NodeId, SocketIndicatorPresentation};
 
     use super::{
-        PluginPanelsState, SavedViewerRow, StatusAction, ViewerSocketIndicator, install_fonts,
-        load_symbol_fonts, save_panel_layout, save_sampling_overlay, save_timeline_cursors,
-        save_viewer_lane_heights, save_viewer_lane_order, saved_panel_layout,
-        saved_sampling_overlay, saved_timeline_cursors, saved_viewer_lane_heights,
-        saved_viewer_lane_order, timeline_marker_reference_binding_is_synchronized,
+        PluginPanelsState, SavedViewerRow, StatusAction, TIMELINE_CURSORS_EXTENSION,
+        ViewerSocketIndicator, install_fonts, load_symbol_fonts, save_panel_layout,
+        save_sampling_overlay, save_timeline_cursors, save_viewer_lane_heights,
+        save_viewer_lane_order, saved_panel_layout, saved_sampling_overlay, saved_timeline_cursors,
+        saved_viewer_lane_heights, saved_viewer_lane_order, timeline_cursor_schema_version,
+        timeline_marker_reference_binding_is_synchronized,
     };
 
     #[test]
@@ -3220,6 +3262,28 @@ mod font_tests {
 
         save_timeline_cursors(&mut restored, &[]).unwrap();
         assert!(saved_timeline_cursors(&restored).unwrap().is_empty());
+    }
+
+    #[test]
+    fn unsupported_timeline_cursor_extension_is_preserved_unchanged() {
+        let mut graph = GraphState::default();
+        let future = serde_json::json!({
+            "version": timeline_cursor_schema_version() + 1,
+            "cursors": [{"number": 4, "time_us": 12.5}],
+            "future_owner_data": {"keep": true}
+        });
+        graph
+            .set_extension(TIMELINE_CURSORS_EXTENSION, &future)
+            .unwrap();
+
+        assert!(saved_timeline_cursors(&graph).is_err());
+        assert!(save_timeline_cursors(&mut graph, &[]).is_err());
+        assert_eq!(
+            graph
+                .extension::<serde_json::Value>(TIMELINE_CURSORS_EXTENSION)
+                .unwrap(),
+            Some(future)
+        );
     }
 
     #[test]

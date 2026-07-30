@@ -80,8 +80,10 @@ pub struct Socket {
     pub hidden: bool,
     #[serde(default, skip_serializing)]
     pub has_control: bool,
-    /// Opaque host-owned socket metadata. Generic graph code preserves these
-    /// values but never interprets their keys or contents.
+    /// Opaque owner-managed metadata local to this socket. Values travel with
+    /// node fragments during copy/paste and survive definition reconciliation
+    /// by `schema_id`; graph-wide references belong in `GraphState` extensions.
+    /// Generic graph code only preserves these values.
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
     pub extensions: BTreeMap<String, serde_json::Value>,
 }

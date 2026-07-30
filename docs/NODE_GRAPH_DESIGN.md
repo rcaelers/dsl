@@ -152,9 +152,23 @@ Interaction highlights:
   input/output pass-through pairs from the node's declared sockets; rendering shows those
   links inside the muted node, and the product compiler follows the same pairs. Generic
   `node-graph` code never decides runtime bypass semantics.
-- **Document extensions**: hosts persist namespaced document-level presentation or tool state in
-  `GraphState`. The generic graph model preserves opaque JSON values and does not interpret their
-  keys or contents; empty extension maps are omitted for compatibility with existing graph files.
+- **Document extensions**: hosts and plugins persist namespaced state that belongs to the complete
+  graph document in `GraphState`. This includes state that refers to node or socket identities,
+  such as panel layout, lane ordering, selections, and subscriptions. Document extensions are part
+  of save/load and whole-document undo/redo snapshots. They are deliberately excluded from node
+  clipboard payloads and copied subgraphs.
+- **Socket extensions**: hosts and plugins persist namespaced state that belongs locally to one
+  socket on `Socket`. It travels with the containing node during copy/paste and survives node
+  definition reconciliation through the socket's stable `schema_id`. A socket extension does not
+  contain graph-wide node or socket references; that state belongs in a document extension.
+- **Extension ownership**: generic `node-graph` serializes and preserves opaque extension values but
+  never interprets, migrates, rewrites, or removes them based on their contents. Each namespace
+  owner migrates only its own supported schema versions. Invalid or unsupported versions remain
+  structurally unchanged as opaque JSON values until that owner can understand them. When an owner's
+  document extension contains graph references, the owner removes or repairs stale references at
+  its application load/mutation boundary after nodes or sockets are deleted. Unknown namespaces
+  are never cleaned up by another owner. Empty extension maps are omitted for saved-file
+  compatibility.
 - **Tabs and contributed panels**: the built-in `Node` tab is owned by the widget; additional tabs
   are configured once per widget, and all tabs remain visible for all nodes. A `NodeDef`
   contributes opaque panels by stable panel ID and tab ID. Its
@@ -168,7 +182,8 @@ Interaction highlights:
 - **Clipboard** is the system clipboard: selected nodes + their internal connections
   serialize to a JSON payload tagged `node_graph_clipboard_v1`, so copy/paste works across
   application instances. Paste remaps ids, offsets positions, selects the pasted set, and
-  prunes `resolved_type` on inputs whose producer wasn't copied.
+  prunes `resolved_type` on inputs whose producer wasn't copied. Socket extensions are part of
+  their nodes; document extensions are not part of this fragment format.
 - **Undo/redo** snapshot the whole `GraphState` (cheap: plain data). Because sockets —
   including resolution and variadic growth — live in the model, everything undoes for free.
   Node state is synced from instances into the model before every snapshot.

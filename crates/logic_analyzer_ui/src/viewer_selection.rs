@@ -133,6 +133,7 @@ fn saved_map(graph: &GraphState) -> HashMap<SavedEndpoint, bool> {
         .extension::<SavedSelections>(EXTENSION)
         .ok()
         .flatten()
+        .filter(|saved| saved.version == VERSION)
         .into_iter()
         .flat_map(|saved| saved.selections)
         .map(|selection| (selection.endpoint, selection.selected))
@@ -271,6 +272,29 @@ fn migrate_legacy_viewer_nodes(
     if viewer_nodes.is_empty() {
         return Ok(Vec::new());
     }
+    let viewer_schema = graph.extension::<SavedSelections>(EXTENSION);
+    let payload_schema = graph.extension::<SavedPayloadSubscriptions>(PAYLOAD_EXTENSION);
+    if !matches!(
+        viewer_schema,
+        Ok(None)
+            | Ok(Some(SavedSelections {
+                version: VERSION,
+                ..
+            }))
+    ) || !matches!(
+        payload_schema,
+        Ok(None)
+            | Ok(Some(SavedPayloadSubscriptions {
+                version: PAYLOAD_VERSION,
+                ..
+            }))
+    ) {
+        return Ok(vec![ViewerSelectionWarning {
+            node: None,
+            message: "Legacy Viewer nodes were preserved because their saved selection or payload manifest has an invalid or unsupported version"
+                .to_owned(),
+        }]);
+    }
 
     let source_by_input = graph
         .connections
@@ -294,6 +318,7 @@ fn migrate_legacy_viewer_nodes(
     }
     store(graph, &selections)?;
     if let Ok(Some(mut payloads)) = graph.extension::<SavedPayloadSubscriptions>(PAYLOAD_EXTENSION)
+        && payloads.version == PAYLOAD_VERSION
     {
         for subscription in &mut payloads.subscriptions {
             let SavedPayloadTarget::ViewerInput { node, input } = subscription.target else {
@@ -327,24 +352,25 @@ fn synchronize_payload_subscriptions(
     let saved = match graph.extension::<SavedPayloadSubscriptions>(PAYLOAD_EXTENSION) {
         Ok(saved) => saved,
         Err(error) => {
-            warnings.push(ViewerSelectionWarning {
+            return Ok(vec![ViewerSelectionWarning {
                 node: None,
-                message: format!("Ignored an invalid saved payload-subscription manifest: {error}"),
-            });
-            None
+                message: format!(
+                    "Could not read the saved payload-subscription manifest; it was preserved unchanged: {error}"
+                ),
+            }]);
         }
     };
     let legacy = saved.is_none();
     if let Some(saved) = &saved
         && saved.version != PAYLOAD_VERSION
     {
-        warnings.push(ViewerSelectionWarning {
+        return Ok(vec![ViewerSelectionWarning {
             node: None,
             message: format!(
-                "Payload-subscription manifest version {} is newer than supported version {}; preserved known lane selections",
+                "Payload-subscription manifest version {} is not supported by version {}; it was preserved unchanged",
                 saved.version, PAYLOAD_VERSION
             ),
-        });
+        }]);
     }
     let previous: HashMap<_, _> = saved
         .into_iter()
@@ -598,6 +624,74 @@ mod viewer_selection_tests {
 
     use super::*;
     use crate::test_contracts_tests::{WORD_PRODUCER_NAME, build_test_node_registry};
+
+    #[test]
+    fn unsupported_extension_versions_are_preserved_verbatim() {
+        let mut widget = NodeGraphWidget::new(build_test_node_registry());
+        let legacy_viewer = widget
+            .add_node_at("Viewer", egui::Pos2::ZERO)
+            .expect("legacy Viewer node should be registered");
+        let graph = widget.graph_mut();
+        let viewer_value = serde_json::json!({
+            "version": VERSION + 1,
+            "selections": [],
+            "future_owner_data": {"keep": true}
+        });
+        let payload_value = serde_json::json!({
+            "version": PAYLOAD_VERSION + 1,
+            "subscriptions": [],
+            "future_owner_data": {"keep": true}
+        });
+        graph.set_extension(EXTENSION, &viewer_value).unwrap();
+        graph
+            .set_extension(PAYLOAD_EXTENSION, &payload_value)
+            .unwrap();
+
+        let warnings = synchronize_viewer_compatibility(graph).unwrap();
+
+        assert_eq!(
+            graph.extension::<serde_json::Value>(EXTENSION).unwrap(),
+            Some(viewer_value)
+        );
+        assert_eq!(
+            graph
+                .extension::<serde_json::Value>(PAYLOAD_EXTENSION)
+                .unwrap(),
+            Some(payload_value)
+        );
+        assert_eq!(
+            warnings
+                .iter()
+                .filter(|warning| warning.message.contains("preserved unchanged"))
+                .count(),
+            2
+        );
+        assert!(graph.nodes.contains_key(&legacy_viewer));
+    }
+
+    #[test]
+    fn invalid_payload_extension_is_preserved_verbatim() {
+        let mut graph = GraphState::default();
+        let invalid = serde_json::json!({
+            "version": PAYLOAD_VERSION,
+            "subscriptions": "owned by a schema this build cannot decode"
+        });
+        graph.set_extension(PAYLOAD_EXTENSION, &invalid).unwrap();
+
+        let warnings = synchronize_viewer_compatibility(&mut graph).unwrap();
+
+        assert_eq!(
+            graph
+                .extension::<serde_json::Value>(PAYLOAD_EXTENSION)
+                .unwrap(),
+            Some(invalid)
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.message.contains("preserved unchanged"))
+        );
+    }
 
     #[test]
     fn legacy_socket_selection_migrates_with_visible_warning() {

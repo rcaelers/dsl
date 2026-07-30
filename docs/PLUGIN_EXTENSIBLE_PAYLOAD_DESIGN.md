@@ -117,7 +117,9 @@ The generic graph model preserves both namespaced extensions without interpretin
 load, legacy built-in lanes are assigned their registered stable identities without changing
 their connections, selection state, ordering, grouping, badge, or renderer. The application shows
 a persistent compatibility warning when a saved payload, ingestion subscription, or presentation
-registration is unavailable and retains the unresolved identity on subsequent saves.
+registration is unavailable and retains the unresolved identity on subsequent saves. The owner
+leaves an invalid or unsupported extension schema unchanged; it does not partially migrate or
+rewrite a version it cannot understand.
 
 The identity registry accepts an identical repeat registration, but rejects a Rust type assigned a
 different identifier or an identifier assigned to a different Rust type. Adapter registration
