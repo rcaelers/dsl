@@ -20,8 +20,32 @@ fn generic_runtime_contains_no_concrete_source_or_protocol_contracts() {
         ("threaded manager", include_str!("manager.rs")),
         ("events", include_str!("events.rs")),
         (
+            "derived-data catalog",
+            include_str!("derived_data_collector/catalog.rs"),
+        ),
+        (
             "derived-data collector",
-            include_str!("derived_data_collector.rs"),
+            include_str!("derived_data_collector/collector.rs"),
+        ),
+        (
+            "digital derived-data adapter",
+            include_str!("derived_data_collector/digital.rs"),
+        ),
+        (
+            "number derived-data adapter",
+            include_str!("derived_data_collector/number.rs"),
+        ),
+        (
+            "text derived-data adapter",
+            include_str!("derived_data_collector/text.rs"),
+        ),
+        (
+            "trigger derived-data adapter",
+            include_str!("derived_data_collector/trigger.rs"),
+        ),
+        (
+            "word derived-data adapter",
+            include_str!("derived_data_collector/word.rs"),
         ),
     ];
     let forbidden = [

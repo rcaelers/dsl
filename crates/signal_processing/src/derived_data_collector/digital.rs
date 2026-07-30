@@ -1,0 +1,206 @@
+use std::collections::VecDeque;
+use std::sync::{Arc, RwLock};
+
+use super::collector::{DRAIN_BATCH_SIZE, DerivedDataRetention};
+use super::storage::in_memory_storage_snapshot;
+use crate::derived_index::{AppendOnlyMipmap, LaneFold, MipmapRecord};
+use crate::errors::WorkResult;
+use crate::payload::{
+    CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
+    CollectedLaneStorageSnapshot, OpaqueCollectedLaneSnapshot, PayloadAdapter,
+};
+use crate::ports::{InputPort, PortDirection, PortSchema};
+use crate::sample::Sample;
+
+/// Immutable bounded result of a built-in digital-lane query.
+#[derive(Clone, Debug)]
+pub enum DigitalLaneSnapshot {
+    /// Exact level transitions in the requested visible window.
+    Exact { samples: Vec<Sample>, initial: bool },
+    /// Bounded summary records for a dense visible window.
+    Activity {
+        records: Vec<MipmapRecord>,
+        initial: bool,
+    },
+}
+
+#[derive(Default)]
+pub(crate) struct DigitalLaneStorage {
+    pub(crate) samples: Vec<Sample>,
+    pub(crate) summary: AppendOnlyMipmap<Sample, DigitalFold>,
+}
+
+pub(crate) struct DigitalLaneQuery {
+    pub(crate) storage: Arc<RwLock<DigitalLaneStorage>>,
+}
+
+impl CollectedLaneQuery for DigitalLaneQuery {
+    fn into_any(self: Arc<Self>) -> Arc<dyn std::any::Any + Send + Sync> {
+        self
+    }
+
+    fn snapshot(
+        &self,
+        request: CollectedLaneSnapshotRequest,
+    ) -> Option<OpaqueCollectedLaneSnapshot> {
+        let snapshot = {
+            let storage = self.storage.read().unwrap();
+            let first = storage
+                .samples
+                .partition_point(|sample| sample.start_time_ns < request.start_time_ns);
+            let last = storage
+                .samples
+                .partition_point(|sample| sample.start_time_ns <= request.end_time_ns);
+            let initial = first
+                .checked_sub(1)
+                .and_then(|index| storage.samples.get(index))
+                .is_some_and(|sample| sample.value);
+            if last - first <= request.max_items {
+                DigitalLaneSnapshot::Exact {
+                    samples: storage.samples[first..last].to_vec(),
+                    initial,
+                }
+            } else {
+                DigitalLaneSnapshot::Activity {
+                    records: storage.summary.sampled_window(
+                        request.start_time_ns,
+                        request.end_time_ns,
+                        request.max_items,
+                    ),
+                    initial,
+                }
+            }
+        };
+        Some(OpaqueCollectedLaneSnapshot::new(Arc::new(snapshot)))
+    }
+
+    fn nearest_time_boundary(&self, timestamp_ns: u64, max_distance_ns: u64) -> Option<u64> {
+        let storage = self.storage.read().unwrap();
+        let index = storage
+            .samples
+            .partition_point(|sample| sample.start_time_ns <= timestamp_ns);
+        storage.samples[index.saturating_sub(1)..(index + 1).min(storage.samples.len())]
+            .iter()
+            .map(|sample| sample.start_time_ns)
+            .filter(|candidate| candidate.abs_diff(timestamp_ns) <= max_distance_ns)
+            .min_by_key(|candidate| candidate.abs_diff(timestamp_ns))
+    }
+
+    fn timeline_extent_end_ns(&self) -> Option<u64> {
+        self.storage
+            .read()
+            .unwrap()
+            .samples
+            .last()
+            .map(|sample| sample.start_time_ns)
+    }
+
+    fn storage_snapshot(&self) -> CollectedLaneStorageSnapshot {
+        let storage = self.storage.read().unwrap();
+        in_memory_storage_snapshot::<Sample>(
+            storage.samples.len(),
+            storage.summary.resident_records(),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DigitalFold;
+impl LaneFold<Sample> for DigitalFold {
+    fn leaf(entry: &Sample) -> MipmapRecord {
+        MipmapRecord {
+            start_ns: entry.start_time_ns,
+            end_ns: entry.start_time_ns,
+            count: 1,
+            level_hint: Some((entry.value, entry.value)),
+        }
+    }
+    fn combine(records: &[MipmapRecord]) -> MipmapRecord {
+        let first = records[0];
+        let last = records[records.len() - 1];
+        MipmapRecord {
+            start_ns: first.start_ns,
+            end_ns: last.end_ns,
+            count: records.iter().map(|record| record.count).sum(),
+            level_hint: match (first.level_hint, last.level_hint) {
+                (Some((first, _)), Some((_, last))) => Some((first, last)),
+                _ => None,
+            },
+        }
+    }
+}
+
+/// Typed append state for the built-in digital payload.
+struct DigitalLane {
+    storage: Arc<RwLock<DigitalLaneStorage>>,
+    buffer: VecDeque<Sample>,
+    eos: bool,
+    retention: DerivedDataRetention,
+}
+
+impl DigitalLane {
+    fn new(request: CollectedLaneRequest) -> Self {
+        let storage = Arc::new(RwLock::new(DigitalLaneStorage::default()));
+        request.publish_query(Arc::new(DigitalLaneQuery {
+            storage: Arc::clone(&storage),
+        }));
+        Self {
+            storage,
+            buffer: VecDeque::new(),
+            eos: false,
+            retention: request.retention(),
+        }
+    }
+}
+
+impl CollectedLaneIngestor for DigitalLane {
+    fn input_schema(&self, index: usize) -> PortSchema {
+        PortSchema::new::<Sample>(format!("in{index}"), index, PortDirection::Input)
+    }
+
+    fn drain(&mut self, input: &InputPort, _retention: DerivedDataRetention) -> WorkResult<usize> {
+        use crossbeam_channel::TryRecvError;
+
+        let mut batch = Vec::with_capacity(DRAIN_BATCH_SIZE);
+        if let Some(mut receiver) = input.get::<Sample>(&mut self.buffer) {
+            match receiver.try_recv_many(&mut batch, DRAIN_BATCH_SIZE) {
+                Ok(_) | Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => self.eos = true,
+            }
+        } else {
+            self.eos = true;
+        }
+        let batch_len = batch.len();
+        if !batch.is_empty() {
+            let mut storage = self.storage.write().unwrap();
+            for sample in &batch {
+                storage.summary.push(sample);
+            }
+            storage.samples.extend(batch.iter().copied());
+            if let Some(target) = self.retention.trim_target(storage.samples.len()) {
+                let excess = storage.samples.len() - target;
+                storage.samples.drain(..excess);
+            }
+        }
+        Ok(batch_len)
+    }
+
+    fn is_finished(&self) -> bool {
+        self.eos
+    }
+}
+
+struct DigitalPayloadAdapter;
+
+impl PayloadAdapter for DigitalPayloadAdapter {
+    fn create_ingestor(
+        &self,
+        request: CollectedLaneRequest,
+    ) -> Result<Box<dyn CollectedLaneIngestor>, String> {
+        Ok(Box::new(DigitalLane::new(request)))
+    }
+}
+
+pub fn digital_payload_adapter() -> Arc<dyn PayloadAdapter> {
+    Arc::new(DigitalPayloadAdapter)
+}

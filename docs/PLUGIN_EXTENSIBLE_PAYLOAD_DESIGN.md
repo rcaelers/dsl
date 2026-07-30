@@ -96,6 +96,26 @@ The collector owns no protocol, payload, viewer, table, or panel knowledge. It s
 object-safe lane ingestors. Each ingestor is constructed by the adapter registered for one payload
 type.
 
+The `signal_processing::derived_data_collector` private facade reflects those ownership boundaries:
+
+```text
+derived_data_collector/
+  mod.rs       supported crate facade
+  catalog.rs   payload-neutral published-lane discovery
+  collector.rs payload-neutral scheduling, retention, and metrics
+  storage.rs   generic in-memory storage accounting
+  digital.rs   digital snapshot, fold, store, query, ingestor, and adapter
+  number.rs    numeric snapshot, fold, store, query, ingestor, and adapter
+  text.rs      text snapshot, fold, store, query, ingestor, and adapter
+  trigger.rs   marker snapshot, fold, store, query, ingestor, and adapter
+  word.rs      word snapshot, fold, memory/indexed stores, query, ingestor, and adapter
+```
+
+Payload modules depend on the shared policy and catalog contracts. The shared modules do not
+import built-in payload types. Tests construct built-in ingestors through `PayloadAdapter` and
+`CollectedLaneRequest`, matching production construction; focused storage and query tests may use
+crate-private payload-module fixtures without widening the crate facade.
+
 The runtime channel registry creates both the typed receiver and a type-erased readiness handle.
 The cooperative runner schedules that handle without comparing payload `TypeId`s, so any
 registered plugin payload has the same native and single-threaded execution path.

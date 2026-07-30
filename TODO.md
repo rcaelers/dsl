@@ -77,10 +77,6 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ### Indexed derived data
 
-- [derived.refactor.payload-modules] Split the built-in per-payload ingestors, retained stores,
-  snapshots, and queries out of `derived_data_collector.rs` behind the existing collected-lane
-  facade. Preserve wasm storage, explicit in-memory retention, plugin payloads, and storage-failure
-  fallback while making each payload adapter independently testable.
 - [derived.validation.reference-capture] Use the explicit `compiler_capture` release benchmark with a
   developer-supplied complete reference capture. Validate the compiled graph against the reference
   pipeline using output names, sizes, and hashes; keep generated output and temporary cache artifacts
