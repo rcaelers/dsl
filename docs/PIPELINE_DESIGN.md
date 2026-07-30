@@ -141,13 +141,13 @@ The benchmark's `file` sink writes decoded words through the production binary-f
 therefore covers decoder transport, batch serialization, and filesystem output without retaining
 the decoded stream in memory.
 
-The ignored full-graph benchmark loads the checked-in controlled parallel-decoder graph and includes
-its production binary writer and automatically attached indexed viewer lane. This is the regression
+The manual compiler-capture benchmark builds the controlled parallel-decoder graph and includes its
+production binary writer and explicitly subscribed indexed viewer lanes. This is the regression
 benchmark for end-to-end throughput rather than decoder-kernel throughput alone:
 
 ```bash
-cargo test -p logic-analyzer-graph-compiler --release \
-  benchmark_checked_in_spi_controlled_graph_runtime -- --ignored --nocapture
+cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
+  compiler-runtime /path/to/reference.dsl
 ```
 
 Correctness tests compare indexed, packed, sequential, and parallel paths, including every

@@ -2,7 +2,9 @@
 mod integration_tests_support;
 
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use egui::Pos2;
@@ -32,6 +34,14 @@ const STARTUP_OUTPUTS: [(&str, &str); 7] = [
     ("Enable Gate", "Out"),
     ("Parallel Decoder", "Words"),
 ];
+const VALIDATION_OUTPUTS: [(&str, &str); 1] = [("SPI Decoder", "MOSI Bits")];
+
+#[derive(Debug, Eq, PartialEq)]
+struct OutputFingerprint {
+    name: String,
+    size: u64,
+    hash: String,
+}
 
 fn startup_widget() -> NodeGraphWidget {
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
@@ -40,9 +50,16 @@ fn startup_widget() -> NodeGraphWidget {
 }
 
 fn startup_output_subscriptions(widget: &NodeGraphWidget) -> OutputSubscriptionPlan {
-    STARTUP_OUTPUTS
-        .into_iter()
-        .map(|(node_title, output_name)| {
+    output_subscriptions(widget, &STARTUP_OUTPUTS)
+}
+
+fn output_subscriptions(
+    widget: &NodeGraphWidget,
+    outputs: &[(&str, &str)],
+) -> OutputSubscriptionPlan {
+    outputs
+        .iter()
+        .map(|&(node_title, output_name)| {
             let node = widget
                 .graph()
                 .nodes
@@ -62,6 +79,12 @@ fn startup_output_subscriptions(widget: &NodeGraphWidget) -> OutputSubscriptionP
 fn configured_compiler(widget: &NodeGraphWidget) -> GraphCompiler {
     let mut compiler = GraphCompiler::new();
     compiler.set_output_subscriptions(startup_output_subscriptions(widget));
+    compiler
+}
+
+fn validation_compiler(widget: &NodeGraphWidget) -> GraphCompiler {
+    let mut compiler = GraphCompiler::new();
+    compiler.set_output_subscriptions(output_subscriptions(widget, &VALIDATION_OUTPUTS));
     compiler
 }
 
@@ -284,6 +307,34 @@ fn connect_parallel_inputs(pipeline: &mut Pipeline, decoder: &str) {
     }
 }
 
+fn temporary_workspace() -> tempfile::TempDir {
+    let workspace = tempfile::Builder::new()
+        .prefix("logic-conduit-compiler-capture-")
+        .tempdir()
+        .expect("temporary validation workspace should be available");
+    let repository = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .canonicalize()
+        .expect("repository root should be available");
+    let workspace_path = workspace
+        .path()
+        .canonicalize()
+        .expect("temporary validation workspace should be available");
+    assert!(
+        !workspace_path.starts_with(&repository),
+        "temporary validation workspace '{}' must be outside the repository",
+        workspace_path.display()
+    );
+    workspace
+}
+
+fn compile_context(workspace: &Path) -> CompileCtx {
+    let cache = workspace.join("derived-cache");
+    std::fs::create_dir_all(&cache).expect("temporary derived cache should be available");
+    let mut context = CompileCtx::default();
+    context.set_persistent_cache_directory(cache);
+    context
+}
+
 fn binary_files(directory: &Path) -> Vec<String> {
     let mut names = std::fs::read_dir(directory)
         .unwrap()
@@ -296,47 +347,179 @@ fn binary_files(directory: &Path) -> Vec<String> {
     names
 }
 
-fn normalized_csv(directory: &Path) -> Vec<String> {
+fn normalized_csv(directory: &Path) -> Vec<u8> {
     std::fs::read_to_string(directory.join("captures.csv"))
         .unwrap()
         .lines()
         .map(|line| {
             line.split(',')
-                .map(|field| field.rsplit('/').next().unwrap_or(field))
+                .map(|field| field.rsplit(['/', '\\']).next().unwrap_or(field))
                 .collect::<Vec<_>>()
                 .join(",")
         })
-        .collect()
+        .collect::<Vec<_>>()
+        .join("\n")
+        .into_bytes()
+}
+
+fn fingerprint_file(path: &Path) -> (u64, String) {
+    let mut file = std::fs::File::open(path).expect("output file should be readable");
+    let size = file
+        .metadata()
+        .expect("output metadata should be readable")
+        .len();
+    let mut hasher = blake3::Hasher::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .expect("output file should remain readable");
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    (size, hasher.finalize().to_hex().to_string())
+}
+
+fn output_manifest(directory: &Path) -> Vec<OutputFingerprint> {
+    let mut entries = std::fs::read_dir(directory)
+        .expect("output directory should be readable")
+        .filter_map(|entry| {
+            let entry = entry.expect("output entry should be readable");
+            let file_type = entry
+                .file_type()
+                .expect("output entry type should be readable");
+            file_type.is_file().then_some(entry)
+        })
+        .map(|entry| {
+            let name = entry
+                .file_name()
+                .into_string()
+                .expect("output names should be UTF-8");
+            let (size, hash) = if name == "captures.csv" {
+                let bytes = normalized_csv(directory);
+                (
+                    bytes.len() as u64,
+                    blake3::hash(&bytes).to_hex().to_string(),
+                )
+            } else {
+                fingerprint_file(&entry.path())
+            };
+            OutputFingerprint { name, size, hash }
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| left.name.cmp(&right.name));
+    entries
+}
+
+fn print_manifest(manifest: &[OutputFingerprint]) {
+    eprintln!("validated output manifest:");
+    for output in manifest {
+        eprintln!(
+            "  name={} size={} blake3={}",
+            output.name, output.size, output.hash
+        );
+    }
 }
 
 fn assert_outputs_equal(actual: &Path, expected: &Path) {
-    let actual_files = binary_files(actual);
-    let expected_files = binary_files(expected);
-    assert!(!expected_files.is_empty());
-    assert_eq!(actual_files, expected_files);
-    for name in expected_files {
-        let actual = std::fs::read(actual.join(&name)).unwrap();
-        let expected = std::fs::read(expected.join(&name)).unwrap();
+    let actual_manifest = output_manifest(actual);
+    let expected_manifest = output_manifest(expected);
+    assert!(
+        expected_manifest
+            .iter()
+            .any(|output| output.name.starts_with("capture_") && output.name.ends_with(".bin")),
+        "reference pipeline did not produce capture files"
+    );
+    let actual_names = actual_manifest
+        .iter()
+        .map(|output| output.name.as_str())
+        .collect::<Vec<_>>();
+    let expected_names = expected_manifest
+        .iter()
+        .map(|output| output.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(actual_names, expected_names, "output names differ");
+    for (actual, expected) in actual_manifest.iter().zip(&expected_manifest) {
         assert_eq!(
-            blake3::hash(&actual),
-            blake3::hash(&expected),
-            "{name} differs"
+            actual.size, expected.size,
+            "output size differs for '{}'",
+            expected.name
+        );
+        assert_eq!(
+            actual.hash, expected.hash,
+            "output hash differs for '{}'",
+            expected.name
         );
     }
-    assert_eq!(normalized_csv(actual), normalized_csv(expected));
+    print_manifest(&actual_manifest);
+}
+
+fn run_validation_child(stage: &str, capture: &Path, output: &Path, workspace: Option<&Path>) {
+    let mut command = Command::new(
+        std::env::current_exe().expect("validation executable path should be available"),
+    );
+    command.arg(stage).arg(capture).arg(output);
+    if let Some(workspace) = workspace {
+        command.arg(workspace);
+    }
+    let started = Instant::now();
+    eprintln!("validation stage={}", stage.trim_start_matches("__"));
+    let status = command
+        .status()
+        .expect("validation child process should start");
+    assert!(
+        status.success(),
+        "validation stage '{}' failed with {status}",
+        stage.trim_start_matches("__")
+    );
+    eprintln!(
+        "validation stage={} elapsed={:.3}s",
+        stage.trim_start_matches("__"),
+        started.elapsed().as_secs_f64()
+    );
+}
+
+fn run_compiled_validation_stage(capture: &Path, output: &Path, workspace: &Path) {
+    let widget = configured_widget(capture, output);
+    let compiler = validation_compiler(&widget);
+    let mut context = compile_context(workspace);
+    let lanes = context.derived_lanes().clone();
+    let mut run = compiler
+        .start_app_run(widget.graph(), &mut context)
+        .unwrap();
+    run.wait();
+
+    let lanes = lanes.opaque_lanes();
+    for (node, output) in VALIDATION_OUTPUTS {
+        let expected = format!("{node}.{output}");
+        assert!(
+            lanes.iter().any(|lane| lane.name() == expected),
+            "compiled graph did not collect subscribed output '{expected}'"
+        );
+    }
+    assert!(lanes.iter().any(|lane| {
+        lane.payload().stable_id() == "org.logicconduit.word/v1"
+            && lane
+                .table_metadata()
+                .is_some_and(|metadata| metadata.total_rows > 0)
+    }));
 }
 
 fn compiler_runtime_benchmark(capture: &Path) {
-    let output = tempfile::tempdir().unwrap();
-    let widget = configured_widget(capture, output.path());
+    let workspace = temporary_workspace();
+    let output = workspace.path().join("compiled");
+    std::fs::create_dir_all(&output).unwrap();
+    let widget = configured_widget(capture, &output);
     let compiler = configured_compiler(&widget);
-    let mut context = CompileCtx::default();
+    let mut context = compile_context(workspace.path());
     let started = Instant::now();
     let mut run = compiler
         .start_app_run(widget.graph(), &mut context)
         .unwrap();
     run.wait();
-    let files = binary_files(output.path());
+    let files = binary_files(&output);
     eprintln!(
         "compiled graph: elapsed={:.3}s files={}",
         started.elapsed().as_secs_f64(),
@@ -346,35 +529,41 @@ fn compiler_runtime_benchmark(capture: &Path) {
 }
 
 fn phase_one_reference_runtime_benchmark(capture: &Path) {
-    let output = tempfile::tempdir().unwrap();
+    let workspace = temporary_workspace();
+    let output = workspace.path().join("phase-one-reference");
+    std::fs::create_dir_all(&output).unwrap();
     let started = Instant::now();
-    run_phase_one_reference(capture, output.path());
+    run_phase_one_reference(capture, &output);
     eprintln!(
         "phase-one reference: elapsed={:.3}s",
         started.elapsed().as_secs_f64()
     );
-    assert!(!binary_files(output.path()).is_empty());
+    assert!(!binary_files(&output).is_empty());
 }
 
 fn current_reference_runtime_benchmark(capture: &Path) {
-    let output = tempfile::tempdir().unwrap();
+    let workspace = temporary_workspace();
+    let output = workspace.path().join("current-reference");
+    std::fs::create_dir_all(&output).unwrap();
     let started = Instant::now();
-    run_current_reference(capture, output.path());
+    run_current_reference(capture, &output);
     eprintln!(
         "current reference: elapsed={:.3}s",
         started.elapsed().as_secs_f64()
     );
-    assert!(!binary_files(output.path()).is_empty());
+    assert!(!binary_files(&output).is_empty());
 }
 
 fn live_viewer_subscription_benchmark(capture: &Path) {
     const TARGET_POINTS: usize = 5_120;
     const END_NS: u64 = 250_000_000_000;
 
-    let output = tempfile::tempdir().unwrap();
-    let widget = configured_widget(capture, output.path());
+    let workspace = temporary_workspace();
+    let output = workspace.path().join("compiled");
+    std::fs::create_dir_all(&output).unwrap();
+    let widget = configured_widget(capture, &output);
     let compiler = configured_compiler(&widget);
-    let mut context = CompileCtx::default();
+    let mut context = compile_context(workspace.path());
     let mut run = compiler
         .start_app_run(widget.graph(), &mut context)
         .unwrap();
@@ -416,56 +605,32 @@ fn live_viewer_subscription_benchmark(capture: &Path) {
     }
     run.wait();
     assert!(query_count > 0);
-    assert!(!binary_files(output.path()).is_empty());
+    assert!(!binary_files(&output).is_empty());
 }
 
 fn compiled_graph_matches_current_reference(capture: &Path) {
-    let temporary = tempfile::tempdir().unwrap();
+    let temporary = temporary_workspace();
     let actual = temporary.path().join("compiled");
     let expected = temporary.path().join("reference");
     std::fs::create_dir_all(&actual).unwrap();
     std::fs::create_dir_all(&expected).unwrap();
-    let reference = {
-        let capture = capture.to_owned();
-        let expected = expected.clone();
-        std::thread::spawn(move || run_current_reference(&capture, &expected))
-    };
-    let widget = configured_widget(capture, &actual);
-    let compiler = configured_compiler(&widget);
-    let mut context = CompileCtx::default();
-    let lanes = context.derived_lanes().clone();
-    let mut run = compiler
-        .start_app_run(widget.graph(), &mut context)
-        .unwrap();
-    run.wait();
-    reference.join().unwrap();
-
-    let lanes = lanes.opaque_lanes();
-    assert_eq!(lanes.len(), STARTUP_OUTPUTS.len());
-    assert!(lanes.iter().any(|lane| {
-        lane.payload().stable_id() == "org.logicconduit.word/v1"
-            && lane
-                .table_metadata()
-                .is_some_and(|metadata| metadata.total_rows > 0)
-    }));
+    run_validation_child("__compiled", capture, &actual, Some(temporary.path()));
+    run_validation_child("__reference", capture, &expected, None);
     assert_outputs_equal(&actual, &expected);
 }
 
 fn live_attach_detach_preserves_writer_output(capture: &Path) {
-    let temporary = tempfile::tempdir().unwrap();
+    let temporary = temporary_workspace();
     let actual = temporary.path().join("compiled");
     let expected = temporary.path().join("reference");
     std::fs::create_dir_all(&actual).unwrap();
     std::fs::create_dir_all(&expected).unwrap();
-    let reference = {
-        let capture = capture.to_owned();
-        let expected = expected.clone();
-        std::thread::spawn(move || run_current_reference(&capture, &expected))
-    };
+    run_validation_child("__reference", capture, &expected, None);
+    eprintln!("attach validation stage=compiled");
     let mut widget = configured_widget(capture, &actual);
     let mut compiler = configured_compiler(&widget);
     let base_subscriptions = startup_output_subscriptions(&widget);
-    let mut context = CompileCtx::default();
+    let mut context = compile_context(temporary.path());
     let lanes = context.derived_lanes().clone();
     let mut run = compiler
         .start_app_run(widget.graph(), &mut context)
@@ -505,7 +670,6 @@ fn live_attach_detach_preserves_writer_output(capture: &Path) {
     compiler.set_output_subscriptions(base_subscriptions);
     compiler.apply_run(&mut run, widget.graph()).unwrap();
     run.wait();
-    reference.join().unwrap();
     assert_outputs_equal(&actual, &expected);
 }
 
@@ -526,7 +690,31 @@ fn print_usage() {
 }
 
 fn main() {
-    let mut arguments = std::env::args_os().skip(1);
+    let arguments = std::env::args_os()
+        .skip(1)
+        .filter(|argument| argument != "--bench")
+        .collect::<Vec<_>>();
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "__reference")
+    {
+        assert_eq!(arguments.len(), 3, "invalid reference-stage arguments");
+        run_current_reference(Path::new(&arguments[1]), Path::new(&arguments[2]));
+        return;
+    }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "__compiled")
+    {
+        assert_eq!(arguments.len(), 4, "invalid compiled-stage arguments");
+        run_compiled_validation_stage(
+            Path::new(&arguments[1]),
+            Path::new(&arguments[2]),
+            Path::new(&arguments[3]),
+        );
+        return;
+    }
+    let mut arguments = arguments.into_iter();
     let Some(command) = arguments.next() else {
         print_usage();
         return;

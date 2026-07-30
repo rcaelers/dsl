@@ -77,11 +77,6 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ### Indexed derived data
 
-- [derived.validation.reference-capture] Use the explicit `compiler_capture` release benchmark with a
-  developer-supplied complete reference capture. Validate the compiled graph against the reference
-  pipeline using output names, sizes, and hashes; keep generated output and temporary cache artifacts
-  contained outside the repository. This remains manual validation and must not become a crate test
-  that depends on an unavailable capture.
 - [derived.performance.reference-pipeline] Establish a reproducible baseline for the checked-in
   `spi_controlled_decode` graph and the complete approximately 250-second, 50-MHz reference capture.
   Record wall time, real-time factor, phase timings, average CPU cores, peak RSS, encoded/index sizes,

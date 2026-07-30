@@ -79,8 +79,8 @@ test failure. Their assertions complement rather than replace deterministic
 tests using checked-in fixtures and fakes.
 
 The compiler capture tool contains the graph-runtime timing probes and the
-full-capture differential validations. It requires an explicit DSL capture
-path and runs in the release benchmark profile:
+full-capture differential validations. It requires an explicit,
+developer-supplied DSL capture path and runs in the release benchmark profile:
 
 ```console
 cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
@@ -90,6 +90,22 @@ cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
 Run it with `--help` to list its timing and validation commands. These commands
 are intentionally absent from Cargo's test harness because their input is
 developer-supplied and their execution time depends on the complete capture.
+`validate-compiled` runs the compiled graph and the independent reference
+pipeline, then compares the complete output manifest by canonical output name,
+size, and BLAKE3 hash. It adds one explicit sparse control-lane subscription;
+connected graph outputs continue to follow the compiler's normal generic
+retention policy, including the indexed derived-cache path. The generated
+binary files, normalized CSV manifests, and derived-data caches live under one
+operating-system temporary directory outside the repository and are removed
+after the command. The compiled and reference stages execute in separate,
+sequential child processes so each stage has an enforceable memory-reclamation
+boundary. Persistent waveform-index sidecars remain owned by the
+developer-supplied capture and should also be kept outside the repository.
+
+```console
+cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
+  validate-compiled /path/to/reference.dsl
+```
 
 The derived-word store throughput guard uses a deterministic generated
 workload and exercises the supported indexed writer boundary:
