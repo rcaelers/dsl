@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use signal_processing::PersistentStoreConfig;
+use signal_processing::derived_word_store::PersistentCacheEntrySnapshot;
 
 pub(crate) struct OpenDialog<'a> {
     pub(crate) title: &'a str,
@@ -40,4 +41,9 @@ pub(crate) trait PlatformHostService {
     ) -> Result<CacheClearStats, String>;
 
     fn clear_cache(&mut self, directory: &Path) -> Result<CacheClearStats, String>;
+
+    fn inspect_cache_entry(
+        &self,
+        config: &PersistentStoreConfig,
+    ) -> Result<Option<PersistentCacheEntrySnapshot>, String>;
 }

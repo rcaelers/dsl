@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use signal_processing::PersistentStoreConfig;
+use signal_processing::derived_word_store::PersistentCacheEntrySnapshot;
 
 use super::contract::HostService;
 use super::platform_contract::{CacheClearStats, OpenDialog, PlatformHostService, SaveDialog};
@@ -49,6 +50,13 @@ impl PlatformHostService for UnavailableNativeHostService {
     }
 
     fn clear_cache(&mut self, _directory: &Path) -> Result<CacheClearStats, String> {
+        Err(unavailable())
+    }
+
+    fn inspect_cache_entry(
+        &self,
+        _config: &PersistentStoreConfig,
+    ) -> Result<Option<PersistentCacheEntrySnapshot>, String> {
         Err(unavailable())
     }
 }

@@ -57,6 +57,48 @@ pub struct CollectedLaneTableSnapshot {
     pub format_hint: Option<String>,
 }
 
+/// Physical retention used by one collected signal lane.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CollectedLaneStorageBacking {
+    /// Exact data and its timeline summaries are retained in process memory.
+    Memory,
+    /// Exact data is held by an indexed store owned by the current run.
+    Indexed,
+    /// An immutable persistent cache entry was reopened for querying.
+    PersistentCache,
+    /// A plugin owns the storage and has not published further diagnostics.
+    AdapterManaged,
+}
+
+/// Presentation-neutral storage diagnostics for one collected signal lane.
+///
+/// Byte counts are estimates of owned payload storage. They intentionally do
+/// not include allocator bookkeeping or shared query-handle allocations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CollectedLaneStorageSnapshot {
+    pub backing: CollectedLaneStorageBacking,
+    pub retained_items: Option<u64>,
+    pub resident_bytes: Option<u64>,
+    pub stored_bytes: Option<u64>,
+    pub index_items: Option<u64>,
+    pub index_bytes: Option<u64>,
+    pub live: bool,
+}
+
+impl CollectedLaneStorageSnapshot {
+    pub fn adapter_managed(live: bool) -> Self {
+        Self {
+            backing: CollectedLaneStorageBacking::AdapterManaged,
+            retained_items: None,
+            resident_bytes: None,
+            stored_bytes: None,
+            index_items: None,
+            index_bytes: None,
+            live,
+        }
+    }
+}
+
 /// Type-erased immutable result of a bounded retained-data query.
 #[derive(Clone)]
 pub struct OpaqueCollectedLaneSnapshot {
@@ -129,6 +171,14 @@ pub trait CollectedLaneQuery: Send + Sync {
     /// the retained sequence. `complete` reports whether more rows exist.
     fn table_snapshot(&self, _max_rows: usize) -> Option<CollectedLaneTableSnapshot> {
         None
+    }
+
+    /// Describes the retained data and indexes owned by this adapter.
+    ///
+    /// Plugin queries remain visible in diagnostics even when they do not
+    /// opt into detailed accounting.
+    fn storage_snapshot(&self) -> CollectedLaneStorageSnapshot {
+        CollectedLaneStorageSnapshot::adapter_managed(self.is_live())
     }
 }
 
@@ -528,5 +578,9 @@ mod payload_tests {
             .unwrap();
         let values = snapshot.value::<Vec<u64>>().unwrap();
         assert_eq!(values.as_slice(), &[1, 2]);
+        assert_eq!(
+            lanes.opaque_lanes()[0].storage_snapshot(),
+            CollectedLaneStorageSnapshot::adapter_managed(false)
+        );
     }
 }

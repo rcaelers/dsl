@@ -220,12 +220,20 @@ without executing producers or sinks. An explicit Run clears the selected graph 
 execution and rebuilds them from the source, so Run never silently substitutes old results for
 processing or sink side effects. Clearing or rejecting an entry never changes the source capture.
 Native cache administration supports per-entry clearing and an LRU size budget.
+Read-only inspection validates one entry without changing its LRU access time or deleting invalid
+data. The Memory panel uses this contract to report data bytes, index bytes, blocks, and word counts
+for the persistent entries selected by the current graph.
 
 ## Viewer integration
 
 `DerivedLaneData` supports both ordinary in-memory annotations and
 `IndexedAnnotations(IndexedAnnotationLane)`. `IndexedAnnotationLane` exposes query, metadata,
 status, and platform-neutral store handles.
+
+Every collected-lane query also publishes a presentation-neutral storage snapshot. Built-in
+adapters report their backing (memory, indexed working storage, or reopened persistent cache),
+retained item count, resident and stored bytes, and summary/index records. Plugin adapters that do
+not provide detailed accounting remain visible as adapter-managed storage.
 
 Rendering and cursor code follow the same locking rule:
 

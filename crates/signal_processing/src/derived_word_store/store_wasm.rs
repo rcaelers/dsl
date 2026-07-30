@@ -67,6 +67,7 @@ impl IndexedAnnotationStore {
                 extent_end_ns: state.presence.extent_end_ns(),
                 hot_tail_word_count: state.words.len(),
                 mmap_backed: false,
+                persistent_cache: false,
                 status: state.status.clone(),
             },
             hot_tail: Arc::from(state.words.clone()),

@@ -30,9 +30,9 @@ pub use config::{BlockCodecConfig, LiveStoreConfig, PersistentStoreConfig};
 pub use errors::{CodecError, CodecResult};
 #[cfg(not(target_arch = "wasm32"))]
 pub use platform::{
-    CommittedAnnotationBlock, DecodedBlockCacheStats, cleanup_cache, clear_cache,
-    clear_cache_entry, configure_decoded_block_cache, decoded_block_cache_stats,
-    reset_decoded_block_cache_stats,
+    CommittedAnnotationBlock, DecodedBlockCacheStats, PersistentCacheEntrySnapshot, cleanup_cache,
+    clear_cache, clear_cache_entry, configure_decoded_block_cache, decoded_block_cache_stats,
+    inspect_cache_entry, reset_decoded_block_cache_stats,
 };
 pub use platform::{IndexedAnnotationStore, IndexedAnnotationWriter, StoreError, StoreResult};
 pub use query::{

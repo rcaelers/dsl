@@ -59,6 +59,18 @@ pub struct PersistentCacheStats {
     pub removed_bytes: u64,
 }
 
+/// Read-only diagnostics for one valid persistent derived-data entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PersistentCacheEntrySnapshot {
+    pub total_bytes: u64,
+    pub data_bytes: u64,
+    pub index_bytes: u64,
+    pub word_count: u64,
+    pub block_count: usize,
+    pub first_timestamp_ns: Option<u64>,
+    pub last_timestamp_ns: Option<u64>,
+}
+
 pub fn cleanup_cache(
     directory: &Path,
     max_total_bytes: u64,
@@ -147,6 +159,30 @@ pub fn clear_cache_entry(config: &PersistentStoreConfig) -> StoreResult<Persiste
         removed_bytes: bytes,
         ..PersistentCacheStats::default()
     })
+}
+
+/// Inspects an entry without updating its LRU timestamp or deleting invalid data.
+pub fn inspect_cache_entry(
+    config: &PersistentStoreConfig,
+) -> StoreResult<Option<PersistentCacheEntrySnapshot>> {
+    let manifest_path = cache_directory(config).join(MANIFEST_FILE_NAME);
+    if !manifest_path.is_file() {
+        return Ok(None);
+    }
+    let index = open_inner(config, &manifest_path)?;
+    let data_bytes = index.committed_data_len;
+    let index_bytes = fs::metadata(cache_directory(config).join(INDEX_FILE_NAME))?.len();
+    Ok(Some(PersistentCacheEntrySnapshot {
+        total_bytes: data_bytes
+            .saturating_add(index_bytes)
+            .saturating_add(MANIFEST_SIZE as u64),
+        data_bytes,
+        index_bytes,
+        word_count: index.committed_word_count,
+        block_count: index.directory.len(),
+        first_timestamp_ns: index.first_timestamp_ns,
+        last_timestamp_ns: index.last_timestamp_ns,
+    }))
 }
 
 pub(crate) fn cache_directory(config: &PersistentStoreConfig) -> PathBuf {

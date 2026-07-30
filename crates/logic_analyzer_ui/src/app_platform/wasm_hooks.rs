@@ -1,9 +1,33 @@
 use logic_analyzer_graph_compiler as compiler;
 
 use crate::app::App;
+use crate::memory_panel::{MemoryServiceSnapshot, PlatformMemorySnapshot};
 use crate::product::APPLICATION_NAME;
 
 impl App {
+    pub(crate) fn platform_memory_snapshot(&mut self) -> PlatformMemorySnapshot {
+        PlatformMemorySnapshot {
+            services: vec![
+                MemoryServiceSnapshot {
+                    name: "Decoded block cache".to_owned(),
+                    state: "Not used".to_owned(),
+                    detail: "Browser-derived data is retained directly in memory".to_owned(),
+                    used_bytes: None,
+                    budget_bytes: None,
+                },
+                MemoryServiceSnapshot {
+                    name: "Persistent derived cache".to_owned(),
+                    state: "Unavailable".to_owned(),
+                    detail: "Persistent filesystem caches are unavailable in the browser"
+                        .to_owned(),
+                    used_bytes: None,
+                    budget_bytes: None,
+                },
+            ],
+            persistent_caches: Vec::new(),
+        }
+    }
+
     pub(crate) fn platform_clear_capture_caches(
         &mut self,
         _configs: &[signal_processing::PersistentStoreConfig],
@@ -151,16 +175,17 @@ impl App {
             compiler::SourcePreparationUpdate::Unchanged => {}
             compiler::SourcePreparationUpdate::Preparing => {
                 if self.platform.capture_presentation_identity.take().is_some() {
-                    self.logic_analyzer.clear_capture();
+                    self.clear_capture_presentation();
                 }
+                self.mark_capture_index_building();
             }
             compiler::SourcePreparationUpdate::Cleared => {
                 self.platform.capture_presentation_identity = None;
-                self.logic_analyzer.clear_capture();
+                self.clear_capture_presentation();
             }
             compiler::SourcePreparationUpdate::Failed(error) => {
                 self.platform.capture_presentation_identity = None;
-                self.logic_analyzer.clear_capture();
+                self.clear_capture_presentation();
                 self.toasts
                     .error(format!("Could not prepare capture source: {error}"));
             }
@@ -169,24 +194,20 @@ impl App {
                     .set_visible_capture_channels(prepared.visible_channels);
                 self.platform.capture_presentation_identity = Some(prepared.identity);
                 match prepared.data {
-                    compiler::PreparedCaptureData::InMemory { signals, .. } => {
-                        self.set_capture_preview(signals)
-                    }
+                    compiler::PreparedCaptureData::InMemory {
+                        signals,
+                        duration_us,
+                    } => self.set_capture_preview(signals, duration_us),
                     compiler::PreparedCaptureData::Channels(channels) => {
-                        self.logic_analyzer.set_channels(
-                            channels
-                                .into_iter()
-                                .map(|(index, name)| logic_analyzer_viewer::ChannelSignal {
-                                    index,
-                                    name,
-                                    initial: false,
-                                    transitions: Vec::new(),
-                                })
-                                .collect(),
-                        )
+                        let identity = self
+                            .platform
+                            .capture_presentation_identity
+                            .clone()
+                            .unwrap_or_else(|| "Raw capture".to_owned());
+                        self.set_capture_channel_metadata(identity, channels)
                     }
                     compiler::PreparedCaptureData::Indexed(_) => {
-                        self.logic_analyzer.clear_capture();
+                        self.clear_capture_presentation();
                     }
                 }
             }

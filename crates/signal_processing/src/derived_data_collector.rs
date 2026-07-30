@@ -19,8 +19,9 @@ use crate::node::ProcessNode;
 use crate::payload::PayloadRegistrationError;
 use crate::payload::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
-    CollectedLaneTableMetadata, CollectedLaneTableRow, CollectedLaneTableSnapshot,
-    OpaqueCollectedLaneSnapshot, PayloadAdapter, PayloadDescriptor, PayloadRegistry,
+    CollectedLaneStorageBacking, CollectedLaneStorageSnapshot, CollectedLaneTableMetadata,
+    CollectedLaneTableRow, CollectedLaneTableSnapshot, OpaqueCollectedLaneSnapshot, PayloadAdapter,
+    PayloadDescriptor, PayloadRegistry,
 };
 use crate::ports::{InputPort, OutputPort, PortDirection, PortSchema};
 use crate::sample::Sample;
@@ -283,6 +284,14 @@ impl CollectedLaneQuery for DigitalLaneQuery {
             .last()
             .map(|sample| sample.start_time_ns)
     }
+
+    fn storage_snapshot(&self) -> CollectedLaneStorageSnapshot {
+        let storage = self.storage.read().unwrap();
+        in_memory_storage_snapshot::<Sample>(
+            storage.samples.len(),
+            storage.summary.resident_records(),
+        )
+    }
 }
 
 struct TriggerLaneQuery {
@@ -333,6 +342,14 @@ impl CollectedLaneQuery for TriggerLaneQuery {
 
     fn timeline_extent_end_ns(&self) -> Option<u64> {
         self.storage.read().unwrap().timestamps.last().copied()
+    }
+
+    fn storage_snapshot(&self) -> CollectedLaneStorageSnapshot {
+        let storage = self.storage.read().unwrap();
+        in_memory_storage_snapshot::<u64>(
+            storage.timestamps.len(),
+            storage.summary.resident_records(),
+        )
     }
 }
 
@@ -389,6 +406,14 @@ impl CollectedLaneQuery for NumberLaneQuery {
             .last()
             .map(|value| value.start_time_ns)
     }
+
+    fn storage_snapshot(&self) -> CollectedLaneStorageSnapshot {
+        let storage = self.storage.read().unwrap();
+        in_memory_storage_snapshot::<NumberSample>(
+            storage.values.len(),
+            storage.summary.resident_records(),
+        )
+    }
 }
 
 struct TextLaneQuery {
@@ -443,6 +468,23 @@ impl CollectedLaneQuery for TextLaneQuery {
             .values
             .last()
             .map(|value| value.start_time_ns)
+    }
+
+    fn storage_snapshot(&self) -> CollectedLaneStorageSnapshot {
+        let storage = self.storage.read().unwrap();
+        let payload_bytes = storage
+            .values
+            .iter()
+            .map(|value| value.value.capacity())
+            .sum::<usize>();
+        let mut snapshot = in_memory_storage_snapshot::<TextSample>(
+            storage.values.len(),
+            storage.summary.resident_records(),
+        );
+        snapshot.resident_bytes = snapshot
+            .resident_bytes
+            .map(|bytes| bytes.saturating_add(payload_bytes as u64));
+        snapshot
     }
 }
 
@@ -688,6 +730,70 @@ impl CollectedLaneQuery for CollectedWordLaneQuery {
                 })
             }
         }
+    }
+
+    fn storage_snapshot(&self) -> CollectedLaneStorageSnapshot {
+        let storage = self.storage.read().unwrap();
+        match &*storage {
+            WordLaneStorage::InMemory(storage) => {
+                let payload_bytes = storage
+                    .annotations
+                    .iter()
+                    .map(annotation_payload_bytes)
+                    .sum::<usize>();
+                let mut snapshot = in_memory_storage_snapshot::<Annotation>(
+                    storage.annotations.len(),
+                    storage.summary.resident_records(),
+                );
+                snapshot.resident_bytes = snapshot
+                    .resident_bytes
+                    .map(|bytes| bytes.saturating_add(payload_bytes as u64));
+                snapshot
+            }
+            WordLaneStorage::Indexed(indexed) => {
+                let metadata = indexed.storage_metadata();
+                CollectedLaneStorageSnapshot {
+                    backing: if metadata.persistent_cache {
+                        CollectedLaneStorageBacking::PersistentCache
+                    } else {
+                        CollectedLaneStorageBacking::Indexed
+                    },
+                    retained_items: Some(
+                        metadata
+                            .committed_word_count
+                            .saturating_add(metadata.hot_tail_word_count as u64),
+                    ),
+                    resident_bytes: Some((metadata.hot_tail_word_count * size_of::<Word>()) as u64),
+                    stored_bytes: Some(metadata.committed_data_len),
+                    index_items: Some(metadata.committed_block_count as u64),
+                    index_bytes: None,
+                    live: metadata.status == StoreStatus::Live,
+                }
+            }
+        }
+    }
+}
+
+fn in_memory_storage_snapshot<T>(
+    retained_items: usize,
+    index_items: usize,
+) -> CollectedLaneStorageSnapshot {
+    CollectedLaneStorageSnapshot {
+        backing: CollectedLaneStorageBacking::Memory,
+        retained_items: Some(retained_items as u64),
+        resident_bytes: Some((retained_items * size_of::<T>()) as u64),
+        stored_bytes: None,
+        index_items: Some(index_items as u64),
+        index_bytes: Some((index_items * size_of::<MipmapRecord>()) as u64),
+        live: false,
+    }
+}
+
+fn annotation_payload_bytes(annotation: &Annotation) -> usize {
+    match &annotation.payload {
+        Some(crate::events::WordPayload::Bytes(bytes)) => bytes.len(),
+        Some(crate::events::WordPayload::Text(text)) => text.len(),
+        None => 0,
     }
 }
 
@@ -1047,6 +1153,10 @@ impl OpaqueCollectedLane {
     /// Returns bounded table rows supplied by the lane's adapter.
     pub fn table_snapshot(&self, max_rows: usize) -> Option<CollectedLaneTableSnapshot> {
         self.query.table_snapshot(max_rows)
+    }
+
+    pub fn storage_snapshot(&self) -> CollectedLaneStorageSnapshot {
+        self.query.storage_snapshot()
     }
 }
 
@@ -2386,13 +2496,19 @@ mod tests {
         let ingestor = payloads
             .adapter_by_type_id(std::any::TypeId::of::<Word>())
             .unwrap()
-            .create_ingestor(CollectedLaneRequest::new(
-                "words",
-                0,
-                lanes.clone(),
-                descriptor,
-                DerivedDataRetention::Unlimited,
-            ))
+            .create_ingestor(
+                CollectedLaneRequest::new(
+                    "words",
+                    0,
+                    lanes.clone(),
+                    descriptor,
+                    DerivedDataRetention::Unlimited,
+                )
+                .with_options(CollectedWordLaneOptions {
+                    indexed: false,
+                    ..CollectedWordLaneOptions::default()
+                }),
+            )
             .unwrap();
 
         let _collector = DerivedDataCollector::new().with_ingestor(ingestor);
@@ -2400,6 +2516,18 @@ mod tests {
         assert_eq!(
             lanes.opaque_lanes()[0].payload().stable_id(),
             "org.logicconduit.word/v1"
+        );
+        assert_eq!(
+            lanes.opaque_lanes()[0].storage_snapshot(),
+            CollectedLaneStorageSnapshot {
+                backing: CollectedLaneStorageBacking::Memory,
+                retained_items: Some(0),
+                resident_bytes: Some(0),
+                stored_bytes: None,
+                index_items: Some(0),
+                index_bytes: Some(0),
+                live: false,
+            }
         );
         let snapshot = lanes.opaque_lanes()[0]
             .snapshot(CollectedLaneSnapshotRequest {
@@ -2423,13 +2551,19 @@ mod tests {
         let ingestor = payloads
             .adapter_by_type_id(std::any::TypeId::of::<Word>())
             .unwrap()
-            .create_ingestor(CollectedLaneRequest::new(
-                "wide.words",
-                0,
-                lanes.clone(),
-                descriptor,
-                DerivedDataRetention::Unlimited,
-            ))
+            .create_ingestor(
+                CollectedLaneRequest::new(
+                    "wide.words",
+                    0,
+                    lanes.clone(),
+                    descriptor,
+                    DerivedDataRetention::Unlimited,
+                )
+                .with_options(CollectedWordLaneOptions {
+                    indexed: false,
+                    ..CollectedWordLaneOptions::default()
+                }),
+            )
             .unwrap();
         let mut collector = test_collector(lanes.clone()).with_ingestor(ingestor);
         let watchdog = Watchdog::new();
@@ -2470,6 +2604,11 @@ mod tests {
             annotations[0].payload,
             Some(crate::WordPayload::Bytes(bytes))
         );
+        let storage = lanes.opaque_lanes()[0].storage_snapshot();
+        assert_eq!(storage.backing, CollectedLaneStorageBacking::Memory);
+        assert_eq!(storage.retained_items, Some(1));
+        assert!(storage.resident_bytes.unwrap() >= 32);
+        assert_eq!(storage.index_items, Some(1));
     }
 
     #[test]

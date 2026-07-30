@@ -139,9 +139,9 @@ pub use node::{
 };
 pub use payload::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
-    CollectedLaneTableMetadata, CollectedLaneTableRow, CollectedLaneTableSnapshot,
-    OpaqueCollectedLaneSnapshot, PayloadAdapter, PayloadDescriptor, PayloadRegistrationError,
-    PayloadRegistry,
+    CollectedLaneStorageBacking, CollectedLaneStorageSnapshot, CollectedLaneTableMetadata,
+    CollectedLaneTableRow, CollectedLaneTableSnapshot, OpaqueCollectedLaneSnapshot, PayloadAdapter,
+    PayloadDescriptor, PayloadRegistrationError, PayloadRegistry,
 };
 pub use pipeline::Pipeline;
 pub use ports::{InputPort, OutputPort, PortDirection, PortSchema, register_type};

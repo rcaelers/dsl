@@ -65,3 +65,21 @@ fn generic_viewer_has_no_legacy_collected_lane_fallback() {
         );
     }
 }
+
+#[test]
+fn generic_viewer_exposes_no_resource_inventory_contracts() {
+    let sources = [include_str!("lib.rs"), include_str!("viewer.rs")];
+    let forbidden = [
+        "MemorySnapshot",
+        "StorageSnapshot",
+        "memory_snapshot",
+        "storage_snapshot",
+    ];
+
+    for token in forbidden {
+        assert!(
+            sources.iter().all(|source| !source.contains(token)),
+            "generic viewer source contains resource-inventory contract {token:?}"
+        );
+    }
+}

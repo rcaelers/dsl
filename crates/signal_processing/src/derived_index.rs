@@ -90,6 +90,10 @@ impl<T, F: LaneFold<T>> AppendOnlyMipmap<T, F> {
         self.len == 0
     }
 
+    pub(crate) fn resident_records(&self) -> usize {
+        self.tiers.iter().map(Vec::len).sum()
+    }
+
     pub fn push(&mut self, entry: &T) {
         self.push_record(0, F::leaf(entry));
         self.len += 1;
@@ -252,6 +256,10 @@ impl<T, F: LaneFold<T>> ChunkedMipmap<T, F> {
 
     pub fn is_empty(&self) -> bool {
         self.len == 0
+    }
+
+    pub(crate) fn resident_records(&self) -> usize {
+        self.completed.resident_records() + self.active.len()
     }
 
     pub fn push(&mut self, entry: &T) {

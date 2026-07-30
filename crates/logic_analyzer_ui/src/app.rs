@@ -36,6 +36,10 @@ use crate::live_capture::{
     CaptureAnalysisAttachment, CaptureAvailability, CaptureCoordinator, CaptureCoordinatorContract,
     CaptureReplayAttachment, ConfigurationEpochResolution, capture_availability,
 };
+use crate::memory_panel::{
+    CaptureStorageBacking, CaptureStorageSnapshot, DerivedSignalStorageSnapshot, MemoryPanel,
+    MemoryPanelSnapshot, MemoryServiceSnapshot,
+};
 use crate::plugin_panel::{PluginPanelIcon, PluginPanelRegistry, PluginPanels, PluginPanelsState};
 use crate::preferences::PreferencesWindow;
 use crate::sampling_overlay_presentation::sampling_overlay_presentation;
@@ -430,9 +434,44 @@ pub struct App {
     pub(crate) viewer_lane_order: Vec<SavedViewerRow>,
     pub(crate) decoder_panels: DecoderPanels,
     pub(crate) plugin_panels: PluginPanels,
+    pub(crate) memory_panel: MemoryPanel,
+    pub(crate) presented_derived_lanes: signal_processing::DerivedLanes,
+    pub(crate) capture_storage: Option<CaptureStorageSnapshot>,
     pub(crate) timeline_marker_owners: HashMap<String, (NodeId, String)>,
     pub(crate) timeline_marker_error: Option<String>,
     pub(crate) timeline_marker_reference_error: Option<String>,
+}
+
+fn capture_storage_from_index(
+    identity: &str,
+    index: &dyn signal_processing::CaptureIndex,
+    backing: CaptureStorageBacking,
+) -> CaptureStorageSnapshot {
+    let metadata = index.current_metadata();
+    CaptureStorageSnapshot {
+        name: if identity.is_empty() {
+            index.display_name()
+        } else {
+            identity.to_owned()
+        },
+        status: if index.is_complete() {
+            "Indexed capture ready"
+        } else {
+            "Capture index is growing"
+        }
+        .to_owned(),
+        backing,
+        channels: metadata.total_probes,
+        total_samples: Some(metadata.total_samples),
+        data_bytes: Some(
+            metadata
+                .total_samples
+                .div_ceil(8)
+                .saturating_mul(metadata.total_probes as u64),
+        ),
+        index_path: Some(index.index_path().to_owned()),
+        index_progress: None,
+    }
 }
 
 fn timeline_marker_reference_binding_is_synchronized(
@@ -661,11 +700,32 @@ impl App {
         self.refresh_timeline_markers();
     }
 
-    pub(crate) fn set_capture_preview(&mut self, signals: Vec<CapturePresentationSignal>) {
-        let duration_us = signals
+    pub(crate) fn set_capture_preview(
+        &mut self,
+        signals: Vec<CapturePresentationSignal>,
+        duration_us: f64,
+    ) {
+        let resident_bytes = signals
             .iter()
-            .flat_map(|signal| signal.transitions.last().map(|(time, _)| *time))
-            .fold(1.0_f64, f64::max);
+            .map(|signal| {
+                signal.name.capacity()
+                    + signal.transitions.capacity() * std::mem::size_of::<(f64, bool)>()
+            })
+            .sum::<usize>() as u64;
+        self.capture_storage = Some(CaptureStorageSnapshot {
+            name: self
+                .platform
+                .capture_presentation_identity
+                .clone()
+                .unwrap_or_else(|| "Raw capture".to_owned()),
+            status: "In-memory capture ready".to_owned(),
+            backing: CaptureStorageBacking::InMemory,
+            channels: signals.len(),
+            total_samples: None,
+            data_bytes: Some(resident_bytes),
+            index_path: None,
+            index_progress: None,
+        });
         let channels = signals
             .into_iter()
             .map(|signal| logic_analyzer_viewer::ChannelSignal {
@@ -677,6 +737,70 @@ impl App {
             .collect();
         self.logic_analyzer
             .set_channels_with_duration(channels, duration_us);
+    }
+
+    pub(crate) fn set_prepared_capture(
+        &mut self,
+        identity: String,
+        index: Box<dyn signal_processing::CaptureIndex + Send>,
+    ) {
+        self.capture_storage = Some(capture_storage_from_index(
+            &identity,
+            index.as_ref(),
+            CaptureStorageBacking::Indexed,
+        ));
+        self.logic_analyzer.set_prepared_capture(identity, index);
+    }
+
+    pub(crate) fn set_capture_channel_metadata(
+        &mut self,
+        identity: String,
+        channels: Vec<(usize, String)>,
+    ) {
+        self.capture_storage = Some(CaptureStorageSnapshot {
+            name: identity,
+            status: "Channel metadata ready".to_owned(),
+            backing: CaptureStorageBacking::MetadataOnly,
+            channels: channels.len(),
+            total_samples: None,
+            data_bytes: None,
+            index_path: None,
+            index_progress: None,
+        });
+        self.logic_analyzer.set_channels(
+            channels
+                .into_iter()
+                .map(|(index, name)| logic_analyzer_viewer::ChannelSignal {
+                    index,
+                    name,
+                    initial: false,
+                    transitions: Vec::new(),
+                })
+                .collect(),
+        );
+    }
+
+    pub(crate) fn mark_capture_index_building(&mut self) {
+        self.capture_storage = Some(CaptureStorageSnapshot {
+            name: "Raw capture".to_owned(),
+            status: "Preparing capture index".to_owned(),
+            backing: CaptureStorageBacking::BuildingIndex,
+            channels: 0,
+            total_samples: None,
+            data_bytes: None,
+            index_path: None,
+            index_progress: None,
+        });
+    }
+
+    pub(crate) fn clear_capture_presentation(&mut self) {
+        self.capture_storage = None;
+        self.logic_analyzer.clear_capture();
+    }
+
+    fn set_presented_derived_lanes(&mut self, lanes: signal_processing::DerivedLanes) {
+        self.presented_derived_lanes = lanes.clone();
+        self.logic_analyzer.set_derived_lanes(lanes);
     }
 
     fn toast_source_for_node(&self, node_id: NodeId) -> ToastSource {
@@ -758,7 +882,7 @@ impl App {
         self.capture_epoch_request_in_flight = false;
         self.run_message = None;
         self.error_badges.clear();
-        self.logic_analyzer.clear_capture();
+        self.clear_capture_presentation();
         self.platform_restore_graph_capture();
         self.apply_graph_document(graph);
         self.capture_availability =
@@ -946,6 +1070,9 @@ impl App {
             viewer_lane_order: Vec::new(),
             decoder_panels: DecoderPanels::default(),
             plugin_panels: PluginPanels::new(plugin_panel_registry),
+            memory_panel: MemoryPanel::default(),
+            presented_derived_lanes: signal_processing::DerivedLanes::new(),
+            capture_storage: None,
             timeline_marker_owners: HashMap::new(),
             timeline_marker_error: None,
             timeline_marker_reference_error: None,
@@ -1344,7 +1471,7 @@ impl App {
             run.stop();
         }
         let lanes = signal_processing::DerivedLanes::new();
-        self.logic_analyzer.set_derived_lanes(lanes.clone());
+        self.set_presented_derived_lanes(lanes.clone());
         self.logic_analyzer
             .set_waveform_presentations(WaveformPresentationRegistry::new());
         self.decoder_panels
@@ -1354,7 +1481,7 @@ impl App {
 
     fn bind_run_data(&mut self, run_data: compiler::RunData) {
         let lanes = run_data.derived_lanes().clone();
-        self.logic_analyzer.set_derived_lanes(lanes.clone());
+        self.set_presented_derived_lanes(lanes.clone());
         match waveform_presentation_registry(run_data.output_subscriptions()) {
             Ok(presentations) => self
                 .logic_analyzer
@@ -1438,8 +1565,7 @@ impl App {
             self.toasts.error(error);
             return;
         }
-        self.logic_analyzer
-            .set_derived_lanes(ctx.derived_lanes().clone());
+        self.set_presented_derived_lanes(ctx.derived_lanes().clone());
         self.logic_analyzer
             .set_waveform_presentations(WaveformPresentationRegistry::new());
         self.decoder_panels
@@ -1613,8 +1739,7 @@ impl App {
             .unwrap_or_default();
         self.capture_analysis = None;
         self.capture_analysis_error = None;
-        self.logic_analyzer
-            .set_derived_lanes(signal_processing::DerivedLanes::new());
+        self.set_presented_derived_lanes(signal_processing::DerivedLanes::new());
         if let Err(error) = self.platform_clear_capture_caches(&capture_cache_configs) {
             self.capture_graph = None;
             self.capture_epoch_observed_graph = None;
@@ -1624,7 +1749,7 @@ impl App {
         }
         // Capture data is replaceable working state. Drop the viewer's index
         // handle before the coordinator removes the previous store and index.
-        self.logic_analyzer.clear_capture();
+        self.clear_capture_presentation();
         match self
             .capture
             .start_with_graph(feature, self.node_graph.graph(), mode)
@@ -1667,12 +1792,21 @@ impl App {
         if let Some(update) = self.capture.take_waveform_update() {
             match update {
                 Some(index) => {
+                    let identity = self.capture.status().map_or_else(
+                        || "Live capture".to_owned(),
+                        |status| status.source_title.clone(),
+                    );
+                    self.capture_storage = Some(capture_storage_from_index(
+                        &identity,
+                        index.as_ref(),
+                        CaptureStorageBacking::GrowingIndex,
+                    ));
                     self.logic_analyzer
                         .set_growing_capture_with_planned_span(index, planned_span_us);
                     self.publish_live_source_artifacts(true, true);
                 }
                 None => {
-                    self.logic_analyzer.clear_capture();
+                    self.clear_capture_presentation();
                     self.platform_restore_graph_capture();
                 }
             }
@@ -1780,8 +1914,7 @@ impl App {
         }
         let mut ctx = compiler::CompileCtx::default();
         self.supply_timeline_cursors(&mut ctx);
-        self.logic_analyzer
-            .set_derived_lanes(ctx.derived_lanes().clone());
+        self.set_presented_derived_lanes(ctx.derived_lanes().clone());
         self.logic_analyzer
             .set_waveform_presentations(WaveformPresentationRegistry::new());
         self.decoder_panels
@@ -2549,6 +2682,7 @@ impl App {
     ) -> Vec<(String, String, panel_layout::PanelIcon)> {
         let mut panels = vec![
             ("Log".to_owned(), "log".to_owned(), PanelIcon::List),
+            ("Memory".to_owned(), "memory".to_owned(), PanelIcon::Table),
             ("Watches".to_owned(), "watches".to_owned(), PanelIcon::List),
             (
                 "Triggers".to_owned(),
@@ -2571,6 +2705,78 @@ impl App {
             .into_iter()
             .map(|(_, content_id, _)| content_id)
             .collect()
+    }
+
+    fn show_memory_panel(&mut self, ui: &mut egui::Ui) {
+        if self.memory_panel.refresh_due() {
+            let derived_lanes = self
+                .presented_derived_lanes
+                .opaque_lanes()
+                .into_iter()
+                .map(|lane| DerivedSignalStorageSnapshot {
+                    name: lane.name().to_owned(),
+                    payload_id: lane.payload().stable_id().to_owned(),
+                    storage: lane.storage_snapshot(),
+                })
+                .collect::<Vec<_>>();
+            let graph_state = if let Some(run) = self.run.as_ref() {
+                if run.is_finished() {
+                    "Finished"
+                } else {
+                    "Running"
+                }
+            } else if !derived_lanes.is_empty() {
+                "Cached preview"
+            } else {
+                "Idle"
+            };
+            let mut services = vec![MemoryServiceSnapshot {
+                name: "Processing graph".to_owned(),
+                state: graph_state.to_owned(),
+                detail: format!("{} retained lane(s)", derived_lanes.len()),
+                used_bytes: None,
+                budget_bytes: None,
+            }];
+            let capture_service = self.capture.status().map_or_else(
+                || MemoryServiceSnapshot {
+                    name: "Capture service".to_owned(),
+                    state: "Idle".to_owned(),
+                    detail: "No active capture session".to_owned(),
+                    used_bytes: None,
+                    budget_bytes: None,
+                },
+                |status| MemoryServiceSnapshot {
+                    name: "Capture service".to_owned(),
+                    state: capture_state_name(status.state).to_owned(),
+                    detail: status.source_title.clone(),
+                    used_bytes: None,
+                    budget_bytes: None,
+                },
+            );
+            services.push(capture_service);
+            let mut capture = self.capture_storage.clone();
+            if let (Some(capture), Some(status)) = (&mut capture, self.capture.status())
+                && let Some(stored_samples) = status.health.stored_samples
+            {
+                capture.total_samples = Some(stored_samples);
+                capture.data_bytes = Some(
+                    stored_samples
+                        .div_ceil(8)
+                        .saturating_mul(capture.channels as u64),
+                );
+            }
+            let platform = self.platform_memory_snapshot();
+            services.extend(platform.services);
+            self.memory_panel.replace_snapshot(MemoryPanelSnapshot {
+                services,
+                capture,
+                derived_lanes,
+                persistent_caches: platform.persistent_caches,
+            });
+        }
+        self.memory_panel.show(ui);
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(500));
     }
 
     pub(crate) fn reset_panel_layout(&mut self) {
@@ -3005,6 +3211,10 @@ impl eframe::App for App {
             PanelSpec::new("log", "Log", 160.0)
                 .icon(PanelIcon::List)
                 .minimum_width(240.0),
+            PanelSpec::new("memory", "Memory", 160.0)
+                .icon(PanelIcon::Table)
+                .minimum_width(320.0)
+                .singleton(),
             PanelSpec::new("watches", "Watches", 120.0)
                 .icon(PanelIcon::List)
                 .minimum_width(180.0),
@@ -3114,6 +3324,10 @@ impl eframe::App for App {
                 PanelSlot::Body {
                     content_id: "log", ..
                 } => self.toasts.show_history(panel_ui),
+                PanelSlot::Body {
+                    content_id: "memory",
+                    ..
+                } => self.show_memory_panel(panel_ui),
                 PanelSlot::Body {
                     content_id: "watches",
                     ..

@@ -105,6 +105,7 @@ struct StoreShared {
     store_id: u64,
     path: PathBuf,
     remove_on_drop: AtomicBool,
+    persistent_cache: AtomicBool,
 }
 
 impl Drop for StoreShared {
@@ -199,6 +200,7 @@ impl IndexedAnnotationStore {
                 store_id: NEXT_STORE_ID.fetch_add(1, Ordering::Relaxed),
                 path: data_path,
                 remove_on_drop: AtomicBool::new(false),
+                persistent_cache: AtomicBool::new(true),
             }),
         }))
     }
@@ -233,6 +235,7 @@ impl IndexedAnnotationStore {
                 extent_end_ns,
                 hot_tail_word_count: state.hot_tail.len(),
                 mmap_backed,
+                persistent_cache: self.shared.persistent_cache.load(Ordering::Relaxed),
                 status: state.status.clone(),
             },
             hot_tail: Arc::clone(&state.hot_tail),
@@ -889,6 +892,7 @@ impl IndexedAnnotationWriter {
             store_id: NEXT_STORE_ID.fetch_add(1, Ordering::Relaxed),
             path: temp_path,
             remove_on_drop: AtomicBool::new(true),
+            persistent_cache: AtomicBool::new(false),
         });
         let store = IndexedAnnotationStore {
             shared: Arc::clone(&shared),
@@ -1031,6 +1035,7 @@ impl IndexedAnnotationWriter {
             let mmap = unsafe { MmapOptions::new().map(&final_file)? };
             *backend = ReadBackend::Mmap(mmap);
             self.shared.remove_on_drop.store(false, Ordering::Relaxed);
+            self.shared.persistent_cache.store(true, Ordering::Relaxed);
         } else {
             // SAFETY: all appends are complete, sync_data returned
             // successfully, and `terminal` prevents later mutation.
@@ -1309,6 +1314,16 @@ mod tests {
             .collect();
         writer.append_batch(&words).unwrap();
         writer.finish().unwrap();
+
+        let inspected = super::super::super::super::persistent::inspect_cache_entry(&persistent)
+            .unwrap()
+            .expect("published cache diagnostics");
+        assert_eq!(inspected.word_count, words.len() as u64);
+        assert!(inspected.block_count > 0);
+        assert_eq!(
+            inspected.total_bytes,
+            inspected.data_bytes + inspected.index_bytes + 96
+        );
 
         assert!(super::super::super::super::persistent::data_path(&persistent).is_file());
         assert!(

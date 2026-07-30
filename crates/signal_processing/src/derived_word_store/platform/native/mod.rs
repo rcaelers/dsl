@@ -4,7 +4,10 @@ pub use super::super::cache::{
     DecodedBlockCacheStats, configure_decoded_block_cache, decoded_block_cache_stats,
     reset_decoded_block_cache_stats,
 };
-pub use super::super::persistent::{cleanup_cache, clear_cache, clear_cache_entry};
+pub use super::super::persistent::{
+    PersistentCacheEntrySnapshot, cleanup_cache, clear_cache, clear_cache_entry,
+    inspect_cache_entry,
+};
 #[path = "../../store.rs"]
 mod store;
 

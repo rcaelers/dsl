@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use logic_analyzer_graph_compiler as compiler;
@@ -9,10 +10,126 @@ use crate::app_platform::{FileCommand, GuardedAction, derived_cache_directory};
 use crate::app_platform::{NativeMenuCommand, notify_recent_files_changed};
 use crate::host_service::{OpenDialog, SaveDialog};
 use crate::live_capture::{CaptureCoordinatorContract, CaptureRawExportFormat};
+use crate::memory_panel::{
+    MemoryServiceSnapshot, PersistentCacheSnapshot, PersistentCacheSnapshotState,
+    PlatformMemorySnapshot,
+};
 #[cfg(not(target_os = "macos"))]
 use crate::product::APPLICATION_NAME;
 
 impl App {
+    pub(crate) fn platform_memory_snapshot(&mut self) -> PlatformMemorySnapshot {
+        let decoded = signal_processing::decoded_block_cache_stats();
+        let mut snapshot = PlatformMemorySnapshot {
+            services: vec![MemoryServiceSnapshot {
+                name: "Decoded block cache".to_owned(),
+                state: if decoded.entries == 0 {
+                    "Empty"
+                } else {
+                    "Ready"
+                }
+                .to_owned(),
+                detail: format!(
+                    "{} block(s) · {} hit(s) · {} miss(es)",
+                    decoded.entries, decoded.hits, decoded.misses
+                ),
+                used_bytes: Some(decoded.memory_bytes as u64),
+                budget_bytes: Some(decoded.budget_bytes as u64),
+            }],
+            persistent_caches: Vec::new(),
+        };
+        let directory = derived_cache_directory();
+        let inventory = match self
+            .graph_service
+            .derived_cache_configs_by_node(self.node_graph.graph(), &directory)
+        {
+            Ok(inventory) => inventory,
+            Err(errors) => {
+                snapshot.services.push(MemoryServiceSnapshot {
+                    name: "Persistent derived cache".to_owned(),
+                    state: "Unavailable".to_owned(),
+                    detail: errors.first().map_or_else(
+                        || "Graph cannot be lowered".to_owned(),
+                        |error| error.message.clone(),
+                    ),
+                    used_bytes: None,
+                    budget_bytes: None,
+                });
+                return snapshot;
+            }
+        };
+        let mut entries = BTreeMap::new();
+        for (node_id, configs) in inventory {
+            let owner = self
+                .node_graph
+                .graph()
+                .nodes
+                .get(&node_id)
+                .map(|node| node.title.clone());
+            for config in configs {
+                let (_, owners): &mut (signal_processing::PersistentStoreConfig, BTreeSet<String>) =
+                    entries
+                        .entry(config.cache_key)
+                        .or_insert_with(|| (config.clone(), BTreeSet::new()));
+                if let Some(owner) = &owner {
+                    owners.insert(owner.clone());
+                }
+            }
+        }
+        for (_, (config, owners)) in entries {
+            let inspected = self.host_service.inspect_cache_entry(&config);
+            let (state, info) = match inspected {
+                Ok(Some(info)) => (PersistentCacheSnapshotState::Ready, Some(info)),
+                Ok(None) => (PersistentCacheSnapshotState::Missing, None),
+                Err(error) => (PersistentCacheSnapshotState::Unreadable(error), None),
+            };
+            snapshot.persistent_caches.push(PersistentCacheSnapshot {
+                cache_key: config.cache_key,
+                owners: owners.into_iter().collect(),
+                directory: config.directory,
+                state,
+                total_bytes: info.map(|info| info.total_bytes),
+                data_bytes: info.map(|info| info.data_bytes),
+                index_bytes: info.map(|info| info.index_bytes),
+                items: info.map(|info| info.word_count),
+                index_items: info.map(|info| info.block_count as u64),
+            });
+        }
+        let ready = snapshot
+            .persistent_caches
+            .iter()
+            .filter(|entry| entry.state == PersistentCacheSnapshotState::Ready)
+            .count();
+        let bytes = snapshot
+            .persistent_caches
+            .iter()
+            .filter_map(|entry| entry.total_bytes)
+            .fold(0u64, u64::saturating_add);
+        snapshot.services.push(MemoryServiceSnapshot {
+            name: "Persistent derived cache".to_owned(),
+            state: if snapshot.persistent_caches.is_empty() {
+                "Empty"
+            } else if ready == 0 {
+                "Missing"
+            } else {
+                "Ready"
+            }
+            .to_owned(),
+            detail: format!(
+                "{ready} ready of {} selected graph entr{}",
+                snapshot.persistent_caches.len(),
+                if snapshot.persistent_caches.len() == 1 {
+                    "y"
+                } else {
+                    "ies"
+                }
+            ),
+            used_bytes: Some(bytes),
+            budget_bytes: None,
+        });
+        snapshot
+    }
+
     pub(crate) fn platform_clear_capture_caches(
         &mut self,
         configs: &[signal_processing::PersistentStoreConfig],
@@ -110,6 +227,10 @@ impl App {
                     self.show_auxiliary_panel("log");
                     continue;
                 }
+                NativeMenuCommand::ShowMemory => {
+                    self.show_auxiliary_panel("memory");
+                    continue;
+                }
                 NativeMenuCommand::ShowWatches => {
                     self.show_auxiliary_panel("watches");
                     continue;
@@ -177,16 +298,17 @@ impl App {
             compiler::SourcePreparationUpdate::Unchanged => {}
             compiler::SourcePreparationUpdate::Preparing => {
                 if self.platform.capture_presentation_identity.take().is_some() {
-                    self.logic_analyzer.clear_capture();
+                    self.clear_capture_presentation();
                 }
+                self.mark_capture_index_building();
             }
             compiler::SourcePreparationUpdate::Cleared => {
                 self.platform.capture_presentation_identity = None;
-                self.logic_analyzer.clear_capture();
+                self.clear_capture_presentation();
             }
             compiler::SourcePreparationUpdate::Failed(error) => {
                 self.platform.capture_presentation_identity = None;
-                self.logic_analyzer.clear_capture();
+                self.clear_capture_presentation();
                 self.toasts
                     .error(format!("Could not prepare capture source: {error}"));
             }
@@ -195,24 +317,15 @@ impl App {
                     .set_visible_capture_channels(prepared.visible_channels);
                 self.platform.capture_presentation_identity = Some(prepared.identity.clone());
                 match prepared.data {
-                    compiler::PreparedCaptureData::Indexed(index) => self
-                        .logic_analyzer
-                        .set_prepared_capture(prepared.identity, index),
-                    compiler::PreparedCaptureData::InMemory { signals, .. } => {
-                        self.set_capture_preview(signals)
+                    compiler::PreparedCaptureData::Indexed(index) => {
+                        self.set_prepared_capture(prepared.identity, index)
                     }
+                    compiler::PreparedCaptureData::InMemory {
+                        signals,
+                        duration_us,
+                    } => self.set_capture_preview(signals, duration_us),
                     compiler::PreparedCaptureData::Channels(channels) => {
-                        self.logic_analyzer.set_channels(
-                            channels
-                                .into_iter()
-                                .map(|(index, name)| logic_analyzer_viewer::ChannelSignal {
-                                    index,
-                                    name,
-                                    initial: false,
-                                    transitions: Vec::new(),
-                                })
-                                .collect(),
-                        )
+                        self.set_capture_channel_metadata(prepared.identity, channels)
                     }
                 }
             }

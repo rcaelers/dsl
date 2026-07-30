@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use signal_processing::PersistentStoreConfig;
+use signal_processing::derived_word_store::PersistentCacheEntrySnapshot;
 
 use super::contract::HostService;
 use super::platform_contract::{CacheClearStats, OpenDialog, PlatformHostService, SaveDialog};
@@ -65,6 +66,14 @@ impl PlatformHostService for NativeHostService {
                 removed_entries: stats.removed_entries,
                 removed_bytes: stats.removed_bytes,
             })
+            .map_err(|error| error.to_string())
+    }
+
+    fn inspect_cache_entry(
+        &self,
+        config: &PersistentStoreConfig,
+    ) -> Result<Option<PersistentCacheEntrySnapshot>, String> {
+        signal_processing::derived_word_store::inspect_cache_entry(config)
             .map_err(|error| error.to_string())
     }
 }

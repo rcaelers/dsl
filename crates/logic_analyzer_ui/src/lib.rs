@@ -10,6 +10,7 @@ mod graph_service;
 mod host_service;
 mod input_binding_config;
 mod live_capture;
+mod memory_panel;
 mod node_registry;
 mod plugin_panel;
 mod preferences;

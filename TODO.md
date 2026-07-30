@@ -27,11 +27,6 @@ Task IDs start with their ownership category and remain stable when task wording
 - [capture.live.snapshot-persistence] Persist/reload live-capture snapshots where appropriate so they can be indexed and revisited.
 - [capture.sigrok.extended-formats] Extend Sigrok support beyond v2 digital `logic-*` data (analog channels and newer format versions).
 
-### Indexed derived data
-
-- [derived.cache.inventory] Add read-only derived-cache inventory/usage reporting to complement the existing clear-cache
-  commands. Active mapped entries must remain pinned and visible as retained.
-
 ### Node graph editor
 
 - [graph.editor.socket-renaming] Add generic instance-local socket renaming. Node definitions explicitly mark which input and

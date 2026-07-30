@@ -5,9 +5,10 @@ use std::sync::{Arc, RwLock};
 
 use crate::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
-    CollectedLaneTableMetadata, CollectedLaneTableRow, CollectedLaneTableSnapshot,
-    DerivedDataRetention, InputPort, OpaqueCollectedLaneSnapshot, PayloadAdapter, PortDirection,
-    PortSchema, ProtocolPacket, WorkResult,
+    CollectedLaneStorageBacking, CollectedLaneStorageSnapshot, CollectedLaneTableMetadata,
+    CollectedLaneTableRow, CollectedLaneTableSnapshot, DerivedDataRetention, InputPort,
+    OpaqueCollectedLaneSnapshot, PayloadAdapter, PortDirection, PortSchema, ProtocolPacket,
+    ProtocolValue, WorkResult,
 };
 
 const DRAIN_BATCH_SIZE: usize = 1_024;
@@ -127,6 +128,45 @@ impl CollectedLaneQuery for ProtocolPacketLaneQuery {
             complete: state.packets.len() <= max_rows,
             format_hint: Some("protocol-packet".to_owned()),
         })
+    }
+
+    fn storage_snapshot(&self) -> CollectedLaneStorageSnapshot {
+        let state = self.state.read().unwrap();
+        let payload_bytes = state
+            .packets
+            .iter()
+            .map(|packet| packet.protocol_id.capacity() + protocol_value_bytes(&packet.value))
+            .sum::<usize>();
+        CollectedLaneStorageSnapshot {
+            backing: CollectedLaneStorageBacking::Memory,
+            retained_items: Some(state.packets.len() as u64),
+            resident_bytes: Some(
+                (state.packets.len() * size_of::<ProtocolPacket>() + payload_bytes) as u64,
+            ),
+            stored_bytes: None,
+            index_items: None,
+            index_bytes: None,
+            live: self.live.load(Ordering::Acquire),
+        }
+    }
+}
+
+fn protocol_value_bytes(value: &ProtocolValue) -> usize {
+    match value {
+        ProtocolValue::String(value) => value.capacity(),
+        ProtocolValue::Bytes(value) => value.len(),
+        ProtocolValue::List(values) | ProtocolValue::Tuple(values) => {
+            values.capacity() * size_of::<ProtocolValue>()
+                + values.iter().map(protocol_value_bytes).sum::<usize>()
+        }
+        ProtocolValue::Mapping(values) => values
+            .iter()
+            .map(|(key, value)| key.capacity() + protocol_value_bytes(value))
+            .sum(),
+        ProtocolValue::Null
+        | ProtocolValue::Bool(_)
+        | ProtocolValue::Integer(_)
+        | ProtocolValue::Float(_) => 0,
     }
 }
 
