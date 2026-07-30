@@ -206,6 +206,13 @@ user-set capacity on its input edge). See the flow-control section of
 
 ## Run lifecycle & live editing
 
+Loading a graph first opens every valid persistent derived-data cache selected by that document
+and binds those lanes to the viewer without materializing producers or sinks. This cached preview
+is passive application state: it does not create an active run or produce side effects. Pressing
+Run releases the preview handles, clears the graph's selected derived caches, and starts a fresh
+execution which rebuilds them. Run therefore always means execute, while reopening a document is
+enough to inspect previously completed derived data.
+
 `start_app_run` lowers the current graph and starts a `LiveRun` — the app always runs
 through the live machinery (a file replay is just a run whose source finishes).
 

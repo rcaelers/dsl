@@ -129,6 +129,40 @@ pub(crate) fn prepare_execution_with_backend(
     (execution, true)
 }
 
+pub(crate) fn prepare_cached_preview(compiled: &CompiledGraph) -> Option<CompiledGraph> {
+    prepare_cached_preview_with_backend(compiled, &NativeDerivedCacheBackend)
+}
+
+pub(crate) fn prepare_cached_preview_with_backend(
+    compiled: &CompiledGraph,
+    backend: &dyn DerivedCacheBackend,
+) -> Option<CompiledGraph> {
+    prepare_cache(compiled, backend);
+
+    let mut preview = compiled.clone();
+    let mut any_hit = false;
+    preview.nodes.retain_mut(|node| {
+        if !node.data_collector {
+            return false;
+        }
+        let mut collector_hit = false;
+        for config in &mut node.derived_word_caches {
+            let hit = config
+                .as_ref()
+                .is_some_and(|config| backend.lookup(config) == DerivedCacheLookup::Hit);
+            if hit {
+                collector_hit = true;
+                any_hit = true;
+            } else {
+                *config = None;
+            }
+        }
+        collector_hit
+    });
+    preview.edges.clear();
+    any_hit.then_some(preview)
+}
+
 fn prepare_cache(compiled: &CompiledGraph, backend: &dyn DerivedCacheBackend) {
     let configs: Vec<_> = compiled
         .nodes

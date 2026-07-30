@@ -24,7 +24,10 @@ trait DslFileArtifacts: Send + Sync {
     fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String>;
 }
 
-struct NativeDslFileArtifacts;
+#[derive(Default)]
+struct NativeDslFileArtifacts {
+    identities: super::super::file_identity_cache::FileIdentityCache,
+}
 
 impl DslFileArtifacts for NativeDslFileArtifacts {
     fn open(&self, name: &str, path: &Path) -> Result<Box<dyn ProcessNode>, String> {
@@ -38,7 +41,9 @@ impl DslFileArtifacts for NativeDslFileArtifacts {
     }
 
     fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String> {
-        DslFileSource::capture_cache_identity(path).map_err(|error| error.to_string())
+        self.identities.resolve(path, |path| {
+            DslFileSource::capture_cache_identity(path).map_err(|error| error.to_string())
+        })
     }
 }
 
@@ -49,7 +54,7 @@ pub(crate) struct FileSourceBuilder {
 impl Default for FileSourceBuilder {
     fn default() -> Self {
         Self {
-            artifacts: Arc::new(NativeDslFileArtifacts),
+            artifacts: Arc::new(NativeDslFileArtifacts::default()),
         }
     }
 }

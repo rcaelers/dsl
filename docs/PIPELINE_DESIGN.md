@@ -116,8 +116,10 @@ messages or capture-sized queues:
 `ParallelDecoder` supports `Auto`, `PackedStream`, and `Indexed` input strategies. Indexed
 mode uses hierarchical transition queries and batched point reads, making it appropriate
 for sparse signals. Packed mode scans resident 64-bit words and is appropriate for dense or
-live signals. Auto uses the strobe channel's index activity hint and applies one coordinated
-choice to strobe, data, and CS; explicit strategies always override it.
+live signals. Auto uses indexed raw inputs whenever an enable input is connected so disabled
+spans are excluded before reading strobe or data. Without an enable input, Auto uses the strobe
+channel's index activity hint. Either choice applies coherently to strobe, data, and CS; explicit
+strategies always override it.
 
 Packed decoding separates immutable scanning from ordered state updates. Each bounded
 65,536-sample fragment records trigger positions, bus values, reset markers, and boundary

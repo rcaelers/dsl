@@ -21,7 +21,10 @@ trait SigrokFileArtifacts: Send + Sync {
     fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String>;
 }
 
-struct NativeSigrokFileArtifacts;
+#[derive(Default)]
+struct NativeSigrokFileArtifacts {
+    identities: super::super::file_identity_cache::FileIdentityCache,
+}
 
 impl SigrokFileArtifacts for NativeSigrokFileArtifacts {
     fn open(&self, name: &str, path: &Path) -> Result<Box<dyn ProcessNode>, String> {
@@ -35,7 +38,9 @@ impl SigrokFileArtifacts for NativeSigrokFileArtifacts {
     }
 
     fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String> {
-        SigrokFileSource::capture_cache_identity(path).map_err(|error| error.to_string())
+        self.identities.resolve(path, |path| {
+            SigrokFileSource::capture_cache_identity(path).map_err(|error| error.to_string())
+        })
     }
 }
 
@@ -46,7 +51,7 @@ pub(crate) struct SigrokFileSourceBuilder {
 impl Default for SigrokFileSourceBuilder {
     fn default() -> Self {
         Self {
-            artifacts: Arc::new(NativeSigrokFileArtifacts),
+            artifacts: Arc::new(NativeSigrokFileArtifacts::default()),
         }
     }
 }

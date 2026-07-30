@@ -166,6 +166,14 @@ impl GraphService for FakeGraphService {
         Ok(Vec::new())
     }
 
+    fn load_cached_data(
+        &self,
+        _graph: &GraphState,
+        _context: &mut CompileCtx,
+    ) -> Result<bool, Vec<CompileError>> {
+        Ok(false)
+    }
+
     fn start_run(
         &self,
         _graph: &GraphState,

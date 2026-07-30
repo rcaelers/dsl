@@ -215,9 +215,11 @@ size, index size, directory, counts, and checksums validate. Completed data is i
 mmap-backed.
 
 The compiler derives the cache key from source identity and the relevant graph configuration.
-Cache entries are reusable optimizations: clearing or rejecting an entry never changes the source
-capture or another sink's output. Native cache administration supports per-entry clearing and an
-LRU size budget.
+When a graph document is opened, valid entries are published as a passive derived-data preview
+without executing producers or sinks. An explicit Run clears the selected graph entries before
+execution and rebuilds them from the source, so Run never silently substitutes old results for
+processing or sink side effects. Clearing or rejecting an entry never changes the source capture.
+Native cache administration supports per-entry clearing and an LRU size budget.
 
 ## Viewer integration
 

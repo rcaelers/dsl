@@ -39,9 +39,32 @@ impl App {
         }
     }
 
-    pub(crate) fn platform_prepare_run(&mut self, ctx: &mut compiler::CompileCtx) {
-        self.refresh_derived_cache_nodes();
+    pub(crate) fn platform_prepare_cached_data(&mut self, ctx: &mut compiler::CompileCtx) {
         ctx.set_persistent_cache_directory(derived_cache_directory());
+    }
+
+    pub(crate) fn platform_prepare_run(
+        &mut self,
+        ctx: &mut compiler::CompileCtx,
+    ) -> Result<(), String> {
+        self.refresh_derived_cache_nodes();
+        let directory = derived_cache_directory();
+        ctx.set_persistent_cache_directory(directory.clone());
+        let Ok(inventory) = self
+            .graph_service
+            .derived_cache_configs_by_node(self.node_graph.graph(), &directory)
+        else {
+            // The ordinary start path reports compile errors with node
+            // ownership and badges. Cache cleanup must not replace that
+            // diagnostic boundary with a generic platform error.
+            return Ok(());
+        };
+        let mut unique = std::collections::HashMap::new();
+        for config in inventory.into_values().flatten() {
+            unique.entry(config.cache_key).or_insert(config);
+        }
+        self.platform_clear_capture_caches(&unique.into_values().collect::<Vec<_>>())
+            .map_err(|error| format!("Could not clear derived data cache before running: {error}"))
     }
 
     pub(crate) fn platform_raw_input_hook(
@@ -231,19 +254,11 @@ impl App {
         }
         match self.host_service.load_graph(&path) {
             Ok(graph) => {
-                self.node_graph.set_graph(graph);
-                if let Some(run) = &mut self.run {
-                    run.stop();
-                }
+                self.clear_derived_data_presentations();
                 self.capture.clear_completed();
                 self.run_message = None;
                 self.error_badges.clear();
-                self.synchronize_payload_subscription_manifest(true);
-                self.restore_sampling_overlay_setting();
-                self.restore_viewer_lane_order_setting();
-                self.restore_viewer_lane_height_setting();
-                self.restore_timeline_cursor_setting();
-                self.restore_panel_layout_setting();
+                self.apply_graph_document(graph);
                 self.platform.current_file = Some(path.clone());
                 self.mark_graph_saved();
                 self.push_recent_file(path.clone());
@@ -268,13 +283,12 @@ impl App {
         if !self.can_replace_graph() {
             return;
         }
-        if let Some(run) = &mut self.run {
-            run.stop();
-        }
+        self.clear_derived_data_presentations();
         self.capture.clear_completed();
         self.run_message = None;
         self.error_badges.clear();
         self.node_graph.new_graph();
+        self.cached_preview_graph = serde_json::to_vec(self.node_graph.graph()).ok();
         self.restore_sampling_overlay_setting();
         self.restore_viewer_lane_order_setting();
         self.restore_viewer_lane_height_setting();
@@ -892,9 +906,7 @@ impl App {
     }
 
     fn release_derived_data_handles(&mut self) {
-        self.run = None;
-        self.logic_analyzer
-            .set_derived_lanes(signal_processing::DerivedLanes::new());
+        self.clear_derived_data_presentations();
     }
 
     fn refresh_derived_cache_nodes(&mut self) {

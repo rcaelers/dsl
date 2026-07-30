@@ -169,6 +169,20 @@ impl GraphCompiler {
         graph::start_app_run(graph, &self.builders, &self.output_subscriptions, ctx)
     }
 
+    /// Loads persistent derived lanes for presentation without executing producers or sinks.
+    pub fn load_cached_data(
+        &self,
+        graph: &GraphState,
+        ctx: &mut CompileCtx,
+    ) -> Result<bool, Vec<CompileError>> {
+        graph::load_cached_data_with_subscriptions(
+            graph,
+            &self.builders,
+            &self.output_subscriptions,
+            ctx,
+        )
+    }
+
     pub fn start_app_run_with_source_overrides(
         &self,
         graph: &GraphState,

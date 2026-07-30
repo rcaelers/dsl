@@ -31,6 +31,10 @@ pub(crate) fn prepare_execution(
     (compiled.clone(), false)
 }
 
+pub(crate) fn prepare_cached_preview(_compiled: &CompiledGraph) -> Option<CompiledGraph> {
+    None
+}
+
 pub(crate) fn cache_configs_by_node(
     _graph: &GraphState,
     _registry: &BuilderRegistry,

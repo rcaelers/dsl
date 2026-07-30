@@ -412,6 +412,7 @@ pub struct App {
     /// live edit can't be applied in place. One-off events (a live edit that
     /// *did* apply, one that failed) go through `toasts` instead (Phase 4.2).
     pub(crate) run_message: Option<(String, bool /* is_error */)>,
+    pub(crate) cached_preview_graph: Option<Vec<u8>>,
     /// Transient one-off notifications (file loaded/saved, node(s)
     /// copied/pasted, live-edit results) — bottom-right, self-clearing.
     pub(crate) toasts: Toasts,
@@ -724,7 +725,7 @@ impl App {
         app
     }
 
-    fn apply_graph_document(&mut self, graph: GraphState) {
+    pub(crate) fn apply_graph_document(&mut self, graph: GraphState) {
         self.node_graph.set_graph(graph);
         self.synchronize_payload_subscription_manifest(true);
         self.restore_sampling_overlay_setting();
@@ -732,6 +733,7 @@ impl App {
         self.restore_viewer_lane_height_setting();
         self.restore_timeline_cursor_setting();
         self.restore_panel_layout_setting();
+        self.restore_cached_derived_data();
     }
 
     pub fn load_demo_graph(&mut self, index: usize) {
@@ -747,9 +749,7 @@ impl App {
                 .error("Stop the active capture before loading a demo");
             return;
         }
-        if let Some(run) = &mut self.run {
-            run.stop();
-        }
+        self.clear_derived_data_presentations();
         self.capture.clear_completed();
         self.capture_graph = None;
         self.capture_analysis = None;
@@ -759,8 +759,6 @@ impl App {
         self.run_message = None;
         self.error_badges.clear();
         self.logic_analyzer.clear_capture();
-        self.logic_analyzer
-            .set_derived_lanes(signal_processing::DerivedLanes::new());
         self.platform_restore_graph_capture();
         self.apply_graph_document(graph);
         self.capture_availability =
@@ -934,6 +932,7 @@ impl App {
             last_capture_epoch_sync: -1.0,
             run: None,
             run_message: None,
+            cached_preview_graph: None,
             toasts: Toasts::default(),
             platform,
             about: AboutWindow::new(),
@@ -1340,6 +1339,57 @@ impl App {
         }
     }
 
+    pub(crate) fn clear_derived_data_presentations(&mut self) {
+        if let Some(mut run) = self.run.take() {
+            run.stop();
+        }
+        let lanes = signal_processing::DerivedLanes::new();
+        self.logic_analyzer.set_derived_lanes(lanes.clone());
+        self.logic_analyzer
+            .set_waveform_presentations(WaveformPresentationRegistry::new());
+        self.decoder_panels
+            .set_run_data(lanes.clone(), DecoderTableRegistry::new());
+        self.plugin_panels.set_run_data(lanes);
+    }
+
+    fn bind_run_data(&mut self, run_data: compiler::RunData) {
+        let lanes = run_data.derived_lanes().clone();
+        self.logic_analyzer.set_derived_lanes(lanes.clone());
+        match waveform_presentation_registry(run_data.output_subscriptions()) {
+            Ok(presentations) => self
+                .logic_analyzer
+                .set_waveform_presentations(presentations),
+            Err(error) => self.toasts.error(format!(
+                "Could not bind collected output presentation: {error}"
+            )),
+        }
+        match decoder_table_registry(run_data.table_subscriptions()) {
+            Ok(tables) => self.decoder_panels.set_run_data(lanes.clone(), tables),
+            Err(error) => self.toasts.error(format!(
+                "Could not bind decoder-table presentation: {error}"
+            )),
+        }
+        self.plugin_panels.set_run_data(lanes);
+        self.set_sampling_overlay_candidates(run_data.sampling_overlays().to_vec());
+    }
+
+    fn restore_cached_derived_data(&mut self) {
+        if self.run.is_some() || self.capture.is_active() || self.is_capture_analysis_active() {
+            return;
+        }
+        self.cached_preview_graph = serde_json::to_vec(self.node_graph.graph()).ok();
+        let mut ctx = compiler::CompileCtx::default();
+        self.supply_timeline_cursors(&mut ctx);
+        self.platform_prepare_cached_data(&mut ctx);
+        match self
+            .graph_service
+            .load_cached_data(self.node_graph.graph(), &mut ctx)
+        {
+            Ok(true) => self.bind_run_data(ctx.run_data()),
+            Ok(false) | Err(_) => self.clear_derived_data_presentations(),
+        }
+    }
+
     fn start_run(&mut self) {
         for id in self.error_badges.drain(..) {
             self.node_graph.set_node_badge(id, None);
@@ -1374,11 +1424,19 @@ impl App {
             return;
         }
 
-        // Fresh lane store per run: stale lanes vanish atomically.
+        // Run is an explicit fresh execution. Cached lanes are a pre-run
+        // preview only, so release their mmap/query handles before removing
+        // this graph's entries and creating the replacement stores.
+        self.cached_preview_graph = None;
+        self.clear_derived_data_presentations();
         let mut ctx = compiler::CompileCtx::default();
         self.supply_timeline_cursors(&mut ctx);
-        if replay.is_none() {
-            self.platform_prepare_run(&mut ctx);
+        if replay.is_none()
+            && let Err(error) = self.platform_prepare_run(&mut ctx)
+        {
+            self.run_message = Some((error.clone(), true));
+            self.toasts.error(error);
+            return;
         }
         self.logic_analyzer
             .set_derived_lanes(ctx.derived_lanes().clone());
@@ -1402,23 +1460,7 @@ impl App {
         match started {
             Ok(run) => {
                 let run_data = ctx.run_data();
-                match waveform_presentation_registry(run_data.output_subscriptions()) {
-                    Ok(presentations) => self
-                        .logic_analyzer
-                        .set_waveform_presentations(presentations),
-                    Err(error) => self.toasts.error(format!(
-                        "Could not bind collected output presentation: {error}"
-                    )),
-                }
-                match decoder_table_registry(run_data.table_subscriptions()) {
-                    Ok(tables) => self
-                        .decoder_panels
-                        .set_run_data(run_data.derived_lanes().clone(), tables),
-                    Err(error) => self.toasts.error(format!(
-                        "Could not bind decoder-table presentation: {error}"
-                    )),
-                }
-                self.set_sampling_overlay_candidates(run_data.sampling_overlays().to_vec());
+                self.bind_run_data(run_data);
                 self.run = Some(run);
             }
             Err(errors) => {
@@ -1465,6 +1507,7 @@ impl App {
                 .set_visible_capture_channels(feature.visible_channels().iter().copied());
         }
         if self.run.is_none() {
+            self.restore_cached_derived_data();
             return;
         }
         let result = {
@@ -2224,6 +2267,10 @@ impl App {
             }
             if now - self.last_live_sync >= SYNC_INTERVAL_S {
                 self.last_live_sync = now;
+                let graph_snapshot = serde_json::to_vec(self.node_graph.graph()).ok();
+                if graph_snapshot != self.cached_preview_graph {
+                    self.restore_cached_derived_data();
+                }
                 self.capture_availability =
                     capture_availability(self.node_graph.graph(), self.graph_service.as_ref());
                 self.refresh_trigger_configuration();
@@ -2387,7 +2434,7 @@ impl App {
                 self.stop_command();
             }
             ui.spinner();
-            ui.label("Live");
+            ui.label("Running");
         } else if self.is_capture_analysis_active() {
             ui.spinner();
             ui.label("Analyzing capture…");

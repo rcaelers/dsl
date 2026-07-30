@@ -116,6 +116,12 @@ pub(crate) trait GraphService: CaptureFeatureDiscovery + PlatformGraphService {
         graph: &GraphState,
     ) -> Result<Vec<SamplingOverlayCandidate>, Vec<CompileError>>;
 
+    fn load_cached_data(
+        &self,
+        graph: &GraphState,
+        context: &mut CompileCtx,
+    ) -> Result<bool, Vec<CompileError>>;
+
     fn start_run(
         &self,
         graph: &GraphState,

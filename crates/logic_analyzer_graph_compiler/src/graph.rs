@@ -2111,6 +2111,42 @@ fn start_live_with_subscriptions(
     )
 }
 
+/// Publishes valid persistent derived lanes without executing the processing graph.
+pub(crate) fn load_cached_data_with_subscriptions(
+    graph: &GraphState,
+    registry: &BuilderRegistry,
+    subscriptions: &OutputSubscriptionPlan,
+    ctx: &mut CompileCtx,
+) -> Result<bool, Vec<CompileError>> {
+    let mut compiled = lower_with_subscriptions(graph, registry, subscriptions)?;
+    cache_platform::configure_directory(&mut compiled, ctx.persistent_cache_directory.as_deref());
+    let Some(preview) = cache_platform::prepare_cached_preview(&compiled) else {
+        return Ok(false);
+    };
+
+    ctx.derived_data_retention = compiled.derived_data_retention;
+    ctx.sampling_overlays
+        .clone_from(&compiled.sampling_overlays);
+    ctx.sampling_points = sampling_point_map(&compiled);
+    ctx.collected_output_subscriptions =
+        collected_output_subscriptions(&compiled, registry, subscriptions);
+    ctx.collected_table_subscriptions = collected_table_subscriptions(&compiled, registry);
+
+    for node in &preview.nodes {
+        let builder = registry.get(&node.builder).ok_or_else(|| {
+            vec![CompileError::on(
+                node.id,
+                format!("unknown builder '{}'", node.builder),
+            )]
+        })?;
+        ctx.derived_word_caches
+            .clone_from(&node.derived_word_caches);
+        materialize_compiled_node(node, builder, &node.runtime_name, registry, ctx)
+            .map_err(|message| vec![CompileError::on(node.id, message)])?;
+    }
+    Ok(true)
+}
+
 /// Starts the fixed compiled graph with its live-capable source replaced by
 /// the process that follows the capture store. All other nodes use the same
 /// lowering and materialization path as an ordinary run.
@@ -2554,9 +2590,10 @@ mod tests {
     use signal_processing::{
         AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureAnalysisChannel,
         CaptureAnalysisSource, CaptureChannelId, CaptureDataDelivery, CaptureProviderCapabilities,
-        CaptureSettingCombination, CaptureStoreCursor, ConfigValue, PreparedAcquisition, Sample,
-        SamplingPoint, TextSample, Trigger, TriggerEditorSchema, TriggerIdentifier,
-        TriggerLogicOperator, TriggerPredicate, TriggerStage, Word,
+        CaptureSettingCombination, CaptureStoreCursor, CollectedLaneSnapshotRequest, ConfigValue,
+        IndexedAnnotationWriter, LiveStoreConfig, PreparedAcquisition, Sample, SamplingPoint,
+        TextSample, Trigger, TriggerEditorSchema, TriggerIdentifier, TriggerLogicOperator,
+        TriggerPredicate, TriggerStage, Word, WordLaneSnapshot,
     };
 
     use super::*;
@@ -3543,6 +3580,24 @@ mod tests {
             contract_pipeline(kind, kind, kind, kind, true);
         registry.register_payload::<T>(stable_id).unwrap();
         registry.payloads.register_adapter::<T>(adapter).unwrap();
+        let configure_request: PayloadRequestConfigurator = if persistent_cache {
+            Arc::new(|request, member, _input, context| {
+                let store_config = context.derived_word_cache(member).map_or_else(
+                    LiveStoreConfig::default,
+                    |persistent| LiveStoreConfig {
+                        directory: persistent.directory.clone(),
+                        persistence: Some(persistent.clone()),
+                        ..LiveStoreConfig::default()
+                    },
+                );
+                request.with_options(signal_processing::CollectedWordLaneOptions::new(
+                    store_config,
+                    None,
+                ))
+            })
+        } else {
+            Arc::new(|request, _member, _input, _context| request)
+        };
         registry
             .register_payload_subscription_with_request_configurator::<T>(
                 DefaultLanePresentationDescriptor::new(
@@ -3552,7 +3607,7 @@ mod tests {
                     ),
                     "org.logicconduit.compiler-test.renderer/v1",
                 ),
-                Arc::new(|request, _member, _input, _context| request),
+                configure_request,
                 persistent_cache,
             )
             .unwrap();
@@ -3828,6 +3883,109 @@ mod tests {
                 .map(|config| config.cache_key)
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn cached_preview_materializes_only_hit_collectors_without_executable_edges() {
+        let (document, registry, producer) = selectable_word_output_contract();
+        let explicit_sink = node_by_def(&document, CONTRACT_SINK);
+        let mut compiled = lower(document.graph(), &registry).unwrap();
+        cache_platform::configure_directory(&mut compiled, Some(Path::new("controlled-cache")));
+        let caches = compiled
+            .nodes
+            .iter()
+            .filter(|node| node.data_collector)
+            .flat_map(|node| node.derived_word_caches.iter().flatten().cloned())
+            .collect::<Vec<_>>();
+        let hit = caches
+            .first()
+            .expect("fixture must define a persistent lane");
+        let backend =
+            TestDerivedCacheBackend::default().with_lookup(hit.cache_key, DerivedCacheLookup::Hit);
+
+        let preview = cache_platform::prepare_cached_preview_with_backend(&compiled, &backend)
+            .expect("one cache hit should produce a preview");
+
+        assert!(preview.edges.is_empty());
+        assert!(preview.nodes.iter().all(|node| node.data_collector));
+        assert!(preview.nodes.iter().all(|node| node.id != producer));
+        assert!(preview.nodes.iter().all(|node| node.id != explicit_sink));
+        let preview_caches = preview
+            .nodes
+            .iter()
+            .flat_map(|node| node.derived_word_caches.iter().flatten())
+            .collect::<Vec<_>>();
+        assert_eq!(preview_caches.len(), 1);
+        assert_eq!(preview_caches[0].cache_key, hit.cache_key);
+    }
+
+    #[test]
+    fn cached_data_is_published_without_starting_a_graph() {
+        let (document, registry, _producer) = selectable_word_output_contract();
+        let subscriptions = test_output_subscriptions(document.graph(), &registry);
+        let directory = std::env::temp_dir().join(format!(
+            "logic-conduit-cached-preview-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut compiled =
+            lower_with_subscriptions(document.graph(), &registry, &subscriptions).unwrap();
+        cache_platform::configure_directory(&mut compiled, Some(&directory));
+        let persistent = compiled
+            .nodes
+            .iter()
+            .filter(|node| node.data_collector)
+            .flat_map(|node| node.derived_word_caches.iter().flatten())
+            .next()
+            .expect("fixture must define a persistent lane")
+            .clone();
+        let store_config = LiveStoreConfig {
+            persistence: Some(persistent),
+            ..LiveStoreConfig::default()
+        };
+        let (mut writer, _store) = IndexedAnnotationWriter::create(store_config).unwrap();
+        writer
+            .append_batch(&[Word::spanning(0x42, 100, 20)])
+            .unwrap();
+        writer.finish().unwrap();
+
+        let mut context = CompileCtx::default();
+        context.set_persistent_cache_directory(directory.clone());
+        assert!(
+            load_cached_data_with_subscriptions(
+                document.graph(),
+                &registry,
+                &subscriptions,
+                &mut context,
+            )
+            .unwrap()
+        );
+        let lanes = context.derived_lanes().opaque_lanes();
+        let annotations = lanes
+            .iter()
+            .find_map(|lane| {
+                lane.snapshot(CollectedLaneSnapshotRequest {
+                    start_time_ns: 0,
+                    end_time_ns: 1_000,
+                    max_items: 16,
+                })
+                .and_then(|snapshot| snapshot.value::<WordLaneSnapshot>())
+                .and_then(|snapshot| match snapshot.as_ref() {
+                    WordLaneSnapshot::Exact { annotations, .. } if !annotations.is_empty() => {
+                        Some(annotations.clone())
+                    }
+                    _ => None,
+                })
+            })
+            .expect("cached word lane must publish its exact data");
+        assert_eq!(annotations.len(), 1);
+        assert_eq!(annotations[0].value, 0x42);
+
+        drop(context);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

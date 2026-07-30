@@ -339,17 +339,25 @@ impl ProcessNode for ParallelDecoder {
         if self.input_strategy != ParallelInputStrategy::Auto || !edge_triggered {
             return selected;
         }
-        let Some(activity_ratio) = candidates
+        let raw_inputs = 1 + self.num_data_bits + 1;
+        let enable_connected = candidates.get(raw_inputs).is_some_and(Option::is_some);
+        let activity_ratio = candidates
             .first()
             .and_then(Option::as_ref)
             .and_then(|candidate| candidate.edge_query.as_ref())
-            .and_then(|query| query.activity_ratio_hint())
-        else {
+            .and_then(|query| query.activity_ratio_hint());
+        let preferred = if enable_connected {
+            // A connected enable can exclude arbitrarily large spans before
+            // the indexed path touches the strobe or data channels. Strobe
+            // density therefore no longer predicts the cheaper transport:
+            // a packed stream would still read every raw block merely to
+            // discard most of it after applying the gate.
+            ProtocolKind::EdgeQuery
+        } else if let Some(activity_ratio) = activity_ratio {
+            Self::auto_protocol_for_activity_ratio(activity_ratio)
+        } else {
             return selected;
         };
-
-        let raw_inputs = 1 + self.num_data_bits + 1;
-        let preferred = Self::auto_protocol_for_activity_ratio(activity_ratio);
         let alternate = if preferred == ProtocolKind::Stream {
             ProtocolKind::EdgeQuery
         } else {
@@ -376,7 +384,8 @@ impl ProcessNode for ParallelDecoder {
         };
         debug!(
             decoder = %self.name,
-            activity_ratio,
+            ?activity_ratio,
+            enable_connected,
             ?preferred,
             ?protocol,
             "selected parallel decoder raw-input protocol"
@@ -1539,8 +1548,26 @@ mod tests {
         assert_eq!(dense[4], None, "the fixture leaves enable disconnected");
 
         let gated_dense = decoder.select_input_protocols(&auto_candidates(0.9, true));
-        assert_eq!(&gated_dense[..4], &[Some(ProtocolKind::Stream); 4]);
+        assert_eq!(
+            &gated_dense[..4],
+            &[Some(ProtocolKind::EdgeQuery); 4],
+            "an enable gate must be able to exclude raw spans before they are read"
+        );
         assert_eq!(gated_dense[4], Some(ProtocolKind::EdgeQuery));
+    }
+
+    #[test]
+    fn streamed_enable_still_selects_indexed_raw_inputs() {
+        let decoder = ParallelDecoder::new(2, StrobeMode::AnyEdge, CsPolarity::Disabled);
+        let mut candidates = auto_candidates(0.9, true);
+        let enable = candidates[4].as_mut().unwrap();
+        enable.offered = vec![ProtocolKind::Stream];
+        enable.edge_query = None;
+
+        let selected = decoder.select_input_protocols(&candidates);
+
+        assert_eq!(&selected[..4], &[Some(ProtocolKind::EdgeQuery); 4]);
+        assert_eq!(selected[4], Some(ProtocolKind::Stream));
     }
 
     #[test]

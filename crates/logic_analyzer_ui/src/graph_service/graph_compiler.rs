@@ -189,6 +189,14 @@ impl GraphService for GraphCompiler {
         GraphCompiler::sampling_overlay_candidates(self, graph)
     }
 
+    fn load_cached_data(
+        &self,
+        graph: &GraphState,
+        context: &mut CompileCtx,
+    ) -> Result<bool, Vec<CompileError>> {
+        GraphCompiler::load_cached_data(self, graph, context)
+    }
+
     fn start_run(
         &self,
         graph: &GraphState,
