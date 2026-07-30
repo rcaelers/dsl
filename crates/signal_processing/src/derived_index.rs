@@ -15,10 +15,9 @@
 //! time, query a coarse summary of any `[start_ns, end_ns]` window without
 //! ever rescanning the raw entries.
 //!
-//! The raw entries themselves keep living in their own `Vec` next to this
-//! index (`DerivedLaneData` in `derived_data_collector`) — this index
-//! only ever summarizes, it never stores the only copy of anything, which is
-//! what "never drop data" requires.
+//! The owning payload adapter keeps exact entries in its retained store next
+//! to this index. The index only summarizes; it never stores the only copy of
+//! anything, which is what "never drop data" requires.
 
 /// One summary record: a run of raw entries collapsed into their time span,
 /// count, and — only meaningful for a `Digital` lane, where `bool` is a

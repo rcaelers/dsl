@@ -194,7 +194,7 @@ checks neighboring blocks so snapping works at block boundaries and in older reg
 
 The active block is exposed through an immutable hot-tail snapshot. Publication is bounded by
 `LiveStoreConfig` and defaults to 16,384 words or 50 ms. File writes, VLQ encoding, mmap page
-faults, and block decoding never occur while the `DerivedLanes` lock is held.
+faults, and block decoding never occur while the published-lane catalog is locked.
 
 Finishing closes the active block and marks the store complete. Cancelling discards unfinished
 temporary state. Storage errors put the affected lane into an error state without changing the
@@ -226,9 +226,9 @@ for the persistent entries selected by the current graph.
 
 ## Viewer integration
 
-`DerivedLaneData` supports both ordinary in-memory annotations and
-`IndexedAnnotations(IndexedAnnotationLane)`. `IndexedAnnotationLane` exposes query, metadata,
-status, and platform-neutral store handles.
+Word payload adapters publish an opaque `CollectedLaneQuery` backed by either
+an in-memory word store or `IndexedAnnotationLane`. The indexed lane exposes
+query, metadata, status, and platform-neutral store handles to its adapter.
 
 Every collected-lane query also publishes a presentation-neutral storage snapshot. Built-in
 adapters report their backing (memory, indexed working storage, or reopened persistent cache),
@@ -237,11 +237,9 @@ not provide detailed accounting remain visible as adapter-managed storage.
 
 Rendering and cursor code follow the same locking rule:
 
-1. acquire the derived-lane lock;
-2. clone lane metadata and query handles;
-3. release the lock;
-4. perform store queries;
-5. render or select a cursor boundary.
+1. discover and clone the published opaque lane handle;
+2. perform bounded snapshot, table, storage, or cursor-boundary queries;
+3. render or select a cursor boundary without accessing adapter storage.
 
 The viewer caches sampled windows by lane identity, store generation, visible time range,
 viewport width, and query mode. Exact mode uses the ordinary annotation-box renderer; presence

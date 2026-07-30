@@ -73,8 +73,7 @@ impl ColorProfile {
 }
 
 /// Identifies one display row, whether it's a raw channel (by its stable
-/// capture index) or a derived lane (by its stable name —
-/// `DerivedLanes::register` reuses a lane by name across runs, so this
+/// capture index) or a derived lane (by its stable published name, which
 /// survives a run restart the same way a channel index survives a
 /// re-sample). The single ordering, drag, and rename mechanism in
 /// `channel.rs` works on this — never on "channel" or "derived lane"

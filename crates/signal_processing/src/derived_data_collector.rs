@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock, RwLockReadGuard};
+use std::sync::{Arc, RwLock};
 
 use web_time::Instant;
 
@@ -82,7 +82,7 @@ impl DerivedDataCollectorMetrics {
 pub const DEFAULT_DERIVED_DATA_MAX_ENTRIES: usize = 1_000_000;
 
 /// Most items one lane drains from its channel per `work()` call. Bounds how
-/// long one call holds `DerivedLanes`' write lock and, more importantly,
+/// long one call holds a lane's storage write lock and, more importantly,
 /// stops `DerivedDataCollector` from racing a fast producer to keep its channel
 /// perpetually empty — a channel that's allowed to actually fill is what
 /// lets its `Block` overflow policy engage and slow the producer down.
@@ -105,41 +105,6 @@ impl DerivedDataRetention {
         let max = max.max(1);
         (len > max).then_some((max - max / 4).max(1))
     }
-}
-
-#[derive(Debug, Clone)]
-pub enum DerivedLaneData {
-    /// A boolean level stream, rendered like a channel waveform.
-    Digital(Vec<Sample>),
-    /// Word boxes. A word carrying a real duration is stored closed with
-    /// its true `end_ns`; adjacent instantaneous words meet within a burst,
-    /// while a cadence-bounded end leaves long decoding gaps empty.
-    Annotations(Vec<Annotation>),
-    /// Indexed word lane. Rendering and cursor code query this handle without
-    /// retaining every annotation in UI-owned memory.
-    IndexedAnnotations(IndexedAnnotationLane),
-    /// Zero-width event markers (trigger timestamps, ns).
-    Markers(Vec<u64>),
-    /// Labeled level values, each valid until the following entry.
-    Values(CollectedValueLane),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CollectedValueKind {
-    Number,
-    Text,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CollectedValue {
-    pub value: String,
-    pub start_time_ns: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CollectedValueLane {
-    pub kind: CollectedValueKind,
-    pub values: Vec<CollectedValue>,
 }
 
 #[derive(Clone)]
@@ -502,7 +467,7 @@ enum WordLaneStorage {
 ///
 /// Generic subscribers use [`CollectedLaneQuery`]. Concrete diagnostics such
 /// as the decoder benchmark may additionally inspect the indexed store owned
-/// by this adapter without reaching through the legacy lane representation.
+/// by this adapter.
 pub struct CollectedWordLaneQuery {
     storage: Arc<RwLock<WordLaneStorage>>,
     display_format: Option<String>,
@@ -900,7 +865,7 @@ impl std::fmt::Debug for IndexedAnnotationLane {
 /// so the viewer never rescans a whole lane just to render or measure a
 /// zoomed-out window).
 #[derive(Debug, Clone, Copy)]
-pub struct DigitalFold;
+struct DigitalFold;
 impl LaneFold<Sample> for DigitalFold {
     fn leaf(entry: &Sample) -> MipmapRecord {
         MipmapRecord {
@@ -926,7 +891,7 @@ impl LaneFold<Sample> for DigitalFold {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct AnnotationFold;
+struct AnnotationFold;
 impl LaneFold<Annotation> for AnnotationFold {
     fn leaf(entry: &Annotation) -> MipmapRecord {
         MipmapRecord {
@@ -949,33 +914,12 @@ impl LaneFold<Annotation> for AnnotationFold {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct MarkerFold;
+struct MarkerFold;
 impl LaneFold<u64> for MarkerFold {
     fn leaf(entry: &u64) -> MipmapRecord {
         MipmapRecord {
             start_ns: *entry,
             end_ns: *entry,
-            count: 1,
-            level_hint: None,
-        }
-    }
-    fn combine(records: &[MipmapRecord]) -> MipmapRecord {
-        MipmapRecord {
-            start_ns: records[0].start_ns,
-            end_ns: records[records.len() - 1].end_ns,
-            count: records.iter().map(|record| record.count).sum(),
-            level_hint: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct ValueFold;
-impl LaneFold<CollectedValue> for ValueFold {
-    fn leaf(entry: &CollectedValue) -> MipmapRecord {
-        MipmapRecord {
-            start_ns: entry.start_time_ns,
-            end_ns: entry.start_time_ns,
             count: 1,
             level_hint: None,
         }
@@ -1032,70 +976,6 @@ impl LaneFold<TextSample> for TextFold {
             level_hint: None,
         }
     }
-}
-
-/// The multi-resolution index kept alongside an in-memory lane's raw data.
-/// Indexed annotations own their presence index behind the query handle, so
-/// their summary variant is only a lane-kind marker.
-#[derive(Debug, Clone)]
-pub enum LaneSummary {
-    Digital(AppendOnlyMipmap<Sample, DigitalFold>),
-    Annotations(ChunkedMipmap<Annotation, AnnotationFold>),
-    IndexedAnnotations,
-    Markers(AppendOnlyMipmap<u64, MarkerFold>),
-    Values(AppendOnlyMipmap<CollectedValue, ValueFold>),
-}
-
-impl LaneSummary {
-    /// A summary backfilled from `data` — every production collector registers
-    /// a lane with fresh empty storage, so this is normally a no-op, but the invariant "summary
-    /// mirrors data" has to hold for *any* caller, not just the ones that
-    /// happen to start empty.
-    fn matching(data: &DerivedLaneData) -> Self {
-        match data {
-            DerivedLaneData::Digital(samples) => {
-                let mut summary = AppendOnlyMipmap::new();
-                summary.extend(samples);
-                Self::Digital(summary)
-            }
-            DerivedLaneData::Annotations(annotations) => {
-                let mut summary = ChunkedMipmap::new();
-                // Same rule as live appends (`append_word_batch`): an entry
-                // with `end_ns == start_ns` is still "open" — not yet
-                // closed by a successor — and can't join the summary until
-                // it is (the mipmap can never retroactively patch one it
-                // already folded in).
-                summary.extend(
-                    annotations
-                        .iter()
-                        .filter(|annotation| annotation.end_ns != annotation.start_ns),
-                );
-                Self::Annotations(summary)
-            }
-            DerivedLaneData::IndexedAnnotations(_) => Self::IndexedAnnotations,
-            DerivedLaneData::Markers(markers) => {
-                let mut summary = AppendOnlyMipmap::new();
-                summary.extend(markers);
-                Self::Markers(summary)
-            }
-            DerivedLaneData::Values(values) => {
-                let mut summary = AppendOnlyMipmap::new();
-                summary.extend(&values.values);
-                Self::Values(summary)
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct DerivedLane {
-    pub name: String,
-    /// Durable identity of the payload adapter that owns this lane, when it
-    /// was registered through the payload contract.
-    pub payload: Option<PayloadDescriptor>,
-    pub data: DerivedLaneData,
-    pub summary: LaneSummary,
-    pub word_display_format: Option<String>,
 }
 
 /// An adapter-owned retained query handle that generic consumers can discover
@@ -1170,70 +1050,18 @@ impl std::fmt::Debug for OpaqueCollectedLane {
     }
 }
 
-/// Shared, append-only store of derived lanes. Producers and subscribers hold
-/// independent clones, so subscribers may attach after collection has begun or
-/// completed. A re-run swaps in a fresh store so stale lanes vanish atomically.
+/// Shared catalog of adapter-owned derived-lane queries. Producers and
+/// subscribers hold independent clones, so subscribers may attach after
+/// collection has begun or completed. A re-run swaps in a fresh catalog so
+/// stale lanes vanish atomically.
 #[derive(Debug, Clone, Default)]
 pub struct DerivedLanes {
-    inner: Arc<RwLock<Vec<DerivedLane>>>,
     opaque: Arc<RwLock<Vec<OpaqueCollectedLane>>>,
 }
 
 impl DerivedLanes {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Adds an empty lane and returns its index. Lane order is registration
-    /// order (= collector wiring order). Registering an existing name normally
-    /// reuses data of the same kind. Indexed annotations are replaced even
-    /// by another indexed lane so a restarted collector publishes its new
-    /// writer's query handle instead of leaving a stale store visible.
-    pub fn register(&self, name: impl Into<String>, data: DerivedLaneData) -> usize {
-        self.register_with_payload(name, None, data)
-    }
-
-    fn register_with_payload(
-        &self,
-        name: impl Into<String>,
-        payload: Option<PayloadDescriptor>,
-        data: DerivedLaneData,
-    ) -> usize {
-        let name = name.into();
-        let mut lanes = self.inner.write().unwrap();
-        if let Some(index) = lanes.iter().position(|lane| lane.name == name) {
-            let replace =
-                std::mem::discriminant(&lanes[index].data) != std::mem::discriminant(&data);
-            let replace = replace || matches!(data, DerivedLaneData::IndexedAnnotations(_));
-            let replace = replace
-                || matches!(
-                    (&lanes[index].data, &data),
-                    (DerivedLaneData::Values(current), DerivedLaneData::Values(next))
-                        if current.kind != next.kind
-                );
-            if replace {
-                lanes[index].summary = LaneSummary::matching(&data);
-                lanes[index].data = data;
-            }
-            if payload.is_some() {
-                lanes[index].payload = payload;
-            }
-            return index;
-        }
-        let summary = LaneSummary::matching(&data);
-        lanes.push(DerivedLane {
-            name,
-            payload,
-            data,
-            summary,
-            word_display_format: None,
-        });
-        lanes.len() - 1
-    }
-
-    /// Read access for rendering.
-    pub fn read(&self) -> RwLockReadGuard<'_, Vec<DerivedLane>> {
-        self.inner.read().unwrap()
     }
 
     /// Publishes an adapter-owned retained query. A later subscriber can
@@ -1262,159 +1090,11 @@ impl DerivedLanes {
     pub fn opaque_lanes(&self) -> Vec<OpaqueCollectedLane> {
         self.opaque.read().unwrap().clone()
     }
-
-    #[cfg(test)]
-    fn set_word_display_format(&self, index: usize, format: Option<String>) {
-        if let Some(lane) = self.inner.write().unwrap().get_mut(index) {
-            lane.word_display_format = format;
-        }
-    }
-
-    /// Appends a whole batch under a single write-lock acquisition — called
-    /// once per `DerivedDataCollector::work()` invocation per lane, rather than once
-    /// per item, so a burst of decoded entries doesn't take (and contend
-    /// the UI thread's `read()` for) the lock once per item.
-    #[cfg(test)]
-    fn append_digital_batch_retained(
-        &self,
-        lane: usize,
-        samples: impl IntoIterator<Item = Sample>,
-        retention: DerivedDataRetention,
-    ) {
-        let mut lanes = self.inner.write().unwrap();
-        let Some(lane) = lanes.get_mut(lane) else {
-            return;
-        };
-        let (DerivedLaneData::Digital(existing), LaneSummary::Digital(summary)) =
-            (&mut lane.data, &mut lane.summary)
-        else {
-            return;
-        };
-        for sample in samples {
-            summary.push(&sample);
-            existing.push(sample);
-        }
-        if let Some(target) = retention.trim_target(existing.len()) {
-            existing.drain(..existing.len() - target);
-        }
-    }
-
-    /// Items are `(start_ns, duration_ns, value)` — [`Word`]'s shape.
-    #[cfg(test)]
-    fn append_word_batch_retained(
-        &self,
-        lane: usize,
-        words: impl IntoIterator<Item = (u64, u64, u64)>,
-        retention: DerivedDataRetention,
-    ) {
-        let mut lanes = self.inner.write().unwrap();
-        let Some(lane) = lanes.get_mut(lane) else {
-            return;
-        };
-        let (DerivedLaneData::Annotations(annotations), LaneSummary::Annotations(summary)) =
-            (&mut lane.data, &mut lane.summary)
-        else {
-            return;
-        };
-        for (start_ns, duration_ns, value) in words {
-            let previous_start_ns = annotations
-                .len()
-                .checked_sub(2)
-                .map(|index| annotations[index].start_ns);
-            if let Some(previous) = annotations.last_mut()
-                && previous.end_ns == previous.start_ns
-            {
-                previous.end_ns = crate::events::instantaneous_word_end_ns(
-                    previous_start_ns,
-                    previous.start_ns,
-                    start_ns,
-                );
-                // Only now that its `end_ns` is final can it join the
-                // summary — the mipmap is append-only and can never
-                // retroactively patch an entry once it's folded into a
-                // coarser tier, so the most recent annotation always lags
-                // the summary by exactly one entry until the next word
-                // closes or cadence-bounds it (or, if the run ends right after it, forever —
-                // the raw `data` entry is still fully correct and is what
-                // exact/near-zoom rendering reads directly; see
-                // `draw_derived_annotations`'s open-ended handling).
-                summary.push(previous);
-            }
-            let annotation = Annotation {
-                start_ns,
-                // A word with a real duration is closed right away at its
-                // true end; an instantaneous one stays "open" (end ==
-                // start) until the next word patches or cadence-bounds it.
-                end_ns: start_ns + duration_ns,
-                value,
-                payload: None,
-            };
-            if duration_ns > 0 {
-                summary.push(&annotation);
-            }
-            annotations.push(annotation);
-        }
-        if let Some(target) = retention.trim_target(annotations.len()) {
-            annotations.drain(..annotations.len() - target);
-        }
-    }
-
-    #[cfg(test)]
-    fn append_marker_batch_retained(
-        &self,
-        lane: usize,
-        timestamps: impl IntoIterator<Item = u64>,
-        retention: DerivedDataRetention,
-    ) {
-        let mut lanes = self.inner.write().unwrap();
-        let Some(lane) = lanes.get_mut(lane) else {
-            return;
-        };
-        let (DerivedLaneData::Markers(markers), LaneSummary::Markers(summary)) =
-            (&mut lane.data, &mut lane.summary)
-        else {
-            return;
-        };
-        for timestamp_ns in timestamps {
-            summary.push(&timestamp_ns);
-            markers.push(timestamp_ns);
-        }
-        if let Some(target) = retention.trim_target(markers.len()) {
-            markers.drain(..markers.len() - target);
-        }
-    }
-
-    #[cfg(test)]
-    fn append_value_batch_retained(
-        &self,
-        lane: usize,
-        values: impl IntoIterator<Item = CollectedValue>,
-        retention: DerivedDataRetention,
-    ) {
-        let mut lanes = self.inner.write().unwrap();
-        let Some(lane) = lanes.get_mut(lane) else {
-            return;
-        };
-        let (DerivedLaneData::Values(existing), LaneSummary::Values(summary)) =
-            (&mut lane.data, &mut lane.summary)
-        else {
-            return;
-        };
-        for value in values {
-            summary.push(&value);
-            existing.values.push(value);
-        }
-        if let Some(target) = retention.trim_target(existing.values.len()) {
-            existing.values.drain(..existing.values.len() - target);
-        }
-    }
 }
 
 /// Typed append state for the built-in digital payload.
 struct DigitalLane {
     storage: Arc<RwLock<DigitalLaneStorage>>,
-    #[cfg(test)]
-    legacy_store: Option<(DerivedLanes, usize)>,
     buffer: VecDeque<Sample>,
     eos: bool,
     retention: DerivedDataRetention,
@@ -1428,23 +1108,9 @@ impl DigitalLane {
         }));
         Self {
             storage,
-            #[cfg(test)]
-            legacy_store: None,
             buffer: VecDeque::new(),
             eos: false,
             retention: request.retention(),
-        }
-    }
-
-    #[cfg(test)]
-    fn with_store(name: String, store: DerivedLanes, retention: DerivedDataRetention) -> Self {
-        let store_index = store.register(name, DerivedLaneData::Digital(Vec::new()));
-        Self {
-            storage: Arc::new(RwLock::new(DigitalLaneStorage::default())),
-            legacy_store: Some((store, store_index)),
-            buffer: VecDeque::new(),
-            eos: false,
-            retention,
         }
     }
 }
@@ -1477,11 +1143,6 @@ impl CollectedLaneIngestor for DigitalLane {
                 let excess = storage.samples.len() - target;
                 storage.samples.drain(..excess);
             }
-            drop(storage);
-            #[cfg(test)]
-            if let Some((store, store_index)) = &self.legacy_store {
-                store.append_digital_batch_retained(*store_index, batch, self.retention);
-            }
         }
         Ok(batch_len)
     }
@@ -1494,8 +1155,6 @@ impl CollectedLaneIngestor for DigitalLane {
 /// Typed append state for the built-in trigger payload.
 struct TriggerLane {
     storage: Arc<RwLock<TriggerLaneStorage>>,
-    #[cfg(test)]
-    legacy_store: Option<(DerivedLanes, usize)>,
     buffer: VecDeque<Trigger>,
     eos: bool,
     retention: DerivedDataRetention,
@@ -1509,23 +1168,9 @@ impl TriggerLane {
         }));
         Self {
             storage,
-            #[cfg(test)]
-            legacy_store: None,
             buffer: VecDeque::new(),
             eos: false,
             retention: request.retention(),
-        }
-    }
-
-    #[cfg(test)]
-    fn with_store(name: String, store: DerivedLanes, retention: DerivedDataRetention) -> Self {
-        let store_index = store.register(name, DerivedLaneData::Markers(Vec::new()));
-        Self {
-            storage: Arc::new(RwLock::new(TriggerLaneStorage::default())),
-            legacy_store: Some((store, store_index)),
-            buffer: VecDeque::new(),
-            eos: false,
-            retention,
         }
     }
 }
@@ -1562,11 +1207,6 @@ impl CollectedLaneIngestor for TriggerLane {
                 let excess = storage.timestamps.len() - target;
                 storage.timestamps.drain(..excess);
             }
-            drop(storage);
-            #[cfg(test)]
-            if let Some((store, store_index)) = &self.legacy_store {
-                store.append_marker_batch_retained(*store_index, timestamps, self.retention);
-            }
         }
         Ok(batch_len)
     }
@@ -1579,8 +1219,6 @@ impl CollectedLaneIngestor for TriggerLane {
 /// Typed append state for the built-in numeric-level payload.
 struct NumberLane {
     storage: Arc<RwLock<NumberLaneStorage>>,
-    #[cfg(test)]
-    legacy_store: Option<(DerivedLanes, usize)>,
     buffer: VecDeque<NumberSample>,
     eos: bool,
     retention: DerivedDataRetention,
@@ -1594,30 +1232,9 @@ impl NumberLane {
         }));
         Self {
             storage,
-            #[cfg(test)]
-            legacy_store: None,
             buffer: VecDeque::new(),
             eos: false,
             retention: request.retention(),
-        }
-    }
-
-    #[cfg(test)]
-    fn with_store(name: String, store: DerivedLanes, retention: DerivedDataRetention) -> Self {
-        let storage = Arc::new(RwLock::new(NumberLaneStorage::default()));
-        let store_index = store.register(
-            name,
-            DerivedLaneData::Values(CollectedValueLane {
-                kind: CollectedValueKind::Number,
-                values: Vec::new(),
-            }),
-        );
-        Self {
-            storage,
-            legacy_store: Some((store, store_index)),
-            buffer: VecDeque::new(),
-            eos: false,
-            retention,
         }
     }
 }
@@ -1650,18 +1267,6 @@ impl CollectedLaneIngestor for NumberLane {
                 let excess = storage.values.len() - target;
                 storage.values.drain(..excess);
             }
-            drop(storage);
-            #[cfg(test)]
-            if let Some((store, store_index)) = &self.legacy_store {
-                store.append_value_batch_retained(
-                    *store_index,
-                    batch.into_iter().map(|sample| CollectedValue {
-                        value: sample.value.to_string(),
-                        start_time_ns: sample.start_time_ns,
-                    }),
-                    self.retention,
-                );
-            }
         }
         Ok(batch_len)
     }
@@ -1674,8 +1279,6 @@ impl CollectedLaneIngestor for NumberLane {
 /// Typed append state for the built-in text-level payload.
 struct TextLane {
     storage: Arc<RwLock<TextLaneStorage>>,
-    #[cfg(test)]
-    legacy_store: Option<(DerivedLanes, usize)>,
     buffer: VecDeque<TextSample>,
     eos: bool,
     retention: DerivedDataRetention,
@@ -1689,30 +1292,9 @@ impl TextLane {
         }));
         Self {
             storage,
-            #[cfg(test)]
-            legacy_store: None,
             buffer: VecDeque::new(),
             eos: false,
             retention: request.retention(),
-        }
-    }
-
-    #[cfg(test)]
-    fn with_store(name: String, store: DerivedLanes, retention: DerivedDataRetention) -> Self {
-        let storage = Arc::new(RwLock::new(TextLaneStorage::default()));
-        let store_index = store.register(
-            name,
-            DerivedLaneData::Values(CollectedValueLane {
-                kind: CollectedValueKind::Text,
-                values: Vec::new(),
-            }),
-        );
-        Self {
-            storage,
-            legacy_store: Some((store, store_index)),
-            buffer: VecDeque::new(),
-            eos: false,
-            retention,
         }
     }
 }
@@ -1744,18 +1326,6 @@ impl CollectedLaneIngestor for TextLane {
             if let Some(target) = self.retention.trim_target(storage.values.len()) {
                 let excess = storage.values.len() - target;
                 storage.values.drain(..excess);
-            }
-            drop(storage);
-            #[cfg(test)]
-            if let Some((store, store_index)) = &self.legacy_store {
-                store.append_value_batch_retained(
-                    *store_index,
-                    batch.into_iter().map(|sample| CollectedValue {
-                        value: sample.value,
-                        start_time_ns: sample.start_time_ns,
-                    }),
-                    self.retention,
-                );
             }
         }
         Ok(batch_len)
@@ -1800,8 +1370,6 @@ impl CollectedWordLaneOptions {
 struct WordLane {
     name: String,
     storage: Arc<RwLock<WordLaneStorage>>,
-    #[cfg(test)]
-    legacy_store: Option<(DerivedLanes, usize)>,
     buffer: VecDeque<Word>,
     eos: bool,
     writer: Option<IndexedAnnotationWriter>,
@@ -1825,28 +1393,6 @@ impl WordLane {
         lane
     }
 
-    #[cfg(test)]
-    fn with_legacy_store(
-        name: String,
-        store: DerivedLanes,
-        retention: DerivedDataRetention,
-        payload: Option<PayloadDescriptor>,
-        options: CollectedWordLaneOptions,
-    ) -> Self {
-        let legacy_store = Some(store.clone());
-        let mut lane = Self::with_options_inner(name.clone(), retention, options.clone());
-        let data = match &*lane.storage.read().unwrap() {
-            WordLaneStorage::InMemory(_) => DerivedLaneData::Annotations(Vec::new()),
-            WordLaneStorage::Indexed(indexed) => {
-                DerivedLaneData::IndexedAnnotations(indexed.clone())
-            }
-        };
-        let store_index = store.register_with_payload(name, payload, data);
-        store.set_word_display_format(store_index, options.display_format);
-        lane.legacy_store = legacy_store.map(|store| (store, store_index));
-        lane
-    }
-
     fn with_options_inner(
         name: String,
         retention: DerivedDataRetention,
@@ -1861,8 +1407,6 @@ impl WordLane {
                             storage: Arc::new(RwLock::new(WordLaneStorage::Indexed(
                                 IndexedAnnotationLane::from_store(indexed_store),
                             ))),
-                            #[cfg(test)]
-                            legacy_store: None,
                             buffer: VecDeque::new(),
                             eos: false,
                             writer: None,
@@ -1884,8 +1428,6 @@ impl WordLane {
                         storage: Arc::new(RwLock::new(WordLaneStorage::Indexed(
                             IndexedAnnotationLane::from_store(indexed_store),
                         ))),
-                        #[cfg(test)]
-                        legacy_store: None,
                         buffer: VecDeque::new(),
                         eos: false,
                         writer: Some(writer),
@@ -1908,8 +1450,6 @@ impl WordLane {
                     summary: ChunkedMipmap::new(),
                 },
             ))),
-            #[cfg(test)]
-            legacy_store: None,
             buffer: VecDeque::new(),
             eos: false,
             writer: None,
@@ -1945,18 +1485,6 @@ impl CollectedLaneIngestor for WordLane {
             }
             if let WordLaneStorage::InMemory(storage) = &mut *self.storage.write().unwrap() {
                 append_words_to_in_memory_storage(storage, &batch, self.retention);
-            }
-            #[cfg(test)]
-            if let Some((store, store_index)) = &self.legacy_store
-                && matches!(&*self.storage.read().unwrap(), WordLaneStorage::InMemory(_))
-            {
-                store.append_word_batch_retained(
-                    *store_index,
-                    batch
-                        .into_iter()
-                        .map(|word| (word.timestamp_ns, word.duration_ns, word.value)),
-                    self.retention,
-                );
             }
         }
         if self.eos
@@ -2262,6 +1790,21 @@ mod tests {
     }
 
     impl DerivedDataCollector {
+        fn test_lane_request<T: Send + Sync + 'static>(
+            &self,
+            name: impl Into<String>,
+        ) -> CollectedLaneRequest {
+            let mut payloads = PayloadRegistry::new();
+            register_test_payload_adapters(&mut payloads).unwrap();
+            CollectedLaneRequest::new(
+                name,
+                self.lanes.len(),
+                self.test_lanes.clone(),
+                payloads.descriptor::<T>().unwrap().clone(),
+                self.retention,
+            )
+        }
+
         fn with_indexed_words(mut self, indexed: bool) -> Self {
             self.test_word_options.indexed = indexed;
             self
@@ -2273,49 +1816,34 @@ mod tests {
         }
 
         fn with_number(mut self, name: impl Into<String>) -> Self {
-            self.lanes.push(Box::new(NumberLane::with_store(
-                name.into(),
-                self.test_lanes.clone(),
-                self.retention,
-            )));
+            let request = self.test_lane_request::<NumberSample>(name);
+            self.lanes.push(Box::new(NumberLane::new(request)));
             self
         }
 
         fn with_text(mut self, name: impl Into<String>) -> Self {
-            self.lanes.push(Box::new(TextLane::with_store(
-                name.into(),
-                self.test_lanes.clone(),
-                self.retention,
-            )));
+            let request = self.test_lane_request::<TextSample>(name);
+            self.lanes.push(Box::new(TextLane::new(request)));
             self
         }
 
         fn with_digital(mut self, name: impl Into<String>) -> Self {
-            self.lanes.push(Box::new(DigitalLane::with_store(
-                name.into(),
-                self.test_lanes.clone(),
-                self.retention,
-            )));
+            let request = self.test_lane_request::<Sample>(name);
+            self.lanes.push(Box::new(DigitalLane::new(request)));
             self
         }
 
         fn with_trigger(mut self, name: impl Into<String>) -> Self {
-            self.lanes.push(Box::new(TriggerLane::with_store(
-                name.into(),
-                self.test_lanes.clone(),
-                self.retention,
-            )));
+            let request = self.test_lane_request::<Trigger>(name);
+            self.lanes.push(Box::new(TriggerLane::new(request)));
             self
         }
 
         fn with_words(mut self, name: impl Into<String>) -> Self {
-            self.lanes.push(Box::new(WordLane::with_legacy_store(
-                name.into(),
-                self.test_lanes.clone(),
-                self.retention,
-                None,
-                self.test_word_options.clone(),
-            )));
+            let request = self
+                .test_lane_request::<Word>(name)
+                .with_options(self.test_word_options.clone());
+            self.lanes.push(Box::new(WordLane::new(request)));
             self
         }
     }
@@ -2372,41 +1900,6 @@ mod tests {
     use crate::sender::ChannelMessage;
     use crate::watchdog::Watchdog;
 
-    trait TestAppendBatches {
-        fn append_digital_batch<I>(&self, lane: usize, samples: I)
-        where
-            I: IntoIterator<Item = Sample>;
-        fn append_word_batch<I>(&self, lane: usize, words: I)
-        where
-            I: IntoIterator<Item = (u64, u64, u64)>;
-        fn append_marker_batch<I>(&self, lane: usize, timestamps: I)
-        where
-            I: IntoIterator<Item = u64>;
-    }
-
-    impl TestAppendBatches for DerivedLanes {
-        fn append_digital_batch<I>(&self, lane: usize, samples: I)
-        where
-            I: IntoIterator<Item = Sample>,
-        {
-            self.append_digital_batch_retained(lane, samples, DerivedDataRetention::Unlimited);
-        }
-
-        fn append_word_batch<I>(&self, lane: usize, words: I)
-        where
-            I: IntoIterator<Item = (u64, u64, u64)>,
-        {
-            self.append_word_batch_retained(lane, words, DerivedDataRetention::Unlimited);
-        }
-
-        fn append_marker_batch<I>(&self, lane: usize, timestamps: I)
-        where
-            I: IntoIterator<Item = u64>,
-        {
-            self.append_marker_batch_retained(lane, timestamps, DerivedDataRetention::Unlimited);
-        }
-    }
-
     fn run_sink(sink: &mut DerivedDataCollector, inputs: Vec<InputPort>) {
         let outputs: Vec<OutPort> = vec![];
         loop {
@@ -2416,6 +1909,42 @@ mod tests {
                 Err(e) => panic!("unexpected error: {e}"),
             }
         }
+    }
+
+    fn lane(lanes: &DerivedLanes, name: &str) -> OpaqueCollectedLane {
+        lanes
+            .opaque_lanes()
+            .into_iter()
+            .find(|lane| lane.name() == name)
+            .unwrap_or_else(|| panic!("missing collected lane {name}"))
+    }
+
+    fn lane_snapshot<T: Send + Sync + 'static>(
+        lane: &OpaqueCollectedLane,
+        start_time_ns: u64,
+        end_time_ns: u64,
+        max_items: usize,
+    ) -> Arc<T> {
+        lane.snapshot(CollectedLaneSnapshotRequest {
+            start_time_ns,
+            end_time_ns,
+            max_items,
+        })
+        .and_then(|snapshot| snapshot.value::<T>())
+        .unwrap_or_else(|| panic!("{} did not publish the expected snapshot", lane.name()))
+    }
+
+    fn append_test_words(
+        storage: &mut InMemoryWordLaneStorage,
+        words: impl IntoIterator<Item = (u64, u64, u64)>,
+    ) {
+        let words = words
+            .into_iter()
+            .map(|(timestamp_ns, duration_ns, value)| {
+                Word::spanning(value, timestamp_ns, duration_ns)
+            })
+            .collect::<Vec<_>>();
+        append_words_to_in_memory_storage(storage, &words, DerivedDataRetention::Unlimited);
     }
 
     #[test]
@@ -2512,7 +2041,6 @@ mod tests {
             .unwrap();
 
         let _collector = DerivedDataCollector::new().with_ingestor(ingestor);
-        assert!(lanes.read().is_empty());
         assert_eq!(
             lanes.opaque_lanes()[0].payload().stable_id(),
             "org.logicconduit.word/v1"
@@ -2612,7 +2140,7 @@ mod tests {
     }
 
     #[test]
-    fn standalone_word_ingestor_publishes_query_without_a_legacy_mirror() {
+    fn standalone_word_ingestor_publishes_only_its_query() {
         let lanes = DerivedLanes::new();
         let options = CollectedWordLaneOptions {
             indexed: false,
@@ -2626,7 +2154,6 @@ mod tests {
             options,
         );
 
-        assert!(lanes.read().is_empty());
         assert!(
             lanes.opaque_lanes()[0]
                 .query::<CollectedWordLaneQuery>()
@@ -2653,7 +2180,6 @@ mod tests {
             .unwrap();
 
         let _collector = DerivedDataCollector::new().with_ingestor(ingestor);
-        assert!(lanes.read().is_empty());
         let snapshot = lanes.opaque_lanes()[0]
             .snapshot(CollectedLaneSnapshotRequest {
                 start_time_ns: 0,
@@ -2686,7 +2212,6 @@ mod tests {
             .unwrap();
 
         let _collector = DerivedDataCollector::new().with_ingestor(ingestor);
-        assert!(lanes.read().is_empty());
         let snapshot = lanes.opaque_lanes()[0]
             .snapshot(CollectedLaneSnapshotRequest {
                 start_time_ns: 0,
@@ -2894,18 +2419,14 @@ mod tests {
         ];
         run_sink(&mut sink, inputs);
 
-        let lanes = store.read();
+        let lanes = store.opaque_lanes();
         assert_eq!(lanes.len(), 3);
-        assert_eq!(lanes[0].name, "latch.q");
-        match &lanes[0].data {
-            DerivedLaneData::Digital(samples) => {
-                assert_eq!(
-                    samples.as_slice(),
-                    &[Sample::new(true, 100), Sample::new(false, 300)]
-                );
-            }
-            other => panic!("expected digital lane, got {other:?}"),
-        }
+        assert_eq!(lanes[0].name(), "latch.q");
+        assert!(matches!(
+            lane_snapshot::<DigitalLaneSnapshot>(&lanes[0], 0, 2_000, 10).as_ref(),
+            DigitalLaneSnapshot::Exact { samples, initial: false }
+                if samples == &[Sample::new(true, 100), Sample::new(false, 300)]
+        ));
         let expected = [
             Annotation {
                 start_ns: 1_000,
@@ -2920,25 +2441,24 @@ mod tests {
                 payload: None,
             },
         ];
-        match &lanes[1].data {
-            DerivedLaneData::IndexedAnnotations(indexed) => {
-                assert_eq!(indexed.status(), StoreStatus::Finished);
-                assert_eq!(indexed.metadata().total_word_count, 2);
-                assert_eq!(
-                    indexed
-                        .query
-                        .exact_window(0, 2_000, 10)
-                        .unwrap()
-                        .annotations,
-                    expected
-                );
-            }
-            other => panic!("expected indexed annotation lane, got {other:?}"),
-        }
-        match &lanes[2].data {
-            DerivedLaneData::Markers(markers) => assert_eq!(markers.as_slice(), &[42]),
-            other => panic!("expected marker lane, got {other:?}"),
-        }
+        let indexed = lanes[1]
+            .query::<CollectedWordLaneQuery>()
+            .and_then(|query| query.indexed_lane())
+            .expect("expected indexed word lane");
+        assert_eq!(indexed.status(), StoreStatus::Finished);
+        assert_eq!(indexed.metadata().total_word_count, 2);
+        assert_eq!(
+            indexed
+                .query()
+                .exact_window(0, 2_000, 10)
+                .unwrap()
+                .annotations,
+            expected
+        );
+        assert!(matches!(
+            lane_snapshot::<TriggerLaneSnapshot>(&lanes[2], 0, 2_000, 10).as_ref(),
+            TriggerLaneSnapshot::Exact(markers) if markers == &[42]
+        ));
     }
 
     #[test]
@@ -2972,35 +2492,18 @@ mod tests {
             ],
         );
 
-        let lanes = store.read();
-        let DerivedLaneData::Values(numbers) = &lanes[0].data else {
-            panic!("expected number values");
-        };
-        assert_eq!(numbers.kind, CollectedValueKind::Number);
-        assert_eq!(
-            numbers.values,
-            [
-                CollectedValue {
-                    value: "-2".to_owned(),
-                    start_time_ns: 0,
-                },
-                CollectedValue {
-                    value: "3".to_owned(),
-                    start_time_ns: 500,
-                },
-            ]
-        );
-        let DerivedLaneData::Values(text) = &lanes[1].data else {
-            panic!("expected text values");
-        };
-        assert_eq!(text.kind, CollectedValueKind::Text);
-        assert_eq!(
-            text.values,
-            [CollectedValue {
-                value: "Window 03".to_owned(),
-                start_time_ns: 500,
-            }]
-        );
+        assert!(matches!(
+            lane_snapshot::<NumberLaneSnapshot>(&lane(&store, "counter.count"), 0, 1_000, 10)
+                .as_ref(),
+            NumberLaneSnapshot::Exact(samples)
+                if samples == &[NumberSample::new(-2, 0), NumberSample::new(3, 500)]
+        ));
+        assert!(matches!(
+            lane_snapshot::<TextLaneSnapshot>(&lane(&store, "formatter.text"), 0, 1_000, 10)
+                .as_ref(),
+            TextLaneSnapshot::Exact(samples)
+                if samples == &[TextSample::new("Window 03", 500)]
+        ));
     }
 
     #[test]
@@ -3024,40 +2527,35 @@ mod tests {
 
         let progress = sink.work(&inputs, &[]).unwrap();
         assert_eq!(progress, DRAIN_BATCH_SIZE, "one call drains one batch");
-        {
-            let lanes = store.read();
-            let DerivedLaneData::Digital(samples) = &lanes[0].data else {
-                panic!("expected digital lane");
-            };
-            assert_eq!(samples.len(), DRAIN_BATCH_SIZE);
-        }
+        assert_eq!(
+            lane(&store, "sig").storage_snapshot().retained_items,
+            Some(DRAIN_BATCH_SIZE as u64)
+        );
 
         // The remainder (plus the shutdown sentinel) arrives over the
         // following calls.
         run_sink(&mut sink, inputs);
-        let lanes = store.read();
-        let DerivedLaneData::Digital(samples) = &lanes[0].data else {
-            panic!("expected digital lane");
-        };
-        assert_eq!(samples.len(), total);
+        assert_eq!(
+            lane(&store, "sig").storage_snapshot().retained_items,
+            Some(total as u64)
+        );
     }
 
     #[test]
     fn instantaneous_annotation_leaves_long_inter_word_gaps_empty() {
-        let store = DerivedLanes::new();
-        let lane = store.register("w", DerivedLaneData::Annotations(Vec::new()));
-        store.append_word_batch(
-            lane,
+        let mut storage = InMemoryWordLaneStorage {
+            annotations: Vec::new(),
+            summary: ChunkedMipmap::new(),
+        };
+        append_test_words(
+            &mut storage,
             [
                 (1_000, 0, 1),
                 (1_100, 0, 2),
                 (1_100 + crate::events::MAX_ANNOTATION_NS * 10, 0, 3),
             ],
         );
-        let lanes = store.read();
-        let DerivedLaneData::Annotations(annotations) = &lanes[0].data else {
-            panic!("expected annotations");
-        };
+        let annotations = &storage.annotations;
         assert_eq!(annotations[0].end_ns, 1_100);
         assert_eq!(annotations[1].end_ns, 1_200);
         assert!(annotations[1].end_ns < annotations[2].start_ns);
@@ -3066,10 +2564,12 @@ mod tests {
     #[test]
     fn instantaneous_annotations_follow_a_slow_burst_cadence() {
         const WORD_PERIOD_NS: u64 = 24_000_000;
-        let store = DerivedLanes::new();
-        let lane = store.register("w", DerivedLaneData::Annotations(Vec::new()));
-        store.append_word_batch(
-            lane,
+        let mut storage = InMemoryWordLaneStorage {
+            annotations: Vec::new(),
+            summary: ChunkedMipmap::new(),
+        };
+        append_test_words(
+            &mut storage,
             [
                 (1_000_000_000, 0, 1),
                 (1_000_000_000 + WORD_PERIOD_NS, 0, 2),
@@ -3078,10 +2578,7 @@ mod tests {
             ],
         );
 
-        let lanes = store.read();
-        let DerivedLaneData::Annotations(annotations) = &lanes[0].data else {
-            panic!("expected annotations");
-        };
+        let annotations = &storage.annotations;
         assert_eq!(annotations[0].end_ns, annotations[1].start_ns);
         assert_eq!(annotations[1].end_ns, annotations[2].start_ns);
         assert_eq!(
@@ -3089,22 +2586,6 @@ mod tests {
             annotations[2].start_ns + WORD_PERIOD_NS
         );
         assert!(annotations[2].end_ns < annotations[3].start_ns);
-    }
-
-    #[test]
-    fn summary_tracks_digital_samples_as_they_arrive() {
-        let store = DerivedLanes::new();
-        let lane = store.register("d", DerivedLaneData::Digital(Vec::new()));
-        store.append_digital_batch(lane, [Sample::new(true, 100), Sample::new(false, 300)]);
-        let lanes = store.read();
-        let LaneSummary::Digital(summary) = &lanes[0].summary else {
-            panic!("expected a digital summary");
-        };
-        assert_eq!(summary.len(), 2);
-        let window = summary.sampled_window(0, 300, 10);
-        assert_eq!(window.len(), 2);
-        assert_eq!(window[0].level_hint, Some((true, true)));
-        assert_eq!(window[1].level_hint, Some((false, false)));
     }
 
     #[test]
@@ -3271,55 +2752,33 @@ mod tests {
         assert_eq!(text_query.nearest_time_boundary(190, 20), Some(200));
     }
 
-    #[test]
-    fn summary_tracks_markers_as_they_arrive() {
-        let store = DerivedLanes::new();
-        let lane = store.register("m", DerivedLaneData::Markers(Vec::new()));
-        store.append_marker_batch(lane, [10, 20, 30]);
-        let lanes = store.read();
-        let LaneSummary::Markers(summary) = &lanes[0].summary else {
-            panic!("expected a markers summary");
-        };
-        assert_eq!(summary.len(), 3);
-    }
-
     /// A word carrying a real duration is stored closed at its
     /// true end immediately — never patched to the next word's start, never
     /// left open for the renderer to estimate.
     #[test]
     fn word_with_duration_is_closed_at_its_true_end() {
-        let store = DerivedLanes::new();
-        let lane = store.register("w", DerivedLaneData::Annotations(Vec::new()));
+        let mut storage = InMemoryWordLaneStorage {
+            annotations: Vec::new(),
+            summary: ChunkedMipmap::new(),
+        };
 
         // A word spanning 2_300ns, followed much later by another; the first's
         // end must stay its own, not stretch to the second's start.
-        store.append_word_batch(lane, [(1_000, 2_300, 0x600081)]);
-        {
-            let lanes = store.read();
-            let DerivedLaneData::Annotations(annotations) = &lanes[0].data else {
-                panic!("expected annotations");
-            };
-            assert_eq!(
-                annotations.as_slice(),
-                &[Annotation {
-                    start_ns: 1_000,
-                    end_ns: 3_300,
-                    value: 0x600081,
-                    payload: None,
-                }]
-            );
-            // Closed immediately → in the summary at once, no one-entry lag.
-            let LaneSummary::Annotations(summary) = &lanes[0].summary else {
-                panic!("expected an annotations summary");
-            };
-            assert_eq!(summary.len(), 1);
-        }
+        append_test_words(&mut storage, [(1_000, 2_300, 0x600081)]);
+        assert_eq!(
+            storage.annotations.as_slice(),
+            &[Annotation {
+                start_ns: 1_000,
+                end_ns: 3_300,
+                value: 0x600081,
+                payload: None,
+            }]
+        );
+        // Closed immediately → in the summary at once, no one-entry lag.
+        assert_eq!(storage.summary.len(), 1);
 
-        store.append_word_batch(lane, [(500_000, 2_300, 0x600000)]);
-        let lanes = store.read();
-        let DerivedLaneData::Annotations(annotations) = &lanes[0].data else {
-            panic!("expected annotations");
-        };
+        append_test_words(&mut storage, [(500_000, 2_300, 0x600000)]);
+        let annotations = &storage.annotations;
         assert_eq!(annotations[0].end_ns, 3_300, "true end must not be patched");
         assert_eq!(annotations[1].end_ns, 502_300);
     }
@@ -3329,45 +2788,38 @@ mod tests {
         // The mipmap can't retroactively patch an entry once it's pushed,
         // so the most recent (still "open", not yet end-patched) annotation
         // only joins the summary once the *next* word closes it.
-        let store = DerivedLanes::new();
-        let lane = store.register("w", DerivedLaneData::Annotations(Vec::new()));
+        let mut storage = InMemoryWordLaneStorage {
+            annotations: Vec::new(),
+            summary: ChunkedMipmap::new(),
+        };
 
-        store.append_word_batch(lane, [(1_000, 0, 0xAB)]);
-        {
-            let lanes = store.read();
-            let LaneSummary::Annotations(summary) = &lanes[0].summary else {
-                panic!("expected an annotations summary");
-            };
-            assert_eq!(summary.len(), 0, "the only word so far is still open");
-        }
+        append_test_words(&mut storage, [(1_000, 0, 0xAB)]);
+        assert_eq!(
+            storage.summary.len(),
+            0,
+            "the only word so far is still open"
+        );
 
-        store.append_word_batch(lane, [(1_500, 0, 0xCD)]);
-        {
-            let lanes = store.read();
-            let LaneSummary::Annotations(summary) = &lanes[0].summary else {
-                panic!("expected an annotations summary");
-            };
-            assert_eq!(summary.len(), 1, "the first word is now closed");
-            let window = summary.sampled_window(0, 1_500, 10);
-            assert_eq!(window[0].start_ns, 1_000);
-            assert_eq!(window[0].end_ns, 1_500);
-        }
+        append_test_words(&mut storage, [(1_500, 0, 0xCD)]);
+        assert_eq!(storage.summary.len(), 1, "the first word is now closed");
+        let window = storage.summary.sampled_window(0, 1_500, 10);
+        assert_eq!(window[0].start_ns, 1_000);
+        assert_eq!(window[0].end_ns, 1_500);
     }
 
     #[test]
     fn annotation_chunk_rollover_preserves_raw_boundaries_and_summary_count() {
         const CHUNK_SIZE: u64 = 4_096;
-        let store = DerivedLanes::new();
-        let lane = store.register("w", DerivedLaneData::Annotations(Vec::new()));
-        store.append_word_batch(
-            lane,
+        let mut storage = InMemoryWordLaneStorage {
+            annotations: Vec::new(),
+            summary: ChunkedMipmap::new(),
+        };
+        append_test_words(
+            &mut storage,
             (0..CHUNK_SIZE + 4).map(|index| (index * 10, 0, index)),
         );
 
-        let lanes = store.read();
-        let DerivedLaneData::Annotations(annotations) = &lanes[0].data else {
-            panic!("expected annotations");
-        };
+        let annotations = &storage.annotations;
         assert_eq!(annotations.len(), (CHUNK_SIZE + 4) as usize);
         assert_eq!(
             annotations[CHUNK_SIZE as usize - 1].end_ns,
@@ -3375,9 +2827,7 @@ mod tests {
             "the word crossing the summary chunk boundary remains exact"
         );
 
-        let LaneSummary::Annotations(summary) = &lanes[0].summary else {
-            panic!("expected annotation summary");
-        };
+        let summary = &storage.summary;
         assert_eq!(summary.len(), (CHUNK_SIZE + 3) as usize);
         let records = summary.sampled_window(0, (CHUNK_SIZE + 4) * 10, 1);
         assert_eq!(
@@ -3395,15 +2845,13 @@ mod tests {
         // slow) — just enough to prove there's no hidden ceiling like the
         // old `MAX_LANE_ENTRIES` silently discarding past some threshold.
         const ENTRIES: u64 = 10_000;
-        let store = DerivedLanes::new();
-        let lane = store.register("m", DerivedLaneData::Markers(Vec::new()));
-        store.append_marker_batch(lane, 0..ENTRIES);
-        let lanes = store.read();
-        let DerivedLaneData::Markers(markers) = &lanes[0].data else {
-            panic!("expected markers");
-        };
-        assert_eq!(markers.len(), ENTRIES as usize);
-        assert_eq!(markers.last(), Some(&(ENTRIES - 1)));
+        let mut storage = TriggerLaneStorage::default();
+        for timestamp_ns in 0..ENTRIES {
+            storage.summary.push(&timestamp_ns);
+            storage.timestamps.push(timestamp_ns);
+        }
+        assert_eq!(storage.timestamps.len(), ENTRIES as usize);
+        assert_eq!(storage.timestamps.last(), Some(&(ENTRIES - 1)));
     }
 
     #[test]
@@ -3432,22 +2880,19 @@ mod tests {
             vec![InputPort::new_with_watchdog(rx, &wd, "viewer", "in0")],
         );
 
-        let lanes = store.read();
-        let DerivedLaneData::Annotations(annotations) = &lanes[0].data else {
-            panic!("expected annotations");
-        };
+        let words = lane(&store, "words");
+        let table = words.table_snapshot(10).expect("word table snapshot");
         assert_eq!(
-            annotations
-                .iter()
-                .map(|annotation| annotation.value)
-                .collect::<Vec<_>>(),
+            table.rows.iter().map(|row| row.value).collect::<Vec<_>>(),
             vec![3, 4, 5]
         );
-        let LaneSummary::Annotations(summary) = &lanes[0].summary else {
-            panic!("expected annotation summary");
-        };
-        assert_eq!(summary.len(), 5, "the newest annotation remains open");
-        assert_eq!(summary.sampled_window(0, 1_000, 10)[0].start_ns, 0);
+        let storage = words.storage_snapshot();
+        assert_eq!(storage.retained_items, Some(3));
+        assert_eq!(
+            storage.index_items,
+            Some(5),
+            "the summary retains the five closed words"
+        );
     }
 
     #[test]
@@ -3462,10 +2907,18 @@ mod tests {
             .with_word_store_config(config)
             .with_words("words");
 
-        assert!(matches!(
-            store.read()[0].data,
-            DerivedLaneData::Annotations(_)
-        ));
+        let words = lane(&store, "words");
+        assert_eq!(
+            words.storage_snapshot().backing,
+            CollectedLaneStorageBacking::Memory
+        );
+        assert!(
+            words
+                .query::<CollectedWordLaneQuery>()
+                .unwrap()
+                .indexed_lane()
+                .is_none()
+        );
     }
 
     #[test]
@@ -3493,14 +2946,14 @@ mod tests {
             vec![InputPort::new_with_watchdog(rx, &wd, "viewer", "in0")],
         );
 
-        let lanes = store.read();
-        let DerivedLaneData::IndexedAnnotations(indexed) = &lanes[0].data else {
-            panic!("expected indexed annotation lane");
-        };
+        let indexed = lane(&store, "words")
+            .query::<CollectedWordLaneQuery>()
+            .and_then(|query| query.indexed_lane())
+            .expect("expected indexed annotation lane");
         assert_eq!(indexed.status(), StoreStatus::Finished);
         assert_eq!(indexed.metadata().total_word_count, word_count as u64);
         let tail = indexed
-            .query
+            .query()
             .exact_window((word_count as u64 - 3) * 10, word_count as u64 * 10, 10)
             .unwrap();
         assert!(tail.complete);
@@ -3545,14 +2998,14 @@ mod tests {
             ],
         );
 
-        let lanes = store.read();
-        let DerivedLaneData::IndexedAnnotations(indexed) = &lanes[0].data else {
-            panic!("expected indexed annotation lane");
-        };
+        let indexed = lane(&store, "words")
+            .query::<CollectedWordLaneQuery>()
+            .and_then(|query| query.indexed_lane())
+            .expect("expected indexed annotation lane");
         assert!(matches!(indexed.status(), StoreStatus::Failed(_)));
         assert!(matches!(
-            &lanes[1].data,
-            DerivedLaneData::Markers(markers) if markers == &[42]
+            lane_snapshot::<TriggerLaneSnapshot>(&lane(&store, "trigger"), 0, 100, 10).as_ref(),
+            TriggerLaneSnapshot::Exact(markers) if markers == &[42]
         ));
     }
 
@@ -3567,26 +3020,23 @@ mod tests {
         let first = test_collector(store.clone())
             .with_word_store_config(config.clone())
             .with_words("words");
-        let first_query = match &store.read()[0].data {
-            DerivedLaneData::IndexedAnnotations(indexed) => Arc::clone(&indexed.query),
-            other => panic!("expected indexed annotation lane, got {other:?}"),
-        };
+        let first_query = lane(&store, "words")
+            .query::<CollectedWordLaneQuery>()
+            .expect("first published query");
 
         let second = test_collector(store.clone())
             .with_word_store_config(config)
             .with_words("words");
-        let second_query = match &store.read()[0].data {
-            DerivedLaneData::IndexedAnnotations(indexed) => Arc::clone(&indexed.query),
-            other => panic!("expected indexed annotation lane, got {other:?}"),
-        };
+        let second_query = lane(&store, "words")
+            .query::<CollectedWordLaneQuery>()
+            .expect("second published query");
 
         assert!(!Arc::ptr_eq(&first_query, &second_query));
+        let second_indexed = second_query
+            .indexed_lane()
+            .expect("second indexed annotation lane");
         drop((first, second));
-        let lanes = store.read();
-        let DerivedLaneData::IndexedAnnotations(indexed) = &lanes[0].data else {
-            panic!("expected indexed annotation lane");
-        };
-        assert_eq!(indexed.status(), StoreStatus::Cancelled);
+        assert_eq!(second_indexed.status(), StoreStatus::Cancelled);
     }
 
     #[test]
@@ -3610,10 +3060,10 @@ mod tests {
         let mut sink = test_collector(lanes.clone())
             .with_word_store_config(config)
             .with_words("words");
-        assert!(matches!(
-            lanes.read()[0].data,
-            DerivedLaneData::IndexedAnnotations(_)
-        ));
+        let indexed = lane(&lanes, "words")
+            .query::<CollectedWordLaneQuery>()
+            .and_then(|query| query.indexed_lane())
+            .expect("reopened indexed annotation lane");
         let wd = Watchdog::new();
         let (tx, rx) = bounded::<ChannelMessage<Word>>(4);
         tx.send(ChannelMessage::Batch(vec![
@@ -3627,13 +3077,9 @@ mod tests {
             vec![InputPort::new_with_watchdog(rx, &wd, "viewer", "in0")],
         );
 
-        let lanes = lanes.read();
-        let DerivedLaneData::IndexedAnnotations(indexed) = &lanes[0].data else {
-            panic!("expected indexed annotations");
-        };
         assert_eq!(indexed.metadata().total_word_count, 2);
         assert_eq!(
-            indexed.query.exact_window(0, 30, 10).unwrap().annotations[0].value,
+            indexed.query().exact_window(0, 30, 10).unwrap().annotations[0].value,
             1
         );
     }

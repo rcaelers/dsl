@@ -4,9 +4,7 @@ use egui::{Color32, PopupCloseBehavior, Stroke};
 
 use logic_analyzer_graph_api::node_support::DecoderTableCellMode;
 use logic_analyzer_viewer::{AnnotationVisual, ViewerLaneTheme};
-use signal_processing::{
-    Annotation, CollectedLaneTableRow, DerivedLaneData, DerivedLanes, OpaqueCollectedLane,
-};
+use signal_processing::{CollectedLaneTableRow, DerivedLanes};
 
 use super::model::{DecoderTableColumn, DecoderTableRegistry, DecoderTableSource};
 
@@ -229,33 +227,16 @@ fn table_fingerprint(source: &DecoderTableSource, lanes: &DerivedLanes) -> Vec<(
                 .map(|metadata| (lane.name().to_owned(), metadata))
         })
         .collect();
-    let lanes = lanes.read();
     source
         .columns
         .iter()
         .filter_map(|column| {
-            if let Some(metadata) = opaque_metadata.get(column.lane.as_str()) {
-                return Some((
-                    column.lane.as_str().to_owned(),
-                    metadata.generation,
-                    metadata.total_rows,
-                ));
-            }
-            let lane = lanes
-                .iter()
-                .find(|lane| lane.name == column.lane.as_str())?;
-            let (generation, count) = match &lane.data {
-                DerivedLaneData::Annotations(annotations) => (
-                    annotations.last().map_or(0, |annotation| annotation.end_ns),
-                    annotations.len() as u64,
-                ),
-                DerivedLaneData::IndexedAnnotations(indexed) => {
-                    let metadata = indexed.metadata();
-                    (metadata.generation, metadata.total_word_count)
-                }
-                _ => (0, 0),
-            };
-            Some((column.lane.as_str().to_owned(), generation, count))
+            let metadata = opaque_metadata.get(column.lane.as_str())?;
+            Some((
+                column.lane.as_str().to_owned(),
+                metadata.generation,
+                metadata.total_rows,
+            ))
         })
         .collect()
 }
@@ -553,89 +534,22 @@ fn load_table(
         .filter(|lane| lane.table_metadata().is_some())
         .map(|lane| (lane.name().to_owned(), lane))
         .collect();
-    let lane_handles = {
-        let lanes = lanes.read();
-        source
-            .columns
-            .iter()
-            .map(|column| {
-                if let Some(lane) = opaque_table_lanes.get(column.lane.as_str()) {
-                    return Ok((ColumnData::Opaque(lane.clone()), None));
-                }
-                let lane = lanes
-                    .iter()
-                    .find(|lane| lane.name == column.lane.as_str())
-                    .ok_or_else(|| format!("{} is not available", column.label))?;
-                let data = match &lane.data {
-                    DerivedLaneData::Annotations(annotations) => {
-                        ColumnData::Memory(annotations.clone())
-                    }
-                    DerivedLaneData::IndexedAnnotations(indexed) => {
-                        ColumnData::Indexed(indexed.query().clone())
-                    }
-                    _ => return Err(format!("{} is not tabular data", column.label)),
-                };
-                Ok((data, lane.word_display_format.clone()))
-            })
-            .collect::<Result<Vec<_>, String>>()?
-    };
-
     let mut truncated = false;
-    let columns = lane_handles
-        .into_iter()
-        .map(|(data, lane_format)| {
-            let (rows, lane_format) = match data {
-                ColumnData::Opaque(lane) => {
-                    let snapshot = lane
-                        .table_snapshot(row_limit)
-                        .ok_or_else(|| format!("{} has no table data", lane.name()))?;
-                    truncated |= !snapshot.complete;
-                    (snapshot.rows, snapshot.format_hint)
-                }
-                ColumnData::Memory(mut annotations) => {
-                    if annotations.len() > row_limit {
-                        annotations.truncate(row_limit);
-                        truncated = true;
-                    }
-                    (
-                        annotations
-                            .iter()
-                            .map(|annotation| CollectedLaneTableRow {
-                                start_time_ns: annotation.start_ns,
-                                end_time_ns: annotation.end_ns,
-                                value: annotation.value,
-                                payload: annotation.payload.clone(),
-                            })
-                            .collect(),
-                        lane_format,
-                    )
-                }
-                ColumnData::Indexed(query) => {
-                    let metadata = query.metadata();
-                    let window = query
-                        .exact_window(
-                            metadata.first_timestamp_ns.unwrap_or(0),
-                            metadata.extent_end_ns.unwrap_or(u64::MAX),
-                            row_limit,
-                        )
-                        .map_err(|error| error.to_string())?;
-                    truncated |= !window.complete;
-                    (
-                        window
-                            .annotations
-                            .iter()
-                            .map(|annotation| CollectedLaneTableRow {
-                                start_time_ns: annotation.start_ns,
-                                end_time_ns: annotation.end_ns,
-                                value: annotation.value,
-                                payload: annotation.payload.clone(),
-                            })
-                            .collect(),
-                        lane_format,
-                    )
-                }
-            };
-            Ok(LoadedColumn { rows, lane_format })
+    let columns = source
+        .columns
+        .iter()
+        .map(|column| {
+            let lane = opaque_table_lanes
+                .get(column.lane.as_str())
+                .ok_or_else(|| format!("{} is not available", column.label))?;
+            let snapshot = lane
+                .table_snapshot(row_limit)
+                .ok_or_else(|| format!("{} has no table data", lane.name()))?;
+            truncated |= !snapshot.complete;
+            Ok(LoadedColumn {
+                rows: snapshot.rows,
+                lane_format: snapshot.format_hint,
+            })
         })
         .collect::<Result<Vec<_>, String>>()?;
     let anchor = source
@@ -648,12 +562,6 @@ fn load_table(
         anchor,
         truncated,
     })
-}
-
-enum ColumnData {
-    Opaque(OpaqueCollectedLane),
-    Memory(Vec<Annotation>),
-    Indexed(std::sync::Arc<dyn signal_processing::AnnotationQuery>),
 }
 
 fn show_table(
@@ -987,15 +895,6 @@ mod tests {
             }],
         };
         let lanes = DerivedLanes::new();
-        lanes.register(
-            lane_id.as_str(),
-            DerivedLaneData::Annotations(vec![Annotation {
-                start_ns: 100,
-                end_ns: 200,
-                value: 0x11,
-                payload: None,
-            }]),
-        );
         let mut payloads = PayloadRegistry::new();
         payloads.register::<Word>("org.example.word/v1").unwrap();
         lanes.publish_opaque_lane(

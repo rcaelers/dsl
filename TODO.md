@@ -77,16 +77,38 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ### Indexed derived data
 
-- [derived.validation.reference-capture] Run the ignored release-mode writer differential and golden graph tests against the complete
-  reference capture; record output sizes and hashes and ensure temporary artifacts are contained.
-- [derived.performance.ui-latency] Profile egui update, indexed sampling, lane-lock duration, repaint cadence, and input latency
-  while decoding a complete capture; add focused regressions for any reproduced stall.
-- [derived.performance.append-pipeline] Optionally profile the indexed-store append pipeline toward the sub-50-second full-cache stretch
-  target. Optimize only measured builder/encode/write phases while preserving fingerprints,
-  bounded RSS, query latency, and cancellation.
-- [derived.annotations.native-retention] Audit native `DerivedLaneData::Annotations` paths after plugin/wasm compatibility is confirmed;
-  remove only duplicate native retention while preserving wasm, explicit in-memory mode, and
-  storage-failure fallback.
+- [derived.refactor.payload-modules] Split the built-in per-payload ingestors, retained stores,
+  snapshots, and queries out of `derived_data_collector.rs` behind the existing collected-lane
+  facade. Preserve wasm storage, explicit in-memory retention, plugin payloads, and storage-failure
+  fallback while making each payload adapter independently testable.
+- [derived.validation.reference-capture] Use the explicit `compiler_capture` release benchmark with a
+  developer-supplied complete reference capture. Validate the compiled graph against the reference
+  pipeline using output names, sizes, and hashes; keep generated output and temporary cache artifacts
+  contained outside the repository. This remains manual validation and must not become a crate test
+  that depends on an unavailable capture.
+- [derived.performance.reference-pipeline] Establish a reproducible baseline for the checked-in
+  `spi_controlled_decode` graph and the complete approximately 250-second, 50-MHz reference capture.
+  Record wall time, real-time factor, phase timings, average CPU cores, peak RSS, encoded/index sizes,
+  output fingerprints, and cancellation latency. Restore at least 6x real-time processing (roughly
+  42 seconds for that capture) without sacrificing deterministic output or bounded memory.
+- [derived.performance.protocol-selection] Benchmark forced indexed and packed-stream decoding with
+  the real CS and Enable ranges. Make `Auto` select from estimated work after gating and signal
+  activity rather than treating the mere presence of an Enable connection as sufficient reason to
+  choose the single-threaded indexed path. Keep the selection metadata-driven and owned by the
+  parallel decoder.
+- [derived.performance.parallel-execution] Scale immutable packed-window scanning through the shared
+  worker capability while preserving bounded in-flight fragments, deterministic ordered merge,
+  backpressure, and responsive cancellation. Measure 1, 2, 4, 8, 16, and 32 workers, record CPU and
+  memory-bandwidth scaling plus fragment/reorder memory, and choose adaptive defaults from measured
+  results instead of fixed four/eight-worker limits.
+- [derived.performance.append-pipeline] Use the full-pipeline phase measurements to determine whether
+  derived-store append is limiting throughput. Optimize only measured builder, summary, encode, or
+  write phases; parallelize independent work only behind an ordered publication boundary, and
+  preserve fingerprints, bounded RSS, live query latency, storage-failure isolation, and
+  cancellation.
+- [derived.performance.ui-latency] Profile egui update, indexed sampling, lane-lock duration, repaint
+  cadence, and input latency while decoding a complete capture. Keep this separate from pipeline
+  throughput and add focused regressions only for reproduced foreground stalls.
 
 ### Node-graph extraction
 

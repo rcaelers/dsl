@@ -34,9 +34,9 @@ The viewer renders three independent kinds of rows:
    widget never depends on a file format.
 2. **In-memory channels** — raw `(time, level)` transition lists handed in wholesale
    (`set_channels`), used for host-provided data.
-3. **Derived lanes** — a shared `DerivedLanes` store (`Arc<RwLock<…>>`) that running
-   pipeline `Viewer` nodes push into (`set_derived_lanes`); rendered live as digital,
-   annotation (boxed word), marker, or labeled number/text level rows beneath the channels.
+3. **Derived lanes** — a shared `DerivedLanes` catalog of stable payload descriptors and
+   adapter-owned query handles that running pipeline `Viewer` nodes publish through
+   (`set_derived_lanes`); rendered live beneath the channels through registered presentations.
 
 A single `row_order: Vec<RowKey>` is the only source of truth for display order across all
 row kinds, reconciled every frame (stale rows dropped, new ones appended) before any
@@ -389,7 +389,7 @@ budget, then releases retained-data locks before calling renderer code. Exact an
 snapshot semantics belong to the payload query. Renderers may additionally project a snapshot to
 generic level or event transitions for measurement and event-row interaction. Cursor boundary,
 timeline extent, and live-status behavior are query capabilities. No renderer or plugin code runs
-while `DerivedLanes` is locked, and the viewer never branches on a concrete payload type. Drawing
+while a payload store is locked, and the viewer never branches on a concrete payload type. Drawing
 receives semantic theme colors and a copied interaction context containing the bounded window,
 budget, hover state, and pointer time; it never receives `LogicAnalyzerViewer` internals.
 

@@ -19,7 +19,7 @@ The following concepts exist on every target:
 - `IndexedAnnotationStore` and `IndexedAnnotationWriter`;
 - `LiveStoreConfig` and `BlockCodecConfig`;
 - `StoreStatus` and platform-neutral store errors;
-- `IndexedAnnotationLane` and `DerivedLaneData::IndexedAnnotations`;
+- adapter-owned `CollectedLaneQuery` handles and opaque lane discovery;
 - optional persistence configuration without a different graph or lane shape.
 
 `IndexedAnnotationStore` names the behavior of the store rather than its physical medium. Native
@@ -80,13 +80,15 @@ propagate into callers.
 
 ## Viewer and sink design
 
-`DerivedLaneData::IndexedAnnotations` and `IndexedAnnotationLane` exist on every target. Each
-lane holds an `Arc<dyn AnnotationQuery>` plus platform-neutral status and metadata handles.
-Drawing, cursor snapping, sampling, and row handling therefore use one code path.
+`IndexedAnnotationLane` exists on every target behind an adapter-owned
+`CollectedLaneQuery`. Each published lane exposes platform-neutral status,
+metadata, snapshots, and optional table projections. Drawing, cursor snapping,
+sampling, and row handling therefore use one code path.
 
-`DerivedDataCollector` uses the same optional writer and query fields on every target. Store construction
-selects the backend internally. The plain `Annotations(Vec<Annotation>)` lane remains available
-for explicitly non-indexed streams; it is not a platform-specific substitute for an indexed lane.
+`DerivedDataCollector` uses the same optional writer and query fields on every
+target. Store construction selects the backend internally. Explicitly
+non-indexed word streams remain adapter-owned in-memory stores; they are not a
+platform-specific substitute for an indexed lane.
 
 ## Compiler design
 
