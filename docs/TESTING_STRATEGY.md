@@ -90,6 +90,30 @@ cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
 Run it with `--help` to list its timing and validation commands. These commands
 are intentionally absent from Cargo's test harness because their input is
 developer-supplied and their execution time depends on the complete capture.
+`baseline` loads the checked-in `graphs/spi_controlled_decode.json` document,
+overrides only its capture and output paths, and prints a versioned JSON report
+to standard output. The report identifies the graph and capture, separates
+graph load, lowering, pipeline startup, execution, storage inspection, and
+output fingerprinting time, and records average CPU cores, peak RSS, throughput,
+real-time factor, derived-lane and persistent-cache sizes, output names/sizes/
+BLAKE3 hashes, and cancellation latency. Run it from an otherwise idle machine
+and redirect standard output when retaining a baseline; progress and the short
+summary use standard error:
+
+```console
+cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
+  baseline /path/to/reference.dsl > reference-pipeline.json
+```
+
+Execution and cancellation use fresh derived-cache directories and separate
+child processes. This prevents a previous run from turning the execution
+measurement into a derived-data cache hit and gives cancellation its own clean
+pipeline. Throughput comparisons use the application's normal preloaded and
+indexed capture state and an otherwise idle machine; cold filesystem-cache runs
+measure storage warmup as well as pipeline execution and are recorded
+separately. Environment, graph, capture-cache, and output fingerprints make
+reports comparable without checking a developer capture or generated data into
+the repository.
 `validate-compiled` runs the compiled graph and the independent reference
 pipeline, then compares the complete output manifest by canonical output name,
 size, and BLAKE3 hash. It adds one explicit sparse control-lane subscription;
@@ -108,7 +132,8 @@ cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
 ```
 
 The derived-word store throughput guard uses a deterministic generated
-workload and exercises the supported indexed writer boundary:
+eight-bit workload with a small quantized timestamp-delta palette and exercises
+the supported indexed writer boundary:
 
 ```console
 cargo run --release -p signal-processing --bin derived-word-store-bench

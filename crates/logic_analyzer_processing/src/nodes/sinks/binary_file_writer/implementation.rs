@@ -55,7 +55,6 @@ pub struct BinaryFileWriter {
     index_csv: bool,
 
     data_buffer: VecDeque<Word>,
-    data_batch: Vec<Word>,
     encoded_batch: Vec<u8>,
     name_buffer: VecDeque<TextSample>,
     /// Drained but not yet applicable name changes (timestamps ahead of the
@@ -86,7 +85,6 @@ impl BinaryFileWriter {
             width: WriteWidth::default(),
             index_csv: false,
             data_buffer: VecDeque::new(),
-            data_batch: Vec::with_capacity(Self::DRAIN_BATCH_SIZE),
             encoded_batch: Vec::with_capacity(Self::DRAIN_BATCH_SIZE * 4),
             name_buffer: VecDeque::new(),
             pending_names: VecDeque::new(),
@@ -247,7 +245,7 @@ impl BinaryFileWriter {
         result
     }
 
-    fn stage_word(&mut self, word: Word) -> WorkResult<()> {
+    fn stage_word(&mut self, word: &Word) -> WorkResult<()> {
         let word_ts = word.timestamp_ns;
         while self
             .pending_names
@@ -344,9 +342,8 @@ impl ProcessNode for BinaryFileWriter {
 
         // Block for the first word, then preserve the decoder's batches so
         // a dense capture needs thousands of scheduler calls, not billions.
-        self.data_batch.clear();
-        let first = match data.recv() {
-            Ok(word) => word,
+        let first_batch = match data.recv_batch() {
+            Ok(batch) => batch,
             Err(WorkError::Shutdown) => {
                 self.close_current()
                     .map_err(|e| WorkError::NodeError(format!("closing file: {e}")))?;
@@ -354,19 +351,27 @@ impl ProcessNode for BinaryFileWriter {
             }
             Err(e) => return Err(e),
         };
-        self.data_batch.push(first);
-        let _ = data.try_recv_many(
-            &mut self.data_batch,
-            Self::DRAIN_BATCH_SIZE.saturating_sub(1),
-        );
+        let mut count = first_batch.len();
+        let mut batches = vec![first_batch];
+        while count < Self::DRAIN_BATCH_SIZE {
+            match data.try_recv_batch() {
+                Ok(batch) => {
+                    count += batch.len();
+                    batches.push(batch);
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => break,
+                Err(crossbeam_channel::TryRecvError::Disconnected) => break,
+            }
+        }
         drop(data);
 
         // Establish a filename watermark for the complete data batch. A
         // sparse control stream may lag the dense data channel; merely
         // draining what's available would race a filename transition that
         // belongs in the middle of this batch.
-        let batch_end_ns = self
-            .data_batch
+        let batch_end_ns = batches
+            .last()
+            .expect("the blocking receive populated the batch list")
             .last()
             .expect("the blocking receive populated the batch")
             .timestamp_ns;
@@ -383,13 +388,12 @@ impl ProcessNode for BinaryFileWriter {
         }
         drop(names);
 
-        let mut batch = std::mem::take(&mut self.data_batch);
-        let count = batch.len();
-        for word in batch.drain(..) {
-            self.stage_word(word)?;
+        for batch in &batches {
+            for word in batch {
+                self.stage_word(word)?;
+            }
         }
         self.flush_encoded_batch()?;
-        self.data_batch = batch;
         Ok(count)
     }
 }

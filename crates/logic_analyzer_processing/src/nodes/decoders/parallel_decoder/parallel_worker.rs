@@ -202,6 +202,9 @@ fn work_parallel(
             window_end,
             strobe.timestamp_step,
         )?;
+        decoder
+            .sampling_progress
+            .advance(strobe.start_position.saturating_add(window_end as u64));
         let strobe = strobe.clone();
         let data = blocks.data.clone();
         let cs = blocks.cs.clone();
@@ -275,7 +278,11 @@ fn work_parallel(
         first_ts: decoder.assembly_first_ts,
     };
     let mut last_strobe_value = decoder.last_strobe_value;
-    let mut sampling_point_batch = decoder.sampling_points.as_ref().map(|_| Vec::new());
+    let mut sampling_point_batch = decoder
+        .sampling_points
+        .as_ref()
+        .filter(|store| store.is_recording_enabled())
+        .map(|_| Vec::new());
     let words_emitted = merge_stream_fragment(
         &fragment,
         decoder.mode,
@@ -327,10 +334,7 @@ mod parallel_worker_tests {
 
     use crossbeam_channel::bounded;
 
-    use signal_processing::ProcessNode;
-    use signal_processing::Scheduler;
-    use signal_processing::{ChannelMessage, Sender};
-    use signal_processing::Watchdog;
+    use signal_processing::{ChannelMessage, ProcessNode, Scheduler, Sender, Watchdog};
 
     use super::*;
 

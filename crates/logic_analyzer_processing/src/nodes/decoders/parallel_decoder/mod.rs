@@ -6,6 +6,7 @@ mod implementation;
 #[cfg(target_arch = "wasm32")]
 #[path = "wasm.rs"]
 mod implementation;
+mod sampling_provider;
 mod types;
 
 pub use implementation::{ParallelDecoder, ParallelDecoderMetrics, ParallelDecoderMetricsSnapshot};

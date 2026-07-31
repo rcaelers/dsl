@@ -1,15 +1,24 @@
 use egui::{Color32, Painter, Pos2, Shape, Stroke};
 
+use crate::sampling_overlay::SamplingOverlay;
 use crate::types::{AnalyzerLayout, RowKey};
 use crate::viewer::LogicAnalyzerViewer;
 
 const MARKER_SPACING_PX: f64 = 6.0;
 
 impl LogicAnalyzerViewer {
-    pub(crate) fn draw_sampling_overlay(&self, painter: &Painter, layout: AnalyzerLayout) {
-        let Some(overlay) = &self.sampling_overlay else {
-            return;
-        };
+    pub(crate) fn draw_sampling_overlays(&self, painter: &Painter, layout: AnalyzerLayout) {
+        for overlay in &self.sampling_overlays {
+            self.draw_sampling_overlay(painter, layout, overlay);
+        }
+    }
+
+    fn draw_sampling_overlay(
+        &self,
+        painter: &Painter,
+        layout: AnalyzerLayout,
+        overlay: &SamplingOverlay,
+    ) {
         let Some(clock_row) = self
             .row_order
             .iter()

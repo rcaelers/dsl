@@ -2180,6 +2180,7 @@ dependencies = [
  "clap",
  "egui",
  "example-plugin",
+ "libc",
  "logic-analyzer-graph-api",
  "logic-analyzer-graph-compiler",
  "logic-analyzer-graph-nodes",

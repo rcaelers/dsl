@@ -118,6 +118,9 @@ pub struct InputPort {
     /// Set when this connection negotiated [`super::protocol::ProtocolKind::EdgeQuery`]
     /// — see [`Self::edge_query`].
     edge_query: Option<Arc<dyn EdgeQuery>>,
+    /// Random-access capability offered by the producer even when this
+    /// connection selected the streamed transport.
+    edge_query_capability: Option<Arc<dyn EdgeQuery>>,
 }
 
 impl InputPort {
@@ -129,6 +132,7 @@ impl InputPort {
             watchdog_handle: None,
             eos_received: AtomicBool::new(false),
             edge_query: None,
+            edge_query_capability: None,
         }
     }
 
@@ -150,6 +154,7 @@ impl InputPort {
             watchdog_handle: Some(watchdog.register_port(node_name, "recv", port_name)),
             eos_received: AtomicBool::new(false),
             edge_query: None,
+            edge_query_capability: None,
         }
     }
 
@@ -166,7 +171,17 @@ impl InputPort {
 
     /// Attaches the negotiated `EdgeQuery` handle for this connection.
     pub fn with_edge_query(mut self, edge_query: Option<Arc<dyn EdgeQuery>>) -> Self {
+        self.edge_query_capability.clone_from(&edge_query);
         self.edge_query = edge_query;
+        self
+    }
+
+    /// Retains a producer's random-access capability as an auxiliary service
+    /// without changing the transport selected for this input.
+    pub fn with_edge_query_capability(mut self, edge_query: Option<Arc<dyn EdgeQuery>>) -> Self {
+        if edge_query.is_some() {
+            self.edge_query_capability = edge_query;
+        }
         self
     }
 
@@ -177,6 +192,17 @@ impl InputPort {
     /// unconnected port) only supports streaming.
     pub fn edge_query(&self) -> Option<Arc<dyn EdgeQuery>> {
         self.edge_query.clone()
+    }
+
+    /// Returns the producer's random-access capability independently of the
+    /// connection's selected transport.
+    pub fn edge_query_capability(&self) -> Option<Arc<dyn EdgeQuery>> {
+        self.edge_query_capability.clone()
+    }
+
+    /// Whether this input has either a streamed channel or a negotiated query.
+    pub fn is_connected(&self) -> bool {
+        !self.channel.is::<()>() || self.edge_query.is_some()
     }
 
     /// Get a Receiver with automatic watchdog monitoring.

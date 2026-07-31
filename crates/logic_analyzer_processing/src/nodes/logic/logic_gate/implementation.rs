@@ -10,6 +10,8 @@ use signal_processing::{
     WorkError, WorkOutcome, WorkResult,
 };
 
+use super::edge_query::LogicGateEdgeQuery;
+
 /// Boolean operation of a [`LogicGate`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GateOp {
@@ -25,7 +27,7 @@ pub enum GateOp {
 }
 
 impl GateOp {
-    fn combine(&self, levels: &[bool]) -> bool {
+    pub(crate) fn combine(&self, levels: &[bool]) -> bool {
         match self {
             GateOp::Not => !levels[0],
             GateOp::And => levels.iter().all(|&l| l),
@@ -141,7 +143,25 @@ impl ProcessNode for LogicGate {
     }
 
     fn output_schema(&self) -> Vec<PortSchema> {
-        vec![PortSchema::new::<Sample>("out", 0, PortDirection::Output)]
+        vec![
+            PortSchema::new::<Sample>("out", 0, PortDirection::Output)
+                .with_protocols(vec![ProtocolKind::Stream, ProtocolKind::EdgeQuery]),
+        ]
+    }
+
+    fn edge_query(
+        &self,
+        port: usize,
+        input_queries: &[Option<Arc<dyn EdgeQuery>>],
+    ) -> Option<Arc<dyn EdgeQuery>> {
+        if port != 0 || input_queries.len() < self.levels.len() {
+            return None;
+        }
+        let inputs = input_queries[..self.levels.len()]
+            .iter()
+            .cloned()
+            .collect::<Option<Vec<_>>>()?;
+        LogicGateEdgeQuery::new(self.op, inputs).map(|query| Arc::new(query) as Arc<dyn EdgeQuery>)
     }
 
     fn work_outcome(

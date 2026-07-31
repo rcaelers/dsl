@@ -99,6 +99,22 @@ current value.
 channel both as RLE edges (`d{i}`) and packed blocks (`b{i}`); consumers declare which they
 take and the compiler picks per edge.
 
+## Random-access signal capabilities
+
+`EdgeQuery` is a query capability carried alongside the stream contract. A connection may
+negotiate it as its transport, or retain it as an auxiliary capability while continuing to
+stream. Nodes receive their connected input capabilities when their outputs are materialized, so
+pass-through and combining nodes can expose random-access output queries without generic runtime
+code knowing their boolean or protocol semantics.
+
+Finite raw sources answer through their waveform indexes. Sparse derived level nodes retain only
+their transitions, while combiners such as logic gates evaluate their output lazily from input
+queries and convert between input sample rates in the shared time domain. Growing derived queries
+prefer stream transport during execution so downstream state cannot run ahead of their producer;
+the auxiliary query is complete through the downstream processing watermark and supports passive
+post-run inspection. Sampling overlays use these capabilities to reconstruct visible markers
+without rerunning the pipeline or retaining one marker per decoded sample.
+
 ## High-throughput transport and parallel-bus decoding
 
 The high-bandwidth path is designed around bounded, shared storage rather than scalar
@@ -109,17 +125,17 @@ messages or capture-sized queues:
 - File sources use a bounded two-window block cache and send aligned channel groups in
   lockstep. Default packed-block connections are deliberately small.
 - `ChannelMessage<T>::Batch(Vec<T>)` amortizes channel overhead. Ordinary receivers flatten
-  batches transparently; batch-aware sinks can drain them directly.
+  batches transparently; batch-aware sinks preserve the producer-created vectors and can process
+  several envelopes as scatter/gather slices without copying them into another contiguous batch.
 - `DerivedDataRetention::Unlimited` preserves finite captures, while continuous sources may
   explicitly request bounded rolling retention.
 
 `ParallelDecoder` supports `Auto`, `PackedStream`, and `Indexed` input strategies. Indexed
 mode uses hierarchical transition queries and batched point reads, making it appropriate
 for sparse signals. Packed mode scans resident 64-bit words and is appropriate for dense or
-live signals. Auto uses indexed raw inputs whenever an enable input is connected so disabled
-spans are excluded before reading strobe or data. Without an enable input, Auto uses the strobe
-channel's index activity hint. Either choice applies coherently to strobe, data, and CS; explicit
-strategies always override it.
+live signals. Auto uses the strobe channel's activity hint; merely connecting an Enable input does
+not force the single-threaded indexed path. Either choice applies coherently to strobe, data, CS,
+and Enable, while explicit strategies always override it.
 
 Packed decoding separates immutable scanning from ordered state updates. Each bounded
 65,536-sample fragment records trigger positions, bus values, reset markers, and boundary
@@ -134,21 +150,31 @@ and responsive cancellation. The opt-in `parallel-decoder-bench` binary reports 
 selection, fingerprints, throughput, worker/reorder metrics, and retention behavior:
 
 ```bash
-cargo run -p signal-processing --release --bin parallel-decoder-bench -- --help
+cargo run -p logic-analyzer-processing --release --bin parallel-decoder-bench -- --help
 ```
 
 The benchmark's `file` sink writes decoded words through the production binary-file sink. It
 therefore covers decoder transport, batch serialization, and filesystem output without retaining
 the decoded stream in memory.
 
-The manual compiler-capture benchmark builds the controlled parallel-decoder graph and includes its
-production binary writer and explicitly subscribed indexed viewer lanes. This is the regression
-benchmark for end-to-end throughput rather than decoder-kernel throughput alone:
+The manual compiler-capture benchmark loads the checked-in controlled parallel-decoder graph and
+includes its production binary writer, connected-output retention, and explicitly subscribed
+viewer lanes. This is the regression benchmark for end-to-end throughput rather than
+decoder-kernel throughput alone. Its `baseline` command emits graph/capture/output fingerprints,
+phase timing, average CPU utilization, peak RSS, derived storage sizes, throughput, and cancellation
+latency as versioned JSON:
 
 ```bash
 cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
-  compiler-runtime /path/to/reference.dsl
+  baseline /path/to/reference.dsl > reference-pipeline.json
 ```
+
+The reference workload is the complete approximately 250-second, 50-MHz capture. Its throughput
+acceptance threshold is at least 6x real time (approximately 42 seconds) with deterministic output,
+bounded memory, and responsive cancellation. Throughput comparisons use the application's normal
+preloaded/indexed capture state and run on an otherwise idle machine. The benchmark uses fresh
+temporary derived-cache and output directories outside the repository for each measured execution,
+so it measures a real pipeline execution rather than a derived-data cache hit.
 
 Correctness tests compare indexed, packed, sequential, and parallel paths, including every
 strobe mode, CS/enable boundaries, partial-word assembly, deliberately reordered completion,

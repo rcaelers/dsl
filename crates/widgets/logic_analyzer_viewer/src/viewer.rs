@@ -91,7 +91,7 @@ pub struct LogicAnalyzerViewer {
     /// subscriptions select which entries appear under the raw channels.
     pub(crate) derived: Option<DerivedLanes>,
     pub(crate) waveform_presentations: WaveformPresentationRegistry,
-    pub(crate) sampling_overlay: Option<SamplingOverlay>,
+    pub(crate) sampling_overlays: Vec<SamplingOverlay>,
     pub(crate) growing_capture: Option<GrowingCaptureView>,
     pub(crate) simple_trigger_lanes: HashMap<usize, SimpleTriggerLane>,
     pub(crate) simple_trigger_popup: Option<SimpleTriggerPopup>,
@@ -156,7 +156,7 @@ impl LogicAnalyzerViewer {
             color_profile: ColorProfile::DsView,
             derived: None,
             waveform_presentations: WaveformPresentationRegistry::new(),
-            sampling_overlay: None,
+            sampling_overlays: Vec::new(),
             growing_capture: None,
             simple_trigger_lanes: HashMap::new(),
             simple_trigger_popup: None,
@@ -210,9 +210,9 @@ impl LogicAnalyzerViewer {
     /// Replaces the protocol-neutral sampling markers drawn over raw capture
     /// rows. The graph/application layer resolves decoder inputs to channel
     /// indices; this widget only renders the resulting electrical sampling
-    /// relationship.
-    pub fn set_sampling_overlay(&mut self, overlay: Option<SamplingOverlay>) {
-        self.sampling_overlay = overlay;
+    /// relationships.
+    pub fn set_sampling_overlays(&mut self, overlays: Vec<SamplingOverlay>) {
+        self.sampling_overlays = overlays;
     }
 
     pub fn set_simple_trigger_lanes(&mut self, lanes: Vec<SimpleTriggerLane>) {
@@ -874,16 +874,37 @@ mod tests {
 
     use signal_processing::{
         CaptureIndex, CaptureMetadata, CaptureSampledChannel, CaptureSampledWindow,
-        CollectedLaneQuery, DerivedLanes, PayloadRegistry, Word,
+        CollectedLaneQuery, DerivedLanes, PayloadRegistry, SamplingPointStore, Word,
     };
 
-    use super::{ChannelSignal, LogicAnalyzerViewer};
+    use super::{ChannelSignal, LogicAnalyzerViewer, SamplingOverlay};
 
     struct GrowingTestIndex {
         header: CaptureMetadata,
         total_samples: Arc<AtomicU64>,
         generation: Arc<AtomicU64>,
         path: PathBuf,
+    }
+
+    #[test]
+    fn sampling_overlays_are_retained_independently() {
+        let mut viewer = LogicAnalyzerViewer::new();
+        viewer.set_sampling_overlays(vec![
+            SamplingOverlay {
+                clock_channel: 1,
+                sampled_channels: vec![2],
+                points: SamplingPointStore::disabled(),
+            },
+            SamplingOverlay {
+                clock_channel: 3,
+                sampled_channels: vec![4],
+                points: SamplingPointStore::disabled(),
+            },
+        ]);
+
+        assert_eq!(viewer.sampling_overlays.len(), 2);
+        assert_eq!(viewer.sampling_overlays[0].clock_channel, 1);
+        assert_eq!(viewer.sampling_overlays[1].clock_channel, 3);
     }
 
     impl CaptureIndex for GrowingTestIndex {

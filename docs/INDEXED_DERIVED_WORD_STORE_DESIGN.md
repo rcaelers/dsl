@@ -7,7 +7,7 @@ time windows, presence summaries for overview rendering, and bounded decoded-blo
 Primary code locations:
 
 - `crates/signal_processing/src/derived_word_store/`;
-- `crates/signal_processing/src/derived_data_collector.rs`;
+- `crates/signal_processing/src/derived_data_collector/`;
 - `crates/widgets/logic_analyzer_viewer/src/draw/derived.rs`;
 - `crates/widgets/logic_analyzer_viewer/src/cursor.rs`;
 - `crates/widgets/logic_analyzer_viewer/src/channel.rs`;
@@ -145,9 +145,9 @@ in `BlockCodecConfig`:
 
 | Setting | Default |
 | --- | ---: |
-| Maximum words | 32,768 |
+| Maximum words | 262,144 |
 | Restart interval | 512 words |
-| Maximum encoded payload | 1 MiB |
+| Maximum encoded payload | 8 MiB |
 | Maximum inter-word gap | 1 ms |
 | Maximum timestamp span | unlimited |
 
@@ -157,7 +157,9 @@ long idle interval.
 
 Each block contains:
 
-- an absolute first timestamp followed by unsigned VLQ timestamp deltas;
+- restart-local timestamp groups. Dense numeric groups select the smallest exact representation
+  among one constant cadence, a palette of at most 16 VLQ deltas with bit-packed palette indices,
+  and unsigned per-record VLQ deltas. Legacy blocks with one VLQ delta per record remain readable;
 - fixed-width values using the smallest of one, two, four, or eight bytes for that block;
 - sparse duration exceptions for words with non-zero duration;
 - a sparse typed payload table for arbitrary-width bytes and UTF-8 text;
@@ -184,17 +186,23 @@ checks neighboring blocks so snapping works at block boundaries and in older reg
 
 ## Live publication
 
-`DerivedDataCollector` owns one writer for each indexed word lane. Appending:
+`DerivedDataCollector` owns one writer for each indexed word lane. Batch-aware inputs transfer
+producer-created vectors into the collector without first flattening them into scalar channel
+items. Appending:
 
 1. validates ordering;
 2. adds words to the active block builder;
-3. encodes and writes complete blocks;
-4. publishes directory and presence metadata;
-5. increments the store generation and requests a repaint.
+3. builds bounded presence summaries and encodes complete blocks concurrently when the block is
+   large enough to amortize the worker cost;
+4. writes the encoded block;
+5. publishes directory and presence metadata;
+6. increments the store generation and requests a repaint.
 
 The active block is exposed through an immutable hot-tail snapshot. Publication is bounded by
-`LiveStoreConfig` and defaults to 16,384 words or 50 ms. File writes, VLQ encoding, mmap page
-faults, and block decoding never occur while the published-lane catalog is locked.
+`LiveStoreConfig` and defaults to 262,144 words or 50 ms. Dense lanes normally commit a complete
+block before either hot-tail threshold, avoiding repeated copies of an ever-growing active block.
+File writes, VLQ encoding, mmap page faults, and block decoding never occur while the
+published-lane catalog is locked.
 
 Finishing closes the active block and marks the store complete. Cancelling discards unfinished
 temporary state. Storage errors put the affected lane into an error state without changing the

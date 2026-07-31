@@ -4,26 +4,24 @@
 // and Sample inputs for low-bandwidth control signals (enable_signal).
 // Outputs Word events.
 
-use std::collections::VecDeque;
 #[cfg(not(target_arch = "wasm32"))]
 use std::collections::BTreeMap;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use tracing::debug;
 
 use signal_processing::capture::CaptureTransition;
-use signal_processing::EdgeQuery;
-use signal_processing::{WorkError, WorkOutcome, WorkResult};
-use signal_processing::{SamplingPoint, SamplingPointStore, Word};
-use signal_processing::{InputProtocolCandidate, ProcessNode};
-use signal_processing::{InputPort, OutputPort};
-use signal_processing::ProtocolKind;
-use signal_processing::Receiver;
-use signal_processing::{Sample, SampleBlock};
+use signal_processing::{
+    EdgeQuery, InputPort, InputProtocolCandidate, OutputPort, ProcessNode, ProtocolKind, Receiver,
+    Sample, SampleBlock, SamplingPoint, SamplingPointStore, Word, WorkError, WorkOutcome,
+    WorkResult,
+};
 
 use crate::types::{CsPolarity, Endianness};
 
+use super::sampling_provider::{ParallelSamplingProgress, install_sampling_provider};
 use super::types::{ParallelInputStrategy, StrobeMode};
 
 #[derive(Clone)]
@@ -125,6 +123,7 @@ pub struct ParallelDecoder {
     parallel_workers: usize,
     parallel_metrics: ParallelDecoderMetrics,
     sampling_points: Option<SamplingPointStore>,
+    sampling_progress: ParallelSamplingProgress,
 }
 
 impl ParallelDecoder {
@@ -178,6 +177,7 @@ impl ParallelDecoder {
             parallel_workers: Self::DEFAULT_PARALLEL_WORKERS,
             parallel_metrics: ParallelDecoderMetrics::default(),
             sampling_points: None,
+            sampling_progress: ParallelSamplingProgress::default(),
         }
     }
 
@@ -346,14 +346,7 @@ impl ProcessNode for ParallelDecoder {
             .and_then(Option::as_ref)
             .and_then(|candidate| candidate.edge_query.as_ref())
             .and_then(|query| query.activity_ratio_hint());
-        let preferred = if enable_connected {
-            // A connected enable can exclude arbitrarily large spans before
-            // the indexed path touches the strobe or data channels. Strobe
-            // density therefore no longer predicts the cheaper transport:
-            // a packed stream would still read every raw block merely to
-            // discard most of it after applying the gate.
-            ProtocolKind::EdgeQuery
-        } else if let Some(activity_ratio) = activity_ratio {
+        let preferred = if let Some(activity_ratio) = activity_ratio {
             Self::auto_protocol_for_activity_ratio(activity_ratio)
         } else {
             return selected;
@@ -407,6 +400,16 @@ impl ProcessNode for ParallelDecoder {
     }
 
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
+        if let Some(store) = &self.sampling_points {
+            install_sampling_provider(
+                store,
+                inputs,
+                self.num_data_bits,
+                self.mode,
+                self.cs_polarity,
+                self.sampling_progress.clone(),
+            );
+        }
         // HighLevel/LowLevel trigger on *every* sample at that level, not
         // on sparse transitions, so a skip-ahead search doesn't help them
         // (every level-held sample would be its own point query — no
@@ -648,7 +651,8 @@ fn enabled_ranges_for_window(
                     });
                     reset_pending = false;
                 }
-                *current_enable_value = enable.recv()?.value;
+                let sample = enable.recv()?;
+                *current_enable_value = sample.value;
                 if !*current_enable_value {
                     reset_pending = true;
                 }
@@ -760,7 +764,9 @@ fn scan_stream_fragment(
                 }
 
                 buffers.positions.push(position);
-                buffers.clock_values.push(packed_bit(&strobe.data, local_index));
+                buffers
+                    .clock_values
+                    .push(packed_bit(&strobe.data, local_index));
                 buffers.values.push(packed_bus_value(data, local_index));
                 buffers.reset_before.push(reset_before_next);
                 reset_before_next = false;
@@ -801,49 +807,49 @@ fn merge_stream_fragment(
     let mut sampling_points = sampling_points;
     let mut merge_sample =
         |position: u64, clock_high: bool, value: u64, reset_before: bool| -> WorkResult<()> {
-        if reset_before {
-            assembly.cycles = 0;
+            if reset_before {
+                assembly.cycles = 0;
+                assembly.value = 0;
+            }
+            let timestamp_ns = position.saturating_mul(fragment.timestamp_step);
+            if let Some(points) = &mut sampling_points {
+                points.push(SamplingPoint::new(
+                    timestamp_ns,
+                    clock_high,
+                    (0..num_data_bits)
+                        .map(|bit| value & (1 << bit) != 0)
+                        .collect::<Vec<_>>(),
+                ));
+            }
+
+            if assembly.cycles == 0 {
+                assembly.first_ts = timestamp_ns;
+            }
+            match endianness {
+                Endianness::Little => {
+                    assembly.value |= value << (assembly.cycles * num_data_bits);
+                }
+                Endianness::Big => {
+                    assembly.value = (assembly.value << num_data_bits) | value;
+                }
+            }
+            assembly.cycles += 1;
+            if assembly.cycles < cycles_per_word {
+                return Ok(());
+            }
+
+            if let Some(batch) = word_batch {
+                batch.push(Word::spanning(
+                    assembly.value,
+                    assembly.first_ts,
+                    timestamp_ns.saturating_sub(assembly.first_ts),
+                ));
+            }
             assembly.value = 0;
-        }
-        let timestamp_ns = position.saturating_mul(fragment.timestamp_step);
-        if let Some(points) = &mut sampling_points {
-            points.push(SamplingPoint::new(
-                timestamp_ns,
-                clock_high,
-                (0..num_data_bits)
-                    .map(|bit| value & (1 << bit) != 0)
-                    .collect::<Vec<_>>(),
-            ));
-        }
-
-        if assembly.cycles == 0 {
-            assembly.first_ts = timestamp_ns;
-        }
-        match endianness {
-            Endianness::Little => {
-                assembly.value |= value << (assembly.cycles * num_data_bits);
-            }
-            Endianness::Big => {
-                assembly.value = (assembly.value << num_data_bits) | value;
-            }
-        }
-        assembly.cycles += 1;
-        if assembly.cycles < cycles_per_word {
-            return Ok(());
-        }
-
-        if let Some(batch) = word_batch {
-            batch.push(Word::spanning(
-                assembly.value,
-                assembly.first_ts,
-                timestamp_ns.saturating_sub(assembly.first_ts),
-            ));
-        }
-        assembly.value = 0;
-        assembly.cycles = 0;
-        words_emitted += 1;
-        Ok(())
-    };
+            assembly.cycles = 0;
+            words_emitted += 1;
+            Ok(())
+        };
 
     let mut boundary_reset = fragment
         .boundary
@@ -1029,8 +1035,20 @@ impl ParallelDecoder {
         if scan_start >= total_samples {
             return Err(WorkError::Shutdown);
         }
+        // A streamed Enable input advances as its ranges are built. Do not
+        // consume farther than the trigger budget can represent in this
+        // call: otherwise a dense enabled range would fill `positions`, the
+        // query cursor would stop inside that range, and the already-consumed
+        // remainder of the Enable timeline would be lost on the next call.
+        // One sample can contribute at most one edge trigger, so this span
+        // keeps the streamed control watermark and query cursor coherent.
+        let scan_sample_budget = if enable_query.is_none() && enable_recv.is_some() {
+            Self::QUERY_TRIGGERS_PER_CALL as u64
+        } else {
+            Self::QUERY_SCAN_SAMPLES_PER_CALL
+        };
         let scan_end = scan_start
-            .saturating_add(Self::QUERY_SCAN_SAMPLES_PER_CALL)
+            .saturating_add(scan_sample_budget)
             .min(total_samples);
         let scan_len = (scan_end - scan_start) as usize;
         let enabled_ranges = enabled_ranges_for_window(
@@ -1159,7 +1177,11 @@ impl ParallelDecoder {
                 .map_err(query_err)?;
         }
 
-        if let Some(store) = &self.sampling_points {
+        if let Some(store) = self
+            .sampling_points
+            .as_ref()
+            .filter(|store| store.is_recording_enabled())
+        {
             store.record_batch(buffers.eligible_positions.iter().enumerate().map(
                 |(trigger_index, &position)| {
                     SamplingPoint::new(
@@ -1224,6 +1246,7 @@ impl ParallelDecoder {
         }
 
         self.query_strobe_position = next_scan_position;
+        self.sampling_progress.advance(next_scan_position);
         self.total_words_emitted += words_emitted;
         self.assembly_value = assembly.value;
         self.assembly_cycles = assembly.cycles;
@@ -1385,7 +1408,11 @@ impl ParallelDecoder {
             first_ts: self.assembly_first_ts,
         };
         let mut last_strobe_value = self.last_strobe_value;
-        let mut sampling_point_batch = self.sampling_points.as_ref().map(|_| Vec::new());
+        let mut sampling_point_batch = self
+            .sampling_points
+            .as_ref()
+            .filter(|store| store.is_recording_enabled())
+            .map(|_| Vec::new());
         let words_emitted = merge_stream_fragment(
             &fragment,
             self.mode,
@@ -1413,6 +1440,8 @@ impl ParallelDecoder {
         blocks.fragment_buffers = std::mem::take(&mut fragment.buffers);
 
         blocks.offset = window_end;
+        self.sampling_progress
+            .advance(strobe_block.start_position.saturating_add(window_end as u64));
         if window_end == num_samples {
             blocks.strobe = None;
             blocks.data.clear();
@@ -1443,9 +1472,7 @@ mod tests {
 
     use crossbeam_channel::bounded;
 
-    use signal_processing::ProcessNode;
-    use signal_processing::{ChannelMessage, Sender};
-    use signal_processing::Watchdog;
+    use signal_processing::{ChannelMessage, ProcessNode, Sender, Watchdog};
 
     use super::*;
 
@@ -1550,14 +1577,14 @@ mod tests {
         let gated_dense = decoder.select_input_protocols(&auto_candidates(0.9, true));
         assert_eq!(
             &gated_dense[..4],
-            &[Some(ProtocolKind::EdgeQuery); 4],
-            "an enable gate must be able to exclude raw spans before they are read"
+            &[Some(ProtocolKind::Stream); 4],
+            "a connected gate must not hide the measured raw-signal density"
         );
         assert_eq!(gated_dense[4], Some(ProtocolKind::EdgeQuery));
     }
 
     #[test]
-    fn streamed_enable_still_selects_indexed_raw_inputs() {
+    fn streamed_enable_keeps_density_based_raw_input_selection() {
         let decoder = ParallelDecoder::new(2, StrobeMode::AnyEdge, CsPolarity::Disabled);
         let mut candidates = auto_candidates(0.9, true);
         let enable = candidates[4].as_mut().unwrap();
@@ -1566,7 +1593,7 @@ mod tests {
 
         let selected = decoder.select_input_protocols(&candidates);
 
-        assert_eq!(&selected[..4], &[Some(ProtocolKind::EdgeQuery); 4]);
+        assert_eq!(&selected[..4], &[Some(ProtocolKind::Stream); 4]);
         assert_eq!(selected[4], Some(ProtocolKind::Stream));
     }
 
@@ -2259,8 +2286,16 @@ mod tests {
         let mut enable_input = input_port.get::<Sample>(&mut buffer);
         let mut current = false;
 
-        let first =
-            enabled_ranges_for_window(None, &mut enable_input, &mut current, 0, 0, 8, 1).unwrap();
+        let first = enabled_ranges_for_window(
+            None,
+            &mut enable_input,
+            &mut current,
+            0,
+            0,
+            8,
+            1,
+        )
+        .unwrap();
         assert_eq!(
             first,
             vec![EnabledRange {
@@ -2270,8 +2305,16 @@ mod tests {
             }]
         );
 
-        let second =
-            enabled_ranges_for_window(None, &mut enable_input, &mut current, 0, 8, 16, 1).unwrap();
+        let second = enabled_ranges_for_window(
+            None,
+            &mut enable_input,
+            &mut current,
+            0,
+            8,
+            16,
+            1,
+        )
+        .unwrap();
         assert_eq!(
             second,
             vec![EnabledRange {
@@ -2372,6 +2415,81 @@ mod tests {
                 "query_bus={query_bus} query_enable={query_enable}"
             );
         }
+    }
+
+    fn run_long_streamed_enable(query_bus: bool) -> Vec<Word> {
+        let watchdog = Watchdog::new();
+        let sample_count = 20 * ParallelDecoder::STREAM_SAMPLES_PER_CALL + 17;
+        let strobe: Vec<bool> = (0..sample_count)
+            .map(|position| position % 2 == 1)
+            .collect();
+        let data: Vec<bool> = (0..sample_count)
+            .map(|position| position / 257 % 2 == 1)
+            .collect();
+        let bus_input = |bits: &[bool], name: &str| {
+            if query_bus {
+                query_input(&watchdog, bits, name)
+            } else {
+                block_input(&watchdog, block_from_bits(bits), name)
+            }
+        };
+        let (enable_sender, enable_receiver) = bounded::<ChannelMessage<Sample>>(16);
+        for sample in [
+            Sample::new(false, 0),
+            Sample::new(true, 90_000),
+            Sample::new(false, 310_000),
+            Sample::new(true, 700_000),
+            Sample::new(false, 1_050_000),
+        ] {
+            enable_sender.send(ChannelMessage::Sample(sample)).unwrap();
+        }
+        drop(enable_sender);
+        let inputs = [
+            bus_input(&strobe, "strobe"),
+            bus_input(&data, "d0"),
+            unconnected(&watchdog, "cs"),
+            InputPort::new_with_watchdog(enable_receiver, &watchdog, "pd", "enable_signal"),
+        ];
+        let (output_sender, output_receiver) = bounded::<ChannelMessage<Word>>(64);
+        let outputs = [OutputPort::new_with_watchdog(
+            Sender::new(vec![output_sender]),
+            &watchdog,
+            "pd",
+            "words",
+        )];
+        let mut decoder = ParallelDecoder::new(1, StrobeMode::AnyEdge, CsPolarity::Disabled)
+            .with_parallel_workers(4);
+        loop {
+            match decoder.work(&inputs, &outputs) {
+                Ok(_) => {}
+                Err(WorkError::Shutdown) => break,
+                Err(error) => panic!("unexpected error: {error}"),
+            }
+        }
+        collect_messages(output_receiver)
+    }
+
+    #[test]
+    fn streamed_enable_is_protocol_independent_across_parallel_fragments() {
+        let indexed = run_long_streamed_enable(true);
+        let packed = run_long_streamed_enable(false);
+
+        assert_eq!(
+            packed.len(),
+            indexed.len(),
+            "packed={:?}..{:?}, indexed={:?}..{:?}",
+            packed.first(),
+            packed.last(),
+            indexed.first(),
+            indexed.last()
+        );
+        assert_eq!(
+            packed
+                .iter()
+                .zip(&indexed)
+                .position(|(packed, indexed)| packed != indexed),
+            None
+        );
     }
 
     // ── Differential test: query-mode output must match streaming-mode ──

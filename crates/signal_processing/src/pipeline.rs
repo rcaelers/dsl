@@ -318,44 +318,38 @@ impl Pipeline {
             .map(|(name, id)| (*id, name.clone()))
             .collect();
 
-        // Phase 0: materialize the actual producer capabilities needed by
-        // consumers. Query handles are cached once per output port and also
-        // carry density metadata used by grouped Auto selection.
+        // Phase 0: materialize source and composed query capabilities before
+        // protocol negotiation. A derived node receives every connected
+        // producer query in input-schema order, even when that connection
+        // will ultimately stream; this lets sparse control nodes expose a
+        // lazy output query without changing their transport semantics.
         let mut edge_queries: HashMap<PortKey, Arc<dyn EdgeQuery>> = HashMap::new();
-        for conn in &self.connections {
-            let from_schemas = self
-                .node_schemas
-                .get(&conn.from_node)
-                .ok_or_else(|| format!("Node {} not found", conn.from_node))?;
-            let to_schemas = self
-                .node_schemas
-                .get(&conn.to_node)
-                .ok_or_else(|| format!("Node {} not found", conn.to_node))?;
-            let produced = &from_schemas
-                .outputs
-                .get(conn.from_port)
-                .ok_or_else(|| {
-                    format!(
-                        "Node {} has no output port {}",
-                        conn.from_node, conn.from_port
-                    )
-                })?
-                .protocols;
-            let accepted = &to_schemas
-                .inputs
-                .get(conn.to_port)
-                .ok_or_else(|| format!("Node {} has no input port {}", conn.to_node, conn.to_port))?
-                .protocols;
-            if produced.contains(&ProtocolKind::EdgeQuery)
-                && accepted.contains(&ProtocolKind::EdgeQuery)
-            {
-                let key = (conn.from_node, conn.from_port);
-                if !edge_queries.contains_key(&key)
-                    && let Some(handle) =
-                        node_by_id[&conn.from_node].edge_query(conn.from_port, &[])
+        loop {
+            let previous_count = edge_queries.len();
+            for (&node_id, node) in &node_by_id {
+                let schemas = &self.node_schemas[&node_id];
+                let mut input_queries = vec![None; schemas.inputs.len()];
+                for connection in self
+                    .connections
+                    .iter()
+                    .filter(|connection| connection.to_node == node_id)
                 {
-                    edge_queries.insert(key, handle);
+                    input_queries[connection.to_port] = edge_queries
+                        .get(&(connection.from_node, connection.from_port))
+                        .cloned();
                 }
+                for output in &schemas.outputs {
+                    let key = (node_id, output.index);
+                    if output.protocols.contains(&ProtocolKind::EdgeQuery)
+                        && !edge_queries.contains_key(&key)
+                        && let Some(handle) = node.edge_query(output.index, &input_queries)
+                    {
+                        edge_queries.insert(key, handle);
+                    }
+                }
+            }
+            if edge_queries.len() == previous_count {
+                break;
             }
         }
 
@@ -433,8 +427,13 @@ impl Pipeline {
         type SenderGroup = (TypeId, Vec<Box<dyn Any + Send>>);
         let mut senders: HashMap<PortKey, Vec<SenderGroup>> = HashMap::new();
         let mut input_edge_queries: HashMap<PortKey, Arc<dyn EdgeQuery>> = HashMap::new();
+        let mut input_edge_query_capabilities: HashMap<PortKey, Arc<dyn EdgeQuery>> =
+            HashMap::new();
 
         for (conn, &protocol) in self.connections.iter().zip(&protocols) {
+            if let Some(handle) = edge_queries.get(&(conn.from_node, conn.from_port)) {
+                input_edge_query_capabilities.insert((conn.to_node, conn.to_port), handle.clone());
+            }
             match protocol {
                 ProtocolKind::Stream => {
                     let (tx, rx) = registry
@@ -503,7 +502,10 @@ impl Pipeline {
                             // Unconnected input: use dummy port
                             InputPort::from_type_erased(Box::new(()) as Box<dyn Any + Send>)
                         })
-                        .with_edge_query(input_edge_queries.remove(&(node_id, i)));
+                        .with_edge_query(input_edge_queries.remove(&(node_id, i)))
+                        .with_edge_query_capability(
+                            input_edge_query_capabilities.remove(&(node_id, i)),
+                        );
 
                     // Inject watchdog context
                     let port_name = input_schemas
@@ -564,11 +566,135 @@ impl Default for Pipeline {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use super::*;
     use crate::SampleKind;
+    use crate::capture::CaptureTransition;
+    use crate::edge_query::EdgeQuery;
     use crate::node::ProcessNode;
     use crate::ports::PortSchema;
     use crate::sample::Sample;
+
+    struct ConstEdgeQuery;
+
+    impl EdgeQuery for ConstEdgeQuery {
+        fn sample_period(&self) -> f64 {
+            1.0
+        }
+
+        fn samplerate_hz(&self) -> f64 {
+            1.0
+        }
+
+        fn total_samples(&self) -> u64 {
+            1
+        }
+
+        fn value_at(&self, _position: u64) -> crate::Result<bool> {
+            Ok(false)
+        }
+
+        fn next_edge(
+            &self,
+            _position: u64,
+            _limit: u64,
+        ) -> crate::Result<Option<CaptureTransition>> {
+            Ok(None)
+        }
+    }
+
+    struct QuerySource;
+
+    impl ProcessNode for QuerySource {
+        fn name(&self) -> &str {
+            "query_source"
+        }
+
+        fn num_inputs(&self) -> usize {
+            0
+        }
+
+        fn num_outputs(&self) -> usize {
+            1
+        }
+
+        fn output_schema(&self) -> Vec<PortSchema> {
+            vec![
+                PortSchema::new::<Sample>("out", 0, crate::ports::PortDirection::Output)
+                    .with_protocols(vec![ProtocolKind::Stream, ProtocolKind::EdgeQuery]),
+            ]
+        }
+
+        fn work(
+            &mut self,
+            _inputs: &[InputPort],
+            _outputs: &[OutputPort],
+        ) -> crate::errors::WorkResult<usize> {
+            Err(crate::errors::WorkError::Shutdown)
+        }
+
+        fn edge_query(
+            &self,
+            port: usize,
+            _input_queries: &[Option<Arc<dyn EdgeQuery>>],
+        ) -> Option<Arc<dyn EdgeQuery>> {
+            (port == 0).then(|| Arc::new(ConstEdgeQuery) as Arc<dyn EdgeQuery>)
+        }
+    }
+
+    struct ComposedQueryProbe {
+        got_input_query: Arc<AtomicBool>,
+    }
+
+    impl ProcessNode for ComposedQueryProbe {
+        fn name(&self) -> &str {
+            "composed_query_probe"
+        }
+
+        fn num_inputs(&self) -> usize {
+            1
+        }
+
+        fn num_outputs(&self) -> usize {
+            1
+        }
+
+        fn input_schema(&self) -> Vec<PortSchema> {
+            vec![PortSchema::new::<Sample>(
+                "in",
+                0,
+                crate::ports::PortDirection::Input,
+            )]
+        }
+
+        fn output_schema(&self) -> Vec<PortSchema> {
+            vec![
+                PortSchema::new::<Sample>("out", 0, crate::ports::PortDirection::Output)
+                    .with_protocols(vec![ProtocolKind::EdgeQuery, ProtocolKind::Stream]),
+            ]
+        }
+
+        fn work(
+            &mut self,
+            _inputs: &[InputPort],
+            _outputs: &[OutputPort],
+        ) -> crate::errors::WorkResult<usize> {
+            Err(crate::errors::WorkError::Shutdown)
+        }
+
+        fn edge_query(
+            &self,
+            _port: usize,
+            input_queries: &[Option<Arc<dyn EdgeQuery>>],
+        ) -> Option<Arc<dyn EdgeQuery>> {
+            self.got_input_query.store(
+                input_queries.first().is_some_and(Option::is_some),
+                Ordering::Relaxed,
+            );
+            input_queries.first()?.clone()
+        }
+    }
 
     // Minimal test node implementations
     struct TestSource;
@@ -673,6 +799,25 @@ mod tests {
 
         let result = pipeline.connect("source", "out", "sink", "in");
         assert!(result.is_ok(), "Single connection should succeed");
+    }
+
+    #[test]
+    fn composed_output_receives_streamed_input_query_capability() {
+        let got = Arc::new(AtomicBool::new(false));
+        let mut pipeline = Pipeline::new();
+        pipeline.add_process("source", QuerySource).unwrap();
+        pipeline
+            .add_process(
+                "derived",
+                ComposedQueryProbe {
+                    got_input_query: Arc::clone(&got),
+                },
+            )
+            .unwrap();
+        pipeline.connect("source", "out", "derived", "in").unwrap();
+
+        pipeline.build().unwrap().wait();
+        assert!(got.load(Ordering::Relaxed));
     }
 
     #[test]

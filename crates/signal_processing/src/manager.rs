@@ -79,6 +79,7 @@ fn is_level_type(type_id: TypeId) -> bool {
 fn build_output_lists(
     node: &dyn ProcessNode,
     output_schemas: &[PortSchema],
+    input_queries: &[Option<Arc<dyn EdgeQuery>>],
 ) -> Result<HashMap<String, OutputList>, String> {
     let mut outputs: HashMap<String, OutputList> = HashMap::new();
     let registry = TYPE_REGISTRY.lock().unwrap();
@@ -107,7 +108,7 @@ fn build_output_lists(
 
         let mut protocols = schema.protocols.clone();
         let edge_query = if protocols.contains(&ProtocolKind::EdgeQuery) {
-            node.edge_query(schema.index, &[])
+            node.edge_query(schema.index, input_queries)
         } else {
             None
         };
@@ -131,6 +132,30 @@ fn build_output_lists(
         );
     }
     Ok(outputs)
+}
+
+fn input_edge_query_capabilities(
+    inputs: &[Option<InputSub>],
+    nodes: &HashMap<String, RunningNode>,
+) -> Result<Vec<Option<Arc<dyn EdgeQuery>>>, String> {
+    inputs
+        .iter()
+        .map(|input| {
+            let Some(input) = input else {
+                return Ok(None);
+            };
+            let producer = nodes
+                .get(&input.from_node)
+                .ok_or_else(|| format!("producer '{}' not running", input.from_node))?;
+            let output = producer.outputs.get(&input.from_port).ok_or_else(|| {
+                format!(
+                    "producer '{}' has no port '{}'",
+                    input.from_node, input.from_port
+                )
+            })?;
+            Ok(output.edge_query.clone())
+        })
+        .collect()
 }
 
 fn select_node_input_protocols(
@@ -249,7 +274,7 @@ struct OutputList {
     /// be `None` (index unavailable), so a mismatch between what a node
     /// *claims* and what it *delivers* never reaches negotiation.
     protocols: Vec<ProtocolKind>,
-    /// Cached `node.edge_query(port, &[])`, computed once when this output
+    /// Cached `node.edge_query(port, input_queries)`, computed once when this output
     /// is registered (the node is only reachable here — once `start_node`
     /// moves it into its thread, nothing outside that thread can call
     /// methods on it again, unlike the offline `Pipeline::build`, which
@@ -363,7 +388,8 @@ impl PipelineManager {
         // locally owned here (not yet moved into a thread), so this is the
         // only point where its `edge_query` can ever be queried — see
         // `OutputList::edge_query`'s doc.
-        let outputs = build_output_lists(node.as_ref(), &output_schemas)?;
+        let input_queries = input_edge_query_capabilities(&inputs, &self.nodes)?;
+        let outputs = build_output_lists(node.as_ref(), &output_schemas, &input_queries)?;
         let selected_protocols = select_node_input_protocols(
             &name,
             node.as_ref(),
@@ -413,6 +439,7 @@ impl PipelineManager {
                         InputPort::from_type_erased(Box::new(()) as Box<dyn Any + Send>)
                             .with_edge_query(Some(handle))
                     } else {
+                        let edge_query_capability = output.edge_query.clone();
                         let label = Some(format!("{}.{}", name, input_schemas[index].name));
                         let subscription = list.subscribe_with_label(sub.buffer, sub.policy, label);
                         input_subs.push((
@@ -421,6 +448,7 @@ impl PipelineManager {
                             subscription.id,
                         ));
                         InputPort::from_type_erased(subscription.receiver)
+                            .with_edge_query_capability(edge_query_capability)
                     }
                 }
             };
@@ -757,6 +785,7 @@ impl PipelineManager {
                         InputPort::from_type_erased(Box::new(()) as Box<dyn Any + Send>)
                             .with_edge_query(Some(handle))
                     } else {
+                        let edge_query_capability = output.edge_query.clone();
                         let label = Some(format!("{}.{}", name, input_schemas[index].name));
                         let subscription = list.subscribe_with_label(sub.buffer, sub.policy, label);
                         input_subs.push((
@@ -765,6 +794,7 @@ impl PipelineManager {
                             subscription.id,
                         ));
                         InputPort::from_type_erased(subscription.receiver)
+                            .with_edge_query_capability(edge_query_capability)
                     }
                 }
             };
@@ -1643,6 +1673,49 @@ mod tests {
         }
     }
 
+    /// Passes a producer's random-access capability through while retaining
+    /// ordinary stream transport for its runtime input.
+    struct DerivedQueryableNode;
+
+    impl ProcessNode for DerivedQueryableNode {
+        fn name(&self) -> &str {
+            "derived_queryable"
+        }
+        fn num_inputs(&self) -> usize {
+            1
+        }
+        fn num_outputs(&self) -> usize {
+            1
+        }
+        fn input_schema(&self) -> Vec<PortSchema> {
+            vec![PortSchema::new::<NumberSample>(
+                "in",
+                0,
+                PortDirection::Input,
+            )]
+        }
+        fn output_schema(&self) -> Vec<PortSchema> {
+            vec![
+                PortSchema::new::<NumberSample>("out", 0, PortDirection::Output)
+                    .with_protocols(vec![ProtocolKind::EdgeQuery, ProtocolKind::Stream]),
+            ]
+        }
+        fn work(&mut self, _inputs: &[InputPort], _outputs: &[OutputPort]) -> WorkResult<usize> {
+            Err(WorkError::Shutdown)
+        }
+        fn edge_query(
+            &self,
+            port: usize,
+            input_queries: &[Option<Arc<dyn EdgeQuery>>],
+        ) -> Option<Arc<dyn EdgeQuery>> {
+            if port == 0 {
+                input_queries.first()?.clone()
+            } else {
+                None
+            }
+        }
+    }
+
     /// Records whether its input negotiated an EdgeQuery handle, then exits.
     struct QueryProbe {
         got_edge_query: Arc<AtomicBool>,
@@ -1789,6 +1862,41 @@ mod tests {
             "consumer never received an EdgeQuery handle even though both \
              sides declared support for it"
         );
+    }
+
+    #[test]
+    fn derived_output_receives_streamed_input_query_capability() {
+        let mut manager = PipelineManager::new();
+        manager
+            .add_node_deferred(NodeSpec {
+                name: "source".into(),
+                node: Box::new(QueryableSource),
+                inputs: vec![],
+            })
+            .unwrap();
+        manager
+            .add_node_deferred(NodeSpec {
+                name: "derived".into(),
+                node: Box::new(DerivedQueryableNode),
+                inputs: vec![sub("source", "out")],
+            })
+            .unwrap();
+
+        let got = Arc::new(AtomicBool::new(false));
+        manager
+            .add_node_deferred(NodeSpec {
+                name: "probe".into(),
+                node: Box::new(QueryProbe {
+                    got_edge_query: Arc::clone(&got),
+                }),
+                inputs: vec![sub("derived", "out")],
+            })
+            .unwrap();
+        manager.start_all_deferred().unwrap();
+
+        wait_finished(&manager, Duration::from_secs(5));
+        manager.wait();
+        assert!(got.load(Ordering::Relaxed));
     }
 
     #[test]

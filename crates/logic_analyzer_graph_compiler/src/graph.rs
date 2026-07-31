@@ -183,6 +183,13 @@ impl SamplingOverlayCandidate {
     pub fn overlay(&self) -> &ResolvedSamplingOverlay {
         &self.overlay
     }
+
+    /// Enables or disables future collection without rebuilding the processing graph.
+    /// Existing decisions belong to the current run and remain available when
+    /// a host temporarily hides and later restores the overlay.
+    pub fn set_collection_enabled(&self, enabled: bool) {
+        self.overlay.points.set_recording_enabled(enabled);
+    }
 }
 
 // ── Builder trait & registry ─────────────────────────────────────────────────
@@ -1601,7 +1608,7 @@ pub(crate) fn lower_with_subscriptions(
                 overlay: ResolvedSamplingOverlay {
                     clock_channel,
                     sampled_channels,
-                    points: SamplingPointStore::default(),
+                    points: SamplingPointStore::disabled(),
                 },
             })
         })
@@ -1681,11 +1688,16 @@ pub(crate) fn sampling_overlay_candidates(
         .map(|compiled| compiled.sampling_overlays)
 }
 
-fn sampling_point_map(compiled: &CompiledGraph) -> HashMap<String, SamplingPointStore> {
+fn sampling_point_map(
+    compiled: &CompiledGraph,
+    subscriptions: &OutputSubscriptionPlan,
+) -> HashMap<String, SamplingPointStore> {
     compiled
         .sampling_overlays
         .iter()
         .map(|candidate| {
+            candidate
+                .set_collection_enabled(subscriptions.collects_sampling_overlay(candidate.node_id));
             (
                 compiled_node(compiled, candidate.node_id)
                     .runtime_name
@@ -2127,7 +2139,7 @@ pub(crate) fn load_cached_data_with_subscriptions(
     ctx.derived_data_retention = compiled.derived_data_retention;
     ctx.sampling_overlays
         .clone_from(&compiled.sampling_overlays);
-    ctx.sampling_points = sampling_point_map(&compiled);
+    ctx.sampling_points = sampling_point_map(&compiled, subscriptions);
     ctx.collected_output_subscriptions =
         collected_output_subscriptions(&compiled, registry, subscriptions);
     ctx.collected_table_subscriptions = collected_table_subscriptions(&compiled, registry);
@@ -2174,7 +2186,7 @@ fn start_live_inner(
     ctx.derived_data_retention = compiled.derived_data_retention;
     ctx.sampling_overlays
         .clone_from(&compiled.sampling_overlays);
-    ctx.sampling_points = sampling_point_map(&compiled);
+    ctx.sampling_points = sampling_point_map(&compiled, subscriptions);
     ctx.collected_output_subscriptions =
         collected_output_subscriptions(&compiled, registry, subscriptions);
     ctx.collected_table_subscriptions = collected_table_subscriptions(&compiled, registry);
@@ -2331,7 +2343,7 @@ impl LiveRun {
             derived_word_caches: Vec::new(),
             persistent_cache_directory: self.persistent_cache_directory.clone(),
             sampling_overlays: new.sampling_overlays.clone(),
-            sampling_points: sampling_point_map(&new),
+            sampling_points: sampling_point_map(&new, subscriptions),
             collected_output_subscriptions: collected_output_subscriptions(
                 &new,
                 registry,

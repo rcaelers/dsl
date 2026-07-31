@@ -1,11 +1,11 @@
 #[path = "../tests/integration_tests_support/mod.rs"]
 mod integration_tests_support;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use egui::Pos2;
 
@@ -35,6 +35,10 @@ const STARTUP_OUTPUTS: [(&str, &str); 7] = [
     ("Parallel Decoder", "Words"),
 ];
 const VALIDATION_OUTPUTS: [(&str, &str); 1] = [("SPI Decoder", "MOSI Bits")];
+const CHECKED_IN_GRAPH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/graphs/spi_controlled_decode.json"
+);
 
 #[derive(Debug, Eq, PartialEq)]
 struct OutputFingerprint {
@@ -43,9 +47,70 @@ struct OutputFingerprint {
     hash: String,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct ResourceUsage {
+    user_seconds: f64,
+    system_seconds: f64,
+    peak_rss_bytes: u64,
+}
+
+#[cfg(unix)]
+fn resource_usage() -> Option<ResourceUsage> {
+    let mut usage = std::mem::MaybeUninit::<libc::rusage>::zeroed();
+    // SAFETY: `usage` points to writable storage for one `libc::rusage`,
+    // which `getrusage` initializes when it succeeds.
+    if unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    // SAFETY: the successful call above initialized the value.
+    let usage = unsafe { usage.assume_init() };
+    let timeval_seconds =
+        |time: libc::timeval| time.tv_sec as f64 + time.tv_usec as f64 / 1_000_000.0;
+    #[cfg(target_os = "macos")]
+    let peak_rss_bytes = usage.ru_maxrss.max(0) as u64;
+    #[cfg(not(target_os = "macos"))]
+    let peak_rss_bytes = (usage.ru_maxrss.max(0) as u64).saturating_mul(1024);
+    Some(ResourceUsage {
+        user_seconds: timeval_seconds(usage.ru_utime),
+        system_seconds: timeval_seconds(usage.ru_stime),
+        peak_rss_bytes,
+    })
+}
+
+#[cfg(not(unix))]
+fn resource_usage() -> Option<ResourceUsage> {
+    None
+}
+
+fn resource_delta(
+    before: Option<ResourceUsage>,
+    after: Option<ResourceUsage>,
+    wall: Duration,
+) -> serde_json::Value {
+    let (Some(before), Some(after)) = (before, after) else {
+        return serde_json::json!({
+            "cpu_user_s": null,
+            "cpu_system_s": null,
+            "average_cpu_cores": null,
+            "peak_rss_bytes": null,
+        });
+    };
+    let user_seconds = (after.user_seconds - before.user_seconds).max(0.0);
+    let system_seconds = (after.system_seconds - before.system_seconds).max(0.0);
+    let average_cpu_cores = (user_seconds + system_seconds) / wall.as_secs_f64().max(f64::EPSILON);
+    serde_json::json!({
+        "cpu_user_s": user_seconds,
+        "cpu_system_s": system_seconds,
+        "average_cpu_cores": average_cpu_cores,
+        "peak_rss_bytes": after.peak_rss_bytes,
+    })
+}
+
 fn startup_widget() -> NodeGraphWidget {
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
-    nodes::populate_startup(&mut widget);
+    widget
+        .load_from_path(CHECKED_IN_GRAPH)
+        .expect("checked-in SPI controlled decode graph should load");
     widget
 }
 
@@ -78,7 +143,10 @@ fn output_subscriptions(
 
 fn configured_compiler(widget: &NodeGraphWidget) -> GraphCompiler {
     let mut compiler = GraphCompiler::new();
-    compiler.set_output_subscriptions(startup_output_subscriptions(widget));
+    let mut subscriptions = startup_output_subscriptions(widget);
+    subscriptions.subscribe_sampling_overlay(node_by_definition(widget, "SPI Decoder"));
+    subscriptions.subscribe_sampling_overlay(node_by_definition(widget, "Parallel Decoder"));
+    compiler.set_output_subscriptions(subscriptions);
     compiler
 }
 
@@ -413,6 +481,131 @@ fn output_manifest(directory: &Path) -> Vec<OutputFingerprint> {
     entries
 }
 
+fn manifest_fingerprint(manifest: &[OutputFingerprint]) -> String {
+    let mut hasher = blake3::Hasher::new();
+    for output in manifest {
+        for field in [output.name.as_bytes(), output.hash.as_bytes()] {
+            hasher.update(&(field.len() as u64).to_le_bytes());
+            hasher.update(field);
+        }
+        hasher.update(&output.size.to_le_bytes());
+    }
+    hasher.finalize().to_hex().to_string()
+}
+
+fn output_manifest_report(manifest: &[OutputFingerprint]) -> serde_json::Value {
+    let total_bytes = manifest
+        .iter()
+        .map(|output| output.size)
+        .fold(0_u64, u64::saturating_add);
+    serde_json::json!({
+        "fingerprint": manifest_fingerprint(manifest),
+        "total_bytes": total_bytes,
+        "files": manifest
+            .iter()
+            .map(|output| serde_json::json!({
+                "name": output.name,
+                "size": output.size,
+                "blake3": output.hash,
+            }))
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn cache_key_hex(key: &[u8; 32]) -> String {
+    key.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn derived_storage_report(run: &logic_analyzer_graph_compiler::LiveRun) -> serde_json::Value {
+    let mut backing_counts = BTreeMap::<String, u64>::new();
+    let mut retained_items = 0_u64;
+    let mut resident_bytes = 0_u64;
+    let mut stored_bytes = 0_u64;
+    let mut index_items = 0_u64;
+    let mut index_bytes = 0_u64;
+    let lanes = run
+        .derived_lanes()
+        .opaque_lanes()
+        .into_iter()
+        .map(|lane| {
+            let storage = lane.storage_snapshot();
+            *backing_counts
+                .entry(format!("{:?}", storage.backing))
+                .or_default() += 1;
+            retained_items = retained_items.saturating_add(storage.retained_items.unwrap_or(0));
+            resident_bytes = resident_bytes.saturating_add(storage.resident_bytes.unwrap_or(0));
+            stored_bytes = stored_bytes.saturating_add(storage.stored_bytes.unwrap_or(0));
+            index_items = index_items.saturating_add(storage.index_items.unwrap_or(0));
+            index_bytes = index_bytes.saturating_add(storage.index_bytes.unwrap_or(0));
+            serde_json::json!({
+                "name": lane.name(),
+                "payload": lane.payload().stable_id(),
+                "backing": format!("{:?}", storage.backing),
+                "retained_items": storage.retained_items,
+                "resident_bytes": storage.resident_bytes,
+                "stored_bytes": storage.stored_bytes,
+                "index_items": storage.index_items,
+                "index_bytes": storage.index_bytes,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let mut seen = HashSet::new();
+    let mut persistent_data_bytes = 0_u64;
+    let mut persistent_index_bytes = 0_u64;
+    let mut persistent_total_bytes = 0_u64;
+    let mut persistent_words = 0_u64;
+    let caches = run
+        .persistent_cache_configs()
+        .into_iter()
+        .filter(|config| seen.insert(config.cache_key))
+        .map(|config| {
+            let inspected = signal_processing::derived_word_store::inspect_cache_entry(&config)
+                .unwrap_or_else(|error| panic!("could not inspect derived cache: {error}"));
+            if let Some(snapshot) = inspected {
+                persistent_data_bytes = persistent_data_bytes.saturating_add(snapshot.data_bytes);
+                persistent_index_bytes =
+                    persistent_index_bytes.saturating_add(snapshot.index_bytes);
+                persistent_total_bytes =
+                    persistent_total_bytes.saturating_add(snapshot.total_bytes);
+                persistent_words = persistent_words.saturating_add(snapshot.word_count);
+                serde_json::json!({
+                    "cache_key": cache_key_hex(&config.cache_key),
+                    "total_bytes": snapshot.total_bytes,
+                    "data_bytes": snapshot.data_bytes,
+                    "index_bytes": snapshot.index_bytes,
+                    "word_count": snapshot.word_count,
+                    "block_count": snapshot.block_count,
+                })
+            } else {
+                serde_json::json!({
+                    "cache_key": cache_key_hex(&config.cache_key),
+                    "missing": true,
+                })
+            }
+        })
+        .collect::<Vec<_>>();
+
+    serde_json::json!({
+        "lane_count": lanes.len(),
+        "backing_counts": backing_counts,
+        "retained_items": retained_items,
+        "resident_bytes": resident_bytes,
+        "stored_bytes": stored_bytes,
+        "index_items": index_items,
+        "index_bytes": index_bytes,
+        "lanes": lanes,
+        "persistent_cache": {
+            "entry_count": caches.len(),
+            "word_count": persistent_words,
+            "data_bytes": persistent_data_bytes,
+            "index_bytes": persistent_index_bytes,
+            "total_bytes": persistent_total_bytes,
+            "entries": caches,
+        },
+    })
+}
+
 fn print_manifest(manifest: &[OutputFingerprint]) {
     eprintln!("validated output manifest:");
     for output in manifest {
@@ -507,6 +700,268 @@ fn run_compiled_validation_stage(capture: &Path, output: &Path, workspace: &Path
     }));
 }
 
+fn run_compiled_baseline_stage(capture: &Path, output: &Path, workspace: &Path, report: &Path) {
+    let total_started = Instant::now();
+    let graph_started = Instant::now();
+    let widget = configured_widget(capture, output);
+    let compiler = configured_compiler(&widget);
+    let graph_load = graph_started.elapsed();
+
+    let lower_started = Instant::now();
+    let compiled = compiler
+        .lower(widget.graph())
+        .unwrap_or_else(|errors| panic!("checked-in graph did not lower: {errors:?}"));
+    let lower = lower_started.elapsed();
+    let compiled_nodes = compiled.nodes.len();
+    let compiled_edges = compiled.edges.len();
+
+    let mut context = compile_context(workspace);
+    let resources_before = resource_usage();
+    let start_started = Instant::now();
+    let mut run = compiler
+        .start_app_run(widget.graph(), &mut context)
+        .unwrap_or_else(|errors| panic!("checked-in graph did not start: {errors:?}"));
+    let pipeline_start = start_started.elapsed();
+    let execute_started = Instant::now();
+    run.wait();
+    let pipeline_execute = execute_started.elapsed();
+    let pipeline_wall = pipeline_start.saturating_add(pipeline_execute);
+    let resources = resource_delta(resources_before, resource_usage(), pipeline_wall);
+
+    let storage_started = Instant::now();
+    let storage = derived_storage_report(&run);
+    let storage_inspection = storage_started.elapsed();
+    let report_value = serde_json::json!({
+        "schema_version": 1,
+        "compiled_graph": {
+            "nodes": compiled_nodes,
+            "edges": compiled_edges,
+        },
+        "phases": {
+            "graph_load_s": graph_load.as_secs_f64(),
+            "graph_lower_s": lower.as_secs_f64(),
+            "pipeline_start_s": pipeline_start.as_secs_f64(),
+            "pipeline_execute_s": pipeline_execute.as_secs_f64(),
+            "pipeline_wall_s": pipeline_wall.as_secs_f64(),
+            "storage_inspection_s": storage_inspection.as_secs_f64(),
+            "child_total_s": total_started.elapsed().as_secs_f64(),
+        },
+        "resources": resources,
+        "derived_storage": storage,
+    });
+    std::fs::write(
+        report,
+        serde_json::to_vec_pretty(&report_value).expect("baseline report should serialize"),
+    )
+    .expect("baseline report should be writable");
+}
+
+fn run_cancellation_stage(capture: &Path, output: &Path, workspace: &Path, report: &Path) {
+    let widget = configured_widget(capture, output);
+    let compiler = configured_compiler(&widget);
+    let mut context = compile_context(workspace);
+    let mut run = compiler
+        .start_app_run(widget.graph(), &mut context)
+        .unwrap_or_else(|errors| panic!("cancellation graph did not start: {errors:?}"));
+    let warmup_started = Instant::now();
+    while !run.is_finished()
+        && !run.progress().iter().any(|(_, progress)| *progress > 0)
+        && warmup_started.elapsed() < Duration::from_secs(5)
+    {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(
+        !run.is_finished(),
+        "pipeline finished before cancellation probe"
+    );
+    let progress_before_stop = run
+        .progress()
+        .into_iter()
+        .map(|(_, progress)| progress)
+        .fold(0_u64, u64::saturating_add);
+    let stop_started = Instant::now();
+    run.stop();
+    while !run.is_finished() && stop_started.elapsed() < Duration::from_secs(10) {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let stop_latency = stop_started.elapsed();
+    assert!(
+        run.is_finished(),
+        "pipeline cancellation exceeded 10 seconds"
+    );
+    run.wait();
+    let report_value = serde_json::json!({
+        "warmup_s": warmup_started.elapsed().as_secs_f64(),
+        "progress_before_stop": progress_before_stop,
+        "stop_latency_ms": stop_latency.as_secs_f64() * 1_000.0,
+    });
+    std::fs::write(
+        report,
+        serde_json::to_vec_pretty(&report_value).expect("cancellation report should serialize"),
+    )
+    .expect("cancellation report should be writable");
+}
+
+fn run_measurement_child(
+    stage: &str,
+    capture: &Path,
+    output: &Path,
+    workspace: &Path,
+    report: &Path,
+) {
+    let started = Instant::now();
+    eprintln!("baseline stage={}", stage.trim_start_matches("__"));
+    let status = Command::new(
+        std::env::current_exe().expect("benchmark executable path should be available"),
+    )
+    .arg(stage)
+    .arg(capture)
+    .arg(output)
+    .arg(workspace)
+    .arg(report)
+    .status()
+    .expect("benchmark child process should start");
+    assert!(
+        status.success(),
+        "baseline stage '{}' failed with {status}",
+        stage.trim_start_matches("__")
+    );
+    eprintln!(
+        "baseline stage={} elapsed={:.3}s",
+        stage.trim_start_matches("__"),
+        started.elapsed().as_secs_f64()
+    );
+}
+
+fn sidecar_size(path: &Path, suffix: &str) -> Option<u64> {
+    let name = format!(
+        "{}.{suffix}",
+        path.file_name().and_then(|name| name.to_str())?
+    );
+    std::fs::metadata(path.with_file_name(name))
+        .ok()
+        .map(|metadata| metadata.len())
+}
+
+fn rustc_version() -> Option<String> {
+    let output = Command::new("rustc").arg("--version").output().ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+fn reference_pipeline_baseline(capture: &Path) {
+    let workspace = temporary_workspace();
+    let output = workspace.path().join("compiled");
+    let cancellation_workspace = workspace.path().join("cancellation");
+    let cancellation_output = cancellation_workspace.join("output");
+    std::fs::create_dir_all(&output).unwrap();
+    std::fs::create_dir_all(&cancellation_output).unwrap();
+    let child_report = workspace.path().join("baseline.json");
+    let cancellation_report = workspace.path().join("cancellation.json");
+    run_measurement_child(
+        "__baseline",
+        capture,
+        &output,
+        workspace.path(),
+        &child_report,
+    );
+    run_measurement_child(
+        "__cancel",
+        capture,
+        &cancellation_output,
+        &cancellation_workspace,
+        &cancellation_report,
+    );
+
+    let fingerprint_started = Instant::now();
+    let manifest = output_manifest(&output);
+    let output_report = output_manifest_report(&manifest);
+    let fingerprint_elapsed = fingerprint_started.elapsed().as_secs_f64();
+    let mut report: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(&child_report).expect("baseline child report should exist"),
+    )
+    .expect("baseline child report should be valid JSON");
+    let cancellation: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(&cancellation_report).expect("cancellation report should exist"),
+    )
+    .expect("cancellation report should be valid JSON");
+    let source = DslFileSource::new(capture).expect("reference capture should open");
+    let total_samples = source.total_samples();
+    let samplerate_hz = source.samplerate_hz();
+    let capture_seconds = total_samples as f64 / samplerate_hz;
+    let pipeline_wall = report["phases"]["pipeline_wall_s"]
+        .as_f64()
+        .expect("pipeline wall time should be numeric");
+    let graph_bytes = std::fs::read(CHECKED_IN_GRAPH).expect("checked-in graph should be readable");
+    let capture_identity = DslFileSource::capture_cache_identity(capture)
+        .expect("reference capture should have a stable identity");
+    let generated_unix_s = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock should follow the Unix epoch")
+        .as_secs();
+    let root = report
+        .as_object_mut()
+        .expect("baseline report root should be an object");
+    root.insert(
+        "environment".to_owned(),
+        serde_json::json!({
+            "generated_unix_s": generated_unix_s,
+            "package_version": env!("CARGO_PKG_VERSION"),
+            "rustc": rustc_version(),
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+            "logical_cpu_count": std::thread::available_parallelism().ok().map(|count| count.get()),
+            "profile": "bench",
+        }),
+    );
+    root.insert(
+        "graph".to_owned(),
+        serde_json::json!({
+            "path": "graphs/spi_controlled_decode.json",
+            "blake3": blake3::hash(&graph_bytes).to_hex().to_string(),
+        }),
+    );
+    root.insert(
+        "capture".to_owned(),
+        serde_json::json!({
+            "path": capture,
+            "cache_identity": cache_key_hex(&capture_identity),
+            "file_bytes": std::fs::metadata(capture).expect("capture metadata should be readable").len(),
+            "total_samples": total_samples,
+            "samplerate_hz": samplerate_hz,
+            "duration_s": capture_seconds,
+            "channels": source.total_probes(),
+            "waveform_index_bytes": sidecar_size(capture, "idx"),
+            "waveform_raw_bytes": sidecar_size(capture, "raw"),
+        }),
+    );
+    root.insert(
+        "throughput".to_owned(),
+        serde_json::json!({
+            "million_samples_per_s": total_samples as f64 / pipeline_wall / 1_000_000.0,
+            "realtime_factor": capture_seconds / pipeline_wall,
+            "target_realtime_factor": 6.0,
+            "target_met": capture_seconds / pipeline_wall >= 6.0,
+        }),
+    );
+    root.insert("outputs".to_owned(), output_report);
+    root.insert("cancellation".to_owned(), cancellation);
+    report["phases"]["output_fingerprint_s"] = fingerprint_elapsed.into();
+    eprintln!(
+        "baseline pipeline_wall_s={pipeline_wall:.3} realtime_x={:.3} output_fingerprint={}",
+        capture_seconds / pipeline_wall,
+        report["outputs"]["fingerprint"]
+            .as_str()
+            .expect("output fingerprint should be a string")
+    );
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&report).expect("baseline report should serialize")
+    );
+}
+
 fn compiler_runtime_benchmark(capture: &Path) {
     let workspace = temporary_workspace();
     let output = workspace.path().join("compiled");
@@ -518,14 +973,60 @@ fn compiler_runtime_benchmark(capture: &Path) {
     let mut run = compiler
         .start_app_run(widget.graph(), &mut context)
         .unwrap();
+    let sampling_overlays = context.take_sampling_overlays();
     run.wait();
-    let files = binary_files(&output);
+    let execution_elapsed = started.elapsed();
     eprintln!(
-        "compiled graph: elapsed={:.3}s files={}",
+        "compiled graph execution: elapsed={:.3}s",
+        execution_elapsed.as_secs_f64()
+    );
+    let files = binary_files(&output);
+    let sampling_points = sampling_overlays
+        .iter()
+        .find(|candidate| candidate.node_title() == "SPI Decoder")
+        .expect("configured SPI sampling overlay should be available")
+        .overlay()
+        .points
+        .points_in_range(0, u64::MAX)
+        .len();
+    let parallel_sampling = sampling_overlays
+        .iter()
+        .find(|candidate| candidate.node_title() == "Parallel Decoder")
+        .expect("parallel sampling overlay should be available");
+    let parallel_sampling_is_lazy = parallel_sampling.overlay().points.has_provider();
+    let first_parallel_time = run
+        .derived_lanes()
+        .opaque_lanes()
+        .into_iter()
+        .find(|lane| lane.name().contains("Parallel Decoder.Words"))
+        .and_then(|lane| lane.nearest_time_boundary(0, 1_000_000_000))
+        .expect("parallel word lane should expose its first timestamp");
+    let visible_start = first_parallel_time.saturating_sub(100);
+    let visible_end = first_parallel_time.saturating_add(10_000);
+    let parallel_sampling_is_dense = parallel_sampling
+        .overlay()
+        .points
+        .points_in_range_with_minimum_spacing(visible_start, visible_end, 1_000_000_000)
+        .is_none();
+    let visible_parallel_points = parallel_sampling
+        .overlay()
+        .points
+        .points_in_range(visible_start, visible_end)
+        .len();
+    eprintln!(
+        "compiled graph: elapsed={:.3}s overlay_queries={:.3}s files={} sampling_points={sampling_points} parallel_lazy={parallel_sampling_is_lazy} parallel_visible_points={visible_parallel_points}",
         started.elapsed().as_secs_f64(),
+        started
+            .elapsed()
+            .saturating_sub(execution_elapsed)
+            .as_secs_f64(),
         files.len()
     );
     assert!(!files.is_empty());
+    assert!(sampling_points > 0);
+    assert!(parallel_sampling_is_lazy);
+    assert!(parallel_sampling_is_dense);
+    assert!(visible_parallel_points > 0);
 }
 
 fn phase_one_reference_runtime_benchmark(capture: &Path) {
@@ -679,6 +1180,7 @@ fn print_usage() {
          <command> <capture.dsl>\n\
          \n\
          commands:\n\
+           baseline               report timing, resources, storage, and output identity\n\
            compiler-runtime       time the compiled startup graph\n\
            phase-one-runtime      time the phase-one reference pipeline\n\
            current-runtime        time the current reference pipeline\n\
@@ -714,6 +1216,32 @@ fn main() {
         );
         return;
     }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "__baseline")
+    {
+        assert_eq!(arguments.len(), 5, "invalid baseline-stage arguments");
+        run_compiled_baseline_stage(
+            Path::new(&arguments[1]),
+            Path::new(&arguments[2]),
+            Path::new(&arguments[3]),
+            Path::new(&arguments[4]),
+        );
+        return;
+    }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "__cancel")
+    {
+        assert_eq!(arguments.len(), 5, "invalid cancellation-stage arguments");
+        run_cancellation_stage(
+            Path::new(&arguments[1]),
+            Path::new(&arguments[2]),
+            Path::new(&arguments[3]),
+            Path::new(&arguments[4]),
+        );
+        return;
+    }
     let mut arguments = arguments.into_iter();
     let Some(command) = arguments.next() else {
         print_usage();
@@ -735,6 +1263,7 @@ fn main() {
     );
 
     match command.to_string_lossy().as_ref() {
+        "baseline" => reference_pipeline_baseline(&capture),
         "compiler-runtime" => compiler_runtime_benchmark(&capture),
         "phase-one-runtime" => phase_one_reference_runtime_benchmark(&capture),
         "current-runtime" => current_reference_runtime_benchmark(&capture),

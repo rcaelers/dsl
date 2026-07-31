@@ -1,12 +1,13 @@
 //! SR flip-flop mapping set/reset triggers to a boolean level.
 
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use tracing::{debug, warn};
 
 use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Sample, Trigger, WorkError,
-    WorkOutcome, WorkResult,
+    EdgeQuery, InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, ProtocolKind,
+    RecordedEdgeQuery, Sample, Trigger, WorkError, WorkOutcome, WorkResult,
 };
 
 /// Set/reset latch over [`Trigger`] streams.
@@ -27,6 +28,7 @@ pub struct SrLatch {
     reset_buffer: VecDeque<Trigger>,
     heads: [Option<Trigger>; 2],
     eos: [bool; 2],
+    edge_query: RecordedEdgeQuery,
 }
 
 impl SrLatch {
@@ -41,6 +43,7 @@ impl SrLatch {
             reset_buffer: VecDeque::new(),
             heads: [None, None],
             eos: [false, false],
+            edge_query: RecordedEdgeQuery::new(initial),
         }
     }
 
@@ -71,7 +74,18 @@ impl ProcessNode for SrLatch {
     }
 
     fn output_schema(&self) -> Vec<PortSchema> {
-        vec![PortSchema::new::<Sample>("q", 0, PortDirection::Output)]
+        vec![
+            PortSchema::new::<Sample>("q", 0, PortDirection::Output)
+                .with_protocols(vec![ProtocolKind::Stream, ProtocolKind::EdgeQuery]),
+        ]
+    }
+
+    fn edge_query(
+        &self,
+        port: usize,
+        _input_queries: &[Option<Arc<dyn EdgeQuery>>],
+    ) -> Option<Arc<dyn EdgeQuery>> {
+        (port == 0).then(|| Arc::new(self.edge_query.clone()) as Arc<dyn EdgeQuery>)
     }
 
     fn work_outcome(
@@ -148,6 +162,7 @@ impl ProcessNode for SrLatch {
         }
         self.state = new_state;
         self.last_emit_ts = ts;
+        self.edge_query.record(ts, self.state);
         debug!("[{}] q={} at {}ns", self.name, self.state, ts);
         output.send(Sample::new(self.state, ts))?;
         Ok(1)

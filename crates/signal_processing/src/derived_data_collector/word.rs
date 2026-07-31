@@ -20,6 +20,8 @@ use crate::payload::{
 };
 use crate::ports::{InputPort, PortDirection, PortSchema};
 
+const WORD_DRAIN_BATCH_SIZE: usize = DRAIN_BATCH_SIZE;
+
 #[derive(Clone)]
 pub struct IndexedAnnotationLane {
     query: Arc<dyn AnnotationQuery>,
@@ -610,25 +612,38 @@ impl CollectedLaneIngestor for WordLane {
     fn drain(&mut self, input: &InputPort, _retention: DerivedDataRetention) -> WorkResult<usize> {
         use crossbeam_channel::TryRecvError;
 
-        let mut batch = Vec::with_capacity(DRAIN_BATCH_SIZE);
+        let mut batches = Vec::new();
+        let mut batch_len = 0usize;
         if let Some(mut receiver) = input.get::<Word>(&mut self.buffer) {
-            match receiver.try_recv_many(&mut batch, DRAIN_BATCH_SIZE) {
-                Ok(_) | Err(TryRecvError::Empty) => {}
-                Err(TryRecvError::Disconnected) => self.eos = true,
+            while batch_len < WORD_DRAIN_BATCH_SIZE {
+                match receiver.try_recv_batch() {
+                    Ok(batch) => {
+                        batch_len += batch.len();
+                        batches.push(batch);
+                    }
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        self.eos = true;
+                        break;
+                    }
+                }
             }
         } else {
             self.eos = true;
         }
-        let batch_len = batch.len();
-        if !batch.is_empty() {
+        if !batches.is_empty() {
             if let Some(writer) = self.writer.as_mut()
-                && let Err(error) = AnnotationStoreWriterBackend::append_batch(writer, &batch)
+                && let Err(error) = batches
+                    .iter()
+                    .try_for_each(|batch| AnnotationStoreWriterBackend::append_batch(writer, batch))
             {
                 tracing::warn!(lane = %self.name, %error, "indexed derived-data word lane failed; disabling further appends");
                 self.writer = None;
             }
             if let WordLaneStorage::InMemory(storage) = &mut *self.storage.write().unwrap() {
-                append_words_to_in_memory_storage(storage, &batch, self.retention);
+                for batch in &batches {
+                    append_words_to_in_memory_storage(storage, batch, self.retention);
+                }
             }
         }
         if self.eos

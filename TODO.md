@@ -6,6 +6,10 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ### Logic-analyzer viewer
 
+- [viewer.presentation-colors] Add viewer presentation color controls, starting with a separately configurable color for
+  each sampling overlay so simultaneous decoder sampling points remain distinguishable. Extend the same generic color
+  contract to cursors, timeline markers, measurements, and other annotations where useful; keep defaults theme-owned,
+  persist overrides by stable item identity, and avoid protocol-specific color handling in the viewer.
 - [viewer.multiple-sources] Support displaying multiple capture sources in the logic-analyzer viewer.
 - [viewer.source-selection] Let the viewer select which source is visible while the one-source display restriction
   remains.
@@ -77,26 +81,17 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ### Indexed derived data
 
-- [derived.performance.reference-pipeline] Establish a reproducible baseline for the checked-in
-  `spi_controlled_decode` graph and the complete approximately 250-second, 50-MHz reference capture.
-  Record wall time, real-time factor, phase timings, average CPU cores, peak RSS, encoded/index sizes,
-  output fingerprints, and cancellation latency. Restore at least 6x real-time processing (roughly
-  42 seconds for that capture) without sacrificing deterministic output or bounded memory.
 - [derived.performance.protocol-selection] Benchmark forced indexed and packed-stream decoding with
-  the real CS and Enable ranges. Make `Auto` select from estimated work after gating and signal
-  activity rather than treating the mere presence of an Enable connection as sufficient reason to
-  choose the single-threaded indexed path. Keep the selection metadata-driven and owned by the
-  parallel decoder.
+  the real CS and Enable ranges, and require identical writer and derived-lane fingerprints before
+  comparing throughput. Make `Auto` select from estimated work after gating and signal activity
+  rather than treating the mere presence of an Enable connection as sufficient reason to choose the
+  single-threaded indexed path. Keep the selection metadata-driven and owned by the parallel
+  decoder.
 - [derived.performance.parallel-execution] Scale immutable packed-window scanning through the shared
   worker capability while preserving bounded in-flight fragments, deterministic ordered merge,
   backpressure, and responsive cancellation. Measure 1, 2, 4, 8, 16, and 32 workers, record CPU and
   memory-bandwidth scaling plus fragment/reorder memory, and choose adaptive defaults from measured
   results instead of fixed four/eight-worker limits.
-- [derived.performance.append-pipeline] Use the full-pipeline phase measurements to determine whether
-  derived-store append is limiting throughput. Optimize only measured builder, summary, encode, or
-  write phases; parallelize independent work only behind an ordered publication boundary, and
-  preserve fingerprints, bounded RSS, live query latency, storage-failure isolation, and
-  cancellation.
 - [derived.performance.ui-latency] Profile egui update, indexed sampling, lane-lock duration, repaint
   cadence, and input latency while decoding a complete capture. Keep this separate from pipeline
   throughput and add focused regressions only for reproduced foreground stalls.

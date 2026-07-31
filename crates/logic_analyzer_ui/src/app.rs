@@ -236,20 +236,39 @@ fn planned_waveform_span_us(plan: &signal_processing::CaptureSessionPlan) -> Opt
     Some(samples as f64 * 1_000_000.0 / plan.sample_rate_hz as f64)
 }
 
-fn saved_sampling_overlay(graph: &GraphState) -> Result<Option<NodeId>, serde_json::Error> {
-    graph.extension(SAMPLING_OVERLAY_EXTENSION)
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum SavedSamplingOverlaySelection {
+    Multiple(Vec<NodeId>),
+    LegacySingle(NodeId),
 }
 
-fn save_sampling_overlay(
+fn saved_sampling_overlays(graph: &GraphState) -> Result<(Vec<NodeId>, bool), serde_json::Error> {
+    let selection = graph.extension::<SavedSamplingOverlaySelection>(SAMPLING_OVERLAY_EXTENSION)?;
+    Ok(match selection {
+        Some(SavedSamplingOverlaySelection::Multiple(selected)) => (selected, false),
+        Some(SavedSamplingOverlaySelection::LegacySingle(selected)) => (vec![selected], true),
+        None => (Vec::new(), false),
+    })
+}
+
+fn save_sampling_overlays(
     graph: &mut GraphState,
-    selected: Option<NodeId>,
+    selected: &[NodeId],
 ) -> Result<(), serde_json::Error> {
-    match selected {
-        Some(selected) => graph.set_extension(SAMPLING_OVERLAY_EXTENSION, selected),
-        None => {
-            graph.remove_extension(SAMPLING_OVERLAY_EXTENSION);
-            Ok(())
-        }
+    if selected.is_empty() {
+        graph.remove_extension(SAMPLING_OVERLAY_EXTENSION);
+        Ok(())
+    } else {
+        graph.set_extension(SAMPLING_OVERLAY_EXTENSION, selected)
+    }
+}
+
+fn toggle_sampling_overlay(selected: &mut Vec<NodeId>, node: NodeId) {
+    if let Some(index) = selected.iter().position(|candidate| *candidate == node) {
+        selected.remove(index);
+    } else {
+        selected.push(node);
     }
 }
 
@@ -430,7 +449,7 @@ pub struct App {
     /// Last time the running pipeline was diffed against the edited graph.
     pub(crate) last_live_sync: f64,
     pub(crate) sampling_overlay_candidates: Vec<compiler::SamplingOverlayCandidate>,
-    pub(crate) selected_sampling_overlay: Option<NodeId>,
+    pub(crate) selected_sampling_overlays: Vec<NodeId>,
     pub(crate) viewer_lane_order: Vec<SavedViewerRow>,
     pub(crate) decoder_panels: DecoderPanels,
     pub(crate) plugin_panels: PluginPanels,
@@ -931,6 +950,9 @@ impl App {
                 subscriptions.subscribe(selection.node, selection.output);
             }
         }
+        for &selected in &self.selected_sampling_overlays {
+            subscriptions.subscribe_sampling_overlay(selected);
+        }
         self.graph_service.set_output_subscriptions(subscriptions);
         let mut by_node: HashMap<NodeId, Vec<ViewerOutputPanelEntry>> = HashMap::new();
         self.node_graph
@@ -1066,7 +1088,7 @@ impl App {
             error_badges: Vec::new(),
             last_live_sync: -1.0,
             sampling_overlay_candidates: Vec::new(),
-            selected_sampling_overlay: None,
+            selected_sampling_overlays: Vec::new(),
             viewer_lane_order: Vec::new(),
             decoder_panels: DecoderPanels::default(),
             plugin_panels: PluginPanels::new(plugin_panel_registry),
@@ -1334,17 +1356,30 @@ impl App {
     }
 
     fn refresh_sampling_overlay_ui(&mut self) {
-        let overlay = self.selected_sampling_overlay.and_then(|selected| {
-            self.sampling_overlay_candidates
-                .iter()
-                .find(|candidate| candidate.node_id() == selected)
-                .map(|candidate| sampling_overlay_presentation(candidate.overlay()))
-        });
-        self.logic_analyzer.set_sampling_overlay(overlay);
+        for candidate in &self.sampling_overlay_candidates {
+            candidate.set_collection_enabled(
+                self.selected_sampling_overlays
+                    .contains(&candidate.node_id()),
+            );
+        }
+        let overlays = self
+            .selected_sampling_overlays
+            .iter()
+            .filter_map(|selected| {
+                self.sampling_overlay_candidates
+                    .iter()
+                    .find(|candidate| candidate.node_id() == *selected)
+                    .map(|candidate| sampling_overlay_presentation(candidate.overlay()))
+            })
+            .collect();
+        self.logic_analyzer.set_sampling_overlays(overlays);
 
         let mut actions: HashMap<NodeId, Vec<NodeContextAction>> = HashMap::new();
         for candidate in &self.sampling_overlay_candidates {
-            let selected = self.selected_sampling_overlay == Some(candidate.node_id());
+            let selected = self
+                .selected_sampling_overlays
+                .iter()
+                .any(|selected| *selected == candidate.node_id());
             let mut action = NodeContextAction::new("sampling_overlay", "Sampling Points")
                 .with_checkmark(selected);
             if !selected {
@@ -1356,22 +1391,33 @@ impl App {
     }
 
     pub(crate) fn restore_sampling_overlay_setting(&mut self) {
-        match saved_sampling_overlay(self.node_graph.graph()) {
-            Ok(selected) => self.selected_sampling_overlay = selected,
+        match saved_sampling_overlays(self.node_graph.graph()) {
+            Ok((selected, migrated)) => {
+                self.selected_sampling_overlays = selected;
+                if migrated {
+                    self.toasts.warning(
+                        "Migrated the saved sampling-points selection to support multiple decoders",
+                    );
+                    self.persist_sampling_overlay_setting();
+                }
+            }
             Err(error) => {
-                self.selected_sampling_overlay = None;
+                self.selected_sampling_overlays.clear();
                 self.toasts.error(format!(
                     "Could not restore the graph's sampling-points setting: {error}"
                 ));
             }
         }
         self.sampling_overlay_candidates.clear();
+        self.refresh_graph_output_selections();
         self.refresh_sampling_overlay_ui();
     }
 
     fn persist_sampling_overlay_setting(&mut self) {
-        let result =
-            save_sampling_overlay(self.node_graph.graph_mut(), self.selected_sampling_overlay);
+        let result = save_sampling_overlays(
+            self.node_graph.graph_mut(),
+            &self.selected_sampling_overlays,
+        );
         if let Err(error) = result {
             self.toasts.error(format!(
                 "Could not save the graph's sampling-points setting: {error}"
@@ -1384,13 +1430,13 @@ impl App {
         candidates: Vec<compiler::SamplingOverlayCandidate>,
     ) {
         self.sampling_overlay_candidates = candidates;
-        if self.selected_sampling_overlay.is_some_and(|selected| {
-            !self
-                .sampling_overlay_candidates
+        let previous_len = self.selected_sampling_overlays.len();
+        self.selected_sampling_overlays.retain(|selected| {
+            self.sampling_overlay_candidates
                 .iter()
-                .any(|candidate| candidate.node_id() == selected)
-        }) {
-            self.selected_sampling_overlay = None;
+                .any(|candidate| candidate.node_id() == *selected)
+        });
+        if self.selected_sampling_overlays.len() != previous_len {
             self.persist_sampling_overlay_setting();
         }
         self.refresh_sampling_overlay_ui();
@@ -1419,9 +1465,9 @@ impl App {
         {
             return;
         }
-        self.selected_sampling_overlay =
-            (self.selected_sampling_overlay != Some(node_id)).then_some(node_id);
+        toggle_sampling_overlay(&mut self.selected_sampling_overlays, node_id);
         self.persist_sampling_overlay_setting();
+        self.refresh_graph_output_selections();
         self.refresh_sampling_overlay_ui();
     }
 
@@ -1550,6 +1596,11 @@ impl App {
             self.toasts.error(message);
             return;
         }
+
+        // Reassert the complete host-owned plan at the execution boundary.
+        // Cached-preview and panel discovery may both refresh the compiler
+        // while no run exists; the persisted overlay must still be collected.
+        self.refresh_graph_output_selections();
 
         // Run is an explicit fresh execution. Cached lanes are a pre-run
         // preview only, so release their mmap/query handles before removing
@@ -1902,6 +1953,7 @@ impl App {
             self.capture_analysis_error = Some("capture graph snapshot is unavailable".into());
             return;
         };
+        self.refresh_graph_output_selections();
         let contains_source = match self
             .graph_service
             .graph_contains_node(&graph, attachment.source_node)
@@ -3423,10 +3475,11 @@ mod font_tests {
     use super::{
         PluginPanelsState, SavedViewerRow, StatusAction, TIMELINE_CURSORS_EXTENSION,
         ViewerSocketIndicator, install_fonts, load_symbol_fonts, save_panel_layout,
-        save_sampling_overlay, save_timeline_cursors, save_viewer_lane_heights,
-        save_viewer_lane_order, saved_panel_layout, saved_sampling_overlay, saved_timeline_cursors,
-        saved_viewer_lane_heights, saved_viewer_lane_order, timeline_cursor_schema_version,
-        timeline_marker_reference_binding_is_synchronized,
+        save_sampling_overlays, save_timeline_cursors, save_viewer_lane_heights,
+        save_viewer_lane_order, saved_panel_layout, saved_sampling_overlays,
+        saved_timeline_cursors, saved_viewer_lane_heights, saved_viewer_lane_order,
+        timeline_cursor_schema_version, timeline_marker_reference_binding_is_synchronized,
+        toggle_sampling_overlay,
     };
 
     #[test]
@@ -3511,16 +3564,38 @@ mod font_tests {
     }
 
     #[test]
-    fn sampling_overlay_selection_round_trips_with_the_graph_document() {
+    fn sampling_overlay_selections_round_trip_and_migrate_the_single_selection() {
         let mut graph = GraphState::default();
-        save_sampling_overlay(&mut graph, Some(NodeId(17))).unwrap();
+        save_sampling_overlays(&mut graph, &[NodeId(17), NodeId(23)]).unwrap();
 
         let json = serde_json::to_string(&graph).unwrap();
         let mut restored: GraphState = serde_json::from_str(&json).unwrap();
-        assert_eq!(saved_sampling_overlay(&restored).unwrap(), Some(NodeId(17)));
+        assert_eq!(
+            saved_sampling_overlays(&restored).unwrap(),
+            (vec![NodeId(17), NodeId(23)], false)
+        );
 
-        save_sampling_overlay(&mut restored, None).unwrap();
-        assert_eq!(saved_sampling_overlay(&restored).unwrap(), None);
+        restored
+            .set_extension(super::SAMPLING_OVERLAY_EXTENSION, NodeId(31))
+            .unwrap();
+        assert_eq!(
+            saved_sampling_overlays(&restored).unwrap(),
+            (vec![NodeId(31)], true)
+        );
+
+        save_sampling_overlays(&mut restored, &[]).unwrap();
+        assert_eq!(saved_sampling_overlays(&restored).unwrap(), (vec![], false));
+    }
+
+    #[test]
+    fn sampling_overlay_toggles_do_not_replace_other_decoder_selections() {
+        let mut selected = vec![NodeId(17)];
+
+        toggle_sampling_overlay(&mut selected, NodeId(23));
+        assert_eq!(selected, [NodeId(17), NodeId(23)]);
+
+        toggle_sampling_overlay(&mut selected, NodeId(17));
+        assert_eq!(selected, [NodeId(23)]);
     }
 
     #[test]

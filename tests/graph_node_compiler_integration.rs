@@ -679,8 +679,22 @@ fn built_in_binary_demo_executes_and_publishes_sampling_and_latch_data() {
         select_output(&mut widget, node, output);
     }
 
+    let decoder_node = |title| {
+        widget
+            .graph()
+            .nodes
+            .iter()
+            .find_map(|(&node_id, node)| (node.title == title).then_some(node_id))
+            .unwrap_or_else(|| panic!("binary demo should contain a {title}"))
+    };
+    let parallel_decoder = decoder_node("Parallel Decoder");
+    let spi_decoder = decoder_node("SPI Decoder");
+    let mut subscriptions: OutputSubscriptionPlan =
+        selected_outputs(widget.graph()).into_iter().collect();
+    subscriptions.subscribe_sampling_overlay(parallel_decoder);
+    subscriptions.subscribe_sampling_overlay(spi_decoder);
     let mut compiler = GraphCompiler::new();
-    compiler.set_output_subscriptions(selected_outputs(widget.graph()).into_iter().collect());
+    compiler.set_output_subscriptions(subscriptions);
     let compiled = compiler.lower(widget.graph()).unwrap();
     let mut context = logic_analyzer_graph_compiler::CompileCtx::default();
     let lanes = context.derived_lanes().clone();
@@ -707,6 +721,17 @@ fn built_in_binary_demo_executes_and_publishes_sampling_and_latch_data() {
         points.iter().all(|point| {
             point.values.len() == parallel_sampling.overlay().sampled_channels.len()
         })
+    );
+    let spi_sampling = sampling
+        .iter()
+        .find(|candidate| candidate.node_title() == "SPI Decoder")
+        .expect("SPI decoder should publish sampling points");
+    let spi_points = spi_sampling.overlay().points.points_in_range(0, u64::MAX);
+    assert!(!spi_points.is_empty());
+    assert!(
+        spi_points
+            .iter()
+            .all(|point| { point.values.len() == spi_sampling.overlay().sampled_channels.len() })
     );
 
     let q = lanes

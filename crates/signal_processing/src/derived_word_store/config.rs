@@ -13,9 +13,9 @@ pub struct BlockCodecConfig {
 impl Default for BlockCodecConfig {
     fn default() -> Self {
         Self {
-            max_words: 32_768,
+            max_words: 262_144,
             restart_interval: 512,
-            max_payload_bytes: 1024 * 1024,
+            max_payload_bytes: 8 * 1024 * 1024,
             max_inter_word_gap_ns: 1_000_000,
             max_timestamp_span_ns: u64::MAX,
         }
@@ -64,6 +64,6 @@ impl Default for LiveStoreConfig {
 use std::path::PathBuf;
 use std::time::Duration;
 
-const DEFAULT_HOT_TAIL_PUBLISH_WORDS: usize = 16_384;
+const DEFAULT_HOT_TAIL_PUBLISH_WORDS: usize = 262_144;
 const DEFAULT_HOT_TAIL_PUBLISH_INTERVAL: Duration = Duration::from_millis(50);
 const DEFAULT_MAX_PERSISTENT_CACHE_BYTES: u64 = 50 * 1024 * 1024 * 1024;

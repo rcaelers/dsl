@@ -241,6 +241,63 @@ impl<'a, T> Receiver<'a, T> {
         }
     }
 
+    /// Receives one complete channel envelope, preserving ownership of a
+    /// producer-created batch instead of moving its elements through the
+    /// scalar putback buffer.
+    pub fn recv_batch(&mut self) -> WorkResult<Vec<T>> {
+        if self.eos.load(Ordering::Relaxed) {
+            return Err(WorkError::Shutdown);
+        }
+        if !self.buffer.is_empty() {
+            return Ok(self.buffer.drain(..).collect());
+        }
+
+        let _guard = self.watchdog_handle.as_ref().map(OperationGuard::new);
+        loop {
+            match self.receiver.recv() {
+                Ok(ChannelMessage::Sample(item)) => return Ok(vec![item]),
+                Ok(ChannelMessage::Batch(items)) if !items.is_empty() => {
+                    return Ok(items);
+                }
+                Ok(ChannelMessage::Batch(_)) => {}
+                Ok(ChannelMessage::EndOfStream) => {
+                    self.eos.store(true, Ordering::Relaxed);
+                    return Err(WorkError::Shutdown);
+                }
+                Err(_) => {
+                    self.eos.store(true, Ordering::Relaxed);
+                    return Err(WorkError::Shutdown);
+                }
+            }
+        }
+    }
+
+    /// Tries to receive one complete channel envelope while preserving
+    /// ownership of a producer-created batch.
+    pub fn try_recv_batch(&mut self) -> Result<Vec<T>, crossbeam_channel::TryRecvError> {
+        if self.eos.load(Ordering::Relaxed) {
+            return Err(crossbeam_channel::TryRecvError::Disconnected);
+        }
+        if !self.buffer.is_empty() {
+            return Ok(self.buffer.drain(..).collect());
+        }
+
+        loop {
+            match self.receiver.try_recv() {
+                Ok(ChannelMessage::Sample(item)) => return Ok(vec![item]),
+                Ok(ChannelMessage::Batch(items)) if !items.is_empty() => {
+                    return Ok(items);
+                }
+                Ok(ChannelMessage::Batch(_)) => {}
+                Ok(ChannelMessage::EndOfStream) => {
+                    self.eos.store(true, Ordering::Relaxed);
+                    return Err(crossbeam_channel::TryRecvError::Disconnected);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
     /// Receive with a timeout. Returns from the putback buffer first (immediate),
     /// then tries the underlying channel with timeout.
     pub fn recv_timeout(

@@ -77,7 +77,9 @@ root.
 concrete node is materialized, including derived-lane access, retention and persistent-cache
 configuration, and run-owned sampling-point storage lookup. Concrete clocked nodes write their
 accepted sampling instants and sampled values to that neutral store only after applying their own
-edge and qualifier semantics.
+edge and qualifier semantics, or install a node-owned lazy provider that reconstructs the same
+decisions from queryable indexed inputs. The compiler and viewer consume the neutral store in
+either case and do not learn decoder-specific sampling rules.
 
 The compiler owns the concrete context state and implements `NodeBuildContext`. Host-only result
 operations, such as taking resolved sampling candidates and collected subscriber metadata, remain
@@ -108,10 +110,16 @@ directly from the validated `GraphNodeRegistration` inventory. The compiler cons
 validated inventory only to construct runtime builders and does not expose an editor-registry
 operation.
 
-Resolved sampling overlays contain only raw-row identities and a shared cache of sampling-point
-records produced by the concrete runtime node. The UI adapts that metadata to the generic viewer,
-which queries the visible time range and renders the records without reading raw channels,
-selecting edges, evaluating qualifiers, or looking up sampled values.
+Resolved sampling overlays contain only raw-row identities and a shared sampling-point store
+configured by the concrete runtime node. The UI adapts that metadata to the generic viewer, which
+queries the visible time range and renders the records without reading raw channels, selecting
+edges, evaluating qualifiers, or looking up sampled values. The host selects which overlays use
+eager future collection through `OutputSubscriptionPlan`; a node may instead satisfy the store
+through its lazy indexed provider. Hiding an overlay does not delete decisions already owned by
+the current run, so transient panel refreshes and hide/show operations are non-destructive.
+The UI persists an ordered set of independently selected overlay node identities. Loading the
+legacy single-node value migrates it to that set at the UI-owned document boundary and reports the
+migration to the user.
 
 Viewer-output discovery, checkbox state, legacy `show_in_view` migration, and persistence of the
 `logic_analyzer_graph.viewer_selections` extension are UI-owned. The compiler facade exposes no
@@ -227,10 +235,12 @@ live cache and growing-index availability as each artifact becomes attachable.
 
 Sampling overlays follow the same boundary. `signal_processing::SamplingPointStore` is the
 neutral run-owned cache; the compiler resolves only the clock and sampled inputs to capture rows
-and gives the shared store to the concrete runtime node. The node records points after applying
-its own edge, qualifier, and sampled-value semantics. The UI converts the row identities and
-shared store into the logic-analyzer widget's passive overlay type. The compiler does not
-construct a widget overlay, and the widget does not reinterpret raw capture channels.
+and gives the shared store to the concrete runtime node. The node either records decisions while
+processing or supplies a lazy `SamplingPointProvider` backed by input indexes and sparse derived
+control queries. Dense captures therefore do not require a second capture-sized vector merely to
+retain sampling markers. The UI converts the row identities and shared store into the
+logic-analyzer widget's passive overlay type. The compiler does not construct a widget overlay,
+and the widget does not reinterpret raw capture channels.
 
 Decoder-table subscriptions are published as collected table lanes with their resolved producer
 metadata. The UI owns the resolved decoder-table source, column, and registry models, resolves

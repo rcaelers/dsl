@@ -1,8 +1,9 @@
 use super::config::BlockCodecConfig;
 use super::errors::{CodecError, CodecResult};
 use super::format::{
-    BLOCK_CHECKSUM_OFFSET, BLOCK_FLAG_HAS_DURATIONS, BLOCK_FLAG_HAS_PAYLOADS, BLOCK_HEADER_SIZE,
-    DEFAULT_MAX_WORDS_PER_BLOCK, RESTART_ENTRY_SIZE, RestartEntry, WordBlockHeader,
+    BLOCK_CHECKSUM_OFFSET, BLOCK_FLAG_GROUPED_TIMESTAMPS, BLOCK_FLAG_HAS_DURATIONS,
+    BLOCK_FLAG_HAS_PAYLOADS, BLOCK_HEADER_SIZE, DEFAULT_MAX_WORDS_PER_BLOCK, RESTART_ENTRY_SIZE,
+    RestartEntry, WordBlockHeader,
 };
 use super::vlq::{decode_u64, encode_u64, encoded_len};
 use crate::crc32c::block_checksum;
@@ -72,6 +73,14 @@ impl WordBlockBuilder {
         self.words.len()
     }
 
+    pub(crate) fn is_at_word_limit(&self) -> bool {
+        self.words.len() >= self.config.max_words
+    }
+
+    pub(crate) fn is_duration_free(&self) -> bool {
+        self.duration_count == 0
+    }
+
     pub(crate) fn words(&self) -> &[Word] {
         &self.words
     }
@@ -104,13 +113,16 @@ impl WordBlockBuilder {
     /// accepted words are copied into the builder once, avoiding billions of
     /// individual `Vec::push` and repeated projection calls for dense lanes.
     pub(crate) fn extend_ordered(&mut self, words: &[Word]) -> usize {
+        let available = self.config.max_words.saturating_sub(self.words.len());
+        let candidates = &words[..words.len().min(available)];
         if self.duration_count == 0
-            && words.iter().all(|word| word.duration_ns == 0)
             && self.payload_count == 0
-            && words.iter().all(Word::is_numeric)
             && self.duration_free_payload_fits_at_max_words()
+            && candidates
+                .iter()
+                .all(|word| word.duration_ns == 0 && word.is_numeric())
         {
-            return self.extend_duration_free(words);
+            return self.extend_duration_free(candidates);
         }
 
         let original_len = self.words.len();
@@ -257,18 +269,16 @@ impl WordBlockBuilder {
     }
 
     fn extend_duration_free(&mut self, words: &[Word]) -> usize {
-        let available = self.config.max_words.saturating_sub(self.words.len());
-        let candidates = &words[..words.len().min(available)];
         let first_timestamp = self
             .words
             .first()
             .map(|word| word.timestamp_ns)
-            .or_else(|| candidates.first().map(|word| word.timestamp_ns));
+            .or_else(|| words.first().map(|word| word.timestamp_ns));
         let mut previous_timestamp = self.words.last().map(|word| word.timestamp_ns);
         let mut accepted = 0usize;
         let mut timestamp_bytes = self.timestamp_bytes;
         let mut max_value = self.max_value;
-        for word in candidates {
+        for word in words {
             if let Some(previous_timestamp) = previous_timestamp {
                 let delta = word.timestamp_ns.saturating_sub(previous_timestamp);
                 if delta > self.config.max_inter_word_gap_ns
@@ -279,7 +289,7 @@ impl WordBlockBuilder {
                 {
                     break;
                 }
-                timestamp_bytes += encoded_len(delta);
+                timestamp_bytes += if delta <= 0x7f { 1 } else { encoded_len(delta) };
             } else {
                 timestamp_bytes += encoded_len(0);
             }
@@ -289,7 +299,7 @@ impl WordBlockBuilder {
         }
         self.timestamp_bytes = timestamp_bytes;
         self.max_value = max_value;
-        self.words.extend_from_slice(&candidates[..accepted]);
+        self.words.extend_from_slice(&words[..accepted]);
         accepted
     }
 
@@ -319,6 +329,11 @@ impl WordBlockBuilder {
             &self.words,
             self.config.restart_interval,
             value_width(self.max_value),
+            self.timestamp_bytes,
+            self.duration_count == 0
+                && self.payload_count == 0
+                && self.max_value <= u8::MAX.into()
+                && self.timestamp_bytes == self.words.len(),
             output,
         )
     }
@@ -473,11 +488,31 @@ fn encode_word_block_with_interval(
     validate_order(words)?;
 
     let value_bytes = value_width(words.iter().map(|word| word.value).max().unwrap());
+    let timestamp_bytes = words
+        .iter()
+        .enumerate()
+        .map(|(index, word)| {
+            encoded_len(if index == 0 {
+                0
+            } else {
+                word.timestamp_ns - words[index - 1].timestamp_ns
+            })
+        })
+        .sum();
+    let dense_byte_words = value_bytes == 1
+        && words
+            .iter()
+            .all(|word| word.duration_ns == 0 && word.payload.is_none())
+        && words
+            .windows(2)
+            .all(|pair| pair[1].timestamp_ns - pair[0].timestamp_ns <= 0x7f);
     encode_validated_word_block_with_interval(
         sequence,
         words,
         restart_interval,
         value_bytes,
+        timestamp_bytes,
+        dense_byte_words,
         output,
     )
 }
@@ -487,6 +522,8 @@ fn encode_validated_word_block_with_interval(
     words: &[Word],
     restart_interval: usize,
     value_bytes: usize,
+    timestamp_bytes: usize,
+    dense_byte_words: bool,
     output: &mut Vec<u8>,
 ) -> CodecResult<EncodedBlockMetadata> {
     debug_assert!(!words.is_empty());
@@ -505,57 +542,87 @@ fn encode_validated_word_block_with_interval(
         encode_u64(payload_count as u64, &mut payloads);
     }
 
-    for (index, word) in words.iter().enumerate() {
-        if index.is_multiple_of(restart_interval) {
-            restarts.push(RestartEntry {
-                timestamp_ns: word.timestamp_ns,
-                payload_offset: u32::try_from(records.len()).map_err(|_| {
-                    CodecError::InvalidFormat("record payload exceeds 4 GiB".to_string())
-                })?,
-                record_index: index as u32,
-            });
-        }
-        let delta = if index == 0 {
-            0
-        } else {
-            word.timestamp_ns - previous_timestamp
-        };
-        encode_u64(delta, &mut records);
-        append_value(word.value, value_bytes, &mut records);
-        previous_timestamp = word.timestamp_ns;
-
-        if word.duration_ns != 0 {
-            let index_delta = if duration_count == 0 {
-                index
-            } else {
-                index - previous_duration_index
-            };
-            encode_u64(index_delta as u64, &mut durations);
-            encode_u64(word.duration_ns, &mut durations);
-            previous_duration_index = index;
-            duration_count += 1;
-        }
-        if let Some(payload) = &word.payload {
-            let index_delta = if emitted_payload_count == 0 {
-                index
-            } else {
-                index - previous_payload_index
-            };
-            encode_u64(index_delta as u64, &mut payloads);
-            match payload {
-                WordPayload::Bytes(bytes) => {
-                    payloads.push(1);
-                    encode_u64(bytes.len() as u64, &mut payloads);
-                    payloads.extend_from_slice(bytes);
-                }
-                WordPayload::Text(text) => {
-                    payloads.push(2);
-                    encode_u64(text.len() as u64, &mut payloads);
-                    payloads.extend_from_slice(text.as_bytes());
-                }
+    let grouped_records = if dense_byte_words {
+        encode_grouped_dense_records(words, restart_interval, timestamp_bytes, value_bytes)
+    } else {
+        None
+    };
+    let grouped_timestamps = grouped_records.is_some();
+    if let Some((grouped, grouped_restarts)) = grouped_records {
+        records = grouped;
+        restarts = grouped_restarts;
+    } else if dense_byte_words {
+        debug_assert_eq!(value_bytes, 1);
+        for (index, word) in words.iter().enumerate() {
+            if index.is_multiple_of(restart_interval) {
+                restarts.push(RestartEntry {
+                    timestamp_ns: word.timestamp_ns,
+                    payload_offset: (index * 2) as u32,
+                    record_index: index as u32,
+                });
             }
-            previous_payload_index = index;
-            emitted_payload_count += 1;
+            let delta = if index == 0 {
+                0
+            } else {
+                word.timestamp_ns - words[index - 1].timestamp_ns
+            };
+            debug_assert!(delta <= 0x7f);
+            records.push(delta as u8);
+            records.push(word.value as u8);
+        }
+    } else {
+        for (index, word) in words.iter().enumerate() {
+            if index.is_multiple_of(restart_interval) {
+                restarts.push(RestartEntry {
+                    timestamp_ns: word.timestamp_ns,
+                    payload_offset: u32::try_from(records.len()).map_err(|_| {
+                        CodecError::InvalidFormat("record payload exceeds 4 GiB".to_string())
+                    })?,
+                    record_index: index as u32,
+                });
+            }
+            let delta = if index == 0 {
+                0
+            } else {
+                word.timestamp_ns - previous_timestamp
+            };
+            encode_u64(delta, &mut records);
+            append_value(word.value, value_bytes, &mut records);
+            previous_timestamp = word.timestamp_ns;
+
+            if word.duration_ns != 0 {
+                let index_delta = if duration_count == 0 {
+                    index
+                } else {
+                    index - previous_duration_index
+                };
+                encode_u64(index_delta as u64, &mut durations);
+                encode_u64(word.duration_ns, &mut durations);
+                previous_duration_index = index;
+                duration_count += 1;
+            }
+            if let Some(payload) = &word.payload {
+                let index_delta = if emitted_payload_count == 0 {
+                    index
+                } else {
+                    index - previous_payload_index
+                };
+                encode_u64(index_delta as u64, &mut payloads);
+                match payload {
+                    WordPayload::Bytes(bytes) => {
+                        payloads.push(1);
+                        encode_u64(bytes.len() as u64, &mut payloads);
+                        payloads.extend_from_slice(bytes);
+                    }
+                    WordPayload::Text(text) => {
+                        payloads.push(2);
+                        encode_u64(text.len() as u64, &mut payloads);
+                        payloads.extend_from_slice(text.as_bytes());
+                    }
+                }
+                previous_payload_index = index;
+                emitted_payload_count += 1;
+            }
         }
     }
 
@@ -581,6 +648,10 @@ fn encode_validated_word_block_with_interval(
             0
         }) | (if payload_count > 0 {
             BLOCK_FLAG_HAS_PAYLOADS
+        } else {
+            0
+        }) | (if grouped_timestamps {
+            BLOCK_FLAG_GROUPED_TIMESTAMPS
         } else {
             0
         }),
@@ -614,48 +685,138 @@ fn encode_validated_word_block_with_interval(
     Ok(EncodedBlockMetadata { header, restarts })
 }
 
+fn encode_grouped_dense_records(
+    words: &[Word],
+    restart_interval: usize,
+    timestamp_bytes: usize,
+    value_bytes: usize,
+) -> Option<(Vec<u8>, Vec<RestartEntry>)> {
+    debug_assert_eq!(value_bytes, 1);
+    let legacy_len = timestamp_bytes.saturating_add(words.len());
+    let mut records = Vec::with_capacity(words.len().saturating_add(words.len() / 32));
+    let mut restarts = Vec::with_capacity(words.len().div_ceil(restart_interval));
+
+    for (group_index, group) in words.chunks(restart_interval).enumerate() {
+        let record_index = group_index * restart_interval;
+        restarts.push(RestartEntry {
+            timestamp_ns: group[0].timestamp_ns,
+            payload_offset: u32::try_from(records.len()).ok()?,
+            record_index: record_index as u32,
+        });
+        let mut palette = [0u64; 16];
+        let mut palette_len = 0usize;
+        let mut raw_timestamp_len = 0usize;
+        let mut palette_available = true;
+        for pair in group.windows(2) {
+            let delta = pair[1].timestamp_ns - pair[0].timestamp_ns;
+            raw_timestamp_len += encoded_len(delta);
+            if palette[..palette_len].contains(&delta) {
+                continue;
+            }
+            if palette_len == palette.len() {
+                palette_available = false;
+                continue;
+            }
+            palette[palette_len] = delta;
+            palette_len += 1;
+        }
+
+        let raw_len = 1 + group.len() + raw_timestamp_len;
+        let palette_bits = palette_index_bits(palette_len);
+        let palette_len_bytes = if palette_available && palette_len > 1 {
+            2 + palette[..palette_len]
+                .iter()
+                .map(|&delta| encoded_len(delta))
+                .sum::<usize>()
+                + (group.len().saturating_sub(1) * palette_bits as usize).div_ceil(8)
+                + group.len()
+        } else {
+            usize::MAX
+        };
+
+        if palette_len == 1 {
+            records.push(1);
+            encode_u64(palette[0], &mut records);
+            records.extend(group.iter().map(|word| word.value as u8));
+        } else if palette_len_bytes < raw_len {
+            records.push(2);
+            records.push(palette_len as u8);
+            for &delta in &palette[..palette_len] {
+                encode_u64(delta, &mut records);
+            }
+            let packed_offset = records.len();
+            let packed_len = (group.len().saturating_sub(1) * palette_bits as usize).div_ceil(8);
+            records.resize(packed_offset + packed_len, 0);
+            for (delta_index, pair) in group.windows(2).enumerate() {
+                let delta = pair[1].timestamp_ns - pair[0].timestamp_ns;
+                let palette_index = palette[..palette_len]
+                    .iter()
+                    .position(|&candidate| candidate == delta)
+                    .expect("every delta was added to the palette");
+                write_packed_index(
+                    &mut records[packed_offset..packed_offset + packed_len],
+                    delta_index,
+                    palette_bits,
+                    palette_index as u8,
+                );
+            }
+            records.extend(group.iter().map(|word| word.value as u8));
+        } else {
+            records.push(0);
+            for (index, word) in group.iter().enumerate() {
+                if index > 0 {
+                    encode_u64(
+                        word.timestamp_ns - group[index - 1].timestamp_ns,
+                        &mut records,
+                    );
+                }
+                records.push(word.value as u8);
+            }
+        }
+    }
+
+    (records.len() < legacy_len).then_some((records, restarts))
+}
+
+fn palette_index_bits(palette_len: usize) -> u8 {
+    match palette_len {
+        0 | 1 => 0,
+        2 => 1,
+        3..=4 => 2,
+        5..=8 => 3,
+        _ => 4,
+    }
+}
+
+fn write_packed_index(bytes: &mut [u8], index: usize, bits: u8, value: u8) {
+    let bit_offset = index * bits as usize;
+    let byte_index = bit_offset / 8;
+    let shift = bit_offset % 8;
+    let encoded = (value as u16) << shift;
+    bytes[byte_index] |= encoded as u8;
+    if shift + bits as usize > 8 {
+        bytes[byte_index + 1] |= (encoded >> 8) as u8;
+    }
+}
+
 pub(crate) fn decode_word_block(bytes: &[u8]) -> CodecResult<DecodedWordBlock> {
     let parsed = parse_word_block(bytes)?;
     let header = parsed.header;
-    let value_bytes = parsed.value_bytes;
-    let record_end = parsed.record_end;
-
-    let mut cursor = BLOCK_HEADER_SIZE;
     let mut words = Vec::with_capacity(header.word_count as usize);
-    let mut timestamp = header.first_timestamp_ns;
-    let mut restart_index = 0usize;
-    for record_index in 0..header.word_count as usize {
-        let payload_offset = (cursor - BLOCK_HEADER_SIZE) as u32;
-        let delta = decode_u64(&bytes[..record_end], &mut cursor)?;
-        if record_index == 0 {
-            if delta != 0 {
-                return Err(invalid("first timestamp delta is not zero"));
-            }
-        } else {
-            timestamp = timestamp
-                .checked_add(delta)
-                .ok_or_else(|| invalid("timestamp delta overflow"))?;
+    {
+        let mut decoder = RecordDecoder::new(bytes, &parsed, 0, false);
+        for record_index in 0..header.word_count as usize {
+            words.push(decoder.next(record_index)?);
         }
-        let value = read_value(bytes, &mut cursor, record_end, value_bytes)?;
-        words.push(Word::new(value, timestamp));
-
-        if parsed
-            .restarts
-            .get(restart_index)
-            .is_some_and(|restart| restart.record_index as usize == record_index)
+        if decoder.cursor != parsed.record_end
+            || decoder.next_restart_index != parsed.restarts.len()
+            || !decoder.group_timestamps.is_complete()
         {
-            let restart = parsed.restarts[restart_index];
-            if restart.timestamp_ns != timestamp || restart.payload_offset != payload_offset {
-                return Err(invalid("restart entry does not match record payload"));
-            }
-            restart_index += 1;
+            return Err(invalid("record payload length is inconsistent"));
         }
-    }
-    if cursor != record_end || restart_index != parsed.restarts.len() {
-        return Err(invalid("record payload length is inconsistent"));
-    }
-    if timestamp != header.last_timestamp_ns {
-        return Err(invalid("last timestamp does not match block header"));
+        if decoder.timestamp != header.last_timestamp_ns {
+            return Err(invalid("last timestamp does not match block header"));
+        }
     }
 
     apply_durations(bytes, &parsed, 0, &mut words)?;
@@ -694,8 +855,7 @@ pub(crate) fn decode_word_block_range(
         .partition_point(|restart| restart.timestamp_ns < start_ns)
         .saturating_sub(1);
     let restart = parsed.restarts[restart_index];
-    let mut cursor = BLOCK_HEADER_SIZE + restart.payload_offset as usize;
-    let mut timestamp = restart.timestamp_ns;
+    let mut decoder = RecordDecoder::new(bytes, &parsed, restart_index, true);
     let mut previous_predecessor = None;
     let mut predecessor = None;
     let mut selected: Vec<(usize, Word)> = Vec::new();
@@ -703,19 +863,9 @@ pub(crate) fn decode_word_block_range(
     let mut complete = true;
 
     for record_index in restart.record_index as usize..parsed.header.word_count as usize {
-        let delta = decode_u64(&bytes[..parsed.record_end], &mut cursor)?;
-        if record_index == restart.record_index as usize {
-            if record_index == 0 && delta != 0 {
-                return Err(invalid("first timestamp delta is not zero"));
-            }
-        } else {
-            timestamp = timestamp
-                .checked_add(delta)
-                .ok_or_else(|| invalid("timestamp delta overflow"))?;
-        }
-        let value = read_value(bytes, &mut cursor, parsed.record_end, parsed.value_bytes)?;
+        let word = decoder.next(record_index)?;
         decoded_records += 1;
-        let word = Word::new(value, timestamp);
+        let timestamp = word.timestamp_ns;
         if timestamp < start_ns {
             previous_predecessor = predecessor;
             predecessor = Some((record_index, word));
@@ -771,6 +921,212 @@ struct ParsedWordBlock {
     value_bytes: usize,
 }
 
+enum GroupTimestampDecoder {
+    Raw,
+    Constant(u64),
+    Palette {
+        deltas: [u64; 16],
+        palette_len: usize,
+        bits: u8,
+        packed_offset: usize,
+        delta_count: usize,
+        next_delta: usize,
+    },
+}
+
+impl GroupTimestampDecoder {
+    fn is_complete(&self) -> bool {
+        match self {
+            Self::Raw | Self::Constant(_) => true,
+            Self::Palette {
+                delta_count,
+                next_delta,
+                ..
+            } => next_delta == delta_count,
+        }
+    }
+}
+
+struct RecordDecoder<'a> {
+    bytes: &'a [u8],
+    parsed: &'a ParsedWordBlock,
+    cursor: usize,
+    timestamp: u64,
+    next_restart_index: usize,
+    group_timestamps: GroupTimestampDecoder,
+    skip_initial_legacy_delta: bool,
+}
+
+impl<'a> RecordDecoder<'a> {
+    fn new(
+        bytes: &'a [u8],
+        parsed: &'a ParsedWordBlock,
+        restart_index: usize,
+        skip_initial_legacy_delta: bool,
+    ) -> Self {
+        let restart = parsed.restarts[restart_index];
+        Self {
+            bytes,
+            parsed,
+            cursor: BLOCK_HEADER_SIZE + restart.payload_offset as usize,
+            timestamp: restart.timestamp_ns,
+            next_restart_index: restart_index,
+            group_timestamps: GroupTimestampDecoder::Raw,
+            skip_initial_legacy_delta,
+        }
+    }
+
+    fn next(&mut self, record_index: usize) -> CodecResult<Word> {
+        let payload_offset = (self.cursor - BLOCK_HEADER_SIZE) as u32;
+        let at_restart = self
+            .parsed
+            .restarts
+            .get(self.next_restart_index)
+            .is_some_and(|restart| restart.record_index as usize == record_index);
+        if self.parsed.header.flags & BLOCK_FLAG_GROUPED_TIMESTAMPS != 0 {
+            if at_restart {
+                if !self.group_timestamps.is_complete() {
+                    return Err(invalid(
+                        "timestamp palette extends beyond its restart group",
+                    ));
+                }
+                let restart = self.parsed.restarts[self.next_restart_index];
+                if restart.payload_offset != payload_offset {
+                    return Err(invalid("restart entry does not match record payload"));
+                }
+                self.timestamp = restart.timestamp_ns;
+                let mode = *self.bytes.get(self.cursor).ok_or(CodecError::Truncated)?;
+                self.cursor += 1;
+                self.group_timestamps = match mode {
+                    0 => GroupTimestampDecoder::Raw,
+                    1 => GroupTimestampDecoder::Constant(decode_u64(
+                        &self.bytes[..self.parsed.record_end],
+                        &mut self.cursor,
+                    )?),
+                    2 => self.decode_timestamp_palette(record_index)?,
+                    _ => return Err(invalid("invalid grouped timestamp mode")),
+                };
+                self.next_restart_index += 1;
+            } else {
+                let delta = match &mut self.group_timestamps {
+                    GroupTimestampDecoder::Raw => {
+                        decode_u64(&self.bytes[..self.parsed.record_end], &mut self.cursor)?
+                    }
+                    GroupTimestampDecoder::Constant(delta) => *delta,
+                    GroupTimestampDecoder::Palette {
+                        deltas,
+                        palette_len,
+                        bits,
+                        packed_offset,
+                        delta_count,
+                        next_delta,
+                    } => {
+                        if *next_delta >= *delta_count {
+                            return Err(invalid("timestamp palette is shorter than its group"));
+                        }
+                        let palette_index =
+                            read_packed_index(self.bytes, *packed_offset, *next_delta, *bits)
+                                as usize;
+                        *next_delta += 1;
+                        *deltas
+                            .get(palette_index)
+                            .filter(|_| palette_index < *palette_len)
+                            .ok_or_else(|| invalid("timestamp palette index is out of bounds"))?
+                    }
+                };
+                self.timestamp = self
+                    .timestamp
+                    .checked_add(delta)
+                    .ok_or_else(|| invalid("timestamp delta overflow"))?;
+            }
+        } else {
+            let delta = decode_u64(&self.bytes[..self.parsed.record_end], &mut self.cursor)?;
+            if self.skip_initial_legacy_delta {
+                if record_index == 0 && delta != 0 {
+                    return Err(invalid("first timestamp delta is not zero"));
+                }
+                self.skip_initial_legacy_delta = false;
+            } else if record_index == 0 {
+                if delta != 0 {
+                    return Err(invalid("first timestamp delta is not zero"));
+                }
+            } else {
+                self.timestamp = self
+                    .timestamp
+                    .checked_add(delta)
+                    .ok_or_else(|| invalid("timestamp delta overflow"))?;
+            }
+            if at_restart {
+                let restart = self.parsed.restarts[self.next_restart_index];
+                if restart.timestamp_ns != self.timestamp
+                    || restart.payload_offset != payload_offset
+                {
+                    return Err(invalid("restart entry does not match record payload"));
+                }
+                self.next_restart_index += 1;
+            }
+        }
+
+        let value = read_value(
+            self.bytes,
+            &mut self.cursor,
+            self.parsed.record_end,
+            self.parsed.value_bytes,
+        )?;
+        Ok(Word::new(value, self.timestamp))
+    }
+
+    fn decode_timestamp_palette(
+        &mut self,
+        record_index: usize,
+    ) -> CodecResult<GroupTimestampDecoder> {
+        let palette_len = *self.bytes.get(self.cursor).ok_or(CodecError::Truncated)? as usize;
+        self.cursor += 1;
+        if !(2..=16).contains(&palette_len) {
+            return Err(invalid("invalid timestamp palette length"));
+        }
+        let mut deltas = [0u64; 16];
+        for delta in &mut deltas[..palette_len] {
+            *delta = decode_u64(&self.bytes[..self.parsed.record_end], &mut self.cursor)?;
+        }
+        let group_end = self
+            .parsed
+            .restarts
+            .get(self.next_restart_index + 1)
+            .map_or(self.parsed.header.word_count as usize, |restart| {
+                restart.record_index as usize
+            });
+        let delta_count = group_end
+            .checked_sub(record_index + 1)
+            .ok_or_else(|| invalid("timestamp restart group is invalid"))?;
+        let bits = palette_index_bits(palette_len);
+        let packed_len = (delta_count * bits as usize).div_ceil(8);
+        let packed_offset = self.cursor;
+        self.cursor = self
+            .cursor
+            .checked_add(packed_len)
+            .filter(|&cursor| cursor <= self.parsed.record_end)
+            .ok_or(CodecError::Truncated)?;
+        Ok(GroupTimestampDecoder::Palette {
+            deltas,
+            palette_len,
+            bits,
+            packed_offset,
+            delta_count,
+            next_delta: 0,
+        })
+    }
+}
+
+fn read_packed_index(bytes: &[u8], packed_offset: usize, index: usize, bits: u8) -> u8 {
+    let bit_offset = index * bits as usize;
+    let byte_index = packed_offset + bit_offset / 8;
+    let shift = bit_offset % 8;
+    let low = bytes[byte_index] as u16;
+    let high = bytes.get(byte_index + 1).copied().unwrap_or(0) as u16;
+    (((low | high << 8) >> shift) & ((1u16 << bits) - 1)) as u8
+}
+
 fn parse_word_block(bytes: &[u8]) -> CodecResult<ParsedWordBlock> {
     let header = WordBlockHeader::from_bytes(bytes)?;
     let block_len = header.block_len as usize;
@@ -791,7 +1147,10 @@ fn parse_word_block(bytes: &[u8]) -> CodecResult<ParsedWordBlock> {
     if !matches!(value_bytes, 1 | 2 | 4 | 8) {
         return Err(invalid("invalid value width"));
     }
-    if header.flags & !(BLOCK_FLAG_HAS_DURATIONS | BLOCK_FLAG_HAS_PAYLOADS) != 0 {
+    if header.flags
+        & !(BLOCK_FLAG_HAS_DURATIONS | BLOCK_FLAG_HAS_PAYLOADS | BLOCK_FLAG_GROUPED_TIMESTAMPS)
+        != 0
+    {
         return Err(invalid("word block contains unsupported flags"));
     }
 
@@ -1123,13 +1482,72 @@ mod tests {
     }
 
     #[test]
-    fn dense_eight_bit_payload_is_at_most_two_point_two_bytes_per_word() {
+    fn constant_cadence_eight_bit_payload_is_near_one_byte_per_word() {
         let words: Vec<_> = (0..DEFAULT_MAX_WORDS_PER_BLOCK)
             .map(|index| Word::new((index & 0xff) as u64, index as u64 * 80))
             .collect();
         let (metadata, _) = round_trip(&words);
+        assert_ne!(metadata.header.flags & BLOCK_FLAG_GROUPED_TIMESTAMPS, 0);
         let bytes_per_word = metadata.header.record_payload_len as f64 / words.len() as f64;
-        assert!(bytes_per_word <= 2.2, "{bytes_per_word} bytes/word");
+        assert!(bytes_per_word <= 1.01, "{bytes_per_word} bytes/word");
+    }
+
+    #[test]
+    fn small_delta_palette_is_bit_packed() {
+        let deltas = [60, 100, 80, 120];
+        let mut timestamp = 0u64;
+        let words: Vec<_> = (0..DEFAULT_MAX_WORDS_PER_BLOCK)
+            .map(|index| {
+                if index > 0 {
+                    timestamp += deltas[index % deltas.len()];
+                }
+                Word::new((index & 0xff) as u64, timestamp)
+            })
+            .collect();
+        let (metadata, _) = round_trip(&words);
+        assert_ne!(metadata.header.flags & BLOCK_FLAG_GROUPED_TIMESTAMPS, 0);
+        let bytes_per_word = metadata.header.record_payload_len as f64 / words.len() as f64;
+        assert!(bytes_per_word <= 1.27, "{bytes_per_word} bytes/word");
+    }
+
+    #[test]
+    fn grouped_timestamp_blocks_preserve_irregular_groups_and_range_queries() {
+        let mut timestamp = 100u64;
+        let words: Vec<_> = (0..2_000)
+            .map(|index| {
+                if index > 0 {
+                    timestamp += if index == 700 { 11 } else { 10 };
+                }
+                Word::new((index & 0xff) as u64, timestamp)
+            })
+            .collect();
+        let mut bytes = Vec::new();
+        let metadata = encode_word_block(0, &words, &mut bytes).unwrap();
+        assert_ne!(metadata.header.flags & BLOCK_FLAG_GROUPED_TIMESTAMPS, 0);
+        assert_eq!(decode_word_block(&bytes).unwrap().words, words);
+
+        let range =
+            decode_word_block_range(&bytes, words[690].timestamp_ns, words[710].timestamp_ns, 64)
+                .unwrap();
+        assert_eq!(range.words, words[688..=711]);
+    }
+
+    #[test]
+    fn decoder_rejects_unknown_grouped_timestamp_modes() {
+        let words: Vec<_> = (0..1_000)
+            .map(|index| Word::new((index & 0xff) as u64, index as u64 * 10))
+            .collect();
+        let (_, mut bytes) = round_trip(&words);
+        bytes[BLOCK_HEADER_SIZE] = 3;
+        bytes[BLOCK_CHECKSUM_OFFSET..BLOCK_CHECKSUM_OFFSET + 4].fill(0);
+        let checksum = block_checksum(&bytes, BLOCK_CHECKSUM_OFFSET);
+        bytes[BLOCK_CHECKSUM_OFFSET..BLOCK_CHECKSUM_OFFSET + 4]
+            .copy_from_slice(&checksum.to_le_bytes());
+
+        assert!(matches!(
+            decode_word_block(&bytes),
+            Err(CodecError::InvalidFormat(_))
+        ));
     }
 
     #[test]
