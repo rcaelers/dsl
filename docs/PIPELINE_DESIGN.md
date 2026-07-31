@@ -143,18 +143,30 @@ selects its transport independently, and explicit strategies always override Aut
 Packed decoding separates immutable scanning from ordered state updates. Each bounded
 65,536-sample fragment records trigger positions, bus values, reset markers, and boundary
 state. Ordered merge repairs fragment-edge transitions, carries partial words, and emits one
-ordered word batch. Native builds submit scans to a shared worker pool; each decoder uses
-four workers by default, allows at most `2 * workers` outstanding fragments, and reorders
-completion by sequence. The wasm backend implements the same contract sequentially through
-the selected worker module.
+ordered word batch. Native builds submit scans to a shared worker pool containing up to 32 host
+workers. A decoder's adaptive default uses one worker on one- or two-way hosts and approximately
+one quarter of the shared capacity otherwise, with a minimum of two. This reserves capacity for
+capture, ordered merge, downstream consumers, and concurrent decoder nodes after packed scanning
+reaches memory-throughput saturation. Explicit benchmark and tuning overrides accept one through
+32 workers and remain capped by the host capacity. Each decoder allows at most `2 * workers`
+outstanding fragments and reorders completion by sequence. The wasm backend implements the same
+contract sequentially through the selected worker module.
 
 These boundaries preserve deterministic values/timestamps, bounded memory and backpressure,
 and responsive cancellation. The opt-in `parallel-decoder-bench` binary reports protocol
-selection, fingerprints, throughput, worker/reorder metrics, and retention behavior:
+selection, fingerprints, CPU and packed-input throughput, peak RSS, separate in-flight and reorder
+fragment estimates, and retention behavior:
 
 ```bash
 cargo run -p logic-analyzer-processing --release --bin parallel-decoder-bench -- --help
 ```
+
+Its `--worker-sweep` mode requests 1, 2, 4, 8, 16, and 32 workers. The `count` sink verifies that
+every run has the same word count and fingerprint; the `discard` sink removes downstream word
+transport to characterize the immutable scan stage. Requested counts above the host capacity are
+reported with their lower effective count. The current adaptive policy follows the scan-only
+saturation range while avoiding the linear fragment-memory cost of assigning every host worker to
+one decoder.
 
 The benchmark's `file` sink writes decoded words through the production binary-file sink. It
 therefore covers decoder transport, batch serialization, and filesystem output without retaining

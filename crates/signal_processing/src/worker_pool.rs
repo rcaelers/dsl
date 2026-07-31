@@ -5,6 +5,8 @@ use crossbeam_channel::{Sender, bounded};
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
 
+const MAX_SHARED_WORKERS: usize = 32;
+
 #[derive(Debug, Clone, Copy, thiserror::Error)]
 #[error("shared worker pool has stopped")]
 pub struct WorkerPoolStopped;
@@ -19,7 +21,7 @@ impl WorkerPool {
         let workers = thread::available_parallelism()
             .map(|count| count.get())
             .unwrap_or(1)
-            .clamp(1, 8);
+            .clamp(1, MAX_SHARED_WORKERS);
         // Decoders bound their own in-flight work. This shared queue only
         // absorbs simultaneous submissions from several decoder nodes.
         let (sender, receiver) = bounded::<Job>(workers * 4);

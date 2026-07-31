@@ -32,6 +32,7 @@ pub struct ParallelDecoderMetrics {
 #[allow(dead_code)]
 struct ParallelDecoderMetricsInner {
     workers: AtomicUsize,
+    max_in_flight: AtomicUsize,
     max_outstanding: AtomicUsize,
     max_reorder: AtomicUsize,
     max_fragment_bytes: AtomicUsize,
@@ -42,6 +43,7 @@ impl Default for ParallelDecoderMetrics {
         Self {
             inner: Arc::new(ParallelDecoderMetricsInner {
                 workers: AtomicUsize::new(1),
+                max_in_flight: AtomicUsize::new(0),
                 max_outstanding: AtomicUsize::new(0),
                 max_reorder: AtomicUsize::new(0),
                 max_fragment_bytes: AtomicUsize::new(0),
@@ -53,21 +55,31 @@ impl Default for ParallelDecoderMetrics {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ParallelDecoderMetricsSnapshot {
     pub workers: usize,
+    pub max_in_flight: usize,
     pub max_outstanding: usize,
     pub max_reorder: usize,
-    pub estimated_fragment_bytes: usize,
+    pub max_fragment_bytes: usize,
+    pub estimated_in_flight_bytes: usize,
+    pub estimated_reorder_bytes: usize,
+    pub estimated_total_fragment_bytes: usize,
 }
 
 impl ParallelDecoderMetrics {
     /// Returns a point-in-time view of the decoder's worker-pool activity.
     pub fn snapshot(&self) -> ParallelDecoderMetricsSnapshot {
         let max_outstanding = self.inner.max_outstanding.load(Ordering::Relaxed);
+        let max_in_flight = self.inner.max_in_flight.load(Ordering::Relaxed);
+        let max_reorder = self.inner.max_reorder.load(Ordering::Relaxed);
         let max_fragment_bytes = self.inner.max_fragment_bytes.load(Ordering::Relaxed);
         ParallelDecoderMetricsSnapshot {
             workers: self.inner.workers.load(Ordering::Relaxed),
+            max_in_flight,
             max_outstanding,
-            max_reorder: self.inner.max_reorder.load(Ordering::Relaxed),
-            estimated_fragment_bytes: max_outstanding.saturating_mul(max_fragment_bytes),
+            max_reorder,
+            max_fragment_bytes,
+            estimated_in_flight_bytes: max_in_flight.saturating_mul(max_fragment_bytes),
+            estimated_reorder_bytes: max_reorder.saturating_mul(max_fragment_bytes),
+            estimated_total_fragment_bytes: max_outstanding.saturating_mul(max_fragment_bytes),
         }
     }
 }
@@ -135,7 +147,10 @@ struct AutoWorkEstimate {
 }
 
 impl ParallelDecoder {
-    pub const DEFAULT_PARALLEL_WORKERS: usize = 4;
+    /// Largest explicit native scan-worker request accepted by the decoder.
+    pub const MAX_PARALLEL_WORKERS: usize = 32;
+    /// Select the native host-capacity policy instead of a fixed worker count.
+    pub const ADAPTIVE_PARALLEL_WORKERS: usize = 0;
 
     /// Above this estimated fraction of active 64-sample strobe groups after
     /// known gates, packed scans are preferred over indexed point queries in
@@ -224,7 +239,7 @@ impl ParallelDecoder {
             query_buffers: QueryBuffers::default(),
             stream_blocks: StreamBlockState::default(),
             next_stream_merge_sequence: 0,
-            parallel_workers: Self::DEFAULT_PARALLEL_WORKERS,
+            parallel_workers: Self::ADAPTIVE_PARALLEL_WORKERS,
             parallel_metrics: ParallelDecoderMetrics::default(),
             sampling_points: None,
             sampling_progress: ParallelSamplingProgress::default(),
@@ -247,10 +262,12 @@ impl ParallelDecoder {
         self
     }
 
-    /// Run packed fragment scans concurrently on the shared native worker
-    /// pool. The wasm runtime and a value of one remain sequential.
+    /// Select packed fragment scan concurrency on the shared native worker
+    /// pool. Zero uses the adaptive host policy, one is sequential, and larger
+    /// requests are capped by [`Self::MAX_PARALLEL_WORKERS`] and host capacity.
+    /// The wasm runtime remains sequential.
     pub fn with_parallel_workers(mut self, workers: usize) -> Self {
-        self.parallel_workers = workers.clamp(1, 8);
+        self.parallel_workers = workers.min(Self::MAX_PARALLEL_WORKERS);
         self
     }
 
@@ -539,6 +556,20 @@ struct DecodeFragmentBuffers {
     clock_values: Vec<bool>,
     values: Vec<u64>,
     reset_before: Vec<bool>,
+}
+
+fn fragment_buffer_bytes(buffers: &DecodeFragmentBuffers) -> usize {
+    buffers
+        .positions
+        .capacity()
+        .saturating_mul(std::mem::size_of::<u64>())
+        .saturating_add(
+            buffers
+                .values
+                .capacity()
+                .saturating_mul(std::mem::size_of::<u64>()),
+        )
+        .saturating_add(buffers.reset_before.capacity().div_ceil(u8::BITS as usize))
 }
 
 #[derive(Debug)]
@@ -1438,6 +1469,18 @@ impl ParallelDecoder {
             window_end,
             &enabled_ranges,
             std::mem::take(&mut blocks.fragment_buffers),
+        );
+        self.parallel_metrics
+            .inner
+            .max_in_flight
+            .fetch_max(1, Ordering::Relaxed);
+        self.parallel_metrics
+            .inner
+            .max_outstanding
+            .fetch_max(1, Ordering::Relaxed);
+        self.parallel_metrics.inner.max_fragment_bytes.fetch_max(
+            fragment_buffer_bytes(&fragment.buffers),
+            Ordering::Relaxed,
         );
         if fragment.sequence != self.next_stream_merge_sequence {
             return Err(WorkError::NodeError(format!(

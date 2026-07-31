@@ -102,7 +102,7 @@ std::cfg_select! {
         }
     }
 
-    #[derive(Debug, Parser)]
+    #[derive(Clone, Debug, Parser)]
     #[command(about = "Benchmark file-backed ParallelDecoder throughput")]
     struct Args {
         /// DSLogic capture to decode.
@@ -144,9 +144,13 @@ std::cfg_select! {
         #[arg(long, default_value_t = 1_000)]
         buffer: usize,
 
-        /// Packed fragment scans allowed concurrently (1-8).
-        #[arg(long, default_value_t = 4)]
+        /// Packed fragment scans allowed concurrently (0 = adaptive, 1-32 = fixed).
+        #[arg(long, default_value_t = 0)]
         workers: usize,
+
+        /// Benchmark packed decoding at requested worker counts 1,2,4,8,16,32.
+        #[arg(long)]
+        worker_sweep: bool,
 
         /// Maximum annotations retained by the derived-data collector.
         #[arg(long, default_value_t = 4_000_000)]
@@ -431,10 +435,16 @@ std::cfg_select! {
         resources: Option<ResourceMetrics>,
         selected_protocol: &'static str,
         strobe_activity_ratio: Option<f64>,
+        requested_workers: usize,
         workers: usize,
+        max_in_flight: usize,
         max_outstanding: usize,
         max_reorder: usize,
-        estimated_fragment_bytes: usize,
+        max_fragment_bytes: usize,
+        estimated_in_flight_bytes: usize,
+        estimated_reorder_bytes: usize,
+        estimated_total_fragment_bytes: usize,
+        packed_input_bytes: u64,
         viewer_drain_ns: u64,
         viewer_append_ns: u64,
         viewer_batches: u64,
@@ -455,19 +465,35 @@ std::cfg_select! {
                 .strobe_activity_ratio
                 .map(|ratio| format!("{ratio:.6}"))
                 .unwrap_or_else(|| "unavailable".to_string());
+            let input_gib_s = if self.selected_protocol == "packed-stream" {
+                self.packed_input_bytes as f64
+                    / self.elapsed.as_secs_f64().max(f64::EPSILON)
+                    / (1024.0 * 1024.0 * 1024.0)
+            } else {
+                0.0
+            };
+            let parallel = format!(
+                "requested_workers={} workers={} in_flight_peak={} queue_peak={} reorder_peak={} fragment_mib={:.2} in_flight_mib={:.2} reorder_mib={:.2} total_fragment_mib={:.2} packed_input_gib_s={input_gib_s:.3}",
+                self.requested_workers,
+                self.workers,
+                self.max_in_flight,
+                self.max_outstanding,
+                self.max_reorder,
+                self.max_fragment_bytes as f64 / (1024.0 * 1024.0),
+                self.estimated_in_flight_bytes as f64 / (1024.0 * 1024.0),
+                self.estimated_reorder_bytes as f64 / (1024.0 * 1024.0),
+                self.estimated_total_fragment_bytes as f64 / (1024.0 * 1024.0),
+            );
             if matches!(self.sink, SinkKind::Viewer) {
                 let output_hash = self
                     .fingerprint
                     .map(|fingerprint| format!("{fingerprint:016x}"))
                     .unwrap_or_else(|| "unmeasured".to_string());
                 println!(
-                    "mode={:?} protocol={} workers={} queue_peak={} reorder_peak={} fragment_mib={:.1} strobe_activity_ratio={} sink={:?} samples={} words_indexed={} output_hash={} hash_scope={} viewer_drain_s={:.3} viewer_append_s={:.3} viewer_batches={} setup_s={:.3} run_s={:.3} capture_s={:.3} MSamples_s={:.3} realtime_x={:.3} {}",
+                    "mode={:?} protocol={} {} strobe_activity_ratio={} sink={:?} samples={} words_indexed={} output_hash={} hash_scope={} viewer_drain_s={:.3} viewer_append_s={:.3} viewer_batches={} setup_s={:.3} run_s={:.3} capture_s={:.3} MSamples_s={:.3} realtime_x={:.3} {}",
                     self.mode,
                     self.selected_protocol,
-                    self.workers,
-                    self.max_outstanding,
-                    self.max_reorder,
-                    self.estimated_fragment_bytes as f64 / (1024.0 * 1024.0),
+                    parallel,
                     activity,
                     self.sink,
                     self.samples,
@@ -515,13 +541,10 @@ std::cfg_select! {
             } else if self.words_measured {
                 let mwords_per_second = self.words as f64 / seconds / 1_000_000.0;
                 println!(
-                    "mode={:?} protocol={} workers={} queue_peak={} reorder_peak={} fragment_mib={:.1} strobe_activity_ratio={} sink={:?} samples={} words={} output_hash={:016x} hash_scope={} setup_s={:.3} run_s={:.3} capture_s={:.3} MSamples_s={:.3} MWords_s={:.3} realtime_x={:.3} {}",
+                    "mode={:?} protocol={} {} strobe_activity_ratio={} sink={:?} samples={} words={} output_hash={:016x} hash_scope={} setup_s={:.3} run_s={:.3} capture_s={:.3} MSamples_s={:.3} MWords_s={:.3} realtime_x={:.3} {}",
                     self.mode,
                     self.selected_protocol,
-                    self.workers,
-                    self.max_outstanding,
-                    self.max_reorder,
-                    self.estimated_fragment_bytes as f64 / (1024.0 * 1024.0),
+                    parallel,
                     activity,
                     self.sink,
                     self.samples,
@@ -539,13 +562,10 @@ std::cfg_select! {
                 );
             } else {
                 println!(
-                    "mode={:?} protocol={} workers={} queue_peak={} reorder_peak={} fragment_mib={:.1} strobe_activity_ratio={} sink={:?} samples={} words=unmeasured output_hash=unmeasured setup_s={:.3} run_s={:.3} capture_s={:.3} MSamples_s={:.3} realtime_x={:.3} {}",
+                    "mode={:?} protocol={} {} strobe_activity_ratio={} sink={:?} samples={} words=unmeasured output_hash=unmeasured setup_s={:.3} run_s={:.3} capture_s={:.3} MSamples_s={:.3} realtime_x={:.3} {}",
                     self.mode,
                     self.selected_protocol,
-                    self.workers,
-                    self.max_outstanding,
-                    self.max_reorder,
-                    self.estimated_fragment_bytes as f64 / (1024.0 * 1024.0),
+                    parallel,
                     activity,
                     self.sink,
                     self.samples,
@@ -738,6 +758,10 @@ std::cfg_select! {
         } else {
             1
         };
+        let packed_channels = 1 + args.data.len() + usize::from(cs_polarity != CsPolarity::Disabled);
+        let packed_input_bytes = samples
+            .div_ceil(u8::BITS as u64)
+            .saturating_mul(packed_channels as u64);
 
         let output_stats = Arc::new(Mutex::new(OutputStats::default()));
         let retained_words = Arc::new(Mutex::new(Vec::<Word>::new()));
@@ -880,15 +904,71 @@ std::cfg_select! {
             resources,
             selected_protocol,
             strobe_activity_ratio,
+            requested_workers: args.workers,
             workers,
+            max_in_flight: parallel_metrics.max_in_flight,
             max_outstanding: parallel_metrics.max_outstanding,
             max_reorder: parallel_metrics.max_reorder,
-            estimated_fragment_bytes: parallel_metrics.estimated_fragment_bytes,
+            max_fragment_bytes: parallel_metrics.max_fragment_bytes,
+            estimated_in_flight_bytes: parallel_metrics.estimated_in_flight_bytes,
+            estimated_reorder_bytes: parallel_metrics.estimated_reorder_bytes,
+            estimated_total_fragment_bytes: parallel_metrics.estimated_total_fragment_bytes,
+            packed_input_bytes,
             viewer_drain_ns: viewer_metrics.drain_ns,
             viewer_append_ns: viewer_metrics.append_ns,
             viewer_batches: viewer_metrics.batches,
             indexed_store,
         })
+    }
+
+    fn run_worker_sweep(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
+        const REQUESTED_WORKERS: [usize; 6] = [1, 2, 4, 8, 16, 32];
+
+        if !matches!(args.sink, SinkKind::Count | SinkKind::Discard) {
+            return Err(
+                "--worker-sweep requires --sink count or --sink discard".into(),
+            );
+        }
+        let mut reference: Option<(u64, u64)> = None;
+        let mut fastest: Option<(usize, usize, Duration)> = None;
+        for requested_workers in REQUESTED_WORKERS {
+            let mut run_args = args.clone();
+            run_args.mode = BenchMode::Stream;
+            run_args.workers = requested_workers;
+            run_args.worker_sweep = false;
+            let result = run(&run_args, BenchMode::Stream)?;
+            if let Some(fingerprint) = result.fingerprint {
+                if let Some((expected_words, expected_fingerprint)) = reference {
+                    if result.words != expected_words || fingerprint != expected_fingerprint {
+                        return Err(format!(
+                            "worker sweep output mismatch: expected {expected_words} words/{expected_fingerprint:016x}, requested {requested_workers} produced {} words/{fingerprint:016x}",
+                            result.words,
+                        )
+                        .into());
+                    }
+                } else {
+                    reference = Some((result.words, fingerprint));
+                }
+            }
+            if fastest.is_none_or(|(_, _, elapsed)| result.elapsed < elapsed) {
+                fastest = Some((requested_workers, result.workers, result.elapsed));
+            }
+            result.print();
+        }
+        let (requested_workers, effective_workers, elapsed) =
+            fastest.expect("worker sweep has at least one result");
+        if let Some((words, fingerprint)) = reference {
+            println!(
+                "worker_sweep verification=match words={words} output_hash={fingerprint:016x} fastest_requested_workers={requested_workers} fastest_effective_workers={effective_workers} fastest_run_s={:.3}",
+                elapsed.as_secs_f64(),
+            );
+        } else {
+            println!(
+                "worker_sweep verification=not-measured fastest_requested_workers={requested_workers} fastest_effective_workers={effective_workers} fastest_run_s={:.3}",
+                elapsed.as_secs_f64(),
+            );
+        }
+        Ok(())
     }
 
     pub(crate) fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -902,8 +982,12 @@ std::cfg_select! {
         if args.data.is_empty() || args.data.len() > 64 {
             return Err("--data must contain between 1 and 64 channels".into());
         }
-        if !(1..=8).contains(&args.workers) {
-            return Err("--workers must be between 1 and 8".into());
+        if args.workers > ParallelDecoder::MAX_PARALLEL_WORKERS {
+            return Err(format!(
+                "--workers must be 0 (adaptive) or between 1 and {}",
+                ParallelDecoder::MAX_PARALLEL_WORKERS,
+            )
+            .into());
         }
         if args
             .data
@@ -914,6 +998,10 @@ std::cfg_select! {
             .any(|channel| channel >= 16)
         {
             return Err("DSL channel numbers must be between 0 and 15".into());
+        }
+
+        if args.worker_sweep {
+            return run_worker_sweep(&args);
         }
 
         let modes: &[BenchMode] = match args.mode {
@@ -1069,7 +1157,11 @@ std::cfg_select! {
             assert_eq!(args.cs, Some(8));
             assert!(matches!(args.cs_polarity, BenchCsPolarity::ActiveLow));
             assert_eq!(args.viewer_max_entries, 4_000_000);
-            assert_eq!(args.workers, 4);
+            assert_eq!(
+                args.workers,
+                ParallelDecoder::ADAPTIVE_PARALLEL_WORKERS
+            );
+            assert!(!args.worker_sweep);
         }
 
         #[test]

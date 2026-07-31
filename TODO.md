@@ -81,11 +81,11 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ### Indexed derived data
 
-- [derived.performance.parallel-execution] Scale immutable packed-window scanning through the shared
-  worker capability while preserving bounded in-flight fragments, deterministic ordered merge,
-  backpressure, and responsive cancellation. Measure 1, 2, 4, 8, 16, and 32 workers, record CPU and
-  memory-bandwidth scaling plus fragment/reorder memory, and choose adaptive defaults from measured
-  results instead of fixed four/eight-worker limits.
+- [derived.performance.ordered-output] Profile ordered fragment merge, word-batch transport, and
+  connected derived-store and writer consumers after packed scanning. Scan-only throughput
+  saturates around four to eight workers on the reference host, while the exact count/fingerprint
+  path remains effectively flat above one worker, so optimize the serialized output stages without
+  weakening deterministic ordering, cache completeness, or backpressure.
 - [derived.performance.ui-latency] Profile egui update, indexed sampling, lane-lock duration, repaint
   cadence, and input latency while decoding a complete capture. Keep this separate from pipeline
   throughput and add focused regressions only for reproduced foreground stalls.

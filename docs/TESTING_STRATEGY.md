@@ -142,6 +142,17 @@ cargo run --release -p signal-processing --bin derived-word-store-bench
 It is a non-test binary so ordinary and ignored test runs neither discover nor
 execute the performance guard.
 
+The file-backed parallel-decoder benchmark characterizes packed scanning at fixed worker counts
+without checking a capture into the repository. Its worker sweep requests 1, 2, 4, 8, 16, and 32
+workers, reports effective host-capped concurrency, CPU usage, peak RSS, normalized packed-input
+throughput, and fragment/reorder memory bounds. Use `count` to require identical output at every
+worker count and `discard` to isolate scan throughput from downstream word transport:
+
+```console
+cargo run --release -p logic-analyzer-processing --bin parallel-decoder-bench -- \
+  /path/to/reference.dsl --mode stream --sink count --worker-sweep
+```
+
 The U3Pro16 sustained-ingest benchmark uses a generated transport while still
 exercising the concrete streaming driver, capture store, growing index, viewer
 queries, and a lagging consumer:

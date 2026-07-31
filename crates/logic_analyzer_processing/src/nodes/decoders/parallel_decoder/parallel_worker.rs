@@ -15,8 +15,22 @@ pub(crate) struct ParallelStreamState {
     available_buffers: Vec<DecodeFragmentBuffers>,
 }
 
+impl ParallelDecoder {
+    fn adaptive_parallel_workers(available_workers: usize) -> usize {
+        match available_workers.max(1) {
+            1 | 2 => 1,
+            available => available.div_ceil(4).max(2),
+        }
+    }
+}
+
 fn platform_effective_workers(requested: usize, metrics: &ParallelDecoderMetrics) -> usize {
-    let workers = requested.min(signal_processing::shared_worker_pool().workers());
+    let available = signal_processing::shared_worker_pool().workers();
+    let workers = if requested == ParallelDecoder::ADAPTIVE_PARALLEL_WORKERS {
+        ParallelDecoder::adaptive_parallel_workers(available)
+    } else {
+        requested.clamp(1, available)
+    };
     metrics.inner.workers.store(workers, Ordering::Relaxed);
     workers
 }
@@ -27,30 +41,13 @@ fn work_with_platform_backend(
     outputs: &[OutputPort],
     blocks: &mut StreamBlockState,
 ) -> WorkResult<usize> {
-    let workers = if decoder.parallel_workers > 1 {
-        platform_effective_workers(decoder.parallel_workers, &decoder.parallel_metrics)
-    } else {
-        1
-    };
+    let workers =
+        platform_effective_workers(decoder.parallel_workers, &decoder.parallel_metrics);
     if workers > 1 {
         work_parallel(decoder, inputs, outputs, blocks, workers)
     } else {
         decoder.work_streamed_inner(inputs, outputs, blocks)
     }
-}
-
-fn fragment_buffer_bytes(buffers: &DecodeFragmentBuffers) -> usize {
-    buffers
-        .positions
-        .capacity()
-        .saturating_mul(std::mem::size_of::<u64>())
-        .saturating_add(
-            buffers
-                .values
-                .capacity()
-                .saturating_mul(std::mem::size_of::<u64>()),
-        )
-        .saturating_add(buffers.reset_before.capacity().div_ceil(u8::BITS as usize))
 }
 
 fn receive_next_fragment(
@@ -244,6 +241,11 @@ fn work_parallel(
 
         blocks.parallel.in_flight += 1;
         blocks.next_sequence += 1;
+        decoder
+            .parallel_metrics
+            .inner
+            .max_in_flight
+            .fetch_max(blocks.parallel.in_flight, Ordering::Relaxed);
         decoder.parallel_metrics.inner.max_outstanding.fetch_max(
             blocks.parallel.in_flight + blocks.parallel.reorder.len(),
             Ordering::Relaxed,
@@ -338,6 +340,16 @@ mod parallel_worker_tests {
 
     use super::*;
 
+    #[test]
+    fn adaptive_worker_policy_scales_with_host_capacity() {
+        assert_eq!(ParallelDecoder::adaptive_parallel_workers(1), 1);
+        assert_eq!(ParallelDecoder::adaptive_parallel_workers(2), 1);
+        assert_eq!(ParallelDecoder::adaptive_parallel_workers(4), 2);
+        assert_eq!(ParallelDecoder::adaptive_parallel_workers(8), 2);
+        assert_eq!(ParallelDecoder::adaptive_parallel_workers(20), 5);
+        assert_eq!(ParallelDecoder::adaptive_parallel_workers(32), 8);
+    }
+
     fn block_from_bits(bits: &[bool]) -> SampleBlock {
         let mut bytes = vec![0u8; bits.len().div_ceil(8)];
         for (index, &bit) in bits.iter().enumerate() {
@@ -423,7 +435,9 @@ mod parallel_worker_tests {
         assert_eq!(blocks.parallel.in_flight, 0);
     }
 
-    fn run_multi_window_stream(workers: usize) -> Vec<Word> {
+    fn run_multi_window_stream(
+        workers: usize,
+    ) -> (Vec<Word>, ParallelDecoderMetricsSnapshot) {
         let watchdog = Watchdog::new();
         let sample_count = 2 * ParallelDecoder::STREAM_SAMPLES_PER_CALL + 17;
         let strobe: Vec<bool> = (0..sample_count)
@@ -454,6 +468,7 @@ mod parallel_worker_tests {
         let mut decoder = ParallelDecoder::new(4, StrobeMode::RisingEdge, CsPolarity::Disabled)
             .with_word_assembly(3, Endianness::Little)
             .with_parallel_workers(workers);
+        let metrics = decoder.parallel_metrics();
 
         loop {
             match decoder.work(&inputs, &outputs) {
@@ -462,16 +477,34 @@ mod parallel_worker_tests {
                 Err(error) => panic!("unexpected error: {error}"),
             }
         }
-        collect_messages(receiver)
+        (collect_messages(receiver), metrics.snapshot())
     }
 
     #[test]
     fn stream_matches_sequential_across_window_boundaries() {
-        let sequential = run_multi_window_stream(1);
-        let parallel = run_multi_window_stream(4);
-
-        assert_eq!(parallel, sequential);
-        assert!(parallel.len() > 10_000);
+        let (sequential, sequential_metrics) = run_multi_window_stream(1);
+        assert_eq!(sequential_metrics.workers, 1);
+        assert_eq!(sequential_metrics.max_in_flight, 1);
+        assert_eq!(sequential_metrics.max_outstanding, 1);
+        assert_eq!(sequential_metrics.max_reorder, 0);
+        assert!(sequential_metrics.max_fragment_bytes > 0);
+        for workers in [2, 4, 8, 16, 32] {
+            let (parallel, metrics) = run_multi_window_stream(workers);
+            assert_eq!(parallel, sequential, "workers={workers}");
+            assert!(metrics.workers <= workers);
+            assert!(metrics.max_in_flight <= metrics.workers * 2);
+            assert!(metrics.max_outstanding <= metrics.workers * 2);
+            assert!(metrics.max_reorder <= metrics.max_outstanding);
+            assert!(metrics.max_fragment_bytes > 0);
+            assert_eq!(
+                metrics.estimated_total_fragment_bytes,
+                metrics.max_outstanding * metrics.max_fragment_bytes
+            );
+            assert!(
+                metrics.estimated_reorder_bytes <= metrics.estimated_total_fragment_bytes
+            );
+        }
+        assert!(sequential.len() > 10_000);
     }
 
     #[test]
@@ -500,7 +533,7 @@ mod parallel_worker_tests {
         ];
         let decoder = ParallelDecoder::new(1, StrobeMode::AnyEdge, CsPolarity::Disabled)
             .with_input_strategy(ParallelInputStrategy::PackedStream)
-            .with_parallel_workers(4);
+            .with_parallel_workers(ParallelDecoder::MAX_PARALLEL_WORKERS);
         let metrics = decoder.parallel_metrics();
         scheduler.start_process(Box::new(decoder), inputs, Vec::new());
 
