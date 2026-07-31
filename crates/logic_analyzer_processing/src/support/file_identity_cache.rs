@@ -25,9 +25,6 @@ struct CachedIdentity {
 }
 
 /// Retains expensive format-derived identities while the underlying file is unchanged.
-///
-/// Graph discovery lowers an unchanged document for several independent UI services. File
-/// sources should not reopen and parse a multi-gigabyte capture for every one of those reads.
 #[derive(Default)]
 pub(crate) struct FileIdentityCache {
     entries: Mutex<HashMap<PathBuf, CachedIdentity>>,
@@ -66,14 +63,8 @@ mod file_identity_cache_tests {
 
     #[test]
     fn identity_is_reused_until_the_file_changes() {
-        let path = std::env::temp_dir().join(format!(
-            "logic-conduit-file-identity-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("capture");
         std::fs::write(&path, b"capture").unwrap();
         let cache = FileIdentityCache::default();
         let loads = AtomicUsize::new(0);
@@ -89,7 +80,5 @@ mod file_identity_cache_tests {
         std::fs::write(&path, b"changed capture").unwrap();
         assert_eq!(cache.resolve(&path, load).unwrap(), [0x42; 32]);
         assert_eq!(loads.load(Ordering::Relaxed), 2);
-
-        std::fs::remove_file(path).unwrap();
     }
 }

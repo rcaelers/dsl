@@ -5,7 +5,7 @@ use std::sync::Arc;
 use signal_processing::logic_analyzer::{CaptureMode, LogicCaptureConfig};
 use signal_processing::{
     AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureChannelId, CaptureDataDelivery,
-    PreparedAcquisition,
+    CaptureStartMode, ConfiguredAcquisition, PreparedAcquisition,
 };
 
 use super::buffered::BufferedProvider;
@@ -101,5 +101,28 @@ impl DsLogicU3Pro16Capture {
                 StreamingProvider::open_first(self.config, self.channels)?.prepare(context)
             }
         }
+    }
+}
+
+impl ConfiguredAcquisition for DsLogicU3Pro16Capture {
+    fn data_delivery(&self) -> CaptureDataDelivery {
+        self.data_delivery()
+    }
+
+    fn capture_window_samples(&self) -> u64 {
+        self.capture_window_samples()
+    }
+
+    fn prepare(
+        self: Box<Self>,
+        context: AcquisitionContext,
+        mode: CaptureStartMode,
+    ) -> AcquisitionResult<Box<dyn PreparedAcquisition>> {
+        let capture = if mode == CaptureStartMode::CaptureNow {
+            self.without_trigger()
+        } else {
+            *self
+        };
+        DsLogicU3Pro16Capture::prepare(capture, context)
     }
 }

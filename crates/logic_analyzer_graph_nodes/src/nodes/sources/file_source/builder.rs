@@ -1,6 +1,5 @@
 //! Runtime builder for `DSL File Source`.
 
-use std::path::Path;
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -10,6 +9,7 @@ use logic_analyzer_graph_api::node_support::{
     CaptureCacheIdentity, CapturePresentation, NodeBuildContext, PortKind, ResolvedInputs,
     parse_state,
 };
+use logic_analyzer_processing::CaptureSourceMetadata;
 use logic_analyzer_processing::nodes::sources::dsl_file::{
     DslFileSourceConfig, DslFileSourceFactory, source_factory,
 };
@@ -18,39 +18,31 @@ use signal_processing::{
     DEFAULT_DERIVED_DATA_MAX_ENTRIES, DerivedDataRetention, ProcessNode, Sample, SampleBlock,
 };
 
-pub(crate) trait DslFileArtifacts: Send + Sync {
-    fn capture_presentation(
-        &self,
-        path: &Path,
-        channel_names: &[String],
-    ) -> Result<Option<CapturePresentation>, String>;
-    fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String>;
-}
-
 pub(crate) struct FileSourceBuilder {
     source_factory: Arc<dyn DslFileSourceFactory>,
-    artifacts: Arc<dyn DslFileArtifacts>,
 }
 
 impl Default for FileSourceBuilder {
     fn default() -> Self {
         Self {
             source_factory: source_factory(),
-            artifacts: super::metadata_platform::artifacts(),
         }
     }
 }
 
-#[cfg(test)]
 impl FileSourceBuilder {
-    fn with_dependencies(
-        source_factory: Arc<dyn DslFileSourceFactory>,
-        artifacts: Arc<dyn DslFileArtifacts>,
-    ) -> Self {
-        Self {
-            source_factory,
-            artifacts,
-        }
+    #[cfg(test)]
+    fn with_source_factory(source_factory: Arc<dyn DslFileSourceFactory>) -> Self {
+        Self { source_factory }
+    }
+
+    fn config(state: &super::definition::DslFileSourceState) -> DslFileSourceConfig {
+        DslFileSourceConfig::new(&state.file.value, state.channel_names.iter().cloned())
+    }
+
+    fn metadata(&self, state: &Value) -> Result<Arc<dyn CaptureSourceMetadata>, String> {
+        let state: super::definition::DslFileSourceState = parse_state(state)?;
+        Ok(self.source_factory.metadata(Self::config(&state)))
     }
 }
 
@@ -61,14 +53,9 @@ impl RuntimeBuilder for FileSourceBuilder {
     fn source_data_lifecycle(
         &self,
     ) -> Option<logic_analyzer_graph_api::node_support::SourceDataLifecycle> {
-        Some(
-            logic_analyzer_graph_api::node_support::SourceDataLifecycle::new(
-                logic_analyzer_graph_api::node_support::SourceDataLifecycleKind::File,
-                true,
-                true,
-                true,
-            ),
-        )
+        Some(super::super::metadata::lifecycle(
+            self.source_factory.lifecycle(),
+        ))
     }
     fn derived_data_retention(&self, _state: &Value) -> DerivedDataRetention {
         DerivedDataRetention::MaxEntries(DEFAULT_DERIVED_DATA_MAX_ENTRIES)
@@ -97,26 +84,19 @@ impl RuntimeBuilder for FileSourceBuilder {
         Some(socket.def_index)
     }
     fn capture_presentation(&self, state: &Value) -> Result<Option<CapturePresentation>, String> {
-        let state: super::definition::DslFileSourceState = parse_state(state)?;
-        let path = std::path::PathBuf::from(state.file.value);
-        self.artifacts
-            .capture_presentation(&path, &state.channel_names)
+        self.metadata(state)?
+            .presentation()
+            .map(|presentation| presentation.map(super::super::metadata::presentation))
     }
     fn capture_cache_identity(
         &self,
         state: &Value,
         _resolved: &ResolvedInputs,
     ) -> CaptureCacheIdentity {
-        let Ok(state) = parse_state::<super::definition::DslFileSourceState>(state) else {
+        let Ok(metadata) = self.metadata(state) else {
             return CaptureCacheIdentity::Dynamic;
         };
-        if state.file.value.trim().is_empty() {
-            return CaptureCacheIdentity::Dynamic;
-        }
-        self.artifacts
-            .cache_identity(Path::new(&state.file.value))
-            .map(CaptureCacheIdentity::Stable)
-            .unwrap_or(CaptureCacheIdentity::Dynamic)
+        super::super::metadata::cache_identity(metadata.cache_identity())
     }
     fn input_required(&self, _socket: &Socket, _state: &Value) -> bool {
         false
@@ -130,10 +110,7 @@ impl RuntimeBuilder for FileSourceBuilder {
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state: super::definition::DslFileSourceState = parse_state(state)?;
         self.source_factory
-            .create(
-                name,
-                DslFileSourceConfig::new(&state.file.value, state.channel_names.len()),
-            )
+            .create(name, Self::config(&state))
             .map(logic_analyzer_processing::ProcessNodeConstruction::into_process)
             .map_err(|error| format!("cannot open '{}': {error}", state.file.value))
     }
@@ -144,7 +121,10 @@ mod builder_tests {
     use std::path::PathBuf;
     use std::sync::Mutex;
 
-    use logic_analyzer_processing::ProcessNodeConstruction;
+    use logic_analyzer_processing::{
+        CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle,
+        CaptureSourcePresentation, ProcessNodeConstruction,
+    };
     use node_graph::NodeDef;
     use signal_processing::IndexedCapturePresentation;
 
@@ -153,56 +133,66 @@ mod builder_tests {
     use crate::nodes::test_support::{TestCaptureIndexFactory, TestProcessNode};
 
     #[derive(Default)]
-    struct FakeArtifacts {
+    struct FakeMetadata {
+        path: PathBuf,
         operations: Mutex<Vec<String>>,
-        identity_error: bool,
+        dynamic_identity: bool,
     }
 
-    impl DslFileArtifacts for FakeArtifacts {
-        fn capture_presentation(
-            &self,
-            path: &Path,
-            _channel_names: &[String],
-        ) -> Result<Option<CapturePresentation>, String> {
-            self.operations
-                .lock()
-                .unwrap()
-                .push(format!("presentation:{}", path.display()));
-            let indexed = IndexedCapturePresentation {
-                identity: path.to_owned(),
-                factory: Box::new(TestCaptureIndexFactory::new(path)),
-            };
-            Ok(Some(CapturePresentation::Indexed {
-                identity: indexed.identity,
-                factory: indexed.factory,
-            }))
+    impl CaptureSourceMetadata for FakeMetadata {
+        fn lifecycle(&self) -> CaptureSourceLifecycle {
+            CaptureSourceLifecycle::new(CaptureSourceKind::File, true, true, true)
         }
 
-        fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String> {
+        fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
             self.operations
                 .lock()
                 .unwrap()
-                .push(format!("identity:{}", path.display()));
-            if self.identity_error {
-                Err("controlled identity failure".into())
+                .push(format!("presentation:{}", self.path.display()));
+            let indexed = IndexedCapturePresentation {
+                identity: self.path.clone(),
+                factory: Box::new(TestCaptureIndexFactory::new(&self.path)),
+            };
+            Ok(Some(CaptureSourcePresentation::Indexed(indexed)))
+        }
+
+        fn cache_identity(&self) -> CaptureSourceCacheIdentity {
+            self.operations
+                .lock()
+                .unwrap()
+                .push(format!("identity:{}", self.path.display()));
+            if self.dynamic_identity {
+                CaptureSourceCacheIdentity::Dynamic
             } else {
-                Ok([0x5A; 32])
+                CaptureSourceCacheIdentity::Stable([0x5A; 32])
             }
         }
+
+        fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+            Ok(Some(vec!["Clock".into()]))
+        }
     }
 
-    #[derive(Default)]
     struct FakeSourceFactory {
         opened: Mutex<Vec<String>>,
         error: Option<String>,
+        metadata: Arc<FakeMetadata>,
     }
 
     impl DslFileSourceFactory for FakeSourceFactory {
+        fn lifecycle(&self) -> logic_analyzer_processing::CaptureSourceLifecycle {
+            self.metadata.lifecycle()
+        }
+
+        fn metadata(&self, _config: DslFileSourceConfig) -> Arc<dyn CaptureSourceMetadata> {
+            self.metadata.clone()
+        }
+
         fn create(
             &self,
             name: &str,
             config: DslFileSourceConfig,
-        ) -> Result<ProcessNodeConstruction, String> {
+        ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
             self.opened
                 .lock()
                 .unwrap()
@@ -212,17 +202,24 @@ mod builder_tests {
             }
             Ok(ProcessNodeConstruction::new(
                 Box::new(TestProcessNode::new(name)),
-                (),
+                self.metadata.clone(),
             ))
         }
     }
 
     #[test]
-    fn artifact_backend_drives_lowering_presentation_and_cache_identity() {
-        let artifacts = Arc::new(FakeArtifacts::default());
-        let source_factory = Arc::new(FakeSourceFactory::default());
-        let builder =
-            FileSourceBuilder::with_dependencies(source_factory.clone(), artifacts.clone());
+    fn processing_metadata_drives_lowering_presentation_and_cache_identity() {
+        let metadata = Arc::new(FakeMetadata {
+            path: PathBuf::from("fixture.dsl"),
+            operations: Mutex::default(),
+            dynamic_identity: false,
+        });
+        let source_factory = Arc::new(FakeSourceFactory {
+            opened: Mutex::default(),
+            error: None,
+            metadata: metadata.clone(),
+        });
+        let builder = FileSourceBuilder::with_source_factory(source_factory.clone());
         let state = fixture_state("fixture.dsl");
         let mut context = crate::nodes::test_support::TestNodeBuildContext::default();
 
@@ -250,22 +247,24 @@ mod builder_tests {
             &["fixture.dsl:Fixture file"]
         );
         assert_eq!(
-            &*artifacts.operations.lock().unwrap(),
+            &*metadata.operations.lock().unwrap(),
             &["presentation:fixture.dsl", "identity:fixture.dsl"]
         );
     }
 
     #[test]
-    fn artifact_failures_are_reported_without_host_files() {
-        let artifacts = Arc::new(FakeArtifacts {
-            identity_error: true,
-            ..FakeArtifacts::default()
+    fn factory_failures_are_reported_without_host_files() {
+        let metadata = Arc::new(FakeMetadata {
+            path: PathBuf::from("missing.dsl"),
+            operations: Mutex::default(),
+            dynamic_identity: true,
         });
         let source_factory = Arc::new(FakeSourceFactory {
             error: Some("controlled open failure".into()),
-            ..FakeSourceFactory::default()
+            opened: Mutex::default(),
+            metadata,
         });
-        let builder = FileSourceBuilder::with_dependencies(source_factory, artifacts);
+        let builder = FileSourceBuilder::with_source_factory(source_factory);
         let state = fixture_state("missing.dsl");
         let mut context = crate::nodes::test_support::TestNodeBuildContext::default();
 
@@ -286,11 +285,18 @@ mod builder_tests {
     }
 
     #[test]
-    fn malformed_state_is_rejected_before_artifact_access() {
-        let artifacts = Arc::new(FakeArtifacts::default());
-        let source_factory = Arc::new(FakeSourceFactory::default());
-        let builder =
-            FileSourceBuilder::with_dependencies(source_factory.clone(), artifacts.clone());
+    fn malformed_state_is_rejected_before_factory_access() {
+        let metadata = Arc::new(FakeMetadata {
+            path: PathBuf::from("unused.dsl"),
+            operations: Mutex::default(),
+            dynamic_identity: false,
+        });
+        let source_factory = Arc::new(FakeSourceFactory {
+            opened: Mutex::default(),
+            error: None,
+            metadata: metadata.clone(),
+        });
+        let builder = FileSourceBuilder::with_source_factory(source_factory.clone());
         let mut context = crate::nodes::test_support::TestNodeBuildContext::default();
 
         let error = builder
@@ -303,7 +309,7 @@ mod builder_tests {
             .err()
             .expect("malformed state must fail");
         assert!(error.starts_with("invalid node state:"));
-        assert!(artifacts.operations.lock().unwrap().is_empty());
+        assert!(metadata.operations.lock().unwrap().is_empty());
         assert!(source_factory.opened.lock().unwrap().is_empty());
     }
 

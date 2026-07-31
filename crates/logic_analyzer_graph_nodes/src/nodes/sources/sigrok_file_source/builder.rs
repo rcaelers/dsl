@@ -1,55 +1,50 @@
 //! Runtime builder for `Sigrok File Source`.
 
-use std::path::Path;
 use std::sync::Arc;
 
 use serde_json::Value;
 
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{
-    CaptureCacheIdentity, CapturePresentation, CapturePresentationSignal, NodeBuildContext,
-    PortKind, ResolvedInputs, parse_state,
+    CaptureCacheIdentity, CapturePresentation, NodeBuildContext, PortKind, ResolvedInputs,
+    parse_state,
 };
+use logic_analyzer_processing::CaptureSourceMetadata;
 use logic_analyzer_processing::nodes::sources::sigrok_file::{
     SigrokFileSourceConfig, SigrokFileSourceFactory, source_factory,
 };
-use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
 use node_graph::api::Socket;
 use signal_processing::{ProcessNode, Sample, SampleBlock};
 
-pub(crate) trait SigrokFileArtifacts: Send + Sync {
-    fn capture_presentation(
-        &self,
-        path: &Path,
-        channel_names: &[String],
-    ) -> Result<Option<CapturePresentation>, String>;
-    fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String>;
-}
-
 pub(crate) struct SigrokFileSourceBuilder {
     source_factory: Arc<dyn SigrokFileSourceFactory>,
-    artifacts: Arc<dyn SigrokFileArtifacts>,
 }
 
 impl Default for SigrokFileSourceBuilder {
     fn default() -> Self {
         Self {
             source_factory: source_factory(),
-            artifacts: super::metadata_platform::artifacts(),
         }
     }
 }
 
-#[cfg(test)]
 impl SigrokFileSourceBuilder {
-    fn with_dependencies(
-        source_factory: Arc<dyn SigrokFileSourceFactory>,
-        artifacts: Arc<dyn SigrokFileArtifacts>,
-    ) -> Self {
-        Self {
-            source_factory,
-            artifacts,
-        }
+    #[cfg(test)]
+    fn with_source_factory(source_factory: Arc<dyn SigrokFileSourceFactory>) -> Self {
+        Self { source_factory }
+    }
+
+    fn config(state: &super::definition::SigrokFileSourceState) -> SigrokFileSourceConfig {
+        SigrokFileSourceConfig::new(
+            &state.file.value,
+            state.channel_names.iter().cloned(),
+            state.demo_data,
+        )
+    }
+
+    fn metadata(&self, state: &Value) -> Result<Arc<dyn CaptureSourceMetadata>, String> {
+        let state: super::definition::SigrokFileSourceState = parse_state(state)?;
+        Ok(self.source_factory.metadata(Self::config(&state)))
     }
 }
 
@@ -60,14 +55,9 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
     fn source_data_lifecycle(
         &self,
     ) -> Option<logic_analyzer_graph_api::node_support::SourceDataLifecycle> {
-        Some(
-            logic_analyzer_graph_api::node_support::SourceDataLifecycle::new(
-                logic_analyzer_graph_api::node_support::SourceDataLifecycleKind::File,
-                true,
-                true,
-                true,
-            ),
-        )
+        Some(super::super::metadata::lifecycle(
+            self.source_factory.lifecycle(),
+        ))
     }
     fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
         vec![]
@@ -86,53 +76,19 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
         Some(socket.def_index)
     }
     fn capture_presentation(&self, state: &Value) -> Result<Option<CapturePresentation>, String> {
-        let state: super::definition::SigrokFileSourceState = parse_state(state)?;
-        if state.demo_data {
-            let channels =
-                SyntheticCaptureSource::preview_channels_with_count(state.channel_count());
-            let signals = channels
-                .iter()
-                .enumerate()
-                .filter(|(index, _)| *index != 9)
-                .map(|(index, samples)| CapturePresentationSignal {
-                    index,
-                    name: format!("Ch {index}"),
-                    initial: samples.first().is_some_and(|sample| sample.value),
-                    transitions: samples
-                        .iter()
-                        .skip(1)
-                        .map(|sample| (sample.start_time_ns as f64 / 1_000.0, sample.value))
-                        .collect(),
-                })
-                .collect::<Vec<_>>();
-            let duration_us = signals
-                .iter()
-                .filter_map(|signal| signal.transitions.last().map(|(time, _)| *time))
-                .fold(1.0_f64, f64::max);
-            return Ok(Some(CapturePresentation::InMemory {
-                signals,
-                duration_us,
-            }));
-        }
-        let path = std::path::PathBuf::from(state.file.value);
-        self.artifacts
-            .capture_presentation(&path, &state.channel_names)
+        self.metadata(state)?
+            .presentation()
+            .map(|presentation| presentation.map(super::super::metadata::presentation))
     }
     fn capture_cache_identity(
         &self,
         state: &Value,
         _resolved: &ResolvedInputs,
     ) -> CaptureCacheIdentity {
-        let Ok(state) = parse_state::<super::definition::SigrokFileSourceState>(state) else {
+        let Ok(metadata) = self.metadata(state) else {
             return CaptureCacheIdentity::Dynamic;
         };
-        if state.demo_data {
-            return CaptureCacheIdentity::NotCapture;
-        }
-        self.artifacts
-            .cache_identity(Path::new(&state.file.value))
-            .map(CaptureCacheIdentity::Stable)
-            .unwrap_or(CaptureCacheIdentity::Dynamic)
+        super::super::metadata::cache_identity(metadata.cache_identity())
     }
     fn input_required(&self, socket: &Socket, state: &Value) -> bool {
         socket.def_index == 0
@@ -149,14 +105,7 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state: super::definition::SigrokFileSourceState = parse_state(state)?;
         self.source_factory
-            .create(
-                name,
-                SigrokFileSourceConfig::new(
-                    &state.file.value,
-                    state.channel_count(),
-                    state.demo_data,
-                ),
-            )
+            .create(name, Self::config(&state))
             .map(logic_analyzer_processing::ProcessNodeConstruction::into_process)
             .map_err(|error| format!("cannot open '{}': {error}", state.file.value))
     }
@@ -164,10 +113,13 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
 
 #[cfg(test)]
 mod builder_tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::Mutex;
 
-    use logic_analyzer_processing::ProcessNodeConstruction;
+    use logic_analyzer_processing::{
+        CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle,
+        CaptureSourcePresentation, ProcessNodeConstruction,
+    };
     use node_graph::NodeDef;
     use signal_processing::IndexedCapturePresentation;
 
@@ -175,42 +127,52 @@ mod builder_tests {
     use super::*;
     use crate::nodes::test_support::{TestCaptureIndexFactory, TestProcessNode};
 
-    #[derive(Default)]
-    struct FakeArtifacts {
-        operations: Mutex<Vec<String>>,
-        identity_error: bool,
+    struct FakeMetadata {
+        config: SigrokFileSourceConfig,
+        operations: Arc<Mutex<Vec<String>>>,
+        dynamic_identity: bool,
     }
 
-    impl SigrokFileArtifacts for FakeArtifacts {
-        fn capture_presentation(
-            &self,
-            path: &Path,
-            _channel_names: &[String],
-        ) -> Result<Option<CapturePresentation>, String> {
-            self.operations
-                .lock()
-                .unwrap()
-                .push(format!("presentation:{}", path.display()));
-            let indexed = IndexedCapturePresentation {
-                identity: path.to_owned(),
-                factory: Box::new(TestCaptureIndexFactory::new(path)),
-            };
-            Ok(Some(CapturePresentation::Indexed {
-                identity: indexed.identity,
-                factory: indexed.factory,
-            }))
+    impl CaptureSourceMetadata for FakeMetadata {
+        fn lifecycle(&self) -> CaptureSourceLifecycle {
+            CaptureSourceLifecycle::new(CaptureSourceKind::File, true, true, true)
         }
 
-        fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String> {
+        fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+            if self.config.demo_data() {
+                return Ok(Some(CaptureSourcePresentation::InMemory {
+                    signals: Vec::new(),
+                    duration_us: 1.0,
+                }));
+            }
             self.operations
                 .lock()
                 .unwrap()
-                .push(format!("identity:{}", path.display()));
-            if self.identity_error {
-                Err("controlled identity failure".into())
-            } else {
-                Ok([0xA5; 32])
+                .push(format!("presentation:{}", self.config.path().display()));
+            let indexed = IndexedCapturePresentation {
+                identity: self.config.path().to_owned(),
+                factory: Box::new(TestCaptureIndexFactory::new(self.config.path())),
+            };
+            Ok(Some(CaptureSourcePresentation::Indexed(indexed)))
+        }
+
+        fn cache_identity(&self) -> CaptureSourceCacheIdentity {
+            if self.config.demo_data() {
+                return CaptureSourceCacheIdentity::NotCapture;
             }
+            self.operations
+                .lock()
+                .unwrap()
+                .push(format!("identity:{}", self.config.path().display()));
+            if self.dynamic_identity {
+                CaptureSourceCacheIdentity::Dynamic
+            } else {
+                CaptureSourceCacheIdentity::Stable([0xA5; 32])
+            }
+        }
+
+        fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+            Ok(Some(self.config.channel_names().to_vec()))
         }
     }
 
@@ -218,31 +180,46 @@ mod builder_tests {
     struct FakeSourceFactory {
         opened: Mutex<Vec<(String, SigrokFileSourceConfig)>>,
         error: Option<String>,
+        operations: Arc<Mutex<Vec<String>>>,
+        dynamic_identity: bool,
     }
 
     impl SigrokFileSourceFactory for FakeSourceFactory {
+        fn lifecycle(&self) -> CaptureSourceLifecycle {
+            CaptureSourceLifecycle::new(CaptureSourceKind::File, true, true, true)
+        }
+
+        fn metadata(&self, config: SigrokFileSourceConfig) -> Arc<dyn CaptureSourceMetadata> {
+            Arc::new(FakeMetadata {
+                config,
+                operations: self.operations.clone(),
+                dynamic_identity: self.dynamic_identity,
+            })
+        }
+
         fn create(
             &self,
             name: &str,
             config: SigrokFileSourceConfig,
-        ) -> Result<ProcessNodeConstruction, String> {
-            self.opened.lock().unwrap().push((name.to_owned(), config));
+        ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+            self.opened
+                .lock()
+                .unwrap()
+                .push((name.to_owned(), config.clone()));
             if let Some(error) = &self.error {
                 return Err(error.clone());
             }
             Ok(ProcessNodeConstruction::new(
                 Box::new(TestProcessNode::new(name)),
-                (),
+                self.metadata(config),
             ))
         }
     }
 
     #[test]
-    fn non_demo_artifacts_drive_lowering_presentation_and_cache_identity() {
-        let artifacts = Arc::new(FakeArtifacts::default());
+    fn non_demo_metadata_drives_lowering_presentation_and_cache_identity() {
         let source_factory = Arc::new(FakeSourceFactory::default());
-        let builder =
-            SigrokFileSourceBuilder::with_dependencies(source_factory.clone(), artifacts.clone());
+        let builder = SigrokFileSourceBuilder::with_source_factory(source_factory.clone());
         let state = fixture_state("fixture.sr");
         let mut context = crate::nodes::test_support::TestNodeBuildContext::default();
 
@@ -272,22 +249,19 @@ mod builder_tests {
         assert!(!opened[0].1.demo_data());
         drop(opened);
         assert_eq!(
-            &*artifacts.operations.lock().unwrap(),
+            &*source_factory.operations.lock().unwrap(),
             &["presentation:fixture.sr", "identity:fixture.sr"]
         );
     }
 
     #[test]
-    fn non_demo_artifact_failures_are_deterministic() {
-        let artifacts = Arc::new(FakeArtifacts {
-            identity_error: true,
-            ..FakeArtifacts::default()
-        });
+    fn non_demo_factory_failures_are_deterministic() {
         let source_factory = Arc::new(FakeSourceFactory {
             error: Some("controlled session failure".into()),
+            dynamic_identity: true,
             ..FakeSourceFactory::default()
         });
-        let builder = SigrokFileSourceBuilder::with_dependencies(source_factory, artifacts);
+        let builder = SigrokFileSourceBuilder::with_source_factory(source_factory);
         let state = fixture_state("missing.sr");
         let mut context = crate::nodes::test_support::TestNodeBuildContext::default();
 
@@ -311,11 +285,9 @@ mod builder_tests {
     }
 
     #[test]
-    fn demo_data_bypasses_file_artifacts() {
-        let artifacts = Arc::new(FakeArtifacts::default());
+    fn demo_data_uses_processing_metadata_without_file_access() {
         let source_factory = Arc::new(FakeSourceFactory::default());
-        let builder =
-            SigrokFileSourceBuilder::with_dependencies(source_factory.clone(), artifacts.clone());
+        let builder = SigrokFileSourceBuilder::with_source_factory(source_factory.clone());
         let mut state = SigrokFileSource::state();
         state.demo_data = true;
         state.channel_names = vec!["Demo".into()];
@@ -339,7 +311,7 @@ mod builder_tests {
             )
             .unwrap();
         assert_eq!(runtime.name(), "Demo session");
-        assert!(artifacts.operations.lock().unwrap().is_empty());
+        assert!(source_factory.operations.lock().unwrap().is_empty());
         let opened = source_factory.opened.lock().unwrap();
         assert_eq!(opened.len(), 1);
         assert!(opened[0].1.demo_data());

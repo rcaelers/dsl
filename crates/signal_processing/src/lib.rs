@@ -127,8 +127,8 @@ pub use live_capture::{
     CaptureHealth, CaptureProgress, CaptureProviderCapabilities, CaptureQueueConfigError,
     CaptureQueueLimits, CaptureQueueReader, CaptureQueueReceiveError, CaptureQueueWriter,
     CaptureSessionId, CaptureSessionState, CaptureSettingCombination, CaptureStatus,
-    CaptureWriteError, PreparedAcquisition, SimpleTriggerCondition, bounded_capture_event_queue,
-    bounded_capture_queue,
+    CaptureWriteError, ConfiguredAcquisition, PreparedAcquisition, SimpleTriggerCondition,
+    bounded_capture_event_queue, bounded_capture_queue,
 };
 pub use live_capture_store::*;
 pub use manager::{DisconnectEvent, InputSub, NodeSpec, PipelineManager};

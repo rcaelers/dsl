@@ -45,12 +45,21 @@ fn cross_platform_capture_facades_expose_neutral_factories() {
     let crate_root = include_str!("lib.rs");
     let value_types = include_str!("types/mod.rs");
     assert!(crate_root.contains("pub use process_node_construction::ProcessNodeConstruction;"));
+    assert!(crate_root.contains("CaptureSourceMetadata"));
     assert!(!value_types.contains("ProcessNodeConstruction"));
 
     for facade in [
         include_str!("nodes/sources/dsl_file/facade.rs"),
         include_str!("nodes/sources/dslogic_u3pro16/facade.rs"),
         include_str!("nodes/sources/sigrok_file/facade.rs"),
+    ] {
+        assert!(facade.contains("Factory: Send + Sync"));
+        assert!(facade.contains("ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>"));
+        assert!(facade.contains("fn metadata("));
+        assert!(!facade.contains("Box<dyn ProcessNode>"));
+    }
+
+    for facade in [
         include_str!("nodes/sinks/binary_file_writer/facade.rs"),
         include_str!("nodes/sinks/csv_word_writer/facade.rs"),
         include_str!("nodes/sinks/text_file_writer/facade.rs"),
@@ -58,6 +67,23 @@ fn cross_platform_capture_facades_expose_neutral_factories() {
         assert!(facade.contains("Factory: Send + Sync"));
         assert!(facade.contains("Result<ProcessNodeConstruction, String>"));
         assert!(!facade.contains("Box<dyn ProcessNode>"));
+    }
+}
+
+#[test]
+fn source_platforms_own_presentation_and_runtime_capabilities() {
+    for implementation in [
+        include_str!("nodes/sources/dsl_file/platform/native.rs"),
+        include_str!("nodes/sources/dsl_file/platform/wasm.rs"),
+        include_str!("nodes/sources/dslogic_u3pro16/platform/native.rs"),
+        include_str!("nodes/sources/dslogic_u3pro16/platform/wasm.rs"),
+        include_str!("nodes/sources/sigrok_file/platform/native.rs"),
+        include_str!("nodes/sources/sigrok_file/platform/wasm.rs"),
+    ] {
+        assert!(implementation.contains("impl CaptureSourceMetadata"));
+        assert!(implementation.contains("fn presentation("));
+        assert!(implementation.contains("fn cache_identity("));
+        assert!(implementation.contains("fn channel_names("));
     }
 }
 

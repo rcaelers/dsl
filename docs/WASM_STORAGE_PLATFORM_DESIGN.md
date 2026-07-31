@@ -105,8 +105,22 @@ Each processing facade exposes a capability-specific factory trait. The facade r
 object for the implementation selected behind its private whole-file platform boundary, and graph
 builders retain that factory through the platform-neutral trait. Factory construction returns a
 `ProcessNodeConstruction<M>`, which keeps the runtime process and its platform-neutral metadata in
-one result. Capabilities without additional metadata use `()`; backend types and backend-only
-operations never appear in the factory contract.
+one result. Capture-source factories use an `Arc<dyn CaptureSourceMetadata>` metadata contract;
+capabilities without additional metadata use `()`. Backend types and backend-only operations never
+appear in the factory contract.
+
+`CaptureSourceMetadata` lazily supplies source lifecycle, presentation, cache identity, channel
+inspection, and runtime capability information. Native metadata implementations may open capture
+headers, create deferred capture-index factories, or resolve cached file identities. Wasm metadata
+implementations publish deterministic in-memory presentations and explicitly omit unavailable
+acquisition capabilities. Requesting one metadata property does not eagerly perform the work of an
+unrelated property.
+
+Graph builders translate this processing metadata into `logic_analyzer_graph_api` contracts through
+one platform-independent adapter. The graph-node crate has no file-metadata, synthetic-presentation,
+or source-capability target selector. Live hardware metadata exposes a generic
+`ConfiguredAcquisition`; graph live-capture orchestration consumes that interface without importing
+the concrete USB capture implementation.
 
 Native file readers, writers, and USB devices therefore use their resources without entering the
 graph layer, while wasm file sources generate deterministic synthetic captures, wasm writers

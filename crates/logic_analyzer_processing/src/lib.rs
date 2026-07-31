@@ -2,6 +2,7 @@
 
 #[cfg(test)]
 mod architecture_tests;
+mod capture_source_metadata;
 mod process_node_construction;
 
 pub mod nodes;
@@ -9,4 +10,8 @@ pub mod nodes;
 mod support;
 pub mod types;
 
+pub use capture_source_metadata::{
+    CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
+    CaptureSourcePresentation, CaptureSourceRuntimeCapabilities, CaptureSourceSignal,
+};
 pub use process_node_construction::ProcessNodeConstruction;

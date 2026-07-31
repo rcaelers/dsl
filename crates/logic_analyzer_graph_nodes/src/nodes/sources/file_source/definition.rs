@@ -1,15 +1,13 @@
 //! `DSL File Source` graph-node definition.
 
-use std::path::Path;
-
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
+use logic_analyzer_processing::nodes::sources::dsl_file::{DslFileSourceConfig, source_factory};
 use node_graph::{
     FileValue, InputDef, IntValue, NodeBadge, NodeDef, NodeInstanceSchema, OutputDef, Socket,
 };
 
-use super::metadata_platform;
 use crate::sockets::{COLOR_SOURCES, Signal, TextPath};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,7 +118,11 @@ impl NodeDef for DslFileSource {
             return;
         }
 
-        match metadata_platform::channel_names(Path::new(&state.file.value)) {
+        let metadata = source_factory().metadata(DslFileSourceConfig::new(
+            &state.file.value,
+            state.channel_names.iter().cloned(),
+        ));
+        match metadata.channel_names() {
             Ok(Some(names)) => {
                 state.channel_names = names;
                 state.metadata_path.clone_from(&state.file.value);

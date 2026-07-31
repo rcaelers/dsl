@@ -4,13 +4,12 @@ use serde_json::Value;
 
 use logic_analyzer_graph_api::node::{CaptureGraphSourceFactory, LiveCaptureFeature};
 use logic_analyzer_graph_api::node_support::{SimpleTriggerChannel, parse_state};
-use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::DsLogicU3Pro16Capture;
 use signal_processing::{
     AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureAnalysisChannel,
     CaptureAnalysisSource, CaptureChannelId, CaptureCommandCapabilities, CaptureFraction,
     CapturePolicyCapabilities, CapturePolicyContext, CaptureProviderCapabilities,
     CaptureSessionPlan, CaptureStartMode, CaptureStoreCursor, CompletionPolicyKind,
-    PreparedAcquisition, ProcessNode, RecordingStart, RetentionPolicyKind,
+    ConfiguredAcquisition, PreparedAcquisition, ProcessNode, RecordingStart, RetentionPolicyKind,
     TriggerPlacementCapability, TriggerProgram, TriggerTimeoutAction,
 };
 
@@ -44,7 +43,7 @@ struct U3Pro16LiveCaptureFeature {
     analysis_channels: Arc<[CaptureAnalysisChannel]>,
     capabilities: CaptureProviderCapabilities,
     session_plan: CaptureSessionPlan,
-    capture: DsLogicU3Pro16Capture,
+    capture: Box<dyn ConfiguredAcquisition>,
 }
 
 impl LiveCaptureFeature for U3Pro16LiveCaptureFeature {
@@ -114,16 +113,14 @@ impl U3Pro16LiveCaptureFeature {
             self.session_plan.clone()
         };
         context.publish_plan(plan)?;
-        let capture = if mode == CaptureStartMode::CaptureNow {
-            self.capture.without_trigger()
-        } else {
-            self.capture
-        };
-        capture.prepare(context)
+        self.capture.prepare(context, mode)
     }
 }
 
-pub(crate) fn feature(state: &Value) -> Result<Option<Box<dyn LiveCaptureFeature>>, String> {
+pub(crate) fn feature(
+    state: &Value,
+    capture: Box<dyn ConfiguredAcquisition>,
+) -> Result<Option<Box<dyn LiveCaptureFeature>>, String> {
     let state = parse_state::<U3Pro16State>(state)?;
     let config = capture_config(&state)?;
     let trigger_conditions = super::trigger::conditions(&state)?;
@@ -153,8 +150,6 @@ pub(crate) fn feature(state: &Value) -> Result<Option<Box<dyn LiveCaptureFeature
         });
     }
     let channels: Arc<[CaptureChannelId]> = channels.into();
-    let capture = DsLogicU3Pro16Capture::new(config.clone(), Arc::clone(&channels))
-        .map_err(|error| error.to_string())?;
     let delivery = capture.data_delivery();
     let actual_samples = capture.capture_window_samples();
     let policy_capabilities = CapturePolicyCapabilities::new(
@@ -235,14 +230,36 @@ mod tests {
     use std::time::Duration;
 
     use signal_processing::{
-        CaptureCursorItem, CaptureStoreCursor, CaptureStoreResult, CompletionPolicy, ProcessNode,
-        RecordingStart, RetentionPolicy, TriggerPlacement,
+        AcquisitionContext, AcquisitionResult, CaptureCursorItem, CaptureDataDelivery,
+        CaptureStartMode, CaptureStoreCursor, CaptureStoreResult, CompletionPolicy,
+        ConfiguredAcquisition, PreparedAcquisition, ProcessNode, RecordingStart, RetentionPolicy,
+        TriggerPlacement,
     };
 
     use super::super::definition::CaptureDurationValue;
     use super::{U3Pro16State, feature};
 
     struct EndCursor;
+
+    struct TestConfiguredAcquisition;
+
+    impl ConfiguredAcquisition for TestConfiguredAcquisition {
+        fn data_delivery(&self) -> CaptureDataDelivery {
+            CaptureDataDelivery::BufferedUpload
+        }
+
+        fn capture_window_samples(&self) -> u64 {
+            1_000_448
+        }
+
+        fn prepare(
+            self: Box<Self>,
+            _context: AcquisitionContext,
+            _mode: CaptureStartMode,
+        ) -> AcquisitionResult<Box<dyn PreparedAcquisition>> {
+            unreachable!("feature metadata tests do not prepare hardware")
+        }
+    }
 
     impl CaptureStoreCursor for EndCursor {
         fn next(&mut self) -> CaptureStoreResult<CaptureCursorItem> {
@@ -266,9 +283,12 @@ mod tests {
         for channel in [0, 2, 9] {
             state.channels.enabled[channel] = true;
         }
-        let feature = feature(&serde_json::to_value(state).unwrap())
-            .unwrap()
-            .unwrap();
+        let feature = feature(
+            &serde_json::to_value(state).unwrap(),
+            Box::new(TestConfiguredAcquisition),
+        )
+        .unwrap()
+        .unwrap();
         let source = feature
             .graph_source_factory()
             .create(Box::new(EndCursor))
@@ -298,9 +318,12 @@ mod tests {
         state.retention.select("Recent duration");
         state.retention_duration_ms.value = 250;
 
-        let feature = feature(&serde_json::to_value(state).unwrap())
-            .unwrap()
-            .unwrap();
+        let feature = feature(
+            &serde_json::to_value(state).unwrap(),
+            Box::new(TestConfiguredAcquisition),
+        )
+        .unwrap()
+        .unwrap();
         let plan = feature.session_plan().unwrap();
 
         assert_eq!(plan.policy.requested.start, RecordingStart::Trigger);

@@ -6,7 +6,7 @@ mod implementation;
 
 pub use acquisition::{
     AcquisitionContext, AcquisitionError, AcquisitionOutcome, AcquisitionResult,
-    PreparedAcquisition,
+    ConfiguredAcquisition, PreparedAcquisition,
 };
 pub use analysis::{CaptureAnalysisChannel, CaptureAnalysisSource};
 pub use implementation::{

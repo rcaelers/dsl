@@ -2,15 +2,17 @@ use std::sync::Arc;
 
 use super::configuration::DslFileSourceConfig;
 use super::platform;
-use crate::ProcessNodeConstruction;
+use crate::{CaptureSourceLifecycle, CaptureSourceMetadata, ProcessNodeConstruction};
 
 /// Platform-neutral construction contract for a DSL capture source.
 pub trait DslFileSourceFactory: Send + Sync {
+    fn lifecycle(&self) -> CaptureSourceLifecycle;
+    fn metadata(&self, config: DslFileSourceConfig) -> Arc<dyn CaptureSourceMetadata>;
     fn create(
         &self,
         name: &str,
         config: DslFileSourceConfig,
-    ) -> Result<ProcessNodeConstruction, String>;
+    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String>;
 }
 
 /// Returns the DSL capture-source factory selected for the current platform.

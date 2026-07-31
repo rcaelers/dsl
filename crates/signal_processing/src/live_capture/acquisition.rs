@@ -3,12 +3,12 @@
 use thiserror::Error;
 
 use super::implementation::{
-    CaptureAcquisitionPhase, CaptureChunk, CaptureChunkWriter, CaptureCompletion, CaptureEvent,
-    CaptureEventPublishError, CaptureEventPublisher, CaptureFailure, CaptureFailureKind,
-    CaptureHealth, CaptureProgress, CaptureSessionId, CaptureSessionState, CaptureStatus,
-    CaptureWriteError,
+    CaptureAcquisitionPhase, CaptureChunk, CaptureChunkWriter, CaptureCompletion,
+    CaptureDataDelivery, CaptureEvent, CaptureEventPublishError, CaptureEventPublisher,
+    CaptureFailure, CaptureFailureKind, CaptureHealth, CaptureProgress, CaptureSessionId,
+    CaptureSessionState, CaptureStatus, CaptureWriteError,
 };
-use crate::capture_policy::CaptureSessionPlan;
+use crate::capture_policy::{CaptureSessionPlan, CaptureStartMode};
 
 pub type AcquisitionResult<T> = Result<T, AcquisitionError>;
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -189,4 +189,19 @@ pub trait PreparedAcquisition: Send {
     /// Stop remains available while Join runs off the UI thread.
     fn is_finished(&self) -> bool;
     fn join(self: Box<Self>) -> AcquisitionResult<AcquisitionOutcome>;
+}
+
+/// A validated acquisition request that has not opened its transport yet.
+///
+/// Concrete capture devices implement this after validating their settings.
+/// Hosts can inspect generic delivery facts and choose a start mode without
+/// depending on the device implementation.
+pub trait ConfiguredAcquisition: Send {
+    fn data_delivery(&self) -> CaptureDataDelivery;
+    fn capture_window_samples(&self) -> u64;
+    fn prepare(
+        self: Box<Self>,
+        context: AcquisitionContext,
+        mode: CaptureStartMode,
+    ) -> AcquisitionResult<Box<dyn PreparedAcquisition>>;
 }

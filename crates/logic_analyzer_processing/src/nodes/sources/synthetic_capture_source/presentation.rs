@@ -1,35 +1,35 @@
-//! Shared browser presentation for concrete synthetic source stand-ins.
+use super::implementation::SyntheticCaptureSource;
+use crate::{CaptureSourcePresentation, CaptureSourceSignal};
 
-use logic_analyzer_graph_api::node_support::{CapturePresentation, CapturePresentationSignal};
-use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
-
-pub(crate) fn capture_presentation(
+pub(crate) fn synthetic_presentation(
     channel_names: impl IntoIterator<Item = String>,
-) -> CapturePresentation {
+    excluded_channels: &[usize],
+) -> CaptureSourcePresentation {
     let channel_names = channel_names.into_iter().collect::<Vec<_>>();
     let channels = SyntheticCaptureSource::preview_channels_with_count(channel_names.len());
     let signals = channel_names
         .into_iter()
         .enumerate()
+        .filter(|(index, _)| !excluded_channels.contains(index))
         .map(|(index, name)| {
             let samples = &channels[index];
-            CapturePresentationSignal {
+            CaptureSourceSignal::new(
                 index,
                 name,
-                initial: samples.first().is_some_and(|sample| sample.value),
-                transitions: samples
+                samples.first().is_some_and(|sample| sample.value),
+                samples
                     .iter()
                     .skip(1)
                     .map(|sample| (sample.start_time_ns as f64 / 1_000.0, sample.value))
                     .collect(),
-            }
+            )
         })
         .collect::<Vec<_>>();
     let duration_us = signals
         .iter()
-        .filter_map(|signal| signal.transitions.last().map(|(time, _)| *time))
+        .filter_map(|signal| signal.transitions().last().map(|(time, _)| *time))
         .fold(1.0_f64, f64::max);
-    CapturePresentation::InMemory {
+    CaptureSourcePresentation::InMemory {
         signals,
         duration_us,
     }

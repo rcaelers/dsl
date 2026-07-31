@@ -1,16 +1,16 @@
 //! `Sigrok File Source` graph-node definition.
 
-use std::path::Path;
-
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
+use logic_analyzer_processing::nodes::sources::sigrok_file::{
+    SigrokFileSourceConfig, source_factory,
+};
 use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
 use node_graph::{
     FileValue, InputDef, IntValue, NodeBadge, NodeDef, NodeInstanceSchema, OutputDef, Socket,
 };
 
-use super::metadata_platform;
 use crate::sockets::{COLOR_SOURCES, Signal, TextPath};
 
 const DEFAULT_DEMO_CHANNELS: usize = SyntheticCaptureSource::authored_channel_count();
@@ -30,12 +30,6 @@ pub(crate) struct SigrokFileSourceState {
     pub(crate) diagnostic: Option<String>,
     #[serde(skip)]
     pub(crate) compatibility_warning: Option<String>,
-}
-
-impl SigrokFileSourceState {
-    pub(crate) fn channel_count(&self) -> usize {
-        self.channel_names.len()
-    }
 }
 
 pub(crate) struct SigrokFileSource;
@@ -130,7 +124,12 @@ impl NodeDef for SigrokFileSource {
             return;
         }
 
-        match metadata_platform::channel_names(Path::new(&state.file.value)) {
+        let metadata = source_factory().metadata(SigrokFileSourceConfig::new(
+            &state.file.value,
+            state.channel_names.iter().cloned(),
+            false,
+        ));
+        match metadata.channel_names() {
             Ok(Some(names)) => {
                 state.channel_names = names;
                 state.metadata_path.clone_from(&state.file.value);

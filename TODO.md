@@ -57,10 +57,6 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ### Capture platform boundaries
 
-- [capture.platform.presentation-contracts] Return capture presentation, source lifecycle, and
-  runtime capability metadata through the processing facade's generic result. Make the shared graph
-  builder forward those contracts, then remove graph-node platform-metadata adapters,
-  synthetic-presentation helpers, and target-specific capability registration.
 - [capture.platform.parity-tests] Add shared contract tests for the explicitly cross-platform node
   set. Run them on native and wasm against the same expected catalog entries, serialized defaults,
   state options, socket schemas, port resolution, lifecycle metadata, presentation metadata, and
