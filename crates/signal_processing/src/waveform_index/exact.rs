@@ -912,6 +912,26 @@ mod tests {
     }
 
     #[test]
+    fn high_level_ratio_hint_estimates_complete_signal_occupancy() -> Result<()> {
+        let samples_per_block = 4_096_u64;
+        let total_samples = 65_536_u64;
+        let blocks = single_channel_blocks_from_fn(
+            total_samples,
+            samples_per_block,
+            |sample| sample % 1_024 < 256,
+        );
+        let source = MemoryCaptureDataSource::new(total_samples, samples_per_block, blocks);
+        let sampler = IndexSampler::open_data_source(source.clone())?;
+        let reads_after_build = source.raw_reads();
+        let ratio = sampler.high_level_ratio_hint(0, total_samples)?;
+
+        assert!((ratio - 0.25).abs() < 0.001, "high-level ratio was {ratio}");
+        assert_eq!(source.raw_reads(), reads_after_build);
+        source.remove_index();
+        Ok(())
+    }
+
+    #[test]
     fn block_level_partial_range_does_not_leak_earlier_block_activity() -> Result<()> {
         let samples_per_block = 16_384_u64;
         let total_samples = samples_per_block * 2;

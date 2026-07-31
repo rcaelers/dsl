@@ -81,12 +81,6 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ### Indexed derived data
 
-- [derived.performance.protocol-selection] Benchmark forced indexed and packed-stream decoding with
-  the real CS and Enable ranges, and require identical writer and derived-lane fingerprints before
-  comparing throughput. Make `Auto` select from estimated work after gating and signal activity
-  rather than treating the mere presence of an Enable connection as sufficient reason to choose the
-  single-threaded indexed path. Keep the selection metadata-driven and owned by the parallel
-  decoder.
 - [derived.performance.parallel-execution] Scale immutable packed-window scanning through the shared
   worker capability while preserving bounded in-flight fragments, deterministic ordered merge,
   backpressure, and responsive cancellation. Measure 1, 2, 4, 8, 16, and 32 workers, record CPU and

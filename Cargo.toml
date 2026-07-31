@@ -69,6 +69,7 @@ logic-analyzer-processing = { path = "crates/logic_analyzer_processing" }
 logic-analyzer-ui = { path = "crates/logic_analyzer_ui" }
 node-graph = { path = "crates/widgets/node_graph" }
 signal-processing = { path = "crates/signal_processing" }
+serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 

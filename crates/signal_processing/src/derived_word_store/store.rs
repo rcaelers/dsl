@@ -267,6 +267,34 @@ impl IndexedAnnotationStore {
         Ok(())
     }
 
+    /// Fingerprints the exact immutable encoded word sequence without
+    /// decoding or retaining complete blocks.
+    ///
+    /// File-identity metadata is outside the committed blocks and therefore
+    /// does not affect this content fingerprint. The store must be finished
+    /// so an in-flight hot tail cannot be omitted.
+    pub fn committed_data_fingerprint(&self) -> StoreResult<[u8; 32]> {
+        let (directory, word_count) = {
+            let state = self.shared.state.read().unwrap();
+            if state.status != StoreStatus::Finished || !state.hot_tail.is_empty() {
+                return Err(StoreError::Persistent(
+                    "cannot fingerprint an unfinished derived-word store".to_owned(),
+                ));
+            }
+            (state.directory.clone(), state.committed_word_count)
+        };
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"logic-conduit-derived-words/v1");
+        hasher.update(&word_count.to_le_bytes());
+        hasher.update(&(directory.len() as u64).to_le_bytes());
+        for entry in directory {
+            let bytes = self.read_entry_bytes(entry)?;
+            hasher.update(&(bytes.len() as u64).to_le_bytes());
+            hasher.update(&bytes);
+        }
+        Ok(*hasher.finalize().as_bytes())
+    }
+
     pub fn temp_path(&self) -> &Path {
         &self.shared.path
     }
@@ -1461,6 +1489,32 @@ mod tests {
             direct_annotations(&words, 0, u64::MAX)
         );
         assert!(!reopened.presence_window(0, 4_000, 20).unwrap().is_empty());
+    }
+
+    #[test]
+    fn committed_fingerprint_tracks_words_not_cache_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let words: Vec<_> = (0..41)
+            .map(|index| Word::spanning(index, index * 80, index % 5))
+            .collect();
+        let build = |cache_key, words: &[Word], batch_words: usize| {
+            let config = persistent_config(directory.path(), cache_key);
+            let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+            for batch in words.chunks(batch_words) {
+                writer.append_batch(batch).unwrap();
+            }
+            writer.finish().unwrap();
+            store.committed_data_fingerprint().unwrap()
+        };
+
+        let first = build([0x31; 32], &words, words.len());
+        let second = build([0x32; 32], &words, 3);
+        let mut changed = words.clone();
+        changed[20].value ^= 1;
+        let third = build([0x33; 32], &changed, 7);
+
+        assert_eq!(first, second);
+        assert_ne!(first, third);
     }
 
     #[test]

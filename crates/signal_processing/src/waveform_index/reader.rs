@@ -143,6 +143,56 @@ where
         Ok(active_groups as f64 / total_groups.max(1) as f64)
     }
 
+    /// Estimated high-level occupancy from the final value of each 64-sample
+    /// index group. Reads only the mmap'd waveform index and never touches raw
+    /// capture blocks.
+    pub fn high_level_ratio_hint(&self, channel: usize, limit: u64) -> Result<f64> {
+        if channel >= self.header().total_probes {
+            return Err(Error::InvalidProbe(channel));
+        }
+        let limit = limit.min(self.header().total_samples);
+        if limit == 0 {
+            return Ok(0.0);
+        }
+
+        let samples_per_block = self.header().samples_per_block;
+        let blocks = limit.div_ceil(samples_per_block);
+        let mut high_groups = 0u64;
+        let mut total_groups = 0u64;
+        for block in 0..blocks {
+            let block_start = block * samples_per_block;
+            let valid_samples = (limit - block_start).min(samples_per_block);
+            let groups = valid_samples.div_ceil(SAMPLES_PER_L1_BIT) as usize;
+            total_groups += groups as u64;
+
+            let root = self.storage.load_root_summary(channel, block as usize)?;
+            if !root.toggle {
+                if root.last {
+                    high_groups += groups as u64;
+                }
+                continue;
+            }
+            let leaf = self.storage.load_leaf(channel, block as usize)?;
+            let Some(levels) = leaf.levels else {
+                if leaf.last {
+                    high_groups += groups as u64;
+                }
+                continue;
+            };
+            let full_words = groups / u64::BITS as usize;
+            high_groups += levels.l1_last[..full_words]
+                .iter()
+                .map(|word| u64::from(word.count_ones()))
+                .sum::<u64>();
+            let remainder = groups % u64::BITS as usize;
+            if remainder > 0 {
+                let mask = (1u64 << remainder) - 1;
+                high_groups += u64::from((levels.l1_last[full_words] & mask).count_ones());
+            }
+        }
+        Ok(high_groups as f64 / total_groups.max(1) as f64)
+    }
+
     /// Value of `channel` at `position`. O(1) after the containing block is
     /// cached (archive capture store, or the raw reader's own LRU).
     pub fn value_at(&mut self, channel: usize, position: u64) -> Result<bool> {

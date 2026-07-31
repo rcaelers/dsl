@@ -126,12 +126,21 @@ pub struct ParallelDecoder {
     sampling_progress: ParallelSamplingProgress,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct AutoWorkEstimate {
+    strobe_activity_ratio: f64,
+    cs_open_ratio: Option<f64>,
+    enable_open_ratio: Option<f64>,
+    gated_activity_ratio: f64,
+}
+
 impl ParallelDecoder {
     pub const DEFAULT_PARALLEL_WORKERS: usize = 4;
 
-    /// Above this fraction of active 64-sample strobe groups, packed scans
-    /// are preferred over indexed point queries in Auto mode.
-    pub const AUTO_PACKED_ACTIVITY_RATIO: f64 = 0.25;
+    /// Above this estimated fraction of active 64-sample strobe groups after
+    /// known gates, packed scans are preferred over indexed point queries in
+    /// Auto mode.
+    pub const AUTO_PACKED_ACTIVITY_RATIO: f64 = 0.125;
 
     pub fn auto_protocol_for_activity_ratio(activity_ratio: f64) -> ProtocolKind {
         if activity_ratio >= Self::AUTO_PACKED_ACTIVITY_RATIO {
@@ -139,6 +148,47 @@ impl ParallelDecoder {
         } else {
             ProtocolKind::EdgeQuery
         }
+    }
+
+    fn auto_work_estimate(
+        &self,
+        candidates: &[Option<InputProtocolCandidate>],
+    ) -> Option<AutoWorkEstimate> {
+        let raw_inputs = 1 + self.num_data_bits + 1;
+        let ratio_hint = |index: usize| {
+            candidates
+                .get(index)
+                .and_then(Option::as_ref)
+                .and_then(|candidate| candidate.edge_query.as_ref())
+                .and_then(|query| query.high_level_ratio_hint())
+                .filter(|ratio| ratio.is_finite())
+                .map(|ratio| ratio.clamp(0.0, 1.0))
+        };
+        let strobe_activity_ratio = candidates
+            .first()
+            .and_then(Option::as_ref)
+            .and_then(|candidate| candidate.edge_query.as_ref())
+            .and_then(|query| query.activity_ratio_hint())
+            .filter(|ratio| ratio.is_finite())?
+            .clamp(0.0, 1.0);
+        let cs_high_ratio = ratio_hint(1 + self.num_data_bits);
+        let cs_open_ratio = match self.cs_polarity {
+            CsPolarity::ActiveLow => cs_high_ratio.map(|ratio| 1.0 - ratio),
+            CsPolarity::ActiveHigh => cs_high_ratio,
+            CsPolarity::Disabled => None,
+        };
+        let enable_open_ratio = ratio_hint(raw_inputs);
+        let gated_activity_ratio = cs_open_ratio
+            .into_iter()
+            .chain(enable_open_ratio)
+            .fold(strobe_activity_ratio, f64::min);
+
+        Some(AutoWorkEstimate {
+            strobe_activity_ratio,
+            cs_open_ratio,
+            enable_open_ratio,
+            gated_activity_ratio,
+        })
     }
 
     /// Create a new parallel decoder
@@ -341,16 +391,10 @@ impl ProcessNode for ParallelDecoder {
         }
         let raw_inputs = 1 + self.num_data_bits + 1;
         let enable_connected = candidates.get(raw_inputs).is_some_and(Option::is_some);
-        let activity_ratio = candidates
-            .first()
-            .and_then(Option::as_ref)
-            .and_then(|candidate| candidate.edge_query.as_ref())
-            .and_then(|query| query.activity_ratio_hint());
-        let preferred = if let Some(activity_ratio) = activity_ratio {
-            Self::auto_protocol_for_activity_ratio(activity_ratio)
-        } else {
+        let Some(work) = self.auto_work_estimate(candidates) else {
             return selected;
         };
+        let preferred = Self::auto_protocol_for_activity_ratio(work.gated_activity_ratio);
         let alternate = if preferred == ProtocolKind::Stream {
             ProtocolKind::EdgeQuery
         } else {
@@ -377,7 +421,10 @@ impl ProcessNode for ParallelDecoder {
         };
         debug!(
             decoder = %self.name,
-            ?activity_ratio,
+            strobe_activity_ratio = work.strobe_activity_ratio,
+            ?work.cs_open_ratio,
+            ?work.enable_open_ratio,
+            gated_activity_ratio = work.gated_activity_ratio,
             enable_connected,
             ?preferred,
             ?protocol,
@@ -1518,7 +1565,10 @@ mod tests {
         }
     }
 
-    struct DensityQuery(f64);
+    struct DensityQuery {
+        activity_ratio: f64,
+        high_level_ratio: Option<f64>,
+    }
 
     impl EdgeQuery for DensityQuery {
         fn sample_period(&self) -> f64 {
@@ -1531,7 +1581,10 @@ mod tests {
             1
         }
         fn activity_ratio_hint(&self) -> Option<f64> {
-            Some(self.0)
+            Some(self.activity_ratio)
+        }
+        fn high_level_ratio_hint(&self) -> Option<f64> {
+            self.high_level_ratio
         }
         fn value_at(&self, _position: u64) -> signal_processing::Result<bool> {
             Ok(false)
@@ -1545,11 +1598,15 @@ mod tests {
         }
     }
 
-    fn auto_candidates(
-        activity: f64,
-        enable_connected: bool,
-    ) -> Vec<Option<InputProtocolCandidate>> {
-        let query: Arc<dyn EdgeQuery> = Arc::new(DensityQuery(activity));
+    fn density_query(activity_ratio: f64, high_level_ratio: Option<f64>) -> Arc<dyn EdgeQuery> {
+        Arc::new(DensityQuery {
+            activity_ratio,
+            high_level_ratio,
+        })
+    }
+
+    fn auto_candidates(activity: f64, enable_high_ratio: Option<f64>) -> Vec<Option<InputProtocolCandidate>> {
+        let query = density_query(activity, Some(0.5));
         let mut candidates: Vec<_> = (0..5)
             .map(|_| {
                 Some(InputProtocolCandidate {
@@ -1558,7 +1615,10 @@ mod tests {
                 })
             })
             .collect();
-        if !enable_connected {
+        if let Some(high_level_ratio) = enable_high_ratio {
+            candidates[4].as_mut().unwrap().edge_query =
+                Some(density_query(0.0, Some(high_level_ratio)));
+        } else {
             candidates[4] = None;
         }
         candidates
@@ -1567,14 +1627,14 @@ mod tests {
     #[test]
     fn auto_strategy_selects_one_protocol_for_the_complete_raw_group() {
         let decoder = ParallelDecoder::new(2, StrobeMode::AnyEdge, CsPolarity::Disabled);
-        let dense = decoder.select_input_protocols(&auto_candidates(0.9, false));
-        let sparse = decoder.select_input_protocols(&auto_candidates(0.01, false));
+        let dense = decoder.select_input_protocols(&auto_candidates(0.9, None));
+        let sparse = decoder.select_input_protocols(&auto_candidates(0.01, None));
 
         assert_eq!(&dense[..4], &[Some(ProtocolKind::Stream); 4]);
         assert_eq!(&sparse[..4], &[Some(ProtocolKind::EdgeQuery); 4]);
         assert_eq!(dense[4], None, "the fixture leaves enable disconnected");
 
-        let gated_dense = decoder.select_input_protocols(&auto_candidates(0.9, true));
+        let gated_dense = decoder.select_input_protocols(&auto_candidates(0.9, Some(1.0)));
         assert_eq!(
             &gated_dense[..4],
             &[Some(ProtocolKind::Stream); 4],
@@ -1586,7 +1646,7 @@ mod tests {
     #[test]
     fn streamed_enable_keeps_density_based_raw_input_selection() {
         let decoder = ParallelDecoder::new(2, StrobeMode::AnyEdge, CsPolarity::Disabled);
-        let mut candidates = auto_candidates(0.9, true);
+        let mut candidates = auto_candidates(0.9, Some(1.0));
         let enable = candidates[4].as_mut().unwrap();
         enable.offered = vec![ProtocolKind::Stream];
         enable.edge_query = None;
@@ -1600,10 +1660,60 @@ mod tests {
     #[test]
     fn auto_strategy_falls_back_as_a_group_when_one_input_lacks_preferred_protocol() {
         let decoder = ParallelDecoder::new(2, StrobeMode::AnyEdge, CsPolarity::Disabled);
-        let mut candidates = auto_candidates(0.01, false);
+        let mut candidates = auto_candidates(0.01, None);
         candidates[1].as_mut().unwrap().offered = vec![ProtocolKind::Stream];
 
         let selected = decoder.select_input_protocols(&candidates);
+        assert_eq!(&selected[..4], &[Some(ProtocolKind::Stream); 4]);
+    }
+
+    #[test]
+    fn auto_strategy_estimates_work_after_known_cs_and_enable_gates() {
+        let cs_decoder =
+            ParallelDecoder::new(2, StrobeMode::AnyEdge, CsPolarity::ActiveLow);
+        let mut cs_candidates = auto_candidates(0.9, None);
+        cs_candidates[3].as_mut().unwrap().edge_query = Some(density_query(0.0, Some(0.9)));
+        let cs_selected = cs_decoder.select_input_protocols(&cs_candidates);
+        assert_eq!(&cs_selected[..4], &[Some(ProtocolKind::EdgeQuery); 4]);
+
+        let enable_decoder =
+            ParallelDecoder::new(2, StrobeMode::AnyEdge, CsPolarity::Disabled);
+        let enable_selected =
+            enable_decoder.select_input_protocols(&auto_candidates(0.9, Some(0.1)));
+        assert_eq!(
+            &enable_selected[..4],
+            &[Some(ProtocolKind::EdgeQuery); 4]
+        );
+        let reference_selected =
+            enable_decoder.select_input_protocols(&auto_candidates(1.0, Some(0.225)));
+        assert_eq!(
+            &reference_selected[..4],
+            &[Some(ProtocolKind::Stream); 4],
+            "the measured reference occupancy remains above the packed break-even"
+        );
+
+        let correlated_decoder =
+            ParallelDecoder::new(2, StrobeMode::AnyEdge, CsPolarity::ActiveLow);
+        let mut correlated_candidates = auto_candidates(1.0, Some(0.2));
+        correlated_candidates[3].as_mut().unwrap().edge_query =
+            Some(density_query(0.0, Some(0.8)));
+        let correlated_selected =
+            correlated_decoder.select_input_protocols(&correlated_candidates);
+        assert_eq!(
+            &correlated_selected[..4],
+            &[Some(ProtocolKind::Stream); 4],
+            "correlated CS and Enable occupancy must not be multiplied"
+        );
+    }
+
+    #[test]
+    fn auto_strategy_does_not_treat_unknown_growing_enable_as_closed() {
+        let decoder = ParallelDecoder::new(2, StrobeMode::AnyEdge, CsPolarity::Disabled);
+        let mut candidates = auto_candidates(0.9, Some(1.0));
+        candidates[4].as_mut().unwrap().edge_query = Some(density_query(0.0, None));
+
+        let selected = decoder.select_input_protocols(&candidates);
+
         assert_eq!(&selected[..4], &[Some(ProtocolKind::Stream); 4]);
     }
 

@@ -135,6 +135,13 @@ impl EdgeQuery for DslChannelEdgeIndex {
             .ok()
     }
 
+    fn high_level_ratio_hint(&self) -> Option<f64> {
+        let sampler = self.sampler.lock().ok()?;
+        sampler
+            .high_level_ratio_hint(self.channel, self.total_samples)
+            .ok()
+    }
+
     fn value_at(&self, position: u64) -> Result<bool> {
         let mut sampler = self.sampler.lock().unwrap();
         sampler.value_at(self.channel, position)

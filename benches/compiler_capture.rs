@@ -10,7 +10,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use egui::Pos2;
 
 use logic_analyzer_graph_compiler::{CompileCtx, GraphCompiler, OutputSubscriptionPlan};
-use logic_analyzer_processing::nodes::decoders::parallel_decoder::{ParallelDecoder, StrobeMode};
+use logic_analyzer_processing::nodes::decoders::parallel_decoder::{
+    ParallelDecoder, ParallelInputStrategy, StrobeMode,
+};
 use logic_analyzer_processing::nodes::decoders::spi_decoder::{SpiDecoder, SpiMode};
 use logic_analyzer_processing::nodes::logic::logic_gate::{GateOp, LogicGate};
 use logic_analyzer_processing::nodes::logic::sr_latch::SrLatch;
@@ -21,7 +23,9 @@ use logic_analyzer_processing::nodes::sinks::binary_file_writer::BinaryFileWrite
 use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
 use logic_analyzer_processing::types::CsPolarity;
 use node_graph::{NodeGraphWidget, NodeId, SocketDirection, SocketId};
-use signal_processing::{CollectedLaneSnapshotRequest, Pipeline, TriggerLaneSnapshot};
+use signal_processing::{
+    CollectedLaneSnapshotRequest, CollectedWordLaneQuery, Pipeline, TriggerLaneSnapshot,
+};
 
 use integration_tests_support as nodes;
 
@@ -40,11 +44,20 @@ const CHECKED_IN_GRAPH: &str = concat!(
     "/graphs/spi_controlled_decode.json"
 );
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 struct OutputFingerprint {
     name: String,
     size: u64,
     hash: String,
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+struct ProtocolSelectionReport {
+    strategy: String,
+    pipeline_wall_s: f64,
+    output_manifest: Vec<OutputFingerprint>,
+    derived_lane_rows: u64,
+    derived_lane_fingerprint: String,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -156,6 +169,15 @@ fn validation_compiler(widget: &NodeGraphWidget) -> GraphCompiler {
     compiler
 }
 
+fn protocol_selection_compiler(widget: &NodeGraphWidget) -> GraphCompiler {
+    let mut compiler = GraphCompiler::new();
+    compiler.set_output_subscriptions(output_subscriptions(
+        widget,
+        &[("Parallel Decoder", "Words")],
+    ));
+    compiler
+}
+
 fn node_by_definition(widget: &NodeGraphWidget, definition: &str) -> NodeId {
     widget
         .graph()
@@ -179,6 +201,24 @@ fn configured_widget(capture: &Path, output: &Path) -> NodeGraphWidget {
     formatter_state["template"]["value"] =
         format!("{}/capture_{{n:04}}.bin", output.display()).into();
     assert!(widget.set_node_state(formatter, formatter_state));
+    widget
+}
+
+fn configured_widget_with_parallel_strategy(
+    capture: &Path,
+    output: &Path,
+    strategy: ParallelInputStrategy,
+) -> NodeGraphWidget {
+    let mut widget = configured_widget(capture, output);
+    let decoder = node_by_definition(&widget, "Parallel Decoder");
+    let mut state = widget.graph().nodes[&decoder].state.clone();
+    state["input_strategy"]["value"] = match strategy {
+        ParallelInputStrategy::Auto => "Auto",
+        ParallelInputStrategy::PackedStream => "Packed stream",
+        ParallelInputStrategy::Indexed => "Indexed",
+    }
+    .into();
+    assert!(widget.set_node_state(decoder, state));
     widget
 }
 
@@ -493,6 +533,37 @@ fn manifest_fingerprint(manifest: &[OutputFingerprint]) -> String {
     hasher.finalize().to_hex().to_string()
 }
 
+fn parallel_lane_fingerprint(run: &logic_analyzer_graph_compiler::LiveRun) -> (u64, String) {
+    let lane = run
+        .derived_lanes()
+        .opaque_lanes()
+        .into_iter()
+        .find(|lane| lane.name() == "Parallel Decoder.Words")
+        .expect("protocol-selection benchmark must collect Parallel Decoder.Words");
+    let query = lane
+        .query::<CollectedWordLaneQuery>()
+        .expect("Parallel Decoder.Words must use the built-in indexed word adapter");
+    let indexed = query
+        .indexed_lane()
+        .expect("protocol-selection benchmark requires an indexed derived lane");
+    let metadata = indexed.metadata();
+    assert!(
+        !metadata.is_live,
+        "derived lane must be complete before hashing"
+    );
+    let fingerprint = indexed
+        .store()
+        .committed_data_fingerprint()
+        .expect("complete derived lane blocks must be fingerprintable");
+    (
+        metadata.total_word_count,
+        fingerprint
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+    )
+}
+
 fn output_manifest_report(manifest: &[OutputFingerprint]) -> serde_json::Value {
     let total_bytes = manifest
         .iter()
@@ -754,6 +825,49 @@ fn run_compiled_baseline_stage(capture: &Path, output: &Path, workspace: &Path, 
         serde_json::to_vec_pretty(&report_value).expect("baseline report should serialize"),
     )
     .expect("baseline report should be writable");
+}
+
+fn run_protocol_selection_stage(
+    capture: &Path,
+    output: &Path,
+    workspace: &Path,
+    report: &Path,
+    strategy: ParallelInputStrategy,
+) {
+    std::fs::create_dir_all(output).expect("protocol benchmark output should be available");
+    let widget = configured_widget_with_parallel_strategy(capture, output, strategy);
+    let compiler = protocol_selection_compiler(&widget);
+    let mut context = compile_context(workspace);
+    let started = Instant::now();
+    let mut run = compiler
+        .start_app_run(widget.graph(), &mut context)
+        .unwrap_or_else(|errors| panic!("protocol benchmark graph did not start: {errors:?}"));
+    run.wait();
+    let pipeline_wall = started.elapsed();
+    let (derived_lane_rows, derived_lane_fingerprint) = parallel_lane_fingerprint(&run);
+    let output_manifest = output_manifest(output);
+    assert!(
+        !output_manifest.is_empty(),
+        "protocol benchmark must produce writer output"
+    );
+    let report_value = ProtocolSelectionReport {
+        strategy: match strategy {
+            ParallelInputStrategy::Auto => "auto",
+            ParallelInputStrategy::PackedStream => "packed-stream",
+            ParallelInputStrategy::Indexed => "indexed",
+        }
+        .to_owned(),
+        pipeline_wall_s: pipeline_wall.as_secs_f64(),
+        output_manifest,
+        derived_lane_rows,
+        derived_lane_fingerprint,
+    };
+    std::fs::write(
+        report,
+        serde_json::to_vec_pretty(&report_value)
+            .expect("protocol-selection report should serialize"),
+    )
+    .expect("protocol-selection report should be writable");
 }
 
 fn run_cancellation_stage(capture: &Path, output: &Path, workspace: &Path, report: &Path) {
@@ -1029,6 +1143,81 @@ fn compiler_runtime_benchmark(capture: &Path) {
     assert!(visible_parallel_points > 0);
 }
 
+fn protocol_selection_benchmark(capture: &Path) {
+    let temporary = temporary_workspace();
+    let indexed_workspace = temporary.path().join("indexed-workspace");
+    let packed_workspace = temporary.path().join("packed-workspace");
+    let indexed_output = temporary.path().join("indexed-output");
+    let packed_output = temporary.path().join("packed-output");
+    let indexed_report_path = temporary.path().join("indexed-report.json");
+    let packed_report_path = temporary.path().join("packed-report.json");
+    run_measurement_child(
+        "__protocol-indexed",
+        capture,
+        &indexed_output,
+        &indexed_workspace,
+        &indexed_report_path,
+    );
+    run_measurement_child(
+        "__protocol-packed",
+        capture,
+        &packed_output,
+        &packed_workspace,
+        &packed_report_path,
+    );
+
+    let read_report = |path: &Path| {
+        serde_json::from_slice::<ProtocolSelectionReport>(
+            &std::fs::read(path).expect("protocol-selection child report should exist"),
+        )
+        .expect("protocol-selection child report should be valid JSON")
+    };
+    let indexed = read_report(&indexed_report_path);
+    let packed = read_report(&packed_report_path);
+
+    assert_eq!(indexed.strategy, "indexed");
+    assert_eq!(packed.strategy, "packed-stream");
+    assert_eq!(
+        indexed.output_manifest, packed.output_manifest,
+        "forced input protocols changed writer output"
+    );
+    assert_eq!(
+        indexed.derived_lane_rows, packed.derived_lane_rows,
+        "forced input protocols changed the derived word count"
+    );
+    assert_eq!(
+        indexed.derived_lane_fingerprint, packed.derived_lane_fingerprint,
+        "forced input protocols changed the derived lane contents"
+    );
+
+    let faster = if indexed.pipeline_wall_s <= packed.pipeline_wall_s {
+        "indexed"
+    } else {
+        "packed-stream"
+    };
+    let speed_ratio = indexed.pipeline_wall_s.max(packed.pipeline_wall_s)
+        / indexed.pipeline_wall_s.min(packed.pipeline_wall_s);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "schema_version": 1,
+            "graph": "graphs/spi_controlled_decode.json",
+            "validation": {
+                "writer_manifest": manifest_fingerprint(&indexed.output_manifest),
+                "derived_lane_rows": indexed.derived_lane_rows,
+                "derived_lane_fingerprint": indexed.derived_lane_fingerprint,
+            },
+            "throughput": {
+                "indexed_wall_s": indexed.pipeline_wall_s,
+                "packed_stream_wall_s": packed.pipeline_wall_s,
+                "faster": faster,
+                "speed_ratio": speed_ratio,
+            },
+        }))
+        .expect("protocol-selection comparison should serialize")
+    );
+}
+
 fn phase_one_reference_runtime_benchmark(capture: &Path) {
     let workspace = temporary_workspace();
     let output = workspace.path().join("phase-one-reference");
@@ -1182,6 +1371,7 @@ fn print_usage() {
          commands:\n\
            baseline               report timing, resources, storage, and output identity\n\
            compiler-runtime       time the compiled startup graph\n\
+           protocol-selection     validate and compare indexed and packed parallel decoding\n\
            phase-one-runtime      time the phase-one reference pipeline\n\
            current-runtime        time the current reference pipeline\n\
            live-viewer-runtime    exercise live viewer queries while processing\n\
@@ -1242,6 +1432,25 @@ fn main() {
         );
         return;
     }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "__protocol-indexed" || argument == "__protocol-packed")
+    {
+        assert_eq!(arguments.len(), 5, "invalid protocol-stage arguments");
+        let strategy = if arguments[0] == "__protocol-indexed" {
+            ParallelInputStrategy::Indexed
+        } else {
+            ParallelInputStrategy::PackedStream
+        };
+        run_protocol_selection_stage(
+            Path::new(&arguments[1]),
+            Path::new(&arguments[2]),
+            Path::new(&arguments[3]),
+            Path::new(&arguments[4]),
+            strategy,
+        );
+        return;
+    }
     let mut arguments = arguments.into_iter();
     let Some(command) = arguments.next() else {
         print_usage();
@@ -1265,6 +1474,7 @@ fn main() {
     match command.to_string_lossy().as_ref() {
         "baseline" => reference_pipeline_baseline(&capture),
         "compiler-runtime" => compiler_runtime_benchmark(&capture),
+        "protocol-selection" => protocol_selection_benchmark(&capture),
         "phase-one-runtime" => phase_one_reference_runtime_benchmark(&capture),
         "current-runtime" => current_reference_runtime_benchmark(&capture),
         "live-viewer-runtime" => live_viewer_subscription_benchmark(&capture),
@@ -1272,6 +1482,7 @@ fn main() {
         "validate-live-attach" => live_attach_detach_preserves_writer_output(&capture),
         "all" => {
             compiler_runtime_benchmark(&capture);
+            protocol_selection_benchmark(&capture);
             phase_one_reference_runtime_benchmark(&capture);
             current_reference_runtime_benchmark(&capture);
             live_viewer_subscription_benchmark(&capture);

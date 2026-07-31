@@ -32,6 +32,16 @@ pub trait EdgeQuery: Send + Sync {
         None
     }
 
+    /// Estimated fraction of the complete timeline for which the signal is
+    /// high, when the concrete source can answer from complete summary data.
+    ///
+    /// The estimate may use one representative level per summary group. A
+    /// growing or incomplete query must return `None`: consumers use absence
+    /// of a hint as unknown work, not as an always-low signal.
+    fn high_level_ratio_hint(&self) -> Option<f64> {
+        None
+    }
+
     /// Value of the channel at `position`.
     fn value_at(&self, position: u64) -> Result<bool>;
 

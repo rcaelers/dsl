@@ -133,9 +133,12 @@ messages or capture-sized queues:
 `ParallelDecoder` supports `Auto`, `PackedStream`, and `Indexed` input strategies. Indexed
 mode uses hierarchical transition queries and batched point reads, making it appropriate
 for sparse signals. Packed mode scans resident 64-bit words and is appropriate for dense or
-live signals. Auto uses the strobe channel's activity hint; merely connecting an Enable input does
-not force the single-threaded indexed path. Either choice applies coherently to strobe, data, CS,
-and Enable, while explicit strategies always override it.
+live signals. Auto estimates indexed work from the strobe activity and any cheap, complete CS or
+Enable high-level occupancy hints. A connected gate without a complete hint remains unknown and
+does not bias the choice toward the single-threaded indexed path. Packed scanning is selected at
+an estimated gated activity of 12.5% or greater, calibrated by the complete controlled-decode
+reference workload. Either choice applies coherently to the raw strobe, data, and CS group; Enable
+selects its transport independently, and explicit strategies always override Auto.
 
 Packed decoding separates immutable scanning from ordered state updates. Each bounded
 65,536-sample fragment records trigger positions, bus values, reset markers, and boundary
@@ -167,6 +170,16 @@ latency as versioned JSON:
 ```bash
 cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
   baseline /path/to/reference.dsl > reference-pipeline.json
+```
+
+Its `protocol-selection` command executes the graph in isolated child processes with forced indexed
+and packed-stream inputs. It verifies the complete writer manifest and immutable Parallel Decoder
+lane fingerprint before reporting either wall time, so a faster but semantically different path is
+never accepted as a protocol-selection result:
+
+```bash
+cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
+  protocol-selection /path/to/reference.dsl
 ```
 
 The reference workload is the complete approximately 250-second, 50-MHz capture. Its throughput

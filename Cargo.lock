@@ -2189,6 +2189,7 @@ dependencies = [
  "memmap2",
  "minifb",
  "node-graph",
+ "serde",
  "serde_json",
  "signal-processing",
  "tempfile",
@@ -3647,6 +3648,7 @@ dependencies = [
 name = "signal-processing"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "crossbeam-channel",
  "lazy_static",
  "libc",
