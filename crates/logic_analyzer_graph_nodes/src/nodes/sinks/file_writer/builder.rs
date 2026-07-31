@@ -1,5 +1,4 @@
-//! Runtime builder for `File Writer`. Native-only:
-//! no filesystem in the browser.
+//! Runtime builder for `File Writer`.
 
 use serde_json::Value;
 

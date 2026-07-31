@@ -1,5 +1,4 @@
 //! Runtime builder for `DSL File Source`.
-//! Native-only: no filesystem in the browser.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -11,50 +10,24 @@ use logic_analyzer_graph_api::node_support::{
     CaptureCacheIdentity, CapturePresentation, NodeBuildContext, PortKind, ResolvedInputs,
     parse_state,
 };
-use logic_analyzer_processing::nodes::sources::dsl_file::{
-    DslFileSource, DslFileSourceConfig, create_source,
-};
 use node_graph::api::Socket;
 use signal_processing::{
-    DEFAULT_DERIVED_DATA_MAX_ENTRIES, DerivedDataRetention, IndexedCapturePresentation,
-    ProcessNode, Sample, SampleBlock,
+    DEFAULT_DERIVED_DATA_MAX_ENTRIES, DerivedDataRetention, ProcessNode, Sample, SampleBlock,
 };
 
-trait DslFileArtifacts: Send + Sync {
+pub(crate) trait DslFileArtifacts: Send + Sync {
     fn open(
         &self,
         name: &str,
         path: &Path,
         channel_count: usize,
     ) -> Result<Box<dyn ProcessNode>, String>;
-    fn indexed_presentation(&self, path: &Path) -> IndexedCapturePresentation;
-    fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String>;
-}
-
-#[derive(Default)]
-struct NativeDslFileArtifacts {
-    identities: super::super::file_identity_cache::FileIdentityCache,
-}
-
-impl DslFileArtifacts for NativeDslFileArtifacts {
-    fn open(
+    fn capture_presentation(
         &self,
-        name: &str,
         path: &Path,
-        channel_count: usize,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        create_source(name, DslFileSourceConfig::new(path, channel_count))
-    }
-
-    fn indexed_presentation(&self, path: &Path) -> IndexedCapturePresentation {
-        DslFileSource::indexed_capture_presentation(path)
-    }
-
-    fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String> {
-        self.identities.resolve(path, |path| {
-            DslFileSource::capture_cache_identity(path).map_err(|error| error.to_string())
-        })
-    }
+        channel_names: &[String],
+    ) -> Result<Option<CapturePresentation>, String>;
+    fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String>;
 }
 
 pub(crate) struct FileSourceBuilder {
@@ -64,7 +37,7 @@ pub(crate) struct FileSourceBuilder {
 impl Default for FileSourceBuilder {
     fn default() -> Self {
         Self {
-            artifacts: Arc::new(NativeDslFileArtifacts::default()),
+            artifacts: super::metadata_platform::artifacts(),
         }
     }
 }
@@ -121,14 +94,8 @@ impl RuntimeBuilder for FileSourceBuilder {
     fn capture_presentation(&self, state: &Value) -> Result<Option<CapturePresentation>, String> {
         let state: super::definition::DslFileSourceState = parse_state(state)?;
         let path = std::path::PathBuf::from(state.file.value);
-        if path.as_os_str().is_empty() {
-            return Ok(None);
-        }
-        let indexed = self.artifacts.indexed_presentation(&path);
-        Ok(Some(CapturePresentation::Indexed {
-            identity: indexed.identity,
-            factory: indexed.factory,
-        }))
+        self.artifacts
+            .capture_presentation(&path, &state.channel_names)
     }
     fn capture_cache_identity(
         &self,
@@ -173,6 +140,7 @@ mod builder_tests {
     use std::sync::Mutex;
 
     use node_graph::NodeDef;
+    use signal_processing::IndexedCapturePresentation;
 
     use super::super::definition::DslFileSource;
     use super::*;
@@ -202,15 +170,23 @@ mod builder_tests {
             Ok(Box::new(TestProcessNode::new(name)))
         }
 
-        fn indexed_presentation(&self, path: &Path) -> IndexedCapturePresentation {
+        fn capture_presentation(
+            &self,
+            path: &Path,
+            _channel_names: &[String],
+        ) -> Result<Option<CapturePresentation>, String> {
             self.operations
                 .lock()
                 .unwrap()
                 .push(format!("presentation:{}", path.display()));
-            IndexedCapturePresentation {
+            let indexed = IndexedCapturePresentation {
                 identity: path.to_owned(),
                 factory: Box::new(TestCaptureIndexFactory::new(path)),
-            }
+            };
+            Ok(Some(CapturePresentation::Indexed {
+                identity: indexed.identity,
+                factory: indexed.factory,
+            }))
         }
 
         fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String> {

@@ -1,5 +1,4 @@
-//! Runtime builder for `Text File Writer` (e.g. `TGCK Recorder`'s
-//! CSV rows) to a file. Native-only: no filesystem in the browser.
+//! Runtime builder for `Text File Writer` (e.g. `TGCK Recorder`'s CSV rows).
 
 use serde_json::Value;
 

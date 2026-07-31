@@ -38,13 +38,8 @@ impl RuntimeBuilder for TestCaptureSourceBuilder {
     }
 
     fn output_port(&self, socket: &Socket, _state: &Value, kind: PortKind) -> Option<String> {
-        if kind == PortKind::of::<SampleBlock>() {
-            Some(format!("block{}", socket.def_index))
-        } else if kind == PortKind::of::<Sample>() {
-            Some(format!("ch{}", socket.def_index))
-        } else {
-            None
-        }
+        (kind == PortKind::of::<SampleBlock>() || kind == PortKind::of::<Sample>())
+            .then(|| format!("ch{}", socket.def_index))
     }
 
     fn viewer_channel_origin(&self, socket: &Socket, _state: &Value) -> Option<usize> {

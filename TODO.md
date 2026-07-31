@@ -57,13 +57,6 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ### Capture platform boundaries
 
-- [capture.platform.node-parity] Use one target-independent definition and runtime builder in
-  `logic_analyzer_graph_nodes` for every production node intentionally available on both targets:
-  DSL and Sigrok file sources, U3Pro16, and file, text, and CSV writers. Their serialized state,
-  sockets, port resolution, lifecycle declarations, and presentation contracts must be identical;
-  the graph-node crate must not know which processing backend was selected. Genuinely unavailable
-  capabilities, such as native Python decoder execution, remain whole registry-entry exclusions
-  rather than being included in this parity set.
 - [capture.platform.neutral-factories] Define one platform-neutral construction contract per source
   or sink capability. It accepts shared configuration and returns the runtime process plus generic
   metadata; backend-only operations remain behind the selected implementation. Use a type alias
@@ -71,8 +64,8 @@ Task IDs start with their ownership category and remain stable when task wording
   methods to synthetic implementations merely to make an alias compile.
 - [capture.platform.presentation-contracts] Return capture presentation, source lifecycle, and
   runtime capability metadata through the processing facade's generic result. Make the shared graph
-  builder forward those contracts, then remove graph-node `builder_wasm.rs` files,
-  synthetic-presentation helpers, and target-specific builder registration.
+  builder forward those contracts, then remove graph-node platform-metadata adapters,
+  synthetic-presentation helpers, and target-specific capability registration.
 - [capture.platform.parity-tests] Add shared contract tests for the explicitly cross-platform node
   set. Run them on native and wasm against the same expected catalog entries, serialized defaults,
   state options, socket schemas, port resolution, lifecycle metadata, presentation metadata, and

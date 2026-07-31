@@ -11,50 +11,25 @@ use logic_analyzer_graph_api::node_support::{
     PortKind, ResolvedInputs, parse_state,
 };
 use logic_analyzer_processing::nodes::sources::sigrok_file::{
-    SigrokFileSource, SigrokFileSourceConfig, create_source,
+    SigrokFileSourceConfig, create_source,
 };
 use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
 use node_graph::api::Socket;
-use signal_processing::{IndexedCapturePresentation, ProcessNode, Sample, SampleBlock};
+use signal_processing::{ProcessNode, Sample, SampleBlock};
 
-trait SigrokFileArtifacts: Send + Sync {
+pub(crate) trait SigrokFileArtifacts: Send + Sync {
     fn open(
         &self,
         name: &str,
         path: &Path,
         channel_count: usize,
     ) -> Result<Box<dyn ProcessNode>, String>;
-    fn indexed_presentation(&self, path: &Path) -> IndexedCapturePresentation;
-    fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String>;
-}
-
-#[derive(Default)]
-struct NativeSigrokFileArtifacts {
-    identities: super::super::file_identity_cache::FileIdentityCache,
-}
-
-impl SigrokFileArtifacts for NativeSigrokFileArtifacts {
-    fn open(
+    fn capture_presentation(
         &self,
-        name: &str,
         path: &Path,
-        channel_count: usize,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        create_source(
-            name,
-            SigrokFileSourceConfig::new(path, channel_count, false),
-        )
-    }
-
-    fn indexed_presentation(&self, path: &Path) -> IndexedCapturePresentation {
-        SigrokFileSource::indexed_capture_presentation(path)
-    }
-
-    fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String> {
-        self.identities.resolve(path, |path| {
-            SigrokFileSource::capture_cache_identity(path).map_err(|error| error.to_string())
-        })
-    }
+        channel_names: &[String],
+    ) -> Result<Option<CapturePresentation>, String>;
+    fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String>;
 }
 
 pub(crate) struct SigrokFileSourceBuilder {
@@ -64,7 +39,7 @@ pub(crate) struct SigrokFileSourceBuilder {
 impl Default for SigrokFileSourceBuilder {
     fn default() -> Self {
         Self {
-            artifacts: Arc::new(NativeSigrokFileArtifacts::default()),
+            artifacts: super::metadata_platform::artifacts(),
         }
     }
 }
@@ -101,16 +76,9 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
     fn input_port(&self, _socket: &Socket, _: usize, _: &Value, _: PortKind) -> Option<String> {
         None
     }
-    fn output_port(&self, socket: &Socket, state: &Value, kind: PortKind) -> Option<String> {
-        let demo_data = parse_state::<super::definition::SigrokFileSourceState>(state)
-            .map(|state| state.demo_data)
-            .unwrap_or(false);
-        if demo_data && kind == PortKind::of::<SampleBlock>() {
-            Some(format!("block{}", socket.def_index))
-        } else {
-            (kind == PortKind::of::<Sample>() || kind == PortKind::of::<SampleBlock>())
-                .then(|| format!("ch{}", socket.def_index))
-        }
+    fn output_port(&self, socket: &Socket, _state: &Value, kind: PortKind) -> Option<String> {
+        (kind == PortKind::of::<Sample>() || kind == PortKind::of::<SampleBlock>())
+            .then(|| format!("ch{}", socket.def_index))
     }
     fn viewer_channel_origin(&self, socket: &Socket, _state: &Value) -> Option<usize> {
         Some(socket.def_index)
@@ -145,14 +113,8 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
             }));
         }
         let path = std::path::PathBuf::from(state.file.value);
-        if path.as_os_str().is_empty() {
-            return Ok(None);
-        }
-        let indexed = self.artifacts.indexed_presentation(&path);
-        Ok(Some(CapturePresentation::Indexed {
-            identity: indexed.identity,
-            factory: indexed.factory,
-        }))
+        self.artifacts
+            .capture_presentation(&path, &state.channel_names)
     }
     fn capture_cache_identity(
         &self,
@@ -202,6 +164,7 @@ mod builder_tests {
     use std::sync::Mutex;
 
     use node_graph::NodeDef;
+    use signal_processing::IndexedCapturePresentation;
 
     use super::super::definition::SigrokFileSource;
     use super::*;
@@ -231,15 +194,23 @@ mod builder_tests {
             Ok(Box::new(TestProcessNode::new(name)))
         }
 
-        fn indexed_presentation(&self, path: &Path) -> IndexedCapturePresentation {
+        fn capture_presentation(
+            &self,
+            path: &Path,
+            _channel_names: &[String],
+        ) -> Result<Option<CapturePresentation>, String> {
             self.operations
                 .lock()
                 .unwrap()
                 .push(format!("presentation:{}", path.display()));
-            IndexedCapturePresentation {
+            let indexed = IndexedCapturePresentation {
                 identity: path.to_owned(),
                 factory: Box::new(TestCaptureIndexFactory::new(path)),
-            }
+            };
+            Ok(Some(CapturePresentation::Indexed {
+                identity: indexed.identity,
+                factory: indexed.factory,
+            }))
         }
 
         fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String> {

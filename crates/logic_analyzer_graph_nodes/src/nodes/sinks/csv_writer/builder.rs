@@ -1,5 +1,4 @@
-//! Runtime builder for `CSV Writer`. Native-only:
-//! no filesystem in the browser.
+//! Runtime builder for `CSV Writer`.
 
 use serde_json::Value;
 

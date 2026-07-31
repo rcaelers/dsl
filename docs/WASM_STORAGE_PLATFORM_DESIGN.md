@@ -96,8 +96,9 @@ Compiler IR and live-run state have the same fields and variants on every platfo
 describes storage requirements such as exact-history retention, persistence settings, cache
 budgets, and indexing. Backend construction resolves platform capabilities.
 
-Graph-node definitions and their serialized options are identical on native and wasm. Graph
-builders pass platform-neutral source and sink configuration to facades owned by
+Graph-node definitions, serialized options, and runtime builders are identical on native and wasm.
+Each portable node has one graph-builder implementation. Those builders pass platform-neutral
+source and sink configuration to facades owned by
 `logic_analyzer_processing`. Each processing facade selects one complete implementation behind a
 private whole-file platform boundary: native file readers, writers, and USB devices use their
 resources, while wasm file sources generate deterministic synthetic captures, wasm writers discard

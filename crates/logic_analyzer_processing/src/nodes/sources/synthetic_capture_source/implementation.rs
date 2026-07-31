@@ -1,8 +1,8 @@
 //! Small deterministic mixed-protocol capture used by platform stand-ins.
 
 use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Sample, SampleBlock, WorkError,
-    WorkResult,
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Sample, SampleBlock, SampleKind,
+    WorkError, WorkResult,
 };
 
 const DEFAULT_CHANNEL_COUNT: usize = 11;
@@ -87,26 +87,16 @@ impl ProcessNode for SyntheticCaptureSource {
     }
 
     fn num_outputs(&self) -> usize {
-        self.channel_count * 2
+        self.channel_count
     }
 
     fn output_schema(&self) -> Vec<PortSchema> {
-        let mut schema = Vec::with_capacity(self.num_outputs());
-        for channel in 0..self.channel_count {
-            schema.push(PortSchema::new::<Sample>(
-                format!("ch{channel}"),
-                channel,
-                PortDirection::Output,
-            ));
-        }
-        for channel in 0..self.channel_count {
-            schema.push(PortSchema::new::<SampleBlock>(
-                format!("block{channel}"),
-                self.channel_count + channel,
-                PortDirection::Output,
-            ));
-        }
-        schema
+        (0..self.channel_count)
+            .map(|channel| {
+                PortSchema::new::<Sample>(format!("ch{channel}"), channel, PortDirection::Output)
+                    .with_sample_kinds(vec![SampleKind::Block, SampleKind::Edge])
+            })
+            .collect()
     }
 
     fn work(&mut self, _inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
@@ -117,19 +107,20 @@ impl ProcessNode for SyntheticCaptureSource {
         let channels = demo_channels();
         for channel in 0..self.channel_count {
             let values = &channels[channel % AUTHORED_CHANNEL_COUNT];
-            if let Some(output) = outputs.get(channel).and_then(|port| port.get::<Sample>()) {
-                output.send_batch(edges(values))?;
+            let Some(output) = outputs.get(channel) else {
+                continue;
+            };
+            if let Some(senders) = output.split_senders::<Sample>() {
+                let samples = edges(values);
+                for sender in senders {
+                    sender.send_batch(samples.clone())?;
+                }
             }
-            if let Some(output) = outputs
-                .get(self.channel_count + channel)
-                .and_then(|port| port.get::<SampleBlock>())
-            {
-                output.send(SampleBlock::new(
-                    pack(values),
-                    0,
-                    SAMPLE_COUNT,
-                    TIMESTAMP_STEP_NS,
-                ))?;
+            if let Some(senders) = output.split_senders::<SampleBlock>() {
+                let block = SampleBlock::new(pack(values), 0, SAMPLE_COUNT, TIMESTAMP_STEP_NS);
+                for sender in senders {
+                    sender.send(block.clone())?;
+                }
             }
         }
         self.emitted = true;
@@ -314,6 +305,26 @@ fn pack(values: &[bool]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn synthetic_channels_negotiate_blocks_and_edges_on_one_port() {
+        let source = SyntheticCaptureSource::new().with_channel_count(3);
+        let schema = source.output_schema();
+
+        assert_eq!(source.num_outputs(), 3);
+        assert_eq!(
+            schema
+                .iter()
+                .map(|port| port.name.as_str())
+                .collect::<Vec<_>>(),
+            ["ch0", "ch1", "ch2"]
+        );
+        assert!(
+            schema
+                .iter()
+                .all(|port| { port.sample_kinds == [SampleKind::Block, SampleKind::Edge] })
+        );
+    }
 
     #[test]
     fn capture_spans_one_minute_with_repeated_activity() {

@@ -1,4 +1,4 @@
-//! Native runtime builder for the DSLogic U3Pro16 graph source.
+//! Runtime builder for the DSLogic U3Pro16 graph source.
 
 use std::sync::Arc;
 
@@ -20,9 +20,9 @@ trait DsLogicSourceFactory: Send + Sync {
     fn open(&self, name: &str, config: LogicCaptureConfig) -> Result<Box<dyn ProcessNode>, String>;
 }
 
-struct HardwareDsLogicSourceFactory;
+struct ProcessingDsLogicSourceFactory;
 
-impl DsLogicSourceFactory for HardwareDsLogicSourceFactory {
+impl DsLogicSourceFactory for ProcessingDsLogicSourceFactory {
     fn open(&self, name: &str, config: LogicCaptureConfig) -> Result<Box<dyn ProcessNode>, String> {
         create_source(name, config)
     }
@@ -35,7 +35,7 @@ pub(crate) struct DsLogicU3Pro16Builder {
 impl Default for DsLogicU3Pro16Builder {
     fn default() -> Self {
         Self {
-            source_factory: Arc::new(HardwareDsLogicSourceFactory),
+            source_factory: Arc::new(ProcessingDsLogicSourceFactory),
         }
     }
 }
@@ -129,18 +129,7 @@ impl RuntimeBuilder for DsLogicU3Pro16Builder {
 
     fn capture_presentation(&self, state: &Value) -> Result<Option<CapturePresentation>, String> {
         let state: U3Pro16State = parse_state(state)?;
-        let channels = state
-            .channels
-            .enabled
-            .iter()
-            .enumerate()
-            .filter(|(_, enabled)| **enabled)
-            .enumerate()
-            .map(|(viewer_channel, (physical_channel, _))| {
-                (viewer_channel, format!("Ch {physical_channel}"))
-            })
-            .collect();
-        Ok(Some(CapturePresentation::Channels(channels)))
+        super::presentation_platform::capture_presentation(&state).map(Some)
     }
 
     fn live_capture_feature(
