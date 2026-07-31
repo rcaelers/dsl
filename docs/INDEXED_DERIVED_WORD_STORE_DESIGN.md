@@ -145,9 +145,9 @@ in `BlockCodecConfig`:
 
 | Setting | Default |
 | --- | ---: |
-| Maximum words | 262,144 |
+| Maximum words | 32,768 |
 | Restart interval | 512 words |
-| Maximum encoded payload | 8 MiB |
+| Maximum encoded payload | 1 MiB |
 | Maximum inter-word gap | 1 ms |
 | Maximum timestamp span | unlimited |
 
@@ -188,15 +188,24 @@ checks neighboring blocks so snapping works at block boundaries and in older reg
 
 `DerivedDataCollector` owns one writer for each indexed word lane. Batch-aware inputs transfer
 producer-created vectors into the collector without first flattening them into scalar channel
-items. Appending:
+items. A word lane drains at most 131,072 words per scheduler call. On native hosts, its writer
+turns that bounded group of producer batches into independently prepared complete blocks.
+Appending:
 
 1. validates ordering;
 2. adds words to the active block builder;
-3. builds bounded presence summaries and encodes complete blocks concurrently when the block is
-   large enough to amortize the worker cost;
-4. writes the encoded block;
-5. publishes directory and presence metadata;
-6. increments the store generation and requests a repaint.
+3. dispatches complete builders to the shared worker pool, where each task encodes one block and
+   builds its bounded presence summaries;
+4. accepts prepared blocks in any completion order while retaining them by sequence number;
+5. writes every contiguous prepared block through the sole file owner;
+6. publishes directory and presence metadata in sequence order;
+7. increments the store generation and requests a repaint.
+
+Each writer admits one preparation task on one- and two-worker hosts and between two and four on
+larger hosts. Both the in-flight task count and out-of-order completion map share this bound, and
+the collector drain is bounded independently. Reaching either limit applies real backpressure.
+An append call waits until all complete blocks from that call are visible, so live queries retain
+the same publication contract while preparation within the call can use several cores.
 
 The active block is exposed through an immutable hot-tail snapshot. Publication is bounded by
 `LiveStoreConfig` and defaults to 262,144 words or 50 ms. Dense lanes normally commit a complete
@@ -266,12 +275,15 @@ mode renders summarized activity.
 9. Persistent manifests refer only to synchronized data and index files with the same cache key.
 10. Storage failure cannot alter another consumer's word stream.
 11. Derived-lane locks are never held across storage I/O or block decoding.
+12. At most the configured adaptive number of complete blocks are preparing or awaiting ordered
+    publication for one writer.
 
 ## Validation
 
 Native and wasm contract tests cover append, exact windows, presence windows, nearest-boundary
 queries, finish, cancellation, and metadata semantics. Native tests additionally cover codec
 round trips, corrupt and truncated data, persistent publication and reopening, cache invalidation,
-decoded-block caching, live queries, and cursor behavior across blocks.
+decoded-block caching, live queries, cursor behavior across blocks, deliberately reordered block
+completion, and visibility at a batched append boundary.
 
 Large-capture performance and operational follow-ups are tracked in [TODO.md](../TODO.md).

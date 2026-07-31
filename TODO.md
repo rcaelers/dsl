@@ -81,11 +81,6 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ### Indexed derived data
 
-- [derived.performance.ordered-output] Profile ordered fragment merge, word-batch transport, and
-  connected derived-store and writer consumers after packed scanning. Scan-only throughput
-  saturates around four to eight workers on the reference host, while the exact count/fingerprint
-  path remains effectively flat above one worker, so optimize the serialized output stages without
-  weakening deterministic ordering, cache completeness, or backpressure.
 - [derived.performance.ui-latency] Profile egui update, indexed sampling, lane-lock duration, repaint
   cadence, and input latency while decoding a complete capture. Keep this separate from pipeline
   throughput and add focused regressions only for reproduced foreground stalls.

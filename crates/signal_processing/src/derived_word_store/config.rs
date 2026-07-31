@@ -13,9 +13,9 @@ pub struct BlockCodecConfig {
 impl Default for BlockCodecConfig {
     fn default() -> Self {
         Self {
-            max_words: 262_144,
+            max_words: 32_768,
             restart_interval: 512,
-            max_payload_bytes: 8 * 1024 * 1024,
+            max_payload_bytes: 1024 * 1024,
             max_inter_word_gap_ns: 1_000_000,
             max_timestamp_span_ns: u64::MAX,
         }

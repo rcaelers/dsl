@@ -14,9 +14,9 @@ std::cfg_select! {
 
             use signal_processing::{IndexedAnnotationWriter, LiveStoreConfig, Word};
 
-            const BATCH_WORDS: usize = 32_768;
-            const DEFAULT_BATCH_COUNT: usize = 4_096;
-            const MINIMUM_WORDS_PER_SECOND: f64 = 20_000_000.0;
+            const BATCH_WORDS: usize = 1_048_576;
+            const DEFAULT_BATCH_COUNT: usize = 128;
+            const MINIMUM_WORDS_PER_SECOND: f64 = 60_000_000.0;
             const TIMESTAMP_CYCLE_NS: u64 = 360;
             const TIMESTAMP_PREFIX_NS: [u64; 4] = [0, 60, 160, 240];
 
@@ -33,15 +33,10 @@ std::cfg_select! {
                     .and_then(|value| value.parse::<usize>().ok())
                     .unwrap_or(DEFAULT_BATCH_COUNT);
                 let total_words = BATCH_WORDS * batch_count;
-                let mut config = LiveStoreConfig {
+                let config = LiveStoreConfig {
                     directory: directory.path().to_owned(),
                     ..LiveStoreConfig::default()
                 };
-                if std::env::var_os("DERIVED_WORD_STORE_LEGACY_BLOCKS").is_some() {
-                    config.block.max_words = 32_768;
-                    config.block.max_payload_bytes = 1024 * 1024;
-                    config.hot_tail_publish_words = 16_384;
-                }
                 let mut words = (0..BATCH_WORDS)
                     .map(|index| Word::new((index & 0xff) as u64, generated_timestamp_ns(index)))
                     .collect::<Vec<_>>();

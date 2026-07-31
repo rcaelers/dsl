@@ -20,7 +20,7 @@ use crate::payload::{
 };
 use crate::ports::{InputPort, PortDirection, PortSchema};
 
-const WORD_DRAIN_BATCH_SIZE: usize = DRAIN_BATCH_SIZE;
+const WORD_DRAIN_BATCH_SIZE: usize = DRAIN_BATCH_SIZE * 2;
 
 #[derive(Clone)]
 pub struct IndexedAnnotationLane {
@@ -633,9 +633,7 @@ impl CollectedLaneIngestor for WordLane {
         }
         if !batches.is_empty() {
             if let Some(writer) = self.writer.as_mut()
-                && let Err(error) = batches
-                    .iter()
-                    .try_for_each(|batch| AnnotationStoreWriterBackend::append_batch(writer, batch))
+                && let Err(error) = AnnotationStoreWriterBackend::append_batches(writer, &batches)
             {
                 tracing::warn!(lane = %self.name, %error, "indexed derived-data word lane failed; disabling further appends");
                 self.writer = None;

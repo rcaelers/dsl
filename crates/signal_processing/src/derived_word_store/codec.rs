@@ -308,6 +308,10 @@ impl WordBlockBuilder {
         self.reset_metadata();
     }
 
+    pub(crate) fn empty_like(&self) -> Self {
+        Self::new(self.config).expect("an existing builder has valid configuration")
+    }
+
     fn reset_metadata(&mut self) {
         self.timestamp_bytes = 0;
         self.duration_bytes = 0;

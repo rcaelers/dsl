@@ -14,5 +14,12 @@ pub(crate) trait AnnotationStoreBackend:
 
 pub(crate) trait AnnotationStoreWriterBackend {
     fn append_batch(&mut self, words: &[Word]) -> StoreResult<()>;
+
+    fn append_batches(&mut self, batches: &[Vec<Word>]) -> StoreResult<()> {
+        batches
+            .iter()
+            .try_for_each(|batch| self.append_batch(batch))
+    }
+
     fn finish(&mut self) -> StoreResult<()>;
 }

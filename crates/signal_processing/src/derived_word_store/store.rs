@@ -1,18 +1,19 @@
 use std::cmp::Reverse;
-use std::collections::BinaryHeap;
+use std::collections::{BTreeMap, BinaryHeap};
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
-use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crossbeam_channel::{Receiver, Sender, TryRecvError, bounded};
 use memmap2::{Mmap, MmapOptions};
 
 use super::super::super::cache::{cache_block, cached_block};
 use super::super::super::codec::{
-    DecodedWordBlock, WordBlockBuilder, decode_word_block, decode_word_block_range,
+    DecodedWordBlock, EncodedBlockMetadata, WordBlockBuilder, decode_word_block,
+    decode_word_block_range,
 };
 use super::super::super::config::{LiveStoreConfig, PersistentStoreConfig};
 use super::super::super::errors::CodecError;
@@ -32,7 +33,15 @@ use crate::events::{
 
 const MAX_PRESENCE_RUNS_PER_BLOCK: usize = 256;
 const MAX_PRESENCE_CADENCE_NS: u64 = 1_000_000;
+const MAX_BLOCK_ENCODERS_PER_STORE: usize = 4;
 static NEXT_STORE_ID: AtomicU64 = AtomicU64::new(1);
+
+fn block_encoder_count(available_workers: usize) -> usize {
+    match available_workers {
+        0..=2 => 1,
+        workers => workers.div_ceil(4).clamp(2, MAX_BLOCK_ENCODERS_PER_STORE),
+    }
+}
 
 fn intersecting_block_indices(
     presence: &WordPresenceIndex,
@@ -842,12 +851,30 @@ fn query_store_error(error: StoreError) -> AnnotationQueryError {
     AnnotationQueryError::Store(error.to_string())
 }
 
+struct PreparedBlock {
+    builder: WordBlockBuilder,
+    encoded: Vec<u8>,
+    result: Result<(EncodedBlockMetadata, Vec<WordSummaryRecord>), CodecError>,
+}
+
+struct BlockCompletion {
+    sequence: u64,
+    block: Option<PreparedBlock>,
+}
+
 /// Single-threaded append side of a live indexed annotation store.
 pub struct IndexedAnnotationWriter {
     file: Option<File>,
     shared: Arc<StoreShared>,
     builder: WordBlockBuilder,
-    encoded_block: Vec<u8>,
+    completion_sender: Sender<BlockCompletion>,
+    completion_receiver: Receiver<BlockCompletion>,
+    prepared_blocks: BTreeMap<u64, PreparedBlock>,
+    available_builders: Vec<WordBlockBuilder>,
+    available_encoded_blocks: Vec<Vec<u8>>,
+    in_flight_blocks: usize,
+    max_outstanding_blocks: usize,
+    next_dispatch_sequence: u64,
     next_sequence: u64,
     next_data_offset: u64,
     last_timestamp_ns: Option<u64>,
@@ -903,6 +930,8 @@ impl IndexedAnnotationWriter {
         )?;
         let reader = file.try_clone()?;
         let builder = WordBlockBuilder::new(config.block)?;
+        let max_outstanding_blocks = block_encoder_count(crate::shared_worker_pool().workers());
+        let (completion_sender, completion_receiver) = bounded(max_outstanding_blocks);
         let now = Instant::now();
         let last_tail_publish = now
             .checked_sub(config.hot_tail_publish_interval)
@@ -933,7 +962,14 @@ impl IndexedAnnotationWriter {
                 file: Some(file),
                 shared,
                 builder,
-                encoded_block: Vec::new(),
+                completion_sender,
+                completion_receiver,
+                prepared_blocks: BTreeMap::new(),
+                available_builders: Vec::new(),
+                available_encoded_blocks: Vec::new(),
+                in_flight_blocks: 0,
+                max_outstanding_blocks,
+                next_dispatch_sequence: 0,
                 next_sequence: 0,
                 next_data_offset: DATA_HEADER_SIZE as u64,
                 last_timestamp_ns: None,
@@ -961,7 +997,9 @@ impl IndexedAnnotationWriter {
 
     pub fn append_batch(&mut self, words: &[Word]) -> StoreResult<()> {
         self.ensure_live()?;
-        let result = self.append_batch_inner(words);
+        let result = self
+            .append_batch_inner(words)
+            .and_then(|()| self.publish_appended_prefix());
         if let Err(error) = &result {
             self.fail(error);
         }
@@ -970,6 +1008,7 @@ impl IndexedAnnotationWriter {
 
     pub fn publish_hot_tail(&mut self) -> StoreResult<()> {
         self.ensure_live()?;
+        self.flush_dispatched_blocks()?;
         self.publish_hot_tail_inner();
         Ok(())
     }
@@ -998,6 +1037,7 @@ impl IndexedAnnotationWriter {
     }
 
     fn append_batch_inner(&mut self, words: &[Word]) -> StoreResult<()> {
+        self.drain_completed_blocks()?;
         for word in words {
             if let Some(previous_timestamp_ns) = self.last_timestamp_ns
                 && word.timestamp_ns < previous_timestamp_ns
@@ -1017,10 +1057,16 @@ impl IndexedAnnotationWriter {
             self.words_since_tail_publish += accepted;
             remaining = &remaining[accepted..];
             if !remaining.is_empty() || self.builder.is_at_word_limit() {
-                self.commit_current_block()?;
+                self.dispatch_current_block()?;
             }
         }
 
+        self.drain_completed_blocks()?;
+        Ok(())
+    }
+
+    fn publish_appended_prefix(&mut self) -> StoreResult<()> {
+        self.flush_dispatched_blocks()?;
         if !self.builder.is_empty()
             && (self.words_since_tail_publish >= self.hot_tail_publish_words
                 || self.last_tail_publish.elapsed() >= self.hot_tail_publish_interval)
@@ -1030,8 +1076,16 @@ impl IndexedAnnotationWriter {
         Ok(())
     }
 
+    fn append_batches_inner(&mut self, batches: &[Vec<Word>]) -> StoreResult<()> {
+        batches
+            .iter()
+            .try_for_each(|batch| self.append_batch_inner(batch))?;
+        self.publish_appended_prefix()
+    }
+
     fn finish_inner(&mut self) -> StoreResult<()> {
-        self.commit_current_block()?;
+        self.dispatch_current_block()?;
+        self.flush_dispatched_blocks()?;
         let file = self.file.as_ref().expect("live writer owns its file");
         file.sync_data()?;
         if let Some(persistent) = self.persistence.clone() {
@@ -1080,38 +1134,120 @@ impl IndexedAnnotationWriter {
         Ok(())
     }
 
-    fn commit_current_block(&mut self) -> StoreResult<()> {
+    fn outstanding_blocks(&self) -> usize {
+        self.in_flight_blocks + self.prepared_blocks.len()
+    }
+
+    fn dispatch_current_block(&mut self) -> StoreResult<()> {
         if self.builder.is_empty() {
             return Ok(());
         }
-        let duration_free = self.builder.is_duration_free();
-        let (metadata, summaries) = if self.builder.len() >= 32_768 {
-            thread::scope(|scope| {
-                let summaries = scope.spawn(|| {
-                    word_presence_summaries(self.next_sequence, self.builder.words(), duration_free)
-                });
-                let metadata = self
-                    .builder
-                    .encode(self.next_sequence, &mut self.encoded_block);
-                let summaries = summaries
-                    .join()
-                    .map_err(|_| StoreError::Persistent("presence-index worker panicked".into()));
-                (metadata, summaries)
+        self.drain_completed_blocks()?;
+        while self.outstanding_blocks() >= self.max_outstanding_blocks {
+            self.receive_completed_block()?;
+            self.commit_ordered_blocks()?;
+        }
+
+        let replacement = self
+            .available_builders
+            .pop()
+            .unwrap_or_else(|| self.builder.empty_like());
+        let mut builder = std::mem::replace(&mut self.builder, replacement);
+        let mut encoded = self.available_encoded_blocks.pop().unwrap_or_default();
+        let sequence = self.next_dispatch_sequence;
+        let duration_free = builder.is_duration_free();
+        let completion = self.completion_sender.clone();
+        crate::shared_worker_pool()
+            .spawn(move || {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let result = builder.encode(sequence, &mut encoded).map(|metadata| {
+                        let summaries =
+                            word_presence_summaries(sequence, builder.words(), duration_free);
+                        (metadata, summaries)
+                    });
+                    builder.clear();
+                    PreparedBlock {
+                        builder,
+                        encoded,
+                        result,
+                    }
+                }));
+                let message = BlockCompletion {
+                    sequence,
+                    block: result.ok(),
+                };
+                let _ = completion.send(message);
             })
-        } else {
-            (
-                self.builder
-                    .encode(self.next_sequence, &mut self.encoded_block),
-                Ok(word_presence_summaries(
-                    self.next_sequence,
-                    self.builder.words(),
-                    duration_free,
-                )),
-            )
+            .map_err(|_| StoreError::Persistent("shared block encoder pool stopped".into()))?;
+        self.in_flight_blocks += 1;
+        self.next_dispatch_sequence += 1;
+        self.words_since_tail_publish = 0;
+        Ok(())
+    }
+
+    fn drain_completed_blocks(&mut self) -> StoreResult<()> {
+        loop {
+            match self.completion_receiver.try_recv() {
+                Ok(completion) => self.accept_completed_block(completion)?,
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    return Err(StoreError::Persistent(
+                        "block encoder completion channel closed".into(),
+                    ));
+                }
+            }
+        }
+        self.commit_ordered_blocks()
+    }
+
+    fn receive_completed_block(&mut self) -> StoreResult<()> {
+        let completion = self.completion_receiver.recv().map_err(|_| {
+            StoreError::Persistent("block encoder completion channel closed".into())
+        })?;
+        self.accept_completed_block(completion)
+    }
+
+    fn accept_completed_block(&mut self, completion: BlockCompletion) -> StoreResult<()> {
+        self.in_flight_blocks = self.in_flight_blocks.checked_sub(1).ok_or_else(|| {
+            StoreError::Persistent("received an unexpected block encoder completion".into())
+        })?;
+        let BlockCompletion { sequence, block } = completion;
+        let Some(block) = block else {
+            return Err(StoreError::Persistent(format!(
+                "block encoder panicked for sequence {sequence}"
+            )));
         };
-        let metadata = metadata?;
-        let summaries = summaries?;
+        if self.prepared_blocks.insert(sequence, block).is_some() {
+            return Err(StoreError::Persistent(format!(
+                "block encoder completed sequence {sequence} twice"
+            )));
+        }
+        Ok(())
+    }
+
+    fn commit_ordered_blocks(&mut self) -> StoreResult<()> {
+        while let Some(block) = self.prepared_blocks.remove(&self.next_sequence) {
+            self.commit_prepared_block(block)?;
+        }
+        Ok(())
+    }
+
+    fn flush_dispatched_blocks(&mut self) -> StoreResult<()> {
+        while self.outstanding_blocks() > 0 {
+            if self.prepared_blocks.contains_key(&self.next_sequence) {
+                self.commit_ordered_blocks()?;
+            } else {
+                self.receive_completed_block()?;
+                self.commit_ordered_blocks()?;
+            }
+        }
+        Ok(())
+    }
+
+    fn commit_prepared_block(&mut self, mut block: PreparedBlock) -> StoreResult<()> {
+        let (metadata, summaries) = block.result?;
         let header = metadata.header;
+        debug_assert_eq!(header.sequence, self.next_sequence);
         let entry = BlockDirectoryEntry {
             sequence: header.sequence,
             first_timestamp_ns: header.first_timestamp_ns,
@@ -1127,7 +1263,7 @@ impl IndexedAnnotationWriter {
         self.file
             .as_mut()
             .expect("live writer owns its file")
-            .write_all(&self.encoded_block)?;
+            .write_all(&block.encoded)?;
         {
             let mut state = self.shared.state.write().unwrap();
             state.directory.push(entry);
@@ -1146,8 +1282,9 @@ impl IndexedAnnotationWriter {
 
         self.next_sequence += 1;
         self.next_data_offset += u64::from(entry.block_len);
-        self.builder.clear();
-        self.words_since_tail_publish = 0;
+        self.available_builders.push(block.builder);
+        block.encoded.clear();
+        self.available_encoded_blocks.push(block.encoded);
         self.last_tail_publish = Instant::now();
         Ok(())
     }
@@ -1185,6 +1322,15 @@ impl super::super::super::backend::AnnotationStoreBackend for IndexedAnnotationS
 impl super::super::super::backend::AnnotationStoreWriterBackend for IndexedAnnotationWriter {
     fn append_batch(&mut self, words: &[Word]) -> StoreResult<()> {
         IndexedAnnotationWriter::append_batch(self, words)
+    }
+
+    fn append_batches(&mut self, batches: &[Vec<Word>]) -> StoreResult<()> {
+        self.ensure_live()?;
+        let result = self.append_batches_inner(batches);
+        if let Err(error) = &result {
+            self.fail(error);
+        }
+        result
     }
 
     fn finish(&mut self) -> StoreResult<()> {
@@ -1443,6 +1589,21 @@ mod tests {
     }
 
     #[test]
+    fn block_encoding_parallelism_reserves_capacity_for_other_work() {
+        assert_eq!(block_encoder_count(0), 1);
+        assert_eq!(block_encoder_count(1), 1);
+        assert_eq!(block_encoder_count(2), 1);
+        assert_eq!(block_encoder_count(3), 2);
+        assert_eq!(block_encoder_count(8), 2);
+        assert_eq!(block_encoder_count(9), 3);
+        assert_eq!(block_encoder_count(16), MAX_BLOCK_ENCODERS_PER_STORE);
+        assert_eq!(
+            block_encoder_count(usize::MAX),
+            MAX_BLOCK_ENCODERS_PER_STORE
+        );
+    }
+
+    #[test]
     fn persistent_finish_reopens_exact_words_and_presence_from_manifest() {
         let directory = tempfile::tempdir().unwrap();
         let cache_key = [0x5a; 32];
@@ -1681,6 +1842,102 @@ mod tests {
             .flat_map(|index| store.read_committed_block(index).unwrap().words)
             .collect();
         assert_eq!(decoded, words);
+    }
+
+    #[test]
+    fn completed_blocks_publish_in_sequence_when_encoders_finish_out_of_order() {
+        fn prepare(config: BlockCodecConfig, sequence: u64, words: &[Word]) -> PreparedBlock {
+            let mut builder = WordBlockBuilder::new(config).unwrap();
+            assert_eq!(builder.extend_ordered(words), words.len());
+            let duration_free = builder.is_duration_free();
+            let mut encoded = Vec::new();
+            let result = builder.encode(sequence, &mut encoded).map(|metadata| {
+                let summaries = word_presence_summaries(sequence, builder.words(), duration_free);
+                (metadata, summaries)
+            });
+            builder.clear();
+            PreparedBlock {
+                builder,
+                encoded,
+                result,
+            }
+        }
+
+        let directory = tempfile::tempdir().unwrap();
+        let config = test_config(directory.path());
+        let block_config = config.block;
+        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let words: Vec<_> = (0..48).map(|index| Word::new(index, index * 80)).collect();
+        let mut blocks = words
+            .chunks(16)
+            .enumerate()
+            .map(|(sequence, words)| prepare(block_config, sequence as u64, words))
+            .collect::<Vec<_>>();
+
+        writer.in_flight_blocks = blocks.len();
+        writer.next_dispatch_sequence = blocks.len() as u64;
+        writer
+            .accept_completed_block(BlockCompletion {
+                sequence: 2,
+                block: Some(blocks.pop().unwrap()),
+            })
+            .unwrap();
+        writer.commit_ordered_blocks().unwrap();
+        assert!(store.directory().is_empty());
+
+        writer
+            .accept_completed_block(BlockCompletion {
+                sequence: 0,
+                block: Some(blocks.remove(0)),
+            })
+            .unwrap();
+        writer.commit_ordered_blocks().unwrap();
+        assert_eq!(store.directory().len(), 1);
+
+        writer
+            .accept_completed_block(BlockCompletion {
+                sequence: 1,
+                block: Some(blocks.pop().unwrap()),
+            })
+            .unwrap();
+        writer.commit_ordered_blocks().unwrap();
+        writer.finish().unwrap();
+
+        let entries = store.directory();
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.sequence)
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+        let decoded: Vec<_> = (0..entries.len())
+            .flat_map(|index| store.read_committed_block(index).unwrap().words)
+            .collect();
+        assert_eq!(decoded, words);
+    }
+
+    #[test]
+    fn batched_append_publishes_all_completed_blocks_before_returning() {
+        let directory = tempfile::tempdir().unwrap();
+        let (mut writer, store) =
+            IndexedAnnotationWriter::create(test_config(directory.path())).unwrap();
+        let words: Vec<_> = (0..91).map(|index| Word::new(index, index * 80)).collect();
+        let batches = words.chunks(7).map(<[Word]>::to_vec).collect::<Vec<_>>();
+
+        crate::derived_word_store::backend::AnnotationStoreWriterBackend::append_batches(
+            &mut writer,
+            &batches,
+        )
+        .unwrap();
+
+        let snapshot = store.snapshot();
+        assert_eq!(snapshot.metadata.committed_block_count, 5);
+        assert_eq!(snapshot.metadata.committed_word_count, 80);
+        assert_eq!(snapshot.hot_tail.as_ref(), &words[80..]);
+        let exact = store.exact_window(0, u64::MAX, words.len()).unwrap();
+        assert!(exact.complete);
+        assert_eq!(exact.annotations, direct_annotations(&words, 0, u64::MAX));
     }
 
     #[test]

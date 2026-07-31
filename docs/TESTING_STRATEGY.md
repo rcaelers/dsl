@@ -132,15 +132,17 @@ cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
 ```
 
 The derived-word store throughput guard uses a deterministic generated
-eight-bit workload with a small quantized timestamp-delta palette and exercises
-the supported indexed writer boundary:
+eight-bit workload with a small quantized timestamp-delta palette. Each append
+contains several complete blocks, so the command exercises bounded parallel preparation,
+out-of-order completion handling, and ordered publication rather than measuring only the codec:
 
 ```console
 cargo run --release -p signal-processing --bin derived-word-store-bench
 ```
 
 It is a non-test binary so ordinary and ignored test runs neither discover nor
-execute the performance guard.
+execute the performance guard. The native store tests separately force prepared blocks to arrive
+out of sequence and verify that readers still observe contiguous input order.
 
 The file-backed parallel-decoder benchmark characterizes packed scanning at fixed worker counts
 without checking a capture into the repository. Its worker sweep requests 1, 2, 4, 8, 16, and 32
