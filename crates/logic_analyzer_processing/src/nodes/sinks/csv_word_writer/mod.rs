@@ -7,6 +7,6 @@ mod implementation;
 mod platform;
 
 pub use configuration::{CsvValueFormat, CsvWordWriterConfig};
-pub use facade::create_writer;
+pub use facade::{CsvWordWriterFactory, writer_factory};
 #[cfg(not(target_arch = "wasm32"))]
 pub use implementation::CsvWordWriter;

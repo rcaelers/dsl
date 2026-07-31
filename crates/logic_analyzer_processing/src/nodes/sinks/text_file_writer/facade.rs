@@ -1,8 +1,14 @@
-use signal_processing::ProcessNode;
+use std::sync::Arc;
 
 use super::platform;
+use crate::ProcessNodeConstruction;
 
-/// Creates the processing sink selected for the current platform.
-pub fn create_writer(name: impl Into<String>) -> Result<Box<dyn ProcessNode>, String> {
-    platform::create_writer(name.into())
+/// Platform-neutral construction contract for a text file writer.
+pub trait TextFileWriterFactory: Send + Sync {
+    fn create(&self, name: &str) -> Result<ProcessNodeConstruction, String>;
+}
+
+/// Returns the text-writer factory selected for the current platform.
+pub fn writer_factory() -> Arc<dyn TextFileWriterFactory> {
+    platform::writer_factory()
 }

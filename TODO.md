@@ -57,11 +57,6 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ### Capture platform boundaries
 
-- [capture.platform.neutral-factories] Define one platform-neutral construction contract per source
-  or sink capability. It accepts shared configuration and returns the runtime process plus generic
-  metadata; backend-only operations remain behind the selected implementation. Use a type alias
-  only when both implementations genuinely expose the same API, and do not add hardware-only
-  methods to synthetic implementations merely to make an alias compile.
 - [capture.platform.presentation-contracts] Return capture presentation, source lifecycle, and
   runtime capability metadata through the processing facade's generic result. Make the shared graph
   builder forward those contracts, then remove graph-node platform-metadata adapters,

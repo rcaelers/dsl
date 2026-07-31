@@ -21,6 +21,8 @@ fn platform_sensitive_runtime_builders_delegate_construction_to_processing_facad
     ];
 
     for builder in builders {
+        assert!(builder.contains("Factory"));
+        assert!(builder.contains("ProcessNodeConstruction::into_process"));
         for constructor in forbidden_constructors {
             assert!(
                 !builder.contains(constructor),

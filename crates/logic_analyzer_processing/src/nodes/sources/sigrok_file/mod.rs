@@ -7,6 +7,6 @@ mod implementation;
 mod platform;
 
 pub use configuration::SigrokFileSourceConfig;
-pub use facade::create_source;
+pub use facade::{SigrokFileSourceFactory, source_factory};
 #[cfg(not(target_arch = "wasm32"))]
 pub use implementation::SigrokFileSource;

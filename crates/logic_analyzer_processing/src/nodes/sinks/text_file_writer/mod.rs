@@ -5,6 +5,6 @@ mod facade;
 mod implementation;
 mod platform;
 
-pub use facade::create_writer;
+pub use facade::{TextFileWriterFactory, writer_factory};
 #[cfg(not(target_arch = "wasm32"))]
 pub use implementation::TextFileWriter;

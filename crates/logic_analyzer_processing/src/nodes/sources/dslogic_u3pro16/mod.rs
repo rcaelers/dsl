@@ -23,7 +23,7 @@ mod streaming;
 pub use benchmark::run_streaming_benchmark;
 #[cfg(not(target_arch = "wasm32"))]
 pub use capture::DsLogicU3Pro16Capture;
-pub use facade::create_source;
+pub use facade::{DsLogicU3Pro16SourceFactory, source_factory};
 #[cfg(all(feature = "developer-tools", not(target_arch = "wasm32")))]
 pub use hardware_validation::{validate_capture_hardware, validate_fpga_hardware};
 pub use signal_processing::logic_analyzer::{

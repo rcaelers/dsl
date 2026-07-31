@@ -11,19 +11,13 @@ use logic_analyzer_graph_api::node_support::{
     PortKind, ResolvedInputs, parse_state,
 };
 use logic_analyzer_processing::nodes::sources::sigrok_file::{
-    SigrokFileSourceConfig, create_source,
+    SigrokFileSourceConfig, SigrokFileSourceFactory, source_factory,
 };
 use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
 use node_graph::api::Socket;
 use signal_processing::{ProcessNode, Sample, SampleBlock};
 
 pub(crate) trait SigrokFileArtifacts: Send + Sync {
-    fn open(
-        &self,
-        name: &str,
-        path: &Path,
-        channel_count: usize,
-    ) -> Result<Box<dyn ProcessNode>, String>;
     fn capture_presentation(
         &self,
         path: &Path,
@@ -33,12 +27,14 @@ pub(crate) trait SigrokFileArtifacts: Send + Sync {
 }
 
 pub(crate) struct SigrokFileSourceBuilder {
+    source_factory: Arc<dyn SigrokFileSourceFactory>,
     artifacts: Arc<dyn SigrokFileArtifacts>,
 }
 
 impl Default for SigrokFileSourceBuilder {
     fn default() -> Self {
         Self {
+            source_factory: source_factory(),
             artifacts: super::metadata_platform::artifacts(),
         }
     }
@@ -46,8 +42,14 @@ impl Default for SigrokFileSourceBuilder {
 
 #[cfg(test)]
 impl SigrokFileSourceBuilder {
-    fn with_artifacts(artifacts: Arc<dyn SigrokFileArtifacts>) -> Self {
-        Self { artifacts }
+    fn with_dependencies(
+        source_factory: Arc<dyn SigrokFileSourceFactory>,
+        artifacts: Arc<dyn SigrokFileArtifacts>,
+    ) -> Self {
+        Self {
+            source_factory,
+            artifacts,
+        }
     }
 }
 
@@ -146,14 +148,16 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state: super::definition::SigrokFileSourceState = parse_state(state)?;
-        if state.demo_data {
-            return create_source(
+        self.source_factory
+            .create(
                 name,
-                SigrokFileSourceConfig::new(&state.file.value, state.channel_count(), true),
-            );
-        }
-        self.artifacts
-            .open(name, Path::new(&state.file.value), state.channel_count())
+                SigrokFileSourceConfig::new(
+                    &state.file.value,
+                    state.channel_count(),
+                    state.demo_data,
+                ),
+            )
+            .map(logic_analyzer_processing::ProcessNodeConstruction::into_process)
             .map_err(|error| format!("cannot open '{}': {error}", state.file.value))
     }
 }
@@ -163,6 +167,7 @@ mod builder_tests {
     use std::path::PathBuf;
     use std::sync::Mutex;
 
+    use logic_analyzer_processing::ProcessNodeConstruction;
     use node_graph::NodeDef;
     use signal_processing::IndexedCapturePresentation;
 
@@ -173,27 +178,10 @@ mod builder_tests {
     #[derive(Default)]
     struct FakeArtifacts {
         operations: Mutex<Vec<String>>,
-        open_error: Option<String>,
         identity_error: bool,
     }
 
     impl SigrokFileArtifacts for FakeArtifacts {
-        fn open(
-            &self,
-            name: &str,
-            path: &Path,
-            _channel_count: usize,
-        ) -> Result<Box<dyn ProcessNode>, String> {
-            self.operations
-                .lock()
-                .unwrap()
-                .push(format!("open:{}:{name}", path.display()));
-            if let Some(error) = &self.open_error {
-                return Err(error.clone());
-            }
-            Ok(Box::new(TestProcessNode::new(name)))
-        }
-
         fn capture_presentation(
             &self,
             path: &Path,
@@ -226,10 +214,35 @@ mod builder_tests {
         }
     }
 
+    #[derive(Default)]
+    struct FakeSourceFactory {
+        opened: Mutex<Vec<(String, SigrokFileSourceConfig)>>,
+        error: Option<String>,
+    }
+
+    impl SigrokFileSourceFactory for FakeSourceFactory {
+        fn create(
+            &self,
+            name: &str,
+            config: SigrokFileSourceConfig,
+        ) -> Result<ProcessNodeConstruction, String> {
+            self.opened.lock().unwrap().push((name.to_owned(), config));
+            if let Some(error) = &self.error {
+                return Err(error.clone());
+            }
+            Ok(ProcessNodeConstruction::new(
+                Box::new(TestProcessNode::new(name)),
+                (),
+            ))
+        }
+    }
+
     #[test]
     fn non_demo_artifacts_drive_lowering_presentation_and_cache_identity() {
         let artifacts = Arc::new(FakeArtifacts::default());
-        let builder = SigrokFileSourceBuilder::with_artifacts(artifacts.clone());
+        let source_factory = Arc::new(FakeSourceFactory::default());
+        let builder =
+            SigrokFileSourceBuilder::with_dependencies(source_factory.clone(), artifacts.clone());
         let state = fixture_state("fixture.sr");
         let mut context = crate::nodes::test_support::TestNodeBuildContext::default();
 
@@ -252,24 +265,29 @@ mod builder_tests {
             )
             .unwrap();
         assert_eq!(runtime.name(), "Fixture session");
+        let opened = source_factory.opened.lock().unwrap();
+        assert_eq!(opened.len(), 1);
+        assert_eq!(opened[0].0, "Fixture session");
+        assert_eq!(opened[0].1.path(), Path::new("fixture.sr"));
+        assert!(!opened[0].1.demo_data());
+        drop(opened);
         assert_eq!(
             &*artifacts.operations.lock().unwrap(),
-            &[
-                "presentation:fixture.sr",
-                "identity:fixture.sr",
-                "open:fixture.sr:Fixture session",
-            ]
+            &["presentation:fixture.sr", "identity:fixture.sr"]
         );
     }
 
     #[test]
     fn non_demo_artifact_failures_are_deterministic() {
         let artifacts = Arc::new(FakeArtifacts {
-            open_error: Some("controlled session failure".into()),
             identity_error: true,
             ..FakeArtifacts::default()
         });
-        let builder = SigrokFileSourceBuilder::with_artifacts(artifacts);
+        let source_factory = Arc::new(FakeSourceFactory {
+            error: Some("controlled session failure".into()),
+            ..FakeSourceFactory::default()
+        });
+        let builder = SigrokFileSourceBuilder::with_dependencies(source_factory, artifacts);
         let state = fixture_state("missing.sr");
         let mut context = crate::nodes::test_support::TestNodeBuildContext::default();
 
@@ -295,7 +313,9 @@ mod builder_tests {
     #[test]
     fn demo_data_bypasses_file_artifacts() {
         let artifacts = Arc::new(FakeArtifacts::default());
-        let builder = SigrokFileSourceBuilder::with_artifacts(artifacts.clone());
+        let source_factory = Arc::new(FakeSourceFactory::default());
+        let builder =
+            SigrokFileSourceBuilder::with_dependencies(source_factory.clone(), artifacts.clone());
         let mut state = SigrokFileSource::state();
         state.demo_data = true;
         state.channel_names = vec!["Demo".into()];
@@ -320,6 +340,9 @@ mod builder_tests {
             .unwrap();
         assert_eq!(runtime.name(), "Demo session");
         assert!(artifacts.operations.lock().unwrap().is_empty());
+        let opened = source_factory.opened.lock().unwrap();
+        assert_eq!(opened.len(), 1);
+        assert!(opened[0].1.demo_data());
     }
 
     fn fixture_state(path: &str) -> Value {

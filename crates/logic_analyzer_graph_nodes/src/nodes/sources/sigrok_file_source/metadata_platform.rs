@@ -2,10 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use logic_analyzer_graph_api::node_support::CapturePresentation;
-use logic_analyzer_processing::nodes::sources::sigrok_file::{
-    SigrokFileSource, SigrokFileSourceConfig, create_source,
-};
-use signal_processing::ProcessNode;
+use logic_analyzer_processing::nodes::sources::sigrok_file::SigrokFileSource;
 
 use super::builder::SigrokFileArtifacts;
 
@@ -15,18 +12,6 @@ struct NativeSigrokFileArtifacts {
 }
 
 impl SigrokFileArtifacts for NativeSigrokFileArtifacts {
-    fn open(
-        &self,
-        name: &str,
-        path: &Path,
-        channel_count: usize,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        create_source(
-            name,
-            SigrokFileSourceConfig::new(path, channel_count, false),
-        )
-    }
-
     fn capture_presentation(
         &self,
         path: &Path,

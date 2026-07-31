@@ -1,15 +1,29 @@
 //! Runtime builder for `Text File Writer` (e.g. `TGCK Recorder`'s CSV rows).
 
+use std::sync::Arc;
+
 use serde_json::Value;
 
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{NodeBuildContext, PortKind, ResolvedInputs};
-use logic_analyzer_processing::nodes::sinks::text_file_writer::create_writer;
+use logic_analyzer_processing::ProcessNodeConstruction;
+use logic_analyzer_processing::nodes::sinks::text_file_writer::{
+    TextFileWriterFactory, writer_factory,
+};
 use node_graph::api::Socket;
 use signal_processing::{ProcessNode, TextSample};
 
-#[derive(Default)]
-pub(crate) struct TextFileWriterBuilder;
+pub(crate) struct TextFileWriterBuilder {
+    writer_factory: Arc<dyn TextFileWriterFactory>,
+}
+
+impl Default for TextFileWriterBuilder {
+    fn default() -> Self {
+        Self {
+            writer_factory: writer_factory(),
+        }
+    }
+}
 
 impl RuntimeBuilder for TextFileWriterBuilder {
     fn is_sink(&self) -> bool {
@@ -38,6 +52,8 @@ impl RuntimeBuilder for TextFileWriterBuilder {
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        create_writer(name)
+        self.writer_factory
+            .create(name)
+            .map(ProcessNodeConstruction::into_process)
     }
 }

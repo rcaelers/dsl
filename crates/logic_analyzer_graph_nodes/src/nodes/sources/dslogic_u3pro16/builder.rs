@@ -9,40 +9,30 @@ use logic_analyzer_graph_api::node_support::{
     CapturePresentation, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
     TriggerConfigurationFeature, parse_state,
 };
-use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::create_source;
+use logic_analyzer_processing::ProcessNodeConstruction;
+use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::{
+    DsLogicU3Pro16SourceFactory, source_factory,
+};
 use node_graph::api::Socket;
-use signal_processing::logic_analyzer::LogicCaptureConfig;
 use signal_processing::{DerivedDataRetention, ProcessNode, Sample, SampleBlock};
 
 use super::definition::U3Pro16State;
 
-trait DsLogicSourceFactory: Send + Sync {
-    fn open(&self, name: &str, config: LogicCaptureConfig) -> Result<Box<dyn ProcessNode>, String>;
-}
-
-struct ProcessingDsLogicSourceFactory;
-
-impl DsLogicSourceFactory for ProcessingDsLogicSourceFactory {
-    fn open(&self, name: &str, config: LogicCaptureConfig) -> Result<Box<dyn ProcessNode>, String> {
-        create_source(name, config)
-    }
-}
-
 pub(crate) struct DsLogicU3Pro16Builder {
-    source_factory: Arc<dyn DsLogicSourceFactory>,
+    source_factory: Arc<dyn DsLogicU3Pro16SourceFactory>,
 }
 
 impl Default for DsLogicU3Pro16Builder {
     fn default() -> Self {
         Self {
-            source_factory: Arc::new(ProcessingDsLogicSourceFactory),
+            source_factory: source_factory(),
         }
     }
 }
 
 #[cfg(test)]
 impl DsLogicU3Pro16Builder {
-    fn with_source_factory(source_factory: Arc<dyn DsLogicSourceFactory>) -> Self {
+    fn with_source_factory(source_factory: Arc<dyn DsLogicU3Pro16SourceFactory>) -> Self {
         Self { source_factory }
     }
 }
@@ -164,7 +154,9 @@ impl RuntimeBuilder for DsLogicU3Pro16Builder {
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state: U3Pro16State = parse_state(state)?;
         let config = super::capture_configuration::capture_config(&state)?;
-        self.source_factory.open(name, config)
+        self.source_factory
+            .create(name, config)
+            .map(ProcessNodeConstruction::into_process)
     }
 }
 
@@ -172,6 +164,7 @@ impl RuntimeBuilder for DsLogicU3Pro16Builder {
 mod builder_tests {
     use std::sync::Mutex;
 
+    use signal_processing::logic_analyzer::LogicCaptureConfig;
     use signal_processing::{InputPort, OutputPort, WorkResult};
 
     use super::*;
@@ -204,19 +197,22 @@ mod builder_tests {
         error: Option<String>,
     }
 
-    impl DsLogicSourceFactory for FakeSourceFactory {
-        fn open(
+    impl DsLogicU3Pro16SourceFactory for FakeSourceFactory {
+        fn create(
             &self,
             name: &str,
             config: LogicCaptureConfig,
-        ) -> Result<Box<dyn ProcessNode>, String> {
+        ) -> Result<ProcessNodeConstruction, String> {
             if let Some(error) = &self.error {
                 return Err(error.clone());
             }
             *self.opened.lock().unwrap() = Some((name.to_owned(), config));
-            Ok(Box::new(FakeSource {
-                name: name.to_owned(),
-            }))
+            Ok(ProcessNodeConstruction::new(
+                Box::new(FakeSource {
+                    name: name.to_owned(),
+                }),
+                (),
+            ))
         }
     }
 

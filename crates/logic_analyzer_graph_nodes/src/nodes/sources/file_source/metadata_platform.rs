@@ -2,10 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use logic_analyzer_graph_api::node_support::CapturePresentation;
-use logic_analyzer_processing::nodes::sources::dsl_file::{
-    DslFileSource, DslFileSourceConfig, create_source,
-};
-use signal_processing::ProcessNode;
+use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
 
 use super::builder::DslFileArtifacts;
 
@@ -15,15 +12,6 @@ struct NativeDslFileArtifacts {
 }
 
 impl DslFileArtifacts for NativeDslFileArtifacts {
-    fn open(
-        &self,
-        name: &str,
-        path: &Path,
-        channel_count: usize,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        create_source(name, DslFileSourceConfig::new(path, channel_count))
-    }
-
     fn capture_presentation(
         &self,
         path: &Path,

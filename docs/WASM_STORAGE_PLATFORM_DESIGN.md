@@ -99,11 +99,19 @@ budgets, and indexing. Backend construction resolves platform capabilities.
 Graph-node definitions, serialized options, and runtime builders are identical on native and wasm.
 Each portable node has one graph-builder implementation. Those builders pass platform-neutral
 source and sink configuration to facades owned by
-`logic_analyzer_processing`. Each processing facade selects one complete implementation behind a
-private whole-file platform boundary: native file readers, writers, and USB devices use their
-resources, while wasm file sources generate deterministic synthetic captures, wasm writers discard
-their input streams, and the wasm U3Pro16 source generates synthetic capture data. The generic
-compiler and viewer see the same node and port contracts on both targets.
+`logic_analyzer_processing`.
+
+Each processing facade exposes a capability-specific factory trait. The facade returns a trait
+object for the implementation selected behind its private whole-file platform boundary, and graph
+builders retain that factory through the platform-neutral trait. Factory construction returns a
+`ProcessNodeConstruction<M>`, which keeps the runtime process and its platform-neutral metadata in
+one result. Capabilities without additional metadata use `()`; backend types and backend-only
+operations never appear in the factory contract.
+
+Native file readers, writers, and USB devices therefore use their resources without entering the
+graph layer, while wasm file sources generate deterministic synthetic captures, wasm writers
+discard their input streams, and the wasm U3Pro16 source generates synthetic capture data. The
+generic compiler and viewer see the same node and port contracts on both targets.
 
 ## Permitted target gates
 

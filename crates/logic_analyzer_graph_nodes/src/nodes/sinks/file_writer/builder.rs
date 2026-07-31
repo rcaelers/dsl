@@ -1,19 +1,31 @@
 //! Runtime builder for `File Writer`.
 
+use std::sync::Arc;
+
 use serde_json::Value;
 
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
+use logic_analyzer_processing::ProcessNodeConstruction;
 use logic_analyzer_processing::nodes::sinks::binary_file_writer::{
-    BinaryFileWriterConfig, WriteWidth, create_writer,
+    BinaryFileWriterConfig, BinaryFileWriterFactory, WriteWidth, writer_factory,
 };
 use node_graph::api::Socket;
 use signal_processing::{ProcessNode, TextSample, Word};
 
-#[derive(Default)]
-pub(crate) struct FileWriterBuilder;
+pub(crate) struct FileWriterBuilder {
+    writer_factory: Arc<dyn BinaryFileWriterFactory>,
+}
+
+impl Default for FileWriterBuilder {
+    fn default() -> Self {
+        Self {
+            writer_factory: writer_factory(),
+        }
+    }
+}
 
 impl RuntimeBuilder for FileWriterBuilder {
     fn is_sink(&self) -> bool {
@@ -67,9 +79,11 @@ impl RuntimeBuilder for FileWriterBuilder {
         let static_filename = state.filename.value.trim();
         let static_filename = (resolved.kind(1).is_none() && !static_filename.is_empty())
             .then(|| static_filename.to_owned());
-        create_writer(
-            name,
-            BinaryFileWriterConfig::new(width, state.index_csv.value, static_filename),
-        )
+        self.writer_factory
+            .create(
+                name,
+                BinaryFileWriterConfig::new(width, state.index_csv.value, static_filename),
+            )
+            .map(ProcessNodeConstruction::into_process)
     }
 }
