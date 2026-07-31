@@ -659,30 +659,69 @@
     },
     "logic_analyzer_ui.panel_layout": {
       "decoder_panels": {
-        "panels": {}
+        "panels": {
+          "panel-4": {
+            "format": "lane",
+            "hidden_columns": [],
+            "selected_source": "collector:4294967285:node:8:decoder"
+          },
+          "panel-6": {
+            "format": "lane",
+            "hidden_columns": [],
+            "selected_source": "collector:4294967292:node:1:decoder"
+          }
+        }
       },
       "layout": {
         "maximized": null,
-        "next_id": 2,
+        "next_id": 8,
         "root": {
-          "axis": "horizontal",
+          "axis": "vertical",
           "first": {
-            "kind": "panel",
-            "panel": {
-              "content": "logic_analyzer",
-              "id": "logic_analyzer",
-              "title_bar_position": "top"
+            "axis": "horizontal",
+            "first": {
+              "kind": "panel",
+              "panel": {
+                "content": "logic_analyzer",
+                "id": "logic_analyzer",
+                "title_bar_position": "top"
+              }
+            },
+            "fraction": 0.5331152677536011,
+            "id": 1,
+            "kind": "split",
+            "second": {
+              "kind": "panel",
+              "panel": {
+                "content": "node_graph",
+                "id": "node_graph",
+                "title_bar_position": "top"
+              }
             }
           },
-          "fraction": 0.5331152677536011,
-          "id": 1,
+          "fraction": 0.8199999928474426,
+          "id": 5,
           "kind": "split",
           "second": {
-            "kind": "panel",
-            "panel": {
-              "content": "node_graph",
-              "id": "node_graph",
-              "title_bar_position": "top"
+            "axis": "horizontal",
+            "first": {
+              "kind": "panel",
+              "panel": {
+                "content": "decoder",
+                "id": "panel-4",
+                "title_bar_position": "top"
+              }
+            },
+            "fraction": 0.4941338896751404,
+            "id": 7,
+            "kind": "split",
+            "second": {
+              "kind": "panel",
+              "panel": {
+                "content": "decoder",
+                "id": "panel-6",
+                "title_bar_position": "top"
+              }
             }
           }
         }
@@ -691,7 +730,10 @@
         "panels": {}
       }
     },
-    "logic_analyzer_ui.sampling_overlay": 1,
+    "logic_analyzer_ui.sampling_overlay": [
+      1,
+      8
+    ],
     "logic_analyzer_ui.viewer_lane_order": [
       {
         "Channel": 0
@@ -725,6 +767,30 @@
       },
       {
         "Channel": 10
+      },
+      {
+        "Derived": "n4294967292_retained_output_collector:node:1:mosi"
+      },
+      {
+        "Derived": "n4294967291_retained_output_collector:lane:0"
+      },
+      {
+        "Derived": "n4294967290_retained_output_collector:lane:0"
+      },
+      {
+        "Derived": "n4294967288_retained_output_collector:lane:0"
+      },
+      {
+        "Derived": "n4294967286_retained_output_collector:lane:0"
+      },
+      {
+        "Derived": "n4294967285_retained_output_collector:lane:0"
+      },
+      {
+        "Derived": "n4294967289_retained_output_collector:lane:0"
+      },
+      {
+        "Derived": "n4294967287_retained_output_collector:lane:0"
       },
       {
         "Derived": "n4294967295_output_subscription_collector:node:1:mosi"
