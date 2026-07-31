@@ -26,15 +26,7 @@ use signal_processing::{
 };
 
 use super::super::output_storage::{NativeOutputStorage, OutputFile, OutputStorage};
-
-/// How a word's value is rendered in the CSV `value` column.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum CsvValueFormat {
-    #[default]
-    Decimal,
-    /// Uppercase hex, zero-padded to `width` digits.
-    Hex { width: usize },
-}
+use super::configuration::CsvValueFormat;
 
 impl CsvValueFormat {
     fn append_row(

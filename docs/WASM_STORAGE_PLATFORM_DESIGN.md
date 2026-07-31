@@ -96,11 +96,13 @@ Compiler IR and live-run state have the same fields and variants on every platfo
 describes storage requirements such as exact-history retention, persistence settings, cache
 budgets, and indexing. Backend construction resolves platform capabilities.
 
-Graph-node definitions and their serialized options are identical on native and wasm. Concrete
-builders select complete platform implementations: native file readers, writers, and USB devices
-use their resources, while wasm file sources generate the deterministic synthetic capture, wasm writers
-discard their input streams, and the wasm U3Pro16 source generates synthetic capture data. The
-generic compiler and viewer see the same node and port contracts on both targets.
+Graph-node definitions and their serialized options are identical on native and wasm. Graph
+builders pass platform-neutral source and sink configuration to facades owned by
+`logic_analyzer_processing`. Each processing facade selects one complete implementation behind a
+private whole-file platform boundary: native file readers, writers, and USB devices use their
+resources, while wasm file sources generate deterministic synthetic captures, wasm writers discard
+their input streams, and the wasm U3Pro16 source generates synthetic capture data. The generic
+compiler and viewer see the same node and port contracts on both targets.
 
 ## Permitted target gates
 

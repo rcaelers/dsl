@@ -9,7 +9,7 @@ use logic_analyzer_graph_api::node_support::{
     CapturePresentation, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
     TriggerConfigurationFeature, parse_state,
 };
-use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::DsLogicU3Pro16Source;
+use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::create_source;
 use node_graph::api::Socket;
 use signal_processing::logic_analyzer::LogicCaptureConfig;
 use signal_processing::{DerivedDataRetention, ProcessNode, Sample, SampleBlock};
@@ -24,10 +24,7 @@ struct HardwareDsLogicSourceFactory;
 
 impl DsLogicSourceFactory for HardwareDsLogicSourceFactory {
     fn open(&self, name: &str, config: LogicCaptureConfig) -> Result<Box<dyn ProcessNode>, String> {
-        let source = DsLogicU3Pro16Source::open_first(config)
-            .map_err(|error| error.to_string())?
-            .with_name(name);
-        Ok(Box::new(source))
+        create_source(name, config)
     }
 }
 
@@ -166,7 +163,7 @@ impl RuntimeBuilder for DsLogicU3Pro16Builder {
         state: &Value,
         edit: &LiveCaptureEdit,
     ) -> Result<Option<Value>, String> {
-        super::implementation::apply_live_capture_edit(state, edit).map(Some)
+        super::live_edit::apply(state, edit).map(Some)
     }
 
     fn build(
@@ -177,7 +174,7 @@ impl RuntimeBuilder for DsLogicU3Pro16Builder {
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state: U3Pro16State = parse_state(state)?;
-        let config = super::implementation::capture_config(&state)?;
+        let config = super::capture_configuration::capture_config(&state)?;
         self.source_factory.open(name, config)
     }
 }

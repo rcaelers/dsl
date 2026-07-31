@@ -20,19 +20,7 @@ use signal_processing::{
 };
 
 use super::super::output_storage::{NativeOutputStorage, OutputFile, OutputStorage};
-
-/// How a numeric word's value is written to the file. Byte and text words are
-/// written in full and do not use this width.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum WriteWidth {
-    /// Low byte only (`value as u8`).
-    #[default]
-    U8,
-    /// Little-endian 16-bit.
-    U16Le,
-    /// Little-endian 32-bit.
-    U32Le,
-}
+use super::configuration::WriteWidth;
 
 impl WriteWidth {
     fn append_to(&self, output: &mut Vec<u8>, value: u64) {

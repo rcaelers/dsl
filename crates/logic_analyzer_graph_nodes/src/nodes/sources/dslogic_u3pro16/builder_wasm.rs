@@ -4,10 +4,10 @@ use serde_json::Value;
 
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{
-    CapturePresentation, NodeBuildContext, PortKind, ResolvedInputs, TriggerConfigurationFeature,
-    parse_state,
+    CapturePresentation, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
+    TriggerConfigurationFeature, parse_state,
 };
-use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
+use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::create_source;
 use node_graph::api::Socket;
 use signal_processing::{DerivedDataRetention, ProcessNode, Sample, SampleBlock};
 
@@ -113,6 +113,14 @@ impl RuntimeBuilder for DsLogicU3Pro16Builder {
         super::trigger::configuration(&state).map(Some)
     }
 
+    fn apply_live_capture_edit(
+        &self,
+        state: &Value,
+        edit: &LiveCaptureEdit,
+    ) -> Result<Option<Value>, String> {
+        super::live_edit::apply(state, edit).map(Some)
+    }
+
     fn build(
         &self,
         name: &str,
@@ -121,17 +129,7 @@ impl RuntimeBuilder for DsLogicU3Pro16Builder {
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state: U3Pro16State = parse_state(state)?;
-        let channels = state
-            .channels
-            .enabled
-            .iter()
-            .filter(|enabled| **enabled)
-            .count()
-            .max(1);
-        Ok(Box::new(
-            SyntheticCaptureSource::new()
-                .with_channel_count(channels)
-                .with_name(name),
-        ))
+        let config = super::capture_configuration::capture_config(&state)?;
+        create_source(name, config)
     }
 }

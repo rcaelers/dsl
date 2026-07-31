@@ -10,13 +10,20 @@ use logic_analyzer_graph_api::node_support::{
     CaptureCacheIdentity, CapturePresentation, CapturePresentationSignal, NodeBuildContext,
     PortKind, ResolvedInputs, parse_state,
 };
-use logic_analyzer_processing::nodes::sources::sigrok_file::SigrokFileSource;
+use logic_analyzer_processing::nodes::sources::sigrok_file::{
+    SigrokFileSource, SigrokFileSourceConfig, create_source,
+};
 use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
 use node_graph::api::Socket;
 use signal_processing::{IndexedCapturePresentation, ProcessNode, Sample, SampleBlock};
 
 trait SigrokFileArtifacts: Send + Sync {
-    fn open(&self, name: &str, path: &Path) -> Result<Box<dyn ProcessNode>, String>;
+    fn open(
+        &self,
+        name: &str,
+        path: &Path,
+        channel_count: usize,
+    ) -> Result<Box<dyn ProcessNode>, String>;
     fn indexed_presentation(&self, path: &Path) -> IndexedCapturePresentation;
     fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String>;
 }
@@ -27,10 +34,16 @@ struct NativeSigrokFileArtifacts {
 }
 
 impl SigrokFileArtifacts for NativeSigrokFileArtifacts {
-    fn open(&self, name: &str, path: &Path) -> Result<Box<dyn ProcessNode>, String> {
-        SigrokFileSource::new(path)
-            .map(|source| Box::new(source.with_name(name)) as Box<dyn ProcessNode>)
-            .map_err(|error| error.to_string())
+    fn open(
+        &self,
+        name: &str,
+        path: &Path,
+        channel_count: usize,
+    ) -> Result<Box<dyn ProcessNode>, String> {
+        create_source(
+            name,
+            SigrokFileSourceConfig::new(path, channel_count, false),
+        )
     }
 
     fn indexed_presentation(&self, path: &Path) -> IndexedCapturePresentation {
@@ -172,14 +185,13 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state: super::definition::SigrokFileSourceState = parse_state(state)?;
         if state.demo_data {
-            return Ok(Box::new(
-                SyntheticCaptureSource::new()
-                    .with_channel_count(state.channel_count())
-                    .with_name(name),
-            ));
+            return create_source(
+                name,
+                SigrokFileSourceConfig::new(&state.file.value, state.channel_count(), true),
+            );
         }
         self.artifacts
-            .open(name, Path::new(&state.file.value))
+            .open(name, Path::new(&state.file.value), state.channel_count())
             .map_err(|error| format!("cannot open '{}': {error}", state.file.value))
     }
 }
@@ -203,7 +215,12 @@ mod builder_tests {
     }
 
     impl SigrokFileArtifacts for FakeArtifacts {
-        fn open(&self, name: &str, path: &Path) -> Result<Box<dyn ProcessNode>, String> {
+        fn open(
+            &self,
+            name: &str,
+            path: &Path,
+            _channel_count: usize,
+        ) -> Result<Box<dyn ProcessNode>, String> {
             self.operations
                 .lock()
                 .unwrap()

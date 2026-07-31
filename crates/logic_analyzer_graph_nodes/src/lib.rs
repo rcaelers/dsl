@@ -1,5 +1,7 @@
 //! Built-in LogicConduit graph nodes and payload presentations.
 
+#[cfg(test)]
+mod architecture_tests;
 #[cfg(not(target_arch = "wasm32"))]
 mod catalogs;
 mod link;

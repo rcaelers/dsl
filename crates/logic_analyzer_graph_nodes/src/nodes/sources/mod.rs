@@ -1,6 +1,7 @@
 //! Concrete capture source graph nodes.
 
 mod dslogic_u3pro16;
+#[cfg(not(target_arch = "wasm32"))]
 mod file_identity_cache;
 mod file_source;
 mod sigrok_file_source;

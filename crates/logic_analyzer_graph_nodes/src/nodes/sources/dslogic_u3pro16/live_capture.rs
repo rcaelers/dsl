@@ -14,8 +14,9 @@ use signal_processing::{
     TriggerPlacementCapability, TriggerProgram, TriggerTimeoutAction,
 };
 
+use super::capture_configuration::capture_config;
 use super::definition::U3Pro16State;
-use super::implementation::{capture_config, requested_capture_policy};
+use super::implementation::requested_capture_policy;
 
 struct U3Pro16GraphSourceFactory {
     channels: Arc<[CaptureAnalysisChannel]>,

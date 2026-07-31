@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{NodeBuildContext, PortKind, ResolvedInputs};
-use logic_analyzer_processing::nodes::sinks::discard_writer::DiscardTextWriter;
+use logic_analyzer_processing::nodes::sinks::text_file_writer::create_writer;
 use node_graph::api::Socket;
 use signal_processing::{ProcessNode, TextSample};
 
@@ -43,6 +43,6 @@ impl RuntimeBuilder for TextFileWriterBuilder {
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        Ok(Box::new(DiscardTextWriter::new(name)))
+        create_writer(name)
     }
 }

@@ -6,7 +6,9 @@ use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
-use logic_analyzer_processing::nodes::sinks::discard_writer::DiscardWordWriter;
+use logic_analyzer_processing::nodes::sinks::binary_file_writer::{
+    BinaryFileWriterConfig, WriteWidth, create_writer,
+};
 use node_graph::api::Socket;
 use signal_processing::{ProcessNode, TextSample, Word};
 
@@ -54,10 +56,22 @@ impl RuntimeBuilder for FileWriterBuilder {
     fn build(
         &self,
         name: &str,
-        _state: &Value,
-        _resolved: &ResolvedInputs,
+        state: &Value,
+        resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        Ok(Box::new(DiscardWordWriter::new(name)))
+        let state: super::definition::FileWriterState = parse_state(state)?;
+        let width = match state.write_width.selected() {
+            "U16 LE" => WriteWidth::U16Le,
+            "U32 LE" => WriteWidth::U32Le,
+            _ => WriteWidth::U8,
+        };
+        let static_filename = state.filename.value.trim();
+        let static_filename = (resolved.kind(1).is_none() && !static_filename.is_empty())
+            .then(|| static_filename.to_owned());
+        create_writer(
+            name,
+            BinaryFileWriterConfig::new(width, state.index_csv.value, static_filename),
+        )
     }
 }

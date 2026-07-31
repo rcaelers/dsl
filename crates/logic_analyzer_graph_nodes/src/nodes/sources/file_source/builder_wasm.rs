@@ -6,7 +6,7 @@ use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{
     CapturePresentation, NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
-use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
+use logic_analyzer_processing::nodes::sources::dsl_file::{DslFileSourceConfig, create_source};
 use node_graph::api::Socket;
 use signal_processing::{DerivedDataRetention, ProcessNode, Sample, SampleBlock};
 
@@ -82,10 +82,9 @@ impl RuntimeBuilder for FileSourceBuilder {
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state: super::definition::DslFileSourceState = parse_state(state)?;
-        Ok(Box::new(
-            SyntheticCaptureSource::new()
-                .with_channel_count(state.channel_names.len())
-                .with_name(name),
-        ))
+        create_source(
+            name,
+            DslFileSourceConfig::new(&state.file.value, state.channel_names.len()),
+        )
     }
 }

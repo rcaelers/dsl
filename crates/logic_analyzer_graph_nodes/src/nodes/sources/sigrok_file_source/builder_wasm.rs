@@ -7,6 +7,9 @@ use logic_analyzer_graph_api::node_support::{
     CapturePresentation, CapturePresentationSignal, NodeBuildContext, PortKind, ResolvedInputs,
     parse_state,
 };
+use logic_analyzer_processing::nodes::sources::sigrok_file::{
+    SigrokFileSourceConfig, create_source,
+};
 use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
 use node_graph::api::Socket;
 use signal_processing::{ProcessNode, Sample, SampleBlock};
@@ -103,10 +106,9 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state: super::definition::SigrokFileSourceState = parse_state(state)?;
-        Ok(Box::new(
-            SyntheticCaptureSource::new()
-                .with_channel_count(state.channel_count())
-                .with_name(name),
-        ))
+        create_source(
+            name,
+            SigrokFileSourceConfig::new(&state.file.value, state.channel_count(), state.demo_data),
+        )
     }
 }

@@ -7,7 +7,9 @@ use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
-use logic_analyzer_processing::nodes::sinks::csv_word_writer::{CsvValueFormat, CsvWordWriter};
+use logic_analyzer_processing::nodes::sinks::csv_word_writer::{
+    CsvValueFormat, CsvWordWriterConfig, create_writer,
+};
 use node_graph::api::Socket;
 use signal_processing::{ProcessNode, TextSample, Word};
 
@@ -63,16 +65,18 @@ impl RuntimeBuilder for CsvWriterBuilder {
             _ => CsvValueFormat::Decimal,
         };
         let header = state.header.value.trim();
-        let mut writer = CsvWordWriter::new()
-            .with_value_format(format)
-            .with_header((!header.is_empty()).then(|| header.to_string()))
-            .with_name(name);
         // Static fallback only when nothing is wired into Filename — a
         // connected stream always wins.
         let static_filename = state.filename.value.trim();
-        if resolved.kind(1).is_none() && !static_filename.is_empty() {
-            writer = writer.with_filename(static_filename);
-        }
-        Ok(Box::new(writer))
+        let static_filename = (resolved.kind(1).is_none() && !static_filename.is_empty())
+            .then(|| static_filename.to_owned());
+        create_writer(
+            name,
+            CsvWordWriterConfig::new(
+                format,
+                (!header.is_empty()).then(|| header.to_owned()),
+                static_filename,
+            ),
+        )
     }
 }

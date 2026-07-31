@@ -11,7 +11,9 @@ use logic_analyzer_graph_api::node_support::{
     CaptureCacheIdentity, CapturePresentation, NodeBuildContext, PortKind, ResolvedInputs,
     parse_state,
 };
-use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
+use logic_analyzer_processing::nodes::sources::dsl_file::{
+    DslFileSource, DslFileSourceConfig, create_source,
+};
 use node_graph::api::Socket;
 use signal_processing::{
     DEFAULT_DERIVED_DATA_MAX_ENTRIES, DerivedDataRetention, IndexedCapturePresentation,
@@ -19,7 +21,12 @@ use signal_processing::{
 };
 
 trait DslFileArtifacts: Send + Sync {
-    fn open(&self, name: &str, path: &Path) -> Result<Box<dyn ProcessNode>, String>;
+    fn open(
+        &self,
+        name: &str,
+        path: &Path,
+        channel_count: usize,
+    ) -> Result<Box<dyn ProcessNode>, String>;
     fn indexed_presentation(&self, path: &Path) -> IndexedCapturePresentation;
     fn cache_identity(&self, path: &Path) -> Result<[u8; 32], String>;
 }
@@ -30,10 +37,13 @@ struct NativeDslFileArtifacts {
 }
 
 impl DslFileArtifacts for NativeDslFileArtifacts {
-    fn open(&self, name: &str, path: &Path) -> Result<Box<dyn ProcessNode>, String> {
-        DslFileSource::new(path)
-            .map(|source| Box::new(source.with_name(name)) as Box<dyn ProcessNode>)
-            .map_err(|error| error.to_string())
+    fn open(
+        &self,
+        name: &str,
+        path: &Path,
+        channel_count: usize,
+    ) -> Result<Box<dyn ProcessNode>, String> {
+        create_source(name, DslFileSourceConfig::new(path, channel_count))
     }
 
     fn indexed_presentation(&self, path: &Path) -> IndexedCapturePresentation {
@@ -148,7 +158,11 @@ impl RuntimeBuilder for FileSourceBuilder {
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state: super::definition::DslFileSourceState = parse_state(state)?;
         self.artifacts
-            .open(name, Path::new(&state.file.value))
+            .open(
+                name,
+                Path::new(&state.file.value),
+                state.channel_names.len(),
+            )
             .map_err(|error| format!("cannot open '{}': {error}", state.file.value))
     }
 }
@@ -172,7 +186,12 @@ mod builder_tests {
     }
 
     impl DslFileArtifacts for FakeArtifacts {
-        fn open(&self, name: &str, path: &Path) -> Result<Box<dyn ProcessNode>, String> {
+        fn open(
+            &self,
+            name: &str,
+            path: &Path,
+            _channel_count: usize,
+        ) -> Result<Box<dyn ProcessNode>, String> {
             self.operations
                 .lock()
                 .unwrap()
