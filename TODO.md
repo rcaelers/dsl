@@ -55,14 +55,6 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ## Refactorings
 
-### Capture platform boundaries
-
-- [capture.platform.parity-tests] Add shared contract tests for the explicitly cross-platform node
-  set. Run them on native and wasm against the same expected catalog entries, serialized defaults,
-  state options, socket schemas, port resolution, lifecycle metadata, presentation metadata, and
-  lowering results. Represent intentionally unavailable nodes explicitly instead of requiring the
-  complete native and wasm catalogs to be identical.
-
 ### Capture provider and host architecture
 
 - [capture.live.provider-unification] Represent file and live sources through one generic capture

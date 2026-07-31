@@ -25,6 +25,13 @@ impl Default for TextFileWriterBuilder {
     }
 }
 
+impl TextFileWriterBuilder {
+    #[cfg(test)]
+    pub(crate) fn with_writer_factory(writer_factory: Arc<dyn TextFileWriterFactory>) -> Self {
+        Self { writer_factory }
+    }
+}
+
 impl RuntimeBuilder for TextFileWriterBuilder {
     fn is_sink(&self) -> bool {
         true
@@ -56,4 +63,19 @@ impl RuntimeBuilder for TextFileWriterBuilder {
             .create(name)
             .map(ProcessNodeConstruction::into_process)
     }
+}
+
+#[cfg(test)]
+fn platform_parity_builder() -> Box<dyn RuntimeBuilder> {
+    Box::new(TextFileWriterBuilder::with_writer_factory(Arc::new(
+        crate::nodes::test_support::TestWriterFactory,
+    )))
+}
+
+#[cfg(test)]
+inventory::submit! {
+    crate::nodes::test_support::PlatformParityBuilderRegistration::new(
+        "org.logicconduit.graph-node.sinks.text-file-writer/v1",
+        platform_parity_builder,
+    )
 }

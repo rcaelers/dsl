@@ -30,7 +30,7 @@ impl Default for SigrokFileSourceBuilder {
 
 impl SigrokFileSourceBuilder {
     #[cfg(test)]
-    fn with_source_factory(source_factory: Arc<dyn SigrokFileSourceFactory>) -> Self {
+    pub(crate) fn with_source_factory(source_factory: Arc<dyn SigrokFileSourceFactory>) -> Self {
         Self { source_factory }
     }
 
@@ -109,6 +109,21 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
             .map(logic_analyzer_processing::ProcessNodeConstruction::into_process)
             .map_err(|error| format!("cannot open '{}': {error}", state.file.value))
     }
+}
+
+#[cfg(test)]
+fn platform_parity_builder() -> Box<dyn RuntimeBuilder> {
+    Box::new(SigrokFileSourceBuilder::with_source_factory(Arc::new(
+        crate::nodes::test_support::TestSourceFactory::file(),
+    )))
+}
+
+#[cfg(test)]
+inventory::submit! {
+    crate::nodes::test_support::PlatformParityBuilderRegistration::new(
+        "org.logicconduit.graph-node.sources.sigrok-file-source/v1",
+        platform_parity_builder,
+    )
 }
 
 #[cfg(test)]

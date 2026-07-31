@@ -27,6 +27,13 @@ impl Default for CsvWriterBuilder {
     }
 }
 
+impl CsvWriterBuilder {
+    #[cfg(test)]
+    pub(crate) fn with_writer_factory(writer_factory: Arc<dyn CsvWordWriterFactory>) -> Self {
+        Self { writer_factory }
+    }
+}
+
 impl RuntimeBuilder for CsvWriterBuilder {
     fn is_sink(&self) -> bool {
         true
@@ -92,4 +99,19 @@ impl RuntimeBuilder for CsvWriterBuilder {
             )
             .map(ProcessNodeConstruction::into_process)
     }
+}
+
+#[cfg(test)]
+fn platform_parity_builder() -> Box<dyn RuntimeBuilder> {
+    Box::new(CsvWriterBuilder::with_writer_factory(Arc::new(
+        crate::nodes::test_support::TestWriterFactory,
+    )))
+}
+
+#[cfg(test)]
+inventory::submit! {
+    crate::nodes::test_support::PlatformParityBuilderRegistration::new(
+        "org.logicconduit.graph-node.sinks.csv-writer/v1",
+        platform_parity_builder,
+    )
 }

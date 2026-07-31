@@ -122,6 +122,13 @@ or source-capability target selector. Live hardware metadata exposes a generic
 `ConfiguredAcquisition`; graph live-capture orchestration consumes that interface without importing
 the concrete USB capture implementation.
 
+The explicitly portable capture-node catalog is guarded by one shared contract fixture executed on
+native and wasm. It fixes the serialized defaults and state options, socket and runtime-port
+schemas, lifecycle and presentation metadata, cache identity, and factory-neutral lowering result
+for each portable source and sink. Nodes whose implementation is intentionally target-specific are
+listed separately with their supported target, so parity does not imply that every catalog must be
+identical.
+
 Native file readers, writers, and USB devices therefore use their resources without entering the
 graph layer, while wasm file sources generate deterministic synthetic captures, wasm writers
 discard their input streams, and the wasm U3Pro16 source generates synthetic capture data. The

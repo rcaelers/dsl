@@ -25,7 +25,7 @@ impl CaptureSourceMetadata for WasmSigrokFileSourceMetadata {
     fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
         Ok(Some(synthetic_presentation(
             self.config.channel_names().iter().cloned(),
-            &[],
+            &[9],
         )))
     }
 

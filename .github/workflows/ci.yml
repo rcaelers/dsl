@@ -116,6 +116,12 @@ jobs:
         env:
           RUSTFLAGS: -D unreachable-pub
         run: cargo check -p logic-analyzer-processing --target wasm32-unknown-unknown --all-targets --all-features
+      - name: Install wasm test runner
+        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+      - name: Test portable capture-node parity in wasm
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+        run: cargo test -p logic-analyzer-graph-nodes --target wasm32-unknown-unknown --lib platform_parity_tests
       - name: Build wasm UI with compile-time plugin constructors
         env:
           RUSTFLAGS: -D unreachable-pub

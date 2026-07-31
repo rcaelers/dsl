@@ -32,7 +32,9 @@ impl Default for DsLogicU3Pro16Builder {
 
 impl DsLogicU3Pro16Builder {
     #[cfg(test)]
-    fn with_source_factory(source_factory: Arc<dyn DsLogicU3Pro16SourceFactory>) -> Self {
+    pub(crate) fn with_source_factory(
+        source_factory: Arc<dyn DsLogicU3Pro16SourceFactory>,
+    ) -> Self {
         Self { source_factory }
     }
 
@@ -171,6 +173,21 @@ impl RuntimeBuilder for DsLogicU3Pro16Builder {
             .create(name, config)
             .map(ProcessNodeConstruction::into_process)
     }
+}
+
+#[cfg(test)]
+fn platform_parity_builder() -> Box<dyn RuntimeBuilder> {
+    Box::new(DsLogicU3Pro16Builder::with_source_factory(Arc::new(
+        crate::nodes::test_support::TestSourceFactory::live(),
+    )))
+}
+
+#[cfg(test)]
+inventory::submit! {
+    crate::nodes::test_support::PlatformParityBuilderRegistration::new(
+        "org.logicconduit.graph-node.sources.dslogic-u3pro16/v1",
+        platform_parity_builder,
+    )
 }
 
 #[cfg(test)]

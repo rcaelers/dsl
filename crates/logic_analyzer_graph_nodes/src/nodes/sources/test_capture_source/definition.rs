@@ -278,6 +278,8 @@ mod tests {
         let mut state = TestCaptureSourceState::default();
         state.set_trigger_condition(2, High).unwrap();
         state.set_trigger_condition(9, Falling).unwrap();
+        let program = state.trigger_program().cloned();
+        state.set_trigger_program(program).unwrap();
         let saved = serde_json::to_value(&state).unwrap();
         let restored: TestCaptureSourceState = serde_json::from_value(saved).unwrap();
         assert_eq!(restored, state);
