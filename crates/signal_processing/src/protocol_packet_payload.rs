@@ -44,6 +44,10 @@ impl CollectedLaneQuery for ProtocolPacketLaneQuery {
         self
     }
 
+    fn snapshot_generation(&self) -> Option<u64> {
+        Some(self.state.read().unwrap().generation)
+    }
+
     fn snapshot(
         &self,
         request: CollectedLaneSnapshotRequest,

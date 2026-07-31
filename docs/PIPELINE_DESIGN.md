@@ -202,6 +202,11 @@ cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
   protocol-selection /path/to/reference.dsl
 ```
 
+Its `live-viewer-runtime` command instead runs a headless production egui viewer during decoding.
+It reports bounded lane-query and pointer-input frame latency, including counts above the 8 ms and
+16 ms foreground budgets. These measurements diagnose presentation stalls and do not participate
+in the throughput acceptance threshold.
+
 The reference workload is the complete approximately 250-second, 50-MHz capture. Its throughput
 acceptance threshold is at least 6x real time (approximately 42 seconds) with deterministic output,
 bounded memory, and responsive cancellation. Throughput comparisons use the application's normal

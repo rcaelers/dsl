@@ -201,6 +201,10 @@ pub trait ViewerLaneRenderer: Send + Sync {
     /// Projects a bounded adapter snapshot into generic level/event
     /// transitions for hover measurement. Payloads without level or event
     /// semantics return `None`.
+    fn supports_interaction(&self) -> bool {
+        false
+    }
+
     fn interaction(
         &self,
         _track: &ViewerLaneTrack,

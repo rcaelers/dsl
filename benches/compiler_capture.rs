@@ -1,13 +1,14 @@
 #[path = "../tests/integration_tests_support/mod.rs"]
 mod integration_tests_support;
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use egui::Pos2;
+use egui::{Color32, Event, Id, Pos2, Rect, UiBuilder};
 
 use logic_analyzer_graph_compiler::{CompileCtx, GraphCompiler, OutputSubscriptionPlan};
 use logic_analyzer_processing::nodes::decoders::parallel_decoder::{
@@ -22,9 +23,13 @@ use logic_analyzer_processing::nodes::logic::word_matcher::WordMatcher;
 use logic_analyzer_processing::nodes::sinks::binary_file_writer::BinaryFileWriter;
 use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
 use logic_analyzer_processing::types::CsPolarity;
+use logic_analyzer_viewer::{
+    LogicAnalyzerViewer, ViewerLaneBadge, WaveformPresentationRegistry, viewer_lane_renderer,
+};
 use node_graph::{NodeGraphWidget, NodeId, SocketDirection, SocketId};
 use signal_processing::{
-    CollectedLaneSnapshotRequest, CollectedWordLaneQuery, Pipeline, TriggerLaneSnapshot,
+    CollectedLaneQuery, CollectedLaneSnapshotRequest, CollectedWordLaneQuery, DerivedLanes,
+    OpaqueCollectedLane, OpaqueCollectedLaneSnapshot, Pipeline, TriggerLaneSnapshot,
 };
 
 use integration_tests_support as nodes;
@@ -1244,9 +1249,64 @@ fn current_reference_runtime_benchmark(capture: &Path) {
     assert!(!binary_files(&output).is_empty());
 }
 
+#[derive(Default)]
+struct ViewerLaneTimings {
+    snapshots: Mutex<Vec<Duration>>,
+}
+
+struct TimedViewerLaneQuery {
+    lane: OpaqueCollectedLane,
+    timings: Arc<ViewerLaneTimings>,
+}
+
+impl CollectedLaneQuery for TimedViewerLaneQuery {
+    fn into_any(self: Arc<Self>) -> Arc<dyn std::any::Any + Send + Sync> {
+        self
+    }
+
+    fn snapshot_generation(&self) -> Option<u64> {
+        self.lane.snapshot_generation()
+    }
+
+    fn snapshot(
+        &self,
+        request: CollectedLaneSnapshotRequest,
+    ) -> Option<OpaqueCollectedLaneSnapshot> {
+        let started = Instant::now();
+        let snapshot = self.lane.snapshot(request);
+        self.timings
+            .snapshots
+            .lock()
+            .unwrap()
+            .push(started.elapsed());
+        snapshot
+    }
+
+    fn nearest_time_boundary(&self, timestamp_ns: u64, max_distance_ns: u64) -> Option<u64> {
+        self.lane
+            .nearest_time_boundary(timestamp_ns, max_distance_ns)
+    }
+
+    fn timeline_extent_end_ns(&self) -> Option<u64> {
+        self.lane.timeline_extent_end_ns()
+    }
+
+    fn is_live(&self) -> bool {
+        self.lane.is_live()
+    }
+}
+
 fn live_viewer_subscription_benchmark(capture: &Path) {
-    const TARGET_POINTS: usize = 5_120;
     const END_NS: u64 = 250_000_000_000;
+    const FRAME_INTERVAL: Duration = Duration::from_millis(16);
+    const WORD_PAYLOAD_ID: &str = "org.logicconduit.word/v1";
+    const WORD_RENDERER_ID: &str = "org.logicconduit.renderer.word/v1";
+
+    fn percentile(samples: &mut [Duration], numerator: usize, denominator: usize) -> Duration {
+        samples.sort_unstable();
+        let index = samples.len().saturating_sub(1).saturating_mul(numerator) / denominator;
+        samples.get(index).copied().unwrap_or_default()
+    }
 
     let workspace = temporary_workspace();
     let output = workspace.path().join("compiled");
@@ -1257,45 +1317,133 @@ fn live_viewer_subscription_benchmark(capture: &Path) {
     let mut run = compiler
         .start_app_run(widget.graph(), &mut context)
         .unwrap();
-    let mut generations = HashMap::new();
-    let mut sampled_at = HashMap::new();
-    let mut query_count = 0_u64;
+    let displayed_lanes = DerivedLanes::new();
+    let presentations = WaveformPresentationRegistry::new();
+    presentations.register_default_payload(
+        WORD_PAYLOAD_ID,
+        ViewerLaneBadge::new("W", Color32::from_rgb(215, 140, 60)),
+        viewer_lane_renderer(WORD_RENDERER_ID).expect("built-in word renderer is registered"),
+    );
+    let mut viewer = LogicAnalyzerViewer::new();
+    viewer.set_channels_with_duration(Vec::new(), END_NS as f64 / 1_000.0);
+    viewer.set_derived_lanes(displayed_lanes.clone());
+    viewer.set_waveform_presentations(presentations);
+
+    let screen_rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(2_560.0, 1_080.0));
+    let egui_context = egui::Context::default();
+    egui_context.begin_pass(egui::RawInput {
+        screen_rect: Some(screen_rect),
+        ..Default::default()
+    });
+    let mut warmup_ui = egui::Ui::new(
+        egui_context.clone(),
+        Id::new("live-viewer-benchmark"),
+        UiBuilder::new().max_rect(screen_rect),
+    );
+    viewer.show(&mut warmup_ui);
+    let _ = egui_context.end_pass();
+
+    let mut timings: BTreeMap<String, Arc<ViewerLaneTimings>> = BTreeMap::new();
+    let mut frame_latencies = Vec::new();
+    let benchmark_started = Instant::now();
     while !run.is_finished() {
         let frame_started = Instant::now();
         for lane in run
             .derived_lanes()
             .opaque_lanes()
             .into_iter()
-            .filter(|lane| lane.payload().stable_id() == "org.logicconduit.word/v1")
+            .filter(|lane| lane.payload().stable_id() == WORD_PAYLOAD_ID)
         {
-            let Some(metadata) = lane.table_metadata() else {
-                continue;
-            };
-            if generations.get(lane.name()) == Some(&metadata.generation) {
+            if timings.contains_key(lane.name()) {
                 continue;
             }
-            if lane.is_live()
-                && sampled_at
-                    .get(lane.name())
-                    .is_some_and(|sampled: &Instant| sampled.elapsed() < Duration::from_millis(50))
-            {
-                continue;
-            }
-            sampled_at.insert(lane.name().to_owned(), Instant::now());
-            generations.insert(lane.name().to_owned(), metadata.generation);
-            lane.snapshot(CollectedLaneSnapshotRequest {
-                start_time_ns: 0,
-                end_time_ns: END_NS,
-                max_items: TARGET_POINTS,
-            })
-            .expect("word lane supports snapshots");
-            query_count += 1;
+            let lane_name = lane.name().to_owned();
+            let lane_timings = Arc::new(ViewerLaneTimings::default());
+            displayed_lanes.publish_opaque_lane(
+                lane_name.clone(),
+                lane.payload().clone(),
+                Arc::new(TimedViewerLaneQuery {
+                    lane,
+                    timings: Arc::clone(&lane_timings),
+                }),
+            );
+            timings.insert(lane_name, lane_timings);
         }
-        std::thread::sleep(Duration::from_millis(16).saturating_sub(frame_started.elapsed()));
+
+        let lane_count = timings.len().max(1);
+        let frame_index = frame_latencies.len();
+        let pointer = Pos2::new(
+            500.0 + (frame_index % 1_800) as f32,
+            49.0 + (frame_index % lane_count) as f32 * 30.0,
+        );
+        egui_context.begin_pass(egui::RawInput {
+            screen_rect: Some(screen_rect),
+            time: Some(benchmark_started.elapsed().as_secs_f64()),
+            events: vec![Event::PointerMoved(pointer)],
+            ..Default::default()
+        });
+        let mut ui = egui::Ui::new(
+            egui_context.clone(),
+            Id::new("live-viewer-benchmark"),
+            UiBuilder::new().max_rect(screen_rect),
+        );
+        viewer.show(&mut ui);
+        let _ = egui_context.end_pass();
+
+        let frame_elapsed = frame_started.elapsed();
+        frame_latencies.push(frame_elapsed);
+        std::thread::sleep(FRAME_INTERVAL.saturating_sub(frame_elapsed));
     }
     run.wait();
+    let mut lane_query_latencies = BTreeMap::new();
+    for (name, timings) in timings {
+        lane_query_latencies.insert(name, timings.snapshots.lock().unwrap().clone());
+    }
+    let mut query_latencies = lane_query_latencies
+        .values()
+        .flatten()
+        .copied()
+        .collect::<Vec<_>>();
+    let query_count = query_latencies.len();
     assert!(query_count > 0);
     assert!(!binary_files(&output).is_empty());
+    let frames_over_8_ms = frame_latencies
+        .iter()
+        .filter(|latency| **latency > Duration::from_millis(8))
+        .count();
+    let frames_over_16_ms = frame_latencies
+        .iter()
+        .filter(|latency| **latency > Duration::from_millis(16))
+        .count();
+    let query_p50 = percentile(&mut query_latencies.clone(), 50, 100);
+    let query_p95 = percentile(&mut query_latencies.clone(), 95, 100);
+    let query_p99 = percentile(&mut query_latencies, 99, 100);
+    let frame_p50 = percentile(&mut frame_latencies.clone(), 50, 100);
+    let frame_p95 = percentile(&mut frame_latencies.clone(), 95, 100);
+    let frame_p99 = percentile(&mut frame_latencies, 99, 100);
+    eprintln!(
+        "live egui viewer: queries={query_count} query_p50_us={:.1} query_p95_us={:.1} query_p99_us={:.1} input_frames={} input_frame_p50_us={:.1} input_frame_p95_us={:.1} input_frame_p99_us={:.1} frames_over_8_ms={frames_over_8_ms} frames_over_16_ms={frames_over_16_ms}",
+        query_p50.as_secs_f64() * 1_000_000.0,
+        query_p95.as_secs_f64() * 1_000_000.0,
+        query_p99.as_secs_f64() * 1_000_000.0,
+        frame_latencies.len(),
+        frame_p50.as_secs_f64() * 1_000_000.0,
+        frame_p95.as_secs_f64() * 1_000_000.0,
+        frame_p99.as_secs_f64() * 1_000_000.0,
+    );
+    for (lane, mut latencies) in lane_query_latencies {
+        if latencies.is_empty() {
+            continue;
+        }
+        let p50 = percentile(&mut latencies.clone(), 50, 100);
+        let p95 = percentile(&mut latencies, 95, 100);
+        eprintln!(
+            "live viewer lane: name={lane:?} queries={} p50_us={:.1} p95_us={:.1}",
+            latencies.len(),
+            p50.as_secs_f64() * 1_000_000.0,
+            p95.as_secs_f64() * 1_000_000.0,
+        );
+    }
 }
 
 fn compiled_graph_matches_current_reference(capture: &Path) {

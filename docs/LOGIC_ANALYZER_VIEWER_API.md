@@ -108,6 +108,12 @@ the visible time window and item budget, then releases the lane registry lock. E
 snapshot semantics belong to the payload adapter. Renderer and plugin code therefore never
 executes while the runtime lane store is locked.
 
+`CollectedLaneQuery::snapshot_generation` is the optional cache contract for waveform data. An
+adapter changes it whenever an earlier bounded snapshot may have changed; returning `None` keeps
+the query uncached. A renderer that implements level/event interaction also returns `true` from
+`ViewerLaneRenderer::supports_interaction`, allowing the viewer to avoid a detail query for
+presentations that cannot be measured as a signal.
+
 ## Threading & repaint behavior
 
 - All queries happen synchronously on the UI thread against an mmapped index, so what is

@@ -625,6 +625,7 @@ fn word_query_returns_only_a_bounded_visible_snapshot() {
             },
         ],
         summary: ChunkedMipmap::new(),
+        generation: 60,
     });
 
     assert!(matches!(
@@ -843,6 +844,7 @@ fn instantaneous_annotation_leaves_long_inter_word_gaps_empty() {
     let mut storage = InMemoryWordLaneStorage {
         annotations: Vec::new(),
         summary: ChunkedMipmap::new(),
+        generation: 0,
     };
     append_test_words(
         &mut storage,
@@ -864,6 +866,7 @@ fn instantaneous_annotations_follow_a_slow_burst_cadence() {
     let mut storage = InMemoryWordLaneStorage {
         annotations: Vec::new(),
         summary: ChunkedMipmap::new(),
+        generation: 0,
     };
     append_test_words(
         &mut storage,
@@ -1057,6 +1060,7 @@ fn word_with_duration_is_closed_at_its_true_end() {
     let mut storage = InMemoryWordLaneStorage {
         annotations: Vec::new(),
         summary: ChunkedMipmap::new(),
+        generation: 0,
     };
 
     // A word spanning 2_300ns, followed much later by another; the first's
@@ -1088,6 +1092,7 @@ fn summary_lags_the_most_recent_open_annotation_by_one() {
     let mut storage = InMemoryWordLaneStorage {
         annotations: Vec::new(),
         summary: ChunkedMipmap::new(),
+        generation: 0,
     };
 
     append_test_words(&mut storage, [(1_000, 0, 0xAB)]);
@@ -1110,6 +1115,7 @@ fn annotation_chunk_rollover_preserves_raw_boundaries_and_summary_count() {
     let mut storage = InMemoryWordLaneStorage {
         annotations: Vec::new(),
         summary: ChunkedMipmap::new(),
+        generation: 0,
     };
     append_test_words(
         &mut storage,

@@ -28,6 +28,7 @@ pub enum DigitalLaneSnapshot {
 pub(crate) struct DigitalLaneStorage {
     pub(crate) samples: Vec<Sample>,
     pub(crate) summary: AppendOnlyMipmap<Sample, DigitalFold>,
+    pub(crate) generation: u64,
 }
 
 pub(crate) struct DigitalLaneQuery {
@@ -37,6 +38,10 @@ pub(crate) struct DigitalLaneQuery {
 impl CollectedLaneQuery for DigitalLaneQuery {
     fn into_any(self: Arc<Self>) -> Arc<dyn std::any::Any + Send + Sync> {
         self
+    }
+
+    fn snapshot_generation(&self) -> Option<u64> {
+        Some(self.storage.read().unwrap().generation)
     }
 
     fn snapshot(
@@ -181,6 +186,7 @@ impl CollectedLaneIngestor for DigitalLane {
                 let excess = storage.samples.len() - target;
                 storage.samples.drain(..excess);
             }
+            storage.generation = storage.generation.wrapping_add(1);
         }
         Ok(batch_len)
     }

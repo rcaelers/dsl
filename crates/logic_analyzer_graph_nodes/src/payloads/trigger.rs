@@ -32,6 +32,10 @@ impl ViewerLaneRenderer for TriggerSnapshotRenderer {
         true
     }
 
+    fn supports_interaction(&self) -> bool {
+        true
+    }
+
     fn interaction(
         &self,
         _track: &ViewerLaneTrack,

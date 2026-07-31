@@ -23,6 +23,7 @@ pub enum TextLaneSnapshot {
 pub(crate) struct TextLaneStorage {
     pub(crate) values: Vec<TextSample>,
     pub(crate) summary: AppendOnlyMipmap<TextSample, TextFold>,
+    pub(crate) generation: u64,
 }
 
 pub(crate) struct TextLaneQuery {
@@ -32,6 +33,10 @@ pub(crate) struct TextLaneQuery {
 impl CollectedLaneQuery for TextLaneQuery {
     fn into_any(self: Arc<Self>) -> Arc<dyn std::any::Any + Send + Sync> {
         self
+    }
+
+    fn snapshot_generation(&self) -> Option<u64> {
+        Some(self.storage.read().unwrap().generation)
     }
 
     fn snapshot(
@@ -170,6 +175,7 @@ impl CollectedLaneIngestor for TextLane {
                 let excess = storage.values.len() - target;
                 storage.values.drain(..excess);
             }
+            storage.generation = storage.generation.wrapping_add(1);
         }
         Ok(batch_len)
     }

@@ -25,6 +25,7 @@ pub enum TriggerLaneSnapshot {
 pub(crate) struct TriggerLaneStorage {
     pub(crate) timestamps: Vec<u64>,
     pub(crate) summary: AppendOnlyMipmap<u64, MarkerFold>,
+    pub(crate) generation: u64,
 }
 
 pub(crate) struct TriggerLaneQuery {
@@ -34,6 +35,10 @@ pub(crate) struct TriggerLaneQuery {
 impl CollectedLaneQuery for TriggerLaneQuery {
     fn into_any(self: Arc<Self>) -> Arc<dyn std::any::Any + Send + Sync> {
         self
+    }
+
+    fn snapshot_generation(&self) -> Option<u64> {
+        Some(self.storage.read().unwrap().generation)
     }
 
     fn snapshot(
@@ -162,6 +167,7 @@ impl CollectedLaneIngestor for TriggerLane {
                 let excess = storage.timestamps.len() - target;
                 storage.timestamps.drain(..excess);
             }
+            storage.generation = storage.generation.wrapping_add(1);
         }
         Ok(batch_len)
     }

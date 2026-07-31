@@ -23,6 +23,7 @@ pub enum NumberLaneSnapshot {
 pub(crate) struct NumberLaneStorage {
     pub(crate) values: Vec<NumberSample>,
     pub(crate) summary: AppendOnlyMipmap<NumberSample, NumberFold>,
+    pub(crate) generation: u64,
 }
 
 pub(crate) struct NumberLaneQuery {
@@ -32,6 +33,10 @@ pub(crate) struct NumberLaneQuery {
 impl CollectedLaneQuery for NumberLaneQuery {
     fn into_any(self: Arc<Self>) -> Arc<dyn std::any::Any + Send + Sync> {
         self
+    }
+
+    fn snapshot_generation(&self) -> Option<u64> {
+        Some(self.storage.read().unwrap().generation)
     }
 
     fn snapshot(
@@ -161,6 +166,7 @@ impl CollectedLaneIngestor for NumberLane {
                 let excess = storage.values.len() - target;
                 storage.values.drain(..excess);
             }
+            storage.generation = storage.generation.wrapping_add(1);
         }
         Ok(batch_len)
     }

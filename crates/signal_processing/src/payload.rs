@@ -26,7 +26,7 @@ pub trait CollectedLaneIngestor: Send {
 }
 
 /// Bounded visible-window request supplied to an adapter-owned retained query.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct CollectedLaneSnapshotRequest {
     pub start_time_ns: u64,
     pub end_time_ns: u64,
@@ -131,6 +131,16 @@ impl std::fmt::Debug for OpaqueCollectedLaneSnapshot {
 /// storage registry never inspect the concrete query value.
 pub trait CollectedLaneQuery: Send + Sync {
     fn into_any(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
+
+    /// Returns the revision of data observable through [`Self::snapshot`].
+    ///
+    /// Append-only and rolling adapters should change this value whenever a
+    /// previously returned snapshot may have changed. Returning `None`
+    /// disables subscriber-side snapshot caching for adapters without a
+    /// revision contract.
+    fn snapshot_generation(&self) -> Option<u64> {
+        None
+    }
 
     /// Produces an immutable, bounded snapshot for a visible window. The
     /// default declares that this query is panel-only and has no waveform

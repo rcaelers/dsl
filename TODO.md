@@ -79,12 +79,6 @@ Task IDs start with their ownership category and remain stable when task wording
 - [capture.live.provider-unification] Make file and live sources first-class capture providers, rather than having the app select
   source types explicitly.
 
-### Indexed derived data
-
-- [derived.performance.ui-latency] Profile egui update, indexed sampling, lane-lock duration, repaint
-  cadence, and input latency while decoding a complete capture. Keep this separate from pipeline
-  throughput and add focused regressions only for reproduced foreground stalls.
-
 ### Node-graph extraction
 
 - [graph.extraction.standalone-crate] Prepare `node-graph` for an eventual separate repository: replace workspace-inherited

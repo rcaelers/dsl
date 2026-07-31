@@ -114,6 +114,19 @@ measure storage warmup as well as pipeline execution and are recorded
 separately. Environment, graph, capture-cache, and output fingerprints make
 reports comparable without checking a developer capture or generated data into
 the repository.
+
+`live-viewer-runtime` attaches the production logic-analyzer viewer to the running graph and drives
+it through a headless egui update at a 16 ms cadence. Every frame contains pointer input. The probe
+reports snapshot-query and complete input-frame p50/p95/p99 latency, frames exceeding 8 ms and
+16 ms, and per-lane snapshot distributions. It uses the same complete capture but deliberately
+does not enforce the pipeline real-time-factor threshold: foreground responsiveness and processing
+throughput remain separate measurements.
+
+```console
+cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
+  live-viewer-runtime /path/to/reference.dsl
+```
+
 `validate-compiled` runs the compiled graph and the independent reference
 pipeline, then compares the complete output manifest by canonical output name,
 size, and BLAKE3 hash. It adds one explicit sparse control-lane subscription;

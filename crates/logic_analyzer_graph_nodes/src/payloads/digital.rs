@@ -36,6 +36,10 @@ impl ViewerLaneRenderer for DigitalSnapshotRenderer {
         true
     }
 
+    fn supports_interaction(&self) -> bool {
+        true
+    }
+
     fn interaction(
         &self,
         _track: &ViewerLaneTrack,

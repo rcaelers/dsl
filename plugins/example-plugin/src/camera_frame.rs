@@ -256,6 +256,10 @@ impl CollectedLaneQuery for CameraFrameQuery {
         self
     }
 
+    fn snapshot_generation(&self) -> Option<u64> {
+        Some(self.storage.generation.load(Ordering::Acquire))
+    }
+
     fn snapshot(
         &self,
         request: CollectedLaneSnapshotRequest,

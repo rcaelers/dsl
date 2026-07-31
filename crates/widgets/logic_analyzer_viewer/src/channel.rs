@@ -645,6 +645,9 @@ impl LogicAnalyzerViewer {
             .iter()
             .find(|group| &group.id == group_id)
             .cloned()?;
+        if !group.renderer.supports_interaction() {
+            return None;
+        }
         let (start_time_ns, end_time_ns) = self.visible_window_ns();
         let opaque_lanes = store.opaque_lanes();
         group.tracks.iter().find_map(|track| {
@@ -656,7 +659,10 @@ impl LogicAnalyzerViewer {
                 end_time_ns,
                 max_items: DETAIL_BUDGET,
             };
-            let snapshot = lane.snapshot(request);
+            let snapshot = self
+                .derived_snapshot_cache
+                .borrow_mut()
+                .snapshot(lane, request);
             group
                 .renderer
                 .interaction(
@@ -823,6 +829,10 @@ mod tests {
     struct TestRenderer;
 
     impl ViewerLaneRenderer for TestRenderer {
+        fn supports_interaction(&self) -> bool {
+            true
+        }
+
         fn interaction(
             &self,
             _track: &ViewerLaneTrack,

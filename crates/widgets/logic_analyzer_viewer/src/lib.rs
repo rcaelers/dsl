@@ -2,6 +2,7 @@
 mod architecture_tests;
 mod channel;
 mod cursor;
+mod derived_snapshot;
 mod draw;
 mod edge_measurement;
 mod format;

@@ -97,24 +97,36 @@ impl WordPresenceIndex {
         let bucket_count = target_buckets
             .min(usize::try_from(span).unwrap_or(usize::MAX))
             .max(1);
+        let bucket_count_u64 =
+            u64::try_from(bucket_count).expect("bucket count is bounded by the u64 time span");
+        let bucket_width = span / bucket_count_u64;
+        let bucket_remainder = span % bucket_count_u64;
+        let mut bucket_offset = 0u64;
+        let mut remainder_accumulator = 0u64;
         let leaves = &self.levels[0];
         let mut buckets = Vec::with_capacity(bucket_count);
 
         for bucket_index in 0..bucket_count {
-            let bucket_start = start_ns.saturating_add(scale(span, bucket_index, bucket_count));
-            let mut bucket_end_exclusive =
-                start_ns.saturating_add(scale(span, bucket_index + 1, bucket_count));
+            let bucket_start = start_ns.saturating_add(bucket_offset);
+            bucket_offset = bucket_offset.saturating_add(bucket_width);
+            if remainder_accumulator >= bucket_count_u64 - bucket_remainder {
+                remainder_accumulator -= bucket_count_u64 - bucket_remainder;
+                bucket_offset = bucket_offset.saturating_add(1);
+            } else {
+                remainder_accumulator += bucket_remainder;
+            }
+            let mut bucket_end_exclusive = start_ns.saturating_add(bucket_offset);
             if bucket_index + 1 == bucket_count {
                 bucket_end_exclusive = end_ns.saturating_add(1);
             }
             bucket_end_exclusive = bucket_end_exclusive.max(bucket_start.saturating_add(1));
 
-            let first_by_start = leaves.partition_point(|record| record.start_ns < bucket_start);
+            let first_by_start = self.partition_start(bucket_start);
             let mut first = first_by_start.saturating_sub(1);
             while first > 0 && leaves[first - 1].end_ns >= bucket_start {
                 first -= 1;
             }
-            let end = leaves.partition_point(|record| record.start_ns < bucket_end_exclusive);
+            let end = self.partition_start(bucket_end_exclusive);
             let word_count =
                 self.count_bucket(first.min(end), end, bucket_start, bucket_end_exclusive);
             buckets.push(WordPresenceBucket {
@@ -124,6 +136,24 @@ impl WordPresenceIndex {
             });
         }
         buckets
+    }
+
+    fn partition_start(&self, timestamp_ns: u64) -> usize {
+        let leaves = &self.levels[0];
+        let Some(groups) = self.levels.get(1).filter(|groups| !groups.is_empty()) else {
+            return leaves.partition_point(|record| record.start_ns < timestamp_ns);
+        };
+        let group = groups.partition_point(|record| record.start_ns < timestamp_ns);
+        if group == 0 {
+            return 0;
+        }
+        let start = (group - 1) * FAN_OUT;
+        let end = if group < groups.len() {
+            group * FAN_OUT
+        } else {
+            leaves.len()
+        };
+        start + leaves[start..end].partition_point(|record| record.start_ns < timestamp_ns)
     }
 
     fn count_bucket(
@@ -198,13 +228,17 @@ fn estimate_partial(
     }
     let record_span = record_end_exclusive.saturating_sub(record.start_ns).max(1);
     let overlap = overlap_end - overlap_start;
-    ((u128::from(record.word_count) * u128::from(overlap))
-        .div_ceil(u128::from(record_span))
-        .min(u128::from(record.word_count))) as u64
-}
-
-fn scale(span: u64, numerator: usize, denominator: usize) -> u64 {
-    ((u128::from(span) * numerator as u128) / denominator as u128).min(u128::from(u64::MAX)) as u64
+    record
+        .word_count
+        .checked_mul(overlap)
+        .map_or_else(
+            || {
+                (u128::from(record.word_count) * u128::from(overlap))
+                    .div_ceil(u128::from(record_span)) as u64
+            },
+            |weighted_count| weighted_count.div_ceil(record_span),
+        )
+        .min(record.word_count)
 }
 
 #[cfg(test)]
@@ -287,5 +321,60 @@ mod tests {
             index.push(point(block, block * 10, 64));
         }
         assert!(index.presence_window_all(0, 1_000_000, 1_920).len() <= 1_920);
+    }
+
+    #[test]
+    fn incremental_bucket_partition_matches_exact_scaled_boundaries() {
+        let index = WordPresenceIndex::new();
+        for (start_ns, end_ns, target_buckets) in [
+            (0, 9_999, 3_333),
+            (13, 101, 17),
+            (u64::MAX - 1_000, u64::MAX - 1, 137),
+        ] {
+            let buckets = index.presence_window_all(start_ns, end_ns, target_buckets);
+            let span = end_ns - start_ns + 1;
+            let bucket_count = target_buckets.min(span as usize).max(1);
+            assert_eq!(buckets.len(), bucket_count);
+            for (index, bucket) in buckets.iter().enumerate() {
+                let scaled = |numerator: usize| {
+                    ((u128::from(span) * numerator as u128) / bucket_count as u128) as u64
+                };
+                assert_eq!(bucket.start_ns, start_ns + scaled(index));
+                assert_eq!(
+                    bucket.end_ns,
+                    start_ns + scaled(index + 1).saturating_sub(1)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn hierarchical_start_search_matches_the_leaf_partition() {
+        let mut index = WordPresenceIndex::new();
+        for block in 0..(FAN_OUT * 4 + 17) {
+            index.push(point(block as u64, block as u64 * 7, 1));
+        }
+        for timestamp_ns in 0..=(FAN_OUT * 4 + 17) as u64 * 7 {
+            assert_eq!(
+                index.partition_start(timestamp_ns),
+                index.levels[0].partition_point(|record| record.start_ns < timestamp_ns)
+            );
+        }
+    }
+
+    #[test]
+    fn partial_estimate_preserves_exact_ceil_when_weighted_count_overflows_u64() {
+        let record = WordSummaryRecord {
+            start_ns: 0,
+            end_ns: u64::MAX - 1,
+            word_count: u64::MAX,
+            first_block: 0,
+            block_count: 1,
+        };
+        let bucket_end_exclusive = u64::MAX / 3;
+        let expected = (u128::from(record.word_count) * u128::from(bucket_end_exclusive))
+            .div_ceil(u128::from(record.end_ns) + 1) as u64;
+
+        assert_eq!(estimate_partial(record, 0, bucket_end_exclusive), expected);
     }
 }

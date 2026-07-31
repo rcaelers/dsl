@@ -269,7 +269,10 @@ impl LogicAnalyzerViewer {
                                 .saturating_mul(2)
                                 .max(32),
                         };
-                        let snapshot = query.snapshot(request);
+                        let snapshot = self
+                            .derived_snapshot_cache
+                            .borrow_mut()
+                            .snapshot(query, request);
                         let track_rect = Rect::from_min_max(
                             Pos2::new(wave_rect.left(), track_top),
                             Pos2::new(wave_rect.right(), track_top + track_height),

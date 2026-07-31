@@ -44,6 +44,7 @@ pub enum WordLaneSnapshot {
 pub(crate) struct InMemoryWordLaneStorage {
     pub(crate) annotations: Vec<Annotation>,
     pub(crate) summary: ChunkedMipmap<Annotation, AnnotationFold>,
+    pub(crate) generation: u64,
 }
 
 pub(crate) enum WordLaneStorage {
@@ -162,6 +163,14 @@ impl CollectedLaneQuery for CollectedWordLaneQuery {
         self
     }
 
+    fn snapshot_generation(&self) -> Option<u64> {
+        let storage = self.storage.read().unwrap();
+        Some(match &*storage {
+            WordLaneStorage::InMemory(storage) => storage.generation,
+            WordLaneStorage::Indexed(indexed) => indexed.metadata().generation,
+        })
+    }
+
     fn snapshot(
         &self,
         request: CollectedLaneSnapshotRequest,
@@ -212,10 +221,7 @@ impl CollectedLaneQuery for CollectedWordLaneQuery {
         let storage = self.storage.read().unwrap();
         match &*storage {
             WordLaneStorage::InMemory(storage) => Some(CollectedLaneTableMetadata {
-                generation: storage
-                    .annotations
-                    .last()
-                    .map_or(0, |annotation| annotation.end_ns),
+                generation: storage.generation,
                 total_rows: storage.annotations.len() as u64,
             }),
             WordLaneStorage::Indexed(indexed) => {
@@ -594,6 +600,7 @@ impl WordLane {
                 InMemoryWordLaneStorage {
                     annotations: Vec::new(),
                     summary: ChunkedMipmap::new(),
+                    generation: 0,
                 },
             ))),
             buffer: VecDeque::new(),
@@ -663,6 +670,9 @@ pub(crate) fn append_words_to_in_memory_storage(
     words: &[Word],
     retention: DerivedDataRetention,
 ) {
+    if words.is_empty() {
+        return;
+    }
     for word in words {
         let previous_start_ns = storage
             .annotations
@@ -694,6 +704,7 @@ pub(crate) fn append_words_to_in_memory_storage(
         let excess = storage.annotations.len() - target;
         storage.annotations.drain(..excess);
     }
+    storage.generation = storage.generation.wrapping_add(1);
 }
 
 /// Creates the built-in retained word-lane adapter for non-graph callers

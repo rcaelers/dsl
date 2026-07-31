@@ -28,6 +28,16 @@ impl OpaqueCollectedLane {
         Arc::downcast::<T>(Arc::clone(&self.query).into_any()).ok()
     }
 
+    /// Whether both handles address the same adapter-owned query instance.
+    pub fn is_same_query(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.query, &other.query)
+    }
+
+    /// Returns the adapter-owned revision used to cache visible snapshots.
+    pub fn snapshot_generation(&self) -> Option<u64> {
+        self.query.snapshot_generation()
+    }
+
     /// Requests a bounded immutable snapshot for a presentation subscriber.
     pub fn snapshot(
         &self,

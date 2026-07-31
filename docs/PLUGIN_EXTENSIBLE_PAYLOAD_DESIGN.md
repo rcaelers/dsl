@@ -61,8 +61,10 @@ semantics. The request is bounded by a visible time window and item limit. The v
 returned `OpaqueCollectedLaneSnapshot` to the payload's renderer only after it has released
 retained-data locks; the renderer downcasts the snapshot only to its own registered type. An
 opaque lane activates an explicit viewer group or a singleton default presentation registered for
-its stable payload identity. Renderers also project bounded snapshots into payload-neutral level
-and event transitions for hover measurement and event-row interaction. Cursor boundaries,
+its stable payload identity. An optional snapshot generation lets the viewer reuse immutable
+results until adapter-visible data changes; adapters without this contract remain uncached.
+Renderers explicitly advertise and project bounded snapshots into payload-neutral level and event
+transitions for hover measurement and event-row interaction. Cursor boundaries,
 timeline extent, and live status are query capabilities. The generic viewer neither reads a
 parallel built-in lane representation nor matches a payload type.
 

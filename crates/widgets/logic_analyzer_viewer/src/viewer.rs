@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -9,6 +10,7 @@ use input_bindings::InputBindings;
 use signal_processing::{CaptureDataSource, CaptureIndex, DerivedLanes};
 
 use crate::channel::LogicChannel;
+use crate::derived_snapshot::DerivedSnapshotCache;
 use crate::lanes::{ViewerLaneGroupId, WaveformPresentationRegistry};
 use crate::sampling_overlay::SamplingOverlay;
 use crate::simple_trigger::{SimpleTriggerEdit, SimpleTriggerLane, SimpleTriggerPopup};
@@ -90,6 +92,7 @@ pub struct LogicAnalyzerViewer {
     /// Retained derived data from the running pipeline. Waveform presentation
     /// subscriptions select which entries appear under the raw channels.
     pub(crate) derived: Option<DerivedLanes>,
+    pub(crate) derived_snapshot_cache: RefCell<DerivedSnapshotCache>,
     pub(crate) waveform_presentations: WaveformPresentationRegistry,
     pub(crate) sampling_overlays: Vec<SamplingOverlay>,
     pub(crate) growing_capture: Option<GrowingCaptureView>,
@@ -155,6 +158,7 @@ impl LogicAnalyzerViewer {
             timeline_marker_editing_enabled: true,
             color_profile: ColorProfile::DsView,
             derived: None,
+            derived_snapshot_cache: RefCell::new(DerivedSnapshotCache::new()),
             waveform_presentations: WaveformPresentationRegistry::new(),
             sampling_overlays: Vec::new(),
             growing_capture: None,
@@ -198,6 +202,7 @@ impl LogicAnalyzerViewer {
     /// previous run's lanes.
     pub fn set_derived_lanes(&mut self, lanes: DerivedLanes) {
         self.derived = Some(lanes);
+        self.derived_snapshot_cache.get_mut().clear();
     }
 
     /// Replaces the explicit presentation registry paired with the current

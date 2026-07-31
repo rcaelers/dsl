@@ -177,6 +177,14 @@ Overview rendering requests no more buckets than the viewport needs and never in
 values or boundaries. Narrow views request exact annotations from the blocks intersecting the
 time window.
 
+Overview buckets use exact incremental integer partitioning, so their boundaries match the
+corresponding scaled time intervals without performing wide division for every bucket. The first
+leaf for a bucket is located through the 64-way summary level and then within a bounded leaf-group
+and active-tail slice; partial-record counts use native-width ceiling division unless the
+multiplication overflows.
+Consequently a complete-capture overview touches a small bounded region of the presence index per
+pixel bucket instead of repeatedly searching the complete leaf array.
+
 Exact queries use the sorted block directory to find candidate blocks and restart entries to seek
 within them. Native decoded blocks are shared through a memory-budgeted LRU keyed by store
 identity and block sequence. Presence-only rendering does not populate that cache.
@@ -258,9 +266,14 @@ Rendering and cursor code follow the same locking rule:
 2. perform bounded snapshot, table, storage, or cursor-boundary queries;
 3. render or select a cursor boundary without accessing adapter storage.
 
-The viewer caches sampled windows by lane identity, store generation, visible time range,
-viewport width, and query mode. Exact mode uses the ordinary annotation-box renderer; presence
-mode renders summarized activity.
+Every adapter may publish a snapshot generation that changes whenever visible data changes. The
+viewer caches at most two sampled windows per query identity, keyed by store generation, visible
+time range, viewport width, and query mode. View or query replacement invalidates the matching
+entry immediately.
+While a lane is live, a newer generation refreshes at most once per 50 ms; a completed lane stays
+entirely on its last immutable snapshot until the view changes. Adapters without a generation
+contract are queried on every use, so caching cannot make third-party data stale. Exact mode uses
+the ordinary annotation-box renderer; presence mode renders summarized activity.
 
 ## Correctness invariants
 
@@ -277,6 +290,8 @@ mode renders summarized activity.
 11. Derived-lane locks are never held across storage I/O or block decoding.
 12. At most the configured adaptive number of complete blocks are preparing or awaiting ordered
     publication for one writer.
+13. Snapshot caching never crosses a query replacement, viewport request, or completed generation
+    change; live-generation coalescing is bounded by the presentation refresh interval.
 
 ## Validation
 
@@ -287,3 +302,9 @@ decoded-block caching, live queries, cursor behavior across blocks, deliberately
 completion, and visibility at a batched append boundary.
 
 Large-capture performance and operational follow-ups are tracked in [TODO.md](../TODO.md).
+
+The compiler-capture `live-viewer-runtime` command runs the production viewer in a headless egui
+update loop while the complete reference graph decodes. Pointer input is supplied on every frame,
+and the command reports per-lane snapshot latency, input-frame p50/p95/p99, and counts above the
+8 ms and 16 ms frame budgets. This foreground probe is separate from pipeline-throughput
+acceptance.

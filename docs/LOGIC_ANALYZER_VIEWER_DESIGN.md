@@ -327,8 +327,10 @@ Per-frame flow in `show()`:
    pulse and edge-delta measurement overlays, time cursors; then the color-profile selector
    overlay.
 7. Repaint scheduling: while opening (no `CaptureInfo` yet) repaint every ~16 ms; while
-   indexing or waiting for the sampler, every ~100 ms. Otherwise egui's normal
-   repaint-on-input applies.
+   indexing or waiting for the sampler, every ~100 ms; while a derived lane is live, every
+   ~50 ms; and while a growing capture is active, every ~8 ms. The application may repaint at
+   ~16 ms while a pipeline is active, but generation-cached derived snapshots keep those extra
+   frames independent of storage-query cost. Otherwise egui's normal repaint-on-input applies.
 
 ### Background worker
 
@@ -392,6 +394,14 @@ timeline extent, and live-status behavior are query capabilities. No renderer or
 while a payload store is locked, and the viewer never branches on a concrete payload type. Drawing
 receives semantic theme colors and a copied interaction context containing the bounded window,
 budget, hover state, and pointer time; it never receives `LogicAnalyzerViewer` internals.
+
+Payload queries optionally publish a changing snapshot generation. The viewer keeps at most two
+immutable results per query identity for its bounded rendering and interaction requests, reuses
+them across egui repaints, and coalesces changing live generations to the 50 ms presentation
+cadence. A viewport change, query replacement, or completed-generation change refreshes
+immediately. Queries without a generation remain uncached. Renderers explicitly declare whether
+they provide an interaction projection, so non-interactive payloads do not materialize a second
+detail snapshot merely because the pointer crosses their row.
 
 ### Pulse measurement (hover)
 
@@ -474,5 +484,5 @@ bidirectional synchronization policy.
 | Constant / idle signals | No L1/L2/L3 payload stored; directory `toggle` bit cleared; reconstructed from `first`/`last` alone |
 | Boundary transitions | Patched into an otherwise-constant block's summaries by `apply_boundary_transition` |
 | Live decode output | Adapter-owned collected queries with bounded exact/activity snapshots, repainted while the pipeline runs |
-| Render time | Bounded by viewport width (`target_points`) and available index/raw data |
+| Render time | Bounded by viewport width (`target_points`), available index/raw data, and generation-keyed snapshot reuse |
 | Measurement accuracy | Always resolved via direct index queries, independent of the zoom level currently drawn |
