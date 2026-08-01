@@ -171,7 +171,7 @@ types and dependencies. When they implement a generic source or runtime trait, t
 concrete error into a generic boundary error without moving the concrete dependency into the
 generic crate.
 
-## Platform surfaces
+## Current platform surfaces
 
 Native and wasm public surfaces share the platform-neutral data model. Native-only filesystem,
 USB, mmap, worker, export, and host-integration capabilities are selected as complete modules or
@@ -180,6 +180,63 @@ unnameable backend type or a target-dependent collection of incidental helpers.
 
 `AppManager` is one such facade. Its public type and operations are identical on every target;
 whole implementation files delegate to the threaded native manager or cooperative wasm manager.
+
+## Proposed future: isolated host adapter crate
+
+Reusable core crates compile the same Rust source and module tree on native and web targets.
+Matching public APIs backed by separate target-selected implementations inside a core crate are not
+the final boundary.
+
+`logic_analyzer_platform` is the only reusable crate with general target selection and
+target-specific dependencies. It is an adapter layer above the contract owners:
+
+- `signal_processing` owns storage, byte-region, execution, and capture capability ports;
+- `logic_analyzer_processing` owns concrete format and device behavior and the transport ports that
+  behavior consumes;
+- `logic_analyzer_graph_compiler` owns cache-administration and source-preparation ports;
+- `logic_analyzer_ui` owns dialog, host-command, and export-orchestration ports;
+- `logic_analyzer_platform` depends on those crates and implements their ports with files, mmap,
+  native workers, browser handles, OPFS, native dialogs, export destinations, and USB transports;
+- native and web application crates construct those adapters and inject them through thin
+  composition roots.
+
+The dependency never points from a core crate to `logic_analyzer_platform`. A capability port that
+must be implemented by the adapter crate is a deliberate supported crate-root contract in its
+behavioral owner. The owner exposes only platform-neutral request, result, capability, and error
+types; implementation dependencies remain private to the adapter crate.
+
+Portable implementations—including chunked memory storage, owned byte backing, deterministic
+sources, discard sinks, and cooperative execution—remain in their behavioral owners and compile on
+every target. Composition selects them explicitly. A web build does not obtain a synthetic source
+or discard sink merely because a native capability is absent.
+
+The only temporary reusable-crate exceptions are complete file-I/O or USB adapter leaf modules in
+`logic_analyzer_processing` for which extraction would otherwise move concrete format or device
+behavior into the platform crate. An exception is explicitly allowlisted, contains only host
+access, and excludes node state, schemas, builders, parsers, protocol state machines, and portable
+runtime behavior. The intended exception allowlist is empty after source/destination and USB
+transport injection is complete.
+
+The temporary processing-adapter allowlist is restricted to the host-access leaves of:
+
+- `nodes::sources::dsl_file::platform`;
+- `nodes::sources::sigrok_file::platform`;
+- `nodes::sinks::binary_file_writer::platform`;
+- `nodes::sinks::csv_word_writer::platform`;
+- `nodes::sinks::text_file_writer::platform`;
+- `nodes::sources::dslogic_u3pro16::platform`, limited to USB discovery and transport.
+
+The enclosing node modules, their builders, parsers, encoders, device state machines, and wasm
+synthetic/discard substitutes are not allowlisted. Decoder execution strategy, embedded-runtime
+hosting, preferences, graph services, capture export, cache administration, and viewer workers are
+also not processing exceptions; their adapters move to `logic_analyzer_platform` while their
+behavior remains in the owning core crate.
+
+Architecture enforcement rejects target conditionals, target-selected module paths, target
+inspection through `cfg!`, and target-specific dependencies outside `logic_analyzer_platform`, the
+native/web bootstrap crates, and the explicit processing-adapter allowlist. It also verifies that
+portable graph-node catalogs use one module tree on both targets and that core crates do not depend
+on the adapter crate.
 
 ## Enforcement
 

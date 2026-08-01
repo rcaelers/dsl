@@ -31,6 +31,19 @@ Task IDs start with their ownership category and remain stable when task wording
 - [capture.live.snapshot-persistence] Persist/reload live-capture snapshots where appropriate so they can be indexed and revisited.
 - [capture.sigrok.extended-formats] Extend Sigrok support beyond v2 digital `logic-*` data (analog channels and newer format versions).
 
+### Web platform (lower priority)
+
+- [capture.web.file-import] Let the web application open user-selected and drag-and-dropped capture files through
+  the platform-neutral prepared-source contract. Keep browser handles and permission flow in the web host adapter;
+  materialize bounded files into chunked memory first, then add worker-owned or OPFS-backed access for larger files.
+- [capture.web.file-export] Let web users export captures and generated files through an explicit destination acquired
+  by a user gesture. Keep downloads separate from internal cache publication and report unsupported or lost
+  permissions without changing processing-node behavior.
+- [capture.web.usb] Investigate and, where the browser and device permit it, add U3Pro16 capture through WebUSB.
+  Preserve the existing device protocol and acquisition state machine behind an asynchronous USB transport; treat
+  browser support, secure-context requirements, permission, interface claiming, and disconnects as capabilities and
+  diagnostics rather than providing a synthetic live source.
+
 ### Node graph editor
 
 - [graph.editor.socket-renaming] Add generic instance-local socket renaming. Node definitions explicitly mark which input and
@@ -66,6 +79,72 @@ Task IDs start with their ownership category and remain stable when task wording
   acquisition is active. Where inhibition is unavailable, observe suspend/resume and report it as
   a capture-integrity event. Keep the existing generic lifecycle, integrity, and storage contracts
   in `signal_processing`, with no platform conditionals in their consumers.
+
+### Unified native and web data plane
+
+Detailed architecture and capability contracts are documented in
+[`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
+
+- [platform.data-plane.adapter-crate] Create `logic_analyzer_platform` as the sole reusable owner of
+  native/web host adapters and target selection. Define one injected service bundle over contracts owned by
+  `signal_processing`, `logic_analyzer_processing`, the compiler, and the UI; move reusable file, mmap, native-worker,
+  browser-handle, dialog, export, embedded-runtime, and USB adapters into it without moving codecs, indexes, cache
+  policy, concrete protocols, node schemas, or viewer behavior. Keep `app_native` and `app_web` as bootstrap-only
+  composition roots.
+- [platform.data-plane.storage-contracts] Introduce private, platform-neutral prepared-byte-source,
+  artifact-repository, reader/writer, immutable-byte-region, capability, and error contracts in
+  `signal_processing`. Address sources and artifacts by fixed-width ranges and stable typed identities rather than
+  paths; keep the owned-memory implementation portable and put mmap, filesystem operations, and browser handles in
+  `logic_analyzer_platform`. This and the adapter-crate boundary form the foundation for the remaining work.
+- [platform.data-plane.shared-derived-store] Replace the wasm `Vec<Word>` store with the shared encoded block,
+  directory, presence-index, exact-query, nearest-boundary, integrity, and decoded-block-cache implementation.
+  Provide native file/mmap and platform-independent chunked-memory artifact repositories, keep repository budgets
+  configurable, and remove the separate authoritative wasm query path.
+- [platform.data-plane.shared-capture-storage] Run packed raw captures, waveform indexes, growing live repositories,
+  and finalized replay through the same artifact and byte-region contracts. Keep native mmap and owned memory as
+  interchangeable backings, expose committed generations consistently, and avoid requiring one capture or index to
+  fit in one allocation.
+- [platform.data-plane.cache-policy] Move cache identity, validation, cached-preview attachment, producer pruning,
+  invalidation, publication, pinning, and cleanup policy into the common compiler path. Supply a durable native
+  repository and an ephemeral web repository initially; do not replace web cache planning with no-ops merely because
+  persistence across reloads is unavailable.
+- [platform.data-plane.source-preparation] Make finite-source preparation one capability-driven state machine for
+  source resolution, metadata validation, cache lookup/build, index publication, readiness, progress, cancellation,
+  and generation replacement. Parsers consume prepared random-access readers instead of `PathBuf`; host acquisition
+  remains in `logic_analyzer_platform`, outside the compiler and processing algorithms.
+- [platform.data-plane.execution] Define bounded execution semantics for storage and index work: advertised
+  parallelism, reader concurrency, backpressure, progress, cancellation, deterministic merge ordering, and failure
+  without partial publication. Keep the cooperative implementation portable; put the native worker pool and future
+  Web Worker adapter in `logic_analyzer_platform`, selected through injection rather than compiler/runtime target
+  modules. Retain explicit serializable work messages as the browser-worker boundary.
+- [platform.data-plane.core-source-parity] Remove existing target-selected module trees, target conditionals, and
+  target-specific manifest dependencies from `signal_processing`, the compiler, graph nodes, `node_graph`, the
+  viewer, reusable widgets, and the UI. Convert application managers, cache backends, source preparation, viewer
+  workers, dialogs, preferences, graph services, capture export, decoder execution strategies, registrations, and
+  test harnesses to portable code plus injected adapters. In `logic_analyzer_processing`, restrict any remaining
+  target selection to the documented temporary file-I/O and USB host-access leaves; keep node schemas, builders,
+  parsers, encoders, protocol state machines, and unavailable-capability behavior identical.
+- [platform.data-plane.fixed-width-formats] Remove persisted and cross-boundary `usize` values from capture, index,
+  cache, manifest, and worker-message formats. Use `u64` offsets and counts with checked conversions only at resident
+  slice boundaries, and add tests above the wasm32 addressable range without allocating those ranges so the data
+  model remains suitable for future wasm64 builds.
+- [platform.data-plane.parity-tests] Add reusable conformance suites for memory, native file, and mmap repositories;
+  byte-identical encoded output; exact/presence/boundary queries; growing-prefix visibility; cache planning; source
+  preparation; ordered execution; cancellation; corruption; short I/O; and quota exhaustion. Run filesystem-free
+  memory tests in every crate build and compile/browser checks for the selected wasm modules.
+- [platform.data-plane.browser-persistence] After the shared memory backend is established, add an optional
+  worker-owned OPFS artifact repository in `logic_analyzer_platform` with quota reporting, atomic-generation
+  publication, eviction recovery, and site-data-loss semantics. Keep OPFS handles and promises in that adapter so
+  durable browser caching does not alter store, compiler, or viewer contracts.
+- [platform.data-plane.usb-transport] After storage and execution convergence, separate USB discovery/permission from
+  control and bulk transport, and make the U3Pro16 protocol depend on the asynchronous transport contract rather than
+  the native USB library. Move the native adapter to `logic_analyzer_platform`; this contract enables but does not
+  require the lower-priority WebUSB feature.
+- [platform.data-plane.boundary-enforcement] Extend architecture checks to reject target conditionals,
+  target-selected modules, `cfg!` target inspection, and target-specific dependencies in every reusable crate except
+  `logic_analyzer_platform` and explicitly allowlisted complete file-I/O or USB adapter leaves in
+  `logic_analyzer_processing`. Check that application crates remain bootstrap-only, portable node catalogs compile
+  from one module tree, and synthetic sources or discard sinks are selected explicitly rather than by target.
 
 ### Node-graph extraction
 

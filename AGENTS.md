@@ -31,8 +31,14 @@ See `docs/PLUGIN_EXTENSIBLE_PAYLOAD_DESIGN.md` for the detailed payload and view
 - `logic_analyzer_graph_nodes` owns concrete graph nodes and their builders.
 - `logic_analyzer_graph_compiler` owns generic graph lowering, discovery, execution, and
   saved-document synchronization.
+- `logic_analyzer_platform` owns reusable native and web host adapters. It implements capability
+  contracts owned by the core crates and is the only reusable crate that selects code or
+  dependencies by compilation target.
 - `logic_analyzer_ui` composes the widgets and application services; it must not
   contain concrete node definitions or runtime builders.
+- Native and web application crates are thin composition roots. They bootstrap their host and
+  inject `logic_analyzer_platform` services; they do not own storage, indexing, caching,
+  processing, or execution policy.
 - Reusable widgets live below `crates/widgets` and must remain independent of
   concrete nodes and protocols.
 
@@ -74,22 +80,28 @@ See the module layout and public-module allowlist in
 
 # Platform boundaries
 
-- Do not scatter `#[cfg(target_arch = "wasm32")]` or its inverse across
-  fields, enum variants, match arms, functions, or statements in generic
-  runtime, compiler, viewer, or node code.
-- Represent platform differences behind explicit capability traits with a
-  native implementation and a wasm implementation. Consumers must compile
-  against one platform-neutral contract and data model.
-- When functionality genuinely cannot exist on a target—such as filesystem
-  I/O, mmap, USB access, or native dialogs—select or exclude the complete
-  implementation file/module or node registry entry. Keep target selection at
-  that boundary rather than propagating it into callers.
-- Prefer a single `platform` module as the target-selection point. New inline
-  wasm conditionals require a documented reason why a trait or whole-file
-  implementation boundary is not viable.
+- All reusable runtime, compiler, viewer, graph, widget, UI, and portable processing crates compile
+  the same Rust source on native and wasm. They do not contain target-selected modules, target
+  conditionals, target-dependent public surfaces, or target-specific dependencies.
+- Core crates own platform-neutral capability traits and algorithms. `logic_analyzer_platform`
+  implements native and web host adapters for those traits and injects them at the application
+  composition boundary. It contains the single reusable target-selection point.
+- Native and web application crates may contain only the target-specific entry and bootstrap code
+  required to create the host and install `logic_analyzer_platform` services.
+- Complete file-I/O or USB adapter leaf modules in `logic_analyzer_processing` are the only
+  permitted reusable-crate exception when the capability cannot yet be injected without moving
+  concrete format or device behavior to the platform crate. Every exception is explicitly
+  allowlisted in `docs/RESPONSIBILITY_AND_VISIBILITY_DESIGN.md`. Node state, schemas, builders,
+  protocol state machines, and portable processing behavior remain identical on every target.
+- Synthetic sources, discard sinks, in-memory repositories, and cooperative executors are explicit
+  portable implementations selected through configuration or injection. They are not implicit
+  wasm substitutes for native behavior.
+- New target-specific code outside `logic_analyzer_platform`, the application bootstrap crates, or
+  an explicitly allowlisted processing adapter is prohibited. Existing splits are migration work
+  tracked in `TODO.md`, not precedent for adding another split.
 
-See `docs/WASM_STORAGE_PLATFORM_DESIGN.md` for the derived-word-storage
-platform design and invariants.
+See `docs/WASM_STORAGE_PLATFORM_DESIGN.md` for the unified native/web data-plane,
+host-adapter, source-parity, and exception design.
 
 # Design documentation
 
