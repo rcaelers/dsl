@@ -1,11 +1,9 @@
 //! Platform-neutral application runtime manager facade.
 
-#[cfg(not(target_arch = "wasm32"))]
-mod native;
-#[cfg(target_arch = "wasm32")]
-mod wasm;
+mod contract;
+mod cooperative;
+mod implementation;
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use native::AppManager;
-#[cfg(target_arch = "wasm32")]
-pub use wasm::AppManager;
+pub use contract::{AppManagerBackend, AppManagerFactory};
+pub use cooperative::{CooperativeAppManagerBackend, CooperativeAppManagerFactory};
+pub use implementation::AppManager;

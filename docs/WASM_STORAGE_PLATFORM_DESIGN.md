@@ -39,6 +39,9 @@ algorithm. The web adapter exposes unavailable storage operations and supplies e
 Finite-source preparation uses the compiler-owned execution contract: the native platform adapter
 uses a bounded worker, while the web adapter selects the portable inline executor. The compiler
 polls one task contract and contains no target-selected source-preparation implementation.
+The application-runtime facade likewise receives a factory from platform composition. Native runs
+receive the threaded pipeline-manager backend; web runs receive the portable cooperative backend.
+The compiler creates managers through the same factory contract and does not select either backend.
 Native shell integrations exchange portable commands and UI state through that service contract;
 their queues and repaint wake-ups remain inside the platform adapter. Runtime cache diagnostics use
 the same adapter boundary and one portable UI snapshot path. Embedded graph-node file controls use

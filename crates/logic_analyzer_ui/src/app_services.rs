@@ -3,12 +3,10 @@ use std::path::{Path, PathBuf};
 use input_bindings::InputBindings;
 use logic_analyzer_graph_compiler::SourcePreparationExecutor;
 use node_graph::FileDialogService;
-use signal_processing::PersistentStoreConfig;
+use signal_processing::{AppManagerFactory, PersistentStoreConfig};
 
 use crate::application_settings::{ApplicationSettings, default_input_bindings};
-use crate::graph_service::{
-    GraphService, graph_service_with_source_preparation_executor, standard_graph_service,
-};
+use crate::graph_service::{GraphService, graph_service_with_execution, standard_graph_service};
 use crate::host_service::{
     CacheClearStats, CacheEntrySnapshot, HostService, OpenDialog, SaveDialog,
 };
@@ -76,12 +74,14 @@ impl AppServices {
         self
     }
 
-    /// Replaces the portable source-preparation executor with a host adapter.
-    pub fn with_source_preparation_executor(
+    /// Replaces portable graph execution with host-selected adapters.
+    pub fn with_graph_execution(
         mut self,
-        executor: Box<dyn SourcePreparationExecutor>,
+        source_preparation_executor: Box<dyn SourcePreparationExecutor>,
+        runtime_factory: std::sync::Arc<dyn AppManagerFactory>,
     ) -> Self {
-        self.graph_service = graph_service_with_source_preparation_executor(executor);
+        self.graph_service =
+            graph_service_with_execution(source_preparation_executor, runtime_factory);
         self
     }
 

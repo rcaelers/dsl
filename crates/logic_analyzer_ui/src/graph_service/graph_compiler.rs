@@ -11,7 +11,7 @@ use logic_analyzer_graph_compiler::{
 };
 use node_graph::{GraphState, NodeId};
 use signal_processing::{
-    ConfigurationBoundary, DerivedLanes, DisconnectEvent, PersistentStoreConfig,
+    AppManagerFactory, ConfigurationBoundary, DerivedLanes, DisconnectEvent, PersistentStoreConfig,
 };
 
 use super::contract::{GraphRun, GraphService};
@@ -248,8 +248,12 @@ pub(crate) fn standard_graph_service() -> Box<dyn GraphService> {
     Box::new(GraphCompiler::new())
 }
 
-pub(crate) fn graph_service_with_source_preparation_executor(
-    executor: Box<dyn SourcePreparationExecutor>,
+pub(crate) fn graph_service_with_execution(
+    source_preparation_executor: Box<dyn SourcePreparationExecutor>,
+    runtime_factory: std::sync::Arc<dyn AppManagerFactory>,
 ) -> Box<dyn GraphService> {
-    Box::new(GraphCompiler::with_source_preparation_executor(executor))
+    Box::new(GraphCompiler::with_execution(
+        source_preparation_executor,
+        runtime_factory,
+    ))
 }

@@ -2106,13 +2106,13 @@ pub struct LiveAnalysisSource {
 /// finalized replay therefore share one substitution mechanism.
 pub type SourceProcessOverrides = HashMap<NodeId, Box<dyn ProcessNode>>;
 
-/// Lowers and materializes `graph` under an [`AppManager`] — real OS threads
-/// natively, a cooperative single-thread runner on wasm.
+/// Lowers and materializes `graph` under a host-selected [`AppManager`].
 fn start_live_with_subscriptions(
     graph: &GraphState,
     registry: &BuilderRegistry,
     subscriptions: &OutputSubscriptionPlan,
     ctx: &mut CompileCtx,
+    runtime_factory: &dyn signal_processing::AppManagerFactory,
 ) -> Result<LiveRun, Vec<CompileError>> {
     start_live_inner(
         graph,
@@ -2120,6 +2120,7 @@ fn start_live_with_subscriptions(
         subscriptions,
         ctx,
         SourceProcessOverrides::new(),
+        runtime_factory,
     )
 }
 
@@ -2168,10 +2169,18 @@ pub(crate) fn start_live_analysis_with_subscriptions(
     subscriptions: &OutputSubscriptionPlan,
     ctx: &mut CompileCtx,
     source: LiveAnalysisSource,
+    runtime_factory: &dyn signal_processing::AppManagerFactory,
 ) -> Result<LiveRun, Vec<CompileError>> {
     let mut overrides = SourceProcessOverrides::new();
     overrides.insert(source.source_node, source.process);
-    start_live_inner(graph, registry, subscriptions, ctx, overrides)
+    start_live_inner(
+        graph,
+        registry,
+        subscriptions,
+        ctx,
+        overrides,
+        runtime_factory,
+    )
 }
 
 fn start_live_inner(
@@ -2180,6 +2189,7 @@ fn start_live_inner(
     subscriptions: &OutputSubscriptionPlan,
     ctx: &mut CompileCtx,
     mut source_overrides: SourceProcessOverrides,
+    runtime_factory: &dyn signal_processing::AppManagerFactory,
 ) -> Result<LiveRun, Vec<CompileError>> {
     let mut compiled = lower_with_subscriptions(graph, registry, subscriptions)?;
     cache_platform::configure_directory(&mut compiled, ctx.persistent_cache_directory.as_deref());
@@ -2190,7 +2200,7 @@ fn start_live_inner(
     ctx.collected_output_subscriptions =
         collected_output_subscriptions(&compiled, registry, subscriptions);
     ctx.collected_table_subscriptions = collected_table_subscriptions(&compiled, registry);
-    let mut manager = AppManager::new();
+    let mut manager = runtime_factory.create();
     let mut names: HashMap<NodeId, String> = HashMap::new();
 
     let (execution, cache_pruned) = cache_platform::prepare_execution(&compiled, registry);
@@ -2572,8 +2582,9 @@ pub(crate) fn start_app_run(
     registry: &BuilderRegistry,
     subscriptions: &OutputSubscriptionPlan,
     ctx: &mut CompileCtx,
+    runtime_factory: &dyn signal_processing::AppManagerFactory,
 ) -> Result<LiveRun, Vec<CompileError>> {
-    start_live_with_subscriptions(graph, registry, subscriptions, ctx)
+    start_live_with_subscriptions(graph, registry, subscriptions, ctx, runtime_factory)
 }
 
 /// Starts an ordinary application run while replacing explicitly identified
@@ -2585,8 +2596,16 @@ pub(crate) fn start_app_run_with_source_overrides_and_subscriptions(
     subscriptions: &OutputSubscriptionPlan,
     ctx: &mut CompileCtx,
     overrides: SourceProcessOverrides,
+    runtime_factory: &dyn signal_processing::AppManagerFactory,
 ) -> Result<LiveRun, Vec<CompileError>> {
-    start_live_inner(graph, registry, subscriptions, ctx, overrides)
+    start_live_inner(
+        graph,
+        registry,
+        subscriptions,
+        ctx,
+        overrides,
+        runtime_factory,
+    )
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

@@ -7,7 +7,9 @@ use logic_analyzer_ui::{
     HostService, OpenDialog, SaveDialog, default_input_bindings,
 };
 use node_graph::{FileDialogRequest, FileDialogService};
-use signal_processing::{MemoryArtifactRepository, PersistentStoreConfig};
+use signal_processing::{
+    CooperativeAppManagerFactory, MemoryArtifactRepository, PersistentStoreConfig,
+};
 
 use crate::services::PlatformServices;
 
@@ -20,7 +22,10 @@ pub(crate) fn standard_services() -> PlatformServices {
         Vec::new(),
     )
     .with_node_file_dialog(Box::new(WebNodeFileDialogService))
-    .with_source_preparation_executor(Box::new(InlineSourcePreparationExecutor));
+    .with_graph_execution(
+        Box::new(InlineSourcePreparationExecutor),
+        Arc::new(CooperativeAppManagerFactory),
+    );
     PlatformServices::with_ui_services(ui_services, Arc::new(MemoryArtifactRepository::new()))
 }
 

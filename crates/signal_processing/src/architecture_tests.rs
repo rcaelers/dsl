@@ -221,24 +221,11 @@ fn wasm_derived_store_keeps_committed_words_in_encoded_blocks() {
 fn application_manager_is_a_facade_instead_of_a_target_dependent_alias() {
     let library = include_str!("lib.rs");
     assert!(!library.contains("type AppManager"));
-
-    for implementation in [
-        include_str!("app_manager/native.rs"),
-        include_str!("app_manager/wasm.rs"),
-    ] {
-        assert!(implementation.contains("pub struct AppManager"));
-        for operation in [
-            "add_node_deferred",
-            "start_all_deferred",
-            "reconfigure_at",
-            "restart_node",
-            "request_stop",
-            "pump",
-        ] {
-            assert!(
-                implementation.contains(&format!("fn {operation}")),
-                "AppManager backend is missing {operation}"
-            );
-        }
-    }
+    let facade = include_str!("app_manager/mod.rs");
+    assert!(!facade.contains("target_arch"));
+    assert!(facade.contains("mod contract;"));
+    assert!(facade.contains("mod cooperative;"));
+    assert!(facade.contains("mod implementation;"));
+    assert!(facade.contains("AppManagerBackend"));
+    assert!(facade.contains("AppManagerFactory"));
 }

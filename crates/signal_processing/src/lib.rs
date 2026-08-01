@@ -87,7 +87,10 @@ pub use advanced_trigger::{
     TriggerValidationCode, TriggerValidationDiagnostic, TriggerValidationErrors,
     ValidatedTriggerProgram,
 };
-pub use app_manager::AppManager;
+pub use app_manager::{
+    AppManager, AppManagerBackend, AppManagerFactory, CooperativeAppManagerBackend,
+    CooperativeAppManagerFactory,
+};
 pub use capture::{
     BlockCaptureSource, BlockData, CaptureDataSource, CaptureFingerprint, CaptureIndex,
     CaptureIndexBuildProgress, CaptureIndexFactory, CaptureMetadata, CaptureSampledChannel,

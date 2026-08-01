@@ -1,18 +1,22 @@
-use crate::{
-    ConfigurationBoundary, DisconnectEvent, InputSub, NodeConfig, NodeSpec, PipelineManager,
-    ProcessNode,
-};
+use super::contract::AppManagerBackend;
+use super::cooperative::CooperativeAppManagerBackend;
+use crate::manager::{DisconnectEvent, InputSub, NodeSpec};
+use crate::node::{ConfigurationBoundary, NodeConfig, ProcessNode};
 
-/// Platform-neutral application runtime backed by native worker threads.
+/// Platform-neutral application runtime manager.
 pub struct AppManager {
-    backend: PipelineManager,
+    backend: Box<dyn AppManagerBackend>,
 }
 
 impl AppManager {
+    /// Constructs a portable cooperative manager when no host backend was injected.
     pub fn new() -> Self {
-        Self {
-            backend: PipelineManager::new(),
-        }
+        Self::with_backend(Box::new(CooperativeAppManagerBackend::new()))
+    }
+
+    /// Constructs a manager with host-selected execution behavior.
+    pub fn with_backend(backend: Box<dyn AppManagerBackend>) -> Self {
+        Self { backend }
     }
 
     pub fn is_finished(&self) -> bool {
@@ -73,7 +77,6 @@ impl AppManager {
         self.backend.wait();
     }
 
-    /// Native nodes run on their own threads, so frame pumping is a no-op.
     pub fn pump(&mut self, budget: usize) {
         self.backend.pump(budget);
     }

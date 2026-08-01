@@ -1,11 +1,15 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use logic_analyzer_graph_api::node_support::{
     LiveCaptureEdit, TimelineMarkerEdit, TimelineMarkerReferenceBindingEdit,
 };
 use node_graph::api::{GraphState, NodeId};
-use signal_processing::{ConfigurationBoundary, PayloadRegistry, PersistentStoreConfig};
+use signal_processing::{
+    AppManagerFactory, ConfigurationBoundary, CooperativeAppManagerFactory, PayloadRegistry,
+    PersistentStoreConfig,
+};
 
 use super::errors::{ApplyError, CompileError};
 use super::graph::{
@@ -29,6 +33,7 @@ pub struct GraphCompiler {
     builders: BuilderRegistry,
     output_subscriptions: OutputSubscriptionPlan,
     source_preparation: SourcePreparation,
+    runtime_factory: Arc<dyn AppManagerFactory>,
 }
 
 impl GraphCompiler {
@@ -37,6 +42,7 @@ impl GraphCompiler {
             builders: BuilderRegistry::standard(),
             output_subscriptions: OutputSubscriptionPlan::new(),
             source_preparation: SourcePreparation::new(),
+            runtime_factory: Arc::new(CooperativeAppManagerFactory),
         }
     }
 
@@ -46,6 +52,20 @@ impl GraphCompiler {
             builders: BuilderRegistry::standard(),
             output_subscriptions: OutputSubscriptionPlan::new(),
             source_preparation: SourcePreparation::with_executor(executor),
+            runtime_factory: Arc::new(CooperativeAppManagerFactory),
+        }
+    }
+
+    /// Constructs a compiler with host-selected source and graph execution.
+    pub fn with_execution(
+        source_preparation_executor: Box<dyn SourcePreparationExecutor>,
+        runtime_factory: Arc<dyn AppManagerFactory>,
+    ) -> Self {
+        Self {
+            builders: BuilderRegistry::standard(),
+            output_subscriptions: OutputSubscriptionPlan::new(),
+            source_preparation: SourcePreparation::with_executor(source_preparation_executor),
+            runtime_factory,
         }
     }
 
@@ -178,7 +198,13 @@ impl GraphCompiler {
         graph: &GraphState,
         ctx: &mut CompileCtx,
     ) -> Result<LiveRun, Vec<CompileError>> {
-        graph::start_app_run(graph, &self.builders, &self.output_subscriptions, ctx)
+        graph::start_app_run(
+            graph,
+            &self.builders,
+            &self.output_subscriptions,
+            ctx,
+            self.runtime_factory.as_ref(),
+        )
     }
 
     /// Loads persistent derived lanes for presentation without executing producers or sinks.
@@ -207,6 +233,7 @@ impl GraphCompiler {
             &self.output_subscriptions,
             ctx,
             overrides,
+            self.runtime_factory.as_ref(),
         )
     }
 
@@ -222,6 +249,7 @@ impl GraphCompiler {
             &self.output_subscriptions,
             ctx,
             source,
+            self.runtime_factory.as_ref(),
         )
     }
 

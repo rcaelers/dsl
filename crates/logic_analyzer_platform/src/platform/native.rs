@@ -17,9 +17,10 @@ use logic_analyzer_ui::{
 };
 use node_graph::{FileDialogRequest, FileDialogService};
 use signal_processing::{
-    ArtifactKey, ArtifactMetadata, ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion,
-    ImmutableByteRegion, PersistentStoreConfig, ReadArtifact, RepositoryCapabilities,
-    RepositoryError, SourceIdentity, WriteArtifact,
+    AppManager, AppManagerBackend, AppManagerFactory, ArtifactKey, ArtifactMetadata,
+    ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion, ImmutableByteRegion,
+    PersistentStoreConfig, PipelineManager, ReadArtifact, RepositoryCapabilities, RepositoryError,
+    SourceIdentity, WriteArtifact,
 };
 
 use crate::services::PlatformServices;
@@ -80,13 +81,98 @@ pub(crate) fn standard_services() -> PlatformServices {
         system_symbol_fonts(),
     )
     .with_node_file_dialog(Box::new(NativeNodeFileDialogService))
-    .with_source_preparation_executor(Box::new(NativeSourcePreparationExecutor::new()));
+    .with_graph_execution(
+        Box::new(NativeSourcePreparationExecutor::new()),
+        Arc::new(NativeAppManagerFactory),
+    );
     PlatformServices::with_ui_services(
         ui_services,
         Arc::new(NativeArtifactRepository::new(
             derived_cache_directory().join("artifacts"),
         )),
     )
+}
+
+struct NativeAppManagerFactory;
+
+impl AppManagerFactory for NativeAppManagerFactory {
+    fn create(&self) -> AppManager {
+        AppManager::with_backend(Box::new(NativeAppManagerBackend {
+            manager: PipelineManager::new(),
+        }))
+    }
+}
+
+struct NativeAppManagerBackend {
+    manager: PipelineManager,
+}
+
+impl AppManagerBackend for NativeAppManagerBackend {
+    fn is_finished(&self) -> bool {
+        self.manager.is_finished()
+    }
+
+    fn add_node(&mut self, spec: signal_processing::NodeSpec) -> Result<(), String> {
+        self.manager.add_node(spec)
+    }
+
+    fn add_node_deferred(&mut self, spec: signal_processing::NodeSpec) -> Result<(), String> {
+        self.manager.add_node_deferred(spec)
+    }
+
+    fn start_all_deferred(&mut self) -> Result<(), String> {
+        self.manager.start_all_deferred()
+    }
+
+    fn remove_node(&mut self, name: &str) -> Result<(), String> {
+        self.manager.remove_node(name)
+    }
+
+    fn reconfigure(
+        &mut self,
+        name: &str,
+        config: signal_processing::NodeConfig,
+    ) -> Result<(), String> {
+        self.manager.reconfigure(name, config)
+    }
+
+    fn reconfigure_at(
+        &mut self,
+        name: &str,
+        config: signal_processing::NodeConfig,
+        boundary: signal_processing::ConfigurationBoundary,
+    ) -> Result<(), String> {
+        self.manager.reconfigure_at(name, config, boundary)
+    }
+
+    fn restart_node(
+        &mut self,
+        name: &str,
+        node: Box<dyn signal_processing::ProcessNode>,
+        inputs: Vec<Option<signal_processing::InputSub>>,
+    ) -> Result<(), String> {
+        self.manager.restart_node(name, node, inputs)
+    }
+
+    fn progress(&self) -> Vec<(String, u64)> {
+        self.manager.progress()
+    }
+
+    fn take_disconnected(&self) -> Vec<signal_processing::DisconnectEvent> {
+        self.manager.take_disconnected()
+    }
+
+    fn request_stop(&mut self) {
+        self.manager.request_stop();
+    }
+
+    fn wait(&mut self) {
+        self.manager.wait();
+    }
+
+    fn pump(&mut self, budget: usize) {
+        self.manager.pump(budget);
+    }
 }
 
 struct NativeSourcePreparationExecutor {
@@ -734,14 +820,23 @@ mod native_tests {
     };
     use logic_analyzer_ui::{HostCommand, HostService};
     use signal_processing::{
-        ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, SourceIdentity,
+        AppManagerFactory, ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange,
+        SourceIdentity,
     };
 
     use super::{
-        NativeArtifactRepository, NativeHostService, NativeSourcePreparationExecutor,
-        application_directory, load_application_settings_path, load_input_bindings_path,
-        queue_host_command,
+        NativeAppManagerFactory, NativeArtifactRepository, NativeHostService,
+        NativeSourcePreparationExecutor, application_directory, load_application_settings_path,
+        load_input_bindings_path, queue_host_command,
     };
+
+    #[test]
+    fn native_runtime_factory_selects_the_threaded_backend() {
+        let mut manager = NativeAppManagerFactory.create();
+
+        manager.pump(1);
+        assert!(manager.is_finished());
+    }
 
     #[test]
     fn native_source_preparation_executor_completes_work_off_the_caller() {

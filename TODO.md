@@ -85,8 +85,6 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.execution.runtime-manager] Replace target-selected application-manager implementations with
-  one portable runtime facade that receives native threaded or cooperative execution behavior through injection.
 - [platform.data-plane.execution.parallel-nodes] Replace native-only parallel-decoder and related background-work
   selection with execution-capability contracts. Concrete nodes retain one schema and state machine while the host
   advertises usable parallelism.
