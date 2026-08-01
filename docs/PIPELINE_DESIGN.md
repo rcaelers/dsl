@@ -174,12 +174,13 @@ therefore covers decoder transport, batch serialization, and filesystem output w
 the decoded stream in memory.
 
 The indexed derived-word consumer retains producer-owned batches until a bounded drain boundary.
-Its native writer prepares several complete blocks concurrently on the shared worker pool, accepts
-their completion in any order, and gives one file owner sole responsibility for contiguous ordered
-publication. One writer uses at most four block tasks and reserves most shared workers for decoder
-scans, other nodes, and concurrent lanes. This removes block encoding and presence-summary
-construction from the serialized output path without relaxing deterministic ordering, complete
-append visibility, storage-failure isolation, or backpressure.
+Its writer prepares complete blocks through the `WorkExecutor` selected in the lane configuration,
+accepts their completion in any order, and gives one file owner sole responsibility for contiguous
+ordered publication. One writer uses at most four block tasks and scales its bound from the
+executor's advertised capacity, reserving remaining capacity for decoder scans, other nodes, and
+concurrent lanes. This removes block encoding and presence-summary construction from the
+serialized output path without relaxing deterministic ordering, complete append visibility,
+storage-failure isolation, or backpressure.
 
 The manual compiler-capture benchmark loads the checked-in controlled parallel-decoder graph and
 includes its production binary writer, connected-output retention, and explicitly subscribed

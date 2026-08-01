@@ -3654,7 +3654,7 @@ mod tests {
                     },
                 );
                 request.with_options(signal_processing::CollectedWordLaneOptions::new(
-                    store_config,
+                    store_config.with_work_executor(context.work_executor()),
                     None,
                 ))
             })

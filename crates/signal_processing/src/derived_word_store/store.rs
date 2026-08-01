@@ -31,6 +31,7 @@ use super::super::super::query::{
     boundary_block_indices, exact_block_indices, nearest_boundary_from_ordered_words,
 };
 use super::super::super::state::{LiveStoreMetadata, LiveStoreSnapshot, StoreStatus};
+use crate::WorkExecutor;
 use crate::events::{Annotation, Word};
 
 const MAX_BLOCK_ENCODERS_PER_STORE: usize = 4;
@@ -748,6 +749,7 @@ pub struct IndexedAnnotationWriter {
     hot_tail_publish_interval: Duration,
     terminal: bool,
     persistence: Option<PersistentStoreConfig>,
+    work_executor: Arc<dyn WorkExecutor>,
     created_unix_ns: u64,
 }
 
@@ -794,7 +796,8 @@ impl IndexedAnnotationWriter {
         )?;
         let reader = file.try_clone()?;
         let builder = WordBlockBuilder::new(config.block)?;
-        let max_outstanding_blocks = block_encoder_count(crate::shared_worker_pool().workers());
+        let work_executor = Arc::clone(&config.work_executor);
+        let max_outstanding_blocks = block_encoder_count(work_executor.available_parallelism());
         let (completion_sender, completion_receiver) = bounded(max_outstanding_blocks);
         let now = Instant::now();
         let last_tail_publish = now
@@ -843,6 +846,7 @@ impl IndexedAnnotationWriter {
                 hot_tail_publish_interval: config.hot_tail_publish_interval,
                 terminal: false,
                 persistence: config.persistence,
+                work_executor,
                 created_unix_ns,
             },
             store,
@@ -1021,8 +1025,8 @@ impl IndexedAnnotationWriter {
         let sequence = self.next_dispatch_sequence;
         let duration_free = builder.is_duration_free();
         let completion = self.completion_sender.clone();
-        crate::shared_worker_pool()
-            .spawn(move || {
+        self.work_executor
+            .submit(Box::new(move || {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let result = builder.encode(sequence, &mut encoded).map(|metadata| {
                         let summaries =
@@ -1041,8 +1045,8 @@ impl IndexedAnnotationWriter {
                     block: result.ok(),
                 };
                 let _ = completion.send(message);
-            })
-            .map_err(|_| StoreError::Persistent("shared block encoder pool stopped".into()))?;
+            }))
+            .map_err(StoreError::Persistent)?;
         self.in_flight_blocks += 1;
         self.next_dispatch_sequence += 1;
         self.words_since_tail_publish = 0;
@@ -1250,13 +1254,39 @@ fn read_exact_at(_file: &File, _buffer: &mut [u8], _offset: u64) -> io::Result<(
 #[cfg(test)]
 mod tests {
     use std::io::{Read, Seek, SeekFrom};
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::thread;
 
     use super::*;
     use crate::derived_word_store::BlockCodecConfig;
     use crate::derived_word_store::cache::cache_contains;
     use crate::events::instantaneous_word_end_ns;
+
+    struct RecordingWorkExecutor {
+        workers: usize,
+        submissions: AtomicUsize,
+    }
+
+    impl RecordingWorkExecutor {
+        fn new(workers: usize) -> Self {
+            Self {
+                workers,
+                submissions: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    impl WorkExecutor for RecordingWorkExecutor {
+        fn available_parallelism(&self) -> usize {
+            self.workers
+        }
+
+        fn submit(&self, task: crate::WorkExecutorTask) -> Result<(), String> {
+            self.submissions.fetch_add(1, Ordering::Relaxed);
+            task();
+            Ok(())
+        }
+    }
 
     fn test_config(directory: &Path) -> LiveStoreConfig {
         LiveStoreConfig {
@@ -1291,6 +1321,23 @@ mod tests {
             block_encoder_count(usize::MAX),
             MAX_BLOCK_ENCODERS_PER_STORE
         );
+    }
+
+    #[test]
+    fn configured_executor_bounds_and_receives_block_encoding_work() {
+        let directory = tempfile::tempdir().unwrap();
+        let executor = Arc::new(RecordingWorkExecutor::new(9));
+        let config = test_config(directory.path()).with_work_executor(executor.clone());
+        let (mut writer, _) = IndexedAnnotationWriter::create(config).unwrap();
+
+        let words = (0..32)
+            .map(|index| Word::new(index, index * 10))
+            .collect::<Vec<_>>();
+        writer.append_batch(&words).unwrap();
+        writer.finish().unwrap();
+
+        assert_eq!(writer.max_outstanding_blocks, block_encoder_count(9));
+        assert_eq!(executor.submissions.load(Ordering::Relaxed), 2);
     }
 
     #[test]

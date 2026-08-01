@@ -1,3 +1,10 @@
+use std::fmt;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
+use crate::{InlineWorkExecutor, WorkExecutor};
+
 /// Platform-neutral block-sizing knobs. Native storage uses these to encode
 /// file blocks; the wasm backend retains them so one compiled configuration
 /// has the same shape on every target.
@@ -39,7 +46,7 @@ impl PersistentStoreConfig {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct LiveStoreConfig {
     pub directory: PathBuf,
     pub cache_key_prefix: [u8; 16],
@@ -47,6 +54,33 @@ pub struct LiveStoreConfig {
     pub hot_tail_publish_words: usize,
     pub hot_tail_publish_interval: Duration,
     pub persistence: Option<PersistentStoreConfig>,
+    pub work_executor: Arc<dyn WorkExecutor>,
+}
+
+impl fmt::Debug for LiveStoreConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LiveStoreConfig")
+            .field("directory", &self.directory)
+            .field("cache_key_prefix", &self.cache_key_prefix)
+            .field("block", &self.block)
+            .field("hot_tail_publish_words", &self.hot_tail_publish_words)
+            .field("hot_tail_publish_interval", &self.hot_tail_publish_interval)
+            .field("persistence", &self.persistence)
+            .field(
+                "work_executor_parallelism",
+                &self.work_executor.available_parallelism(),
+            )
+            .finish()
+    }
+}
+
+impl LiveStoreConfig {
+    /// Selects the bounded executor used to encode finalized word blocks.
+    pub fn with_work_executor(mut self, executor: Arc<dyn WorkExecutor>) -> Self {
+        self.work_executor = executor;
+        self
+    }
 }
 
 impl Default for LiveStoreConfig {
@@ -58,11 +92,10 @@ impl Default for LiveStoreConfig {
             hot_tail_publish_words: DEFAULT_HOT_TAIL_PUBLISH_WORDS,
             hot_tail_publish_interval: DEFAULT_HOT_TAIL_PUBLISH_INTERVAL,
             persistence: None,
+            work_executor: Arc::new(InlineWorkExecutor),
         }
     }
 }
-use std::path::PathBuf;
-use std::time::Duration;
 
 const DEFAULT_HOT_TAIL_PUBLISH_WORDS: usize = 262_144;
 const DEFAULT_HOT_TAIL_PUBLISH_INTERVAL: Duration = Duration::from_millis(50);

@@ -196,13 +196,14 @@ checks neighboring blocks so snapping works at block boundaries and in older reg
 
 `DerivedDataCollector` owns one writer for each indexed word lane. Batch-aware inputs transfer
 producer-created vectors into the collector without first flattening them into scalar channel
-items. A word lane drains at most 131,072 words per scheduler call. On native hosts, its writer
-turns that bounded group of producer batches into independently prepared complete blocks.
+items. A word lane drains at most 131,072 words per scheduler call. Its writer turns that bounded
+group of producer batches into independently prepared complete blocks through its configured
+`WorkExecutor`.
 Appending:
 
 1. validates ordering;
 2. adds words to the active block builder;
-3. dispatches complete builders to the shared worker pool, where each task encodes one block and
+3. dispatches complete builders to the configured executor, where each task encodes one block and
    builds its bounded presence summaries;
 4. accepts prepared blocks in any completion order while retaining them by sequence number;
 5. writes every contiguous prepared block through the sole file owner;

@@ -85,8 +85,6 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.execution.derived-store-encoding] Move derived-word block encoding from the native global
-  worker pool to the injected execution contract, preserving bounded encoding work and ordered block publication.
 - [platform.data-plane.execution.other-background-work] Inventory and migrate remaining reusable background work
   from direct worker-pool or thread selection to explicit platform execution contracts.
 - [platform.data-plane.execution.web-workers] Add an optional Web Worker adapter with serializable work messages,
