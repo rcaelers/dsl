@@ -85,9 +85,13 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.adapter-execution] Provide the injected bounded-execution service: native workers, the
-  portable cooperative executor, and a future Web Worker adapter all implement one runtime contract. Remove
-  reusable compiler and processing target selection for execution.
+- [platform.data-plane.execution.runtime-manager] Replace target-selected application-manager implementations with
+  one portable runtime facade that receives native threaded or cooperative execution behavior through injection.
+- [platform.data-plane.execution.parallel-nodes] Replace native-only parallel-decoder and related background-work
+  selection with execution-capability contracts. Concrete nodes retain one schema and state machine while the host
+  advertises usable parallelism.
+- [platform.data-plane.execution.web-workers] Add an optional Web Worker adapter with serializable work messages,
+  cancellation, bounded queues, ordered completion, and explicit unavailable-capability behavior.
 - [platform.data-plane.adapter-acquisition-export] Move host capture acquisition, file and browser-handle adapters,
   dialogs, and export destinations into `logic_analyzer_platform`. The compiler, processing nodes, and UI consume
   only their platform-neutral request and capability contracts.

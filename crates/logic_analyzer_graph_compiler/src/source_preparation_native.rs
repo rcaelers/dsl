@@ -1,9 +1,9 @@
 use logic_analyzer_graph_api::node_support::CapturePresentation;
 
 use super::source_preparation_executor::{
-    SourcePreparationExecutor, SourcePreparationTask, SourcePreparationTaskUpdate,
+    InlineSourcePreparationExecutor, SourcePreparationExecutor, SourcePreparationTask,
+    SourcePreparationTaskUpdate,
 };
-use super::source_preparation_executor_native::NativeSourcePreparationExecutor;
 use super::{
     DiscoveredCapturePresentation, PreparedCapture, PreparedCaptureData, SourcePreparationStatus,
     SourcePreparationUpdate,
@@ -18,10 +18,10 @@ pub(crate) struct SourcePreparation {
 
 impl SourcePreparation {
     pub(crate) fn new() -> Self {
-        Self::with_executor(Box::new(NativeSourcePreparationExecutor))
+        Self::with_executor(Box::new(InlineSourcePreparationExecutor))
     }
 
-    fn with_executor(executor: Box<dyn SourcePreparationExecutor>) -> Self {
+    pub(crate) fn with_executor(executor: Box<dyn SourcePreparationExecutor>) -> Self {
         Self {
             identity: None,
             executor,

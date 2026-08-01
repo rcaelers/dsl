@@ -6,8 +6,8 @@ use logic_analyzer_graph_compiler::{
     CompileError, DiscoveredLiveCaptureFeature, DiscoveredTimelineMarker,
     DiscoveredTimelineMarkerReferenceBinding, DiscoveredTriggerConfiguration, GraphCompiler,
     LiveAnalysisSource, LiveCaptureDiscoveryError, LiveRun, OutputSubscriptionPlan,
-    SamplingOverlayCandidate, SourcePreparationStatus, SourcePreparationUpdate,
-    SourceProcessOverrides, SourceReadinessRegistry,
+    SamplingOverlayCandidate, SourcePreparationExecutor, SourcePreparationStatus,
+    SourcePreparationUpdate, SourceProcessOverrides, SourceReadinessRegistry,
 };
 use node_graph::{GraphState, NodeId};
 use signal_processing::{
@@ -246,4 +246,10 @@ impl GraphService for GraphCompiler {
 
 pub(crate) fn standard_graph_service() -> Box<dyn GraphService> {
     Box::new(GraphCompiler::new())
+}
+
+pub(crate) fn graph_service_with_source_preparation_executor(
+    executor: Box<dyn SourcePreparationExecutor>,
+) -> Box<dyn GraphService> {
+    Box::new(GraphCompiler::with_source_preparation_executor(executor))
 }

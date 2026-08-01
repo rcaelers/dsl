@@ -1,11 +1,14 @@
 use std::path::{Path, PathBuf};
 
 use input_bindings::InputBindings;
+use logic_analyzer_graph_compiler::SourcePreparationExecutor;
 use node_graph::FileDialogService;
 use signal_processing::PersistentStoreConfig;
 
 use crate::application_settings::{ApplicationSettings, default_input_bindings};
-use crate::graph_service::{GraphService, standard_graph_service};
+use crate::graph_service::{
+    GraphService, graph_service_with_source_preparation_executor, standard_graph_service,
+};
 use crate::host_service::{
     CacheClearStats, CacheEntrySnapshot, HostService, OpenDialog, SaveDialog,
 };
@@ -70,6 +73,15 @@ impl AppServices {
     /// Supplies the host capability used by file controls embedded in graph nodes.
     pub fn with_node_file_dialog(mut self, service: Box<dyn FileDialogService>) -> Self {
         self.node_file_dialog = Some(service);
+        self
+    }
+
+    /// Replaces the portable source-preparation executor with a host adapter.
+    pub fn with_source_preparation_executor(
+        mut self,
+        executor: Box<dyn SourcePreparationExecutor>,
+    ) -> Self {
+        self.graph_service = graph_service_with_source_preparation_executor(executor);
         self
     }
 

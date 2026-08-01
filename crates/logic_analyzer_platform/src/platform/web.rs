@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use logic_analyzer_graph_compiler::InlineSourcePreparationExecutor;
 use logic_analyzer_ui::{
     AppServices, ApplicationSettings, ApplicationStoragePaths, CacheClearStats, CacheEntrySnapshot,
     HostService, OpenDialog, SaveDialog, default_input_bindings,
@@ -18,7 +19,8 @@ pub(crate) fn standard_services() -> PlatformServices {
         ApplicationSettings::default(),
         Vec::new(),
     )
-    .with_node_file_dialog(Box::new(WebNodeFileDialogService));
+    .with_node_file_dialog(Box::new(WebNodeFileDialogService))
+    .with_source_preparation_executor(Box::new(InlineSourcePreparationExecutor));
     PlatformServices::with_ui_services(ui_services, Arc::new(MemoryArtifactRepository::new()))
 }
 

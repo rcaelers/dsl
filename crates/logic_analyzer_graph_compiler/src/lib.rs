@@ -17,17 +17,10 @@ mod graph_node_registration;
 mod output_subscription;
 mod payload_registration;
 mod run_data;
-#[cfg(not(target_arch = "wasm32"))]
 #[path = "source_preparation_native.rs"]
 mod source_preparation;
-#[cfg(target_arch = "wasm32")]
-#[path = "source_preparation_wasm.rs"]
-mod source_preparation;
 mod source_preparation_contract;
-#[cfg(not(target_arch = "wasm32"))]
 mod source_preparation_executor;
-#[cfg(not(target_arch = "wasm32"))]
-mod source_preparation_executor_native;
 
 #[cfg(test)]
 mod architecture_tests;
@@ -65,4 +58,8 @@ pub use run_data::{
 };
 pub use source_preparation_contract::{
     PreparedCapture, PreparedCaptureData, SourcePreparationStatus, SourcePreparationUpdate,
+};
+pub use source_preparation_executor::{
+    InlineSourcePreparationExecutor, SourcePreparationExecutor, SourcePreparationResult,
+    SourcePreparationTask, SourcePreparationTaskUpdate, SourcePreparationWork,
 };

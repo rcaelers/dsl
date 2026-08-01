@@ -15,7 +15,10 @@ use super::graph::{
     LiveCaptureDiscoveryError, LiveRun, SamplingOverlayCandidate, SourceProcessOverrides,
 };
 use super::source_preparation::SourcePreparation;
-use super::{OutputSubscriptionPlan, SourcePreparationStatus, SourcePreparationUpdate, graph};
+use super::{
+    OutputSubscriptionPlan, SourcePreparationExecutor, SourcePreparationStatus,
+    SourcePreparationUpdate, graph,
+};
 
 /// Stateful application-facing facade for graph discovery, compilation, and execution.
 ///
@@ -34,6 +37,15 @@ impl GraphCompiler {
             builders: BuilderRegistry::standard(),
             output_subscriptions: OutputSubscriptionPlan::new(),
             source_preparation: SourcePreparation::new(),
+        }
+    }
+
+    /// Constructs a compiler with host-selected finite-source preparation.
+    pub fn with_source_preparation_executor(executor: Box<dyn SourcePreparationExecutor>) -> Self {
+        Self {
+            builders: BuilderRegistry::standard(),
+            output_subscriptions: OutputSubscriptionPlan::new(),
+            source_preparation: SourcePreparation::with_executor(executor),
         }
     }
 

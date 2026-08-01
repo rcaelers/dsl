@@ -2256,6 +2256,7 @@ dependencies = [
  "dirs",
  "egui",
  "input-bindings",
+ "logic-analyzer-graph-compiler",
  "logic-analyzer-ui",
  "memmap2",
  "node-graph",

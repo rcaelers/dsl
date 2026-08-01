@@ -6,6 +6,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use memmap2::MmapOptions;
 
+use logic_analyzer_graph_compiler::{
+    SourcePreparationExecutor, SourcePreparationResult, SourcePreparationTask,
+    SourcePreparationTaskUpdate, SourcePreparationWork,
+};
 use logic_analyzer_ui::{
     APPLICATION_ID, AppServices, ApplicationSettings, ApplicationStoragePaths, CacheClearStats,
     CacheEntrySnapshot, DecodedBlockCacheSnapshot, HostCommand, HostService, OpenDialog,
@@ -75,13 +79,89 @@ pub(crate) fn standard_services() -> PlatformServices {
         application_settings,
         system_symbol_fonts(),
     )
-    .with_node_file_dialog(Box::new(NativeNodeFileDialogService));
+    .with_node_file_dialog(Box::new(NativeNodeFileDialogService))
+    .with_source_preparation_executor(Box::new(NativeSourcePreparationExecutor::new()));
     PlatformServices::with_ui_services(
         ui_services,
         Arc::new(NativeArtifactRepository::new(
             derived_cache_directory().join("artifacts"),
         )),
     )
+}
+
+struct NativeSourcePreparationExecutor {
+    sender: crossbeam_channel::Sender<QueuedSourcePreparation>,
+}
+
+impl NativeSourcePreparationExecutor {
+    fn new() -> Self {
+        const WORKERS: usize = 1;
+        let (sender, receiver) = crossbeam_channel::bounded(WORKERS * 2);
+        for index in 0..WORKERS {
+            let receiver = receiver.clone();
+            std::thread::Builder::new()
+                .name(format!("source-preparation-{index}"))
+                .spawn(move || run_source_preparation_worker(receiver))
+                .expect("failed to start source preparation worker");
+        }
+        Self { sender }
+    }
+}
+
+impl SourcePreparationExecutor for NativeSourcePreparationExecutor {
+    fn submit(
+        &self,
+        work: SourcePreparationWork,
+    ) -> Result<Box<dyn SourcePreparationTask>, String> {
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        self.sender
+            .try_send(QueuedSourcePreparation {
+                work,
+                result_sender: sender,
+            })
+            .map_err(|error| match error {
+                crossbeam_channel::TrySendError::Full(_) => {
+                    String::from("source-preparation worker queue is full")
+                }
+                crossbeam_channel::TrySendError::Disconnected(_) => {
+                    String::from("source-preparation worker stopped")
+                }
+            })?;
+        Ok(Box::new(NativeSourcePreparationTask { receiver }))
+    }
+}
+
+struct QueuedSourcePreparation {
+    work: SourcePreparationWork,
+    result_sender: crossbeam_channel::Sender<SourcePreparationResult>,
+}
+
+fn run_source_preparation_worker(receiver: crossbeam_channel::Receiver<QueuedSourcePreparation>) {
+    while let Ok(QueuedSourcePreparation {
+        work,
+        result_sender,
+    }) = receiver.recv()
+    {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
+            .unwrap_or_else(|_| Err("source-preparation worker panicked".into()));
+        let _ = result_sender.send(result);
+    }
+}
+
+struct NativeSourcePreparationTask {
+    receiver: crossbeam_channel::Receiver<SourcePreparationResult>,
+}
+
+impl SourcePreparationTask for NativeSourcePreparationTask {
+    fn poll(&mut self) -> SourcePreparationTaskUpdate {
+        match self.receiver.try_recv() {
+            Ok(result) => SourcePreparationTaskUpdate::Complete(result),
+            Err(crossbeam_channel::TryRecvError::Empty) => SourcePreparationTaskUpdate::Pending,
+            Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                SourcePreparationTaskUpdate::Disconnected
+            }
+        }
+    }
 }
 
 static NEXT_ARTIFACT_TEMPORARY_ID: AtomicU64 = AtomicU64::new(1);
@@ -649,15 +729,51 @@ mod native_tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    use logic_analyzer_graph_compiler::{
+        PreparedCaptureData, SourcePreparationExecutor, SourcePreparationTaskUpdate,
+    };
     use logic_analyzer_ui::{HostCommand, HostService};
     use signal_processing::{
         ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, SourceIdentity,
     };
 
     use super::{
-        NativeArtifactRepository, NativeHostService, application_directory,
-        load_application_settings_path, load_input_bindings_path, queue_host_command,
+        NativeArtifactRepository, NativeHostService, NativeSourcePreparationExecutor,
+        application_directory, load_application_settings_path, load_input_bindings_path,
+        queue_host_command,
     };
+
+    #[test]
+    fn native_source_preparation_executor_completes_work_off_the_caller() {
+        let executor = NativeSourcePreparationExecutor::new();
+        let mut task = executor
+            .submit(Box::new(|| {
+                Ok(PreparedCaptureData::Channels(vec![(4, "Data".into())]))
+            }))
+            .unwrap();
+
+        for _ in 0..10_000 {
+            match task.poll() {
+                SourcePreparationTaskUpdate::Pending => std::thread::yield_now(),
+                SourcePreparationTaskUpdate::Complete(Ok(PreparedCaptureData::Channels(
+                    channels,
+                ))) => {
+                    assert_eq!(channels, vec![(4, "Data".into())]);
+                    return;
+                }
+                SourcePreparationTaskUpdate::Complete(Ok(_)) => {
+                    panic!("source preparation returned the wrong data kind");
+                }
+                SourcePreparationTaskUpdate::Complete(Err(error)) => {
+                    panic!("source preparation failed: {error}");
+                }
+                SourcePreparationTaskUpdate::Disconnected => {
+                    panic!("source preparation worker disconnected");
+                }
+            }
+        }
+        panic!("source preparation worker did not complete");
+    }
 
     #[test]
     fn native_artifact_repository_publishes_mmap_backed_artifacts_atomically() {

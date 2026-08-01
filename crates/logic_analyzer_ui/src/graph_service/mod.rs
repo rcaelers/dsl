@@ -8,4 +8,6 @@ mod graph_compiler;
 mod graph_service_tests;
 
 pub(crate) use contract::{GraphRun, GraphService};
-pub(crate) use graph_compiler::standard_graph_service;
+pub(crate) use graph_compiler::{
+    graph_service_with_source_preparation_executor, standard_graph_service,
+};

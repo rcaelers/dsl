@@ -36,6 +36,9 @@ native configuration-file discovery and I/O, and supplies both derived-cache and
 directories to the UI. It then passes decoded portable settings and bindings to the UI. It supplies
 optional system symbol fonts; the UI owns bundled fallback fonts and the portable font installation
 algorithm. The web adapter exposes unavailable storage operations and supplies embedded settings.
+Finite-source preparation uses the compiler-owned execution contract: the native platform adapter
+uses a bounded worker, while the web adapter selects the portable inline executor. The compiler
+polls one task contract and contains no target-selected source-preparation implementation.
 Native shell integrations exchange portable commands and UI state through that service contract;
 their queues and repaint wake-ups remain inside the platform adapter. Runtime cache diagnostics use
 the same adapter boundary and one portable UI snapshot path. Embedded graph-node file controls use
