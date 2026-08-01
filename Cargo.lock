@@ -2258,6 +2258,7 @@ dependencies = [
  "dirs",
  "egui",
  "input-bindings",
+ "js-sys",
  "logic-analyzer-graph-api",
  "logic-analyzer-graph-compiler",
  "logic-analyzer-graph-nodes",
@@ -2274,6 +2275,8 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.19",
  "tracing",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

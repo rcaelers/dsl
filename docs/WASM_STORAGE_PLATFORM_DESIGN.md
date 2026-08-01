@@ -458,6 +458,26 @@ transitions and publishing them. Derived-word publication likewise commits compl
 by sequence. Worker completion order therefore cannot change either persistent format or query
 results, and the cooperative and parallel paths execute the same kernels.
 
+`logic_analyzer_platform::WebWorkerAdapter` owns a bounded pool of browser workers and is constructed
+with the absolute URLs of the generated JavaScript module and WASM binary. Each worker imports and
+initializes the same generated module, then invokes the exported portable-kernel entry point. The
+adapter keeps at most one running operation in each worker and applies backpressure once its bounded
+host queue is full.
+
+Request payloads are copied once from WASM memory into an owned `ArrayBuffer` and transferred to the
+worker. Completed payloads use a standalone transferable buffer rather than attempting to detach
+WASM linear memory. Sequence identifiers cross JavaScript as decimal strings so wasm32 does not
+truncate them through the JavaScript number representation. Requests must use monotonically
+increasing sequence identifiers.
+
+Workers report readiness, unit progress, completion, operation failure, and bootstrap failure. The
+adapter forwards progress immediately but buffers terminal messages until every earlier submitted
+sequence has a terminal result. Cancellation removes queued work immediately and suppresses results
+from already-running synchronous kernels; it does not claim to preempt a kernel while JavaScript is
+executing it. A failed worker rejects its active request, remaining workers continue draining the
+queue, and loss of the complete pool rejects all queued requests. Dropping the adapter terminates
+the pool and releases its JavaScript callbacks.
+
 `AcquisitionContext` carries the selected executor into concrete live providers. Buffered and
 streaming device captures therefore retain their portable lifecycle, cancellation, and backpressure
 behavior while the host controls how their long-running acquisition task executes.

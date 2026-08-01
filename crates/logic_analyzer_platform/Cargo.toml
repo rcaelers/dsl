@@ -46,3 +46,17 @@ rusb = { workspace = true }
 pyo3 = { workspace = true }
 thiserror = { workspace = true }
 tempfile = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { workspace = true }
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true, features = [
+    "Blob",
+    "BlobPropertyBag",
+    "ErrorEvent",
+    "MessageEvent",
+    "Url",
+    "Worker",
+    "WorkerOptions",
+    "WorkerType",
+] }

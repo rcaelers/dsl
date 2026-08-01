@@ -7,6 +7,8 @@
 mod platform;
 mod services;
 
+#[cfg(target_arch = "wasm32")]
+pub use platform::WebWorkerAdapter;
 #[cfg(target_os = "macos")]
 pub use platform::{dispatch_host_command, set_recent_files_listener};
 #[cfg(all(feature = "developer-tools", not(target_arch = "wasm32")))]

@@ -28,6 +28,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 wasm-bindgen = "=0.2.126"
 wasm-bindgen-futures = "0.4.58"
+js-sys = "0.3.85"
 web-sys = { version = "0.3.85", features = ["HtmlCanvasElement"] }
 web-time = "1.1.0"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }

@@ -85,9 +85,6 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.execution.web-workers.adapter] Add the `logic_analyzer_platform` Web Worker adapter and
-  worker bootstrap with bounded request queues, transfer-safe owned byte buffers, cancellation, progress, and
-  ordered completion by worker-message sequence.
 - [platform.data-plane.execution.web-workers.activation] Select the worker adapter only when the browser host can
   create it and all requested operations are registered; otherwise retain the cooperative executor and expose the
   capability as unavailable without changing graph or node behavior.
