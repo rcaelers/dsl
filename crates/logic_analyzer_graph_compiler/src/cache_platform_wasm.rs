@@ -5,9 +5,10 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use node_graph::api::{GraphState, NodeId};
-use signal_processing::PersistentStoreConfig;
+use signal_processing::{ArtifactRepository, PersistentStoreConfig};
 
 use super::OutputSubscriptionPlan;
 use super::errors::CompileError;
@@ -23,6 +24,12 @@ pub(crate) fn assign_derived_word_caches(compiled: &mut CompiledGraph, registry:
 }
 
 pub(crate) fn configure_directory(_compiled: &mut CompiledGraph, _directory: Option<&Path>) {}
+
+pub(crate) fn configure_repository(
+    _compiled: &mut CompiledGraph,
+    _repository: &Arc<dyn ArtifactRepository>,
+) {
+}
 
 pub(crate) fn prepare_execution(
     compiled: &CompiledGraph,
@@ -40,6 +47,7 @@ pub(crate) fn cache_configs_by_node(
     _registry: &BuilderRegistry,
     _subscriptions: &OutputSubscriptionPlan,
     _directory: &std::path::Path,
+    _repository: &Arc<dyn ArtifactRepository>,
 ) -> Result<HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>> {
     Ok(HashMap::new())
 }

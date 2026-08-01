@@ -25,9 +25,9 @@ tracing = { workspace = true }
 lazy_static = { workspace = true }
 web-time = { workspace = true }
 serde = { workspace = true }
+blake3 = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-blake3 = { workspace = true }
 memmap2 = { workspace = true }
 tempfile = { workspace = true }
 serde_json = { workspace = true }

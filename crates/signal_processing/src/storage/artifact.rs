@@ -152,6 +152,8 @@ pub trait WriteArtifact: Send {
 pub trait ArtifactRepository: Send + Sync {
     fn capabilities(&self) -> RepositoryCapabilities;
 
+    fn namespaces(&self) -> Result<Vec<ArtifactNamespace>, RepositoryError>;
+
     fn open(&self, key: &ArtifactKey) -> Result<Option<Box<dyn ReadArtifact>>, RepositoryError>;
 
     fn begin_write(&self, key: ArtifactKey) -> Result<Box<dyn WriteArtifact>, RepositoryError>;
@@ -164,15 +166,72 @@ pub trait ArtifactRepository: Send + Sync {
     ) -> Result<Vec<ArtifactMetadata>, RepositoryError>;
 }
 
-/// Portable process-lifetime repository with atomic in-memory publication.
-#[derive(Clone, Default)]
+const DEFAULT_MEMORY_CHUNK_BYTES: usize = 1024 * 1024;
+
+#[derive(Default)]
+struct MemoryRepositoryState {
+    artifacts: BTreeMap<ArtifactKey, MemoryArtifact>,
+    used_bytes: u64,
+}
+
+#[derive(Clone)]
+struct MemoryArtifact {
+    chunks: Arc<[Arc<[u8]>]>,
+    len: u64,
+}
+
+/// Portable process-lifetime repository with bounded, chunked memory and
+/// atomic publication.
+#[derive(Clone)]
 pub struct MemoryArtifactRepository {
-    artifacts: Arc<Mutex<BTreeMap<ArtifactKey, Arc<[u8]>>>>,
+    state: Arc<Mutex<MemoryRepositoryState>>,
+    max_bytes: u64,
+    chunk_bytes: usize,
 }
 
 impl MemoryArtifactRepository {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_budget(max_bytes: u64) -> Self {
+        Self {
+            max_bytes,
+            ..Self::default()
+        }
+    }
+
+    pub fn with_budget_and_chunk_size(
+        max_bytes: u64,
+        chunk_bytes: usize,
+    ) -> Result<Self, RepositoryError> {
+        if chunk_bytes == 0 {
+            return Err(RepositoryError::Unsupported(
+                "a zero-sized memory artifact chunk".into(),
+            ));
+        }
+        Ok(Self {
+            state: Arc::new(Mutex::new(MemoryRepositoryState::default())),
+            max_bytes,
+            chunk_bytes,
+        })
+    }
+
+    pub fn used_bytes(&self) -> Result<u64, RepositoryError> {
+        self.state
+            .lock()
+            .map(|state| state.used_bytes)
+            .map_err(|_| RepositoryError::Unavailable)
+    }
+}
+
+impl Default for MemoryArtifactRepository {
+    fn default() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(MemoryRepositoryState::default())),
+            max_bytes: u64::MAX,
+            chunk_bytes: DEFAULT_MEMORY_CHUNK_BYTES,
+        }
     }
 }
 
@@ -181,36 +240,56 @@ impl ArtifactRepository for MemoryArtifactRepository {
         RepositoryCapabilities::EPHEMERAL_MEMORY
     }
 
-    fn open(&self, key: &ArtifactKey) -> Result<Option<Box<dyn ReadArtifact>>, RepositoryError> {
-        let bytes = self
+    fn namespaces(&self) -> Result<Vec<ArtifactNamespace>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::Unavailable)?;
+        Ok(state
             .artifacts
+            .keys()
+            .map(|key| key.namespace().clone())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect())
+    }
+
+    fn open(&self, key: &ArtifactKey) -> Result<Option<Box<dyn ReadArtifact>>, RepositoryError> {
+        let artifact = self
+            .state
             .lock()
             .map_err(|_| RepositoryError::Unavailable)?
+            .artifacts
             .get(key)
             .cloned();
-        Ok(bytes.map(|bytes| {
-            let backing: Arc<dyn ImmutableByteRegion> =
-                Arc::new(OwnedByteSource::new(key.identity(), bytes));
+        Ok(artifact.map(|artifact| {
             Box::new(MemoryReadArtifact {
                 key: key.clone(),
-                backing,
+                artifact,
+                chunk_bytes: self.chunk_bytes,
             }) as Box<dyn ReadArtifact>
         }))
     }
 
     fn begin_write(&self, key: ArtifactKey) -> Result<Box<dyn WriteArtifact>, RepositoryError> {
         Ok(Box::new(MemoryWriteArtifact {
-            repository: Arc::clone(&self.artifacts),
+            repository: Arc::clone(&self.state),
             key,
-            bytes: Vec::new(),
+            chunks: Vec::new(),
+            len: 0,
+            max_bytes: self.max_bytes,
+            chunk_bytes: self.chunk_bytes,
         }))
     }
 
     fn remove(&self, key: &ArtifactKey) -> Result<(), RepositoryError> {
-        self.artifacts
+        let mut state = self
+            .state
             .lock()
-            .map_err(|_| RepositoryError::Unavailable)?
-            .remove(key);
+            .map_err(|_| RepositoryError::Unavailable)?;
+        if let Some(removed) = state.artifacts.remove(key) {
+            state.used_bytes = state.used_bytes.saturating_sub(removed.len);
+        }
         Ok(())
     }
 
@@ -218,16 +297,17 @@ impl ArtifactRepository for MemoryArtifactRepository {
         &self,
         namespace: &ArtifactNamespace,
     ) -> Result<Vec<ArtifactMetadata>, RepositoryError> {
-        let artifacts = self
-            .artifacts
+        let state = self
+            .state
             .lock()
             .map_err(|_| RepositoryError::Unavailable)?;
-        Ok(artifacts
+        Ok(state
+            .artifacts
             .iter()
             .filter(|(key, _)| key.namespace() == namespace)
-            .map(|(key, bytes)| ArtifactMetadata {
+            .map(|(key, artifact)| ArtifactMetadata {
                 key: key.clone(),
-                length: bytes.len() as u64,
+                length: artifact.len,
             })
             .collect())
     }
@@ -235,7 +315,8 @@ impl ArtifactRepository for MemoryArtifactRepository {
 
 struct MemoryReadArtifact {
     key: ArtifactKey,
-    backing: Arc<dyn ImmutableByteRegion>,
+    artifact: MemoryArtifact,
+    chunk_bytes: usize,
 }
 
 impl ReadArtifact for MemoryReadArtifact {
@@ -244,11 +325,11 @@ impl ReadArtifact for MemoryReadArtifact {
     }
 
     fn len(&self) -> Result<u64, RepositoryError> {
-        Ok(self.backing.len())
+        Ok(self.artifact.len)
     }
 
     fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize, RepositoryError> {
-        let length = self.backing.len();
+        let length = self.artifact.len;
         if offset > length {
             return Err(RepositoryError::OutOfBounds {
                 offset,
@@ -256,22 +337,116 @@ impl ReadArtifact for MemoryReadArtifact {
                 artifact_length: length,
             });
         }
-        let available = (length - offset) as usize;
+        let available = usize::try_from(length - offset).unwrap_or(usize::MAX);
         let count = available.min(destination.len());
-        let range = ByteRange::new(offset, count as u64)?;
-        destination[..count].copy_from_slice(self.backing.slice(range)?);
+        let mut copied = 0;
+        let mut position = usize::try_from(offset).map_err(|_| RepositoryError::OutOfBounds {
+            offset,
+            end: offset,
+            artifact_length: length,
+        })?;
+        while copied < count {
+            let chunk_index = position / self.chunk_bytes;
+            let chunk_offset = position % self.chunk_bytes;
+            let chunk = self.artifact.chunks.get(chunk_index).ok_or_else(|| {
+                RepositoryError::Corrupt("memory artifact has a missing chunk".into())
+            })?;
+            let chunk_count = (count - copied).min(chunk.len().saturating_sub(chunk_offset));
+            if chunk_count == 0 {
+                return Err(RepositoryError::Corrupt(
+                    "memory artifact chunk is truncated".into(),
+                ));
+            }
+            destination[copied..copied + chunk_count]
+                .copy_from_slice(&chunk[chunk_offset..chunk_offset + chunk_count]);
+            position += chunk_count;
+            copied += chunk_count;
+        }
         Ok(count)
     }
 
     fn region(&self, range: ByteRange) -> Result<Option<ByteRegion>, RepositoryError> {
-        Ok(Some(ByteRegion::new(Arc::clone(&self.backing), range)?))
+        if range.end() > self.artifact.len {
+            return Err(RepositoryError::OutOfBounds {
+                offset: range.offset,
+                end: range.end(),
+                artifact_length: self.artifact.len,
+            });
+        }
+        if range.length == 0 {
+            let backing: Arc<dyn ImmutableByteRegion> = Arc::new(OwnedByteSource::new(
+                self.key.identity(),
+                Arc::<[u8]>::from([]),
+            ));
+            return ByteRegion::new(backing, ByteRange::new(0, 0)?)
+                .map(Some)
+                .map_err(Into::into);
+        }
+        let start = usize::try_from(range.offset).map_err(|_| RepositoryError::OutOfBounds {
+            offset: range.offset,
+            end: range.end(),
+            artifact_length: self.artifact.len,
+        })?;
+        let end = usize::try_from(range.end()).map_err(|_| RepositoryError::OutOfBounds {
+            offset: range.offset,
+            end: range.end(),
+            artifact_length: self.artifact.len,
+        })?;
+        let first_chunk = start / self.chunk_bytes;
+        let last_chunk = (end - 1) / self.chunk_bytes;
+        if first_chunk != last_chunk {
+            return Ok(None);
+        }
+        let chunk = self.artifact.chunks.get(first_chunk).ok_or_else(|| {
+            RepositoryError::Corrupt("memory artifact has a missing chunk".into())
+        })?;
+        let backing: Arc<dyn ImmutableByteRegion> =
+            Arc::new(OwnedByteSource::new(self.key.identity(), Arc::clone(chunk)));
+        ByteRegion::new(
+            backing,
+            ByteRange::new((start % self.chunk_bytes) as u64, range.length)?,
+        )
+        .map(Some)
+        .map_err(Into::into)
     }
 }
 
 struct MemoryWriteArtifact {
-    repository: Arc<Mutex<BTreeMap<ArtifactKey, Arc<[u8]>>>>,
+    repository: Arc<Mutex<MemoryRepositoryState>>,
     key: ArtifactKey,
-    bytes: Vec<u8>,
+    chunks: Vec<Vec<u8>>,
+    len: u64,
+    max_bytes: u64,
+    chunk_bytes: usize,
+}
+
+impl MemoryWriteArtifact {
+    fn resize(&mut self, len: u64) -> Result<(), RepositoryError> {
+        if len > self.max_bytes {
+            return Err(RepositoryError::QuotaExceeded);
+        }
+        let chunk_bytes = self.chunk_bytes as u64;
+        let chunk_count =
+            len.checked_add(chunk_bytes - 1)
+                .ok_or(RepositoryError::RangeOverflow {
+                    offset: 0,
+                    length: len,
+                })?
+                / chunk_bytes;
+        let chunk_count =
+            usize::try_from(chunk_count).map_err(|_| RepositoryError::RangeOverflow {
+                offset: 0,
+                length: len,
+            })?;
+        self.chunks.resize_with(chunk_count, Vec::new);
+        for (index, chunk) in self.chunks.iter_mut().enumerate() {
+            let start = (index as u64).saturating_mul(chunk_bytes);
+            let chunk_len = (len - start).min(chunk_bytes) as usize;
+            chunk.resize(chunk_len, 0);
+        }
+        self.len = len;
+        Ok(())
+    }
 }
 
 impl WriteArtifact for MemoryWriteArtifact {
@@ -291,28 +466,28 @@ impl WriteArtifact for MemoryWriteArtifact {
                 offset,
                 length: source_length,
             })?;
-        let end = usize::try_from(end).map_err(|_| RepositoryError::RangeOverflow {
-            offset,
-            length: source_length,
-        })?;
-        if self.bytes.len() < end {
-            self.bytes.resize(end, 0);
+        if self.len < end {
+            self.resize(end)?;
         }
-        let start = usize::try_from(offset).map_err(|_| RepositoryError::RangeOverflow {
+        let mut position = usize::try_from(offset).map_err(|_| RepositoryError::RangeOverflow {
             offset,
             length: source_length,
         })?;
-        self.bytes[start..end].copy_from_slice(source);
+        let mut copied = 0;
+        while copied < source.len() {
+            let chunk_index = position / self.chunk_bytes;
+            let chunk_offset = position % self.chunk_bytes;
+            let count = (source.len() - copied).min(self.chunk_bytes - chunk_offset);
+            self.chunks[chunk_index][chunk_offset..chunk_offset + count]
+                .copy_from_slice(&source[copied..copied + count]);
+            position += count;
+            copied += count;
+        }
         Ok(())
     }
 
     fn truncate(&mut self, len: u64) -> Result<(), RepositoryError> {
-        let len = usize::try_from(len).map_err(|_| RepositoryError::RangeOverflow {
-            offset: 0,
-            length: len,
-        })?;
-        self.bytes.resize(len, 0);
-        Ok(())
+        self.resize(len)
     }
 
     fn flush(&mut self) -> Result<(), RepositoryError> {
@@ -320,10 +495,32 @@ impl WriteArtifact for MemoryWriteArtifact {
     }
 
     fn publish(self: Box<Self>) -> Result<(), RepositoryError> {
-        self.repository
+        let artifact = MemoryArtifact {
+            chunks: self
+                .chunks
+                .into_iter()
+                .map(Arc::<[u8]>::from)
+                .collect::<Vec<_>>()
+                .into(),
+            len: self.len,
+        };
+        let mut state = self
+            .repository
             .lock()
-            .map_err(|_| RepositoryError::Unavailable)?
-            .insert(self.key.clone(), Arc::from(self.bytes));
+            .map_err(|_| RepositoryError::Unavailable)?;
+        let previous_len = state
+            .artifacts
+            .get(&self.key)
+            .map_or(0, |previous| previous.len);
+        let used_without_previous = state.used_bytes.saturating_sub(previous_len);
+        let next_used = used_without_previous
+            .checked_add(artifact.len)
+            .ok_or(RepositoryError::QuotaExceeded)?;
+        if next_used > self.max_bytes {
+            return Err(RepositoryError::QuotaExceeded);
+        }
+        state.artifacts.insert(self.key.clone(), artifact);
+        state.used_bytes = next_used;
         Ok(())
     }
 }

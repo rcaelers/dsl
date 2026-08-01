@@ -99,7 +99,7 @@ impl App {
             snapshot.persistent_caches.push(PersistentCacheSnapshot {
                 cache_key: config.cache_key,
                 owners: owners.into_iter().collect(),
-                directory: config.directory,
+                repository: repository_description(config.artifact_repository.capabilities()),
                 state,
                 total_bytes: info.map(|info| info.total_bytes),
                 data_bytes: info.map(|info| info.data_bytes),
@@ -142,4 +142,13 @@ impl App {
         });
         snapshot
     }
+}
+
+fn repository_description(capabilities: signal_processing::RepositoryCapabilities) -> String {
+    match (capabilities.durable, capabilities.immutable_regions) {
+        (true, true) => "Durable mapped storage",
+        (true, false) => "Durable storage",
+        (false, _) => "Process memory",
+    }
+    .to_owned()
 }

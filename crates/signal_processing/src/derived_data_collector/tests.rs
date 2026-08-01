@@ -1226,12 +1226,8 @@ fn indexed_store_creation_failure_falls_back_to_in_memory_annotations() {
 
 #[test]
 fn indexed_lane_preserves_a_batch_larger_than_one_sink_drain() {
-    let directory = tempfile::tempdir().unwrap();
     let store = DerivedLanes::new();
-    let config = LiveStoreConfig {
-        directory: directory.path().to_path_buf(),
-        ..LiveStoreConfig::default()
-    };
+    let config = LiveStoreConfig::default();
     let mut sink = test_collector(store.clone())
         .with_word_store_config(config)
         .with_words("words");
@@ -1268,12 +1264,8 @@ fn indexed_lane_preserves_a_batch_larger_than_one_sink_drain() {
 
 #[test]
 fn indexed_lane_failure_does_not_stop_other_collected_lanes() {
-    let directory = tempfile::tempdir().unwrap();
     let store = DerivedLanes::new();
-    let config = LiveStoreConfig {
-        directory: directory.path().to_path_buf(),
-        ..LiveStoreConfig::default()
-    };
+    let config = LiveStoreConfig::default();
     let mut sink = test_collector(store.clone())
         .with_word_store_config(config)
         .with_words("words")
@@ -1314,11 +1306,7 @@ fn indexed_lane_failure_does_not_stop_other_collected_lanes() {
 
 #[test]
 fn registering_a_new_indexed_writer_replaces_the_published_query_handle() {
-    let directory = tempfile::tempdir().unwrap();
-    let config = LiveStoreConfig {
-        directory: directory.path().to_path_buf(),
-        ..LiveStoreConfig::default()
-    };
+    let config = LiveStoreConfig::default();
     let store = DerivedLanes::new();
     let first = test_collector(store.clone())
         .with_word_store_config(config.clone())
@@ -1344,11 +1332,8 @@ fn registering_a_new_indexed_writer_replaces_the_published_query_handle() {
 
 #[test]
 fn collector_reopens_persistent_lane_and_does_not_rewrite_incoming_words() {
-    let directory = tempfile::tempdir().unwrap();
-    let persistent =
-        crate::derived_word_store::PersistentStoreConfig::new(directory.path(), [9; 32]);
+    let persistent = crate::derived_word_store::PersistentStoreConfig::new([9; 32]);
     let config = LiveStoreConfig {
-        directory: directory.path().to_path_buf(),
         persistence: Some(persistent),
         ..LiveStoreConfig::default()
     };

@@ -99,7 +99,11 @@ fn queue_host_command(command: HostCommand) {
 }
 
 pub(crate) fn standard_services() -> PlatformServices {
-    let storage_paths = ApplicationStoragePaths::new(Some(derived_cache_directory()))
+    let cache_directory = derived_cache_directory();
+    let artifact_repository: Arc<dyn signal_processing::ArtifactRepository> = Arc::new(
+        NativeArtifactRepository::new(cache_directory.join("artifacts")),
+    );
+    let storage_paths = ApplicationStoragePaths::new(Some(cache_directory))
         .with_capture_session_directory(Some(capture_session_directory()));
     let input_bindings = load_input_bindings();
     let application_settings = load_application_settings();
@@ -124,7 +128,7 @@ pub(crate) fn standard_services() -> PlatformServices {
     ))
         as Box<dyn logic_analyzer_graph_api::node::DirectoryNodeCatalog>];
     let ui_services = AppServices::with_host_storage_and_configuration(
-        Box::new(NativeHostService::new()),
+        Box::new(NativeHostService::new(Arc::clone(&artifact_repository))),
         storage_paths,
         input_bindings,
         application_settings,
@@ -171,9 +175,7 @@ pub(crate) fn standard_services() -> PlatformServices {
     PlatformServices::with_ui_services(
         ui_services,
         node_catalogs,
-        Arc::new(NativeArtifactRepository::new(
-            derived_cache_directory().join("artifacts"),
-        )),
+        artifact_repository,
         work_executor,
         Rc::new(CooperativeWorkerOperationExecutor::new(
             portable_worker_kernels(),
@@ -1299,6 +1301,7 @@ fn application_directory(parent: PathBuf) -> PathBuf {
 
 struct NativeHostService {
     commands: crossbeam_channel::Receiver<HostCommand>,
+    artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
 }
 
 struct NativeNodeFileDialogService;
@@ -1331,9 +1334,10 @@ impl FileDialogService for NativeNodeFileDialogService {
 }
 
 impl NativeHostService {
-    fn new() -> Self {
+    fn new(artifact_repository: Arc<dyn signal_processing::ArtifactRepository>) -> Self {
         Self {
             commands: host_command_bridge().receiver.clone(),
+            artifact_repository,
         }
     }
 }
@@ -1418,8 +1422,8 @@ impl HostService for NativeHostService {
             .map_err(|error| error.to_string())
     }
 
-    fn clear_cache(&mut self, directory: &Path) -> Result<CacheClearStats, String> {
-        signal_processing::clear_cache(directory)
+    fn clear_cache(&mut self, _directory: &Path) -> Result<CacheClearStats, String> {
+        signal_processing::clear_cache(&self.artifact_repository)
             .map(|stats| CacheClearStats {
                 removed_entries: stats.removed_entries,
                 removed_bytes: stats.removed_bytes,
@@ -1531,7 +1535,9 @@ mod native_tests {
     #[test]
     fn native_composition_preserves_injected_host_services_and_catalogs() {
         let services = crate::services::PlatformServices::with_ui_services(
-            AppServices::with_host_service(Box::new(NativeHostService::new())),
+            AppServices::with_host_service(Box::new(NativeHostService::new(Arc::new(
+                MemoryArtifactRepository::new(),
+            )))),
             Vec::new(),
             Arc::new(MemoryArtifactRepository::new()),
             Arc::new(InlineWorkExecutor),
@@ -1551,7 +1557,7 @@ mod native_tests {
     fn native_shell_commands_wake_and_reach_the_ui_service_port() {
         let repaint_count = Arc::new(AtomicUsize::new(0));
         let callback_count = Arc::clone(&repaint_count);
-        let mut host = NativeHostService::new();
+        let mut host = NativeHostService::new(Arc::new(MemoryArtifactRepository::new()));
         host.set_command_repaint(Box::new(move || {
             callback_count.fetch_add(1, Ordering::Relaxed);
         }));

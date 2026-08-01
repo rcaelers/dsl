@@ -224,10 +224,7 @@ std::cfg_select! {
                                         lanes.clone(),
                                         DerivedDataRetention::MaxEntries(4_000_000),
                                         CollectedWordLaneOptions::new(
-                                            LiveStoreConfig {
-                                                directory: scratch.path().join("derived"),
-                                                ..LiveStoreConfig::default()
-                                            },
+                                            LiveStoreConfig::default(),
                                             None,
                                         ),
                                     )),

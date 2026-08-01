@@ -853,15 +853,11 @@ std::cfg_select! {
             }
             SinkKind::Viewer => {
                 let store = DerivedLanes::new();
-                let mut store_config = LiveStoreConfig {
-                    directory: word_store_directory.path().to_path_buf(),
-                    ..LiveStoreConfig::default()
-                };
+                let mut store_config = LiveStoreConfig::default();
                 store_config.block.max_words = args.store_block_words.max(1);
                 store_config.block.restart_interval = args.store_restart_interval.max(1);
                 if matches!(args.cache, CacheKind::Persistent) {
                     store_config.persistence = Some(PersistentStoreConfig::new(
-                        word_store_directory.path(),
                         benchmark_cache_key(mode, samples),
                     ));
                 }

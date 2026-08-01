@@ -185,7 +185,7 @@ fn show_persistent_cache_table(ui: &mut egui::Ui, caches: &[PersistentCacheSnaps
                 );
                 ui.label(format_index(cache.index_items, cache.index_bytes));
                 ui.label(short_cache_key(&cache.cache_key))
-                    .on_hover_text(cache.directory.display().to_string());
+                    .on_hover_text(&cache.repository);
                 ui.end_row();
             }
         });

@@ -59,6 +59,40 @@ fn published_memory_artifacts_are_immutable_generations() {
 }
 
 #[test]
+fn memory_repository_chunks_ranges_and_enforces_its_budget_atomically() {
+    let repository = MemoryArtifactRepository::with_budget_and_chunk_size(8, 3).unwrap();
+    let key = key();
+    let mut writer = repository.begin_write(key.clone()).unwrap();
+    writer.write_at(0, b"abcdefgh").unwrap();
+    writer.publish().unwrap();
+    assert_eq!(repository.used_bytes().unwrap(), 8);
+
+    let mut reader = repository.open(&key).unwrap().unwrap();
+    assert!(
+        reader
+            .region(ByteRange::new(2, 4).unwrap())
+            .unwrap()
+            .is_none()
+    );
+    let region = read_artifact_region(&mut *reader, ByteRange::new(2, 4).unwrap()).unwrap();
+    assert_eq!(region.bytes(), b"cdef");
+
+    let replacement_key =
+        ArtifactKey::new(key.namespace().clone(), SourceIdentity::from_bytes([5; 32]));
+    let mut replacement = repository.begin_write(replacement_key.clone()).unwrap();
+    replacement.write_at(0, b"x").unwrap();
+    assert!(matches!(
+        replacement.publish(),
+        Err(RepositoryError::QuotaExceeded)
+    ));
+    assert!(repository.open(&replacement_key).unwrap().is_none());
+    assert_eq!(repository.used_bytes().unwrap(), 8);
+
+    repository.remove(&key).unwrap();
+    assert_eq!(repository.used_bytes().unwrap(), 0);
+}
+
+#[test]
 fn memory_repository_lists_and_removes_typed_artifacts() {
     let repository = MemoryArtifactRepository::new();
     let key = key();
@@ -70,6 +104,10 @@ fn memory_repository_lists_and_removes_typed_artifacts() {
     let mut writer = repository.begin_write(key.clone()).unwrap();
     writer.truncate(3).unwrap();
     writer.publish().unwrap();
+    assert_eq!(
+        repository.namespaces().unwrap(),
+        vec![key.namespace().clone()]
+    );
     assert_eq!(repository.entries(key.namespace()).unwrap()[0].length, 3);
     repository.remove(&key).unwrap();
     assert!(repository.entries(key.namespace()).unwrap().is_empty());

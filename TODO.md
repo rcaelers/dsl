@@ -85,12 +85,6 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.shared-derived-store] Complete one encoded-block decode layer above the shared directory,
-  presence index, query, integrity, and decoded-block-cache contracts. Provide native file/mmap and
-  platform-independent chunked-memory artifact repositories, make the existing live and persistent derived stores
-  consume the repository capability already supplied in `LiveStoreConfig`, keep repository budgets configurable,
-  and remove the remaining paths, direct file operations, target-specific range-decode, and persistence
-  implementations from `signal_processing`.
 - [platform.data-plane.shared-capture-storage] Run packed raw captures, waveform indexes, growing live repositories,
   and finalized replay through the same artifact and byte-region contracts. Route the compiler-selected repository
   into capture construction, remove path-based native store selection from the UI and `signal_processing`, keep

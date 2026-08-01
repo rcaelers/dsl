@@ -50,7 +50,7 @@ pub(crate) enum PersistentCacheSnapshotState {
 pub(crate) struct PersistentCacheSnapshot {
     pub(crate) cache_key: [u8; 32],
     pub(crate) owners: Vec<String>,
-    pub(crate) directory: PathBuf,
+    pub(crate) repository: String,
     pub(crate) state: PersistentCacheSnapshotState,
     pub(crate) total_bytes: Option<u64>,
     pub(crate) data_bytes: Option<u64>,

@@ -1,25 +1,28 @@
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::collections::BTreeSet;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::config::PersistentStoreConfig;
-use super::format::{BlockDirectoryEntry, DATA_HEADER_SIZE, DataFileHeader, FORMAT_VERSION};
-use super::platform::{StoreError, StoreResult};
+use super::format::{BlockDirectoryEntry, FORMAT_VERSION};
 use super::presence::{WordPresenceIndex, WordSummaryRecord};
+use super::store::{StoreError, StoreResult};
+use crate::{
+    ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, RepositoryError, SourceIdentity,
+    read_artifact_region,
+};
 
 const INDEX_MAGIC: &[u8; 8] = b"DWRIDX1\0";
 const MANIFEST_MAGIC: &[u8; 8] = b"DWRMAN1\0";
-const INDEX_VERSION: u32 = 2;
+const INDEX_VERSION: u32 = 3;
 const MANIFEST_VERSION: u32 = 1;
 const INDEX_HEADER_SIZE: usize = 96;
 const INDEX_RECORD_SIZE: usize = 64;
 const SUMMARY_RECORD_SIZE: usize = 40;
 const MANIFEST_SIZE: usize = 96;
 
-const DATA_FILE_NAME: &str = "words.dwd";
-pub(crate) const INDEX_FILE_NAME: &str = "words.dwi";
-pub(crate) const MANIFEST_FILE_NAME: &str = "manifest.dwm";
+const INDEX_NAMESPACE: &str = "derived-word-index-v1";
+const MANIFEST_NAMESPACE: &str = "derived-word-manifest-v1";
+const BLOCK_NAMESPACE_PREFIX: &str = "derived-word-blocks-v1-";
 
 #[derive(Debug)]
 pub(crate) struct PersistentIndex {
@@ -72,48 +75,61 @@ pub struct PersistentCacheEntrySnapshot {
 }
 
 pub fn cleanup_cache(
-    directory: &Path,
+    repository: &Arc<dyn ArtifactRepository>,
     max_total_bytes: u64,
     pinned_keys: &[[u8; 32]],
 ) -> StoreResult<PersistentCacheStats> {
-    fs::create_dir_all(directory)?;
-    remove_stale_temporaries(directory);
-    let pinned: Vec<String> = pinned_keys.iter().map(hex_key).collect();
     let mut entries = Vec::new();
     let mut stats = PersistentCacheStats::default();
-    for entry in fs::read_dir(directory)? {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() {
+    let manifests = repository.entries(&manifest_namespace()?)?;
+    let published_keys = manifests
+        .iter()
+        .map(|metadata| *metadata.key.identity().as_bytes())
+        .collect::<BTreeSet<_>>();
+    for metadata in manifests {
+        let cache_key = *metadata.key.identity().as_bytes();
+        let config =
+            PersistentStoreConfig::new(cache_key).with_artifact_repository(Arc::clone(repository));
+        match inspect_cache_entry(&config) {
+            Ok(Some(snapshot)) => {
+                let manifest = read_manifest(&config)?
+                    .ok_or_else(|| StoreError::Persistent("listed manifest disappeared".into()))?;
+                stats.entries += 1;
+                stats.total_bytes = stats.total_bytes.saturating_add(snapshot.total_bytes);
+                entries.push((manifest.accessed_unix_ns, cache_key, snapshot.total_bytes));
+            }
+            Ok(None) => {}
+            Err(_) => {
+                let removed = remove_cache_artifacts(&config)?;
+                stats.removed_entries += 1;
+                stats.removed_bytes = stats.removed_bytes.saturating_add(removed);
+            }
+        }
+    }
+    for cache_key in all_cache_keys(repository)? {
+        if published_keys.contains(&cache_key) {
             continue;
         }
-        let path = entry.path();
-        let manifest_path = path.join(MANIFEST_FILE_NAME);
-        let manifest = fs::read(&manifest_path)
-            .map_err(StoreError::from)
-            .and_then(|bytes| decode_manifest(&bytes));
-        let Ok(manifest) = manifest else {
-            let bytes = directory_size(&path);
-            fs::remove_dir_all(&path)?;
+        let config =
+            PersistentStoreConfig::new(cache_key).with_artifact_repository(Arc::clone(repository));
+        let removed = remove_cache_artifacts(&config)?;
+        if removed > 0 {
             stats.removed_entries += 1;
-            stats.removed_bytes = stats.removed_bytes.saturating_add(bytes);
-            continue;
-        };
-        let bytes = directory_size(&path);
-        let name = entry.file_name().to_string_lossy().into_owned();
-        stats.entries += 1;
-        stats.total_bytes = stats.total_bytes.saturating_add(bytes);
-        entries.push((manifest.accessed_unix_ns, name, path, bytes));
+            stats.removed_bytes = stats.removed_bytes.saturating_add(removed);
+        }
     }
     if stats.total_bytes > max_total_bytes {
         entries.sort_by_key(|entry| entry.0);
-        for (_, name, path, bytes) in entries {
+        for (_, cache_key, bytes) in entries {
             if stats.total_bytes <= max_total_bytes {
                 break;
             }
-            if pinned.iter().any(|pinned| pinned == &name) {
+            if pinned_keys.contains(&cache_key) {
                 continue;
             }
-            fs::remove_dir_all(path)?;
+            let config = PersistentStoreConfig::new(cache_key)
+                .with_artifact_repository(Arc::clone(repository));
+            remove_cache_artifacts(&config)?;
             stats.entries -= 1;
             stats.total_bytes = stats.total_bytes.saturating_sub(bytes);
             stats.removed_entries += 1;
@@ -123,37 +139,28 @@ pub fn cleanup_cache(
     Ok(stats)
 }
 
-pub fn clear_cache(directory: &Path) -> StoreResult<PersistentCacheStats> {
+pub fn clear_cache(repository: &Arc<dyn ArtifactRepository>) -> StoreResult<PersistentCacheStats> {
     let mut stats = PersistentCacheStats::default();
-    if !directory.exists() {
-        return Ok(stats);
-    }
-    for entry in fs::read_dir(directory)? {
-        let entry = entry?;
-        let path = entry.path();
-        let bytes = if entry.file_type()?.is_dir() {
-            directory_size(&path)
-        } else {
-            entry.metadata()?.len()
-        };
-        if path.is_dir() {
-            fs::remove_dir_all(path)?;
-            stats.removed_entries += 1;
-        } else {
-            fs::remove_file(path)?;
-        }
-        stats.removed_bytes = stats.removed_bytes.saturating_add(bytes);
+    for cache_key in all_cache_keys(repository)? {
+        let config =
+            PersistentStoreConfig::new(cache_key).with_artifact_repository(Arc::clone(repository));
+        stats.removed_bytes = stats
+            .removed_bytes
+            .saturating_add(remove_cache_artifacts(&config)?);
+        stats.removed_entries += 1;
     }
     Ok(stats)
 }
 
 pub fn clear_cache_entry(config: &PersistentStoreConfig) -> StoreResult<PersistentCacheStats> {
-    let path = cache_directory(config);
-    if !path.exists() {
+    if config
+        .artifact_repository
+        .open(&manifest_key(config)?)?
+        .is_none()
+    {
         return Ok(PersistentCacheStats::default());
     }
-    let bytes = directory_size(&path);
-    fs::remove_dir_all(path)?;
+    let bytes = remove_cache_artifacts(config)?;
     Ok(PersistentCacheStats {
         removed_entries: 1,
         removed_bytes: bytes,
@@ -165,13 +172,19 @@ pub fn clear_cache_entry(config: &PersistentStoreConfig) -> StoreResult<Persiste
 pub fn inspect_cache_entry(
     config: &PersistentStoreConfig,
 ) -> StoreResult<Option<PersistentCacheEntrySnapshot>> {
-    let manifest_path = cache_directory(config).join(MANIFEST_FILE_NAME);
-    if !manifest_path.is_file() {
+    let Some(manifest) = read_manifest(config)? else {
         return Ok(None);
+    };
+    let index_bytes = read_required(config.artifact_repository.as_ref(), &index_key(config)?)?;
+    if index_bytes.len() as u64 != manifest.index_len {
+        return Err(StoreError::Persistent(
+            "persistent index length mismatch".into(),
+        ));
     }
-    let index = open_inner(config, &manifest_path)?;
+    let index = decode_index(&index_bytes, config.cache_key)?;
+    validate_persistent_generation(config, manifest, &index)?;
     let data_bytes = index.committed_data_len;
-    let index_bytes = fs::metadata(cache_directory(config).join(INDEX_FILE_NAME))?.len();
+    let index_bytes = index_bytes.len() as u64;
     Ok(Some(PersistentCacheEntrySnapshot {
         total_bytes: data_bytes
             .saturating_add(index_bytes)
@@ -185,22 +198,10 @@ pub fn inspect_cache_entry(
     }))
 }
 
-pub(crate) fn cache_directory(config: &PersistentStoreConfig) -> PathBuf {
-    config.directory.join(hex_key(&config.cache_key))
-}
-
-pub(crate) fn data_path(config: &PersistentStoreConfig) -> PathBuf {
-    cache_directory(config).join(DATA_FILE_NAME)
-}
-
-pub(crate) fn publish_index_and_manifest(
+pub(crate) fn publish(
     config: &PersistentStoreConfig,
     publication: Publication<'_>,
-) -> StoreResult<(PathBuf, PathBuf)> {
-    let cache_dir = cache_directory(config);
-    fs::create_dir_all(&cache_dir)?;
-    remove_stale_temporaries(&cache_dir);
-
+) -> StoreResult<()> {
     let index_bytes = encode_index(
         config.cache_key,
         publication.directory,
@@ -210,8 +211,11 @@ pub(crate) fn publish_index_and_manifest(
         publication.first_timestamp_ns,
         publication.last_timestamp_ns,
     )?;
-    let index_tmp = cache_dir.join(format!("{INDEX_FILE_NAME}.tmp"));
-    write_synced(&index_tmp, &index_bytes)?;
+    publish_bytes(
+        config.artifact_repository.as_ref(),
+        index_key(config)?,
+        &index_bytes,
+    )?;
 
     let now = unix_ns();
     let manifest = Manifest {
@@ -222,84 +226,191 @@ pub(crate) fn publish_index_and_manifest(
         created_unix_ns: publication.created_unix_ns,
         accessed_unix_ns: now,
     };
-    let manifest_tmp = cache_dir.join(format!("{MANIFEST_FILE_NAME}.tmp"));
-    write_synced(&manifest_tmp, &encode_manifest(manifest))?;
-    Ok((index_tmp, manifest_tmp))
-}
-
-pub(crate) fn finish_publication(
-    config: &PersistentStoreConfig,
-    data_tmp: &Path,
-    index_tmp: &Path,
-    manifest_tmp: &Path,
-) -> StoreResult<()> {
-    let cache_dir = cache_directory(config);
-    let data_final = cache_dir.join(DATA_FILE_NAME);
-    let index_final = cache_dir.join(INDEX_FILE_NAME);
-    let manifest_final = cache_dir.join(MANIFEST_FILE_NAME);
-    remove_if_exists(&manifest_final)?;
-    remove_if_exists(&data_final)?;
-    remove_if_exists(&index_final)?;
-    fs::rename(data_tmp, &data_final)?;
-    fs::rename(index_tmp, &index_final)?;
-    fs::rename(manifest_tmp, &manifest_final)?;
-    sync_directory(&cache_dir)?;
-    Ok(())
+    publish_bytes(
+        config.artifact_repository.as_ref(),
+        manifest_key(config)?,
+        &encode_manifest(manifest),
+    )
 }
 
 pub(crate) fn open(config: &PersistentStoreConfig) -> StoreResult<Option<PersistentIndex>> {
-    let cache_dir = cache_directory(config);
-    let manifest_path = cache_dir.join(MANIFEST_FILE_NAME);
-    if !manifest_path.is_file() {
-        return Ok(None);
-    }
-    let result = open_inner(config, &manifest_path);
-    match result {
-        Ok(index) => {
-            touch_manifest(&manifest_path)?;
-            Ok(Some(index))
-        }
+    match open_validated(config) {
+        Ok(result) => Ok(result),
         Err(error) => {
-            let _ = fs::remove_dir_all(&cache_dir);
+            let _ = remove_cache_artifacts(config);
             Err(error)
         }
     }
 }
 
-fn open_inner(
+fn open_validated(config: &PersistentStoreConfig) -> StoreResult<Option<PersistentIndex>> {
+    let Some(mut manifest) = read_manifest(config)? else {
+        return Ok(None);
+    };
+    let index_bytes = read_required(config.artifact_repository.as_ref(), &index_key(config)?)?;
+    let index = decode_index(&index_bytes, config.cache_key)?;
+    validate_persistent_generation(config, manifest, &index)?;
+    manifest.accessed_unix_ns = unix_ns();
+    publish_bytes(
+        config.artifact_repository.as_ref(),
+        manifest_key(config)?,
+        &encode_manifest(manifest),
+    )?;
+    Ok(Some(index))
+}
+
+pub(crate) fn invalidate(config: &PersistentStoreConfig) -> StoreResult<()> {
+    remove_cache_artifacts(config).map(|_| ())
+}
+
+pub(crate) fn block_key(store_identity: [u8; 32], sequence: u64) -> StoreResult<ArtifactKey> {
+    let mut identity = [0_u8; 32];
+    identity[..8].copy_from_slice(&sequence.to_le_bytes());
+    Ok(ArtifactKey::new(
+        block_namespace(store_identity)?,
+        SourceIdentity::from_bytes(identity),
+    ))
+}
+
+fn validate_persistent_generation(
     config: &PersistentStoreConfig,
-    manifest_path: &Path,
-) -> StoreResult<PersistentIndex> {
-    let manifest = decode_manifest(&fs::read(manifest_path)?)?;
-    if manifest.cache_key != config.cache_key {
-        return Err(StoreError::Persistent("manifest cache key mismatch".into()));
-    }
-    let cache_dir = cache_directory(config);
-    let data_path = cache_dir.join(DATA_FILE_NAME);
-    let index_path = cache_dir.join(INDEX_FILE_NAME);
-    if fs::metadata(&data_path)?.len() != manifest.data_len
-        || fs::metadata(&index_path)?.len() != manifest.index_len
-    {
-        return Err(StoreError::Persistent(
-            "persistent file length mismatch".into(),
-        ));
-    }
-    let mut header_bytes = [0u8; DATA_HEADER_SIZE];
-    File::open(&data_path)?.read_exact(&mut header_bytes)?;
-    let data_header = DataFileHeader::from_bytes(&header_bytes)?;
-    if data_header.cache_key_prefix != config.cache_key[..16] {
-        return Err(StoreError::Persistent("data cache key mismatch".into()));
-    }
-    let index = decode_index(&fs::read(index_path)?, config.cache_key)?;
-    if index.committed_word_count != manifest.word_count
+    manifest: Manifest,
+    index: &PersistentIndex,
+) -> StoreResult<()> {
+    if manifest.cache_key != config.cache_key
+        || index.committed_word_count != manifest.word_count
         || index.committed_data_len != manifest.data_len
     {
         return Err(StoreError::Persistent(
-            "manifest/index metadata mismatch".into(),
+            "persistent manifest metadata mismatch".into(),
         ));
     }
     validate_directory(&index.directory, manifest.data_len)?;
-    Ok(index)
+    for entry in &index.directory {
+        let key = block_key(config.cache_key, entry.sequence)?;
+        let Some(reader) = config.artifact_repository.open(&key)? else {
+            return Err(StoreError::Persistent(format!(
+                "persistent word block {} is missing",
+                entry.sequence
+            )));
+        };
+        if reader.len()? != u64::from(entry.block_len) {
+            return Err(StoreError::Persistent(format!(
+                "persistent word block {} has the wrong length",
+                entry.sequence
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn read_manifest(config: &PersistentStoreConfig) -> StoreResult<Option<Manifest>> {
+    let Some(bytes) = read_optional(config.artifact_repository.as_ref(), &manifest_key(config)?)?
+    else {
+        return Ok(None);
+    };
+    decode_manifest(&bytes).map(Some)
+}
+
+fn read_optional(
+    repository: &dyn ArtifactRepository,
+    key: &ArtifactKey,
+) -> StoreResult<Option<Vec<u8>>> {
+    let Some(mut reader) = repository.open(key)? else {
+        return Ok(None);
+    };
+    let length = reader.len()?;
+    let range = ByteRange::new(0, length).map_err(RepositoryError::from)?;
+    let region = read_artifact_region(&mut *reader, range)?;
+    Ok(Some(region.bytes().to_vec()))
+}
+
+fn read_required(repository: &dyn ArtifactRepository, key: &ArtifactKey) -> StoreResult<Vec<u8>> {
+    read_optional(repository, key)?.ok_or_else(|| {
+        StoreError::Persistent(format!(
+            "required artifact in '{}' is missing",
+            key.namespace().as_str()
+        ))
+    })
+}
+
+fn publish_bytes(
+    repository: &dyn ArtifactRepository,
+    key: ArtifactKey,
+    bytes: &[u8],
+) -> StoreResult<()> {
+    let mut writer = repository.begin_write(key)?;
+    writer.write_at(0, bytes)?;
+    writer.truncate(bytes.len() as u64)?;
+    writer.flush()?;
+    writer.publish()?;
+    Ok(())
+}
+
+fn remove_cache_artifacts(config: &PersistentStoreConfig) -> StoreResult<u64> {
+    let repository = config.artifact_repository.as_ref();
+    let mut removed_bytes = 0_u64;
+    for namespace in [manifest_namespace()?, index_namespace()?] {
+        let key = ArtifactKey::new(namespace, SourceIdentity::from_bytes(config.cache_key));
+        if let Some(reader) = repository.open(&key)? {
+            removed_bytes = removed_bytes.saturating_add(reader.len()?);
+        }
+        repository.remove(&key)?;
+    }
+    let block_namespace = block_namespace(config.cache_key)?;
+    for metadata in repository.entries(&block_namespace)? {
+        removed_bytes = removed_bytes.saturating_add(metadata.length);
+        repository.remove(&metadata.key)?;
+    }
+    Ok(removed_bytes)
+}
+
+fn all_cache_keys(repository: &Arc<dyn ArtifactRepository>) -> StoreResult<BTreeSet<[u8; 32]>> {
+    let mut keys = BTreeSet::new();
+    for namespace in [manifest_namespace()?, index_namespace()?] {
+        keys.extend(
+            repository
+                .entries(&namespace)?
+                .into_iter()
+                .map(|metadata| *metadata.key.identity().as_bytes()),
+        );
+    }
+    for namespace in repository.namespaces()? {
+        let Some(encoded) = namespace.as_str().strip_prefix(BLOCK_NAMESPACE_PREFIX) else {
+            continue;
+        };
+        if let Some(key) = parse_hex_key(encoded) {
+            keys.insert(key);
+        }
+    }
+    Ok(keys)
+}
+
+fn manifest_key(config: &PersistentStoreConfig) -> StoreResult<ArtifactKey> {
+    Ok(ArtifactKey::new(
+        manifest_namespace()?,
+        SourceIdentity::from_bytes(config.cache_key),
+    ))
+}
+
+fn index_key(config: &PersistentStoreConfig) -> StoreResult<ArtifactKey> {
+    Ok(ArtifactKey::new(
+        index_namespace()?,
+        SourceIdentity::from_bytes(config.cache_key),
+    ))
+}
+
+fn manifest_namespace() -> StoreResult<ArtifactNamespace> {
+    ArtifactNamespace::new(MANIFEST_NAMESPACE).map_err(StoreError::from)
+}
+
+fn index_namespace() -> StoreResult<ArtifactNamespace> {
+    ArtifactNamespace::new(INDEX_NAMESPACE).map_err(StoreError::from)
+}
+
+fn block_namespace(identity: [u8; 32]) -> StoreResult<ArtifactNamespace> {
+    ArtifactNamespace::new(format!("{BLOCK_NAMESPACE_PREFIX}{}", hex_key(&identity)))
+        .map_err(StoreError::from)
 }
 
 fn encode_index(
@@ -484,7 +595,7 @@ fn validate_summaries(
 }
 
 fn validate_directory(directory: &[BlockDirectoryEntry], data_len: u64) -> StoreResult<()> {
-    let mut expected_offset = DATA_HEADER_SIZE as u64;
+    let mut expected_offset = 0_u64;
     for (index, entry) in directory.iter().enumerate() {
         if entry.sequence != index as u64
             || entry.data_offset != expected_offset
@@ -548,71 +659,6 @@ fn decode_manifest(bytes: &[u8]) -> StoreResult<Manifest> {
     })
 }
 
-fn touch_manifest(path: &Path) -> StoreResult<()> {
-    let mut manifest = decode_manifest(&fs::read(path)?)?;
-    manifest.accessed_unix_ns = unix_ns();
-    let tmp = path.with_extension("dwm.tmp");
-    write_synced(&tmp, &encode_manifest(manifest))?;
-    fs::rename(tmp, path)?;
-    Ok(())
-}
-
-fn write_synced(path: &Path, bytes: &[u8]) -> StoreResult<()> {
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(path)?;
-    file.write_all(bytes)?;
-    file.sync_data()?;
-    Ok(())
-}
-
-fn remove_stale_temporaries(directory: &Path) {
-    let Ok(entries) = fs::read_dir(directory) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        if entry
-            .file_name()
-            .to_str()
-            .is_some_and(|name| name.ends_with(".tmp"))
-        {
-            let _ = fs::remove_file(entry.path());
-        }
-    }
-}
-
-fn directory_size(directory: &Path) -> u64 {
-    fs::read_dir(directory)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|entry| entry.metadata().ok())
-        .filter(|metadata| metadata.is_file())
-        .map(|metadata| metadata.len())
-        .sum()
-}
-
-fn remove_if_exists(path: &Path) -> StoreResult<()> {
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error.into()),
-    }
-}
-
-#[cfg(unix)]
-fn sync_directory(path: &Path) -> StoreResult<()> {
-    File::open(path)?.sync_all()?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn sync_directory(_path: &Path) -> StoreResult<()> {
-    Ok(())
-}
-
 fn unix_ns() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -629,6 +675,29 @@ fn hex_key(key: &[u8; 32]) -> String {
         output.push(HEX[(byte & 0x0f) as usize] as char);
     }
     output
+}
+
+fn parse_hex_key(value: &str) -> Option<[u8; 32]> {
+    if value.len() != 64 {
+        return None;
+    }
+    let mut key = [0_u8; 32];
+    let (pairs, []) = value.as_bytes().as_chunks::<2>() else {
+        return None;
+    };
+    for (output, pair) in key.iter_mut().zip(pairs) {
+        *output = (hex_value(pair[0])? << 4) | hex_value(pair[1])?;
+    }
+    Some(key)
+}
+
+fn hex_value(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
@@ -666,4 +735,78 @@ fn get_optional_u64(bytes: &[u8], offset: usize) -> StoreResult<Option<u64>> {
         u64::MAX => None,
         value => Some(value),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::derived_word_store::{
+        IndexedAnnotationStore, IndexedAnnotationWriter, LiveStoreConfig,
+    };
+    use crate::events::Word;
+    use crate::{ArtifactRepository, MemoryArtifactRepository};
+
+    #[test]
+    fn corrupt_manifest_invalidates_the_complete_repository_generation() {
+        let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+        let cache_key = [0xC1; 32];
+        let persistent =
+            PersistentStoreConfig::new(cache_key).with_artifact_repository(Arc::clone(&repository));
+        let config = LiveStoreConfig {
+            persistence: Some(persistent.clone()),
+            ..LiveStoreConfig::default()
+        };
+        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        writer.append(Word::new(0x42, 100)).unwrap();
+        writer.finish().unwrap();
+        drop(store);
+
+        publish_bytes(
+            repository.as_ref(),
+            manifest_key(&persistent).unwrap(),
+            b"corrupt manifest",
+        )
+        .unwrap();
+
+        assert!(IndexedAnnotationStore::open_persistent(&persistent).is_err());
+        assert!(
+            repository
+                .open(&manifest_key(&persistent).unwrap())
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            repository
+                .open(&index_key(&persistent).unwrap())
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            repository
+                .entries(&block_namespace(cache_key).unwrap())
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            IndexedAnnotationStore::open_persistent(&persistent)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn cleanup_reclaims_an_interrupted_generation_without_a_manifest() {
+        let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+        let cache_key = [0xC2; 32];
+        let key = block_key(cache_key, 0).unwrap();
+        publish_bytes(repository.as_ref(), key.clone(), b"orphan").unwrap();
+
+        let stats = cleanup_cache(&repository, u64::MAX, &[]).unwrap();
+
+        assert_eq!(stats.removed_entries, 1);
+        assert_eq!(stats.removed_bytes, 6);
+        assert!(repository.open(&key).unwrap().is_none());
+    }
 }

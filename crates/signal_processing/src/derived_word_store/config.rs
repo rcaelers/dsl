@@ -1,13 +1,10 @@
 use std::fmt;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::{ArtifactRepository, InlineWorkExecutor, MemoryArtifactRepository, WorkExecutor};
 
-/// Platform-neutral block-sizing knobs. Native storage uses these to encode
-/// file blocks; the wasm backend retains them so one compiled configuration
-/// has the same shape on every target.
+/// Platform-neutral sizing knobs for repository-backed encoded blocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockCodecConfig {
     pub max_words: usize,
@@ -29,26 +26,44 @@ impl Default for BlockCodecConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct PersistentStoreConfig {
-    pub directory: PathBuf,
     pub cache_key: [u8; 32],
     pub max_cache_bytes: u64,
+    pub artifact_repository: Arc<dyn ArtifactRepository>,
 }
 
 impl PersistentStoreConfig {
-    pub fn new(directory: impl Into<PathBuf>, cache_key: [u8; 32]) -> Self {
+    pub fn new(cache_key: [u8; 32]) -> Self {
         Self {
-            directory: directory.into(),
             cache_key,
             max_cache_bytes: DEFAULT_MAX_PERSISTENT_CACHE_BYTES,
+            artifact_repository: Arc::new(MemoryArtifactRepository::new()),
         }
+    }
+
+    pub fn with_artifact_repository(mut self, repository: Arc<dyn ArtifactRepository>) -> Self {
+        self.artifact_repository = repository;
+        self
+    }
+}
+
+impl fmt::Debug for PersistentStoreConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PersistentStoreConfig")
+            .field("cache_key", &self.cache_key)
+            .field("max_cache_bytes", &self.max_cache_bytes)
+            .field(
+                "repository_capabilities",
+                &self.artifact_repository.capabilities(),
+            )
+            .finish()
     }
 }
 
 #[derive(Clone)]
 pub struct LiveStoreConfig {
-    pub directory: PathBuf,
     pub cache_key_prefix: [u8; 16],
     pub block: BlockCodecConfig,
     pub hot_tail_publish_words: usize,
@@ -62,7 +77,6 @@ impl fmt::Debug for LiveStoreConfig {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("LiveStoreConfig")
-            .field("directory", &self.directory)
             .field("cache_key_prefix", &self.cache_key_prefix)
             .field("block", &self.block)
             .field("hot_tail_publish_words", &self.hot_tail_publish_words)
@@ -89,6 +103,9 @@ impl LiveStoreConfig {
 
     /// Selects the repository that owns finalized blocks, indexes, and manifests.
     pub fn with_artifact_repository(mut self, repository: Arc<dyn ArtifactRepository>) -> Self {
+        if let Some(persistence) = &mut self.persistence {
+            persistence.artifact_repository = Arc::clone(&repository);
+        }
         self.artifact_repository = repository;
         self
     }
@@ -97,7 +114,6 @@ impl LiveStoreConfig {
 impl Default for LiveStoreConfig {
     fn default() -> Self {
         Self {
-            directory: super::platform::default_working_directory(),
             cache_key_prefix: [0; 16],
             block: BlockCodecConfig::default(),
             hot_tail_publish_words: DEFAULT_HOT_TAIL_PUBLISH_WORDS,

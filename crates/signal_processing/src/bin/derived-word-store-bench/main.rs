@@ -27,16 +27,12 @@ std::cfg_select! {
             }
 
             pub(crate) fn main() -> Result<(), Box<dyn std::error::Error>> {
-                let directory = tempfile::tempdir()?;
                 let batch_count = std::env::var("DERIVED_WORD_STORE_BATCH_COUNT")
                     .ok()
                     .and_then(|value| value.parse::<usize>().ok())
                     .unwrap_or(DEFAULT_BATCH_COUNT);
                 let total_words = BATCH_WORDS * batch_count;
-                let config = LiveStoreConfig {
-                    directory: directory.path().to_owned(),
-                    ..LiveStoreConfig::default()
-                };
+                let config = LiveStoreConfig::default();
                 let mut words = (0..BATCH_WORDS)
                     .map(|index| Word::new((index & 0xff) as u64, generated_timestamp_ns(index)))
                     .collect::<Vec<_>>();

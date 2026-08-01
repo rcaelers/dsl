@@ -196,25 +196,17 @@ fn derived_word_core_is_shared_between_targets() {
 }
 
 #[test]
-fn wasm_derived_store_keeps_committed_words_in_encoded_blocks() {
-    let wasm_store = include_str!("derived_word_store/store_wasm.rs");
+fn derived_store_has_one_repository_backed_implementation() {
+    let module = include_str!("derived_word_store/mod.rs");
+    let store = include_str!("derived_word_store/store.rs");
 
-    for required in [
-        "directory: Vec<BlockDirectoryEntry>",
-        "encoded_blocks: Vec<Arc<[u8]>>",
-        "WordBlockBuilder",
-        "decode_word_block",
-        "word_presence_summaries",
-    ] {
-        assert!(
-            wasm_store.contains(required),
-            "the wasm derived-word store is missing encoded-block component {required}"
-        );
-    }
-    assert!(
-        !wasm_store.contains("words: Vec<Word>"),
-        "the wasm derived-word store must not retain an authoritative word vector"
-    );
+    assert!(module.contains("mod store;"));
+    assert!(!module.contains("target_arch"));
+    assert!(!module.contains("mod platform;"));
+    assert!(store.contains("ArtifactRepository"));
+    assert!(store.contains("read_artifact_region"));
+    assert!(!implementation_source(store).contains("target_arch"));
+    assert!(!store.contains("std::fs"));
 }
 
 #[test]

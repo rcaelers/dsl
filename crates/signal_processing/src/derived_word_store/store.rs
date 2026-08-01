@@ -1,38 +1,33 @@
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crossbeam_channel::{Receiver, Sender, TryRecvError, bounded};
-use memmap2::{Mmap, MmapOptions};
 
-use super::super::super::cache::{cache_block, cached_block};
-use super::super::super::codec::{
+use super::backend::{AnnotationStoreBackend, AnnotationStoreWriterBackend};
+use super::cache::{cache_block, cached_block};
+use super::codec::{
     DecodedWordBlock, EncodedBlockMetadata, WordBlockBuilder, decode_word_block,
     decode_word_block_range,
 };
-use super::super::super::config::{LiveStoreConfig, PersistentStoreConfig};
-use super::super::super::errors::CodecError;
-use super::super::super::format::{
-    BLOCK_FLAG_HAS_DURATIONS, BlockDirectoryEntry, DATA_HEADER_SIZE, DataFileHeader,
-    WordBlockHeader,
-};
+use super::config::{LiveStoreConfig, PersistentStoreConfig};
+use super::errors::CodecError;
+use super::format::{BLOCK_FLAG_HAS_DURATIONS, BlockDirectoryEntry, WordBlockHeader};
+use super::persistent;
 #[cfg(test)]
-use super::super::super::presence::MAX_PRESENCE_RUNS_PER_BLOCK;
-use super::super::super::presence::{
-    WordPresenceIndex, WordSummaryRecord, word_presence_summaries,
-};
-use super::super::super::query::{
+use super::presence::MAX_PRESENCE_RUNS_PER_BLOCK;
+use super::presence::{WordPresenceIndex, WordSummaryRecord, word_presence_summaries};
+use super::query::{
     AnnotationQuery, AnnotationQueryError, AnnotationQueryResult, AnnotationStoreMetadata,
     ExactAnnotationWindow, WordPresenceBucket, annotation_window_from_ordered_words,
     boundary_block_indices, exact_block_indices, nearest_boundary_from_ordered_words,
 };
-use super::super::super::state::{LiveStoreMetadata, LiveStoreSnapshot, StoreStatus};
-use crate::WorkExecutor;
+use super::state::{LiveStoreMetadata, LiveStoreSnapshot, StoreStatus};
 use crate::events::{Annotation, Word};
+use crate::{
+    ArtifactKey, ArtifactRepository, ByteRange, RepositoryError, WorkExecutor, read_artifact_region,
+};
 
 const MAX_BLOCK_ENCODERS_PER_STORE: usize = 4;
 static NEXT_STORE_ID: AtomicU64 = AtomicU64::new(1);
@@ -44,14 +39,10 @@ fn block_encoder_count(available_workers: usize) -> usize {
     }
 }
 
-pub(crate) fn default_working_directory() -> PathBuf {
-    std::env::temp_dir()
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
-    #[error("derived-word store I/O error: {0}")]
-    Io(#[from] io::Error),
+    #[error("derived-word artifact repository error: {0}")]
+    Repository(#[from] RepositoryError),
 
     #[error("derived-word store codec error: {0}")]
     Codec(#[from] CodecError),
@@ -85,9 +76,9 @@ struct LiveState {
 
 struct StoreShared {
     state: RwLock<LiveState>,
-    read_backend: RwLock<ReadBackend>,
+    repository: Arc<dyn ArtifactRepository>,
+    store_identity: [u8; 32],
     store_id: u64,
-    path: PathBuf,
     remove_on_drop: AtomicBool,
     persistent_cache: AtomicBool,
 }
@@ -95,45 +86,13 @@ struct StoreShared {
 impl Drop for StoreShared {
     fn drop(&mut self) {
         if self.remove_on_drop.load(Ordering::Relaxed) {
-            let _ = std::fs::remove_file(&self.path);
-        }
-    }
-}
-
-enum ReadBackend {
-    File(File),
-    Mmap(Mmap),
-    Closed,
-}
-
-impl ReadBackend {
-    fn read_exact_at(&self, buffer: &mut [u8], offset: u64) -> io::Result<()> {
-        match self {
-            Self::File(file) => read_exact_at(file, buffer, offset),
-            Self::Mmap(mmap) => {
-                let offset = usize::try_from(offset).map_err(|_| {
-                    io::Error::new(io::ErrorKind::InvalidInput, "mmap offset exceeds usize")
-                })?;
-                let end = offset.checked_add(buffer.len()).ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::InvalidInput, "mmap range overflow")
-                })?;
-                let source = mmap.get(offset..end).ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        "committed block lies outside derived-word mmap",
-                    )
-                })?;
-                buffer.copy_from_slice(source);
-                Ok(())
+            let directory = self.state.get_mut().unwrap().directory.clone();
+            for entry in directory {
+                if let Ok(key) = block_key(self.store_identity, entry.sequence) {
+                    let _ = self.repository.remove(&key);
+                }
             }
-            Self::Closed => Err(io::Error::other(
-                "persistent derived-word store is being published",
-            )),
         }
-    }
-
-    fn is_mmap(&self) -> bool {
-        matches!(self, Self::Mmap(_))
     }
 }
 
@@ -158,15 +117,9 @@ impl IndexedAnnotationStore {
     pub fn open_persistent(
         config: &PersistentStoreConfig,
     ) -> StoreResult<Option<IndexedAnnotationStore>> {
-        let Some(index) = super::super::super::persistent::open(config)? else {
+        let Some(index) = persistent::open(config)? else {
             return Ok(None);
         };
-        let data_path = super::super::super::persistent::data_path(config);
-        let file = File::open(&data_path)?;
-        // SAFETY: publication makes the data file immutable before the
-        // manifest becomes discoverable, and validation above checked its
-        // exact length and cache-key prefix.
-        let mmap = unsafe { MmapOptions::new().map(&file)? };
         Ok(Some(Self {
             shared: Arc::new(StoreShared {
                 state: RwLock::new(LiveState {
@@ -180,9 +133,9 @@ impl IndexedAnnotationStore {
                     hot_tail: Arc::from([]),
                     status: StoreStatus::Finished,
                 }),
-                read_backend: RwLock::new(ReadBackend::Mmap(mmap)),
+                repository: Arc::clone(&config.artifact_repository),
+                store_identity: config.cache_key,
                 store_id: NEXT_STORE_ID.fetch_add(1, Ordering::Relaxed),
-                path: data_path,
                 remove_on_drop: AtomicBool::new(false),
                 persistent_cache: AtomicBool::new(true),
             }),
@@ -190,7 +143,6 @@ impl IndexedAnnotationStore {
     }
 
     pub fn snapshot(&self) -> LiveStoreSnapshot {
-        let mmap_backed = self.shared.read_backend.read().unwrap().is_mmap();
         let state = self.shared.state.read().unwrap();
         let first_timestamp_ns = state
             .committed_first_timestamp_ns
@@ -218,7 +170,7 @@ impl IndexedAnnotationStore {
                 last_timestamp_ns,
                 extent_end_ns,
                 hot_tail_word_count: state.hot_tail.len(),
-                mmap_backed,
+                immutable_region_backed: self.shared.repository.capabilities().immutable_regions,
                 persistent_cache: self.shared.persistent_cache.load(Ordering::Relaxed),
                 status: state.status.clone(),
             },
@@ -251,7 +203,7 @@ impl IndexedAnnotationStore {
     /// Fingerprints the exact immutable encoded word sequence without
     /// decoding or retaining complete blocks.
     ///
-    /// File-identity metadata is outside the committed blocks and therefore
+    /// Repository identity metadata is outside the committed blocks and therefore
     /// does not affect this content fingerprint. The store must be finished
     /// so an in-flight hot tail cannot be omitted.
     pub fn committed_data_fingerprint(&self) -> StoreResult<[u8; 32]> {
@@ -276,12 +228,8 @@ impl IndexedAnnotationStore {
         Ok(*hasher.finalize().as_bytes())
     }
 
-    pub fn temp_path(&self) -> &Path {
-        &self.shared.path
-    }
-
     /// Reads and validates one fully committed block. The directory lock is
-    /// released before any file access or decoding occurs.
+    /// released before repository access or decoding occurs.
     #[cfg(test)]
     fn read_committed_block(&self, index: usize) -> StoreResult<DecodedWordBlock> {
         let entry = {
@@ -316,13 +264,19 @@ impl IndexedAnnotationStore {
     }
 
     fn read_entry_bytes(&self, entry: BlockDirectoryEntry) -> StoreResult<Vec<u8>> {
-        let mut bytes = vec![0u8; entry.block_len as usize];
-        self.shared
-            .read_backend
-            .read()
-            .unwrap()
-            .read_exact_at(&mut bytes, entry.data_offset)?;
-        Ok(bytes)
+        let key = block_key(self.shared.store_identity, entry.sequence)?;
+        let mut reader = self.shared.repository.open(&key)?.ok_or_else(|| {
+            StoreError::Persistent(format!(
+                "committed word block {} is missing",
+                entry.sequence
+            ))
+        })?;
+        if reader.len()? != u64::from(entry.block_len) {
+            return Err(StoreError::DirectoryMismatch(entry.sequence));
+        }
+        let range = ByteRange::new(0, u64::from(entry.block_len)).map_err(RepositoryError::from)?;
+        let region = read_artifact_region(&mut *reader, range)?;
+        Ok(region.bytes().to_vec())
     }
 
     fn query_entry_words(
@@ -734,19 +688,18 @@ fn prepare_encoded_block(
 ) -> PreparedBlock {
     let duration_free = builder.is_duration_free();
     let summaries = word_presence_summaries(sequence, builder.words(), duration_free);
-    let request = super::super::super::codec::EncodeWordBlockRequest::new(
+    let request = super::codec::EncodeWordBlockRequest::new(
         sequence,
         builder.config(),
         builder.words().to_vec(),
     );
-    let (encoded, result) =
-        match super::super::super::codec::encode_owned_word_block(request, encoded) {
-            Ok(encoded) => {
-                let result = Ok((encoded.metadata, summaries));
-                (encoded.bytes, result)
-            }
-            Err(error) => (Vec::new(), Err(error)),
-        };
+    let (encoded, result) = match super::codec::encode_owned_word_block(request, encoded) {
+        Ok(encoded) => {
+            let result = Ok((encoded.metadata, summaries));
+            (encoded.bytes, result)
+        }
+        Err(error) => (Vec::new(), Err(error)),
+    };
     builder.clear();
     PreparedBlock {
         builder,
@@ -757,7 +710,6 @@ fn prepare_encoded_block(
 
 /// Single-threaded append side of a live indexed annotation store.
 pub struct IndexedAnnotationWriter {
-    file: Option<File>,
     shared: Arc<StoreShared>,
     builder: WordBlockBuilder,
     completion_sender: Sender<BlockCompletion>,
@@ -788,41 +740,23 @@ impl IndexedAnnotationWriter {
                 "hot_tail_publish_words must be greater than zero",
             )));
         }
-        let working_directory = config
-            .persistence
-            .as_ref()
-            .map_or(config.directory.as_path(), |persistent| {
-                persistent.directory.as_path()
-            });
-        std::fs::create_dir_all(working_directory)?;
-        let temporary = tempfile::Builder::new()
-            .prefix("dsl-derived-")
-            .suffix(".dwd.tmp")
-            .tempfile_in(working_directory)?;
-        let (mut file, temp_path) = temporary.keep().map_err(|error| error.error)?;
         let created_unix_ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos()
             .min(u128::from(u64::MAX)) as u64;
-        let cache_key_prefix =
-            config
-                .persistence
-                .as_ref()
-                .map_or(config.cache_key_prefix, |cache| {
-                    let mut prefix = [0u8; 16];
-                    prefix.copy_from_slice(&cache.cache_key[..16]);
-                    prefix
-                });
-        file.write_all(
-            &DataFileHeader {
-                cache_key_prefix,
-                created_unix_ns,
-                flags: 0,
-            }
-            .to_bytes(),
-        )?;
-        let reader = file.try_clone()?;
+        let store_id = NEXT_STORE_ID.fetch_add(1, Ordering::Relaxed);
+        let store_identity = config.persistence.as_ref().map_or_else(
+            || ephemeral_store_identity(config.cache_key_prefix, store_id),
+            |persistent| persistent.cache_key,
+        );
+        if let Some(persistent) = &config.persistence {
+            persistent::invalidate(persistent)?;
+        }
+        let repository = config.persistence.as_ref().map_or_else(
+            || Arc::clone(&config.artifact_repository),
+            |persistent| Arc::clone(&persistent.artifact_repository),
+        );
         let builder = WordBlockBuilder::new(config.block)?;
         let work_executor = Arc::clone(&config.work_executor);
         let max_outstanding_blocks = block_encoder_count(work_executor.available_parallelism());
@@ -837,15 +771,15 @@ impl IndexedAnnotationWriter {
                 presence: WordPresenceIndex::new(),
                 generation: 0,
                 committed_word_count: 0,
-                committed_data_len: DATA_HEADER_SIZE as u64,
+                committed_data_len: 0,
                 committed_first_timestamp_ns: None,
                 committed_last_timestamp_ns: None,
                 hot_tail: Arc::from([]),
                 status: StoreStatus::Live,
             }),
-            read_backend: RwLock::new(ReadBackend::File(reader)),
-            store_id: NEXT_STORE_ID.fetch_add(1, Ordering::Relaxed),
-            path: temp_path,
+            repository,
+            store_identity,
+            store_id,
             remove_on_drop: AtomicBool::new(true),
             persistent_cache: AtomicBool::new(false),
         });
@@ -854,7 +788,6 @@ impl IndexedAnnotationWriter {
         };
         Ok((
             Self {
-                file: Some(file),
                 shared,
                 builder,
                 completion_sender,
@@ -866,7 +799,7 @@ impl IndexedAnnotationWriter {
                 max_outstanding_blocks,
                 next_dispatch_sequence: 0,
                 next_sequence: 0,
-                next_data_offset: DATA_HEADER_SIZE as u64,
+                next_data_offset: 0,
                 last_timestamp_ns: None,
                 words_since_tail_publish: 0,
                 last_tail_publish,
@@ -918,8 +851,8 @@ impl IndexedAnnotationWriter {
         result
     }
 
-    /// Cancels without flushing or syncing. The temporary file is removed
-    /// when the final writer/query handle is dropped.
+    /// Cancels without publishing a manifest. Unfinished block artifacts are
+    /// removed when the final writer/query handle is dropped.
     pub fn cancel(&mut self) -> StoreResult<()> {
         self.ensure_live()?;
         self.builder.clear();
@@ -982,14 +915,12 @@ impl IndexedAnnotationWriter {
     fn finish_inner(&mut self) -> StoreResult<()> {
         self.dispatch_current_block()?;
         self.flush_dispatched_blocks()?;
-        let file = self.file.as_ref().expect("live writer owns its file");
-        file.sync_data()?;
         if let Some(persistent) = self.persistence.clone() {
-            let (index_tmp, manifest_tmp) = {
+            {
                 let state = self.shared.state.read().unwrap();
-                super::super::super::persistent::publish_index_and_manifest(
+                persistent::publish(
                     &persistent,
-                    super::super::super::persistent::Publication {
+                    persistent::Publication {
                         directory: &state.directory,
                         presence: &state.presence,
                         committed_word_count: state.committed_word_count,
@@ -998,30 +929,10 @@ impl IndexedAnnotationWriter {
                         last_timestamp_ns: state.committed_last_timestamp_ns,
                         created_unix_ns: self.created_unix_ns,
                     },
-                )?
-            };
-            let mut backend = self.shared.read_backend.write().unwrap();
-            *backend = ReadBackend::Closed;
-            drop(self.file.take());
-            super::super::super::persistent::finish_publication(
-                &persistent,
-                &self.shared.path,
-                &index_tmp,
-                &manifest_tmp,
-            )?;
-            let final_path = super::super::super::persistent::data_path(&persistent);
-            let final_file = File::open(final_path)?;
-            // SAFETY: the synchronized data and index files were renamed
-            // before the manifest, and no later writer can mutate them.
-            let mmap = unsafe { MmapOptions::new().map(&final_file)? };
-            *backend = ReadBackend::Mmap(mmap);
+                )?;
+            }
             self.shared.remove_on_drop.store(false, Ordering::Relaxed);
             self.shared.persistent_cache.store(true, Ordering::Relaxed);
-        } else {
-            // SAFETY: all appends are complete, sync_data returned
-            // successfully, and `terminal` prevents later mutation.
-            let mmap = unsafe { MmapOptions::new().map(file)? };
-            *self.shared.read_backend.write().unwrap() = ReadBackend::Mmap(mmap);
         }
         let mut state = self.shared.state.write().unwrap();
         state.status = StoreStatus::Finished;
@@ -1143,12 +1054,12 @@ impl IndexedAnnotationWriter {
             value_bytes: header.value_bytes,
             flags: header.flags as u8,
         };
-        // File is unbuffered: once write_all returns, offset reads can see the
-        // complete bytes. Publish the directory entry only after that point.
-        self.file
-            .as_mut()
-            .expect("live writer owns its file")
-            .write_all(&block.encoded)?;
+        let key = block_key(self.shared.store_identity, entry.sequence)?;
+        let mut writer = self.shared.repository.begin_write(key)?;
+        writer.write_at(0, &block.encoded)?;
+        writer.truncate(block.encoded.len() as u64)?;
+        writer.flush()?;
+        writer.publish()?;
         {
             let mut state = self.shared.state.write().unwrap();
             state.directory.push(entry);
@@ -1198,13 +1109,13 @@ impl IndexedAnnotationWriter {
     }
 }
 
-impl super::super::super::backend::AnnotationStoreBackend for IndexedAnnotationStore {
+impl AnnotationStoreBackend for IndexedAnnotationStore {
     fn snapshot(&self) -> LiveStoreSnapshot {
         IndexedAnnotationStore::snapshot(self)
     }
 }
 
-impl super::super::super::backend::AnnotationStoreWriterBackend for IndexedAnnotationWriter {
+impl AnnotationStoreWriterBackend for IndexedAnnotationWriter {
     fn append_batch(&mut self, words: &[Word]) -> StoreResult<()> {
         IndexedAnnotationWriter::append_batch(self, words)
     }
@@ -1237,40 +1148,20 @@ impl Drop for IndexedAnnotationWriter {
     }
 }
 
-#[cfg(unix)]
-fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<()> {
-    use std::os::unix::fs::FileExt;
-    file.read_exact_at(buffer, offset)
+fn block_key(store_identity: [u8; 32], sequence: u64) -> StoreResult<ArtifactKey> {
+    persistent::block_key(store_identity, sequence)
 }
 
-#[cfg(windows)]
-fn read_exact_at(file: &File, mut buffer: &mut [u8], mut offset: u64) -> io::Result<()> {
-    use std::os::windows::fs::FileExt;
-    while !buffer.is_empty() {
-        let read = file.seek_read(buffer, offset)?;
-        if read == 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "failed to fill derived-word block buffer",
-            ));
-        }
-        offset += read as u64;
-        buffer = &mut buffer[read..];
-    }
-    Ok(())
-}
-
-#[cfg(not(any(unix, windows)))]
-fn read_exact_at(_file: &File, _buffer: &mut [u8], _offset: u64) -> io::Result<()> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "positional reads are unsupported on this platform",
-    ))
+fn ephemeral_store_identity(cache_key_prefix: [u8; 16], store_id: u64) -> [u8; 32] {
+    let mut identity = [0_u8; 32];
+    identity[..16].copy_from_slice(&cache_key_prefix);
+    identity[16..24].copy_from_slice(&store_id.to_le_bytes());
+    identity[24..].copy_from_slice(&(!store_id).to_le_bytes());
+    identity
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Read, Seek, SeekFrom};
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::thread;
 
@@ -1308,9 +1199,8 @@ mod tests {
         }
     }
 
-    fn test_config(directory: &Path) -> LiveStoreConfig {
+    fn test_config() -> LiveStoreConfig {
         LiveStoreConfig {
-            directory: directory.to_path_buf(),
             block: BlockCodecConfig {
                 max_words: 16,
                 ..BlockCodecConfig::default()
@@ -1321,10 +1211,10 @@ mod tests {
         }
     }
 
-    fn persistent_config(directory: &Path, cache_key: [u8; 32]) -> LiveStoreConfig {
+    fn persistent_config(cache_key: [u8; 32]) -> LiveStoreConfig {
         LiveStoreConfig {
-            persistence: Some(PersistentStoreConfig::new(directory, cache_key)),
-            ..test_config(directory)
+            persistence: Some(PersistentStoreConfig::new(cache_key)),
+            ..test_config()
         }
     }
 
@@ -1345,9 +1235,8 @@ mod tests {
 
     #[test]
     fn configured_executor_bounds_and_receives_block_encoding_work() {
-        let directory = tempfile::tempdir().unwrap();
         let executor = Arc::new(RecordingWorkExecutor::new(9));
-        let config = test_config(directory.path()).with_work_executor(executor.clone());
+        let config = test_config().with_work_executor(executor.clone());
         let (mut writer, _) = IndexedAnnotationWriter::create(config).unwrap();
 
         let words = (0..32)
@@ -1362,9 +1251,8 @@ mod tests {
 
     #[test]
     fn persistent_finish_reopens_exact_words_and_presence_from_manifest() {
-        let directory = tempfile::tempdir().unwrap();
         let cache_key = [0x5a; 32];
-        let config = persistent_config(directory.path(), cache_key);
+        let config = persistent_config(cache_key);
         let persistent = config.persistence.clone().unwrap();
         let (mut writer, live_store) = IndexedAnnotationWriter::create(config).unwrap();
         let words: Vec<_> = (0..41)
@@ -1377,7 +1265,7 @@ mod tests {
         writer.append_batch(&words).unwrap();
         writer.finish().unwrap();
 
-        let inspected = super::super::super::super::persistent::inspect_cache_entry(&persistent)
+        let inspected = persistent::inspect_cache_entry(&persistent)
             .unwrap()
             .expect("published cache diagnostics");
         assert_eq!(inspected.word_count, words.len() as u64);
@@ -1387,12 +1275,6 @@ mod tests {
             inspected.data_bytes + inspected.index_bytes + 96
         );
 
-        assert!(super::super::super::super::persistent::data_path(&persistent).is_file());
-        assert!(
-            super::super::super::super::persistent::cache_directory(&persistent)
-                .join(super::super::super::super::persistent::MANIFEST_FILE_NAME)
-                .is_file()
-        );
         drop((writer, live_store));
 
         let reopened = IndexedAnnotationStore::open_persistent(&persistent)
@@ -1411,12 +1293,11 @@ mod tests {
 
     #[test]
     fn committed_fingerprint_tracks_words_not_cache_identity() {
-        let directory = tempfile::tempdir().unwrap();
         let words: Vec<_> = (0..41)
             .map(|index| Word::spanning(index, index * 80, index % 5))
             .collect();
         let build = |cache_key, words: &[Word], batch_words: usize| {
-            let config = persistent_config(directory.path(), cache_key);
+            let config = persistent_config(cache_key);
             let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
             for batch in words.chunks(batch_words) {
                 writer.append_batch(batch).unwrap();
@@ -1437,8 +1318,7 @@ mod tests {
 
     #[test]
     fn unfinished_persistent_store_never_becomes_discoverable() {
-        let directory = tempfile::tempdir().unwrap();
-        let config = persistent_config(directory.path(), [0x33; 32]);
+        let config = persistent_config([0x33; 32]);
         let persistent = config.persistence.clone().unwrap();
         let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
         writer.append(Word::new(1, 10)).unwrap();
@@ -1452,93 +1332,52 @@ mod tests {
     }
 
     #[test]
-    fn corrupt_persistent_manifest_is_rejected_and_removed() {
-        let directory = tempfile::tempdir().unwrap();
-        let config = persistent_config(directory.path(), [0x77; 32]);
-        let persistent = config.persistence.clone().unwrap();
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
-        writer.append(Word::new(1, 10)).unwrap();
-        writer.finish().unwrap();
-        drop((writer, store));
-        let cache_directory = super::super::super::super::persistent::cache_directory(&persistent);
-        std::fs::write(
-            cache_directory.join(super::super::super::super::persistent::MANIFEST_FILE_NAME),
-            b"corrupt",
-        )
-        .unwrap();
-
-        assert!(IndexedAnnotationStore::open_persistent(&persistent).is_err());
-        assert!(!cache_directory.exists());
-    }
-
-    #[test]
-    fn corrupt_persistent_index_is_rejected_and_removed() {
-        let directory = tempfile::tempdir().unwrap();
-        let config = persistent_config(directory.path(), [0x78; 32]);
-        let persistent = config.persistence.clone().unwrap();
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
-        writer.append(Word::new(1, 10)).unwrap();
-        writer.finish().unwrap();
-        drop((writer, store));
-        let cache_directory = super::super::super::super::persistent::cache_directory(&persistent);
-        let index_path =
-            cache_directory.join(super::super::super::super::persistent::INDEX_FILE_NAME);
-        let mut index = std::fs::read(&index_path).unwrap();
-        index[32] ^= 0x80;
-        std::fs::write(index_path, index).unwrap();
-
-        assert!(IndexedAnnotationStore::open_persistent(&persistent).is_err());
-        assert!(!cache_directory.exists());
-    }
-
-    #[test]
-    fn persistent_cleanup_removes_unpinned_lru_and_stale_temporaries() {
-        let directory = tempfile::tempdir().unwrap();
+    fn persistent_cleanup_removes_unpinned_lru_entries() {
+        let repository: Arc<dyn ArtifactRepository> =
+            Arc::new(crate::MemoryArtifactRepository::new());
         let first_key = [0x11; 32];
         let second_key = [0x22; 32];
         for key in [first_key, second_key] {
-            let config = persistent_config(directory.path(), key);
+            let mut config = persistent_config(key);
+            config = config.with_artifact_repository(Arc::clone(&repository));
             let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
             writer.append(Word::new(u64::from(key[0]), 10)).unwrap();
             writer.finish().unwrap();
             drop((writer, store));
         }
-        let stale = directory.path().join("abandoned.tmp");
-        std::fs::write(&stale, b"partial").unwrap();
-
-        let stats = super::super::super::super::persistent::cleanup_cache(
-            directory.path(),
-            0,
-            std::slice::from_ref(&second_key),
-        )
-        .unwrap();
+        let stats =
+            persistent::cleanup_cache(&repository, 0, std::slice::from_ref(&second_key)).unwrap();
 
         assert_eq!(stats.entries, 1);
         assert_eq!(stats.removed_entries, 1);
-        assert!(!stale.exists());
         assert!(
-            !super::super::super::super::persistent::cache_directory(&PersistentStoreConfig::new(
-                directory.path(),
-                first_key,
-            ))
-            .exists()
+            IndexedAnnotationStore::open_persistent(
+                &PersistentStoreConfig::new(first_key)
+                    .with_artifact_repository(Arc::clone(&repository))
+            )
+            .unwrap()
+            .is_none()
         );
         assert!(
-            super::super::super::super::persistent::cache_directory(&PersistentStoreConfig::new(
-                directory.path(),
-                second_key,
-            ))
-            .exists()
+            IndexedAnnotationStore::open_persistent(
+                &PersistentStoreConfig::new(second_key)
+                    .with_artifact_repository(Arc::clone(&repository))
+            )
+            .unwrap()
+            .is_some()
         );
     }
 
     #[test]
     fn clearing_one_persistent_entry_keeps_other_cache_keys() {
-        let directory = tempfile::tempdir().unwrap();
-        let first = PersistentStoreConfig::new(directory.path(), [0x31; 32]);
-        let second = PersistentStoreConfig::new(directory.path(), [0x32; 32]);
+        let repository: Arc<dyn ArtifactRepository> =
+            Arc::new(crate::MemoryArtifactRepository::new());
+        let first = PersistentStoreConfig::new([0x31; 32])
+            .with_artifact_repository(Arc::clone(&repository));
+        let second = PersistentStoreConfig::new([0x32; 32])
+            .with_artifact_repository(Arc::clone(&repository));
         for persistent in [&first, &second] {
-            let mut config = test_config(directory.path());
+            let mut config = test_config();
             config.persistence = Some(persistent.clone());
             let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
             writer.append(Word::new(1, 10)).unwrap();
@@ -1546,13 +1385,21 @@ mod tests {
             drop((writer, store));
         }
 
-        let stats = super::super::super::super::persistent::clear_cache_entry(&first).unwrap();
+        let stats = persistent::clear_cache_entry(&first).unwrap();
         assert_eq!(stats.removed_entries, 1);
         assert!(stats.removed_bytes > 0);
-        assert!(!super::super::super::super::persistent::cache_directory(&first).exists());
-        assert!(super::super::super::super::persistent::cache_directory(&second).exists());
+        assert!(
+            IndexedAnnotationStore::open_persistent(&first)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            IndexedAnnotationStore::open_persistent(&second)
+                .unwrap()
+                .is_some()
+        );
         assert_eq!(
-            super::super::super::super::persistent::clear_cache_entry(&first)
+            persistent::clear_cache_entry(&first)
                 .unwrap()
                 .removed_entries,
             0
@@ -1561,9 +1408,7 @@ mod tests {
 
     #[test]
     fn finish_commits_partial_block_and_reads_it_by_directory_offset() {
-        let directory = tempfile::tempdir().unwrap();
-        let (mut writer, store) =
-            IndexedAnnotationWriter::create(test_config(directory.path())).unwrap();
+        let (mut writer, store) = IndexedAnnotationWriter::create(test_config()).unwrap();
         let words: Vec<_> = (0..7)
             .map(|index| Word::spanning(index, index * 10, index % 3))
             .collect();
@@ -1576,16 +1421,14 @@ mod tests {
         assert_eq!(snapshot.metadata.status, StoreStatus::Finished);
         assert_eq!(snapshot.metadata.committed_block_count, 1);
         assert_eq!(snapshot.metadata.committed_word_count, words.len() as u64);
-        assert!(snapshot.metadata.mmap_backed);
+        assert!(snapshot.metadata.immutable_region_backed);
         assert!(snapshot.hot_tail.is_empty());
         assert_eq!(store.read_committed_block(0).unwrap().words, words);
     }
 
     #[test]
     fn configured_boundaries_create_multiple_ordered_blocks() {
-        let directory = tempfile::tempdir().unwrap();
-        let (mut writer, store) =
-            IndexedAnnotationWriter::create(test_config(directory.path())).unwrap();
+        let (mut writer, store) = IndexedAnnotationWriter::create(test_config()).unwrap();
         let words: Vec<_> = (0..41).map(|index| Word::new(index, index * 80)).collect();
         writer.append_batch(&words).unwrap();
         writer.finish().unwrap();
@@ -1620,8 +1463,7 @@ mod tests {
             }
         }
 
-        let directory = tempfile::tempdir().unwrap();
-        let config = test_config(directory.path());
+        let config = test_config();
         let block_config = config.block;
         let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
         let words: Vec<_> = (0..48).map(|index| Word::new(index, index * 80)).collect();
@@ -1676,9 +1518,7 @@ mod tests {
 
     #[test]
     fn batched_append_publishes_all_completed_blocks_before_returning() {
-        let directory = tempfile::tempdir().unwrap();
-        let (mut writer, store) =
-            IndexedAnnotationWriter::create(test_config(directory.path())).unwrap();
+        let (mut writer, store) = IndexedAnnotationWriter::create(test_config()).unwrap();
         let words: Vec<_> = (0..91).map(|index| Word::new(index, index * 80)).collect();
         let batches = words.chunks(7).map(<[Word]>::to_vec).collect::<Vec<_>>();
 
@@ -1699,9 +1539,7 @@ mod tests {
 
     #[test]
     fn exact_word_limit_commits_without_publishing_a_duplicate_hot_tail() {
-        let directory = tempfile::tempdir().unwrap();
-        let (mut writer, store) =
-            IndexedAnnotationWriter::create(test_config(directory.path())).unwrap();
+        let (mut writer, store) = IndexedAnnotationWriter::create(test_config()).unwrap();
         let words: Vec<_> = (0..16).map(|index| Word::new(index, index * 80)).collect();
 
         writer.append_batch(&words).unwrap();
@@ -1714,9 +1552,7 @@ mod tests {
 
     #[test]
     fn concurrent_readers_never_observe_partial_commits() {
-        let directory = tempfile::tempdir().unwrap();
-        let (mut writer, store) =
-            IndexedAnnotationWriter::create(test_config(directory.path())).unwrap();
+        let (mut writer, store) = IndexedAnnotationWriter::create(test_config()).unwrap();
         let done = Arc::new(AtomicBool::new(false));
         let readers: Vec<_> = (0..4)
             .map(|_| {
@@ -1756,9 +1592,7 @@ mod tests {
 
     #[test]
     fn out_of_order_input_fails_only_the_store() {
-        let directory = tempfile::tempdir().unwrap();
-        let (mut writer, store) =
-            IndexedAnnotationWriter::create(test_config(directory.path())).unwrap();
+        let (mut writer, store) = IndexedAnnotationWriter::create(test_config()).unwrap();
         writer.append(Word::new(1, 10)).unwrap();
         assert!(matches!(
             writer.append(Word::new(2, 9)),
@@ -1776,26 +1610,17 @@ mod tests {
 
     #[test]
     fn committed_read_error_is_reported_through_store_status() {
-        let directory = tempfile::tempdir().unwrap();
-        let (mut writer, store) =
-            IndexedAnnotationWriter::create(test_config(directory.path())).unwrap();
+        let (mut writer, store) = IndexedAnnotationWriter::create(test_config()).unwrap();
         writer.append(Word::new(1, 0)).unwrap();
         writer.finish().unwrap();
 
         let entry = store.directory()[0];
-        let mut file = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(store.temp_path())
-            .unwrap();
-        let payload_offset =
-            entry.data_offset + super::super::super::super::format::BLOCK_HEADER_SIZE as u64;
-        file.seek(SeekFrom::Start(payload_offset)).unwrap();
-        let mut byte = [0];
-        file.read_exact(&mut byte).unwrap();
-        byte[0] ^= 0x80;
-        file.seek(SeekFrom::Start(payload_offset)).unwrap();
-        file.write_all(&byte).unwrap();
+        let key = block_key(store.shared.store_identity, entry.sequence).unwrap();
+        let mut bytes = store.read_entry_bytes(entry).unwrap();
+        bytes[super::super::format::BLOCK_HEADER_SIZE] ^= 0x80;
+        let mut replacement = store.shared.repository.begin_write(key).unwrap();
+        replacement.write_at(0, &bytes).unwrap();
+        replacement.publish().unwrap();
 
         assert!(matches!(
             store.read_committed_block(0),
@@ -1808,28 +1633,28 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_is_prompt_and_temp_file_lives_until_last_handle_drops() {
-        let directory = tempfile::tempdir().unwrap();
-        let (mut writer, store) =
-            IndexedAnnotationWriter::create(test_config(directory.path())).unwrap();
-        let path = store.temp_path().to_path_buf();
+    fn cancellation_is_prompt_and_artifacts_live_until_last_handle_drops() {
+        let mut config = test_config();
+        config.block.max_words = 1;
+        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
         writer.append(Word::new(1, 0)).unwrap();
+        let key = block_key(store.shared.store_identity, 0).unwrap();
 
         let start = Instant::now();
         writer.cancel().unwrap();
         drop(writer);
         assert!(start.elapsed() < Duration::from_millis(100));
         assert_eq!(store.snapshot().metadata.status, StoreStatus::Cancelled);
-        assert!(path.exists());
+        assert!(store.shared.repository.open(&key).unwrap().is_some());
 
+        let repository = Arc::clone(&store.shared.repository);
         drop(store);
-        assert!(!path.exists());
+        assert!(repository.open(&key).unwrap().is_none());
     }
 
     #[test]
     fn exact_query_combines_committed_blocks_and_the_live_hot_tail() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut config = test_config(directory.path());
+        let mut config = test_config();
         config.block.max_words = 4;
         config.hot_tail_publish_words = 1;
         let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
@@ -1853,9 +1678,7 @@ mod tests {
 
     #[test]
     fn exact_query_reports_an_incomplete_limited_window() {
-        let directory = tempfile::tempdir().unwrap();
-        let (mut writer, store) =
-            IndexedAnnotationWriter::create(test_config(directory.path())).unwrap();
+        let (mut writer, store) = IndexedAnnotationWriter::create(test_config()).unwrap();
         let words: Vec<_> = (0..100).map(|index| Word::new(index, index * 10)).collect();
         writer.append_batch(&words).unwrap();
         writer.finish().unwrap();
@@ -1867,8 +1690,7 @@ mod tests {
 
     #[test]
     fn instantaneous_words_do_not_bridge_a_long_decoding_gap() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut config = test_config(directory.path());
+        let mut config = test_config();
         config.block.max_words = 1;
         config.hot_tail_publish_words = 1;
         let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
@@ -1894,8 +1716,7 @@ mod tests {
 
     #[test]
     fn nearest_boundary_checks_starts_explicit_ends_and_ties() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut config = test_config(directory.path());
+        let mut config = test_config();
         config.block.max_words = 2;
         config.hot_tail_publish_words = 1;
         let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
@@ -1910,8 +1731,7 @@ mod tests {
 
     #[test]
     fn exact_and_boundary_queries_find_a_partial_word_spanning_later_blocks() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut config = test_config(directory.path());
+        let mut config = test_config();
         config.block.max_words = 2;
         let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
         let mut words = vec![Word::spanning(0x27, 10, 9_990)];
@@ -1935,8 +1755,7 @@ mod tests {
 
     #[test]
     fn exact_and_boundary_queries_match_randomized_reference() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut config = test_config(directory.path());
+        let mut config = test_config();
         config.block.max_words = 31;
         let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
         let mut random = 0x243f_6a88_85a3_08d3u64;
@@ -1978,9 +1797,7 @@ mod tests {
 
     #[test]
     fn exact_query_populates_the_process_decoded_block_cache() {
-        let directory = tempfile::tempdir().unwrap();
-        let (mut writer, store) =
-            IndexedAnnotationWriter::create(test_config(directory.path())).unwrap();
+        let (mut writer, store) = IndexedAnnotationWriter::create(test_config()).unwrap();
         writer
             .append_batch(&[Word::new(1, 10), Word::new(2, 20)])
             .unwrap();
@@ -1993,8 +1810,7 @@ mod tests {
 
     #[test]
     fn dense_presence_uses_summaries_and_hot_tail_without_decoding_blocks() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut config = test_config(directory.path());
+        let mut config = test_config();
         config.block.max_words = 16;
         config.hot_tail_publish_words = 1;
         let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
@@ -2016,8 +1832,7 @@ mod tests {
 
     #[test]
     fn presence_query_does_not_fill_a_large_inter_block_gap() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut config = test_config(directory.path());
+        let mut config = test_config();
         config.block.max_words = 64;
         config.block.max_inter_word_gap_ns = 100;
         config.hot_tail_publish_words = 1;
@@ -2034,8 +1849,7 @@ mod tests {
 
     #[test]
     fn refined_presence_keeps_visible_gaps_inside_one_encoded_block() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut config = test_config(directory.path());
+        let mut config = test_config();
         config.block.max_words = 1_000;
         config.block.max_inter_word_gap_ns = u64::MAX;
         let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
@@ -2057,8 +1871,7 @@ mod tests {
 
     #[test]
     fn coarse_presence_keeps_visible_gaps_inside_one_encoded_block_without_decoding() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut config = test_config(directory.path());
+        let mut config = test_config();
         config.block.max_words = 20_000;
         config.block.max_inter_word_gap_ns = u64::MAX;
         let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
@@ -2134,9 +1947,8 @@ mod tests {
 
     #[test]
     fn persistent_presence_reopens_multiple_runs_for_one_encoded_block() {
-        let directory = tempfile::tempdir().unwrap();
         let cache_key = [0x7b; 32];
-        let mut config = persistent_config(directory.path(), cache_key);
+        let mut config = persistent_config(cache_key);
         config.block.max_words = 20_000;
         config.block.max_inter_word_gap_ns = u64::MAX;
         let persistent = config.persistence.clone().unwrap();

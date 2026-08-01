@@ -20,7 +20,7 @@ pub struct LiveStoreMetadata {
     pub last_timestamp_ns: Option<u64>,
     pub extent_end_ns: Option<u64>,
     pub hot_tail_word_count: usize,
-    pub mmap_backed: bool,
+    pub immutable_region_backed: bool,
     pub persistent_cache: bool,
     pub status: StoreStatus,
 }

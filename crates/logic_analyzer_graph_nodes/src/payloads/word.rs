@@ -124,7 +124,6 @@ fn request(
 ) -> CollectedLaneRequest {
     let store_config = if let Some(persistent) = ctx.derived_word_cache(member) {
         LiveStoreConfig {
-            directory: persistent.directory.clone(),
             persistence: Some(persistent.clone()),
             ..LiveStoreConfig::default()
         }

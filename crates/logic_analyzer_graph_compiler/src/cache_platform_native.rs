@@ -1,14 +1,15 @@
 //! Native persistent-cache capability boundary.
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::sync::Arc;
 
 use serde_json::Value;
 
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::CaptureCacheIdentity;
 use node_graph::api::{GraphState, NodeId};
-use signal_processing::PersistentStoreConfig;
+use signal_processing::{ArtifactRepository, PersistentStoreConfig};
 
 use super::OutputSubscriptionPlan;
 use super::derived_cache_backend::{DerivedCacheBackend, DerivedCacheLookup};
@@ -40,7 +41,7 @@ pub(crate) fn assign_derived_word_caches(compiled: &mut CompiledGraph, registry:
                 continue;
             };
             if let Some(key) = persistent_lane_key(compiled, collector_id, member, edge) {
-                *slot = Some(PersistentStoreConfig::new(PathBuf::new(), key));
+                *slot = Some(PersistentStoreConfig::new(key));
             }
         }
         assignments.push((collector_id, caches));
@@ -58,12 +59,23 @@ pub(crate) fn assign_derived_word_caches(compiled: &mut CompiledGraph, registry:
 pub(crate) fn configure_directory(compiled: &mut CompiledGraph, directory: Option<&Path>) {
     for node in &mut compiled.nodes {
         for slot in &mut node.derived_word_caches {
-            match (slot.as_mut(), directory) {
-                (_, None) => *slot = None,
-                (Some(config), Some(directory)) => config.directory = directory.to_path_buf(),
-                (None, Some(_)) => {}
+            if directory.is_none() {
+                *slot = None;
             }
         }
+    }
+}
+
+pub(crate) fn configure_repository(
+    compiled: &mut CompiledGraph,
+    repository: &Arc<dyn ArtifactRepository>,
+) {
+    for config in compiled
+        .nodes
+        .iter_mut()
+        .flat_map(|node| node.derived_word_caches.iter_mut().flatten())
+    {
+        config.artifact_repository = Arc::clone(repository);
     }
 }
 
@@ -173,7 +185,7 @@ fn prepare_cache(compiled: &CompiledGraph, backend: &dyn DerivedCacheBackend) {
         return;
     };
     let pinned: Vec<_> = configs.iter().map(|config| config.cache_key).collect();
-    let _ = backend.cleanup(&first.directory, first.max_cache_bytes, &pinned);
+    let _ = backend.cleanup(&first.artifact_repository, first.max_cache_bytes, &pinned);
 }
 
 pub(crate) fn cache_configs_by_node(
@@ -181,9 +193,11 @@ pub(crate) fn cache_configs_by_node(
     registry: &BuilderRegistry,
     subscriptions: &OutputSubscriptionPlan,
     directory: &Path,
+    repository: &Arc<dyn ArtifactRepository>,
 ) -> Result<HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>> {
     let mut compiled = super::graph::lower_with_subscriptions(graph, registry, subscriptions)?;
     configure_directory(&mut compiled, Some(directory));
+    configure_repository(&mut compiled, repository);
     let mut result: HashMap<NodeId, Vec<PersistentStoreConfig>> = HashMap::new();
     for collector in compiled.nodes.iter().filter(|node| node.data_collector) {
         for (member, config) in collector.derived_word_caches.iter().enumerate() {

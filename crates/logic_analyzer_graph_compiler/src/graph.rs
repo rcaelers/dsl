@@ -1926,8 +1926,9 @@ pub(crate) fn derived_cache_configs_by_node_with_subscriptions(
     registry: &BuilderRegistry,
     subscriptions: &OutputSubscriptionPlan,
     directory: &std::path::Path,
+    repository: &Arc<dyn ArtifactRepository>,
 ) -> Result<HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>> {
-    cache_platform::cache_configs_by_node(graph, registry, subscriptions, directory)
+    cache_platform::cache_configs_by_node(graph, registry, subscriptions, directory, repository)
 }
 
 #[cfg(test)]
@@ -1937,7 +1938,14 @@ fn derived_cache_configs_by_node(
     directory: &std::path::Path,
 ) -> Result<HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>> {
     let subscriptions = test_output_subscriptions(graph, registry);
-    derived_cache_configs_by_node_with_subscriptions(graph, registry, &subscriptions, directory)
+    let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+    derived_cache_configs_by_node_with_subscriptions(
+        graph,
+        registry,
+        &subscriptions,
+        directory,
+        &repository,
+    )
 }
 
 /// Input subscriptions for `id`, matched to the built node's input schema.
@@ -2179,6 +2187,7 @@ pub(crate) fn load_cached_data_with_subscriptions(
 ) -> Result<bool, Vec<CompileError>> {
     let mut compiled = lower_with_subscriptions(graph, registry, subscriptions)?;
     cache_platform::configure_directory(&mut compiled, ctx.persistent_cache_directory.as_deref());
+    cache_platform::configure_repository(&mut compiled, &ctx.artifact_repository);
     let Some(preview) = cache_platform::prepare_cached_preview(&compiled) else {
         return Ok(false);
     };
@@ -2239,6 +2248,7 @@ fn start_live_inner(
 ) -> Result<LiveRun, Vec<CompileError>> {
     let mut compiled = lower_with_subscriptions(graph, registry, subscriptions)?;
     cache_platform::configure_directory(&mut compiled, ctx.persistent_cache_directory.as_deref());
+    cache_platform::configure_repository(&mut compiled, &ctx.artifact_repository);
     ctx.derived_data_retention = compiled.derived_data_retention;
     ctx.sampling_overlays
         .clone_from(&compiled.sampling_overlays);
@@ -2380,6 +2390,7 @@ impl LiveRun {
             .map_err(ApplyError::Compile)?;
         reuse_sampling_points(&self.compiled, &mut new);
         cache_platform::configure_directory(&mut new, self.persistent_cache_directory.as_deref());
+        cache_platform::configure_repository(&mut new, &self.artifact_repository);
         let edits = diff(&self.compiled, &new, registry).map_err(ApplyError::NeedsFullRestart)?;
         if edits.is_empty() {
             self.collected_output_subscriptions =
@@ -2506,6 +2517,7 @@ impl LiveRun {
             .map_err(ApplyError::Compile)?;
         reuse_sampling_points(&self.compiled, &mut new);
         cache_platform::configure_directory(&mut new, self.persistent_cache_directory.as_deref());
+        cache_platform::configure_repository(&mut new, &self.artifact_repository);
         let edits = diff(&self.compiled, &new, registry).map_err(ApplyError::NeedsFullRestart)?;
         if edits.is_empty() {
             self.collected_output_subscriptions =
@@ -2661,7 +2673,7 @@ pub(crate) fn start_app_run_with_source_overrides_and_subscriptions(
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use std::collections::HashMap;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::sync::{Arc, Mutex};
 
     use node_graph::api::{
@@ -2696,7 +2708,6 @@ mod tests {
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     struct TestCleanupCall {
-        directory: PathBuf,
         max_total_bytes: u64,
         pinned_keys: Vec<[u8; 32]>,
     }
@@ -2720,12 +2731,11 @@ mod tests {
     impl DerivedCacheBackend for TestDerivedCacheBackend {
         fn cleanup(
             &self,
-            directory: &Path,
+            _repository: &Arc<dyn ArtifactRepository>,
             max_total_bytes: u64,
             pinned_keys: &[[u8; 32]],
         ) -> Result<(), String> {
             self.cleanup_calls.lock().unwrap().push(TestCleanupCall {
-                directory: directory.to_path_buf(),
                 max_total_bytes,
                 pinned_keys: pinned_keys.to_vec(),
             });
@@ -3666,7 +3676,6 @@ mod tests {
                 let store_config = context.derived_word_cache(member).map_or_else(
                     LiveStoreConfig::default,
                     |persistent| LiveStoreConfig {
-                        directory: persistent.directory.clone(),
                         persistence: Some(persistent.clone()),
                         ..LiveStoreConfig::default()
                     },
@@ -3957,7 +3966,6 @@ mod tests {
         );
         let cleanup_calls = backend.cleanup_calls();
         assert_eq!(cleanup_calls.len(), 1);
-        assert_eq!(cleanup_calls[0].directory, directory);
         assert_eq!(cleanup_calls[0].max_total_bytes, caches[0].max_cache_bytes);
         assert_eq!(
             cleanup_calls[0].pinned_keys,
@@ -4006,17 +4014,11 @@ mod tests {
     fn cached_data_is_published_without_starting_a_graph() {
         let (document, registry, _producer) = selectable_word_output_contract();
         let subscriptions = test_output_subscriptions(document.graph(), &registry);
-        let directory = std::env::temp_dir().join(format!(
-            "logic-conduit-cached-preview-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
         let mut compiled =
             lower_with_subscriptions(document.graph(), &registry, &subscriptions).unwrap();
-        cache_platform::configure_directory(&mut compiled, Some(&directory));
+        cache_platform::configure_directory(&mut compiled, Some(Path::new("cache")));
+        cache_platform::configure_repository(&mut compiled, &repository);
         let persistent = compiled
             .nodes
             .iter()
@@ -4036,7 +4038,8 @@ mod tests {
         writer.finish().unwrap();
 
         let mut context = CompileCtx::default();
-        context.set_persistent_cache_directory(directory.clone());
+        context.set_persistent_cache_directory("cache".into());
+        context.set_artifact_repository(repository);
         assert!(
             load_cached_data_with_subscriptions(
                 document.graph(),
@@ -4066,9 +4069,6 @@ mod tests {
             .expect("cached word lane must publish its exact data");
         assert_eq!(annotations.len(), 1);
         assert_eq!(annotations[0].value, 0x42);
-
-        drop(context);
-        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

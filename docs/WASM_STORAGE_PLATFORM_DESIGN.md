@@ -3,9 +3,17 @@
 ## Current architecture
 
 Decoded-word storage, viewer lanes, compiler data models, concrete graph-node definitions, and
-source/sink factory contracts are platform-neutral. Native builds use file-backed and mmap-backed
-persistent storage. Wasm builds use a separate in-memory derived-word store with the same public
-query and writer contracts.
+source/sink factory contracts are platform-neutral. Derived words use one repository-backed store
+on every target. The store owns the shared encoded-block codec, block directory, presence index,
+range and boundary queries, CRC validation, decoded-block cache, live-tail publication, persistent
+manifest, and cleanup algorithms. It contains no filesystem operations or target-selected source.
+
+The injected artifact repository selects only the byte backing. Native composition supplies a
+durable adapter whose immutable reads are mmap-backed. Web composition supplies the portable
+process-lifetime memory repository, which stores artifacts in configurable chunks under a
+configurable byte budget. Ranges within one memory chunk are borrowed directly; cross-chunk ranges
+use the same owned-region fallback as any other repository without stable contiguous storage.
+Both adapters publish immutable generations atomically.
 
 Host source acquisition and output destinations are selected in `logic_analyzer_platform`.
 Native composition injects DSL and Sigrok path adapters, filesystem-backed writer storage, the
@@ -18,14 +26,13 @@ Platform selection occurs at complete implementation-file boundaries. Generic co
 viewer, and graph-node code does not conditionally add fields, variants, match arms, functions, or
 statements based on the compilation target.
 
-The separate native and wasm derived stores preserve API parity. Their encoded-block codec, binary
-format, CRC integrity validation, presence-index and summary source tree, exact annotation intervals,
-and nearest-boundary semantics and block-selection strategy are target-neutral. Both stores retain
-committed words as encoded blocks, use the same decoded-block cache, and expose only an immutable
-live-tail snapshot. The stores do not yet share persistence policy; native can range-decode selected
-blocks while wasm decodes its selected in-memory blocks. Likewise, the compiler's wasm cache backend
-currently omits persistent-cache lookup and graph pruning rather than applying the same policy to an
-ephemeral artifact repository.
+Derived stores address every encoded block, index, and manifest with typed artifact keys. A block
+is published before its directory entry becomes visible, and a persistent manifest is published
+last. Missing manifests are cache misses; invalid manifests, indexes, or block generations are
+rejected and invalidated as a unit. Unfinished ephemeral artifacts are reclaimed when their last
+store handle is dropped. The compiler's wasm cache backend still omits cache lookup and graph
+pruning rather than applying the native policy to its ephemeral repository; that remaining policy
+split is separate from the shared store implementation.
 
 Target-selected code also currently exists inside reusable runtime, compiler, processing, viewer,
 and UI crates. The proposed architecture removes those remaining internal platform module trees
@@ -300,6 +307,7 @@ repository. Generic code addresses artifacts by typed keys, not paths:
 ```rust
 trait ArtifactRepository {
     fn capabilities(&self) -> RepositoryCapabilities;
+    fn namespaces(&self) -> Result<Vec<ArtifactNamespace>, RepositoryError>;
     fn open(&self, key: &ArtifactKey) -> Result<Option<Box<dyn ReadArtifact>>, RepositoryError>;
     fn begin_write(&self, key: &ArtifactKey) -> Result<Box<dyn WriteArtifact>, RepositoryError>;
     fn remove(&self, key: &ArtifactKey) -> Result<(), RepositoryError>;
@@ -336,11 +344,10 @@ semantics:
 
 The native repository adapter is an isolated leaf in `logic_analyzer_platform`; it implements
 publication with files and atomic filesystem operations. The platform-independent memory repository
-in `signal_processing` keeps published artifacts in process-lifetime owned memory and can be
-selected on any target. Both implementations satisfy the same lifecycle and prepared-source
-conformance fixture. A
-future chunked-memory implementation and OPFS adapter in `logic_analyzer_platform` can add bounded
-large-artifact storage and web durability without changing store, compiler, or viewer behavior.
+in `signal_processing` keeps published artifacts in bounded, chunked process-lifetime memory and
+can be selected on any target. Both implementations satisfy the same lifecycle and prepared-source
+conformance fixture. A future OPFS adapter in `logic_analyzer_platform` can add web durability
+without changing store, compiler, or viewer behavior.
 
 Durability is a repository capability. A cache requested on an ephemeral repository is still a
 real cache for the current application lifetime: it uses the same keys, validation, graph pruning,
@@ -366,8 +373,9 @@ trait ByteBacking {
 ```
 
 The native repository adapter supplies mmap-backed regions when possible. Portable memory
-repositories supply `Arc<[u8]>`-backed regions. A repository that cannot expose a stable region
-returns `None`, and the common reader fills an owned region through `read_at`. Mmap therefore
+repositories supply `Arc<[u8]>`-backed regions for ranges within one chunk. A repository that
+cannot expose a stable region for a requested range returns `None`, and the common reader fills an
+owned region through `read_at`. Mmap therefore
 remains an optimization supplied by `logic_analyzer_platform`, not a different storage or indexing
 model inside `signal_processing`.
 
@@ -376,15 +384,17 @@ index to fit in a single allocation or `usize` range.
 
 ### Shared encoded stores and indexes
 
-The native block codec, directory format, presence summaries, waveform summaries, exact-window
-queries, nearest-boundary queries, decoded-block LRU, and integrity validation become the only
-implementations. They read and write artifacts through the repository and byte-region contracts.
+The derived-word block codec, directory format, presence summaries, exact-window queries,
+nearest-boundary queries, decoded-block LRU, and integrity validation are the only implementations.
+They read and write artifacts through the repository and byte-region contracts.
 
-The web memory repository stores the same encoded blocks and manifests as the native repository.
+The web memory repository stores the same encoded blocks, indexes, and manifests as the native repository.
 It does not retain a platform-specific `Vec<Word>` as its authoritative representation. Small
 captures naturally use one or a few blocks; they do not select a different query engine.
 
-The same rule applies to raw capture data and growing live data:
+### Proposed future: shared raw capture stores and indexes
+
+The same rule will apply to raw capture data and growing live data:
 
 - a raw source publishes packed sample blocks through the shared capture-store format;
 - the waveform index reads committed packed blocks and publishes the shared index format;

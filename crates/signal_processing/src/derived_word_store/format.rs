@@ -1,62 +1,15 @@
 use super::errors::{CodecError, CodecResult};
 
 pub(crate) const FORMAT_VERSION: u32 = 1;
-const DATA_MAGIC: &[u8; 8] = b"DWRDDAT1";
 const BLOCK_MAGIC: &[u8; 4] = b"DWBL";
 pub(crate) const BLOCK_FLAG_HAS_DURATIONS: u16 = 1 << 0;
 pub(crate) const BLOCK_FLAG_HAS_PAYLOADS: u16 = 1 << 1;
 pub(crate) const BLOCK_FLAG_GROUPED_TIMESTAMPS: u16 = 1 << 2;
-pub(crate) const DATA_HEADER_SIZE: usize = 64;
 pub(crate) const BLOCK_HEADER_SIZE: usize = 72;
 pub(crate) const RESTART_ENTRY_SIZE: usize = 16;
 pub(crate) const BLOCK_CHECKSUM_OFFSET: usize = 64;
 
 pub(crate) const DEFAULT_MAX_WORDS_PER_BLOCK: usize = 32_768;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct DataFileHeader {
-    pub cache_key_prefix: [u8; 16],
-    pub created_unix_ns: u64,
-    pub flags: u64,
-}
-
-impl DataFileHeader {
-    pub(crate) fn to_bytes(self) -> [u8; DATA_HEADER_SIZE] {
-        let mut bytes = [0u8; DATA_HEADER_SIZE];
-        bytes[..8].copy_from_slice(DATA_MAGIC);
-        put_u32(&mut bytes, 8, FORMAT_VERSION);
-        put_u32(&mut bytes, 12, DATA_HEADER_SIZE as u32);
-        bytes[16..32].copy_from_slice(&self.cache_key_prefix);
-        put_u64(&mut bytes, 32, self.created_unix_ns);
-        put_u64(&mut bytes, 40, self.flags);
-        bytes
-    }
-
-    pub(crate) fn from_bytes(bytes: &[u8]) -> CodecResult<Self> {
-        if bytes.len() < DATA_HEADER_SIZE {
-            return Err(CodecError::Truncated);
-        }
-        if &bytes[..8] != DATA_MAGIC {
-            return Err(invalid("invalid data-file magic"));
-        }
-        if get_u32(bytes, 8)? != FORMAT_VERSION {
-            return Err(invalid("unsupported data-file version"));
-        }
-        if get_u32(bytes, 12)? as usize != DATA_HEADER_SIZE {
-            return Err(invalid("invalid data-file header size"));
-        }
-        if bytes[48..DATA_HEADER_SIZE].iter().any(|&byte| byte != 0) {
-            return Err(invalid("non-zero reserved data-file header bytes"));
-        }
-        let mut cache_key_prefix = [0u8; 16];
-        cache_key_prefix.copy_from_slice(&bytes[16..32]);
-        Ok(Self {
-            cache_key_prefix,
-            created_unix_ns: get_u64(bytes, 32)?,
-            flags: get_u64(bytes, 40)?,
-        })
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WordBlockHeader {
@@ -207,21 +160,4 @@ fn get_u64(bytes: &[u8], offset: usize) -> CodecResult<u64> {
         .try_into()
         .expect("fixed-size slice");
     Ok(u64::from_le_bytes(value))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn data_file_header_round_trips_exactly() {
-        let header = DataFileHeader {
-            cache_key_prefix: *b"0123456789abcdef",
-            created_unix_ns: 123_456_789,
-            flags: 7,
-        };
-        let bytes = header.to_bytes();
-        assert_eq!(bytes.len(), DATA_HEADER_SIZE);
-        assert_eq!(DataFileHeader::from_bytes(&bytes).unwrap(), header);
-    }
 }

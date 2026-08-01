@@ -50,6 +50,35 @@ impl ArtifactRepository for NativeArtifactRepository {
         }
     }
 
+    fn namespaces(&self) -> Result<Vec<ArtifactNamespace>, RepositoryError> {
+        let entries = match std::fs::read_dir(&self.root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(repository_io(error)),
+        };
+        let mut namespaces = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(repository_io)?;
+            if !entry.file_type().map_err(repository_io)?.is_dir() {
+                continue;
+            }
+            let Some(encoded) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            let Some(bytes) = hex_decode(&encoded) else {
+                continue;
+            };
+            let Ok(name) = String::from_utf8(bytes) else {
+                continue;
+            };
+            if let Ok(namespace) = ArtifactNamespace::new(name) {
+                namespaces.push(namespace);
+            }
+        }
+        namespaces.sort();
+        Ok(namespaces)
+    }
+
     fn open(&self, key: &ArtifactKey) -> Result<Option<Box<dyn ReadArtifact>>, RepositoryError> {
         let path = self.artifact_path(key);
         let file = match File::open(&path) {
@@ -94,10 +123,12 @@ impl ArtifactRepository for NativeArtifactRepository {
 
     fn remove(&self, key: &ArtifactKey) -> Result<(), RepositoryError> {
         match std::fs::remove_file(self.artifact_path(key)) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(repository_io(error)),
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(repository_io(error)),
         }
+        let _ = std::fs::remove_dir(self.namespace_directory(key.namespace()));
+        Ok(())
     }
 
     fn entries(
@@ -247,6 +278,9 @@ impl Drop for NativeWriteArtifact {
     fn drop(&mut self) {
         if !self.published {
             let _ = std::fs::remove_file(&self.temporary_path);
+            if let Some(directory) = self.temporary_path.parent() {
+                let _ = std::fs::remove_dir(directory);
+            }
         }
     }
 }
@@ -263,6 +297,16 @@ fn hex_encode(bytes: &[u8]) -> String {
         encoded.push(HEX[(byte & 0x0f) as usize] as char);
     }
     encoded
+}
+
+fn hex_decode(value: &str) -> Option<Vec<u8>> {
+    let (pairs, []) = value.as_bytes().as_chunks::<2>() else {
+        return None;
+    };
+    pairs
+        .iter()
+        .map(|pair| Some((hex_value(pair[0])? << 4) | hex_value(pair[1])?))
+        .collect()
 }
 
 fn parse_identity(value: &str) -> Option<SourceIdentity> {
@@ -291,7 +335,9 @@ fn hex_value(value: u8) -> Option<u8> {
 #[cfg(test)]
 mod native_artifact_repository_tests {
     use signal_processing::{
-        ArtifactByteSource, MemoryArtifactRepository, PreparedByteSource, SourceCapabilities,
+        AnnotationQuery, ArtifactByteSource, IndexedAnnotationStore, IndexedAnnotationWriter,
+        LiveStoreConfig, MemoryArtifactRepository, PersistentStoreConfig, PreparedByteSource,
+        SourceCapabilities, Word,
     };
 
     use super::*;
@@ -306,6 +352,48 @@ mod native_artifact_repository_tests {
 
         let memory: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
         assert_repository_contract(memory, false);
+    }
+
+    #[test]
+    fn native_and_memory_repositories_run_the_same_derived_store() {
+        let directory = tempfile::tempdir().unwrap();
+        let native: Arc<dyn ArtifactRepository> = Arc::new(NativeArtifactRepository::new(
+            directory.path().join("artifacts"),
+        ));
+        assert_derived_store_contract(native);
+
+        let memory: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+        assert_derived_store_contract(memory);
+    }
+
+    fn assert_derived_store_contract(repository: Arc<dyn ArtifactRepository>) {
+        let persistent = PersistentStoreConfig::new([0x71; 32])
+            .with_artifact_repository(Arc::clone(&repository));
+        let config = LiveStoreConfig {
+            persistence: Some(persistent.clone()),
+            ..LiveStoreConfig::default()
+        }
+        .with_artifact_repository(repository);
+        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        writer
+            .append_batch(&[Word::spanning(0x12, 100, 20), Word::new(0x34, 200)])
+            .unwrap();
+        writer.finish().unwrap();
+        drop(store);
+
+        let reopened = IndexedAnnotationStore::open_persistent(&persistent)
+            .unwrap()
+            .expect("published store must reopen");
+        let exact = reopened.exact_window(0, 300, 8).unwrap();
+        assert!(exact.complete);
+        assert_eq!(
+            exact
+                .annotations
+                .iter()
+                .map(|annotation| annotation.value)
+                .collect::<Vec<_>>(),
+            vec![0x12, 0x34]
+        );
     }
 
     fn assert_repository_contract(repository: Arc<dyn ArtifactRepository>, expected_durable: bool) {
@@ -335,6 +423,7 @@ mod native_artifact_repository_tests {
             b"bcd"
         );
         assert_eq!(repository.entries(&namespace).unwrap().len(), 1);
+        assert_eq!(repository.namespaces().unwrap(), vec![namespace.clone()]);
         let capabilities = repository.capabilities();
         assert_eq!(capabilities.durable, expected_durable);
         assert!(capabilities.atomic_publication);
@@ -359,5 +448,6 @@ mod native_artifact_repository_tests {
 
         repository.remove(&key).unwrap();
         assert!(repository.entries(&namespace).unwrap().is_empty());
+        assert!(repository.namespaces().unwrap().is_empty());
     }
 }

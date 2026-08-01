@@ -223,6 +223,7 @@ impl GraphCompiler {
             &self.builders,
             &self.output_subscriptions,
             directory,
+            &self.artifact_repository,
         )
     }
 
