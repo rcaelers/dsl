@@ -26,8 +26,10 @@ bootstraps obtain an opaque `PlatformServices` bundle from that crate and inject
 when constructing the application. The native adapter owns file dialogs, graph document I/O, and
 persistent-cache administration, including allocation of the derived-cache directory. It also owns
 native configuration-file discovery and I/O, then passes decoded portable settings and bindings to
-the UI. The web adapter exposes unavailable storage operations and supplies embedded settings. The
-UI owns the portable request, result, and service contract and does not select an implementation.
+the UI. It supplies optional system symbol fonts; the UI owns bundled fallback fonts and the
+portable font installation algorithm. The web adapter exposes unavailable storage operations and
+supplies embedded settings. The UI owns the portable request, result, and service contract and does
+not select an implementation.
 
 ## Proposed future: unified native and web data plane
 

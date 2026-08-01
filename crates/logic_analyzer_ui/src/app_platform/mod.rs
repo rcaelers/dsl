@@ -7,14 +7,6 @@ mod implementation;
 #[path = "wasm.rs"]
 mod implementation;
 
-mod bundled_font;
-#[cfg(not(target_arch = "wasm32"))]
-#[path = "native_font.rs"]
-mod font;
-#[cfg(target_arch = "wasm32")]
-#[path = "wasm_font.rs"]
-mod font;
-
 #[cfg(not(target_arch = "wasm32"))]
 #[path = "native_hooks.rs"]
 mod hooks;
@@ -23,7 +15,6 @@ mod hooks;
 mod hooks;
 mod ui_persistence;
 
-pub(crate) use font::load_symbol_fonts;
 pub(crate) use implementation::PlatformState;
 #[cfg(target_os = "macos")]
 pub(crate) use implementation::notify_recent_files_changed;

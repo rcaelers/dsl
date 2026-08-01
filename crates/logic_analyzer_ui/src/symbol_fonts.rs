@@ -1,27 +1,27 @@
-pub(crate) fn load_bundled_symbol_fonts() -> Vec<egui::FontData> {
+pub(crate) fn bundled_symbol_fonts() -> Vec<egui::FontData> {
     vec![
         egui::FontData::from_static(include_bytes!(
-            "../../../../resources/fonts/NotoSansSymbols-Regular.ttf"
+            "../../../resources/fonts/NotoSansSymbols-Regular.ttf"
         )),
         egui::FontData::from_static(include_bytes!(
-            "../../../../resources/fonts/NotoSansSymbols2-Regular.ttf"
+            "../../../resources/fonts/NotoSansSymbols2-Regular.ttf"
         )),
         egui::FontData::from_static(include_bytes!(
-            "../../../../resources/fonts/NotoSansMath-Regular.ttf"
+            "../../../resources/fonts/NotoSansMath-Regular.ttf"
         )),
     ]
 }
 
 #[cfg(test)]
-mod font_tests {
+mod symbol_fonts_tests {
     use std::sync::Arc;
 
-    use super::load_bundled_symbol_fonts;
+    use super::bundled_symbol_fonts;
 
     #[test]
     fn bundled_fallbacks_cover_application_symbols() {
         let mut definitions = egui::FontDefinitions::default();
-        for (index, font_data) in load_bundled_symbol_fonts().into_iter().enumerate() {
+        for (index, font_data) in bundled_symbol_fonts().into_iter().enumerate() {
             let font_name = format!("bundled-symbols-{index}");
             definitions
                 .font_data

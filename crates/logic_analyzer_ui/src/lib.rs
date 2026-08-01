@@ -16,6 +16,7 @@ mod plugin_panel;
 mod preferences;
 mod product;
 mod sampling_overlay_presentation;
+mod symbol_fonts;
 #[cfg(test)]
 mod test_contracts_tests;
 mod toast;

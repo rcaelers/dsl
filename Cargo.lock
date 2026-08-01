@@ -2253,6 +2253,7 @@ name = "logic-analyzer-platform"
 version = "0.1.0"
 dependencies = [
  "dirs",
+ "egui",
  "input-bindings",
  "logic-analyzer-ui",
  "logic-analyzer-viewer",

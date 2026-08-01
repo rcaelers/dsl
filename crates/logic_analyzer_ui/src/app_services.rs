@@ -19,6 +19,16 @@ pub struct AppServices {
     storage_paths: ApplicationStoragePaths,
     input_bindings: InputBindings,
     application_settings: ApplicationSettings,
+    host_symbol_fonts: Vec<egui::FontData>,
+}
+
+pub(crate) struct AppServiceParts {
+    pub(crate) graph_service: Box<dyn GraphService>,
+    pub(crate) host_service: Box<dyn HostService>,
+    pub(crate) storage_paths: ApplicationStoragePaths,
+    pub(crate) input_bindings: InputBindings,
+    pub(crate) application_settings: ApplicationSettings,
+    pub(crate) host_symbol_fonts: Vec<egui::FontData>,
 }
 
 impl AppServices {
@@ -30,6 +40,7 @@ impl AppServices {
             ApplicationStoragePaths::default(),
             default_input_bindings(),
             ApplicationSettings::default(),
+            Vec::new(),
         )
     }
 
@@ -40,6 +51,7 @@ impl AppServices {
         storage_paths: ApplicationStoragePaths,
         input_bindings: InputBindings,
         application_settings: ApplicationSettings,
+        host_symbol_fonts: Vec<egui::FontData>,
     ) -> Self {
         Self {
             graph_service: standard_graph_service(),
@@ -47,25 +59,19 @@ impl AppServices {
             storage_paths,
             input_bindings,
             application_settings,
+            host_symbol_fonts,
         }
     }
 
-    pub(crate) fn into_parts(
-        self,
-    ) -> (
-        Box<dyn GraphService>,
-        Box<dyn HostService>,
-        ApplicationStoragePaths,
-        InputBindings,
-        ApplicationSettings,
-    ) {
-        (
-            self.graph_service,
-            self.host_service,
-            self.storage_paths,
-            self.input_bindings,
-            self.application_settings,
-        )
+    pub(crate) fn into_parts(self) -> AppServiceParts {
+        AppServiceParts {
+            graph_service: self.graph_service,
+            host_service: self.host_service,
+            storage_paths: self.storage_paths,
+            input_bindings: self.input_bindings,
+            application_settings: self.application_settings,
+            host_symbol_fonts: self.host_symbol_fonts,
+        }
     }
 }
 

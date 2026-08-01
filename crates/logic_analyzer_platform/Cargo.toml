@@ -5,6 +5,7 @@ edition = "2024"
 authors = ["Rob Caelers <rob.caelers@gmail.com>"]
 
 [dependencies]
+egui = { workspace = true }
 input-bindings = { path = "../input_bindings" }
 logic-analyzer-ui = { path = "../logic_analyzer_ui" }
 node-graph = { path = "../widgets/node_graph" }

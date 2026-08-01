@@ -14,6 +14,7 @@ pub(crate) fn standard_services() -> PlatformServices {
         ApplicationStoragePaths::default(),
         default_input_bindings(),
         ApplicationSettings::default(),
+        Vec::new(),
     ))
 }
 

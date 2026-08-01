@@ -26,7 +26,7 @@ use panel_layout::{BoundaryInteraction, PanelIcon, PanelLayout, PanelSlot, Panel
 use trigger_editor::{TriggerEditor, TriggerEditorChannel};
 
 use crate::about::AboutWindow;
-use crate::app_platform::load_symbol_fonts;
+use crate::app_services::AppServiceParts;
 use crate::collected_output_presentation::waveform_presentation_registry;
 use crate::decoder_panel::{DecoderPanels, DecoderTableRegistry};
 use crate::decoder_table_presentation::decoder_table_registry;
@@ -43,6 +43,7 @@ use crate::memory_panel::{
 use crate::plugin_panel::{PluginPanelIcon, PluginPanelRegistry, PluginPanels, PluginPanelsState};
 use crate::preferences::PreferencesWindow;
 use crate::sampling_overlay_presentation::sampling_overlay_presentation;
+use crate::symbol_fonts::bundled_symbol_fonts;
 use crate::toast::{ToastSource, Toasts};
 use crate::viewer_selection::{
     set_viewer_output_selected, synchronize_viewer_compatibility, viewer_output_selections,
@@ -1055,8 +1056,14 @@ impl App {
         node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
         services: crate::AppServices,
     ) -> Self {
-        let (graph_service, host_service, storage_paths, input_bindings, application_settings) =
-            services.into_parts();
+        let AppServiceParts {
+            graph_service,
+            host_service,
+            storage_paths,
+            input_bindings,
+            application_settings,
+            host_symbol_fonts,
+        } = services.into_parts();
         Self::build_with_services(
             cc,
             node_catalogs,
@@ -1065,6 +1072,7 @@ impl App {
             storage_paths,
             input_bindings,
             application_settings,
+            host_symbol_fonts,
         )
     }
 
@@ -1076,12 +1084,13 @@ impl App {
         storage_paths: crate::ApplicationStoragePaths,
         input_bindings: InputBindings,
         application_settings: crate::ApplicationSettings,
+        host_symbol_fonts: Vec<egui::FontData>,
     ) -> Self {
         // The graph canvas and its custom widgets use a dark palette. Do not
         // inherit a light OS/browser preference for the surrounding egui
         // controls, or their dark foreground text becomes unreadable there.
         cc.egui_ctx.set_theme(egui::Theme::Dark);
-        install_fonts(&cc.egui_ctx);
+        install_fonts(&cc.egui_ctx, host_symbol_fonts);
         let registry = crate::build_node_registry();
         let input_bindings = Arc::new(input_bindings);
         let plugin_panel_registry = PluginPanelRegistry::standard();
@@ -3237,11 +3246,16 @@ fn capture_outcome_name(outcome: signal_processing::CaptureSessionOutcome) -> &'
 }
 
 /// Adds symbol-font fallbacks for menu and control glyphs that egui's default
-/// fonts don't cover. Bundled Noto faces take priority so native and WASM use
-/// consistent symbol metrics; native platform fonts remain last-resort fallbacks.
-fn install_fonts(ctx: &egui::Context) {
+/// fonts don't cover. Bundled Noto faces take priority so every host uses
+/// consistent symbol metrics; host-supplied system faces remain last-resort
+/// fallbacks.
+fn install_fonts(ctx: &egui::Context, host_symbol_fonts: Vec<egui::FontData>) {
     let mut fonts = egui::FontDefinitions::default();
-    for (index, font_data) in load_symbol_fonts().into_iter().enumerate() {
+    for (index, font_data) in bundled_symbol_fonts()
+        .into_iter()
+        .chain(host_symbol_fonts)
+        .enumerate()
+    {
         let font_name = format!("system-symbols-{index}");
         fonts
             .font_data
@@ -3517,7 +3531,7 @@ mod font_tests {
 
     use super::{
         PluginPanelsState, SavedViewerRow, StatusAction, TIMELINE_CURSORS_EXTENSION,
-        ViewerSocketIndicator, install_fonts, load_symbol_fonts, save_panel_layout,
+        ViewerSocketIndicator, bundled_symbol_fonts, install_fonts, save_panel_layout,
         save_sampling_overlays, save_timeline_cursors, save_viewer_lane_heights,
         save_viewer_lane_order, saved_panel_layout, saved_sampling_overlays,
         saved_timeline_cursors, saved_viewer_lane_heights, saved_viewer_lane_order,
@@ -3910,11 +3924,11 @@ mod font_tests {
     #[test]
     fn menu_icon_glyphs_are_available() {
         assert!(
-            !load_symbol_fonts().is_empty(),
+            !bundled_symbol_fonts().is_empty(),
             "missing bundled symbol font"
         );
         let ctx = egui::Context::default();
-        install_fonts(&ctx);
+        install_fonts(&ctx, Vec::new());
         #[cfg(debug_assertions)]
         assert!(
             ctx.style_of(egui::Theme::Dark)
