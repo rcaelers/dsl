@@ -4,9 +4,7 @@
 // and Sample inputs for low-bandwidth control signals (enable_signal).
 // Outputs Word events.
 
-#[cfg(not(target_arch = "wasm32"))]
-use std::collections::BTreeMap;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -15,14 +13,38 @@ use tracing::debug;
 use signal_processing::capture::CaptureTransition;
 use signal_processing::{
     EdgeQuery, InputPort, InputProtocolCandidate, OutputPort, ProcessNode, ProtocolKind, Receiver,
-    Sample, SampleBlock, SamplingPoint, SamplingPointStore, Word, WorkError, WorkOutcome,
-    WorkResult,
+    Sample, SampleBlock, SamplingPoint, SamplingPointStore, Word, WorkError, WorkExecutor,
+    WorkOutcome, WorkResult,
 };
 
 use crate::types::{CsPolarity, Endianness};
 
 use super::sampling_provider::{ParallelSamplingProgress, install_sampling_provider};
 use super::types::{ParallelInputStrategy, StrobeMode};
+
+#[cfg(test)]
+struct SpawnWorkExecutor {
+    workers: usize,
+}
+
+#[cfg(test)]
+impl SpawnWorkExecutor {
+    fn new(workers: usize) -> Self {
+        Self { workers }
+    }
+}
+
+#[cfg(test)]
+impl WorkExecutor for SpawnWorkExecutor {
+    fn available_parallelism(&self) -> usize {
+        self.workers
+    }
+
+    fn submit(&self, task: signal_processing::WorkExecutorTask) -> Result<(), String> {
+        std::thread::spawn(task);
+        Ok(())
+    }
+}
 
 #[derive(Clone)]
 pub struct ParallelDecoderMetrics {
@@ -133,6 +155,7 @@ pub struct ParallelDecoder {
     /// Maximum number of packed scan jobs this decoder may execute at once.
     /// A value of one selects the sequential path.
     parallel_workers: usize,
+    work_executor: Arc<dyn WorkExecutor>,
     parallel_metrics: ParallelDecoderMetrics,
     sampling_points: Option<SamplingPointStore>,
     sampling_progress: ParallelSamplingProgress,
@@ -147,9 +170,9 @@ struct AutoWorkEstimate {
 }
 
 impl ParallelDecoder {
-    /// Largest explicit native scan-worker request accepted by the decoder.
+    /// Largest explicit packed-scan worker request accepted by the decoder.
     pub const MAX_PARALLEL_WORKERS: usize = 32;
-    /// Select the native host-capacity policy instead of a fixed worker count.
+    /// Select the host-capacity policy instead of a fixed worker count.
     pub const ADAPTIVE_PARALLEL_WORKERS: usize = 0;
 
     /// Above this estimated fraction of active 64-sample strobe groups after
@@ -240,6 +263,7 @@ impl ParallelDecoder {
             stream_blocks: StreamBlockState::default(),
             next_stream_merge_sequence: 0,
             parallel_workers: Self::ADAPTIVE_PARALLEL_WORKERS,
+            work_executor: Arc::new(signal_processing::InlineWorkExecutor),
             parallel_metrics: ParallelDecoderMetrics::default(),
             sampling_points: None,
             sampling_progress: ParallelSamplingProgress::default(),
@@ -262,17 +286,22 @@ impl ParallelDecoder {
         self
     }
 
-    /// Select packed fragment scan concurrency on the shared native worker
-    /// pool. Zero uses the adaptive host policy, one is sequential, and larger
-    /// requests are capped by [`Self::MAX_PARALLEL_WORKERS`] and host capacity.
-    /// The wasm runtime remains sequential.
+    /// Select packed fragment scan concurrency. Zero uses the adaptive host
+    /// policy, one is sequential, and larger requests are capped by
+    /// [`Self::MAX_PARALLEL_WORKERS`] and host capacity.
     pub fn with_parallel_workers(mut self, workers: usize) -> Self {
         self.parallel_workers = workers.min(Self::MAX_PARALLEL_WORKERS);
         self
     }
 
+    /// Supplies the host-selected executor used for packed scan fragments.
+    pub fn with_work_executor(mut self, executor: Arc<dyn WorkExecutor>) -> Self {
+        self.work_executor = executor;
+        self
+    }
+
     pub fn parallel_workers(&self) -> usize {
-        platform_effective_workers(self.parallel_workers, &self.parallel_metrics)
+        effective_workers(self)
     }
 
     /// Returns an observer for parallel-decoder worker-pool activity.
@@ -1478,10 +1507,10 @@ impl ParallelDecoder {
             .inner
             .max_outstanding
             .fetch_max(1, Ordering::Relaxed);
-        self.parallel_metrics.inner.max_fragment_bytes.fetch_max(
-            fragment_buffer_bytes(&fragment.buffers),
-            Ordering::Relaxed,
-        );
+        self.parallel_metrics
+            .inner
+            .max_fragment_bytes
+            .fetch_max(fragment_buffer_bytes(&fragment.buffers), Ordering::Relaxed);
         if fragment.sequence != self.next_stream_merge_sequence {
             return Err(WorkError::NodeError(format!(
                 "Out-of-order decode fragment: expected sequence {}, received {}",
@@ -1530,8 +1559,11 @@ impl ParallelDecoder {
         blocks.fragment_buffers = std::mem::take(&mut fragment.buffers);
 
         blocks.offset = window_end;
-        self.sampling_progress
-            .advance(strobe_block.start_position.saturating_add(window_end as u64));
+        self.sampling_progress.advance(
+            strobe_block
+                .start_position
+                .saturating_add(window_end as u64),
+        );
         if window_end == num_samples {
             blocks.strobe = None;
             blocks.data.clear();
@@ -1554,6 +1586,8 @@ impl ParallelDecoder {
         Ok(words_emitted as usize)
     }
 }
+
+include!("parallel_worker.rs");
 
 #[cfg(test)]
 mod tests {
@@ -1648,7 +1682,10 @@ mod tests {
         })
     }
 
-    fn auto_candidates(activity: f64, enable_high_ratio: Option<f64>) -> Vec<Option<InputProtocolCandidate>> {
+    fn auto_candidates(
+        activity: f64,
+        enable_high_ratio: Option<f64>,
+    ) -> Vec<Option<InputProtocolCandidate>> {
         let query = density_query(activity, Some(0.5));
         let mut candidates: Vec<_> = (0..5)
             .map(|_| {
@@ -1712,21 +1749,16 @@ mod tests {
 
     #[test]
     fn auto_strategy_estimates_work_after_known_cs_and_enable_gates() {
-        let cs_decoder =
-            ParallelDecoder::new(2, StrobeMode::AnyEdge, CsPolarity::ActiveLow);
+        let cs_decoder = ParallelDecoder::new(2, StrobeMode::AnyEdge, CsPolarity::ActiveLow);
         let mut cs_candidates = auto_candidates(0.9, None);
         cs_candidates[3].as_mut().unwrap().edge_query = Some(density_query(0.0, Some(0.9)));
         let cs_selected = cs_decoder.select_input_protocols(&cs_candidates);
         assert_eq!(&cs_selected[..4], &[Some(ProtocolKind::EdgeQuery); 4]);
 
-        let enable_decoder =
-            ParallelDecoder::new(2, StrobeMode::AnyEdge, CsPolarity::Disabled);
+        let enable_decoder = ParallelDecoder::new(2, StrobeMode::AnyEdge, CsPolarity::Disabled);
         let enable_selected =
             enable_decoder.select_input_protocols(&auto_candidates(0.9, Some(0.1)));
-        assert_eq!(
-            &enable_selected[..4],
-            &[Some(ProtocolKind::EdgeQuery); 4]
-        );
+        assert_eq!(&enable_selected[..4], &[Some(ProtocolKind::EdgeQuery); 4]);
         let reference_selected =
             enable_decoder.select_input_protocols(&auto_candidates(1.0, Some(0.225)));
         assert_eq!(
@@ -1738,10 +1770,8 @@ mod tests {
         let correlated_decoder =
             ParallelDecoder::new(2, StrobeMode::AnyEdge, CsPolarity::ActiveLow);
         let mut correlated_candidates = auto_candidates(1.0, Some(0.2));
-        correlated_candidates[3].as_mut().unwrap().edge_query =
-            Some(density_query(0.0, Some(0.8)));
-        let correlated_selected =
-            correlated_decoder.select_input_protocols(&correlated_candidates);
+        correlated_candidates[3].as_mut().unwrap().edge_query = Some(density_query(0.0, Some(0.8)));
+        let correlated_selected = correlated_decoder.select_input_protocols(&correlated_candidates);
         assert_eq!(
             &correlated_selected[..4],
             &[Some(ProtocolKind::Stream); 4],
@@ -2439,16 +2469,8 @@ mod tests {
         let mut enable_input = input_port.get::<Sample>(&mut buffer);
         let mut current = false;
 
-        let first = enabled_ranges_for_window(
-            None,
-            &mut enable_input,
-            &mut current,
-            0,
-            0,
-            8,
-            1,
-        )
-        .unwrap();
+        let first =
+            enabled_ranges_for_window(None, &mut enable_input, &mut current, 0, 0, 8, 1).unwrap();
         assert_eq!(
             first,
             vec![EnabledRange {
@@ -2458,16 +2480,8 @@ mod tests {
             }]
         );
 
-        let second = enabled_ranges_for_window(
-            None,
-            &mut enable_input,
-            &mut current,
-            0,
-            8,
-            16,
-            1,
-        )
-        .unwrap();
+        let second =
+            enabled_ranges_for_window(None, &mut enable_input, &mut current, 0, 8, 16, 1).unwrap();
         assert_eq!(
             second,
             vec![EnabledRange {
@@ -2611,7 +2625,8 @@ mod tests {
             "words",
         )];
         let mut decoder = ParallelDecoder::new(1, StrobeMode::AnyEdge, CsPolarity::Disabled)
-            .with_parallel_workers(4);
+            .with_parallel_workers(4)
+            .with_work_executor(Arc::new(SpawnWorkExecutor::new(4)));
         loop {
             match decoder.work(&inputs, &outputs) {
                 Ok(_) => {}

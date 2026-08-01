@@ -143,14 +143,15 @@ selects its transport independently, and explicit strategies always override Aut
 Packed decoding separates immutable scanning from ordered state updates. Each bounded
 65,536-sample fragment records trigger positions, bus values, reset markers, and boundary
 state. Ordered merge repairs fragment-edge transitions, carries partial words, and emits one
-ordered word batch. Native builds submit scans to a shared worker pool containing up to 32 host
-workers. A decoder's adaptive default uses one worker on one- or two-way hosts and approximately
-one quarter of the shared capacity otherwise, with a minimum of two. This reserves capacity for
-capture, ordered merge, downstream consumers, and concurrent decoder nodes after packed scanning
-reaches memory-throughput saturation. Explicit benchmark and tuning overrides accept one through
-32 workers and remain capped by the host capacity. Each decoder allows at most `2 * workers`
-outstanding fragments and reorders completion by sequence. The wasm backend implements the same
-contract sequentially through the selected worker module.
+ordered word batch. The graph build context injects a bounded `WorkExecutor`; platform composition
+selects a bounded native worker queue or the portable inline executor. A decoder's adaptive default
+uses one worker on one- or two-way hosts and approximately one quarter of the advertised capacity
+otherwise, with a minimum of two. This reserves capacity for capture, ordered merge, downstream
+consumers, and concurrent decoder nodes after packed scanning reaches memory-throughput saturation.
+Explicit benchmark and tuning overrides accept one through 32 workers and remain capped by the
+advertised host capacity. Each decoder allows at most `2 * workers` outstanding fragments and
+reorders completion by sequence. A host that advertises one worker executes the same decoder path
+sequentially.
 
 These boundaries preserve deterministic values/timestamps, bounded memory and backpressure,
 and responsive cancellation. The opt-in `parallel-decoder-bench` binary reports protocol

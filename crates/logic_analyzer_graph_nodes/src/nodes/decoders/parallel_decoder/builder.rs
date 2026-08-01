@@ -151,7 +151,8 @@ impl RuntimeBuilder for ParallelDecoderBuilder {
                     "Indexed" => ParallelInputStrategy::Indexed,
                     _ => ParallelInputStrategy::Auto,
                 })
-                .with_word_assembly(cycles, endianness);
+                .with_word_assembly(cycles, endianness)
+                .with_work_executor(ctx.work_executor());
         if let Some(points) = ctx.sampling_points(name) {
             decoder = decoder.with_sampling_points(points);
         }

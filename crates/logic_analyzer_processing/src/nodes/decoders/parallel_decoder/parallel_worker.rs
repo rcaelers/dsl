@@ -1,4 +1,4 @@
-// Native parallel-decoder execution using the shared worker pool when requested.
+// Ordered packed-fragment execution through the host-selected work executor.
 
 enum FragmentCompletion {
     Complete(DecodeFragment),
@@ -24,14 +24,18 @@ impl ParallelDecoder {
     }
 }
 
-fn platform_effective_workers(requested: usize, metrics: &ParallelDecoderMetrics) -> usize {
-    let available = signal_processing::shared_worker_pool().workers();
-    let workers = if requested == ParallelDecoder::ADAPTIVE_PARALLEL_WORKERS {
+fn effective_workers(decoder: &ParallelDecoder) -> usize {
+    let available = decoder.work_executor.available_parallelism().max(1);
+    let workers = if decoder.parallel_workers == ParallelDecoder::ADAPTIVE_PARALLEL_WORKERS {
         ParallelDecoder::adaptive_parallel_workers(available)
     } else {
-        requested.clamp(1, available)
+        decoder.parallel_workers.clamp(1, available)
     };
-    metrics.inner.workers.store(workers, Ordering::Relaxed);
+    decoder
+        .parallel_metrics
+        .inner
+        .workers
+        .store(workers, Ordering::Relaxed);
     workers
 }
 
@@ -41,8 +45,7 @@ fn work_with_platform_backend(
     outputs: &[OutputPort],
     blocks: &mut StreamBlockState,
 ) -> WorkResult<usize> {
-    let workers =
-        platform_effective_workers(decoder.parallel_workers, &decoder.parallel_metrics);
+    let workers = effective_workers(decoder);
     if workers > 1 {
         work_parallel(decoder, inputs, outputs, blocks, workers)
     } else {
@@ -216,8 +219,9 @@ fn work_parallel(
             .as_ref()
             .expect("completion channel initialized above")
             .clone();
-        signal_processing::shared_worker_pool()
-            .spawn(move || {
+        decoder
+            .work_executor
+            .submit(Box::new(move || {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     scan_stream_fragment(
                         config,
@@ -236,8 +240,8 @@ fn work_parallel(
                     Err(_) => FragmentCompletion::Panicked(sequence),
                 };
                 let _ = completion.send(result);
-            })
-            .map_err(|_| WorkError::NodeError("Shared fragment worker pool stopped".to_string()))?;
+            }))
+            .map_err(WorkError::NodeError)?;
 
         blocks.parallel.in_flight += 1;
         blocks.next_sequence += 1;
@@ -467,7 +471,8 @@ mod parallel_worker_tests {
         )];
         let mut decoder = ParallelDecoder::new(4, StrobeMode::RisingEdge, CsPolarity::Disabled)
             .with_word_assembly(3, Endianness::Little)
-            .with_parallel_workers(workers);
+            .with_parallel_workers(workers)
+            .with_work_executor(Arc::new(SpawnWorkExecutor::new(workers)));
         let metrics = decoder.parallel_metrics();
 
         loop {
@@ -533,7 +538,10 @@ mod parallel_worker_tests {
         ];
         let decoder = ParallelDecoder::new(1, StrobeMode::AnyEdge, CsPolarity::Disabled)
             .with_input_strategy(ParallelInputStrategy::PackedStream)
-            .with_parallel_workers(ParallelDecoder::MAX_PARALLEL_WORKERS);
+            .with_parallel_workers(ParallelDecoder::MAX_PARALLEL_WORKERS)
+            .with_work_executor(Arc::new(SpawnWorkExecutor::new(
+                ParallelDecoder::MAX_PARALLEL_WORKERS,
+            )));
         let metrics = decoder.parallel_metrics();
         scheduler.start_process(Box::new(decoder), inputs, Vec::new());
 

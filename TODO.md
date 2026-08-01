@@ -85,9 +85,6 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.execution.parallel-decoder] Give the Parallel Decoder an injected worker-pool contract.
-  Remove its native/wasm implementation split while preserving ordered fragment merges, bounded in-flight work, and
-  sequential execution when the host advertises one worker.
 - [platform.data-plane.execution.derived-store-encoding] Move derived-word block encoding from the native global
   worker pool to the injected execution contract, preserving bounded encoding work and ordered block publication.
 - [platform.data-plane.execution.other-background-work] Inventory and migrate remaining reusable background work
