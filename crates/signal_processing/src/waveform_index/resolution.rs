@@ -6,9 +6,7 @@ pub(crate) fn select_summary_resolution(
     target_points: usize,
     available_resolutions: impl IntoIterator<Item = u64>,
 ) -> Option<u64> {
-    let desired = window_samples
-        .div_ceil(target_points.max(1) as u64)
-        .max(1);
+    let desired = window_samples.div_ceil(target_points.max(1) as u64).max(1);
     let mut available = available_resolutions.into_iter().collect::<Vec<_>>();
     available.sort_unstable();
     available.dedup();

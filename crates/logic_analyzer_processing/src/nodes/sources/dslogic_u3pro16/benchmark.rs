@@ -8,9 +8,9 @@ use std::time::{Duration, Instant};
 
 use signal_processing::logic_analyzer::{CaptureMode, LogicCaptureConfig};
 use signal_processing::{
-    AcquisitionContext, CaptureCursorItem, CaptureIndex, CaptureSessionId, CaptureStoreCursor,
-    CaptureStoreDescriptor, NativeCaptureStore, NativeCaptureStoreConfig,
-    NativeGrowingCaptureIndex, WorkExecutor, WorkExecutorTask, WorkTask,
+    AcquisitionContext, CaptureCursorItem, CaptureIndex, CaptureSessionId, CaptureStore,
+    CaptureStoreConfig, CaptureStoreCursor, CaptureStoreDescriptor, GrowingCaptureIndex,
+    MemoryArtifactRepository, WorkExecutor, WorkExecutorTask, WorkTask,
     bounded_capture_event_queue,
 };
 
@@ -173,13 +173,14 @@ fn run_scenario(channels_count: usize, rate_hz: u64, samples: u64) {
         .map(|channel| signal_processing::CaptureChannelId::new(format!("u3pro16:input:{channel}")))
         .collect::<Vec<_>>();
     let provider = StreamingProvider::new(analyzer, config, channels.clone()).unwrap();
-    let directory = tempfile::tempdir().unwrap();
     let session_id = CaptureSessionId::new(0x9000 + channels_count as u128);
     let descriptor = CaptureStoreDescriptor::new(session_id, channels.clone()).unwrap();
-    let (store, writer) =
-        NativeCaptureStore::create(NativeCaptureStoreConfig::new(directory.path(), descriptor))
-            .unwrap();
-    let (index, index_worker) = NativeGrowingCaptureIndex::spawn(
+    let (store, writer) = CaptureStore::create(CaptureStoreConfig::new(
+        Arc::new(MemoryArtifactRepository::new()),
+        descriptor,
+    ))
+    .unwrap();
+    let (index, index_worker) = GrowingCaptureIndex::spawn(
         store.clone(),
         "U3 streaming benchmark",
         rate_hz as f64,

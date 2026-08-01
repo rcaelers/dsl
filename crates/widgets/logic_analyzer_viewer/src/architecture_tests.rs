@@ -83,3 +83,23 @@ fn generic_viewer_exposes_no_resource_inventory_contracts() {
         );
     }
 }
+
+#[test]
+fn generic_viewer_consumes_prepared_capture_queries_without_storage_ownership() {
+    let sources = [include_str!("lib.rs"), include_str!("viewer.rs")];
+    let forbidden = [
+        "ArtifactRepository",
+        "CaptureDataSource",
+        "MemoryArtifactRepository",
+        "set_capture_path",
+        "std::fs",
+        "target_arch",
+    ];
+
+    for token in forbidden {
+        assert!(
+            sources.iter().all(|source| !source.contains(token)),
+            "generic viewer source contains storage or platform concern {token:?}"
+        );
+    }
+}

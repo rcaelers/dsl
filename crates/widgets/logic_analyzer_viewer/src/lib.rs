@@ -15,15 +15,6 @@ mod simple_trigger;
 mod timeline_marker;
 mod types;
 mod viewer;
-std::cfg_select! {
-    target_arch = "wasm32" => {
-        #[path = "worker_wasm.rs"]
-        mod worker;
-    }
-    _ => {
-        mod worker;
-    }
-}
 
 pub use draw::{
     default_annotation_visual, draw_annotation_presence, draw_annotation_snapshot,

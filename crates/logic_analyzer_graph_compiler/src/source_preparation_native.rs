@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use logic_analyzer_graph_api::node_support::CapturePresentation;
-use signal_processing::{InlineWorkExecutor, WorkExecutor};
+use signal_processing::{
+    ArtifactRepository, InlineWorkExecutor, MemoryArtifactRepository, WorkExecutor,
+};
 
 use super::source_preparation_executor::{
     InlineSourcePreparationExecutor, SourcePreparationExecutor, SourcePreparationTask,
@@ -16,6 +18,7 @@ pub(crate) struct SourcePreparation {
     identity: Option<String>,
     executor: Box<dyn SourcePreparationExecutor>,
     work_executor: Arc<dyn WorkExecutor>,
+    artifact_repository: Arc<dyn ArtifactRepository>,
     task: Option<Box<dyn SourcePreparationTask>>,
     status: SourcePreparationStatus,
 }
@@ -40,9 +43,14 @@ impl SourcePreparation {
             identity: None,
             executor,
             work_executor,
+            artifact_repository: Arc::new(MemoryArtifactRepository::new()),
             task: None,
             status: SourcePreparationStatus::Empty,
         }
+    }
+
+    pub(crate) fn set_artifact_repository(&mut self, repository: Arc<dyn ArtifactRepository>) {
+        self.artifact_repository = repository;
     }
 
     pub(crate) fn synchronize(
@@ -123,9 +131,10 @@ impl SourcePreparation {
         match discovered.presentation {
             CapturePresentation::Indexed { factory, .. } => {
                 let work_executor = Arc::clone(&self.work_executor);
+                let artifact_repository = Arc::clone(&self.artifact_repository);
                 let work = Box::new(move || {
                     factory
-                        .open(work_executor, &mut |_| {})
+                        .open(artifact_repository, work_executor, &mut |_| {})
                         .map(PreparedCaptureData::Indexed)
                         .map_err(|error| error.to_string())
                 });
@@ -170,7 +179,6 @@ impl SourcePreparation {
 #[cfg(test)]
 mod source_preparation_tests {
     use std::collections::VecDeque;
-    use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
 
     use signal_processing::{
@@ -324,7 +332,7 @@ mod source_preparation_tests {
 
     struct TestIndex {
         metadata: CaptureMetadata,
-        path: PathBuf,
+        identity: signal_processing::SourceIdentity,
     }
 
     impl CaptureIndex for TestIndex {
@@ -332,8 +340,8 @@ mod source_preparation_tests {
             "prepared test".into()
         }
 
-        fn index_path(&self) -> &Path {
-            &self.path
+        fn index_identity(&self) -> signal_processing::SourceIdentity {
+            self.identity
         }
 
         fn header(&self) -> &CaptureMetadata {
@@ -372,6 +380,7 @@ mod source_preparation_tests {
 
         fn open(
             self: Box<Self>,
+            _artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
             work_executor: Arc<dyn signal_processing::WorkExecutor>,
             _progress: &mut dyn FnMut(CaptureIndexBuildProgress),
         ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
@@ -391,7 +400,7 @@ mod source_preparation_tests {
                     probe_names: vec!["D0".into()],
                     trigger_sample: None,
                 },
-                path: "prepared-test.index".into(),
+                identity: signal_processing::SourceIdentity::from_bytes([7; 32]),
             }))
         }
     }
@@ -405,6 +414,7 @@ mod source_preparation_tests {
 
         fn open(
             self: Box<Self>,
+            _artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
             _work_executor: Arc<dyn signal_processing::WorkExecutor>,
             _progress: &mut dyn FnMut(CaptureIndexBuildProgress),
         ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
@@ -430,7 +440,7 @@ mod source_preparation_tests {
             identity: identity.into(),
             visible_channels: vec![0],
             presentation: CapturePresentation::Indexed {
-                identity: "capture.dsl".into(),
+                identity: signal_processing::SourceIdentity::from_bytes([1; 32]),
                 factory: Box::new(TestFactory {
                     open_count,
                     observed_parallelism: None,
@@ -462,7 +472,7 @@ mod source_preparation_tests {
             identity: identity.into(),
             visible_channels: vec![0],
             presentation: CapturePresentation::Indexed {
-                identity: "failing-capture.dsl".into(),
+                identity: signal_processing::SourceIdentity::from_bytes([2; 32]),
                 factory: Box::new(FailingFactory),
             },
         }
@@ -527,7 +537,7 @@ mod source_preparation_tests {
             identity: "indexed-capture".into(),
             visible_channels: vec![0],
             presentation: CapturePresentation::Indexed {
-                identity: "capture.dsl".into(),
+                identity: signal_processing::SourceIdentity::from_bytes([3; 32]),
                 factory: Box::new(TestFactory {
                     open_count: Arc::clone(&open_count),
                     observed_parallelism: Some(Arc::clone(&observed_parallelism)),

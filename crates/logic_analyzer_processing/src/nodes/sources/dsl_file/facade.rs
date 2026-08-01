@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use signal_processing::WorkExecutor;
+use signal_processing::{ArtifactRepository, WorkExecutor};
 
 use super::configuration::DslFileSourceConfig;
 use crate::{
@@ -19,6 +19,7 @@ pub trait DslFileSourceFactory: Send + Sync {
         &self,
         name: &str,
         config: DslFileSourceConfig,
+        artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
     ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String>;
 }
@@ -60,6 +61,7 @@ impl DslFileSourceFactory for UnavailableDslFileSourceFactory {
         &self,
         _name: &str,
         _config: DslFileSourceConfig,
+        _artifact_repository: Arc<dyn ArtifactRepository>,
         _work_executor: Arc<dyn WorkExecutor>,
     ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
         Err("no DSL capture-file acquisition capability was supplied".to_string())

@@ -6,7 +6,7 @@ use signal_processing::capture::{
     BlockCaptureSource, BlockData, CaptureDataSource, CaptureFingerprint, CaptureMetadata,
     CaptureSource,
 };
-use signal_processing::{Error, Result};
+use signal_processing::{Error, Result, SourceIdentity};
 
 use crate::support::capture_archive::{CaptureArchive, ZipCaptureArchive};
 use crate::support::capture_format::parse_sample_rate;
@@ -244,8 +244,10 @@ impl CaptureDataSource for SigrokFileCaptureDataSource {
             revision: self.source_len,
         }
     }
-    fn index_path(&self) -> Option<PathBuf> {
-        Some(sigrok_sidecar_path(&self.path))
+    fn index_identity(&self) -> Option<SourceIdentity> {
+        Some(SourceIdentity::from_bytes(
+            super::super::capture_index::capture_cache_identity(&self.path, self),
+        ))
     }
     fn display_name(&self) -> String {
         self.path
@@ -256,14 +258,6 @@ impl CaptureDataSource for SigrokFileCaptureDataSource {
     }
 }
 
-fn sigrok_sidecar_path(path: &Path) -> PathBuf {
-    path.with_file_name(format!(
-        "{}.idx",
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("capture.sr")
-    ))
-}
 fn read_archive_text(archive: &mut dyn CaptureArchive, name: &str) -> Result<String> {
     let contents = archive
         .read_entry(name)?

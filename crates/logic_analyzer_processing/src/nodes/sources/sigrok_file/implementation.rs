@@ -5,9 +5,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use signal_processing::{
-    CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, InlineWorkExecutor, InputPort,
-    OutputPort, PortDirection, PortSchema, ProcessNode, Result, Sample, SampleBlock, SampleKind,
-    Sender, WorkError, WorkExecutor, WorkResult, WorkTask,
+    ArtifactRepository, CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory,
+    InlineWorkExecutor, InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Result,
+    Sample, SampleBlock, SampleKind, Sender, SourceIdentity, WorkError, WorkExecutor, WorkResult,
+    WorkTask,
 };
 
 use crate::support::capture_index::capture_cache_identity;
@@ -114,12 +115,14 @@ impl CaptureIndexFactory for SigrokCaptureIndexFactory {
 
     fn open(
         self: Box<Self>,
+        artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
         progress: &mut dyn FnMut(CaptureIndexBuildProgress),
     ) -> Result<Box<dyn CaptureIndex + Send>> {
         let source = SigrokFileCaptureDataSource::open(&self.path)?;
         signal_processing::IndexSampler::open_data_source_with_executor_and_progress(
             source,
+            artifact_repository,
             work_executor,
             |value| {
                 progress(CaptureIndexBuildProgress {
@@ -139,7 +142,9 @@ impl SigrokFileSource {
     ) -> signal_processing::IndexedCapturePresentation {
         let path = path.as_ref().to_path_buf();
         signal_processing::IndexedCapturePresentation {
-            identity: path.clone(),
+            identity: SourceIdentity::from_bytes(
+                *blake3::hash(path.to_string_lossy().as_bytes()).as_bytes(),
+            ),
             factory: Box::new(SigrokCaptureIndexFactory { path }),
         }
     }

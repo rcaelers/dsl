@@ -51,6 +51,7 @@ pub(crate) struct AppServiceParts {
     pub(crate) work_executor: Arc<dyn WorkExecutor>,
     pub(crate) worker_operation_executor: Rc<dyn WorkerOperationExecutor>,
     pub(crate) capture_export_service: Box<dyn CaptureExportService>,
+    pub(crate) artifact_repository: Arc<dyn ArtifactRepository>,
 }
 
 impl AppServices {
@@ -181,6 +182,7 @@ impl AppServices {
             work_executor: self.work_executor,
             worker_operation_executor: self.worker_operation_executor,
             capture_export_service: self.capture_export_service,
+            artifact_repository: self.artifact_repository,
         }
     }
 }
@@ -192,28 +194,17 @@ impl AppServices {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ApplicationStoragePaths {
     derived_cache_directory: Option<PathBuf>,
-    capture_session_directory: Option<PathBuf>,
 }
 
 impl ApplicationStoragePaths {
     pub fn new(derived_cache_directory: Option<PathBuf>) -> Self {
         Self {
             derived_cache_directory,
-            capture_session_directory: None,
         }
-    }
-
-    pub fn with_capture_session_directory(mut self, directory: Option<PathBuf>) -> Self {
-        self.capture_session_directory = directory;
-        self
     }
 
     pub fn derived_cache_directory(&self) -> Option<&Path> {
         self.derived_cache_directory.as_deref()
-    }
-
-    pub fn capture_session_directory(&self) -> Option<&Path> {
-        self.capture_session_directory.as_deref()
     }
 }
 
@@ -277,17 +268,11 @@ mod app_services_tests {
     fn storage_directories_are_explicit_optional_capabilities() {
         let unavailable = ApplicationStoragePaths::default();
         assert_eq!(unavailable.derived_cache_directory(), None);
-        assert_eq!(unavailable.capture_session_directory(), None);
 
-        let configured = ApplicationStoragePaths::new(Some("cache/derived".into()))
-            .with_capture_session_directory(Some("cache/captures".into()));
+        let configured = ApplicationStoragePaths::new(Some("cache/derived".into()));
         assert_eq!(
             configured.derived_cache_directory(),
             Some(Path::new("cache/derived"))
-        );
-        assert_eq!(
-            configured.capture_session_directory(),
-            Some(Path::new("cache/captures"))
         );
     }
 }

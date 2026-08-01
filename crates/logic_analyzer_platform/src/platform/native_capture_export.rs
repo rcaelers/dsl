@@ -12,7 +12,7 @@ use logic_analyzer_ui::{
     CaptureExportCompletion, CaptureExportFormat, CaptureExportService, CaptureExportStatus,
 };
 use signal_processing::{
-    CaptureSessionId, NativeCaptureSessionRepository, NativeCaptureSessionRepositoryConfig,
+    ArtifactRepository, CaptureSessionId, CaptureSessionRepository, CaptureSessionRepositoryConfig,
 };
 
 struct ExportObserver {
@@ -38,7 +38,7 @@ struct ActiveExport {
 }
 
 struct NativeCaptureExportService {
-    repository: NativeCaptureSessionRepository,
+    repository: CaptureSessionRepository,
     status: Option<CaptureExportStatus>,
     completion: Option<Result<CaptureExportCompletion, String>>,
     active: Option<ActiveExport>,
@@ -188,12 +188,11 @@ impl Drop for NativeCaptureExportService {
 }
 
 pub(crate) fn native_capture_export_service(
-    capture_session_directory: PathBuf,
+    artifact_repository: Arc<dyn ArtifactRepository>,
 ) -> Box<dyn CaptureExportService> {
-    let repository = NativeCaptureSessionRepository::new(
-        NativeCaptureSessionRepositoryConfig::new(capture_session_directory),
-    )
-    .expect("the live-capture session directory must be available for export");
+    let repository =
+        CaptureSessionRepository::new(CaptureSessionRepositoryConfig::new(artifact_repository))
+            .expect("the live-capture artifact repository must be available for export");
     Box::new(NativeCaptureExportService {
         repository,
         status: None,

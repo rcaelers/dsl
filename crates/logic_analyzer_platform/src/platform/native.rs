@@ -103,11 +103,10 @@ pub(crate) fn standard_services() -> PlatformServices {
     let artifact_repository: Arc<dyn signal_processing::ArtifactRepository> = Arc::new(
         NativeArtifactRepository::new(cache_directory.join("artifacts")),
     );
-    let storage_paths = ApplicationStoragePaths::new(Some(cache_directory))
-        .with_capture_session_directory(Some(capture_session_directory()));
+    let storage_paths = ApplicationStoragePaths::new(Some(cache_directory));
     let input_bindings = load_input_bindings();
     let application_settings = load_application_settings();
-    let capture_export_service = native_capture_export_service(capture_session_directory());
+    let capture_export_service = native_capture_export_service(Arc::clone(&artifact_repository));
     let work_executor: Arc<dyn WorkExecutor> = Arc::new(NativeWorkExecutor::new());
     let settings_path = dirs::config_dir()
         .unwrap_or_else(std::env::temp_dir)
@@ -278,13 +277,19 @@ impl DslFileSourceFactory for NativeDslFileSourceFactory {
         &self,
         name: &str,
         config: DslFileSourceConfig,
+        artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
     ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
         let metadata = self.metadata(config.clone());
         DslFileSource::new(config.path())
             .map(|source| {
                 ProcessNodeConstruction::new(
-                    Box::new(source.with_name(name).with_work_executor(work_executor)),
+                    Box::new(
+                        source
+                            .with_name(name)
+                            .with_artifact_repository(artifact_repository)
+                            .with_work_executor(work_executor),
+                    ),
                     metadata,
                 )
             })
@@ -1261,10 +1266,6 @@ fn configuration_file(name: &str) -> Option<PathBuf> {
 
 fn derived_cache_directory() -> PathBuf {
     application_cache_directory().join("derived")
-}
-
-fn capture_session_directory() -> PathBuf {
-    application_cache_directory().join("captures")
 }
 
 fn application_cache_directory() -> PathBuf {

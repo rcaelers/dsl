@@ -19,6 +19,7 @@ impl CaptureIndexFactory for TestCaptureIndexFactory {
 
     fn open(
         self: Box<Self>,
+        _artifact_repository: std::sync::Arc<dyn signal_processing::ArtifactRepository>,
         _work_executor: std::sync::Arc<dyn signal_processing::WorkExecutor>,
         _progress: &mut dyn FnMut(CaptureIndexBuildProgress),
     ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {

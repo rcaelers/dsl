@@ -1412,9 +1412,9 @@ mod tests {
 
     use signal_processing::{
         AcquisitionContext, CaptureAcquisitionPhase, CaptureCursorItem, CaptureEvent,
-        CaptureFailureKind, CaptureQueueReceiveError, CaptureSessionId, CaptureStoreCursor,
-        CaptureStoreDescriptor, NativeCaptureStore, NativeCaptureStoreConfig, WorkExecutor,
-        WorkExecutorTask, WorkTask, bounded_capture_event_queue,
+        CaptureFailureKind, CaptureQueueReceiveError, CaptureSessionId, CaptureStore,
+        CaptureStoreConfig, CaptureStoreCursor, CaptureStoreDescriptor, MemoryArtifactRepository,
+        WorkExecutor, WorkExecutorTask, WorkTask, bounded_capture_event_queue,
     };
 
     use super::super::buffered::BufferedProvider;
@@ -2084,14 +2084,12 @@ mod tests {
             signal_processing::CaptureChannelId::new("u3pro16:input:5"),
         ];
         let provider = BufferedProvider::new(analyzer, config, channels.clone()).unwrap();
-        let directory = tempfile::tempdir().unwrap();
         let session_id = CaptureSessionId::new(0x8316);
         let descriptor = CaptureStoreDescriptor::new(session_id, channels).unwrap();
-        let (store, writer) = NativeCaptureStore::create(
-            NativeCaptureStoreConfig::new(directory.path(), descriptor)
-                .with_commit_batch_chunks(1)
-                .unwrap(),
-        )
+        let (store, writer) = CaptureStore::create(CaptureStoreConfig::new(
+            Arc::new(MemoryArtifactRepository::new()),
+            descriptor,
+        ))
         .unwrap();
         let _paused_cursor = store.open_cursor().unwrap();
         let (events, event_reader) = bounded_capture_event_queue(64).unwrap();
@@ -2169,14 +2167,12 @@ mod tests {
             signal_processing::CaptureChannelId::new("u3pro16:input:5"),
         ];
         let provider = StreamingProvider::new(analyzer, config, channels.clone()).unwrap();
-        let directory = tempfile::tempdir().unwrap();
         let session_id = CaptureSessionId::new(0x8317);
         let descriptor = CaptureStoreDescriptor::new(session_id, channels).unwrap();
-        let (store, writer) = NativeCaptureStore::create(
-            NativeCaptureStoreConfig::new(directory.path(), descriptor)
-                .with_commit_batch_chunks(1)
-                .unwrap(),
-        )
+        let (store, writer) = CaptureStore::create(CaptureStoreConfig::new(
+            Arc::new(MemoryArtifactRepository::new()),
+            descriptor,
+        ))
         .unwrap();
         let _paused_cursor = store.open_cursor().unwrap();
         let (events, event_reader) = bounded_capture_event_queue(64).unwrap();
@@ -2267,12 +2263,13 @@ mod tests {
             signal_processing::CaptureChannelId::new("u3pro16:input:5"),
         ];
         let provider = StreamingProvider::new(analyzer, config, channels.clone()).unwrap();
-        let directory = tempfile::tempdir().unwrap();
         let session_id = CaptureSessionId::new(0x8319);
         let descriptor = CaptureStoreDescriptor::new(session_id, channels).unwrap();
-        let (_store, writer) =
-            NativeCaptureStore::create(NativeCaptureStoreConfig::new(directory.path(), descriptor))
-                .unwrap();
+        let (_store, writer) = CaptureStore::create(CaptureStoreConfig::new(
+            Arc::new(MemoryArtifactRepository::new()),
+            descriptor,
+        ))
+        .unwrap();
         let (events, event_reader) = bounded_capture_event_queue(64).unwrap();
         let context = AcquisitionContext::new(session_id, Box::new(writer), Box::new(events))
             .with_work_executor(work_executor());
@@ -2312,12 +2309,13 @@ mod tests {
             signal_processing::CaptureChannelId::new("u3pro16:input:5"),
         ];
         let provider = StreamingProvider::new(analyzer, config, channels.clone()).unwrap();
-        let directory = tempfile::tempdir().unwrap();
         let session_id = CaptureSessionId::new(0x8318);
         let descriptor = CaptureStoreDescriptor::new(session_id, channels).unwrap();
-        let (store, writer) =
-            NativeCaptureStore::create(NativeCaptureStoreConfig::new(directory.path(), descriptor))
-                .unwrap();
+        let (store, writer) = CaptureStore::create(CaptureStoreConfig::new(
+            Arc::new(MemoryArtifactRepository::new()),
+            descriptor,
+        ))
+        .unwrap();
         let (events, _event_reader) = bounded_capture_event_queue(64).unwrap();
         let context = AcquisitionContext::new(session_id, Box::new(writer), Box::new(events))
             .with_work_executor(work_executor());

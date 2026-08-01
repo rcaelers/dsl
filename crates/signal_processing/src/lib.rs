@@ -54,6 +54,7 @@ mod sender;
 mod storage;
 mod type_registry;
 mod watchdog;
+pub mod waveform_index;
 mod work_executor;
 mod worker_kernels;
 mod worker_operation_queue;
@@ -65,18 +66,11 @@ std::cfg_select! {
 
     }
     _ => {
-        mod archive_capture_store;
         #[path = "idle_native.rs"]
         mod idle;
-        pub mod waveform_index;
-
         pub use derived_word_store::{
             DecodedBlockCacheStats, cleanup_cache, clear_cache, clear_cache_entry,
             configure_decoded_block_cache, decoded_block_cache_stats, reset_decoded_block_cache_stats,
-        };
-        pub use waveform_index::{
-            CaptureIndexProgress, IndexSampler, NativeGrowingCaptureIndex,
-            NativeGrowingCaptureIndexWorker, exact_window_sample_limit,
         };
     }
 }
@@ -174,6 +168,10 @@ pub use storage::{
 };
 pub(crate) use watchdog::OperationGuard;
 pub use watchdog::{Watchdog, WatchdogHandle};
+pub use waveform_index::{
+    CaptureIndexProgress, GrowingCaptureIndex, GrowingCaptureIndexWorker, IndexSampler,
+    exact_window_sample_limit,
+};
 pub use work_executor::{
     CompletedWorkTask, CooperativeWorkerOperationExecutor, InlineWorkExecutor, WorkExecutor,
     WorkExecutorTask, WorkTask, WorkerExecutionCapability, WorkerExecutionMode,

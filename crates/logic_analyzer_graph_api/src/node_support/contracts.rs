@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use node_graph::api::NodeId;
 use signal_processing::{
     ArtifactRepository, CaptureChannelId, CaptureIndexFactory, DerivedDataRetention, DerivedLanes,
     InlineWorkExecutor, MemoryArtifactRepository, PersistentStoreConfig, SamplingPointStore,
-    SimpleTriggerCondition, TimelineMarker, TriggerEditorSchema, TriggerProgram, WorkExecutor,
+    SimpleTriggerCondition, SourceIdentity, TimelineMarker, TriggerEditorSchema, TriggerProgram,
+    WorkExecutor,
 };
 
 use super::port::PortKind;
@@ -377,7 +377,7 @@ pub struct CapturePresentationSignal {
 
 pub enum CapturePresentation {
     Indexed {
-        identity: PathBuf,
+        identity: SourceIdentity,
         factory: Box<dyn CaptureIndexFactory>,
     },
     InMemory {

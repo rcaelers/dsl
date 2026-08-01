@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use signal_processing::CollectedLaneStorageSnapshot;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,7 +17,7 @@ pub(crate) struct CaptureStorageSnapshot {
     pub(crate) channels: usize,
     pub(crate) total_samples: Option<u64>,
     pub(crate) data_bytes: Option<u64>,
-    pub(crate) index_path: Option<PathBuf>,
+    pub(crate) index_identity: Option<String>,
     pub(crate) index_progress: Option<f32>,
 }
 

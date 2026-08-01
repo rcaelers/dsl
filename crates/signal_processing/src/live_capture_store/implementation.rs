@@ -399,6 +399,8 @@ pub enum CaptureStoreError {
     SessionNotFound(CaptureSessionId),
     #[error("capture-store I/O failed: {0}")]
     Io(#[from] std::io::Error),
+    #[error("capture artifact repository failed: {0}")]
+    Repository(#[from] crate::RepositoryError),
 }
 
 #[cfg(test)]

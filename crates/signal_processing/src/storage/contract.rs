@@ -170,6 +170,17 @@ impl ByteRegion {
             .slice(self.range)
             .expect("a byte region validates its immutable backing at construction")
     }
+
+    pub(crate) fn clone_backing(&self) -> Arc<dyn ImmutableByteRegion> {
+        Arc::clone(&self.backing)
+    }
+
+    pub fn shares_backing(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.backing, &other.backing)
+            || (!self.backing.is_empty()
+                && self.backing.bytes().as_ptr() == other.backing.bytes().as_ptr()
+                && self.backing.len() == other.backing.len())
+    }
 }
 
 impl ImmutableByteRegion for ByteRegion {

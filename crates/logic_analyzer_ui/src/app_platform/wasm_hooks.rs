@@ -168,22 +168,17 @@ impl App {
             compiler::SourcePreparationUpdate::Ready(prepared) => {
                 self.logic_analyzer
                     .set_visible_capture_channels(prepared.visible_channels);
-                self.platform.capture_presentation_identity = Some(prepared.identity);
+                self.platform.capture_presentation_identity = Some(prepared.identity.clone());
                 match prepared.data {
+                    compiler::PreparedCaptureData::Indexed(index) => {
+                        self.set_prepared_capture(prepared.identity, index)
+                    }
                     compiler::PreparedCaptureData::InMemory {
                         signals,
                         duration_us,
                     } => self.set_capture_preview(signals, duration_us),
                     compiler::PreparedCaptureData::Channels(channels) => {
-                        let identity = self
-                            .platform
-                            .capture_presentation_identity
-                            .clone()
-                            .unwrap_or_else(|| "Raw capture".to_owned());
-                        self.set_capture_channel_metadata(identity, channels)
-                    }
-                    compiler::PreparedCaptureData::Indexed(_) => {
-                        self.clear_capture_presentation();
+                        self.set_capture_channel_metadata(prepared.identity, channels)
                     }
                 }
             }

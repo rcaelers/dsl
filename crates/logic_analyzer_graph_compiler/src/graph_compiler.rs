@@ -99,6 +99,8 @@ impl GraphCompiler {
     }
 
     pub fn set_artifact_repository(&mut self, repository: Arc<dyn ArtifactRepository>) {
+        self.source_preparation
+            .set_artifact_repository(Arc::clone(&repository));
         self.artifact_repository = repository;
     }
 

@@ -1,5 +1,7 @@
 mod integration_tests_support;
 
+use std::sync::Arc;
+
 use logic_analyzer_graph_api::node::{RuntimeBuilder, graph_node_registrations};
 use logic_analyzer_graph_api::node_support::{
     CapturePresentation, TimelineMarkerEdit, TimelineMarkerReference, ViewerOutputControl,
@@ -10,9 +12,9 @@ use logic_analyzer_graph_compiler::{
 };
 use node_graph::{GraphState, NodeGraphWidget, NodeId};
 use signal_processing::{
-    Annotation, CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId,
-    CollectedLaneSnapshotRequest, DerivedLanes, DigitalLaneSnapshot, NativeCaptureStore,
-    NativeCaptureStoreConfig, NumberLaneSnapshot, ProtocolPacketLaneSnapshot, ProtocolValue,
+    Annotation, CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId, CaptureStore,
+    CaptureStoreConfig, CollectedLaneSnapshotRequest, DerivedLanes, DigitalLaneSnapshot,
+    MemoryArtifactRepository, NumberLaneSnapshot, ProtocolPacketLaneSnapshot, ProtocolValue,
     Sample, SampleBlock, TextLaneSnapshot, Trigger, TriggerLaneSnapshot, Word,
 };
 
@@ -903,12 +905,13 @@ fn built_in_live_analysis_matches_finalized_replay_using_source_override() {
 
     let channels = captured_feature.channels().to_vec();
     let session_id = CaptureSessionId::new(0x4c49_5645);
-    let directory = tempfile::tempdir().unwrap();
     let descriptor =
         signal_processing::CaptureStoreDescriptor::new(session_id, channels.clone()).unwrap();
-    let (store, mut writer) =
-        NativeCaptureStore::create(NativeCaptureStoreConfig::new(directory.path(), descriptor))
-            .unwrap();
+    let (store, mut writer) = CaptureStore::create(CaptureStoreConfig::new(
+        Arc::new(MemoryArtifactRepository::new()),
+        descriptor,
+    ))
+    .unwrap();
 
     let source = graph_source_factory
         .create(Box::new(store.open_cursor().unwrap()))

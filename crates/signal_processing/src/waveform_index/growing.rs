@@ -1,23 +1,20 @@
-use std::fs::{File, OpenOptions};
-use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
-use crate::{
-    CaptureCursorItem, CaptureIndex, CaptureMetadata, CaptureSampledWindow, CaptureStoreCursor,
-    Error, NativeCaptureRandomReader, NativeCaptureStore, NativeFinalizedCapture, Result,
-    WorkExecutor,
-};
-
 use super::exact::exact_window_sample_limit;
 use super::query::{GroupSummary, SummaryGrid, sample_summary_channel};
 use super::resolution::select_summary_resolution;
+use crate::{
+    ArtifactKey, ArtifactNamespace, ArtifactRepository, CaptureCursorItem, CaptureIndex,
+    CaptureMetadata, CaptureRandomReader, CaptureSampledWindow, CaptureStore, CaptureStoreCursor,
+    Error, FinalizedCapture, RepositoryError, Result, SourceIdentity, WorkExecutor,
+};
 
 const LEAF_SAMPLES: u64 = 64;
 const FAN_OUT: usize = 64;
 const QUERY_WAIT: Duration = Duration::from_millis(50);
+const TIER_PAGE_RECORDS: usize = 64 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct WaveformRecord {
@@ -57,28 +54,35 @@ impl WaveformRecord {
     }
 }
 
-#[derive(Debug)]
 struct WaveformTier {
-    path: PathBuf,
-    writer: BufWriter<File>,
+    repository: Arc<dyn ArtifactRepository>,
+    identity: SourceIdentity,
+    channel: usize,
+    tier: usize,
     span: u64,
     records: u64,
+    page: Vec<u8>,
     pending: Vec<WaveformRecord>,
 }
 
 impl WaveformTier {
-    fn create(path: PathBuf, span: u64) -> Result<Self> {
-        let writer = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&path)?;
-        Ok(Self {
-            path,
-            writer: BufWriter::new(writer),
+    fn create(
+        repository: Arc<dyn ArtifactRepository>,
+        identity: SourceIdentity,
+        channel: usize,
+        tier: usize,
+        span: u64,
+    ) -> Self {
+        Self {
+            repository,
+            identity,
+            channel,
+            tier,
             span,
             records: 0,
+            page: Vec::with_capacity(TIER_PAGE_RECORDS),
             pending: Vec::with_capacity(FAN_OUT),
-        })
+        }
     }
 
     fn extend(&mut self, records: &[WaveformRecord]) -> Result<Vec<WaveformRecord>> {
@@ -86,8 +90,14 @@ impl WaveformTier {
             .iter()
             .map(|record| record.flags())
             .collect::<Vec<_>>();
-        self.writer.write_all(&flags)?;
-        self.records = self.records.saturating_add(records.len() as u64);
+        for flag in flags {
+            self.page.push(flag);
+            self.records = self.records.saturating_add(1);
+            if self.page.len() == TIER_PAGE_RECORDS {
+                self.publish_page()?;
+                self.page.clear();
+            }
+        }
 
         let mut folded = Vec::with_capacity((self.pending.len() + records.len()) / FAN_OUT);
         for &record in records {
@@ -101,23 +111,40 @@ impl WaveformTier {
     }
 
     fn flush(&mut self) -> Result<()> {
-        self.writer.flush()?;
-        Ok(())
+        self.publish_page()
     }
 
     fn snapshot(&self) -> WaveformTierSnapshot {
         WaveformTierSnapshot {
-            path: self.path.clone(),
+            repository: Arc::clone(&self.repository),
+            identity: self.identity,
+            channel: self.channel,
+            tier: self.tier,
             span: self.span,
             records: self.records,
             pending: self.pending.clone(),
         }
     }
+
+    fn publish_page(&self) -> Result<()> {
+        if self.page.is_empty() {
+            return Ok(());
+        }
+        let page = (self.records - 1) / TIER_PAGE_RECORDS as u64;
+        publish_page(
+            self.repository.as_ref(),
+            tier_page_key(self.identity, self.channel, self.tier, page)?,
+            &self.page,
+        )
+    }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct WaveformTierSnapshot {
-    path: PathBuf,
+    repository: Arc<dyn ArtifactRepository>,
+    identity: SourceIdentity,
+    channel: usize,
+    tier: usize,
     span: u64,
     records: u64,
     pending: Vec<WaveformRecord>,
@@ -130,10 +157,26 @@ impl WaveformTierSnapshot {
         }
         let count = usize::try_from(last - first)
             .map_err(|_| Error::ParseError("waveform summary window is too large".into()))?;
-        let mut reader = File::open(&self.path)?;
-        reader.seek(SeekFrom::Start(first))?;
         let mut flags = vec![0_u8; count];
-        reader.read_exact(&mut flags)?;
+        let mut copied = 0_usize;
+        while copied < flags.len() {
+            let record = first + copied as u64;
+            let page = record / TIER_PAGE_RECORDS as u64;
+            let page_offset = (record % TIER_PAGE_RECORDS as u64) as usize;
+            let bytes = read_page(
+                self.repository.as_ref(),
+                &tier_page_key(self.identity, self.channel, self.tier, page)?,
+            )?;
+            let available = (flags.len() - copied).min(bytes.len().saturating_sub(page_offset));
+            if available == 0 {
+                return Err(Error::ParseError(
+                    "growing waveform page is truncated".into(),
+                ));
+            }
+            flags[copied..copied + available]
+                .copy_from_slice(&bytes[page_offset..page_offset + available]);
+            copied += available;
+        }
         let mut records = Vec::with_capacity(count);
         for (relative, flags) in flags.into_iter().enumerate() {
             let index = first + relative as u64;
@@ -148,17 +191,22 @@ impl WaveformTierSnapshot {
     }
 }
 
-#[derive(Debug)]
 struct WaveformMipmap {
-    directory: PathBuf,
+    repository: Arc<dyn ArtifactRepository>,
+    identity: SourceIdentity,
     channel: usize,
     tiers: Vec<WaveformTier>,
 }
 
 impl WaveformMipmap {
-    fn new(directory: &Path, channel: usize) -> Self {
+    fn new(
+        repository: Arc<dyn ArtifactRepository>,
+        identity: SourceIdentity,
+        channel: usize,
+    ) -> Self {
         Self {
-            directory: directory.to_path_buf(),
+            repository,
+            identity,
             channel,
             tiers: Vec::new(),
         }
@@ -177,13 +225,15 @@ impl WaveformMipmap {
             return Ok(());
         }
         if tier == self.tiers.len() {
-            let path = self
-                .directory
-                .join(format!("capture.waveform.{}.{}", self.channel, tier));
-            let span = tier_span(tier).ok_or_else(|| {
-                Error::ParseError("growing waveform tier span overflow".into())
-            })?;
-            self.tiers.push(WaveformTier::create(path, span)?);
+            let span = tier_span(tier)
+                .ok_or_else(|| Error::ParseError("growing waveform tier span overflow".into()))?;
+            self.tiers.push(WaveformTier::create(
+                Arc::clone(&self.repository),
+                self.identity,
+                self.channel,
+                tier,
+                span,
+            ));
         }
         let folded = self.tiers[tier].extend(records)?;
         if !folded.is_empty() {
@@ -210,13 +260,12 @@ impl WaveformMipmap {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct WaveformMipmapSnapshot {
     tiers: Vec<WaveformTierSnapshot>,
 }
 
 impl WaveformMipmapSnapshot {
-
     fn sampled_records(
         &self,
         start_sample: u64,
@@ -288,6 +337,69 @@ fn tier_span(tier: usize) -> Option<u64> {
     (FAN_OUT as u64)
         .checked_pow(tier as u32)
         .and_then(|scale| LEAF_SAMPLES.checked_mul(scale))
+}
+
+fn capture_identity(session_id: crate::CaptureSessionId) -> SourceIdentity {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"growing-waveform-v1");
+    hasher.update(&session_id.get().to_le_bytes());
+    SourceIdentity::from_bytes(*hasher.finalize().as_bytes())
+}
+
+fn tier_page_key(
+    identity: SourceIdentity,
+    channel: usize,
+    tier: usize,
+    page: u64,
+) -> Result<ArtifactKey> {
+    let namespace = ArtifactNamespace::new("growing-waveform-page-v1").map_err(repository_error)?;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(namespace.as_str().as_bytes());
+    hasher.update(identity.as_bytes());
+    hasher.update(&(channel as u64).to_le_bytes());
+    hasher.update(&(tier as u64).to_le_bytes());
+    hasher.update(&page.to_le_bytes());
+    Ok(ArtifactKey::new(
+        namespace,
+        SourceIdentity::from_bytes(*hasher.finalize().as_bytes()),
+    ))
+}
+
+fn publish_page(repository: &dyn ArtifactRepository, key: ArtifactKey, bytes: &[u8]) -> Result<()> {
+    let mut writer = repository.begin_write(key).map_err(repository_error)?;
+    writer.write_at(0, bytes).map_err(repository_error)?;
+    writer
+        .truncate(bytes.len() as u64)
+        .map_err(repository_error)?;
+    writer.flush().map_err(repository_error)?;
+    writer.publish().map_err(repository_error)
+}
+
+fn read_page(repository: &dyn ArtifactRepository, key: &ArtifactKey) -> Result<Vec<u8>> {
+    let mut reader = repository
+        .open(key)
+        .map_err(repository_error)?
+        .ok_or_else(|| Error::ParseError("growing waveform page is missing".into()))?;
+    let length = usize::try_from(reader.len().map_err(repository_error)?)
+        .map_err(|_| Error::ParseError("growing waveform page is too large".into()))?;
+    let mut bytes = vec![0_u8; length];
+    let mut copied = 0;
+    while copied < bytes.len() {
+        let count = reader
+            .read_at(copied as u64, &mut bytes[copied..])
+            .map_err(repository_error)?;
+        if count == 0 {
+            return Err(Error::ParseError(
+                "growing waveform page is truncated".into(),
+            ));
+        }
+        copied += count;
+    }
+    Ok(bytes)
+}
+
+fn repository_error(error: RepositoryError) -> Error {
+    Error::ParseError(error.to_string())
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -516,10 +628,14 @@ struct GrowingState {
 }
 
 impl GrowingState {
-    fn new(channels: usize, directory: &Path) -> Self {
+    fn new(
+        channels: usize,
+        repository: Arc<dyn ArtifactRepository>,
+        identity: SourceIdentity,
+    ) -> Self {
         Self {
             channels: (0..channels)
-                .map(|channel| WaveformMipmap::new(directory, channel))
+                .map(|channel| WaveformMipmap::new(Arc::clone(&repository), identity, channel))
                 .collect(),
             tails: vec![None; channels],
             indexed_samples: 0,
@@ -561,20 +677,20 @@ impl GrowingState {
 
 /// Cloneable growing query handle. Its background owner follows a committed
 /// store cursor; clones only read published summaries or exact raw windows.
-pub struct NativeGrowingCaptureIndex {
+pub struct GrowingCaptureIndex {
     display_name: String,
-    index_path: PathBuf,
+    identity: SourceIdentity,
     header: CaptureMetadata,
-    store: NativeCaptureStore,
+    store: CaptureStore,
     state: Arc<RwLock<GrowingState>>,
-    random_reader: Option<NativeCaptureRandomReader>,
+    random_reader: Option<CaptureRandomReader>,
 }
 
-impl Clone for NativeGrowingCaptureIndex {
+impl Clone for GrowingCaptureIndex {
     fn clone(&self) -> Self {
         Self {
             display_name: self.display_name.clone(),
-            index_path: self.index_path.clone(),
+            identity: self.identity,
             header: self.header.clone(),
             store: self.store.clone(),
             state: Arc::clone(&self.state),
@@ -583,24 +699,14 @@ impl Clone for NativeGrowingCaptureIndex {
     }
 }
 
-impl NativeGrowingCaptureIndex {
+impl GrowingCaptureIndex {
     pub fn rebuild(
-        capture: &NativeFinalizedCapture,
+        capture: &FinalizedCapture,
         display_name: impl Into<String>,
         sample_rate_hz: f64,
         probe_names: Vec<String>,
         work_executor: Arc<dyn WorkExecutor>,
-    ) -> Result<(Self, NativeGrowingCaptureIndexWorker)> {
-        for entry in std::fs::read_dir(capture.directory())? {
-            let entry = entry?;
-            if entry
-                .file_name()
-                .to_str()
-                .is_some_and(|name| name.starts_with("capture.waveform."))
-            {
-                std::fs::remove_file(entry.path())?;
-            }
-        }
+    ) -> Result<(Self, GrowingCaptureIndexWorker)> {
         Self::spawn(
             capture.store_handle(),
             display_name,
@@ -611,12 +717,12 @@ impl NativeGrowingCaptureIndex {
     }
 
     pub fn spawn(
-        store: NativeCaptureStore,
+        store: CaptureStore,
         display_name: impl Into<String>,
         sample_rate_hz: f64,
         probe_names: Vec<String>,
         work_executor: Arc<dyn WorkExecutor>,
-    ) -> Result<(Self, NativeGrowingCaptureIndexWorker)> {
+    ) -> Result<(Self, GrowingCaptureIndexWorker)> {
         if !sample_rate_hz.is_finite() || sample_rate_hz <= 0.0 {
             return Err(Error::ParseError(
                 "live capture sample rate must be positive".into(),
@@ -638,12 +744,14 @@ impl NativeGrowingCaptureIndex {
             probe_names,
             trigger_sample: None,
         };
+        let identity = capture_identity(store.descriptor().session_id());
         let state = Arc::new(RwLock::new(GrowingState::new(
             header.total_probes,
-            store.directory(),
+            store.repository(),
+            identity,
         )));
         let cursor = store
-            .open_live_cursor()
+            .open_cursor()
             .map_err(|error| Error::ParseError(error.to_string()))?;
         let worker_state = Arc::clone(&state);
         let channels = header.total_probes;
@@ -666,19 +774,13 @@ impl NativeGrowingCaptureIndex {
             .map_err(Error::ParseError)?;
         let query = Self {
             display_name: display_name.into(),
-            index_path: store.directory().join("capture.commits"),
+            identity,
             header,
             store,
             state,
             random_reader: None,
         };
-        Ok((
-            query,
-            NativeGrowingCaptureIndexWorker {
-                completed,
-                result,
-            },
-        ))
+        Ok((query, GrowingCaptureIndexWorker { completed, result }))
     }
 
     fn snapshot_metadata(&self) -> CaptureMetadata {
@@ -702,7 +804,7 @@ impl NativeGrowingCaptureIndex {
     }
 
     /// Number of summary records retained in RAM. Historical records are in
-    /// fixed-size tier files beside the authoritative raw capture.
+    /// fixed-size tier-page artifacts beside the authoritative raw capture.
     pub fn resident_summary_records(&self) -> usize {
         self.state
             .read()
@@ -719,7 +821,7 @@ impl NativeGrowingCaptureIndex {
         if self.random_reader.is_none() {
             self.random_reader = Some(
                 self.store
-                    .open_live_random_reader()
+                    .open_random_reader()
                     .map_err(|error| Error::ParseError(error.to_string()))?,
             );
         }
@@ -798,13 +900,13 @@ impl NativeGrowingCaptureIndex {
     }
 }
 
-impl CaptureIndex for NativeGrowingCaptureIndex {
+impl CaptureIndex for GrowingCaptureIndex {
     fn display_name(&self) -> String {
         self.display_name.clone()
     }
 
-    fn index_path(&self) -> &Path {
-        &self.index_path
+    fn index_identity(&self) -> SourceIdentity {
+        self.identity
     }
 
     fn header(&self) -> &CaptureMetadata {
@@ -848,7 +950,8 @@ impl CaptureIndex for NativeGrowingCaptureIndex {
         let start_sample = start_sample.min(metadata.total_samples - 1);
         let end_sample = end_sample.clamp(start_sample + 1, metadata.total_samples);
         let grid_end_sample = requested_end_sample.max(end_sample);
-        if grid_end_sample.saturating_sub(start_sample) <= exact_window_sample_limit(target_points) {
+        if grid_end_sample.saturating_sub(start_sample) <= exact_window_sample_limit(target_points)
+        {
             self.exact_window(channels, start_sample, end_sample)
         } else {
             self.summary_window(
@@ -862,12 +965,12 @@ impl CaptureIndex for NativeGrowingCaptureIndex {
     }
 }
 
-pub struct NativeGrowingCaptureIndexWorker {
+pub struct GrowingCaptureIndexWorker {
     completed: Arc<AtomicBool>,
     result: Arc<Mutex<Option<Result<()>>>>,
 }
 
-impl NativeGrowingCaptureIndexWorker {
+impl GrowingCaptureIndexWorker {
     pub fn is_finished(&self) -> bool {
         self.completed.load(Ordering::Acquire)
     }
@@ -889,7 +992,7 @@ impl NativeGrowingCaptureIndexWorker {
 }
 
 fn run_index_worker(
-    mut cursor: crate::NativeCaptureCursor,
+    mut cursor: crate::CaptureCursor,
     state: Arc<RwLock<GrowingState>>,
     channels: usize,
 ) -> Result<()> {
@@ -998,15 +1101,12 @@ mod tests {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    use tempfile::tempdir;
-
+    use super::{FAN_OUT, GrowingCaptureIndex, LEAF_SAMPLES, summary_masks};
     use crate::{
         CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureIndex, CaptureSessionId,
-        CaptureStoreDescriptor, CaptureWaveformSegment, NativeCaptureStore,
-        NativeCaptureStoreConfig, CompletedWorkTask, WorkExecutor, WorkExecutorTask, WorkTask,
+        CaptureStore, CaptureStoreConfig, CaptureStoreDescriptor, CaptureWaveformSegment,
+        CompletedWorkTask, MemoryArtifactRepository, WorkExecutor, WorkExecutorTask, WorkTask,
     };
-
-    use super::{FAN_OUT, LEAF_SAMPLES, NativeGrowingCaptureIndex, summary_masks};
 
     struct SpawnWorkExecutor;
 
@@ -1060,7 +1160,7 @@ mod tests {
         .unwrap()
     }
 
-    fn wait_for_generation(index: &NativeGrowingCaptureIndex, generation: u64) {
+    fn wait_for_generation(index: &GrowingCaptureIndex, generation: u64) {
         let deadline = Instant::now() + Duration::from_secs(2);
         while index.generation() < generation {
             assert!(Instant::now() < deadline, "growing index timed out");
@@ -1121,7 +1221,6 @@ mod tests {
 
     #[test]
     fn growing_query_is_visible_before_completion_and_matches_final_raw_and_summary_data() {
-        let temporary = tempdir().unwrap();
         let session = CaptureSessionId::new(0x71a3);
         let channels: Arc<[CaptureChannelId]> = vec![
             CaptureChannelId::new("bank-a:7"),
@@ -1129,11 +1228,10 @@ mod tests {
         ]
         .into();
         let descriptor = CaptureStoreDescriptor::new(session, Arc::clone(&channels)).unwrap();
-        let config = NativeCaptureStoreConfig::new(temporary.path(), descriptor)
-            .with_commit_batch_chunks(1)
-            .unwrap();
-        let (store, mut writer) = NativeCaptureStore::create(config).unwrap();
-        let (mut index, worker) = NativeGrowingCaptureIndex::spawn(
+        let repository = Arc::new(MemoryArtifactRepository::new());
+        let config = CaptureStoreConfig::new(repository.clone(), descriptor);
+        let (store, mut writer) = CaptureStore::create(config).unwrap();
+        let (mut index, worker) = GrowingCaptureIndex::spawn(
             store.clone(),
             "Growing test",
             1_000_000.0,
@@ -1226,7 +1324,6 @@ mod tests {
 
     #[test]
     fn long_capture_keeps_only_bounded_summary_fold_state_in_memory() {
-        let temporary = tempdir().unwrap();
         let session = CaptureSessionId::new(0x71a4);
         let channels: Arc<[CaptureChannelId]> = vec![
             CaptureChannelId::new("bank-a:0"),
@@ -1234,11 +1331,10 @@ mod tests {
         ]
         .into();
         let descriptor = CaptureStoreDescriptor::new(session, Arc::clone(&channels)).unwrap();
-        let config = NativeCaptureStoreConfig::new(temporary.path(), descriptor)
-            .with_commit_batch_chunks(1)
-            .unwrap();
-        let (store, mut writer) = NativeCaptureStore::create(config).unwrap();
-        let (mut index, worker) = NativeGrowingCaptureIndex::spawn(
+        let repository = Arc::new(MemoryArtifactRepository::new());
+        let config = CaptureStoreConfig::new(repository.clone(), descriptor);
+        let (store, mut writer) = CaptureStore::create(config).unwrap();
+        let (mut index, worker) = GrowingCaptureIndex::spawn(
             store.clone(),
             "Bounded summary test",
             100_000_000.0,
@@ -1264,13 +1360,7 @@ mod tests {
             "summary RAM must be bounded by fold state, not capture duration"
         );
         assert_eq!(store.snapshot().resident_commit_records, 0);
-        let leaf_path = temporary.path().join("capture.waveform.0.0");
-        assert!(leaf_path.is_file());
-        assert_eq!(
-            std::fs::metadata(leaf_path).unwrap().len(),
-            1_048_576 / LEAF_SAMPLES,
-            "leaf summaries store one implicit-position flag byte per 64 samples"
-        );
+        assert!(repository.used_bytes().unwrap() > 1_048_576 / LEAF_SAMPLES);
         let old_window = index.sampled_window(&[0, 1], 0, 4096, 8).unwrap();
         assert_eq!(old_window.start_sample, 0);
         assert_eq!(old_window.end_sample, 4096);

@@ -1,107 +1,48 @@
-//! # Terminology
+//! Repository-backed finite-capture waveform index.
 //!
-//! - **Sample**: a single 1-bit logic level reading at one point in time, on one channel.
-//! - **Block**: the unit of raw capture data. The capture source divides the sample stream into
-//!   fixed-size blocks (e.g. 16 M samples each). One block = one packed bit-array from the source.
-//! - **Chunk**: the serialized index payload for one (channel, block) pair written into the index
-//!   file. A chunk contains `valid_samples`, flags, and — when the block is active — the mipmap
-//!   bitmaps (`BlockLevels`). The directory maps each (channel, block) to its chunk's byte offset
-//!   and length.
-//! - **Payload**: the region of the index file that holds all the chunks, after the header and
-//!   directory. Chunks may appear in any order (the build streams them as workers complete);
-//!   the directory records each chunk's offset.
-//!
-//! # Index file format  (magic `CAPIDX06`, version 6)
-//!
-//! ```text
-//! ┌─────────────────────────────────────────────────────┐
-//! │  HEADER  (96 bytes, offset 0)                       │
-//! │    magic            [u8; 8]  = b"CAPIDX06"          │
-//! │    version          u32      = 6                    │
-//! │    header_size      u32      = 96                   │
-//! │    source_revision  u64                             │
-//! │    total_samples    u64                             │
-//! │    total_blocks     u64                             │
-//! │    samples_per_block u64                            │
-//! │    samplerate_bits  u64  (f64::to_bits of Hz)       │
-//! │    total_channels   u32                             │
-//! │    blocks_per_channel u32                           │
-//! │    dir_offset       u64  = 96                       │
-//! │    payload_offset   u64  = 96 + channels            │
-//! │                               * blocks * 40         │
-//! │    _padding         to fill 96 bytes                │
-//! ├─────────────────────────────────────────────────────┤
-//! │  DIRECTORY  (channels × blocks × 40 bytes)          │
-//! │  channel-major order; one entry per (channel,block) │
-//! │    offset     u64  (byte offset of chunk in file)   │
-//! │    len        u64  (byte length of chunk)           │
-//! │    flags      u8   bit0=toggle  bit1=first          │
-//! │                        bit2=last                    │
-//! │    _padding   [u8; 7]                               │
-//! │    l3_toggle  u64  (1 bit per 262 144-sample group: │
-//! │                     any transition in group?)        │
-//! │    l3_last    u64  (last sample value of group)     │
-//! ├─────────────────────────────────────────────────────┤
-//! │  PAYLOAD  (all chunks, any order; see directory)    │
-//! │  Each chunk covers one (channel, block) pair:       │
-//! │    valid_samples  u32                               │
-//! │    flags          u8  bit0=first  bit1=last         │
-//! │                           bit2=active               │
-//! │    _padding       [u8; 3]                           │
-//! │    [only when active:]                              │
-//! │      l1_toggle  [u64; 4096]  (1 bit per 64 samples) │
-//! │      l1_last    [u64; 4096]                         │
-//! │      l2_toggle  [u64;   64]  (1 bit per 4 096 smp)  │
-//! │      l2_last    [u64;   64]                         │
-//! │      l3_toggle  u64          (1 bit per 262 144 smp)│
-//! │      l3_last    u64                                 │
-//! └─────────────────────────────────────────────────────┘
-//! ```
+//! Each `(channel, block)` leaf is an immutable artifact containing its exact
+//! summary hierarchy. A compact root artifact contains the capture metadata
+//! and leaf directory and is published last, so readers observe either the
+//! previous complete generation or the new complete generation. Artifact
+//! readers retain either mmap-backed or owned-memory byte regions according
+//! to the injected repository; the index never requires one capture-sized
+//! allocation.
 
-use std::fs::{self, File};
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
-
-use memmap2::Mmap;
+use std::io::{Cursor, Read, Seek, SeekFrom, Write};
+use std::sync::Arc;
 
 use super::types::{
     BlockIndex, DIR_ENTRY_SIZE, HEADER_SIZE, IndexHeader, L1_WORDS, L2_WORDS, MAGIC, RootDirEntry,
 };
 use crate::capture::CaptureMetadata;
-use crate::{Error, Result};
-
-// Leaf chunks are read zero-copy as native u64 words from the mapped file.
-#[cfg(target_endian = "big")]
-compile_error!("the waveform index mmap path assumes a little-endian target");
+use crate::{
+    ArtifactKey, ArtifactNamespace, ArtifactRepository, Error, RepositoryError, Result,
+    SourceIdentity,
+};
 
 // ---------------------------------------------------------------------------
-// IndexWriter — create and populate a new index file
+// IndexWriter — create and publish a new index generation
 // ---------------------------------------------------------------------------
 
-/// Writes a new index file for one capture source.
+/// Publishes a new index generation for one capture source.
 ///
-/// Call [`IndexWriter::create`] to open the file, [`IndexWriter::write_block`] once per
-/// (channel, block) pair — in any order, since the directory records each
-/// chunk's offset — then [`IndexWriter::finish`] to flush and atomically
-/// rename the temp file into place. Dropping the writer without finishing
-/// removes the temp file.
+/// Leaf artifacts may complete in any order. [`IndexWriter::finish`] publishes
+/// the root artifact only after all leaves are available.
 pub(crate) struct IndexWriter {
-    temp_path: PathBuf,
-    final_path: PathBuf,
-    file: File,
+    repository: Arc<dyn ArtifactRepository>,
+    identity: SourceIdentity,
     directory: Vec<Vec<RootDirEntry>>,
     index_header: IndexHeader,
-    finished: bool,
 }
 
 impl IndexWriter {
-    /// Create a new index file at `path` (written via a `.idx.tmp` sibling until [`finish`]).
+    /// Starts an unpublished index generation.
     pub(crate) fn create(
-        path: &Path,
+        repository: Arc<dyn ArtifactRepository>,
+        identity: SourceIdentity,
         capture_header: &CaptureMetadata,
         source_revision: u64,
     ) -> Result<Self> {
-        let temp_path = path.with_extension("idx.tmp");
         let channels = capture_header.total_probes;
         let total_blocks = capture_header.total_blocks as usize;
         let dir_offset = HEADER_SIZE;
@@ -119,18 +60,11 @@ impl IndexWriter {
             payload_offset,
         };
 
-        let mut file = File::create(&temp_path)?;
-        // Reserve space for header + directory; filled in during finish().
-        file.write_all(&vec![0_u8; payload_offset as usize])?;
-        file.seek(SeekFrom::Start(payload_offset))?;
-
         Ok(Self {
-            temp_path,
-            final_path: path.to_path_buf(),
-            file,
+            repository,
+            identity,
             directory: vec![vec![RootDirEntry::default(); total_blocks]; channels],
             index_header,
-            finished: false,
         })
     }
 
@@ -141,11 +75,14 @@ impl IndexWriter {
         block: usize,
         leaf: &BlockIndex,
     ) -> Result<()> {
-        let offset = self.file.stream_position()?;
         let payload = serialize_leaf(leaf);
-        self.file.write_all(&payload)?;
+        publish(
+            self.repository.as_ref(),
+            leaf_key(self.identity, channel, block)?,
+            &payload,
+        )?;
         self.directory[channel][block] = RootDirEntry {
-            offset,
+            offset: 0,
             len: payload.len() as u64,
             toggle: leaf.levels.is_some(),
             first: leaf.first,
@@ -156,24 +93,19 @@ impl IndexWriter {
         Ok(())
     }
 
-    /// Write the header and directory, sync, and atomically rename into place.
-    pub(crate) fn finish(mut self) -> Result<()> {
-        self.file.seek(SeekFrom::Start(0))?;
-        Self::write_header(&mut self.file, &self.index_header)?;
-        self.file
-            .seek(SeekFrom::Start(self.index_header.dir_offset))?;
+    /// Publishes the root and makes the completed generation discoverable.
+    pub(crate) fn finish(self) -> Result<()> {
+        let mut bytes = Vec::with_capacity(self.index_header.payload_offset as usize);
+        Self::write_header(&mut bytes, &self.index_header)?;
         for channel_dir in &self.directory {
             for entry in channel_dir {
-                Self::write_dir_entry(&mut self.file, entry)?;
+                Self::write_dir_entry(&mut bytes, entry)?;
             }
         }
-        self.file.sync_all()?;
-        fs::rename(&self.temp_path, &self.final_path)?;
-        self.finished = true;
-        Ok(())
+        publish(self.repository.as_ref(), root_key(self.identity)?, &bytes)
     }
 
-    fn write_header(file: &mut File, header: &IndexHeader) -> Result<()> {
+    fn write_header(file: &mut impl Write, header: &IndexHeader) -> Result<()> {
         file.write_all(MAGIC)?;
         write_u32(file, 6)?;
         write_u32(file, HEADER_SIZE as u32)?;
@@ -191,13 +123,7 @@ impl IndexWriter {
         Ok(())
     }
 
-    fn abort_cleanup(&mut self) {
-        if !self.finished {
-            let _ = fs::remove_file(&self.temp_path);
-        }
-    }
-
-    fn write_dir_entry(file: &mut File, entry: &RootDirEntry) -> Result<()> {
+    fn write_dir_entry(file: &mut impl Write, entry: &RootDirEntry) -> Result<()> {
         debug_assert_eq!(DIR_ENTRY_SIZE, 40);
         write_u64(file, entry.offset)?;
         write_u64(file, entry.len)?;
@@ -209,51 +135,44 @@ impl IndexWriter {
     }
 }
 
-impl Drop for IndexWriter {
-    fn drop(&mut self) {
-        self.abort_cleanup();
-    }
-}
-
 // ---------------------------------------------------------------------------
-// IndexReader — read an existing index file
+// IndexReader — read an existing index generation
 // ---------------------------------------------------------------------------
 
-/// Zero-copy view of one leaf chunk inside the mapped index file.
-pub(crate) struct LeafView<'a> {
+/// Decoded view of one leaf artifact.
+pub(crate) struct LeafView {
     pub(crate) valid_samples: u32,
     pub(crate) first: bool,
     pub(crate) last: bool,
-    pub(crate) levels: Option<LevelsView<'a>>,
+    pub(crate) levels: Option<LevelsView>,
 }
 
-pub(crate) struct LevelsView<'a> {
-    pub l1_toggle: &'a [u64],
-    pub l1_last: &'a [u64],
-    pub l2_toggle: &'a [u64],
-    pub l2_last: &'a [u64],
+pub(crate) struct LevelsView {
+    pub l1_toggle: Arc<[u64]>,
+    pub l1_last: Arc<[u64]>,
+    pub l2_toggle: Arc<[u64]>,
+    pub l2_last: Arc<[u64]>,
     pub l3_toggle: u64,
 }
 
 pub(crate) struct IndexReader {
-    path: PathBuf,
+    repository: Arc<dyn ArtifactRepository>,
+    identity: SourceIdentity,
     header: CaptureMetadata,
-    /// Memory-mapped index file; leaf chunks are read directly out of the
-    /// mapping, so residency is managed by the OS page cache and no
-    /// application-level leaf cache is needed.
-    mmap: Mmap,
     directory: Vec<Vec<RootDirEntry>>,
 }
 
 impl IndexReader {
     pub(crate) fn is_valid(
-        path: &Path,
+        repository: &dyn ArtifactRepository,
+        identity: SourceIdentity,
         header: &CaptureMetadata,
         source_revision: u64,
     ) -> Result<bool> {
-        let Ok(mut file) = File::open(path) else {
+        let Ok(Some(bytes)) = read(repository, &root_key(identity)?) else {
             return Ok(false);
         };
+        let mut file = Cursor::new(bytes);
         let Ok(index_header) = Self::read_header(&mut file) else {
             return Ok(false);
         };
@@ -261,11 +180,14 @@ impl IndexReader {
     }
 
     pub(crate) fn open(
-        path: PathBuf,
+        repository: Arc<dyn ArtifactRepository>,
+        identity: SourceIdentity,
         header: CaptureMetadata,
         source_revision: u64,
     ) -> Result<Self> {
-        let mut file = File::open(&path)?;
+        let bytes = read(repository.as_ref(), &root_key(identity)?)?
+            .ok_or_else(|| Error::ParseError("waveform index is missing".into()))?;
+        let mut file = Cursor::new(bytes);
         let index_header = Self::read_header(&mut file)?;
         Self::validate_header(&index_header, &header, source_revision)?;
         let blocks_per_channel = index_header.blocks_per_channel as usize;
@@ -275,40 +197,38 @@ impl IndexReader {
             header.total_probes,
             blocks_per_channel,
         )?;
-        // SAFETY: the mapping is read-only and the index file is owned by
-        // this application; it is atomically replaced (rename), never
-        // truncated or rewritten in place while mapped.
-        let mmap = unsafe { Mmap::map(&file)? };
-
         Ok(Self {
-            path,
+            repository,
+            identity,
             header,
-            mmap,
             directory,
         })
     }
 
-    pub(crate) fn path(&self) -> &Path {
-        &self.path
+    pub(crate) fn identity(&self) -> SourceIdentity {
+        self.identity
     }
 
     pub(crate) fn header(&self) -> &CaptureMetadata {
         &self.header
     }
 
-    pub(crate) fn load_leaf(&self, channel: usize, block: usize) -> Result<LeafView<'_>> {
+    pub(crate) fn load_leaf(&self, channel: usize, block: usize) -> Result<LeafView> {
         let entry = self
             .directory
             .get(channel)
             .and_then(|blocks| blocks.get(block))
             .copied()
             .ok_or_else(|| Error::ParseError("block index out of bounds".to_string()))?;
-        let start = entry.offset as usize;
-        let data = start
-            .checked_add(entry.len as usize)
-            .and_then(|end| self.mmap.get(start..end))
-            .ok_or_else(|| Error::ParseError("truncated waveform sidecar".to_string()))?;
-        let leaf = leaf_view(data)?;
+        let data = read(
+            self.repository.as_ref(),
+            &leaf_key(self.identity, channel, block)?,
+        )?
+        .ok_or_else(|| Error::ParseError("waveform index leaf is missing".into()))?;
+        if data.len() as u64 != entry.len {
+            return Err(Error::ParseError("waveform index leaf is truncated".into()));
+        }
+        let leaf = leaf_view(&data)?;
         let block_start = block as u64 * self.header.samples_per_block;
         let expected_samples = self
             .header
@@ -318,7 +238,7 @@ impl IndexReader {
             .min(u32::MAX as u64) as u32;
         if leaf.valid_samples != expected_samples {
             return Err(Error::ParseError(
-                "invalid waveform sidecar leaf length".to_string(),
+                "invalid waveform-index leaf length".to_string(),
             ));
         }
         Ok(leaf)
@@ -345,24 +265,24 @@ impl IndexReader {
             || index_header.total_channels != header.total_probes as u32
             || index_header.blocks_per_channel != header.total_blocks as u32
         {
-            return Err(Error::ParseError("waveform sidecar is stale".to_string()));
+            return Err(Error::ParseError("waveform index is stale".to_string()));
         }
         Ok(())
     }
 
-    fn read_header(file: &mut File) -> Result<IndexHeader> {
+    fn read_header(file: &mut (impl Read + Seek)) -> Result<IndexHeader> {
         file.seek(SeekFrom::Start(0))?;
         let mut magic = [0_u8; 8];
         file.read_exact(&mut magic)?;
         if &magic != MAGIC {
             return Err(Error::ParseError(
-                "invalid waveform sidecar magic".to_string(),
+                "invalid waveform-index root magic".to_string(),
             ));
         }
         let version = read_u32(file)?;
         if version != 6 {
             return Err(Error::ParseError(
-                "unsupported waveform sidecar version".to_string(),
+                "unsupported waveform-index root version".to_string(),
             ));
         }
         let _header_size = read_u32(file)?;
@@ -380,7 +300,7 @@ impl IndexReader {
     }
 
     fn read_directory(
-        file: &mut File,
+        file: &mut (impl Read + Seek),
         header: &IndexHeader,
         channels: usize,
         blocks_per_channel: usize,
@@ -395,7 +315,7 @@ impl IndexReader {
         Ok(directory)
     }
 
-    fn read_dir_entry(file: &mut File) -> Result<RootDirEntry> {
+    fn read_dir_entry(file: &mut impl Read) -> Result<RootDirEntry> {
         let offset = read_u64(file)?;
         let len = read_u64(file)?;
         let mut flags_buf = [0_u8; 8];
@@ -436,12 +356,9 @@ fn serialize_leaf(leaf: &BlockIndex) -> Vec<u8> {
     out
 }
 
-/// Interprets one serialized leaf chunk in place, without copying the level
-/// bitmaps. Requires `data` to be 8-byte aligned, which holds for chunks in
-/// the mapped index file: the header (96 B), directory entries (40 B), and
-/// chunk sizes (8 B constant / 66 584 B active) are all multiples of 8.
-fn leaf_view(data: &[u8]) -> Result<LeafView<'_>> {
-    let truncated = || Error::ParseError("truncated waveform sidecar".to_string());
+/// Decodes one serialized leaf artifact into fixed-size summary arrays.
+fn leaf_view(data: &[u8]) -> Result<LeafView> {
+    let truncated = || Error::ParseError("truncated waveform-index leaf".to_string());
     let (chunk_header, payload) = data.split_at_checked(8).ok_or_else(truncated)?;
     let valid_samples = u32::from_le_bytes(
         chunk_header[..4]
@@ -453,23 +370,21 @@ fn leaf_view(data: &[u8]) -> Result<LeafView<'_>> {
     let levels = if flags & 0b100 != 0 {
         const LEVEL_WORDS: usize = 2 * L1_WORDS + 2 * L2_WORDS + 2;
         let payload = payload.get(..LEVEL_WORDS * 8).ok_or_else(truncated)?;
-        // SAFETY: any bit pattern is a valid u64; the slice length is a
-        // multiple of 8 and the alignment is checked via the empty prefix.
-        let (prefix, words, _) = unsafe { payload.align_to::<u64>() };
-        if !prefix.is_empty() || words.len() != LEVEL_WORDS {
-            return Err(Error::ParseError(
-                "misaligned waveform sidecar chunk".to_string(),
-            ));
-        }
+        let words = payload
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|word| u64::from_le_bytes(*word))
+            .collect::<Vec<_>>();
         let (l1_toggle, rest) = words.split_at(L1_WORDS);
         let (l1_last, rest) = rest.split_at(L1_WORDS);
         let (l2_toggle, rest) = rest.split_at(L2_WORDS);
         let (l2_last, rest) = rest.split_at(L2_WORDS);
         Some(LevelsView {
-            l1_toggle,
-            l1_last,
-            l2_toggle,
-            l2_last,
+            l1_toggle: Arc::from(l1_toggle),
+            l1_last: Arc::from(l1_last),
+            l2_toggle: Arc::from(l2_toggle),
+            l2_last: Arc::from(l2_last),
             l3_toggle: rest[0],
         })
     } else {
@@ -502,26 +417,98 @@ fn push_u64_slice(out: &mut Vec<u8>, values: &[u64]) {
     }
 }
 
-fn read_u32(file: &mut File) -> Result<u32> {
+fn read_u32(file: &mut impl Read) -> Result<u32> {
     let mut buf = [0_u8; 4];
     file.read_exact(&mut buf)?;
     Ok(u32::from_le_bytes(buf))
 }
 
-fn read_u64(file: &mut File) -> Result<u64> {
+fn read_u64(file: &mut impl Read) -> Result<u64> {
     let mut buf = [0_u8; 8];
     file.read_exact(&mut buf)?;
     Ok(u64::from_le_bytes(buf))
 }
 
-fn write_u32(file: &mut File, value: u32) -> Result<()> {
+fn write_u32(file: &mut impl Write, value: u32) -> Result<()> {
     file.write_all(&value.to_le_bytes())?;
     Ok(())
 }
 
-fn write_u64(file: &mut File, value: u64) -> Result<()> {
+fn write_u64(file: &mut impl Write, value: u64) -> Result<()> {
     file.write_all(&value.to_le_bytes())?;
     Ok(())
+}
+
+fn root_key(identity: SourceIdentity) -> Result<ArtifactKey> {
+    artifact_key("waveform-index-root-v1", identity, None, None)
+}
+
+fn leaf_key(identity: SourceIdentity, channel: usize, block: usize) -> Result<ArtifactKey> {
+    artifact_key(
+        "waveform-index-leaf-v1",
+        identity,
+        Some(channel as u64),
+        Some(block as u64),
+    )
+}
+
+fn artifact_key(
+    namespace: &str,
+    identity: SourceIdentity,
+    channel: Option<u64>,
+    block: Option<u64>,
+) -> Result<ArtifactKey> {
+    let namespace = ArtifactNamespace::new(namespace).map_err(repository_error)?;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(namespace.as_str().as_bytes());
+    hasher.update(identity.as_bytes());
+    if let Some(channel) = channel {
+        hasher.update(&channel.to_le_bytes());
+    }
+    if let Some(block) = block {
+        hasher.update(&block.to_le_bytes());
+    }
+    Ok(ArtifactKey::new(
+        namespace,
+        SourceIdentity::from_bytes(*hasher.finalize().as_bytes()),
+    ))
+}
+
+fn publish(repository: &dyn ArtifactRepository, key: ArtifactKey, bytes: &[u8]) -> Result<()> {
+    let mut writer = repository.begin_write(key).map_err(repository_error)?;
+    writer.write_at(0, bytes).map_err(repository_error)?;
+    writer
+        .truncate(bytes.len() as u64)
+        .map_err(repository_error)?;
+    writer.flush().map_err(repository_error)?;
+    writer.publish().map_err(repository_error)
+}
+
+fn read(repository: &dyn ArtifactRepository, key: &ArtifactKey) -> Result<Option<Vec<u8>>> {
+    let Some(mut reader) = repository.open(key).map_err(repository_error)? else {
+        return Ok(None);
+    };
+    let length = reader.len().map_err(repository_error)?;
+    let length = usize::try_from(length)
+        .map_err(|_| Error::ParseError("waveform index artifact is too large".into()))?;
+    let mut bytes = vec![0; length];
+    let mut copied = 0;
+    while copied < bytes.len() {
+        let count = reader
+            .read_at(copied as u64, &mut bytes[copied..])
+            .map_err(repository_error)?;
+        if count == 0 {
+            return Err(Error::ParseError(
+                "waveform index artifact is truncated".into(),
+            ));
+        }
+        copied += count;
+    }
+    Ok(Some(bytes))
+}
+
+fn repository_error(error: RepositoryError) -> Error {
+    Error::ParseError(error.to_string())
 }
 
 #[cfg(test)]
@@ -530,7 +517,7 @@ mod tests {
     use super::*;
 
     /// Copies serialized bytes into an 8-byte-aligned buffer, as `leaf_view`
-    /// requires (the mapped file provides this alignment naturally).
+    /// requires.
     fn aligned(data: &[u8]) -> Vec<u64> {
         let mut buf = vec![0_u64; data.len().div_ceil(8)];
         for (word, chunk) in buf.iter_mut().zip(data.chunks(8)) {

@@ -13,7 +13,7 @@ use signal_processing::capture::{
     CaptureSource,
 };
 use signal_processing::waveform_index::IndexSampler;
-use signal_processing::{Error, Result};
+use signal_processing::{Error, Result, SourceIdentity};
 
 use crate::support::capture_archive::{CaptureArchive, ZipCaptureArchive};
 use crate::support::capture_format::{get_packed_bit, parse_sample_rate};
@@ -34,7 +34,7 @@ pub(crate) struct DslCaptureReader {
 impl DslCaptureReader {
     /// A single slot: enough to make sequential `read_sample` access viable
     /// (the current block stays decompressed). Block-level consumers get
-    /// their caching from the mmap'd raw sidecar instead, so a larger LRU
+    /// their caching from repository-backed raw-block artifacts instead, so a larger LRU
     /// here would only duplicate it — notably during the index build, where
     /// every parallel worker holds its own reader. Callers that genuinely
     /// stream samples across blocks can raise it via
@@ -162,7 +162,6 @@ pub(crate) struct DslFileCaptureDataSource {
     path: PathBuf,
     header: CaptureMetadata,
     source_len: u64,
-    index_path: PathBuf,
 }
 
 impl DslFileCaptureDataSource {
@@ -171,13 +170,10 @@ impl DslFileCaptureDataSource {
         let source_len = fs::metadata(&path)?.len();
         let mut archive = ZipCaptureArchive::open(&path)?;
         let header = parse_header(&mut archive)?;
-        let index_path = dsl_sidecar_path(&path);
-
         Ok(Self {
             path,
             header,
             source_len,
-            index_path,
         })
     }
 }
@@ -199,8 +195,10 @@ impl CaptureDataSource for DslFileCaptureDataSource {
         }
     }
 
-    fn index_path(&self) -> Option<PathBuf> {
-        Some(self.index_path.clone())
+    fn index_identity(&self) -> Option<SourceIdentity> {
+        Some(SourceIdentity::from_bytes(
+            super::super::capture_index::capture_cache_identity(&self.path, self),
+        ))
     }
 
     fn display_name(&self) -> String {
@@ -214,15 +212,6 @@ impl CaptureDataSource for DslFileCaptureDataSource {
 
 pub(crate) type DslChunkedCaptureReader = IndexSampler<DslCaptureReader>;
 
-fn dsl_sidecar_path(path: &Path) -> PathBuf {
-    let mut name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("capture.dsl")
-        .to_string();
-    name.push_str(".idx");
-    path.with_file_name(name)
-}
 pub(crate) fn parse_header(archive: &mut dyn CaptureArchive) -> Result<CaptureMetadata> {
     let header_content = archive
         .read_entry("header")?

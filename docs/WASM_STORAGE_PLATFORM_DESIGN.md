@@ -2,11 +2,10 @@
 
 ## Current architecture
 
-Decoded-word storage, viewer lanes, compiler data models, concrete graph-node definitions, and
-source/sink factory contracts are platform-neutral. Derived words use one repository-backed store
-on every target. The store owns the shared encoded-block codec, block directory, presence index,
-range and boundary queries, CRC validation, decoded-block cache, live-tail publication, persistent
-manifest, and cleanup algorithms. It contains no filesystem operations or target-selected source.
+Raw-capture storage, finite and growing waveform indexes, finalized replay, decoded-word storage,
+viewer lanes, compiler data models, concrete graph-node definitions, and source/sink factory
+contracts are platform-neutral. These facilities use repository-backed stores on every target and
+contain no filesystem operations or target-selected source.
 
 The injected artifact repository selects only the byte backing. Native composition supplies a
 durable adapter whose immutable reads are mmap-backed. Web composition supplies the portable
@@ -14,6 +13,19 @@ process-lifetime memory repository, which stores artifacts in configurable chunk
 configurable byte budget. Ranges within one memory chunk are borrowed directly; cross-chunk ranges
 use the same owned-region fallback as any other repository without stable contiguous storage.
 Both adapters publish immutable generations atomically.
+
+The authoritative capture store publishes one bounded packed-sample artifact per committed chunk,
+followed by a manifest generation that makes the chunk visible. Live cursors observe only the
+committed prefix. Finalization seals that same generation for replay; it does not copy the capture
+into another representation. Session metadata, retention plans, and application presentation
+metadata are repository artifacts addressed by the capture-session identity. Cleanup, pinning,
+recovery, and prefix reclamation operate on those identities rather than directories or paths.
+
+Finite waveform indexes publish one bounded leaf artifact per `(channel, block)` and publish their
+compact root directory last. Growing indexes publish fixed-size summary pages. Exact queries cache
+individual packed raw blocks as artifacts and retain the repository's immutable byte backing, so a
+native mmap and an owned-memory region execute the same query code. No capture, raw cache, waveform
+index, or replay session must fit in one resident allocation.
 
 Host source acquisition and output destinations are selected in `logic_analyzer_platform`.
 Native composition injects DSL and Sigrok path adapters, filesystem-backed writer storage, the
@@ -26,7 +38,7 @@ Platform selection occurs at complete implementation-file boundaries. Generic co
 viewer, and graph-node code does not conditionally add fields, variants, match arms, functions, or
 statements based on the compilation target.
 
-Derived stores address every encoded block, index, and manifest with typed artifact keys. A block
+Stores address every encoded block, index, and manifest with typed artifact keys. A block
 is published before its directory entry becomes visible, and a persistent manifest is published
 last. Missing manifests are cache misses; invalid manifests, indexes, or block generations are
 rejected and invalidated as a unit. Unfinished ephemeral artifacts are reclaimed when their last
@@ -49,8 +61,8 @@ publication is atomic and whose immutable reads use mmap-backed byte regions. Th
 selects the portable process-lifetime memory repository. The native adapter also owns file dialogs,
 graph document I/O, and
 persistent-cache administration, including allocation of the derived-cache directory. It also owns
-native configuration-file discovery and I/O, and supplies both derived-cache and live-capture-session
-directories to the UI. It then passes decoded portable settings and bindings to the UI. It supplies
+native configuration-file discovery and I/O. It then passes decoded portable settings and bindings
+to the UI. It supplies
 optional system symbol fonts; the UI owns bundled fallback fonts and the portable font installation
 algorithm. The web adapter exposes unavailable storage operations and supplies embedded settings.
 Finite-source preparation uses the compiler-owned execution contract: the native platform adapter
@@ -391,20 +403,6 @@ They read and write artifacts through the repository and byte-region contracts.
 The web memory repository stores the same encoded blocks, indexes, and manifests as the native repository.
 It does not retain a platform-specific `Vec<Word>` as its authoritative representation. Small
 captures naturally use one or a few blocks; they do not select a different query engine.
-
-### Proposed future: shared raw capture stores and indexes
-
-The same rule will apply to raw capture data and growing live data:
-
-- a raw source publishes packed sample blocks through the shared capture-store format;
-- the waveform index reads committed packed blocks and publishes the shared index format;
-- a live writer exposes only its committed prefix and advances a generation;
-- finalization seals the same artifacts used for replay;
-- derived collectors encode ordered payload blocks and publish shared presence indexes;
-- viewers receive only query contracts and immutable metadata snapshots.
-
-Block sizing and memory budgets are configuration. A web host may choose smaller buffers, a lower
-decoded-block budget, or one worker without changing formats or algorithms.
 
 ### Cache planning and compiler behavior
 

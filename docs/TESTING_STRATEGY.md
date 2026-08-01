@@ -47,7 +47,7 @@ hardware, or network access.
 - Capture-file parsers and replay sources consume the processing-owned
   `CaptureArchive` contract. Their unit tests inject in-memory entries; a
   focused generated-file test covers the native ZIP adapter, while generated
-  archive and sidecar integration tests cover the complete indexed-reader path.
+  archive and repository-artifact integration tests cover the complete indexed-reader path.
 - Concrete file sinks create, append, write, and flush through the private
   `OutputStorage` contract. Sink tests inject in-memory output files and
   controlled create, write, and flush failures; native filesystem tests cover
@@ -136,8 +136,8 @@ binary files, normalized CSV manifests, and derived-data caches live under one
 operating-system temporary directory outside the repository and are removed
 after the command. The compiled and reference stages execute in separate,
 sequential child processes so each stage has an enforceable memory-reclamation
-boundary. Persistent waveform-index sidecars remain owned by the
-developer-supplied capture and should also be kept outside the repository.
+boundary. Persistent waveform-index and raw-block artifacts remain owned by the injected
+artifact repository and should also be kept outside the source repository.
 
 ```console
 cargo bench -p logic-analyzer-examples --bench compiler_capture -- \

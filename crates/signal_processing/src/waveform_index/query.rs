@@ -29,8 +29,7 @@ pub(crate) fn sample_summary_channel(
     let mut previous_value = initial;
 
     for point in 0..target_points {
-        let visible_start =
-            grid.start_sample + grid_samples.saturating_mul(point) / target_points;
+        let visible_start = grid.start_sample + grid_samples.saturating_mul(point) / target_points;
         if visible_start >= grid.available_end_sample {
             break;
         }

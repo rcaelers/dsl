@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use signal_processing::NativeFinalizedCapture;
+use signal_processing::FinalizedCapture;
 
 use super::implementation::{
     CaptureExportObserver as RawCaptureExportObserver,
@@ -72,7 +72,7 @@ impl RawCaptureExportObserver for ObserverAdapter<'_> {
 }
 
 pub fn export_finalized_capture(
-    capture: &NativeFinalizedCapture,
+    capture: &FinalizedCapture,
     format: CaptureExportFormat,
     destination: &Path,
     observer: &mut dyn CaptureExportObserver,

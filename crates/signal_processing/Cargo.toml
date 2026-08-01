@@ -25,18 +25,8 @@ tracing = { workspace = true }
 lazy_static = { workspace = true }
 web-time = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 blake3 = { workspace = true }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-memmap2 = { workspace = true }
-tempfile = { workspace = true }
-serde_json = { workspace = true }
-
-[target.'cfg(unix)'.dependencies]
-libc = { workspace = true }
-
-[dev-dependencies]
-serde_json = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3.76"

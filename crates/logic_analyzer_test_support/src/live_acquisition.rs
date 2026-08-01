@@ -713,13 +713,12 @@ impl Drop for PreparedFakeAcquisition {
 mod tests {
     use std::time::Duration;
 
-    use tempfile::tempdir;
-
     use signal_processing::{
         AcquisitionContext, AcquisitionError, CaptureChannelId, CaptureCursorItem, CaptureEvent,
         CaptureQueueLimits, CaptureQueueReceiveError, CaptureSessionId, CaptureSessionState,
-        CaptureStoreCursor, CaptureStoreDescriptor, NativeCaptureStore, NativeCaptureStoreConfig,
-        NativeFinalizedCapture, bounded_capture_event_queue, bounded_capture_queue,
+        CaptureStore, CaptureStoreConfig, CaptureStoreCursor, CaptureStoreDescriptor,
+        FinalizedCapture, MemoryArtifactRepository, bounded_capture_event_queue,
+        bounded_capture_queue,
     };
 
     use super::{
@@ -874,13 +873,11 @@ mod tests {
     fn provider_round_trips_through_the_finalized_authoritative_store() {
         let config = config();
         let session_id = CaptureSessionId::new(0x9abc);
-        let temporary = tempdir().unwrap();
         let descriptor =
             CaptureStoreDescriptor::new(session_id, config.channels().to_vec()).unwrap();
-        let store_config = NativeCaptureStoreConfig::new(temporary.path(), descriptor)
-            .with_commit_batch_chunks(2)
-            .unwrap();
-        let (store, writer) = NativeCaptureStore::create(store_config).unwrap();
+        let repository = std::sync::Arc::new(MemoryArtifactRepository::new());
+        let store_config = CaptureStoreConfig::new(repository.clone(), descriptor);
+        let (store, writer) = CaptureStore::create(store_config).unwrap();
         let (events, _event_reader) = bounded_capture_event_queue(32).unwrap();
         let context = AcquisitionContext::new(session_id, Box::new(writer), Box::new(events));
         let provider = DeterministicFakeProvider::new(config.clone());
@@ -896,8 +893,8 @@ mod tests {
         assert_eq!(pool_metrics.available, 1);
         assert!(pool_metrics.max_in_use <= pool_metrics.max_buffers);
         assert!(!store.snapshot().writer_open);
-        let finalized = store.finalize().unwrap();
-        let reopened = NativeFinalizedCapture::open(finalized.directory()).unwrap();
+        store.finalize().unwrap();
+        let reopened = FinalizedCapture::open(repository, session_id).unwrap();
         let mut cursor = reopened.open_cursor().unwrap();
         let mut reconstructed_samples = 0_u64;
         loop {
@@ -931,11 +928,10 @@ mod tests {
                 .unwrap();
             assert_eq!(config.first_trigger_sample(), Some(expected));
             let session_id = CaptureSessionId::new(0x7000 + condition as u128);
-            let temporary = tempdir().unwrap();
             let descriptor =
                 CaptureStoreDescriptor::new(session_id, config.channels().to_vec()).unwrap();
-            let (store, writer) = NativeCaptureStore::create(NativeCaptureStoreConfig::new(
-                temporary.path(),
+            let (store, writer) = CaptureStore::create(CaptureStoreConfig::new(
+                std::sync::Arc::new(MemoryArtifactRepository::new()),
                 descriptor,
             ))
             .unwrap();

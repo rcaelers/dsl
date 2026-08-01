@@ -1,18 +1,17 @@
 use std::collections::{HashMap, VecDeque};
-use std::path::Path;
 use std::sync::{Arc, mpsc};
 
 use super::storage::IndexWriter;
+#[cfg(test)]
+use super::types::bit;
 use super::types::{
     BlockIndex, BlockLevels, CaptureIndexProgress, L1_WORDS, L2_WORDS, SAMPLES_PER_L1_BIT, set_bit,
 };
-#[cfg(test)]
-use super::types::bit;
 use crate::capture::{BlockCaptureSource, CaptureDataSource, CaptureMetadata};
 use crate::capture_index_kernel::{
     CaptureIndexBlockRequest, CaptureIndexBlockResult, build_capture_index_block,
 };
-use crate::{Error, Result, WorkExecutor};
+use crate::{ArtifactRepository, Error, Result, SourceIdentity, WorkExecutor};
 
 #[derive(Debug, Clone, Copy)]
 struct BuildJob {
@@ -22,7 +21,8 @@ struct BuildJob {
 
 pub(crate) struct IndexBuilder<'a, S: CaptureDataSource> {
     data_source: &'a S,
-    index_path: &'a Path,
+    repository: Arc<dyn ArtifactRepository>,
+    identity: SourceIdentity,
     header: &'a CaptureMetadata,
     source_revision: u64,
 }
@@ -33,13 +33,15 @@ where
 {
     pub(crate) fn new(
         data_source: &'a S,
-        index_path: &'a Path,
+        repository: Arc<dyn ArtifactRepository>,
+        identity: SourceIdentity,
         header: &'a CaptureMetadata,
         source_revision: u64,
     ) -> Self {
         Self {
             data_source,
-            index_path,
+            repository,
+            identity,
             header,
             source_revision,
         }
@@ -68,7 +70,12 @@ where
             total_roots: job_count,
         });
 
-        let writer = IndexWriter::create(self.index_path, self.header, self.source_revision)?;
+        let writer = IndexWriter::create(
+            Arc::clone(&self.repository),
+            self.identity,
+            self.header,
+            self.source_revision,
+        )?;
         Self::build_parallel_streaming(
             (*self.data_source).clone(),
             self.header,
@@ -80,7 +87,7 @@ where
     }
 
     /// Runs the per-(channel, block) summary jobs through the host executor and
-    /// writes each chunk to the index file as soon as its per-channel
+    /// publishes each leaf artifact as soon as its per-channel
     /// predecessor has been written (boundary-transition patching needs the
     /// predecessor's exit level), so peak memory is a handful of leaves
     /// instead of the whole index. Workers pull jobs in order, so the
@@ -119,17 +126,8 @@ where
             let Some(job) = jobs.pop_front() else {
                 break;
             };
-            let request = Self::read_block_request(
-                &mut source,
-                header,
-                job,
-                next_sequence,
-            )?;
-            Self::submit_block_request(
-                request,
-                Arc::clone(&work_executor),
-                result_tx.clone(),
-            )?;
+            let request = Self::read_block_request(&mut source, header, job, next_sequence)?;
+            Self::submit_block_request(request, Arc::clone(&work_executor), result_tx.clone())?;
             in_flight += 1;
             next_sequence += 1;
         }
@@ -266,9 +264,7 @@ where
         Ok(())
     }
 
-    fn finish_block_result(
-        result: CaptureIndexBlockResult,
-    ) -> Result<(BuildJob, BlockIndex)> {
+    fn finish_block_result(result: CaptureIndexBlockResult) -> Result<(BuildJob, BlockIndex)> {
         let channel = usize::try_from(result.channel).map_err(|_| {
             Error::ParseError("capture-index channel exceeds this address space".to_string())
         })?;
@@ -366,7 +362,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::capture::{BlockCaptureSource, CaptureDataSource, CaptureFingerprint, CaptureMetadata, CaptureSource};
+    use crate::capture::{
+        BlockCaptureSource, CaptureDataSource, CaptureFingerprint, CaptureMetadata, CaptureSource,
+    };
 
     #[derive(Clone)]
     struct TestSource;
@@ -388,7 +386,7 @@ mod tests {
             unreachable!("builder helper tests do not inspect fingerprints")
         }
 
-        fn index_path(&self) -> Option<std::path::PathBuf> {
+        fn index_identity(&self) -> Option<SourceIdentity> {
             unreachable!("builder helper tests do not inspect paths")
         }
 

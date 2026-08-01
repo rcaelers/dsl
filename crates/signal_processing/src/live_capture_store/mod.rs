@@ -1,24 +1,20 @@
 //! Platform-neutral authoritative live-capture storage.
 
+mod artifact_store;
 mod implementation;
-#[cfg(not(target_arch = "wasm32"))]
-mod native;
-#[cfg(not(target_arch = "wasm32"))]
-mod repository_native;
+mod session_repository;
 
+pub use artifact_store::{
+    CaptureCursor, CaptureRandomReader, CaptureStore, CaptureStoreConfig, CaptureStoreWriter,
+    FinalizedCapture,
+};
 pub use implementation::{
     CaptureCursorItem, CaptureReclamationReport, CaptureRecordingGate, CaptureRecoveryReport,
     CaptureSessionMetadata, CaptureSessionOutcome, CaptureStoreCursor, CaptureStoreDescriptor,
     CaptureStoreError, CaptureStoreManifest, CaptureStoreResult, CaptureStoreSnapshot,
     CaptureTimelineMetadata, RecordingCaptureCursor,
 };
-#[cfg(not(target_arch = "wasm32"))]
-pub use native::{
-    NativeCaptureCursor, NativeCaptureRandomReader, NativeCaptureStore, NativeCaptureStoreConfig,
-    NativeCaptureStoreWriter, NativeFinalizedCapture,
-};
-#[cfg(not(target_arch = "wasm32"))]
-pub use repository_native::{
-    CaptureSessionCleanupPlan, NativeCaptureSessionPin, NativeCaptureSessionRepository,
-    NativeCaptureSessionRepositoryConfig, NativeCaptureSessionSummary,
+pub use session_repository::{
+    CaptureSessionCleanupPlan, CaptureSessionPin, CaptureSessionRepository,
+    CaptureSessionRepositoryConfig, CaptureSessionSummary,
 };

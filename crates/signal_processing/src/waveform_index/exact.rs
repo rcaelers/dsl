@@ -17,14 +17,18 @@ pub fn exact_window_sample_limit(target_points: usize) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use std::path::PathBuf;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::super::reader::IndexSampler;
-    use crate::capture::{BlockCaptureSource, BlockData, CaptureDataSource, CaptureFingerprint, CaptureMetadata, CaptureSource, CaptureWaveformSegment, packed_bit};
-    use crate::{Error, Result};
+    use crate::capture::{
+        BlockCaptureSource, BlockData, CaptureDataSource, CaptureFingerprint, CaptureMetadata,
+        CaptureSource, CaptureWaveformSegment, packed_bit,
+    };
+    use crate::{
+        ArtifactRepository, Error, InlineWorkExecutor, MemoryArtifactRepository, Result,
+        SourceIdentity,
+    };
 
     static NEXT_TEST_SOURCE_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -32,7 +36,7 @@ mod tests {
     struct MemoryCaptureDataSource {
         metadata: CaptureMetadata,
         blocks: Arc<Vec<Vec<Arc<[u8]>>>>,
-        index_path: PathBuf,
+        index_identity: SourceIdentity,
         revision: u64,
         raw_reads: Arc<AtomicU64>,
     }
@@ -73,20 +77,19 @@ mod tests {
                     trigger_sample: None,
                 },
                 blocks: Arc::new(blocks),
-                index_path: std::env::temp_dir().join(format!("capture-index-test-{id}.idx")),
+                index_identity: SourceIdentity::from_bytes(
+                    *blake3::hash(&id.to_le_bytes()).as_bytes(),
+                ),
                 revision: id,
                 raw_reads: Arc::new(AtomicU64::new(0)),
             }
         }
 
-        fn remove_index(&self) {
-            let _ = fs::remove_file(&self.index_path);
-            let _ = fs::remove_file(self.index_path.with_extension("raw"));
-        }
-
         fn raw_reads(&self) -> u64 {
             self.raw_reads.load(Ordering::Relaxed)
         }
+
+        fn remove_index(&self) {}
     }
 
     fn single_channel_blocks_from_fn(
@@ -131,8 +134,8 @@ mod tests {
             }
         }
 
-        fn index_path(&self) -> Option<PathBuf> {
-            Some(self.index_path.clone())
+        fn index_identity(&self) -> Option<SourceIdentity> {
+            Some(self.index_identity)
         }
 
         fn display_name(&self) -> String {
@@ -169,13 +172,13 @@ mod tests {
     }
 
     #[test]
-    fn chunked_reader_builds_sidecar_and_samples_window() -> Result<()> {
+    fn chunked_reader_builds_index_artifacts_and_samples_window() -> Result<()> {
         let mut samples = [0_u8; 16];
         samples[8..16].fill(0xff);
 
         let source = MemoryCaptureDataSource::new(128, 128, vec![vec![samples.to_vec()]]);
         let mut reader = IndexSampler::open_data_source(source.clone())?;
-        assert!(reader.index_path().exists());
+        assert_eq!(reader.index_identity(), source.index_identity);
         let window = reader.sampled_window(&[0], 0, 128, 2)?;
         assert_eq!(window.channels.len(), 1);
         assert!(!window.channels[0].initial);
@@ -184,7 +187,6 @@ mod tests {
         assert_eq!(window.channels[0].transitions[0].sample, 64);
         assert!(window.channels[0].transitions[0].value);
 
-        source.remove_index();
         Ok(())
     }
 
@@ -807,18 +809,24 @@ mod tests {
     }
 
     #[test]
-    fn archive_capture_store_serves_reopened_exact_windows() -> Result<()> {
+    fn repository_raw_blocks_serve_reopened_exact_windows() -> Result<()> {
         let samples_per_block = 4_096_u64;
         let total_samples = samples_per_block * 2;
         let blocks = single_channel_blocks_from_fn(total_samples, samples_per_block, |sample| {
             (sample / 700) % 2 == 1
         });
         let source = MemoryCaptureDataSource::new(total_samples, samples_per_block, blocks);
+        let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
 
         // 3 000 samples with 50 target points takes the exact path and spans
         // both blocks.
         let first_window = {
-            let mut reader = IndexSampler::open_data_source(source.clone())?;
+            let mut reader = IndexSampler::open_data_source_with_executor_and_progress(
+                source.clone(),
+                Arc::clone(&repository),
+                Arc::new(InlineWorkExecutor),
+                |_| {},
+            )?;
             reader.sampled_window(&[0], 3_000, 6_000, 50)?
         };
         assert_eq!(first_window.sample_step, 1);
@@ -828,7 +836,12 @@ mod tests {
         // Reopened sampler must serve the same window from the raw cache
         // without touching the capture source at all.
         let second_window = {
-            let mut reader = IndexSampler::open_data_source(source.clone())?;
+            let mut reader = IndexSampler::open_data_source_with_executor_and_progress(
+                source.clone(),
+                Arc::clone(&repository),
+                Arc::new(InlineWorkExecutor),
+                |_| {},
+            )?;
             reader.sampled_window(&[0], 3_000, 6_000, 50)?
         };
         assert_eq!(source.raw_reads(), reads_after_first);
@@ -855,7 +868,7 @@ mod tests {
     }
 
     #[test]
-    fn external_packed_stream_does_not_fill_sparse_archive_store() -> Result<()> {
+    fn external_packed_stream_does_not_publish_a_raw_block_artifact() -> Result<()> {
         let samples_per_block = 4_096_u64;
         let source = MemoryCaptureDataSource::new(
             samples_per_block,
@@ -864,16 +877,27 @@ mod tests {
                 sample.is_multiple_of(3)
             }),
         );
+        let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
 
         let reads_after_build = {
-            let mut reader = IndexSampler::open_data_source(source.clone())?;
+            let mut reader = IndexSampler::open_data_source_with_executor_and_progress(
+                source.clone(),
+                Arc::clone(&repository),
+                Arc::new(InlineWorkExecutor),
+                |_| {},
+            )?;
             let reads_after_build = source.raw_reads();
             reader.packed_block(0, 0)?;
             assert_eq!(source.raw_reads(), reads_after_build + 1);
             source.raw_reads()
         };
 
-        let mut reopened = IndexSampler::open_data_source(source.clone())?;
+        let mut reopened = IndexSampler::open_data_source_with_executor_and_progress(
+            source.clone(),
+            repository,
+            Arc::new(InlineWorkExecutor),
+            |_| {},
+        )?;
         reopened.packed_block(0, 0)?;
         assert_eq!(source.raw_reads(), reads_after_build + 1);
 
@@ -915,11 +939,9 @@ mod tests {
     fn high_level_ratio_hint_estimates_complete_signal_occupancy() -> Result<()> {
         let samples_per_block = 4_096_u64;
         let total_samples = 65_536_u64;
-        let blocks = single_channel_blocks_from_fn(
-            total_samples,
-            samples_per_block,
-            |sample| sample % 1_024 < 256,
-        );
+        let blocks = single_channel_blocks_from_fn(total_samples, samples_per_block, |sample| {
+            sample % 1_024 < 256
+        });
         let source = MemoryCaptureDataSource::new(total_samples, samples_per_block, blocks);
         let sampler = IndexSampler::open_data_source(source.clone())?;
         let reads_after_build = source.raw_reads();

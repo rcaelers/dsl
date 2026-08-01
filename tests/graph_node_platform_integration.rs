@@ -207,5 +207,8 @@ fn dsl_source_presentation_is_builder_owned_after_node_rename() {
     let CapturePresentation::Indexed { identity, .. } = presentation.presentation else {
         panic!("DSL source should provide an indexed presentation");
     };
-    assert_eq!(identity, std::path::PathBuf::from("capture.dsl"));
+    assert_eq!(
+        identity,
+        signal_processing::SourceIdentity::from_bytes(*blake3::hash(b"capture.dsl").as_bytes(),)
+    );
 }

@@ -79,8 +79,8 @@ fn generic_capture_storage_contains_no_concrete_provider_contracts() {
         ),
         ("capture store", include_str!("live_capture_store/mod.rs")),
         (
-            "native capture store",
-            include_str!("live_capture_store/native.rs"),
+            "artifact capture store",
+            include_str!("live_capture_store/artifact_store.rs"),
         ),
         ("waveform index", include_str!("waveform_index/mod.rs")),
     ];
@@ -118,7 +118,7 @@ fn type_erased_collection_contract_has_no_builtin_payload_checks() {
 fn generic_storage_does_not_choose_an_application_cache_namespace() {
     let sources = [
         include_str!("derived_word_store/persistent.rs"),
-        include_str!("live_capture_store/repository_native.rs"),
+        include_str!("live_capture_store/session_repository.rs"),
     ];
     for token in [
         "default_cache_directory",

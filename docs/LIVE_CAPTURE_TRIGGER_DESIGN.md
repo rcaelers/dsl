@@ -43,18 +43,16 @@ The UI-independent live-capture foundation is also present:
   bounded in-memory chunk and event queues available for contract tests;
 - `signal_processing::live_capture_store` defines the platform-neutral session descriptor,
   committed-prefix snapshot, cursor, manifest, and error contracts;
-- its native implementation appends canonical payloads to a sequential data file, publishes only
-  fully synced batches through a fixed-size commit log, and finalizes a manifest that can be
-  reopened without the acquisition provider;
-- a separate written-prefix commit log makes newly appended chunks available to the growing
-  waveform and its exact reader without waiting for the durable fsync batch; recovery and ordinary
-  store cursors continue to use only the durable commit log;
-- the native store atomically persists an optional generic session plan containing both requested
-  and negotiated effective policy and capacity metadata; old captures without this sidecar remain
-  valid, while malformed metadata is reported as corruption;
-- native live and finalized cursors read commit records and payloads through independent file
-  handles, report Pending or End explicitly, and retain no acquisition-sized in-memory commit
-  index when paused;
+- its common implementation publishes each canonical chunk as a bounded artifact and advances the
+  manifest only after that chunk is complete, so live cursors and recovery observe one committed
+  prefix;
+- finalization seals the same artifact generation for replay without copying the capture into a
+  target-specific representation;
+- the store atomically persists an optional generic session plan containing both requested and
+  negotiated effective policy and capacity metadata, while malformed metadata is reported as
+  corruption;
+- live and finalized cursors read immutable artifact generations, report Pending or End explicitly,
+  and retain no acquisition-sized in-memory commit index when paused;
 - a shared recording-origin gate keeps analysis pending while armed, clips the one chunk crossing
   the trigger, and presents both live analysis and finalized replay as a zero-based post-origin
   stream while leaving the authoritative raw prefix intact; the cursor also exposes its generic
@@ -1001,8 +999,8 @@ retain a reference to temporary capture data.
 The internal capture record stores its opaque physical-channel table, exact sample rate, channel
 names, actual trigger sample, recording origin, retained start, logical sample count, encoded byte
 count, and outcome. The negotiated effective capture plan is stored alongside it. The application
-sidecar stores the graph snapshot and source identity needed for immediate replay; saving does not
-depend on that application-specific sidecar.
+metadata artifact stores the graph snapshot and source identity needed for immediate replay; saving
+does not depend on that application-specific artifact.
 
 The finalized internal capture is the lossless source for **Save Capture Data**. The command writes
 a compressed sigrok v2 `.sr` file containing the raw physical channels, channel names, and sample

@@ -1,16 +1,15 @@
 use std::time::{Duration, Instant};
 
-use tempfile::tempdir;
-
 use logic_analyzer_test_support::{
     BufferedFakeConfig, BufferedFakeProvider, DeterministicFakeConfig, DeterministicFakeProvider,
 };
 use signal_processing::{
     AcquisitionContext, AcquisitionResult, CaptureAcquisitionPhase, CaptureChannelId,
     CaptureCursorItem, CaptureDataDelivery, CaptureEvent, CaptureProviderCapabilities,
-    CaptureQueueReceiveError, CaptureSessionId, CaptureSessionState, CaptureStoreCursor,
-    CaptureStoreDescriptor, NativeCaptureStore, NativeCaptureStoreConfig, NativeFinalizedCapture,
-    PreparedAcquisition, SimpleTriggerCondition, bounded_capture_event_queue,
+    CaptureQueueReceiveError, CaptureSessionId, CaptureSessionState, CaptureStore,
+    CaptureStoreConfig, CaptureStoreCursor, CaptureStoreDescriptor, FinalizedCapture,
+    MemoryArtifactRepository, PreparedAcquisition, SimpleTriggerCondition,
+    bounded_capture_event_queue,
 };
 
 const TIMEOUT: Duration = Duration::from_secs(2);
@@ -41,14 +40,10 @@ fn run_provider_contract(case: ProviderContractCase) {
     assert_eq!(case.capabilities.data_delivery(), case.expected_delivery);
     assert!(!case.capabilities.supports_force_trigger());
 
-    let temporary = tempdir().unwrap();
     let descriptor = CaptureStoreDescriptor::new(session_id, case.channels.clone()).unwrap();
-    let (store, writer) = NativeCaptureStore::create(
-        NativeCaptureStoreConfig::new(temporary.path(), descriptor)
-            .with_commit_batch_chunks(1)
-            .unwrap(),
-    )
-    .unwrap();
+    let repository = Arc::new(MemoryArtifactRepository::new());
+    let (store, writer) =
+        CaptureStore::create(CaptureStoreConfig::new(repository.clone(), descriptor)).unwrap();
     let (events, event_reader) = bounded_capture_event_queue(128).unwrap();
     let context = AcquisitionContext::new(session_id, Box::new(writer), Box::new(events));
     let mut acquisition = (case.prepare)(context).unwrap();
@@ -60,8 +55,8 @@ fn run_provider_contract(case: ProviderContractCase) {
         case.name
     );
 
-    let finalized = store.finalize().unwrap();
-    let reopened = NativeFinalizedCapture::open(finalized.directory()).unwrap();
+    store.finalize().unwrap();
+    let reopened = FinalizedCapture::open(repository, session_id).unwrap();
     let mut cursor = reopened.open_cursor().unwrap();
     let mut reconstructed = 0_u64;
     let mut sequence = 0_u64;
@@ -208,14 +203,10 @@ fn buffered_provider_commits_nothing_before_upload_begins() {
     ];
     let config = BufferedFakeConfig::new(channels.clone(), 4_000_000, 19, 5, 7).unwrap();
     let session_id = CaptureSessionId::new(0x7133);
-    let temporary = tempdir().unwrap();
     let descriptor = CaptureStoreDescriptor::new(session_id, channels).unwrap();
-    let (store, writer) = NativeCaptureStore::create(
-        NativeCaptureStoreConfig::new(temporary.path(), descriptor)
-            .with_commit_batch_chunks(1)
-            .unwrap(),
-    )
-    .unwrap();
+    let repository = Arc::new(MemoryArtifactRepository::new());
+    let (store, writer) =
+        CaptureStore::create(CaptureStoreConfig::new(repository, descriptor)).unwrap();
     let (events, _event_reader) = bounded_capture_event_queue(64).unwrap();
     let context = AcquisitionContext::new(session_id, Box::new(writer), Box::new(events));
     let (provider, controller) = BufferedFakeProvider::manually_uploaded(config);
@@ -261,3 +252,4 @@ fn buffered_capabilities_use_non_contiguous_ids_and_a_distinct_setting_matrix() 
         &[20_000_000]
     );
 }
+use std::sync::Arc;

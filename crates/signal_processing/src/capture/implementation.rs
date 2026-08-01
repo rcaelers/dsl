@@ -1,7 +1,6 @@
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::{Result, WorkExecutor};
+use crate::{ByteRange, ByteRegion, ImmutableByteRegion, Result, SourceIdentity, WorkExecutor};
 
 #[derive(Debug, Clone)]
 pub struct CaptureMetadata {
@@ -82,7 +81,7 @@ pub struct CaptureFingerprint {
     /// Stable revision used to invalidate persistent indexes.
     ///
     /// File sources can use the file size or a stronger hash/mtime combination.
-    /// Live sources normally should not be indexed with a persistent sidecar.
+    /// Live sources normally use their growing index rather than a finite-source index.
     pub revision: u64,
 }
 
@@ -163,82 +162,46 @@ pub trait CaptureSource {
 /// clone the backing `Arc`.
 #[derive(Clone)]
 pub struct BlockData {
-    backing: Arc<dyn BlockBacking>,
-    offset: usize,
-    len: usize,
+    region: ByteRegion,
 }
 
-pub(crate) trait BlockBacking: Send + Sync {
-    fn bytes(&self) -> &[u8];
+struct OwnedBlockRegion(Vec<u8>);
 
-    fn shares_backing(&self, _other: &dyn BlockBacking) -> bool {
-        false
-    }
-}
-
-struct OwnedBlockBacking(Vec<u8>);
-
-impl BlockBacking for OwnedBlockBacking {
+impl ImmutableByteRegion for OwnedBlockRegion {
     fn bytes(&self) -> &[u8] {
         &self.0
-    }
-}
-
-struct SharedBlockBacking(Arc<[u8]>);
-
-impl BlockBacking for SharedBlockBacking {
-    fn bytes(&self) -> &[u8] {
-        &self.0
-    }
-
-    fn shares_backing(&self, other: &dyn BlockBacking) -> bool {
-        !self.bytes().is_empty()
-            && self.bytes().as_ptr() == other.bytes().as_ptr()
-            && self.bytes().len() == other.bytes().len()
     }
 }
 
 impl BlockData {
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn from_backing(backing: Arc<dyn BlockBacking>, offset: usize, len: usize) -> Self {
-        Self {
-            backing,
-            offset,
-            len,
-        }
+    pub fn from_region(region: ByteRegion) -> Self {
+        Self { region }
     }
 
     /// Creates a view into this backing allocation without copying bytes.
     pub fn slice(&self, offset: usize, len: usize) -> Option<Self> {
         let end = offset.checked_add(len)?;
-        if end > self.len {
+        let length = usize::try_from(self.region.range().length).ok()?;
+        if end > length {
             return None;
         }
-        let absolute_offset = self.offset.checked_add(offset)?;
-        Some(Self {
-            backing: Arc::clone(&self.backing),
-            offset: absolute_offset,
-            len,
-        })
+        let absolute_offset = self.region.range().offset.checked_add(offset as u64)?;
+        let range = ByteRange::new(absolute_offset, len as u64).ok()?;
+        ByteRegion::new(self.region.clone_backing(), range)
+            .ok()
+            .map(Self::from_region)
     }
 
     pub fn shares_backing(&self, other: &Self) -> bool {
-        if Arc::ptr_eq(&self.backing, &other.backing) {
-            return true;
-        }
-        self.backing.shares_backing(other.backing.as_ref())
-    }
-
-    fn backing_bytes(&self) -> &[u8] {
-        self.backing.bytes()
+        self.region.shares_backing(&other.region)
     }
 }
 
 impl std::fmt::Debug for BlockData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BlockData")
-            .field("offset", &self.offset)
-            .field("len", &self.len)
+            .field("offset", &self.region.range().offset)
+            .field("len", &self.region.range().length)
             .finish_non_exhaustive()
     }
 }
@@ -247,29 +210,26 @@ impl std::ops::Deref for BlockData {
     type Target = [u8];
 
     fn deref(&self) -> &[u8] {
-        &self.backing_bytes()[self.offset..self.offset + self.len]
+        self.region.bytes()
     }
 }
 
 impl From<Arc<[u8]>> for BlockData {
     fn from(data: Arc<[u8]>) -> Self {
-        let len = data.len();
-        Self {
-            backing: Arc::new(SharedBlockBacking(data)),
-            offset: 0,
-            len,
-        }
+        let backing: Arc<dyn ImmutableByteRegion> = Arc::new(crate::OwnedByteSource::new(
+            SourceIdentity::from_bytes([0; 32]),
+            data,
+        ));
+        let range = ByteRange::new(0, backing.len()).expect("resident byte length fits u64");
+        Self::from_region(ByteRegion::new(backing, range).expect("full backing range is valid"))
     }
 }
 
 impl From<Vec<u8>> for BlockData {
     fn from(data: Vec<u8>) -> Self {
-        let len = data.len();
-        Self {
-            backing: Arc::new(OwnedBlockBacking(data)),
-            offset: 0,
-            len,
-        }
+        let backing: Arc<dyn ImmutableByteRegion> = Arc::new(OwnedBlockRegion(data));
+        let range = ByteRange::new(0, backing.len()).expect("resident byte length fits u64");
+        Self::from_region(ByteRegion::new(backing, range).expect("full backing range is valid"))
     }
 }
 
@@ -293,7 +253,7 @@ pub trait CaptureDataSource: Clone + Send + Sync + 'static {
     fn open_reader(&self) -> Result<Self::Reader>;
     fn metadata(&self) -> &CaptureMetadata;
     fn fingerprint(&self) -> CaptureFingerprint;
-    fn index_path(&self) -> Option<PathBuf>;
+    fn index_identity(&self) -> Option<SourceIdentity>;
     fn display_name(&self) -> String;
 }
 
@@ -308,7 +268,7 @@ pub trait CaptureDataSource: Clone + Send + Sync + 'static {
 /// needing to know why.
 pub trait CaptureIndex {
     fn display_name(&self) -> String;
-    fn index_path(&self) -> &Path;
+    fn index_identity(&self) -> SourceIdentity;
     fn header(&self) -> &CaptureMetadata;
     /// Current metadata snapshot. Finite indexes inherit the immutable
     /// header; growing indexes override this with their committed extent.
@@ -343,7 +303,7 @@ pub struct CaptureIndexBuildProgress {
 /// Generic indexed-capture presentation supplied by a concrete source.
 ///
 pub struct IndexedCapturePresentation {
-    pub identity: PathBuf,
+    pub identity: SourceIdentity,
     pub factory: Box<dyn CaptureIndexFactory>,
 }
 
@@ -356,6 +316,7 @@ pub trait CaptureIndexFactory: Send + 'static {
 
     fn open(
         self: Box<Self>,
+        artifact_repository: Arc<dyn crate::ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
         progress: &mut dyn FnMut(CaptureIndexBuildProgress),
     ) -> Result<Box<dyn CaptureIndex + Send>>;

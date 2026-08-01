@@ -35,7 +35,7 @@ let mut viewer = LogicAnalyzerViewer::new();   // or ::default()
 viewer.show(ui);                               // fills the available rect
 ```
 
-`show` is self-contained: it drains lower-level file-worker messages, handles all interaction
+`show` is self-contained: it handles all interaction
 (pan, zoom, cursors, row rename/reorder, hover measurement, edge-delta measurement), samples the visible window,
 paints, and schedules repaints while a capture is opening or indexing.
 
@@ -52,8 +52,7 @@ viewer.set_prepared_capture(identity, index);
 
 The host prepares the generic `signal_processing::CaptureIndex` before attaching it. In the graph
 application, the compiler owns file preload, cache, and index orchestration and the UI attaches the
-completed result. `set_capture_path` remains available to lower-level hosts that directly own a
-concrete `CaptureDataSource`.
+completed result. The widget does not open sources, select repositories, or build indexes.
 
 ### 2. In-memory channels — `set_channels`
 
@@ -116,12 +115,11 @@ presentations that cannot be measured as a signal.
 
 ## Threading & repaint behavior
 
-- All queries happen synchronously on the UI thread against an mmapped index, so what is
-  drawn always matches the current view; only opening/indexing runs on a worker thread.
-- While opening, the viewer requests ~16 ms repaints; while indexing, ~100 ms. Once idle,
+- All queries happen synchronously on the UI thread against a prepared index handle, so what is
+  drawn always matches the current view; source preparation owns opening and indexing work.
+- While waiting for a prepared capture, the viewer requests bounded periodic repaints. Once idle,
   normal egui repaint-on-input applies (a running pipeline's host should request repaints
   itself, as the app does).
-- Stale worker messages (from a superseded `set_capture_path`) are ignored.
 
 ## Built-in interaction (for reference)
 
@@ -139,5 +137,5 @@ presentations that cannot be measured as a signal.
 
 ## wasm
 
-The crate compiles for `wasm32`: `set_capture_path` and the worker do not exist there;
-in-memory channels and derived lanes are the only content.
+The crate compiles from the same source for `wasm32`. Indexed captures, in-memory channels, and
+derived lanes all use the same viewer API; the host determines which prepared sources are available.

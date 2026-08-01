@@ -17,9 +17,9 @@ use tracing::{debug, info, warn};
 use signal_processing::capture::{BlockData, CaptureMetadata, CaptureTransition};
 use signal_processing::waveform_index::IndexSampler;
 use signal_processing::{
-    CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, EdgeQuery, Error,
-    InlineWorkExecutor, InputPort, OutputPort, ProcessNode, ProtocolKind, Result, Sample,
-    SampleBlock, SampleKind, Sender, WorkExecutor, WorkResult, WorkTask,
+    ArtifactRepository, CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, EdgeQuery,
+    Error, InlineWorkExecutor, InputPort, OutputPort, ProcessNode, ProtocolKind, Result, Sample,
+    SampleBlock, SampleKind, Sender, SourceIdentity, WorkExecutor, WorkResult, WorkTask,
 };
 
 use crate::support::capture_archive::{CaptureArchive, ZipCaptureArchive};
@@ -101,16 +101,22 @@ impl CaptureIndexFactory for DslCaptureIndexFactory {
 
     fn open(
         self: Box<Self>,
+        artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
         progress: &mut dyn FnMut(CaptureIndexBuildProgress),
     ) -> Result<Box<dyn CaptureIndex + Send>> {
         let source = DslFileCaptureDataSource::open(&self.path)?;
-        IndexSampler::open_data_source_with_executor_and_progress(source, work_executor, |value| {
-            progress(CaptureIndexBuildProgress {
-                completed: value.completed_roots,
-                total: value.total_roots,
-            });
-        })
+        IndexSampler::open_data_source_with_executor_and_progress(
+            source,
+            artifact_repository,
+            work_executor,
+            |value| {
+                progress(CaptureIndexBuildProgress {
+                    completed: value.completed_roots,
+                    total: value.total_roots,
+                });
+            },
+        )
         .map(|index| Box::new(index) as Box<dyn CaptureIndex + Send>)
     }
 }
@@ -232,6 +238,7 @@ pub struct DslFileSource {
     threads_spawned: bool,
     num_threads: usize,
     work_executor: Arc<dyn WorkExecutor>,
+    artifact_repository: Arc<dyn ArtifactRepository>,
 
     // Lazily-built random-access waveform index, shared across every
     // channel's `edge_query()` handle. Built at most once, only if a
@@ -247,7 +254,9 @@ impl DslFileSource {
     ) -> signal_processing::IndexedCapturePresentation {
         let path = path.as_ref().to_path_buf();
         signal_processing::IndexedCapturePresentation {
-            identity: path.clone(),
+            identity: SourceIdentity::from_bytes(
+                *blake3::hash(path.to_string_lossy().as_bytes()).as_bytes(),
+            ),
             factory: Box::new(DslCaptureIndexFactory { path }),
         }
     }
@@ -287,14 +296,16 @@ impl DslFileSource {
             threads_spawned: false,
             num_threads: 0,
             work_executor: Arc::new(InlineWorkExecutor),
+            artifact_repository: Arc::new(signal_processing::MemoryArtifactRepository::new()),
             index: Mutex::new(None),
         })
     }
 
-    /// Random-access handle backing `edge_query()`, built on first use from
-    /// the same `.idx`/`.raw` sidecar files the viewer uses (via
-    /// `DslFileCaptureDataSource`/`IndexSampler`). Returns `None` (logging a
-    /// warning) if the index can't be built — callers fall back to `Stream`.
+    /// Random-access handle backing `edge_query()`, reopened on first use from
+    /// the same published waveform index the viewer uses. Runtime capability
+    /// discovery must not construct a missing index because the graph is
+    /// materialized on its caller's thread. Source preparation owns index
+    /// construction; until it completes, callers fall back to `Stream`.
     fn edge_index_handle(&self) -> Option<Arc<Mutex<DslChunkedCaptureReader>>> {
         let mut guard = self.index.lock().unwrap();
         if guard.is_none() {
@@ -305,15 +316,24 @@ impl DslFileSource {
                     return None;
                 }
             };
-            match IndexSampler::open_data_source_with_progress(source, |_| {}) {
-                Ok(sampler) => *guard = Some(Arc::new(Mutex::new(sampler))),
+            match IndexSampler::open_existing_data_source(
+                source,
+                Arc::clone(&self.artifact_repository),
+            ) {
+                Ok(Some(sampler)) => *guard = Some(Arc::new(Mutex::new(sampler))),
+                Ok(None) => return None,
                 Err(e) => {
-                    warn!("Failed to build waveform index for edge queries: {}", e);
+                    warn!("Failed to reopen waveform index for edge queries: {}", e);
                     return None;
                 }
             }
         }
         guard.clone()
+    }
+
+    pub fn with_artifact_repository(mut self, repository: Arc<dyn ArtifactRepository>) -> Self {
+        self.artifact_repository = repository;
+        self
     }
     /// Get the header information
     pub fn header(&self) -> &CaptureMetadata {
@@ -920,11 +940,18 @@ mod tests {
     use crate::support::capture_format::{get_packed_bit, parse_sample_rate};
     use crate::support::dsl_file::DslCaptureReader;
 
-    pub(crate) fn open_dsl_chunked_capture<P: AsRef<Path>>(
-        path: P,
-    ) -> Result<DslChunkedCaptureReader> {
-        let source = DslFileCaptureDataSource::open(path)?;
-        IndexSampler::open_data_source_with_progress(source, |_| {})
+    fn indexed_dsl_source(path: &Path) -> Result<(DslFileSource, DslChunkedCaptureReader)> {
+        let repository: Arc<dyn ArtifactRepository> =
+            Arc::new(signal_processing::MemoryArtifactRepository::new());
+        let data_source = DslFileCaptureDataSource::open(path)?;
+        let sampler = IndexSampler::open_data_source_with_executor_and_progress(
+            data_source,
+            Arc::clone(&repository),
+            Arc::new(InlineWorkExecutor),
+            |_| {},
+        )?;
+        let source = DslFileSource::new(path)?.with_artifact_repository(repository);
+        Ok((source, sampler))
     }
 
     #[test]
@@ -1017,7 +1044,8 @@ mod tests {
     fn test_dsl_channel_edge_index_matches_ground_truth() {
         let (_directory, path) = dsl_fixture();
 
-        let source = DslFileSource::new(&path).expect("generated DSL capture should open");
+        let (source, mut sampler) =
+            indexed_dsl_source(&path).expect("generated DSL capture should be indexed");
         let edge_query = source
             .edge_query(0, &[])
             .expect("DslFileSource should provide an EdgeQuery for channel 0");
@@ -1027,7 +1055,6 @@ mod tests {
         // this validates next_edge's search logic against real data shape,
         // not just the index itself.
         let ground_truth_end = 2_000_000u64.min(edge_query.total_samples());
-        let mut sampler = open_dsl_chunked_capture(&path).expect("sampler should open");
         let window = sampler
             .sampled_window(&[0], 0, ground_truth_end, ground_truth_end as usize)
             .expect("exact window should read");
@@ -1062,9 +1089,26 @@ mod tests {
     }
 
     #[test]
+    fn runtime_edge_query_does_not_build_a_missing_waveform_index() {
+        let (_directory, path) = dsl_fixture();
+        let repository = Arc::new(signal_processing::MemoryArtifactRepository::new());
+        let source = DslFileSource::new(&path)
+            .expect("generated DSL capture should open")
+            .with_artifact_repository(repository.clone());
+
+        assert!(source.edge_query(0, &[]).is_none());
+        assert!(
+            signal_processing::ArtifactRepository::namespaces(repository.as_ref())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn test_dsl_channel_edge_index_next_edge_with_value() {
         let (_directory, path) = dsl_fixture();
-        let source = DslFileSource::new(&path).expect("generated DSL capture should open");
+        let (source, _sampler) =
+            indexed_dsl_source(&path).expect("generated DSL capture should be indexed");
         let edge_query = source.edge_query(0, &[]).expect("edge query available");
         let limit = 2_000_000u64.min(edge_query.total_samples());
 
@@ -1092,7 +1136,8 @@ mod tests {
     #[test]
     fn test_dsl_channel_edge_index_end_of_file() {
         let (_directory, path) = dsl_fixture();
-        let source = DslFileSource::new(&path).expect("generated DSL capture should open");
+        let (source, _sampler) =
+            indexed_dsl_source(&path).expect("generated DSL capture should be indexed");
         let edge_query = source.edge_query(0, &[]).expect("edge query available");
         let total = edge_query.total_samples();
 

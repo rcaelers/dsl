@@ -92,22 +92,17 @@ fn show_signal_table(ui: &mut egui::Ui, snapshot: &MemoryPanelSnapshot) {
                 );
                 let index = capture.index_progress.map_or_else(
                     || {
-                        capture.index_path.as_ref().map_or_else(
+                        capture.index_identity.as_ref().map_or_else(
                             || "—".to_owned(),
-                            |path| {
-                                path.file_name()
-                                    .unwrap_or(path.as_os_str())
-                                    .to_string_lossy()
-                                    .into_owned()
-                            },
+                            |identity| identity.chars().take(12).collect(),
                         )
                     },
                     |progress| format!("{:.0}%", progress * 100.0),
                 );
                 let index_response = ui.label(index);
-                let index_detail = capture.index_path.as_ref().map_or_else(
+                let index_detail = capture.index_identity.as_ref().map_or_else(
                     || capture.status.clone(),
-                    |path| format!("{}\n{}", capture.status, path.display()),
+                    |identity| format!("{}\nArtifact {identity}", capture.status),
                 );
                 index_response.on_hover_text(index_detail);
                 ui.end_row();

@@ -417,6 +417,7 @@ pub struct CaptureBytes(Arc<CaptureBytesInner>);
 enum CaptureBytesInner {
     Owned(Box<[u8]>),
     Shared(Arc<[u8]>),
+    Region(crate::ByteRegion),
     Pooled(PooledCaptureBytes),
 }
 
@@ -438,6 +439,7 @@ impl CaptureBytes {
         match self.0.as_ref() {
             CaptureBytesInner::Owned(bytes) => bytes,
             CaptureBytesInner::Shared(bytes) => bytes,
+            CaptureBytesInner::Region(region) => region.bytes(),
             CaptureBytesInner::Pooled(bytes) => &bytes.bytes,
         }
     }
@@ -489,6 +491,12 @@ impl<const N: usize> From<[u8; N]> for CaptureBytes {
 impl From<Arc<[u8]>> for CaptureBytes {
     fn from(bytes: Arc<[u8]>) -> Self {
         Self(Arc::new(CaptureBytesInner::Shared(bytes)))
+    }
+}
+
+impl From<crate::ByteRegion> for CaptureBytes {
+    fn from(region: crate::ByteRegion) -> Self {
+        Self(Arc::new(CaptureBytesInner::Region(region)))
     }
 }
 

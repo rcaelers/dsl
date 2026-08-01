@@ -1,15 +1,12 @@
 use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver};
 
 use egui::{FontId, Pos2, Rect, Sense, Ui};
 
 use input_bindings::InputBindings;
-use signal_processing::{
-    CaptureDataSource, CaptureIndex, DerivedLanes, InlineWorkExecutor, WorkExecutor,
-};
+use signal_processing::{CaptureIndex, DerivedLanes};
 
 use crate::channel::LogicChannel;
 use crate::derived_snapshot::DerivedSnapshotCache;
@@ -37,7 +34,6 @@ pub struct ChannelSignal {
 
 pub struct LogicAnalyzerViewer {
     pub(crate) input_bindings: Arc<InputBindings>,
-    work_executor: Arc<dyn WorkExecutor>,
     pub(crate) channels: Vec<LogicChannel>,
     pub(crate) visible_capture_channels: Option<BTreeSet<usize>>,
     /// Display order across both `channels` and `derived` lanes — the only
@@ -77,7 +73,6 @@ pub struct LogicAnalyzerViewer {
     pub(crate) visible_span_us: f64,
     pub(crate) capture_path: Option<PathBuf>,
     pub(crate) capture_info: Option<CaptureInfo>,
-    pub(crate) worker_responses: Option<Receiver<crate::worker::WorkerResponse>>,
     pub(crate) status: String,
     pub(crate) index_progress: Option<IndexBuildProgress>,
     pub(crate) fit_to_capture: bool,
@@ -127,7 +122,6 @@ impl LogicAnalyzerViewer {
                 InputBindings::from_json(r#"{"bindings":[]}"#)
                     .expect("empty input binding configuration is valid"),
             ),
-            work_executor: Arc::new(InlineWorkExecutor),
             row_order: Vec::new(),
             row_order_changed: false,
             row_height_scales: HashMap::new(),
@@ -148,7 +142,6 @@ impl LogicAnalyzerViewer {
             visible_span_us: DEFAULT_VISIBLE_SPAN_US,
             capture_path: None,
             capture_info: None,
-            worker_responses: None,
             status: "No capture loaded".to_string(),
             index_progress: None,
             fit_to_capture: false,
@@ -176,11 +169,6 @@ impl LogicAnalyzerViewer {
 
     pub fn set_input_bindings(&mut self, input_bindings: Arc<InputBindings>) {
         self.input_bindings = input_bindings;
-    }
-
-    /// Supplies the host-selected worker capability for finite capture indexing.
-    pub fn set_work_executor(&mut self, work_executor: Arc<dyn WorkExecutor>) {
-        self.work_executor = work_executor;
     }
 
     pub fn set_color_profile(&mut self, color_profile: ColorProfile) {
@@ -291,8 +279,7 @@ impl LogicAnalyzerViewer {
     }
 
     /// Replaces the raw channel rows for a finite in-memory capture and fits
-    /// the initial view to its full duration. This is the memory-backed
-    /// counterpart of [`Self::set_capture_path`].
+    /// the initial view to its full duration.
     pub fn set_channels_with_duration(&mut self, signals: Vec<ChannelSignal>, duration_us: f64) {
         self.growing_capture = None;
         self.capture_path = None;
@@ -301,7 +288,6 @@ impl LogicAnalyzerViewer {
         self.row_rename = None;
         self.sampler = None;
         self.sampled_key = None;
-        self.worker_responses = None;
         self.index_progress = None;
         self.cursors.clear();
         self.drag_cursor = None;
@@ -312,76 +298,6 @@ impl LogicAnalyzerViewer {
         self.visible_span_us = duration_us.max(1.0);
         self.fit_to_capture = true;
         self.status = "In-memory capture ready".to_owned();
-    }
-
-    /// `open` constructs the capture-specific [`CaptureDataSource`] for
-    /// `path` — the viewer only knows the generic trait, not which concrete
-    /// source (file format, live capture, …) produced it.
-    pub fn set_capture_path<S: CaptureDataSource>(
-        &mut self,
-        path: impl AsRef<Path>,
-        open: impl FnOnce(&Path) -> Result<S, String>,
-    ) {
-        let path = path.as_ref();
-        if path.as_os_str().is_empty() {
-            return;
-        }
-
-        if self.capture_path.as_deref() == Some(path) {
-            return;
-        }
-
-        let path = path.to_path_buf();
-        self.growing_capture = None;
-        let data_source = match open(&path) {
-            Ok(data_source) => data_source,
-            Err(err) => {
-                self.capture_path = Some(path.clone());
-                self.capture_info = None;
-                // Stale channel rows drop out of `row_order` on the next
-                // `ensure_row_order` pass; any derived-lane rows from an
-                // active run are left exactly where they are.
-                self.channels.clear();
-                self.row_drag = None;
-                self.channel_names.clear();
-                self.row_rename = None;
-                self.sampler = None;
-                self.sampled_key = None;
-                self.index_progress = None;
-                self.worker_responses = None;
-                self.cursors.clear();
-                self.drag_cursor = None;
-                self.hover_measurement = None;
-                self.edge_delta_measurement = None;
-                self.status = format!("Could not inspect capture: {err}");
-                return;
-            }
-        };
-
-        self.capture_path = Some(path.clone());
-        self.capture_info = None;
-        self.channels.clear();
-        self.row_drag = None;
-        self.channel_names.clear();
-        self.row_rename = None;
-        self.sampler = None;
-        self.sampled_key = None;
-        self.index_progress = None;
-        self.fit_to_capture = true;
-        self.cursors.clear();
-        self.drag_cursor = None;
-        self.hover_measurement = None;
-        self.edge_delta_measurement = None;
-        self.status = format!("Opening {}", data_source.display_name());
-
-        let (response_tx, response_rx) = mpsc::channel();
-        crate::worker::spawn_capture_worker(
-            path,
-            data_source,
-            Arc::clone(&self.work_executor),
-            response_tx,
-        );
-        self.worker_responses = Some(response_rx);
     }
 
     /// Attaches an index fully prepared by the host.
@@ -421,7 +337,6 @@ impl LogicAnalyzerViewer {
         self.row_rename = None;
         self.sampler = None;
         self.sampled_key = None;
-        self.worker_responses = None;
         self.index_progress = None;
         self.cursors.clear();
         self.hover_measurement = None;
@@ -462,7 +377,6 @@ impl LogicAnalyzerViewer {
         self.row_rename = None;
         self.sampler = Some(sampler);
         self.sampled_key = None;
-        self.worker_responses = None;
         self.index_progress = None;
         self.cursors.clear();
         self.drag_cursor = None;
@@ -599,7 +513,6 @@ impl LogicAnalyzerViewer {
         let response = ui.allocate_rect(rect, Sense::click_and_drag());
         let painter = ui.painter_at(rect);
 
-        self.process_worker_responses();
         self.refresh_growing_capture();
         // Reconciles `row_order` against the current channels and derived
         // lanes (drops stale rows, appends new ones) before anything this
@@ -887,7 +800,7 @@ impl LogicAnalyzerViewer {
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -902,7 +815,7 @@ mod tests {
         header: CaptureMetadata,
         total_samples: Arc<AtomicU64>,
         generation: Arc<AtomicU64>,
-        path: PathBuf,
+        identity: signal_processing::SourceIdentity,
     }
 
     #[test]
@@ -931,8 +844,8 @@ mod tests {
             "Growing test".into()
         }
 
-        fn index_path(&self) -> &Path {
-            &self.path
+        fn index_identity(&self) -> signal_processing::SourceIdentity {
+            self.identity
         }
 
         fn header(&self) -> &CaptureMetadata {
@@ -1000,7 +913,7 @@ mod tests {
             },
             total_samples,
             generation,
-            path: PathBuf::from("growing-test"),
+            identity: signal_processing::SourceIdentity::from_bytes([9; 32]),
         }
     }
 
@@ -1020,7 +933,6 @@ mod tests {
         );
         assert!(viewer.capture_info.is_some());
         assert!(viewer.sampler.is_some());
-        assert!(viewer.worker_responses.is_none());
         assert_eq!(viewer.status, "Indexed capture ready");
     }
 

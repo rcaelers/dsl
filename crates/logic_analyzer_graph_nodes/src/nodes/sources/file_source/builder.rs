@@ -118,7 +118,12 @@ impl RuntimeBuilder for FileSourceBuilder {
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state: super::definition::DslFileSourceState = parse_state(state)?;
         self.source_factory
-            .create(name, Self::config(&state), ctx.work_executor())
+            .create(
+                name,
+                Self::config(&state),
+                ctx.artifact_repository(),
+                ctx.work_executor(),
+            )
             .map(logic_analyzer_processing::ProcessNodeConstruction::into_process)
             .map_err(|error| format!("cannot open '{}': {error}", state.file.value))
     }
@@ -173,7 +178,7 @@ mod builder_tests {
                 .unwrap()
                 .push(format!("presentation:{}", self.path.display()));
             let indexed = IndexedCapturePresentation {
-                identity: self.path.clone(),
+                identity: signal_processing::SourceIdentity::from_bytes([0x5A; 32]),
                 factory: Box::new(TestCaptureIndexFactory::new(&self.path)),
             };
             Ok(Some(CaptureSourcePresentation::Indexed(indexed)))
@@ -215,6 +220,7 @@ mod builder_tests {
             &self,
             name: &str,
             config: DslFileSourceConfig,
+            _artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
             _work_executor: Arc<dyn signal_processing::WorkExecutor>,
         ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
             self.opened
@@ -251,7 +257,10 @@ mod builder_tests {
         let CapturePresentation::Indexed { identity, factory } = presentation else {
             panic!("file source must publish an indexed presentation");
         };
-        assert_eq!(identity, PathBuf::from("fixture.dsl"));
+        assert_eq!(
+            identity,
+            signal_processing::SourceIdentity::from_bytes([0x5A; 32])
+        );
         assert_eq!(factory.display_name(), "fixture.dsl");
         assert_eq!(
             builder.capture_cache_identity(&state, &ResolvedInputs::default()),

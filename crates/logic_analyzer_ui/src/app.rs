@@ -492,9 +492,17 @@ fn capture_storage_from_index(
                 .div_ceil(8)
                 .saturating_mul(metadata.total_probes as u64),
         ),
-        index_path: Some(index.index_path().to_owned()),
+        index_identity: Some(hex_identity(index.index_identity())),
         index_progress: None,
     }
+}
+
+fn hex_identity(identity: signal_processing::SourceIdentity) -> String {
+    identity
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn timeline_marker_reference_binding_is_synchronized(
@@ -746,7 +754,7 @@ impl App {
             channels: signals.len(),
             total_samples: None,
             data_bytes: Some(resident_bytes),
-            index_path: None,
+            index_identity: None,
             index_progress: None,
         });
         let channels = signals
@@ -787,7 +795,7 @@ impl App {
             channels: channels.len(),
             total_samples: None,
             data_bytes: None,
-            index_path: None,
+            index_identity: None,
             index_progress: None,
         });
         self.logic_analyzer.set_channels(
@@ -811,7 +819,7 @@ impl App {
             channels: 0,
             total_samples: None,
             data_bytes: None,
-            index_path: None,
+            index_identity: None,
             index_progress: None,
         });
     }
@@ -1087,6 +1095,7 @@ impl App {
             work_executor,
             worker_operation_executor,
             capture_export_service,
+            artifact_repository,
         } = services;
         let mut host_service = host_service;
         // The graph canvas and its custom widgets use a dark palette. Do not
@@ -1108,16 +1117,13 @@ impl App {
         let platform = crate::app_platform::PlatformState::restore(cc, &mut widget);
         let mut logic_analyzer = LogicAnalyzerViewer::new();
         logic_analyzer.set_input_bindings(input_bindings.clone());
-        logic_analyzer.set_work_executor(Arc::clone(&work_executor));
         logic_analyzer.set_color_profile(application_settings.viewer_color_profile());
         let capture = CaptureCoordinator::configured(
             application_settings.max_recent_capture_sessions(),
             application_settings
                 .max_capture_storage_gib()
                 .saturating_mul(1024 * 1024 * 1024),
-            storage_paths
-                .capture_session_directory()
-                .map(std::path::Path::to_owned),
+            artifact_repository,
             work_executor,
             capture_export_service,
         );

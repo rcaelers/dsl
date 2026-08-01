@@ -11,7 +11,7 @@ use zip::{CompressionMethod, ZipWriter};
 
 use signal_processing::{
     CaptureChunk, CaptureChunkPayload, CaptureCursorItem, CaptureStoreCursor, CaptureStoreError,
-    NativeFinalizedCapture,
+    FinalizedCapture,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -80,7 +80,7 @@ pub(crate) enum CaptureExportError {
 }
 
 pub(crate) fn export_finalized_capture(
-    capture: &NativeFinalizedCapture,
+    capture: &FinalizedCapture,
     request: &CaptureExportRequest,
     observer: &mut dyn CaptureExportObserver,
 ) -> Result<CaptureExportReport, CaptureExportError> {
@@ -153,7 +153,7 @@ pub(crate) fn export_finalized_capture(
 }
 
 fn write_sigrok_v2(
-    capture: &NativeFinalizedCapture,
+    capture: &FinalizedCapture,
     metadata: &signal_processing::CaptureTimelineMetadata,
     archive: &mut ZipWriter<&mut std::fs::File>,
     observer: &mut dyn CaptureExportObserver,
@@ -312,8 +312,8 @@ mod tests {
 
     use signal_processing::{
         CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId,
-        CaptureSessionOutcome, CaptureStoreDescriptor, CaptureTimelineMetadata, NativeCaptureStore,
-        NativeCaptureStoreConfig,
+        CaptureSessionOutcome, CaptureStore, CaptureStoreConfig, CaptureStoreDescriptor,
+        CaptureTimelineMetadata, FinalizedCapture, MemoryArtifactRepository,
     };
 
     use super::*;
@@ -339,7 +339,7 @@ mod tests {
         }
     }
 
-    fn capture(directory: &Path) -> NativeFinalizedCapture {
+    fn capture(_directory: &Path) -> FinalizedCapture {
         let session_id = CaptureSessionId::new(7);
         let channels = Arc::from([
             CaptureChannelId::new("physical:3"),
@@ -347,9 +347,9 @@ mod tests {
             CaptureChannelId::new("physical:12"),
         ]);
         let descriptor = CaptureStoreDescriptor::new(session_id, Arc::clone(&channels)).unwrap();
+        let repository = Arc::new(MemoryArtifactRepository::new());
         let (store, mut writer) =
-            NativeCaptureStore::create(NativeCaptureStoreConfig::new(directory, descriptor))
-                .unwrap();
+            CaptureStore::create(CaptureStoreConfig::new(repository, descriptor)).unwrap();
         store
             .write_timeline_metadata(
                 CaptureTimelineMetadata::new(

@@ -49,15 +49,15 @@ fn generic_ui_capture_components_contain_no_provider_model_or_sigrok_contracts()
 }
 
 #[test]
-fn native_capture_session_storage_is_supplied_by_the_host() {
+fn capture_session_storage_uses_the_injected_artifact_repository() {
     let source = include_str!("native.rs");
 
     assert!(
         !source.contains("app_platform"),
-        "native capture must receive its session directory through the UI service contract"
+        "capture storage must not reach through platform state"
     );
     assert!(
-        source.contains("capture_session_directory: Option<PathBuf>"),
-        "native capture configuration must keep the host-provided session directory explicit"
+        source.contains("artifact_repository: Arc<dyn ArtifactRepository>"),
+        "capture configuration must keep the injected artifact repository explicit"
     );
 }

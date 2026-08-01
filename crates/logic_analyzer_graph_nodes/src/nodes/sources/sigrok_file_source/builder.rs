@@ -136,7 +136,7 @@ inventory::submit! {
 
 #[cfg(test)]
 mod builder_tests {
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::sync::Mutex;
 
     use logic_analyzer_processing::{
@@ -173,7 +173,7 @@ mod builder_tests {
                 .unwrap()
                 .push(format!("presentation:{}", self.config.path().display()));
             let indexed = IndexedCapturePresentation {
-                identity: self.config.path().to_owned(),
+                identity: signal_processing::SourceIdentity::from_bytes([0x5B; 32]),
                 factory: Box::new(TestCaptureIndexFactory::new(self.config.path())),
             };
             Ok(Some(CaptureSourcePresentation::Indexed(indexed)))
@@ -251,7 +251,10 @@ mod builder_tests {
         let CapturePresentation::Indexed { identity, factory } = presentation else {
             panic!("file source must publish an indexed presentation");
         };
-        assert_eq!(identity, PathBuf::from("fixture.sr"));
+        assert_eq!(
+            identity,
+            signal_processing::SourceIdentity::from_bytes([0x5B; 32])
+        );
         assert_eq!(factory.display_name(), "fixture.sr");
         assert_eq!(
             builder.capture_cache_identity(&state, &ResolvedInputs::default()),

@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::sync::Arc;
 
 use super::builder::IndexBuilder;
@@ -9,9 +8,15 @@ use super::storage::{IndexReader, LevelsView};
 use super::types::{
     CaptureIndexProgress, SAMPLES_PER_L1_BIT, SAMPLES_PER_L2_BIT, SAMPLES_PER_L3_BIT, bit,
 };
-use crate::capture::{BlockCaptureSource, BlockData, CaptureDataSource, CaptureIndex, CaptureMetadata, CaptureSampledChannel, CaptureSampledWindow, CaptureTransition, packed_bit};
-use crate::archive_capture_store::NativeArchiveCaptureStore;
-use crate::{Error, InlineWorkExecutor, Result, WorkExecutor};
+use crate::capture::{
+    BlockCaptureSource, BlockData, CaptureDataSource, CaptureIndex, CaptureMetadata,
+    CaptureSampledChannel, CaptureSampledWindow, CaptureTransition, packed_bit,
+};
+use crate::{
+    ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, Error, InlineWorkExecutor,
+    MemoryArtifactRepository, RepositoryError, Result, SourceIdentity, WorkExecutor,
+    read_artifact_region,
+};
 
 /// Windowed sampler for indexed capture data.
 ///
@@ -21,9 +26,8 @@ pub struct IndexSampler<R: BlockCaptureSource> {
     display_name: String,
     storage: IndexReader,
     raw_reader: R,
-    /// Sparse on-disk cache of decompressed raw blocks; optional because the
-    /// sampler works (more slowly) without it.
-    archive_store: Option<NativeArchiveCaptureStore>,
+    repository: Arc<dyn ArtifactRepository>,
+    identity: SourceIdentity,
 }
 
 impl<R> IndexSampler<R>
@@ -34,13 +38,15 @@ where
         display_name: String,
         storage: IndexReader,
         raw_reader: R,
-        archive_store: Option<NativeArchiveCaptureStore>,
+        repository: Arc<dyn ArtifactRepository>,
+        identity: SourceIdentity,
     ) -> Self {
         Self {
             display_name,
             storage,
             raw_reader,
-            archive_store,
+            repository,
+            identity,
         }
     }
 
@@ -50,6 +56,7 @@ where
     {
         Self::open_data_source_with_executor_and_progress(
             data_source,
+            Arc::new(MemoryArtifactRepository::new()),
             Arc::new(InlineWorkExecutor),
             |_| {},
         )
@@ -62,6 +69,7 @@ where
     {
         Self::open_data_source_with_executor_and_progress(
             data_source,
+            Arc::new(MemoryArtifactRepository::new()),
             Arc::new(InlineWorkExecutor),
             progress,
         )
@@ -69,6 +77,7 @@ where
 
     pub fn open_data_source_with_executor_and_progress<S, C>(
         data_source: S,
+        repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
         progress: C,
     ) -> Result<Self>
@@ -78,38 +87,82 @@ where
     {
         let header = data_source.metadata().clone();
         let fingerprint = data_source.fingerprint();
-        let index_path = data_source
-            .index_path()
+        let identity = data_source
+            .index_identity()
             .ok_or_else(|| Error::ParseError("capture source is not indexable".to_string()))?;
 
-        if !IndexReader::is_valid(&index_path, &header, fingerprint.revision)? {
-            IndexBuilder::new(&data_source, &index_path, &header, fingerprint.revision)
-                .build(work_executor, progress)?;
+        if !IndexReader::is_valid(repository.as_ref(), identity, &header, fingerprint.revision)? {
+            IndexBuilder::new(
+                &data_source,
+                Arc::clone(&repository),
+                identity,
+                &header,
+                fingerprint.revision,
+            )
+            .build(work_executor, progress)?;
         }
 
-        let archive_store = NativeArchiveCaptureStore::open(
-            &index_path.with_extension("raw"),
-            &header,
+        let storage = IndexReader::open(
+            Arc::clone(&repository),
+            identity,
+            header,
             fingerprint.revision,
-        )
-        .ok();
-        let storage = IndexReader::open(index_path, header, fingerprint.revision)?;
+        )?;
         let display_name = data_source.display_name();
         let raw_reader = data_source.open_reader()?;
         Ok(Self::new(
             display_name,
             storage,
             raw_reader,
-            archive_store,
+            repository,
+            identity,
         ))
+    }
+
+    /// Reopens a complete published index without constructing a missing one.
+    ///
+    /// Runtime capability discovery uses this path because it must remain
+    /// bounded and non-blocking. Index construction belongs to source
+    /// preparation, where the host can schedule it away from the caller.
+    pub fn open_existing_data_source<S>(
+        data_source: S,
+        repository: Arc<dyn ArtifactRepository>,
+    ) -> Result<Option<Self>>
+    where
+        S: CaptureDataSource<Reader = R>,
+    {
+        let header = data_source.metadata().clone();
+        let fingerprint = data_source.fingerprint();
+        let identity = data_source
+            .index_identity()
+            .ok_or_else(|| Error::ParseError("capture source is not indexable".to_string()))?;
+        if !IndexReader::is_valid(repository.as_ref(), identity, &header, fingerprint.revision)? {
+            return Ok(None);
+        }
+
+        let storage = IndexReader::open(
+            Arc::clone(&repository),
+            identity,
+            header,
+            fingerprint.revision,
+        )?;
+        let display_name = data_source.display_name();
+        let raw_reader = data_source.open_reader()?;
+        Ok(Some(Self::new(
+            display_name,
+            storage,
+            raw_reader,
+            repository,
+            identity,
+        )))
     }
 
     pub fn display_name(&self) -> String {
         self.display_name.clone()
     }
 
-    pub fn index_path(&self) -> &Path {
-        self.storage.path()
+    pub fn index_identity(&self) -> SourceIdentity {
+        self.storage.identity()
     }
 
     pub fn header(&self) -> &CaptureMetadata {
@@ -121,8 +174,8 @@ where
     }
 
     /// Fraction of 64-sample groups containing one or more transitions.
-    /// Reads only the mmap'd waveform index; raw capture blocks and the raw
-    /// cache are never touched.
+    /// Reads only the waveform-index artifacts; raw capture blocks and the
+    /// raw-block cache are never touched.
     pub fn activity_ratio_hint(&self, channel: usize, limit: u64) -> Result<f64> {
         if channel >= self.header().total_probes {
             return Err(Error::InvalidProbe(channel));
@@ -165,7 +218,7 @@ where
     }
 
     /// Estimated high-level occupancy from the final value of each 64-sample
-    /// index group. Reads only the mmap'd waveform index and never touches raw
+    /// index group. Reads only waveform-index artifacts and never touches raw
     /// capture blocks.
     pub fn high_level_ratio_hint(&self, channel: usize, limit: u64) -> Result<f64> {
         if channel >= self.header().total_probes {
@@ -337,8 +390,8 @@ where
             }
 
             // Acquire one packed block view and one leaf view for every
-            // contiguous search through this block. Both are mmap/Arc views;
-            // no sample payload is copied here.
+            // contiguous search through this block. Repository byte regions
+            // preserve their native mmap or owned-memory backing here.
             let data = self.cached_packed_block(channel, block)?;
             let leaf = self.storage.load_leaf(channel, block as usize)?;
             let Some(levels) = leaf.levels.as_ref() else {
@@ -620,17 +673,11 @@ where
     /// compressed) capture source; freshly decompressed blocks are stored in
     /// the cache for later zero-copy reads.
     fn cached_packed_block(&mut self, channel: usize, block: u64) -> Result<BlockData> {
-        if let Some(data) = self
-            .archive_store
-            .as_ref()
-            .and_then(|store| store.get(channel, block))
-        {
+        if let Some(data) = self.cached_raw_block(channel, block)? {
             return Ok(data);
         }
         let data = self.raw_reader.read_packed_block(channel, block)?;
-        if let Some(store) = self.archive_store.as_mut() {
-            store.put(channel, block, &data);
-        }
+        self.publish_raw_block(channel, block, &data)?;
         Ok(data)
     }
 
@@ -642,14 +689,36 @@ where
     /// intentionally sparse and reserved for regions inspected through
     /// random-access queries.
     pub fn packed_block(&mut self, channel: usize, block: u64) -> Result<BlockData> {
-        if let Some(data) = self
-            .archive_store
-            .as_ref()
-            .and_then(|store| store.get(channel, block))
-        {
+        if let Some(data) = self.cached_raw_block(channel, block)? {
             return Ok(data);
         }
         self.raw_reader.read_packed_block(channel, block)
+    }
+
+    fn cached_raw_block(&self, channel: usize, block: u64) -> Result<Option<BlockData>> {
+        let key = raw_block_key(self.identity, channel, block)?;
+        let Some(mut reader) = self.repository.open(&key).map_err(repository_error)? else {
+            return Ok(None);
+        };
+        let range = ByteRange::new(0, reader.len().map_err(repository_error)?)
+            .map_err(|error| Error::ParseError(error.to_string()))?;
+        let backing = read_artifact_region(reader.as_mut(), range).map_err(repository_error)?;
+        let region = crate::ByteRegion::new(backing, range)
+            .map_err(|error| Error::ParseError(error.to_string()))?;
+        Ok(Some(BlockData::from_region(region)))
+    }
+
+    fn publish_raw_block(&self, channel: usize, block: u64, data: &[u8]) -> Result<()> {
+        let mut writer = self
+            .repository
+            .begin_write(raw_block_key(self.identity, channel, block)?)
+            .map_err(repository_error)?;
+        writer.write_at(0, data).map_err(repository_error)?;
+        writer
+            .truncate(data.len() as u64)
+            .map_err(repository_error)?;
+        writer.flush().map_err(repository_error)?;
+        writer.publish().map_err(repository_error)
     }
 
     fn sample_indexed_channel(
@@ -828,7 +897,7 @@ where
             let last = bit(levels.l2_last[last_group / 64], last_group % 64);
             Ok(GroupSummary {
                 first,
-                toggle: bit_range_any(levels.l2_toggle, first_group, last_group) || first != last,
+                toggle: bit_range_any(&levels.l2_toggle, first_group, last_group) || first != last,
                 last,
             })
         } else {
@@ -845,7 +914,7 @@ where
             let last = bit(levels.l1_last[last_group / 64], last_group % 64);
             Ok(GroupSummary {
                 first,
-                toggle: bit_range_any(levels.l1_toggle, first_group, last_group) || first != last,
+                toggle: bit_range_any(&levels.l1_toggle, first_group, last_group) || first != last,
                 last,
             })
         }
@@ -878,6 +947,23 @@ fn range_mask(lo: usize, hi: usize) -> u64 {
         (1_u64 << hi) - 1
     };
     upper & !((1_u64 << lo) - 1)
+}
+
+fn raw_block_key(identity: SourceIdentity, channel: usize, block: u64) -> Result<ArtifactKey> {
+    let namespace = ArtifactNamespace::new("capture-raw-block-v1").map_err(repository_error)?;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(namespace.as_str().as_bytes());
+    hasher.update(identity.as_bytes());
+    hasher.update(&(channel as u64).to_le_bytes());
+    hasher.update(&block.to_le_bytes());
+    Ok(ArtifactKey::new(
+        namespace,
+        SourceIdentity::from_bytes(*hasher.finalize().as_bytes()),
+    ))
+}
+
+fn repository_error(error: RepositoryError) -> Error {
+    Error::ParseError(error.to_string())
 }
 
 fn bit_range_any(words: &[u64], first_bit: usize, last_bit: usize) -> bool {
@@ -913,7 +999,7 @@ fn bit_range_any(words: &[u64], first_bit: usize, last_bit: usize) -> bool {
 /// Finds the first active 64-sample L1 group in `start..end` by descending
 /// the L3 -> L2 -> L1 toggle summaries. `start` and `end` are block-local
 /// sample positions and `end` is exclusive.
-fn next_indexed_l1_group(levels: &LevelsView<'_>, start: u64, end: u64) -> Option<usize> {
+fn next_indexed_l1_group(levels: &LevelsView, start: u64, end: u64) -> Option<usize> {
     if start >= end {
         return None;
     }
@@ -998,8 +1084,8 @@ impl<R: BlockCaptureSource> CaptureIndex for IndexSampler<R> {
     fn display_name(&self) -> String {
         self.display_name()
     }
-    fn index_path(&self) -> &Path {
-        self.index_path()
+    fn index_identity(&self) -> SourceIdentity {
+        self.index_identity()
     }
     fn header(&self) -> &CaptureMetadata {
         self.header()

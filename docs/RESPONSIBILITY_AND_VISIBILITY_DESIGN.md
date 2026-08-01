@@ -190,7 +190,7 @@ whole implementation files delegate to the threaded native manager or cooperativ
 `logic_analyzer_platform` composes the UI `HostService` port today. It selects complete native and
 web adapter modules and returns an opaque service bundle to the application bootstrap. The native
 adapter owns dialogs, graph-document file I/O, persistent-cache administration, and the
-derived-cache and live-capture-session directories. It also owns native configuration-file discovery
+derived-cache directory that backs the injected artifact repository. It also owns native configuration-file discovery
 and I/O; the UI owns the portable configuration model. It supplies optional system symbol fonts while
 the UI owns bundled fallback fonts and portable installation. Native shell integrations, such as the
 macOS application menu, publish portable commands and receive recent-document state through the same

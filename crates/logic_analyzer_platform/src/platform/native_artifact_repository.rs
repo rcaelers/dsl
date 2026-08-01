@@ -12,16 +12,18 @@ use signal_processing::{
     WriteArtifact,
 };
 
-static NEXT_TEMPORARY_ID: AtomicU64 = AtomicU64::new(1);
-
 /// Durable native artifact repository selected at the platform boundary.
 pub(crate) struct NativeArtifactRepository {
     root: PathBuf,
+    next_temporary_id: AtomicU64,
 }
 
 impl NativeArtifactRepository {
     pub(crate) fn new(root: PathBuf) -> Self {
-        Self { root }
+        Self {
+            root,
+            next_temporary_id: AtomicU64::new(1),
+        }
     }
 
     fn namespace_directory(&self, namespace: &ArtifactNamespace) -> PathBuf {
@@ -34,10 +36,33 @@ impl NativeArtifactRepository {
     }
 
     fn temporary_path(&self, key: &ArtifactKey) -> PathBuf {
-        let id = NEXT_TEMPORARY_ID.fetch_add(1, Ordering::Relaxed);
+        let id = self.next_temporary_id.fetch_add(1, Ordering::Relaxed);
+        self.temporary_path_with_id(key, id)
+    }
+
+    fn temporary_path_with_id(&self, key: &ArtifactKey, id: u64) -> PathBuf {
         let artifact_name = hex_encode(key.identity().as_bytes());
         self.namespace_directory(key.namespace())
             .join(format!(".{artifact_name}.{id}.pending"))
+    }
+
+    fn create_temporary_artifact(
+        &self,
+        key: &ArtifactKey,
+    ) -> Result<(PathBuf, File), RepositoryError> {
+        loop {
+            let temporary_path = self.temporary_path(key);
+            match OpenOptions::new()
+                .create_new(true)
+                .read(true)
+                .write(true)
+                .open(&temporary_path)
+            {
+                Ok(file) => return Ok((temporary_path, file)),
+                Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(repository_io(error)),
+            }
+        }
     }
 }
 
@@ -105,13 +130,7 @@ impl ArtifactRepository for NativeArtifactRepository {
     fn begin_write(&self, key: ArtifactKey) -> Result<Box<dyn WriteArtifact>, RepositoryError> {
         let directory = self.namespace_directory(key.namespace());
         std::fs::create_dir_all(&directory).map_err(repository_io)?;
-        let temporary_path = self.temporary_path(&key);
-        let file = OpenOptions::new()
-            .create_new(true)
-            .read(true)
-            .write(true)
-            .open(&temporary_path)
-            .map_err(repository_io)?;
+        let (temporary_path, file) = self.create_temporary_artifact(&key)?;
         Ok(Box::new(NativeWriteArtifact {
             final_path: self.artifact_path(&key),
             key,
@@ -335,7 +354,9 @@ fn hex_value(value: u8) -> Option<u8> {
 #[cfg(test)]
 mod native_artifact_repository_tests {
     use signal_processing::{
-        AnnotationQuery, ArtifactByteSource, IndexedAnnotationStore, IndexedAnnotationWriter,
+        AnnotationQuery, ArtifactByteSource, CaptureChannelId, CaptureChunk, CaptureChunkWriter,
+        CaptureCursorItem, CaptureSessionId, CaptureStore, CaptureStoreConfig, CaptureStoreCursor,
+        CaptureStoreDescriptor, FinalizedCapture, IndexedAnnotationStore, IndexedAnnotationWriter,
         LiveStoreConfig, MemoryArtifactRepository, PersistentStoreConfig, PreparedByteSource,
         SourceCapabilities, Word,
     };
@@ -355,6 +376,28 @@ mod native_artifact_repository_tests {
     }
 
     #[test]
+    fn repository_skips_pending_names_left_by_an_interrupted_process() {
+        let directory = tempfile::tempdir().unwrap();
+        let repository = NativeArtifactRepository::new(directory.path().join("artifacts"));
+        let namespace = ArtifactNamespace::new("restart collision").unwrap();
+        let key = ArtifactKey::new(namespace.clone(), SourceIdentity::from_bytes([0x31; 32]));
+        let namespace_directory = repository.namespace_directory(&namespace);
+        std::fs::create_dir_all(&namespace_directory).unwrap();
+        let abandoned = repository.temporary_path_with_id(&key, 1);
+        File::create(&abandoned).unwrap();
+
+        let mut writer = repository.begin_write(key.clone()).unwrap();
+        writer.write_at(0, b"recovered").unwrap();
+        writer.publish().unwrap();
+
+        let mut published = repository.open(&key).unwrap().unwrap();
+        let mut bytes = [0_u8; 9];
+        published.read_at(0, &mut bytes).unwrap();
+        assert_eq!(&bytes, b"recovered");
+        assert!(abandoned.exists());
+    }
+
+    #[test]
     fn native_and_memory_repositories_run_the_same_derived_store() {
         let directory = tempfile::tempdir().unwrap();
         let native: Arc<dyn ArtifactRepository> = Arc::new(NativeArtifactRepository::new(
@@ -364,6 +407,62 @@ mod native_artifact_repository_tests {
 
         let memory: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
         assert_derived_store_contract(memory);
+    }
+
+    #[test]
+    fn native_and_memory_repositories_run_the_same_capture_store() {
+        let directory = tempfile::tempdir().unwrap();
+        let native: Arc<dyn ArtifactRepository> = Arc::new(NativeArtifactRepository::new(
+            directory.path().join("artifacts"),
+        ));
+        assert_capture_store_contract(native);
+
+        let memory: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+        assert_capture_store_contract(memory);
+    }
+
+    fn assert_capture_store_contract(repository: Arc<dyn ArtifactRepository>) {
+        let descriptor = CaptureStoreDescriptor::new(
+            CaptureSessionId::new(0xace),
+            [
+                CaptureChannelId::new("clock"),
+                CaptureChannelId::new("data"),
+            ],
+        )
+        .unwrap();
+        let (store, mut writer) = CaptureStore::create(CaptureStoreConfig::new(
+            Arc::clone(&repository),
+            descriptor.clone(),
+        ))
+        .unwrap();
+        writer
+            .append(
+                CaptureChunk::packed_lsb_first(
+                    descriptor.session_id(),
+                    0,
+                    0,
+                    4,
+                    descriptor.channel_table(),
+                    [0b0110_1001],
+                    0,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(store.generation(), 1);
+        writer.finish().unwrap();
+        let finalized = store.finalize().unwrap();
+        assert_eq!(finalized.generation(), 2);
+
+        let reopened = FinalizedCapture::open(repository, descriptor.session_id()).unwrap();
+        assert_eq!(reopened.generation(), 2);
+        let mut cursor = reopened.open_cursor().unwrap();
+        let CaptureCursorItem::Chunk(chunk) = cursor.next().unwrap() else {
+            panic!("published capture must replay its committed chunk");
+        };
+        assert_eq!(chunk.packed_level(0, 0), Some(true));
+        assert_eq!(chunk.packed_level(0, 1), Some(false));
+        assert_eq!(cursor.next().unwrap(), CaptureCursorItem::End);
     }
 
     fn assert_derived_store_contract(repository: Arc<dyn ArtifactRepository>) {

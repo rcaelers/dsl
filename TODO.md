@@ -85,11 +85,6 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.shared-capture-storage] Run packed raw captures, waveform indexes, growing live repositories,
-  and finalized replay through the same artifact and byte-region contracts. Route the compiler-selected repository
-  into capture construction, remove path-based native store selection from the UI and `signal_processing`, keep
-  native mmap and owned memory as interchangeable backings, expose committed generations consistently, and avoid
-  requiring one capture or index to fit in one allocation.
 - [platform.data-plane.cache-policy] Move cache identity, validation, cached-preview attachment, producer pruning,
   invalidation, publication, pinning, and cleanup policy into the common compiler path. Supply a durable native
   repository and an ephemeral web repository initially; do not replace web cache planning with no-ops merely because

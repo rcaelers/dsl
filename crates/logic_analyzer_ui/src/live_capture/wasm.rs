@@ -17,7 +17,7 @@ impl CaptureCoordinator {
     pub(crate) fn configured(
         _max_recent_sessions: usize,
         _max_total_bytes: u64,
-        _capture_session_directory: Option<std::path::PathBuf>,
+        _artifact_repository: std::sync::Arc<dyn signal_processing::ArtifactRepository>,
         _work_executor: std::sync::Arc<dyn signal_processing::WorkExecutor>,
         export_service: Box<dyn CaptureExportService>,
     ) -> Self {

@@ -1,6 +1,4 @@
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -8,20 +6,19 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use serde::{Deserialize, Serialize};
-use tempfile::TempDir;
 
 use logic_analyzer_graph_api::node::CaptureGraphSourceFactory;
 use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
 use signal_processing::{
-    AcquisitionContext, CaptureAcquisitionPhase, CaptureCompletion, CaptureDataDelivery,
-    CaptureEvent, CaptureEventPublishError, CaptureEventPublisher, CaptureEventQueueReader,
-    CaptureHealth, CaptureIndex, CaptureMetadata, CaptureProgress, CaptureQueueReceiveError,
-    CaptureRecordingGate, CaptureSampledWindow, CaptureSessionId, CaptureSessionOutcome,
-    CaptureSessionPlan, CaptureSessionState, CaptureStartMode, CaptureStoreDescriptor,
-    CaptureTimelineMetadata, NativeCaptureSessionPin, NativeCaptureSessionRepository,
-    NativeCaptureSessionRepositoryConfig, NativeCaptureSessionSummary, NativeCaptureStore,
-    NativeCaptureStoreConfig, NativeFinalizedCapture, NativeGrowingCaptureIndex,
-    NativeGrowingCaptureIndexWorker, RecordingStart, TriggerTimeoutAction, WorkExecutor,
+    AcquisitionContext, ArtifactKey, ArtifactNamespace, ArtifactRepository,
+    CaptureAcquisitionPhase, CaptureCompletion, CaptureDataDelivery, CaptureEvent,
+    CaptureEventPublishError, CaptureEventPublisher, CaptureEventQueueReader, CaptureHealth,
+    CaptureIndex, CaptureMetadata, CaptureProgress, CaptureQueueReceiveError, CaptureRecordingGate,
+    CaptureSampledWindow, CaptureSessionId, CaptureSessionOutcome, CaptureSessionPin,
+    CaptureSessionPlan, CaptureSessionRepository, CaptureSessionRepositoryConfig,
+    CaptureSessionState, CaptureSessionSummary, CaptureStartMode, CaptureStore, CaptureStoreConfig,
+    CaptureStoreDescriptor, CaptureTimelineMetadata, FinalizedCapture, GrowingCaptureIndex,
+    GrowingCaptureIndexWorker, RecordingStart, SourceIdentity, TriggerTimeoutAction, WorkExecutor,
     bounded_capture_event_queue,
 };
 
@@ -40,9 +37,7 @@ use crate::capture_export_service::{
 
 const EVENT_QUEUE_CAPACITY: usize = 1_024;
 const SUPERVISOR_POLL_INTERVAL: Duration = Duration::from_millis(5);
-const APPLICATION_METADATA_FILE: &str = "capture.application.json";
-const APPLICATION_METADATA_TEMP_FILE: &str = "capture.application.json.tmp";
-const APPLICATION_METADATA_OLD_FILE: &str = "capture.application.json.old";
+const APPLICATION_METADATA_NAMESPACE: &str = "capture-application-v1";
 const APPLICATION_METADATA_VERSION: u16 = 2;
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -125,21 +120,21 @@ enum CaptureCommand {
 }
 
 struct CompletedCapture {
-    _session_pin: NativeCaptureSessionPin,
-    capture: NativeFinalizedCapture,
-    waveform: NativeGrowingCaptureIndex,
+    _session_pin: CaptureSessionPin,
+    capture: FinalizedCapture,
+    waveform: GrowingCaptureIndex,
     source_node: node_graph::NodeId,
     graph_source_factory: Arc<dyn CaptureGraphSourceFactory>,
     recording_origin: Option<u64>,
     session_plan: Option<CaptureSessionPlan>,
     outcome: CaptureSessionOutcome,
     completion: Option<CaptureCompletion>,
-    waveform_worker: Option<NativeGrowingCaptureIndexWorker>,
+    waveform_worker: Option<GrowingCaptureIndexWorker>,
 }
 
 struct PinnedCaptureIndex {
-    inner: NativeGrowingCaptureIndex,
-    _session_pin: NativeCaptureSessionPin,
+    inner: GrowingCaptureIndex,
+    _session_pin: CaptureSessionPin,
 }
 
 impl CaptureIndex for PinnedCaptureIndex {
@@ -147,8 +142,8 @@ impl CaptureIndex for PinnedCaptureIndex {
         self.inner.display_name()
     }
 
-    fn index_path(&self) -> &Path {
-        self.inner.index_path()
+    fn index_identity(&self) -> signal_processing::SourceIdentity {
+        self.inner.index_identity()
     }
 
     fn header(&self) -> &CaptureMetadata {
@@ -192,8 +187,8 @@ struct CaptureRuntimeSignals {
 struct RecordingEventPublisher {
     inner: Box<dyn CaptureEventPublisher>,
     recording_gate: CaptureRecordingGate,
-    waveform: NativeGrowingCaptureIndex,
-    store: NativeCaptureStore,
+    waveform: GrowingCaptureIndex,
+    store: CaptureStore,
     runtime: Arc<Mutex<CaptureRuntimeSignals>>,
     last_health_at: Instant,
     last_health_bytes: u64,
@@ -265,7 +260,7 @@ enum WorkerCompletion {
 struct ActiveCapture {
     commands: Sender<CaptureCommand>,
     completion: Receiver<WorkerCompletion>,
-    waveforms: Receiver<NativeGrowingCaptureIndex>,
+    waveforms: Receiver<GrowingCaptureIndex>,
     analyses: Receiver<CaptureAnalysisAttachment>,
     events: CaptureEventQueueReader,
     worker: Option<JoinHandle<()>>,
@@ -281,19 +276,18 @@ struct PendingConfigurationEpoch {
 struct CaptureWorkerPorts {
     events: Box<dyn CaptureEventPublisher>,
     commands: Receiver<CaptureCommand>,
-    waveform_ready: Sender<NativeGrowingCaptureIndex>,
+    waveform_ready: Sender<GrowingCaptureIndex>,
     analysis_ready: Sender<CaptureAnalysisAttachment>,
 }
 
 struct CaptureWorkerSession {
-    repository: NativeCaptureSessionRepository,
+    repository: CaptureSessionRepository,
     application_metadata: Option<CaptureApplicationMetadata>,
 }
 
 pub(crate) struct CaptureCoordinator {
-    repository: NativeCaptureSessionRepository,
-    recent_sessions: Vec<NativeCaptureSessionSummary>,
-    _ephemeral_root: Option<TempDir>,
+    repository: CaptureSessionRepository,
+    recent_sessions: Vec<CaptureSessionSummary>,
     status: Option<CaptureSessionStatus>,
     active: Option<ActiveCapture>,
     completed: Option<CompletedCapture>,
@@ -318,16 +312,14 @@ impl CaptureCoordinator {
 
     #[cfg(test)]
     fn new_with_scripted_export() -> (Self, ScriptedCaptureExportControl) {
-        let root = tempfile::tempdir().expect("temporary capture root must be available");
-        let repository = NativeCaptureSessionRepository::new(
-            NativeCaptureSessionRepositoryConfig::new(root.path()),
-        )
-        .expect("temporary capture repository must be available");
+        let artifacts = Arc::new(signal_processing::MemoryArtifactRepository::new());
+        let repository =
+            CaptureSessionRepository::new(CaptureSessionRepositoryConfig::new(artifacts))
+                .expect("temporary capture repository must be available");
         let (export_service, control) = scripted_capture_export_service();
         (
             Self::with_repository_and_export_service(
                 repository,
-                Some(root),
                 export_service,
                 test_work_executor(),
             ),
@@ -338,23 +330,20 @@ impl CaptureCoordinator {
     pub(crate) fn configured(
         max_recent_sessions: usize,
         max_total_bytes: u64,
-        capture_session_directory: Option<PathBuf>,
+        artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
         export_service: Box<dyn CaptureExportService>,
     ) -> Self {
-        let capture_session_directory = capture_session_directory
-            .expect("native live capture requires a host-provided capture-session directory");
-        let config = NativeCaptureSessionRepositoryConfig::new(capture_session_directory)
+        let config = CaptureSessionRepositoryConfig::new(artifact_repository)
             .with_limits(max_recent_sessions, max_total_bytes)
             .expect("embedded live-capture limits are valid");
-        let repository = NativeCaptureSessionRepository::new(config)
-            .expect("the live-capture session directory must be available");
-        Self::with_repository_and_export_service(repository, None, export_service, work_executor)
+        let repository = CaptureSessionRepository::new(config)
+            .expect("the live-capture artifact repository must be available");
+        Self::with_repository_and_export_service(repository, export_service, work_executor)
     }
 
     fn with_repository_and_export_service(
-        repository: NativeCaptureSessionRepository,
-        ephemeral_root: Option<TempDir>,
+        repository: CaptureSessionRepository,
         export_service: Box<dyn CaptureExportService>,
         work_executor: Arc<dyn WorkExecutor>,
     ) -> Self {
@@ -362,7 +351,6 @@ impl CaptureCoordinator {
         Self {
             repository,
             recent_sessions,
-            _ephemeral_root: ephemeral_root,
             status: None,
             active: None,
             completed: None,
@@ -458,7 +446,7 @@ impl CaptureCoordinator {
     fn pinned_waveform_update(
         &self,
         session_id: CaptureSessionId,
-        waveform: NativeGrowingCaptureIndex,
+        waveform: GrowingCaptureIndex,
     ) -> Result<CaptureWaveformUpdate, String> {
         let session_pin = self
             .repository
@@ -621,9 +609,13 @@ impl CaptureCoordinator {
         let session_ids = self
             .recent_sessions
             .iter()
-            .filter_map(|session| session.session_id)
+            .map(|session| session.session_id)
             .collect::<Vec<_>>();
         for session_id in session_ids {
+            let _ = self
+                .repository
+                .artifact_repository()
+                .remove(&application_metadata_key(session_id)?);
             self.repository
                 .discard(session_id)
                 .map_err(|error| format!("could not remove previous capture data: {error}"))?;
@@ -667,7 +659,7 @@ impl CaptureCoordinator {
             && completed
                 .waveform_worker
                 .as_ref()
-                .is_some_and(NativeGrowingCaptureIndexWorker::is_finished)
+                .is_some_and(GrowingCaptureIndexWorker::is_finished)
             && let Some(worker) = completed.waveform_worker.take()
             && let Err(error) = worker.join()
             && let Some(status) = &mut self.status
@@ -679,7 +671,7 @@ impl CaptureCoordinator {
             let finished = completed
                 .waveform_worker
                 .as_ref()
-                .is_none_or(NativeGrowingCaptureIndexWorker::is_finished);
+                .is_none_or(GrowingCaptureIndexWorker::is_finished);
             if finished {
                 if let Some(worker) = completed.waveform_worker.take() {
                     let _ = worker.join();
@@ -1120,46 +1112,51 @@ fn fresh_session_id() -> CaptureSessionId {
 }
 
 fn write_application_metadata(
-    directory: &Path,
+    repository: &dyn ArtifactRepository,
+    session_id: CaptureSessionId,
     metadata: &CaptureApplicationMetadata,
 ) -> Result<(), String> {
     let mut bytes = serde_json::to_vec_pretty(metadata)
         .map_err(|error| format!("could not encode capture application metadata: {error}"))?;
     bytes.push(b'\n');
-    let temporary = directory.join(APPLICATION_METADATA_TEMP_FILE);
-    let final_path = directory.join(APPLICATION_METADATA_FILE);
-    let old_path = directory.join(APPLICATION_METADATA_OLD_FILE);
-    let _ = fs::remove_file(&temporary);
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&temporary)
+    let mut writer = repository
+        .begin_write(application_metadata_key(session_id)?)
         .map_err(|error| error.to_string())?;
-    file.write_all(&bytes).map_err(|error| error.to_string())?;
-    file.sync_data().map_err(|error| error.to_string())?;
-    drop(file);
-    let _ = fs::remove_file(&old_path);
-    if final_path.exists() {
-        fs::rename(&final_path, &old_path).map_err(|error| error.to_string())?;
-    }
-    if let Err(error) = fs::rename(&temporary, &final_path) {
-        if old_path.exists() {
-            let _ = fs::rename(&old_path, &final_path);
-        }
-        return Err(error.to_string());
-    }
-    let _ = fs::remove_file(old_path);
+    writer
+        .write_at(0, &bytes)
+        .map_err(|error| error.to_string())?;
+    writer
+        .truncate(bytes.len() as u64)
+        .map_err(|error| error.to_string())?;
+    writer.flush().map_err(|error| error.to_string())?;
+    writer.publish().map_err(|error| error.to_string())?;
     Ok(())
 }
 
 #[cfg(test)]
-fn read_application_metadata(directory: &Path) -> Result<CaptureApplicationMetadata, String> {
-    let path = directory.join(APPLICATION_METADATA_FILE);
-    recover_application_metadata_file(directory)?;
-    let bytes =
-        fs::read(&path).map_err(|error| format!("could not read {}: {error}", path.display()))?;
+fn read_application_metadata(
+    repository: &dyn ArtifactRepository,
+    session_id: CaptureSessionId,
+) -> Result<CaptureApplicationMetadata, String> {
+    let mut reader = repository
+        .open(&application_metadata_key(session_id)?)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "capture application metadata is missing".to_owned())?;
+    let length = usize::try_from(reader.len().map_err(|error| error.to_string())?)
+        .map_err(|_| "capture application metadata is too large".to_owned())?;
+    let mut bytes = vec![0_u8; length];
+    let mut copied = 0;
+    while copied < bytes.len() {
+        let count = reader
+            .read_at(copied as u64, &mut bytes[copied..])
+            .map_err(|error| error.to_string())?;
+        if count == 0 {
+            return Err("capture application metadata is truncated".into());
+        }
+        copied += count;
+    }
     let mut metadata = serde_json::from_slice::<CaptureApplicationMetadata>(&bytes)
-        .map_err(|error| format!("invalid {}: {error}", path.display()))?;
+        .map_err(|error| format!("invalid capture application metadata: {error}"))?;
     if metadata.format_version != 1 && metadata.format_version != APPLICATION_METADATA_VERSION {
         return Err(format!(
             "unsupported capture application metadata version {}",
@@ -1176,30 +1173,22 @@ fn read_application_metadata(directory: &Path) -> Result<CaptureApplicationMetad
         }
     }
     if repaired {
-        write_application_metadata(directory, &metadata)?;
+        write_application_metadata(repository, session_id, &metadata)?;
     }
     Ok(metadata)
 }
 
-#[cfg(test)]
-fn recover_application_metadata_file(directory: &Path) -> Result<(), String> {
-    let final_path = directory.join(APPLICATION_METADATA_FILE);
-    let temporary = directory.join(APPLICATION_METADATA_TEMP_FILE);
-    let old_path = directory.join(APPLICATION_METADATA_OLD_FILE);
-    if final_path.exists() {
-        let _ = fs::remove_file(temporary);
-        let _ = fs::remove_file(old_path);
-        return Ok(());
-    }
-    if temporary.exists() {
-        fs::rename(&temporary, &final_path).map_err(|error| error.to_string())?;
-        let _ = fs::remove_file(old_path);
-        return Ok(());
-    }
-    if old_path.exists() {
-        fs::rename(old_path, final_path).map_err(|error| error.to_string())?;
-    }
-    Ok(())
+fn application_metadata_key(session_id: CaptureSessionId) -> Result<ArtifactKey, String> {
+    let namespace = ArtifactNamespace::new(APPLICATION_METADATA_NAMESPACE)
+        .map_err(|error| error.to_string())?;
+    let session = session_id.get().to_le_bytes();
+    let mut identity = [0_u8; 32];
+    identity[..16].copy_from_slice(&session);
+    identity[16..].copy_from_slice(&session);
+    Ok(ArtifactKey::new(
+        namespace,
+        SourceIdentity::from_bytes(identity),
+    ))
 }
 
 fn run_capture_worker(
@@ -1218,9 +1207,16 @@ fn run_capture_worker(
         .reserve(session_id)
         .map_err(|error| error.to_string())?;
     if let Some(metadata) = &application_metadata
-        && let Err(error) = write_application_metadata(session_pin.directory(), metadata)
+        && let Err(error) = write_application_metadata(
+            repository.artifact_repository().as_ref(),
+            session_id,
+            metadata,
+        )
     {
         drop(session_pin);
+        let _ = repository
+            .artifact_repository()
+            .remove(&application_metadata_key(session_id)?);
         let _ = repository.discard(session_id);
         return Err(error);
     }
@@ -1250,8 +1246,8 @@ fn run_capture_worker(
     };
     let descriptor = CaptureStoreDescriptor::new(session_id, feature.channels().to_vec())
         .map_err(|error| error.to_string())?;
-    let (store, writer) = NativeCaptureStore::create(NativeCaptureStoreConfig::new(
-        session_pin.directory(),
+    let (store, writer) = CaptureStore::create(CaptureStoreConfig::new(
+        repository.artifact_repository(),
         descriptor,
     ))
     .map_err(|error| error.to_string())?;
@@ -1276,7 +1272,7 @@ fn run_capture_worker(
         .map_err(|_| "live analysis attachment receiver closed".to_owned())?;
     let source_node = feature.source_node();
     let source_title = feature.source_title().to_owned();
-    let (waveform, waveform_worker) = NativeGrowingCaptureIndex::spawn(
+    let (waveform, waveform_worker) = GrowingCaptureIndex::spawn(
         store.clone(),
         source_title,
         feature.sample_rate_hz(),
@@ -1330,7 +1326,8 @@ fn run_capture_worker(
             Ok(CaptureCommand::PrepareConfigurationEpoch { graph, response }) => {
                 let result = prepare_configuration_epoch(
                     &mut application_metadata,
-                    session_pin.directory(),
+                    repository.artifact_repository().as_ref(),
+                    session_id,
                     *graph,
                     &store,
                     &recording_gate,
@@ -1345,7 +1342,8 @@ fn run_capture_worker(
             }) => {
                 let result = resolve_configuration_epoch(
                     &mut application_metadata,
-                    session_pin.directory(),
+                    repository.artifact_repository().as_ref(),
+                    session_id,
                     epoch_id,
                     resolution,
                 );
@@ -1434,7 +1432,8 @@ fn run_capture_worker(
             }) => {
                 let result = resolve_configuration_epoch(
                     &mut application_metadata,
-                    session_pin.directory(),
+                    repository.artifact_repository().as_ref(),
+                    session_id,
                     epoch_id,
                     resolution,
                 );
@@ -1459,7 +1458,8 @@ fn run_capture_worker(
             } => {
                 let result = resolve_configuration_epoch(
                     &mut application_metadata,
-                    session_pin.directory(),
+                    repository.artifact_repository().as_ref(),
+                    session_id,
                     epoch_id,
                     resolution,
                 );
@@ -1537,9 +1537,10 @@ fn waveform_ready_for_publication(
 
 fn prepare_configuration_epoch(
     metadata: &mut Option<CaptureApplicationMetadata>,
-    directory: &Path,
+    repository: &dyn ArtifactRepository,
+    session_id: CaptureSessionId,
     graph: node_graph::GraphState,
-    store: &NativeCaptureStore,
+    store: &CaptureStore,
     recording_gate: &CaptureRecordingGate,
     sample_rate_hz: f64,
 ) -> Result<WorkerPreparedConfigurationEpoch, String> {
@@ -1578,7 +1579,7 @@ fn prepare_configuration_epoch(
             outcome: PersistedConfigurationEpochOutcome::Pending,
             message: None,
         });
-    write_application_metadata(directory, metadata)?;
+    write_application_metadata(repository, session_id, metadata)?;
     Ok(WorkerPreparedConfigurationEpoch {
         epoch_id,
         source_sample,
@@ -1588,7 +1589,8 @@ fn prepare_configuration_epoch(
 
 fn resolve_configuration_epoch(
     metadata: &mut Option<CaptureApplicationMetadata>,
-    directory: &Path,
+    repository: &dyn ArtifactRepository,
+    session_id: CaptureSessionId,
     epoch_id: u64,
     resolution: super::implementation::ConfigurationEpochResolution,
 ) -> Result<(), String> {
@@ -1618,7 +1620,7 @@ fn resolve_configuration_epoch(
     };
     epoch.outcome = outcome;
     epoch.message = message;
-    write_application_metadata(directory, metadata)
+    write_application_metadata(repository, session_id, metadata)
 }
 
 #[cfg(test)]
@@ -2286,20 +2288,27 @@ mod tests {
         first_controller.grant_chunks(4);
         poll_until(&mut coordinator, |coordinator| !coordinator.is_active());
         let first_session = coordinator.current_session_id().unwrap();
-        let first_directory = coordinator
-            .completed
-            .as_ref()
-            .unwrap()
-            ._session_pin
-            .directory()
-            .to_owned();
-        assert!(first_directory.exists());
+        assert!(
+            coordinator
+                .repository
+                .scan()
+                .unwrap()
+                .iter()
+                .any(|summary| { summary.session_id == first_session })
+        );
 
         let (feature, second_controller) = manual_feature();
         coordinator
             .start_with_graph(feature, &graph, CaptureStartMode::SavedPolicy)
             .unwrap();
-        assert!(!first_directory.exists());
+        assert!(
+            !coordinator
+                .repository
+                .scan()
+                .unwrap()
+                .iter()
+                .any(|summary| { summary.session_id == first_session })
+        );
         second_controller.grant_chunks(4);
         poll_until(&mut coordinator, |coordinator| !coordinator.is_active());
         assert_ne!(coordinator.current_session_id(), Some(first_session));
@@ -2379,10 +2388,10 @@ mod tests {
             std::thread::yield_now();
         };
         assert_eq!(prepared.epoch_id, 1);
-        // Provider progress can lead the batched durable-store frontier.
-        // Epoch acceptance deliberately uses the latter.
-        assert_eq!(prepared.source_sample, 0);
-        assert_eq!(prepared.boundary.sample_index, 0);
+        // Every accepted capture chunk advances the shared committed frontier,
+        // so epoch boundaries use the same sample visible to replay and viewers.
+        assert_eq!(prepared.source_sample, 8);
+        assert_eq!(prepared.boundary.sample_index, 8);
         coordinator
             .resolve_configuration_epoch(
                 prepared.epoch_id,
@@ -2400,18 +2409,14 @@ mod tests {
         coordinator.request_stop();
         poll_until(&mut coordinator, |coordinator| !coordinator.is_active());
 
-        let directory = coordinator
-            .completed
-            .as_ref()
-            .unwrap()
-            ._session_pin
-            .directory();
-        let metadata = super::read_application_metadata(directory).unwrap();
+        let session_id = coordinator.current_session_id().unwrap();
+        let artifacts = coordinator.repository.artifact_repository();
+        let metadata = super::read_application_metadata(artifacts.as_ref(), session_id).unwrap();
         assert_eq!(metadata.configuration_epochs.len(), 1);
         let epoch = &metadata.configuration_epochs[0];
-        assert_eq!(epoch.source_sample, 0);
-        assert_eq!(epoch.analysis_sample, 0);
-        assert_eq!(epoch.timestamp_ns, 0);
+        assert_eq!(epoch.source_sample, prepared.source_sample);
+        assert_eq!(epoch.analysis_sample, prepared.boundary.sample_index);
+        assert_eq!(epoch.timestamp_ns, prepared.boundary.timestamp_ns);
         assert_eq!(
             epoch.outcome,
             super::PersistedConfigurationEpochOutcome::Applied
@@ -2447,13 +2452,9 @@ mod tests {
         coordinator.request_stop();
         poll_until(&mut coordinator, |coordinator| !coordinator.is_active());
 
-        let directory = coordinator
-            .completed
-            .as_ref()
-            .unwrap()
-            ._session_pin
-            .directory();
-        let metadata = super::read_application_metadata(directory).unwrap();
+        let session_id = coordinator.current_session_id().unwrap();
+        let artifacts = coordinator.repository.artifact_repository();
+        let metadata = super::read_application_metadata(artifacts.as_ref(), session_id).unwrap();
         let epoch = &metadata.configuration_epochs[0];
         assert_eq!(
             epoch.outcome,
@@ -2600,7 +2601,7 @@ mod tests {
 
         let health = coordinator.status().unwrap().health;
         assert!(health.write_bytes_per_second.is_some());
-        assert_eq!(health.stored_samples, Some(0));
+        assert_eq!(health.stored_samples, Some(3));
         assert_eq!(health.graph_lag_samples, Some(2));
 
         coordinator.request_abort().unwrap();

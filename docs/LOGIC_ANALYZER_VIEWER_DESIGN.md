@@ -9,11 +9,11 @@ never invents edge positions it doesn't know).
 Implementation:
 
 - egui widget: [crates/widgets/logic_analyzer_viewer](../crates/widgets/logic_analyzer_viewer)
-  (`viewer.rs`, `channel.rs`, `cursor.rs`, `draw/`, `input.rs`, `sampling.rs`, `worker.rs`)
+  (`viewer.rs`, `channel.rs`, `cursor.rs`, `draw/`, `input.rs`, `sampling.rs`)
 - Index build/query engine: [crates/signal_processing/src/waveform_index/](../crates/signal_processing/src/waveform_index)
   (`builder.rs`, `growing.rs`, `query.rs`, `storage.rs`, `reader.rs`, `types.rs`)
-- Finite archive capture store: [crates/signal_processing/src/archive_capture_store/](../crates/signal_processing/src/archive_capture_store)
-- Capture reader / data source: [crates/logic_analyzer_processing/src/nodes/sources/dsl_file.rs](../crates/logic_analyzer_processing/src/nodes/sources/dsl_file.rs)
+- Authoritative capture store: [crates/signal_processing/src/live_capture_store/](../crates/signal_processing/src/live_capture_store)
+- Capture reader / data source: [crates/logic_analyzer_processing/src/nodes/sources/dsl_file/](../crates/logic_analyzer_processing/src/nodes/sources/dsl_file)
   (`DslCaptureReader`, `DslFileCaptureDataSource`)
 - Common capture types / traits: [crates/signal_processing/src/capture.rs](../crates/signal_processing/src/capture.rs)
 - Derived-lane store and summary index:
@@ -45,8 +45,9 @@ dragging their labels and renamed via double-click (rename maps live in the view
 channel index / lane name — the underlying data is untouched). Two color profiles (DSView
 Tango-based, Classic muted) are selectable from the header bar.
 
-On wasm there is no file access and no background worker: derived lanes and in-memory
-channels are the only content.
+On wasm the compiler uses the same preparation and index contracts with the injected memory
+repository. Host file acquisition remains unavailable until a browser adapter supplies prepared
+bytes, but embedded and owned capture sources use the same indexed presentation as native sources.
 
 ---
 
@@ -81,26 +82,26 @@ concrete capture source
   │         └─ concrete processing reader (DSL, Sigrok, or another registered format)
   │
   ├─ Waveform index (crates/signal_processing/src/waveform_index)
-  │    ├─ IndexBuilder              — builds finite sidecars on worker threads
-  │    ├─ IndexReader               — mmaps finite directory + leaf summaries
+  │    ├─ IndexBuilder              — builds finite root and leaf artifacts
+  │    ├─ IndexReader               — reads immutable root and leaf generations
   │    ├─ IndexSampler              — finite sampled_window() query handle
-  │    └─ NativeGrowingCaptureIndex — growing sampled_window() query handle
+  │    └─ GrowingCaptureIndex       — growing sampled_window() query handle
   │
-  ├─ Archive capture store (crates/signal_processing/src/archive_capture_store)
-  │    └─ NativeArchiveCaptureStore — optional `.dsl.idx.raw` exact-read store
+  ├─ Capture store (crates/signal_processing/src/live_capture_store)
+  │    └─ CaptureStore              — committed packed chunks and finalized replay
   │
   └─ LogicAnalyzerViewer (egui)          — samples the prepared index and paints it
 ```
 
-`IndexSampler` and `NativeGrowingCaptureIndex` are the finite and growing handles of one waveform
+`IndexSampler` and `GrowingCaptureIndex` are the finite and growing handles of one waveform
 index subsystem. They share the exact-window threshold, resolution-selection policy, capture-query
 contract, per-pixel summary sampler, and presentation data types. Finite bitmap summaries and
 growing tier summaries are storage backends for that shared query algorithm; neither backend emits
 drawable summary spans directly. The finite handle owns an `IndexReader`, a raw
-`BlockCaptureSource`, and an optional `NativeArchiveCaptureStore`; the growing handle follows
+`BlockCaptureSource`, and an artifact-backed raw-block cache; the growing handle follows
 committed chunks in the authoritative live store. The viewer holds either one as
 `Box<dyn CaptureIndex>` — the trait seam that keeps the widget crate decoupled from storage
-implementations (and empty on wasm).
+implementations on every target.
 
 ---
 
@@ -112,8 +113,8 @@ implementations (and empty on wasm).
 | Block | The raw-capture unit; one `L-{channel}/{block}` ZIP entry, `samples_per_block` samples |
 | Chunk / leaf | The serialized index payload for one (channel, block) pair: `valid_samples`, flags, and (if active) the L1/L2/L3 mipmap bitmaps |
 | Directory entry | The per-(channel, block) directory record: chunk offset/length plus a duplicated top-level (L3) summary, so coarse queries never need to touch the payload |
-| Sidecar index | The persistent `.dsl.idx` file: header + directory + chunk payloads |
-| Archive capture store | The disposable `.dsl.idx.raw` file: lazily-populated decompressed archive blocks for exact/deep-zoom reads |
+| Root artifact | The published finite-index metadata and leaf directory for one source identity |
+| Raw-block artifact | A lazily populated packed source block used for exact/deep-zoom reads |
 
 Every (channel, block) pair gets its own directory entry and chunk; the directory entry's
 embedded L3 summary is what makes the coarsest zoom level cheap without another index level.
@@ -202,42 +203,35 @@ Magic `CAPIDX06`, built by `IndexWriter` / read by `IndexReader` in
 └─────────────────────────────────────────────────────┘
 ```
 
-The index is opened via `Mmap`; leaf chunks are read zero-copy directly out of the mapping (no
-application-level chunk cache — the OS page cache manages residency). The directory itself is
-read into a `Vec<Vec<RootDirEntry>>` at open time, so the coarsest-level query (`load_root_summary`)
-never touches the mmap.
+The injected artifact repository supplies immutable leaf regions. Native regions retain their
+mmap backing, while memory repositories retain owned chunks; query code does not distinguish them.
+The compact directory is read into a `Vec<Vec<RootDirEntry>>` at open time, so the coarsest-level
+query (`load_root_summary`) never touches a leaf artifact.
 
 Validity: the header records `source_revision` (the source file's byte length) plus
 `total_samples`/`total_blocks`/`samples_per_block`/`samplerate_bits`/`total_channels`. On open,
-`IndexReader::is_valid` rejects a stale sidecar so a changed capture rebuilds its index instead
-of serving mismatched data. The writer builds into a `.idx.tmp` sibling and atomically renames
-it into place on `finish()`; a dropped, unfinished writer removes the temp file.
+`IndexReader::is_valid` rejects a stale root so a changed capture rebuilds its index instead of
+serving mismatched data. The writer publishes every immutable leaf first and publishes the root
+last on `finish()`, so an unfinished generation is not discoverable.
 
 ---
 
-## Archive Capture Store (`.dsl.idx.raw`)
+## Raw Block Artifact Cache
 
-[archive_capture_store/native.rs](../crates/signal_processing/src/archive_capture_store/native.rs) keeps a sparse sidecar with
-one fixed-size slot per (channel, block), used only by the **exact** (deep-zoom / raw-scan)
-query path — it is not part of the mipmap index.
+`IndexSampler` stores a packed artifact per `(source identity, channel, block)` when an exact
+query first reads that block. This cache is separate from the waveform summaries.
 
-- Layout: 64-byte header, a validity bitmap (one bit per slot), then slots in block-major order
-  (all channels of one block adjacent), starting page-aligned.
-- A slot is filled the first time its block is decompressed and is served zero-copy from a
-  shared `Mmap` afterwards, so disk usage grows only with regions actually inspected at sample
-  resolution.
-- The validity bitmap is written back only on clean drop, after `sync_data` on the slot writes,
-  so a set bit on disk always refers to fully-written data; a crash only loses cache entries
-  (fully re-derivable from the archive).
-- Reads go through the map while writes use the file descriptor, which is coherent on Unix
-  targets sharing a page cache between `write()` and `MAP_SHARED`.
+- A block is published only after its complete packed bytes are available.
+- Reopened samplers reuse the artifact without reading or decompressing the source again.
+- External one-shot `packed_block` consumers do not populate the cache implicitly.
+- Repository byte regions retain mmap or owned-memory backing without a capture-sized allocation.
 
 ---
 
 ## Index Building
 
 `IndexBuilder::build` ([builder.rs](../crates/signal_processing/src/waveform_index/builder.rs)) runs
-on a background thread (spawned by the viewer's worker, see below):
+through the compiler-injected work executor during source preparation:
 
 1. Enumerate every `(channel, block)` job (`total_probes × total_blocks`).
 2. Spawn `index_worker_count()` worker threads (`CAPTURE_INDEX_THREADS` / `DSL_INDEX_THREADS`
@@ -249,8 +243,8 @@ on a background thread (spawned by the viewer's worker, see below):
 4. Results are streamed back through an `mpsc` channel to a single collector, which reorders
    them per-channel (a small `HashMap` reorder buffer, not the whole index) so each leaf can be
    patched for boundary transitions against its immediate predecessor before being written.
-5. `IndexWriter::write_block` appends the chunk to the payload and records its directory entry;
-   `finish()` writes the header + directory and atomically renames the temp file into place.
+5. `IndexWriter::write_block` publishes the leaf and records its directory entry; `finish()`
+   publishes the root header and directory.
 
 Progress is reported as `CaptureIndexProgress { completed_roots, total_roots }` (one unit per
 completed (channel, block) job).
@@ -259,9 +253,8 @@ completed (channel, block) job).
 
 ## Runtime Querying — `IndexSampler`
 
-`IndexSampler::open_data_source_with_progress` builds the index if the sidecar is
-missing/invalid, opens the optional `NativeArchiveCaptureStore`, mmaps the index, and opens a raw
-`BlockCaptureSource` reader for exact reads.
+`IndexSampler::open_data_source_with_progress` builds the index if its root is missing or invalid,
+opens its root and leaf artifacts, and opens a raw `BlockCaptureSource` reader for exact reads.
 
 ### `sampled_window(channels, start_sample, end_sample, target_points)`
 
@@ -288,7 +281,7 @@ changes.
    For each rendered point, `indexed_display_range_summary` walks the blocks overlapping that
    point's sample range and merges their `first`/`toggle`/`last` (falling back to the coarser
    directory-only `load_root_summary` when the whole block is covered or the group size is at
-   least L3; otherwise `load_leaf` mmaps the chunk's L1/L2 bitmaps). `append_pixel_waveform`
+   least L3; otherwise `load_leaf` reads the leaf's L1/L2 bitmaps). `append_pixel_waveform`
    then turns each point's summary into one `CaptureWaveformSegment`:
    - `Activity { first, last }` if any toggle occurred in the point's range,
    - `Level { value }` if the point continues the previous level unchanged,
@@ -301,9 +294,8 @@ The exact path returns `transitions` (empty `waveform`); the indexed path return
 ### Raw block reads
 
 Both the exact path and the raw-cache-backed reads for the UI's hover measurement (below) go
-through `cached_packed_block`, which prefers the `NativeArchiveCaptureStore` slot map and falls back to
-`raw_reader.read_packed_block` (decompressing from the ZIP), storing the result back into the
-cache.
+through `cached_packed_block`, which prefers the published raw-block artifact and falls back to
+`raw_reader.read_packed_block`, publishing the complete result for subsequent queries.
 
 ---
 
@@ -311,41 +303,25 @@ cache.
 
 Per-frame flow in `show()`:
 
-1. `process_worker_responses()` — drain the background worker's channel (native only).
-2. `ensure_row_order()` — reconcile the row list against current channels + derived lanes.
-3. Row-label input (rename double-click, drag reorder), edge-delta measurement, cursor input,
+1. `ensure_row_order()` — reconcile the row list against current channels + derived lanes.
+2. Row-label input (rename double-click, drag reorder), edge-delta measurement, cursor input,
    fit-to-view (double-click / `F`), then pan/zoom input.
-4. `sample_visible_window()` — recompute `(start_sample, end_sample, target_points)` for the
+3. `sample_visible_window()` — recompute `(start_sample, end_sample, target_points)` for the
    current view/viewport; if unchanged since last frame, skip the query. Otherwise call
    `sampled_window` synchronously on the UI thread and convert the result into
    `LogicChannel`s. What is drawn is therefore always exactly the current view — there is no
    separate asynchronous refinement pass that could disagree with it.
-5. `sample_hover_measurement()` — refresh the pulse measurement under the pointer unless an
+4. `sample_hover_measurement()` — refresh the pulse measurement under the pointer unless an
    edge-delta measurement is active; an active edge-delta measurement instead resolves its
    endpoint from the pointer.
-6. `draw()` — header, ruler, row labels, channel waveforms, derived lanes, pointer marker,
+5. `draw()` — header, ruler, row labels, channel waveforms, derived lanes, pointer marker,
    pulse and edge-delta measurement overlays, time cursors; then the color-profile selector
    overlay.
-7. Repaint scheduling: while opening (no `CaptureInfo` yet) repaint every ~16 ms; while
+6. Repaint scheduling: while opening (no `CaptureInfo` yet) repaint every ~16 ms; while
    indexing or waiting for the sampler, every ~100 ms; while a derived lane is live, every
    ~50 ms; and while a growing capture is active, every ~8 ms. The application may repaint at
    ~16 ms while a pipeline is active, but generation-cached derived snapshots keep those extra
    frames independent of storage-query cost. Otherwise egui's normal repaint-on-input applies.
-
-### Background worker
-
-`set_capture_path` spawns one thread (`spawn_capture_worker`) per opened capture:
-
-1. Send `WorkerResponse::Opened` with `CaptureMetadata` as soon as the header is parsed (lets
-   the UI show placeholder channels immediately).
-2. Send a `Status` message ("Building waveform index…").
-3. Build/validate the index, forwarding `IndexProgress` messages (throttled to once per
-   ~100 ms or every 64 completed jobs, plus always the first and last).
-4. Send `IndexReady` or `Error`.
-
-`process_worker_responses` ignores messages for a stale `path` (superseded by a newer
-`set_capture_path` call) and, on `IndexReady`, opens a fresh sampler on the UI-owned struct so
-subsequent `sampled_window` calls run synchronously on the UI thread.
 
 ### Channel data model
 
@@ -477,10 +453,10 @@ bidirectional synchronization policy.
 
 | Concern | Mechanism |
 |---|---|
-| Multi-GB file, limited RAM | Index chunks are mmapped, not resident; only touched pages are faulted in |
+| Multi-GB file, limited RAM | Index leaves and raw blocks are bounded artifacts; native reads retain mmap pages and memory repositories retain only configured chunks |
 | Zoom to full view | One block per rendered point at coarsest zoom; directory-only `l3_toggle`/`l3_last` avoids touching chunk payloads |
-| Zoom to single sample | Exact path scans raw packed blocks (via `NativeArchiveCaptureStore` or ZIP decompression) once the viewport is within one L1 group per point |
-| Viewing during index build | `Opened`/`Status`/`IndexProgress` messages let the UI show metadata and a progress bar before the sampler exists |
+| Zoom to single sample | Exact path scans cached raw-block artifacts or reads one source block once the viewport is within one L1 group per point |
+| Viewing during index build | Compiler source-preparation progress lets the UI show metadata and a progress bar before the prepared sampler exists |
 | Constant / idle signals | No L1/L2/L3 payload stored; directory `toggle` bit cleared; reconstructed from `first`/`last` alone |
 | Boundary transitions | Patched into an otherwise-constant block's summaries by `apply_boundary_transition` |
 | Live decode output | Adapter-owned collected queries with bounded exact/activity snapshots, repainted while the pipeline runs |
