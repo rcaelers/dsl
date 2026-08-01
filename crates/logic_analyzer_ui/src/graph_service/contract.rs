@@ -1,6 +1,7 @@
 use std::any::Any;
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use logic_analyzer_graph_api::node_support::{
     LiveCaptureEdit, TimelineMarkerEdit, TimelineMarkerReferenceBindingEdit,
@@ -15,7 +16,7 @@ use logic_analyzer_graph_compiler::{
 };
 use node_graph::{GraphState, NodeId};
 use signal_processing::{
-    ConfigurationBoundary, DerivedLanes, DisconnectEvent, PersistentStoreConfig,
+    ArtifactRepository, ConfigurationBoundary, DerivedLanes, DisconnectEvent, PersistentStoreConfig,
 };
 
 use crate::live_capture::CaptureFeatureDiscovery;
@@ -49,6 +50,8 @@ pub(crate) trait GraphRun {
 }
 
 pub(crate) trait GraphService: CaptureFeatureDiscovery {
+    fn set_artifact_repository(&mut self, repository: Arc<dyn ArtifactRepository>);
+
     fn derived_cache_configs_by_node(
         &self,
         graph: &GraphState,

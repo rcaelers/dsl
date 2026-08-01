@@ -35,12 +35,12 @@ use node_graph::api::{
 #[cfg(test)]
 use signal_processing::PayloadRegistrationError;
 use signal_processing::{
-    AcquisitionContext, AcquisitionResult, AppManager, CaptureChannelId,
+    AcquisitionContext, AcquisitionResult, AppManager, ArtifactRepository, CaptureChannelId,
     CaptureProviderCapabilities, CaptureSessionPlan, CaptureStartMode, CollectedLaneRequest,
     ConfigurationBoundary, DerivedDataRetention, DerivedLanes, DisconnectEvent, InlineWorkExecutor,
-    InputSub, NodeConfig, OverflowPolicy, PayloadRegistry, PersistentStoreConfig,
-    PreparedAcquisition, ProcessNode, SampleBlock, SamplingPointStore, SimpleTriggerCondition,
-    TriggerProgram, WorkExecutor,
+    InputSub, MemoryArtifactRepository, NodeConfig, OverflowPolicy, PayloadRegistry,
+    PersistentStoreConfig, PreparedAcquisition, ProcessNode, SampleBlock, SamplingPointStore,
+    SimpleTriggerCondition, TriggerProgram, WorkExecutor,
 };
 
 use super::data_collector::DataCollectorBuilder;
@@ -71,6 +71,7 @@ pub struct CompileCtx {
     diagnostics: RunDiagnosticRegistry,
     source_readiness: SourceReadinessRegistry,
     work_executor: Arc<dyn WorkExecutor>,
+    artifact_repository: Arc<dyn ArtifactRepository>,
 }
 
 impl Default for CompileCtx {
@@ -88,6 +89,7 @@ impl Default for CompileCtx {
             diagnostics: RunDiagnosticRegistry::default(),
             source_readiness: SourceReadinessRegistry::default(),
             work_executor: Arc::new(InlineWorkExecutor),
+            artifact_repository: Arc::new(MemoryArtifactRepository::new()),
         }
     }
 }
@@ -101,6 +103,11 @@ impl CompileCtx {
     /// Supplies the host-selected bounded work executor to node builders.
     pub fn set_work_executor(&mut self, executor: Arc<dyn WorkExecutor>) {
         self.work_executor = executor;
+    }
+
+    /// Supplies the host-selected repository used by concrete data stores.
+    pub fn set_artifact_repository(&mut self, repository: Arc<dyn ArtifactRepository>) {
+        self.artifact_repository = repository;
     }
 
     /// Returns the run's collected lanes for binding to host views and panels.
@@ -175,6 +182,10 @@ impl NodeBuildContext for CompileCtx {
 
     fn work_executor(&self) -> Arc<dyn WorkExecutor> {
         Arc::clone(&self.work_executor)
+    }
+
+    fn artifact_repository(&self) -> Arc<dyn ArtifactRepository> {
+        Arc::clone(&self.artifact_repository)
     }
 
     fn timeline_marker(
@@ -2124,6 +2135,7 @@ pub struct LiveRun {
     persistent_cache_directory: Option<std::path::PathBuf>,
     timeline_markers: HashMap<TimelineMarkerReference, signal_processing::TimelineMarker>,
     work_executor: Arc<dyn WorkExecutor>,
+    artifact_repository: Arc<dyn ArtifactRepository>,
 }
 
 /// One provider-owned source process used only while a live capture follows
@@ -2305,6 +2317,7 @@ fn start_live_inner(
         persistent_cache_directory: ctx.persistent_cache_directory.clone(),
         timeline_markers: ctx.timeline_markers.clone(),
         work_executor: Arc::clone(&ctx.work_executor),
+        artifact_repository: Arc::clone(&ctx.artifact_repository),
     })
 }
 
@@ -2399,6 +2412,7 @@ impl LiveRun {
             source_readiness: self.source_readiness.clone(),
             timeline_markers: self.timeline_markers.clone(),
             work_executor: Arc::clone(&self.work_executor),
+            artifact_repository: Arc::clone(&self.artifact_repository),
         };
         let mut summary = ApplySummary::default();
         for edit in edits {
@@ -3658,7 +3672,9 @@ mod tests {
                     },
                 );
                 request.with_options(signal_processing::CollectedWordLaneOptions::new(
-                    store_config.with_work_executor(context.work_executor()),
+                    store_config
+                        .with_work_executor(context.work_executor())
+                        .with_artifact_repository(context.artifact_repository()),
                     None,
                 ))
             })

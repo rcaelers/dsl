@@ -1,0 +1,363 @@
+use std::fs::{File, OpenOptions};
+use std::io::{ErrorKind, Seek, SeekFrom, Write};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use memmap2::MmapOptions;
+
+use signal_processing::{
+    ArtifactKey, ArtifactMetadata, ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion,
+    ImmutableByteRegion, ReadArtifact, RepositoryCapabilities, RepositoryError, SourceIdentity,
+    WriteArtifact,
+};
+
+static NEXT_TEMPORARY_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Durable native artifact repository selected at the platform boundary.
+pub(crate) struct NativeArtifactRepository {
+    root: PathBuf,
+}
+
+impl NativeArtifactRepository {
+    pub(crate) fn new(root: PathBuf) -> Self {
+        Self { root }
+    }
+
+    fn namespace_directory(&self, namespace: &ArtifactNamespace) -> PathBuf {
+        self.root.join(hex_encode(namespace.as_str().as_bytes()))
+    }
+
+    fn artifact_path(&self, key: &ArtifactKey) -> PathBuf {
+        self.namespace_directory(key.namespace())
+            .join(hex_encode(key.identity().as_bytes()))
+    }
+
+    fn temporary_path(&self, key: &ArtifactKey) -> PathBuf {
+        let id = NEXT_TEMPORARY_ID.fetch_add(1, Ordering::Relaxed);
+        let artifact_name = hex_encode(key.identity().as_bytes());
+        self.namespace_directory(key.namespace())
+            .join(format!(".{artifact_name}.{id}.pending"))
+    }
+}
+
+impl ArtifactRepository for NativeArtifactRepository {
+    fn capabilities(&self) -> RepositoryCapabilities {
+        RepositoryCapabilities {
+            durable: true,
+            atomic_publication: true,
+            immutable_regions: true,
+        }
+    }
+
+    fn open(&self, key: &ArtifactKey) -> Result<Option<Box<dyn ReadArtifact>>, RepositoryError> {
+        let path = self.artifact_path(key);
+        let file = match File::open(&path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(repository_io(error)),
+        };
+        let length = file.metadata().map_err(repository_io)?.len();
+        let backing = if length == 0 {
+            NativeArtifactRegion::Empty
+        } else {
+            // SAFETY: published artifacts are immutable and the mapping owns
+            // its file-backed pages for the lifetime of this read generation.
+            let map = unsafe { MmapOptions::new().map(&file) }.map_err(repository_io)?;
+            NativeArtifactRegion::Mapped(map)
+        };
+        Ok(Some(Box::new(NativeReadArtifact {
+            key: key.clone(),
+            backing: Arc::new(backing),
+            length,
+        })))
+    }
+
+    fn begin_write(&self, key: ArtifactKey) -> Result<Box<dyn WriteArtifact>, RepositoryError> {
+        let directory = self.namespace_directory(key.namespace());
+        std::fs::create_dir_all(&directory).map_err(repository_io)?;
+        let temporary_path = self.temporary_path(&key);
+        let file = OpenOptions::new()
+            .create_new(true)
+            .read(true)
+            .write(true)
+            .open(&temporary_path)
+            .map_err(repository_io)?;
+        Ok(Box::new(NativeWriteArtifact {
+            final_path: self.artifact_path(&key),
+            key,
+            file: Some(file),
+            temporary_path,
+            published: false,
+        }))
+    }
+
+    fn remove(&self, key: &ArtifactKey) -> Result<(), RepositoryError> {
+        match std::fs::remove_file(self.artifact_path(key)) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(repository_io(error)),
+        }
+    }
+
+    fn entries(
+        &self,
+        namespace: &ArtifactNamespace,
+    ) -> Result<Vec<ArtifactMetadata>, RepositoryError> {
+        let entries = match std::fs::read_dir(self.namespace_directory(namespace)) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(repository_io(error)),
+        };
+        let mut artifacts = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(repository_io)?;
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            let Some(identity) = parse_identity(&name) else {
+                continue;
+            };
+            let metadata = entry.metadata().map_err(repository_io)?;
+            if metadata.is_file() {
+                artifacts.push(ArtifactMetadata {
+                    key: ArtifactKey::new(namespace.clone(), identity),
+                    length: metadata.len(),
+                });
+            }
+        }
+        artifacts.sort_by(|left, right| left.key.cmp(&right.key));
+        Ok(artifacts)
+    }
+}
+
+enum NativeArtifactRegion {
+    Mapped(memmap2::Mmap),
+    Empty,
+}
+
+impl ImmutableByteRegion for NativeArtifactRegion {
+    fn bytes(&self) -> &[u8] {
+        match self {
+            Self::Mapped(map) => map,
+            Self::Empty => &[],
+        }
+    }
+}
+
+struct NativeReadArtifact {
+    key: ArtifactKey,
+    backing: Arc<NativeArtifactRegion>,
+    length: u64,
+}
+
+impl ReadArtifact for NativeReadArtifact {
+    fn key(&self) -> &ArtifactKey {
+        &self.key
+    }
+
+    fn len(&self) -> Result<u64, RepositoryError> {
+        Ok(self.length)
+    }
+
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize, RepositoryError> {
+        if offset > self.length {
+            return Err(RepositoryError::OutOfBounds {
+                offset,
+                end: offset,
+                artifact_length: self.length,
+            });
+        }
+        let start = usize::try_from(offset).map_err(|_| RepositoryError::OutOfBounds {
+            offset,
+            end: offset,
+            artifact_length: self.length,
+        })?;
+        let source = &self.backing.bytes()[start..];
+        let count = source.len().min(destination.len());
+        destination[..count].copy_from_slice(&source[..count]);
+        Ok(count)
+    }
+
+    fn region(&self, range: ByteRange) -> Result<Option<ByteRegion>, RepositoryError> {
+        if range.end() > self.length {
+            return Err(RepositoryError::OutOfBounds {
+                offset: range.offset,
+                end: range.end(),
+                artifact_length: self.length,
+            });
+        }
+        let backing: Arc<dyn ImmutableByteRegion> = self.backing.clone();
+        ByteRegion::new(backing, range)
+            .map(Some)
+            .map_err(RepositoryError::from)
+    }
+}
+
+struct NativeWriteArtifact {
+    key: ArtifactKey,
+    file: Option<File>,
+    temporary_path: PathBuf,
+    final_path: PathBuf,
+    published: bool,
+}
+
+impl NativeWriteArtifact {
+    fn file_mut(&mut self) -> Result<&mut File, RepositoryError> {
+        self.file
+            .as_mut()
+            .ok_or_else(|| RepositoryError::Io("artifact write was already published".into()))
+    }
+}
+
+impl WriteArtifact for NativeWriteArtifact {
+    fn key(&self) -> &ArtifactKey {
+        &self.key
+    }
+
+    fn write_at(&mut self, offset: u64, source: &[u8]) -> Result<(), RepositoryError> {
+        self.file_mut()?
+            .seek(SeekFrom::Start(offset))
+            .map_err(repository_io)?;
+        self.file_mut()?.write_all(source).map_err(repository_io)
+    }
+
+    fn truncate(&mut self, len: u64) -> Result<(), RepositoryError> {
+        self.file_mut()?.set_len(len).map_err(repository_io)
+    }
+
+    fn flush(&mut self) -> Result<(), RepositoryError> {
+        self.file_mut()?.sync_all().map_err(repository_io)
+    }
+
+    fn publish(mut self: Box<Self>) -> Result<(), RepositoryError> {
+        let file = self
+            .file
+            .take()
+            .ok_or_else(|| RepositoryError::Io("artifact write was already published".into()))?;
+        file.sync_all().map_err(repository_io)?;
+        drop(file);
+        std::fs::rename(&self.temporary_path, &self.final_path).map_err(repository_io)?;
+        self.published = true;
+        Ok(())
+    }
+}
+
+impl Drop for NativeWriteArtifact {
+    fn drop(&mut self) {
+        if !self.published {
+            let _ = std::fs::remove_file(&self.temporary_path);
+        }
+    }
+}
+
+fn repository_io(error: std::io::Error) -> RepositoryError {
+    RepositoryError::Io(error.to_string())
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for &byte in bytes {
+        encoded.push(HEX[(byte >> 4) as usize] as char);
+        encoded.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    encoded
+}
+
+fn parse_identity(value: &str) -> Option<SourceIdentity> {
+    if value.len() != 64 {
+        return None;
+    }
+    let mut bytes = [0_u8; 32];
+    let (pairs, []) = value.as_bytes().as_chunks::<2>() else {
+        return None;
+    };
+    for (index, pair) in pairs.iter().enumerate() {
+        bytes[index] = (hex_value(pair[0])? << 4) | hex_value(pair[1])?;
+    }
+    Some(SourceIdentity::from_bytes(bytes))
+}
+
+fn hex_value(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod native_artifact_repository_tests {
+    use signal_processing::{
+        ArtifactByteSource, MemoryArtifactRepository, PreparedByteSource, SourceCapabilities,
+    };
+
+    use super::*;
+
+    #[test]
+    fn repository_satisfies_the_shared_artifact_and_source_contracts() {
+        let directory = tempfile::tempdir().unwrap();
+        let native: Arc<dyn ArtifactRepository> = Arc::new(NativeArtifactRepository::new(
+            directory.path().join("artifacts"),
+        ));
+        assert_repository_contract(native, true);
+
+        let memory: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+        assert_repository_contract(memory, false);
+    }
+
+    fn assert_repository_contract(repository: Arc<dyn ArtifactRepository>, expected_durable: bool) {
+        let namespace = ArtifactNamespace::new("derived payload").unwrap();
+        let key = ArtifactKey::new(namespace.clone(), SourceIdentity::from_bytes([0x5a; 32]));
+
+        let mut writer = repository.begin_write(key.clone()).unwrap();
+        writer.write_at(2, b"cde").unwrap();
+        writer.write_at(0, b"ab").unwrap();
+        assert!(repository.open(&key).unwrap().is_none());
+        writer.publish().unwrap();
+
+        let source = ArtifactByteSource::new(Arc::clone(&repository), key.clone());
+        assert_eq!(source.capabilities(), SourceCapabilities::RANDOM_ACCESS);
+        let mut reader = source.open_reader().unwrap();
+        let mut bytes = [0_u8; 5];
+        reader.read_exact_at(0, &mut bytes).unwrap();
+        assert_eq!(&bytes, b"abcde");
+
+        let reader = repository.open(&key).unwrap().unwrap();
+        assert_eq!(
+            reader
+                .region(ByteRange::new(1, 3).unwrap())
+                .unwrap()
+                .unwrap()
+                .bytes(),
+            b"bcd"
+        );
+        assert_eq!(repository.entries(&namespace).unwrap().len(), 1);
+        let capabilities = repository.capabilities();
+        assert_eq!(capabilities.durable, expected_durable);
+        assert!(capabilities.atomic_publication);
+        assert!(capabilities.immutable_regions);
+
+        let mut previous_generation = repository.open(&key).unwrap().unwrap();
+        let mut replacement = repository.begin_write(key.clone()).unwrap();
+        replacement.write_at(0, b"vwxyz").unwrap();
+        replacement.publish().unwrap();
+        let mut previous = [0_u8; 5];
+        previous_generation.read_at(0, &mut previous).unwrap();
+        assert_eq!(&previous, b"abcde");
+
+        let mut unpublished = repository.begin_write(key.clone()).unwrap();
+        unpublished.write_at(0, b"incomplete").unwrap();
+        drop(unpublished);
+
+        let mut reader = repository.open(&key).unwrap().unwrap();
+        let mut preserved = [0_u8; 5];
+        reader.read_at(0, &mut preserved).unwrap();
+        assert_eq!(&preserved, b"vwxyz");
+
+        repository.remove(&key).unwrap();
+        assert!(repository.entries(&namespace).unwrap().is_empty());
+    }
+}

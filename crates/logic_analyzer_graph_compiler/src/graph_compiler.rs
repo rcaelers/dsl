@@ -8,8 +8,9 @@ use logic_analyzer_graph_api::node_support::{
 };
 use node_graph::api::{GraphState, NodeId};
 use signal_processing::{
-    AppManagerFactory, ConfigurationBoundary, CooperativeAppManagerFactory, InlineWorkExecutor,
-    PayloadRegistry, PersistentStoreConfig, WorkExecutor,
+    AppManagerFactory, ArtifactRepository, ConfigurationBoundary, CooperativeAppManagerFactory,
+    InlineWorkExecutor, MemoryArtifactRepository, PayloadRegistry, PersistentStoreConfig,
+    WorkExecutor,
 };
 
 use super::errors::{ApplyError, CompileError};
@@ -36,6 +37,7 @@ pub struct GraphCompiler {
     source_preparation: SourcePreparation,
     runtime_factory: Arc<dyn AppManagerFactory>,
     work_executor: Arc<dyn WorkExecutor>,
+    artifact_repository: Arc<dyn ArtifactRepository>,
 }
 
 impl GraphCompiler {
@@ -46,6 +48,7 @@ impl GraphCompiler {
             source_preparation: SourcePreparation::new(),
             runtime_factory: Arc::new(CooperativeAppManagerFactory),
             work_executor: Arc::new(InlineWorkExecutor),
+            artifact_repository: Arc::new(MemoryArtifactRepository::new()),
         }
     }
 
@@ -57,6 +60,7 @@ impl GraphCompiler {
             source_preparation: SourcePreparation::with_executor(executor),
             runtime_factory: Arc::new(CooperativeAppManagerFactory),
             work_executor: Arc::new(InlineWorkExecutor),
+            artifact_repository: Arc::new(MemoryArtifactRepository::new()),
         }
     }
 
@@ -90,7 +94,12 @@ impl GraphCompiler {
             ),
             runtime_factory,
             work_executor,
+            artifact_repository: Arc::new(MemoryArtifactRepository::new()),
         }
+    }
+
+    pub fn set_artifact_repository(&mut self, repository: Arc<dyn ArtifactRepository>) {
+        self.artifact_repository = repository;
     }
 
     pub fn set_output_subscriptions(&mut self, subscriptions: OutputSubscriptionPlan) {
@@ -222,7 +231,7 @@ impl GraphCompiler {
         graph: &GraphState,
         ctx: &mut CompileCtx,
     ) -> Result<LiveRun, Vec<CompileError>> {
-        ctx.set_work_executor(Arc::clone(&self.work_executor));
+        self.configure_context(ctx);
         graph::start_app_run(
             graph,
             &self.builders,
@@ -238,7 +247,7 @@ impl GraphCompiler {
         graph: &GraphState,
         ctx: &mut CompileCtx,
     ) -> Result<bool, Vec<CompileError>> {
-        ctx.set_work_executor(Arc::clone(&self.work_executor));
+        self.configure_context(ctx);
         graph::load_cached_data_with_subscriptions(
             graph,
             &self.builders,
@@ -253,7 +262,7 @@ impl GraphCompiler {
         ctx: &mut CompileCtx,
         overrides: SourceProcessOverrides,
     ) -> Result<LiveRun, Vec<CompileError>> {
-        ctx.set_work_executor(Arc::clone(&self.work_executor));
+        self.configure_context(ctx);
         graph::start_app_run_with_source_overrides_and_subscriptions(
             graph,
             &self.builders,
@@ -270,7 +279,7 @@ impl GraphCompiler {
         ctx: &mut CompileCtx,
         source: LiveAnalysisSource,
     ) -> Result<LiveRun, Vec<CompileError>> {
-        ctx.set_work_executor(Arc::clone(&self.work_executor));
+        self.configure_context(ctx);
         graph::start_live_analysis_with_subscriptions(
             graph,
             &self.builders,
@@ -279,6 +288,11 @@ impl GraphCompiler {
             source,
             self.runtime_factory.as_ref(),
         )
+    }
+
+    fn configure_context(&self, ctx: &mut CompileCtx) {
+        ctx.set_work_executor(Arc::clone(&self.work_executor));
+        ctx.set_artifact_repository(Arc::clone(&self.artifact_repository));
     }
 
     pub fn apply_run(
@@ -302,5 +316,27 @@ impl GraphCompiler {
 impl Default for GraphCompiler {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod graph_compiler_storage_tests {
+    use std::sync::Arc;
+
+    use logic_analyzer_graph_api::node_support::NodeBuildContext;
+    use signal_processing::{ArtifactRepository, MemoryArtifactRepository};
+
+    use super::{CompileCtx, GraphCompiler};
+
+    #[test]
+    fn host_repository_reaches_every_node_build_context() {
+        let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+        let mut compiler = GraphCompiler::new();
+        compiler.set_artifact_repository(Arc::clone(&repository));
+        let mut context = CompileCtx::default();
+
+        compiler.configure_context(&mut context);
+
+        assert!(Arc::ptr_eq(&context.artifact_repository(), &repository));
     }
 }

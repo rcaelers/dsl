@@ -171,4 +171,10 @@ impl ByteRegion {
             .expect("a byte region validates its immutable backing at construction")
     }
 }
+
+impl ImmutableByteRegion for ByteRegion {
+    fn bytes(&self) -> &[u8] {
+        Self::bytes(self)
+    }
+}
 use std::sync::Arc;

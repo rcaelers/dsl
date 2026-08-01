@@ -34,10 +34,13 @@ file-parser and device-runtime leaves, but not host factory or destination selec
 
 `logic_analyzer_platform` currently composes the UI host-service port and selects the artifact
 repository contract. Native and web application bootstraps obtain an opaque `PlatformServices`
-bundle from that crate and inject its UI services when constructing the application. The native
-adapter provides a durable repository whose same-directory publication is atomic and whose
-immutable reads use mmap-backed byte regions. The web adapter selects the portable process-lifetime
-memory repository. The native adapter also owns file dialogs, graph document I/O, and
+bundle from that crate and inject its UI services when constructing the application. That service
+boundary passes the selected repository through the graph service to every compiler run and
+`NodeBuildContext`; concrete derived-lane configuration therefore receives a capability rather than
+selecting a target backend. The native adapter provides a durable repository whose same-directory
+publication is atomic and whose immutable reads use mmap-backed byte regions. The web adapter
+selects the portable process-lifetime memory repository. The native adapter also owns file dialogs,
+graph document I/O, and
 persistent-cache administration, including allocation of the derived-cache directory. It also owns
 native configuration-file discovery and I/O, and supplies both derived-cache and live-capture-session
 directories to the UI. It then passes decoded portable settings and bindings to the UI. It supplies
@@ -284,6 +287,11 @@ A source advertises whether it supports independent readers and efficient random
 planner limits concurrency when the source supplies only one reader. Short reads and source changes
 are explicit errors; parsers never assume a single read fills the requested range.
 
+Published repository artifacts can also be exposed as prepared byte sources. The adapter opens a
+fresh immutable artifact generation for every reader. When a repository cannot expose a stable
+physical byte region, the shared range helper fills an owned immutable region through `read_at`;
+callers do not branch on mmap availability.
+
 ### Artifact repository
 
 Generated raw blocks, indexes, derived blocks, directories, and manifests use a logical artifact
@@ -326,9 +334,11 @@ semantics:
 - repository errors distinguish unavailable, exhausted quota, permission loss, I/O failure,
   corruption, and unsupported optional behavior.
 
-The native repository adapter in `logic_analyzer_platform` implements publication with files and
-atomic filesystem operations. The platform-independent memory repository in `signal_processing`
-keeps published artifacts in process-lifetime owned memory and can be selected on any target. A
+The native repository adapter is an isolated leaf in `logic_analyzer_platform`; it implements
+publication with files and atomic filesystem operations. The platform-independent memory repository
+in `signal_processing` keeps published artifacts in process-lifetime owned memory and can be
+selected on any target. Both implementations satisfy the same lifecycle and prepared-source
+conformance fixture. A
 future chunked-memory implementation and OPFS adapter in `logic_analyzer_platform` can add bounded
 large-artifact storage and web durability without changing store, compiler, or viewer behavior.
 

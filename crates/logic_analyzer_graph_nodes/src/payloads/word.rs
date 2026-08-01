@@ -132,7 +132,9 @@ fn request(
         LiveStoreConfig::default()
     };
     request.with_options(CollectedWordLaneOptions::new(
-        store_config.with_work_executor(ctx.work_executor()),
+        store_config
+            .with_work_executor(ctx.work_executor())
+            .with_artifact_repository(ctx.artifact_repository()),
         input.word_display_format.clone(),
     ))
 }

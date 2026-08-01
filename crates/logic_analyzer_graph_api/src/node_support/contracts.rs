@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use node_graph::api::NodeId;
 use signal_processing::{
-    CaptureChannelId, CaptureIndexFactory, DerivedDataRetention, DerivedLanes, InlineWorkExecutor,
-    PersistentStoreConfig, SamplingPointStore, SimpleTriggerCondition, TimelineMarker,
-    TriggerEditorSchema, TriggerProgram, WorkExecutor,
+    ArtifactRepository, CaptureChannelId, CaptureIndexFactory, DerivedDataRetention, DerivedLanes,
+    InlineWorkExecutor, MemoryArtifactRepository, PersistentStoreConfig, SamplingPointStore,
+    SimpleTriggerCondition, TimelineMarker, TriggerEditorSchema, TriggerProgram, WorkExecutor,
 };
 
 use super::port::PortKind;
@@ -61,6 +61,9 @@ pub trait NodeBuildContext {
     fn sampling_points(&self, runtime_name: &str) -> Option<SamplingPointStore>;
     fn work_executor(&self) -> Arc<dyn WorkExecutor> {
         Arc::new(InlineWorkExecutor)
+    }
+    fn artifact_repository(&self) -> Arc<dyn ArtifactRepository> {
+        Arc::new(MemoryArtifactRepository::new())
     }
     fn timeline_marker(&self, _reference: TimelineMarkerReference) -> Option<TimelineMarker> {
         None

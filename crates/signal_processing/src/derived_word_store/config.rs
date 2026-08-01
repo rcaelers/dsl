@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::{InlineWorkExecutor, WorkExecutor};
+use crate::{ArtifactRepository, InlineWorkExecutor, MemoryArtifactRepository, WorkExecutor};
 
 /// Platform-neutral block-sizing knobs. Native storage uses these to encode
 /// file blocks; the wasm backend retains them so one compiled configuration
@@ -55,6 +55,7 @@ pub struct LiveStoreConfig {
     pub hot_tail_publish_interval: Duration,
     pub persistence: Option<PersistentStoreConfig>,
     pub work_executor: Arc<dyn WorkExecutor>,
+    pub artifact_repository: Arc<dyn ArtifactRepository>,
 }
 
 impl fmt::Debug for LiveStoreConfig {
@@ -71,6 +72,10 @@ impl fmt::Debug for LiveStoreConfig {
                 "work_executor_parallelism",
                 &self.work_executor.available_parallelism(),
             )
+            .field(
+                "repository_capabilities",
+                &self.artifact_repository.capabilities(),
+            )
             .finish()
     }
 }
@@ -79,6 +84,12 @@ impl LiveStoreConfig {
     /// Selects the bounded executor used to encode finalized word blocks.
     pub fn with_work_executor(mut self, executor: Arc<dyn WorkExecutor>) -> Self {
         self.work_executor = executor;
+        self
+    }
+
+    /// Selects the repository that owns finalized blocks, indexes, and manifests.
+    pub fn with_artifact_repository(mut self, repository: Arc<dyn ArtifactRepository>) -> Self {
+        self.artifact_repository = repository;
         self
     }
 }
@@ -93,6 +104,7 @@ impl Default for LiveStoreConfig {
             hot_tail_publish_interval: DEFAULT_HOT_TAIL_PUBLISH_INTERVAL,
             persistence: None,
             work_executor: Arc::new(InlineWorkExecutor),
+            artifact_repository: Arc::new(MemoryArtifactRepository::new()),
         }
     }
 }

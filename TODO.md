@@ -85,19 +85,17 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.storage-contracts] Apply the established platform-neutral prepared-byte-source,
-  immutable-byte-region, artifact-repository, reader/writer, capability, and error contracts to the existing
-  derived and capture stores. Keep paths, mmap, filesystem operations, and browser handles in
-  `logic_analyzer_platform`; add native and web repository adapters without changing shared algorithms. This and
-  the adapter-crate boundary form the foundation for the remaining work.
 - [platform.data-plane.shared-derived-store] Complete one encoded-block decode layer above the shared directory,
   presence index, query, integrity, and decoded-block-cache contracts. Provide native file/mmap and
-  platform-independent chunked-memory artifact repositories, keep repository budgets configurable, and remove the
-  remaining target-specific range-decode and persistence implementations.
+  platform-independent chunked-memory artifact repositories, make the existing live and persistent derived stores
+  consume the repository capability already supplied in `LiveStoreConfig`, keep repository budgets configurable,
+  and remove the remaining paths, direct file operations, target-specific range-decode, and persistence
+  implementations from `signal_processing`.
 - [platform.data-plane.shared-capture-storage] Run packed raw captures, waveform indexes, growing live repositories,
-  and finalized replay through the same artifact and byte-region contracts. Keep native mmap and owned memory as
-  interchangeable backings, expose committed generations consistently, and avoid requiring one capture or index to
-  fit in one allocation.
+  and finalized replay through the same artifact and byte-region contracts. Route the compiler-selected repository
+  into capture construction, remove path-based native store selection from the UI and `signal_processing`, keep
+  native mmap and owned memory as interchangeable backings, expose committed generations consistently, and avoid
+  requiring one capture or index to fit in one allocation.
 - [platform.data-plane.cache-policy] Move cache identity, validation, cached-preview attachment, producer pruning,
   invalidation, publication, pinning, and cleanup policy into the common compiler path. Supply a durable native
   repository and an ephemeral web repository initially; do not replace web cache planning with no-ops merely because

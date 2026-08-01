@@ -1,6 +1,8 @@
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
 #[cfg(not(target_arch = "wasm32"))]
+mod native_artifact_repository;
+#[cfg(not(target_arch = "wasm32"))]
 mod native_capture_export;
 #[cfg(not(target_arch = "wasm32"))]
 mod native_file_identity_cache;

@@ -100,6 +100,13 @@ impl CaptureFeatureDiscovery for GraphCompiler {
 }
 
 impl GraphService for GraphCompiler {
+    fn set_artifact_repository(
+        &mut self,
+        repository: std::sync::Arc<dyn signal_processing::ArtifactRepository>,
+    ) {
+        GraphCompiler::set_artifact_repository(self, repository);
+    }
+
     fn derived_cache_configs_by_node(
         &self,
         graph: &GraphState,

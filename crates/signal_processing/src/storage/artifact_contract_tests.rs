@@ -1,6 +1,7 @@
 use super::{
-    ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, MemoryArtifactRepository,
-    RepositoryCapabilities, RepositoryError, SourceIdentity,
+    ArtifactByteSource, ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange,
+    MemoryArtifactRepository, PreparedByteSource, ReadArtifact, RepositoryCapabilities,
+    RepositoryError, SourceIdentity, read_artifact_region,
 };
 
 fn key() -> ArtifactKey {
@@ -76,4 +77,61 @@ fn memory_repository_lists_and_removes_typed_artifacts() {
         ArtifactNamespace::new(""),
         Err(RepositoryError::InvalidKey(_))
     ));
+}
+
+#[test]
+fn repository_artifacts_are_prepared_sources_without_exposing_their_backing() {
+    let repository = MemoryArtifactRepository::new();
+    let key = key();
+    let mut writer = repository.begin_write(key.clone()).unwrap();
+    writer.write_at(0, b"prepared").unwrap();
+    writer.publish().unwrap();
+
+    let source = ArtifactByteSource::new(std::sync::Arc::new(repository), key);
+    let mut reader = source.open_reader().unwrap();
+    let mut bytes = [0_u8; 8];
+    reader.read_exact_at(0, &mut bytes).unwrap();
+    assert_eq!(&bytes, b"prepared");
+}
+
+#[test]
+fn immutable_regions_fall_back_to_owned_bytes() {
+    struct ReadOnlyArtifact {
+        key: ArtifactKey,
+        bytes: &'static [u8],
+    }
+
+    impl ReadArtifact for ReadOnlyArtifact {
+        fn key(&self) -> &ArtifactKey {
+            &self.key
+        }
+
+        fn len(&self) -> Result<u64, RepositoryError> {
+            Ok(self.bytes.len() as u64)
+        }
+
+        fn read_at(
+            &mut self,
+            offset: u64,
+            destination: &mut [u8],
+        ) -> Result<usize, RepositoryError> {
+            let start = offset as usize;
+            let count = destination
+                .len()
+                .min(self.bytes.len().saturating_sub(start));
+            destination[..count].copy_from_slice(&self.bytes[start..start + count]);
+            Ok(count)
+        }
+
+        fn region(&self, _range: ByteRange) -> Result<Option<super::ByteRegion>, RepositoryError> {
+            Ok(None)
+        }
+    }
+
+    let mut reader = ReadOnlyArtifact {
+        key: key(),
+        bytes: b"fallback",
+    };
+    let region = read_artifact_region(&mut reader, ByteRange::new(2, 4).unwrap()).unwrap();
+    assert_eq!(region.bytes(), b"llba");
 }

@@ -28,8 +28,9 @@ impl PlatformServices {
         work_executor: Arc<dyn WorkExecutor>,
         worker_operation_executor: Rc<dyn WorkerOperationExecutor>,
     ) -> Self {
-        let ui_services =
-            ui_services.with_worker_operation_executor(Rc::clone(&worker_operation_executor));
+        let ui_services = ui_services
+            .with_worker_operation_executor(Rc::clone(&worker_operation_executor))
+            .with_artifact_repository(Arc::clone(&artifact_repository));
         Self {
             ui_services,
             node_catalogs,

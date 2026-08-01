@@ -7,8 +7,9 @@ use logic_analyzer_graph_api::node::RuntimeBuilderOverride;
 use logic_analyzer_graph_compiler::SourcePreparationExecutor;
 use node_graph::FileDialogService;
 use signal_processing::{
-    AppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor,
-    PersistentStoreConfig, WorkExecutor, WorkerOperationExecutor, portable_worker_kernels,
+    AppManagerFactory, ArtifactRepository, CooperativeWorkerOperationExecutor, InlineWorkExecutor,
+    MemoryArtifactRepository, PersistentStoreConfig, WorkExecutor, WorkerOperationExecutor,
+    portable_worker_kernels,
 };
 
 use crate::application_settings::{ApplicationSettings, default_input_bindings};
@@ -36,6 +37,7 @@ pub struct AppServices {
     work_executor: Arc<dyn WorkExecutor>,
     worker_operation_executor: Rc<dyn WorkerOperationExecutor>,
     capture_export_service: Box<dyn CaptureExportService>,
+    artifact_repository: Arc<dyn ArtifactRepository>,
 }
 
 pub(crate) struct AppServiceParts {
@@ -73,8 +75,12 @@ impl AppServices {
         application_settings: ApplicationSettings,
         host_symbol_fonts: Vec<egui::FontData>,
     ) -> Self {
+        let artifact_repository: Arc<dyn ArtifactRepository> =
+            Arc::new(MemoryArtifactRepository::new());
+        let mut graph_service = standard_graph_service();
+        graph_service.set_artifact_repository(Arc::clone(&artifact_repository));
         Self {
-            graph_service: standard_graph_service(),
+            graph_service,
             host_service,
             storage_paths,
             input_bindings,
@@ -87,12 +93,21 @@ impl AppServices {
                 "no parallel finite-operation host was supplied",
             )),
             capture_export_service: unavailable_capture_export_service(),
+            artifact_repository,
         }
     }
 
     /// Supplies the host destination and execution adapter for capture export.
     pub fn with_capture_export_service(mut self, service: Box<dyn CaptureExportService>) -> Self {
         self.capture_export_service = service;
+        self
+    }
+
+    /// Supplies the artifact repository shared by compiler-owned and capture stores.
+    pub fn with_artifact_repository(mut self, repository: Arc<dyn ArtifactRepository>) -> Self {
+        self.graph_service
+            .set_artifact_repository(Arc::clone(&repository));
+        self.artifact_repository = repository;
         self
     }
 
@@ -128,6 +143,8 @@ impl AppServices {
             runtime_factory,
             Arc::clone(&work_executor),
         );
+        self.graph_service
+            .set_artifact_repository(Arc::clone(&self.artifact_repository));
         self.work_executor = work_executor;
         self
     }
@@ -146,6 +163,8 @@ impl AppServices {
             Arc::clone(&work_executor),
             builder_overrides,
         );
+        self.graph_service
+            .set_artifact_repository(Arc::clone(&self.artifact_repository));
         self.work_executor = work_executor;
         self
     }

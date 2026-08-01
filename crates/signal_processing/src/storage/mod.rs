@@ -3,6 +3,7 @@
 mod artifact;
 mod contract;
 mod memory;
+mod repository_source;
 
 #[cfg(test)]
 mod artifact_contract_tests;
@@ -18,3 +19,4 @@ pub use contract::{
     SourceCapabilities, SourceIdentity, SourceReadError,
 };
 pub use memory::OwnedByteSource;
+pub use repository_source::{ArtifactByteSource, read_artifact_region};
