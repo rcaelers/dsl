@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use input_bindings::InputBindings;
 use logic_analyzer_graph_compiler::SourcePreparationExecutor;
 use node_graph::FileDialogService;
-use signal_processing::{AppManagerFactory, PersistentStoreConfig};
+use signal_processing::{AppManagerFactory, PersistentStoreConfig, WorkExecutor};
 
 use crate::application_settings::{ApplicationSettings, default_input_bindings};
 use crate::graph_service::{GraphService, graph_service_with_execution, standard_graph_service};
@@ -79,9 +79,13 @@ impl AppServices {
         mut self,
         source_preparation_executor: Box<dyn SourcePreparationExecutor>,
         runtime_factory: std::sync::Arc<dyn AppManagerFactory>,
+        work_executor: std::sync::Arc<dyn WorkExecutor>,
     ) -> Self {
-        self.graph_service =
-            graph_service_with_execution(source_preparation_executor, runtime_factory);
+        self.graph_service = graph_service_with_execution(
+            source_preparation_executor,
+            runtime_factory,
+            work_executor,
+        );
         self
     }
 

@@ -20,7 +20,7 @@ use signal_processing::{
     AppManager, AppManagerBackend, AppManagerFactory, ArtifactKey, ArtifactMetadata,
     ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion, ImmutableByteRegion,
     PersistentStoreConfig, PipelineManager, ReadArtifact, RepositoryCapabilities, RepositoryError,
-    SourceIdentity, WriteArtifact,
+    SourceIdentity, WorkExecutor, WorkExecutorTask, WriteArtifact,
 };
 
 use crate::services::PlatformServices;
@@ -73,6 +73,7 @@ pub(crate) fn standard_services() -> PlatformServices {
         .with_capture_session_directory(Some(capture_session_directory()));
     let input_bindings = load_input_bindings();
     let application_settings = load_application_settings();
+    let work_executor: Arc<dyn WorkExecutor> = Arc::new(NativeWorkExecutor::new());
     let ui_services = AppServices::with_host_storage_and_configuration(
         Box::new(NativeHostService::new()),
         storage_paths,
@@ -84,13 +85,61 @@ pub(crate) fn standard_services() -> PlatformServices {
     .with_graph_execution(
         Box::new(NativeSourcePreparationExecutor::new()),
         Arc::new(NativeAppManagerFactory),
+        Arc::clone(&work_executor),
     );
     PlatformServices::with_ui_services(
         ui_services,
         Arc::new(NativeArtifactRepository::new(
             derived_cache_directory().join("artifacts"),
         )),
+        work_executor,
     )
+}
+
+struct NativeWorkExecutor {
+    sender: crossbeam_channel::Sender<WorkExecutorTask>,
+    workers: usize,
+}
+
+impl NativeWorkExecutor {
+    fn new() -> Self {
+        let workers = std::thread::available_parallelism()
+            .map(usize::from)
+            .unwrap_or(1)
+            .clamp(1, 32);
+        let (sender, receiver) = crossbeam_channel::bounded(workers * 4);
+        for index in 0..workers {
+            let receiver = receiver.clone();
+            std::thread::Builder::new()
+                .name(format!("processing-work-{index}"))
+                .spawn(move || run_work_executor_worker(receiver))
+                .expect("failed to start processing work executor");
+        }
+        Self { sender, workers }
+    }
+}
+
+impl WorkExecutor for NativeWorkExecutor {
+    fn available_parallelism(&self) -> usize {
+        self.workers
+    }
+
+    fn submit(&self, task: WorkExecutorTask) -> Result<(), String> {
+        self.sender.try_send(task).map_err(|error| match error {
+            crossbeam_channel::TrySendError::Full(_) => {
+                String::from("processing work executor queue is full")
+            }
+            crossbeam_channel::TrySendError::Disconnected(_) => {
+                String::from("processing work executor stopped")
+            }
+        })
+    }
+}
+
+fn run_work_executor_worker(receiver: crossbeam_channel::Receiver<WorkExecutorTask>) {
+    while let Ok(task) = receiver.recv() {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(task));
+    }
 }
 
 struct NativeAppManagerFactory;
@@ -821,13 +870,13 @@ mod native_tests {
     use logic_analyzer_ui::{HostCommand, HostService};
     use signal_processing::{
         AppManagerFactory, ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange,
-        SourceIdentity,
+        SourceIdentity, WorkExecutor,
     };
 
     use super::{
         NativeAppManagerFactory, NativeArtifactRepository, NativeHostService,
-        NativeSourcePreparationExecutor, application_directory, load_application_settings_path,
-        load_input_bindings_path, queue_host_command,
+        NativeSourcePreparationExecutor, NativeWorkExecutor, application_directory,
+        load_application_settings_path, load_input_bindings_path, queue_host_command,
     };
 
     #[test]
@@ -868,6 +917,24 @@ mod native_tests {
             }
         }
         panic!("source preparation worker did not complete");
+    }
+
+    #[test]
+    fn native_work_executor_runs_submitted_work() {
+        let executor = NativeWorkExecutor::new();
+        let (sender, receiver) = std::sync::mpsc::channel();
+
+        executor
+            .submit(Box::new(move || sender.send(42).unwrap()))
+            .unwrap();
+
+        assert!(executor.available_parallelism() >= 1);
+        assert_eq!(
+            receiver
+                .recv_timeout(std::time::Duration::from_secs(1))
+                .unwrap(),
+            42
+        );
     }
 
     #[test]

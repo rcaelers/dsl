@@ -53,6 +53,7 @@ mod sender;
 mod storage;
 mod type_registry;
 mod watchdog;
+mod work_executor;
 
 std::cfg_select! {
     target_arch = "wasm32" => {
@@ -172,3 +173,4 @@ pub use storage::{
 };
 pub(crate) use watchdog::OperationGuard;
 pub use watchdog::{Watchdog, WatchdogHandle};
+pub use work_executor::{InlineWorkExecutor, WorkExecutor, WorkExecutorTask};

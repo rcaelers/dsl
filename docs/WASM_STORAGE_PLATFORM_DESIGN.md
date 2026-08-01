@@ -42,6 +42,11 @@ polls one task contract and contains no target-selected source-preparation imple
 The application-runtime facade likewise receives a factory from platform composition. Native runs
 receive the threaded pipeline-manager backend; web runs receive the portable cooperative backend.
 The compiler creates managers through the same factory contract and does not select either backend.
+Portable processing work uses the `signal_processing::WorkExecutor` contract. The platform service
+bundle supplies one bounded native worker queue or the portable inline executor, passes it through
+the UI graph-service construction boundary, and the compiler makes it available to node builders in
+their `NodeBuildContext`. Concrete nodes choose whether and how to use that capability without
+selecting a target or a platform implementation.
 Native shell integrations exchange portable commands and UI state through that service contract;
 their queues and repaint wake-ups remain inside the platform adapter. Runtime cache diagnostics use
 the same adapter boundary and one portable UI snapshot path. Embedded graph-node file controls use

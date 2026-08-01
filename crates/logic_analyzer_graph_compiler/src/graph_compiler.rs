@@ -7,8 +7,8 @@ use logic_analyzer_graph_api::node_support::{
 };
 use node_graph::api::{GraphState, NodeId};
 use signal_processing::{
-    AppManagerFactory, ConfigurationBoundary, CooperativeAppManagerFactory, PayloadRegistry,
-    PersistentStoreConfig,
+    AppManagerFactory, ConfigurationBoundary, CooperativeAppManagerFactory, InlineWorkExecutor,
+    PayloadRegistry, PersistentStoreConfig, WorkExecutor,
 };
 
 use super::errors::{ApplyError, CompileError};
@@ -34,6 +34,7 @@ pub struct GraphCompiler {
     output_subscriptions: OutputSubscriptionPlan,
     source_preparation: SourcePreparation,
     runtime_factory: Arc<dyn AppManagerFactory>,
+    work_executor: Arc<dyn WorkExecutor>,
 }
 
 impl GraphCompiler {
@@ -43,6 +44,7 @@ impl GraphCompiler {
             output_subscriptions: OutputSubscriptionPlan::new(),
             source_preparation: SourcePreparation::new(),
             runtime_factory: Arc::new(CooperativeAppManagerFactory),
+            work_executor: Arc::new(InlineWorkExecutor),
         }
     }
 
@@ -53,6 +55,7 @@ impl GraphCompiler {
             output_subscriptions: OutputSubscriptionPlan::new(),
             source_preparation: SourcePreparation::with_executor(executor),
             runtime_factory: Arc::new(CooperativeAppManagerFactory),
+            work_executor: Arc::new(InlineWorkExecutor),
         }
     }
 
@@ -60,12 +63,14 @@ impl GraphCompiler {
     pub fn with_execution(
         source_preparation_executor: Box<dyn SourcePreparationExecutor>,
         runtime_factory: Arc<dyn AppManagerFactory>,
+        work_executor: Arc<dyn WorkExecutor>,
     ) -> Self {
         Self {
             builders: BuilderRegistry::standard(),
             output_subscriptions: OutputSubscriptionPlan::new(),
             source_preparation: SourcePreparation::with_executor(source_preparation_executor),
             runtime_factory,
+            work_executor,
         }
     }
 
@@ -198,6 +203,7 @@ impl GraphCompiler {
         graph: &GraphState,
         ctx: &mut CompileCtx,
     ) -> Result<LiveRun, Vec<CompileError>> {
+        ctx.set_work_executor(Arc::clone(&self.work_executor));
         graph::start_app_run(
             graph,
             &self.builders,
@@ -213,6 +219,7 @@ impl GraphCompiler {
         graph: &GraphState,
         ctx: &mut CompileCtx,
     ) -> Result<bool, Vec<CompileError>> {
+        ctx.set_work_executor(Arc::clone(&self.work_executor));
         graph::load_cached_data_with_subscriptions(
             graph,
             &self.builders,
@@ -227,6 +234,7 @@ impl GraphCompiler {
         ctx: &mut CompileCtx,
         overrides: SourceProcessOverrides,
     ) -> Result<LiveRun, Vec<CompileError>> {
+        ctx.set_work_executor(Arc::clone(&self.work_executor));
         graph::start_app_run_with_source_overrides_and_subscriptions(
             graph,
             &self.builders,
@@ -243,6 +251,7 @@ impl GraphCompiler {
         ctx: &mut CompileCtx,
         source: LiveAnalysisSource,
     ) -> Result<LiveRun, Vec<CompileError>> {
+        ctx.set_work_executor(Arc::clone(&self.work_executor));
         graph::start_live_analysis_with_subscriptions(
             graph,
             &self.builders,

@@ -37,9 +37,10 @@ use signal_processing::PayloadRegistrationError;
 use signal_processing::{
     AcquisitionContext, AcquisitionResult, AppManager, CaptureChannelId,
     CaptureProviderCapabilities, CaptureSessionPlan, CaptureStartMode, CollectedLaneRequest,
-    ConfigurationBoundary, DerivedDataRetention, DerivedLanes, DisconnectEvent, InputSub,
-    NodeConfig, OverflowPolicy, PayloadRegistry, PersistentStoreConfig, PreparedAcquisition,
-    ProcessNode, SampleBlock, SamplingPointStore, SimpleTriggerCondition, TriggerProgram,
+    ConfigurationBoundary, DerivedDataRetention, DerivedLanes, DisconnectEvent, InlineWorkExecutor,
+    InputSub, NodeConfig, OverflowPolicy, PayloadRegistry, PersistentStoreConfig,
+    PreparedAcquisition, ProcessNode, SampleBlock, SamplingPointStore, SimpleTriggerCondition,
+    TriggerProgram, WorkExecutor,
 };
 
 use super::data_collector::DataCollectorBuilder;
@@ -52,7 +53,6 @@ use super::{
 
 /// Shared resources handed to builders. A fresh `DerivedLanes` store per
 /// run makes stale collected data vanish atomically on re-run.
-#[derive(Default)]
 pub struct CompileCtx {
     derived_lanes: DerivedLanes,
     /// Storage policy selected by the graph's source. Finite sources retain
@@ -70,12 +70,37 @@ pub struct CompileCtx {
     collected_table_subscriptions: Vec<CollectedTableSubscription>,
     diagnostics: RunDiagnosticRegistry,
     source_readiness: SourceReadinessRegistry,
+    work_executor: Arc<dyn WorkExecutor>,
+}
+
+impl Default for CompileCtx {
+    fn default() -> Self {
+        Self {
+            derived_lanes: DerivedLanes::default(),
+            derived_data_retention: DerivedDataRetention::default(),
+            derived_word_caches: Vec::new(),
+            persistent_cache_directory: None,
+            timeline_markers: HashMap::new(),
+            sampling_overlays: Vec::new(),
+            sampling_points: HashMap::new(),
+            collected_output_subscriptions: Vec::new(),
+            collected_table_subscriptions: Vec::new(),
+            diagnostics: RunDiagnosticRegistry::default(),
+            source_readiness: SourceReadinessRegistry::default(),
+            work_executor: Arc::new(InlineWorkExecutor),
+        }
+    }
 }
 
 impl CompileCtx {
     /// Selects the host-owned directory used for persistent derived-data caches.
     pub fn set_persistent_cache_directory(&mut self, directory: std::path::PathBuf) {
         self.persistent_cache_directory = Some(directory);
+    }
+
+    /// Supplies the host-selected bounded work executor to node builders.
+    pub fn set_work_executor(&mut self, executor: Arc<dyn WorkExecutor>) {
+        self.work_executor = executor;
     }
 
     /// Returns the run's collected lanes for binding to host views and panels.
@@ -146,6 +171,10 @@ impl NodeBuildContext for CompileCtx {
 
     fn sampling_points(&self, runtime_name: &str) -> Option<SamplingPointStore> {
         self.sampling_points.get(runtime_name).cloned()
+    }
+
+    fn work_executor(&self) -> Arc<dyn WorkExecutor> {
+        Arc::clone(&self.work_executor)
     }
 
     fn timeline_marker(
@@ -2090,6 +2119,7 @@ pub struct LiveRun {
     cache_pruned: bool,
     persistent_cache_directory: Option<std::path::PathBuf>,
     timeline_markers: HashMap<TimelineMarkerReference, signal_processing::TimelineMarker>,
+    work_executor: Arc<dyn WorkExecutor>,
 }
 
 /// One provider-owned source process used only while a live capture follows
@@ -2270,6 +2300,7 @@ fn start_live_inner(
         cache_pruned,
         persistent_cache_directory: ctx.persistent_cache_directory.clone(),
         timeline_markers: ctx.timeline_markers.clone(),
+        work_executor: Arc::clone(&ctx.work_executor),
     })
 }
 
@@ -2363,6 +2394,7 @@ impl LiveRun {
             diagnostics: self.diagnostics.clone(),
             source_readiness: self.source_readiness.clone(),
             timeline_markers: self.timeline_markers.clone(),
+            work_executor: Arc::clone(&self.work_executor),
         };
         let mut summary = ApplySummary::default();
         for edit in edits {

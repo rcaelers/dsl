@@ -8,12 +8,14 @@ use logic_analyzer_ui::{
 };
 use node_graph::{FileDialogRequest, FileDialogService};
 use signal_processing::{
-    CooperativeAppManagerFactory, MemoryArtifactRepository, PersistentStoreConfig,
+    CooperativeAppManagerFactory, InlineWorkExecutor, MemoryArtifactRepository,
+    PersistentStoreConfig,
 };
 
 use crate::services::PlatformServices;
 
 pub(crate) fn standard_services() -> PlatformServices {
+    let work_executor: Arc<dyn signal_processing::WorkExecutor> = Arc::new(InlineWorkExecutor);
     let ui_services = AppServices::with_host_storage_and_configuration(
         Box::new(WebHostService),
         ApplicationStoragePaths::default(),
@@ -25,8 +27,13 @@ pub(crate) fn standard_services() -> PlatformServices {
     .with_graph_execution(
         Box::new(InlineSourcePreparationExecutor),
         Arc::new(CooperativeAppManagerFactory),
+        Arc::clone(&work_executor),
     );
-    PlatformServices::with_ui_services(ui_services, Arc::new(MemoryArtifactRepository::new()))
+    PlatformServices::with_ui_services(
+        ui_services,
+        Arc::new(MemoryArtifactRepository::new()),
+        work_executor,
+    )
 }
 
 struct WebHostService;
