@@ -55,9 +55,12 @@ impl WorkExecutor for TestWorkExecutor {
         1
     }
 
-    fn submit(&self, task: signal_processing::WorkExecutorTask) -> Result<(), String> {
+    fn submit(
+        &self,
+        task: signal_processing::WorkExecutorTask,
+    ) -> Result<Box<dyn signal_processing::WorkTask>, String> {
         std::thread::spawn(task);
-        Ok(())
+        Ok(Box::new(signal_processing::CompletedWorkTask))
     }
 }
 

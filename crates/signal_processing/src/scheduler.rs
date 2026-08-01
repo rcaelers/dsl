@@ -1,56 +1,54 @@
-//! Thread-per-node scheduler for streaming graphs.
+//! Host-executed scheduler for streaming graphs.
 //!
-//! Spawns a dedicated thread for each node and manages their lifecycle.
+//! Submits one long-lived task per node through a host-selected executor and
+//! manages their lifecycle through completion handles.
 //!
-//! ## Threading Models
+//! ## Execution Models
 //!
 //! The scheduler supports two threading models:
 //!
 //! 1. **Regular nodes**: Scheduler calls `work()` repeatedly in a loop. The node processes
-//!    one batch of items per call and returns the count. The scheduler thread does the looping.
+//!    one batch of items per call and returns the count. The scheduled task does the looping.
 //!
-//! 2. **Self-threading nodes**: Node manages its own worker threads internally. Scheduler calls
+//! 2. **Self-executing nodes**: Node manages its own long-lived operation. Scheduler calls
 //!    `work()` once to start the node, then waits for `should_stop()` to signal completion.
 //!    The node returns `is_self_threading() = true` to indicate this pattern.
 //!
-//! A self-threading source can, for example, spawn one reader per output destination.
+//! A self-executing source can, for example, arrange one reader per output destination.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver as StdReceiver, Sender as StdSender, channel};
-use std::thread::{self, JoinHandle};
 
 use tracing::{debug, error, info};
 
 use super::node::ProcessNode;
 use super::ports::{InputPort, OutputPort};
 use super::watchdog::Watchdog;
+use crate::{WorkExecutor, WorkTask};
 
 /// Runtime scheduler that executes a streaming graph
 pub struct Scheduler {
-    threads: Vec<(String, JoinHandle<()>)>,
+    tasks: Vec<(String, Box<dyn WorkTask>)>,
     stop_signal: Arc<AtomicBool>,
-    completion_tx: StdSender<String>,
-    completion_rx: Option<StdReceiver<String>>,
     watchdog: Watchdog,
-    watchdog_handle: JoinHandle<()>,
+    watchdog_task: Option<Box<dyn WorkTask>>,
+    work_executor: Arc<dyn WorkExecutor>,
 }
 
 impl Scheduler {
     /// Create a new scheduler with watchdog monitoring
-    pub fn new() -> Self {
-        let (completion_tx, completion_rx) = channel();
+    pub fn new(work_executor: Arc<dyn WorkExecutor>) -> Self {
         let watchdog = Watchdog::new();
-        let watchdog_handle = watchdog.start_monitoring_thread();
+        let watchdog_task = watchdog
+            .start_monitoring(Arc::clone(&work_executor))
+            .expect("host work executor must accept watchdog monitoring");
         info!("Watchdog enabled - will report operations blocked >5 seconds");
         Self {
-            threads: Vec::new(),
+            tasks: Vec::new(),
             stop_signal: Arc::new(AtomicBool::new(false)),
-            completion_tx,
-            completion_rx: Some(completion_rx),
             watchdog,
-            watchdog_handle,
+            watchdog_task: Some(watchdog_task),
+            work_executor,
         }
     }
 
@@ -68,78 +66,77 @@ impl Scheduler {
         outputs: Vec<OutputPort>,
     ) {
         let stop_signal = Arc::clone(&self.stop_signal);
-        let completion_tx = self.completion_tx.clone();
+        let work_executor = Arc::clone(&self.work_executor);
         let name = node.name().to_string();
         let thread_name = name.clone();
 
         debug!("Starting process node: {}", name);
 
-        let handle = thread::spawn(move || {
-            if node.is_self_threading() {
-                // Self-threading node: call work() once to start internal threads
-                if let Err(e) = node.work_outcome(&inputs, &outputs) {
-                    error!(
-                        "[{}] Failed to start self-threading node: {}",
-                        thread_name, e
-                    );
+        let task = work_executor
+            .submit(Box::new(move || {
+                if node.is_self_threading() {
+                    // Self-threading node: call work() once to start internal threads
+                    if let Err(e) = node.work_outcome(&inputs, &outputs) {
+                        error!(
+                            "[{}] Failed to start self-threading node: {}",
+                            thread_name, e
+                        );
+                    } else {
+                        // Wait for node to signal completion via should_stop() or stop_signal
+                        loop {
+                            if stop_signal.load(Ordering::Relaxed) {
+                                info!(
+                                    "[{}] Stop signal received, shutting down self-threading node",
+                                    thread_name
+                                );
+                                break;
+                            }
+                            if node.should_stop() {
+                                info!("[{}] Self-threading node completed", thread_name);
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                        }
+                    }
+
+                    // Drop outputs/inputs/node to trigger shutdown
+                    drop(outputs);
+                    drop(inputs);
+                    drop(node);
                 } else {
-                    // Wait for node to signal completion via should_stop() or stop_signal
+                    // Regular node: call work() repeatedly
+                    let mut items_produced = 0usize;
+
                     loop {
-                        if stop_signal.load(Ordering::Relaxed) {
-                            info!(
-                                "[{}] Stop signal received, shutting down self-threading node",
-                                thread_name
-                            );
+                        if stop_signal.load(Ordering::Relaxed) || node.should_stop() {
                             break;
                         }
-                        if node.should_stop() {
-                            info!("[{}] Self-threading node completed", thread_name);
-                            break;
+
+                        match node.work_outcome(&inputs, &outputs) {
+                            Ok(outcome) => {
+                                items_produced += outcome.produced_items();
+                            }
+                            Err(e) => {
+                                error!("[{}] Work error: {}", thread_name, e);
+                                break;
+                            }
                         }
-                        thread::sleep(std::time::Duration::from_millis(100));
                     }
+
+                    info!(
+                        "[{}] Shutdown. Produced {} items.",
+                        thread_name, items_produced
+                    );
+
+                    // Drop outputs/inputs/node to close channels
+                    drop(outputs);
+                    drop(inputs);
+                    drop(node);
                 }
+            }))
+            .expect("host work executor must accept process work");
 
-                // Drop outputs/inputs/node to trigger shutdown
-                drop(outputs);
-                drop(inputs);
-                drop(node);
-            } else {
-                // Regular node: call work() repeatedly
-                let mut items_produced = 0usize;
-
-                loop {
-                    if stop_signal.load(Ordering::Relaxed) || node.should_stop() {
-                        break;
-                    }
-
-                    match node.work_outcome(&inputs, &outputs) {
-                        Ok(outcome) => {
-                            items_produced += outcome.produced_items();
-                        }
-                        Err(e) => {
-                            error!("[{}] Work error: {}", thread_name, e);
-                            break;
-                        }
-                    }
-                }
-
-                info!(
-                    "[{}] Shutdown. Produced {} items.",
-                    thread_name, items_produced
-                );
-
-                // Drop outputs/inputs/node to close channels
-                drop(outputs);
-                drop(inputs);
-                drop(node);
-            }
-
-            // Notify scheduler that this thread is about to complete
-            let _ = completion_tx.send(thread_name.clone());
-        });
-
-        self.threads.push((name, handle));
+        self.tasks.push((name, task));
     }
 
     /// Signal all nodes to stop
@@ -153,72 +150,31 @@ impl Scheduler {
         StopHandle(Arc::clone(&self.stop_signal))
     }
 
-    /// Wait for all node threads to complete
-    /// Uses a completion notification channel to join threads as they finish
+    /// Wait for all node tasks to complete.
     pub fn wait(mut self) {
-        let completion_rx = self
-            .completion_rx
-            .take()
-            .expect("completion_rx already taken");
-
-        // Drop the main completion sender so the channel closes when all threads complete
-        drop(self.completion_tx);
-
-        let total_threads = self.threads.len();
-        let mut completed = 0;
-
-        info!("Waiting for {} threads to complete...", total_threads);
-
-        // Convert to HashMap for O(1) lookup by name
-        let mut threads_by_name: HashMap<String, JoinHandle<()>> =
-            self.threads.into_iter().collect();
-
-        // Block on completion notifications - no busy-waiting!
-        while completed < total_threads {
-            match completion_rx.recv() {
-                Ok(thread_name) => {
-                    completed += 1;
-                    if let Some(handle) = threads_by_name.remove(&thread_name) {
-                        match handle.join() {
-                            Ok(_) => info!(
-                                "[{}] Thread completed ({}/{})",
-                                thread_name, completed, total_threads
-                            ),
-                            Err(e) => error!(
-                                "[{}] Thread panicked ({}/{}): {:?}",
-                                thread_name, completed, total_threads, e
-                            ),
-                        }
-                    }
-                }
-                Err(_) => {
-                    // Channel closed - all thread senders dropped
-                    break;
-                }
-            }
+        let total_tasks = self.tasks.len();
+        info!("Waiting for {} tasks to complete...", total_tasks);
+        for (name, task) in self.tasks.drain(..) {
+            task.wait();
+            info!("[{name}] completed");
         }
-
-        info!("All {} threads completed", total_threads);
+        info!("All {} tasks completed", total_tasks);
 
         // Stop watchdog
         self.watchdog.stop();
-        let _ = self.watchdog_handle.join();
+        if let Some(task) = self.watchdog_task.take() {
+            task.wait();
+        }
     }
 
     /// Get the number of running threads
     pub fn num_threads(&self) -> usize {
-        self.threads.len()
+        self.tasks.len()
     }
 
     /// Get the names of all running threads
     pub fn thread_names(&self) -> Vec<String> {
-        self.threads.iter().map(|(name, _)| name.clone()).collect()
-    }
-}
-
-impl Default for Scheduler {
-    fn default() -> Self {
-        Self::new()
+        self.tasks.iter().map(|(name, _)| name.clone()).collect()
     }
 }
 
@@ -240,6 +196,7 @@ impl StopHandle {
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
+    use std::thread::{self, JoinHandle};
     use std::time::Duration;
 
     use crossbeam_channel::bounded;
@@ -248,6 +205,41 @@ mod tests {
     use crate::errors::{WorkError, WorkResult};
     use crate::node::ProcessNode;
     use crate::sender::ChannelMessage;
+    use crate::{WorkExecutor, WorkExecutorTask, WorkTask};
+
+    struct TestWorkExecutor;
+
+    impl WorkExecutor for TestWorkExecutor {
+        fn available_parallelism(&self) -> usize {
+            2
+        }
+
+        fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+            Ok(Box::new(TestWorkTask {
+                handle: Some(thread::spawn(task)),
+            }))
+        }
+    }
+
+    struct TestWorkTask {
+        handle: Option<JoinHandle<()>>,
+    }
+
+    impl WorkTask for TestWorkTask {
+        fn is_finished(&self) -> bool {
+            self.handle.as_ref().is_none_or(JoinHandle::is_finished)
+        }
+
+        fn wait(mut self: Box<Self>) {
+            if let Some(handle) = self.handle.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+
+    fn work_executor() -> Arc<dyn WorkExecutor> {
+        Arc::new(TestWorkExecutor)
+    }
 
     struct TestSource {
         count: usize,
@@ -324,7 +316,7 @@ mod tests {
 
     #[test]
     fn test_scheduler_basic() {
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = Scheduler::new(work_executor());
 
         let (tx, rx) = bounded::<ChannelMessage<u32>>(10);
 
@@ -420,7 +412,7 @@ mod tests {
 
     #[test]
     fn test_scheduler_stop_signal_self_threading() {
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = Scheduler::new(work_executor());
 
         let stop = Arc::new(AtomicBool::new(false));
         let completed = Arc::new(AtomicBool::new(false));

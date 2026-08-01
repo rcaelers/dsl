@@ -299,14 +299,17 @@ impl Pipeline {
     }
 
     /// Build the pipeline and return a ready-to-run scheduler
-    pub fn build(mut self) -> Result<Scheduler, String> {
+    pub fn build(
+        mut self,
+        work_executor: Arc<dyn crate::WorkExecutor>,
+    ) -> Result<Scheduler, String> {
         info!(
             "Building pipeline with {} nodes and {} connections",
             self.nodes.len(),
             self.connections.len()
         );
 
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = Scheduler::new(work_executor);
         let registry = TYPE_REGISTRY.lock().unwrap();
 
         type PortKey = (usize, usize);
@@ -567,14 +570,49 @@ impl Default for Pipeline {
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::thread::JoinHandle;
 
     use super::*;
-    use crate::SampleKind;
     use crate::capture::CaptureTransition;
     use crate::edge_query::EdgeQuery;
     use crate::node::ProcessNode;
     use crate::ports::PortSchema;
     use crate::sample::Sample;
+    use crate::{SampleKind, WorkExecutor, WorkExecutorTask, WorkTask};
+
+    struct TestWorkExecutor;
+
+    impl WorkExecutor for TestWorkExecutor {
+        fn available_parallelism(&self) -> usize {
+            2
+        }
+
+        fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+            Ok(Box::new(TestWorkTask {
+                handle: Some(std::thread::spawn(task)),
+            }))
+        }
+    }
+
+    struct TestWorkTask {
+        handle: Option<JoinHandle<()>>,
+    }
+
+    impl WorkTask for TestWorkTask {
+        fn is_finished(&self) -> bool {
+            self.handle.as_ref().is_none_or(JoinHandle::is_finished)
+        }
+
+        fn wait(mut self: Box<Self>) {
+            if let Some(handle) = self.handle.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+
+    fn test_work_executor() -> Arc<dyn WorkExecutor> {
+        Arc::new(TestWorkExecutor)
+    }
 
     struct ConstEdgeQuery;
 
@@ -816,7 +854,7 @@ mod tests {
             .unwrap();
         pipeline.connect("source", "out", "derived", "in").unwrap();
 
-        pipeline.build().unwrap().wait();
+        pipeline.build(test_work_executor()).unwrap().wait();
         assert!(got.load(Ordering::Relaxed));
     }
 
@@ -1084,7 +1122,7 @@ mod tests {
             .connect("source", "out", "block_sink", "in")
             .unwrap();
 
-        pipeline.build().unwrap().wait();
+        pipeline.build(test_work_executor()).unwrap().wait();
 
         assert_eq!(sample_got.lock().unwrap().len(), 1);
         assert_eq!(block_got.lock().unwrap().len(), 1);

@@ -1281,10 +1281,13 @@ mod tests {
             self.workers
         }
 
-        fn submit(&self, task: crate::WorkExecutorTask) -> Result<(), String> {
+        fn submit(
+            &self,
+            task: crate::WorkExecutorTask,
+        ) -> Result<Box<dyn crate::WorkTask>, String> {
             self.submissions.fetch_add(1, Ordering::Relaxed);
             task();
-            Ok(())
+            Ok(Box::new(crate::CompletedWorkTask))
         }
     }
 

@@ -451,9 +451,9 @@ mod source_preparation_tests {
         fn submit(
             &self,
             task: signal_processing::WorkExecutorTask,
-        ) -> std::result::Result<(), String> {
+        ) -> std::result::Result<Box<dyn signal_processing::WorkTask>, String> {
             task();
-            Ok(())
+            Ok(Box::new(signal_processing::CompletedWorkTask))
         }
     }
 

@@ -1003,7 +1003,7 @@ mod tests {
     use crate::{
         CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureIndex, CaptureSessionId,
         CaptureStoreDescriptor, CaptureWaveformSegment, NativeCaptureStore,
-        NativeCaptureStoreConfig, WorkExecutor, WorkExecutorTask,
+        NativeCaptureStoreConfig, CompletedWorkTask, WorkExecutor, WorkExecutorTask, WorkTask,
     };
 
     use super::{FAN_OUT, LEAF_SAMPLES, NativeGrowingCaptureIndex, summary_masks};
@@ -1015,9 +1015,9 @@ mod tests {
             1
         }
 
-        fn submit(&self, task: WorkExecutorTask) -> Result<(), String> {
+        fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
             std::thread::spawn(task);
-            Ok(())
+            Ok(Box::new(CompletedWorkTask))
         }
     }
 

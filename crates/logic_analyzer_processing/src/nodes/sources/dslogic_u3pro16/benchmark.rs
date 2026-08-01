@@ -8,8 +8,9 @@ use std::time::{Duration, Instant};
 use signal_processing::logic_analyzer::{CaptureMode, LogicCaptureConfig};
 use signal_processing::{
     AcquisitionContext, CaptureCursorItem, CaptureIndex, CaptureSessionId, CaptureStoreCursor,
-    CaptureStoreDescriptor, NativeCaptureStore, NativeCaptureStoreConfig,
-    NativeGrowingCaptureIndex, WorkExecutor, WorkExecutorTask, bounded_capture_event_queue,
+    CaptureStoreDescriptor, CompletedWorkTask, NativeCaptureStore, NativeCaptureStoreConfig,
+    NativeGrowingCaptureIndex, WorkExecutor, WorkExecutorTask, WorkTask,
+    bounded_capture_event_queue,
 };
 
 use super::implementation::{DsLogicU3Pro16, LinkSpeed, UsbError, UsbTransport};
@@ -29,9 +30,9 @@ impl WorkExecutor for BenchmarkWorkExecutor {
         1
     }
 
-    fn submit(&self, task: WorkExecutorTask) -> Result<(), String> {
+    fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
         std::thread::spawn(task);
-        Ok(())
+        Ok(Box::new(CompletedWorkTask))
     }
 }
 

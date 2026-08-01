@@ -20,7 +20,7 @@ use signal_processing::{
     AppManager, AppManagerBackend, AppManagerFactory, ArtifactKey, ArtifactMetadata,
     ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion, ImmutableByteRegion,
     PersistentStoreConfig, PipelineManager, ReadArtifact, RepositoryCapabilities, RepositoryError,
-    SourceIdentity, WorkExecutor, WorkExecutorTask, WriteArtifact,
+    SourceIdentity, WorkExecutor, WorkExecutorTask, WorkTask, WriteArtifact,
 };
 
 use crate::services::PlatformServices;
@@ -84,7 +84,9 @@ pub(crate) fn standard_services() -> PlatformServices {
     .with_node_file_dialog(Box::new(NativeNodeFileDialogService))
     .with_graph_execution(
         Box::new(NativeSourcePreparationExecutor::new()),
-        Arc::new(NativeAppManagerFactory),
+        Arc::new(NativeAppManagerFactory {
+            work_executor: Arc::new(NativeRuntimeExecutor),
+        }),
         Arc::clone(&work_executor),
     );
     PlatformServices::with_ui_services(
@@ -127,15 +129,73 @@ impl WorkExecutor for NativeWorkExecutor {
         self.workers
     }
 
-    fn submit(&self, task: WorkExecutorTask) -> Result<(), String> {
-        self.sender.try_send(task).map_err(|error| match error {
-            crossbeam_channel::TrySendError::Full(_) => {
-                String::from("processing work executor queue is full")
-            }
-            crossbeam_channel::TrySendError::Disconnected(_) => {
-                String::from("processing work executor stopped")
-            }
-        })
+    fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        let completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let task_completed = Arc::clone(&completed);
+        let (completion_sender, completion_receiver) = crossbeam_channel::bounded(1);
+        self.sender
+            .try_send(Box::new(move || {
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(task));
+                task_completed.store(true, Ordering::Release);
+                let _ = completion_sender.send(());
+            }))
+            .map_err(|error| match error {
+                crossbeam_channel::TrySendError::Full(_) => {
+                    String::from("processing work executor queue is full")
+                }
+                crossbeam_channel::TrySendError::Disconnected(_) => {
+                    String::from("processing work executor stopped")
+                }
+            })?;
+        Ok(Box::new(NativeWorkTask {
+            completed,
+            completion_receiver,
+        }))
+    }
+}
+
+struct NativeWorkTask {
+    completed: Arc<std::sync::atomic::AtomicBool>,
+    completion_receiver: crossbeam_channel::Receiver<()>,
+}
+
+/// Host runtime executor for long-lived node and watchdog supervision.
+///
+/// Runtime tasks may block on stream endpoints, so they deliberately do not
+/// share the bounded worker queue used for finite decoding and indexing work.
+struct NativeRuntimeExecutor;
+
+impl WorkExecutor for NativeRuntimeExecutor {
+    fn available_parallelism(&self) -> usize {
+        1
+    }
+
+    fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        let completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let task_completed = Arc::clone(&completed);
+        let (completion_sender, completion_receiver) = crossbeam_channel::bounded(1);
+        std::thread::Builder::new()
+            .name("processing-runtime".into())
+            .spawn(move || {
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(task));
+                task_completed.store(true, Ordering::Release);
+                let _ = completion_sender.send(());
+            })
+            .map_err(|error| error.to_string())?;
+        Ok(Box::new(NativeWorkTask {
+            completed,
+            completion_receiver,
+        }))
+    }
+}
+
+impl WorkTask for NativeWorkTask {
+    fn is_finished(&self) -> bool {
+        self.completed.load(Ordering::Acquire)
+    }
+
+    fn wait(self: Box<Self>) {
+        let _ = self.completion_receiver.recv();
     }
 }
 
@@ -145,12 +205,14 @@ fn run_work_executor_worker(receiver: crossbeam_channel::Receiver<WorkExecutorTa
     }
 }
 
-struct NativeAppManagerFactory;
+struct NativeAppManagerFactory {
+    work_executor: Arc<dyn WorkExecutor>,
+}
 
 impl AppManagerFactory for NativeAppManagerFactory {
     fn create(&self) -> AppManager {
         AppManager::with_backend(Box::new(NativeAppManagerBackend {
-            manager: PipelineManager::new(),
+            manager: PipelineManager::new(Arc::clone(&self.work_executor)),
         }))
     }
 }
@@ -878,13 +940,17 @@ mod native_tests {
 
     use super::{
         NativeAppManagerFactory, NativeArtifactRepository, NativeHostService,
-        NativeSourcePreparationExecutor, NativeWorkExecutor, application_directory,
-        load_application_settings_path, load_input_bindings_path, queue_host_command,
+        NativeRuntimeExecutor, NativeSourcePreparationExecutor, NativeWorkExecutor,
+        application_directory, load_application_settings_path, load_input_bindings_path,
+        queue_host_command,
     };
 
     #[test]
     fn native_runtime_factory_selects_the_threaded_backend() {
-        let mut manager = NativeAppManagerFactory.create();
+        let factory = NativeAppManagerFactory {
+            work_executor: Arc::new(NativeRuntimeExecutor),
+        };
+        let mut manager = factory.create();
 
         manager.pump(1);
         assert!(manager.is_finished());

@@ -24,7 +24,6 @@ use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::thread::JoinHandle;
 
 use tracing::{debug, error, info};
 
@@ -38,8 +37,8 @@ use super::protocol::ProtocolKind;
 use super::sender::OverflowPolicy;
 use super::type_registry::{ErasedSharedSenders, TYPE_REGISTRY};
 use super::watchdog::Watchdog;
-use crate::SampleKind;
 use crate::errors::WorkError;
+use crate::{SampleKind, WorkExecutor, WorkTask};
 
 /// One input wire of a node being added: which producer list to join.
 #[derive(Debug, Clone)]
@@ -297,7 +296,7 @@ struct PendingStart {
 
 struct RunningNode {
     generation: u64,
-    thread: Option<JoinHandle<()>>,
+    task: Option<Box<dyn WorkTask>>,
     pending: Option<PendingStart>,
     control_tx: crossbeam_channel::Sender<NodeConfig>,
     configuration_scheduler: Option<Arc<dyn ConfigurationScheduler>>,
@@ -316,17 +315,21 @@ struct RunningNode {
 pub struct PipelineManager {
     nodes: HashMap<String, RunningNode>,
     watchdog: Watchdog,
-    watchdog_handle: Option<JoinHandle<()>>,
+    watchdog_task: Option<Box<dyn WorkTask>>,
+    work_executor: Arc<dyn WorkExecutor>,
 }
 
 impl PipelineManager {
-    pub fn new() -> Self {
+    pub fn new(work_executor: Arc<dyn WorkExecutor>) -> Self {
         let watchdog = Watchdog::new();
-        let watchdog_handle = watchdog.start_monitoring_thread();
+        let watchdog_task = watchdog
+            .start_monitoring(Arc::clone(&work_executor))
+            .expect("host work executor must accept watchdog monitoring");
         Self {
             nodes: HashMap::new(),
             watchdog,
-            watchdog_handle: Some(watchdog_handle),
+            watchdog_task: Some(watchdog_task),
+            work_executor,
         }
     }
 
@@ -346,11 +349,7 @@ impl PipelineManager {
     /// All node threads have exited (run complete or fully stopped).
     pub fn is_finished(&self) -> bool {
         self.nodes.values().all(|node| {
-            node.pending.is_none()
-                && node
-                    .thread
-                    .as_ref()
-                    .is_none_or(|thread| thread.is_finished())
+            node.pending.is_none() && node.task.as_ref().is_none_or(|task| task.is_finished())
         })
     }
 
@@ -502,7 +501,7 @@ impl PipelineManager {
             name,
             RunningNode {
                 generation,
-                thread: None,
+                task: None,
                 pending: Some(PendingStart {
                     node,
                     inputs,
@@ -536,6 +535,7 @@ impl PipelineManager {
     }
 
     fn start_node(&mut self, name: &str) -> Result<(), String> {
+        let work_executor = Arc::clone(&self.work_executor);
         let entry = self
             .nodes
             .get_mut(name)
@@ -561,9 +561,8 @@ impl PipelineManager {
             .flat_map(|output| output.lists.iter().map(|(_, list)| Arc::clone(list)))
             .collect();
 
-        let thread = std::thread::Builder::new()
-            .name(thread_name.clone())
-            .spawn(move || {
+        let task = work_executor
+            .submit(Box::new(move || {
                 if node.is_self_threading() {
                     // Start internal threads once, then supervise.
                     if let Err(e) = node.work_outcome(&inputs, &outputs) {
@@ -625,10 +624,10 @@ impl PipelineManager {
                     }
                 }
                 info!("[{thread_name}] exited");
-            })
-            .map_err(|e| format!("spawn '{name}': {e}"))?;
+            }))
+            .map_err(|error| format!("start '{name}': {error}"))?;
 
-        entry.thread = Some(thread);
+        entry.task = Some(task);
         Ok(())
     }
 
@@ -650,10 +649,8 @@ impl PipelineManager {
                 list.close();
             }
         }
-        if let Some(thread) = node.thread
-            && thread.join().is_err()
-        {
-            error!("[{name}] thread panicked during removal");
+        if let Some(task) = node.task {
+            task.wait();
         }
         Ok(())
     }
@@ -732,10 +729,8 @@ impl PipelineManager {
         if let Some(cancellation) = &old.cancellation {
             cancellation.request_cancel();
         }
-        if let Some(thread) = old.thread
-            && thread.join().is_err()
-        {
-            error!("[{name}] thread panicked during restart");
+        if let Some(task) = old.task {
+            task.wait();
         }
 
         let input_schemas = node.input_schema();
@@ -896,16 +891,14 @@ impl PipelineManager {
     /// Writer flushes run in the node `Drop`s, as offline.
     pub fn stop_all(&mut self) {
         self.request_stop();
-        for (name, node) in self.nodes.drain() {
-            if let Some(thread) = node.thread
-                && thread.join().is_err()
-            {
-                error!("[{name}] thread panicked during stop");
+        for (_, node) in self.nodes.drain() {
+            if let Some(task) = node.task {
+                task.wait();
             }
         }
         self.watchdog.stop();
-        if let Some(handle) = self.watchdog_handle.take() {
-            let _ = handle.join();
+        if let Some(task) = self.watchdog_task.take() {
+            task.wait();
         }
     }
 
@@ -913,23 +906,15 @@ impl PipelineManager {
     /// run), then reaps them. Live edits must come from another thread's
     /// point of view *before* calling this.
     pub fn wait(&mut self) {
-        for (name, node) in self.nodes.drain() {
-            if let Some(thread) = node.thread
-                && thread.join().is_err()
-            {
-                error!("[{name}] thread panicked");
+        for (_, node) in self.nodes.drain() {
+            if let Some(task) = node.task {
+                task.wait();
             }
         }
         self.watchdog.stop();
-        if let Some(handle) = self.watchdog_handle.take() {
-            let _ = handle.join();
+        if let Some(task) = self.watchdog_task.take() {
+            task.wait();
         }
-    }
-}
-
-impl Default for PipelineManager {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -945,6 +930,7 @@ impl Drop for PipelineManager {
 mod tests {
     use std::collections::VecDeque;
     use std::sync::Mutex;
+    use std::thread::JoinHandle;
     use std::time::Duration;
 
     use super::*;
@@ -952,6 +938,41 @@ mod tests {
     use crate::events::NumberSample;
     use crate::node::ConfigValue;
     use crate::ports::{PortDirection, PortSchema};
+    use crate::{WorkExecutor, WorkExecutorTask, WorkTask};
+
+    struct TestWorkExecutor;
+
+    impl WorkExecutor for TestWorkExecutor {
+        fn available_parallelism(&self) -> usize {
+            2
+        }
+
+        fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+            Ok(Box::new(TestWorkTask {
+                handle: Some(std::thread::spawn(task)),
+            }))
+        }
+    }
+
+    struct TestWorkTask {
+        handle: Option<JoinHandle<()>>,
+    }
+
+    impl WorkTask for TestWorkTask {
+        fn is_finished(&self) -> bool {
+            self.handle.as_ref().is_none_or(JoinHandle::is_finished)
+        }
+
+        fn wait(mut self: Box<Self>) {
+            if let Some(handle) = self.handle.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+
+    fn manager() -> PipelineManager {
+        PipelineManager::new(Arc::new(TestWorkExecutor))
+    }
 
     /// Emits `NumberSample { value: i, start_time_ns: i }` for i in 0..max,
     /// paced so tests can attach taps mid-stream.
@@ -1215,7 +1236,7 @@ mod tests {
 
     #[test]
     fn add_tap_mid_run_gets_sticky_prime_and_live_data() {
-        let mut manager = PipelineManager::new();
+        let mut manager = manager();
         let base = Arc::new(Mutex::new(Vec::new()));
         let tap = Arc::new(Mutex::new(Vec::new()));
 
@@ -1260,7 +1281,7 @@ mod tests {
 
     #[test]
     fn remove_branch_leaves_the_rest_running() {
-        let mut manager = PipelineManager::new();
+        let mut manager = manager();
         let base = Arc::new(Mutex::new(Vec::new()));
         let doomed = Arc::new(Mutex::new(Vec::new()));
 
@@ -1298,7 +1319,7 @@ mod tests {
 
     #[test]
     fn reconfigure_applies_between_work_calls() {
-        let mut manager = PipelineManager::new();
+        let mut manager = manager();
         let out = Arc::new(Mutex::new(Vec::new()));
 
         manager
@@ -1353,7 +1374,7 @@ mod tests {
 
     #[test]
     fn scheduled_reconfigure_switches_at_event_boundary_with_queued_input() {
-        let mut manager = PipelineManager::new();
+        let mut manager = manager();
         let out = Arc::new(Mutex::new(Vec::new()));
         manager
             .add_node_deferred(NodeSpec {
@@ -1398,7 +1419,7 @@ mod tests {
 
     #[test]
     fn scheduled_reconfigure_reaches_node_while_work_is_blocked_for_input() {
-        let mut manager = PipelineManager::new();
+        let mut manager = manager();
         let out = Arc::new(Mutex::new(Vec::new()));
         let (source_sender, source_receiver) = crossbeam_channel::unbounded();
         manager
@@ -1444,7 +1465,7 @@ mod tests {
 
     #[test]
     fn restart_in_place_keeps_downstream_attached() {
-        let mut manager = PipelineManager::new();
+        let mut manager = manager();
         let out = Arc::new(Mutex::new(Vec::new()));
 
         manager
@@ -1505,7 +1526,7 @@ mod tests {
 
     #[test]
     fn stop_all_unblocks_and_joins_everything() {
-        let mut manager = PipelineManager::new();
+        let mut manager = manager();
         let out = Arc::new(Mutex::new(Vec::new()));
         manager
             .add_node(NodeSpec {
@@ -1537,7 +1558,7 @@ mod tests {
     /// on its own so a later `stop_all` reap is instant.
     #[test]
     fn request_stop_is_nonblocking_and_winds_down() {
-        let mut manager = PipelineManager::new();
+        let mut manager = manager();
         let out = Arc::new(Mutex::new(Vec::new()));
         manager
             .add_node(NodeSpec {
@@ -1581,7 +1602,7 @@ mod tests {
 
     #[test]
     fn request_stop_cancels_a_node_blocked_inside_work() {
-        let mut manager = PipelineManager::new();
+        let mut manager = manager();
         let (sender, receiver) = crossbeam_channel::bounded(1);
         manager
             .add_node(NodeSpec {
@@ -1828,7 +1849,7 @@ mod tests {
 
     #[test]
     fn edge_query_negotiated_even_after_producer_already_running() {
-        let mut manager = PipelineManager::new();
+        let mut manager = manager();
         manager
             .add_node(NodeSpec {
                 name: "source".into(),
@@ -1866,7 +1887,7 @@ mod tests {
 
     #[test]
     fn derived_output_receives_streamed_input_query_capability() {
-        let mut manager = PipelineManager::new();
+        let mut manager = manager();
         manager
             .add_node_deferred(NodeSpec {
                 name: "source".into(),
@@ -1901,7 +1922,7 @@ mod tests {
 
     #[test]
     fn stream_only_consumer_overrides_queryable_producer_in_live_manager() {
-        let mut manager = PipelineManager::new();
+        let mut manager = manager();
         manager
             .add_node(NodeSpec {
                 name: "source".into(),
@@ -1929,7 +1950,7 @@ mod tests {
 
     #[test]
     fn live_manager_honors_one_coordinated_choice_for_multiple_inputs() {
-        let mut manager = PipelineManager::new();
+        let mut manager = manager();
         manager
             .add_node_deferred(NodeSpec {
                 name: "source".into(),
@@ -2063,7 +2084,7 @@ mod tests {
         // sinks are subscribed before the source's thread can run at all
         // (the same guarantee `start_all_deferred`'s own doc describes
         // for initial materialization).
-        let mut manager = PipelineManager::new();
+        let mut manager = manager();
         manager
             .add_node_deferred(NodeSpec {
                 name: "source".into(),

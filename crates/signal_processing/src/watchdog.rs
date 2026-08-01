@@ -14,6 +14,8 @@ use tracing::{info, warn};
 // browser and transparently re-exports `std::time` elsewhere.
 use web_time::{SystemTime, UNIX_EPOCH};
 
+use crate::{WorkExecutor, WorkTask};
+
 /// Timestamp in milliseconds since UNIX_EPOCH
 #[inline(always)]
 fn now_millis() -> u64 {
@@ -140,10 +142,13 @@ impl Watchdog {
         });
     }
 
-    /// Start the watchdog monitoring thread
-    pub fn start_monitoring_thread(&self) -> std::thread::JoinHandle<()> {
+    /// Starts watchdog monitoring through the host execution capability.
+    pub fn start_monitoring(
+        &self,
+        work_executor: Arc<dyn WorkExecutor>,
+    ) -> Result<Box<dyn WorkTask>, String> {
         let watchdog = self.clone();
-        std::thread::spawn(move || {
+        work_executor.submit(Box::new(move || {
             loop {
                 {
                     let enabled = watchdog.enabled.lock().unwrap();
@@ -158,7 +163,7 @@ impl Watchdog {
 
                 watchdog.check_for_blocked();
             }
-        })
+        }))
     }
 
     /// Stop the watchdog monitoring thread. Takes effect immediately (the

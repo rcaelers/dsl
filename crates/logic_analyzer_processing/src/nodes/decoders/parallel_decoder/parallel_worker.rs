@@ -336,13 +336,50 @@ fn work_parallel(
 #[cfg(test)]
 mod parallel_worker_tests {
     use std::sync::Arc;
+    use std::thread::JoinHandle;
     use std::time::{Duration, Instant};
 
     use crossbeam_channel::bounded;
 
-    use signal_processing::{ChannelMessage, ProcessNode, Scheduler, Sender, Watchdog};
+    use signal_processing::{
+        ChannelMessage, ProcessNode, Scheduler, Sender, Watchdog, WorkExecutor,
+        WorkExecutorTask, WorkTask,
+    };
 
     use super::*;
+
+    struct TestWorkExecutor;
+
+    impl WorkExecutor for TestWorkExecutor {
+        fn available_parallelism(&self) -> usize {
+            2
+        }
+
+        fn submit(
+            &self,
+            task: WorkExecutorTask,
+        ) -> std::result::Result<Box<dyn WorkTask>, String> {
+            Ok(Box::new(TestWorkTask {
+                handle: Some(std::thread::spawn(task)),
+            }))
+        }
+    }
+
+    struct TestWorkTask {
+        handle: Option<JoinHandle<()>>,
+    }
+
+    impl WorkTask for TestWorkTask {
+        fn is_finished(&self) -> bool {
+            self.handle.as_ref().is_none_or(JoinHandle::is_finished)
+        }
+
+        fn wait(mut self: Box<Self>) {
+            if let Some(handle) = self.handle.take() {
+                let _ = handle.join();
+            }
+        }
+    }
 
     #[test]
     fn adaptive_worker_policy_scales_with_host_capacity() {
@@ -529,7 +566,7 @@ mod parallel_worker_tests {
             1,
         );
 
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = Scheduler::new(Arc::new(TestWorkExecutor));
         let inputs = vec![
             block_input(scheduler.watchdog(), strobe, "strobe"),
             block_input(scheduler.watchdog(), data, "d0"),

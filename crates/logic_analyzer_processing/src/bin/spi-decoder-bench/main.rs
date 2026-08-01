@@ -11,6 +11,8 @@ std::cfg_select! {
 
         mod native {
             use std::path::PathBuf;
+            use std::sync::Arc;
+            use std::thread::JoinHandle;
             use std::time::Instant;
 
             use clap::{Parser, ValueEnum};
@@ -21,8 +23,41 @@ std::cfg_select! {
             use signal_processing::{
                 built_in_word_lane_ingestor, CollectedWordLaneOptions, DerivedDataCollector,
                 DerivedDataRetention, DerivedLanes, LiveStoreConfig, Pipeline, ProcessNode,
-                Watchdog, Word, WorkError,
+                Watchdog, Word, WorkError, WorkExecutor, WorkExecutorTask, WorkTask,
             };
+
+            struct BenchmarkWorkExecutor;
+
+            impl WorkExecutor for BenchmarkWorkExecutor {
+                fn available_parallelism(&self) -> usize {
+                    2
+                }
+
+                fn submit(
+                    &self,
+                    task: WorkExecutorTask,
+                ) -> Result<Box<dyn WorkTask>, String> {
+                    Ok(Box::new(BenchmarkWorkTask {
+                        handle: Some(std::thread::spawn(task)),
+                    }))
+                }
+            }
+
+            struct BenchmarkWorkTask {
+                handle: Option<JoinHandle<()>>,
+            }
+
+            impl WorkTask for BenchmarkWorkTask {
+                fn is_finished(&self) -> bool {
+                    self.handle.as_ref().is_none_or(JoinHandle::is_finished)
+                }
+
+                fn wait(mut self: Box<Self>) {
+                    if let Some(handle) = self.handle.take() {
+                        let _ = handle.join();
+                    }
+                }
+            }
 
             #[derive(Clone, Copy, Debug, ValueEnum)]
             enum SinkKind {
@@ -172,7 +207,7 @@ std::cfg_select! {
                     }
                 };
 
-                let scheduler = pipeline.build()?;
+                let scheduler = pipeline.build(Arc::new(BenchmarkWorkExecutor))?;
                 let start = Instant::now();
                 scheduler.wait();
                 let elapsed = start.elapsed().as_secs_f64();

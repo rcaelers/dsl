@@ -17,6 +17,9 @@ use signal_processing::{
     WorkOutcome, WorkResult,
 };
 
+#[cfg(test)]
+use signal_processing::{CompletedWorkTask, WorkTask};
+
 use crate::types::{CsPolarity, Endianness};
 
 use super::sampling_provider::{ParallelSamplingProgress, install_sampling_provider};
@@ -40,9 +43,12 @@ impl WorkExecutor for SpawnWorkExecutor {
         self.workers
     }
 
-    fn submit(&self, task: signal_processing::WorkExecutorTask) -> Result<(), String> {
+    fn submit(
+        &self,
+        task: signal_processing::WorkExecutorTask,
+    ) -> Result<Box<dyn WorkTask>, String> {
         std::thread::spawn(task);
-        Ok(())
+        Ok(Box::new(CompletedWorkTask))
     }
 }
 

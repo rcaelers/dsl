@@ -8,14 +8,13 @@
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::thread::JoinHandle;
 
 use thiserror::Error;
 
 use super::trigger::LogicTrigger;
 use crate::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Sample, SampleBlock, SampleKind,
-    Sender, WorkError, WorkResult,
+    Sender, WorkError, WorkExecutor, WorkResult, WorkTask,
 };
 
 /// Static capabilities exposed by a logic-analyzer driver.
@@ -182,7 +181,8 @@ pub struct LogicAnalyzerSource<A: LogicAnalyzer> {
     config: LogicCaptureConfig,
     shutdown: Arc<AtomicBool>,
     completed: Arc<AtomicUsize>,
-    handle: Option<JoinHandle<()>>,
+    task: Option<Box<dyn WorkTask>>,
+    work_executor: Arc<dyn WorkExecutor>,
     started: bool,
 }
 
@@ -206,13 +206,20 @@ impl<A: LogicAnalyzer> LogicAnalyzerSource<A> {
             config,
             shutdown: Arc::new(AtomicBool::new(false)),
             completed: Arc::new(AtomicUsize::new(0)),
-            handle: None,
+            task: None,
+            work_executor: Arc::new(crate::InlineWorkExecutor),
             started: false,
         })
     }
 
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
+        self
+    }
+
+    /// Supplies the host-selected executor for the long-lived capture task.
+    pub fn with_work_executor(mut self, work_executor: Arc<dyn WorkExecutor>) -> Self {
+        self.work_executor = work_executor;
         self
     }
 
@@ -338,10 +345,9 @@ impl<A: LogicAnalyzer> ProcessNode for LogicAnalyzerSource<A> {
         let raw_sender = outputs.get(n).and_then(|p| p.clone_sender::<LogicChunk>());
         let shutdown = Arc::clone(&self.shutdown);
         let completed = Arc::clone(&self.completed);
-        self.handle = Some(
-            std::thread::Builder::new()
-                .name("logic-analyzer".into())
-                .spawn(move || {
+        self.task = Some(
+            self.work_executor
+                .submit(Box::new(move || {
                     Self::run(
                         analyzer,
                         config,
@@ -352,9 +358,9 @@ impl<A: LogicAnalyzer> ProcessNode for LogicAnalyzerSource<A> {
                         shutdown,
                         completed,
                     );
-                })
-                .map_err(|e| {
-                    WorkError::NodeError(format!("cannot start logic-analyzer thread: {e}"))
+                }))
+                .map_err(|error| {
+                    WorkError::NodeError(format!("cannot start logic-analyzer source: {error}"))
                 })?,
         );
         Ok(0)
@@ -364,8 +370,8 @@ impl<A: LogicAnalyzer> ProcessNode for LogicAnalyzerSource<A> {
 impl<A: LogicAnalyzer> Drop for LogicAnalyzerSource<A> {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::Relaxed);
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
+        if let Some(task) = self.task.take() {
+            task.wait();
         }
     }
 }

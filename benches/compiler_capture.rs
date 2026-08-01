@@ -6,6 +6,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use egui::{Color32, Event, Id, Pos2, Rect, UiBuilder};
@@ -29,7 +30,8 @@ use logic_analyzer_viewer::{
 use node_graph::{NodeGraphWidget, NodeId, SocketDirection, SocketId};
 use signal_processing::{
     CollectedLaneQuery, CollectedLaneSnapshotRequest, CollectedWordLaneQuery, DerivedLanes,
-    OpaqueCollectedLane, OpaqueCollectedLaneSnapshot, Pipeline, TriggerLaneSnapshot,
+    OpaqueCollectedLane, OpaqueCollectedLaneSnapshot, Pipeline, TriggerLaneSnapshot, WorkExecutor,
+    WorkExecutorTask, WorkTask,
 };
 
 use integration_tests_support as nodes;
@@ -70,6 +72,44 @@ struct ResourceUsage {
     user_seconds: f64,
     system_seconds: f64,
     peak_rss_bytes: u64,
+}
+
+struct BenchmarkWorkExecutor;
+
+impl WorkExecutor for BenchmarkWorkExecutor {
+    fn available_parallelism(&self) -> usize {
+        1
+    }
+
+    fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        let handle = std::thread::Builder::new()
+            .name("compiler-capture-runtime".into())
+            .spawn(task)
+            .map_err(|error| error.to_string())?;
+        Ok(Box::new(BenchmarkWorkTask {
+            handle: Some(handle),
+        }))
+    }
+}
+
+struct BenchmarkWorkTask {
+    handle: Option<JoinHandle<()>>,
+}
+
+impl WorkTask for BenchmarkWorkTask {
+    fn is_finished(&self) -> bool {
+        self.handle.as_ref().is_none_or(JoinHandle::is_finished)
+    }
+
+    fn wait(mut self: Box<Self>) {
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+fn runtime_executor() -> Arc<dyn WorkExecutor> {
+    Arc::new(BenchmarkWorkExecutor)
 }
 
 #[cfg(unix)]
@@ -333,7 +373,7 @@ fn run_phase_one_reference(capture: &Path, output: &Path) {
     pipeline
         .connect("decoder", "words", "writer", "data")
         .unwrap();
-    pipeline.build().unwrap().wait();
+    pipeline.build(runtime_executor()).unwrap().wait();
 }
 
 fn run_current_reference(capture: &Path, output: &Path) {
@@ -406,7 +446,7 @@ fn run_current_reference(capture: &Path, output: &Path) {
     pipeline
         .connect("decoder", "words", "writer", "data")
         .unwrap();
-    pipeline.build().unwrap().wait();
+    pipeline.build(runtime_executor()).unwrap().wait();
 }
 
 fn connect_parallel_inputs(pipeline: &mut Pipeline, decoder: &str) {

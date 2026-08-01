@@ -13,6 +13,7 @@ std::cfg_select! {
     use std::collections::VecDeque;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
+    use std::thread::JoinHandle;
     use std::time::{Duration, Instant};
 
     use clap::{Parser, ValueEnum};
@@ -27,12 +28,46 @@ std::cfg_select! {
         CollectedWordLaneOptions, CollectedWordLaneQuery, DecodedBlockCacheStats,
         DerivedDataCollector, DerivedDataCollectorMetrics, DerivedDataRetention, DerivedLanes,
         InputPort, LiveStoreConfig, OutputPort, PersistentStoreConfig, Pipeline, PortSchema,
-        ProcessNode, ProtocolKind, Word, WorkError, WorkResult, built_in_word_lane_ingestor,
+        ProcessNode, ProtocolKind, Word, WorkError, WorkExecutor, WorkExecutorTask, WorkResult,
+        WorkTask, built_in_word_lane_ingestor,
         configure_decoded_block_cache, decoded_block_cache_stats, reset_decoded_block_cache_stats,
     };
 
     const DEFAULT_MAX_WORDS_PER_BLOCK: usize = 32_768;
     const DEFAULT_RESTART_INTERVAL: usize = 512;
+
+    struct BenchmarkWorkExecutor;
+
+    impl WorkExecutor for BenchmarkWorkExecutor {
+        fn available_parallelism(&self) -> usize {
+            2
+        }
+
+        fn submit(
+            &self,
+            task: WorkExecutorTask,
+        ) -> Result<Box<dyn WorkTask>, String> {
+            Ok(Box::new(BenchmarkWorkTask {
+                handle: Some(std::thread::spawn(task)),
+            }))
+        }
+    }
+
+    struct BenchmarkWorkTask {
+        handle: Option<JoinHandle<()>>,
+    }
+
+    impl WorkTask for BenchmarkWorkTask {
+        fn is_finished(&self) -> bool {
+            self.handle.as_ref().is_none_or(JoinHandle::is_finished)
+        }
+
+        fn wait(mut self: Box<Self>) {
+            if let Some(handle) = self.handle.take() {
+                let _ = handle.join();
+            }
+        }
+    }
 
     #[derive(Clone, Copy, Debug, ValueEnum)]
     enum BenchMode {
@@ -842,7 +877,7 @@ std::cfg_select! {
             pipeline.connect("decoder", "words", "sink", sink_port)?;
         }
 
-        let scheduler = pipeline.build()?;
+        let scheduler = pipeline.build(Arc::new(BenchmarkWorkExecutor))?;
         let setup = setup_start.elapsed();
         let resources_before = resource_usage();
         let run_start = Instant::now();

@@ -85,9 +85,6 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.execution.runtime-supervision] Move scheduler, pipeline-manager, watchdog, and generic
-  logic-analyzer source threads behind the injected runtime-execution contract. Preserve node lifecycle, cancellation,
-  and diagnostic behavior while removing reusable target-selected thread ownership.
 - [platform.data-plane.execution.file-source-readers] Move DSL and Sigrok file-source reader workers into the
   prepared-source and execution contracts. Keep file-specific adapter leaves temporary and preserve bounded
   per-destination delivery without selecting target behavior in their portable parser paths.
