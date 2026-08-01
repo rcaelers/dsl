@@ -14,10 +14,11 @@ use super::super::super::format::BlockDirectoryEntry;
 use super::super::super::presence::{WordPresenceIndex, word_presence_summaries};
 use super::super::super::query::{
     AnnotationQuery, AnnotationQueryError, AnnotationQueryResult, AnnotationStoreMetadata,
-    ExactAnnotationWindow, WordPresenceBucket,
+    ExactAnnotationWindow, WordPresenceBucket, annotation_window_from_ordered_words,
+    nearest_boundary_from_ordered_words,
 };
 use super::super::super::state::{LiveStoreMetadata, LiveStoreSnapshot, StoreStatus};
-use crate::events::{Annotation, Word, instantaneous_word_end_ns};
+use crate::events::Word;
 
 pub(crate) fn default_working_directory() -> PathBuf {
     PathBuf::new()
@@ -172,28 +173,11 @@ impl AnnotationQuery for IndexedAnnotationStore {
         }
         let (generation, blocks, hot_tail, committed_word_count) = self.word_context();
         let words = decode_context(&blocks, hot_tail, committed_word_count)?;
-        let mut annotations = Vec::with_capacity(max_words);
-        for (index, word) in words.iter().enumerate() {
-            let annotation_end = word_end_ns(&words, index);
-            if word.timestamp_ns <= end_ns && annotation_end >= start_ns {
-                if annotations.len() == max_words {
-                    return Ok(ExactAnnotationWindow {
-                        annotations,
-                        complete: false,
-                        generation,
-                    });
-                }
-                annotations.push(Annotation {
-                    start_ns: word.timestamp_ns,
-                    end_ns: annotation_end,
-                    value: word.value,
-                    payload: word.payload.clone(),
-                });
-            }
-        }
+        let (annotations, truncated) =
+            annotation_window_from_ordered_words(&words, start_ns, end_ns, max_words);
         Ok(ExactAnnotationWindow {
             annotations,
-            complete: true,
+            complete: !truncated,
             generation,
         })
     }
@@ -205,22 +189,11 @@ impl AnnotationQuery for IndexedAnnotationStore {
     ) -> AnnotationQueryResult<Option<u64>> {
         let (_, blocks, hot_tail, committed_word_count) = self.word_context();
         let words = decode_context(&blocks, hot_tail, committed_word_count)?;
-        let mut nearest = None;
-        for (index, word) in words.iter().enumerate() {
-            consider_boundary(
-                word.timestamp_ns,
-                timestamp_ns,
-                max_distance_ns,
-                &mut nearest,
-            );
-            consider_boundary(
-                word_end_ns(&words, index),
-                timestamp_ns,
-                max_distance_ns,
-                &mut nearest,
-            );
-        }
-        Ok(nearest.map(|(boundary, _)| boundary))
+        Ok(nearest_boundary_from_ordered_words(
+            &words,
+            timestamp_ns,
+            max_distance_ns,
+        ))
     }
 }
 
@@ -423,39 +396,6 @@ fn merge_hot_tail_presence(buckets: &mut [WordPresenceBucket], words: &[Word]) {
         for bucket in &mut buckets[first.min(end)..end] {
             bucket.word_count = bucket.word_count.saturating_add(1);
         }
-    }
-}
-
-fn word_end_ns(words: &[Word], index: usize) -> u64 {
-    let word = &words[index];
-    if word.duration_ns != 0 {
-        return word.timestamp_ns.saturating_add(word.duration_ns);
-    }
-    words.get(index + 1).map_or(word.timestamp_ns, |next| {
-        instantaneous_word_end_ns(
-            index
-                .checked_sub(1)
-                .map(|previous| words[previous].timestamp_ns),
-            word.timestamp_ns,
-            next.timestamp_ns,
-        )
-    })
-}
-
-fn consider_boundary(
-    boundary: u64,
-    target: u64,
-    max_distance: u64,
-    nearest: &mut Option<(u64, u64)>,
-) {
-    let distance = boundary.abs_diff(target);
-    if distance > max_distance {
-        return;
-    }
-    if nearest.is_none_or(|(best_boundary, best_distance)| {
-        distance < best_distance || (distance == best_distance && boundary < best_boundary)
-    }) {
-        *nearest = Some((boundary, distance));
     }
 }
 

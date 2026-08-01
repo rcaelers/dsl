@@ -27,10 +27,11 @@ use super::super::super::presence::{
 };
 use super::super::super::query::{
     AnnotationQuery, AnnotationQueryError, AnnotationQueryResult, AnnotationStoreMetadata,
-    ExactAnnotationWindow, WordPresenceBucket,
+    ExactAnnotationWindow, WordPresenceBucket, annotation_window_from_ordered_words,
+    nearest_boundary_from_ordered_words,
 };
 use super::super::super::state::{LiveStoreMetadata, LiveStoreSnapshot, StoreStatus};
-use crate::events::{Annotation, Word, instantaneous_word_end_ns};
+use crate::events::{Annotation, Word};
 
 const MAX_BLOCK_ENCODERS_PER_STORE: usize = 4;
 static NEXT_STORE_ID: AtomicU64 = AtomicU64::new(1);
@@ -566,35 +567,9 @@ impl AnnotationQuery for IndexedAnnotationStore {
         }
         context.sort_by_key(|word| word.timestamp_ns);
 
-        let mut annotations = Vec::with_capacity(context.len().min(max_words));
-        for (index, word) in context.iter().enumerate() {
-            let end = if word.duration_ns != 0 {
-                word.timestamp_ns.saturating_add(word.duration_ns)
-            } else {
-                context.get(index + 1).map_or(word.timestamp_ns, |next| {
-                    instantaneous_word_end_ns(
-                        index
-                            .checked_sub(1)
-                            .map(|previous| context[previous].timestamp_ns),
-                        word.timestamp_ns,
-                        next.timestamp_ns,
-                    )
-                })
-            };
-            if word.timestamp_ns <= end_ns && end >= start_ns {
-                annotations.push(Annotation {
-                    start_ns: word.timestamp_ns,
-                    end_ns: end,
-                    value: word.value,
-                    payload: word.payload.clone(),
-                });
-                if annotations.len() > max_words {
-                    annotations.truncate(max_words);
-                    candidates.truncated = true;
-                    break;
-                }
-            }
-        }
+        let (annotations, truncated) =
+            annotation_window_from_ordered_words(&context, start_ns, end_ns, max_words);
+        candidates.truncated |= truncated;
 
         Ok(ExactAnnotationWindow {
             annotations,
@@ -611,7 +586,6 @@ impl AnnotationQuery for IndexedAnnotationStore {
         let (entries, hot_tail) = self.boundary_context(timestamp_ns, max_distance_ns);
         let lower = timestamp_ns.saturating_sub(max_distance_ns);
         let upper = timestamp_ns.saturating_add(max_distance_ns);
-        let mut nearest = None;
         let mut context = Vec::new();
 
         for entry in entries {
@@ -623,15 +597,11 @@ impl AnnotationQuery for IndexedAnnotationStore {
         context.extend_from_slice(&hot_tail);
         context.sort_by_key(|word| word.timestamp_ns);
         context.dedup();
-        consider_word_boundaries(
+        Ok(nearest_boundary_from_ordered_words(
             &context,
-            lower,
-            upper,
             timestamp_ns,
             max_distance_ns,
-            &mut nearest,
-        );
-        Ok(nearest.map(|(boundary, _)| boundary))
+        ))
     }
 }
 
@@ -794,55 +764,6 @@ impl ExactQueryCandidates {
             }
             self.words.push(word.clone());
         }
-    }
-}
-
-fn consider_word_boundaries(
-    words: &[Word],
-    _lower: u64,
-    _upper: u64,
-    target: u64,
-    max_distance: u64,
-    nearest: &mut Option<(u64, u64)>,
-) {
-    if words.is_empty() {
-        return;
-    }
-    for (index, word) in words.iter().enumerate() {
-        consider_boundary(word.timestamp_ns, target, max_distance, nearest);
-        let word_end = if word.duration_ns != 0 {
-            Some(word.timestamp_ns.saturating_add(word.duration_ns))
-        } else {
-            words.get(index + 1).map(|next| {
-                instantaneous_word_end_ns(
-                    index
-                        .checked_sub(1)
-                        .map(|previous| words[previous].timestamp_ns),
-                    word.timestamp_ns,
-                    next.timestamp_ns,
-                )
-            })
-        };
-        if let Some(word_end) = word_end {
-            consider_boundary(word_end, target, max_distance, nearest);
-        }
-    }
-}
-
-fn consider_boundary(
-    boundary: u64,
-    target: u64,
-    max_distance: u64,
-    nearest: &mut Option<(u64, u64)>,
-) {
-    let distance = boundary.abs_diff(target);
-    if distance > max_distance {
-        return;
-    }
-    if nearest.is_none_or(|(best_boundary, best_distance)| {
-        distance < best_distance || (distance == best_distance && boundary < best_boundary)
-    }) {
-        *nearest = Some((boundary, distance));
     }
 }
 
@@ -1391,6 +1312,7 @@ mod tests {
     use super::*;
     use crate::derived_word_store::BlockCodecConfig;
     use crate::derived_word_store::cache::cache_contains;
+    use crate::events::instantaneous_word_end_ns;
 
     fn test_config(directory: &Path) -> LiveStoreConfig {
         LiveStoreConfig {
