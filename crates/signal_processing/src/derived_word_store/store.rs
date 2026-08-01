@@ -1,5 +1,4 @@
-use std::cmp::Reverse;
-use std::collections::{BTreeMap, BinaryHeap};
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -21,18 +20,18 @@ use super::super::super::format::{
     BLOCK_FLAG_HAS_DURATIONS, BlockDirectoryEntry, DATA_HEADER_SIZE, DataFileHeader,
     WordBlockHeader,
 };
-use super::super::super::presence::{WordPresenceIndex, WordSummaryRecord};
+#[cfg(test)]
+use super::super::super::presence::MAX_PRESENCE_RUNS_PER_BLOCK;
+use super::super::super::presence::{
+    WordPresenceIndex, WordSummaryRecord, word_presence_summaries,
+};
 use super::super::super::query::{
     AnnotationQuery, AnnotationQueryError, AnnotationQueryResult, AnnotationStoreMetadata,
     ExactAnnotationWindow, WordPresenceBucket,
 };
 use super::super::super::state::{LiveStoreMetadata, LiveStoreSnapshot, StoreStatus};
-use crate::events::{
-    Annotation, Word, instantaneous_word_end_ns, instantaneous_word_end_ns_with_limit,
-};
+use crate::events::{Annotation, Word, instantaneous_word_end_ns};
 
-const MAX_PRESENCE_RUNS_PER_BLOCK: usize = 256;
-const MAX_PRESENCE_CADENCE_NS: u64 = 1_000_000;
 const MAX_BLOCK_ENCODERS_PER_STORE: usize = 4;
 static NEXT_STORE_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -1338,181 +1337,6 @@ impl super::super::super::backend::AnnotationStoreWriterBackend for IndexedAnnot
     }
 }
 
-fn word_presence_summaries(
-    block: u64,
-    words: &[Word],
-    duration_free: bool,
-) -> Vec<WordSummaryRecord> {
-    if duration_free {
-        return duration_free_word_presence_summaries(block, words);
-    }
-    general_word_presence_summaries(block, words)
-}
-
-fn duration_free_word_presence_summaries(block: u64, words: &[Word]) -> Vec<WordSummaryRecord> {
-    let Some(first) = words.first() else {
-        return Vec::new();
-    };
-    let kept_gap_count = MAX_PRESENCE_RUNS_PER_BLOCK.saturating_sub(1);
-    let mut largest_gaps = BinaryHeap::with_capacity(kept_gap_count + 1);
-    let mut run_index = 0usize;
-
-    for word_index in 1..words.len() {
-        let previous_end_ns = duration_free_presence_word_end_ns(words, word_index - 1);
-        let word = &words[word_index];
-        if word.timestamp_ns <= previous_end_ns {
-            continue;
-        }
-        let gap = (
-            word.timestamp_ns.saturating_sub(previous_end_ns),
-            run_index,
-            word_index,
-        );
-        run_index += 1;
-        if largest_gaps.len() < kept_gap_count {
-            largest_gaps.push(Reverse(gap));
-        } else if largest_gaps.peek().is_some_and(|smallest| gap > smallest.0) {
-            largest_gaps.pop();
-            largest_gaps.push(Reverse(gap));
-        }
-    }
-
-    let mut boundaries: Vec<_> = largest_gaps
-        .into_iter()
-        .map(|Reverse((_, _, word_index))| word_index)
-        .collect();
-    boundaries.sort_unstable();
-
-    let mut summaries = Vec::with_capacity(boundaries.len() + 1);
-    let mut start_index = 0usize;
-    for end_index in boundaries.into_iter().chain(std::iter::once(words.len())) {
-        let last_index = end_index - 1;
-        summaries.push(WordSummaryRecord {
-            start_ns: words[start_index].timestamp_ns,
-            end_ns: duration_free_presence_word_end_ns(words, last_index),
-            word_count: (end_index - start_index) as u64,
-            first_block: block,
-            block_count: 1,
-        });
-        start_index = end_index;
-    }
-    debug_assert_eq!(summaries[0].start_ns, first.timestamp_ns);
-    summaries
-}
-
-fn duration_free_presence_word_end_ns(words: &[Word], index: usize) -> u64 {
-    let word = &words[index];
-    if let Some(next) = words.get(index + 1) {
-        instantaneous_word_end_ns_with_limit(
-            index
-                .checked_sub(1)
-                .map(|previous| words[previous].timestamp_ns),
-            word.timestamp_ns,
-            next.timestamp_ns,
-            MAX_PRESENCE_CADENCE_NS,
-        )
-    } else {
-        let inferred_period = index
-            .checked_sub(1)
-            .map(|previous| {
-                word.timestamp_ns
-                    .saturating_sub(words[previous].timestamp_ns)
-            })
-            .filter(|period| *period > 0)
-            .unwrap_or(0)
-            .min(MAX_PRESENCE_CADENCE_NS);
-        word.timestamp_ns.saturating_add(inferred_period)
-    }
-}
-
-fn general_word_presence_summaries(block: u64, words: &[Word]) -> Vec<WordSummaryRecord> {
-    let Some(first) = words.first() else {
-        return Vec::new();
-    };
-    let mut current_end_ns = presence_word_end_ns(words, 0);
-    let mut run_index = 0usize;
-    let mut gaps = Vec::new();
-    for (word_index, word) in words.iter().enumerate().skip(1) {
-        let end_ns = presence_word_end_ns(words, word_index);
-        if word.timestamp_ns <= current_end_ns {
-            current_end_ns = current_end_ns.max(end_ns);
-        } else {
-            gaps.push((
-                word.timestamp_ns.saturating_sub(current_end_ns),
-                run_index,
-                word_index,
-            ));
-            run_index += 1;
-            current_end_ns = end_ns;
-        }
-    }
-
-    let kept_gap_count = MAX_PRESENCE_RUNS_PER_BLOCK.saturating_sub(1);
-    if gaps.len() > kept_gap_count {
-        gaps.select_nth_unstable_by(kept_gap_count - 1, |left, right| {
-            (right.0, right.1).cmp(&(left.0, left.1))
-        });
-        gaps.truncate(kept_gap_count);
-    }
-    gaps.sort_unstable_by_key(|gap| gap.2);
-
-    let mut next_boundary = 0usize;
-    let mut summaries: Vec<WordSummaryRecord> = Vec::with_capacity(gaps.len() + 1);
-    for (word_index, word) in words.iter().enumerate() {
-        let starts_retained_run = gaps
-            .get(next_boundary)
-            .is_some_and(|gap| gap.2 == word_index);
-        if starts_retained_run {
-            next_boundary += 1;
-        }
-        let end_ns = presence_word_end_ns(words, word_index);
-        if !starts_retained_run && let Some(current) = summaries.last_mut() {
-            current.end_ns = current.end_ns.max(end_ns);
-            current.word_count = current.word_count.saturating_add(1);
-            continue;
-        }
-        summaries.push(WordSummaryRecord {
-            start_ns: word.timestamp_ns,
-            end_ns,
-            word_count: 1,
-            first_block: block,
-            block_count: 1,
-        });
-    }
-    debug_assert_eq!(
-        summaries.first().map(|summary| summary.start_ns),
-        Some(first.timestamp_ns)
-    );
-    summaries
-}
-
-fn presence_word_end_ns(words: &[Word], index: usize) -> u64 {
-    let word = &words[index];
-    if word.duration_ns != 0 {
-        word.timestamp_ns.saturating_add(word.duration_ns)
-    } else if let Some(next) = words.get(index + 1) {
-        instantaneous_word_end_ns_with_limit(
-            index
-                .checked_sub(1)
-                .map(|previous| words[previous].timestamp_ns),
-            word.timestamp_ns,
-            next.timestamp_ns,
-            MAX_PRESENCE_CADENCE_NS,
-        )
-    } else {
-        let inferred_period = index
-            .checked_sub(1)
-            .map(|previous| {
-                word.timestamp_ns
-                    .saturating_sub(words[previous].timestamp_ns)
-            })
-            .filter(|period| *period > 0)
-            .unwrap_or(0)
-            .min(MAX_PRESENCE_CADENCE_NS);
-        word.timestamp_ns.saturating_add(inferred_period)
-    }
-}
-
 impl Drop for IndexedAnnotationWriter {
     fn drop(&mut self) {
         if self.terminal {
@@ -2370,8 +2194,8 @@ mod tests {
             .collect();
 
         assert_eq!(
-            duration_free_word_presence_summaries(7, &words),
-            general_word_presence_summaries(7, &words)
+            word_presence_summaries(7, &words, true),
+            word_presence_summaries(7, &words, false)
         );
     }
 
