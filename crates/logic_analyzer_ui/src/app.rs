@@ -1086,6 +1086,7 @@ impl App {
             node_file_dialog,
             work_executor,
             worker_operation_executor,
+            capture_export_service,
         } = services;
         let mut host_service = host_service;
         // The graph canvas and its custom widgets use a dark palette. Do not
@@ -1118,6 +1119,7 @@ impl App {
                 .capture_session_directory()
                 .map(std::path::Path::to_owned),
             work_executor,
+            capture_export_service,
         );
         let capture_availability = capture_availability(widget.graph(), graph_service.as_ref());
         Self {

@@ -7,5 +7,5 @@ mod test_support;
 
 pub(crate) mod decoders;
 mod logic;
-mod sinks;
+pub(crate) mod sinks;
 pub(crate) mod sources;

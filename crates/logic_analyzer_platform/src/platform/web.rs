@@ -49,6 +49,14 @@ pub(crate) fn standard_services_with_worker_urls(
 
 fn compose_services(worker_operations: Rc<dyn WorkerOperationExecutor>) -> PlatformServices {
     let work_executor: Arc<dyn signal_processing::WorkExecutor> = Arc::new(InlineWorkExecutor);
+    let dsl_file_source_factory =
+        logic_analyzer_processing::nodes::sources::dsl_file::unavailable_source_factory();
+    let sigrok_file_source_factory =
+        logic_analyzer_processing::nodes::sources::sigrok_file::portable_source_factory();
+    logic_analyzer_graph_nodes::install_file_source_factories(
+        Arc::clone(&dsl_file_source_factory),
+        Arc::clone(&sigrok_file_source_factory),
+    );
     let ui_services = AppServices::with_host_storage_and_configuration(
         Box::new(WebHostService),
         ApplicationStoragePaths::default(),
@@ -56,11 +64,20 @@ fn compose_services(worker_operations: Rc<dyn WorkerOperationExecutor>) -> Platf
         ApplicationSettings::default(),
         Vec::new(),
     )
+    .with_capture_export_service(logic_analyzer_ui::unavailable_capture_export_service())
     .with_node_file_dialog(Box::new(WebNodeFileDialogService))
-    .with_graph_execution(
+    .with_graph_execution_and_builder_overrides(
         Box::new(InlineSourcePreparationExecutor),
         Arc::new(CooperativeAppManagerFactory),
         Arc::clone(&work_executor),
+        vec![
+            logic_analyzer_graph_nodes::dsl_file_source_runtime_builder_override(
+                dsl_file_source_factory,
+            ),
+            logic_analyzer_graph_nodes::sigrok_file_source_runtime_builder_override(
+                sigrok_file_source_factory,
+            ),
+        ],
     );
     PlatformServices::with_ui_services(
         ui_services,

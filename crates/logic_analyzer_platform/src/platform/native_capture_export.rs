@@ -8,10 +8,11 @@ use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use logic_analyzer_capture_export::{
     CaptureExportObserver, CaptureExportProgress, CaptureExportReport, export_finalized_capture,
 };
-use signal_processing::{CaptureSessionId, NativeCaptureSessionRepository};
-
-use super::contract::{
+use logic_analyzer_ui::{
     CaptureExportCompletion, CaptureExportFormat, CaptureExportService, CaptureExportStatus,
+};
+use signal_processing::{
+    CaptureSessionId, NativeCaptureSessionRepository, NativeCaptureSessionRepositoryConfig,
 };
 
 struct ExportObserver {
@@ -186,9 +187,13 @@ impl Drop for NativeCaptureExportService {
     }
 }
 
-pub(crate) fn standard_capture_export_service(
-    repository: NativeCaptureSessionRepository,
+pub(crate) fn native_capture_export_service(
+    capture_session_directory: PathBuf,
 ) -> Box<dyn CaptureExportService> {
+    let repository = NativeCaptureSessionRepository::new(
+        NativeCaptureSessionRepositoryConfig::new(capture_session_directory),
+    )
+    .expect("the live-capture session directory must be available for export");
     Box::new(NativeCaptureExportService {
         repository,
         status: None,

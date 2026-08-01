@@ -30,6 +30,10 @@ pub enum UsbError {
 pub trait UsbTransport: Send + 'static {
     /// Returns the negotiated USB link speed.
     fn link_speed(&self) -> LinkSpeed;
+    /// Loads the host-provided FPGA image when the device requires configuration.
+    fn fpga_image(&self) -> LogicAnalyzerResult<Option<Vec<u8>>> {
+        Ok(None)
+    }
     /// Performs one USB control write.
     fn control_write(
         &mut self,
@@ -97,6 +101,10 @@ pub trait UsbTransport: Send + 'static {
 impl<T: UsbTransport + ?Sized> UsbTransport for Box<T> {
     fn link_speed(&self) -> LinkSpeed {
         (**self).link_speed()
+    }
+
+    fn fpga_image(&self) -> LogicAnalyzerResult<Option<Vec<u8>>> {
+        (**self).fpga_image()
     }
 
     fn control_write(

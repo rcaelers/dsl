@@ -27,7 +27,7 @@ use signal_processing::{
     WorkResult,
 };
 
-use super::super::output_storage::{NativeOutputStorage, OutputFile, OutputStorage};
+use super::super::output_storage::{OutputFile, OutputStorage, UnavailableOutputStorage};
 
 /// Sink appending [`TextSample`] lines to files named by another
 /// [`TextSample`] level.
@@ -53,10 +53,10 @@ pub struct TextFileWriter {
 
 impl TextFileWriter {
     pub fn new() -> Self {
-        Self::with_storage(Arc::new(NativeOutputStorage))
+        Self::with_output_storage(Arc::new(UnavailableOutputStorage))
     }
 
-    fn with_storage(storage: Arc<dyn OutputStorage>) -> Self {
+    pub fn with_output_storage(storage: Arc<dyn OutputStorage>) -> Self {
         Self {
             name: "text_file_writer".to_string(),
             lines_buffer: VecDeque::new(),
@@ -280,14 +280,21 @@ mod tests {
         }
     }
 
+    fn memory_writer() -> (TextFileWriter, TestOutputStorage) {
+        let storage = TestOutputStorage::default();
+        (
+            TextFileWriter::with_output_storage(Arc::new(storage.clone())),
+            storage,
+        )
+    }
+
     #[test]
     fn writes_lines_to_named_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("out.csv").display().to_string();
+        let path = "out.csv";
 
         let rig = rig();
         rig.name_tx
-            .send(ChannelMessage::Sample(TextSample::new(&path, 0)))
+            .send(ChannelMessage::Sample(TextSample::new(path, 0)))
             .unwrap();
         for (line, ts) in [("a,b,c", 10u64), ("1,2,3", 20)] {
             rig.lines_tx
@@ -295,9 +302,13 @@ mod tests {
                 .unwrap();
         }
 
-        run(rig, &mut TextFileWriter::new());
+        let (mut writer, storage) = memory_writer();
+        run(rig, &mut writer);
 
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "a,b,c\n1,2,3\n");
+        assert_eq!(
+            String::from_utf8(storage.contents(path).unwrap()).unwrap(),
+            "a,b,c\n1,2,3\n"
+        );
     }
 
     #[test]
@@ -316,7 +327,7 @@ mod tests {
                 10,
             )))
             .unwrap();
-        let mut writer = TextFileWriter::with_storage(storage);
+        let mut writer = TextFileWriter::with_output_storage(storage);
 
         let error = writer.work(&rig.inputs, &[]).unwrap_err();
 
@@ -327,18 +338,12 @@ mod tests {
 
     #[test]
     fn rolls_files_on_name_changes() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = |n: &str| dir.path().join(n).display().to_string();
-
         let rig = rig();
         rig.name_tx
-            .send(ChannelMessage::Sample(TextSample::new(path("a.csv"), 0)))
+            .send(ChannelMessage::Sample(TextSample::new("a.csv", 0)))
             .unwrap();
         rig.name_tx
-            .send(ChannelMessage::Sample(TextSample::new(
-                path("b.csv"),
-                1_000,
-            )))
+            .send(ChannelMessage::Sample(TextSample::new("b.csv", 1_000)))
             .unwrap();
         for (line, ts) in [("one", 100u64), ("two", 200), ("three", 1_000)] {
             rig.lines_tx
@@ -346,53 +351,51 @@ mod tests {
                 .unwrap();
         }
 
-        run(rig, &mut TextFileWriter::new());
+        let (mut writer, storage) = memory_writer();
+        run(rig, &mut writer);
 
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("a.csv")).unwrap(),
+            String::from_utf8(storage.contents("a.csv").unwrap()).unwrap(),
             "one\ntwo\n"
         );
         // The line at exactly the boundary timestamp lands in the new file.
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("b.csv")).unwrap(),
+            String::from_utf8(storage.contents("b.csv").unwrap()).unwrap(),
             "three\n"
         );
     }
 
     #[test]
     fn empty_name_window_creates_no_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = |n: &str| dir.path().join(n).display().to_string();
-
         let rig = rig();
         rig.name_tx
-            .send(ChannelMessage::Sample(TextSample::new(path("a.csv"), 0)))
+            .send(ChannelMessage::Sample(TextSample::new("a.csv", 0)))
             .unwrap();
         rig.name_tx
-            .send(ChannelMessage::Sample(TextSample::new(path("b.csv"), 500)))
+            .send(ChannelMessage::Sample(TextSample::new("b.csv", 500)))
             .unwrap();
         // All lines arrive after the second name — window "a" stays empty.
         rig.lines_tx
             .send(ChannelMessage::Sample(TextSample::new("only", 600)))
             .unwrap();
 
-        run(rig, &mut TextFileWriter::new());
+        let (mut writer, storage) = memory_writer();
+        run(rig, &mut writer);
 
-        assert!(!dir.path().join("a.csv").exists());
+        assert_eq!(storage.contents("a.csv"), None);
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("b.csv")).unwrap(),
+            String::from_utf8(storage.contents("b.csv").unwrap()).unwrap(),
             "only\n"
         );
     }
 
     #[test]
     fn shutdown_flushes_open_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("only.csv").display().to_string();
+        let path = "only.csv";
 
         let rig = rig();
         rig.name_tx
-            .send(ChannelMessage::Sample(TextSample::new(&path, 0)))
+            .send(ChannelMessage::Sample(TextSample::new(path, 0)))
             .unwrap();
         for i in 0..10u64 {
             rig.lines_tx
@@ -403,9 +406,10 @@ mod tests {
                 .unwrap();
         }
 
-        run(rig, &mut TextFileWriter::new());
+        let (mut writer, storage) = memory_writer();
+        run(rig, &mut writer);
 
-        let content = std::fs::read_to_string(&path).unwrap();
+        let content = String::from_utf8(storage.contents(path).unwrap()).unwrap();
         assert_eq!(content.lines().count(), 10);
         assert_eq!(content.lines().last(), Some("line9"));
     }

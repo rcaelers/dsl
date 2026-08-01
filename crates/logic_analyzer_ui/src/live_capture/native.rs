@@ -31,7 +31,7 @@ use super::implementation::{
 };
 use crate::capture_export_service::{
     CaptureExportCompletion, CaptureExportFormat as CaptureRawExportFormat, CaptureExportService,
-    CaptureExportStatus, standard_capture_export_service,
+    CaptureExportStatus,
 };
 #[cfg(test)]
 use crate::capture_export_service::{
@@ -340,6 +340,7 @@ impl CaptureCoordinator {
         max_total_bytes: u64,
         capture_session_directory: Option<PathBuf>,
         work_executor: Arc<dyn WorkExecutor>,
+        export_service: Box<dyn CaptureExportService>,
     ) -> Self {
         let capture_session_directory = capture_session_directory
             .expect("native live capture requires a host-provided capture-session directory");
@@ -348,21 +349,7 @@ impl CaptureCoordinator {
             .expect("embedded live-capture limits are valid");
         let repository = NativeCaptureSessionRepository::new(config)
             .expect("the live-capture session directory must be available");
-        Self::with_repository(repository, None, work_executor)
-    }
-
-    fn with_repository(
-        repository: NativeCaptureSessionRepository,
-        ephemeral_root: Option<TempDir>,
-        work_executor: Arc<dyn WorkExecutor>,
-    ) -> Self {
-        let export_service = standard_capture_export_service(repository.clone());
-        Self::with_repository_and_export_service(
-            repository,
-            ephemeral_root,
-            export_service,
-            work_executor,
-        )
+        Self::with_repository_and_export_service(repository, None, export_service, work_executor)
     }
 
     fn with_repository_and_export_service(

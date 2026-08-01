@@ -2,11 +2,17 @@
 
 ## Current architecture
 
-Decoded-word storage, viewer lanes, and compiler data models are platform-neutral. Native builds
-use file-backed and mmap-backed persistent storage. Wasm builds use a separate in-memory derived
-word store with the same public query and writer contracts. The web source and sink implementations
-use deterministic generated input and discard output respectively; they do not expose browser files
-as processing sources or destinations.
+Decoded-word storage, viewer lanes, compiler data models, concrete graph-node definitions, and
+source/sink factory contracts are platform-neutral. Native builds use file-backed and mmap-backed
+persistent storage. Wasm builds use a separate in-memory derived-word store with the same public
+query and writer contracts.
+
+Host source acquisition and output destinations are selected in `logic_analyzer_platform`.
+Native composition injects DSL and Sigrok path adapters, filesystem-backed writer storage, the
+U3Pro16 USB transport and FPGA-image provider, and repository-backed capture export. Web composition
+injects explicit unavailable file, writer, USB, and export capabilities. The portable Sigrok source
+supports explicitly configured demo data; web composition does not silently substitute it for a
+file. Browser file/blob handles and browser download destinations are optional future adapters.
 
 Platform selection occurs at complete implementation-file boundaries. Generic compiler, runtime,
 viewer, and graph-node code does not conditionally add fields, variants, match arms, functions, or
@@ -22,8 +28,9 @@ currently omits persistent-cache lookup and graph pruning rather than applying t
 ephemeral artifact repository.
 
 Target-selected code also currently exists inside reusable runtime, compiler, processing, viewer,
-and UI crates. The proposed architecture removes those internal platform module trees rather than
-merely giving them matching public APIs.
+and UI crates. The proposed architecture removes those remaining internal platform module trees
+rather than merely giving them matching public APIs. Processing temporarily retains complete native
+file-parser and device-runtime leaves, but not host factory or destination selection.
 
 `logic_analyzer_platform` currently composes the UI host-service port and selects the artifact
 repository contract. Native and web application bootstraps obtain an opaque `PlatformServices`
@@ -47,6 +54,11 @@ bundle supplies bounded finite-work execution and host-owned long-running task e
 one capability, passes it through the UI graph-service construction boundary, and the compiler makes
 it available to node builders in their `NodeBuildContext`. Concrete nodes choose whether they need
 finite or long-running work without selecting a target or a platform implementation.
+The platform service bundle also supplies the UI-owned `CaptureExportService`; its native adapter
+owns repository access and export-worker execution, while the portable unavailable service reports
+absence explicitly. The UI has no export feature flag, target-selected export module, or concrete
+export dependency. Graph document persistence and embedded node file dialogs likewise cross
+host-service contracts, and the node-graph widget exposes only model snapshots and replacement.
 Native shell integrations exchange portable commands and UI state through that service contract;
 their queues and repaint wake-ups remain inside the platform adapter. Runtime cache diagnostics use
 the same adapter boundary and one portable UI snapshot path. Embedded graph-node file controls use
@@ -157,8 +169,9 @@ root of their behavioral owner. For example, storage and execution ports belong 
 node-control dialogs belong to `node_graph`, and application dialogs, host commands,
 cache diagnostics, and capture export belong to `logic_analyzer_ui`.
 Making those ports implementable does not expose their concrete native or web dependencies. The
-capture-export port already has one target-neutral contract; moving its repository-backed adapter
-requires the common repository handle defined by the storage-contract work.
+capture-export port has one target-neutral contract, and its repository-backed adapter is selected
+in `logic_analyzer_platform`. The storage-contract work replaces the remaining native session
+repository behind that adapter without changing the UI contract.
 
 The Sigrok decoder node follows the same split. `logic_analyzer_processing` owns the portable
 decoder configuration, state machine, output contracts, and `SigrokExecutionFactory` port.

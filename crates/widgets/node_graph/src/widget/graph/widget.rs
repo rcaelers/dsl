@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::Path;
 use std::sync::Arc;
 
 use egui::{Pos2, Sense, Ui};
@@ -529,33 +528,12 @@ impl NodeGraphWidget {
         self.redo_stack.clear();
     }
 
-    /// Saves the current graph as formatted JSON.
-    pub fn save_to_path(&mut self, path: impl AsRef<Path>) -> Result<(), String> {
-        let json = serde_json::to_string_pretty(&self.snapshot_value()?)
-            .map_err(|error| format!("could not serialize graph: {error}"))?;
-        std::fs::write(path.as_ref(), json)
-            .map_err(|error| format!("could not write {}: {error}", path.as_ref().display()))
-    }
-
     /// Captures the current graph, including state still held by inline node
     /// controls. Used by document persistence and dirty-state tracking.
     pub fn snapshot_value(&mut self) -> Result<serde_json::Value, String> {
         self.sync_all_node_state();
         serde_json::to_value(&self.graph)
             .map_err(|error| format!("could not serialize graph: {error}"))
-    }
-
-    /// Loads a graph from JSON and rebuilds its runtime node instances.
-    /// The current graph is left untouched if reading or parsing fails.
-    pub fn load_from_path(&mut self, path: impl AsRef<Path>) -> Result<(), String> {
-        let json = std::fs::read_to_string(path.as_ref())
-            .map_err(|error| format!("could not read {}: {error}", path.as_ref().display()))?;
-        let graph = serde_json::from_str(&json)
-            .map_err(|error| format!("could not parse {}: {error}", path.as_ref().display()))?;
-        self.set_graph(graph);
-        self.undo_stack.clear();
-        self.redo_stack.clear();
-        Ok(())
     }
 
     pub(crate) fn run_update(&mut self, id: NodeId) {

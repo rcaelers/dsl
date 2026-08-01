@@ -85,9 +85,6 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.adapter-acquisition-export] Move host capture acquisition, file and browser-handle adapters,
-  dialogs, and export destinations into `logic_analyzer_platform`. The compiler, processing nodes, and UI consume
-  only their platform-neutral request and capability contracts.
 - [platform.data-plane.storage-contracts] Apply the established platform-neutral prepared-byte-source,
   immutable-byte-region, artifact-repository, reader/writer, capability, and error contracts to the existing
   derived and capture stores. Keep paths, mmap, filesystem operations, and browser handles in

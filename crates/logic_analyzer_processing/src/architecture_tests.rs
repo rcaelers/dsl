@@ -66,36 +66,58 @@ fn cross_platform_capture_facades_expose_neutral_factories() {
 }
 
 #[test]
-fn source_factories_own_presentation_and_runtime_capabilities() {
-    for implementation in [
-        include_str!("nodes/sources/dsl_file/platform/native.rs"),
-        include_str!("nodes/sources/dsl_file/platform/wasm.rs"),
-        include_str!("nodes/sources/sigrok_file/platform/native.rs"),
-        include_str!("nodes/sources/sigrok_file/platform/wasm.rs"),
+fn portable_source_factories_own_unavailable_and_demo_metadata() {
+    for facade in [
+        include_str!("nodes/sources/dsl_file/facade.rs"),
+        include_str!("nodes/sources/sigrok_file/facade.rs"),
     ] {
-        assert!(implementation.contains("impl CaptureSourceMetadata"));
-        assert!(implementation.contains("fn presentation("));
-        assert!(implementation.contains("fn cache_identity("));
-        assert!(implementation.contains("fn channel_names("));
+        assert!(facade.contains("impl CaptureSourceMetadata"));
+        assert!(facade.contains("fn presentation("));
+        assert!(facade.contains("fn cache_identity("));
+        assert!(facade.contains("fn channel_names("));
+        assert!(!facade.contains("super::platform"));
     }
 }
 
 #[test]
-fn platform_modules_select_complete_file_factory_implementations() {
-    for facade in [
-        include_str!("nodes/sources/dsl_file/platform/mod.rs"),
-        include_str!("nodes/sources/sigrok_file/platform/mod.rs"),
+fn processing_file_sources_do_not_select_host_factories() {
+    for module in [
+        include_str!("nodes/sources/dsl_file/mod.rs"),
+        include_str!("nodes/sources/sigrok_file/mod.rs"),
     ] {
-        assert!(facade.contains("implementation::source_factory"));
-        assert!(!facade.contains("create_source"));
+        assert!(!module.contains("mod platform"));
+        assert!(!module.contains("source_factory as"));
     }
+}
+
+#[test]
+fn output_nodes_use_an_injected_destination_capability() {
     for facade in [
-        include_str!("nodes/sinks/binary_file_writer/platform/mod.rs"),
-        include_str!("nodes/sinks/csv_word_writer/platform/mod.rs"),
-        include_str!("nodes/sinks/text_file_writer/platform/mod.rs"),
+        include_str!("nodes/sinks/binary_file_writer/facade.rs"),
+        include_str!("nodes/sinks/csv_word_writer/facade.rs"),
+        include_str!("nodes/sinks/text_file_writer/facade.rs"),
     ] {
-        assert!(facade.contains("implementation::writer_factory"));
-        assert!(!facade.contains("create_writer"));
+        assert!(facade.contains("Arc<dyn OutputStorage>"));
+        assert!(facade.contains("unavailable_writer_factory"));
+        assert!(!facade.contains("super::platform"));
+    }
+    for implementation in [
+        include_str!("nodes/sinks/binary_file_writer/implementation.rs"),
+        include_str!("nodes/sinks/csv_word_writer/implementation.rs"),
+        include_str!("nodes/sinks/text_file_writer/implementation.rs"),
+        include_str!("nodes/sinks/output_storage/implementation.rs"),
+    ] {
+        let implementation = implementation
+            .split_once("#[cfg(test)]")
+            .map_or(implementation, |(production, _)| production);
+        for forbidden in [
+            "std::fs",
+            "File::create",
+            "OpenOptions",
+            "NativeOutputStorage",
+        ] {
+            assert!(!implementation.contains(forbidden));
+        }
     }
 }
 
@@ -109,8 +131,11 @@ fn u3pro16_protocol_uses_an_injected_transport_contract() {
     assert!(!source.contains("mod platform;"));
     assert!(transport.contains("pub trait DsLogicU3Pro16TransportFactory"));
     assert!(transport.contains("pub trait UsbTransport"));
+    assert!(transport.contains("fn fpga_image("));
     assert!(!implementation.contains("RusbTransport"));
     assert!(!implementation.contains("rusb::"));
+    assert!(!implementation.contains("std::fs"));
+    assert!(!implementation.contains("std::env"));
 }
 
 fn assert_visible_modules_are_not_reexported(facade: &str) {

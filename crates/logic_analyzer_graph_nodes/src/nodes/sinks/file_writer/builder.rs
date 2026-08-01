@@ -10,7 +10,7 @@ use logic_analyzer_graph_api::node_support::{
 };
 use logic_analyzer_processing::ProcessNodeConstruction;
 use logic_analyzer_processing::nodes::sinks::binary_file_writer::{
-    BinaryFileWriterConfig, BinaryFileWriterFactory, WriteWidth, writer_factory,
+    BinaryFileWriterConfig, BinaryFileWriterFactory, WriteWidth, unavailable_writer_factory,
 };
 use node_graph::api::Socket;
 use signal_processing::{ProcessNode, TextSample, Word};
@@ -22,16 +22,24 @@ pub(crate) struct FileWriterBuilder {
 impl Default for FileWriterBuilder {
     fn default() -> Self {
         Self {
-            writer_factory: writer_factory(),
+            writer_factory: unavailable_writer_factory(),
         }
     }
 }
 
 impl FileWriterBuilder {
-    #[cfg(test)]
     pub(crate) fn with_writer_factory(writer_factory: Arc<dyn BinaryFileWriterFactory>) -> Self {
         Self { writer_factory }
     }
+}
+
+pub(crate) fn runtime_builder_override(
+    writer_factory: Arc<dyn BinaryFileWriterFactory>,
+) -> logic_analyzer_graph_api::node::RuntimeBuilderOverride {
+    logic_analyzer_graph_api::node::RuntimeBuilderOverride::new(
+        "org.logicconduit.graph-node.sinks.file-writer/v1",
+        Box::new(FileWriterBuilder::with_writer_factory(writer_factory)),
+    )
 }
 
 impl RuntimeBuilder for FileWriterBuilder {

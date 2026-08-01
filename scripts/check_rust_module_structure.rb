@@ -154,28 +154,20 @@ if graph_nodes_manifest.match?(/^logic-analyzer-graph-compiler\s*=/)
 end
 
 ui_manifest = File.read(File.join(ROOT, "crates/logic_analyzer_ui/Cargo.toml"))
-unless ui_manifest.match?(/^default\s*=\s*\[\s*\]\s*$/)
-  errors << "crates/logic_analyzer_ui/Cargo.toml: default features must keep UI component tests host-backend-free"
-end
-capture_export_declaration = ui_manifest.lines.find { |line| line.match?(/^logic-analyzer-capture-export\s*=/) }
-unless capture_export_declaration&.include?("optional = true")
-  errors << "crates/logic_analyzer_ui/Cargo.toml: capture export must remain an optional native-host adapter dependency until repository adapters own it"
+if ui_manifest.match?(/^logic-analyzer-capture-export\s*=/)
+  errors << "crates/logic_analyzer_ui/Cargo.toml: concrete capture export belongs to logic-analyzer-platform"
 end
 if ui_manifest.match?(/^rfd\s*=/)
   errors << "crates/logic_analyzer_ui/Cargo.toml: native dialogs belong to logic-analyzer-platform"
 end
-unless ui_manifest.match?(/^native-host\s*=\s*\[[^\]]*dep:logic-analyzer-capture-export[^\]]*\]/m)
-  errors << "crates/logic_analyzer_ui/Cargo.toml: native-host must enable the remaining capture-export adapter"
-end
-
 node_graph_manifest = File.read(File.join(ROOT, "crates/widgets/node_graph/Cargo.toml"))
 if node_graph_manifest.match?(/^rfd\s*=/) || node_graph_manifest.match?(/^native-file-dialog\s*=/)
   errors << "crates/widgets/node_graph/Cargo.toml: file dialogs must be injected through the widget-owned portable contract"
 end
 
 native_app_manifest = File.read(File.join(ROOT, "crates/app_native/Cargo.toml"))
-unless native_app_manifest.match?(/^logic-analyzer-ui\s*=\s*\{[^}]*features\s*=\s*\[[^\]]*\"native-host\"/)
-  errors << "crates/app_native/Cargo.toml: the native application must enable logic-analyzer-ui/native-host"
+if native_app_manifest.match?(/^logic-analyzer-ui\s*=\s*\{[^}]*features\s*=/)
+  errors << "crates/app_native/Cargo.toml: native UI behavior must be supplied by logic-analyzer-platform, not UI features"
 end
 
 Dir.glob(File.join(ROOT, "plugins/*/Cargo.toml")).sort.each do |manifest_path|
@@ -273,7 +265,6 @@ files.each do |path|
 
   if rel.start_with?("crates/logic_analyzer_ui/src/")
     implementation = implementation_source(source)
-    capture_export_adapter = rel == "crates/logic_analyzer_ui/src/capture_export_service/native.rs"
     host_service_adapter = rel == "crates/logic_analyzer_ui/src/host_service/native.rs"
     graph_service_adapter = %w[
       crates/logic_analyzer_ui/src/graph_service/graph_compiler.rs
@@ -304,7 +295,7 @@ files.each do |path|
         errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: cache commands belong behind the UI-owned HostService"
       end
     end
-    unless File.basename(path).include?("tests") || capture_export_adapter
+    unless File.basename(path).include?("tests")
       implementation.to_enum(:scan, /\blogic_analyzer_capture_export\b/).each do
         errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: concrete capture export belongs behind CaptureExportService"
       end

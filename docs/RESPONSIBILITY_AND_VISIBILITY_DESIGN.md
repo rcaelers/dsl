@@ -48,9 +48,9 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
   platform crate implements that target-neutral contract. Its public `CaptureExportService` port
   owns asynchronous export startup, progress, cancellation, and completion through one contract on
   every target; `CaptureCoordinator` supplies only a finalized session identity and retains capture
-  lifecycle policy. The repository-backed native export implementation and unavailable fallback
-  remain selected as complete UI implementation modules until repository handles can cross the
-  storage contract. The default UI crate build therefore does not link the concrete export backend.
+  lifecycle policy. `logic_analyzer_platform` supplies the repository-backed native adapter, while
+  the UI supplies an explicit portable unavailable implementation for hosts without an export
+  destination. The UI does not select a target or link the concrete export backend.
 - Workspace-level integration tests own end-to-end compositions spanning concrete graph nodes,
   processing nodes, and the generic compiler. Component crates keep only tests of their own
   contracts and private implementation mechanics; composition-only dependencies do not appear in
@@ -198,7 +198,10 @@ host-service contract. Runtime cache diagnostics also cross that contract, while
 uses one portable inventory and presentation path. The platform adapter owns command transport,
 repaint wake-ups, and access to platform-backed cache diagnostics. The web adapter reports
 unavailable storage capabilities and supplies embedded configuration. The UI does not select either
-implementation.
+implementation. The platform composition also installs file-source factories, file-writer output
+storage, the U3Pro16 USB transport and FPGA-image provider, and capture-export services through
+contracts owned by processing, graph-node, and UI crates. Web composition uses explicit unavailable
+file and export capabilities; synthetic capture remains an authored demo-source choice.
 
 ## Proposed future: isolated host adapter crate
 
@@ -230,26 +233,23 @@ sources, discard sinks, and cooperative execution—remain in their behavioral o
 every target. Composition selects them explicitly. A web build does not obtain a synthetic source
 or discard sink merely because a native capability is absent.
 
-The only temporary reusable-crate exceptions are complete file-I/O adapter leaf modules in
-`logic_analyzer_processing` for which extraction would otherwise move concrete format behavior
-into the platform crate. An exception is explicitly allowlisted, contains only host access, and
-excludes node state, schemas, builders, parsers, protocol state machines, and portable runtime
-behavior. The intended exception allowlist is empty after source and destination injection is
-complete.
+The only temporary reusable-crate exceptions are complete file-I/O or device-runtime leaves in
+`logic_analyzer_processing` whose parser or device protocol still accepts a native path or requires
+native execution. Host factory selection, dialogs, output destinations, USB transport, and firmware
+acquisition are not exceptions and live in `logic_analyzer_platform`. Node state, schemas, and
+builders remain portable.
 
 The temporary processing-adapter allowlist is restricted to the host-access leaves of:
 
-- `nodes::sources::dsl_file::platform`;
-- `nodes::sources::sigrok_file::platform`;
-- `nodes::sinks::binary_file_writer::platform`;
-- `nodes::sinks::csv_word_writer::platform`;
-- `nodes::sinks::text_file_writer::platform`;
+- `nodes::sources::dsl_file::implementation` and its format support leaves;
+- `nodes::sources::sigrok_file::implementation` and its archive support leaves;
+- the native U3Pro16 device-runtime leaves under `nodes::sources::dslogic_u3pro16`.
 
-The enclosing node modules, their builders, parsers, encoders, device state machines, and wasm
-synthetic/discard substitutes are not allowlisted. Decoder execution strategy, embedded-runtime
-hosting, preferences, graph services, capture export, cache administration, and viewer workers are
-also not processing exceptions; their adapters move to `logic_analyzer_platform` while their
-behavior remains in the owning core crate.
+Sink implementations, graph builders, wasm synthetic/discard substitutes, and platform factory
+selectors are not allowlisted. Decoder execution strategy, embedded-runtime hosting, preferences,
+graph services, capture export, cache administration, and viewer workers are also not processing
+exceptions; host adapters live in `logic_analyzer_platform` while behavior remains in the owning
+core crate.
 
 Architecture enforcement rejects target conditionals, target-selected module paths, target
 inspection through `cfg!`, and target-specific dependencies outside `logic_analyzer_platform`, the

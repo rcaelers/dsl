@@ -2,11 +2,8 @@
 
 mod configuration;
 mod facade;
-#[cfg(not(target_arch = "wasm32"))]
 mod implementation;
-mod platform;
 
 pub use configuration::{BinaryFileWriterConfig, WriteWidth};
-pub use facade::{BinaryFileWriterFactory, writer_factory};
-#[cfg(not(target_arch = "wasm32"))]
+pub use facade::{BinaryFileWriterFactory, unavailable_writer_factory, writer_factory};
 pub use implementation::BinaryFileWriter;

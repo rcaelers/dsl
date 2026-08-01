@@ -19,7 +19,7 @@ use signal_processing::{
     WorkError, WorkResult,
 };
 
-use super::super::output_storage::{NativeOutputStorage, OutputFile, OutputStorage};
+use super::super::output_storage::{OutputFile, OutputStorage, UnavailableOutputStorage};
 use super::configuration::WriteWidth;
 
 impl WriteWidth {
@@ -64,10 +64,10 @@ impl BinaryFileWriter {
     const DRAIN_BATCH_SIZE: usize = 65_536;
 
     pub fn new() -> Self {
-        Self::with_storage(Arc::new(NativeOutputStorage))
+        Self::with_output_storage(Arc::new(UnavailableOutputStorage))
     }
 
-    fn with_storage(storage: Arc<dyn OutputStorage>) -> Self {
+    pub fn with_output_storage(storage: Arc<dyn OutputStorage>) -> Self {
         Self {
             name: "binary_file_writer".to_string(),
             width: WriteWidth::default(),
@@ -439,13 +439,20 @@ mod tests {
         }
     }
 
+    fn memory_writer() -> (BinaryFileWriter, TestOutputStorage) {
+        let storage = TestOutputStorage::default();
+        (
+            BinaryFileWriter::with_output_storage(Arc::new(storage.clone())),
+            storage,
+        )
+    }
+
     /// With a static filename set and the `filename` input unconnected,
     /// everything is written to that one path — the "save dialog on the
     /// node" case, no formatter needed.
     #[test]
     fn static_filename_without_filename_input() {
-        let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("static.bin").display().to_string();
+        let target = "static.bin";
 
         let wd = Watchdog::new();
         let (data_tx, data_rx) = bounded::<ChannelMessage<Word>>(256);
@@ -462,7 +469,8 @@ mod tests {
         }
         drop(data_tx);
 
-        let mut writer = BinaryFileWriter::new().with_filename(&target);
+        let (writer, storage) = memory_writer();
+        let mut writer = writer.with_filename(target);
         loop {
             match writer.work(&inputs, &[]) {
                 Ok(_) => {}
@@ -471,13 +479,12 @@ mod tests {
             }
         }
 
-        assert_eq!(std::fs::read(&target).unwrap(), vec![1, 2, 3]);
+        assert_eq!(storage.contents(target), Some(vec![1, 2, 3]));
     }
 
     #[test]
     fn arbitrary_width_and_text_words_are_written_in_full() {
-        let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("rich.bin").display().to_string();
+        let target = "rich.bin";
         let wd = Watchdog::new();
         let (data_tx, data_rx) = bounded::<ChannelMessage<Word>>(4);
         let inputs = vec![
@@ -500,7 +507,8 @@ mod tests {
             .unwrap();
         drop(data_tx);
 
-        let mut writer = BinaryFileWriter::new().with_filename(&target);
+        let (writer, storage) = memory_writer();
+        let mut writer = writer.with_filename(target);
         loop {
             match writer.work(&inputs, &[]) {
                 Ok(_) => {}
@@ -510,7 +518,7 @@ mod tests {
         }
 
         assert_eq!(
-            std::fs::read(&target).unwrap(),
+            storage.contents(target).unwrap(),
             vec![0x10, 0x20, 0x30, 0x40, b'O', b'K']
         );
     }
@@ -556,7 +564,7 @@ mod tests {
         data_tx.send(ChannelMessage::Sample(word(2, 200))).unwrap();
         drop(data_tx);
         let mut writer =
-            BinaryFileWriter::with_storage(storage.clone()).with_filename("virtual/out.bin");
+            BinaryFileWriter::with_output_storage(storage.clone()).with_filename("virtual/out.bin");
 
         assert_eq!(writer.work(&inputs, &[]).unwrap(), 2);
         assert!(matches!(
@@ -582,7 +590,8 @@ mod tests {
         ];
         data_tx.send(ChannelMessage::Sample(word(1, 100))).unwrap();
         drop(data_tx);
-        let mut writer = BinaryFileWriter::with_storage(storage).with_filename("virtual/out.bin");
+        let mut writer =
+            BinaryFileWriter::with_output_storage(storage).with_filename("virtual/out.bin");
         assert_eq!(writer.work(&inputs, &[]).unwrap(), 1);
 
         let error = writer.work(&inputs, &[]).unwrap_err();
@@ -594,19 +603,13 @@ mod tests {
 
     #[test]
     fn rolls_files_on_name_changes() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = |n: &str| dir.path().join(n).display().to_string();
-
         let rig = rig();
         // Initial level at t=0, then a change at 1000.
         rig.name_tx
-            .send(ChannelMessage::Sample(TextSample::new(path("a.bin"), 0)))
+            .send(ChannelMessage::Sample(TextSample::new("a.bin", 0)))
             .unwrap();
         rig.name_tx
-            .send(ChannelMessage::Sample(TextSample::new(
-                path("b.bin"),
-                1_000,
-            )))
+            .send(ChannelMessage::Sample(TextSample::new("b.bin", 1_000)))
             .unwrap();
         for (v, ts) in [(1u64, 100u64), (2, 200), (3, 1_000), (4, 1_100)] {
             rig.data_tx
@@ -614,25 +617,25 @@ mod tests {
                 .unwrap();
         }
 
-        run(rig, &mut BinaryFileWriter::new());
+        let (mut writer, storage) = memory_writer();
+        run(rig, &mut writer);
 
-        assert_eq!(std::fs::read(dir.path().join("a.bin")).unwrap(), vec![1, 2]);
+        assert_eq!(storage.contents("a.bin"), Some(vec![1, 2]));
         // The word at exactly the boundary timestamp lands in the new file.
-        assert_eq!(std::fs::read(dir.path().join("b.bin")).unwrap(), vec![3, 4]);
+        assert_eq!(storage.contents("b.bin"), Some(vec![3, 4]));
     }
 
     #[test]
     fn waits_for_filename_watermark_before_writing_a_data_batch() {
-        let dir = tempfile::tempdir().unwrap();
-        let a = dir.path().join("a.bin").display().to_string();
-        let b = dir.path().join("b.bin").display().to_string();
+        let a = "a.bin";
+        let b = "b.bin";
         let Rig {
             data_tx,
             name_tx,
             inputs,
         } = rig();
         name_tx
-            .send(ChannelMessage::Sample(TextSample::new(&a, 0)))
+            .send(ChannelMessage::Sample(TextSample::new(a, 0)))
             .unwrap();
         for (value, timestamp) in [(1, 100), (2, 1_100)] {
             data_tx
@@ -648,7 +651,7 @@ mod tests {
                 .unwrap();
         });
 
-        let mut writer = BinaryFileWriter::new();
+        let (mut writer, storage) = memory_writer();
         loop {
             match writer.work(&inputs, &[]) {
                 Ok(_) => {}
@@ -658,41 +661,38 @@ mod tests {
         }
         delayed_name.join().unwrap();
 
-        assert_eq!(std::fs::read(dir.path().join("a.bin")).unwrap(), vec![1]);
-        assert_eq!(std::fs::read(dir.path().join("b.bin")).unwrap(), vec![2]);
+        assert_eq!(storage.contents("a.bin"), Some(vec![1]));
+        assert_eq!(storage.contents("b.bin"), Some(vec![2]));
     }
 
     #[test]
     fn empty_name_window_creates_no_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = |n: &str| dir.path().join(n).display().to_string();
-
         let rig = rig();
         rig.name_tx
-            .send(ChannelMessage::Sample(TextSample::new(path("a.bin"), 0)))
+            .send(ChannelMessage::Sample(TextSample::new("a.bin", 0)))
             .unwrap();
         rig.name_tx
-            .send(ChannelMessage::Sample(TextSample::new(path("b.bin"), 500)))
+            .send(ChannelMessage::Sample(TextSample::new("b.bin", 500)))
             .unwrap();
         // All data arrives after the second name — window "a" stays empty.
         rig.data_tx
             .send(ChannelMessage::Sample(word(9, 600)))
             .unwrap();
 
-        run(rig, &mut BinaryFileWriter::new());
+        let (mut writer, storage) = memory_writer();
+        run(rig, &mut writer);
 
-        assert!(!dir.path().join("a.bin").exists());
-        assert_eq!(std::fs::read(dir.path().join("b.bin")).unwrap(), vec![9]);
+        assert_eq!(storage.contents("a.bin"), None);
+        assert_eq!(storage.contents("b.bin"), Some(vec![9]));
     }
 
     #[test]
     fn shutdown_flushes_open_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("only.bin").display().to_string();
+        let path = "only.bin";
 
         let rig = rig();
         rig.name_tx
-            .send(ChannelMessage::Sample(TextSample::new(&path, 0)))
+            .send(ChannelMessage::Sample(TextSample::new(path, 0)))
             .unwrap();
         for i in 0..100u64 {
             rig.data_tx
@@ -700,27 +700,22 @@ mod tests {
                 .unwrap();
         }
 
-        run(rig, &mut BinaryFileWriter::new());
+        let (mut writer, storage) = memory_writer();
+        run(rig, &mut writer);
 
-        let bytes = std::fs::read(&path).unwrap();
+        let bytes = storage.contents(path).unwrap();
         assert_eq!(bytes.len(), 100);
         assert_eq!(bytes[99], 99);
     }
 
     #[test]
     fn index_csv_records_closed_files() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = |n: &str| dir.path().join(n).display().to_string();
-
         let rig = rig();
         rig.name_tx
-            .send(ChannelMessage::Sample(TextSample::new(path("a.bin"), 0)))
+            .send(ChannelMessage::Sample(TextSample::new("dir/a.bin", 0)))
             .unwrap();
         rig.name_tx
-            .send(ChannelMessage::Sample(TextSample::new(
-                path("b.bin"),
-                1_000,
-            )))
+            .send(ChannelMessage::Sample(TextSample::new("dir/b.bin", 1_000)))
             .unwrap();
         rig.data_tx
             .send(ChannelMessage::Sample(word(1, 100)))
@@ -729,9 +724,10 @@ mod tests {
             .send(ChannelMessage::Sample(word(2, 1_500)))
             .unwrap();
 
-        run(rig, &mut BinaryFileWriter::new().with_index_csv(true));
+        let (writer, storage) = memory_writer();
+        run(rig, &mut writer.with_index_csv(true));
 
-        let csv = std::fs::read_to_string(dir.path().join("captures.csv")).unwrap();
+        let csv = String::from_utf8(storage.contents("dir/captures.csv").unwrap()).unwrap();
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines.len(), 3); // header + 2 files
         assert!(lines[1].contains("a.bin"));
@@ -740,22 +736,19 @@ mod tests {
 
     #[test]
     fn wider_write_widths() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("w.bin").display().to_string();
+        let path = "w.bin";
 
         let rig = rig();
         rig.name_tx
-            .send(ChannelMessage::Sample(TextSample::new(&path, 0)))
+            .send(ChannelMessage::Sample(TextSample::new(path, 0)))
             .unwrap();
         rig.data_tx
             .send(ChannelMessage::Sample(word(0xBEEF, 100)))
             .unwrap();
 
-        run(
-            rig,
-            &mut BinaryFileWriter::new().with_width(WriteWidth::U16Le),
-        );
+        let (writer, storage) = memory_writer();
+        run(rig, &mut writer.with_width(WriteWidth::U16Le));
 
-        assert_eq!(std::fs::read(&path).unwrap(), vec![0xEF, 0xBE]);
+        assert_eq!(storage.contents(path), Some(vec![0xEF, 0xBE]));
     }
 }

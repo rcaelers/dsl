@@ -27,7 +27,7 @@ pub use app_services::{AppServices, ApplicationStoragePaths};
 pub use application_settings::{ApplicationSettings, default_input_bindings};
 pub use capture_export_service::{
     CaptureExportCompletion, CaptureExportDescriptor, CaptureExportFormat, CaptureExportService,
-    CaptureExportStatus,
+    CaptureExportStatus, unavailable_capture_export_service,
 };
 pub use host_service::{
     CacheClearStats, CacheEntrySnapshot, DecodedBlockCacheSnapshot, HostCommand, HostService,

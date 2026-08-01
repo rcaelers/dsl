@@ -1,5 +1,9 @@
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
+#[cfg(not(target_arch = "wasm32"))]
+mod native_capture_export;
+#[cfg(not(target_arch = "wasm32"))]
+mod native_file_identity_cache;
 #[cfg(all(feature = "developer-tools", not(target_arch = "wasm32")))]
 mod native_hardware_validation;
 #[cfg(not(target_arch = "wasm32"))]

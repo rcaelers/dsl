@@ -8,25 +8,16 @@ fn implementation_source(source: &'static str) -> &'static str {
 #[test]
 fn ui_manifest_has_no_concrete_test_composition_dependencies() {
     let manifest = include_str!("../../Cargo.toml");
-    for dependency in ["logic-analyzer-graph-nodes", "logic-analyzer-test-support"] {
+    for dependency in [
+        "logic-analyzer-capture-export",
+        "logic-analyzer-graph-nodes",
+        "logic-analyzer-test-support",
+    ] {
         assert!(
             !manifest.contains(dependency),
             "UI tests must use UI-owned service, catalog, and acquisition fakes; {dependency} composition belongs outside the UI crate"
         );
     }
-    let dependency = "logic-analyzer-capture-export";
-    let declaration = manifest
-        .lines()
-        .find(|line| line.starts_with(dependency))
-        .unwrap_or_else(|| panic!("missing production adapter dependency {dependency}"));
-    assert!(
-        declaration.contains("optional = true"),
-        "{dependency} must remain outside the default isolated UI test dependency graph"
-    );
-    assert!(
-        manifest.contains("dep:logic-analyzer-capture-export"),
-        "native-host must enable the remaining capture-export adapter"
-    );
 }
 
 #[test]

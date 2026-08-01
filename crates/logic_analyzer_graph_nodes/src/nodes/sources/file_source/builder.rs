@@ -11,7 +11,7 @@ use logic_analyzer_graph_api::node_support::{
 };
 use logic_analyzer_processing::CaptureSourceMetadata;
 use logic_analyzer_processing::nodes::sources::dsl_file::{
-    DslFileSourceConfig, DslFileSourceFactory, source_factory,
+    DslFileSourceConfig, DslFileSourceFactory, unavailable_source_factory,
 };
 use node_graph::api::Socket;
 use signal_processing::{
@@ -25,13 +25,12 @@ pub(crate) struct FileSourceBuilder {
 impl Default for FileSourceBuilder {
     fn default() -> Self {
         Self {
-            source_factory: source_factory(),
+            source_factory: unavailable_source_factory(),
         }
     }
 }
 
 impl FileSourceBuilder {
-    #[cfg(test)]
     pub(crate) fn with_source_factory(source_factory: Arc<dyn DslFileSourceFactory>) -> Self {
         Self { source_factory }
     }
@@ -44,6 +43,15 @@ impl FileSourceBuilder {
         let state: super::definition::DslFileSourceState = parse_state(state)?;
         Ok(self.source_factory.metadata(Self::config(&state)))
     }
+}
+
+pub(crate) fn runtime_builder_override(
+    source_factory: Arc<dyn DslFileSourceFactory>,
+) -> logic_analyzer_graph_api::node::RuntimeBuilderOverride {
+    logic_analyzer_graph_api::node::RuntimeBuilderOverride::new(
+        "org.logicconduit.graph-node.sources.dsl-file-source/v1",
+        Box::new(FileSourceBuilder::with_source_factory(source_factory)),
+    )
 }
 
 impl RuntimeBuilder for FileSourceBuilder {

@@ -13,7 +13,7 @@ clap = { workspace = true }
 eframe = { workspace = true }
 egui = { workspace = true }
 input-bindings = { path = "../input_bindings" }
-logic-analyzer-ui = { path = "../logic_analyzer_ui", features = ["native-host"] }
+logic-analyzer-ui = { path = "../logic_analyzer_ui" }
 logic-analyzer-graph-nodes = { path = "../logic_analyzer_graph_nodes" }
 logic-analyzer-platform = { path = "../logic_analyzer_platform" }
 tracing-subscriber = { workspace = true }

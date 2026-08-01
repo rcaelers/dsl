@@ -7,7 +7,6 @@ use super::implementation::{
 };
 use crate::capture_export_service::{
     CaptureExportCompletion, CaptureExportService, CaptureExportStatus,
-    standard_capture_export_service,
 };
 
 pub(crate) struct CaptureCoordinator {
@@ -20,10 +19,9 @@ impl CaptureCoordinator {
         _max_total_bytes: u64,
         _capture_session_directory: Option<std::path::PathBuf>,
         _work_executor: std::sync::Arc<dyn signal_processing::WorkExecutor>,
+        export_service: Box<dyn CaptureExportService>,
     ) -> Self {
-        Self {
-            export_service: standard_capture_export_service(),
-        }
+        Self { export_service }
     }
 
     pub(crate) fn start_with_graph(

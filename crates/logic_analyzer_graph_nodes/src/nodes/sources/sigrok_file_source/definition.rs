@@ -3,9 +3,7 @@
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
-use logic_analyzer_processing::nodes::sources::sigrok_file::{
-    SigrokFileSourceConfig, source_factory,
-};
+use logic_analyzer_processing::nodes::sources::sigrok_file::SigrokFileSourceConfig;
 use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
 use node_graph::{
     FileValue, InputDef, IntValue, NodeBadge, NodeDef, NodeInstanceSchema, OutputDef, Socket,
@@ -124,11 +122,13 @@ impl NodeDef for SigrokFileSource {
             return;
         }
 
-        let metadata = source_factory().metadata(SigrokFileSourceConfig::new(
-            &state.file.value,
-            state.channel_names.iter().cloned(),
-            false,
-        ));
+        let metadata = crate::host_configuration::sigrok_file_source_factory().metadata(
+            SigrokFileSourceConfig::new(
+                &state.file.value,
+                state.channel_names.iter().cloned(),
+                false,
+            ),
+        );
         match metadata.channel_names() {
             Ok(Some(names)) => {
                 state.channel_names = names;

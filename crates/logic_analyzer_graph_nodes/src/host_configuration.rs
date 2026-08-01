@@ -1,13 +1,22 @@
 //! Host-facing construction of concrete node-runtime overrides.
 
 use std::path::PathBuf;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use logic_analyzer_graph_api::node::RuntimeBuilderOverride;
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     SigrokCatalogSnapshot, SigrokDecoderConfig, SigrokDecoderDescriptor,
 };
+use logic_analyzer_processing::nodes::sinks::binary_file_writer::BinaryFileWriterFactory;
+use logic_analyzer_processing::nodes::sinks::csv_word_writer::CsvWordWriterFactory;
+use logic_analyzer_processing::nodes::sinks::text_file_writer::TextFileWriterFactory;
+use logic_analyzer_processing::nodes::sources::dsl_file::{
+    DslFileSourceFactory, unavailable_source_factory as unavailable_dsl_file_source_factory,
+};
 use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::DsLogicU3Pro16SourceFactory;
+use logic_analyzer_processing::nodes::sources::sigrok_file::{
+    SigrokFileSourceFactory, portable_source_factory as portable_sigrok_file_source_factory,
+};
 use signal_processing::{ProcessNode, WorkExecutor};
 
 /// Host-provided discovery and execution for Sigrok decoder packages.
@@ -43,6 +52,9 @@ impl SigrokCatalogScanner for UnavailableSigrokCatalogScanner {
 }
 
 static SIGROK_CATALOG_SCANNER: OnceLock<Arc<dyn SigrokCatalogScanner>> = OnceLock::new();
+static DSL_FILE_SOURCE_FACTORY: OnceLock<RwLock<Arc<dyn DslFileSourceFactory>>> = OnceLock::new();
+static SIGROK_FILE_SOURCE_FACTORY: OnceLock<RwLock<Arc<dyn SigrokFileSourceFactory>>> =
+    OnceLock::new();
 
 /// Installs the host scanner used by existing Sigrok decoder nodes.
 pub fn install_sigrok_catalog_scanner(scanner: Arc<dyn SigrokCatalogScanner>) {
@@ -55,11 +67,71 @@ pub(crate) fn sigrok_catalog_scanner() -> Arc<dyn SigrokCatalogScanner> {
         .clone()
 }
 
+/// Installs host acquisition factories used by file-node presentation and runtime overrides.
+pub fn install_file_source_factories(
+    dsl: Arc<dyn DslFileSourceFactory>,
+    sigrok: Arc<dyn SigrokFileSourceFactory>,
+) {
+    *dsl_file_source_factory_slot().write().unwrap() = dsl;
+    *sigrok_file_source_factory_slot().write().unwrap() = sigrok;
+}
+
+pub(crate) fn dsl_file_source_factory() -> Arc<dyn DslFileSourceFactory> {
+    dsl_file_source_factory_slot().read().unwrap().clone()
+}
+
+pub(crate) fn sigrok_file_source_factory() -> Arc<dyn SigrokFileSourceFactory> {
+    sigrok_file_source_factory_slot().read().unwrap().clone()
+}
+
+fn dsl_file_source_factory_slot() -> &'static RwLock<Arc<dyn DslFileSourceFactory>> {
+    DSL_FILE_SOURCE_FACTORY.get_or_init(|| RwLock::new(unavailable_dsl_file_source_factory()))
+}
+
+fn sigrok_file_source_factory_slot() -> &'static RwLock<Arc<dyn SigrokFileSourceFactory>> {
+    SIGROK_FILE_SOURCE_FACTORY.get_or_init(|| RwLock::new(portable_sigrok_file_source_factory()))
+}
+
 /// Returns the U3Pro16 builder override for one host-selected source factory.
 pub fn u3pro16_runtime_builder_override(
     source_factory: Arc<dyn DsLogicU3Pro16SourceFactory>,
 ) -> RuntimeBuilderOverride {
     crate::nodes::sources::dslogic_u3pro16::runtime_builder_override(source_factory)
+}
+
+/// Returns the DSL file-source override for one host acquisition factory.
+pub fn dsl_file_source_runtime_builder_override(
+    source_factory: Arc<dyn DslFileSourceFactory>,
+) -> RuntimeBuilderOverride {
+    crate::nodes::sources::file_source::builder::runtime_builder_override(source_factory)
+}
+
+/// Returns the Sigrok file-source override for one host acquisition factory.
+pub fn sigrok_file_source_runtime_builder_override(
+    source_factory: Arc<dyn SigrokFileSourceFactory>,
+) -> RuntimeBuilderOverride {
+    crate::nodes::sources::sigrok_file_source::builder::runtime_builder_override(source_factory)
+}
+
+/// Returns the binary-file sink override for one host destination factory.
+pub fn binary_file_writer_runtime_builder_override(
+    writer_factory: Arc<dyn BinaryFileWriterFactory>,
+) -> RuntimeBuilderOverride {
+    crate::nodes::sinks::file_writer::builder::runtime_builder_override(writer_factory)
+}
+
+/// Returns the CSV sink override for one host destination factory.
+pub fn csv_word_writer_runtime_builder_override(
+    writer_factory: Arc<dyn CsvWordWriterFactory>,
+) -> RuntimeBuilderOverride {
+    crate::nodes::sinks::csv_writer::builder::runtime_builder_override(writer_factory)
+}
+
+/// Returns the text-file sink override for one host destination factory.
+pub fn text_file_writer_runtime_builder_override(
+    writer_factory: Arc<dyn TextFileWriterFactory>,
+) -> RuntimeBuilderOverride {
+    crate::nodes::sinks::text_file_writer::builder::runtime_builder_override(writer_factory)
 }
 
 /// Returns the Sigrok decoder builder override for one host runtime.

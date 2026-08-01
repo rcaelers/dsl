@@ -3,24 +3,16 @@
 #[cfg(test)]
 mod architecture_tests;
 mod contract;
-#[cfg(all(not(target_arch = "wasm32"), feature = "native-host"))]
-#[path = "native.rs"]
 mod implementation;
-#[cfg(all(not(target_arch = "wasm32"), not(feature = "native-host")))]
-#[path = "unavailable_native.rs"]
-mod implementation;
-#[cfg(target_arch = "wasm32")]
-#[path = "wasm.rs"]
-mod implementation;
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod test_implementation_tests;
 
 pub use contract::{
     CaptureExportCompletion, CaptureExportDescriptor, CaptureExportFormat, CaptureExportService,
     CaptureExportStatus,
 };
-pub(crate) use implementation::standard_capture_export_service;
-#[cfg(all(test, not(target_arch = "wasm32")))]
+pub use implementation::unavailable_capture_export_service;
+#[cfg(test)]
 pub(crate) use test_implementation_tests::{
     ScriptedCaptureExportControl, scripted_capture_export_service,
 };

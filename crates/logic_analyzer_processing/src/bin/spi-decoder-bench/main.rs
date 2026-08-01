@@ -10,7 +10,7 @@ std::cfg_select! {
         }
 
         mod native {
-            use std::path::PathBuf;
+            use std::path::{Path, PathBuf};
             use std::sync::Arc;
             use std::thread::JoinHandle;
             use std::time::Instant;
@@ -18,6 +18,7 @@ std::cfg_select! {
             use clap::{Parser, ValueEnum};
 
             use logic_analyzer_processing::nodes::sinks::csv_word_writer::{CsvValueFormat, CsvWordWriter};
+            use logic_analyzer_processing::nodes::sinks::{OutputFile, OutputStorage};
             use logic_analyzer_processing::nodes::decoders::spi_decoder::{SpiDecoder, SpiMode};
             use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
             use signal_processing::{
@@ -27,6 +28,36 @@ std::cfg_select! {
             };
 
             struct BenchmarkWorkExecutor;
+
+            struct BenchmarkOutputStorage;
+
+            impl OutputStorage for BenchmarkOutputStorage {
+                fn create_parent_dirs(&self, path: &Path) -> std::io::Result<()> {
+                    if let Some(parent) = path.parent()
+                        && !parent.as_os_str().is_empty()
+                    {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    Ok(())
+                }
+
+                fn create(&self, path: &Path) -> std::io::Result<Box<dyn OutputFile>> {
+                    std::fs::File::create(path)
+                        .map(|file| Box::new(file) as Box<dyn OutputFile>)
+                }
+
+                fn append(&self, path: &Path) -> std::io::Result<Box<dyn OutputFile>> {
+                    std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(path)
+                        .map(|file| Box::new(file) as Box<dyn OutputFile>)
+                }
+
+                fn exists(&self, path: &Path) -> bool {
+                    path.exists()
+                }
+            }
 
             impl WorkExecutor for BenchmarkWorkExecutor {
                 fn available_parallelism(&self) -> usize {
@@ -176,7 +207,7 @@ std::cfg_select! {
                     SinkKind::Csv | SinkKind::Graph => {
                         pipeline.add_process(
                             "csv",
-                            CsvWordWriter::new()
+                            CsvWordWriter::with_output_storage(Arc::new(BenchmarkOutputStorage))
                                 .with_filename(csv_path.display().to_string())
                                 .with_value_format(CsvValueFormat::Hex { width: 6 }),
                         )?;

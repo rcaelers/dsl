@@ -278,7 +278,9 @@ before creating the application, so WASM inventory submissions are populated bef
 
 ## wasm
 
-The same `App` compiles to `wasm32-unknown-unknown`: no native file dialogs, USB access, or
-threads. A selected demo graph runs on the `CooperativeManager` pumped from the frame loop. The
-same graph node features are registered on both platforms; whole-file WASM builder implementations
-provide synthetic sources and discard writers where native facilities do not exist.
+The same `App` compiles to `wasm32-unknown-unknown`. A selected demo graph runs on the cooperative
+manager pumped from the frame loop. The same graph-node definitions and builders are registered on
+both platforms. Platform composition injects explicit unavailable file, USB, export, and output
+destination capabilities where the web host has no adapter; it never changes a source to synthetic
+data or a writer to a discard sink because of the target. Synthetic demo data is selected only by
+saved node configuration.

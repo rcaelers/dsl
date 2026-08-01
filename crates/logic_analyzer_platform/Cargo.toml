@@ -40,6 +40,7 @@ tracing = { workspace = true }
 crossbeam-channel = { workspace = true }
 clap = { workspace = true }
 dirs = { workspace = true }
+logic-analyzer-capture-export = { path = "../logic_analyzer_capture_export" }
 memmap2 = { workspace = true }
 rfd = { workspace = true }
 rusb = { workspace = true }

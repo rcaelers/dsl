@@ -8,7 +8,7 @@ use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{NodeBuildContext, PortKind, ResolvedInputs};
 use logic_analyzer_processing::ProcessNodeConstruction;
 use logic_analyzer_processing::nodes::sinks::text_file_writer::{
-    TextFileWriterFactory, writer_factory,
+    TextFileWriterFactory, unavailable_writer_factory,
 };
 use node_graph::api::Socket;
 use signal_processing::{ProcessNode, TextSample};
@@ -20,16 +20,24 @@ pub(crate) struct TextFileWriterBuilder {
 impl Default for TextFileWriterBuilder {
     fn default() -> Self {
         Self {
-            writer_factory: writer_factory(),
+            writer_factory: unavailable_writer_factory(),
         }
     }
 }
 
 impl TextFileWriterBuilder {
-    #[cfg(test)]
     pub(crate) fn with_writer_factory(writer_factory: Arc<dyn TextFileWriterFactory>) -> Self {
         Self { writer_factory }
     }
+}
+
+pub(crate) fn runtime_builder_override(
+    writer_factory: Arc<dyn TextFileWriterFactory>,
+) -> logic_analyzer_graph_api::node::RuntimeBuilderOverride {
+    logic_analyzer_graph_api::node::RuntimeBuilderOverride::new(
+        "org.logicconduit.graph-node.sinks.text-file-writer/v1",
+        Box::new(TextFileWriterBuilder::with_writer_factory(writer_factory)),
+    )
 }
 
 impl RuntimeBuilder for TextFileWriterBuilder {

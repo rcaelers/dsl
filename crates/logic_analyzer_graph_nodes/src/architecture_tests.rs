@@ -44,7 +44,11 @@ fn portable_capture_nodes_use_one_builder_on_every_target() {
         include_str!("nodes/sinks/csv_writer/mod.rs"),
         include_str!("nodes/sinks/text_file_writer/mod.rs"),
     ] {
-        assert!(facade.lines().any(|line| line.trim() == "mod builder;"));
+        assert!(
+            facade
+                .lines()
+                .any(|line| { matches!(line.trim(), "mod builder;" | "pub(crate) mod builder;") })
+        );
         assert!(!facade.contains("builder_wasm"));
         assert!(!facade.contains("path = \"builder"));
     }

@@ -592,10 +592,8 @@ impl<T: UsbTransport> DsLogicU3Pro16<T> {
         Ok(())
     }
 
-    /// Ensure the capture FPGA is ready without exposing image management to
-    /// callers. A normal runtime device is already configured. After power-up
-    /// or a reset, the driver looks for the exact image in the environment or
-    /// well-known local locations.
+    /// Ensures the capture FPGA is ready, using a host-provided image only
+    /// when the runtime device is not already configured.
     fn ensure_fpga_configured(&mut self) -> LogicAnalyzerResult<()> {
         let status = self.command_read_byte(2, 0)?;
         let firmware = self.command_read(0, 0, 2)?;
@@ -620,46 +618,12 @@ impl<T: UsbTransport> DsLogicU3Pro16<T> {
             );
         }
 
-        let mut candidates = vec![
-            std::path::PathBuf::from("DSLogicU3Pro16.bin"),
-            std::path::PathBuf::from("firmware/DSLogicU3Pro16.bin"),
-            std::path::PathBuf::from(
-                "/Applications/DSView.app/Contents/MacOS/res/DSLogicU3Pro16.bin",
-            ),
-            std::path::PathBuf::from(
-                "/Applications/DSView.app/Contents/Resources/driver/DSLogicU3Pro16.bin",
-            ),
-            std::path::PathBuf::from("/usr/share/DSView/driver/DSLogicU3Pro16.bin"),
-            std::path::PathBuf::from("/usr/local/share/DSView/driver/DSLogicU3Pro16.bin"),
-        ];
-        if let Some(home) = std::env::var_os("HOME") {
-            let home = std::path::PathBuf::from(home);
-            candidates.push(home.join(".local/share/DSView/driver/DSLogicU3Pro16.bin"));
-            candidates
-                .push(home.join("Library/Application Support/DSView/driver/DSLogicU3Pro16.bin"));
-        }
-        // Explicit environment configuration is useful for non-standard
-        // installs, but is intentionally tried only after normal locations.
-        if let Some(path) = std::env::var_os("DSLOGIC_U3PRO16_FPGA_IMAGE") {
-            candidates.push(std::path::PathBuf::from(path));
-        }
-
-        for path in candidates {
-            if !path.is_file() {
-                continue;
-            }
-            let image = std::fs::read(&path).map_err(|error| {
-                LogicAnalyzerError::Transport(format!(
-                    "cannot read U3Pro16 FPGA image '{}': {error}",
-                    path.display()
-                ))
-            })?;
-            tracing::info!(path = %path.display(), "configuring DSLogic U3Pro16 FPGA");
+        if let Some(image) = self.transport.fpga_image()? {
             return self.configure_fpga(&image);
         }
 
         Err(LogicAnalyzerError::Protocol(
-            "the U3Pro16 FPGA is absent or has an incompatible image, and DSLogicU3Pro16.bin was not found; set DSLOGIC_U3PRO16_FPGA_IMAGE to the exact image".into(),
+            "the U3Pro16 FPGA is absent or has an incompatible image, and the host did not provide an FPGA image".into(),
         ))
     }
     fn plan(&self) -> LogicAnalyzerResult<DsLogicCapturePlan> {

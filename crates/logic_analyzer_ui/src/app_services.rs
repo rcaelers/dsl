@@ -12,6 +12,7 @@ use signal_processing::{
 };
 
 use crate::application_settings::{ApplicationSettings, default_input_bindings};
+use crate::capture_export_service::{CaptureExportService, unavailable_capture_export_service};
 use crate::graph_service::{
     GraphService, graph_service_with_execution, graph_service_with_execution_and_builder_overrides,
     standard_graph_service,
@@ -34,6 +35,7 @@ pub struct AppServices {
     node_file_dialog: Option<Box<dyn FileDialogService>>,
     work_executor: Arc<dyn WorkExecutor>,
     worker_operation_executor: Rc<dyn WorkerOperationExecutor>,
+    capture_export_service: Box<dyn CaptureExportService>,
 }
 
 pub(crate) struct AppServiceParts {
@@ -46,6 +48,7 @@ pub(crate) struct AppServiceParts {
     pub(crate) node_file_dialog: Option<Box<dyn FileDialogService>>,
     pub(crate) work_executor: Arc<dyn WorkExecutor>,
     pub(crate) worker_operation_executor: Rc<dyn WorkerOperationExecutor>,
+    pub(crate) capture_export_service: Box<dyn CaptureExportService>,
 }
 
 impl AppServices {
@@ -83,7 +86,14 @@ impl AppServices {
                 portable_worker_kernels(),
                 "no parallel finite-operation host was supplied",
             )),
+            capture_export_service: unavailable_capture_export_service(),
         }
+    }
+
+    /// Supplies the host destination and execution adapter for capture export.
+    pub fn with_capture_export_service(mut self, service: Box<dyn CaptureExportService>) -> Self {
+        self.capture_export_service = service;
+        self
     }
 
     /// Supplies the host capability used by file controls embedded in graph nodes.
@@ -151,6 +161,7 @@ impl AppServices {
             node_file_dialog: self.node_file_dialog,
             work_executor: self.work_executor,
             worker_operation_executor: self.worker_operation_executor,
+            capture_export_service: self.capture_export_service,
         }
     }
 }

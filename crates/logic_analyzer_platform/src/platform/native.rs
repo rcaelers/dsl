@@ -20,10 +20,18 @@ use logic_analyzer_graph_nodes::{
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     SigrokCatalogSnapshot, SigrokDecoder, SigrokDecoderConfig, SigrokDecoderDescriptor,
 };
+use logic_analyzer_processing::nodes::sinks::{OutputFile, OutputStorage};
+use logic_analyzer_processing::nodes::sources::dsl_file::{
+    DslFileSource, DslFileSourceConfig, DslFileSourceFactory,
+};
 use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::{
     DsLogicU3Pro16Capture, DsLogicU3Pro16Source, DsLogicU3Pro16SourceFactory,
     DsLogicU3Pro16TransportFactory, LinkSpeed, UsbError, UsbTransport,
 };
+use logic_analyzer_processing::nodes::sources::sigrok_file::{
+    SigrokFileSource, SigrokFileSourceConfig, SigrokFileSourceFactory, portable_source_factory,
+};
+use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
 use logic_analyzer_processing::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
     CaptureSourcePresentation, CaptureSourceRuntimeCapabilities, ProcessNodeConstruction,
@@ -44,6 +52,8 @@ use signal_processing::{
     portable_worker_kernels,
 };
 
+use super::native_capture_export::native_capture_export_service;
+use super::native_file_identity_cache::NativeFileIdentityCache;
 use super::native_sigrok;
 use super::native_sigrok::{PythonSigrokExecutionFactory, discover_sigrok_decoder, scan_catalog};
 use crate::services::PlatformServices;
@@ -96,6 +106,7 @@ pub(crate) fn standard_services() -> PlatformServices {
         .with_capture_session_directory(Some(capture_session_directory()));
     let input_bindings = load_input_bindings();
     let application_settings = load_application_settings();
+    let capture_export_service = native_capture_export_service(capture_session_directory());
     let work_executor: Arc<dyn WorkExecutor> = Arc::new(NativeWorkExecutor::new());
     let settings_path = dirs::config_dir()
         .unwrap_or_else(std::env::temp_dir)
@@ -103,6 +114,12 @@ pub(crate) fn standard_services() -> PlatformServices {
         .join("sigrok_decoders.json");
     let sigrok_catalog_scanner = native_sigrok_catalog_scanner();
     install_sigrok_catalog_scanner(Arc::clone(&sigrok_catalog_scanner));
+    let dsl_file_source_factory = native_dsl_file_source_factory();
+    let sigrok_file_source_factory = native_sigrok_file_source_factory();
+    logic_analyzer_graph_nodes::install_file_source_factories(
+        Arc::clone(&dsl_file_source_factory),
+        Arc::clone(&sigrok_file_source_factory),
+    );
     let node_catalogs = vec![Box::new(native_sigrok::directory_catalog(
         settings_path,
         native_sigrok_decoder_directories(),
@@ -116,6 +133,7 @@ pub(crate) fn standard_services() -> PlatformServices {
         application_settings,
         system_symbol_fonts(),
     )
+    .with_capture_export_service(capture_export_service)
     .with_node_file_dialog(Box::new(NativeNodeFileDialogService))
     .with_graph_execution_and_builder_overrides(
         Box::new(NativeSourcePreparationExecutor::new()),
@@ -124,6 +142,27 @@ pub(crate) fn standard_services() -> PlatformServices {
         }),
         Arc::clone(&work_executor),
         vec![
+            logic_analyzer_graph_nodes::binary_file_writer_runtime_builder_override(
+                logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
+                    native_output_storage(),
+                ),
+            ),
+            logic_analyzer_graph_nodes::csv_word_writer_runtime_builder_override(
+                logic_analyzer_processing::nodes::sinks::csv_word_writer::writer_factory(
+                    native_output_storage(),
+                ),
+            ),
+            logic_analyzer_graph_nodes::text_file_writer_runtime_builder_override(
+                logic_analyzer_processing::nodes::sinks::text_file_writer::writer_factory(
+                    native_output_storage(),
+                ),
+            ),
+            logic_analyzer_graph_nodes::dsl_file_source_runtime_builder_override(
+                dsl_file_source_factory,
+            ),
+            logic_analyzer_graph_nodes::sigrok_file_source_runtime_builder_override(
+                sigrok_file_source_factory,
+            ),
             logic_analyzer_graph_nodes::sigrok_decoder_runtime_builder_override(
                 native_sigrok_decoder_runtime(),
             ),
@@ -144,6 +183,213 @@ pub(crate) fn standard_services() -> PlatformServices {
             "native serialized worker operations use the existing work executor",
         )),
     )
+}
+
+struct NativeOutputStorage;
+
+impl OutputStorage for NativeOutputStorage {
+    fn create_parent_dirs(&self, path: &Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
+        }
+        Ok(())
+    }
+
+    fn create(&self, path: &Path) -> std::io::Result<Box<dyn OutputFile>> {
+        File::create(path).map(|file| Box::new(file) as Box<dyn OutputFile>)
+    }
+
+    fn append(&self, path: &Path) -> std::io::Result<Box<dyn OutputFile>> {
+        OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .map(|file| Box::new(file) as Box<dyn OutputFile>)
+    }
+
+    fn exists(&self, path: &Path) -> bool {
+        path.exists()
+    }
+}
+
+fn native_output_storage() -> Arc<dyn OutputStorage> {
+    Arc::new(NativeOutputStorage)
+}
+
+const FILE_SOURCE_LIFECYCLE: CaptureSourceLifecycle =
+    CaptureSourceLifecycle::new(CaptureSourceKind::File, true, true, true);
+
+struct NativeDslFileSourceMetadata {
+    config: DslFileSourceConfig,
+    identities: Arc<NativeFileIdentityCache>,
+}
+
+impl CaptureSourceMetadata for NativeDslFileSourceMetadata {
+    fn lifecycle(&self) -> CaptureSourceLifecycle {
+        FILE_SOURCE_LIFECYCLE
+    }
+
+    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+        if self.config.path().as_os_str().is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(CaptureSourcePresentation::Indexed(
+            DslFileSource::indexed_capture_presentation(self.config.path()),
+        )))
+    }
+
+    fn cache_identity(&self) -> CaptureSourceCacheIdentity {
+        if self.config.path().as_os_str().is_empty() {
+            return CaptureSourceCacheIdentity::Dynamic;
+        }
+        self.identities
+            .resolve(self.config.path(), |path| {
+                DslFileSource::capture_cache_identity(path).map_err(|error| error.to_string())
+            })
+            .map(CaptureSourceCacheIdentity::Stable)
+            .unwrap_or(CaptureSourceCacheIdentity::Dynamic)
+    }
+
+    fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+        DslFileSource::new(self.config.path())
+            .map(|source| Some(source.header().probe_names.clone()))
+            .map_err(|error| error.to_string())
+    }
+}
+
+struct NativeDslFileSourceFactory {
+    identities: Arc<NativeFileIdentityCache>,
+}
+
+impl DslFileSourceFactory for NativeDslFileSourceFactory {
+    fn lifecycle(&self) -> CaptureSourceLifecycle {
+        FILE_SOURCE_LIFECYCLE
+    }
+
+    fn metadata(&self, config: DslFileSourceConfig) -> Arc<dyn CaptureSourceMetadata> {
+        Arc::new(NativeDslFileSourceMetadata {
+            config,
+            identities: Arc::clone(&self.identities),
+        })
+    }
+
+    fn create(
+        &self,
+        name: &str,
+        config: DslFileSourceConfig,
+        work_executor: Arc<dyn WorkExecutor>,
+    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+        let metadata = self.metadata(config.clone());
+        DslFileSource::new(config.path())
+            .map(|source| {
+                ProcessNodeConstruction::new(
+                    Box::new(source.with_name(name).with_work_executor(work_executor)),
+                    metadata,
+                )
+            })
+            .map_err(|error| error.to_string())
+    }
+}
+
+fn native_dsl_file_source_factory() -> Arc<dyn DslFileSourceFactory> {
+    Arc::new(NativeDslFileSourceFactory {
+        identities: Arc::new(NativeFileIdentityCache::default()),
+    })
+}
+
+struct NativeSigrokFileSourceMetadata {
+    config: SigrokFileSourceConfig,
+    identities: Arc<NativeFileIdentityCache>,
+}
+
+impl CaptureSourceMetadata for NativeSigrokFileSourceMetadata {
+    fn lifecycle(&self) -> CaptureSourceLifecycle {
+        FILE_SOURCE_LIFECYCLE
+    }
+
+    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+        if self.config.demo_data() {
+            return portable_source_factory()
+                .metadata(self.config.clone())
+                .presentation();
+        }
+        if self.config.path().as_os_str().is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(CaptureSourcePresentation::Indexed(
+            SigrokFileSource::indexed_capture_presentation(self.config.path()),
+        )))
+    }
+
+    fn cache_identity(&self) -> CaptureSourceCacheIdentity {
+        if self.config.demo_data() {
+            return CaptureSourceCacheIdentity::NotCapture;
+        }
+        self.identities
+            .resolve(self.config.path(), |path| {
+                SigrokFileSource::capture_cache_identity(path).map_err(|error| error.to_string())
+            })
+            .map(CaptureSourceCacheIdentity::Stable)
+            .unwrap_or(CaptureSourceCacheIdentity::Dynamic)
+    }
+
+    fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+        if self.config.demo_data() {
+            return Ok(Some(self.config.channel_names().to_vec()));
+        }
+        SigrokFileSource::new(self.config.path())
+            .map(|source| Some(source.header().probe_names.clone()))
+            .map_err(|error| error.to_string())
+    }
+}
+
+struct NativeSigrokFileSourceFactory {
+    identities: Arc<NativeFileIdentityCache>,
+}
+
+impl SigrokFileSourceFactory for NativeSigrokFileSourceFactory {
+    fn lifecycle(&self) -> CaptureSourceLifecycle {
+        FILE_SOURCE_LIFECYCLE
+    }
+
+    fn metadata(&self, config: SigrokFileSourceConfig) -> Arc<dyn CaptureSourceMetadata> {
+        Arc::new(NativeSigrokFileSourceMetadata {
+            config,
+            identities: Arc::clone(&self.identities),
+        })
+    }
+
+    fn create(
+        &self,
+        name: &str,
+        config: SigrokFileSourceConfig,
+        work_executor: Arc<dyn WorkExecutor>,
+    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+        let metadata = self.metadata(config.clone());
+        let process = if config.demo_data() {
+            Box::new(
+                SyntheticCaptureSource::new()
+                    .with_channel_count(config.channel_count())
+                    .with_name(name),
+            ) as Box<dyn ProcessNode>
+        } else {
+            Box::new(
+                SigrokFileSource::new(config.path())
+                    .map_err(|error| error.to_string())?
+                    .with_name(name)
+                    .with_work_executor(work_executor),
+            )
+        };
+        Ok(ProcessNodeConstruction::new(process, metadata))
+    }
+}
+
+fn native_sigrok_file_source_factory() -> Arc<dyn SigrokFileSourceFactory> {
+    Arc::new(NativeSigrokFileSourceFactory {
+        identities: Arc::new(NativeFileIdentityCache::default()),
+    })
 }
 
 struct NativeSigrokDecoderRuntime;
@@ -413,6 +659,40 @@ impl NativeU3Pro16Transport {
 impl UsbTransport for NativeU3Pro16Transport {
     fn link_speed(&self) -> LinkSpeed {
         self.speed
+    }
+
+    fn fpga_image(
+        &self,
+    ) -> signal_processing::logic_analyzer::LogicAnalyzerResult<Option<Vec<u8>>> {
+        let mut candidates = vec![
+            PathBuf::from("DSLogicU3Pro16.bin"),
+            PathBuf::from("firmware/DSLogicU3Pro16.bin"),
+            PathBuf::from("/Applications/DSView.app/Contents/MacOS/res/DSLogicU3Pro16.bin"),
+            PathBuf::from("/Applications/DSView.app/Contents/Resources/driver/DSLogicU3Pro16.bin"),
+            PathBuf::from("/usr/share/DSView/driver/DSLogicU3Pro16.bin"),
+            PathBuf::from("/usr/local/share/DSView/driver/DSLogicU3Pro16.bin"),
+        ];
+        if let Some(home) = std::env::var_os("HOME") {
+            let home = PathBuf::from(home);
+            candidates.push(home.join(".local/share/DSView/driver/DSLogicU3Pro16.bin"));
+            candidates
+                .push(home.join("Library/Application Support/DSView/driver/DSLogicU3Pro16.bin"));
+        }
+        if let Some(path) = std::env::var_os("DSLOGIC_U3PRO16_FPGA_IMAGE") {
+            candidates.push(PathBuf::from(path));
+        }
+
+        let Some(path) = candidates.into_iter().find(|path| path.is_file()) else {
+            return Ok(None);
+        };
+        let image = std::fs::read(&path).map_err(|error| {
+            LogicAnalyzerError::Transport(format!(
+                "cannot read U3Pro16 FPGA image '{}': {error}",
+                path.display()
+            ))
+        })?;
+        tracing::info!(path = %path.display(), "loaded DSLogic U3Pro16 FPGA image");
+        Ok(Some(image))
     }
 
     fn control_write(

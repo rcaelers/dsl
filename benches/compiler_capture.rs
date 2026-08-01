@@ -22,6 +22,7 @@ use logic_analyzer_processing::nodes::logic::text_formatter::TextFormatter;
 use logic_analyzer_processing::nodes::logic::trigger_counter::TriggerCounter;
 use logic_analyzer_processing::nodes::logic::word_matcher::WordMatcher;
 use logic_analyzer_processing::nodes::sinks::binary_file_writer::BinaryFileWriter;
+use logic_analyzer_processing::nodes::sinks::{OutputFile, OutputStorage};
 use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
 use logic_analyzer_processing::types::CsPolarity;
 use logic_analyzer_viewer::{
@@ -46,6 +47,39 @@ const STARTUP_OUTPUTS: [(&str, &str); 7] = [
     ("Parallel Decoder", "Words"),
 ];
 const VALIDATION_OUTPUTS: [(&str, &str); 1] = [("SPI Decoder", "MOSI Bits")];
+
+struct BenchmarkOutputStorage;
+
+impl OutputStorage for BenchmarkOutputStorage {
+    fn create_parent_dirs(&self, path: &Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
+        }
+        Ok(())
+    }
+
+    fn create(&self, path: &Path) -> std::io::Result<Box<dyn OutputFile>> {
+        std::fs::File::create(path).map(|file| Box::new(file) as Box<dyn OutputFile>)
+    }
+
+    fn append(&self, path: &Path) -> std::io::Result<Box<dyn OutputFile>> {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .map(|file| Box::new(file) as Box<dyn OutputFile>)
+    }
+
+    fn exists(&self, path: &Path) -> bool {
+        path.exists()
+    }
+}
+
+fn benchmark_binary_writer() -> BinaryFileWriter {
+    BinaryFileWriter::with_output_storage(Arc::new(BenchmarkOutputStorage))
+}
 const CHECKED_IN_GRAPH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/graphs/spi_controlled_decode.json"
@@ -166,9 +200,11 @@ fn resource_delta(
 
 fn startup_widget() -> NodeGraphWidget {
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
-    widget
-        .load_from_path(CHECKED_IN_GRAPH)
-        .expect("checked-in SPI controlled decode graph should load");
+    let graph = std::fs::read_to_string(CHECKED_IN_GRAPH)
+        .expect("checked-in SPI controlled decode graph should be readable");
+    widget.set_graph(
+        serde_json::from_str(&graph).expect("checked-in SPI controlled decode graph should load"),
+    );
     widget
 }
 
@@ -343,7 +379,7 @@ fn run_phase_one_reference(capture: &Path, output: &Path) {
         )
         .unwrap();
     pipeline
-        .add_process("writer", BinaryFileWriter::new().with_index_csv(true))
+        .add_process("writer", benchmark_binary_writer().with_index_csv(true))
         .unwrap();
 
     pipeline.connect("source", "ch7", "spi", "clk").unwrap();
@@ -420,7 +456,7 @@ fn run_current_reference(capture: &Path, output: &Path) {
         )
         .unwrap();
     pipeline
-        .add_process("writer", BinaryFileWriter::new().with_index_csv(true))
+        .add_process("writer", benchmark_binary_writer().with_index_csv(true))
         .unwrap();
 
     pipeline.connect("source", "ch7", "spi", "clk").unwrap();

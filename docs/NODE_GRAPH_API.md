@@ -197,7 +197,7 @@ interdependent props. `badge` is recomputed after each update; return
 | `add_node_at(name, pos) -> Option<NodeId>` | Programmatic add (`"Reroute"` adds a reroute) |
 | `set_node_state(id, json) -> bool` | Replace a node's state and re-run its def (sockets, visibility, badge) |
 | `set_graph(graph)` | Replace the document; rebuilds all runtime instances via restore reconciliation |
-| `save_to_path(path)` / `load_from_path(path)` | JSON persistence (load leaves the current graph untouched on error) |
+| `snapshot_value()` | Synchronize inline controls and return the graph document for host persistence |
 | `set_node_badge(id, Option<NodeBadge>)` | Externally owned badge (compile errors, runtime status); takes precedence over the def badge |
 | `set_node_status(id, Option<String>)` / `clear_node_statuses()` | Short live text in node headers (e.g. item counters) |
 

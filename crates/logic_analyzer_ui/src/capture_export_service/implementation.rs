@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use signal_processing::{CaptureSessionId, NativeCaptureSessionRepository};
+use signal_processing::CaptureSessionId;
 
 use super::contract::{
     CaptureExportCompletion, CaptureExportFormat, CaptureExportService, CaptureExportStatus,
@@ -15,7 +15,7 @@ impl CaptureExportService for UnavailableCaptureExportService {
         _format: CaptureExportFormat,
         _destination: PathBuf,
     ) -> Result<(), String> {
-        Err("native capture export is not enabled".into())
+        Err("capture export is unavailable on this host".into())
     }
 
     fn status(&self) -> Option<&CaptureExportStatus> {
@@ -37,8 +37,7 @@ impl CaptureExportService for UnavailableCaptureExportService {
     fn reset(&mut self) {}
 }
 
-pub(crate) fn standard_capture_export_service(
-    _repository: NativeCaptureSessionRepository,
-) -> Box<dyn CaptureExportService> {
+/// Returns an explicit unavailable implementation for hosts without export support.
+pub fn unavailable_capture_export_service() -> Box<dyn CaptureExportService> {
     Box::new(UnavailableCaptureExportService)
 }

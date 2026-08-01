@@ -24,13 +24,13 @@ struct CachedIdentity {
     identity: [u8; 32],
 }
 
-/// Retains expensive format-derived identities while the underlying file is unchanged.
+/// Retains expensive format-derived identities while a native file is unchanged.
 #[derive(Default)]
-pub(crate) struct FileIdentityCache {
+pub(crate) struct NativeFileIdentityCache {
     entries: Mutex<HashMap<PathBuf, CachedIdentity>>,
 }
 
-impl FileIdentityCache {
+impl NativeFileIdentityCache {
     pub(crate) fn resolve(
         &self,
         path: &Path,
@@ -56,17 +56,17 @@ impl FileIdentityCache {
 }
 
 #[cfg(test)]
-mod file_identity_cache_tests {
+mod native_file_identity_cache_tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
 
     #[test]
-    fn identity_is_reused_until_the_file_changes() {
+    fn identity_is_reused_until_the_native_file_changes() {
         let temporary = tempfile::tempdir().unwrap();
         let path = temporary.path().join("capture");
         std::fs::write(&path, b"capture").unwrap();
-        let cache = FileIdentityCache::default();
+        let cache = NativeFileIdentityCache::default();
         let loads = AtomicUsize::new(0);
         let load = |_: &Path| {
             loads.fetch_add(1, Ordering::Relaxed);

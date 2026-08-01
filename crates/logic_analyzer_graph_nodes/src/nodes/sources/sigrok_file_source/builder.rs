@@ -11,7 +11,7 @@ use logic_analyzer_graph_api::node_support::{
 };
 use logic_analyzer_processing::CaptureSourceMetadata;
 use logic_analyzer_processing::nodes::sources::sigrok_file::{
-    SigrokFileSourceConfig, SigrokFileSourceFactory, source_factory,
+    SigrokFileSourceConfig, SigrokFileSourceFactory, portable_source_factory,
 };
 use node_graph::api::Socket;
 use signal_processing::{ProcessNode, Sample, SampleBlock};
@@ -23,13 +23,12 @@ pub(crate) struct SigrokFileSourceBuilder {
 impl Default for SigrokFileSourceBuilder {
     fn default() -> Self {
         Self {
-            source_factory: source_factory(),
+            source_factory: portable_source_factory(),
         }
     }
 }
 
 impl SigrokFileSourceBuilder {
-    #[cfg(test)]
     pub(crate) fn with_source_factory(source_factory: Arc<dyn SigrokFileSourceFactory>) -> Self {
         Self { source_factory }
     }
@@ -46,6 +45,15 @@ impl SigrokFileSourceBuilder {
         let state: super::definition::SigrokFileSourceState = parse_state(state)?;
         Ok(self.source_factory.metadata(Self::config(&state)))
     }
+}
+
+pub(crate) fn runtime_builder_override(
+    source_factory: Arc<dyn SigrokFileSourceFactory>,
+) -> logic_analyzer_graph_api::node::RuntimeBuilderOverride {
+    logic_analyzer_graph_api::node::RuntimeBuilderOverride::new(
+        "org.logicconduit.graph-node.sources.sigrok-file-source/v1",
+        Box::new(SigrokFileSourceBuilder::with_source_factory(source_factory)),
+    )
 }
 
 impl RuntimeBuilder for SigrokFileSourceBuilder {

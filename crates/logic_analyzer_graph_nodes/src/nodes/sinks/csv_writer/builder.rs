@@ -10,7 +10,7 @@ use logic_analyzer_graph_api::node_support::{
 };
 use logic_analyzer_processing::ProcessNodeConstruction;
 use logic_analyzer_processing::nodes::sinks::csv_word_writer::{
-    CsvValueFormat, CsvWordWriterConfig, CsvWordWriterFactory, writer_factory,
+    CsvValueFormat, CsvWordWriterConfig, CsvWordWriterFactory, unavailable_writer_factory,
 };
 use node_graph::api::Socket;
 use signal_processing::{ProcessNode, TextSample, Word};
@@ -22,16 +22,24 @@ pub(crate) struct CsvWriterBuilder {
 impl Default for CsvWriterBuilder {
     fn default() -> Self {
         Self {
-            writer_factory: writer_factory(),
+            writer_factory: unavailable_writer_factory(),
         }
     }
 }
 
 impl CsvWriterBuilder {
-    #[cfg(test)]
     pub(crate) fn with_writer_factory(writer_factory: Arc<dyn CsvWordWriterFactory>) -> Self {
         Self { writer_factory }
     }
+}
+
+pub(crate) fn runtime_builder_override(
+    writer_factory: Arc<dyn CsvWordWriterFactory>,
+) -> logic_analyzer_graph_api::node::RuntimeBuilderOverride {
+    logic_analyzer_graph_api::node::RuntimeBuilderOverride::new(
+        "org.logicconduit.graph-node.sinks.csv-writer/v1",
+        Box::new(CsvWriterBuilder::with_writer_factory(writer_factory)),
+    )
 }
 
 impl RuntimeBuilder for CsvWriterBuilder {

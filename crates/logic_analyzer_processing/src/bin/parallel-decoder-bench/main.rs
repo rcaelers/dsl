@@ -11,7 +11,7 @@ std::cfg_select! {
 
         mod native {
     use std::collections::VecDeque;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
     use std::thread::JoinHandle;
     use std::time::{Duration, Instant};
@@ -22,6 +22,7 @@ std::cfg_select! {
         ParallelDecoder, ParallelInputStrategy, StrobeMode,
     };
     use logic_analyzer_processing::nodes::sinks::binary_file_writer::BinaryFileWriter;
+    use logic_analyzer_processing::nodes::sinks::{OutputFile, OutputStorage};
     use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
     use logic_analyzer_processing::types::CsPolarity;
     use signal_processing::{
@@ -35,6 +36,35 @@ std::cfg_select! {
 
     const DEFAULT_MAX_WORDS_PER_BLOCK: usize = 32_768;
     const DEFAULT_RESTART_INTERVAL: usize = 512;
+
+    struct BenchmarkOutputStorage;
+
+    impl OutputStorage for BenchmarkOutputStorage {
+        fn create_parent_dirs(&self, path: &Path) -> std::io::Result<()> {
+            if let Some(parent) = path.parent()
+                && !parent.as_os_str().is_empty()
+            {
+                std::fs::create_dir_all(parent)?;
+            }
+            Ok(())
+        }
+
+        fn create(&self, path: &Path) -> std::io::Result<Box<dyn OutputFile>> {
+            std::fs::File::create(path).map(|file| Box::new(file) as Box<dyn OutputFile>)
+        }
+
+        fn append(&self, path: &Path) -> std::io::Result<Box<dyn OutputFile>> {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .map(|file| Box::new(file) as Box<dyn OutputFile>)
+        }
+
+        fn exists(&self, path: &Path) -> bool {
+            path.exists()
+        }
+    }
 
     struct BenchmarkWorkExecutor;
 
@@ -854,7 +884,8 @@ std::cfg_select! {
                 let output = word_store_directory.path().join("decoded.bin");
                 pipeline.add_process(
                     "sink",
-                    BinaryFileWriter::new().with_filename(output.display().to_string()),
+                    BinaryFileWriter::with_output_storage(Arc::new(BenchmarkOutputStorage))
+                        .with_filename(output.display().to_string()),
                 )?;
                 sink_port = Some("data");
             }

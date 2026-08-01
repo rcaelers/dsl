@@ -25,7 +25,7 @@ use signal_processing::{
     WorkError, WorkResult,
 };
 
-use super::super::output_storage::{NativeOutputStorage, OutputFile, OutputStorage};
+use super::super::output_storage::{OutputFile, OutputStorage, UnavailableOutputStorage};
 use super::configuration::CsvValueFormat;
 
 impl CsvValueFormat {
@@ -94,10 +94,10 @@ impl CsvWordWriter {
     const DRAIN_BATCH_SIZE: usize = 65_536;
 
     pub fn new() -> Self {
-        Self::with_storage(Arc::new(NativeOutputStorage))
+        Self::with_output_storage(Arc::new(UnavailableOutputStorage))
     }
 
-    fn with_storage(storage: Arc<dyn OutputStorage>) -> Self {
+    pub fn with_output_storage(storage: Arc<dyn OutputStorage>) -> Self {
         Self {
             name: "csv_word_writer".to_string(),
             header: Some("id,time_ns,value".to_string()),
@@ -413,13 +413,20 @@ mod tests {
         }
     }
 
+    fn memory_writer() -> (CsvWordWriter, TestOutputStorage) {
+        let storage = TestOutputStorage::default();
+        (
+            CsvWordWriter::with_output_storage(Arc::new(storage.clone())),
+            storage,
+        )
+    }
+
     /// With a static filename set and the `filename` input unconnected,
     /// everything is written to that one path — the "save dialog on the
     /// node" case, no formatter needed.
     #[test]
     fn static_filename_without_filename_input() {
-        let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("static.csv").display().to_string();
+        let target = "static.csv";
 
         let wd = Watchdog::new();
         let (data_tx, data_rx) = bounded::<ChannelMessage<Word>>(256);
@@ -436,7 +443,8 @@ mod tests {
         }
         drop(data_tx);
 
-        let mut writer = CsvWordWriter::new().with_filename(&target);
+        let (writer, storage) = memory_writer();
+        let mut writer = writer.with_filename(target);
         loop {
             match writer.work(&inputs, &[]) {
                 Ok(_) => {}
@@ -446,15 +454,14 @@ mod tests {
         }
 
         assert_eq!(
-            std::fs::read_to_string(&target).unwrap(),
+            String::from_utf8(storage.contents(target).unwrap()).unwrap(),
             "id,time_ns,value\n1,100,1\n2,200,2\n3,300,47\n"
         );
     }
 
     #[test]
     fn arbitrary_width_and_text_words_keep_their_complete_csv_value() {
-        let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("rich.csv").display().to_string();
+        let target = "rich.csv";
         let wd = Watchdog::new();
         let (data_tx, data_rx) = bounded::<ChannelMessage<Word>>(4);
         let inputs = vec![
@@ -481,7 +488,8 @@ mod tests {
             .unwrap();
         drop(data_tx);
 
-        let mut writer = CsvWordWriter::new().with_filename(&target);
+        let (writer, storage) = memory_writer();
+        let mut writer = writer.with_filename(target);
         loop {
             match writer.work(&inputs, &[]) {
                 Ok(_) => {}
@@ -491,7 +499,7 @@ mod tests {
         }
 
         assert_eq!(
-            std::fs::read_to_string(&target).unwrap(),
+            String::from_utf8(storage.contents(target).unwrap()).unwrap(),
             "id,time_ns,value\n1,100,10203040\n2,200,\"label, \"\"quoted\"\"\"\n"
         );
     }
@@ -534,7 +542,8 @@ mod tests {
             ),
         ];
         data_tx.send(ChannelMessage::Sample(word(1, 100))).unwrap();
-        let mut writer = CsvWordWriter::with_storage(storage).with_filename("virtual/out.csv");
+        let mut writer =
+            CsvWordWriter::with_output_storage(storage).with_filename("virtual/out.csv");
 
         let error = writer.work(&inputs, &[]).unwrap_err();
 
@@ -545,8 +554,7 @@ mod tests {
 
     #[test]
     fn hex_value_format() {
-        let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("hex.csv").display().to_string();
+        let target = "hex.csv";
 
         let wd = Watchdog::new();
         let (data_tx, data_rx) = bounded::<ChannelMessage<Word>>(4);
@@ -563,8 +571,9 @@ mod tests {
             .unwrap();
         drop(data_tx);
 
-        let mut writer = CsvWordWriter::new()
-            .with_filename(&target)
+        let (writer, storage) = memory_writer();
+        let mut writer = writer
+            .with_filename(target)
             .with_value_format(CsvValueFormat::Hex { width: 6 })
             .with_header(None);
         loop {
@@ -575,23 +584,20 @@ mod tests {
             }
         }
 
-        assert_eq!(std::fs::read_to_string(&target).unwrap(), "1,100,600081\n");
+        assert_eq!(
+            String::from_utf8(storage.contents(target).unwrap()).unwrap(),
+            "1,100,600081\n"
+        );
     }
 
     #[test]
     fn rolls_files_on_name_changes() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = |n: &str| dir.path().join(n).display().to_string();
-
         let rig = rig();
         rig.name_tx
-            .send(ChannelMessage::Sample(TextSample::new(path("a.csv"), 0)))
+            .send(ChannelMessage::Sample(TextSample::new("a.csv", 0)))
             .unwrap();
         rig.name_tx
-            .send(ChannelMessage::Sample(TextSample::new(
-                path("b.csv"),
-                1_000,
-            )))
+            .send(ChannelMessage::Sample(TextSample::new("b.csv", 1_000)))
             .unwrap();
         for (v, ts) in [(1u64, 100u64), (2, 200), (3, 1_000), (4, 1_100)] {
             rig.data_tx
@@ -599,53 +605,51 @@ mod tests {
                 .unwrap();
         }
 
-        run(rig, &mut CsvWordWriter::new());
+        let (mut writer, storage) = memory_writer();
+        run(rig, &mut writer);
 
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("a.csv")).unwrap(),
+            String::from_utf8(storage.contents("a.csv").unwrap()).unwrap(),
             "id,time_ns,value\n1,100,1\n2,200,2\n"
         );
         // The row at exactly the boundary timestamp lands in the new file,
         // with its own id sequence starting over.
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("b.csv")).unwrap(),
+            String::from_utf8(storage.contents("b.csv").unwrap()).unwrap(),
             "id,time_ns,value\n1,1000,3\n2,1100,4\n"
         );
     }
 
     #[test]
     fn empty_name_window_creates_no_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = |n: &str| dir.path().join(n).display().to_string();
-
         let rig = rig();
         rig.name_tx
-            .send(ChannelMessage::Sample(TextSample::new(path("a.csv"), 0)))
+            .send(ChannelMessage::Sample(TextSample::new("a.csv", 0)))
             .unwrap();
         rig.name_tx
-            .send(ChannelMessage::Sample(TextSample::new(path("b.csv"), 500)))
+            .send(ChannelMessage::Sample(TextSample::new("b.csv", 500)))
             .unwrap();
         rig.data_tx
             .send(ChannelMessage::Sample(word(9, 600)))
             .unwrap();
 
-        run(rig, &mut CsvWordWriter::new());
+        let (mut writer, storage) = memory_writer();
+        run(rig, &mut writer);
 
-        assert!(!dir.path().join("a.csv").exists());
+        assert_eq!(storage.contents("a.csv"), None);
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("b.csv")).unwrap(),
+            String::from_utf8(storage.contents("b.csv").unwrap()).unwrap(),
             "id,time_ns,value\n1,600,9\n"
         );
     }
 
     #[test]
     fn shutdown_flushes_open_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("only.csv").display().to_string();
+        let path = "only.csv";
 
         let rig = rig();
         rig.name_tx
-            .send(ChannelMessage::Sample(TextSample::new(&path, 0)))
+            .send(ChannelMessage::Sample(TextSample::new(path, 0)))
             .unwrap();
         for i in 0..10u64 {
             rig.data_tx
@@ -653,9 +657,10 @@ mod tests {
                 .unwrap();
         }
 
-        run(rig, &mut CsvWordWriter::new());
+        let (mut writer, storage) = memory_writer();
+        run(rig, &mut writer);
 
-        let content = std::fs::read_to_string(&path).unwrap();
+        let content = String::from_utf8(storage.contents(path).unwrap()).unwrap();
         assert_eq!(content.lines().count(), 11); // header + 10 rows
         assert_eq!(content.lines().last(), Some("10,109,9"));
     }
