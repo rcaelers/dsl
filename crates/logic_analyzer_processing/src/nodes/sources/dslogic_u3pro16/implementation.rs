@@ -1818,19 +1818,58 @@ fn put32(buffer: &mut [u8], offset: usize, value: u32) {
 mod tests {
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
+    use std::thread::JoinHandle;
 
     use serde::Deserialize;
 
     use signal_processing::{
         AcquisitionContext, CaptureAcquisitionPhase, CaptureCursorItem, CaptureEvent,
         CaptureFailureKind, CaptureQueueReceiveError, CaptureSessionId, CaptureStoreCursor,
-        CaptureStoreDescriptor, NativeCaptureStore, NativeCaptureStoreConfig,
-        bounded_capture_event_queue,
+        CaptureStoreDescriptor, NativeCaptureStore, NativeCaptureStoreConfig, WorkExecutor,
+        WorkExecutorTask, WorkTask, bounded_capture_event_queue,
     };
 
     use super::super::buffered::BufferedProvider;
     use super::super::streaming::StreamingProvider;
     use super::*;
+
+    struct TestWorkExecutor;
+
+    impl WorkExecutor for TestWorkExecutor {
+        fn available_parallelism(&self) -> usize {
+            1
+        }
+
+        fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+            self.submit_long_running(task)
+        }
+
+        fn submit_long_running(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+            Ok(Box::new(TestWorkTask {
+                handle: Some(std::thread::spawn(task)),
+            }))
+        }
+    }
+
+    struct TestWorkTask {
+        handle: Option<JoinHandle<()>>,
+    }
+
+    impl WorkTask for TestWorkTask {
+        fn is_finished(&self) -> bool {
+            self.handle.as_ref().is_none_or(JoinHandle::is_finished)
+        }
+
+        fn wait(mut self: Box<Self>) {
+            if let Some(handle) = self.handle.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+
+    fn work_executor() -> Arc<dyn WorkExecutor> {
+        Arc::new(TestWorkExecutor)
+    }
 
     #[derive(Deserialize)]
     struct PacketFixture {
@@ -2468,7 +2507,8 @@ mod tests {
         .unwrap();
         let _paused_cursor = store.open_cursor().unwrap();
         let (events, event_reader) = bounded_capture_event_queue(64).unwrap();
-        let context = AcquisitionContext::new(session_id, Box::new(writer), Box::new(events));
+        let context = AcquisitionContext::new(session_id, Box::new(writer), Box::new(events))
+            .with_work_executor(work_executor());
         let mut acquisition = provider.prepare(context).unwrap();
 
         acquisition.start().unwrap();
@@ -2552,7 +2592,8 @@ mod tests {
         .unwrap();
         let _paused_cursor = store.open_cursor().unwrap();
         let (events, event_reader) = bounded_capture_event_queue(64).unwrap();
-        let context = AcquisitionContext::new(session_id, Box::new(writer), Box::new(events));
+        let context = AcquisitionContext::new(session_id, Box::new(writer), Box::new(events))
+            .with_work_executor(work_executor());
         let mut acquisition = provider.prepare(context).unwrap();
 
         acquisition.start().unwrap();
@@ -2645,7 +2686,8 @@ mod tests {
             NativeCaptureStore::create(NativeCaptureStoreConfig::new(directory.path(), descriptor))
                 .unwrap();
         let (events, event_reader) = bounded_capture_event_queue(64).unwrap();
-        let context = AcquisitionContext::new(session_id, Box::new(writer), Box::new(events));
+        let context = AcquisitionContext::new(session_id, Box::new(writer), Box::new(events))
+            .with_work_executor(work_executor());
         let mut acquisition = provider.prepare(context).unwrap();
         acquisition.start().unwrap();
 
@@ -2689,7 +2731,8 @@ mod tests {
             NativeCaptureStore::create(NativeCaptureStoreConfig::new(directory.path(), descriptor))
                 .unwrap();
         let (events, _event_reader) = bounded_capture_event_queue(64).unwrap();
-        let context = AcquisitionContext::new(session_id, Box::new(writer), Box::new(events));
+        let context = AcquisitionContext::new(session_id, Box::new(writer), Box::new(events))
+            .with_work_executor(work_executor());
         let mut acquisition = provider.prepare(context).unwrap();
         acquisition.start().unwrap();
         std::thread::sleep(Duration::from_millis(5));

@@ -3,12 +3,13 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use signal_processing::logic_analyzer::{CaptureMode, LogicCaptureConfig};
 use signal_processing::{
     AcquisitionContext, CaptureCursorItem, CaptureIndex, CaptureSessionId, CaptureStoreCursor,
-    CaptureStoreDescriptor, CompletedWorkTask, NativeCaptureStore, NativeCaptureStoreConfig,
+    CaptureStoreDescriptor, NativeCaptureStore, NativeCaptureStoreConfig,
     NativeGrowingCaptureIndex, WorkExecutor, WorkExecutorTask, WorkTask,
     bounded_capture_event_queue,
 };
@@ -25,14 +26,35 @@ struct GeneratedStreamingTransport {
 
 struct BenchmarkWorkExecutor;
 
+struct BenchmarkWorkTask {
+    handle: Option<JoinHandle<()>>,
+}
+
+impl WorkTask for BenchmarkWorkTask {
+    fn is_finished(&self) -> bool {
+        self.handle.as_ref().is_none_or(JoinHandle::is_finished)
+    }
+
+    fn wait(mut self: Box<Self>) {
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
 impl WorkExecutor for BenchmarkWorkExecutor {
     fn available_parallelism(&self) -> usize {
         1
     }
 
     fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
-        std::thread::spawn(task);
-        Ok(Box::new(CompletedWorkTask))
+        self.submit_long_running(task)
+    }
+
+    fn submit_long_running(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        Ok(Box::new(BenchmarkWorkTask {
+            handle: Some(std::thread::spawn(task)),
+        }))
     }
 }
 
@@ -195,7 +217,8 @@ fn run_scenario(channels_count: usize, rate_hz: u64, samples: u64) {
         }
     });
     let (events, _event_reader) = bounded_capture_event_queue(4096).unwrap();
-    let context = AcquisitionContext::new(session_id, Box::new(writer), Box::new(events));
+    let context = AcquisitionContext::new(session_id, Box::new(writer), Box::new(events))
+        .with_work_executor(Arc::new(BenchmarkWorkExecutor));
     let mut acquisition = provider.prepare(context).unwrap();
 
     let started = Instant::now();

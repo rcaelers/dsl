@@ -1294,7 +1294,7 @@ fn run_capture_worker(
         source_title,
         feature.sample_rate_hz(),
         feature.channel_names().to_vec(),
-        work_executor,
+        Arc::clone(&work_executor),
     )
     .map_err(|error| error.to_string())?;
     let mut waveform_published = false;
@@ -1308,7 +1308,8 @@ fn run_capture_worker(
         last_health_at: Instant::now(),
         last_health_bytes: 0,
     };
-    let context = AcquisitionContext::new(session_id, Box::new(writer), Box::new(events));
+    let context = AcquisitionContext::new(session_id, Box::new(writer), Box::new(events))
+        .with_work_executor(Arc::clone(&work_executor));
     let mut acquisition = feature
         .prepare(context, mode)
         .map_err(|error| error.to_string())?;

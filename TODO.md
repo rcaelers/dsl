@@ -85,8 +85,6 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.execution.live-device-workers] Move U3Pro16 acquisition worker ownership with the USB host
-  adapter. Preserve capture lifecycle and backpressure while making unavailable devices and transports explicit.
 - [platform.data-plane.execution.web-workers] Add an optional Web Worker adapter with serializable work messages,
   cancellation, bounded queues, ordered completion, and explicit unavailable-capability behavior.
 - [platform.data-plane.adapter-acquisition-export] Move host capture acquisition, file and browser-handle adapters,

@@ -9,6 +9,7 @@ use super::implementation::{
     CaptureSessionState, CaptureStatus, CaptureWriteError,
 };
 use crate::capture_policy::{CaptureSessionPlan, CaptureStartMode};
+use crate::{InlineWorkExecutor, WorkExecutor};
 
 pub type AcquisitionResult<T> = Result<T, AcquisitionError>;
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -66,6 +67,7 @@ pub struct AcquisitionContext {
     session_id: CaptureSessionId,
     writer: Box<dyn CaptureChunkWriter>,
     events: Box<dyn CaptureEventPublisher>,
+    work_executor: std::sync::Arc<dyn WorkExecutor>,
 }
 
 impl AcquisitionContext {
@@ -78,7 +80,19 @@ impl AcquisitionContext {
             session_id,
             writer,
             events,
+            work_executor: std::sync::Arc::new(InlineWorkExecutor),
         }
+    }
+
+    /// Selects the host executor used by a prepared acquisition.
+    pub fn with_work_executor(mut self, work_executor: std::sync::Arc<dyn WorkExecutor>) -> Self {
+        self.work_executor = work_executor;
+        self
+    }
+
+    /// Returns the host executor selected for this acquisition session.
+    pub fn work_executor(&self) -> std::sync::Arc<dyn WorkExecutor> {
+        std::sync::Arc::clone(&self.work_executor)
     }
 
     pub const fn session_id(&self) -> CaptureSessionId {

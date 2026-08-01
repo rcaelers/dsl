@@ -442,6 +442,10 @@ the application pump. A future Web Worker adapter in `logic_analyzer_platform` u
 serializable work messages and returns owned result chunks. It does not attempt to send Rust
 closures, trait objects, mmap handles, or borrowed slices between workers.
 
+`AcquisitionContext` carries the selected executor into concrete live providers. Buffered and
+streaming device captures therefore retain their portable lifecycle, cancellation, and backpressure
+behavior while the host controls how their long-running acquisition task executes.
+
 The reusable core worker pool is absent. The execution contract separates bounded finite work from
 long-running runtime supervision and file-source delivery so blocked stream endpoints cannot starve
 indexing. Host adapters select their implementation by platform composition rather than target

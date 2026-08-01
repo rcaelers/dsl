@@ -2,13 +2,14 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::JoinHandle;
+
+use crossbeam_channel::Receiver;
 
 use signal_processing::logic_analyzer::{LogicAnalyzer, LogicCaptureConfig};
 use signal_processing::{
     AcquisitionContext, AcquisitionError, AcquisitionOutcome, AcquisitionResult,
     CaptureAcquisitionPhase, CaptureChannelId, CaptureChunk, CaptureCompletion, CaptureProgress,
-    CaptureSessionId, CaptureSessionState, PreparedAcquisition,
+    CaptureSessionId, CaptureSessionState, PreparedAcquisition, WorkExecutor, WorkTask,
 };
 
 use super::common::{CanonicalTransferAssembler, map_analyzer_error};
@@ -70,6 +71,7 @@ impl<T: UsbTransport> StreamingProvider<T> {
             CaptureSessionState::Prepared,
             CaptureAcquisitionPhase::Ready,
         )?;
+        let work_executor = context.work_executor();
         Ok(Box::new(PreparedStreamingAcquisition {
             session_id: context.session_id(),
             context: Some(context),
@@ -78,7 +80,9 @@ impl<T: UsbTransport> StreamingProvider<T> {
             channels: self.channels,
             plan,
             stop_requested: Arc::new(AtomicBool::new(false)),
-            handle: None,
+            task: None,
+            result: None,
+            work_executor,
             started: false,
         }))
     }
@@ -92,7 +96,9 @@ struct PreparedStreamingAcquisition<T: UsbTransport> {
     channels: Arc<[CaptureChannelId]>,
     plan: DsLogicCapturePlan,
     stop_requested: Arc<AtomicBool>,
-    handle: Option<JoinHandle<AcquisitionResult<AcquisitionOutcome>>>,
+    task: Option<Box<dyn WorkTask>>,
+    result: Option<Receiver<AcquisitionResult<AcquisitionOutcome>>>,
+    work_executor: Arc<dyn WorkExecutor>,
     started: bool,
 }
 
@@ -237,9 +243,11 @@ impl<T: UsbTransport> PreparedStreamingAcquisition<T> {
     }
 
     fn join_worker(&mut self) -> AcquisitionResult<AcquisitionOutcome> {
-        let handle = self.handle.take().ok_or(AcquisitionError::NotStarted)?;
-        handle
-            .join()
+        let task = self.task.take().ok_or(AcquisitionError::NotStarted)?;
+        let result = self.result.take().ok_or(AcquisitionError::NotStarted)?;
+        task.wait();
+        result
+            .recv()
             .map_err(|_| AcquisitionError::WorkerPanicked)?
     }
 }
@@ -265,12 +273,22 @@ impl<T: UsbTransport> PreparedAcquisition for PreparedStreamingAcquisition<T> {
         let channels = Arc::clone(&self.channels);
         let plan = self.plan;
         let stop_requested = Arc::clone(&self.stop_requested);
-        self.handle = Some(
-            std::thread::Builder::new()
-                .name("u3pro16-streaming-capture".into())
-                .spawn(move || Self::run(context, analyzer, config, channels, plan, stop_requested))
-                .map_err(|error| AcquisitionError::WorkerStart(error.to_string()))?,
-        );
+        let (result_sender, result) = crossbeam_channel::bounded(1);
+        let task = self
+            .work_executor
+            .submit_long_running(Box::new(move || {
+                let _ = result_sender.send(Self::run(
+                    context,
+                    analyzer,
+                    config,
+                    channels,
+                    plan,
+                    stop_requested,
+                ));
+            }))
+            .map_err(AcquisitionError::WorkerStart)?;
+        self.task = Some(task);
+        self.result = Some(result);
         self.started = true;
         Ok(())
     }
@@ -281,7 +299,7 @@ impl<T: UsbTransport> PreparedAcquisition for PreparedStreamingAcquisition<T> {
     }
 
     fn is_finished(&self) -> bool {
-        self.handle.as_ref().is_some_and(JoinHandle::is_finished)
+        self.task.as_ref().is_some_and(|task| task.is_finished())
     }
 
     fn join(mut self: Box<Self>) -> AcquisitionResult<AcquisitionOutcome> {
@@ -292,8 +310,8 @@ impl<T: UsbTransport> PreparedAcquisition for PreparedStreamingAcquisition<T> {
 impl<T: UsbTransport> Drop for PreparedStreamingAcquisition<T> {
     fn drop(&mut self) {
         self.stop_requested.store(true, Ordering::Relaxed);
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
+        if let Some(task) = self.task.take() {
+            task.wait();
         }
     }
 }
