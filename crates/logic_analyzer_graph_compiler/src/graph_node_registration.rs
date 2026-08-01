@@ -3,11 +3,20 @@
 use std::collections::HashMap;
 
 use logic_analyzer_graph_api::node::{
-    GraphNodeRegistration, RuntimeBuilder, graph_node_registrations,
+    GraphNodeRegistration, RuntimeBuilder, RuntimeBuilderOverride, graph_node_registrations,
 };
 
-pub(crate) fn standard_graph_node_builders() -> HashMap<String, Box<dyn RuntimeBuilder>> {
+pub(crate) fn standard_graph_node_builders(
+    overrides: Vec<RuntimeBuilderOverride>,
+) -> HashMap<String, Box<dyn RuntimeBuilder>> {
     let mut builders: HashMap<String, Box<dyn RuntimeBuilder>> = HashMap::new();
+    let mut overrides = overrides
+        .into_iter()
+        .map(|override_builder| {
+            let stable_id = override_builder.stable_id().to_owned();
+            (stable_id, override_builder.into_builder())
+        })
+        .collect::<HashMap<_, _>>();
     builders.insert(
         super::DATA_COLLECTOR_BUILDER.into(),
         Box::new(super::DataCollectorBuilder::retained_data()),
@@ -18,7 +27,10 @@ pub(crate) fn standard_graph_node_builders() -> HashMap<String, Box<dyn RuntimeB
     );
     for registration in graph_node_registrations() {
         registration.apply_runtime_setup();
-        let Some(builder) = registration.builder() else {
+        let builder = overrides
+            .remove(registration.stable_id())
+            .or_else(|| registration.builder());
+        let Some(builder) = builder else {
             continue;
         };
         assert!(
@@ -29,6 +41,11 @@ pub(crate) fn standard_graph_node_builders() -> HashMap<String, Box<dyn RuntimeB
             registration.name()
         );
     }
+    assert!(
+        overrides.is_empty(),
+        "host runtime-builder override targets unregistered node(s): {}",
+        overrides.keys().cloned().collect::<Vec<_>>().join(", ")
+    );
     builders
 }
 

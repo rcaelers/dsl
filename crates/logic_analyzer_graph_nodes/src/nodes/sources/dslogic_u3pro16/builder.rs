@@ -10,7 +10,7 @@ use logic_analyzer_graph_api::node_support::{
     TriggerConfigurationFeature, parse_state,
 };
 use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::{
-    DsLogicU3Pro16SourceFactory, source_factory,
+    DsLogicU3Pro16SourceFactory, unavailable_source_factory,
 };
 use logic_analyzer_processing::{CaptureSourceMetadata, ProcessNodeConstruction};
 use node_graph::api::Socket;
@@ -25,13 +25,12 @@ pub(crate) struct DsLogicU3Pro16Builder {
 impl Default for DsLogicU3Pro16Builder {
     fn default() -> Self {
         Self {
-            source_factory: source_factory(),
+            source_factory: unavailable_source_factory(),
         }
     }
 }
 
 impl DsLogicU3Pro16Builder {
-    #[cfg(test)]
     pub(crate) fn with_source_factory(
         source_factory: Arc<dyn DsLogicU3Pro16SourceFactory>,
     ) -> Self {
@@ -48,6 +47,15 @@ impl DsLogicU3Pro16Builder {
     fn metadata(&self, state: &Value) -> Result<Arc<dyn CaptureSourceMetadata>, String> {
         Ok(self.source_factory.metadata(Self::config(state)?))
     }
+}
+
+pub(crate) fn runtime_builder_override(
+    source_factory: Arc<dyn DsLogicU3Pro16SourceFactory>,
+) -> logic_analyzer_graph_api::node::RuntimeBuilderOverride {
+    logic_analyzer_graph_api::node::RuntimeBuilderOverride::new(
+        "org.logicconduit.graph-node.sources.dslogic-u3pro16/v1",
+        Box::new(DsLogicU3Pro16Builder::with_source_factory(source_factory)),
+    )
 }
 
 impl RuntimeBuilder for DsLogicU3Pro16Builder {
@@ -303,6 +311,32 @@ mod builder_tests {
         assert_eq!(name, "Test U3Pro16");
         assert!(config.sample_rate_hz > 0);
         assert_ne!(config.input_mask, 0);
+    }
+
+    #[test]
+    fn parity_factory_preserves_enabled_channel_presentation() {
+        let builder = platform_parity_builder();
+        let state = serde_json::to_value(U3Pro16State::default()).unwrap();
+
+        let presentation = builder.capture_presentation(&state).unwrap();
+        let Some(CapturePresentation::Channels(channels)) = presentation else {
+            panic!("expected channel presentation");
+        };
+        assert_eq!(channels.len(), 16);
+    }
+
+    #[test]
+    fn registered_parity_factory_preserves_enabled_channel_presentation() {
+        let builder = crate::nodes::test_support::platform_parity_builder(
+            "org.logicconduit.graph-node.sources.dslogic-u3pro16/v1",
+        );
+        let state = serde_json::to_value(U3Pro16State::default()).unwrap();
+
+        let presentation = builder.capture_presentation(&state).unwrap();
+        assert!(matches!(
+            presentation,
+            Some(CapturePresentation::Channels(_))
+        ));
     }
 
     #[test]

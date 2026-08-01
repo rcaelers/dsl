@@ -13,22 +13,13 @@ use signal_processing::{
 };
 
 use super::common::{CanonicalTransferAssembler, map_analyzer_error};
-use super::implementation::{DsLogicCapturePlan, DsLogicU3Pro16, RusbTransport, UsbTransport};
+use super::implementation::{DsLogicCapturePlan, DsLogicU3Pro16};
+use super::transport::UsbTransport;
 
-pub(crate) struct BufferedProvider<T: UsbTransport = RusbTransport> {
+pub(crate) struct BufferedProvider<T: UsbTransport> {
     analyzer: DsLogicU3Pro16<T>,
     config: LogicCaptureConfig,
     channels: Arc<[CaptureChannelId]>,
-}
-
-impl BufferedProvider<RusbTransport> {
-    pub(crate) fn open_first(
-        config: LogicCaptureConfig,
-        channels: impl Into<Arc<[CaptureChannelId]>>,
-    ) -> AcquisitionResult<Self> {
-        let analyzer = DsLogicU3Pro16::open_first().map_err(map_analyzer_error)?;
-        Self::new(analyzer, config, channels)
-    }
 }
 
 impl<T: UsbTransport> BufferedProvider<T> {

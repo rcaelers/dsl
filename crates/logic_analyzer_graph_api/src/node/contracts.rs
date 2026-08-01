@@ -21,6 +21,32 @@ pub trait CaptureGraphSourceFactory: Send + Sync {
     fn create(&self, cursor: Box<dyn CaptureStoreCursor>) -> Result<Box<dyn ProcessNode>, String>;
 }
 
+/// Host-selected replacement for one inventory-provided runtime builder.
+///
+/// The stable node identifier keeps host composition independent of graph-node
+/// display names and concrete builder types.
+pub struct RuntimeBuilderOverride {
+    stable_id: String,
+    builder: Box<dyn RuntimeBuilder>,
+}
+
+impl RuntimeBuilderOverride {
+    pub fn new(stable_id: impl Into<String>, builder: Box<dyn RuntimeBuilder>) -> Self {
+        Self {
+            stable_id: stable_id.into(),
+            builder,
+        }
+    }
+
+    pub fn stable_id(&self) -> &str {
+        &self.stable_id
+    }
+
+    pub fn into_builder(self) -> Box<dyn RuntimeBuilder> {
+        self.builder
+    }
+}
+
 pub trait LiveCaptureFeature: Send {
     fn channels(&self) -> &[CaptureChannelId];
     fn channel_names(&self) -> &[String];

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
+use logic_analyzer_graph_api::node::RuntimeBuilderOverride;
 use logic_analyzer_graph_api::node_support::{
     LiveCaptureEdit, TimelineMarkerEdit, TimelineMarkerReferenceBindingEdit,
 };
@@ -65,8 +66,23 @@ impl GraphCompiler {
         runtime_factory: Arc<dyn AppManagerFactory>,
         work_executor: Arc<dyn WorkExecutor>,
     ) -> Self {
+        Self::with_execution_and_builder_overrides(
+            source_preparation_executor,
+            runtime_factory,
+            work_executor,
+            Vec::new(),
+        )
+    }
+
+    /// Constructs a compiler with host-selected execution and node factories.
+    pub fn with_execution_and_builder_overrides(
+        source_preparation_executor: Box<dyn SourcePreparationExecutor>,
+        runtime_factory: Arc<dyn AppManagerFactory>,
+        work_executor: Arc<dyn WorkExecutor>,
+        builder_overrides: Vec<RuntimeBuilderOverride>,
+    ) -> Self {
         Self {
-            builders: BuilderRegistry::standard(),
+            builders: BuilderRegistry::standard_with_overrides(builder_overrides),
             output_subscriptions: OutputSubscriptionPlan::new(),
             source_preparation: SourcePreparation::with_execution(
                 source_preparation_executor,

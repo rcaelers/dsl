@@ -19,7 +19,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use logic_analyzer_graph_api::node::{
-    CaptureGraphSourceFactory, LiveCaptureFeature, RuntimeBuilder,
+    CaptureGraphSourceFactory, LiveCaptureFeature, RuntimeBuilder, RuntimeBuilderOverride,
 };
 use logic_analyzer_graph_api::node_support::{
     CaptureCacheIdentity, CapturePresentation, DefaultLanePresentationDescriptor, LiveCaptureEdit,
@@ -378,7 +378,11 @@ pub(crate) type PayloadRequestConfigurator = Arc<
 
 impl BuilderRegistry {
     pub(crate) fn standard() -> Self {
-        let registry = Self::with_builders(super::standard_graph_node_builders());
+        Self::standard_with_overrides(Vec::new())
+    }
+
+    pub(crate) fn standard_with_overrides(overrides: Vec<RuntimeBuilderOverride>) -> Self {
+        let registry = Self::with_builders(super::standard_graph_node_builders(overrides));
         super::validate_graph_node_payload_requirements(&registry.payloads);
         registry
     }

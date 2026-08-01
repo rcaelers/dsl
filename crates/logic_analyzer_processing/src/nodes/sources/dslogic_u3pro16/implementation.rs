@@ -1,16 +1,12 @@
 //! DSLogic U3Pro16 USB processing-node driver.
 //!
 //! The wire protocol is kept here, below the generic `LogicAnalyzer` boundary.
-//! `RusbTransport` is deliberately small so a libsigrok-backed transport can be
-//! added without changing capture packet construction or graph integration.
+//! The host supplies USB transport through the U3Pro16 transport contract, so
+//! packet construction and capture behavior remain portable.
 
-use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
-
-use rusb::{Context, DeviceHandle, UsbContext};
 
 use signal_processing::TriggerCountMode;
 use signal_processing::logic_analyzer::{
@@ -19,8 +15,8 @@ use signal_processing::logic_analyzer::{
     LogicEncodingRequest, LogicTrigger, LogicTriggerStage, TriggerCondition, TriggerLogic,
 };
 
-const VID: u16 = 0x2a0e;
-const PID: u16 = 0x002a;
+use super::transport::{LinkSpeed, UsbError, UsbTransport};
+
 const BULK_OUT: u8 = 0x02;
 const BULK_IN: u8 = 0x86;
 const CONTROL_TIMEOUT: Duration = Duration::from_millis(3_000);
@@ -38,8 +34,6 @@ const STREAMING_TRANSFER_MILLISECONDS: u64 = 4;
 const FPGA_DIVIDER_CLOCK_HZ: u64 = 500_000_000;
 const FPGA_PRE_DIVIDER: u64 = 5;
 const ADC_CONTROL_ADDRESS: u16 = 0x48;
-const RUNTIME_MANUFACTURER: &str = "DreamSourceLab";
-const RUNTIME_PRODUCT: &str = "USB-based DSL Instrument v2";
 const RATES: &[u64] = &[
     10,
     20,
@@ -72,12 +66,6 @@ const RATES: &[u64] = &[
     500_000_000,
     1_000_000_000,
 ];
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LinkSpeed {
-    High,
-    Super,
-}
 
 /// Generic user-facing capture settings for this device.
 #[derive(Debug, Clone)]
@@ -161,364 +149,6 @@ fn settings_from_config(
     Ok(settings)
 }
 
-/// Failure reported by a [`UsbTransport`] operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum UsbError {
-    /// The operation did not complete before its deadline.
-    Timeout,
-    /// The transport failed for a reason other than a timeout.
-    Other,
-}
-
-/// USB operations required by the U3Pro16 protocol.
-///
-/// Implementations must preserve call order. The queued-read methods may use an
-/// asynchronous backend; transports without that capability can retain the
-/// default synchronous fallback.
-pub(crate) trait UsbTransport: Send + 'static {
-    /// Returns the negotiated USB link speed.
-    fn link_speed(&self) -> LinkSpeed;
-    /// Performs one USB control write.
-    fn control_write(
-        &mut self,
-        request_type: u8,
-        request: u8,
-        value: u16,
-        index: u16,
-        data: &[u8],
-        timeout: Duration,
-    ) -> Result<usize, UsbError>;
-    /// Performs one USB control read.
-    fn control_read(
-        &mut self,
-        request_type: u8,
-        request: u8,
-        value: u16,
-        index: u16,
-        data: &mut [u8],
-        timeout: Duration,
-    ) -> Result<usize, UsbError>;
-    /// Writes one bulk transfer.
-    fn bulk_write(
-        &mut self,
-        endpoint: u8,
-        data: &[u8],
-        timeout: Duration,
-    ) -> Result<usize, UsbError>;
-    /// Reads one bulk transfer.
-    fn bulk_read(
-        &mut self,
-        endpoint: u8,
-        data: &mut [u8],
-        timeout: Duration,
-    ) -> Result<usize, UsbError>;
-    /// Queues one bulk receive before a device command that produces its
-    /// response. Implementations without asynchronous USB support return
-    /// `Ok(false)` and callers fall back to a synchronous receive.
-    fn queue_bulk_read(
-        &mut self,
-        _endpoint: u8,
-        _byte_len: usize,
-        _timeout: Duration,
-    ) -> Result<bool, UsbError> {
-        Ok(false)
-    }
-    /// Takes the queued receive, waiting up to `timeout` for completion.
-    /// `Ok(None)` means no receive was queued.
-    fn take_queued_bulk_read(
-        &mut self,
-        _byte_len: usize,
-        _timeout: Duration,
-    ) -> Result<Option<Vec<u8>>, UsbError> {
-        Ok(None)
-    }
-    /// Cancels an outstanding queued bulk read, if present.
-    fn cancel_queued_bulk_read(&mut self) -> Result<(), UsbError> {
-        Ok(())
-    }
-    /// Releases transport resources. Implementations must allow repeated calls.
-    fn close(&mut self) -> Result<(), UsbError> {
-        Ok(())
-    }
-}
-
-/// Production `rusb` transport. It claims interface 0 during discovery.
-pub(crate) struct RusbTransport {
-    context: Context,
-    handle: DeviceHandle<Context>,
-    speed: LinkSpeed,
-    claimed: bool,
-    queued_bulk_reads: VecDeque<QueuedBulkRead>,
-}
-
-struct QueuedBulkRead {
-    transfer: *mut rusb::ffi::libusb_transfer,
-    buffer: Box<[u8]>,
-    complete: Box<AtomicBool>,
-}
-
-// The transfer, its buffer, and completion flag are all owned by one
-// `RusbTransport` and accessed serially by the capture worker.
-unsafe impl Send for QueuedBulkRead {}
-
-extern "system" fn mark_bulk_read_complete(transfer: *mut rusb::ffi::libusb_transfer) {
-    // SAFETY: `user_data` points to `QueuedBulkRead::complete`, which remains
-    // allocated until this completed transfer is freed.
-    unsafe {
-        let complete = (*transfer).user_data.cast::<AtomicBool>();
-        (*complete).store(true, Ordering::Release);
-    }
-}
-
-impl RusbTransport {
-    fn open_first() -> LogicAnalyzerResult<Self> {
-        let context = Context::new().map_err(rusb_error)?;
-        let devices = context.devices().map_err(rusb_error)?;
-        for device in devices.iter() {
-            let descriptor = device.device_descriptor().map_err(rusb_error)?;
-            if descriptor.vendor_id() != VID || descriptor.product_id() != PID {
-                continue;
-            }
-            let speed = match device.speed() {
-                rusb::Speed::High => LinkSpeed::High,
-                rusb::Speed::Super => LinkSpeed::Super,
-                _ => continue,
-            };
-            let handle = device.open().map_err(rusb_error)?;
-            let manufacturer = handle
-                .read_manufacturer_string_ascii(&descriptor)
-                .map_err(rusb_error)?;
-            let product = handle
-                .read_product_string_ascii(&descriptor)
-                .map_err(rusb_error)?;
-            if !manufacturer.starts_with(RUNTIME_MANUFACTURER)
-                || !product.starts_with(RUNTIME_PRODUCT)
-            {
-                continue;
-            }
-            if handle.active_configuration().map_err(rusb_error)? != 1 {
-                handle.set_active_configuration(1).map_err(rusb_error)?;
-            }
-            if handle.kernel_driver_active(0).unwrap_or(false) {
-                let _ = handle.detach_kernel_driver(0);
-            }
-            handle.claim_interface(0).map_err(rusb_error)?;
-            return Ok(Self {
-                context,
-                handle,
-                speed,
-                claimed: true,
-                queued_bulk_reads: VecDeque::new(),
-            });
-        }
-        Err(LogicAnalyzerError::Transport(
-            "no accessible DSLogic U3Pro16 runtime device found".into(),
-        ))
-    }
-}
-
-impl UsbTransport for RusbTransport {
-    fn link_speed(&self) -> LinkSpeed {
-        self.speed
-    }
-    fn control_write(
-        &mut self,
-        ty: u8,
-        req: u8,
-        value: u16,
-        index: u16,
-        data: &[u8],
-        timeout: Duration,
-    ) -> Result<usize, UsbError> {
-        self.handle
-            .write_control(ty, req, value, index, data, timeout)
-            .map_err(map_usb_error)
-    }
-    fn control_read(
-        &mut self,
-        ty: u8,
-        req: u8,
-        value: u16,
-        index: u16,
-        data: &mut [u8],
-        timeout: Duration,
-    ) -> Result<usize, UsbError> {
-        self.handle
-            .read_control(ty, req, value, index, data, timeout)
-            .map_err(map_usb_error)
-    }
-    fn bulk_write(
-        &mut self,
-        endpoint: u8,
-        data: &[u8],
-        timeout: Duration,
-    ) -> Result<usize, UsbError> {
-        self.handle
-            .write_bulk(endpoint, data, timeout)
-            .map_err(map_usb_error)
-    }
-    fn bulk_read(
-        &mut self,
-        endpoint: u8,
-        data: &mut [u8],
-        timeout: Duration,
-    ) -> Result<usize, UsbError> {
-        self.handle
-            .read_bulk(endpoint, data, timeout)
-            .map_err(map_usb_error)
-    }
-    fn queue_bulk_read(
-        &mut self,
-        endpoint: u8,
-        byte_len: usize,
-        _timeout: Duration,
-    ) -> Result<bool, UsbError> {
-        if self.queued_bulk_reads.len() == 8 {
-            return Err(UsbError::Other);
-        }
-        let mut buffer = vec![0; byte_len].into_boxed_slice();
-        let complete = Box::new(AtomicBool::new(false));
-        // SAFETY: the transfer is initialized below and all referenced memory
-        // stays owned by `QueuedBulkRead` until the transfer is completed and
-        // freed in `take_queued_bulk_read` or `cancel_queued_bulk_read`.
-        let transfer = unsafe { rusb::ffi::libusb_alloc_transfer(0) };
-        if transfer.is_null() {
-            return Err(UsbError::Other);
-        }
-        unsafe {
-            rusb::ffi::libusb_fill_bulk_transfer(
-                transfer,
-                self.handle.as_raw(),
-                endpoint,
-                buffer.as_mut_ptr(),
-                i32::try_from(byte_len).map_err(|_| UsbError::Other)?,
-                mark_bulk_read_complete,
-                (&raw const *complete).cast_mut().cast(),
-                // The header may not arrive until a trigger occurs. Keep the
-                // submitted USB request alive and let `take_queued_bulk_read`
-                // perform bounded completion polls instead.
-                0,
-            );
-            if rusb::ffi::libusb_submit_transfer(transfer) != 0 {
-                rusb::ffi::libusb_free_transfer(transfer);
-                return Err(UsbError::Other);
-            }
-        }
-        self.queued_bulk_reads.push_back(QueuedBulkRead {
-            transfer,
-            buffer,
-            complete,
-        });
-        tracing::debug!(endpoint, byte_len, "queued U3Pro16 bulk receive");
-        Ok(true)
-    }
-    fn take_queued_bulk_read(
-        &mut self,
-        byte_len: usize,
-        timeout: Duration,
-    ) -> Result<Option<Vec<u8>>, UsbError> {
-        if !self
-            .queued_bulk_reads
-            .iter()
-            .any(|queued| queued.buffer.len() == byte_len)
-        {
-            tracing::debug!("no queued U3Pro16 bulk receive was available");
-            return Ok(None);
-        }
-        let deadline = Instant::now() + timeout;
-        let queued_index = loop {
-            if let Some(index) = self.queued_bulk_reads.iter().position(|queued| {
-                queued.buffer.len() == byte_len && queued.complete.load(Ordering::Acquire)
-            }) {
-                break index;
-            }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return Err(UsbError::Timeout);
-            }
-            self.context
-                .handle_events(Some(remaining))
-                .map_err(map_usb_error)?;
-        };
-        let queued = self
-            .queued_bulk_reads
-            .remove(queued_index)
-            .expect("queued read exists");
-        // SAFETY: completion was observed, so libusb no longer accesses the
-        // transfer or its buffer.
-        let (status, actual_length) =
-            unsafe { ((*queued.transfer).status, (*queued.transfer).actual_length) };
-        unsafe { rusb::ffi::libusb_free_transfer(queued.transfer) };
-        if status != rusb::constants::LIBUSB_TRANSFER_COMPLETED || actual_length < 0 {
-            return Err(if status == rusb::constants::LIBUSB_TRANSFER_TIMED_OUT {
-                UsbError::Timeout
-            } else {
-                UsbError::Other
-            });
-        }
-        let actual_length = usize::try_from(actual_length).map_err(|_| UsbError::Other)?;
-        if actual_length > queued.buffer.len() {
-            return Err(UsbError::Other);
-        }
-        let mut buffer = queued.buffer.into_vec();
-        buffer.truncate(actual_length);
-        Ok(Some(buffer))
-    }
-    fn cancel_queued_bulk_read(&mut self) -> Result<(), UsbError> {
-        while let Some(queued) = self.queued_bulk_reads.pop_front() {
-            if !queued.complete.load(Ordering::Acquire) {
-                // SAFETY: this is the only owner of the active transfer.
-                if unsafe { rusb::ffi::libusb_cancel_transfer(queued.transfer) } != 0 {
-                    // libusb may still access `queued`, so it must outlive this
-                    // transport after a failed cancellation.
-                    std::mem::forget(queued);
-                    return Err(UsbError::Other);
-                }
-                let deadline = Instant::now() + BULK_TIMEOUT;
-                while !queued.complete.load(Ordering::Acquire) {
-                    let remaining = deadline.saturating_duration_since(Instant::now());
-                    if remaining.is_zero() {
-                        // The transfer is still owned by libusb. Leaking its small
-                        // allocation is safer than freeing memory libusb may use.
-                        std::mem::forget(queued);
-                        return Err(UsbError::Timeout);
-                    }
-                    if self.context.handle_events(Some(remaining)).is_err() {
-                        std::mem::forget(queued);
-                        return Err(UsbError::Other);
-                    }
-                }
-            }
-            unsafe { rusb::ffi::libusb_free_transfer(queued.transfer) };
-        }
-        Ok(())
-    }
-    fn close(&mut self) -> Result<(), UsbError> {
-        self.cancel_queued_bulk_read()?;
-        if self.claimed {
-            self.handle.release_interface(0).map_err(map_usb_error)?;
-            self.claimed = false;
-        }
-        Ok(())
-    }
-}
-
-impl Drop for RusbTransport {
-    fn drop(&mut self) {
-        let _ = self.cancel_queued_bulk_read();
-    }
-}
-
-fn map_usb_error(error: rusb::Error) -> UsbError {
-    if error == rusb::Error::Timeout {
-        UsbError::Timeout
-    } else {
-        UsbError::Other
-    }
-}
-fn rusb_error(error: rusb::Error) -> LogicAnalyzerError {
-    LogicAnalyzerError::Transport(error.to_string())
-}
 fn usb<T>(result: Result<T, UsbError>, action: &str) -> LogicAnalyzerResult<T> {
     result.map_err(|e| match e {
         UsbError::Timeout => LogicAnalyzerError::Timeout(action.into()),
@@ -526,7 +156,7 @@ fn usb<T>(result: Result<T, UsbError>, action: &str) -> LogicAnalyzerResult<T> {
     })
 }
 
-pub(crate) struct DsLogicU3Pro16<T: UsbTransport = RusbTransport> {
+pub(crate) struct DsLogicU3Pro16<T: UsbTransport> {
     transport: T,
     info: LogicAnalyzerInfo,
     settings: DsLogicCaptureSettings,
@@ -611,12 +241,6 @@ impl DsLogicTriggerHeader {
     #[cfg(test)]
     pub(crate) const fn ram_start(self) -> u32 {
         self.ram_start
-    }
-}
-
-impl DsLogicU3Pro16<RusbTransport> {
-    pub(crate) fn open_first() -> LogicAnalyzerResult<Self> {
-        Self::new(RusbTransport::open_first()?)
     }
 }
 

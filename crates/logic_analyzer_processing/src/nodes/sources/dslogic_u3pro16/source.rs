@@ -6,16 +6,20 @@ use signal_processing::logic_analyzer::{
 use signal_processing::{InputPort, OutputPort, ProcessNode, WorkResult};
 
 use super::implementation::DsLogicU3Pro16;
+use super::transport::UsbTransport;
 
 /// A DSLogic U3Pro16 source node for a conventional processing pipeline.
 pub struct DsLogicU3Pro16Source {
-    inner: LogicAnalyzerSource<DsLogicU3Pro16>,
+    inner: LogicAnalyzerSource<DsLogicU3Pro16<Box<dyn UsbTransport>>>,
 }
 
 impl DsLogicU3Pro16Source {
-    /// Opens the first U3Pro16 and configures its pipeline source settings.
-    pub fn open_first(config: LogicCaptureConfig) -> LogicAnalyzerResult<Self> {
-        DsLogicU3Pro16::open_first()?
+    /// Configures a host-opened U3Pro16 transport as a pipeline source.
+    pub fn from_transport(
+        config: LogicCaptureConfig,
+        transport: Box<dyn UsbTransport>,
+    ) -> LogicAnalyzerResult<Self> {
+        DsLogicU3Pro16::new(transport)?
             .into_source(config)
             .map(|inner| Self { inner })
     }

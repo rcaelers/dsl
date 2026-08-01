@@ -486,29 +486,17 @@ work.
 
 ### USB transport
 
-USB discovery and permission are separate from the device protocol:
+The U3Pro16 device protocol owns a `UsbTransport` capability contract for control transfers, bulk
+transfers, optional queued bulk reads, cancellation, close, and negotiated link speed. Its
+`DsLogicU3Pro16TransportFactory` opens an opaque transport for the device protocol. The native
+adapter in `logic_analyzer_platform` owns discovery, runtime-device validation, interface claiming,
+the `rusb` dependency, and asynchronous libusb receive requests. The protocol, firmware upload,
+FPGA configuration, acquisition planning, and packet state machines remain in
+`logic_analyzer_processing` and depend only on the contract.
 
-```rust
-trait UsbDeviceProvider {
-    fn capabilities(&self) -> UsbProviderCapabilities;
-    fn request_device(&self, filter: UsbDeviceFilter) -> UsbRequest;
-    fn known_devices(&self) -> UsbDeviceListRequest;
-}
-
-trait UsbTransport {
-    fn control_transfer(&mut self, request: ControlTransfer) -> UsbTransfer;
-    fn bulk_in(&mut self, endpoint: u8, destination: TransferBuffer) -> UsbTransfer;
-    fn bulk_out(&mut self, endpoint: u8, source: TransferBuffer) -> UsbTransfer;
-    fn claim_interface(&mut self, interface: u8) -> UsbOperation;
-    fn close(&mut self) -> UsbOperation;
-}
-```
-
-The request and transfer results are asynchronous platform-neutral operations. The native adapter
-in `logic_analyzer_platform` wraps the existing USB backend. A future WebUSB adapter in the same
-crate wraps browser promises and permission state. The concrete U3Pro16 command, firmware, FPGA,
-acquisition, and packet state machines remain in `logic_analyzer_processing` and depend on the
-transport rather than the native USB library.
+A future WebUSB adapter implements this same contract in `logic_analyzer_platform` and translates
+browser permission and promise state into explicit capability and transport errors. A host without
+such an adapter injects the unavailable U3Pro16 source factory rather than a synthetic live source.
 
 WebUSB is an optional lower-priority adapter because browser support is not universal and device
 interface access must be verified with the real hardware. Its absence does not produce a synthetic
@@ -538,9 +526,9 @@ bounded blocks and a repository rather than preloading one contiguous buffer.
   target selector or host dependency.
 - `logic_analyzer_processing` owns concrete capture parsers, processing nodes, sinks, the U3Pro16
   device protocol, and portable format behavior. Parsers consume prepared byte sources; the
-  U3Pro16 protocol consumes a USB transport. A complete leaf file-I/O or USB adapter may remain
-  here temporarily only when it is explicitly allowlisted and separating it would move concrete
-  format or device behavior into the platform crate. Node state, factories, and protocol logic are
+  U3Pro16 protocol consumes its injected USB transport contract. A complete file-I/O adapter leaf
+  may remain here temporarily only when it is explicitly allowlisted and separating it would move
+  concrete format behavior into the platform crate. Node state, factories, and protocol logic are
   not target-selected.
 - `logic_analyzer_graph_nodes` owns concrete node state and builders. It passes platform-neutral
   source, destination, and device requests to processing facades and compiles the same node catalog

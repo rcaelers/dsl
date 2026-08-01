@@ -162,11 +162,7 @@ const EXPECTATIONS: &str = r###"
         "index": true
       },
       "native_presentation": {"kind": "channels", "count": 16},
-      "wasm_presentation": {
-        "kind": "in_memory",
-        "count": 16,
-        "excluded": []
-      },
+      "wasm_presentation": {"kind": "channels", "count": 16},
       "cache_identity": "not_capture"
     },
     {

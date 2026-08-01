@@ -1,5 +1,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
+#[cfg(all(feature = "developer-tools", not(target_arch = "wasm32")))]
+mod native_hardware_validation;
 #[cfg(target_arch = "wasm32")]
 mod web;
 
@@ -7,5 +9,7 @@ mod web;
 pub(crate) use native::standard_services;
 #[cfg(target_os = "macos")]
 pub use native::{dispatch_host_command, set_recent_files_listener};
+#[cfg(all(feature = "developer-tools", not(target_arch = "wasm32")))]
+pub use native_hardware_validation::{validate_capture_hardware, validate_fpga_hardware};
 #[cfg(target_arch = "wasm32")]
 pub(crate) use web::standard_services;

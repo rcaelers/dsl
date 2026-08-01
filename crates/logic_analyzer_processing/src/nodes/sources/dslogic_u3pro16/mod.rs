@@ -13,17 +13,17 @@ mod facade;
 mod hardware_validation;
 #[cfg(not(target_arch = "wasm32"))]
 mod implementation;
-mod platform;
 #[cfg(not(target_arch = "wasm32"))]
 mod source;
 #[cfg(not(target_arch = "wasm32"))]
 mod streaming;
+mod transport;
 
 #[cfg(all(feature = "developer-tools", not(target_arch = "wasm32")))]
 pub use benchmark::run_streaming_benchmark;
 #[cfg(not(target_arch = "wasm32"))]
 pub use capture::DsLogicU3Pro16Capture;
-pub use facade::{DsLogicU3Pro16SourceFactory, source_factory};
+pub use facade::{DsLogicU3Pro16SourceFactory, unavailable_source_factory};
 #[cfg(all(feature = "developer-tools", not(target_arch = "wasm32")))]
 pub use hardware_validation::{validate_capture_hardware, validate_fpga_hardware};
 pub use signal_processing::logic_analyzer::{
@@ -32,3 +32,4 @@ pub use signal_processing::logic_analyzer::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use source::DsLogicU3Pro16Source;
+pub use transport::{DsLogicU3Pro16TransportFactory, LinkSpeed, UsbError, UsbTransport};

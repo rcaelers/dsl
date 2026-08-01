@@ -92,9 +92,6 @@ Detailed architecture and capability contracts are documented in
   only their platform-neutral request and capability contracts.
 - [platform.data-plane.adapter-embedded-runtime] Move embedded interpreter and runtime-host setup into
   `logic_analyzer_platform` behind a portable execution contract, so concrete node behavior remains target-neutral.
-- [platform.data-plane.adapter-usb] Move asynchronous USB transport host adapters into
-  `logic_analyzer_platform`. Native USB remains the initial implementation; unavailable browser USB is an explicit
-  capability result until a WebUSB adapter is introduced.
 - [platform.data-plane.storage-contracts] Apply the established platform-neutral prepared-byte-source,
   immutable-byte-region, artifact-repository, reader/writer, capability, and error contracts to the existing
   derived and capture stores. Keep paths, mmap, filesystem operations, and browser handles in
@@ -140,13 +137,9 @@ Detailed architecture and capability contracts are documented in
   worker-owned OPFS artifact repository in `logic_analyzer_platform` with quota reporting, atomic-generation
   publication, eviction recovery, and site-data-loss semantics. Keep OPFS handles and promises in that adapter so
   durable browser caching does not alter store, compiler, or viewer contracts.
-- [platform.data-plane.usb-transport] After storage and execution convergence, separate USB discovery/permission from
-  control and bulk transport, and make the U3Pro16 protocol depend on the asynchronous transport contract rather than
-  the native USB library. Move the native adapter to `logic_analyzer_platform`; this contract enables but does not
-  require the lower-priority WebUSB feature.
 - [platform.data-plane.boundary-enforcement] Extend architecture checks to reject target conditionals,
   target-selected modules, `cfg!` target inspection, and target-specific dependencies in every reusable crate except
-  `logic_analyzer_platform` and explicitly allowlisted complete file-I/O or USB adapter leaves in
+  `logic_analyzer_platform` and explicitly allowlisted complete file-I/O adapter leaves in
   `logic_analyzer_processing`. Check that application crates remain bootstrap-only, portable node catalogs compile
   from one module tree, and synthetic sources or discard sinks are selected explicitly rather than by target.
 

@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use input_bindings::InputBindings;
+use logic_analyzer_graph_api::node::RuntimeBuilderOverride;
 use logic_analyzer_graph_compiler::SourcePreparationExecutor;
 use node_graph::FileDialogService;
 use signal_processing::{
@@ -9,7 +10,10 @@ use signal_processing::{
 };
 
 use crate::application_settings::{ApplicationSettings, default_input_bindings};
-use crate::graph_service::{GraphService, graph_service_with_execution, standard_graph_service};
+use crate::graph_service::{
+    GraphService, graph_service_with_execution, graph_service_with_execution_and_builder_overrides,
+    standard_graph_service,
+};
 use crate::host_service::{
     CacheClearStats, CacheEntrySnapshot, HostService, OpenDialog, SaveDialog,
 };
@@ -91,6 +95,24 @@ impl AppServices {
             source_preparation_executor,
             runtime_factory,
             Arc::clone(&work_executor),
+        );
+        self.work_executor = work_executor;
+        self
+    }
+
+    /// Replaces graph execution with host-selected adapters and node factories.
+    pub fn with_graph_execution_and_builder_overrides(
+        mut self,
+        source_preparation_executor: Box<dyn SourcePreparationExecutor>,
+        runtime_factory: std::sync::Arc<dyn AppManagerFactory>,
+        work_executor: Arc<dyn WorkExecutor>,
+        builder_overrides: Vec<RuntimeBuilderOverride>,
+    ) -> Self {
+        self.graph_service = graph_service_with_execution_and_builder_overrides(
+            source_preparation_executor,
+            runtime_factory,
+            Arc::clone(&work_executor),
+            builder_overrides,
         );
         self.work_executor = work_executor;
         self

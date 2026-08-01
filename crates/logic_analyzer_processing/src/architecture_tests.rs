@@ -71,12 +71,10 @@ fn cross_platform_capture_facades_expose_neutral_factories() {
 }
 
 #[test]
-fn source_platforms_own_presentation_and_runtime_capabilities() {
+fn source_factories_own_presentation_and_runtime_capabilities() {
     for implementation in [
         include_str!("nodes/sources/dsl_file/platform/native.rs"),
         include_str!("nodes/sources/dsl_file/platform/wasm.rs"),
-        include_str!("nodes/sources/dslogic_u3pro16/platform/native.rs"),
-        include_str!("nodes/sources/dslogic_u3pro16/platform/wasm.rs"),
         include_str!("nodes/sources/sigrok_file/platform/native.rs"),
         include_str!("nodes/sources/sigrok_file/platform/wasm.rs"),
     ] {
@@ -88,10 +86,9 @@ fn source_platforms_own_presentation_and_runtime_capabilities() {
 }
 
 #[test]
-fn platform_modules_select_complete_factory_implementations() {
+fn platform_modules_select_complete_file_factory_implementations() {
     for facade in [
         include_str!("nodes/sources/dsl_file/platform/mod.rs"),
-        include_str!("nodes/sources/dslogic_u3pro16/platform/mod.rs"),
         include_str!("nodes/sources/sigrok_file/platform/mod.rs"),
     ] {
         assert!(facade.contains("implementation::source_factory"));
@@ -105,6 +102,20 @@ fn platform_modules_select_complete_factory_implementations() {
         assert!(facade.contains("implementation::writer_factory"));
         assert!(!facade.contains("create_writer"));
     }
+}
+
+#[test]
+fn u3pro16_protocol_uses_an_injected_transport_contract() {
+    let source = include_str!("nodes/sources/dslogic_u3pro16/mod.rs");
+    let implementation = include_str!("nodes/sources/dslogic_u3pro16/implementation.rs");
+    let transport = include_str!("nodes/sources/dslogic_u3pro16/transport.rs");
+
+    assert!(source.contains("mod transport;"));
+    assert!(!source.contains("mod platform;"));
+    assert!(transport.contains("pub trait DsLogicU3Pro16TransportFactory"));
+    assert!(transport.contains("pub trait UsbTransport"));
+    assert!(!implementation.contains("RusbTransport"));
+    assert!(!implementation.contains("rusb::"));
 }
 
 fn assert_visible_modules_are_not_reexported(facade: &str) {

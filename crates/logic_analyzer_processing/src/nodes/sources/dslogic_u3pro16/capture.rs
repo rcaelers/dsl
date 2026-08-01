@@ -9,8 +9,9 @@ use signal_processing::{
 };
 
 use super::buffered::BufferedProvider;
-use super::implementation::{DsLogicCapturePlan, LinkSpeed};
+use super::implementation::DsLogicCapturePlan;
 use super::streaming::StreamingProvider;
+use super::transport::{DsLogicU3Pro16TransportFactory, LinkSpeed};
 
 #[derive(Clone, Copy)]
 enum CaptureProfile {
@@ -29,6 +30,7 @@ pub struct DsLogicU3Pro16Capture {
     channels: Arc<[CaptureChannelId]>,
     profile: CaptureProfile,
     capture_window_samples: u64,
+    transport_factory: Arc<dyn DsLogicU3Pro16TransportFactory>,
 }
 
 impl DsLogicU3Pro16Capture {
@@ -36,6 +38,7 @@ impl DsLogicU3Pro16Capture {
     pub fn new(
         config: LogicCaptureConfig,
         channels: impl Into<Arc<[CaptureChannelId]>>,
+        transport_factory: Arc<dyn DsLogicU3Pro16TransportFactory>,
     ) -> AcquisitionResult<Self> {
         let channels = channels.into();
         if channels.is_empty() || channels.len() != config.input_mask.count_ones() as usize {
@@ -66,6 +69,7 @@ impl DsLogicU3Pro16Capture {
             channels,
             profile,
             capture_window_samples,
+            transport_factory,
         })
     }
 
@@ -95,10 +99,22 @@ impl DsLogicU3Pro16Capture {
     ) -> AcquisitionResult<Box<dyn PreparedAcquisition>> {
         match self.profile {
             CaptureProfile::Buffered => {
-                BufferedProvider::open_first(self.config, self.channels)?.prepare(context)
+                let analyzer = super::implementation::DsLogicU3Pro16::new(
+                    self.transport_factory
+                        .open()
+                        .map_err(|error| AcquisitionError::Transport(error.to_string()))?,
+                )
+                .map_err(|error| AcquisitionError::Transport(error.to_string()))?;
+                BufferedProvider::new(analyzer, self.config, self.channels)?.prepare(context)
             }
             CaptureProfile::Streaming => {
-                StreamingProvider::open_first(self.config, self.channels)?.prepare(context)
+                let analyzer = super::implementation::DsLogicU3Pro16::new(
+                    self.transport_factory
+                        .open()
+                        .map_err(|error| AcquisitionError::Transport(error.to_string()))?,
+                )
+                .map_err(|error| AcquisitionError::Transport(error.to_string()))?;
+                StreamingProvider::new(analyzer, self.config, self.channels)?.prepare(context)
             }
         }
     }

@@ -1,6 +1,6 @@
 //! Concrete capture source graph nodes.
 
-mod dslogic_u3pro16;
+pub(crate) mod dslogic_u3pro16;
 mod file_source;
 mod metadata;
 mod sigrok_file_source;

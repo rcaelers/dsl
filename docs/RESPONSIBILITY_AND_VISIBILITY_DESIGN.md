@@ -230,12 +230,12 @@ sources, discard sinks, and cooperative execution—remain in their behavioral o
 every target. Composition selects them explicitly. A web build does not obtain a synthetic source
 or discard sink merely because a native capability is absent.
 
-The only temporary reusable-crate exceptions are complete file-I/O or USB adapter leaf modules in
-`logic_analyzer_processing` for which extraction would otherwise move concrete format or device
-behavior into the platform crate. An exception is explicitly allowlisted, contains only host
-access, and excludes node state, schemas, builders, parsers, protocol state machines, and portable
-runtime behavior. The intended exception allowlist is empty after source/destination and USB
-transport injection is complete.
+The only temporary reusable-crate exceptions are complete file-I/O adapter leaf modules in
+`logic_analyzer_processing` for which extraction would otherwise move concrete format behavior
+into the platform crate. An exception is explicitly allowlisted, contains only host access, and
+excludes node state, schemas, builders, parsers, protocol state machines, and portable runtime
+behavior. The intended exception allowlist is empty after source and destination injection is
+complete.
 
 The temporary processing-adapter allowlist is restricted to the host-access leaves of:
 
@@ -244,7 +244,6 @@ The temporary processing-adapter allowlist is restricted to the host-access leav
 - `nodes::sinks::binary_file_writer::platform`;
 - `nodes::sinks::csv_word_writer::platform`;
 - `nodes::sinks::text_file_writer::platform`;
-- `nodes::sources::dslogic_u3pro16::platform`, limited to USB discovery and transport.
 
 The enclosing node modules, their builders, parsers, encoders, device state machines, and wasm
 synthetic/discard substitutes are not allowlisted. Decoder execution strategy, embedded-runtime

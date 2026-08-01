@@ -140,8 +140,8 @@ impl DsLogicU3Pro16SourceFactory for TestSourceFactory {
         self.lifecycle
     }
 
-    fn metadata(&self, _config: LogicCaptureConfig) -> Arc<dyn CaptureSourceMetadata> {
-        self.metadata()
+    fn metadata(&self, config: LogicCaptureConfig) -> Arc<dyn CaptureSourceMetadata> {
+        Arc::new(U3Pro16TestMetadata { config })
     }
 
     fn create(
@@ -150,6 +150,41 @@ impl DsLogicU3Pro16SourceFactory for TestSourceFactory {
         _config: LogicCaptureConfig,
     ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
         Ok(self.construction(name))
+    }
+}
+
+struct U3Pro16TestMetadata {
+    config: LogicCaptureConfig,
+}
+
+impl CaptureSourceMetadata for U3Pro16TestMetadata {
+    fn lifecycle(&self) -> CaptureSourceLifecycle {
+        CaptureSourceLifecycle::new(CaptureSourceKind::Live, false, true, true)
+    }
+
+    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+        Ok(Some(CaptureSourcePresentation::Channels(
+            (0..u64::BITS as usize)
+                .filter(|channel| self.config.input_mask & (1_u64 << channel) != 0)
+                .enumerate()
+                .map(|(viewer_channel, physical_channel)| {
+                    (viewer_channel, format!("Ch {physical_channel}"))
+                })
+                .collect(),
+        )))
+    }
+
+    fn cache_identity(&self) -> CaptureSourceCacheIdentity {
+        CaptureSourceCacheIdentity::NotCapture
+    }
+
+    fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+        Ok(Some(
+            (0..u64::BITS as usize)
+                .filter(|channel| self.config.input_mask & (1_u64 << channel) != 0)
+                .map(|channel| format!("Ch {channel}"))
+                .collect(),
+        ))
     }
 }
 

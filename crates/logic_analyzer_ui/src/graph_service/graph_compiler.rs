@@ -1,3 +1,4 @@
+use logic_analyzer_graph_api::node::RuntimeBuilderOverride;
 use logic_analyzer_graph_api::node_support::{
     LiveCaptureEdit, TimelineMarkerEdit, TimelineMarkerReferenceBindingEdit,
 };
@@ -254,9 +255,24 @@ pub(crate) fn graph_service_with_execution(
     runtime_factory: std::sync::Arc<dyn AppManagerFactory>,
     work_executor: std::sync::Arc<dyn WorkExecutor>,
 ) -> Box<dyn GraphService> {
-    Box::new(GraphCompiler::with_execution(
+    graph_service_with_execution_and_builder_overrides(
         source_preparation_executor,
         runtime_factory,
         work_executor,
+        Vec::new(),
+    )
+}
+
+pub(crate) fn graph_service_with_execution_and_builder_overrides(
+    source_preparation_executor: Box<dyn SourcePreparationExecutor>,
+    runtime_factory: std::sync::Arc<dyn AppManagerFactory>,
+    work_executor: std::sync::Arc<dyn WorkExecutor>,
+    builder_overrides: Vec<RuntimeBuilderOverride>,
+) -> Box<dyn GraphService> {
+    Box::new(GraphCompiler::with_execution_and_builder_overrides(
+        source_preparation_executor,
+        runtime_factory,
+        work_executor,
+        builder_overrides,
     ))
 }

@@ -14,8 +14,9 @@ use signal_processing::{
     bounded_capture_event_queue,
 };
 
-use super::implementation::{DsLogicU3Pro16, LinkSpeed, UsbError, UsbTransport};
+use super::implementation::DsLogicU3Pro16;
 use super::streaming::StreamingProvider;
+use super::transport::{LinkSpeed, UsbError, UsbTransport};
 
 struct GeneratedStreamingTransport {
     control_reads: VecDeque<Vec<u8>>,

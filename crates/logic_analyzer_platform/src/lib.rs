@@ -9,6 +9,8 @@ mod services;
 
 #[cfg(target_os = "macos")]
 pub use platform::{dispatch_host_command, set_recent_files_listener};
+#[cfg(all(feature = "developer-tools", not(target_arch = "wasm32")))]
+pub use platform::{validate_capture_hardware, validate_fpga_hardware};
 pub use services::PlatformServices;
 
 /// Builds the services appropriate for the selected application host.

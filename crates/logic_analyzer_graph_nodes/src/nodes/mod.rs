@@ -8,4 +8,4 @@ mod test_support;
 pub(crate) mod decoders;
 mod logic;
 mod sinks;
-mod sources;
+pub(crate) mod sources;
