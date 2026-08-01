@@ -108,7 +108,7 @@ pub(crate) fn run() -> MainResult {
                 logic_analyzer_platform::standard_services().into_ui_services(),
             );
             #[cfg(target_os = "macos")]
-            macos_menu::install(app.recent_files());
+            macos_menu::install(app.recent_files(), app.input_bindings());
             Ok(Box::new(app))
         }),
     )

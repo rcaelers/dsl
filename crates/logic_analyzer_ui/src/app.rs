@@ -1001,6 +1001,10 @@ impl App {
         self.platform.recent_files()
     }
 
+    pub fn input_bindings(&self) -> &InputBindings {
+        &self.input_bindings
+    }
+
     pub fn new_with_file(cc: &eframe::CreationContext, file: Option<&Path>) -> Self {
         Self::new_with_file_and_catalogs(cc, file, Vec::new())
     }
@@ -1051,13 +1055,16 @@ impl App {
         node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
         services: crate::AppServices,
     ) -> Self {
-        let (graph_service, host_service, storage_paths) = services.into_parts();
+        let (graph_service, host_service, storage_paths, input_bindings, application_settings) =
+            services.into_parts();
         Self::build_with_services(
             cc,
             node_catalogs,
             graph_service,
             host_service,
             storage_paths,
+            input_bindings,
+            application_settings,
         )
     }
 
@@ -1067,6 +1074,8 @@ impl App {
         graph_service: Box<dyn GraphService>,
         host_service: Box<dyn HostService>,
         storage_paths: crate::ApplicationStoragePaths,
+        input_bindings: InputBindings,
+        application_settings: crate::ApplicationSettings,
     ) -> Self {
         // The graph canvas and its custom widgets use a dark palette. Do not
         // inherit a light OS/browser preference for the surrounding egui
@@ -1074,7 +1083,7 @@ impl App {
         cc.egui_ctx.set_theme(egui::Theme::Dark);
         install_fonts(&cc.egui_ctx);
         let registry = crate::build_node_registry();
-        let input_bindings = Arc::new(crate::application_input_bindings().clone());
+        let input_bindings = Arc::new(input_bindings);
         let plugin_panel_registry = PluginPanelRegistry::standard();
         let mut widget = NodeGraphWidget::new(registry);
         widget.set_input_bindings(input_bindings.clone());
@@ -1082,18 +1091,11 @@ impl App {
         let platform = crate::app_platform::PlatformState::restore(cc, &mut widget);
         let mut logic_analyzer = LogicAnalyzerViewer::new();
         logic_analyzer.set_input_bindings(input_bindings.clone());
-        let application_config = crate::application_config::load();
-        logic_analyzer.set_color_profile(
-            application_config
-                .logic_analyzer_viewer
-                .color_profile
-                .into(),
-        );
+        logic_analyzer.set_color_profile(application_settings.viewer_color_profile());
         let capture = CaptureCoordinator::configured(
-            application_config.live_capture.max_recent_sessions,
-            application_config
-                .live_capture
-                .max_storage_gib
+            application_settings.max_recent_capture_sessions(),
+            application_settings
+                .max_capture_storage_gib()
                 .saturating_mul(1024 * 1024 * 1024),
         );
         let capture_availability = capture_availability(widget.graph(), graph_service.as_ref());

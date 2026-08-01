@@ -1,8 +1,9 @@
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use logic_analyzer_ui::{
-    APPLICATION_ID, ApplicationStoragePaths, CacheClearStats, CacheEntrySnapshot, HostService,
-    OpenDialog, SaveDialog,
+    APPLICATION_ID, AppServices, ApplicationSettings, ApplicationStoragePaths, CacheClearStats,
+    CacheEntrySnapshot, HostService, OpenDialog, SaveDialog, default_input_bindings,
 };
 use signal_processing::PersistentStoreConfig;
 
@@ -10,7 +11,61 @@ use crate::services::PlatformServices;
 
 pub(crate) fn standard_services() -> PlatformServices {
     let storage_paths = ApplicationStoragePaths::new(Some(derived_cache_directory()));
-    PlatformServices::with_host_service(Box::new(NativeHostService), storage_paths)
+    let input_bindings = load_input_bindings();
+    let application_settings = load_application_settings();
+    PlatformServices::with_ui_services(AppServices::with_host_storage_and_configuration(
+        Box::new(NativeHostService),
+        storage_paths,
+        input_bindings,
+        application_settings,
+    ))
+}
+
+fn load_application_settings() -> ApplicationSettings {
+    let Some(path) = configuration_file("application.json") else {
+        return ApplicationSettings::default();
+    };
+    load_application_settings_path(&path)
+}
+
+fn load_application_settings_path(path: &Path) -> ApplicationSettings {
+    match std::fs::read_to_string(path) {
+        Ok(json) => ApplicationSettings::from_json(&json).unwrap_or_else(|error| {
+            panic!(
+                "invalid application configuration in {}: {error}",
+                path.display()
+            )
+        }),
+        Err(error) if error.kind() == ErrorKind::NotFound => ApplicationSettings::default(),
+        Err(error) => panic!(
+            "cannot read application configuration from {}: {error}",
+            path.display()
+        ),
+    }
+}
+
+fn load_input_bindings() -> input_bindings::InputBindings {
+    let Some(path) = configuration_file("input_bindings.json") else {
+        return default_input_bindings();
+    };
+    load_input_bindings_path(&path)
+}
+
+fn load_input_bindings_path(path: &Path) -> input_bindings::InputBindings {
+    match std::fs::read_to_string(path) {
+        Ok(json) => input_bindings::InputBindings::from_json(&json).unwrap_or_else(|error| {
+            panic!("invalid input bindings in {}: {error}", path.display())
+        }),
+        Err(error) if error.kind() == ErrorKind::NotFound => default_input_bindings(),
+        Err(error) => panic!(
+            "cannot read input bindings from {}: {error}",
+            path.display()
+        ),
+    }
+}
+
+fn configuration_file(name: &str) -> Option<PathBuf> {
+    dirs::config_dir().map(|directory| directory.join(APPLICATION_ID).join(name))
 }
 
 fn derived_cache_directory() -> PathBuf {
@@ -129,5 +184,54 @@ impl HostService for NativeHostService {
                 })
             })
             .map_err(|error| error.to_string())
+    }
+}
+
+#[cfg(test)]
+mod native_tests {
+    use logic_analyzer_viewer::ColorProfile;
+
+    use super::{load_application_settings_path, load_input_bindings_path};
+
+    #[test]
+    fn native_configuration_files_override_embedded_defaults() {
+        let directory = tempfile::tempdir().unwrap();
+        let application = directory.path().join("application.json");
+        let input_bindings = directory.path().join("input_bindings.json");
+        std::fs::write(
+            &application,
+            r#"{
+                "logic_analyzer_viewer": { "color_profile": "classic" },
+                "live_capture": { "max_recent_sessions": 7, "max_storage_gib": 12 }
+            }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            &input_bindings,
+            r#"{"bindings":[
+                {"context":"custom","action":"only","label":"Only","input":"key","key":"f12"}
+            ]}"#,
+        )
+        .unwrap();
+
+        let settings = load_application_settings_path(&application);
+        let bindings = load_input_bindings_path(&input_bindings);
+
+        assert_eq!(settings.viewer_color_profile(), ColorProfile::Classic);
+        assert_eq!(settings.max_recent_capture_sessions(), 7);
+        assert_eq!(settings.max_capture_storage_gib(), 12);
+        assert!(bindings.shortcut(&["custom"], "only").is_some());
+        assert!(bindings.shortcut(&["global"], "save").is_none());
+    }
+
+    #[test]
+    fn missing_native_configuration_files_use_embedded_defaults() {
+        let directory = tempfile::tempdir().unwrap();
+
+        let settings = load_application_settings_path(&directory.path().join("missing.json"));
+        let bindings = load_input_bindings_path(&directory.path().join("missing.json"));
+
+        assert_eq!(settings.viewer_color_profile(), ColorProfile::DsView);
+        assert!(bindings.shortcut(&["global"], "save").is_some());
     }
 }

@@ -185,8 +185,10 @@ whole implementation files delegate to the threaded native manager or cooperativ
 `logic_analyzer_platform` composes the UI `HostService` port today. It selects complete native and
 web adapter modules and returns an opaque service bundle to the application bootstrap. The native
 adapter owns dialogs, graph-document file I/O, persistent-cache administration, and the
-derived-cache directory. The web adapter reports those unavailable capabilities through the same
-UI-owned contract. The UI does not select either implementation.
+derived-cache directory. It also owns native configuration-file discovery and I/O; the UI owns the
+portable configuration model. The web adapter reports unavailable storage capabilities and
+supplies embedded configuration through the same UI-owned contract. The UI does not select either
+implementation.
 
 ## Proposed future: isolated host adapter crate
 

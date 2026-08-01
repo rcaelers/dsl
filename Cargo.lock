@@ -2144,6 +2144,7 @@ dependencies = [
  "eframe",
  "egui",
  "example-plugin",
+ "input-bindings",
  "logic-analyzer-graph-nodes",
  "logic-analyzer-platform",
  "logic-analyzer-ui",
@@ -2251,11 +2252,15 @@ dependencies = [
 name = "logic-analyzer-platform"
 version = "0.1.0"
 dependencies = [
+ "dirs",
+ "input-bindings",
  "logic-analyzer-ui",
+ "logic-analyzer-viewer",
  "node-graph",
  "rfd",
  "serde_json",
  "signal-processing",
+ "tempfile",
 ]
 
 [[package]]
@@ -2292,7 +2297,6 @@ name = "logic-analyzer-ui"
 version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
- "dirs",
  "eframe",
  "egui",
  "input-bindings",

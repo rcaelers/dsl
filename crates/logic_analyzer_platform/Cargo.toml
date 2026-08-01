@@ -5,10 +5,16 @@ edition = "2024"
 authors = ["Rob Caelers <rob.caelers@gmail.com>"]
 
 [dependencies]
+input-bindings = { path = "../input_bindings" }
 logic-analyzer-ui = { path = "../logic_analyzer_ui" }
 node-graph = { path = "../widgets/node_graph" }
 serde_json = { workspace = true }
 signal-processing = { path = "../signal_processing" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+dirs = { workspace = true }
 rfd = { workspace = true }
+
+[dev-dependencies]
+logic-analyzer-viewer = { path = "../widgets/logic_analyzer_viewer" }
+tempfile = { workspace = true }

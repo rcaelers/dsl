@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
+use input_bindings::InputBindings;
 use signal_processing::PersistentStoreConfig;
 
+use crate::application_settings::{ApplicationSettings, default_input_bindings};
 use crate::graph_service::{GraphService, standard_graph_service};
 use crate::host_service::{
     CacheClearStats, CacheEntrySnapshot, HostService, OpenDialog, SaveDialog,
@@ -15,25 +17,36 @@ pub struct AppServices {
     graph_service: Box<dyn GraphService>,
     host_service: Box<dyn HostService>,
     storage_paths: ApplicationStoragePaths,
+    input_bindings: InputBindings,
+    application_settings: ApplicationSettings,
 }
 
 impl AppServices {
     /// Combines the standard graph/compiler service with a host-provided UI
     /// service implementation.
     pub fn with_host_service(host_service: Box<dyn HostService>) -> Self {
-        Self::with_host_service_and_storage_paths(host_service, ApplicationStoragePaths::default())
+        Self::with_host_storage_and_configuration(
+            host_service,
+            ApplicationStoragePaths::default(),
+            default_input_bindings(),
+            ApplicationSettings::default(),
+        )
     }
 
     /// Combines a host service with the application-owned storage locations
     /// selected by the application composition root.
-    pub fn with_host_service_and_storage_paths(
+    pub fn with_host_storage_and_configuration(
         host_service: Box<dyn HostService>,
         storage_paths: ApplicationStoragePaths,
+        input_bindings: InputBindings,
+        application_settings: ApplicationSettings,
     ) -> Self {
         Self {
             graph_service: standard_graph_service(),
             host_service,
             storage_paths,
+            input_bindings,
+            application_settings,
         }
     }
 
@@ -43,8 +56,16 @@ impl AppServices {
         Box<dyn GraphService>,
         Box<dyn HostService>,
         ApplicationStoragePaths,
+        InputBindings,
+        ApplicationSettings,
     ) {
-        (self.graph_service, self.host_service, self.storage_paths)
+        (
+            self.graph_service,
+            self.host_service,
+            self.storage_paths,
+            self.input_bindings,
+            self.application_settings,
+        )
     }
 }
 

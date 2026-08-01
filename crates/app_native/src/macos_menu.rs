@@ -7,10 +7,8 @@ use objc2::{ClassType, define_class, msg_send, sel};
 use objc2_app_kit::{NSApp, NSImage, NSMenu, NSMenuItem, NSWindow};
 use objc2_foundation::{MainThreadMarker, NSObject, NSString, ns_string};
 
-use logic_analyzer_ui::{
-    APPLICATION_NAME, NativeMenuCommand, application_input_bindings,
-    dispatch_native_menu_command,
-};
+use input_bindings::InputBindings;
+use logic_analyzer_ui::{APPLICATION_NAME, NativeMenuCommand, dispatch_native_menu_command};
 
 thread_local! {
     /// "Open Recent" items dispatch through one shared `openRecent:`
@@ -165,8 +163,8 @@ fn make_handler() -> Retained<MenuHandler> {
     }
 }
 
-fn shortcut(action: &str) -> Retained<objc2_foundation::NSString> {
-    let shortcut = application_input_bindings()
+fn shortcut(bindings: &InputBindings, action: &str) -> Retained<objc2_foundation::NSString> {
+    let shortcut = bindings
         .shortcut(&["global"], action)
         .unwrap_or_else(|| panic!("missing global.{action} input binding"));
     let mut key = shortcut.logical_key.name().to_ascii_lowercase();
@@ -292,7 +290,7 @@ pub(crate) fn disable_automatic_window_tabbing() {
     NSWindow::setAllowsAutomaticWindowTabbing(false, mtm);
 }
 
-pub(crate) fn install(recent_files: &[PathBuf]) {
+pub(crate) fn install(recent_files: &[PathBuf], bindings: &InputBindings) {
     let mtm = MainThreadMarker::new().expect("must install the menu on the main thread");
     let app = NSApp(mtm);
     let Some(menu_bar) = app.mainMenu() else {
@@ -307,14 +305,14 @@ pub(crate) fn install(recent_files: &[PathBuf]) {
             mtm,
             ns_string!("New"),
             sel!(newGraph:),
-            &shortcut("new"),
+            &shortcut(bindings, "new"),
             &handler,
         ));
         file_menu.addItem(&menu_item(
             mtm,
             ns_string!("Load..."),
             sel!(loadGraph:),
-            &shortcut("open"),
+            &shortcut(bindings, "open"),
             &handler,
         ));
         let recent_menu_item = NSMenuItem::new(mtm);
@@ -332,14 +330,14 @@ pub(crate) fn install(recent_files: &[PathBuf]) {
             mtm,
             ns_string!("Save"),
             sel!(saveGraph:),
-            &shortcut("save"),
+            &shortcut(bindings, "save"),
             &handler,
         ));
         file_menu.addItem(&menu_item(
             mtm,
             ns_string!("Save As..."),
             sel!(saveGraphAs:),
-            &shortcut("save_as"),
+            &shortcut(bindings, "save_as"),
             &handler,
         ));
         file_menu.addItem(&NSMenuItem::separatorItem(mtm));
@@ -433,14 +431,14 @@ pub(crate) fn install(recent_files: &[PathBuf]) {
             mtm,
             ns_string!("Run"),
             sel!(runPipeline:),
-            &shortcut("run"),
+            &shortcut(bindings, "run"),
             &handler,
         ));
         pipeline_menu.addItem(&menu_item(
             mtm,
             ns_string!("Stop"),
             sel!(stopPipeline:),
-            &shortcut("stop"),
+            &shortcut(bindings, "stop"),
             &handler,
         ));
         pipeline_menu.addItem(&NSMenuItem::separatorItem(mtm));
@@ -478,7 +476,7 @@ pub(crate) fn install(recent_files: &[PathBuf]) {
                     item.setTitle(&NSString::from_str(&format!(
                         "Quit {APPLICATION_NAME}"
                     )));
-                    item.setKeyEquivalent(&shortcut("quit"));
+                    item.setKeyEquivalent(&shortcut(bindings, "quit"));
                     unsafe {
                         item.setTarget(Some(&handler as &AnyObject));
                         item.setAction(Some(sel!(quitApplication:)));

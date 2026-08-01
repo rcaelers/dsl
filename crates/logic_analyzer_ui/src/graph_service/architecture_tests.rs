@@ -26,7 +26,7 @@ fn application_orchestration_depends_on_the_ui_owned_graph_service() {
     let application = include_str!("../app.rs");
     assert!(application.contains("Box<dyn GraphService>"));
     assert!(application.contains("Option<Box<dyn GraphRun>>"));
-    assert!(application.contains("standard_graph_service()"));
+    assert!(include_str!("../app_services.rs").contains("standard_graph_service()"));
 }
 
 #[test]

@@ -14,19 +14,17 @@ fn ui_manifest_has_no_concrete_test_composition_dependencies() {
             "UI tests must use UI-owned service, catalog, and acquisition fakes; {dependency} composition belongs outside the UI crate"
         );
     }
-    for dependency in ["logic-analyzer-capture-export", "rfd"] {
-        let declaration = manifest
-            .lines()
-            .find(|line| line.starts_with(dependency))
-            .unwrap_or_else(|| panic!("missing production adapter dependency {dependency}"));
-        assert!(
-            declaration.contains("optional = true"),
-            "{dependency} must remain outside the default isolated UI test dependency graph"
-        );
-    }
+    let dependency = "logic-analyzer-capture-export";
+    let declaration = manifest
+        .lines()
+        .find(|line| line.starts_with(dependency))
+        .unwrap_or_else(|| panic!("missing production adapter dependency {dependency}"));
+    assert!(
+        declaration.contains("optional = true"),
+        "{dependency} must remain outside the default isolated UI test dependency graph"
+    );
     for capability in [
         "dep:logic-analyzer-capture-export",
-        "dep:rfd",
         "node-graph/native-file-dialog",
     ] {
         assert!(
