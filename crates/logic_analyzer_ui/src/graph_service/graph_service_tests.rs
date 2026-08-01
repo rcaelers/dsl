@@ -14,7 +14,6 @@ use signal_processing::{
 };
 
 use super::contract::{GraphRun, GraphService};
-use super::platform_contract::PlatformGraphService;
 use crate::live_capture::{CaptureAvailability, CaptureFeatureDiscovery, capture_availability};
 
 struct FakeGraphService {
@@ -102,7 +101,7 @@ impl CaptureFeatureDiscovery for FakeGraphService {
     }
 }
 
-impl PlatformGraphService for FakeGraphService {
+impl GraphService for FakeGraphService {
     fn derived_cache_configs_by_node(
         &self,
         _graph: &GraphState,
@@ -111,9 +110,7 @@ impl PlatformGraphService for FakeGraphService {
     {
         Ok(std::collections::HashMap::new())
     }
-}
 
-impl GraphService for FakeGraphService {
     fn set_output_subscriptions(&mut self, subscriptions: OutputSubscriptionPlan) {
         *self.subscriptions.lock().unwrap() = subscriptions.outputs().collect();
     }

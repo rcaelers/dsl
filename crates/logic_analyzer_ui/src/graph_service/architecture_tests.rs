@@ -37,3 +37,14 @@ fn concrete_compiler_knowledge_is_confined_to_service_adapters() {
     assert!(adapter.contains("impl GraphRun for LiveRun"));
     assert!(adapter.contains("Box::new(GraphCompiler::new())"));
 }
+
+#[test]
+fn graph_service_uses_one_contract_and_adapter_on_every_target() {
+    let module = include_str!("mod.rs");
+    let contract = include_str!("contract.rs");
+
+    assert!(!module.contains("target_arch"));
+    assert!(!module.contains("platform_contract"));
+    assert!(!module.contains("platform_graph_compiler"));
+    assert!(contract.contains("fn derived_cache_configs_by_node("));
+}

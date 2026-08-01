@@ -1,11 +1,13 @@
 //! Application diagnostics for retained and indexed signal data.
 
+#[cfg(test)]
+mod architecture_tests;
 mod implementation;
 mod model;
+mod snapshot;
 
 pub(crate) use implementation::MemoryPanel;
 pub(crate) use model::{
     CaptureStorageBacking, CaptureStorageSnapshot, DerivedSignalStorageSnapshot,
-    MemoryPanelSnapshot, MemoryServiceSnapshot, PersistentCacheSnapshot,
-    PersistentCacheSnapshotState, PlatformMemorySnapshot,
+    MemoryPanelSnapshot, MemoryServiceSnapshot,
 };

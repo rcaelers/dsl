@@ -26,7 +26,8 @@ pub use app::{App, DemoGraph};
 pub use app_services::{AppServices, ApplicationStoragePaths};
 pub use application_settings::{ApplicationSettings, default_input_bindings};
 pub use host_service::{
-    CacheClearStats, CacheEntrySnapshot, HostCommand, HostService, OpenDialog, SaveDialog,
+    CacheClearStats, CacheEntrySnapshot, DecodedBlockCacheSnapshot, HostCommand, HostService,
+    OpenDialog, SaveDialog,
 };
 pub use node_registry::build_node_registry;
 pub use plugin_panel::{PluginPanel, PluginPanelContext, PluginPanelIcon, UiPanelRegistration};

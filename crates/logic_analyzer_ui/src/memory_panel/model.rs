@@ -60,7 +60,7 @@ pub(crate) struct PersistentCacheSnapshot {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct PlatformMemorySnapshot {
+pub(crate) struct CacheMemorySnapshot {
     pub(crate) services: Vec<MemoryServiceSnapshot>,
     pub(crate) persistent_caches: Vec<PersistentCacheSnapshot>,
 }

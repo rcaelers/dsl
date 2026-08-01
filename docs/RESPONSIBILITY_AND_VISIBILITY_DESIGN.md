@@ -189,9 +189,11 @@ derived-cache and live-capture-session directories. It also owns native configur
 and I/O; the UI owns the portable configuration model. It supplies optional system symbol fonts while
 the UI owns bundled fallback fonts and portable installation. Native shell integrations, such as the
 macOS application menu, publish portable commands and receive recent-document state through the same
-host-service contract. The platform adapter owns command transport and repaint wake-ups. The web
-adapter reports unavailable storage capabilities and supplies embedded configuration. The UI does not
-select either implementation.
+host-service contract. Runtime cache diagnostics also cross that contract, while the Memory panel
+uses one portable inventory and presentation path. The platform adapter owns command transport,
+repaint wake-ups, and access to platform-backed cache diagnostics. The web adapter reports
+unavailable storage capabilities and supplies embedded configuration. The UI does not select either
+implementation.
 
 ## Proposed future: isolated host adapter crate
 

@@ -38,6 +38,16 @@ pub struct CacheEntrySnapshot {
     pub last_timestamp_ns: Option<u64>,
 }
 
+/// Host-adapted diagnostics for the shared decoded-block cache.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DecodedBlockCacheSnapshot {
+    pub entries: usize,
+    pub memory_bytes: usize,
+    pub budget_bytes: usize,
+    pub hits: u64,
+    pub misses: u64,
+}
+
 /// A portable application command emitted by an optional host shell.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HostCommand {
@@ -71,6 +81,12 @@ pub enum HostCommand {
 /// do not provide a capability return an explanatory error or decline the
 /// optional picker request.
 pub trait HostService {
+    /// Returns runtime-cache diagnostics when the selected data-plane adapter
+    /// provides that cache.
+    fn decoded_block_cache_snapshot(&self) -> Option<DecodedBlockCacheSnapshot> {
+        None
+    }
+
     /// Installs the wake-up callback used when the host queues a command.
     fn set_command_repaint(&mut self, _repaint: Box<dyn Fn() + Send + Sync>) {}
 

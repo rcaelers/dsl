@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 
 use logic_analyzer_ui::{
     APPLICATION_ID, AppServices, ApplicationSettings, ApplicationStoragePaths, CacheClearStats,
-    CacheEntrySnapshot, HostCommand, HostService, OpenDialog, SaveDialog, default_input_bindings,
+    CacheEntrySnapshot, DecodedBlockCacheSnapshot, HostCommand, HostService, OpenDialog,
+    SaveDialog, default_input_bindings,
 };
 use signal_processing::PersistentStoreConfig;
 
@@ -207,6 +208,17 @@ impl NativeHostService {
 }
 
 impl HostService for NativeHostService {
+    fn decoded_block_cache_snapshot(&self) -> Option<DecodedBlockCacheSnapshot> {
+        let stats = signal_processing::decoded_block_cache_stats();
+        Some(DecodedBlockCacheSnapshot {
+            entries: stats.entries,
+            memory_bytes: stats.memory_bytes,
+            budget_bytes: stats.budget_bytes,
+            hits: stats.hits,
+            misses: stats.misses,
+        })
+    }
+
     fn set_command_repaint(&mut self, repaint: Box<dyn Fn() + Send + Sync>) {
         *host_command_bridge().repaint.lock().unwrap() = Some(repaint);
     }

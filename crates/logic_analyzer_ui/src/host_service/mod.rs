@@ -7,5 +7,6 @@ mod contract;
 mod host_service_tests;
 
 pub use contract::{
-    CacheClearStats, CacheEntrySnapshot, HostCommand, HostService, OpenDialog, SaveDialog,
+    CacheClearStats, CacheEntrySnapshot, DecodedBlockCacheSnapshot, HostCommand, HostService,
+    OpenDialog, SaveDialog,
 };

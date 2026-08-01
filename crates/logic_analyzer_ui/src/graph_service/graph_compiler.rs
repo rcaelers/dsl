@@ -98,6 +98,15 @@ impl CaptureFeatureDiscovery for GraphCompiler {
 }
 
 impl GraphService for GraphCompiler {
+    fn derived_cache_configs_by_node(
+        &self,
+        graph: &GraphState,
+        directory: &std::path::Path,
+    ) -> Result<std::collections::HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>>
+    {
+        GraphCompiler::derived_cache_configs_by_node(self, graph, directory)
+    }
+
     fn set_output_subscriptions(&mut self, subscriptions: OutputSubscriptionPlan) {
         GraphCompiler::set_output_subscriptions(self, subscriptions);
     }

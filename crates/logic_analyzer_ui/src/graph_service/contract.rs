@@ -1,4 +1,6 @@
 use std::any::Any;
+use std::collections::HashMap;
+use std::path::Path;
 
 use logic_analyzer_graph_api::node_support::{
     LiveCaptureEdit, TimelineMarkerEdit, TimelineMarkerReferenceBindingEdit,
@@ -16,7 +18,6 @@ use signal_processing::{
     ConfigurationBoundary, DerivedLanes, DisconnectEvent, PersistentStoreConfig,
 };
 
-use super::platform_contract::PlatformGraphService;
 use crate::live_capture::CaptureFeatureDiscovery;
 
 pub(crate) trait GraphRun {
@@ -47,7 +48,13 @@ pub(crate) trait GraphRun {
     fn take_disconnected(&self) -> Vec<(Option<NodeId>, DisconnectEvent)>;
 }
 
-pub(crate) trait GraphService: CaptureFeatureDiscovery + PlatformGraphService {
+pub(crate) trait GraphService: CaptureFeatureDiscovery {
+    fn derived_cache_configs_by_node(
+        &self,
+        graph: &GraphState,
+        directory: &Path,
+    ) -> Result<HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>>;
+
     fn set_output_subscriptions(&mut self, subscriptions: OutputSubscriptionPlan);
 
     fn synchronize_prepared_capture(&mut self, graph: &GraphState) -> SourcePreparationUpdate;

@@ -2874,13 +2874,13 @@ impl App {
                         .saturating_mul(capture.channels as u64),
                 );
             }
-            let platform = self.platform_memory_snapshot();
-            services.extend(platform.services);
+            let cache = self.cache_memory_snapshot();
+            services.extend(cache.services);
             self.memory_panel.replace_snapshot(MemoryPanelSnapshot {
                 services,
                 capture,
                 derived_lanes,
-                persistent_caches: platform.persistent_caches,
+                persistent_caches: cache.persistent_caches,
             });
         }
         self.memory_panel.show(ui);

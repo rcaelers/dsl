@@ -1,33 +1,9 @@
 use logic_analyzer_graph_compiler as compiler;
 
 use crate::app::App;
-use crate::memory_panel::{MemoryServiceSnapshot, PlatformMemorySnapshot};
 use crate::product::APPLICATION_NAME;
 
 impl App {
-    pub(crate) fn platform_memory_snapshot(&mut self) -> PlatformMemorySnapshot {
-        PlatformMemorySnapshot {
-            services: vec![
-                MemoryServiceSnapshot {
-                    name: "Decoded block cache".to_owned(),
-                    state: "Not used".to_owned(),
-                    detail: "Browser-derived data is retained directly in memory".to_owned(),
-                    used_bytes: None,
-                    budget_bytes: None,
-                },
-                MemoryServiceSnapshot {
-                    name: "Persistent derived cache".to_owned(),
-                    state: "Unavailable".to_owned(),
-                    detail: "Persistent filesystem caches are unavailable in the browser"
-                        .to_owned(),
-                    used_bytes: None,
-                    budget_bytes: None,
-                },
-            ],
-            persistent_caches: Vec::new(),
-        }
-    }
-
     pub(crate) fn platform_clear_capture_caches(
         &mut self,
         _configs: &[signal_processing::PersistentStoreConfig],
