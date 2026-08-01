@@ -5,25 +5,46 @@
 //! later implementation steps.
 
 mod backend;
+// The wasm store will consume the shared codec when it replaces its temporary
+// in-memory word-vector implementation.
+#[allow(
+    dead_code,
+    reason = "the wasm store has not adopted encoded blocks yet"
+)]
+mod codec;
 mod config;
 #[cfg(test)]
 mod contract_tests;
 mod errors;
+// The wasm store will consume the shared format when it replaces its temporary
+// in-memory word-vector implementation.
+#[allow(
+    dead_code,
+    reason = "the wasm store has not adopted encoded blocks yet"
+)]
+mod format;
 mod platform;
+// The native store uses these detailed directory helpers today. Keeping them
+// portable lets the wasm store use the same query algorithm.
+#[allow(
+    dead_code,
+    reason = "the wasm store has not adopted encoded blocks yet"
+)]
 mod presence;
 mod query;
 mod state;
+// The wasm store will consume the shared codec when it replaces its temporary
+// in-memory word-vector implementation.
+#[allow(
+    dead_code,
+    reason = "the wasm store has not adopted encoded blocks yet"
+)]
+mod vlq;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod cache;
 #[cfg(not(target_arch = "wasm32"))]
-mod codec;
-#[cfg(not(target_arch = "wasm32"))]
-mod format;
-#[cfg(not(target_arch = "wasm32"))]
 mod persistent;
-#[cfg(not(target_arch = "wasm32"))]
-mod vlq;
 
 pub(crate) use backend::{AnnotationStoreBackend, AnnotationStoreWriterBackend};
 pub use config::{BlockCodecConfig, LiveStoreConfig, PersistentStoreConfig};

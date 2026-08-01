@@ -24,8 +24,7 @@ const fn tables() -> [[u32; 256]; 8] {
         let mut index = 0;
         while index < result[table].len() {
             let previous = result[table - 1][index];
-            result[table][index] =
-                result[0][(previous & 0xff) as usize] ^ (previous >> 8);
+            result[table][index] = result[0][(previous & 0xff) as usize] ^ (previous >> 8);
             index += 1;
         }
         table += 1;
@@ -104,7 +103,10 @@ mod tests {
     fn slicing_by_eight_matches_bytewise_for_all_tail_lengths() {
         let bytes: Vec<_> = (0..=255).map(|value| value as u8).collect();
         for length in 0..=bytes.len() {
-            assert_eq!(checksum(&bytes[..length]), bytewise_checksum(&bytes[..length]));
+            assert_eq!(
+                checksum(&bytes[..length]),
+                bytewise_checksum(&bytes[..length])
+            );
         }
     }
 }

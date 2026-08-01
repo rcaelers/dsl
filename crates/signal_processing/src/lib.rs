@@ -19,6 +19,13 @@ mod app_manager;
 pub mod capture;
 mod capture_policy;
 mod cooperative_manager;
+// The shared derived-word codec uses this on native today; the wasm store will
+// consume the same integrity implementation once it adopts encoded blocks.
+#[allow(
+    dead_code,
+    reason = "the wasm store has not adopted encoded blocks yet"
+)]
+mod crc32c;
 mod derived_data_collector;
 mod derived_index;
 pub mod derived_word_store;
@@ -55,7 +62,6 @@ std::cfg_select! {
     }
     _ => {
         mod archive_capture_store;
-        mod crc32c;
         #[path = "idle_native.rs"]
         mod idle;
         pub mod waveform_index;

@@ -40,12 +40,10 @@ impl WordPresenceIndex {
         self.extent_end_ns
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn leaves(&self) -> &[WordSummaryRecord] {
         &self.levels[0]
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn prefix_max_end_ns(&self) -> &[u64] {
         &self.prefix_max_end_ns
     }
