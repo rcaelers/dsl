@@ -13,12 +13,7 @@ fn support_facade_is_crate_private() {
 
 #[test]
 fn visible_support_modules_are_not_also_flattened() {
-    for facade in [
-        include_str!("support/mod.rs"),
-        include_str!("support/sigrokdecode/mod.rs"),
-    ] {
-        assert_visible_modules_are_not_reexported(facade);
-    }
+    assert_visible_modules_are_not_reexported(include_str!("support/mod.rs"));
 }
 
 #[test]

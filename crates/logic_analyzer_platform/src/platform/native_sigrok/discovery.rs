@@ -8,108 +8,19 @@ use pyo3::types::{
     PyAny, PyBool, PyDict, PyDictMethods, PyFloat, PyInt, PyList, PyModule, PyString,
 };
 
+use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+    InitialPin, SigrokAnnotationClassDescriptor, SigrokAnnotationRowDescriptor,
+    SigrokCatalogDiagnostic, SigrokCatalogDiagnosticKind, SigrokCatalogEntry,
+    SigrokCatalogSnapshot, SigrokDecoderChannelDescriptor, SigrokDecoderDescriptor,
+    SigrokDecoderOptionDescriptor, SigrokOutputKind, SigrokScalarValue,
+};
+
 use super::bridge::DecoderBridge;
 use super::python_error::format_python_error;
 use super::python_host::{
     HostDecoder, OUTPUT_ANN, OUTPUT_BINARY, OUTPUT_LOGIC, OUTPUT_META, OUTPUT_PYTHON,
     SRD_CONF_SAMPLERATE, decoder_import_guard, install_sigrokdecode_module,
 };
-use super::scheduler::InitialPin;
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum SigrokScalarValue {
-    Bool(bool),
-    Integer(i64),
-    Float(f64),
-    String(String),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SigrokDecoderChannelDescriptor {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct SigrokDecoderOptionDescriptor {
-    pub id: String,
-    pub description: String,
-    pub default: SigrokScalarValue,
-    pub values: Vec<SigrokScalarValue>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SigrokAnnotationClassDescriptor {
-    pub id: String,
-    pub description: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SigrokAnnotationRowDescriptor {
-    pub id: String,
-    pub description: String,
-    pub classes: Vec<usize>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SigrokOutputKind {
-    Annotation,
-    Binary,
-    GeneratedLogic,
-    Metadata,
-    ProtocolPacket,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct SigrokDecoderDescriptor {
-    pub api_version: i64,
-    pub id: String,
-    pub name: String,
-    pub long_name: String,
-    pub description: String,
-    pub license: String,
-    pub inputs: Vec<String>,
-    pub outputs: Vec<String>,
-    pub tags: Vec<String>,
-    pub channels: Vec<SigrokDecoderChannelDescriptor>,
-    pub optional_channels: Vec<SigrokDecoderChannelDescriptor>,
-    pub options: Vec<SigrokDecoderOptionDescriptor>,
-    pub annotations: Vec<SigrokAnnotationClassDescriptor>,
-    pub annotation_rows: Vec<SigrokAnnotationRowDescriptor>,
-    pub binary: Vec<SigrokAnnotationClassDescriptor>,
-    pub logic_output_channels: Vec<SigrokDecoderChannelDescriptor>,
-    pub registered_outputs: Vec<SigrokOutputKind>,
-    pub package_fingerprint: String,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct SigrokCatalogEntry {
-    pub decoder_root: PathBuf,
-    pub descriptor: SigrokDecoderDescriptor,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SigrokCatalogDiagnosticKind {
-    MissingSearchPath,
-    UnreadableSearchPath,
-    InvalidDecoder,
-    DuplicateDecoder,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SigrokCatalogDiagnostic {
-    pub kind: SigrokCatalogDiagnosticKind,
-    pub path: PathBuf,
-    pub decoder_id: Option<String>,
-    pub message: String,
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct SigrokCatalogSnapshot {
-    pub entries: Vec<SigrokCatalogEntry>,
-    pub diagnostics: Vec<SigrokCatalogDiagnostic>,
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SigrokSearchPathError {
@@ -156,6 +67,7 @@ impl SigrokDecoderCatalog {
         }
     }
 
+    #[cfg(test)]
     pub fn snapshot(&self, search_paths: &[PathBuf]) -> Arc<SigrokCatalogSnapshot> {
         let key = normalized_search_paths(search_paths, self.search_paths.as_ref());
         if let Some(snapshot) = self.snapshots.lock().unwrap().get(&key).cloned() {
@@ -175,7 +87,7 @@ impl SigrokDecoderCatalog {
     }
 
     fn store_scan(&self, key: Vec<PathBuf>) -> Arc<SigrokCatalogSnapshot> {
-        let snapshot = Arc::new(scan_catalog(
+        let snapshot = Arc::new(scan_with_discovery(
             &key,
             self.search_paths.as_ref(),
             self.packages.as_ref(),
@@ -216,7 +128,7 @@ impl SigrokPackageDiscovery for PythonSigrokPackageDiscovery {
     }
 }
 
-pub fn discover_sigrok_decoder(
+pub(crate) fn discover_sigrok_decoder(
     decoder_root: impl Into<PathBuf>,
     id: &str,
 ) -> Result<SigrokDecoderDescriptor, String> {
@@ -259,7 +171,7 @@ fn normalized_search_paths(
         .collect()
 }
 
-fn scan_catalog(
+fn scan_with_discovery(
     search_paths: &[PathBuf],
     search_path_discovery: &dyn SigrokSearchPathDiscovery,
     package_discovery: &dyn SigrokPackageDiscovery,
@@ -338,6 +250,10 @@ fn scan_catalog(
         }
     }
     snapshot
+}
+
+pub(crate) fn scan_catalog(directories: &[PathBuf]) -> SigrokCatalogSnapshot {
+    (*SigrokDecoderCatalog::default().refresh(directories)).clone()
 }
 
 fn import_decoder<'py>(

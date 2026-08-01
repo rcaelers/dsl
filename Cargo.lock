@@ -2252,6 +2252,7 @@ dependencies = [
 name = "logic-analyzer-platform"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "clap",
  "crossbeam-channel",
  "dirs",
@@ -2264,11 +2265,14 @@ dependencies = [
  "logic-analyzer-ui",
  "memmap2",
  "node-graph",
+ "pyo3",
  "rfd",
  "rusb",
+ "serde",
  "serde_json",
  "signal-processing",
  "tempfile",
+ "thiserror 2.0.19",
  "tracing",
 ]
 
@@ -2281,7 +2285,6 @@ dependencies = [
  "crossbeam-channel",
  "libc",
  "logic-analyzer-test-support",
- "pyo3",
  "serde",
  "serde_json",
  "signal-processing",

@@ -8,14 +8,16 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyDictMethods, PyList, PyModule};
 use thiserror::Error;
 
+use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+    InitialPin, LogicChunk, OutputRegistration,
+};
 use signal_processing::{NodeCancellation, WorkExecutor, WorkTask};
 
-use super::bridge::{BridgeError, DecoderBridge, DecoderOutput, OutputRegistration};
+use super::bridge::{BridgeError, DecoderBridge, DecoderOutput};
 use super::python_error::format_python_error;
 use super::python_host::{
     HostDecoder, SRD_CONF_SAMPLERATE, decoder_import_guard, install_sigrokdecode_module,
 };
-use super::scheduler::{InitialPin, LogicChunk};
 
 #[derive(Clone, Debug)]
 pub(crate) enum OptionValue {

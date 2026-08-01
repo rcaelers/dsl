@@ -5,17 +5,19 @@ use std::time::Duration;
 
 use signal_processing::{
     InputPort, NodeCancellation, OutputPort, PortDirection, PortSchema, ProcessNode,
-    ProtocolPacket, ProtocolValue, SampleBlock, Word, WorkError, WorkExecutor, WorkResult,
+    ProtocolPacket, ProtocolValue, SampleBlock, Word, WorkError, WorkResult,
 };
 
-use super::execution::{
-    PythonSigrokExecutionFactory, SigrokExecution, SigrokExecutionConfig, SigrokExecutionFactory,
-    SigrokExecutionInput, SigrokExecutionOptionValue, SigrokExecutionOutput,
+use super::contracts::{
+    InitialPin, LogicChunk, MetadataType, OutputRegistration, SigrokExecution,
+    SigrokExecutionConfig, SigrokExecutionFactory, SigrokExecutionInput,
+    SigrokExecutionOptionValue, SigrokExecutionOutput,
 };
-use crate::support::sigrokdecode::{
-    InitialPin, LogicChunk, MetadataType, OUTPUT_ANN, OUTPUT_BINARY, OUTPUT_LOGIC, OUTPUT_META,
-    OUTPUT_PYTHON, OutputRegistration,
-};
+const OUTPUT_ANN: i32 = 0;
+const OUTPUT_PYTHON: i32 = 1;
+const OUTPUT_BINARY: i32 = 2;
+const OUTPUT_LOGIC: i32 = 3;
+const OUTPUT_META: i32 = 4;
 
 const OUTPUT_QUEUE_CAPACITY: usize = 65_536;
 const OUTPUT_WAIT: Duration = Duration::from_millis(2);
@@ -72,15 +74,7 @@ pub struct SigrokDecoder {
 }
 
 impl SigrokDecoder {
-    /// Creates a decoder with host-selected embedded-runtime execution.
-    pub fn with_work_executor(
-        config: SigrokDecoderConfig,
-        work_executor: Arc<dyn WorkExecutor>,
-    ) -> Result<Self, String> {
-        Self::with_execution_factory(config, &PythonSigrokExecutionFactory::new(work_executor))
-    }
-
-    fn with_execution_factory(
+    pub fn with_execution_factory(
         config: SigrokDecoderConfig,
         execution_factory: &dyn SigrokExecutionFactory,
     ) -> Result<Self, String> {
@@ -650,7 +644,7 @@ mod implementation_tests {
     use signal_processing::{ChannelMessage, Sender, Watchdog, WordPayload};
 
     use super::*;
-    use crate::support::sigrokdecode::MetadataRegistration;
+    use crate::nodes::decoders::sigrok_decoder::MetadataRegistration;
 
     #[test]
     fn raw_input_timing_takes_precedence_over_the_decoder_configuration() {

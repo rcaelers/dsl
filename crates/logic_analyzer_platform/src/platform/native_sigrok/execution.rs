@@ -1,77 +1,20 @@
-use std::collections::BTreeMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString, PyTuple};
 
+use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+    LogicChunk, OutputRegistration, SigrokExecution, SigrokExecutionConfig, SigrokExecutionFactory,
+    SigrokExecutionInput, SigrokExecutionOptionValue, SigrokExecutionOutput,
+};
 use signal_processing::{
     InlineWorkExecutor, NodeCancellation, ProtocolPacket, ProtocolValue, WorkExecutor,
 };
 
-use crate::support::sigrokdecode::{
-    DecoderOutput, DecoderWorker, InitialPin, LogicChunk, OptionValue, OutputRegistration,
-    WorkerConfig, WorkerInputConfig,
-};
+use super::{DecoderOutput, DecoderWorker, OptionValue, WorkerConfig, WorkerInputConfig};
 
 const VALUE_RECURSION_LIMIT: usize = 64;
-
-#[derive(Clone, Debug)]
-pub(crate) enum SigrokExecutionOptionValue {
-    Bool(bool),
-    Integer(i64),
-    Float(f64),
-    String(String),
-}
-
-#[derive(Clone, Debug)]
-pub(crate) enum SigrokExecutionInput {
-    Logic(Vec<Option<InitialPin>>),
-    Protocol(Vec<String>),
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct SigrokExecutionConfig {
-    pub(crate) decoder_root: PathBuf,
-    pub(crate) decoder_id: String,
-    pub(crate) sample_rate: u64,
-    pub(crate) input: SigrokExecutionInput,
-    pub(crate) options: BTreeMap<String, SigrokExecutionOptionValue>,
-    pub(crate) queue_capacity: usize,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct SigrokExecutionOutput {
-    pub(crate) start_sample: u64,
-    pub(crate) end_sample: u64,
-    pub(crate) output_id: usize,
-    pub(crate) data: ProtocolValue,
-}
-
-pub(crate) trait SigrokExecution: Send {
-    fn push_chunk(&self, chunk: LogicChunk) -> Result<(), String>;
-
-    fn push_protocol_packet(&self, packet: ProtocolPacket) -> Result<(), String>;
-
-    fn finish(&self) -> Result<(), String>;
-
-    fn cancellation(&self) -> Arc<dyn NodeCancellation>;
-
-    fn try_output(&self) -> Result<Option<SigrokExecutionOutput>, String>;
-
-    fn registrations(&self) -> Vec<OutputRegistration>;
-
-    fn is_finished(&self) -> bool;
-
-    fn receive_output(&self, timeout: Duration) -> Result<Option<SigrokExecutionOutput>, String>;
-
-    fn join(&mut self) -> Result<(), String>;
-}
-
-pub(crate) trait SigrokExecutionFactory {
-    fn spawn(&self, config: SigrokExecutionConfig) -> Result<Box<dyn SigrokExecution>, String>;
-}
 
 pub(crate) struct PythonSigrokExecutionFactory {
     work_executor: Arc<dyn WorkExecutor>,

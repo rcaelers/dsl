@@ -12,6 +12,8 @@ fn platform_sensitive_runtime_builders_delegate_construction_to_processing_facad
         "DslFileSource::new",
         "SigrokFileSource::new",
         "DsLogicU3Pro16Source::open_first",
+        "SigrokDecoder::with_work_executor",
+        "discover_sigrok_decoder",
         "SyntheticCaptureSource::new",
         "BinaryFileWriter::new",
         "CsvWordWriter::new",

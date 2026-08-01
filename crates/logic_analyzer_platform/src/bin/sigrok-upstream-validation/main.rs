@@ -10,9 +10,7 @@ std::cfg_select! {
 
             use clap::{Parser, Subcommand};
 
-            use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
-                validate_spi_chunk_boundaries, validate_spi_oracle,
-            };
+            use logic_analyzer_platform::{validate_spi_chunk_boundaries, validate_spi_oracle};
 
             #[derive(Debug, Parser)]
             #[command(about = "Validate the hosted decoder against an explicit upstream Sigrok tree")]

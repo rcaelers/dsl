@@ -1,53 +1,10 @@
-use std::sync::Arc;
-
 use thiserror::Error;
+
+use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{InitialPin, LogicChunk};
 
 use super::conditions::{PinCondition, WaitCondition, WaitRequest, WaitTerm};
 
 const DISCONNECTED_PIN_VALUE: u8 = 0xff;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum InitialPin {
-    Low,
-    High,
-    SameAsFirstSample,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LogicChunk {
-    start_sample: u64,
-    sample_count: usize,
-    channels: Vec<Option<Arc<[u8]>>>,
-}
-
-impl LogicChunk {
-    pub(crate) fn new(
-        start_sample: u64,
-        sample_count: usize,
-        channels: Vec<Option<Arc<[u8]>>>,
-    ) -> Self {
-        Self {
-            start_sample,
-            sample_count,
-            channels,
-        }
-    }
-
-    pub(crate) fn sample_count(&self) -> usize {
-        self.sample_count
-    }
-
-    fn end_sample(&self) -> Option<u64> {
-        self.start_sample.checked_add(self.sample_count as u64)
-    }
-
-    fn pin(&self, channel: usize, sample: usize) -> Option<bool> {
-        self.channels[channel].as_ref().map(|data| {
-            let byte = data[sample / 8];
-            (byte >> (sample % 8)) & 1 != 0
-        })
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WaitMatch {
@@ -396,7 +353,7 @@ impl WaitScheduler {
                 .iter_mut()
                 .map(|condition| condition.matches(&current_pins, &self.previous_pins))
                 .collect::<Vec<_>>();
-            self.previous_pins.clone_from(&current_pins);
+            self.previous_pins = current_pins.to_vec();
 
             if matched.iter().any(|matched| *matched) {
                 let pins = pin_values(&current_pins);
@@ -447,6 +404,8 @@ fn pin_values(pins: &[Option<bool>]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
 
     #[test]

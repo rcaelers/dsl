@@ -2,6 +2,8 @@
 mod native;
 #[cfg(all(feature = "developer-tools", not(target_arch = "wasm32")))]
 mod native_hardware_validation;
+#[cfg(not(target_arch = "wasm32"))]
+mod native_sigrok;
 #[cfg(target_arch = "wasm32")]
 mod web;
 
@@ -11,5 +13,7 @@ pub(crate) use native::standard_services;
 pub use native::{dispatch_host_command, set_recent_files_listener};
 #[cfg(all(feature = "developer-tools", not(target_arch = "wasm32")))]
 pub use native_hardware_validation::{validate_capture_hardware, validate_fpga_hardware};
+#[cfg(all(feature = "developer-tools", not(target_arch = "wasm32")))]
+pub use native_sigrok::{validate_spi_chunk_boundaries, validate_spi_oracle};
 #[cfg(target_arch = "wasm32")]
 pub(crate) use web::standard_services;

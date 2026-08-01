@@ -3,43 +3,30 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_api::node::RuntimeBuilder;
+use logic_analyzer_graph_api::node::{RuntimeBuilder, RuntimeBuilderOverride};
 use logic_analyzer_graph_api::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
-    SigrokChannel, SigrokDecoder, SigrokDecoderConfig, SigrokDecoderDescriptor, SigrokInitialPin,
-    SigrokOptionValue, discover_sigrok_decoder,
+    SigrokChannel, SigrokDecoderConfig, SigrokDecoderDescriptor, SigrokInitialPin,
+    SigrokOptionValue,
 };
 use node_graph::api::Socket;
 use signal_processing::{ProcessNode, ProtocolPacket, SampleBlock, Word};
 
 use super::definition::{SavedOptionControl, SavedOutputKind, SavedScalar, SigrokDecoderState};
+use crate::host_configuration::SigrokDecoderRuntime;
 
-trait SigrokDecoderBackend: Send + Sync {
-    fn discover(
-        &self,
-        decoder_root: &std::path::Path,
-        decoder_id: &str,
-    ) -> Result<SigrokDecoderDescriptor, String>;
+struct UnavailableSigrokDecoderRuntime;
 
-    fn create(
-        &self,
-        name: &str,
-        config: SigrokDecoderConfig,
-        work_executor: Arc<dyn signal_processing::WorkExecutor>,
-    ) -> Result<Box<dyn ProcessNode>, String>;
-}
-
-struct PythonSigrokDecoderBackend;
-
-impl SigrokDecoderBackend for PythonSigrokDecoderBackend {
+impl SigrokDecoderRuntime for UnavailableSigrokDecoderRuntime {
     fn discover(
         &self,
         decoder_root: &std::path::Path,
         decoder_id: &str,
     ) -> Result<SigrokDecoderDescriptor, String> {
-        discover_sigrok_decoder(decoder_root, decoder_id)
+        let _ = (decoder_root, decoder_id);
+        Err("Sigrok Python decoder runtime is unavailable on this host".into())
     }
 
     fn create(
@@ -48,19 +35,19 @@ impl SigrokDecoderBackend for PythonSigrokDecoderBackend {
         config: SigrokDecoderConfig,
         work_executor: Arc<dyn signal_processing::WorkExecutor>,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        SigrokDecoder::with_work_executor(config, work_executor)
-            .map(|decoder| Box::new(decoder.with_name(name)) as Box<dyn ProcessNode>)
+        let _ = (name, config, work_executor);
+        Err("Sigrok Python decoder runtime is unavailable on this host".into())
     }
 }
 
 pub(crate) struct SigrokDecoderBuilder {
-    backend: Arc<dyn SigrokDecoderBackend>,
+    backend: Arc<dyn SigrokDecoderRuntime>,
 }
 
 impl Default for SigrokDecoderBuilder {
     fn default() -> Self {
         Self {
-            backend: Arc::new(PythonSigrokDecoderBackend),
+            backend: Arc::new(UnavailableSigrokDecoderRuntime),
         }
     }
 }
@@ -70,10 +57,18 @@ impl SigrokDecoderBuilder {
         parse_state(state)
     }
 
-    #[cfg(test)]
-    fn with_backend(backend: Arc<dyn SigrokDecoderBackend>) -> Self {
+    fn with_backend(backend: Arc<dyn SigrokDecoderRuntime>) -> Self {
         Self { backend }
     }
+}
+
+pub(crate) fn runtime_builder_override(
+    runtime: Arc<dyn SigrokDecoderRuntime>,
+) -> RuntimeBuilderOverride {
+    RuntimeBuilderOverride::new(
+        "org.logicconduit.graph-node.decoders.sigrok-decoder/v1",
+        Box::new(SigrokDecoderBuilder::with_backend(runtime)),
+    )
 }
 
 impl RuntimeBuilder for SigrokDecoderBuilder {
@@ -360,7 +355,7 @@ mod builder_tests {
         }
     }
 
-    impl SigrokDecoderBackend for FakeBackend {
+    impl SigrokDecoderRuntime for FakeBackend {
         fn discover(
             &self,
             decoder_root: &Path,

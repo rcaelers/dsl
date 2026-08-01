@@ -13,6 +13,12 @@ use logic_analyzer_graph_compiler::{
     SourcePreparationExecutor, SourcePreparationResult, SourcePreparationTask,
     SourcePreparationTaskUpdate, SourcePreparationWork,
 };
+use logic_analyzer_graph_nodes::{
+    SigrokCatalogScanner, SigrokDecoderRuntime, install_sigrok_catalog_scanner,
+};
+use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+    SigrokCatalogSnapshot, SigrokDecoder, SigrokDecoderConfig, SigrokDecoderDescriptor,
+};
 use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::{
     DsLogicU3Pro16Capture, DsLogicU3Pro16Source, DsLogicU3Pro16SourceFactory,
     DsLogicU3Pro16TransportFactory, LinkSpeed, UsbError, UsbTransport,
@@ -31,10 +37,12 @@ use signal_processing::logic_analyzer::LogicAnalyzerError;
 use signal_processing::{
     AppManager, AppManagerBackend, AppManagerFactory, ArtifactKey, ArtifactMetadata,
     ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion, ImmutableByteRegion,
-    PersistentStoreConfig, PipelineManager, ReadArtifact, RepositoryCapabilities, RepositoryError,
-    SourceIdentity, WorkExecutor, WorkExecutorTask, WorkTask, WriteArtifact,
+    PersistentStoreConfig, PipelineManager, ProcessNode, ReadArtifact, RepositoryCapabilities,
+    RepositoryError, SourceIdentity, WorkExecutor, WorkExecutorTask, WorkTask, WriteArtifact,
 };
 
+use super::native_sigrok;
+use super::native_sigrok::{PythonSigrokExecutionFactory, discover_sigrok_decoder, scan_catalog};
 use crate::services::PlatformServices;
 
 #[cfg(target_os = "macos")]
@@ -86,8 +94,18 @@ pub(crate) fn standard_services() -> PlatformServices {
     let input_bindings = load_input_bindings();
     let application_settings = load_application_settings();
     let work_executor: Arc<dyn WorkExecutor> = Arc::new(NativeWorkExecutor::new());
-    let node_catalogs =
-        logic_analyzer_graph_nodes::native_node_catalogs(Arc::clone(&work_executor));
+    let settings_path = dirs::config_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("logic-conduit")
+        .join("sigrok_decoders.json");
+    let sigrok_catalog_scanner = native_sigrok_catalog_scanner();
+    install_sigrok_catalog_scanner(Arc::clone(&sigrok_catalog_scanner));
+    let node_catalogs = vec![Box::new(native_sigrok::directory_catalog(
+        settings_path,
+        native_sigrok_decoder_directories(),
+        Arc::clone(&work_executor),
+    ))
+        as Box<dyn logic_analyzer_graph_api::node::DirectoryNodeCatalog>];
     let ui_services = AppServices::with_host_storage_and_configuration(
         Box::new(NativeHostService::new()),
         storage_paths,
@@ -103,6 +121,9 @@ pub(crate) fn standard_services() -> PlatformServices {
         }),
         Arc::clone(&work_executor),
         vec![
+            logic_analyzer_graph_nodes::sigrok_decoder_runtime_builder_override(
+                native_sigrok_decoder_runtime(),
+            ),
             logic_analyzer_graph_nodes::u3pro16_runtime_builder_override(
                 native_u3pro16_source_factory(),
             ),
@@ -116,6 +137,70 @@ pub(crate) fn standard_services() -> PlatformServices {
         )),
         work_executor,
     )
+}
+
+struct NativeSigrokDecoderRuntime;
+
+impl SigrokDecoderRuntime for NativeSigrokDecoderRuntime {
+    fn discover(
+        &self,
+        decoder_root: &Path,
+        decoder_id: &str,
+    ) -> Result<SigrokDecoderDescriptor, String> {
+        discover_sigrok_decoder(decoder_root.to_owned(), decoder_id)
+    }
+
+    fn create(
+        &self,
+        name: &str,
+        config: SigrokDecoderConfig,
+        work_executor: Arc<dyn WorkExecutor>,
+    ) -> Result<Box<dyn ProcessNode>, String> {
+        SigrokDecoder::with_execution_factory(
+            config,
+            &PythonSigrokExecutionFactory::new(work_executor),
+        )
+        .map(|decoder| Box::new(decoder.with_name(name)) as Box<dyn ProcessNode>)
+    }
+}
+
+fn native_sigrok_decoder_runtime() -> Arc<dyn SigrokDecoderRuntime> {
+    static RUNTIME: OnceLock<Arc<NativeSigrokDecoderRuntime>> = OnceLock::new();
+    RUNTIME
+        .get_or_init(|| Arc::new(NativeSigrokDecoderRuntime))
+        .clone()
+}
+
+struct NativeSigrokCatalogScanner;
+
+impl SigrokCatalogScanner for NativeSigrokCatalogScanner {
+    fn scan(&self, directories: &[PathBuf]) -> SigrokCatalogSnapshot {
+        scan_catalog(directories)
+    }
+}
+
+fn native_sigrok_catalog_scanner() -> Arc<dyn SigrokCatalogScanner> {
+    static SCANNER: OnceLock<Arc<NativeSigrokCatalogScanner>> = OnceLock::new();
+    SCANNER
+        .get_or_init(|| Arc::new(NativeSigrokCatalogScanner))
+        .clone()
+}
+
+fn native_sigrok_decoder_directories() -> Vec<PathBuf> {
+    let mut paths = std::env::var_os("SIGROK_DECODERS_DIR")
+        .map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
+        .unwrap_or_default();
+    for path in [
+        PathBuf::from("/opt/homebrew/share/libsigrokdecode/decoders"),
+        PathBuf::from("/usr/local/share/libsigrokdecode/decoders"),
+        PathBuf::from("/usr/share/libsigrokdecode/decoders"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../dslogic/libsigrokdecode/decoders"),
+    ] {
+        if path.is_dir() && !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+    paths
 }
 
 const U3PRO16_LIFECYCLE: CaptureSourceLifecycle =

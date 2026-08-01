@@ -8,14 +8,15 @@ use std::thread::JoinHandle;
 
 use crossbeam_channel::{Receiver as ChannelReceiver, bounded};
 
+use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+    SigrokChannel, SigrokDecoder, SigrokDecoderConfig, SigrokInitialPin, SigrokOptionValue,
+};
 use signal_processing::{
     ChannelMessage, InputPort, OutputPort, ProcessNode, ProtocolPacket, ProtocolValue, SampleBlock,
     Sender, Watchdog, Word, WordPayload, WorkError, WorkExecutor, WorkExecutorTask, WorkTask,
 };
 
-use super::implementation::{
-    SigrokChannel, SigrokDecoder, SigrokDecoderConfig, SigrokInitialPin, SigrokOptionValue,
-};
+use super::execution::PythonSigrokExecutionFactory;
 
 #[derive(Debug, PartialEq)]
 struct SpiResult {
@@ -226,9 +227,10 @@ fn run_spi(
         metadata_output,
         packet_output,
     ];
-    let mut decoder = SigrokDecoder::with_work_executor(
+    let executor: Arc<dyn WorkExecutor> = Arc::new(ValidationWorkExecutor);
+    let mut decoder = SigrokDecoder::with_execution_factory(
         spi_config(decoder_root),
-        Arc::new(ValidationWorkExecutor),
+        &PythonSigrokExecutionFactory::new(executor),
     )?;
     loop {
         match decoder.work(&inputs, &outputs) {

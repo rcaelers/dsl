@@ -5,17 +5,21 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use serde::{Deserialize, Serialize};
 
 use logic_analyzer_graph_api::node::{DirectoryNodeCatalog, NodeCatalogStatus};
-use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
-    SigrokCatalogSnapshot, SigrokDecoderCatalog,
-};
+use logic_analyzer_processing::nodes::decoders::sigrok_decoder::SigrokCatalogSnapshot;
 use node_graph::NodeTemplate;
-#[cfg(test)]
-use signal_processing::InlineWorkExecutor;
 use signal_processing::{WorkExecutor, WorkTask};
 
-use super::definition::SigrokDecoderState;
+use super::discovery::scan_catalog;
 
 const NAMESPACE: &str = "logic_conduit.sigrok_python";
+
+pub(crate) fn directory_catalog(
+    settings_path: PathBuf,
+    default_directories: Vec<PathBuf>,
+    work_executor: Arc<dyn WorkExecutor>,
+) -> SigrokDirectoryCatalog {
+    SigrokDirectoryCatalog::with_work_executor(settings_path, default_directories, work_executor)
+}
 
 #[derive(Default, Deserialize, Serialize)]
 struct SavedSettings {
@@ -37,19 +41,15 @@ pub(crate) struct SigrokDirectoryCatalog {
 }
 
 impl SigrokDirectoryCatalog {
-    #[cfg(test)]
-    pub(crate) fn new(settings_path: PathBuf) -> Self {
-        Self::with_work_executor(settings_path, Arc::new(InlineWorkExecutor))
-    }
-
     pub(crate) fn with_work_executor(
         settings_path: PathBuf,
+        default_directories: Vec<PathBuf>,
         work_executor: Arc<dyn WorkExecutor>,
     ) -> Self {
         let (sender, receiver) = mpsc::channel();
         let directories = load_settings(&settings_path)
             .map(|settings| settings.directories)
-            .unwrap_or_else(super::definition::default_decoder_search_paths);
+            .unwrap_or(default_directories);
         let mut catalog = Self {
             settings_path,
             directories,
@@ -76,8 +76,7 @@ impl SigrokDirectoryCatalog {
         let task = self
             .work_executor
             .submit(Box::new(move || {
-                let snapshot = SigrokDecoderCatalog::default().refresh(&directories);
-                let _ = sender.send((generation, (*snapshot).clone()));
+                let _ = sender.send((generation, scan_catalog(&directories)));
             }))
             .expect("Sigrok decoder scan task can be scheduled");
         self.scan_tasks.push(task);
@@ -96,27 +95,7 @@ impl SigrokDirectoryCatalog {
                 .iter()
                 .map(|diagnostic| diagnostic.message.clone())
                 .collect();
-            self.templates = Some(
-                snapshot
-                    .entries
-                    .iter()
-                    .map(|entry| {
-                        let descriptor = &entry.descriptor;
-                        let tag = descriptor.tags.first().map_or("Other", String::as_str);
-                        NodeTemplate {
-                            name: format!("{} ({})", descriptor.name, descriptor.id),
-                            category: format!("External Sigrok::{tag}"),
-                            base_type: "Sigrok Decoder".to_owned(),
-                            title: format!("{} · Sigrok", descriptor.name),
-                            state: serde_json::to_value(SigrokDecoderState::from_descriptor(
-                                entry.decoder_root.clone(),
-                                descriptor,
-                            ))
-                            .expect("Sigrok decoder template state is serializable"),
-                        }
-                    })
-                    .collect(),
-            );
+            self.templates = Some(logic_analyzer_graph_nodes::sigrok_node_templates(&snapshot));
         }
     }
 
@@ -204,7 +183,11 @@ mod catalog_tests {
             .unwrap(),
         )
         .unwrap();
-        let mut catalog = SigrokDirectoryCatalog::new(settings_path);
+        let mut catalog = SigrokDirectoryCatalog::with_work_executor(
+            settings_path,
+            Vec::new(),
+            Arc::new(signal_processing::InlineWorkExecutor),
+        );
         let deadline = Instant::now() + Duration::from_secs(5);
 
         let templates = loop {

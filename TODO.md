@@ -90,8 +90,6 @@ Detailed architecture and capability contracts are documented in
 - [platform.data-plane.adapter-acquisition-export] Move host capture acquisition, file and browser-handle adapters,
   dialogs, and export destinations into `logic_analyzer_platform`. The compiler, processing nodes, and UI consume
   only their platform-neutral request and capability contracts.
-- [platform.data-plane.adapter-embedded-runtime] Move embedded interpreter and runtime-host setup into
-  `logic_analyzer_platform` behind a portable execution contract, so concrete node behavior remains target-neutral.
 - [platform.data-plane.storage-contracts] Apply the established platform-neutral prepared-byte-source,
   immutable-byte-region, artifact-repository, reader/writer, capability, and error contracts to the existing
   derived and capture stores. Keep paths, mmap, filesystem operations, and browser handles in

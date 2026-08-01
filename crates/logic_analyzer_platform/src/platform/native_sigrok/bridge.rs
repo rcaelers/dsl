@@ -5,33 +5,17 @@ use pyo3::Py;
 use pyo3::types::PyAny;
 use thiserror::Error;
 
+use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+    InitialPin, LogicChunk, OutputRegistration,
+};
+
 use super::conditions::WaitRequest;
-use super::scheduler::{LogicChunk, SchedulerError, SchedulerStatus, WaitMatch, WaitScheduler};
+use super::scheduler::{SchedulerError, SchedulerStatus, WaitMatch, WaitScheduler};
 
 #[derive(Debug)]
 enum InputMessage {
     Chunk(LogicChunk),
     Finish,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct OutputRegistration {
-    pub(crate) output_type: i32,
-    pub(crate) protocol_id: Option<String>,
-    pub(crate) metadata: Option<MetadataRegistration>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum MetadataType {
-    Integer,
-    Float,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct MetadataRegistration {
-    pub(crate) value_type: MetadataType,
-    pub(crate) name: String,
-    pub(crate) description: String,
 }
 
 #[derive(Debug)]
@@ -79,7 +63,7 @@ pub(crate) struct DecoderBridge {
 
 impl DecoderBridge {
     pub(crate) fn new(
-        channel_initial: Vec<Option<super::scheduler::InitialPin>>,
+        channel_initial: Vec<Option<InitialPin>>,
         queue_capacity: usize,
     ) -> Result<(Arc<Self>, Receiver<DecoderOutput>), BridgeError> {
         let connected_channels = channel_initial.iter().map(Option::is_some).collect();
@@ -217,9 +201,9 @@ pub(crate) fn matched_parts(result: WaitMatch) -> (u64, Vec<u8>, Option<Vec<bool
 
 #[cfg(test)]
 mod bridge_tests {
+    use logic_analyzer_processing::nodes::decoders::sigrok_decoder::InitialPin;
     use pyo3::Python;
 
-    use super::super::scheduler::InitialPin;
     use super::*;
 
     #[test]

@@ -4,10 +4,11 @@ use pyo3::exceptions::{PyEOFError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyDictMethods, PyFloat, PyInt, PyModule, PyTuple};
 
-use super::bridge::{
-    DecoderBridge, DecoderOutput, MetadataRegistration, MetadataType, OutputRegistration,
-    matched_parts,
+use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+    MetadataRegistration, MetadataType, OutputRegistration,
 };
+
+use super::bridge::{DecoderBridge, DecoderOutput, matched_parts};
 use super::conditions::{PinCondition, WaitCondition, WaitRequest, WaitTerm};
 use super::scheduler::SchedulerStatus;
 

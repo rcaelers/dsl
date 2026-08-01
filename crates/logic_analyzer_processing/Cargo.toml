@@ -21,13 +21,6 @@ required-features = ["developer-tools"]
 test = false
 bench = false
 
-[[bin]]
-name = "sigrok-upstream-validation"
-path = "src/bin/sigrok-upstream-validation/main.rs"
-required-features = ["developer-tools"]
-test = false
-bench = false
-
 [dependencies]
 signal-processing = { path = "../signal_processing" }
 zip = { workspace = true }
@@ -39,7 +32,6 @@ thiserror = { workspace = true }
 blake3 = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-pyo3 = { workspace = true }
 tempfile = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]

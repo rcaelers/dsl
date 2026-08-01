@@ -128,7 +128,7 @@ It depends inward on the crates that define capability contracts and returns imp
 those contracts to the application composition root. It does not define parallel copies of their
 data models.
 
-Its proposed private layout has one target-selection point:
+Its private layout has one target-selection point:
 
 ```text
 logic_analyzer_platform/
@@ -137,21 +137,13 @@ logic_analyzer_platform/
     services.rs               composition-only adapter bundle
     platform/
       mod.rs                  the only reusable target selector
-      native/
-        mod.rs
-        artifacts.rs          files, atomic publication, mmap regions
-        executor.rs           bounded native workers
-        acquisition.rs        native paths and dialogs
-        export.rs             native output destinations
-        interpreter.rs        optional embedded native runtime host
-        usb.rs                native USB transport
-      web/
-        mod.rs
-        acquisition.rs        browser handles and user gestures
-        export.rs             browser output destinations
-        opfs.rs               optional worker-owned persistent repository
-        worker.rs             optional Web Worker execution
-        usb.rs                optional WebUSB transport
+      native.rs               native host-service composition
+      native_sigrok/
+        mod.rs                embedded-Python Sigrok host composition
+        discovery.rs          package discovery and native directory scanning
+        execution.rs          Python-backed Sigrok execution factory
+        catalog.rs            persisted external-decoder catalog adapter
+      web.rs                  web host-service composition
 ```
 
 The crate root exposes constructors and an opaque composition bundle, not public `native` and
@@ -167,6 +159,15 @@ cache diagnostics, and capture export belong to `logic_analyzer_ui`.
 Making those ports implementable does not expose their concrete native or web dependencies. The
 capture-export port already has one target-neutral contract; moving its repository-backed adapter
 requires the common repository handle defined by the storage-contract work.
+
+The Sigrok decoder node follows the same split. `logic_analyzer_processing` owns the portable
+decoder configuration, state machine, output contracts, and `SigrokExecutionFactory` port.
+`logic_analyzer_graph_nodes` owns the portable graph-node schema and turns portable discovery
+snapshots into node templates. `logic_analyzer_platform::platform::native_sigrok` owns Python
+interpreter initialization, the `sigrokdecode` compatibility host, package discovery, directory
+settings, and the native execution-factory implementation. A host injects that factory and
+scanner; a host without an embedded runtime injects no implementation and the portable node
+reports that the capability is unavailable.
 
 The memory repository, owned backing, fake source, cooperative executor, and other host-independent
 implementations remain in their existing owner crates and can be selected on native, web, or in
