@@ -1,5 +1,7 @@
 use std::sync::{Arc, OnceLock};
 
+use signal_processing::WorkExecutor;
+
 use super::super::configuration::SigrokFileSourceConfig;
 use super::super::facade::SigrokFileSourceFactory;
 use super::super::implementation::SigrokFileSource;
@@ -82,6 +84,7 @@ impl SigrokFileSourceFactory for NativeSigrokFileSourceFactory {
         &self,
         name: &str,
         config: SigrokFileSourceConfig,
+        work_executor: Arc<dyn WorkExecutor>,
     ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
         let metadata = self.metadata(config.clone());
         let process = if config.demo_data() {
@@ -94,7 +97,8 @@ impl SigrokFileSourceFactory for NativeSigrokFileSourceFactory {
             Box::new(
                 SigrokFileSource::new(config.path())
                     .map_err(|error| error.to_string())?
-                    .with_name(name),
+                    .with_name(name)
+                    .with_work_executor(work_executor),
             )
         };
         Ok(ProcessNodeConstruction::new(process, metadata))

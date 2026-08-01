@@ -11,19 +11,17 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use tracing::debug;
 
 use signal_processing::capture::CaptureTransition;
+#[cfg(test)]
+use signal_processing::{CompletedWorkTask, WorkTask};
 use signal_processing::{
     EdgeQuery, InputPort, InputProtocolCandidate, OutputPort, ProcessNode, ProtocolKind, Receiver,
     Sample, SampleBlock, SamplingPoint, SamplingPointStore, Word, WorkError, WorkExecutor,
     WorkOutcome, WorkResult,
 };
 
-#[cfg(test)]
-use signal_processing::{CompletedWorkTask, WorkTask};
-
-use crate::types::{CsPolarity, Endianness};
-
 use super::sampling_provider::{ParallelSamplingProgress, install_sampling_provider};
 use super::types::{ParallelInputStrategy, StrobeMode};
+use crate::types::{CsPolarity, Endianness};
 
 #[cfg(test)]
 struct SpawnWorkExecutor {

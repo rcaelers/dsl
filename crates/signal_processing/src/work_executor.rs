@@ -15,8 +15,16 @@ pub trait WorkExecutor: Send + Sync {
     /// Number of independent tasks the host can run concurrently.
     fn available_parallelism(&self) -> usize;
 
-    /// Enqueues one task without exposing worker implementation details.
+    /// Enqueues finite work without exposing worker implementation details.
     fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String>;
+
+    /// Starts long-lived work that may block on runtime stream endpoints.
+    ///
+    /// Hosts with a bounded finite-work queue override this to keep a slow
+    /// reader, processing node, or watchdog from starving indexing work.
+    fn submit_long_running(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        self.submit(task)
+    }
 }
 
 /// Portable executor that performs work on the calling cooperative pump.

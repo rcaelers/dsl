@@ -73,7 +73,7 @@ impl Scheduler {
         debug!("Starting process node: {}", name);
 
         let task = work_executor
-            .submit(Box::new(move || {
+            .submit_long_running(Box::new(move || {
                 if node.is_self_threading() {
                     // Self-threading node: call work() once to start internal threads
                     if let Err(e) = node.work_outcome(&inputs, &outputs) {

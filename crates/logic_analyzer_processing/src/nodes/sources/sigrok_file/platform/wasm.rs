@@ -1,5 +1,7 @@
 use std::sync::{Arc, OnceLock};
 
+use signal_processing::WorkExecutor;
+
 use super::super::configuration::SigrokFileSourceConfig;
 use super::super::facade::SigrokFileSourceFactory;
 use crate::nodes::sources::synthetic_capture_source::{
@@ -57,6 +59,7 @@ impl SigrokFileSourceFactory for WasmSigrokFileSourceFactory {
         &self,
         name: &str,
         config: SigrokFileSourceConfig,
+        _work_executor: Arc<dyn WorkExecutor>,
     ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
         let metadata = self.metadata(config.clone());
         Ok(ProcessNodeConstruction::new(

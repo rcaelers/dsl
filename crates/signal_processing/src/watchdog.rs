@@ -148,7 +148,7 @@ impl Watchdog {
         work_executor: Arc<dyn WorkExecutor>,
     ) -> Result<Box<dyn WorkTask>, String> {
         let watchdog = self.clone();
-        work_executor.submit(Box::new(move || {
+        work_executor.submit_long_running(Box::new(move || {
             loop {
                 {
                     let enabled = watchdog.enabled.lock().unwrap();

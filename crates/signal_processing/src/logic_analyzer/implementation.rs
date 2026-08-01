@@ -347,7 +347,7 @@ impl<A: LogicAnalyzer> ProcessNode for LogicAnalyzerSource<A> {
         let completed = Arc::clone(&self.completed);
         self.task = Some(
             self.work_executor
-                .submit(Box::new(move || {
+                .submit_long_running(Box::new(move || {
                     Self::run(
                         analyzer,
                         config,

@@ -152,6 +152,10 @@ impl WorkExecutor for NativeWorkExecutor {
             completion_receiver,
         }))
     }
+
+    fn submit_long_running(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        spawn_runtime_task(task)
+    }
 }
 
 struct NativeWorkTask {
@@ -171,22 +175,26 @@ impl WorkExecutor for NativeRuntimeExecutor {
     }
 
     fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
-        let completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let task_completed = Arc::clone(&completed);
-        let (completion_sender, completion_receiver) = crossbeam_channel::bounded(1);
-        std::thread::Builder::new()
-            .name("processing-runtime".into())
-            .spawn(move || {
-                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(task));
-                task_completed.store(true, Ordering::Release);
-                let _ = completion_sender.send(());
-            })
-            .map_err(|error| error.to_string())?;
-        Ok(Box::new(NativeWorkTask {
-            completed,
-            completion_receiver,
-        }))
+        spawn_runtime_task(task)
     }
+}
+
+fn spawn_runtime_task(task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+    let completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let task_completed = Arc::clone(&completed);
+    let (completion_sender, completion_receiver) = crossbeam_channel::bounded(1);
+    std::thread::Builder::new()
+        .name("processing-runtime".into())
+        .spawn(move || {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(task));
+            task_completed.store(true, Ordering::Release);
+            let _ = completion_sender.send(());
+        })
+        .map_err(|error| error.to_string())?;
+    Ok(Box::new(NativeWorkTask {
+        completed,
+        completion_receiver,
+    }))
 }
 
 impl WorkTask for NativeWorkTask {

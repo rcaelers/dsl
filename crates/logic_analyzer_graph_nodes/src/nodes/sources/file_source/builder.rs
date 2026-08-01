@@ -106,11 +106,11 @@ impl RuntimeBuilder for FileSourceBuilder {
         name: &str,
         state: &Value,
         _resolved: &ResolvedInputs,
-        _ctx: &mut dyn NodeBuildContext,
+        ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state: super::definition::DslFileSourceState = parse_state(state)?;
         self.source_factory
-            .create(name, Self::config(&state))
+            .create(name, Self::config(&state), ctx.work_executor())
             .map(logic_analyzer_processing::ProcessNodeConstruction::into_process)
             .map_err(|error| format!("cannot open '{}': {error}", state.file.value))
     }
@@ -207,6 +207,7 @@ mod builder_tests {
             &self,
             name: &str,
             config: DslFileSourceConfig,
+            _work_executor: Arc<dyn signal_processing::WorkExecutor>,
         ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
             self.opened
                 .lock()

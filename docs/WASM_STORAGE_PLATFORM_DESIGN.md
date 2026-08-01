@@ -43,10 +43,10 @@ The application-runtime facade likewise receives a factory from platform composi
 receive the threaded pipeline-manager backend; web runs receive the portable cooperative backend.
 The compiler creates managers through the same factory contract and does not select either backend.
 Portable processing work uses the `signal_processing::WorkExecutor` contract. The platform service
-bundle supplies one bounded native worker queue or the portable inline executor, passes it through
-the UI graph-service construction boundary, and the compiler makes it available to node builders in
-their `NodeBuildContext`. Concrete nodes choose whether and how to use that capability without
-selecting a target or a platform implementation.
+bundle supplies bounded finite-work execution and host-owned long-running task execution through
+one capability, passes it through the UI graph-service construction boundary, and the compiler makes
+it available to node builders in their `NodeBuildContext`. Concrete nodes choose whether they need
+finite or long-running work without selecting a target or a platform implementation.
 Native shell integrations exchange portable commands and UI state through that service contract;
 their queues and repaint wake-ups remain inside the platform adapter. Runtime cache diagnostics use
 the same adapter boundary and one portable UI snapshot path. Embedded graph-node file controls use
@@ -424,29 +424,28 @@ storage.
 ### Execution
 
 Execution is a separate platform capability because native blocking threads are not available to
-`wasm32-unknown-unknown`. Shared algorithms expose bounded work units and deterministic merge
-ordering. A platform executor decides when and where those units run.
+`wasm32-unknown-unknown`. Shared algorithms submit finite work units and long-running stream tasks
+through one platform executor. The platform decides when and where those units run.
 
 The executor contract provides:
 
-- advertised parallelism and whether independent source readers are supported;
-- bounded submission and backpressure;
-- progress and completion polling;
-- cancellation;
-- deterministic output ordering independent of completion order;
-- failure propagation without publishing partial artifacts.
+- advertised parallelism for finite work;
+- bounded finite-work submission and backpressure;
+- host-owned long-running task execution for stream readers and runtime supervision;
+- completion polling and waiting;
+- deterministic output ordering independent of completion order.
 
-The native executor adapter in `logic_analyzer_platform` uses a bounded worker pool. The portable
+The native executor adapter in `logic_analyzer_platform` uses a bounded worker pool for finite
+work and host-created tasks for long-running readers and runtime supervision. The portable
 cooperative executor compiles on every target; the web composition selects it and drives it through
 the application pump. A future Web Worker adapter in `logic_analyzer_platform` uses explicit
 serializable work messages and returns owned result chunks. It does not attempt to send Rust
 closures, trait objects, mmap handles, or borrowed slices between workers.
 
-The reusable global worker pool is absent. In the proposed architecture, long-running runtime
-supervision, capture indexing, file-source delivery, embedded decoder execution, and live-device
-acquisition each use a dedicated capability boundary because they have different cancellation,
-reader, lifecycle, and host-resource requirements. Their adapters are selected by platform
-composition rather than by target conditionals in the shared algorithm.
+The reusable core worker pool is absent. The execution contract separates bounded finite work from
+long-running runtime supervision and file-source delivery so blocked stream endpoints cannot starve
+indexing. Host adapters select their implementation by platform composition rather than target
+conditionals in shared algorithms.
 
 Worker transfers move ownership of large `ArrayBuffer` values where possible. Shared-memory worker
 execution is optional because it requires a suitable browser and deployment isolation policy.

@@ -754,7 +754,9 @@ std::cfg_select! {
         }
         let samples = args.samples.min(source.total_samples());
         let samplerate_hz = source.samplerate_hz();
-        let source = source.with_max_samples(Some(samples));
+        let source = source
+            .with_max_samples(Some(samples))
+            .with_work_executor(Arc::new(BenchmarkWorkExecutor));
         let cs_polarity = CsPolarity::from(args.cs_polarity);
         let input_strategy = match mode {
             BenchMode::Indexed => ParallelInputStrategy::Indexed,

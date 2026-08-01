@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use signal_processing::WorkExecutor;
+
 use super::configuration::SigrokFileSourceConfig;
 use super::platform;
 use crate::{CaptureSourceLifecycle, CaptureSourceMetadata, ProcessNodeConstruction};
@@ -12,6 +14,7 @@ pub trait SigrokFileSourceFactory: Send + Sync {
         &self,
         name: &str,
         config: SigrokFileSourceConfig,
+        work_executor: Arc<dyn WorkExecutor>,
     ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String>;
 }
 

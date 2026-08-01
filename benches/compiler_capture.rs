@@ -310,7 +310,12 @@ fn attach_matcher_tap(widget: &mut NodeGraphWidget) -> (NodeId, usize) {
 fn run_phase_one_reference(capture: &Path, output: &Path) {
     let mut pipeline = Pipeline::new().with_default_buffer_size(10_000_000);
     pipeline
-        .add_process("source", DslFileSource::new(capture).unwrap())
+        .add_process(
+            "source",
+            DslFileSource::new(capture)
+                .unwrap()
+                .with_work_executor(runtime_executor()),
+        )
         .unwrap();
     pipeline
         .add_process("spi", SpiDecoder::new(SpiMode::Mode0, 24, true, false))
@@ -379,7 +384,12 @@ fn run_phase_one_reference(capture: &Path, output: &Path) {
 fn run_current_reference(capture: &Path, output: &Path) {
     let mut pipeline = Pipeline::new().with_default_buffer_size(10_000_000);
     pipeline
-        .add_process("source", DslFileSource::new(capture).unwrap())
+        .add_process(
+            "source",
+            DslFileSource::new(capture)
+                .unwrap()
+                .with_work_executor(runtime_executor()),
+        )
         .unwrap();
     pipeline
         .add_process("spi", SpiDecoder::new(SpiMode::Mode0, 24, true, false))

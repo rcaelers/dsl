@@ -3,12 +3,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::thread::JoinHandle;
 
 use signal_processing::{
-    CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, InputPort, OutputPort,
-    PortDirection, PortSchema, ProcessNode, Result, Sample, SampleBlock, SampleKind, Sender,
-    WorkError, WorkExecutor, WorkResult,
+    CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, InlineWorkExecutor, InputPort,
+    OutputPort, PortDirection, PortSchema, ProcessNode, Result, Sample, SampleBlock, SampleKind,
+    Sender, WorkError, WorkExecutor, WorkResult, WorkTask,
 };
 
 use crate::support::capture_index::capture_cache_identity;
@@ -21,9 +20,10 @@ pub struct SigrokFileSource {
     num_channels: usize,
     shutdown: Arc<AtomicBool>,
     completed: Arc<AtomicUsize>,
-    threads: Option<Vec<JoinHandle<()>>>,
+    reader_tasks: Option<Vec<Box<dyn WorkTask>>>,
     spawned: bool,
     num_threads: usize,
+    work_executor: Arc<dyn WorkExecutor>,
 }
 
 struct ChannelStream {
@@ -164,14 +164,21 @@ impl SigrokFileSource {
             num_channels,
             shutdown: Arc::new(AtomicBool::new(false)),
             completed: Arc::new(AtomicUsize::new(0)),
-            threads: None,
+            reader_tasks: None,
             spawned: false,
             num_threads: 0,
+            work_executor: Arc::new(InlineWorkExecutor),
         }
     }
 
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
+        self
+    }
+
+    /// Selects the host executor used for independently scheduled readers.
+    pub fn with_work_executor(mut self, work_executor: Arc<dyn WorkExecutor>) -> Self {
+        self.work_executor = work_executor;
         self
     }
 
@@ -212,7 +219,7 @@ impl ProcessNode for SigrokFileSource {
         }
         self.spawned = true;
         let timestamp_step = (1_000_000_000.0 / self.capture.metadata().samplerate_hz) as u64;
-        let mut threads = Vec::new();
+        let mut reader_tasks = Vec::new();
         for channel in 0..self.num_channels {
             let Some(output) = outputs.get(channel) else {
                 continue;
@@ -224,19 +231,23 @@ impl ProcessNode for SigrokFileSource {
                     let completed = Arc::clone(&self.completed);
                     let unitsize = self.capture.unitsize();
                     let total_samples = self.capture.metadata().total_samples as usize;
-                    threads.push(std::thread::spawn(move || {
-                        ChannelStream {
-                            samples,
-                            unitsize,
-                            channel,
-                            total_samples,
-                            timestamp_step,
-                            sender,
-                            shutdown,
-                            completed,
-                        }
-                        .run()
-                    }));
+                    let task = self
+                        .work_executor
+                        .submit_long_running(Box::new(move || {
+                            ChannelStream {
+                                samples,
+                                unitsize,
+                                channel,
+                                total_samples,
+                                timestamp_step,
+                                sender,
+                                shutdown,
+                                completed,
+                            }
+                            .run()
+                        }))
+                        .map_err(WorkError::NodeError)?;
+                    reader_tasks.push(task);
                 }
             }
             if let Some(senders) = output.split_senders::<SampleBlock>() {
@@ -246,24 +257,28 @@ impl ProcessNode for SigrokFileSource {
                     let completed = Arc::clone(&self.completed);
                     let unitsize = self.capture.unitsize();
                     let total_samples = self.capture.metadata().total_samples as usize;
-                    threads.push(std::thread::spawn(move || {
-                        ChannelBlockStream {
-                            samples,
-                            unitsize,
-                            channel,
-                            total_samples,
-                            timestamp_step,
-                            sender,
-                            shutdown,
-                            completed,
-                        }
-                        .run()
-                    }));
+                    let task = self
+                        .work_executor
+                        .submit_long_running(Box::new(move || {
+                            ChannelBlockStream {
+                                samples,
+                                unitsize,
+                                channel,
+                                total_samples,
+                                timestamp_step,
+                                sender,
+                                shutdown,
+                                completed,
+                            }
+                            .run()
+                        }))
+                        .map_err(WorkError::NodeError)?;
+                    reader_tasks.push(task);
                 }
             }
         }
-        self.num_threads = threads.len();
-        self.threads = Some(threads);
+        self.num_threads = reader_tasks.len();
+        self.reader_tasks = Some(reader_tasks);
         Ok(0)
     }
 }
@@ -271,9 +286,9 @@ impl ProcessNode for SigrokFileSource {
 impl Drop for SigrokFileSource {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::Relaxed);
-        if let Some(threads) = self.threads.take() {
-            for thread in threads {
-                let _ = thread.join();
+        if let Some(tasks) = self.reader_tasks.take() {
+            for task in tasks {
+                task.wait();
             }
         }
     }
@@ -284,6 +299,9 @@ mod tests {
     use std::collections::BTreeMap;
 
     use signal_processing::capture::{CaptureDataSource, CaptureSource};
+    use signal_processing::{
+        CompletedWorkTask, OutputPort, Sender, Watchdog, WorkExecutor, WorkExecutorTask, WorkTask,
+    };
 
     use super::*;
     use crate::support::capture_archive::CaptureArchive;
@@ -301,6 +319,32 @@ mod tests {
                 &[0, 1, 1, 0, 0, 1, 0, 1],
             );
         SigrokCapture::from_archive(&mut archive, 1).unwrap()
+    }
+
+    struct RecordingReaderExecutor {
+        submitted: AtomicUsize,
+    }
+
+    impl WorkExecutor for RecordingReaderExecutor {
+        fn available_parallelism(&self) -> usize {
+            1
+        }
+
+        fn submit(
+            &self,
+            _task: WorkExecutorTask,
+        ) -> std::result::Result<Box<dyn WorkTask>, String> {
+            Err("finite work must not schedule a file reader".into())
+        }
+
+        fn submit_long_running(
+            &self,
+            task: WorkExecutorTask,
+        ) -> std::result::Result<Box<dyn WorkTask>, String> {
+            self.submitted.fetch_add(1, Ordering::Relaxed);
+            task();
+            Ok(Box::new(CompletedWorkTask))
+        }
     }
 
     #[test]
@@ -341,6 +385,28 @@ mod tests {
             data_source.open_reader().unwrap().metadata().total_samples,
             8
         );
+    }
+
+    #[test]
+    fn source_schedules_readers_through_the_injected_executor() {
+        let executor = Arc::new(RecordingReaderExecutor {
+            submitted: AtomicUsize::new(0),
+        });
+        let mut source =
+            SigrokFileSource::from_capture(fixture("2", true)).with_work_executor(executor.clone());
+        let watchdog = Watchdog::new();
+        let (sender, _receiver) = crossbeam_channel::bounded(16);
+        let outputs = [OutputPort::new_with_watchdog(
+            Sender::<Sample>::new(vec![sender]),
+            &watchdog,
+            "source",
+            "ch0",
+        )];
+
+        source.work(&[], &outputs).unwrap();
+
+        assert_eq!(executor.submitted.load(Ordering::Relaxed), 1);
+        assert!(source.should_stop());
     }
 
     #[derive(Default)]

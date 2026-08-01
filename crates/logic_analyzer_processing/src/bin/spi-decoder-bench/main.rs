@@ -111,7 +111,9 @@ std::cfg_select! {
                 }
                 let samples = args.samples.min(source.total_samples());
                 let capture_seconds = samples as f64 / source.samplerate_hz();
-                let source = source.with_max_samples(Some(samples));
+                let source = source
+                    .with_max_samples(Some(samples))
+                    .with_work_executor(Arc::new(BenchmarkWorkExecutor));
                 let mut decoder =
                     SpiDecoder::new(SpiMode::Mode0, args.bits.clamp(1, 64), true, false);
 

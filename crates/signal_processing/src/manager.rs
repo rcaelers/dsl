@@ -562,7 +562,7 @@ impl PipelineManager {
             .collect();
 
         let task = work_executor
-            .submit(Box::new(move || {
+            .submit_long_running(Box::new(move || {
                 if node.is_self_threading() {
                     // Start internal threads once, then supervise.
                     if let Err(e) = node.work_outcome(&inputs, &outputs) {

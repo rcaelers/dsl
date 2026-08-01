@@ -3,24 +3,23 @@
 //! Provides `DslFileSource` - a runtime process node that reads DSLogic .dsl capture files
 //! and outputs Sample streams per channel (run-length encoded for efficiency).
 //!
-//! Each broadcast destination runs in its own independent reading thread, so a slow consumer
-//! on one destination never blocks other destinations. All threads share one capture archive
+//! Each broadcast destination runs in its own independently scheduled reader, so a slow consumer
+//! on one destination never blocks other destinations. All readers share one capture archive
 //! and block cache via `Arc<Mutex<..>>`.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 
 use tracing::{debug, info, warn};
 
 use signal_processing::capture::{BlockData, CaptureMetadata, CaptureTransition};
 use signal_processing::waveform_index::IndexSampler;
 use signal_processing::{
-    CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, EdgeQuery, Error, InputPort,
-    OutputPort, ProcessNode, ProtocolKind, Result, Sample, SampleBlock, SampleKind, Sender,
-    WorkExecutor, WorkResult,
+    CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, EdgeQuery, Error,
+    InlineWorkExecutor, InputPort, OutputPort, ProcessNode, ProtocolKind, Result, Sample,
+    SampleBlock, SampleKind, Sender, WorkExecutor, WorkResult, WorkTask,
 };
 
 use crate::support::capture_archive::{CaptureArchive, ZipCaptureArchive};
@@ -181,28 +180,29 @@ impl EdgeQuery for DslChannelEdgeIndex {
 /// This runtime `ProcessNode` (with 0 inputs, N outputs) reads from a .dsl file and outputs
 /// Sample streams for each channel (run-length encoded for efficiency).
 ///
-/// ## Threading Model
+/// ## Reader execution model
 ///
-/// This is a **self-threading node** (`is_self_threading() = true`). On the first (and only)
-/// call to `work()`, it spawns one internal worker thread **per broadcast destination**.
+/// This is a **self-scheduled node** (`is_self_threading() = true`). On the first (and only)
+/// call to `work()`, it submits one internal reader task **per broadcast destination** to its
+/// injected host executor.
 /// The scheduler thread then waits for `should_stop()` to signal completion, rather than
 /// calling `work()` repeatedly.
 ///
 /// If a channel is broadcast to multiple receivers, each receiver gets its own independent
-/// reading thread. This eliminates head-of-line blocking: slow consumers don't block fast ones.
-/// All threads share a single capture archive and block cache via `Arc<Mutex<..>>`.
+/// reader task. This eliminates head-of-line blocking: slow consumers don't block fast ones.
+/// All readers share a single capture archive and block cache via `Arc<Mutex<..>>`.
 ///
-/// Example: If channel 0 connects to both `spi_decoder` and `parallel_decoder`, two threads
-/// are spawned:
-/// - Thread 1: reads channel 0 data → sends to `spi_decoder`
-/// - Thread 2: reads channel 0 data → sends to `parallel_decoder`
+/// Example: If channel 0 connects to both `spi_decoder` and `parallel_decoder`, two readers
+/// are submitted:
+/// - Reader 1: reads channel 0 data → sends to `spi_decoder`
+/// - Reader 2: reads channel 0 data → sends to `parallel_decoder`
 ///
-/// If `parallel_decoder` blocks (waiting for enable signal), Thread 2 blocks but Thread 1
+/// If `parallel_decoder` blocks (waiting for enable signal), Reader 2 blocks but Reader 1
 /// continues, ensuring `spi_decoder` receives data without interruption.
 ///
 /// # Features
 /// - Opens and parses DSLogic capture files (.dsl format)
-/// - Per-destination threading eliminates head-of-line blocking
+/// - Per-destination reader tasks eliminate head-of-line blocking
 /// - On-demand block loading with shared caching for efficiency
 /// - Automatic timestamp generation based on sample rate
 /// - Sample output (only sends on signal transitions)
@@ -215,7 +215,7 @@ impl EdgeQuery for DslChannelEdgeIndex {
 /// ```
 pub struct DslFileSource {
     name: String,
-    // File access (shared across all channel threads)
+    // File access shared across all channel readers.
     path: PathBuf,
     archive: SharedCaptureArchive,
     header: CaptureMetadata,
@@ -225,12 +225,13 @@ pub struct DslFileSource {
     num_channels: usize,
     max_samples: Option<u64>,
 
-    // Per-channel thread management
+    // Per-destination reader task management.
     shutdown: Arc<AtomicBool>,
     threads_completed: Arc<AtomicUsize>,
-    thread_handles: Option<Vec<JoinHandle<()>>>,
+    reader_tasks: Option<Vec<Box<dyn WorkTask>>>,
     threads_spawned: bool,
     num_threads: usize,
+    work_executor: Arc<dyn WorkExecutor>,
 
     // Lazily-built random-access waveform index, shared across every
     // channel's `edge_query()` handle. Built at most once, only if a
@@ -282,9 +283,10 @@ impl DslFileSource {
             max_samples: None,
             shutdown: Arc::new(AtomicBool::new(false)),
             threads_completed: Arc::new(AtomicUsize::new(0)),
-            thread_handles: None,
+            reader_tasks: None,
             threads_spawned: false,
             num_threads: 0,
+            work_executor: Arc::new(InlineWorkExecutor),
             index: Mutex::new(None),
         })
     }
@@ -372,6 +374,12 @@ impl DslFileSource {
         self
     }
 
+    /// Selects the host executor used for independently scheduled readers.
+    pub fn with_work_executor(mut self, work_executor: Arc<dyn WorkExecutor>) -> Self {
+        self.work_executor = work_executor;
+        self
+    }
+
     /// Set maximum number of samples to read from file (for benchmarking)
     pub fn with_max_samples(mut self, max_samples: Option<u64>) -> Self {
         self.max_samples = max_samples;
@@ -397,7 +405,7 @@ impl DslFileSource {
 
         // Archive access is serialized. Recheck the cache after obtaining
         // that lock because another destination may have decompressed this
-        // block while this thread was waiting.
+        // block while this reader was waiting.
         let mut archive_guard = archive.lock().unwrap();
         if let Some(data) = blocks.lock().unwrap().get(key) {
             return Ok(data);
@@ -411,12 +419,12 @@ impl DslFileSource {
         Ok(data)
     }
 
-    /// Worker thread that reads one channel's data and sends to one destination.
+    /// Reader task that sends one channel's data to one destination.
     ///
-    /// Each thread loads blocks from the shared archive + cache, walks bits
-    /// to detect edges, and sends Samples to its destination. Threads are
+    /// Each task loads blocks from the shared archive + cache, walks bits
+    /// to detect edges, and sends Samples to its destination. Tasks are
     /// fully independent — if a channel is broadcast to multiple destinations,
-    /// each destination gets its own thread reading the same channel data.
+    /// each destination gets its own reader task reading the same channel data.
     /// This eliminates head-of-line blocking: slow destinations don't block fast ones.
     ///
     /// Cross-channel temporal alignment is handled by downstream decoders
@@ -445,7 +453,7 @@ impl DslFileSource {
         let mut items_sent: u64 = 0;
 
         info!(
-            "[{}] Starting channel reader thread ({} samples, {} blocks)",
+            "[{}] Starting channel reader ({} samples, {} blocks)",
             label, total_samples, header.total_blocks
         );
 
@@ -685,7 +693,7 @@ impl ProcessNode for DslFileSource {
         let channel = port;
         let sampler = self.edge_index_handle()?;
         // Honor `with_max_samples` the same way the streaming reader
-        // threads do, so a bounded source behaves identically regardless
+        // readers do, so a bounded source behaves identically regardless
         // of which protocol a connection negotiates.
         let total_samples = self
             .max_samples
@@ -710,25 +718,25 @@ impl ProcessNode for DslFileSource {
             ));
         }
 
-        // First and only call: spawn one thread per connected output destination
+        // First and only call: submit one reader per connected output destination.
         self.threads_spawned = true;
 
         info!(
-            "File source: Spawning per-destination threads for {} samples at {:.1} MHz ({} channels)",
+            "File source: Scheduling per-destination readers for {} samples at {:.1} MHz ({} channels)",
             self.header.total_samples,
             self.header.samplerate_hz / 1_000_000.0,
             self.num_channels
         );
 
-        // Collect all channel-destination pairs to spawn threads for
-        // Each destination gets its own independent reader thread. Every
+        // Collect all channel-destination pairs to schedule readers for.
+        // Each destination gets its own independent reader task. Every
         // channel has exactly one output port now, but that port can
         // carry `Sample` and `SampleBlock` destinations simultaneously
         // (negotiated per connection — see `output_sample_kinds`), so
         // both queries run independently against the same port.
-        let mut edge_thread_configs: Vec<(usize, usize, Sender<Sample>, Option<String>)> =
+        let mut edge_reader_configs: Vec<(usize, usize, Sender<Sample>, Option<String>)> =
             Vec::new();
-        let mut block_thread_groups: HashMap<String, Vec<BlockDestination>> = HashMap::new();
+        let mut block_reader_groups: HashMap<String, Vec<BlockDestination>> = HashMap::new();
 
         for channel_idx in 0..self.num_channels {
             let Some(port) = outputs.get(channel_idx) else {
@@ -737,7 +745,7 @@ impl ProcessNode for DslFileSource {
             if let Some(senders) = port.split_senders::<Sample>() {
                 for (dest_idx, sender) in senders.into_iter().enumerate() {
                     let destination = sender.destination_label().map(str::to_owned);
-                    edge_thread_configs.push((channel_idx, dest_idx, sender, destination));
+                    edge_reader_configs.push((channel_idx, dest_idx, sender, destination));
                 }
             }
             if let Some(senders) = port.split_senders::<SampleBlock>() {
@@ -745,7 +753,7 @@ impl ProcessNode for DslFileSource {
                     let destination = sender.destination_label().map(str::to_owned);
                     let group =
                         block_destination_group(channel_idx, dest_idx, destination.as_deref());
-                    block_thread_groups
+                    block_reader_groups
                         .entry(group)
                         .or_default()
                         .push(BlockDestination {
@@ -756,10 +764,10 @@ impl ProcessNode for DslFileSource {
             }
         }
 
-        let mut handles = Vec::new();
+        let mut reader_tasks = Vec::new();
 
-        // Spawn edge reader threads
-        for (channel_idx, dest_idx, sender, destination) in edge_thread_configs.into_iter() {
+        // Schedule edge readers.
+        for (channel_idx, _dest_idx, sender, destination) in edge_reader_configs {
             let archive = Arc::clone(&self.archive);
             let blocks = Arc::clone(&self.blocks);
             let header = self.header.clone();
@@ -767,9 +775,9 @@ impl ProcessNode for DslFileSource {
             let shutdown = Arc::clone(&self.shutdown);
             let completed = Arc::clone(&self.threads_completed);
 
-            let handle = std::thread::Builder::new()
-                .name(format!("dsl_ch{}_edge_dest{}", channel_idx, dest_idx))
-                .spawn(move || {
+            let task = self
+                .work_executor
+                .submit_long_running(Box::new(move || {
                     Self::channel_reader_thread(ChannelReaderConfig {
                         archive,
                         blocks,
@@ -781,15 +789,15 @@ impl ProcessNode for DslFileSource {
                         shutdown,
                         completed,
                     });
-                })
-                .expect("Failed to spawn DslFileSource edge reader thread");
+                }))
+                .map_err(WorkError::NodeError)?;
 
-            handles.push(handle);
+            reader_tasks.push(task);
         }
 
         // Each destination node receives all of its raw channels from one
         // block-major worker. Different destinations remain independent.
-        for (group_label, mut destinations) in block_thread_groups {
+        for (group_label, mut destinations) in block_reader_groups {
             destinations.sort_by_key(|destination| destination.channel);
             let archive = Arc::clone(&self.archive);
             let blocks = Arc::clone(&self.blocks);
@@ -799,9 +807,9 @@ impl ProcessNode for DslFileSource {
             let shutdown = Arc::clone(&self.shutdown);
             let completed = Arc::clone(&self.threads_completed);
 
-            let handle = std::thread::Builder::new()
-                .name(format!("dsl_blocks_{group_label}"))
-                .spawn(move || {
+            let task = self
+                .work_executor
+                .submit_long_running(Box::new(move || {
                     Self::block_reader_thread(BlockReaderGroupConfig {
                         archive,
                         blocks,
@@ -813,17 +821,17 @@ impl ProcessNode for DslFileSource {
                         shutdown,
                         completed,
                     });
-                })
-                .expect("Failed to spawn DslFileSource block reader thread");
+                }))
+                .map_err(WorkError::NodeError)?;
 
-            handles.push(handle);
+            reader_tasks.push(task);
         }
 
-        self.num_threads = handles.len();
-        self.thread_handles = Some(handles);
+        self.num_threads = reader_tasks.len();
+        self.reader_tasks = Some(reader_tasks);
 
         info!(
-            "File source: Spawned {} reader workers for {} available channels",
+            "File source: Scheduled {} reader workers for {} available channels",
             self.num_threads, self.num_channels
         );
 
@@ -833,23 +841,23 @@ impl ProcessNode for DslFileSource {
 
 impl Drop for DslFileSource {
     fn drop(&mut self) {
-        // Signal all threads to stop
+        // Signal all readers to stop.
         self.shutdown.store(true, Ordering::Relaxed);
 
-        // Join all thread handles
-        if let Some(handles) = self.thread_handles.take() {
-            for handle in handles {
-                let _ = handle.join();
+        // Wait for all host-owned reader tasks.
+        if let Some(tasks) = self.reader_tasks.take() {
+            for task in tasks {
+                task.wait();
             }
         }
     }
 }
 
 // ============================================================================
-// Per-channel thread function
+// Per-channel reader task
 // ============================================================================
 
-/// Configuration for a per-channel reader thread
+/// Configuration for a per-channel reader task.
 struct ChannelReaderConfig {
     archive: SharedCaptureArchive,
     blocks: BlockCache,
@@ -903,7 +911,10 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
 
-    use signal_processing::ProcessNode;
+    use signal_processing::{
+        CompletedWorkTask, OutputPort, ProcessNode, Sender, Watchdog, WorkExecutor,
+        WorkExecutorTask, WorkTask,
+    };
 
     use super::*;
     use crate::support::capture_format::{get_packed_bit, parse_sample_rate};
@@ -1121,6 +1132,32 @@ mod tests {
         .unwrap()
     }
 
+    struct RecordingReaderExecutor {
+        submitted: AtomicUsize,
+    }
+
+    impl WorkExecutor for RecordingReaderExecutor {
+        fn available_parallelism(&self) -> usize {
+            1
+        }
+
+        fn submit(
+            &self,
+            _task: WorkExecutorTask,
+        ) -> std::result::Result<Box<dyn WorkTask>, String> {
+            Err("finite work must not schedule a file reader".into())
+        }
+
+        fn submit_long_running(
+            &self,
+            task: WorkExecutorTask,
+        ) -> std::result::Result<Box<dyn WorkTask>, String> {
+            self.submitted.fetch_add(1, Ordering::Relaxed);
+            task();
+            Ok(Box::new(CompletedWorkTask))
+        }
+    }
+
     #[derive(Default)]
     struct TestCaptureArchive {
         entries: BTreeMap<String, Vec<u8>>,
@@ -1200,6 +1237,27 @@ mod tests {
         let source = dsl_source();
         assert!(!source.should_stop());
         assert!(!source.threads_spawned);
+    }
+
+    #[test]
+    fn source_schedules_readers_through_the_injected_executor() {
+        let executor = Arc::new(RecordingReaderExecutor {
+            submitted: AtomicUsize::new(0),
+        });
+        let mut source = dsl_source().with_work_executor(executor.clone());
+        let watchdog = Watchdog::new();
+        let (sender, _receiver) = crossbeam_channel::bounded(2_048);
+        let outputs = [OutputPort::new_with_watchdog(
+            Sender::<Sample>::new(vec![sender]),
+            &watchdog,
+            "source",
+            "ch0",
+        )];
+
+        source.work(&[], &outputs).unwrap();
+
+        assert_eq!(executor.submitted.load(Ordering::Relaxed), 1);
+        assert!(source.should_stop());
     }
 
     #[test]

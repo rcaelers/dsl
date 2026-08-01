@@ -1,5 +1,7 @@
 use std::sync::{Arc, OnceLock};
 
+use signal_processing::WorkExecutor;
+
 use super::super::configuration::DslFileSourceConfig;
 use super::super::facade::DslFileSourceFactory;
 use crate::nodes::sources::synthetic_capture_source::{
@@ -53,6 +55,7 @@ impl DslFileSourceFactory for WasmDslFileSourceFactory {
         &self,
         name: &str,
         config: DslFileSourceConfig,
+        _work_executor: Arc<dyn WorkExecutor>,
     ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
         let metadata = self.metadata(config.clone());
         Ok(ProcessNodeConstruction::new(

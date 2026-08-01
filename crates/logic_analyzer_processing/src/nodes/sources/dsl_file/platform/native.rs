@@ -1,5 +1,7 @@
 use std::sync::{Arc, OnceLock};
 
+use signal_processing::WorkExecutor;
+
 use super::super::configuration::DslFileSourceConfig;
 use super::super::facade::DslFileSourceFactory;
 use super::super::implementation::DslFileSource;
@@ -70,10 +72,16 @@ impl DslFileSourceFactory for NativeDslFileSourceFactory {
         &self,
         name: &str,
         config: DslFileSourceConfig,
+        work_executor: Arc<dyn WorkExecutor>,
     ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
         let metadata = self.metadata(config.clone());
         DslFileSource::new(config.path())
-            .map(|source| ProcessNodeConstruction::new(Box::new(source.with_name(name)), metadata))
+            .map(|source| {
+                ProcessNodeConstruction::new(
+                    Box::new(source.with_name(name).with_work_executor(work_executor)),
+                    metadata,
+                )
+            })
             .map_err(|error| error.to_string())
     }
 }

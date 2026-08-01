@@ -110,6 +110,7 @@ impl DslFileSourceFactory for TestSourceFactory {
         &self,
         name: &str,
         _config: DslFileSourceConfig,
+        _work_executor: Arc<dyn signal_processing::WorkExecutor>,
     ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
         Ok(self.construction(name))
     }
@@ -128,6 +129,7 @@ impl SigrokFileSourceFactory for TestSourceFactory {
         &self,
         name: &str,
         _config: SigrokFileSourceConfig,
+        _work_executor: Arc<dyn signal_processing::WorkExecutor>,
     ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
         Ok(self.construction(name))
     }
