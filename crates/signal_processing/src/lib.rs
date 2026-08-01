@@ -172,5 +172,6 @@ pub use storage::{
 pub(crate) use watchdog::OperationGuard;
 pub use watchdog::{Watchdog, WatchdogHandle};
 pub use work_executor::{
-    CompletedWorkTask, InlineWorkExecutor, WorkExecutor, WorkExecutorTask, WorkTask,
+    CompletedWorkTask, InlineWorkExecutor, WorkExecutor, WorkExecutorTask, WorkTask, WorkerMessage,
+    WorkerMessageError, WorkerOperation, WorkerRequest,
 };

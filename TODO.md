@@ -85,8 +85,18 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.execution.web-workers] Add an optional Web Worker adapter with serializable work messages,
-  cancellation, bounded queues, ordered completion, and explicit unavailable-capability behavior.
+- [platform.data-plane.execution.web-workers.kernels] Convert finite derived-store and capture-index work into
+  registered, serializable worker operations with owned input/output payloads; retain the same codecs and
+  deterministic merge order as the cooperative path.
+- [platform.data-plane.execution.web-workers.adapter] Add the `logic_analyzer_platform` Web Worker adapter and
+  worker bootstrap with bounded request queues, transfer-safe owned byte buffers, cancellation, progress, and
+  ordered completion by worker-message sequence.
+- [platform.data-plane.execution.web-workers.activation] Select the worker adapter only when the browser host can
+  create it and all requested operations are registered; otherwise retain the cooperative executor and expose the
+  capability as unavailable without changing graph or node behavior.
+- [platform.data-plane.execution.web-workers.conformance] Add portable message, operation, ordering, cancellation,
+  bounded-queue, worker-failure, and cooperative-fallback conformance tests, plus a browser build check for the
+  worker bootstrap.
 - [platform.data-plane.adapter-acquisition-export] Move host capture acquisition, file and browser-handle adapters,
   dialogs, and export destinations into `logic_analyzer_platform`. The compiler, processing nodes, and UI consume
   only their platform-neutral request and capability contracts.

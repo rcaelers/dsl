@@ -439,9 +439,11 @@ The executor contract provides:
 The native executor adapter in `logic_analyzer_platform` uses a bounded worker pool for finite
 work and host-created tasks for long-running readers and runtime supervision. The portable
 cooperative executor compiles on every target; the web composition selects it and drives it through
-the application pump. A future Web Worker adapter in `logic_analyzer_platform` uses explicit
-serializable work messages and returns owned result chunks. It does not attempt to send Rust
-closures, trait objects, mmap handles, or borrowed slices between workers.
+the application pump. `signal_processing::WorkerMessage` carries owned operation identifiers,
+sequence numbers, payloads, progress, cancellation, completion, and failure across a worker
+boundary. A Web Worker adapter in `logic_analyzer_platform` dispatches registered operations with
+those messages and returns owned result chunks. It does not attempt to send Rust closures, trait
+objects, mmap handles, or borrowed slices between workers.
 
 `AcquisitionContext` carries the selected executor into concrete live providers. Buffered and
 streaming device captures therefore retain their portable lifecycle, cancellation, and backpressure
