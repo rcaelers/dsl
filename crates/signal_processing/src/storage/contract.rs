@@ -1,5 +1,5 @@
 /// Stable content-oriented identity used to address a prepared byte source.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SourceIdentity([u8; 32]);
 
 impl SourceIdentity {
@@ -144,3 +144,31 @@ pub trait ImmutableByteRegion: Send + Sync {
         Ok(&self.bytes()[start..end])
     }
 }
+
+/// A fixed range of an immutable backing that keeps that backing alive.
+#[derive(Clone)]
+pub struct ByteRegion {
+    backing: Arc<dyn ImmutableByteRegion>,
+    range: ByteRange,
+}
+
+impl ByteRegion {
+    pub fn new(
+        backing: Arc<dyn ImmutableByteRegion>,
+        range: ByteRange,
+    ) -> Result<Self, SourceReadError> {
+        backing.slice(range)?;
+        Ok(Self { backing, range })
+    }
+
+    pub fn range(&self) -> ByteRange {
+        self.range
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        self.backing
+            .slice(self.range)
+            .expect("a byte region validates its immutable backing at construction")
+    }
+}
+use std::sync::Arc;

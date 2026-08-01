@@ -156,8 +156,10 @@ pub use sampling_points::{SamplingPoint, SamplingPointProvider, SamplingPointSto
 pub use scheduler::{Scheduler, StopHandle};
 pub use sender::{ChannelMessage, OverflowPolicy, Sender, SharedSenders};
 pub use storage::{
-    ByteRange, ImmutableByteRegion, OwnedByteSource, PreparedByteSource, RandomAccessReader,
-    SourceCapabilities, SourceIdentity, SourceReadError,
+    ArtifactKey, ArtifactMetadata, ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion,
+    ImmutableByteRegion, MemoryArtifactRepository, OwnedByteSource, PreparedByteSource,
+    RandomAccessReader, ReadArtifact, RepositoryCapabilities, RepositoryError, SourceCapabilities,
+    SourceIdentity, SourceReadError, WriteArtifact,
 };
 pub(crate) use watchdog::OperationGuard;
 pub use watchdog::{Watchdog, WatchdogHandle};

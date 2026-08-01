@@ -262,7 +262,6 @@ trait ArtifactRepository {
     fn capabilities(&self) -> RepositoryCapabilities;
     fn open(&self, key: &ArtifactKey) -> Result<Option<Box<dyn ReadArtifact>>, RepositoryError>;
     fn begin_write(&self, key: &ArtifactKey) -> Result<Box<dyn WriteArtifact>, RepositoryError>;
-    fn publish(&self, artifact: Box<dyn WriteArtifact>) -> Result<(), RepositoryError>;
     fn remove(&self, key: &ArtifactKey) -> Result<(), RepositoryError>;
     fn entries(&self, namespace: &ArtifactNamespace)
         -> Result<Vec<ArtifactMetadata>, RepositoryError>;
@@ -279,6 +278,7 @@ trait WriteArtifact {
     fn write_at(&mut self, offset: u64, source: &[u8]) -> Result<(), RepositoryError>;
     fn truncate(&mut self, len: u64) -> Result<(), RepositoryError>;
     fn flush(&mut self) -> Result<(), RepositoryError>;
+    fn publish(self: Box<Self>) -> Result<(), RepositoryError>;
 }
 ```
 
@@ -296,9 +296,9 @@ semantics:
 
 The native repository adapter in `logic_analyzer_platform` implements publication with files and
 atomic filesystem operations. The platform-independent memory repository in `signal_processing`
-keeps published encoded artifacts in process-lifetime chunked memory and can be selected on any
-target. A future OPFS adapter in `logic_analyzer_platform` can add web durability without changing
-store, compiler, or viewer behavior.
+keeps published artifacts in process-lifetime owned memory and can be selected on any target. A
+future chunked-memory implementation and OPFS adapter in `logic_analyzer_platform` can add bounded
+large-artifact storage and web durability without changing store, compiler, or viewer behavior.
 
 Durability is a repository capability. A cache requested on an ephemeral repository is still a
 real cache for the current application lifetime: it uses the same keys, validation, graph pruning,

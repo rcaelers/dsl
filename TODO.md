@@ -91,11 +91,11 @@ Detailed architecture and capability contracts are documented in
   native-worker, browser-handle, export, embedded-runtime, and USB adapters into it without moving codecs, indexes,
   cache policy, concrete protocols, node schemas, or viewer behavior. Keep `app_native` and `app_web` as
   bootstrap-only composition roots.
-- [platform.data-plane.storage-contracts] Extend the platform-neutral prepared-byte-source,
-  random-access reader, immutable-byte-region, capability, error, and owned-memory foundation with
-  artifact-repository and reader/writer contracts in `signal_processing`. Address artifacts by fixed-width ranges
-  and stable typed identities rather than paths; put mmap, filesystem operations, and browser handles in
-  `logic_analyzer_platform`. This and the adapter-crate boundary form the foundation for the remaining work.
+- [platform.data-plane.storage-contracts] Apply the established platform-neutral prepared-byte-source,
+  immutable-byte-region, artifact-repository, reader/writer, capability, and error contracts to the existing
+  derived and capture stores. Keep paths, mmap, filesystem operations, and browser handles in
+  `logic_analyzer_platform`; add native and web repository adapters without changing shared algorithms. This and
+  the adapter-crate boundary form the foundation for the remaining work.
 - [platform.data-plane.shared-derived-store] Replace the wasm `Vec<Word>` store with the shared encoded block,
   directory, presence-index, exact-query, nearest-boundary, integrity, and decoded-block-cache implementation.
   Provide native file/mmap and platform-independent chunked-memory artifact repositories, keep repository budgets
