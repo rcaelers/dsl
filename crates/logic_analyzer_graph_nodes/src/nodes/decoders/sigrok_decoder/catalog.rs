@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use serde::{Deserialize, Serialize};
@@ -8,6 +9,9 @@ use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     SigrokCatalogSnapshot, SigrokDecoderCatalog,
 };
 use node_graph::NodeTemplate;
+#[cfg(test)]
+use signal_processing::InlineWorkExecutor;
+use signal_processing::{WorkExecutor, WorkTask};
 
 use super::definition::SigrokDecoderState;
 
@@ -23,6 +27,8 @@ pub(crate) struct SigrokDirectoryCatalog {
     directories: Vec<PathBuf>,
     sender: Sender<(u64, SigrokCatalogSnapshot)>,
     receiver: Receiver<(u64, SigrokCatalogSnapshot)>,
+    work_executor: Arc<dyn WorkExecutor>,
+    scan_tasks: Vec<Box<dyn WorkTask>>,
     generation: u64,
     scanning: bool,
     discovered: usize,
@@ -31,7 +37,15 @@ pub(crate) struct SigrokDirectoryCatalog {
 }
 
 impl SigrokDirectoryCatalog {
+    #[cfg(test)]
     pub(crate) fn new(settings_path: PathBuf) -> Self {
+        Self::with_work_executor(settings_path, Arc::new(InlineWorkExecutor))
+    }
+
+    pub(crate) fn with_work_executor(
+        settings_path: PathBuf,
+        work_executor: Arc<dyn WorkExecutor>,
+    ) -> Self {
         let (sender, receiver) = mpsc::channel();
         let directories = load_settings(&settings_path)
             .map(|settings| settings.directories)
@@ -41,6 +55,8 @@ impl SigrokDirectoryCatalog {
             directories,
             sender,
             receiver,
+            work_executor,
+            scan_tasks: Vec::new(),
             generation: 0,
             scanning: false,
             discovered: 0,
@@ -57,16 +73,18 @@ impl SigrokDirectoryCatalog {
         let directories = self.directories.clone();
         let sender = self.sender.clone();
         self.scanning = true;
-        std::thread::Builder::new()
-            .name("sigrok-decoder-scan".to_owned())
-            .spawn(move || {
+        let task = self
+            .work_executor
+            .submit(Box::new(move || {
                 let snapshot = SigrokDecoderCatalog::default().refresh(&directories);
                 let _ = sender.send((generation, (*snapshot).clone()));
-            })
-            .expect("Sigrok decoder scan thread can be started");
+            }))
+            .expect("Sigrok decoder scan task can be scheduled");
+        self.scan_tasks.push(task);
     }
 
     fn poll(&mut self) {
+        self.scan_tasks.retain(|task| !task.is_finished());
         while let Ok((generation, snapshot)) = self.receiver.try_recv() {
             if generation != self.generation {
                 continue;

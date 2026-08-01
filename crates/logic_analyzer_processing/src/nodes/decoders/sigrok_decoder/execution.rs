@@ -6,7 +6,9 @@ use std::time::Duration;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString, PyTuple};
 
-use signal_processing::{NodeCancellation, ProtocolPacket, ProtocolValue};
+use signal_processing::{
+    InlineWorkExecutor, NodeCancellation, ProtocolPacket, ProtocolValue, WorkExecutor,
+};
 
 use crate::support::sigrokdecode::{
     DecoderOutput, DecoderWorker, InitialPin, LogicChunk, OptionValue, OutputRegistration,
@@ -71,7 +73,21 @@ pub(crate) trait SigrokExecutionFactory {
     fn spawn(&self, config: SigrokExecutionConfig) -> Result<Box<dyn SigrokExecution>, String>;
 }
 
-pub(crate) struct PythonSigrokExecutionFactory;
+pub(crate) struct PythonSigrokExecutionFactory {
+    work_executor: Arc<dyn WorkExecutor>,
+}
+
+impl PythonSigrokExecutionFactory {
+    pub(crate) fn new(work_executor: Arc<dyn WorkExecutor>) -> Self {
+        Self { work_executor }
+    }
+}
+
+impl Default for PythonSigrokExecutionFactory {
+    fn default() -> Self {
+        Self::new(Arc::new(InlineWorkExecutor))
+    }
+}
 
 impl SigrokExecutionFactory for PythonSigrokExecutionFactory {
     fn spawn(&self, config: SigrokExecutionConfig) -> Result<Box<dyn SigrokExecution>, String> {
@@ -93,14 +109,17 @@ impl SigrokExecutionFactory for PythonSigrokExecutionFactory {
                 (name, value)
             })
             .collect();
-        DecoderWorker::spawn(WorkerConfig {
-            decoder_root: config.decoder_root,
-            decoder_id: config.decoder_id,
-            sample_rate: config.sample_rate,
-            input,
-            options,
-            queue_capacity: config.queue_capacity,
-        })
+        DecoderWorker::spawn(
+            WorkerConfig {
+                decoder_root: config.decoder_root,
+                decoder_id: config.decoder_id,
+                sample_rate: config.sample_rate,
+                input,
+                options,
+                queue_capacity: config.queue_capacity,
+            },
+            Arc::clone(&self.work_executor),
+        )
         .map(|worker| Box::new(PythonSigrokExecution { worker }) as Box<dyn SigrokExecution>)
         .map_err(|error| error.to_string())
     }
@@ -274,9 +293,50 @@ mod execution_tests {
     use std::collections::BTreeMap;
     use std::fs;
     use std::sync::Arc;
+    use std::thread::JoinHandle;
     use std::time::Duration;
 
     use super::*;
+
+    struct TestWorkExecutor;
+
+    impl WorkExecutor for TestWorkExecutor {
+        fn available_parallelism(&self) -> usize {
+            1
+        }
+
+        fn submit(
+            &self,
+            task: signal_processing::WorkExecutorTask,
+        ) -> Result<Box<dyn signal_processing::WorkTask>, String> {
+            self.submit_long_running(task)
+        }
+
+        fn submit_long_running(
+            &self,
+            task: signal_processing::WorkExecutorTask,
+        ) -> Result<Box<dyn signal_processing::WorkTask>, String> {
+            Ok(Box::new(TestWorkTask {
+                handle: Some(std::thread::spawn(task)),
+            }))
+        }
+    }
+
+    struct TestWorkTask {
+        handle: Option<JoinHandle<()>>,
+    }
+
+    impl signal_processing::WorkTask for TestWorkTask {
+        fn is_finished(&self) -> bool {
+            self.handle.as_ref().is_none_or(JoinHandle::is_finished)
+        }
+
+        fn wait(mut self: Box<Self>) {
+            if let Some(handle) = self.handle.take() {
+                let _ = handle.join();
+            }
+        }
+    }
 
     #[test]
     fn python_adapter_round_trips_owned_protocol_values() {
@@ -313,7 +373,7 @@ class Decoder(srd.Decoder):
                 ),
             ])),
         ]);
-        let mut execution = PythonSigrokExecutionFactory
+        let mut execution = PythonSigrokExecutionFactory::new(Arc::new(TestWorkExecutor))
             .spawn(SigrokExecutionConfig {
                 decoder_root: directory.path().to_owned(),
                 decoder_id: "stacked_fixture".into(),

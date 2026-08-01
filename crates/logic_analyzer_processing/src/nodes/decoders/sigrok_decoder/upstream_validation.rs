@@ -4,12 +4,13 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
+use std::thread::JoinHandle;
 
 use crossbeam_channel::{Receiver as ChannelReceiver, bounded};
 
 use signal_processing::{
     ChannelMessage, InputPort, OutputPort, ProcessNode, ProtocolPacket, ProtocolValue, SampleBlock,
-    Sender, Watchdog, Word, WordPayload, WorkError,
+    Sender, Watchdog, Word, WordPayload, WorkError, WorkExecutor, WorkExecutorTask, WorkTask,
 };
 
 use super::implementation::{
@@ -22,6 +23,40 @@ struct SpiResult {
     binary: Vec<(u64, Vec<u8>)>,
     metadata: Vec<(u64, String)>,
     packets: Vec<(String, ProtocolValue)>,
+}
+
+struct ValidationWorkExecutor;
+
+impl WorkExecutor for ValidationWorkExecutor {
+    fn available_parallelism(&self) -> usize {
+        1
+    }
+
+    fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        self.submit_long_running(task)
+    }
+
+    fn submit_long_running(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        Ok(Box::new(ValidationWorkTask {
+            handle: Some(std::thread::spawn(task)),
+        }))
+    }
+}
+
+struct ValidationWorkTask {
+    handle: Option<JoinHandle<()>>,
+}
+
+impl WorkTask for ValidationWorkTask {
+    fn is_finished(&self) -> bool {
+        self.handle.as_ref().is_none_or(JoinHandle::is_finished)
+    }
+
+    fn wait(mut self: Box<Self>) {
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
 }
 
 /// Verifies that the upstream SPI decoder is invariant across every input chunk boundary.
@@ -191,7 +226,10 @@ fn run_spi(
         metadata_output,
         packet_output,
     ];
-    let mut decoder = SigrokDecoder::new(spi_config(decoder_root))?;
+    let mut decoder = SigrokDecoder::with_work_executor(
+        spi_config(decoder_root),
+        Arc::new(ValidationWorkExecutor),
+    )?;
     loop {
         match decoder.work(&inputs, &outputs) {
             Ok(_) if decoder.should_stop() => break,

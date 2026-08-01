@@ -27,6 +27,7 @@ trait SigrokDecoderBackend: Send + Sync {
         &self,
         name: &str,
         config: SigrokDecoderConfig,
+        work_executor: Arc<dyn signal_processing::WorkExecutor>,
     ) -> Result<Box<dyn ProcessNode>, String>;
 }
 
@@ -45,8 +46,9 @@ impl SigrokDecoderBackend for PythonSigrokDecoderBackend {
         &self,
         name: &str,
         config: SigrokDecoderConfig,
+        work_executor: Arc<dyn signal_processing::WorkExecutor>,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        SigrokDecoder::new(config)
+        SigrokDecoder::with_work_executor(config, work_executor)
             .map(|decoder| Box::new(decoder.with_name(name)) as Box<dyn ProcessNode>)
     }
 }
@@ -170,7 +172,7 @@ impl RuntimeBuilder for SigrokDecoderBuilder {
         name: &str,
         state: &Value,
         resolved: &ResolvedInputs,
-        _ctx: &mut dyn NodeBuildContext,
+        ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state = Self::parsed(state)?;
         if state.decoder_id.is_empty() {
@@ -234,6 +236,7 @@ impl RuntimeBuilder for SigrokDecoderBuilder {
                 binary_class_count: state.binary_class_count,
                 logic_groups: state.logic_groups,
             },
+            ctx.work_executor(),
         )
     }
 }
@@ -378,6 +381,7 @@ mod builder_tests {
             &self,
             name: &str,
             config: SigrokDecoderConfig,
+            _work_executor: Arc<dyn signal_processing::WorkExecutor>,
         ) -> Result<Box<dyn ProcessNode>, String> {
             *self.creation.lock().unwrap() = Some((name.to_owned(), config));
             if let Some(error) = &self.create_error {

@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::thread::{self, JoinHandle};
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TryRecvError, unbounded};
 use pyo3::exceptions::PyEOFError;
@@ -9,7 +8,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyDictMethods, PyList, PyModule};
 use thiserror::Error;
 
-use signal_processing::NodeCancellation;
+use signal_processing::{NodeCancellation, WorkExecutor, WorkTask};
 
 use super::bridge::{BridgeError, DecoderBridge, DecoderOutput, OutputRegistration};
 use super::python_error::format_python_error;
@@ -58,9 +57,9 @@ pub(crate) enum WorkerError {
     #[error(transparent)]
     Bridge(#[from] BridgeError),
     #[error("failed to start Sigrok decoder worker: {0}")]
-    Spawn(std::io::Error),
-    #[error("Sigrok decoder worker panicked")]
-    Panic,
+    Execution(String),
+    #[error("Sigrok decoder worker result was unavailable")]
+    ResultUnavailable,
     #[error("Sigrok decoder failed:\n{0}")]
     Python(String),
 }
@@ -68,7 +67,8 @@ pub(crate) enum WorkerError {
 pub(crate) struct DecoderWorker {
     bridge: Arc<DecoderBridge>,
     outputs: Receiver<DecoderOutput>,
-    thread: Option<JoinHandle<Result<(), WorkerError>>>,
+    task: Option<Box<dyn WorkTask>>,
+    result: Receiver<Result<(), WorkerError>>,
     cancellation: Arc<DecoderCancellation>,
 }
 
@@ -88,7 +88,10 @@ impl NodeCancellation for DecoderCancellation {
 }
 
 impl DecoderWorker {
-    pub(crate) fn spawn(config: WorkerConfig) -> Result<Self, WorkerError> {
+    pub(crate) fn spawn(
+        config: WorkerConfig,
+        work_executor: Arc<dyn WorkExecutor>,
+    ) -> Result<Self, WorkerError> {
         let (bridge, outputs) = match &config.input {
             WorkerInputConfig::Logic(channels) => {
                 DecoderBridge::new(channels.clone(), config.queue_capacity)?
@@ -102,15 +105,18 @@ impl DecoderWorker {
             bridge: Arc::clone(&bridge),
             protocol_input,
         });
-        let thread_bridge = Arc::clone(&bridge);
-        let thread = thread::Builder::new()
-            .name(format!("sigrok-{}", config.decoder_id))
-            .spawn(move || run_decoder(config, thread_bridge, protocol_receiver))
-            .map_err(WorkerError::Spawn)?;
+        let task_bridge = Arc::clone(&bridge);
+        let (result_sender, result) = crossbeam_channel::bounded(1);
+        let task = work_executor
+            .submit_long_running(Box::new(move || {
+                let _ = result_sender.send(run_decoder(config, task_bridge, protocol_receiver));
+            }))
+            .map_err(WorkerError::Execution)?;
         Ok(Self {
             bridge,
             outputs,
-            thread: Some(thread),
+            task: Some(task),
+            result,
             cancellation,
         })
     }
@@ -172,9 +178,7 @@ impl DecoderWorker {
     }
 
     pub(crate) fn is_finished(&self) -> bool {
-        self.thread
-            .as_ref()
-            .is_none_or(std::thread::JoinHandle::is_finished)
+        self.task.as_ref().is_none_or(|task| task.is_finished())
     }
 
     pub(crate) fn receive_output(
@@ -192,16 +196,19 @@ impl DecoderWorker {
     }
 
     fn join_inner(&mut self) -> Result<(), WorkerError> {
-        let Some(thread) = self.thread.take() else {
+        let Some(task) = self.task.take() else {
             return Ok(());
         };
-        thread.join().map_err(|_| WorkerError::Panic)?
+        task.wait();
+        self.result
+            .recv()
+            .map_err(|_| WorkerError::ResultUnavailable)?
     }
 }
 
 impl Drop for DecoderWorker {
     fn drop(&mut self) {
-        if self.thread.is_some() {
+        if self.task.is_some() {
             self.cancel();
             let _ = self.join_inner();
         }

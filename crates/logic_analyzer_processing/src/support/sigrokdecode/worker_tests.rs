@@ -2,16 +2,57 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 use pyo3::Python;
 use pyo3::types::{PyAnyMethods, PyStringMethods};
+
+use signal_processing::{WorkExecutor, WorkExecutorTask, WorkTask};
 
 use super::python_host::{OUTPUT_ANN, OUTPUT_PYTHON};
 use super::scheduler::{InitialPin, LogicChunk};
 use super::worker::{DecoderWorker, WorkerConfig, WorkerError, WorkerInputConfig};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
+
+struct TestWorkExecutor;
+
+impl WorkExecutor for TestWorkExecutor {
+    fn available_parallelism(&self) -> usize {
+        1
+    }
+
+    fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        self.submit_long_running(task)
+    }
+
+    fn submit_long_running(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        Ok(Box::new(TestWorkTask {
+            handle: Some(std::thread::spawn(task)),
+        }))
+    }
+}
+
+struct TestWorkTask {
+    handle: Option<JoinHandle<()>>,
+}
+
+impl WorkTask for TestWorkTask {
+    fn is_finished(&self) -> bool {
+        self.handle.as_ref().is_none_or(JoinHandle::is_finished)
+    }
+
+    fn wait(mut self: Box<Self>) {
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+fn work_executor() -> Arc<dyn WorkExecutor> {
+    Arc::new(TestWorkExecutor)
+}
 
 #[test]
 fn worker_runs_wait_register_put_and_channel_presence_to_eof() {
@@ -157,7 +198,7 @@ class Decoder(srd.Decoder):
         options: BTreeMap::new(),
         queue_capacity: 128,
     };
-    let mut worker = DecoderWorker::spawn(config).unwrap();
+    let mut worker = DecoderWorker::spawn(config, work_executor()).unwrap();
     worker
         .push_chunk(LogicChunk::new(
             0,
@@ -216,14 +257,17 @@ impl DecoderFixture {
     }
 
     fn spawn(&self, channels: Vec<Option<InitialPin>>) -> DecoderWorker {
-        DecoderWorker::spawn(WorkerConfig {
-            decoder_root: self.root.clone(),
-            decoder_id: self.id.clone(),
-            sample_rate: 1_000_000,
-            input: WorkerInputConfig::Logic(channels),
-            options: BTreeMap::new(),
-            queue_capacity: 16,
-        })
+        DecoderWorker::spawn(
+            WorkerConfig {
+                decoder_root: self.root.clone(),
+                decoder_id: self.id.clone(),
+                sample_rate: 1_000_000,
+                input: WorkerInputConfig::Logic(channels),
+                options: BTreeMap::new(),
+                queue_capacity: 16,
+            },
+            work_executor(),
+        )
         .unwrap()
     }
 }

@@ -101,11 +101,12 @@ pub(crate) fn run() -> MainResult {
         APPLICATION_NAME,
         options,
         Box::new(move |cc| {
+            let platform_services = logic_analyzer_platform::standard_services();
             let app = logic_analyzer_ui::App::new_with_file_catalogs_and_services(
                 cc,
                 args.file.as_deref(),
-                logic_analyzer_graph_nodes::native_node_catalogs(),
-                logic_analyzer_platform::standard_services().into_ui_services(),
+                logic_analyzer_graph_nodes::native_node_catalogs(platform_services.work_executor()),
+                platform_services.into_ui_services(),
             );
             #[cfg(target_os = "macos")]
             macos_menu::install(app.recent_files(), app.input_bindings());

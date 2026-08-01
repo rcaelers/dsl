@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use signal_processing::{
     InputPort, NodeCancellation, OutputPort, PortDirection, PortSchema, ProcessNode,
-    ProtocolPacket, ProtocolValue, SampleBlock, Word, WorkError, WorkResult,
+    ProtocolPacket, ProtocolValue, SampleBlock, Word, WorkError, WorkExecutor, WorkResult,
 };
 
 use super::execution::{
@@ -72,8 +72,12 @@ pub struct SigrokDecoder {
 }
 
 impl SigrokDecoder {
-    pub fn new(config: SigrokDecoderConfig) -> Result<Self, String> {
-        Self::with_execution_factory(config, &PythonSigrokExecutionFactory)
+    /// Creates a decoder with host-selected embedded-runtime execution.
+    pub fn with_work_executor(
+        config: SigrokDecoderConfig,
+        work_executor: Arc<dyn WorkExecutor>,
+    ) -> Result<Self, String> {
+        Self::with_execution_factory(config, &PythonSigrokExecutionFactory::new(work_executor))
     }
 
     fn with_execution_factory(
