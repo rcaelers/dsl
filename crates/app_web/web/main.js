@@ -1,5 +1,7 @@
 const buildVersion = document.currentScript?.dataset.buildVersion ?? `${Date.now()}`;
-const wasmModule = await import(`./pkg/logic_conduit.js?v=${encodeURIComponent(buildVersion)}`);
+const wasmModuleUrl = new URL("./pkg/logic_conduit.js", import.meta.url);
+wasmModuleUrl.searchParams.set("v", buildVersion);
+const wasmModule = await import(wasmModuleUrl);
 const { default: init, WebHandle } = wasmModule;
 
 const loading = document.getElementById("loading");
@@ -9,7 +11,7 @@ try {
   const wasmUrl = new URL("./pkg/logic_conduit_bg.wasm", import.meta.url);
   wasmUrl.searchParams.set("v", buildVersion);
   await init({ module_or_path: wasmUrl });
-  const handle = new WebHandle();
+  const handle = new WebHandle(wasmModuleUrl.href, wasmUrl.href);
   await handle.start(canvas);
   window.logicConduit = handle;
   loading.remove();

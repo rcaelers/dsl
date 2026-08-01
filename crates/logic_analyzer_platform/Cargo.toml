@@ -55,8 +55,10 @@ web-sys = { workspace = true, features = [
     "BlobPropertyBag",
     "ErrorEvent",
     "MessageEvent",
+    "Navigator",
     "Url",
     "Worker",
     "WorkerOptions",
     "WorkerType",
+    "Window",
 ] }

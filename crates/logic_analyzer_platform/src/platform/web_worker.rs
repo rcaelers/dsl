@@ -9,7 +9,10 @@ use web_sys::{
     Blob, BlobPropertyBag, ErrorEvent, MessageEvent, Url, Worker, WorkerOptions, WorkerType,
 };
 
-use signal_processing::{WorkerMessage, WorkerOperation, WorkerRequest, portable_worker_kernels};
+use signal_processing::{
+    WorkerExecutionCapability, WorkerMessage, WorkerOperation, WorkerOperationExecutor,
+    WorkerRequest, portable_worker_kernels,
+};
 
 const WORKER_BOOTSTRAP: &str = include_str!("web_worker_bootstrap.js");
 
@@ -33,6 +36,10 @@ struct AdapterState {
     cancelled: BTreeSet<u64>,
     max_outstanding: usize,
     last_submitted_sequence: Option<u64>,
+    operations: BTreeSet<WorkerOperation>,
+    module_url: String,
+    wasm_url: String,
+    initialization_started: bool,
 }
 
 impl AdapterState {
@@ -83,6 +90,7 @@ impl WebWorkerAdapter {
         wasm_url: &str,
         worker_count: usize,
         max_outstanding: usize,
+        required_operations: &[WorkerOperation],
     ) -> Result<Self, String> {
         if worker_count == 0 {
             return Err("the Web Worker pool must contain at least one worker".to_string());
@@ -91,6 +99,19 @@ impl WebWorkerAdapter {
             return Err(
                 "the Web Worker queue must hold at least one request per worker".to_string(),
             );
+        }
+        let operations = portable_worker_kernels()
+            .operations()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        if let Some(operation) = required_operations
+            .iter()
+            .find(|operation| !operations.contains(*operation))
+        {
+            return Err(format!(
+                "Web Worker operation '{}' is not registered",
+                operation.as_str()
+            ));
         }
 
         let worker_url = create_worker_url()?;
@@ -129,6 +150,10 @@ impl WebWorkerAdapter {
             cancelled: BTreeSet::new(),
             max_outstanding,
             last_submitted_sequence: None,
+            operations,
+            module_url: module_url.to_string(),
+            wasm_url: wasm_url.to_string(),
+            initialization_started: false,
         }));
         let mut message_handlers = Vec::with_capacity(worker_count);
         let mut error_handlers = Vec::with_capacity(worker_count);
@@ -151,22 +176,11 @@ impl WebWorkerAdapter {
             error_handlers.push(error_handler);
         }
 
-        let adapter = Self {
+        Ok(Self {
             state,
             message_handlers,
             error_handlers,
-        };
-        let workers = adapter
-            .state
-            .borrow()
-            .workers
-            .iter()
-            .map(|slot| slot.worker.clone())
-            .collect::<Vec<_>>();
-        for worker in workers {
-            post_initialize(&worker, module_url, wasm_url)?;
-        }
-        Ok(adapter)
+        })
     }
 
     /// Number of browser workers owned by the adapter.
@@ -177,6 +191,12 @@ impl WebWorkerAdapter {
     /// Adds a finite request to the bounded worker queue.
     pub fn submit(&self, request: WorkerRequest) -> Result<(), String> {
         let mut state = self.state.borrow_mut();
+        if !state.operations.contains(&request.operation) {
+            return Err(format!(
+                "worker operation '{}' is not registered",
+                request.operation.as_str()
+            ));
+        }
         if state
             .last_submitted_sequence
             .is_some_and(|previous| request.sequence <= previous)
@@ -192,6 +212,7 @@ impl WebWorkerAdapter {
         state.last_submitted_sequence = Some(request.sequence);
         state.submission_order.push_back(request.sequence);
         state.pending.push_back(request);
+        initialize_workers(&mut state);
         dispatch_ready_workers(&mut state);
         Ok(())
     }
@@ -234,6 +255,32 @@ impl WebWorkerAdapter {
     /// Number of queued or running requests awaiting ordered delivery.
     pub fn outstanding(&self) -> usize {
         self.state.borrow().outstanding()
+    }
+}
+
+impl WorkerOperationExecutor for WebWorkerAdapter {
+    fn capability(&self) -> WorkerExecutionCapability {
+        let state = self.state.borrow();
+        WorkerExecutionCapability::parallel(
+            state.workers.len(),
+            state.operations.iter().cloned().collect(),
+        )
+    }
+
+    fn submit(&self, request: WorkerRequest) -> Result<(), String> {
+        WebWorkerAdapter::submit(self, request)
+    }
+
+    fn cancel(&self, sequence: u64) -> bool {
+        WebWorkerAdapter::cancel(self, sequence)
+    }
+
+    fn drain_messages(&self) -> Vec<WorkerMessage> {
+        WebWorkerAdapter::drain_messages(self)
+    }
+
+    fn outstanding(&self) -> usize {
+        WebWorkerAdapter::outstanding(self)
     }
 }
 
@@ -329,6 +376,19 @@ fn post_cancel(worker: &Worker, sequence: u64) -> Result<(), String> {
     worker
         .post_message(&message)
         .map_err(|error| js_error("could not cancel Web Worker operation", error))
+}
+
+fn initialize_workers(state: &mut AdapterState) {
+    if state.initialization_started {
+        return;
+    }
+    state.initialization_started = true;
+    for slot in &mut state.workers {
+        if let Err(_error) = post_initialize(&slot.worker, &state.module_url, &state.wasm_url) {
+            slot.failed = true;
+        }
+    }
+    fail_pending_if_unavailable(state);
 }
 
 fn dispatch_ready_workers(state: &mut AdapterState) {

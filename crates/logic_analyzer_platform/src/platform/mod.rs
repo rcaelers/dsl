@@ -18,6 +18,6 @@ pub use native_hardware_validation::{validate_capture_hardware, validate_fpga_ha
 #[cfg(all(feature = "developer-tools", not(target_arch = "wasm32")))]
 pub use native_sigrok::{validate_spi_chunk_boundaries, validate_spi_oracle};
 #[cfg(target_arch = "wasm32")]
-pub(crate) use web::standard_services;
+pub(crate) use web::{standard_services, standard_services_with_worker_urls};
 #[cfg(target_arch = "wasm32")]
 pub use web_worker::WebWorkerAdapter;

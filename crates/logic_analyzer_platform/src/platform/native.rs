@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
 use std::io::{ErrorKind, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
@@ -36,9 +37,11 @@ use node_graph::{FileDialogRequest, FileDialogService};
 use signal_processing::logic_analyzer::LogicAnalyzerError;
 use signal_processing::{
     AppManager, AppManagerBackend, AppManagerFactory, ArtifactKey, ArtifactMetadata,
-    ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion, ImmutableByteRegion,
-    PersistentStoreConfig, PipelineManager, ProcessNode, ReadArtifact, RepositoryCapabilities,
-    RepositoryError, SourceIdentity, WorkExecutor, WorkExecutorTask, WorkTask, WriteArtifact,
+    ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion,
+    CooperativeWorkerOperationExecutor, ImmutableByteRegion, PersistentStoreConfig,
+    PipelineManager, ProcessNode, ReadArtifact, RepositoryCapabilities, RepositoryError,
+    SourceIdentity, WorkExecutor, WorkExecutorTask, WorkTask, WriteArtifact,
+    portable_worker_kernels,
 };
 
 use super::native_sigrok;
@@ -136,6 +139,10 @@ pub(crate) fn standard_services() -> PlatformServices {
             derived_cache_directory().join("artifacts"),
         )),
         work_executor,
+        Rc::new(CooperativeWorkerOperationExecutor::new(
+            portable_worker_kernels(),
+            "native serialized worker operations use the existing work executor",
+        )),
     )
 }
 
@@ -1456,7 +1463,8 @@ mod native_tests {
     use logic_analyzer_ui::{AppServices, HostCommand, HostService};
     use signal_processing::{
         AppManagerFactory, ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange,
-        InlineWorkExecutor, MemoryArtifactRepository, SourceIdentity, WorkExecutor,
+        CooperativeWorkerOperationExecutor, InlineWorkExecutor, MemoryArtifactRepository,
+        SourceIdentity, WorkExecutor, portable_worker_kernels,
     };
 
     use super::{
@@ -1534,6 +1542,10 @@ mod native_tests {
             Vec::new(),
             Arc::new(MemoryArtifactRepository::new()),
             Arc::new(InlineWorkExecutor),
+            std::rc::Rc::new(CooperativeWorkerOperationExecutor::new(
+                portable_worker_kernels(),
+                "test fallback",
+            )),
         );
         assert_eq!(services.work_executor().available_parallelism(), 1);
         assert!(!services.artifact_repository().capabilities().durable);

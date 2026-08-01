@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use input_bindings::{InputBindings, PointerButtonName, PointerGesture, Trigger};
@@ -461,6 +462,7 @@ pub struct App {
     pub(crate) timeline_marker_owners: HashMap<String, (NodeId, String)>,
     pub(crate) timeline_marker_error: Option<String>,
     pub(crate) timeline_marker_reference_error: Option<String>,
+    pub(crate) _worker_operation_executor: Rc<dyn signal_processing::WorkerOperationExecutor>,
 }
 
 fn capture_storage_from_index(
@@ -1066,6 +1068,14 @@ impl App {
         node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
         services: crate::AppServices,
     ) -> Self {
+        Self::build_with_services(cc, node_catalogs, services.into_parts())
+    }
+
+    fn build_with_services(
+        cc: &eframe::CreationContext,
+        node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
+        services: AppServiceParts,
+    ) -> Self {
         let AppServiceParts {
             graph_service,
             host_service,
@@ -1075,33 +1085,9 @@ impl App {
             host_symbol_fonts,
             node_file_dialog,
             work_executor,
-        } = services.into_parts();
-        Self::build_with_services(
-            cc,
-            node_catalogs,
-            graph_service,
-            host_service,
-            storage_paths,
-            input_bindings,
-            application_settings,
-            host_symbol_fonts,
-            node_file_dialog,
-            work_executor,
-        )
-    }
-
-    fn build_with_services(
-        cc: &eframe::CreationContext,
-        node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
-        graph_service: Box<dyn GraphService>,
-        mut host_service: Box<dyn HostService>,
-        storage_paths: crate::ApplicationStoragePaths,
-        input_bindings: InputBindings,
-        application_settings: crate::ApplicationSettings,
-        host_symbol_fonts: Vec<egui::FontData>,
-        node_file_dialog: Option<Box<dyn node_graph::FileDialogService>>,
-        work_executor: Arc<dyn signal_processing::WorkExecutor>,
-    ) -> Self {
+            worker_operation_executor,
+        } = services;
+        let mut host_service = host_service;
         // The graph canvas and its custom widgets use a dark palette. Do not
         // inherit a light OS/browser preference for the surrounding egui
         // controls, or their dark foreground text becomes unreadable there.
@@ -1176,6 +1162,7 @@ impl App {
             timeline_marker_owners: HashMap::new(),
             timeline_marker_error: None,
             timeline_marker_reference_error: None,
+            _worker_operation_executor: worker_operation_executor,
         }
     }
 

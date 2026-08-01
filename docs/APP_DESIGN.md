@@ -63,7 +63,9 @@ payload IDs and storage contracts; it does not infer protocols or concrete nodes
 - `logic-analyzer-app-native` binary (named `logic-conduit`): clap CLI,
   `tracing_subscriber` with `RUST_LOG` env filter,
   and an eframe native window.
-- `logic-analyzer-app-web` exports the wasm-bindgen `WebHandle` used by the browser shell.
+- `logic-analyzer-app-web` exports the wasm-bindgen `WebHandle` used by the browser shell. The shell
+  supplies the generated JavaScript-module and WASM URLs so `logic_analyzer_platform` can activate
+  finite-operation Web Workers or expose its cooperative fallback.
   It runs the shared `App` with a demo UART graph pre-populated and the cooperative
   scheduler (below).
 - File commands include New, Open, Open Recent, Save, and Save As. Destructive actions over

@@ -97,28 +97,38 @@ fn embedded_demo_graphs() -> Vec<logic_analyzer_ui::DemoGraph> {
 #[wasm_bindgen]
 pub struct WebHandle {
     runner: eframe::WebRunner,
+    worker_module_url: String,
+    worker_wasm_url: String,
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 impl WebHandle {
     #[wasm_bindgen(constructor)]
-    pub fn new() -> Self {
+    pub fn new(worker_module_url: String, worker_wasm_url: String) -> Self {
         initialize_compile_time_inventories();
         eframe::WebLogger::init(log::LevelFilter::Debug).ok();
         Self {
             runner: eframe::WebRunner::new(),
+            worker_module_url,
+            worker_wasm_url,
         }
     }
 
     #[wasm_bindgen]
     pub async fn start(&self, canvas: web_sys::HtmlCanvasElement) -> Result<(), JsValue> {
+        let worker_module_url = self.worker_module_url.clone();
+        let worker_wasm_url = self.worker_wasm_url.clone();
         self.runner
             .start(
                 canvas,
                 eframe::WebOptions::default(),
-                Box::new(|cc| {
-                    let platform_services = logic_analyzer_platform::standard_services();
+                Box::new(move |cc| {
+                    let platform_services =
+                        logic_analyzer_platform::standard_services_with_worker_urls(
+                            &worker_module_url,
+                            &worker_wasm_url,
+                        );
                     let (ui_services, node_catalogs) =
                         platform_services.into_ui_and_node_catalogs();
                     Ok(Box::new(
@@ -137,13 +147,6 @@ impl WebHandle {
     #[wasm_bindgen]
     pub fn destroy(&self) {
         self.runner.destroy();
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-impl Default for WebHandle {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

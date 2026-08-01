@@ -459,10 +459,11 @@ by sequence. Worker completion order therefore cannot change either persistent f
 results, and the cooperative and parallel paths execute the same kernels.
 
 `logic_analyzer_platform::WebWorkerAdapter` owns a bounded pool of browser workers and is constructed
-with the absolute URLs of the generated JavaScript module and WASM binary. Each worker imports and
-initializes the same generated module, then invokes the exported portable-kernel entry point. The
-adapter keeps at most one running operation in each worker and applies backpressure once its bounded
-host queue is full.
+with the absolute URLs of the generated JavaScript module and WASM binary. Worker construction
+validates that the browser accepts the host mechanism, while module import and initialization remain
+lazy until the first accepted operation. Each worker then initializes the same generated module and
+invokes the exported portable-kernel entry point. The adapter keeps at most one running operation in
+each worker and applies backpressure once its bounded host queue is full.
 
 Request payloads are copied once from WASM memory into an owned `ArrayBuffer` and transferred to the
 worker. Completed payloads use a standalone transferable buffer rather than attempting to detach
@@ -477,6 +478,22 @@ from already-running synchronous kernels; it does not claim to preempt a kernel 
 executing it. A failed worker rejects its active request, remaining workers continue draining the
 queue, and loss of the complete pool rejects all queued requests. Dropping the adapter terminates
 the pool and releases its JavaScript callbacks.
+
+`WorkerOperationExecutor` is the target-independent finite-operation host contract. Its capability
+snapshot reports the selected cooperative or parallel mode, advertised parallelism, registered
+operation identifiers, and the reason parallel execution is unavailable. It is deliberately
+separate from `WorkExecutor`: ordinary closures, runtime nodes, stream readers, and watchdog tasks
+remain on their existing cooperative or native host paths.
+
+The web application passes the absolute generated-module URLs into the platform composition root.
+`logic_analyzer_platform` derives a bounded worker count from browser hardware concurrency and
+selects `WebWorkerAdapter` only after browser worker construction succeeds and every required
+operation identifier is present in the portable registry. Failed construction or missing worker
+configuration selects `CooperativeWorkerOperationExecutor`, which invokes the same registry and
+emits the same progress and terminal messages. Graphs and processing nodes therefore do not branch
+on worker availability, while diagnostics can distinguish parallel execution from its explicit
+cooperative fallback. `AppServices` retains the selected generic executor for the application
+lifetime; the UI neither owns browser-worker construction nor inspects the concrete adapter.
 
 `AcquisitionContext` carries the selected executor into concrete live providers. Buffered and
 streaming device captures therefore retain their portable lifecycle, cancellation, and backpressure

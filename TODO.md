@@ -85,9 +85,6 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.execution.web-workers.activation] Select the worker adapter only when the browser host can
-  create it and all requested operations are registered; otherwise retain the cooperative executor and expose the
-  capability as unavailable without changing graph or node behavior.
 - [platform.data-plane.execution.web-workers.conformance] Add portable message, operation, ordering, cancellation,
   bounded-queue, worker-failure, and cooperative-fallback conformance tests, plus a browser build check for the
   worker bootstrap.

@@ -174,7 +174,9 @@ pub use storage::{
 pub(crate) use watchdog::OperationGuard;
 pub use watchdog::{Watchdog, WatchdogHandle};
 pub use work_executor::{
-    CompletedWorkTask, InlineWorkExecutor, WorkExecutor, WorkExecutorTask, WorkTask,
-    WorkerKernelRegistry, WorkerMessage, WorkerMessageError, WorkerOperation, WorkerRequest,
+    CompletedWorkTask, CooperativeWorkerOperationExecutor, InlineWorkExecutor, WorkExecutor,
+    WorkExecutorTask, WorkTask, WorkerExecutionCapability, WorkerExecutionMode,
+    WorkerKernelRegistry, WorkerMessage, WorkerMessageError, WorkerOperation,
+    WorkerOperationExecutor, WorkerRequest,
 };
 pub use worker_kernels::portable_worker_kernels;

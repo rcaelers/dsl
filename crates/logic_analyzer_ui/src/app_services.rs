@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use input_bindings::InputBindings;
@@ -6,7 +7,8 @@ use logic_analyzer_graph_api::node::RuntimeBuilderOverride;
 use logic_analyzer_graph_compiler::SourcePreparationExecutor;
 use node_graph::FileDialogService;
 use signal_processing::{
-    AppManagerFactory, InlineWorkExecutor, PersistentStoreConfig, WorkExecutor,
+    AppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor,
+    PersistentStoreConfig, WorkExecutor, WorkerOperationExecutor, portable_worker_kernels,
 };
 
 use crate::application_settings::{ApplicationSettings, default_input_bindings};
@@ -31,6 +33,7 @@ pub struct AppServices {
     host_symbol_fonts: Vec<egui::FontData>,
     node_file_dialog: Option<Box<dyn FileDialogService>>,
     work_executor: Arc<dyn WorkExecutor>,
+    worker_operation_executor: Rc<dyn WorkerOperationExecutor>,
 }
 
 pub(crate) struct AppServiceParts {
@@ -42,6 +45,7 @@ pub(crate) struct AppServiceParts {
     pub(crate) host_symbol_fonts: Vec<egui::FontData>,
     pub(crate) node_file_dialog: Option<Box<dyn FileDialogService>>,
     pub(crate) work_executor: Arc<dyn WorkExecutor>,
+    pub(crate) worker_operation_executor: Rc<dyn WorkerOperationExecutor>,
 }
 
 impl AppServices {
@@ -75,6 +79,10 @@ impl AppServices {
             host_symbol_fonts,
             node_file_dialog: None,
             work_executor: Arc::new(InlineWorkExecutor),
+            worker_operation_executor: Rc::new(CooperativeWorkerOperationExecutor::new(
+                portable_worker_kernels(),
+                "no parallel finite-operation host was supplied",
+            )),
         }
     }
 
@@ -82,6 +90,20 @@ impl AppServices {
     pub fn with_node_file_dialog(mut self, service: Box<dyn FileDialogService>) -> Self {
         self.node_file_dialog = Some(service);
         self
+    }
+
+    /// Retains the host selected for finite serializable operations.
+    pub fn with_worker_operation_executor(
+        mut self,
+        executor: Rc<dyn WorkerOperationExecutor>,
+    ) -> Self {
+        self.worker_operation_executor = executor;
+        self
+    }
+
+    /// Reports the finite-operation capability retained by the application.
+    pub fn worker_execution_capability(&self) -> signal_processing::WorkerExecutionCapability {
+        self.worker_operation_executor.capability()
     }
 
     /// Replaces portable graph execution with host-selected adapters.
@@ -128,6 +150,7 @@ impl AppServices {
             host_symbol_fonts: self.host_symbol_fonts,
             node_file_dialog: self.node_file_dialog,
             work_executor: self.work_executor,
+            worker_operation_executor: self.worker_operation_executor,
         }
     }
 }
