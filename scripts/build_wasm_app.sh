@@ -10,12 +10,27 @@ command -v wasm-bindgen >/dev/null 2>&1 || {
   echo "  cargo install wasm-bindgen-cli --version ${WASM_BINDGEN_VERSION}"
   exit 1
 }
+command -v node >/dev/null 2>&1 || {
+  echo "node is required to validate the Web Worker bootstrap"
+  exit 1
+}
+command -v rg >/dev/null 2>&1 || {
+  echo "rg is required to validate the generated worker entry point"
+  exit 1
+}
 
-cargo build \
-  --manifest-path "${ROOT_DIR}/Cargo.toml" \
-  --package logic-analyzer-app-web \
-  --target wasm32-unknown-unknown \
+node --check "${ROOT_DIR}/crates/logic_analyzer_platform/src/platform/web_worker_bootstrap.js"
+
+BUILD_ARGS=(
+  --manifest-path "${ROOT_DIR}/Cargo.toml"
+  --package logic-analyzer-app-web
+  --target wasm32-unknown-unknown
   --release
+)
+if [[ -n "${WASM_APP_FEATURES:-}" ]]; then
+  BUILD_ARGS+=(--features "${WASM_APP_FEATURES}")
+fi
+cargo build "${BUILD_ARGS[@]}"
 
 rm -rf "${OUT_DIR}"
 mkdir -p "${OUT_DIR}/pkg" "${OUT_DIR}/icons"
@@ -33,5 +48,10 @@ wasm-bindgen \
   "${ROOT_DIR}/target/wasm32-unknown-unknown/release/logic_conduit.wasm" \
   --target web \
   --out-dir "${OUT_DIR}/pkg"
+
+node --check "${OUT_DIR}/main.js"
+node --check "${OUT_DIR}/pkg/logic_conduit.js"
+rg --quiet "export function executePortableWorkerOperation" \
+  "${OUT_DIR}/pkg/logic_conduit.js"
 
 echo "WASM app written to ${OUT_DIR}"

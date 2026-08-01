@@ -364,19 +364,43 @@ mod work_executor_tests {
         WorkerMessage, WorkerOperation, WorkerOperationExecutor, WorkerRequest,
     };
 
-    #[test]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     fn worker_messages_round_trip_as_owned_data() {
-        let message = WorkerMessage::Run(WorkerRequest {
-            sequence: u64::MAX,
-            operation: WorkerOperation::new("signal-processing.encode-word-block/v1").unwrap(),
-            payload: vec![1, 2, 3],
-        });
+        let messages = [
+            WorkerMessage::Run(WorkerRequest {
+                sequence: u64::MAX,
+                operation: WorkerOperation::new("signal-processing.encode-word-block/v1").unwrap(),
+                payload: vec![0, 1, 2, 255],
+            }),
+            WorkerMessage::Cancel { sequence: 2 },
+            WorkerMessage::Progress {
+                sequence: 3,
+                completed: 5,
+                total: Some(8),
+            },
+            WorkerMessage::Progress {
+                sequence: 4,
+                completed: 13,
+                total: None,
+            },
+            WorkerMessage::Complete {
+                sequence: 5,
+                payload: vec![9, 8, 7],
+            },
+            WorkerMessage::Failed {
+                sequence: 6,
+                message: "expected failure".to_string(),
+            },
+        ];
 
-        let encoded = serde_json::to_vec(&message).unwrap();
-        assert_eq!(
-            serde_json::from_slice::<WorkerMessage>(&encoded).unwrap(),
-            message
-        );
+        for message in messages {
+            let encoded = serde_json::to_vec(&message).unwrap();
+            assert_eq!(
+                serde_json::from_slice::<WorkerMessage>(&encoded).unwrap(),
+                message
+            );
+        }
     }
 
     #[test]

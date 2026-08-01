@@ -56,6 +56,7 @@ mod type_registry;
 mod watchdog;
 mod work_executor;
 mod worker_kernels;
+mod worker_operation_queue;
 
 std::cfg_select! {
     target_arch = "wasm32" => {
@@ -180,3 +181,4 @@ pub use work_executor::{
     WorkerOperationExecutor, WorkerRequest,
 };
 pub use worker_kernels::portable_worker_kernels;
+pub use worker_operation_queue::{WorkerHostCommand, WorkerOperationQueue};

@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::VecDeque;
 use std::rc::Rc;
 
 use js_sys::{Array, Object, Reflect, Uint8Array};
@@ -10,8 +10,8 @@ use web_sys::{
 };
 
 use signal_processing::{
-    WorkerExecutionCapability, WorkerMessage, WorkerOperation, WorkerOperationExecutor,
-    WorkerRequest, portable_worker_kernels,
+    WorkerExecutionCapability, WorkerHostCommand, WorkerMessage, WorkerOperation,
+    WorkerOperationExecutor, WorkerOperationQueue, WorkerRequest, portable_worker_kernels,
 };
 
 const WORKER_BOOTSTRAP: &str = include_str!("web_worker_bootstrap.js");
@@ -20,55 +20,12 @@ thread_local! {
     static PORTABLE_KERNELS: signal_processing::WorkerKernelRegistry = portable_worker_kernels();
 }
 
-struct WorkerSlot {
-    worker: Worker,
-    ready: bool,
-    failed: bool,
-    running: Option<u64>,
-}
-
 struct AdapterState {
-    workers: Vec<WorkerSlot>,
-    pending: VecDeque<WorkerRequest>,
-    submission_order: VecDeque<u64>,
-    terminal: BTreeMap<u64, WorkerMessage>,
-    delivered: VecDeque<WorkerMessage>,
-    cancelled: BTreeSet<u64>,
-    max_outstanding: usize,
-    last_submitted_sequence: Option<u64>,
-    operations: BTreeSet<WorkerOperation>,
+    workers: Vec<Worker>,
+    queue: WorkerOperationQueue,
     module_url: String,
     wasm_url: String,
     initialization_started: bool,
-}
-
-impl AdapterState {
-    fn outstanding(&self) -> usize {
-        self.submission_order.len()
-    }
-
-    fn contains_sequence(&self, sequence: u64) -> bool {
-        self.submission_order.contains(&sequence)
-    }
-
-    fn record_terminal(&mut self, message: WorkerMessage) {
-        let sequence = terminal_sequence(&message);
-        if self.contains_sequence(sequence) && !self.terminal.contains_key(&sequence) {
-            self.terminal.insert(sequence, message);
-        }
-        self.release_ordered();
-    }
-
-    fn release_ordered(&mut self) {
-        while let Some(sequence) = self.submission_order.front().copied() {
-            let Some(message) = self.terminal.remove(&sequence) else {
-                break;
-            };
-            self.submission_order.pop_front();
-            self.cancelled.remove(&sequence);
-            self.delivered.push_back(message);
-        }
-    }
 }
 
 /// Browser Web Worker pool for portable finite processing operations.
@@ -100,13 +57,11 @@ impl WebWorkerAdapter {
                 "the Web Worker queue must hold at least one request per worker".to_string(),
             );
         }
-        let operations = portable_worker_kernels()
-            .operations()
-            .cloned()
-            .collect::<BTreeSet<_>>();
+        let kernels = portable_worker_kernels();
+        let operations = kernels.operations().cloned().collect::<Vec<_>>();
         if let Some(operation) = required_operations
             .iter()
-            .find(|operation| !operations.contains(*operation))
+            .find(|operation| !kernels.supports(operation))
         {
             return Err(format!(
                 "Web Worker operation '{}' is not registered",
@@ -115,42 +70,31 @@ impl WebWorkerAdapter {
         }
 
         let worker_url = create_worker_url()?;
-        let mut workers: Vec<WorkerSlot> = Vec::with_capacity(worker_count);
+        let mut workers: Vec<Worker> = Vec::with_capacity(worker_count);
         for _ in 0..worker_count {
             let worker = match create_worker(&worker_url) {
                 Ok(worker) => worker,
                 Err(error) => {
-                    for slot in &workers {
-                        slot.worker.terminate();
+                    for worker in &workers {
+                        worker.terminate();
                     }
                     let _ = Url::revoke_object_url(&worker_url);
                     return Err(error);
                 }
             };
-            workers.push(WorkerSlot {
-                worker,
-                ready: false,
-                failed: false,
-                running: None,
-            });
+            workers.push(worker);
         }
         if let Err(error) = Url::revoke_object_url(&worker_url) {
-            for slot in &workers {
-                slot.worker.terminate();
+            for worker in &workers {
+                worker.terminate();
             }
             return Err(js_error("could not release worker bootstrap URL", error));
         }
 
+        let queue = WorkerOperationQueue::new(worker_count, max_outstanding, operations)?;
         let state = Rc::new(RefCell::new(AdapterState {
             workers,
-            pending: VecDeque::new(),
-            submission_order: VecDeque::new(),
-            terminal: BTreeMap::new(),
-            delivered: VecDeque::new(),
-            cancelled: BTreeSet::new(),
-            max_outstanding,
-            last_submitted_sequence: None,
-            operations,
+            queue,
             module_url: module_url.to_string(),
             wasm_url: wasm_url.to_string(),
             initialization_started: false,
@@ -169,7 +113,7 @@ impl WebWorkerAdapter {
                 event.prevent_default();
                 handle_worker_error(&error_state, worker_index, event.message());
             });
-            let worker = &state.borrow().workers[worker_index].worker;
+            let worker = &state.borrow().workers[worker_index];
             worker.set_onmessage(Some(message_handler.as_ref().unchecked_ref()));
             worker.set_onerror(Some(error_handler.as_ref().unchecked_ref()));
             message_handlers.push(message_handler);
@@ -185,35 +129,15 @@ impl WebWorkerAdapter {
 
     /// Number of browser workers owned by the adapter.
     pub fn available_parallelism(&self) -> usize {
-        self.state.borrow().workers.len()
+        self.state.borrow().queue.available_parallelism()
     }
 
     /// Adds a finite request to the bounded worker queue.
     pub fn submit(&self, request: WorkerRequest) -> Result<(), String> {
         let mut state = self.state.borrow_mut();
-        if !state.operations.contains(&request.operation) {
-            return Err(format!(
-                "worker operation '{}' is not registered",
-                request.operation.as_str()
-            ));
-        }
-        if state
-            .last_submitted_sequence
-            .is_some_and(|previous| request.sequence <= previous)
-        {
-            return Err(format!(
-                "worker request sequence {} is not greater than the previous sequence",
-                request.sequence
-            ));
-        }
-        if state.outstanding() >= state.max_outstanding {
-            return Err("Web Worker request queue is full".to_string());
-        }
-        state.last_submitted_sequence = Some(request.sequence);
-        state.submission_order.push_back(request.sequence);
-        state.pending.push_back(request);
+        let commands = state.queue.submit(request)?;
         initialize_workers(&mut state);
-        dispatch_ready_workers(&mut state);
+        apply_commands(&mut state, commands);
         Ok(())
     }
 
@@ -223,48 +147,25 @@ impl WebWorkerAdapter {
     /// is discarded and cancellation is released in submission order.
     pub fn cancel(&self, sequence: u64) -> bool {
         let mut state = self.state.borrow_mut();
-        if !state.contains_sequence(sequence) {
-            return false;
-        }
-        state.cancelled.insert(sequence);
-        if let Some(index) = state
-            .pending
-            .iter()
-            .position(|request| request.sequence == sequence)
-        {
-            state.pending.remove(index);
-        }
-        for slot in &state.workers {
-            if slot.running == Some(sequence) {
-                let _ = post_cancel(&slot.worker, sequence);
-            }
-        }
-        state.record_terminal(WorkerMessage::Failed {
-            sequence,
-            message: "worker operation was cancelled".to_string(),
-        });
-        dispatch_ready_workers(&mut state);
-        true
+        let (accepted, commands) = state.queue.cancel(sequence);
+        apply_commands(&mut state, commands);
+        accepted
     }
 
     /// Drains progress and deterministically ordered terminal messages.
     pub fn drain_messages(&self) -> Vec<WorkerMessage> {
-        self.state.borrow_mut().delivered.drain(..).collect()
+        self.state.borrow_mut().queue.drain_messages()
     }
 
     /// Number of queued or running requests awaiting ordered delivery.
     pub fn outstanding(&self) -> usize {
-        self.state.borrow().outstanding()
+        self.state.borrow().queue.outstanding()
     }
 }
 
 impl WorkerOperationExecutor for WebWorkerAdapter {
     fn capability(&self) -> WorkerExecutionCapability {
-        let state = self.state.borrow();
-        WorkerExecutionCapability::parallel(
-            state.workers.len(),
-            state.operations.iter().cloned().collect(),
-        )
+        self.state.borrow().queue.capability()
     }
 
     fn submit(&self, request: WorkerRequest) -> Result<(), String> {
@@ -286,8 +187,8 @@ impl WorkerOperationExecutor for WebWorkerAdapter {
 
 impl Drop for WebWorkerAdapter {
     fn drop(&mut self) {
-        for slot in &self.state.borrow().workers {
-            slot.worker.terminate();
+        for worker in &self.state.borrow().workers {
+            worker.terminate();
         }
         self.message_handlers.clear();
         self.error_handlers.clear();
@@ -383,139 +284,88 @@ fn initialize_workers(state: &mut AdapterState) {
         return;
     }
     state.initialization_started = true;
-    for slot in &mut state.workers {
-        if let Err(_error) = post_initialize(&slot.worker, &state.module_url, &state.wasm_url) {
-            slot.failed = true;
+    let mut commands = Vec::new();
+    for worker_index in 0..state.workers.len() {
+        if let Err(error) = post_initialize(
+            &state.workers[worker_index],
+            &state.module_url,
+            &state.wasm_url,
+        ) {
+            commands.extend(state.queue.worker_failed(worker_index, error));
         }
     }
-    fail_pending_if_unavailable(state);
+    apply_commands(state, commands);
 }
 
-fn dispatch_ready_workers(state: &mut AdapterState) {
-    for slot in &mut state.workers {
-        if !slot.ready || slot.failed || slot.running.is_some() {
-            continue;
-        }
-        let Some(request) = state.pending.pop_front() else {
-            break;
-        };
-        let sequence = request.sequence;
-        match post_run(&slot.worker, request) {
-            Ok(()) => slot.running = Some(sequence),
-            Err(message) => {
-                slot.ready = false;
-                slot.failed = true;
-                state
-                    .terminal
-                    .insert(sequence, WorkerMessage::Failed { sequence, message });
+fn apply_commands(state: &mut AdapterState, commands: Vec<WorkerHostCommand>) {
+    let mut commands = commands.into_iter().collect::<VecDeque<_>>();
+    while let Some(command) = commands.pop_front() {
+        match command {
+            WorkerHostCommand::Run {
+                worker_index,
+                request,
+            } => {
+                let result = state
+                    .workers
+                    .get(worker_index)
+                    .ok_or_else(|| format!("worker slot {worker_index} does not exist"))
+                    .and_then(|worker| post_run(worker, request));
+                if let Err(message) = result {
+                    commands.extend(state.queue.worker_failed(worker_index, message));
+                }
+            }
+            WorkerHostCommand::Cancel {
+                worker_index,
+                sequence,
+            } => {
+                if let Some(worker) = state.workers.get(worker_index) {
+                    let _ = post_cancel(worker, sequence);
+                }
             }
         }
     }
-    fail_pending_if_unavailable(state);
-    state.release_ordered();
 }
 
 fn handle_worker_message(state: &Rc<RefCell<AdapterState>>, worker_index: usize, value: JsValue) {
     let kind = string_property(&value, "kind").unwrap_or_default();
     let mut state = state.borrow_mut();
-    match kind.as_str() {
-        "ready" => {
-            if !state.workers[worker_index].failed {
-                state.workers[worker_index].ready = true;
-            }
-        }
+    let commands = match kind.as_str() {
+        "ready" => state.queue.worker_ready(worker_index),
         "progress" => {
             if let (Ok(sequence), Ok(completed)) = (
                 sequence_property(&value),
                 integer_property(&value, "completed"),
             ) {
                 let total = optional_integer_property(&value, "total").ok().flatten();
-                if state.contains_sequence(sequence) && !state.cancelled.contains(&sequence) {
-                    state.delivered.push_back(WorkerMessage::Progress {
-                        sequence,
-                        completed,
-                        total,
-                    });
-                }
+                state.queue.worker_progress(sequence, completed, total);
             }
+            Vec::new()
         }
         "complete" | "failed" => {
-            let running = state.workers[worker_index].running.take();
-            let sequence = sequence_property(&value).ok().or(running);
-            if let Some(sequence) = sequence
-                && !state.cancelled.contains(&sequence)
-            {
-                let message = if kind == "complete" {
-                    match property(&value, "payload") {
-                        Ok(payload) => WorkerMessage::Complete {
-                            sequence,
-                            payload: Uint8Array::new(&payload).to_vec(),
-                        },
-                        Err(message) => WorkerMessage::Failed { sequence, message },
-                    }
-                } else {
-                    WorkerMessage::Failed {
-                        sequence,
-                        message: string_property(&value, "message").unwrap_or_else(|error| error),
-                    }
-                };
-                state.record_terminal(message);
-            }
+            let sequence = sequence_property(&value).ok();
+            let result = if kind == "complete" {
+                property(&value, "payload").map(|payload| Uint8Array::new(&payload).to_vec())
+            } else {
+                Err(string_property(&value, "message").unwrap_or_else(|error| error))
+            };
+            state.queue.worker_completed(worker_index, sequence, result)
         }
         "worker_failed" => {
             let message = string_property(&value, "message").unwrap_or_else(|error| error);
-            fail_worker(&mut state, worker_index, message);
+            state.queue.worker_failed(worker_index, message)
         }
-        _ => fail_worker(
-            &mut state,
+        _ => state.queue.worker_failed(
             worker_index,
             "Web Worker returned an unknown message".to_string(),
         ),
-    }
-    dispatch_ready_workers(&mut state);
+    };
+    apply_commands(&mut state, commands);
 }
 
 fn handle_worker_error(state: &Rc<RefCell<AdapterState>>, worker_index: usize, message: String) {
     let mut state = state.borrow_mut();
-    fail_worker(&mut state, worker_index, message);
-    dispatch_ready_workers(&mut state);
-}
-
-fn fail_worker(state: &mut AdapterState, worker_index: usize, message: String) {
-    let slot = &mut state.workers[worker_index];
-    slot.ready = false;
-    slot.failed = true;
-    if let Some(sequence) = slot.running.take()
-        && !state.cancelled.contains(&sequence)
-    {
-        state.record_terminal(WorkerMessage::Failed { sequence, message });
-    }
-    fail_pending_if_unavailable(state);
-}
-
-fn fail_pending_if_unavailable(state: &mut AdapterState) {
-    if state.workers.iter().all(|slot| slot.failed) {
-        while let Some(request) = state.pending.pop_front() {
-            let sequence = request.sequence;
-            state.terminal.insert(
-                sequence,
-                WorkerMessage::Failed {
-                    sequence,
-                    message: "all Web Workers are unavailable".to_string(),
-                },
-            );
-        }
-        state.release_ordered();
-    }
-}
-
-fn terminal_sequence(message: &WorkerMessage) -> u64 {
-    match message {
-        WorkerMessage::Complete { sequence, .. } | WorkerMessage::Failed { sequence, .. } => {
-            *sequence
-        }
-        _ => unreachable!("only terminal messages enter the ordered completion buffer"),
-    }
+    let commands = state.queue.worker_failed(worker_index, message);
+    apply_commands(&mut state, commands);
 }
 
 fn message_object(kind: &str) -> Result<JsValue, String> {

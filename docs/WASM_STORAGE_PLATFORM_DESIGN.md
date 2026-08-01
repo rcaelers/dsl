@@ -479,6 +479,14 @@ executing it. A failed worker rejects its active request, remaining workers cont
 queue, and loss of the complete pool rejects all queued requests. Dropping the adapter terminates
 the pool and releases its JavaScript callbacks.
 
+`signal_processing::WorkerOperationQueue` owns this bounded scheduling state independently of the
+browser transport. Host readiness and results enter as portable events; runnable and cancellation
+work leaves as `WorkerHostCommand` values. The Web Worker adapter translates those commands without
+reimplementing queue policy. The queue's native and wasm conformance suite covers every portable
+message variant, operation validation, backpressure, out-of-order completion, queued and active
+cancellation, mismatched results, partial and complete worker-pool failure, and observable parity
+with `CooperativeWorkerOperationExecutor`.
+
 `WorkerOperationExecutor` is the target-independent finite-operation host contract. Its capability
 snapshot reports the selected cooperative or parallel mode, advertised parallelism, registered
 operation identifiers, and the reason parallel execution is unavailable. It is deliberately
@@ -499,10 +507,11 @@ lifetime; the UI neither owns browser-worker construction nor inspects the concr
 streaming device captures therefore retain their portable lifecycle, cancellation, and backpressure
 behavior while the host controls how their long-running acquisition task executes.
 
-The reusable core worker pool is absent. The execution contract separates bounded finite work from
-long-running runtime supervision and file-source delivery so blocked stream endpoints cannot starve
-indexing. Host adapters select their implementation by platform composition rather than target
-conditionals in shared algorithms.
+The execution contract separates the reusable bounded finite-operation queue from long-running
+runtime supervision and file-source delivery so blocked stream endpoints cannot starve indexing.
+Host adapters select their transport by platform composition rather than target conditionals in
+shared algorithms. The WASM application build validates the inline worker bootstrap as JavaScript,
+checks the generated browser module, and requires the exported portable-kernel entry point.
 
 Worker transfers move ownership of large `ArrayBuffer` values where possible. Shared-memory worker
 execution is optional because it requires a suitable browser and deployment isolation policy.

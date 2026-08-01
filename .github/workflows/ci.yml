@@ -126,7 +126,14 @@ jobs:
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
         run: cargo test -p signal-processing --target wasm32-unknown-unknown --lib wasm_store_tests
+      - name: Test portable worker scheduling in wasm
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+        run: |
+          cargo test -p signal-processing --target wasm32-unknown-unknown --lib worker_operation_queue_tests
+          cargo test -p signal-processing --target wasm32-unknown-unknown --lib worker_messages_round_trip_as_owned_data
       - name: Build wasm UI with compile-time plugin constructors
         env:
           RUSTFLAGS: -D unreachable-pub
-        run: cargo build -p logic-analyzer-app-web --target wasm32-unknown-unknown --features example-plugin
+          WASM_APP_FEATURES: example-plugin
+        run: scripts/build_wasm_app.sh
