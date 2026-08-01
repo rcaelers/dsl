@@ -2145,6 +2145,7 @@ dependencies = [
  "egui",
  "example-plugin",
  "logic-analyzer-graph-nodes",
+ "logic-analyzer-platform",
  "logic-analyzer-ui",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
@@ -2160,6 +2161,7 @@ dependencies = [
  "example-plugin",
  "log",
  "logic-analyzer-graph-nodes",
+ "logic-analyzer-platform",
  "logic-analyzer-ui",
  "node-graph",
  "serde_json",
@@ -2246,6 +2248,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "logic-analyzer-platform"
+version = "0.1.0"
+dependencies = [
+ "logic-analyzer-ui",
+ "node-graph",
+ "rfd",
+ "serde_json",
+ "signal-processing",
+]
+
+[[package]]
 name = "logic-analyzer-processing"
 version = "0.1.0"
 dependencies = [
@@ -2290,7 +2303,6 @@ dependencies = [
  "logic-analyzer-viewer",
  "node-graph",
  "panel-layout",
- "rfd",
  "serde",
  "serde_json",
  "signal-processing",

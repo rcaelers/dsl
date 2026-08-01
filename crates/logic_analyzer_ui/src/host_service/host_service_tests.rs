@@ -2,10 +2,8 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
 use signal_processing::PersistentStoreConfig;
-use signal_processing::derived_word_store::PersistentCacheEntrySnapshot;
 
-use super::contract::HostService;
-use super::platform_contract::{CacheClearStats, OpenDialog, PlatformHostService, SaveDialog};
+use super::contract::{CacheClearStats, CacheEntrySnapshot, HostService, OpenDialog, SaveDialog};
 
 struct FakeHostService {
     open_paths: VecDeque<Option<PathBuf>>,
@@ -27,7 +25,7 @@ impl Default for FakeHostService {
     }
 }
 
-impl PlatformHostService for FakeHostService {
+impl HostService for FakeHostService {
     fn choose_open_file(&mut self, _request: OpenDialog<'_>) -> Option<PathBuf> {
         self.open_paths.pop_front().flatten()
     }
@@ -63,12 +61,10 @@ impl PlatformHostService for FakeHostService {
     fn inspect_cache_entry(
         &self,
         _config: &PersistentStoreConfig,
-    ) -> Result<Option<PersistentCacheEntrySnapshot>, String> {
+    ) -> Result<Option<CacheEntrySnapshot>, String> {
         Ok(None)
     }
 }
-
-impl HostService for FakeHostService {}
 
 #[test]
 fn fake_host_effects_are_ordered_and_do_not_touch_the_host() {

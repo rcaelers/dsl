@@ -2,7 +2,7 @@
 fn application_orchestration_depends_on_the_ui_owned_host_service() {
     let application = include_str!("../app.rs");
     assert!(application.contains("Box<dyn HostService>"));
-    assert!(application.contains("standard_host_service()"));
+    assert!(application.contains("AppServices"));
 
     for (name, source) in [
         (

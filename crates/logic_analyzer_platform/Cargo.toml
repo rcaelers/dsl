@@ -1,0 +1,14 @@
+[package]
+name = "logic-analyzer-platform"
+version.workspace = true
+edition = "2024"
+authors = ["Rob Caelers <rob.caelers@gmail.com>"]
+
+[dependencies]
+logic-analyzer-ui = { path = "../logic_analyzer_ui" }
+node-graph = { path = "../widgets/node_graph" }
+serde_json = { workspace = true }
+signal-processing = { path = "../signal_processing" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rfd = { workspace = true }

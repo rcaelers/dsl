@@ -85,12 +85,12 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.adapter-crate] Create `logic_analyzer_platform` as the sole reusable owner of
-  native/web host adapters and target selection. Define one injected service bundle over contracts owned by
-  `signal_processing`, `logic_analyzer_processing`, the compiler, and the UI; move reusable file, mmap, native-worker,
-  browser-handle, dialog, export, embedded-runtime, and USB adapters into it without moving codecs, indexes, cache
-  policy, concrete protocols, node schemas, or viewer behavior. Keep `app_native` and `app_web` as bootstrap-only
-  composition roots.
+- [platform.data-plane.adapter-crate] Extend `logic_analyzer_platform` into the sole reusable owner of
+  native/web host adapters and target selection. Add its remaining injected service bundle members over contracts
+  owned by `signal_processing`, `logic_analyzer_processing`, the compiler, and the UI; move reusable mmap,
+  native-worker, browser-handle, export, embedded-runtime, and USB adapters into it without moving codecs, indexes,
+  cache policy, concrete protocols, node schemas, or viewer behavior. Keep `app_native` and `app_web` as
+  bootstrap-only composition roots.
 - [platform.data-plane.storage-contracts] Introduce private, platform-neutral prepared-byte-source,
   artifact-repository, reader/writer, immutable-byte-region, capability, and error contracts in
   `signal_processing`. Address sources and artifacts by fixed-width ranges and stable typed identities rather than

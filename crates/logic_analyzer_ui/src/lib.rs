@@ -1,6 +1,7 @@
 mod about;
 mod app;
 mod app_platform;
+mod app_services;
 mod application_config;
 mod capture_export_service;
 mod collected_output_presentation;
@@ -28,6 +29,8 @@ pub use app::{App, DemoGraph};
 pub use app_platform::{
     NativeMenuCommand, dispatch_native_menu_command, set_recent_files_listener,
 };
+pub use app_services::AppServices;
+pub use host_service::{CacheClearStats, CacheEntrySnapshot, HostService, OpenDialog, SaveDialog};
 use input_bindings::InputBindings;
 pub use node_registry::build_node_registry;
 pub use plugin_panel::{PluginPanel, PluginPanelContext, PluginPanelIcon, UiPanelRegistration};

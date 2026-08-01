@@ -1,14 +1,17 @@
 use std::path::{Path, PathBuf};
 
+use logic_analyzer_ui::{CacheClearStats, CacheEntrySnapshot, HostService, OpenDialog, SaveDialog};
 use signal_processing::PersistentStoreConfig;
-use signal_processing::derived_word_store::PersistentCacheEntrySnapshot;
 
-use super::contract::HostService;
-use super::platform_contract::{CacheClearStats, OpenDialog, PlatformHostService, SaveDialog};
+use crate::services::PlatformServices;
+
+pub(crate) fn standard_services() -> PlatformServices {
+    PlatformServices::with_host_service(Box::new(NativeHostService))
+}
 
 struct NativeHostService;
 
-impl PlatformHostService for NativeHostService {
+impl HostService for NativeHostService {
     fn choose_open_file(&mut self, request: OpenDialog<'_>) -> Option<PathBuf> {
         let mut dialog = rfd::FileDialog::new()
             .set_title(request.title)
@@ -72,14 +75,19 @@ impl PlatformHostService for NativeHostService {
     fn inspect_cache_entry(
         &self,
         config: &PersistentStoreConfig,
-    ) -> Result<Option<PersistentCacheEntrySnapshot>, String> {
+    ) -> Result<Option<CacheEntrySnapshot>, String> {
         signal_processing::derived_word_store::inspect_cache_entry(config)
+            .map(|entry| {
+                entry.map(|entry| CacheEntrySnapshot {
+                    total_bytes: entry.total_bytes,
+                    data_bytes: entry.data_bytes,
+                    index_bytes: entry.index_bytes,
+                    item_count: entry.word_count,
+                    index_item_count: entry.block_count as u64,
+                    first_timestamp_ns: entry.first_timestamp_ns,
+                    last_timestamp_ns: entry.last_timestamp_ns,
+                })
+            })
             .map_err(|error| error.to_string())
     }
-}
-
-impl HostService for NativeHostService {}
-
-pub(crate) fn standard_host_service() -> Box<dyn HostService> {
-    Box::new(NativeHostService)
 }

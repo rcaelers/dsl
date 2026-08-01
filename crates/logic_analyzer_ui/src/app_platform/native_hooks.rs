@@ -91,8 +91,8 @@ impl App {
                 total_bytes: info.map(|info| info.total_bytes),
                 data_bytes: info.map(|info| info.data_bytes),
                 index_bytes: info.map(|info| info.index_bytes),
-                items: info.map(|info| info.word_count),
-                index_items: info.map(|info| info.block_count as u64),
+                items: info.map(|info| info.item_count),
+                index_items: info.map(|info| info.index_item_count),
             });
         }
         let ready = snapshot

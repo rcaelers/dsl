@@ -118,10 +118,13 @@ impl WebHandle {
                 canvas,
                 eframe::WebOptions::default(),
                 Box::new(|cc| {
-                    Ok(Box::new(logic_analyzer_ui::App::new_with_demo_graphs(
-                        cc,
-                        embedded_demo_graphs(),
-                    )))
+                    Ok(Box::new(
+                        logic_analyzer_ui::App::new_with_demo_graphs_and_services(
+                            cc,
+                            embedded_demo_graphs(),
+                            logic_analyzer_platform::standard_services().into_ui_services(),
+                        ),
+                    ))
                 }),
             )
             .await

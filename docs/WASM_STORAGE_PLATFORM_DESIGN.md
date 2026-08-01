@@ -21,6 +21,12 @@ Target-selected code also currently exists inside reusable runtime, compiler, pr
 and UI crates. The proposed architecture removes those internal platform module trees rather than
 merely giving them matching public APIs.
 
+`logic_analyzer_platform` currently composes the UI host-service port. Native and web application
+bootstraps obtain an opaque `PlatformServices` bundle from that crate and inject its UI services
+when constructing the application. The native adapter owns file dialogs, graph document I/O, and
+persistent-cache administration; the web adapter exposes those operations as unavailable. The UI
+owns the portable request, result, and service contract and does not select an implementation.
+
 ## Proposed future: unified native and web data plane
 
 Native and web builds use the same capture buffering, block encoding, indexing, cache planning,

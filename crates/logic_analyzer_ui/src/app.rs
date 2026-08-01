@@ -30,8 +30,8 @@ use crate::app_platform::load_symbol_fonts;
 use crate::collected_output_presentation::waveform_presentation_registry;
 use crate::decoder_panel::{DecoderPanels, DecoderTableRegistry};
 use crate::decoder_table_presentation::decoder_table_registry;
-use crate::graph_service::{GraphRun, GraphService, standard_graph_service};
-use crate::host_service::{HostService, standard_host_service};
+use crate::graph_service::{GraphRun, GraphService};
+use crate::host_service::HostService;
 use crate::live_capture::{
     CaptureAnalysisAttachment, CaptureAvailability, CaptureCoordinator, CaptureCoordinatorContract,
     CaptureReplayAttachment, ConfigurationEpochResolution, capture_availability,
@@ -845,13 +845,17 @@ impl App {
     }
 
     pub fn new(cc: &eframe::CreationContext) -> Self {
-        Self::build(cc, Vec::new())
+        Self::build_with_app_services(
+            cc,
+            Vec::new(),
+            crate::app_services::unavailable_app_services(),
+        )
     }
 
     /// Builds the application around an initial graph supplied by the host
     /// application. The host owns where that graph comes from.
     pub fn new_with_graph(cc: &eframe::CreationContext, graph: node_graph::GraphState) -> Self {
-        let mut app = Self::build(cc, Vec::new());
+        let mut app = Self::new(cc);
         app.apply_graph_document(graph);
         app
     }
@@ -860,7 +864,7 @@ impl App {
     /// entry is loaded at startup and remains available from the Demos menu.
     pub fn new_with_demo_graphs(cc: &eframe::CreationContext, demo_graphs: Vec<DemoGraph>) -> Self {
         let default_graph = demo_graphs.first().map(|demo| demo.graph.clone());
-        let mut app = Self::build(cc, Vec::new());
+        let mut app = Self::new(cc);
         app.demo_graphs = demo_graphs;
         if let Some(graph) = default_graph {
             app.apply_graph_document(graph);
@@ -1005,21 +1009,49 @@ impl App {
         file: Option<&Path>,
         node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
     ) -> Self {
-        let mut app = Self::build(cc, node_catalogs);
+        let mut app = Self::build_with_app_services(
+            cc,
+            node_catalogs,
+            crate::app_services::unavailable_app_services(),
+        );
         app.platform_load_startup_file(file);
         app
     }
 
-    fn build(
+    /// Builds the application with services selected by the host composition
+    /// root.
+    pub fn new_with_file_catalogs_and_services(
+        cc: &eframe::CreationContext,
+        file: Option<&Path>,
+        node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
+        services: crate::AppServices,
+    ) -> Self {
+        let mut app = Self::build_with_app_services(cc, node_catalogs, services);
+        app.platform_load_startup_file(file);
+        app
+    }
+
+    pub fn new_with_demo_graphs_and_services(
+        cc: &eframe::CreationContext,
+        demo_graphs: Vec<DemoGraph>,
+        services: crate::AppServices,
+    ) -> Self {
+        let default_graph = demo_graphs.first().map(|demo| demo.graph.clone());
+        let mut app = Self::build_with_app_services(cc, Vec::new(), services);
+        app.demo_graphs = demo_graphs;
+        if let Some(graph) = default_graph {
+            app.apply_graph_document(graph);
+        }
+        app
+    }
+
+    fn build_with_app_services(
         cc: &eframe::CreationContext,
         node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
+        services: crate::AppServices,
     ) -> Self {
-        Self::build_with_services(
-            cc,
-            node_catalogs,
-            standard_graph_service(),
-            standard_host_service(),
-        )
+        let (graph_service, host_service) = services.into_parts();
+        Self::build_with_services(cc, node_catalogs, graph_service, host_service)
     }
 
     fn build_with_services(

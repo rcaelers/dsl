@@ -138,6 +138,7 @@ nearest owning facade. The allowlist names canonical public namespaces.
 | `logic_analyzer_graph_compiler` | none | Its crate root exposes `GraphCompiler`, host result types, `CompileCtx` result extraction, and saved-document operations consumed by application hosts. Graph-node and node-support contracts are imported from `logic_analyzer_graph_api`; the compiler crate does not forward them. |
 | `logic_analyzer_graph_nodes` | none | The crate root exposes only the linker anchor and native catalog discovery. Built-in graph-node definitions, socket types, migrations, presentations, inventory submissions, and crate-local test fixtures remain private. Cross-component fixtures belong to the top-level integration-test package. |
 | `logic_analyzer_capture_export` | none | The cohesive native exporter exposes its curated format, progress, observer, report, and export operation through the crate root. Encoder and archive implementation modules remain private. |
+| `logic_analyzer_platform` | none | The crate root exposes its opaque composition bundle and constructors. Private target-selected modules implement host capabilities owned by the core contract crates. |
 | `logic_analyzer_test_support` | none | Shared deterministic acquisition providers are exposed through the crate root. Their synchronization and acquisition implementations remain private. |
 | `node_graph` | `api` | `api` exposes graph documents, identifiers, sockets, and node-definition contracts to compilers and graph-node implementations. The crate root exposes the widget/editor composition surface used by UI hosts. |
 | `logic_analyzer_viewer` | none | The reusable viewer exposes one curated crate-root API; drawing, sampling, input, cursor, lane, worker, and indexing modules remain private. |
@@ -181,11 +182,18 @@ unnameable backend type or a target-dependent collection of incidental helpers.
 `AppManager` is one such facade. Its public type and operations are identical on every target;
 whole implementation files delegate to the threaded native manager or cooperative wasm manager.
 
+`logic_analyzer_platform` composes the UI `HostService` port today. It selects complete native and
+web adapter modules and returns an opaque service bundle to the application bootstrap. The native
+adapter owns dialogs, graph-document file I/O, and persistent-cache administration. The web
+adapter reports those unavailable capabilities through the same UI-owned contract. The UI does not
+select either implementation.
+
 ## Proposed future: isolated host adapter crate
 
 Reusable core crates compile the same Rust source and module tree on native and web targets.
 Matching public APIs backed by separate target-selected implementations inside a core crate are not
-the final boundary.
+the final boundary. The existing platform adapter boundary expands to cover the remaining host
+services.
 
 `logic_analyzer_platform` is the only reusable crate with general target selection and
 target-specific dependencies. It is an adapter layer above the contract owners:
