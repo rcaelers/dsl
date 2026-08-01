@@ -31,6 +31,74 @@ pub(crate) struct WordBlockBuilder {
     max_value: u64,
 }
 
+/// Owned input for the finite derived-word encoding kernel.
+///
+/// This format contains no builder state, borrowed data, file handles, or
+/// host objects, so a registered worker can deserialize and execute it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct EncodeWordBlockRequest {
+    pub(crate) sequence: u64,
+    pub(crate) max_words: u64,
+    pub(crate) restart_interval: u64,
+    pub(crate) max_payload_bytes: u64,
+    pub(crate) max_inter_word_gap_ns: u64,
+    pub(crate) max_timestamp_span_ns: u64,
+    pub(crate) words: Vec<Word>,
+}
+
+impl EncodeWordBlockRequest {
+    pub(crate) fn new(sequence: u64, config: BlockCodecConfig, words: Vec<Word>) -> Self {
+        Self {
+            sequence,
+            max_words: config.max_words as u64,
+            restart_interval: config.restart_interval as u64,
+            max_payload_bytes: config.max_payload_bytes as u64,
+            max_inter_word_gap_ns: config.max_inter_word_gap_ns,
+            max_timestamp_span_ns: config.max_timestamp_span_ns,
+            words,
+        }
+    }
+
+    fn config(&self) -> CodecResult<BlockCodecConfig> {
+        Ok(BlockCodecConfig {
+            max_words: usize::try_from(self.max_words).map_err(|_| {
+                CodecError::InvalidConfiguration("worker max_words exceeds this address space")
+            })?,
+            restart_interval: usize::try_from(self.restart_interval).map_err(|_| {
+                CodecError::InvalidConfiguration(
+                    "worker restart interval exceeds this address space",
+                )
+            })?,
+            max_payload_bytes: usize::try_from(self.max_payload_bytes).map_err(|_| {
+                CodecError::InvalidConfiguration("worker payload limit exceeds this address space")
+            })?,
+            max_inter_word_gap_ns: self.max_inter_word_gap_ns,
+            max_timestamp_span_ns: self.max_timestamp_span_ns,
+        })
+    }
+}
+
+/// Owned result from the derived-word encoding kernel.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct EncodedWordBlock {
+    pub(crate) metadata: EncodedBlockMetadata,
+    pub(crate) bytes: Vec<u8>,
+}
+
+pub(crate) fn encode_owned_word_block(
+    request: EncodeWordBlockRequest,
+    mut bytes: Vec<u8>,
+) -> CodecResult<EncodedWordBlock> {
+    let mut builder = WordBlockBuilder::new(request.config()?)?;
+    if builder.extend_ordered(&request.words) != request.words.len() {
+        return Err(CodecError::InvalidConfiguration(
+            "worker word block exceeds its configured bounds",
+        ));
+    }
+    let metadata = builder.encode(request.sequence, &mut bytes)?;
+    Ok(EncodedWordBlock { metadata, bytes })
+}
+
 impl WordBlockBuilder {
     pub(crate) fn new(config: BlockCodecConfig) -> CodecResult<Self> {
         if config.restart_interval == 0 {
@@ -83,6 +151,10 @@ impl WordBlockBuilder {
 
     pub(crate) fn words(&self) -> &[Word] {
         &self.words
+    }
+
+    pub(crate) const fn config(&self) -> BlockCodecConfig {
+        self.config
     }
 
     /// Appends `word`, or reports that the current non-empty block should be
@@ -1738,6 +1810,24 @@ mod tests {
             decode_word_block(&bytes),
             Err(CodecError::InvalidFormat(_))
         ));
+    }
+
+    #[test]
+    fn owned_worker_kernel_preserves_encoded_output() {
+        let request = EncodeWordBlockRequest::new(
+            7,
+            BlockCodecConfig::default(),
+            vec![
+                Word::new(0x12, 100),
+                Word::bytes_with_tag(0x34, [0xaa, 0x55], 200, 10),
+            ],
+        );
+        let encoded = encode_owned_word_block(request.clone(), Vec::new()).unwrap();
+        assert_eq!(encoded.metadata.header.sequence, 7);
+        assert_eq!(
+            decode_word_block(&encoded.bytes).unwrap().words,
+            request.words
+        );
     }
 
     fn next_random(state: &mut u64) -> u64 {

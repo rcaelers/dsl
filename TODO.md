@@ -85,9 +85,6 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.execution.web-workers.kernels] Convert finite derived-store and capture-index work into
-  registered, serializable worker operations with owned input/output payloads; retain the same codecs and
-  deterministic merge order as the cooperative path.
 - [platform.data-plane.execution.web-workers.adapter] Add the `logic_analyzer_platform` Web Worker adapter and
   worker bootstrap with bounded request queues, transfer-safe owned byte buffers, cancellation, progress, and
   ordered completion by worker-message sequence.

@@ -1,12 +1,17 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, mpsc};
 
 use super::storage::IndexWriter;
 use super::types::{
-    BlockIndex, BlockLevels, CaptureIndexProgress, SAMPLES_PER_L1_BIT, bit, set_bit,
+    BlockIndex, BlockLevels, CaptureIndexProgress, L1_WORDS, L2_WORDS, SAMPLES_PER_L1_BIT, set_bit,
 };
-use crate::capture::{BlockCaptureSource, CaptureDataSource, CaptureMetadata, packed_bit};
+#[cfg(test)]
+use super::types::bit;
+use crate::capture::{BlockCaptureSource, CaptureDataSource, CaptureMetadata};
+use crate::capture_index_kernel::{
+    CaptureIndexBlockRequest, CaptureIndexBlockResult, build_capture_index_block,
+};
 use crate::{Error, Result, WorkExecutor};
 
 #[derive(Debug, Clone, Copy)]
@@ -99,50 +104,42 @@ where
             return Self::build_sequential_streaming(data_source, header, jobs, writer, progress);
         }
 
-        let jobs = Arc::new(Mutex::new(jobs));
-        let header = Arc::new(header.clone());
+        let mut jobs = jobs;
+        let mut source = data_source.open_reader()?;
         let (result_tx, result_rx) = mpsc::channel();
-        for _ in 0..worker_count {
-            let jobs = Arc::clone(&jobs);
-            let header = Arc::clone(&header);
-            let data_source = data_source.clone();
-            let result_tx = result_tx.clone();
-            work_executor
-                .submit(Box::new(move || {
-                    let result = (|| -> Result<()> {
-                        let mut source = data_source.open_reader()?;
-                        loop {
-                            let Some(job) = jobs.lock().unwrap().pop_front() else {
-                                break;
-                            };
-                            let leaf = Self::build_block_chunk(
-                                &mut source,
-                                &header,
-                                job.channel,
-                                job.block,
-                            )?;
-                            if result_tx.send(Ok((job, leaf))).is_err() {
-                                break;
-                            }
-                        }
-                        Ok(())
-                    })();
-                    if let Err(error) = result {
-                        let _ = result_tx.send(Err(error));
-                    }
-                }))
-                .map_err(Error::ParseError)?;
-        }
-        drop(result_tx);
         let mut pending: HashMap<(usize, u64), BlockIndex> = HashMap::new();
         let mut previous_last: Vec<Option<bool>> = vec![None; channels];
         let mut next_block: Vec<u64> = vec![0; channels];
         let mut received = 0;
         let mut first_error = None;
-        while received < total_jobs {
+        let mut in_flight = 0;
+        let mut next_sequence = 0_u64;
+
+        while in_flight < worker_count {
+            let Some(job) = jobs.pop_front() else {
+                break;
+            };
+            let request = Self::read_block_request(
+                &mut source,
+                header,
+                job,
+                next_sequence,
+            )?;
+            Self::submit_block_request(
+                request,
+                Arc::clone(&work_executor),
+                result_tx.clone(),
+            )?;
+            in_flight += 1;
+            next_sequence += 1;
+        }
+
+        while in_flight > 0 {
             match result_rx.recv() {
-                Ok(Ok((job, leaf))) => {
+                Ok(Ok(result)) => {
+                    in_flight -= 1;
                     received += 1;
+                    let (job, leaf) = Self::finish_block_result(result)?;
                     pending.insert((job.channel, job.block), leaf);
                     let channel = job.channel;
                     while let Some(mut leaf) = pending.remove(&(channel, next_block[channel])) {
@@ -165,19 +162,36 @@ where
                     });
                 }
                 Ok(Err(err)) => {
+                    in_flight -= 1;
                     first_error = Some(err);
+                }
+                Err(_) => {
+                    first_error = Some(Error::ParseError(
+                        "capture-index worker result channel closed".to_string(),
+                    ));
                     break;
                 }
-                Err(_) => break,
             }
-        }
 
-        if first_error.is_some() || received != total_jobs {
-            // Submitted tasks finish their current block before observing the
-            // cleared queue. Draining them preserves the old cancellation
-            // boundary without making indexing own or join host threads.
-            jobs.lock().unwrap().clear();
-            while result_rx.recv().is_ok() {}
+            if first_error.is_none()
+                && let Some(job) = jobs.pop_front()
+            {
+                match Self::read_block_request(&mut source, header, job, next_sequence).and_then(
+                    |request| {
+                        Self::submit_block_request(
+                            request,
+                            Arc::clone(&work_executor),
+                            result_tx.clone(),
+                        )
+                    },
+                ) {
+                    Ok(()) => {
+                        in_flight += 1;
+                        next_sequence += 1;
+                    }
+                    Err(error) => first_error = Some(error),
+                }
+            }
         }
 
         if let Some(err) = first_error {
@@ -202,7 +216,9 @@ where
         let mut source = data_source.open_reader()?;
         let mut previous_last = vec![None; header.total_probes];
         for (completed, job) in jobs.into_iter().enumerate() {
-            let mut leaf = Self::build_block_chunk(&mut source, header, job.channel, job.block)?;
+            let request = Self::read_block_request(&mut source, header, job, completed as u64)?;
+            let result = build_capture_index_block(request).map_err(Error::ParseError)?;
+            let (_, mut leaf) = Self::finish_block_result(result)?;
             Self::apply_boundary_transition(&mut leaf, previous_last[job.channel]);
             previous_last[job.channel] = Some(leaf.last);
             writer.write_block(job.channel, job.block as usize, &leaf)?;
@@ -214,145 +230,95 @@ where
         writer.finish()
     }
 
-    fn build_block_chunk<R>(
+    fn read_block_request<R>(
         source: &mut R,
         header: &CaptureMetadata,
-        channel: usize,
-        block: u64,
-    ) -> Result<BlockIndex>
+        job: BuildJob,
+        sequence: u64,
+    ) -> Result<CaptureIndexBlockRequest>
     where
         R: BlockCaptureSource,
     {
-        let data = source.read_packed_block(channel, block)?;
-        let block_start = block * header.samples_per_block;
+        let data = source.read_packed_block(job.channel, job.block)?;
+        let block_start = job.block * header.samples_per_block;
         let remaining = header.total_samples.saturating_sub(block_start);
         let valid_samples = ((data.len() as u64) * 8).min(remaining);
-        Ok(Self::build_leaf_summary(&data, valid_samples))
-    }
-
-    fn build_leaf_summary(data: &[u8], valid_samples: u64) -> BlockIndex {
-        let valid_samples = valid_samples.min(u32::MAX as u64) as u32;
-        if valid_samples == 0 {
-            return BlockIndex {
-                valid_samples,
-                first: false,
-                last: false,
-                levels: None,
-            };
-        }
-
-        let first = packed_bit(data, 0);
-        let last = packed_bit(data, valid_samples as usize - 1);
-        let mut entering = first;
-
-        // Allocate directly on the heap to avoid a large stack frame.
-        let mut lvl = BlockLevels::zeroed();
-
-        let l1_groups = (valid_samples as usize).div_ceil(64);
-        let full_l1_groups = valid_samples as usize / 64;
-        let (full_l1_chunks, _) = data[..full_l1_groups * 8].as_chunks::<8>();
-        for (group, chunk) in full_l1_chunks.iter().enumerate() {
-            let word = u64::from_le_bytes(*chunk);
-            Self::record_l1_group(
-                &mut lvl.l1_toggle,
-                &mut lvl.l1_last,
-                group,
-                word,
-                64,
-                &mut entering,
-            );
-        }
-        if full_l1_groups < l1_groups {
-            let (word, valid_bits) =
-                Self::partial_l1_word(data, full_l1_groups, valid_samples as usize);
-            Self::record_l1_group(
-                &mut lvl.l1_toggle,
-                &mut lvl.l1_last,
-                full_l1_groups,
-                word,
-                valid_bits,
-                &mut entering,
-            );
-        }
-
-        let l2_groups = l1_groups.div_ceil(64);
-        for group in 0..l2_groups {
-            if lvl.l1_toggle[group] != 0 {
-                set_bit(&mut lvl.l2_toggle[group / 64], group % 64);
-            }
-            let last_l1_group = ((group + 1) * 64).min(l1_groups).saturating_sub(1);
-            if bit(lvl.l1_last[last_l1_group / 64], last_l1_group % 64) {
-                set_bit(&mut lvl.l2_last[group / 64], group % 64);
-            }
-        }
-
-        let l3_groups = l2_groups.div_ceil(64);
-        for group in 0..l3_groups {
-            if lvl.l2_toggle[group] != 0 {
-                set_bit(&mut lvl.l3_toggle, group);
-            }
-            let last_l2_group = ((group + 1) * 64).min(l2_groups).saturating_sub(1);
-            if bit(lvl.l2_last[last_l2_group / 64], last_l2_group % 64) {
-                set_bit(&mut lvl.l3_last, group);
-            }
-        }
-
-        BlockIndex {
+        Ok(CaptureIndexBlockRequest {
+            sequence,
+            channel: job.channel as u64,
+            block: job.block,
             valid_samples,
-            first,
-            last,
-            levels: if lvl.l3_toggle != 0 { Some(lvl) } else { None },
-        }
+            packed_samples: data.to_vec(),
+        })
     }
 
-    fn record_l1_group(
-        l1_toggle: &mut [u64],
-        l1_last: &mut [u64],
-        group: usize,
-        word: u64,
-        valid_bits: usize,
-        entering: &mut bool,
-    ) {
-        let first_bit = (word & 1) != 0;
-        let boundary_toggle = first_bit != *entering;
-        let internal_toggle = Self::l1_word_has_internal_toggle(word, valid_bits);
-        if boundary_toggle || internal_toggle {
-            set_bit(&mut l1_toggle[group / 64], group % 64);
-        }
-
-        *entering = bit(word, valid_bits - 1);
-        if *entering {
-            set_bit(&mut l1_last[group / 64], group % 64);
-        }
+    fn submit_block_request(
+        request: CaptureIndexBlockRequest,
+        work_executor: Arc<dyn WorkExecutor>,
+        result_tx: mpsc::Sender<Result<CaptureIndexBlockResult>>,
+    ) -> Result<()> {
+        work_executor
+            .submit(Box::new(move || {
+                let result = build_capture_index_block(request).map_err(Error::ParseError);
+                let _ = result_tx.send(result);
+            }))
+            .map_err(Error::ParseError)?;
+        Ok(())
     }
 
-    fn partial_l1_word(data: &[u8], group: usize, valid_samples: usize) -> (u64, usize) {
-        let sample_start = group * 64;
-        let valid_bits = (valid_samples - sample_start).min(64);
-        let byte_start = group * 8;
-        let mut bytes = [0_u8; 8];
-        let available = data.len().saturating_sub(byte_start).min(8);
-        if available > 0 {
-            bytes[..available].copy_from_slice(&data[byte_start..byte_start + available]);
-        }
-        let mut word = u64::from_le_bytes(bytes);
-        if valid_bits < 64 {
-            word &= (1_u64 << valid_bits) - 1;
-        }
-        (word, valid_bits)
+    fn finish_block_result(
+        result: CaptureIndexBlockResult,
+    ) -> Result<(BuildJob, BlockIndex)> {
+        let channel = usize::try_from(result.channel).map_err(|_| {
+            Error::ParseError("capture-index channel exceeds this address space".to_string())
+        })?;
+        let levels = result
+            .levels
+            .map(|source| {
+                if source.l1_toggle.len() != L1_WORDS
+                    || source.l1_last.len() != L1_WORDS
+                    || source.l2_toggle.len() != L2_WORDS
+                    || source.l2_last.len() != L2_WORDS
+                {
+                    return Err(Error::ParseError(
+                        "capture-index worker returned malformed hierarchy lengths".to_string(),
+                    ));
+                }
+                let mut levels = BlockLevels::zeroed();
+                levels.l1_toggle.copy_from_slice(&source.l1_toggle);
+                levels.l1_last.copy_from_slice(&source.l1_last);
+                levels.l2_toggle.copy_from_slice(&source.l2_toggle);
+                levels.l2_last.copy_from_slice(&source.l2_last);
+                levels.l3_toggle = source.l3_toggle;
+                levels.l3_last = source.l3_last;
+                Ok(levels)
+            })
+            .transpose()?;
+        Ok((
+            BuildJob {
+                channel,
+                block: result.block,
+            },
+            BlockIndex {
+                valid_samples: result.valid_samples,
+                first: result.first,
+                last: result.last,
+                levels,
+            },
+        ))
     }
 
-    fn l1_word_has_internal_toggle(word: u64, valid_bits: usize) -> bool {
-        if valid_bits <= 1 {
-            return false;
-        }
-        let valid_mask = if valid_bits == 64 {
-            u64::MAX
-        } else {
-            (1_u64 << valid_bits) - 1
-        };
-        let internal_mask = valid_mask & !1_u64;
-        (word ^ (word << 1)) & internal_mask != 0
+    #[cfg(test)]
+    fn build_leaf_summary(data: &[u8], valid_samples: u64) -> BlockIndex {
+        let result = build_capture_index_block(CaptureIndexBlockRequest {
+            sequence: 0,
+            channel: 0,
+            block: 0,
+            valid_samples,
+            packed_samples: data.to_vec(),
+        })
+        .unwrap();
+        Self::finish_block_result(result).unwrap().1
     }
 
     fn apply_boundary_transition(leaf: &mut BlockIndex, previous_last: Option<bool>) {
@@ -501,11 +467,6 @@ mod tests {
 
     #[test]
     fn word_toggle_detection_handles_boundaries_and_partial_groups() {
-        assert!(!TestBuilder::l1_word_has_internal_toggle(0, 64));
-        assert!(!TestBuilder::l1_word_has_internal_toggle(u64::MAX, 64));
-        assert!(TestBuilder::l1_word_has_internal_toggle(0b10, 2));
-        assert!(!TestBuilder::l1_word_has_internal_toggle(0b10, 1));
-
         let data = [0b0000_1111_u8];
         let mut leaf = TestBuilder::build_leaf_summary(&data, 8);
         TestBuilder::apply_boundary_transition(&mut leaf, Some(false));

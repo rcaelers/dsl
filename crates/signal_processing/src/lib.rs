@@ -17,6 +17,7 @@ mod architecture_tests;
 mod advanced_trigger;
 mod app_manager;
 pub mod capture;
+mod capture_index_kernel;
 mod capture_policy;
 mod cooperative_manager;
 // The shared derived-word codec uses this on native today; the wasm store will
@@ -54,6 +55,7 @@ mod storage;
 mod type_registry;
 mod watchdog;
 mod work_executor;
+mod worker_kernels;
 
 std::cfg_select! {
     target_arch = "wasm32" => {
@@ -172,6 +174,7 @@ pub use storage::{
 pub(crate) use watchdog::OperationGuard;
 pub use watchdog::{Watchdog, WatchdogHandle};
 pub use work_executor::{
-    CompletedWorkTask, InlineWorkExecutor, WorkExecutor, WorkExecutorTask, WorkTask, WorkerMessage,
-    WorkerMessageError, WorkerOperation, WorkerRequest,
+    CompletedWorkTask, InlineWorkExecutor, WorkExecutor, WorkExecutorTask, WorkTask,
+    WorkerKernelRegistry, WorkerMessage, WorkerMessageError, WorkerOperation, WorkerRequest,
 };
+pub use worker_kernels::portable_worker_kernels;

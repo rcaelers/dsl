@@ -50,6 +50,7 @@ pub use cache::{
     DecodedBlockCacheStats, configure_decoded_block_cache, decoded_block_cache_stats,
     reset_decoded_block_cache_stats,
 };
+pub(crate) use codec::{EncodeWordBlockRequest, encode_owned_word_block};
 pub use config::{BlockCodecConfig, LiveStoreConfig, PersistentStoreConfig};
 pub use errors::{CodecError, CodecResult};
 #[cfg(not(target_arch = "wasm32"))]

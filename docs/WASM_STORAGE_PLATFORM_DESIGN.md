@@ -445,6 +445,19 @@ boundary. A Web Worker adapter in `logic_analyzer_platform` dispatches registere
 those messages and returns owned result chunks. It does not attempt to send Rust closures, trait
 objects, mmap handles, or borrowed slices between workers.
 
+`signal_processing::portable_worker_kernels` registers the finite derived-word block encoder and
+capture-index leaf builder under stable, versioned operation identifiers. Their compact binary
+payloads use fixed-width coordinates and own all words or packed samples consumed by the operation.
+Derived-word results are the same encoded blocks used by the persistent store; capture-index results
+contain the same hierarchy data written by the index writer. Source readers, block builders, files,
+repositories, and publication state never cross the worker boundary.
+
+Capture-index scheduling reads at most the executor's advertised parallelism worth of raw blocks
+ahead. It then merges independently completed leaves by channel and block before applying boundary
+transitions and publishing them. Derived-word publication likewise commits completed encoded blocks
+by sequence. Worker completion order therefore cannot change either persistent format or query
+results, and the cooperative and parallel paths execute the same kernels.
+
 `AcquisitionContext` carries the selected executor into concrete live providers. Buffered and
 streaming device captures therefore retain their portable lifecycle, cancellation, and backpressure
 behavior while the host controls how their long-running acquisition task executes.

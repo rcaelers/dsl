@@ -727,6 +727,34 @@ struct BlockCompletion {
     block: Option<PreparedBlock>,
 }
 
+fn prepare_encoded_block(
+    sequence: u64,
+    mut builder: WordBlockBuilder,
+    encoded: Vec<u8>,
+) -> PreparedBlock {
+    let duration_free = builder.is_duration_free();
+    let summaries = word_presence_summaries(sequence, builder.words(), duration_free);
+    let request = super::super::super::codec::EncodeWordBlockRequest::new(
+        sequence,
+        builder.config(),
+        builder.words().to_vec(),
+    );
+    let (encoded, result) =
+        match super::super::super::codec::encode_owned_word_block(request, encoded) {
+            Ok(encoded) => {
+                let result = Ok((encoded.metadata, summaries));
+                (encoded.bytes, result)
+            }
+            Err(error) => (Vec::new(), Err(error)),
+        };
+    builder.clear();
+    PreparedBlock {
+        builder,
+        encoded,
+        result,
+    }
+}
+
 /// Single-threaded append side of a live indexed annotation store.
 pub struct IndexedAnnotationWriter {
     file: Option<File>,
@@ -1020,25 +1048,14 @@ impl IndexedAnnotationWriter {
             .available_builders
             .pop()
             .unwrap_or_else(|| self.builder.empty_like());
-        let mut builder = std::mem::replace(&mut self.builder, replacement);
-        let mut encoded = self.available_encoded_blocks.pop().unwrap_or_default();
+        let builder = std::mem::replace(&mut self.builder, replacement);
+        let encoded = self.available_encoded_blocks.pop().unwrap_or_default();
         let sequence = self.next_dispatch_sequence;
-        let duration_free = builder.is_duration_free();
         let completion = self.completion_sender.clone();
         self.work_executor
             .submit(Box::new(move || {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let result = builder.encode(sequence, &mut encoded).map(|metadata| {
-                        let summaries =
-                            word_presence_summaries(sequence, builder.words(), duration_free);
-                        (metadata, summaries)
-                    });
-                    builder.clear();
-                    PreparedBlock {
-                        builder,
-                        encoded,
-                        result,
-                    }
+                    prepare_encoded_block(sequence, builder, encoded)
                 }));
                 let message = BlockCompletion {
                     sequence,

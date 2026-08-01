@@ -1,3 +1,6 @@
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 
 /// One bounded unit of host-scheduled work.
@@ -68,6 +71,72 @@ pub enum WorkerMessage {
 pub enum WorkerMessageError {
     #[error("worker operation identifiers cannot be empty")]
     InvalidOperation,
+    #[error("worker operation is already registered")]
+    DuplicateOperation,
+}
+
+type WorkerKernel = dyn Fn(Vec<u8>) -> Result<Vec<u8>, String> + Send + Sync + 'static;
+
+/// Portable catalog of finite operations available to a host worker.
+///
+/// The platform adapter only transports [`WorkerMessage`] values and invokes
+/// this registry. Operation owners retain the binary payload codecs and
+/// algorithms behind their stable identifiers.
+#[derive(Clone, Default)]
+pub struct WorkerKernelRegistry {
+    kernels: BTreeMap<WorkerOperation, Arc<WorkerKernel>>,
+}
+
+impl WorkerKernelRegistry {
+    /// Creates an empty operation catalog.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Registers one finite operation.
+    pub fn register<F>(
+        &mut self,
+        operation: impl Into<String>,
+        kernel: F,
+    ) -> Result<(), WorkerMessageError>
+    where
+        F: Fn(Vec<u8>) -> Result<Vec<u8>, String> + Send + Sync + 'static,
+    {
+        let operation = WorkerOperation::new(operation)?;
+        if self.kernels.contains_key(&operation) {
+            return Err(WorkerMessageError::DuplicateOperation);
+        }
+        self.kernels.insert(operation, Arc::new(kernel));
+        Ok(())
+    }
+
+    /// Reports whether the catalog can execute `operation`.
+    pub fn supports(&self, operation: &WorkerOperation) -> bool {
+        self.kernels.contains_key(operation)
+    }
+
+    /// Lists registered stable operation identifiers.
+    pub fn operations(&self) -> impl Iterator<Item = &WorkerOperation> {
+        self.kernels.keys()
+    }
+
+    /// Executes one request and preserves its sequence in the completion.
+    pub fn execute(&self, request: WorkerRequest) -> WorkerMessage {
+        let sequence = request.sequence;
+        let Some(kernel) = self.kernels.get(&request.operation) else {
+            return WorkerMessage::Failed {
+                sequence,
+                message: format!(
+                    "worker operation '{}' is not registered",
+                    request.operation.as_str()
+                ),
+            };
+        };
+        match kernel(request.payload) {
+            Ok(payload) => WorkerMessage::Complete { sequence, payload },
+            Err(message) => WorkerMessage::Failed { sequence, message },
+        }
+    }
 }
 
 /// Completion handle for one host-scheduled work unit.
@@ -123,7 +192,7 @@ impl WorkTask for CompletedWorkTask {
 
 #[cfg(test)]
 mod work_executor_tests {
-    use super::{WorkerMessage, WorkerOperation, WorkerRequest};
+    use super::{WorkerKernelRegistry, WorkerMessage, WorkerOperation, WorkerRequest};
 
     #[test]
     fn worker_messages_round_trip_as_owned_data() {
@@ -143,5 +212,31 @@ mod work_executor_tests {
     #[test]
     fn worker_operations_require_a_stable_nonempty_identifier() {
         assert!(WorkerOperation::new("  ").is_err());
+    }
+
+    #[test]
+    fn kernel_registry_preserves_sequence_and_rejects_duplicates() {
+        let mut registry = WorkerKernelRegistry::new();
+        registry
+            .register("org.example.reverse/v1", |mut payload| {
+                payload.reverse();
+                Ok(payload)
+            })
+            .unwrap();
+        assert!(registry.register("org.example.reverse/v1", Ok).is_err());
+
+        let operation = WorkerOperation::new("org.example.reverse/v1").unwrap();
+        assert!(registry.supports(&operation));
+        assert_eq!(
+            registry.execute(WorkerRequest {
+                sequence: 42,
+                operation,
+                payload: vec![1, 2, 3],
+            }),
+            WorkerMessage::Complete {
+                sequence: 42,
+                payload: vec![3, 2, 1],
+            }
+        );
     }
 }
