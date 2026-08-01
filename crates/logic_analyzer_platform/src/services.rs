@@ -1,4 +1,4 @@
-use logic_analyzer_ui::{AppServices, HostService};
+use logic_analyzer_ui::{AppServices, ApplicationStoragePaths, HostService};
 
 /// Opaque host services assembled for one application instance.
 ///
@@ -10,9 +10,15 @@ pub struct PlatformServices {
 }
 
 impl PlatformServices {
-    pub(crate) fn with_host_service(host_service: Box<dyn HostService>) -> Self {
+    pub(crate) fn with_host_service(
+        host_service: Box<dyn HostService>,
+        storage_paths: ApplicationStoragePaths,
+    ) -> Self {
         Self {
-            ui_services: AppServices::with_host_service(host_service),
+            ui_services: AppServices::with_host_service_and_storage_paths(
+                host_service,
+                storage_paths,
+            ),
         }
     }
 

@@ -419,6 +419,7 @@ pub struct App {
     pub(crate) panel_layout: PanelLayout,
     pub(crate) graph_service: Box<dyn GraphService>,
     pub(crate) host_service: Box<dyn HostService>,
+    pub(crate) storage_paths: crate::ApplicationStoragePaths,
     pub(crate) capture: CaptureCoordinator,
     pub(crate) capture_availability: CaptureAvailability,
     pub(crate) trigger_configuration: Option<compiler::DiscoveredTriggerConfiguration>,
@@ -1050,8 +1051,14 @@ impl App {
         node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
         services: crate::AppServices,
     ) -> Self {
-        let (graph_service, host_service) = services.into_parts();
-        Self::build_with_services(cc, node_catalogs, graph_service, host_service)
+        let (graph_service, host_service, storage_paths) = services.into_parts();
+        Self::build_with_services(
+            cc,
+            node_catalogs,
+            graph_service,
+            host_service,
+            storage_paths,
+        )
     }
 
     fn build_with_services(
@@ -1059,6 +1066,7 @@ impl App {
         node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
         graph_service: Box<dyn GraphService>,
         host_service: Box<dyn HostService>,
+        storage_paths: crate::ApplicationStoragePaths,
     ) -> Self {
         // The graph canvas and its custom widgets use a dark palette. Do not
         // inherit a light OS/browser preference for the surrounding egui
@@ -1096,6 +1104,7 @@ impl App {
             panel_layout: Self::default_panel_layout(),
             graph_service,
             host_service,
+            storage_paths,
             capture,
             capture_availability,
             trigger_configuration: None,

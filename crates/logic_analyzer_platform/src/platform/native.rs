@@ -1,12 +1,52 @@
 use std::path::{Path, PathBuf};
 
-use logic_analyzer_ui::{CacheClearStats, CacheEntrySnapshot, HostService, OpenDialog, SaveDialog};
+use logic_analyzer_ui::{
+    APPLICATION_ID, ApplicationStoragePaths, CacheClearStats, CacheEntrySnapshot, HostService,
+    OpenDialog, SaveDialog,
+};
 use signal_processing::PersistentStoreConfig;
 
 use crate::services::PlatformServices;
 
 pub(crate) fn standard_services() -> PlatformServices {
-    PlatformServices::with_host_service(Box::new(NativeHostService))
+    let storage_paths = ApplicationStoragePaths::new(Some(derived_cache_directory()));
+    PlatformServices::with_host_service(Box::new(NativeHostService), storage_paths)
+}
+
+fn derived_cache_directory() -> PathBuf {
+    application_cache_directory().join("derived")
+}
+
+fn application_cache_directory() -> PathBuf {
+    std::cfg_select! {
+        target_os = "macos" => {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .map(|home| application_directory(home.join("Library").join("Caches")))
+                .unwrap_or_else(|| application_directory(std::env::temp_dir()))
+        }
+        target_os = "windows" => {
+            std::env::var_os("LOCALAPPDATA")
+                .map(PathBuf::from)
+                .map(application_directory)
+                .unwrap_or_else(|| application_directory(std::env::temp_dir()))
+        }
+        _ => {
+            std::env::var_os("XDG_CACHE_HOME")
+                .map(PathBuf::from)
+                .or_else(|| {
+                    std::env::var_os("HOME")
+                        .map(PathBuf::from)
+                        .map(|home| home.join(".cache"))
+                })
+                .map(application_directory)
+                .unwrap_or_else(|| application_directory(std::env::temp_dir()))
+        }
+    }
+}
+
+fn application_directory(parent: PathBuf) -> PathBuf {
+    parent.join(APPLICATION_ID)
 }
 
 struct NativeHostService;

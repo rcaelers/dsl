@@ -14,20 +14,58 @@ use crate::host_service::{
 pub struct AppServices {
     graph_service: Box<dyn GraphService>,
     host_service: Box<dyn HostService>,
+    storage_paths: ApplicationStoragePaths,
 }
 
 impl AppServices {
     /// Combines the standard graph/compiler service with a host-provided UI
     /// service implementation.
     pub fn with_host_service(host_service: Box<dyn HostService>) -> Self {
+        Self::with_host_service_and_storage_paths(host_service, ApplicationStoragePaths::default())
+    }
+
+    /// Combines a host service with the application-owned storage locations
+    /// selected by the application composition root.
+    pub fn with_host_service_and_storage_paths(
+        host_service: Box<dyn HostService>,
+        storage_paths: ApplicationStoragePaths,
+    ) -> Self {
         Self {
             graph_service: standard_graph_service(),
             host_service,
+            storage_paths,
         }
     }
 
-    pub(crate) fn into_parts(self) -> (Box<dyn GraphService>, Box<dyn HostService>) {
-        (self.graph_service, self.host_service)
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        Box<dyn GraphService>,
+        Box<dyn HostService>,
+        ApplicationStoragePaths,
+    ) {
+        (self.graph_service, self.host_service, self.storage_paths)
+    }
+}
+
+/// Locations allocated by the host for application-owned data.
+///
+/// A missing location means that the corresponding optional capability is not
+/// available. UI and compiler behavior must not infer a replacement location.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ApplicationStoragePaths {
+    derived_cache_directory: Option<PathBuf>,
+}
+
+impl ApplicationStoragePaths {
+    pub fn new(derived_cache_directory: Option<PathBuf>) -> Self {
+        Self {
+            derived_cache_directory,
+        }
+    }
+
+    pub fn derived_cache_directory(&self) -> Option<&Path> {
+        self.derived_cache_directory.as_deref()
     }
 }
 
@@ -79,4 +117,23 @@ impl HostService for UnavailableHostService {
 
 fn unavailable() -> String {
     "host integration was not supplied by the application".into()
+}
+
+#[cfg(test)]
+mod app_services_tests {
+    use std::path::Path;
+
+    use super::ApplicationStoragePaths;
+
+    #[test]
+    fn derived_cache_directory_is_an_explicit_optional_capability() {
+        let unavailable = ApplicationStoragePaths::default();
+        assert_eq!(unavailable.derived_cache_directory(), None);
+
+        let configured = ApplicationStoragePaths::new(Some("cache/derived".into()));
+        assert_eq!(
+            configured.derived_cache_directory(),
+            Some(Path::new("cache/derived"))
+        );
+    }
 }

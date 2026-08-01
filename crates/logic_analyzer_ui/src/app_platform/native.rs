@@ -37,10 +37,6 @@ fn application_cache_directory() -> PathBuf {
     }
 }
 
-pub(crate) fn derived_cache_directory() -> PathBuf {
-    application_cache_directory().join("derived")
-}
-
 pub(crate) fn capture_session_directory() -> PathBuf {
     application_cache_directory().join("captures")
 }

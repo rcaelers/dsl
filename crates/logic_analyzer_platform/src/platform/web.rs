@@ -1,12 +1,18 @@
 use std::path::{Path, PathBuf};
 
-use logic_analyzer_ui::{CacheClearStats, CacheEntrySnapshot, HostService, OpenDialog, SaveDialog};
+use logic_analyzer_ui::{
+    ApplicationStoragePaths, CacheClearStats, CacheEntrySnapshot, HostService, OpenDialog,
+    SaveDialog,
+};
 use signal_processing::PersistentStoreConfig;
 
 use crate::services::PlatformServices;
 
 pub(crate) fn standard_services() -> PlatformServices {
-    PlatformServices::with_host_service(Box::new(WebHostService))
+    PlatformServices::with_host_service(
+        Box::new(WebHostService),
+        ApplicationStoragePaths::default(),
+    )
 }
 
 struct WebHostService;

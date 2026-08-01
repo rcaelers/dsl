@@ -5,7 +5,7 @@ use logic_analyzer_graph_compiler as compiler;
 use node_graph::NodeId;
 
 use crate::app::App;
-use crate::app_platform::{FileCommand, GuardedAction, derived_cache_directory};
+use crate::app_platform::{FileCommand, GuardedAction};
 #[cfg(target_os = "macos")]
 use crate::app_platform::{NativeMenuCommand, notify_recent_files_changed};
 use crate::host_service::{OpenDialog, SaveDialog};
@@ -38,7 +38,20 @@ impl App {
             }],
             persistent_caches: Vec::new(),
         };
-        let directory = derived_cache_directory();
+        let Some(directory) = self
+            .storage_paths
+            .derived_cache_directory()
+            .map(ToOwned::to_owned)
+        else {
+            snapshot.services.push(MemoryServiceSnapshot {
+                name: "Persistent derived cache".to_owned(),
+                state: "Unavailable".to_owned(),
+                detail: "The host did not provide a derived-cache directory".to_owned(),
+                used_bytes: None,
+                budget_bytes: None,
+            });
+            return snapshot;
+        };
         let inventory = match self
             .graph_service
             .derived_cache_configs_by_node(self.node_graph.graph(), &directory)
@@ -157,7 +170,9 @@ impl App {
     }
 
     pub(crate) fn platform_prepare_cached_data(&mut self, ctx: &mut compiler::CompileCtx) {
-        ctx.set_persistent_cache_directory(derived_cache_directory());
+        if let Some(directory) = self.storage_paths.derived_cache_directory() {
+            ctx.set_persistent_cache_directory(directory.to_owned());
+        }
     }
 
     pub(crate) fn platform_prepare_run(
@@ -165,7 +180,13 @@ impl App {
         ctx: &mut compiler::CompileCtx,
     ) -> Result<(), String> {
         self.refresh_derived_cache_nodes();
-        let directory = derived_cache_directory();
+        let Some(directory) = self
+            .storage_paths
+            .derived_cache_directory()
+            .map(ToOwned::to_owned)
+        else {
+            return Ok(());
+        };
         ctx.set_persistent_cache_directory(directory.clone());
         let Ok(inventory) = self
             .graph_service
@@ -1023,9 +1044,17 @@ impl App {
     }
 
     fn refresh_derived_cache_nodes(&mut self) {
+        let Some(directory) = self
+            .storage_paths
+            .derived_cache_directory()
+            .map(ToOwned::to_owned)
+        else {
+            self.platform.derived_cache_nodes.clear();
+            return;
+        };
         self.platform.derived_cache_nodes = self
             .graph_service
-            .derived_cache_configs_by_node(self.node_graph.graph(), &derived_cache_directory())
+            .derived_cache_configs_by_node(self.node_graph.graph(), &directory)
             .map(|inventory| {
                 inventory
                     .into_keys()
@@ -1046,9 +1075,18 @@ impl App {
             .get(&node_id)
             .map(|node| node.title.clone())
             .unwrap_or_else(|| "node".to_owned());
+        let Some(directory) = self
+            .storage_paths
+            .derived_cache_directory()
+            .map(ToOwned::to_owned)
+        else {
+            self.toasts
+                .error("The host does not provide a derived-cache directory");
+            return;
+        };
         let configs = match self
             .graph_service
-            .derived_cache_configs_by_node(self.node_graph.graph(), &derived_cache_directory())
+            .derived_cache_configs_by_node(self.node_graph.graph(), &directory)
         {
             Ok(mut inventory) => inventory.remove(&node_id).unwrap_or_default(),
             Err(errors) => {
@@ -1104,8 +1142,12 @@ impl App {
             return;
         }
         self.release_derived_data_handles();
-        let directory = derived_cache_directory();
-        match self.host_service.clear_cache(&directory) {
+        let Some(directory) = self.storage_paths.derived_cache_directory() else {
+            self.toasts
+                .error("The host does not provide a derived-cache directory");
+            return;
+        };
+        match self.host_service.clear_cache(directory) {
             Ok(stats) if stats.removed_entries == 0 && stats.removed_bytes == 0 => {
                 self.toasts.info("No derived data caches found");
             }

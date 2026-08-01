@@ -29,7 +29,7 @@ pub use app::{App, DemoGraph};
 pub use app_platform::{
     NativeMenuCommand, dispatch_native_menu_command, set_recent_files_listener,
 };
-pub use app_services::AppServices;
+pub use app_services::{AppServices, ApplicationStoragePaths};
 pub use host_service::{CacheClearStats, CacheEntrySnapshot, HostService, OpenDialog, SaveDialog};
 use input_bindings::InputBindings;
 pub use node_registry::build_node_registry;
