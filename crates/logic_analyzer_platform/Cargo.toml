@@ -18,5 +18,4 @@ dirs = { workspace = true }
 rfd = { workspace = true }
 
 [dev-dependencies]
-logic-analyzer-viewer = { path = "../widgets/logic_analyzer_viewer" }
 tempfile = { workspace = true }

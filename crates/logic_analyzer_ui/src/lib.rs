@@ -25,6 +25,10 @@ mod viewer_selection;
 pub use app::{App, DemoGraph};
 pub use app_services::{AppServices, ApplicationStoragePaths};
 pub use application_settings::{ApplicationSettings, default_input_bindings};
+pub use capture_export_service::{
+    CaptureExportCompletion, CaptureExportDescriptor, CaptureExportFormat, CaptureExportService,
+    CaptureExportStatus,
+};
 pub use host_service::{
     CacheClearStats, CacheEntrySnapshot, DecodedBlockCacheSnapshot, HostCommand, HostService,
     OpenDialog, SaveDialog,

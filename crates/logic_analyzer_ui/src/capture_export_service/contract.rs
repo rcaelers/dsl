@@ -1,20 +1,65 @@
 use std::path::PathBuf;
 
-use super::platform_contract::PlatformCaptureExportService;
+use signal_processing::CaptureSessionId;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CaptureExportStatus {
-    pub(crate) format_label: String,
-    pub(crate) destination: PathBuf,
-    pub(crate) samples_written: u64,
-    pub(crate) total_samples: u64,
-    pub(crate) cancelling: bool,
+pub struct CaptureExportStatus {
+    pub format_label: String,
+    pub destination: PathBuf,
+    pub samples_written: u64,
+    pub total_samples: u64,
+    pub cancelling: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CaptureExportCompletion {
-    pub(crate) destination: PathBuf,
-    pub(crate) warnings: Vec<String>,
+pub struct CaptureExportCompletion {
+    pub destination: PathBuf,
+    pub warnings: Vec<String>,
 }
 
-pub(crate) trait CaptureExportService: PlatformCaptureExportService {}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaptureExportFormat {
+    Portable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CaptureExportDescriptor {
+    pub label: &'static str,
+    pub extension: &'static str,
+    pub dialog_title: &'static str,
+    pub default_file_name: &'static str,
+}
+
+impl CaptureExportFormat {
+    pub const fn descriptor(self) -> CaptureExportDescriptor {
+        match self {
+            Self::Portable => CaptureExportDescriptor {
+                label: "PulseView capture",
+                extension: "sr",
+                dialog_title: "Save Capture Data",
+                default_file_name: "capture.sr",
+            },
+        }
+    }
+}
+
+pub trait CaptureExportService {
+    fn start(
+        &mut self,
+        session_id: CaptureSessionId,
+        format: CaptureExportFormat,
+        destination: PathBuf,
+    ) -> Result<(), String>;
+
+    fn status(&self) -> Option<&CaptureExportStatus>;
+
+    fn take_completion(&mut self) -> Option<Result<CaptureExportCompletion, String>>;
+
+    fn request_cancel(&mut self);
+
+    fn poll(&mut self);
+
+    fn is_active(&self) -> bool;
+
+    fn reset(&mut self);
+}

@@ -38,14 +38,14 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
 - `logic_analyzer_ui` owns the application-facing graph service port. Application and platform
   orchestration depend on its private `GraphService` and `GraphRun` traits; the crate's production
   adapter delegates to `GraphCompiler` and `LiveRun`, while UI tests provide deterministic local
-  implementations. Its private `HostService` port owns native file and directory dialogs, graph
-  document persistence, and derived-cache commands. Native and web adapters implement the same
-  platform-neutral contract in complete platform-selected modules. Its private
-  `CaptureExportService` port owns asynchronous export startup, progress, cancellation, and
-  completion; `CaptureCoordinator` supplies only a finalized session identity and retains capture
-  lifecycle policy. Native dialog and filesystem-export adapters are enabled only by the native
-  application host; the default UI crate build uses unavailable adapters so its component tests do
-  not link those concrete backends.
+  implementations. Its public `HostService` port owns file and directory dialogs, graph-document
+  persistence, derived-cache commands and diagnostics, and native-shell state exchange. The
+  platform crate implements that target-neutral contract. Its public `CaptureExportService` port
+  owns asynchronous export startup, progress, cancellation, and completion through one contract on
+  every target; `CaptureCoordinator` supplies only a finalized session identity and retains capture
+  lifecycle policy. The repository-backed native export implementation and unavailable fallback
+  remain selected as complete UI implementation modules until repository handles can cross the
+  storage contract. The default UI crate build therefore does not link the concrete export backend.
 - Workspace-level integration tests own end-to-end compositions spanning concrete graph nodes,
   processing nodes, and the generic compiler. Component crates keep only tests of their own
   contracts and private implementation mechanics; composition-only dependencies do not appear in

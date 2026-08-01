@@ -10,8 +10,9 @@ use logic_analyzer_capture_export::{
 };
 use signal_processing::{CaptureSessionId, NativeCaptureSessionRepository};
 
-use super::contract::{CaptureExportCompletion, CaptureExportService, CaptureExportStatus};
-use super::platform_contract::{CaptureExportFormat, PlatformCaptureExportService};
+use super::contract::{
+    CaptureExportCompletion, CaptureExportFormat, CaptureExportService, CaptureExportStatus,
+};
 
 struct ExportObserver {
     cancellation: Arc<AtomicBool>,
@@ -52,7 +53,7 @@ impl NativeCaptureExportService {
     }
 }
 
-impl PlatformCaptureExportService for NativeCaptureExportService {
+impl CaptureExportService for NativeCaptureExportService {
     fn start(
         &mut self,
         session_id: CaptureSessionId,
@@ -175,8 +176,6 @@ impl PlatformCaptureExportService for NativeCaptureExportService {
         }
     }
 }
-
-impl CaptureExportService for NativeCaptureExportService {}
 
 impl Drop for NativeCaptureExportService {
     fn drop(&mut self) {

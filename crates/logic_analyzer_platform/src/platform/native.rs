@@ -322,7 +322,6 @@ mod native_tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use logic_analyzer_ui::{HostCommand, HostService};
-    use logic_analyzer_viewer::ColorProfile;
 
     use super::{
         NativeHostService, application_directory, load_application_settings_path,
@@ -378,7 +377,6 @@ mod native_tests {
         let settings = load_application_settings_path(&application);
         let bindings = load_input_bindings_path(&input_bindings);
 
-        assert_eq!(settings.viewer_color_profile(), ColorProfile::Classic);
         assert_eq!(settings.max_recent_capture_sessions(), 7);
         assert_eq!(settings.max_capture_storage_gib(), 12);
         assert!(bindings.shortcut(&["custom"], "only").is_some());
@@ -392,7 +390,8 @@ mod native_tests {
         let settings = load_application_settings_path(&directory.path().join("missing.json"));
         let bindings = load_input_bindings_path(&directory.path().join("missing.json"));
 
-        assert_eq!(settings.viewer_color_profile(), ColorProfile::DsView);
+        assert_eq!(settings.max_recent_capture_sessions(), 10);
+        assert_eq!(settings.max_capture_storage_gib(), 20);
         assert!(bindings.shortcut(&["global"], "save").is_some());
     }
 }

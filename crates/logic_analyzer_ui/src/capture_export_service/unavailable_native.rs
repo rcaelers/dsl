@@ -2,12 +2,13 @@ use std::path::PathBuf;
 
 use signal_processing::{CaptureSessionId, NativeCaptureSessionRepository};
 
-use super::contract::{CaptureExportCompletion, CaptureExportService, CaptureExportStatus};
-use super::platform_contract::{CaptureExportFormat, PlatformCaptureExportService};
+use super::contract::{
+    CaptureExportCompletion, CaptureExportFormat, CaptureExportService, CaptureExportStatus,
+};
 
 struct UnavailableCaptureExportService;
 
-impl PlatformCaptureExportService for UnavailableCaptureExportService {
+impl CaptureExportService for UnavailableCaptureExportService {
     fn start(
         &mut self,
         _session_id: CaptureSessionId,
@@ -35,8 +36,6 @@ impl PlatformCaptureExportService for UnavailableCaptureExportService {
 
     fn reset(&mut self) {}
 }
-
-impl CaptureExportService for UnavailableCaptureExportService {}
 
 pub(crate) fn standard_capture_export_service(
     _repository: NativeCaptureSessionRepository,

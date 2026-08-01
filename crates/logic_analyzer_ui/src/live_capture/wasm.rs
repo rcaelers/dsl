@@ -11,7 +11,7 @@ use crate::capture_export_service::{
 };
 
 pub(crate) struct CaptureCoordinator {
-    _export_service: Box<dyn CaptureExportService>,
+    export_service: Box<dyn CaptureExportService>,
 }
 
 impl CaptureCoordinator {
@@ -21,7 +21,7 @@ impl CaptureCoordinator {
         _capture_session_directory: Option<std::path::PathBuf>,
     ) -> Self {
         Self {
-            _export_service: standard_capture_export_service(),
+            export_service: standard_capture_export_service(),
         }
     }
 
@@ -35,16 +35,20 @@ impl CaptureCoordinator {
     }
 
     pub(crate) fn export_status(&self) -> Option<&CaptureExportStatus> {
-        None
+        self.export_service.status()
     }
 
     pub(crate) fn take_export_notice(&mut self) -> Option<Result<CaptureExportCompletion, String>> {
-        None
+        self.export_service.take_completion()
     }
 
-    pub(crate) fn request_cancel_export(&mut self) {}
+    pub(crate) fn request_cancel_export(&mut self) {
+        self.export_service.request_cancel();
+    }
 
-    pub(crate) fn clear_completed(&mut self) {}
+    pub(crate) fn clear_completed(&mut self) {
+        self.export_service.reset();
+    }
 }
 
 impl CaptureCoordinatorContract for CaptureCoordinator {
@@ -68,7 +72,9 @@ impl CaptureCoordinatorContract for CaptureCoordinator {
 
     fn set_graph_processed_samples(&mut self, _processed_samples: Option<u64>) {}
 
-    fn poll(&mut self) {}
+    fn poll(&mut self) {
+        self.export_service.poll();
+    }
 
     fn status(&self) -> Option<&CaptureSessionStatus> {
         None

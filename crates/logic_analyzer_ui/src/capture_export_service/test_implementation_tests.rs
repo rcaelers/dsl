@@ -4,8 +4,9 @@ use std::sync::{Arc, Mutex};
 
 use signal_processing::CaptureSessionId;
 
-use super::contract::{CaptureExportCompletion, CaptureExportService, CaptureExportStatus};
-use super::platform_contract::{CaptureExportFormat, PlatformCaptureExportService};
+use super::contract::{
+    CaptureExportCompletion, CaptureExportFormat, CaptureExportService, CaptureExportStatus,
+};
 
 enum ScriptedEvent {
     Progress {
@@ -48,7 +49,7 @@ struct ScriptedCaptureExportService {
     completion: Option<Result<CaptureExportCompletion, String>>,
 }
 
-impl PlatformCaptureExportService for ScriptedCaptureExportService {
+impl CaptureExportService for ScriptedCaptureExportService {
     fn start(
         &mut self,
         session_id: CaptureSessionId,
@@ -130,8 +131,6 @@ impl PlatformCaptureExportService for ScriptedCaptureExportService {
         }
     }
 }
-
-impl CaptureExportService for ScriptedCaptureExportService {}
 
 pub(crate) fn scripted_capture_export_service()
 -> (Box<dyn CaptureExportService>, ScriptedCaptureExportControl) {

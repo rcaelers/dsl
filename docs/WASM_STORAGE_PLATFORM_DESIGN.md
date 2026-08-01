@@ -142,8 +142,10 @@ accepted by the compiler, runtime, processing factories, and UI host. No core cr
 Traits implemented by the adapter crate are supported cross-crate ports re-exported from the crate
 root of their behavioral owner. For example, storage and execution ports belong to
 `signal_processing`, cache-administration ports belong to `logic_analyzer_graph_compiler`, and
-dialog or host-command ports belong to `logic_analyzer_ui`. Making those ports implementable does
-not expose their concrete native or web dependencies.
+dialog, host-command, cache-diagnostics, and capture-export ports belong to `logic_analyzer_ui`.
+Making those ports implementable does not expose their concrete native or web dependencies. The
+capture-export port already has one target-neutral contract; moving its repository-backed adapter
+requires the common repository handle defined by the storage-contract work.
 
 The memory repository, owned backing, fake source, cooperative executor, and other host-independent
 implementations remain in their existing owner crates and can be selected on native, web, or in

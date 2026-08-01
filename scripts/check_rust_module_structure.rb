@@ -157,14 +157,15 @@ ui_manifest = File.read(File.join(ROOT, "crates/logic_analyzer_ui/Cargo.toml"))
 unless ui_manifest.match?(/^default\s*=\s*\[\s*\]\s*$/)
   errors << "crates/logic_analyzer_ui/Cargo.toml: default features must keep UI component tests host-backend-free"
 end
-%w[logic-analyzer-capture-export rfd].each do |dependency|
-  declaration = ui_manifest.lines.find { |line| line.match?(/^#{Regexp.escape(dependency)}\s*=/) }
-  unless declaration&.include?("optional = true")
-    errors << "crates/logic_analyzer_ui/Cargo.toml: #{dependency} must be an optional native-host adapter dependency"
-  end
+capture_export_declaration = ui_manifest.lines.find { |line| line.match?(/^logic-analyzer-capture-export\s*=/) }
+unless capture_export_declaration&.include?("optional = true")
+  errors << "crates/logic_analyzer_ui/Cargo.toml: capture export must remain an optional native-host adapter dependency until repository adapters own it"
 end
-unless ui_manifest.match?(/^native-host\s*=\s*\[[^\]]*dep:logic-analyzer-capture-export[^\]]*dep:rfd[^\]]*node-graph\/native-file-dialog[^\]]*\]/m)
-  errors << "crates/logic_analyzer_ui/Cargo.toml: native-host must enable application, node-graph, and capture-export adapters"
+if ui_manifest.match?(/^rfd\s*=/)
+  errors << "crates/logic_analyzer_ui/Cargo.toml: native dialogs belong to logic-analyzer-platform"
+end
+unless ui_manifest.match?(/^native-host\s*=\s*\[[^\]]*dep:logic-analyzer-capture-export[^\]]*node-graph\/native-file-dialog[^\]]*\]/m)
+  errors << "crates/logic_analyzer_ui/Cargo.toml: native-host must enable the remaining node-graph and capture-export adapters"
 end
 
 node_graph_manifest = File.read(File.join(ROOT, "crates/widgets/node_graph/Cargo.toml"))
