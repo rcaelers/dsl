@@ -1106,6 +1106,9 @@ impl App {
             application_settings
                 .max_capture_storage_gib()
                 .saturating_mul(1024 * 1024 * 1024),
+            storage_paths
+                .capture_session_directory()
+                .map(std::path::Path::to_owned),
         );
         let capture_availability = capture_availability(widget.graph(), graph_service.as_ref());
         Self {

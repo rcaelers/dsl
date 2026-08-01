@@ -15,7 +15,11 @@ pub(crate) struct CaptureCoordinator {
 }
 
 impl CaptureCoordinator {
-    pub(crate) fn configured(_max_recent_sessions: usize, _max_total_bytes: u64) -> Self {
+    pub(crate) fn configured(
+        _max_recent_sessions: usize,
+        _max_total_bytes: u64,
+        _capture_session_directory: Option<std::path::PathBuf>,
+    ) -> Self {
         Self {
             _export_service: standard_capture_export_service(),
         }

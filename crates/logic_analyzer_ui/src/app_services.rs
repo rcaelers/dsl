@@ -82,17 +82,28 @@ impl AppServices {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ApplicationStoragePaths {
     derived_cache_directory: Option<PathBuf>,
+    capture_session_directory: Option<PathBuf>,
 }
 
 impl ApplicationStoragePaths {
     pub fn new(derived_cache_directory: Option<PathBuf>) -> Self {
         Self {
             derived_cache_directory,
+            capture_session_directory: None,
         }
+    }
+
+    pub fn with_capture_session_directory(mut self, directory: Option<PathBuf>) -> Self {
+        self.capture_session_directory = directory;
+        self
     }
 
     pub fn derived_cache_directory(&self) -> Option<&Path> {
         self.derived_cache_directory.as_deref()
+    }
+
+    pub fn capture_session_directory(&self) -> Option<&Path> {
+        self.capture_session_directory.as_deref()
     }
 }
 
@@ -153,14 +164,20 @@ mod app_services_tests {
     use super::ApplicationStoragePaths;
 
     #[test]
-    fn derived_cache_directory_is_an_explicit_optional_capability() {
+    fn storage_directories_are_explicit_optional_capabilities() {
         let unavailable = ApplicationStoragePaths::default();
         assert_eq!(unavailable.derived_cache_directory(), None);
+        assert_eq!(unavailable.capture_session_directory(), None);
 
-        let configured = ApplicationStoragePaths::new(Some("cache/derived".into()));
+        let configured = ApplicationStoragePaths::new(Some("cache/derived".into()))
+            .with_capture_session_directory(Some("cache/captures".into()));
         assert_eq!(
             configured.derived_cache_directory(),
             Some(Path::new("cache/derived"))
+        );
+        assert_eq!(
+            configured.capture_session_directory(),
+            Some(Path::new("cache/captures"))
         );
     }
 }

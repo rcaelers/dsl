@@ -29,7 +29,6 @@ use super::implementation::{
     CaptureAnalysisAttachment, CaptureCoordinatorContract, CaptureReplayAttachment,
     CaptureSessionStatus, CaptureWaveformUpdate,
 };
-use crate::app_platform::capture_session_directory;
 use crate::capture_export_service::{
     CaptureExportCompletion, CaptureExportFormat as CaptureRawExportFormat, CaptureExportService,
     CaptureExportStatus, standard_capture_export_service,
@@ -307,8 +306,14 @@ impl CaptureCoordinator {
         )
     }
 
-    pub(crate) fn configured(max_recent_sessions: usize, max_total_bytes: u64) -> Self {
-        let config = NativeCaptureSessionRepositoryConfig::new(capture_session_directory())
+    pub(crate) fn configured(
+        max_recent_sessions: usize,
+        max_total_bytes: u64,
+        capture_session_directory: Option<PathBuf>,
+    ) -> Self {
+        let capture_session_directory = capture_session_directory
+            .expect("native live capture requires a host-provided capture-session directory");
+        let config = NativeCaptureSessionRepositoryConfig::new(capture_session_directory)
             .with_limits(max_recent_sessions, max_total_bytes)
             .expect("embedded live-capture limits are valid");
         let repository = NativeCaptureSessionRepository::new(config)

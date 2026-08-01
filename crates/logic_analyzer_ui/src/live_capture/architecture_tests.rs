@@ -61,3 +61,17 @@ fn generic_ui_capture_components_contain_no_provider_model_or_sigrok_contracts()
         }
     }
 }
+
+#[test]
+fn native_capture_session_storage_is_supplied_by_the_host() {
+    let source = include_str!("native.rs");
+
+    assert!(
+        !source.contains("app_platform"),
+        "native capture must receive its session directory through the UI service contract"
+    );
+    assert!(
+        source.contains("capture_session_directory: Option<PathBuf>"),
+        "native capture configuration must keep the host-provided session directory explicit"
+    );
+}

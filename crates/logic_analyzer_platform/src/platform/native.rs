@@ -10,7 +10,8 @@ use signal_processing::PersistentStoreConfig;
 use crate::services::PlatformServices;
 
 pub(crate) fn standard_services() -> PlatformServices {
-    let storage_paths = ApplicationStoragePaths::new(Some(derived_cache_directory()));
+    let storage_paths = ApplicationStoragePaths::new(Some(derived_cache_directory()))
+        .with_capture_session_directory(Some(capture_session_directory()));
     let input_bindings = load_input_bindings();
     let application_settings = load_application_settings();
     PlatformServices::with_ui_services(AppServices::with_host_storage_and_configuration(
@@ -112,6 +113,10 @@ fn configuration_file(name: &str) -> Option<PathBuf> {
 
 fn derived_cache_directory() -> PathBuf {
     application_cache_directory().join("derived")
+}
+
+fn capture_session_directory() -> PathBuf {
+    application_cache_directory().join("captures")
 }
 
 fn application_cache_directory() -> PathBuf {
@@ -233,7 +238,17 @@ impl HostService for NativeHostService {
 mod native_tests {
     use logic_analyzer_viewer::ColorProfile;
 
-    use super::{load_application_settings_path, load_input_bindings_path};
+    use super::{application_directory, load_application_settings_path, load_input_bindings_path};
+
+    #[test]
+    fn native_cache_directories_use_the_application_identifier() {
+        let parent = tempfile::tempdir().unwrap();
+
+        assert_eq!(
+            application_directory(parent.path().to_owned()),
+            parent.path().join("logic-conduit")
+        );
+    }
 
     #[test]
     fn native_configuration_files_override_embedded_defaults() {
