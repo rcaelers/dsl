@@ -23,15 +23,10 @@ fn ui_manifest_has_no_concrete_test_composition_dependencies() {
         declaration.contains("optional = true"),
         "{dependency} must remain outside the default isolated UI test dependency graph"
     );
-    for capability in [
-        "dep:logic-analyzer-capture-export",
-        "node-graph/native-file-dialog",
-    ] {
-        assert!(
-            manifest.contains(capability),
-            "native-host must enable {capability}"
-        );
-    }
+    assert!(
+        manifest.contains("dep:logic-analyzer-capture-export"),
+        "native-host must enable the remaining capture-export adapter"
+    );
 }
 
 #[test]

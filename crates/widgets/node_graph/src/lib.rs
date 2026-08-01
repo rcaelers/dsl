@@ -8,8 +8,9 @@ mod support;
 mod widget;
 
 pub use api::{
-    AnySocket, BoolSocket, BoolValue, EnumValue, FileSocket, FileValue, FloatSocket, FloatValue,
-    InlineControl, InputDef, IntSocket, IntValue, NodeDef, NodeInstanceSchema, NodePanelDef,
+    AnySocket, BoolSocket, BoolValue, EnumValue, FileDialogFilter, FileDialogRequest,
+    FileDialogService, FileSocket, FileValue, FloatSocket, FloatValue, InlineControl,
+    InlineControlContext, InputDef, IntSocket, IntValue, NodeDef, NodeInstanceSchema, NodePanelDef,
     NodePanelPresentation, OutputDef, PanelAction, PanelContext, PanelDataProvider, PanelMetadata,
     PanelSection, PanelTabDef, PropDef, PropertyPanelPresentation, SocketDef,
     SocketIndicatorPresentation, SocketTypeIdentity, SocketWithControlDef, StrSocket, StringValue,

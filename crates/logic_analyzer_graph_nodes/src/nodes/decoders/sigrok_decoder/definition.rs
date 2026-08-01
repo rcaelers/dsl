@@ -10,8 +10,8 @@ use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     SigrokOutputKind, SigrokScalarValue,
 };
 use node_graph::{
-    BoolValue, EnumValue, FloatValue, InlineControl, InputDef, IntValue, NodeBadge, NodeDef,
-    NodeInstanceSchema, OutputDef, PanelSection, PropDef, Socket, StringValue,
+    BoolValue, EnumValue, FloatValue, InlineControl, InlineControlContext, InputDef, IntValue,
+    NodeBadge, NodeDef, NodeInstanceSchema, OutputDef, PanelSection, PropDef, Socket, StringValue,
 };
 
 use crate::sockets::{COLOR_DECODERS, ProtocolPackets, Signal, Words};
@@ -66,6 +66,7 @@ impl InlineControl for SigrokCatalogControl {
         rect: Rect,
         _zoom: f32,
         clip_rect: Rect,
+        _context: &mut InlineControlContext<'_>,
     ) -> bool {
         let previous_paths = self.search_paths.clone();
         let previous_selection = self.selected_id.clone();
@@ -196,13 +197,16 @@ impl InlineControl for SavedOptionControl {
         rect: Rect,
         zoom: f32,
         clip_rect: Rect,
+        context: &mut InlineControlContext<'_>,
     ) -> bool {
         match self {
-            Self::Bool(value) => value.draw_widget(ui, label, rect, zoom, clip_rect),
-            Self::Integer(value) => value.draw_widget(ui, label, rect, zoom, clip_rect),
-            Self::Float(value) => value.draw_widget(ui, label, rect, zoom, clip_rect),
-            Self::String(value) => value.draw_widget(ui, label, rect, zoom, clip_rect),
-            Self::Choice { selected, .. } => selected.draw_widget(ui, label, rect, zoom, clip_rect),
+            Self::Bool(value) => value.draw_widget(ui, label, rect, zoom, clip_rect, context),
+            Self::Integer(value) => value.draw_widget(ui, label, rect, zoom, clip_rect, context),
+            Self::Float(value) => value.draw_widget(ui, label, rect, zoom, clip_rect, context),
+            Self::String(value) => value.draw_widget(ui, label, rect, zoom, clip_rect, context),
+            Self::Choice { selected, .. } => {
+                selected.draw_widget(ui, label, rect, zoom, clip_rect, context)
+            }
         }
     }
 }

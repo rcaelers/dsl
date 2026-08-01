@@ -1063,6 +1063,7 @@ impl App {
             input_bindings,
             application_settings,
             host_symbol_fonts,
+            node_file_dialog,
         } = services.into_parts();
         Self::build_with_services(
             cc,
@@ -1073,6 +1074,7 @@ impl App {
             input_bindings,
             application_settings,
             host_symbol_fonts,
+            node_file_dialog,
         )
     }
 
@@ -1085,6 +1087,7 @@ impl App {
         input_bindings: InputBindings,
         application_settings: crate::ApplicationSettings,
         host_symbol_fonts: Vec<egui::FontData>,
+        node_file_dialog: Option<Box<dyn node_graph::FileDialogService>>,
     ) -> Self {
         // The graph canvas and its custom widgets use a dark palette. Do not
         // inherit a light OS/browser preference for the surrounding egui
@@ -1097,6 +1100,9 @@ impl App {
         let input_bindings = Arc::new(input_bindings);
         let plugin_panel_registry = PluginPanelRegistry::standard();
         let mut widget = NodeGraphWidget::new(registry);
+        if let Some(file_dialog) = node_file_dialog {
+            widget.set_file_dialog_service(file_dialog);
+        }
         widget.set_input_bindings(input_bindings.clone());
         widget.set_panel_tabs(vec![PanelTabDef::new("view", "View")]);
         let platform = crate::app_platform::PlatformState::restore(cc, &mut widget);

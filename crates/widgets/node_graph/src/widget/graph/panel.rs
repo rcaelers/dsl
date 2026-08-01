@@ -339,6 +339,7 @@ impl NodeGraphWidget {
         let Some(instance) = self.runtime.get_mut(&node_id) else {
             return;
         };
+        let file_dialog = self.file_dialog_service.as_mut();
         let category = self
             .registry
             .category_of(node.def_name())
@@ -421,6 +422,7 @@ impl NodeGraphWidget {
                                                                 ui,
                                                                 rect,
                                                                 panel_rect,
+                                                                file_dialog,
                                                             )
                                                         })
                                                         .inner
@@ -452,6 +454,7 @@ impl NodeGraphWidget {
                                                 editing_enabled,
                                                 *data,
                                                 &mut actions,
+                                                file_dialog,
                                             );
                                             let panel_changed =
                                                 instance.draw_panel(*index, ui, &mut context);
@@ -553,6 +556,8 @@ impl NodeGraphWidget {
 
         let content = panel_rect.shrink2(Vec2::new(10.0, 8.0));
         let mut changed = false;
+        let runtime = &mut self.runtime;
+        let file_dialog = self.file_dialog_service.as_mut();
         ui.scope_builder(
             UiBuilder::new()
                 .max_rect(content)
@@ -571,10 +576,14 @@ impl NodeGraphWidget {
                                 .layout(Layout::top_down(Align::Min)),
                             |ui| {
                                 let mut actions = Vec::new();
-                                let mut context =
-                                    PanelContext::new(editing_enabled, *data, &mut actions);
+                                let mut context = PanelContext::new(
+                                    editing_enabled,
+                                    *data,
+                                    &mut actions,
+                                    file_dialog,
+                                );
                                 let mut draw = |ui: &mut Ui| {
-                                    self.runtime.get_mut(&node_id).is_some_and(|instance| {
+                                    runtime.get_mut(&node_id).is_some_and(|instance| {
                                         instance.draw_panel(*index, ui, &mut context)
                                     })
                                 };

@@ -260,6 +260,7 @@ impl NodeGraphWidget {
                                 graph: &self.graph,
                                 view: &self.view,
                                 origin,
+                                file_dialog: self.file_dialog_service.as_mut(),
                             },
                         )
                     })

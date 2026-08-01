@@ -4,21 +4,35 @@ use logic_analyzer_ui::{
     AppServices, ApplicationSettings, ApplicationStoragePaths, CacheClearStats, CacheEntrySnapshot,
     HostService, OpenDialog, SaveDialog, default_input_bindings,
 };
+use node_graph::{FileDialogRequest, FileDialogService};
 use signal_processing::PersistentStoreConfig;
 
 use crate::services::PlatformServices;
 
 pub(crate) fn standard_services() -> PlatformServices {
-    PlatformServices::with_ui_services(AppServices::with_host_storage_and_configuration(
+    let ui_services = AppServices::with_host_storage_and_configuration(
         Box::new(WebHostService),
         ApplicationStoragePaths::default(),
         default_input_bindings(),
         ApplicationSettings::default(),
         Vec::new(),
-    ))
+    )
+    .with_node_file_dialog(Box::new(WebNodeFileDialogService));
+    PlatformServices::with_ui_services(ui_services)
 }
 
 struct WebHostService;
+struct WebNodeFileDialogService;
+
+impl FileDialogService for WebNodeFileDialogService {
+    fn available(&self) -> bool {
+        false
+    }
+
+    fn pick(&mut self, _request: FileDialogRequest<'_>) -> Option<String> {
+        None
+    }
+}
 
 impl HostService for WebHostService {
     fn choose_open_file(&mut self, _request: OpenDialog<'_>) -> Option<PathBuf> {

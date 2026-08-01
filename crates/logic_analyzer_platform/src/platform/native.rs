@@ -6,6 +6,7 @@ use logic_analyzer_ui::{
     CacheEntrySnapshot, DecodedBlockCacheSnapshot, HostCommand, HostService, OpenDialog,
     SaveDialog, default_input_bindings,
 };
+use node_graph::{FileDialogRequest, FileDialogService};
 use signal_processing::PersistentStoreConfig;
 
 use crate::services::PlatformServices;
@@ -58,13 +59,15 @@ pub(crate) fn standard_services() -> PlatformServices {
         .with_capture_session_directory(Some(capture_session_directory()));
     let input_bindings = load_input_bindings();
     let application_settings = load_application_settings();
-    PlatformServices::with_ui_services(AppServices::with_host_storage_and_configuration(
+    let ui_services = AppServices::with_host_storage_and_configuration(
         Box::new(NativeHostService::new()),
         storage_paths,
         input_bindings,
         application_settings,
         system_symbol_fonts(),
-    ))
+    )
+    .with_node_file_dialog(Box::new(NativeNodeFileDialogService));
+    PlatformServices::with_ui_services(ui_services)
 }
 
 fn system_symbol_fonts() -> Vec<egui::FontData> {
@@ -197,6 +200,35 @@ fn application_directory(parent: PathBuf) -> PathBuf {
 
 struct NativeHostService {
     commands: crossbeam_channel::Receiver<HostCommand>,
+}
+
+struct NativeNodeFileDialogService;
+
+impl FileDialogService for NativeNodeFileDialogService {
+    fn available(&self) -> bool {
+        true
+    }
+
+    fn pick(&mut self, request: FileDialogRequest<'_>) -> Option<String> {
+        let mut dialog = rfd::FileDialog::new();
+        if !request.title.is_empty() {
+            dialog = dialog.set_title(request.title);
+        }
+        for filter in request.filters {
+            let extensions = filter
+                .extensions
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>();
+            dialog = dialog.add_filter(&filter.name, &extensions);
+        }
+        let selected = if request.save {
+            dialog.save_file()
+        } else {
+            dialog.pick_file()
+        };
+        selected.map(|path| path.display().to_string())
+    }
 }
 
 impl NativeHostService {

@@ -4,8 +4,8 @@ use egui::{Align, Color32, Layout, Rect, Ui};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use node_graph::{
-    EnumValue, InlineControl, InputDef, NodeBadge, NodeDef, OutputDef, PanelSection, PropDef,
-    StringValue,
+    EnumValue, InlineControl, InlineControlContext, InputDef, NodeBadge, NodeDef, OutputDef,
+    PanelSection, PropDef, StringValue,
 };
 
 use crate::sockets::{COLOR_LOGIC, Signal, TimelineMarker as TimelineMarkerSocket, Trigger};
@@ -37,6 +37,7 @@ impl InlineControl for MarkerTimeValue {
         rect: Rect,
         zoom: f32,
         clip_rect: Rect,
+        _context: &mut InlineControlContext<'_>,
     ) -> bool {
         let old = self.value_ns;
         ui.scope_builder(
@@ -185,6 +186,7 @@ impl InlineControl for CursorSelectionValue {
         rect: Rect,
         zoom: f32,
         clip_rect: Rect,
+        _context: &mut InlineControlContext<'_>,
     ) -> bool {
         let old = self.selected;
         ui.scope_builder(

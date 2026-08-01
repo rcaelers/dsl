@@ -5,7 +5,8 @@ use serde_json::Value;
 
 use super::registry::{reconcile_input_sockets, reconcile_output_sockets};
 use crate::api::{
-    InputDef, NodeDef, NodePanelDef, OutputDef, PanelContext, PanelMetadata, PanelSection, PropDef,
+    FileDialogService, InputDef, NodeDef, NodePanelDef, OutputDef, PanelContext, PanelMetadata,
+    PanelSection, PropDef,
 };
 use crate::model::{Node, NodeBadge, Socket};
 
@@ -37,6 +38,7 @@ pub(crate) trait NodeInstance {
         rect: Rect,
         zoom: f32,
         clip_rect: Rect,
+        file_dialog: &mut dyn FileDialogService,
     ) -> bool;
     fn draw_output_control(
         &mut self,
@@ -45,6 +47,7 @@ pub(crate) trait NodeInstance {
         rect: Rect,
         zoom: f32,
         clip_rect: Rect,
+        file_dialog: &mut dyn FileDialogService,
     ) -> bool;
     fn draw_property(
         &mut self,
@@ -53,6 +56,7 @@ pub(crate) trait NodeInstance {
         rect: Rect,
         zoom: f32,
         clip_rect: Rect,
+        file_dialog: &mut dyn FileDialogService,
     ) -> bool;
     fn panel_sections(&self) -> Vec<PanelSectionMeta>;
     fn panels(&self) -> Vec<NodePanelMeta>;
@@ -68,6 +72,7 @@ pub(crate) trait NodeInstance {
         ui: &mut Ui,
         rect: Rect,
         clip_rect: Rect,
+        file_dialog: &mut dyn FileDialogService,
     ) -> bool;
     fn draw_panel(&mut self, index: usize, ui: &mut Ui, context: &mut PanelContext<'_>) -> bool;
     fn bound_title(&mut self) -> Option<String>;
@@ -114,11 +119,14 @@ impl<T: NodeDef> NodeInstance for TypedNode<T> {
         rect: Rect,
         zoom: f32,
         clip_rect: Rect,
+        file_dialog: &mut dyn FileDialogService,
     ) -> bool {
         self.inputs
             .get(index)
             .and_then(|input| input.control.as_ref())
-            .is_some_and(|binding| binding.draw(&mut self.state, ui, rect, zoom, clip_rect))
+            .is_some_and(|binding| {
+                binding.draw(&mut self.state, ui, rect, zoom, clip_rect, file_dialog)
+            })
     }
 
     fn draw_output_control(
@@ -128,11 +136,14 @@ impl<T: NodeDef> NodeInstance for TypedNode<T> {
         rect: Rect,
         zoom: f32,
         clip_rect: Rect,
+        file_dialog: &mut dyn FileDialogService,
     ) -> bool {
         self.outputs
             .get(index)
             .and_then(|output| output.control.as_ref())
-            .is_some_and(|binding| binding.draw(&mut self.state, ui, rect, zoom, clip_rect))
+            .is_some_and(|binding| {
+                binding.draw(&mut self.state, ui, rect, zoom, clip_rect, file_dialog)
+            })
     }
 
     fn draw_property(
@@ -142,11 +153,12 @@ impl<T: NodeDef> NodeInstance for TypedNode<T> {
         rect: Rect,
         zoom: f32,
         clip_rect: Rect,
+        file_dialog: &mut dyn FileDialogService,
     ) -> bool {
         self.properties.get(index).is_some_and(|property| {
             property
                 .binding
-                .draw(&mut self.state, ui, rect, zoom, clip_rect)
+                .draw(&mut self.state, ui, rect, zoom, clip_rect, file_dialog)
         })
     }
 
@@ -182,6 +194,7 @@ impl<T: NodeDef> NodeInstance for TypedNode<T> {
         ui: &mut Ui,
         rect: Rect,
         clip_rect: Rect,
+        file_dialog: &mut dyn FileDialogService,
     ) -> bool {
         draw_panel_prop(
             &mut self.state,
@@ -191,6 +204,7 @@ impl<T: NodeDef> NodeInstance for TypedNode<T> {
             ui,
             rect,
             clip_rect,
+            file_dialog,
         )
     }
 
@@ -245,12 +259,14 @@ fn draw_panel_prop<S>(
     ui: &mut Ui,
     rect: Rect,
     clip_rect: Rect,
+    file_dialog: &mut dyn FileDialogService,
 ) -> bool {
     sections
         .get(section)
         .and_then(|section| section.props.get(index))
         .is_some_and(|prop| {
             // Panel widgets render in screen space at full size.
-            prop.binding.draw(state, ui, rect, 1.0, clip_rect)
+            prop.binding
+                .draw(state, ui, rect, 1.0, clip_rect, file_dialog)
         })
 }

@@ -3,15 +3,6 @@
 mod builtins;
 mod control;
 mod document;
-#[cfg(all(not(target_arch = "wasm32"), feature = "native-file-dialog"))]
-#[path = "file_dialog_native.rs"]
-mod file_dialog;
-#[cfg(all(not(target_arch = "wasm32"), not(feature = "native-file-dialog")))]
-#[path = "file_dialog_unavailable.rs"]
-mod file_dialog;
-#[cfg(target_arch = "wasm32")]
-#[path = "file_dialog_web.rs"]
-mod file_dialog;
 mod indicator;
 mod node;
 mod panel;
@@ -21,7 +12,10 @@ pub use builtins::{
     AnySocket, BoolSocket, BoolValue, EnumValue, FileSocket, FileValue, FloatSocket, FloatValue,
     IntSocket, IntValue, StrSocket, StringValue,
 };
-pub use control::InlineControl;
+pub(crate) use control::UnavailableFileDialogService;
+pub use control::{
+    FileDialogFilter, FileDialogRequest, FileDialogService, InlineControl, InlineControlContext,
+};
 pub use document::GraphDocumentBuilder;
 pub use indicator::SocketIndicatorPresentation;
 pub use node::{

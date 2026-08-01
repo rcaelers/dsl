@@ -1,7 +1,7 @@
 use egui::{Align, Align2, Color32, CornerRadius, FontId, Layout, Pos2, Rect, Sense, Ui, Vec2};
 use serde::{Deserialize, Serialize};
 
-use super::control::InlineControl;
+use super::control::{FileDialogFilter, FileDialogRequest, InlineControl, InlineControlContext};
 use super::socket::{SocketDef, SocketWithControlDef};
 use crate::model::SocketShape;
 
@@ -152,6 +152,7 @@ impl InlineControl for IntValue {
         rect: Rect,
         zoom: f32,
         clip_rect: Rect,
+        _context: &mut InlineControlContext<'_>,
     ) -> bool {
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
         let drag = if resp.dragged() {
@@ -227,6 +228,7 @@ impl InlineControl for FloatValue {
         rect: Rect,
         zoom: f32,
         clip_rect: Rect,
+        _context: &mut InlineControlContext<'_>,
     ) -> bool {
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
         let drag = if resp.dragged() {
@@ -277,6 +279,7 @@ impl InlineControl for BoolValue {
         rect: Rect,
         zoom: f32,
         clip_rect: Rect,
+        _context: &mut InlineControlContext<'_>,
     ) -> bool {
         let old = self.value;
         ui.scope_builder(
@@ -316,6 +319,7 @@ impl InlineControl for StringValue {
         rect: Rect,
         zoom: f32,
         clip_rect: Rect,
+        _context: &mut InlineControlContext<'_>,
     ) -> bool {
         let old = self.value.clone();
         ui.scope_builder(
@@ -337,18 +341,12 @@ impl InlineControl for StringValue {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileFilter {
-    pub name: String,
-    pub extensions: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileValue {
     pub value: String,
     #[serde(default)]
     pub dialog_title: String,
     #[serde(default)]
-    pub filters: Vec<FileFilter>,
+    pub filters: Vec<FileDialogFilter>,
     /// Browse with a *save* dialog (pick a new/overwrite target) instead of
     /// an *open* dialog (pick an existing file).
     #[serde(default)]
@@ -384,7 +382,7 @@ impl FileValue {
         Self {
             value: value.into(),
             dialog_title: dialog_title.into(),
-            filters: vec![FileFilter {
+            filters: vec![FileDialogFilter {
                 name: filter_name.into(),
                 extensions: extensions
                     .iter()
@@ -404,6 +402,7 @@ impl InlineControl for FileValue {
         rect: Rect,
         zoom: f32,
         clip_rect: Rect,
+        context: &mut InlineControlContext<'_>,
     ) -> bool {
         let old = self.value.clone();
         ui.scope_builder(
@@ -420,10 +419,13 @@ impl InlineControl for FileValue {
                         .desired_width((rect.width() - button_width - 6.0 * zoom).max(24.0 * zoom)),
                 );
                 if ui
-                    .add_enabled(super::file_dialog::AVAILABLE, egui::Button::new("…"))
+                    .add_enabled(context.file_dialog_available(), egui::Button::new("…"))
                     .clicked()
-                    && let Some(path) =
-                        super::file_dialog::pick(&self.dialog_title, &self.filters, self.save)
+                    && let Some(path) = context.pick_file(FileDialogRequest {
+                        title: &self.dialog_title,
+                        filters: &self.filters,
+                        save: self.save,
+                    })
                 {
                     self.value = path;
                 }
@@ -505,6 +507,7 @@ impl InlineControl for EnumValue {
         rect: Rect,
         zoom: f32,
         clip_rect: Rect,
+        _context: &mut InlineControlContext<'_>,
     ) -> bool {
         let old = self.index;
         ui.scope_builder(

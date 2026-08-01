@@ -2502,7 +2502,6 @@ version = "0.1.0"
 dependencies = [
  "egui",
  "input-bindings",
- "rfd",
  "serde",
  "serde_json",
  "widget-support",

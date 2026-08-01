@@ -11,7 +11,10 @@ use super::interaction::{GraphResponses, InteractionState};
 use super::menu::MenuController;
 use super::panel::PanelState;
 use super::{layout, render};
-use crate::api::{PanelAction, PanelDataProvider, PanelTabDef, SocketIndicatorPresentation};
+use crate::api::{
+    FileDialogService, PanelAction, PanelDataProvider, PanelTabDef, SocketIndicatorPresentation,
+    UnavailableFileDialogService,
+};
 use crate::model::{FrameId, GraphState, Node, NodeBadge, NodeId, SocketId};
 use crate::runtime::{NodeInstance, NodeRuntime, NodeTemplate, NodeTypeRegistry};
 use crate::support::ViewState;
@@ -66,6 +69,7 @@ pub struct NodeGraphWidget {
     /// Host-controlled edit gate. View navigation, selection, inspection,
     /// and copy remain available while graph mutations are disabled.
     pub(crate) editing_enabled: bool,
+    pub(crate) file_dialog_service: Box<dyn FileDialogService>,
 }
 
 /// A context-menu action contributed by the host application. Both the ID
@@ -187,7 +191,12 @@ impl NodeGraphWidget {
             socket_indicators: BTreeMap::new(),
             panel_tabs: vec![PanelTabDef::new("node", "Node")],
             editing_enabled: true,
+            file_dialog_service: Box::new(UnavailableFileDialogService),
         }
+    }
+
+    pub fn set_file_dialog_service(&mut self, service: Box<dyn FileDialogService>) {
+        self.file_dialog_service = service;
     }
 
     /// Installs the host application's bindings. Context and action names are

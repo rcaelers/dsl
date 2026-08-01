@@ -31,7 +31,9 @@ optional system symbol fonts; the UI owns bundled fallback fonts and the portabl
 algorithm. The web adapter exposes unavailable storage operations and supplies embedded settings.
 Native shell integrations exchange portable commands and UI state through that service contract;
 their queues and repaint wake-ups remain inside the platform adapter. Runtime cache diagnostics use
-the same adapter boundary and one portable UI snapshot path. The UI owns the portable request,
+the same adapter boundary and one portable UI snapshot path. Embedded graph-node file controls use
+the portable `node_graph::FileDialogService`, supplied through the same platform service bundle;
+the widget contains no target selection or native dialog dependency. The UI owns the portable request,
 result, and service contract and does not select an implementation.
 
 ## Proposed future: unified native and web data plane
@@ -141,8 +143,9 @@ accepted by the compiler, runtime, processing factories, and UI host. No core cr
 
 Traits implemented by the adapter crate are supported cross-crate ports re-exported from the crate
 root of their behavioral owner. For example, storage and execution ports belong to
-`signal_processing`, cache-administration ports belong to `logic_analyzer_graph_compiler`, and
-dialog, host-command, cache-diagnostics, and capture-export ports belong to `logic_analyzer_ui`.
+`signal_processing`, cache-administration ports belong to `logic_analyzer_graph_compiler`, embedded
+node-control dialogs belong to `node_graph`, and application dialogs, host commands,
+cache diagnostics, and capture export belong to `logic_analyzer_ui`.
 Making those ports implementable does not expose their concrete native or web dependencies. The
 capture-export port already has one target-neutral contract; moving its repository-backed adapter
 requires the common repository handle defined by the storage-contract work.

@@ -5,8 +5,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use node_graph::{
-    BoolValue, EnumValue, FloatValue, InlineControl, InputDef, IntValue, NodeBadge, NodeDef,
-    OutputDef, PanelSection, PropDef, Socket,
+    BoolValue, EnumValue, FloatValue, InlineControl, InlineControlContext, InputDef, IntValue,
+    NodeBadge, NodeDef, OutputDef, PanelSection, PropDef, Socket,
 };
 use signal_processing::{SimpleTriggerCondition, TriggerProgram};
 
@@ -190,6 +190,7 @@ impl InlineControl for CaptureDurationValue {
         rect: egui::Rect,
         zoom: f32,
         clip_rect: egui::Rect,
+        _context: &mut InlineControlContext<'_>,
     ) -> bool {
         let old = self.nanoseconds;
         ui.scope_builder(
@@ -234,6 +235,7 @@ impl InlineControl for LabelValue {
         rect: egui::Rect,
         zoom: f32,
         clip_rect: egui::Rect,
+        _context: &mut InlineControlContext<'_>,
     ) -> bool {
         let font = egui::FontId::proportional((11.0 * zoom).clamp(7.0, 14.0));
         ui.painter().with_clip_rect(clip_rect).text(
@@ -333,6 +335,7 @@ impl InlineControl for ChannelGridValue {
         rect: egui::Rect,
         zoom: f32,
         clip_rect: egui::Rect,
+        _context: &mut InlineControlContext<'_>,
     ) -> bool {
         let mut changed = false;
         let supported_width = self.supported_width;

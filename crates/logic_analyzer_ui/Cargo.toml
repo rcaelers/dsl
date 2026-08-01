@@ -8,7 +8,6 @@ authors = ["Rob Caelers <rob.caelers@gmail.com>"]
 default = []
 native-host = [
     "dep:logic-analyzer-capture-export",
-    "node-graph/native-file-dialog",
 ]
 
 [lib]

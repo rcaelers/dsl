@@ -164,14 +164,13 @@ end
 if ui_manifest.match?(/^rfd\s*=/)
   errors << "crates/logic_analyzer_ui/Cargo.toml: native dialogs belong to logic-analyzer-platform"
 end
-unless ui_manifest.match?(/^native-host\s*=\s*\[[^\]]*dep:logic-analyzer-capture-export[^\]]*node-graph\/native-file-dialog[^\]]*\]/m)
-  errors << "crates/logic_analyzer_ui/Cargo.toml: native-host must enable the remaining node-graph and capture-export adapters"
+unless ui_manifest.match?(/^native-host\s*=\s*\[[^\]]*dep:logic-analyzer-capture-export[^\]]*\]/m)
+  errors << "crates/logic_analyzer_ui/Cargo.toml: native-host must enable the remaining capture-export adapter"
 end
 
 node_graph_manifest = File.read(File.join(ROOT, "crates/widgets/node_graph/Cargo.toml"))
-rfd_declaration = node_graph_manifest.lines.find { |line| line.match?(/^rfd\s*=/) }
-unless node_graph_manifest.match?(/^default\s*=\s*\[\s*\]\s*$/) && rfd_declaration&.include?("optional = true") && node_graph_manifest.match?(/^native-file-dialog\s*=\s*\[[^\]]*dep:rfd[^\]]*\]/)
-  errors << "crates/widgets/node_graph/Cargo.toml: rfd must be owned by the optional native-file-dialog capability"
+if node_graph_manifest.match?(/^rfd\s*=/) || node_graph_manifest.match?(/^native-file-dialog\s*=/)
+  errors << "crates/widgets/node_graph/Cargo.toml: file dialogs must be injected through the widget-owned portable contract"
 end
 
 native_app_manifest = File.read(File.join(ROOT, "crates/app_native/Cargo.toml"))

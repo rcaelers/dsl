@@ -2,6 +2,7 @@ use std::any::Any;
 
 use egui::{RichText, Sense, Ui, Vec2};
 
+use super::control::FileDialogService;
 use super::node::PanelSection;
 use crate::model::NodeId;
 
@@ -123,6 +124,7 @@ pub struct PanelContext<'a> {
     editing_enabled: bool,
     data: Option<&'a (dyn Any + Send + Sync)>,
     actions: &'a mut Vec<Box<dyn Any + Send>>,
+    file_dialog: &'a mut dyn FileDialogService,
 }
 
 impl<'a> PanelContext<'a> {
@@ -130,11 +132,13 @@ impl<'a> PanelContext<'a> {
         editing_enabled: bool,
         data: Option<&'a (dyn Any + Send + Sync)>,
         actions: &'a mut Vec<Box<dyn Any + Send>>,
+        file_dialog: &'a mut dyn FileDialogService,
     ) -> Self {
         Self {
             editing_enabled,
             data,
             actions,
+            file_dialog,
         }
     }
 
@@ -148,6 +152,10 @@ impl<'a> PanelContext<'a> {
 
     pub fn emit<T: Any + Send>(&mut self, action: T) {
         self.actions.push(Box::new(action));
+    }
+
+    pub(crate) fn file_dialog(&mut self) -> &mut dyn FileDialogService {
+        self.file_dialog
     }
 }
 
@@ -236,7 +244,14 @@ impl<S: 'static> NodePanelPresentation<S> for PropertyPanelPresentation<S> {
                             );
                             changed |= ui
                                 .add_enabled_ui(context.editing_enabled(), |ui| {
-                                    prop.binding.draw(state, ui, rect, 1.0, ui.clip_rect())
+                                    prop.binding.draw(
+                                        state,
+                                        ui,
+                                        rect,
+                                        1.0,
+                                        ui.clip_rect(),
+                                        context.file_dialog(),
+                                    )
                                 })
                                 .inner;
                         });
@@ -313,12 +328,14 @@ impl<S: 'static> NodePanelDef<S> {
 #[cfg(test)]
 mod panel_context_tests {
     use super::*;
+    use crate::api::UnavailableFileDialogService;
 
     #[test]
     fn panel_data_and_actions_remain_typed_and_opaque() {
         let data = String::from("panel-owned");
         let mut actions = Vec::new();
-        let mut context = PanelContext::new(true, Some(&data), &mut actions);
+        let mut file_dialog = UnavailableFileDialogService;
+        let mut context = PanelContext::new(true, Some(&data), &mut actions, &mut file_dialog);
 
         assert_eq!(
             context.data::<String>().map(String::as_str),

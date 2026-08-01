@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use input_bindings::InputBindings;
+use node_graph::FileDialogService;
 use signal_processing::PersistentStoreConfig;
 
 use crate::application_settings::{ApplicationSettings, default_input_bindings};
@@ -20,6 +21,7 @@ pub struct AppServices {
     input_bindings: InputBindings,
     application_settings: ApplicationSettings,
     host_symbol_fonts: Vec<egui::FontData>,
+    node_file_dialog: Option<Box<dyn FileDialogService>>,
 }
 
 pub(crate) struct AppServiceParts {
@@ -29,6 +31,7 @@ pub(crate) struct AppServiceParts {
     pub(crate) input_bindings: InputBindings,
     pub(crate) application_settings: ApplicationSettings,
     pub(crate) host_symbol_fonts: Vec<egui::FontData>,
+    pub(crate) node_file_dialog: Option<Box<dyn FileDialogService>>,
 }
 
 impl AppServices {
@@ -60,7 +63,14 @@ impl AppServices {
             input_bindings,
             application_settings,
             host_symbol_fonts,
+            node_file_dialog: None,
         }
+    }
+
+    /// Supplies the host capability used by file controls embedded in graph nodes.
+    pub fn with_node_file_dialog(mut self, service: Box<dyn FileDialogService>) -> Self {
+        self.node_file_dialog = Some(service);
+        self
     }
 
     pub(crate) fn into_parts(self) -> AppServiceParts {
@@ -71,6 +81,7 @@ impl AppServices {
             input_bindings: self.input_bindings,
             application_settings: self.application_settings,
             host_symbol_fonts: self.host_symbol_fonts,
+            node_file_dialog: self.node_file_dialog,
         }
     }
 }

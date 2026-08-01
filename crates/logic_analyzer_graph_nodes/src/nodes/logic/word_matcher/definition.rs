@@ -4,8 +4,8 @@ use egui::{Align, Color32, Layout, Rect, Ui, Vec2};
 use serde::{Deserialize, Serialize};
 
 use node_graph::{
-    EnumValue, InlineControl, InputDef, IntValue, NodeBadge, NodeDef, NodeInstanceSchema,
-    OutputDef, PanelSection, PropDef, Socket,
+    EnumValue, InlineControl, InlineControlContext, InputDef, IntValue, NodeBadge, NodeDef,
+    NodeInstanceSchema, OutputDef, PanelSection, PropDef, Socket,
 };
 
 use crate::sockets::{COLOR_LOGIC, Signal, Trigger, Words};
@@ -73,6 +73,7 @@ impl InlineControl for MatcherTextValue {
         rect: Rect,
         zoom: f32,
         clip_rect: Rect,
+        _context: &mut InlineControlContext<'_>,
     ) -> bool {
         let previous = self.value.clone();
         ui.scope_builder(

@@ -6,7 +6,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::builtins::StringValue;
-use super::control::InlineControl;
+use super::control::{FileDialogService, InlineControl, InlineControlContext};
 use super::panel::NodePanelDef;
 use super::socket::{SocketDef, SocketWithControlDef};
 use crate::model::{NodeBadge, Socket, SocketShape};
@@ -174,7 +174,15 @@ impl<S: 'static> OutputDef<S> {
 type ControlAccessor<S, T> = for<'a> fn(&'a mut S) -> &'a mut T;
 
 pub(crate) trait ControlBinding<S> {
-    fn draw(&self, state: &mut S, ui: &mut Ui, rect: Rect, zoom: f32, clip_rect: Rect) -> bool;
+    fn draw(
+        &self,
+        state: &mut S,
+        ui: &mut Ui,
+        rect: Rect,
+        zoom: f32,
+        clip_rect: Rect,
+        file_dialog: &mut dyn FileDialogService,
+    ) -> bool;
 }
 
 struct ControlBindingRenderer<S, T> {
@@ -183,8 +191,23 @@ struct ControlBindingRenderer<S, T> {
 }
 
 impl<S, T: InlineControl> ControlBinding<S> for ControlBindingRenderer<S, T> {
-    fn draw(&self, state: &mut S, ui: &mut Ui, rect: Rect, zoom: f32, clip_rect: Rect) -> bool {
-        (self.accessor)(state).draw_widget(ui, &self.label, rect, zoom, clip_rect)
+    fn draw(
+        &self,
+        state: &mut S,
+        ui: &mut Ui,
+        rect: Rect,
+        zoom: f32,
+        clip_rect: Rect,
+        file_dialog: &mut dyn FileDialogService,
+    ) -> bool {
+        (self.accessor)(state).draw_widget(
+            ui,
+            &self.label,
+            rect,
+            zoom,
+            clip_rect,
+            &mut InlineControlContext::new(file_dialog),
+        )
     }
 }
 
@@ -199,8 +222,23 @@ where
     T: InlineControl,
     F: for<'a> Fn(&'a mut S) -> &'a mut T,
 {
-    fn draw(&self, state: &mut S, ui: &mut Ui, rect: Rect, zoom: f32, clip_rect: Rect) -> bool {
-        (self.accessor)(state).draw_widget(ui, &self.label, rect, zoom, clip_rect)
+    fn draw(
+        &self,
+        state: &mut S,
+        ui: &mut Ui,
+        rect: Rect,
+        zoom: f32,
+        clip_rect: Rect,
+        file_dialog: &mut dyn FileDialogService,
+    ) -> bool {
+        (self.accessor)(state).draw_widget(
+            ui,
+            &self.label,
+            rect,
+            zoom,
+            clip_rect,
+            &mut InlineControlContext::new(file_dialog),
+        )
     }
 }
 

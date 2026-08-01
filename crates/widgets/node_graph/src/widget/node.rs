@@ -1,5 +1,6 @@
 use egui::{Color32, CornerRadius, FontId, Painter, Pos2, Rect, Stroke, Ui, Vec2};
 
+use crate::api::FileDialogService;
 use crate::model::{
     BadgeSeverity, GraphState, Node, NodeBadge, NodeId, NodeKind, SocketDirection, SocketId,
     SocketShape,
@@ -341,6 +342,7 @@ pub(crate) struct NodeControlContext<'a> {
     pub graph: &'a GraphState,
     pub view: &'a ViewState,
     pub origin: Pos2,
+    pub file_dialog: &'a mut dyn FileDialogService,
 }
 
 impl NodeWidget {
@@ -652,6 +654,7 @@ impl NodeWidget {
             graph,
             view,
             origin,
+            file_dialog,
         } = context;
         let l = &self.layout;
         let node_screen_rect = to_screen_rect(l.node_rect, view, origin);
@@ -681,7 +684,14 @@ impl NodeWidget {
                 .push_id(("node-input-control", node_id.0, def_index), |ui| {
                     ui.scope(|ui| {
                         scale_inline_control_style(ui.style_mut(), zoom);
-                        instance.draw_input_control(def_index, ui, ws, zoom, node_screen_rect)
+                        instance.draw_input_control(
+                            def_index,
+                            ui,
+                            ws,
+                            zoom,
+                            node_screen_rect,
+                            file_dialog,
+                        )
                     })
                     .inner
                 })
@@ -704,7 +714,14 @@ impl NodeWidget {
                 .push_id(("node-output-control", node_id.0, def_index), |ui| {
                     ui.scope(|ui| {
                         scale_inline_control_style(ui.style_mut(), zoom);
-                        instance.draw_output_control(def_index, ui, ws, zoom, node_screen_rect)
+                        instance.draw_output_control(
+                            def_index,
+                            ui,
+                            ws,
+                            zoom,
+                            node_screen_rect,
+                            file_dialog,
+                        )
                     })
                     .inner
                 })
@@ -726,7 +743,7 @@ impl NodeWidget {
                 .push_id(("node-property", node_id.0, pi), |ui| {
                     ui.scope(|ui| {
                         scale_inline_control_style(ui.style_mut(), zoom);
-                        instance.draw_property(pi, ui, ws, zoom, node_screen_rect)
+                        instance.draw_property(pi, ui, ws, zoom, node_screen_rect, file_dialog)
                     })
                     .inner
                 })
