@@ -1,3 +1,5 @@
+use super::format::BlockDirectoryEntry;
+use super::presence::WordPresenceIndex;
 use crate::events::{Annotation, Word, instantaneous_word_end_ns};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,6 +47,82 @@ pub enum AnnotationQueryError {
 }
 
 pub type AnnotationQueryResult<T> = std::result::Result<T, AnnotationQueryError>;
+
+/// Chooses committed blocks that can contribute to an exact annotation query,
+/// including the adjacent words required to derive instantaneous durations.
+pub(crate) fn exact_block_indices(
+    directory: &[BlockDirectoryEntry],
+    presence: &WordPresenceIndex,
+    start_ns: u64,
+    end_ns: u64,
+) -> Vec<usize> {
+    select_block_indices(directory, presence, start_ns, end_ns)
+}
+
+/// Chooses committed blocks that can contribute boundaries within a distance
+/// window, including adjacent context for instantaneous word ends.
+pub(crate) fn boundary_block_indices(
+    directory: &[BlockDirectoryEntry],
+    presence: &WordPresenceIndex,
+    timestamp_ns: u64,
+    max_distance_ns: u64,
+) -> Vec<usize> {
+    select_block_indices(
+        directory,
+        presence,
+        timestamp_ns.saturating_sub(max_distance_ns),
+        timestamp_ns.saturating_add(max_distance_ns),
+    )
+}
+
+fn select_block_indices(
+    directory: &[BlockDirectoryEntry],
+    presence: &WordPresenceIndex,
+    start_ns: u64,
+    end_ns: u64,
+) -> Vec<usize> {
+    let first_by_start = directory.partition_point(|entry| entry.last_timestamp_ns < start_ns);
+    let predecessor = first_by_start.checked_sub(1);
+    let previous_predecessor = first_by_start.checked_sub(2);
+    let after_end = directory.partition_point(|entry| entry.first_timestamp_ns <= end_ns);
+    let successor = (after_end < directory.len()).then_some(after_end);
+    let mut indices = intersecting_block_indices(presence, start_ns, end_ns);
+    indices.extend(previous_predecessor);
+    indices.extend(predecessor);
+    indices.extend(successor);
+    indices.sort_unstable();
+    indices.dedup();
+    indices
+}
+
+fn intersecting_block_indices(
+    presence: &WordPresenceIndex,
+    start_ns: u64,
+    end_ns: u64,
+) -> Vec<usize> {
+    if start_ns > end_ns {
+        return Vec::new();
+    }
+    let leaves = presence.leaves();
+    let first = presence
+        .prefix_max_end_ns()
+        .partition_point(|&prefix_end_ns| prefix_end_ns < start_ns);
+    let end = leaves.partition_point(|record| record.start_ns <= end_ns);
+    let mut blocks: Vec<_> = (first.min(end)..end)
+        .filter(|&index| leaves[index].end_ns >= start_ns)
+        .flat_map(|index| {
+            let record = leaves[index];
+            record.first_block
+                ..record
+                    .first_block
+                    .saturating_add(u64::from(record.block_count))
+        })
+        .filter_map(|block| usize::try_from(block).ok())
+        .collect();
+    blocks.sort_unstable();
+    blocks.dedup();
+    blocks
+}
 
 /// Builds a bounded viewer window from words in timestamp order.
 ///
@@ -181,6 +259,7 @@ pub trait AnnotationQuery: Send + Sync {
 
 #[cfg(test)]
 mod query_tests {
+    use super::super::presence::WordSummaryRecord;
     use super::*;
 
     #[test]
@@ -213,6 +292,56 @@ mod query_tests {
         assert_eq!(
             nearest_boundary_from_ordered_words(&words, 160, 60),
             Some(120)
+        );
+    }
+
+    #[test]
+    fn block_selection_keeps_presence_hits_and_instantaneous_context() {
+        let directory = [
+            BlockDirectoryEntry {
+                sequence: 0,
+                first_timestamp_ns: 100,
+                last_timestamp_ns: 100,
+                data_offset: 0,
+                block_len: 10,
+                word_count: 1,
+                value_bytes: 1,
+                flags: 0,
+            },
+            BlockDirectoryEntry {
+                sequence: 1,
+                first_timestamp_ns: 300,
+                last_timestamp_ns: 300,
+                data_offset: 10,
+                block_len: 10,
+                word_count: 1,
+                value_bytes: 1,
+                flags: 0,
+            },
+        ];
+        let mut presence = WordPresenceIndex::new();
+        presence.push(WordSummaryRecord {
+            start_ns: 100,
+            end_ns: 200,
+            word_count: 1,
+            first_block: 0,
+            block_count: 1,
+        });
+        presence.push(WordSummaryRecord {
+            start_ns: 300,
+            end_ns: 300,
+            word_count: 1,
+            first_block: 1,
+            block_count: 1,
+        });
+
+        assert_eq!(
+            exact_block_indices(&directory, &presence, 150, 150),
+            vec![0, 1]
+        );
+        assert_eq!(
+            boundary_block_indices(&directory, &presence, 150, 10),
+            vec![0, 1]
         );
     }
 }

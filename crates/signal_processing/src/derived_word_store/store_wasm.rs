@@ -15,7 +15,7 @@ use super::super::super::presence::{WordPresenceIndex, word_presence_summaries};
 use super::super::super::query::{
     AnnotationQuery, AnnotationQueryError, AnnotationQueryResult, AnnotationStoreMetadata,
     ExactAnnotationWindow, WordPresenceBucket, annotation_window_from_ordered_words,
-    nearest_boundary_from_ordered_words,
+    boundary_block_indices, exact_block_indices, nearest_boundary_from_ordered_words,
 };
 use super::super::super::state::{LiveStoreMetadata, LiveStoreSnapshot, StoreStatus};
 use crate::events::Word;
@@ -38,13 +38,9 @@ pub enum StoreError {
 
 pub type StoreResult<T> = std::result::Result<T, StoreError>;
 
-struct EncodedBlock {
-    entry: BlockDirectoryEntry,
-    bytes: Arc<[u8]>,
-}
-
 struct MemoryState {
-    blocks: Vec<EncodedBlock>,
+    directory: Vec<BlockDirectoryEntry>,
+    encoded_blocks: Vec<Arc<[u8]>>,
     presence: WordPresenceIndex,
     generation: u64,
     committed_word_count: u64,
@@ -88,7 +84,7 @@ impl IndexedAnnotationStore {
         LiveStoreSnapshot {
             metadata: LiveStoreMetadata {
                 generation: state.generation,
-                committed_block_count: state.blocks.len(),
+                committed_block_count: state.directory.len(),
                 committed_word_count: state.committed_word_count,
                 committed_data_len: state.committed_data_len,
                 first_timestamp_ns,
@@ -103,21 +99,36 @@ impl IndexedAnnotationStore {
         }
     }
 
-    fn word_context(&self) -> (u64, Vec<Arc<[u8]>>, Arc<[Word]>, usize) {
+    fn exact_word_context(
+        &self,
+        start_ns: u64,
+        end_ns: u64,
+    ) -> (u64, Vec<Arc<[u8]>>, Arc<[Word]>, usize) {
         let state = self.state.read().unwrap();
-        let committed_word_count = state.blocks.iter().fold(0usize, |count, block| {
-            count.saturating_add(block.entry.word_count as usize)
-        });
+        let indices = exact_block_indices(&state.directory, &state.presence, start_ns, end_ns);
+        let (blocks, committed_word_count) = selected_blocks(&state, &indices);
         (
             state.generation,
-            state
-                .blocks
-                .iter()
-                .map(|block| Arc::clone(&block.bytes))
-                .collect(),
+            blocks,
             Arc::clone(&state.hot_tail),
             committed_word_count,
         )
+    }
+
+    fn boundary_word_context(
+        &self,
+        timestamp_ns: u64,
+        max_distance_ns: u64,
+    ) -> (Vec<Arc<[u8]>>, Arc<[Word]>, usize) {
+        let state = self.state.read().unwrap();
+        let indices = boundary_block_indices(
+            &state.directory,
+            &state.presence,
+            timestamp_ns,
+            max_distance_ns,
+        );
+        let (blocks, committed_word_count) = selected_blocks(&state, &indices);
+        (blocks, Arc::clone(&state.hot_tail), committed_word_count)
     }
 }
 
@@ -171,7 +182,8 @@ impl AnnotationQuery for IndexedAnnotationStore {
         if max_words == 0 {
             return Err(AnnotationQueryError::ZeroWordLimit);
         }
-        let (generation, blocks, hot_tail, committed_word_count) = self.word_context();
+        let (generation, blocks, hot_tail, committed_word_count) =
+            self.exact_word_context(start_ns, end_ns);
         let words = decode_context(&blocks, hot_tail, committed_word_count)?;
         let (annotations, truncated) =
             annotation_window_from_ordered_words(&words, start_ns, end_ns, max_words);
@@ -187,7 +199,8 @@ impl AnnotationQuery for IndexedAnnotationStore {
         timestamp_ns: u64,
         max_distance_ns: u64,
     ) -> AnnotationQueryResult<Option<u64>> {
-        let (_, blocks, hot_tail, committed_word_count) = self.word_context();
+        let (blocks, hot_tail, committed_word_count) =
+            self.boundary_word_context(timestamp_ns, max_distance_ns);
         let words = decode_context(&blocks, hot_tail, committed_word_count)?;
         Ok(nearest_boundary_from_ordered_words(
             &words,
@@ -215,7 +228,8 @@ impl IndexedAnnotationWriter {
         }
         let store = IndexedAnnotationStore {
             state: Arc::new(RwLock::new(MemoryState {
-                blocks: Vec::new(),
+                directory: Vec::new(),
+                encoded_blocks: Vec::new(),
                 presence: WordPresenceIndex::new(),
                 generation: 0,
                 committed_word_count: 0,
@@ -280,7 +294,8 @@ impl IndexedAnnotationWriter {
         self.ensure_live()?;
         self.builder.clear();
         let mut state = self.store.state.write().unwrap();
-        state.blocks.clear();
+        state.directory.clear();
+        state.encoded_blocks.clear();
         state.presence = WordPresenceIndex::new();
         state.committed_word_count = 0;
         state.committed_data_len = 0;
@@ -334,10 +349,8 @@ impl IndexedAnnotationWriter {
         };
         {
             let mut state = self.store.state.write().unwrap();
-            state.blocks.push(EncodedBlock {
-                entry,
-                bytes: Arc::from(encoded),
-            });
+            state.directory.push(entry);
+            state.encoded_blocks.push(Arc::from(encoded));
             for summary in summaries {
                 state.presence.push(summary);
             }
@@ -386,6 +399,17 @@ fn decode_context(
     }
     words.extend_from_slice(&hot_tail);
     Ok(words)
+}
+
+fn selected_blocks(state: &MemoryState, indices: &[usize]) -> (Vec<Arc<[u8]>>, usize) {
+    let mut blocks = Vec::with_capacity(indices.len());
+    let mut committed_word_count = 0usize;
+    for &index in indices {
+        committed_word_count =
+            committed_word_count.saturating_add(state.directory[index].word_count as usize);
+        blocks.push(Arc::clone(&state.encoded_blocks[index]));
+    }
+    (blocks, committed_word_count)
 }
 
 fn merge_hot_tail_presence(buckets: &mut [WordPresenceBucket], words: &[Word]) {
@@ -449,8 +473,8 @@ mod wasm_store_tests {
         assert_eq!(snapshot.metadata.hot_tail_word_count, 1);
         assert!(snapshot.metadata.committed_data_len > 0);
         let state = store.state.read().unwrap();
-        assert_eq!(state.blocks[0].entry.word_count, 2);
-        assert!(!state.blocks[0].bytes.is_empty());
+        assert_eq!(state.directory[0].word_count, 2);
+        assert!(!state.encoded_blocks[0].is_empty());
         drop(state);
 
         writer.finish().unwrap();
@@ -487,5 +511,36 @@ mod wasm_store_tests {
         assert_eq!(exact.annotations.len(), 3);
         assert_eq!(exact.annotations[0].end_ns, 120);
         assert_eq!(store.nearest_boundary(298, 5).unwrap(), Some(300));
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    fn narrow_queries_do_not_decode_unrelated_committed_blocks() {
+        let (mut writer, store) = IndexedAnnotationWriter::create(config()).unwrap();
+        writer
+            .append_batch(&[
+                Word::new(0x11, 100),
+                Word::new(0x22, 300),
+                Word::new(0x33, 500),
+                Word::new(0x44, 700),
+                Word::new(0x55, 900),
+            ])
+            .unwrap();
+        writer.finish().unwrap();
+        {
+            let mut state = store.state.write().unwrap();
+            state.encoded_blocks[2] = Arc::from([0u8]);
+        }
+
+        assert_eq!(
+            store
+                .exact_window(90, 110, 10)
+                .unwrap()
+                .annotations
+                .iter()
+                .map(|annotation| annotation.value)
+                .collect::<Vec<_>>(),
+            vec![0x11]
+        );
     }
 }

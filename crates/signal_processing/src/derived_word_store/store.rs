@@ -28,7 +28,7 @@ use super::super::super::presence::{
 use super::super::super::query::{
     AnnotationQuery, AnnotationQueryError, AnnotationQueryResult, AnnotationStoreMetadata,
     ExactAnnotationWindow, WordPresenceBucket, annotation_window_from_ordered_words,
-    nearest_boundary_from_ordered_words,
+    boundary_block_indices, exact_block_indices, nearest_boundary_from_ordered_words,
 };
 use super::super::super::state::{LiveStoreMetadata, LiveStoreSnapshot, StoreStatus};
 use crate::events::{Annotation, Word};
@@ -41,35 +41,6 @@ fn block_encoder_count(available_workers: usize) -> usize {
         0..=2 => 1,
         workers => workers.div_ceil(4).clamp(2, MAX_BLOCK_ENCODERS_PER_STORE),
     }
-}
-
-fn intersecting_block_indices(
-    presence: &WordPresenceIndex,
-    start_ns: u64,
-    end_ns: u64,
-) -> Vec<usize> {
-    if start_ns > end_ns {
-        return Vec::new();
-    }
-    let leaves = presence.leaves();
-    let first = presence
-        .prefix_max_end_ns()
-        .partition_point(|&prefix_end_ns| prefix_end_ns < start_ns);
-    let end = leaves.partition_point(|record| record.start_ns <= end_ns);
-    let mut blocks: Vec<_> = (first.min(end)..end)
-        .filter(|&index| leaves[index].end_ns >= start_ns)
-        .flat_map(|index| {
-            let record = leaves[index];
-            record.first_block
-                ..record
-                    .first_block
-                    .saturating_add(u64::from(record.block_count))
-        })
-        .filter_map(|block| usize::try_from(block).ok())
-        .collect();
-    blocks.sort_unstable();
-    blocks.dedup();
-    blocks
 }
 
 pub(crate) fn default_working_directory() -> PathBuf {
@@ -384,22 +355,7 @@ impl IndexedAnnotationStore {
         end_ns: u64,
     ) -> (u64, Vec<BlockDirectoryEntry>, Arc<[Word]>) {
         let state = self.shared.state.read().unwrap();
-        let first_by_start = state
-            .directory
-            .partition_point(|entry| entry.last_timestamp_ns < start_ns);
-        let predecessor = first_by_start.checked_sub(1);
-        let previous_predecessor = first_by_start.checked_sub(2);
-        let after_end = state
-            .directory
-            .partition_point(|entry| entry.first_timestamp_ns <= end_ns);
-        let successor = (after_end < state.directory.len()).then_some(after_end);
-        let mut indices = intersecting_block_indices(&state.presence, start_ns, end_ns);
-        indices.extend(previous_predecessor);
-        indices.extend(predecessor);
-        indices.extend(successor);
-        indices.sort_unstable();
-        indices.dedup();
-        let entries = indices
+        let entries = exact_block_indices(&state.directory, &state.presence, start_ns, end_ns)
             .into_iter()
             .map(|index| state.directory[index])
             .collect();
@@ -411,28 +367,16 @@ impl IndexedAnnotationStore {
         timestamp_ns: u64,
         max_distance_ns: u64,
     ) -> (Vec<BlockDirectoryEntry>, Arc<[Word]>) {
-        let lower = timestamp_ns.saturating_sub(max_distance_ns);
-        let upper = timestamp_ns.saturating_add(max_distance_ns);
         let state = self.shared.state.read().unwrap();
-        let first_by_start = state
-            .directory
-            .partition_point(|entry| entry.last_timestamp_ns < lower);
-        let predecessor = first_by_start.checked_sub(1);
-        let previous_predecessor = first_by_start.checked_sub(2);
-        let after_upper = state
-            .directory
-            .partition_point(|entry| entry.first_timestamp_ns <= upper);
-        let successor = (after_upper < state.directory.len()).then_some(after_upper);
-        let mut indices = intersecting_block_indices(&state.presence, lower, upper);
-        indices.extend(previous_predecessor);
-        indices.extend(predecessor);
-        indices.extend(successor);
-        indices.sort_unstable();
-        indices.dedup();
-        let entries = indices
-            .into_iter()
-            .map(|index| state.directory[index])
-            .collect();
+        let entries = boundary_block_indices(
+            &state.directory,
+            &state.presence,
+            timestamp_ns,
+            max_distance_ns,
+        )
+        .into_iter()
+        .map(|index| state.directory[index])
+        .collect();
         (entries, Arc::clone(&state.hot_tail))
     }
 }

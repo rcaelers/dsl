@@ -198,8 +198,8 @@ fn wasm_derived_store_keeps_committed_words_in_encoded_blocks() {
     let wasm_store = include_str!("derived_word_store/store_wasm.rs");
 
     for required in [
-        "struct EncodedBlock",
-        "blocks: Vec<EncodedBlock>",
+        "directory: Vec<BlockDirectoryEntry>",
+        "encoded_blocks: Vec<Arc<[u8]>>",
         "WordBlockBuilder",
         "decode_word_block",
         "word_presence_summaries",

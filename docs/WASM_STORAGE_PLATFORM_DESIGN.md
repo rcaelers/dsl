@@ -14,11 +14,12 @@ statements based on the compilation target.
 
 The separate native and wasm derived stores preserve API parity. Their encoded-block codec, binary
 format, CRC integrity validation, presence-index and summary source tree, exact annotation intervals,
-and nearest-boundary semantics are target-neutral. Both stores retain committed words as encoded blocks
-and expose only an immutable live-tail snapshot. The stores do not yet share the decoded-block cache,
-persistence policy, or block-selection strategy. Likewise, the compiler's wasm cache backend currently
-omits persistent-cache lookup and graph pruning rather than applying the same policy to an ephemeral
-artifact repository.
+and nearest-boundary semantics and block-selection strategy are target-neutral. Both stores retain
+committed words as encoded blocks and expose only an immutable live-tail snapshot. The stores do not
+yet share the decoded-block cache or persistence policy; native can range-decode selected blocks while
+wasm decodes its selected in-memory blocks. Likewise, the compiler's wasm cache backend currently omits
+persistent-cache lookup and graph pruning rather than applying the same policy to an ephemeral artifact
+repository.
 
 Target-selected code also currently exists inside reusable runtime, compiler, processing, viewer,
 and UI crates. The proposed architecture removes those internal platform module trees rather than
