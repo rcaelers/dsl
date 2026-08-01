@@ -85,12 +85,23 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.adapter-crate] Extend `logic_analyzer_platform` into the sole reusable owner of
-  native/web host adapters and target selection. Add its remaining injected service bundle members over contracts
-  owned by `signal_processing`, `logic_analyzer_processing`, the compiler, and the UI; move reusable mmap,
-  native-worker, browser-handle, export, embedded-runtime, and USB adapters into it without moving codecs, indexes,
-  cache policy, concrete protocols, node schemas, or viewer behavior. Keep `app_native` and `app_web` as
-  bootstrap-only composition roots.
+- [platform.data-plane.adapter-storage] Move native file, atomic-publication, and mmap adapters, plus web and
+  in-memory repository selection, into `logic_analyzer_platform` behind the existing `signal_processing` storage
+  contracts. Keep storage data models, codecs, indexes, and cache policy portable and outside the adapter crate.
+- [platform.data-plane.adapter-execution] Provide the injected bounded-execution service: native workers, the
+  portable cooperative executor, and a future Web Worker adapter all implement one runtime contract. Remove
+  reusable compiler and processing target selection for execution.
+- [platform.data-plane.adapter-acquisition-export] Move host capture acquisition, file and browser-handle adapters,
+  dialogs, and export destinations into `logic_analyzer_platform`. The compiler, processing nodes, and UI consume
+  only their platform-neutral request and capability contracts.
+- [platform.data-plane.adapter-embedded-runtime] Move embedded interpreter and runtime-host setup into
+  `logic_analyzer_platform` behind a portable execution contract, so concrete node behavior remains target-neutral.
+- [platform.data-plane.adapter-usb] Move asynchronous USB transport host adapters into
+  `logic_analyzer_platform`. Native USB remains the initial implementation; unavailable browser USB is an explicit
+  capability result until a WebUSB adapter is introduced.
+- [platform.data-plane.adapter-composition] Complete the `logic_analyzer_platform` service bundle and migrate
+  reusable target selection to it. Keep `app_native` and `app_web` as bootstrap-only composition roots, and add
+  native and browser composition tests for the injected adapters.
 - [platform.data-plane.storage-contracts] Apply the established platform-neutral prepared-byte-source,
   immutable-byte-region, artifact-repository, reader/writer, capability, and error contracts to the existing
   derived and capture stores. Keep paths, mmap, filesystem operations, and browser handles in
