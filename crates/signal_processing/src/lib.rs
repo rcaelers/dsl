@@ -66,7 +66,6 @@ std::cfg_select! {
         #[path = "idle_native.rs"]
         mod idle;
         pub mod waveform_index;
-        mod worker_pool;
 
         pub use derived_word_store::{
             DecodedBlockCacheStats, cleanup_cache, clear_cache, clear_cache_entry,
@@ -76,7 +75,6 @@ std::cfg_select! {
             CaptureIndexProgress, IndexSampler, NativeGrowingCaptureIndex,
             NativeGrowingCaptureIndexWorker, exact_window_sample_limit,
         };
-        pub use worker_pool::{WorkerPool, WorkerPoolStopped, shared_worker_pool};
     }
 }
 

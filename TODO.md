@@ -85,8 +85,20 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.execution.other-background-work] Inventory and migrate remaining reusable background work
-  from direct worker-pool or thread selection to explicit platform execution contracts.
+- [platform.data-plane.execution.runtime-supervision] Move scheduler, pipeline-manager, watchdog, and generic
+  logic-analyzer source threads behind the injected runtime-execution contract. Preserve node lifecycle, cancellation,
+  and diagnostic behavior while removing reusable target-selected thread ownership.
+- [platform.data-plane.execution.capture-indexing] Move finite and growing waveform-index worker selection behind
+  capability-driven bounded execution. Preserve independent-reader limits, progress, cancellation, and ordered index
+  publication for file, memory, and future browser-backed captures.
+- [platform.data-plane.execution.file-source-readers] Move DSL and Sigrok file-source reader workers into the
+  prepared-source and execution contracts. Keep file-specific adapter leaves temporary and preserve bounded
+  per-destination delivery without selecting target behavior in their portable parser paths.
+- [platform.data-plane.execution.embedded-runtime-workers] Move Sigrok decoder discovery, bridge, and worker-thread
+  ownership behind the embedded-runtime execution adapter. Keep decoder protocol state machines and graph-node
+  contracts portable.
+- [platform.data-plane.execution.live-device-workers] Move U3Pro16 acquisition worker ownership with the USB host
+  adapter. Preserve capture lifecycle and backpressure while making unavailable devices and transports explicit.
 - [platform.data-plane.execution.web-workers] Add an optional Web Worker adapter with serializable work messages,
   cancellation, bounded queues, ordered completion, and explicit unavailable-capability behavior.
 - [platform.data-plane.adapter-acquisition-export] Move host capture acquisition, file and browser-handle adapters,

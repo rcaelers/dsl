@@ -442,6 +442,12 @@ the application pump. A future Web Worker adapter in `logic_analyzer_platform` u
 serializable work messages and returns owned result chunks. It does not attempt to send Rust
 closures, trait objects, mmap handles, or borrowed slices between workers.
 
+The reusable global worker pool is absent. In the proposed architecture, long-running runtime
+supervision, capture indexing, file-source delivery, embedded decoder execution, and live-device
+acquisition each use a dedicated capability boundary because they have different cancellation,
+reader, lifecycle, and host-resource requirements. Their adapters are selected by platform
+composition rather than by target conditionals in the shared algorithm.
+
 Worker transfers move ownership of large `ArrayBuffer` values where possible. Shared-memory worker
 execution is optional because it requires a suitable browser and deployment isolation policy.
 Correctness and file-format parity do not depend on shared memory.
