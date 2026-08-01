@@ -1,9 +1,12 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use input_bindings::InputBindings;
 use logic_analyzer_graph_compiler::SourcePreparationExecutor;
 use node_graph::FileDialogService;
-use signal_processing::{AppManagerFactory, PersistentStoreConfig, WorkExecutor};
+use signal_processing::{
+    AppManagerFactory, InlineWorkExecutor, PersistentStoreConfig, WorkExecutor,
+};
 
 use crate::application_settings::{ApplicationSettings, default_input_bindings};
 use crate::graph_service::{GraphService, graph_service_with_execution, standard_graph_service};
@@ -23,6 +26,7 @@ pub struct AppServices {
     application_settings: ApplicationSettings,
     host_symbol_fonts: Vec<egui::FontData>,
     node_file_dialog: Option<Box<dyn FileDialogService>>,
+    work_executor: Arc<dyn WorkExecutor>,
 }
 
 pub(crate) struct AppServiceParts {
@@ -33,6 +37,7 @@ pub(crate) struct AppServiceParts {
     pub(crate) application_settings: ApplicationSettings,
     pub(crate) host_symbol_fonts: Vec<egui::FontData>,
     pub(crate) node_file_dialog: Option<Box<dyn FileDialogService>>,
+    pub(crate) work_executor: Arc<dyn WorkExecutor>,
 }
 
 impl AppServices {
@@ -65,6 +70,7 @@ impl AppServices {
             application_settings,
             host_symbol_fonts,
             node_file_dialog: None,
+            work_executor: Arc::new(InlineWorkExecutor),
         }
     }
 
@@ -79,13 +85,14 @@ impl AppServices {
         mut self,
         source_preparation_executor: Box<dyn SourcePreparationExecutor>,
         runtime_factory: std::sync::Arc<dyn AppManagerFactory>,
-        work_executor: std::sync::Arc<dyn WorkExecutor>,
+        work_executor: Arc<dyn WorkExecutor>,
     ) -> Self {
         self.graph_service = graph_service_with_execution(
             source_preparation_executor,
             runtime_factory,
-            work_executor,
+            Arc::clone(&work_executor),
         );
+        self.work_executor = work_executor;
         self
     }
 
@@ -98,6 +105,7 @@ impl AppServices {
             application_settings: self.application_settings,
             host_symbol_fonts: self.host_symbol_fonts,
             node_file_dialog: self.node_file_dialog,
+            work_executor: self.work_executor,
         }
     }
 }

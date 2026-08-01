@@ -9,7 +9,7 @@ use signal_processing::logic_analyzer::{CaptureMode, LogicCaptureConfig};
 use signal_processing::{
     AcquisitionContext, CaptureCursorItem, CaptureIndex, CaptureSessionId, CaptureStoreCursor,
     CaptureStoreDescriptor, NativeCaptureStore, NativeCaptureStoreConfig,
-    NativeGrowingCaptureIndex, bounded_capture_event_queue,
+    NativeGrowingCaptureIndex, WorkExecutor, WorkExecutorTask, bounded_capture_event_queue,
 };
 
 use super::implementation::{DsLogicU3Pro16, LinkSpeed, UsbError, UsbTransport};
@@ -20,6 +20,19 @@ struct GeneratedStreamingTransport {
     header_pending: bool,
     data_bytes: usize,
     data_offset: usize,
+}
+
+struct BenchmarkWorkExecutor;
+
+impl WorkExecutor for BenchmarkWorkExecutor {
+    fn available_parallelism(&self) -> usize {
+        1
+    }
+
+    fn submit(&self, task: WorkExecutorTask) -> Result<(), String> {
+        std::thread::spawn(task);
+        Ok(())
+    }
 }
 
 impl GeneratedStreamingTransport {
@@ -149,6 +162,7 @@ fn run_scenario(channels_count: usize, rate_hz: u64, samples: u64) {
         (0..channels_count)
             .map(|channel| format!("Ch {channel}"))
             .collect(),
+        Arc::new(BenchmarkWorkExecutor),
     )
     .unwrap();
     let viewer_stop = Arc::new(AtomicBool::new(false));

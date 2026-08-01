@@ -7,7 +7,9 @@ use std::sync::mpsc::{self, Receiver};
 use egui::{FontId, Pos2, Rect, Sense, Ui};
 
 use input_bindings::InputBindings;
-use signal_processing::{CaptureDataSource, CaptureIndex, DerivedLanes};
+use signal_processing::{
+    CaptureDataSource, CaptureIndex, DerivedLanes, InlineWorkExecutor, WorkExecutor,
+};
 
 use crate::channel::LogicChannel;
 use crate::derived_snapshot::DerivedSnapshotCache;
@@ -35,6 +37,7 @@ pub struct ChannelSignal {
 
 pub struct LogicAnalyzerViewer {
     pub(crate) input_bindings: Arc<InputBindings>,
+    work_executor: Arc<dyn WorkExecutor>,
     pub(crate) channels: Vec<LogicChannel>,
     pub(crate) visible_capture_channels: Option<BTreeSet<usize>>,
     /// Display order across both `channels` and `derived` lanes — the only
@@ -124,6 +127,7 @@ impl LogicAnalyzerViewer {
                 InputBindings::from_json(r#"{"bindings":[]}"#)
                     .expect("empty input binding configuration is valid"),
             ),
+            work_executor: Arc::new(InlineWorkExecutor),
             row_order: Vec::new(),
             row_order_changed: false,
             row_height_scales: HashMap::new(),
@@ -172,6 +176,11 @@ impl LogicAnalyzerViewer {
 
     pub fn set_input_bindings(&mut self, input_bindings: Arc<InputBindings>) {
         self.input_bindings = input_bindings;
+    }
+
+    /// Supplies the host-selected worker capability for finite capture indexing.
+    pub fn set_work_executor(&mut self, work_executor: Arc<dyn WorkExecutor>) {
+        self.work_executor = work_executor;
     }
 
     pub fn set_color_profile(&mut self, color_profile: ColorProfile) {
@@ -366,7 +375,12 @@ impl LogicAnalyzerViewer {
         self.status = format!("Opening {}", data_source.display_name());
 
         let (response_tx, response_rx) = mpsc::channel();
-        crate::worker::spawn_capture_worker(path, data_source, response_tx);
+        crate::worker::spawn_capture_worker(
+            path,
+            data_source,
+            Arc::clone(&self.work_executor),
+            response_tx,
+        );
         self.worker_responses = Some(response_rx);
     }
 

@@ -1064,6 +1064,7 @@ impl App {
             application_settings,
             host_symbol_fonts,
             node_file_dialog,
+            work_executor,
         } = services.into_parts();
         Self::build_with_services(
             cc,
@@ -1075,6 +1076,7 @@ impl App {
             application_settings,
             host_symbol_fonts,
             node_file_dialog,
+            work_executor,
         )
     }
 
@@ -1088,6 +1090,7 @@ impl App {
         application_settings: crate::ApplicationSettings,
         host_symbol_fonts: Vec<egui::FontData>,
         node_file_dialog: Option<Box<dyn node_graph::FileDialogService>>,
+        work_executor: Arc<dyn signal_processing::WorkExecutor>,
     ) -> Self {
         // The graph canvas and its custom widgets use a dark palette. Do not
         // inherit a light OS/browser preference for the surrounding egui
@@ -1108,6 +1111,7 @@ impl App {
         let platform = crate::app_platform::PlatformState::restore(cc, &mut widget);
         let mut logic_analyzer = LogicAnalyzerViewer::new();
         logic_analyzer.set_input_bindings(input_bindings.clone());
+        logic_analyzer.set_work_executor(Arc::clone(&work_executor));
         logic_analyzer.set_color_profile(application_settings.viewer_color_profile());
         let capture = CaptureCoordinator::configured(
             application_settings.max_recent_capture_sessions(),
@@ -1117,6 +1121,7 @@ impl App {
             storage_paths
                 .capture_session_directory()
                 .map(std::path::Path::to_owned),
+            work_executor,
         );
         let capture_availability = capture_availability(widget.graph(), graph_service.as_ref());
         Self {

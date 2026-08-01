@@ -106,7 +106,10 @@ impl NativeWorkExecutor {
         let workers = std::thread::available_parallelism()
             .map(usize::from)
             .unwrap_or(1)
-            .clamp(1, 32);
+            // An index preparation task can submit bounded block work to the
+            // same host executor. Keep one worker available for that nested
+            // work even on single-core hosts.
+            .clamp(2, 32);
         let (sender, receiver) = crossbeam_channel::bounded(workers * 4);
         for index in 0..workers {
             let receiver = receiver.clone();

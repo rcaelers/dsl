@@ -20,7 +20,7 @@ use signal_processing::waveform_index::IndexSampler;
 use signal_processing::{
     CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, EdgeQuery, Error, InputPort,
     OutputPort, ProcessNode, ProtocolKind, Result, Sample, SampleBlock, SampleKind, Sender,
-    WorkResult,
+    WorkExecutor, WorkResult,
 };
 
 use crate::support::capture_archive::{CaptureArchive, ZipCaptureArchive};
@@ -102,10 +102,11 @@ impl CaptureIndexFactory for DslCaptureIndexFactory {
 
     fn open(
         self: Box<Self>,
+        work_executor: Arc<dyn WorkExecutor>,
         progress: &mut dyn FnMut(CaptureIndexBuildProgress),
     ) -> Result<Box<dyn CaptureIndex + Send>> {
         let source = DslFileCaptureDataSource::open(&self.path)?;
-        IndexSampler::open_data_source_with_progress(source, |value| {
+        IndexSampler::open_data_source_with_executor_and_progress(source, work_executor, |value| {
             progress(CaptureIndexBuildProgress {
                 completed: value.completed_roots,
                 total: value.total_roots,

@@ -1,14 +1,13 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::{Arc, Mutex, mpsc};
-use std::{env, thread};
 
 use super::storage::IndexWriter;
 use super::types::{
     BlockIndex, BlockLevels, CaptureIndexProgress, SAMPLES_PER_L1_BIT, bit, set_bit,
 };
 use crate::capture::{BlockCaptureSource, CaptureDataSource, CaptureMetadata, packed_bit};
-use crate::{Error, Result};
+use crate::{Error, Result, WorkExecutor};
 
 #[derive(Debug, Clone, Copy)]
 struct BuildJob {
@@ -41,7 +40,11 @@ where
         }
     }
 
-    pub(crate) fn build<P>(&self, mut progress: P) -> Result<()>
+    pub(crate) fn build<P>(
+        &self,
+        work_executor: Arc<dyn WorkExecutor>,
+        mut progress: P,
+    ) -> Result<()>
     where
         P: FnMut(CaptureIndexProgress),
     {
@@ -66,11 +69,12 @@ where
             self.header,
             jobs,
             writer,
+            work_executor,
             &mut progress,
         )
     }
 
-    /// Runs the per-(channel, block) summary jobs on worker threads and
+    /// Runs the per-(channel, block) summary jobs through the host executor and
     /// writes each chunk to the index file as soon as its per-channel
     /// predecessor has been written (boundary-transition patching needs the
     /// predecessor's exit level), so peak memory is a handful of leaves
@@ -81,6 +85,7 @@ where
         header: &CaptureMetadata,
         jobs: VecDeque<BuildJob>,
         mut writer: IndexWriter,
+        work_executor: Arc<dyn WorkExecutor>,
         progress: &mut impl FnMut(CaptureIndexProgress),
     ) -> Result<()> {
         let total_jobs = jobs.len();
@@ -89,40 +94,46 @@ where
         }
 
         let channels = header.total_probes;
-        let worker_count = Self::index_worker_count(total_jobs);
+        let worker_count = work_executor.available_parallelism().min(total_jobs).max(1);
+        if worker_count == 1 {
+            return Self::build_sequential_streaming(data_source, header, jobs, writer, progress);
+        }
+
         let jobs = Arc::new(Mutex::new(jobs));
         let header = Arc::new(header.clone());
         let (result_tx, result_rx) = mpsc::channel();
-        let mut workers = Vec::with_capacity(worker_count);
-
         for _ in 0..worker_count {
             let jobs = Arc::clone(&jobs);
             let header = Arc::clone(&header);
             let data_source = data_source.clone();
             let result_tx = result_tx.clone();
-            workers.push(thread::spawn(move || {
-                let worker_result = || -> Result<()> {
-                    let mut source = data_source.open_reader()?;
-                    loop {
-                        let Some(job) = jobs.lock().unwrap().pop_front() else {
-                            break;
-                        };
-                        let leaf =
-                            Self::build_block_chunk(&mut source, &header, job.channel, job.block)?;
-                        if result_tx.send(Ok((job, leaf))).is_err() {
-                            break;
+            work_executor
+                .submit(Box::new(move || {
+                    let result = (|| -> Result<()> {
+                        let mut source = data_source.open_reader()?;
+                        loop {
+                            let Some(job) = jobs.lock().unwrap().pop_front() else {
+                                break;
+                            };
+                            let leaf = Self::build_block_chunk(
+                                &mut source,
+                                &header,
+                                job.channel,
+                                job.block,
+                            )?;
+                            if result_tx.send(Ok((job, leaf))).is_err() {
+                                break;
+                            }
                         }
+                        Ok(())
+                    })();
+                    if let Err(error) = result {
+                        let _ = result_tx.send(Err(error));
                     }
-                    Ok(())
-                }();
-
-                if let Err(err) = worker_result {
-                    let _ = result_tx.send(Err(err));
-                }
-            }));
+                }))
+                .map_err(Error::ParseError)?;
         }
         drop(result_tx);
-
         let mut pending: HashMap<(usize, u64), BlockIndex> = HashMap::new();
         let mut previous_last: Vec<Option<bool>> = vec![None; channels];
         let mut next_block: Vec<u64> = vec![0; channels];
@@ -131,6 +142,7 @@ where
         while received < total_jobs {
             match result_rx.recv() {
                 Ok(Ok((job, leaf))) => {
+                    received += 1;
                     pending.insert((job.channel, job.block), leaf);
                     let channel = job.channel;
                     while let Some(mut leaf) = pending.remove(&(channel, next_block[channel])) {
@@ -147,7 +159,6 @@ where
                     if first_error.is_some() {
                         break;
                     }
-                    received += 1;
                     progress(CaptureIndexProgress {
                         completed_roots: received,
                         total_roots: total_jobs,
@@ -161,18 +172,12 @@ where
             }
         }
 
-        // On failure, stop the workers from grinding through the remaining
-        // queue before joining.
-        if first_error.is_some() || received < total_jobs {
+        if first_error.is_some() || received != total_jobs {
+            // Submitted tasks finish their current block before observing the
+            // cleared queue. Draining them preserves the old cancellation
+            // boundary without making indexing own or join host threads.
             jobs.lock().unwrap().clear();
-        }
-
-        for worker in workers {
-            if worker.join().is_err() && first_error.is_none() {
-                first_error = Some(Error::ParseError(
-                    "waveform index worker panicked".to_string(),
-                ));
-            }
+            while result_rx.recv().is_ok() {}
         }
 
         if let Some(err) = first_error {
@@ -182,6 +187,29 @@ where
             return Err(Error::ParseError(
                 "waveform index build did not complete".to_string(),
             ));
+        }
+        writer.finish()
+    }
+
+    fn build_sequential_streaming(
+        data_source: S,
+        header: &CaptureMetadata,
+        jobs: VecDeque<BuildJob>,
+        mut writer: IndexWriter,
+        progress: &mut impl FnMut(CaptureIndexProgress),
+    ) -> Result<()> {
+        let total_jobs = jobs.len();
+        let mut source = data_source.open_reader()?;
+        let mut previous_last = vec![None; header.total_probes];
+        for (completed, job) in jobs.into_iter().enumerate() {
+            let mut leaf = Self::build_block_chunk(&mut source, header, job.channel, job.block)?;
+            Self::apply_boundary_transition(&mut leaf, previous_last[job.channel]);
+            previous_last[job.channel] = Some(leaf.last);
+            writer.write_block(job.channel, job.block as usize, &leaf)?;
+            progress(CaptureIndexProgress {
+                completed_roots: completed + 1,
+                total_roots: total_jobs,
+            });
         }
         writer.finish()
     }
@@ -275,19 +303,6 @@ where
             last,
             levels: if lvl.l3_toggle != 0 { Some(lvl) } else { None },
         }
-    }
-
-    fn index_worker_count(total_jobs: usize) -> usize {
-        let available = thread::available_parallelism()
-            .map(|count| count.get())
-            .unwrap_or(1);
-        let configured = env::var("CAPTURE_INDEX_THREADS")
-            .or_else(|_| env::var("DSL_INDEX_THREADS"))
-            .ok()
-            .and_then(|value| value.parse::<usize>().ok())
-            .filter(|value| *value > 0);
-
-        configured.unwrap_or(available).min(total_jobs).max(1)
     }
 
     fn record_l1_group(

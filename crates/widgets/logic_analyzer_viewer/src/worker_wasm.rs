@@ -1,7 +1,8 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
-use signal_processing::CaptureDataSource;
+use signal_processing::{CaptureDataSource, WorkExecutor};
 
 use crate::viewer::LogicAnalyzerViewer;
 
@@ -28,6 +29,7 @@ impl LogicAnalyzerViewer {
 pub(crate) fn spawn_capture_worker(
     identity: PathBuf,
     _data_source: impl CaptureDataSource,
+    _work_executor: Arc<dyn WorkExecutor>,
     responses: Sender<WorkerResponse>,
 ) {
     let _ = responses.send(WorkerResponse::Unsupported { path: identity });

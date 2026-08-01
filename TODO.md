@@ -88,9 +88,6 @@ Detailed architecture and capability contracts are documented in
 - [platform.data-plane.execution.runtime-supervision] Move scheduler, pipeline-manager, watchdog, and generic
   logic-analyzer source threads behind the injected runtime-execution contract. Preserve node lifecycle, cancellation,
   and diagnostic behavior while removing reusable target-selected thread ownership.
-- [platform.data-plane.execution.capture-indexing] Move finite and growing waveform-index worker selection behind
-  capability-driven bounded execution. Preserve independent-reader limits, progress, cancellation, and ordered index
-  publication for file, memory, and future browser-backed captures.
 - [platform.data-plane.execution.file-source-readers] Move DSL and Sigrok file-source reader workers into the
   prepared-source and execution contracts. Keep file-specific adapter leaves temporary and preserve bounded
   per-destination delivery without selecting target behavior in their portable parser paths.

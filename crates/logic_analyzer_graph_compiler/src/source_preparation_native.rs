@@ -1,4 +1,7 @@
+use std::sync::Arc;
+
 use logic_analyzer_graph_api::node_support::CapturePresentation;
+use signal_processing::{InlineWorkExecutor, WorkExecutor};
 
 use super::source_preparation_executor::{
     InlineSourcePreparationExecutor, SourcePreparationExecutor, SourcePreparationTask,
@@ -12,19 +15,31 @@ use super::{
 pub(crate) struct SourcePreparation {
     identity: Option<String>,
     executor: Box<dyn SourcePreparationExecutor>,
+    work_executor: Arc<dyn WorkExecutor>,
     task: Option<Box<dyn SourcePreparationTask>>,
     status: SourcePreparationStatus,
 }
 
 impl SourcePreparation {
     pub(crate) fn new() -> Self {
-        Self::with_executor(Box::new(InlineSourcePreparationExecutor))
+        Self::with_execution(
+            Box::new(InlineSourcePreparationExecutor),
+            Arc::new(InlineWorkExecutor),
+        )
     }
 
     pub(crate) fn with_executor(executor: Box<dyn SourcePreparationExecutor>) -> Self {
+        Self::with_execution(executor, Arc::new(InlineWorkExecutor))
+    }
+
+    pub(crate) fn with_execution(
+        executor: Box<dyn SourcePreparationExecutor>,
+        work_executor: Arc<dyn WorkExecutor>,
+    ) -> Self {
         Self {
             identity: None,
             executor,
+            work_executor,
             task: None,
             status: SourcePreparationStatus::Empty,
         }
@@ -107,9 +122,10 @@ impl SourcePreparation {
         self.status = SourcePreparationStatus::Preparing;
         match discovered.presentation {
             CapturePresentation::Indexed { factory, .. } => {
+                let work_executor = Arc::clone(&self.work_executor);
                 let work = Box::new(move || {
                     factory
-                        .open(&mut |_| {})
+                        .open(work_executor, &mut |_| {})
                         .map(PreparedCaptureData::Indexed)
                         .map_err(|error| error.to_string())
                 });
@@ -346,6 +362,7 @@ mod source_preparation_tests {
 
     struct TestFactory {
         open_count: Arc<Mutex<usize>>,
+        observed_parallelism: Option<Arc<Mutex<Option<usize>>>>,
     }
 
     impl CaptureIndexFactory for TestFactory {
@@ -355,9 +372,13 @@ mod source_preparation_tests {
 
         fn open(
             self: Box<Self>,
+            work_executor: Arc<dyn signal_processing::WorkExecutor>,
             _progress: &mut dyn FnMut(CaptureIndexBuildProgress),
         ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
             *self.open_count.lock().unwrap() += 1;
+            if let Some(observed_parallelism) = &self.observed_parallelism {
+                *observed_parallelism.lock().unwrap() = Some(work_executor.available_parallelism());
+            }
             Ok(Box::new(TestIndex {
                 metadata: CaptureMetadata {
                     total_probes: 1,
@@ -384,6 +405,7 @@ mod source_preparation_tests {
 
         fn open(
             self: Box<Self>,
+            _work_executor: Arc<dyn signal_processing::WorkExecutor>,
             _progress: &mut dyn FnMut(CaptureIndexBuildProgress),
         ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
             Err(signal_processing::Error::ParseError(
@@ -409,8 +431,29 @@ mod source_preparation_tests {
             visible_channels: vec![0],
             presentation: CapturePresentation::Indexed {
                 identity: "capture.dsl".into(),
-                factory: Box::new(TestFactory { open_count }),
+                factory: Box::new(TestFactory {
+                    open_count,
+                    observed_parallelism: None,
+                }),
             },
+        }
+    }
+
+    struct FixedWorkExecutor {
+        parallelism: usize,
+    }
+
+    impl signal_processing::WorkExecutor for FixedWorkExecutor {
+        fn available_parallelism(&self) -> usize {
+            self.parallelism
+        }
+
+        fn submit(
+            &self,
+            task: signal_processing::WorkExecutorTask,
+        ) -> std::result::Result<(), String> {
+            task();
+            Ok(())
         }
     }
 
@@ -474,6 +517,34 @@ mod source_preparation_tests {
         assert!(matches!(prepared.data, PreparedCaptureData::Indexed(_)));
         assert_eq!(*open_count.lock().unwrap(), 1);
         assert_eq!(preparation.status(), SourcePreparationStatus::Ready);
+    }
+
+    #[test]
+    fn indexed_capture_receives_the_host_work_executor() {
+        let open_count = Arc::new(Mutex::new(0));
+        let observed_parallelism = Arc::new(Mutex::new(None));
+        let presentation = DiscoveredCapturePresentation {
+            identity: "indexed-capture".into(),
+            visible_channels: vec![0],
+            presentation: CapturePresentation::Indexed {
+                identity: "capture.dsl".into(),
+                factory: Box::new(TestFactory {
+                    open_count: Arc::clone(&open_count),
+                    observed_parallelism: Some(Arc::clone(&observed_parallelism)),
+                }),
+            },
+        };
+        let mut preparation = SourcePreparation::with_execution(
+            Box::new(ImmediateExecutor),
+            Arc::new(FixedWorkExecutor { parallelism: 7 }),
+        );
+
+        assert!(matches!(
+            preparation.synchronize(Some(presentation)),
+            SourcePreparationUpdate::Preparing
+        ));
+        assert_eq!(*open_count.lock().unwrap(), 1);
+        assert_eq!(*observed_parallelism.lock().unwrap(), Some(7));
     }
 
     #[test]

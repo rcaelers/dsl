@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::Result;
+use crate::{Result, WorkExecutor};
 
 #[derive(Debug, Clone)]
 pub struct CaptureMetadata {
@@ -356,6 +356,7 @@ pub trait CaptureIndexFactory: Send + 'static {
 
     fn open(
         self: Box<Self>,
+        work_executor: Arc<dyn WorkExecutor>,
         progress: &mut dyn FnMut(CaptureIndexBuildProgress),
     ) -> Result<Box<dyn CaptureIndex + Send>>;
 }

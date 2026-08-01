@@ -1,8 +1,10 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
 use signal_processing::{
     CaptureDataSource, CaptureIndex, CaptureIndexProgress, CaptureMetadata, IndexSampler,
+    WorkExecutor,
 };
 
 use crate::channel::placeholder_channels;
@@ -140,19 +142,21 @@ impl LogicAnalyzerViewer {
 }
 
 /// Opens the capture and builds (or validates) the waveform index on a
-/// background thread, reporting progress. Window sampling itself happens
+/// host-selected work capability, reporting progress. Window sampling itself happens
 /// synchronously on the UI thread once the index is ready.
 pub(crate) fn spawn_capture_worker(
     identity: PathBuf,
     data_source: impl CaptureDataSource,
+    work_executor: Arc<dyn WorkExecutor>,
     responses: Sender<WorkerResponse>,
 ) {
-    std::thread::Builder::new()
-        .name("dsl_capture_indexer".to_string())
-        .spawn(move || {
+    let task_path = identity.clone();
+    let index_executor = Arc::clone(&work_executor);
+    let task_responses = responses.clone();
+    if let Err(error) = work_executor.submit(Box::new(move || {
             let header = data_source.metadata().clone();
             let duration_us = header.duration_us();
-            if responses
+            if task_responses
                 .send(WorkerResponse::Opened {
                     path: identity.clone(),
                     header,
@@ -163,7 +167,7 @@ pub(crate) fn spawn_capture_worker(
                 return;
             }
 
-            if responses
+            if task_responses
                 .send(WorkerResponse::Status {
                     path: identity.clone(),
                     message: "Building waveform index…".to_string(),
@@ -174,13 +178,16 @@ pub(crate) fn spawn_capture_worker(
             }
 
             let progress_path = identity.clone();
-            let progress_responses = responses.clone();
+            let progress_responses = task_responses.clone();
             let mut last_progress_sent = std::time::Instant::now()
                 .checked_sub(std::time::Duration::from_millis(100))
                 .unwrap_or_else(std::time::Instant::now);
             let mut last_progress_completed = 0_usize;
-            let result = IndexSampler::open_data_source_with_progress(data_source, |progress| {
-                let now = std::time::Instant::now();
+            let result = IndexSampler::open_data_source_with_executor_and_progress(
+                data_source,
+                index_executor,
+                |progress| {
+                    let now = std::time::Instant::now();
                 let is_first = progress.completed_roots == 0;
                 let is_done = progress.completed_roots >= progress.total_roots;
                 let enough_time =
@@ -197,7 +204,8 @@ pub(crate) fn spawn_capture_worker(
                         progress,
                     });
                 }
-            });
+                },
+            );
 
             let response = match result {
                 Ok(sampler) => WorkerResponse::IndexReady {
@@ -209,9 +217,13 @@ pub(crate) fn spawn_capture_worker(
                     message: format!("Could not open capture: {err}"),
                 },
             };
-            let _ = responses.send(response);
-        })
-        .expect("capture indexer thread should start");
+            let _ = task_responses.send(response);
+        })) {
+        let _ = responses.send(WorkerResponse::Error {
+            path: task_path,
+            message: format!("Could not start capture indexing: {error}"),
+        });
+    }
 }
 
 fn path_display_name(path: &std::path::Path) -> &str {

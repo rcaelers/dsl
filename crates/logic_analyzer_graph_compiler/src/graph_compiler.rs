@@ -68,7 +68,10 @@ impl GraphCompiler {
         Self {
             builders: BuilderRegistry::standard(),
             output_subscriptions: OutputSubscriptionPlan::new(),
-            source_preparation: SourcePreparation::with_executor(source_preparation_executor),
+            source_preparation: SourcePreparation::with_execution(
+                source_preparation_executor,
+                Arc::clone(&work_executor),
+            ),
             runtime_factory,
             work_executor,
         }

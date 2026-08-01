@@ -1,13 +1,14 @@
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
-use std::thread::JoinHandle;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use crate::{
     CaptureCursorItem, CaptureIndex, CaptureMetadata, CaptureSampledWindow, CaptureStoreCursor,
     Error, NativeCaptureRandomReader, NativeCaptureStore, NativeFinalizedCapture, Result,
+    WorkExecutor,
 };
 
 use super::exact::exact_window_sample_limit;
@@ -588,6 +589,7 @@ impl NativeGrowingCaptureIndex {
         display_name: impl Into<String>,
         sample_rate_hz: f64,
         probe_names: Vec<String>,
+        work_executor: Arc<dyn WorkExecutor>,
     ) -> Result<(Self, NativeGrowingCaptureIndexWorker)> {
         for entry in std::fs::read_dir(capture.directory())? {
             let entry = entry?;
@@ -604,6 +606,7 @@ impl NativeGrowingCaptureIndex {
             display_name,
             sample_rate_hz,
             probe_names,
+            work_executor,
         )
     }
 
@@ -612,6 +615,7 @@ impl NativeGrowingCaptureIndex {
         display_name: impl Into<String>,
         sample_rate_hz: f64,
         probe_names: Vec<String>,
+        work_executor: Arc<dyn WorkExecutor>,
     ) -> Result<(Self, NativeGrowingCaptureIndexWorker)> {
         if !sample_rate_hz.is_finite() || sample_rate_hz <= 0.0 {
             return Err(Error::ParseError(
@@ -643,9 +647,23 @@ impl NativeGrowingCaptureIndex {
             .map_err(|error| Error::ParseError(error.to_string()))?;
         let worker_state = Arc::clone(&state);
         let channels = header.total_probes;
-        let handle = std::thread::Builder::new()
-            .name("live-waveform-index".into())
-            .spawn(move || run_index_worker(cursor, worker_state, channels))?;
+        let completed = Arc::new(AtomicBool::new(false));
+        let result = Arc::new(Mutex::new(None));
+        let worker_completed = Arc::clone(&completed);
+        let worker_result = Arc::clone(&result);
+        work_executor
+            .submit(Box::new(move || {
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    run_index_worker(cursor, worker_state, channels)
+                }))
+                .map_err(|_| Error::ParseError("live waveform index worker panicked".into()))
+                .and_then(std::convert::identity);
+                *worker_result
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner()) = Some(outcome);
+                worker_completed.store(true, Ordering::Release);
+            }))
+            .map_err(Error::ParseError)?;
         let query = Self {
             display_name: display_name.into(),
             index_path: store.directory().join("capture.commits"),
@@ -657,7 +675,8 @@ impl NativeGrowingCaptureIndex {
         Ok((
             query,
             NativeGrowingCaptureIndexWorker {
-                handle: Some(handle),
+                completed,
+                result,
             },
         ))
     }
@@ -844,22 +863,28 @@ impl CaptureIndex for NativeGrowingCaptureIndex {
 }
 
 pub struct NativeGrowingCaptureIndexWorker {
-    handle: Option<JoinHandle<Result<()>>>,
+    completed: Arc<AtomicBool>,
+    result: Arc<Mutex<Option<Result<()>>>>,
 }
 
 impl NativeGrowingCaptureIndexWorker {
     pub fn is_finished(&self) -> bool {
-        self.handle
-            .as_ref()
-            .is_none_or(std::thread::JoinHandle::is_finished)
+        self.completed.load(Ordering::Acquire)
     }
 
-    pub fn join(mut self) -> Result<()> {
-        self.handle
+    pub fn join(self) -> Result<()> {
+        while !self.is_finished() {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        self.result
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
             .take()
-            .expect("live waveform worker is joined once")
-            .join()
-            .map_err(|_| Error::ParseError("live waveform index worker panicked".into()))?
+            .unwrap_or_else(|| {
+                Err(Error::ParseError(
+                    "live waveform index worker completed without a result".into(),
+                ))
+            })
     }
 }
 
@@ -978,10 +1003,27 @@ mod tests {
     use crate::{
         CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureIndex, CaptureSessionId,
         CaptureStoreDescriptor, CaptureWaveformSegment, NativeCaptureStore,
-        NativeCaptureStoreConfig,
+        NativeCaptureStoreConfig, WorkExecutor, WorkExecutorTask,
     };
 
     use super::{FAN_OUT, LEAF_SAMPLES, NativeGrowingCaptureIndex, summary_masks};
+
+    struct SpawnWorkExecutor;
+
+    impl WorkExecutor for SpawnWorkExecutor {
+        fn available_parallelism(&self) -> usize {
+            1
+        }
+
+        fn submit(&self, task: WorkExecutorTask) -> Result<(), String> {
+            std::thread::spawn(task);
+            Ok(())
+        }
+    }
+
+    fn worker_executor() -> Arc<dyn WorkExecutor> {
+        Arc::new(SpawnWorkExecutor)
+    }
 
     fn level_at(sample: u64, channel: usize) -> bool {
         (sample / (37 + channel as u64 * 11) + channel as u64).is_multiple_of(2)
@@ -1096,6 +1138,7 @@ mod tests {
             "Growing test",
             1_000_000.0,
             vec!["A7".into(), "C2".into()],
+            worker_executor(),
         )
         .unwrap();
 
@@ -1200,6 +1243,7 @@ mod tests {
             "Bounded summary test",
             100_000_000.0,
             vec!["A0".into(), "A1".into()],
+            worker_executor(),
         )
         .unwrap();
         let mut start = 0_u64;

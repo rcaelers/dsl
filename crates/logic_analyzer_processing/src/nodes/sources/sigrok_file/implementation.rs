@@ -8,7 +8,7 @@ use std::thread::JoinHandle;
 use signal_processing::{
     CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, InputPort, OutputPort,
     PortDirection, PortSchema, ProcessNode, Result, Sample, SampleBlock, SampleKind, Sender,
-    WorkError, WorkResult,
+    WorkError, WorkExecutor, WorkResult,
 };
 
 use crate::support::capture_index::capture_cache_identity;
@@ -114,15 +114,20 @@ impl CaptureIndexFactory for SigrokCaptureIndexFactory {
 
     fn open(
         self: Box<Self>,
+        work_executor: Arc<dyn WorkExecutor>,
         progress: &mut dyn FnMut(CaptureIndexBuildProgress),
     ) -> Result<Box<dyn CaptureIndex + Send>> {
         let source = SigrokFileCaptureDataSource::open(&self.path)?;
-        signal_processing::IndexSampler::open_data_source_with_progress(source, |value| {
-            progress(CaptureIndexBuildProgress {
-                completed: value.completed_roots,
-                total: value.total_roots,
-            });
-        })
+        signal_processing::IndexSampler::open_data_source_with_executor_and_progress(
+            source,
+            work_executor,
+            |value| {
+                progress(CaptureIndexBuildProgress {
+                    completed: value.completed_roots,
+                    total: value.total_roots,
+                });
+            },
+        )
         .map(|index| Box::new(index) as Box<dyn CaptureIndex + Send>)
     }
 }

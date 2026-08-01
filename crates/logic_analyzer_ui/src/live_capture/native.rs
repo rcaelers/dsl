@@ -21,7 +21,7 @@ use signal_processing::{
     CaptureTimelineMetadata, NativeCaptureSessionPin, NativeCaptureSessionRepository,
     NativeCaptureSessionRepositoryConfig, NativeCaptureSessionSummary, NativeCaptureStore,
     NativeCaptureStoreConfig, NativeFinalizedCapture, NativeGrowingCaptureIndex,
-    NativeGrowingCaptureIndexWorker, RecordingStart, TriggerTimeoutAction,
+    NativeGrowingCaptureIndexWorker, RecordingStart, TriggerTimeoutAction, WorkExecutor,
     bounded_capture_event_queue,
 };
 
@@ -45,6 +45,26 @@ const APPLICATION_METADATA_TEMP_FILE: &str = "capture.application.json.tmp";
 const APPLICATION_METADATA_OLD_FILE: &str = "capture.application.json.old";
 const APPLICATION_METADATA_VERSION: u16 = 2;
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
+
+#[cfg(test)]
+struct TestWorkExecutor;
+
+#[cfg(test)]
+impl WorkExecutor for TestWorkExecutor {
+    fn available_parallelism(&self) -> usize {
+        1
+    }
+
+    fn submit(&self, task: signal_processing::WorkExecutorTask) -> Result<(), String> {
+        std::thread::spawn(task);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+fn test_work_executor() -> Arc<dyn WorkExecutor> {
+    Arc::new(TestWorkExecutor)
+}
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -284,6 +304,7 @@ pub(crate) struct CaptureCoordinator {
     configuration_epoch_resolutions: Vec<Receiver<Result<(), String>>>,
     configuration_epoch_notice: Option<Result<(), String>>,
     state_history: Vec<CaptureSessionState>,
+    work_executor: Arc<dyn WorkExecutor>,
 }
 
 impl CaptureCoordinator {
@@ -301,7 +322,12 @@ impl CaptureCoordinator {
         .expect("temporary capture repository must be available");
         let (export_service, control) = scripted_capture_export_service();
         (
-            Self::with_repository_and_export_service(repository, Some(root), export_service),
+            Self::with_repository_and_export_service(
+                repository,
+                Some(root),
+                export_service,
+                test_work_executor(),
+            ),
             control,
         )
     }
@@ -310,6 +336,7 @@ impl CaptureCoordinator {
         max_recent_sessions: usize,
         max_total_bytes: u64,
         capture_session_directory: Option<PathBuf>,
+        work_executor: Arc<dyn WorkExecutor>,
     ) -> Self {
         let capture_session_directory = capture_session_directory
             .expect("native live capture requires a host-provided capture-session directory");
@@ -318,21 +345,28 @@ impl CaptureCoordinator {
             .expect("embedded live-capture limits are valid");
         let repository = NativeCaptureSessionRepository::new(config)
             .expect("the live-capture session directory must be available");
-        Self::with_repository(repository, None)
+        Self::with_repository(repository, None, work_executor)
     }
 
     fn with_repository(
         repository: NativeCaptureSessionRepository,
         ephemeral_root: Option<TempDir>,
+        work_executor: Arc<dyn WorkExecutor>,
     ) -> Self {
         let export_service = standard_capture_export_service(repository.clone());
-        Self::with_repository_and_export_service(repository, ephemeral_root, export_service)
+        Self::with_repository_and_export_service(
+            repository,
+            ephemeral_root,
+            export_service,
+            work_executor,
+        )
     }
 
     fn with_repository_and_export_service(
         repository: NativeCaptureSessionRepository,
         ephemeral_root: Option<TempDir>,
         export_service: Box<dyn CaptureExportService>,
+        work_executor: Arc<dyn WorkExecutor>,
     ) -> Self {
         let (recent_sessions, _) = repository.scan_with_cleanup_plan().unwrap_or_default();
         Self {
@@ -351,6 +385,7 @@ impl CaptureCoordinator {
             configuration_epoch_resolutions: Vec::new(),
             configuration_epoch_notice: None,
             state_history: Vec::new(),
+            work_executor,
         }
     }
 
@@ -505,6 +540,7 @@ impl CaptureCoordinator {
         let (completion_sender, completion_receiver) = crossbeam_channel::bounded(1);
         let (waveform_sender, waveform_receiver) = crossbeam_channel::bounded(1);
         let (analysis_sender, analysis_receiver) = crossbeam_channel::bounded(1);
+        let work_executor = Arc::clone(&self.work_executor);
         let worker = std::thread::Builder::new()
             .name("live-capture-supervisor".into())
             .spawn(move || {
@@ -522,6 +558,7 @@ impl CaptureCoordinator {
                         waveform_ready: waveform_sender,
                         analysis_ready: analysis_sender,
                     },
+                    work_executor,
                 ) {
                     Ok(capture) => WorkerCompletion::Complete(Box::new(capture)),
                     Err(error) => WorkerCompletion::Failed(error),
@@ -1181,6 +1218,7 @@ fn run_capture_worker(
     mode: CaptureStartMode,
     session: CaptureWorkerSession,
     ports: CaptureWorkerPorts,
+    work_executor: Arc<dyn WorkExecutor>,
 ) -> Result<CompletedCapture, String> {
     let CaptureWorkerSession {
         repository,
@@ -1253,6 +1291,7 @@ fn run_capture_worker(
         source_title,
         feature.sample_rate_hz(),
         feature.channel_names().to_vec(),
+        work_executor,
     )
     .map_err(|error| error.to_string())?;
     let mut waveform_published = false;

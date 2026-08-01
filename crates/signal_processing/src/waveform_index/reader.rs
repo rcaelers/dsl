@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use super::builder::IndexBuilder;
 use super::exact::exact_window_sample_limit;
@@ -10,7 +11,7 @@ use super::types::{
 };
 use crate::capture::{BlockCaptureSource, BlockData, CaptureDataSource, CaptureIndex, CaptureMetadata, CaptureSampledChannel, CaptureSampledWindow, CaptureTransition, packed_bit};
 use crate::archive_capture_store::NativeArchiveCaptureStore;
-use crate::{Error, Result};
+use crate::{Error, InlineWorkExecutor, Result, WorkExecutor};
 
 /// Windowed sampler for indexed capture data.
 ///
@@ -47,10 +48,30 @@ where
     where
         S: CaptureDataSource<Reader = R>,
     {
-        Self::open_data_source_with_progress(data_source, |_| {})
+        Self::open_data_source_with_executor_and_progress(
+            data_source,
+            Arc::new(InlineWorkExecutor),
+            |_| {},
+        )
     }
 
     pub fn open_data_source_with_progress<S, C>(data_source: S, progress: C) -> Result<Self>
+    where
+        S: CaptureDataSource<Reader = R>,
+        C: FnMut(CaptureIndexProgress),
+    {
+        Self::open_data_source_with_executor_and_progress(
+            data_source,
+            Arc::new(InlineWorkExecutor),
+            progress,
+        )
+    }
+
+    pub fn open_data_source_with_executor_and_progress<S, C>(
+        data_source: S,
+        work_executor: Arc<dyn WorkExecutor>,
+        progress: C,
+    ) -> Result<Self>
     where
         S: CaptureDataSource<Reader = R>,
         C: FnMut(CaptureIndexProgress),
@@ -63,7 +84,7 @@ where
 
         if !IndexReader::is_valid(&index_path, &header, fingerprint.revision)? {
             IndexBuilder::new(&data_source, &index_path, &header, fingerprint.revision)
-                .build(progress)?;
+                .build(work_executor, progress)?;
         }
 
         let archive_store = NativeArchiveCaptureStore::open(
