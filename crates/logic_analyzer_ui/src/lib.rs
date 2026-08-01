@@ -24,9 +24,7 @@ mod viewer_selection;
 
 pub use app::{App, DemoGraph};
 #[cfg(target_os = "macos")]
-pub use app_platform::{
-    NativeMenuCommand, dispatch_native_menu_command, set_recent_files_listener,
-};
+pub use app_platform::{NativeMenuCommand, dispatch_native_menu_command};
 pub use app_services::{AppServices, ApplicationStoragePaths};
 pub use application_settings::{ApplicationSettings, default_input_bindings};
 pub use host_service::{CacheClearStats, CacheEntrySnapshot, HostService, OpenDialog, SaveDialog};

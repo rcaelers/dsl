@@ -16,12 +16,8 @@ mod hooks;
 mod ui_persistence;
 
 pub(crate) use implementation::PlatformState;
-#[cfg(target_os = "macos")]
-pub(crate) use implementation::notify_recent_files_changed;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use implementation::{FileCommand, GuardedAction};
 #[cfg(target_os = "macos")]
-pub use implementation::{
-    NativeMenuCommand, dispatch_native_menu_command, set_recent_files_listener,
-};
+pub use implementation::{NativeMenuCommand, dispatch_native_menu_command};
 pub(crate) use ui_persistence::PersistedUiState;

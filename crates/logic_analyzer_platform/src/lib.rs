@@ -7,6 +7,8 @@
 mod platform;
 mod services;
 
+#[cfg(target_os = "macos")]
+pub use platform::set_recent_files_listener;
 pub use services::PlatformServices;
 
 /// Builds the services appropriate for the selected application host.

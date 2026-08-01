@@ -8,6 +8,7 @@ use objc2_app_kit::{NSApp, NSImage, NSMenu, NSMenuItem, NSWindow};
 use objc2_foundation::{MainThreadMarker, NSObject, NSString, ns_string};
 
 use input_bindings::InputBindings;
+use logic_analyzer_platform::set_recent_files_listener;
 use logic_analyzer_ui::{APPLICATION_NAME, NativeMenuCommand, dispatch_native_menu_command};
 
 thread_local! {
@@ -502,7 +503,7 @@ pub(crate) fn install(recent_files: &[PathBuf], bindings: &InputBindings) {
         }
     }
 
-    logic_analyzer_ui::set_recent_files_listener(refresh_recent_files);
+    set_recent_files_listener(refresh_recent_files);
 
     // NSMenuItem keeps a weak target, so retain the target for the app
     // lifetime. `RECENT_MENU` already holds a clone, but the original

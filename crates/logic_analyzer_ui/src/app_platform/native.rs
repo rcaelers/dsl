@@ -102,24 +102,6 @@ pub fn dispatch_native_menu_command(command: NativeMenuCommand) {
     }
 }
 
-#[cfg(target_os = "macos")]
-type RecentFilesListener = Box<dyn Fn(&[PathBuf]) + Send + Sync>;
-
-#[cfg(target_os = "macos")]
-static RECENT_FILES_LISTENER: std::sync::OnceLock<RecentFilesListener> = std::sync::OnceLock::new();
-
-#[cfg(target_os = "macos")]
-pub fn set_recent_files_listener(listener: impl Fn(&[PathBuf]) + Send + Sync + 'static) {
-    let _ = RECENT_FILES_LISTENER.set(Box::new(listener));
-}
-
-#[cfg(target_os = "macos")]
-pub(crate) fn notify_recent_files_changed(paths: &[PathBuf]) {
-    if let Some(listener) = RECENT_FILES_LISTENER.get() {
-        listener(paths);
-    }
-}
-
 impl PlatformState {
     pub(crate) fn restore(
         cc: &eframe::CreationContext,

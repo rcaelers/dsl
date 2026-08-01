@@ -9,6 +9,17 @@ use signal_processing::PersistentStoreConfig;
 
 use crate::services::PlatformServices;
 
+#[cfg(target_os = "macos")]
+type RecentFilesListener = Box<dyn Fn(&[PathBuf]) + Send + Sync>;
+
+#[cfg(target_os = "macos")]
+static RECENT_FILES_LISTENER: std::sync::OnceLock<RecentFilesListener> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "macos")]
+pub fn set_recent_files_listener(listener: impl Fn(&[PathBuf]) + Send + Sync + 'static) {
+    let _ = RECENT_FILES_LISTENER.set(Box::new(listener));
+}
+
 pub(crate) fn standard_services() -> PlatformServices {
     let storage_paths = ApplicationStoragePaths::new(Some(derived_cache_directory()))
         .with_capture_session_directory(Some(capture_session_directory()));
@@ -154,6 +165,15 @@ fn application_directory(parent: PathBuf) -> PathBuf {
 struct NativeHostService;
 
 impl HostService for NativeHostService {
+    fn publish_recent_files(&self, paths: &[PathBuf]) {
+        #[cfg(target_os = "macos")]
+        if let Some(listener) = RECENT_FILES_LISTENER.get() {
+            listener(paths);
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = paths;
+    }
+
     fn choose_open_file(&mut self, request: OpenDialog<'_>) -> Option<PathBuf> {
         let mut dialog = rfd::FileDialog::new()
             .set_title(request.title)

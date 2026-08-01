@@ -5,9 +5,9 @@ use logic_analyzer_graph_compiler as compiler;
 use node_graph::NodeId;
 
 use crate::app::App;
-use crate::app_platform::{FileCommand, GuardedAction};
 #[cfg(target_os = "macos")]
-use crate::app_platform::{NativeMenuCommand, notify_recent_files_changed};
+use crate::app_platform::NativeMenuCommand;
+use crate::app_platform::{FileCommand, GuardedAction};
 use crate::host_service::{OpenDialog, SaveDialog};
 use crate::live_capture::{CaptureCoordinatorContract, CaptureRawExportFormat};
 use crate::memory_panel::{
@@ -407,8 +407,8 @@ impl App {
     /// `MAX_RECENT_FILES` (Phase 5.1).
     fn push_recent_file(&mut self, path: PathBuf) {
         self.platform.push_recent_file(path);
-        #[cfg(target_os = "macos")]
-        notify_recent_files_changed(&self.platform.recent_files);
+        self.host_service
+            .publish_recent_files(&self.platform.recent_files);
     }
 
     /// Resets to a fresh, empty graph — File → New (Phase 5.1). Assumes the
@@ -766,8 +766,7 @@ impl App {
         match choice {
             Some(DialogChoice::Clear) => {
                 self.platform.recent_files.clear();
-                #[cfg(target_os = "macos")]
-                notify_recent_files_changed(&[]);
+                self.host_service.publish_recent_files(&[]);
                 self.platform.confirm_clear_recent = false;
             }
             Some(DialogChoice::Cancel) => self.platform.confirm_clear_recent = false,

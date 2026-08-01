@@ -44,6 +44,11 @@ pub struct CacheEntrySnapshot {
 /// do not provide a capability return an explanatory error or decline the
 /// optional picker request.
 pub trait HostService {
+    /// Publishes the portable recent-document list to an optional host shell.
+    ///
+    /// Hosts without a native document menu leave this as a no-op.
+    fn publish_recent_files(&self, _paths: &[PathBuf]) {}
+
     fn choose_open_file(&mut self, request: OpenDialog<'_>) -> Option<PathBuf>;
 
     fn choose_save_file(&mut self, request: SaveDialog<'_>) -> Option<PathBuf>;

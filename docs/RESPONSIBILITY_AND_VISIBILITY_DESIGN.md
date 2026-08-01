@@ -187,9 +187,10 @@ web adapter modules and returns an opaque service bundle to the application boot
 adapter owns dialogs, graph-document file I/O, persistent-cache administration, and the
 derived-cache and live-capture-session directories. It also owns native configuration-file discovery
 and I/O; the UI owns the portable configuration model. It supplies optional system symbol fonts while
-the UI owns bundled fallback fonts and portable installation. The web adapter reports unavailable
-storage capabilities and supplies embedded configuration through the same UI-owned contract. The UI
-does not select either implementation.
+the UI owns bundled fallback fonts and portable installation. Native shell integrations, such as the
+macOS recent-document menu, receive portable UI state through the same host-service contract. The web
+adapter reports unavailable storage capabilities and supplies embedded configuration. The UI does not
+select either implementation.
 
 ## Proposed future: isolated host adapter crate
 
