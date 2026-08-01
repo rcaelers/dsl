@@ -5,8 +5,10 @@
 //! does not change the word format or query semantics.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
+use super::super::super::cache::{cache_block, cached_block};
 use super::super::super::codec::{WordBlockBuilder, decode_word_block};
 use super::super::super::config::{LiveStoreConfig, PersistentStoreConfig};
 use super::super::super::errors::CodecError;
@@ -19,6 +21,8 @@ use super::super::super::query::{
 };
 use super::super::super::state::{LiveStoreMetadata, LiveStoreSnapshot, StoreStatus};
 use crate::events::Word;
+
+static NEXT_STORE_ID: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) fn default_working_directory() -> PathBuf {
     PathBuf::new()
@@ -54,6 +58,7 @@ struct MemoryState {
 #[derive(Clone)]
 pub struct IndexedAnnotationStore {
     state: Arc<RwLock<MemoryState>>,
+    store_id: u64,
 }
 
 impl IndexedAnnotationStore {
@@ -103,7 +108,7 @@ impl IndexedAnnotationStore {
         &self,
         start_ns: u64,
         end_ns: u64,
-    ) -> (u64, Vec<Arc<[u8]>>, Arc<[Word]>, usize) {
+    ) -> (u64, Vec<(u64, Arc<[u8]>)>, Arc<[Word]>, usize) {
         let state = self.state.read().unwrap();
         let indices = exact_block_indices(&state.directory, &state.presence, start_ns, end_ns);
         let (blocks, committed_word_count) = selected_blocks(&state, &indices);
@@ -119,7 +124,7 @@ impl IndexedAnnotationStore {
         &self,
         timestamp_ns: u64,
         max_distance_ns: u64,
-    ) -> (Vec<Arc<[u8]>>, Arc<[Word]>, usize) {
+    ) -> (Vec<(u64, Arc<[u8]>)>, Arc<[Word]>, usize) {
         let state = self.state.read().unwrap();
         let indices = boundary_block_indices(
             &state.directory,
@@ -184,7 +189,7 @@ impl AnnotationQuery for IndexedAnnotationStore {
         }
         let (generation, blocks, hot_tail, committed_word_count) =
             self.exact_word_context(start_ns, end_ns);
-        let words = decode_context(&blocks, hot_tail, committed_word_count)?;
+        let words = decode_context(self.store_id, &blocks, hot_tail, committed_word_count)?;
         let (annotations, truncated) =
             annotation_window_from_ordered_words(&words, start_ns, end_ns, max_words);
         Ok(ExactAnnotationWindow {
@@ -201,7 +206,7 @@ impl AnnotationQuery for IndexedAnnotationStore {
     ) -> AnnotationQueryResult<Option<u64>> {
         let (blocks, hot_tail, committed_word_count) =
             self.boundary_word_context(timestamp_ns, max_distance_ns);
-        let words = decode_context(&blocks, hot_tail, committed_word_count)?;
+        let words = decode_context(self.store_id, &blocks, hot_tail, committed_word_count)?;
         Ok(nearest_boundary_from_ordered_words(
             &words,
             timestamp_ns,
@@ -239,6 +244,7 @@ impl IndexedAnnotationWriter {
                 hot_tail: Arc::from([]),
                 status: StoreStatus::Live,
             })),
+            store_id: NEXT_STORE_ID.fetch_add(1, Ordering::Relaxed),
         };
         let writer = Self {
             store: store.clone(),
@@ -387,27 +393,39 @@ impl IndexedAnnotationWriter {
 }
 
 fn decode_context(
-    blocks: &[Arc<[u8]>],
+    store_id: u64,
+    blocks: &[(u64, Arc<[u8]>)],
     hot_tail: Arc<[Word]>,
     committed_word_count: usize,
 ) -> AnnotationQueryResult<Vec<Word>> {
     let mut words = Vec::with_capacity(committed_word_count.saturating_add(hot_tail.len()));
-    for bytes in blocks {
-        let block = decode_word_block(bytes)
-            .map_err(|error| AnnotationQueryError::Store(error.to_string()))?;
-        words.extend(block.words);
+    for (sequence, bytes) in blocks {
+        let block = if let Some(block) = cached_block(store_id, *sequence) {
+            block
+        } else {
+            let block = Arc::new(
+                decode_word_block(bytes)
+                    .map_err(|error| AnnotationQueryError::Store(error.to_string()))?,
+            );
+            cache_block(store_id, Arc::clone(&block));
+            block
+        };
+        words.extend_from_slice(&block.words);
     }
     words.extend_from_slice(&hot_tail);
     Ok(words)
 }
 
-fn selected_blocks(state: &MemoryState, indices: &[usize]) -> (Vec<Arc<[u8]>>, usize) {
+fn selected_blocks(state: &MemoryState, indices: &[usize]) -> (Vec<(u64, Arc<[u8]>)>, usize) {
     let mut blocks = Vec::with_capacity(indices.len());
     let mut committed_word_count = 0usize;
     for &index in indices {
         committed_word_count =
             committed_word_count.saturating_add(state.directory[index].word_count as usize);
-        blocks.push(Arc::clone(&state.encoded_blocks[index]));
+        blocks.push((
+            state.directory[index].sequence,
+            Arc::clone(&state.encoded_blocks[index]),
+        ));
     }
     (blocks, committed_word_count)
 }
@@ -441,6 +459,7 @@ impl super::super::super::backend::AnnotationStoreWriterBackend for IndexedAnnot
 
 #[cfg(test)]
 mod wasm_store_tests {
+    use super::super::super::super::cache::cache_contains;
     use super::super::super::super::config::BlockCodecConfig;
     use super::*;
 
@@ -542,5 +561,19 @@ mod wasm_store_tests {
                 .collect::<Vec<_>>(),
             vec![0x11]
         );
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    fn decoded_wasm_blocks_are_cached_per_store() {
+        let (mut writer, store) = IndexedAnnotationWriter::create(config()).unwrap();
+        writer
+            .append_batch(&[Word::new(0x11, 100), Word::new(0x22, 200)])
+            .unwrap();
+        writer.finish().unwrap();
+
+        assert!(!cache_contains(store.store_id, 0));
+        assert_eq!(store.exact_window(0, 300, 10).unwrap().annotations.len(), 2);
+        assert!(cache_contains(store.store_id, 0));
     }
 }

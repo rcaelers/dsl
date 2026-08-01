@@ -5,6 +5,7 @@
 //! later implementation steps.
 
 mod backend;
+mod cache;
 // The wasm store will consume the shared codec when it replaces its temporary
 // in-memory word-vector implementation.
 #[allow(
@@ -42,18 +43,19 @@ mod state;
 mod vlq;
 
 #[cfg(not(target_arch = "wasm32"))]
-mod cache;
-#[cfg(not(target_arch = "wasm32"))]
 mod persistent;
 
 pub(crate) use backend::{AnnotationStoreBackend, AnnotationStoreWriterBackend};
+pub use cache::{
+    DecodedBlockCacheStats, configure_decoded_block_cache, decoded_block_cache_stats,
+    reset_decoded_block_cache_stats,
+};
 pub use config::{BlockCodecConfig, LiveStoreConfig, PersistentStoreConfig};
 pub use errors::{CodecError, CodecResult};
 #[cfg(not(target_arch = "wasm32"))]
 pub use platform::{
-    CommittedAnnotationBlock, DecodedBlockCacheStats, PersistentCacheEntrySnapshot, cleanup_cache,
-    clear_cache, clear_cache_entry, configure_decoded_block_cache, decoded_block_cache_stats,
-    inspect_cache_entry, reset_decoded_block_cache_stats,
+    CommittedAnnotationBlock, PersistentCacheEntrySnapshot, cleanup_cache, clear_cache,
+    clear_cache_entry, inspect_cache_entry,
 };
 pub use platform::{IndexedAnnotationStore, IndexedAnnotationWriter, StoreError, StoreResult};
 pub use query::{

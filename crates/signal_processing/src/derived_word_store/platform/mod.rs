@@ -13,10 +13,9 @@ mod wasm;
 pub(crate) use native::default_working_directory;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::{
-    CommittedAnnotationBlock, DecodedBlockCacheStats, IndexedAnnotationStore,
-    IndexedAnnotationWriter, PersistentCacheEntrySnapshot, StoreError, StoreResult, cleanup_cache,
-    clear_cache, clear_cache_entry, configure_decoded_block_cache, decoded_block_cache_stats,
-    inspect_cache_entry, reset_decoded_block_cache_stats,
+    CommittedAnnotationBlock, IndexedAnnotationStore, IndexedAnnotationWriter,
+    PersistentCacheEntrySnapshot, StoreError, StoreResult, cleanup_cache, clear_cache,
+    clear_cache_entry, inspect_cache_entry,
 };
 #[cfg(target_arch = "wasm32")]
 pub(crate) use wasm::default_working_directory;

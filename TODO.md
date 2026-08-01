@@ -96,10 +96,10 @@ Detailed architecture and capability contracts are documented in
   derived and capture stores. Keep paths, mmap, filesystem operations, and browser handles in
   `logic_analyzer_platform`; add native and web repository adapters without changing shared algorithms. This and
   the adapter-crate boundary form the foundation for the remaining work.
-- [platform.data-plane.shared-derived-store] Complete one encoded-block decode and cache layer above the shared
-  directory, presence index, exact-query, nearest-boundary, and integrity contracts. Provide native file/mmap and
+- [platform.data-plane.shared-derived-store] Complete one encoded-block decode layer above the shared directory,
+  presence index, query, integrity, and decoded-block-cache contracts. Provide native file/mmap and
   platform-independent chunked-memory artifact repositories, keep repository budgets configurable, and remove the
-  remaining target-specific decoded-block and persistence implementations.
+  remaining target-specific range-decode and persistence implementations.
 - [platform.data-plane.shared-capture-storage] Run packed raw captures, waveform indexes, growing live repositories,
   and finalized replay through the same artifact and byte-region contracts. Keep native mmap and owned memory as
   interchangeable backings, expose committed generations consistently, and avoid requiring one capture or index to

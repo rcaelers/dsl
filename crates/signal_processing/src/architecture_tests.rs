@@ -158,13 +158,14 @@ fn prepared_byte_sources_are_portable_storage_contracts() {
 }
 
 #[test]
-fn derived_word_encoding_and_presence_are_shared_between_targets() {
+fn derived_word_core_is_shared_between_targets() {
     let module = include_str!("derived_word_store/mod.rs");
     let codec = include_str!("derived_word_store/codec.rs");
     let format = include_str!("derived_word_store/format.rs");
     let presence = include_str!("derived_word_store/presence.rs");
     let vlq = include_str!("derived_word_store/vlq.rs");
     let integrity = include_str!("crc32c.rs");
+    let cache = include_str!("derived_word_store/cache.rs");
 
     for shared_module in ["codec", "format", "vlq"] {
         assert!(
@@ -185,6 +186,7 @@ fn derived_word_encoding_and_presence_are_shared_between_targets() {
         ("derived-word presence index", presence),
         ("derived-word VLQ", vlq),
         ("derived-word integrity", integrity),
+        ("derived-word decoded-block cache", cache),
     ] {
         assert!(
             !implementation_source(source).contains("target_arch"),
