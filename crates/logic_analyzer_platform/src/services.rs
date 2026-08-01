@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use logic_analyzer_graph_api::node::DirectoryNodeCatalog;
 use logic_analyzer_ui::AppServices;
 use signal_processing::{ArtifactRepository, WorkExecutor};
 
@@ -10,6 +11,7 @@ use signal_processing::{ArtifactRepository, WorkExecutor};
 /// through supported owner contracts rather than concrete platform types.
 pub struct PlatformServices {
     ui_services: AppServices,
+    node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
     artifact_repository: Arc<dyn ArtifactRepository>,
     work_executor: Arc<dyn WorkExecutor>,
 }
@@ -17,11 +19,13 @@ pub struct PlatformServices {
 impl PlatformServices {
     pub(crate) fn with_ui_services(
         ui_services: AppServices,
+        node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
         artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
     ) -> Self {
         Self {
             ui_services,
+            node_catalogs,
             artifact_repository,
             work_executor,
         }
@@ -30,6 +34,11 @@ impl PlatformServices {
     /// Returns the UI-owned services for application construction.
     pub fn into_ui_services(self) -> AppServices {
         self.ui_services
+    }
+
+    /// Returns the UI services and host-selected dynamic node catalogs.
+    pub fn into_ui_and_node_catalogs(self) -> (AppServices, Vec<Box<dyn DirectoryNodeCatalog>>) {
+        (self.ui_services, self.node_catalogs)
     }
 
     /// Returns the host-selected repository for generated capture and derived
@@ -41,20 +50,5 @@ impl PlatformServices {
     /// Returns the host-selected bounded executor for portable processing work.
     pub fn work_executor(&self) -> Arc<dyn WorkExecutor> {
         Arc::clone(&self.work_executor)
-    }
-
-    /// Decomposes the platform bundle for application composition.
-    pub fn into_parts(
-        self,
-    ) -> (
-        AppServices,
-        Arc<dyn ArtifactRepository>,
-        Arc<dyn WorkExecutor>,
-    ) {
-        (
-            self.ui_services,
-            self.artifact_repository,
-            self.work_executor,
-        )
     }
 }

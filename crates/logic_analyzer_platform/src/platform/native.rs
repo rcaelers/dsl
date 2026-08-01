@@ -74,6 +74,8 @@ pub(crate) fn standard_services() -> PlatformServices {
     let input_bindings = load_input_bindings();
     let application_settings = load_application_settings();
     let work_executor: Arc<dyn WorkExecutor> = Arc::new(NativeWorkExecutor::new());
+    let node_catalogs =
+        logic_analyzer_graph_nodes::native_node_catalogs(Arc::clone(&work_executor));
     let ui_services = AppServices::with_host_storage_and_configuration(
         Box::new(NativeHostService::new()),
         storage_paths,
@@ -91,6 +93,7 @@ pub(crate) fn standard_services() -> PlatformServices {
     );
     PlatformServices::with_ui_services(
         ui_services,
+        node_catalogs,
         Arc::new(NativeArtifactRepository::new(
             derived_cache_directory().join("artifacts"),
         )),
@@ -940,10 +943,10 @@ mod native_tests {
     use logic_analyzer_graph_compiler::{
         PreparedCaptureData, SourcePreparationExecutor, SourcePreparationTaskUpdate,
     };
-    use logic_analyzer_ui::{HostCommand, HostService};
+    use logic_analyzer_ui::{AppServices, HostCommand, HostService};
     use signal_processing::{
         AppManagerFactory, ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange,
-        SourceIdentity, WorkExecutor,
+        InlineWorkExecutor, MemoryArtifactRepository, SourceIdentity, WorkExecutor,
     };
 
     use super::{
@@ -1012,6 +1015,21 @@ mod native_tests {
                 .unwrap(),
             42
         );
+    }
+
+    #[test]
+    fn native_composition_preserves_injected_host_services_and_catalogs() {
+        let services = crate::services::PlatformServices::with_ui_services(
+            AppServices::with_host_service(Box::new(NativeHostService::new())),
+            Vec::new(),
+            Arc::new(MemoryArtifactRepository::new()),
+            Arc::new(InlineWorkExecutor),
+        );
+        assert_eq!(services.work_executor().available_parallelism(), 1);
+        assert!(!services.artifact_repository().capabilities().durable);
+
+        let (_, node_catalogs) = services.into_ui_and_node_catalogs();
+        assert!(node_catalogs.is_empty());
     }
 
     #[test]

@@ -156,8 +156,8 @@ logic_analyzer_platform/
 
 The crate root exposes constructors and an opaque composition bundle, not public `native` and
 `web` namespaces. The application bootstrap decomposes that bundle into the capability objects
-accepted by the compiler, runtime, processing factories, and UI host. No core crate names
-`PlatformServices` or depends on `logic_analyzer_platform`.
+accepted by the compiler, runtime, processing factories, dynamic node catalogs, and UI host. No
+core crate names `PlatformServices` or depends on `logic_analyzer_platform`.
 
 Traits implemented by the adapter crate are supported cross-crate ports re-exported from the crate
 root of their behavioral owner. For example, storage and execution ports belong to

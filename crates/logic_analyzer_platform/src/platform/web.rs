@@ -31,6 +31,7 @@ pub(crate) fn standard_services() -> PlatformServices {
     );
     PlatformServices::with_ui_services(
         ui_services,
+        Vec::new(),
         Arc::new(MemoryArtifactRepository::new()),
         work_executor,
     )
@@ -91,4 +92,19 @@ impl HostService for WebHostService {
 
 fn unavailable() -> String {
     "this web host does not provide file or persistent-cache access".into()
+}
+
+#[cfg(test)]
+mod web_tests {
+    use super::standard_services;
+
+    #[test]
+    fn web_composition_injects_portable_services_without_native_catalogs() {
+        let services = standard_services();
+        assert_eq!(services.work_executor().available_parallelism(), 1);
+        assert!(!services.artifact_repository().capabilities().durable);
+
+        let (_, node_catalogs) = services.into_ui_and_node_catalogs();
+        assert!(node_catalogs.is_empty());
+    }
 }

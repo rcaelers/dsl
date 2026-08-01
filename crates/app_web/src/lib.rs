@@ -118,11 +118,15 @@ impl WebHandle {
                 canvas,
                 eframe::WebOptions::default(),
                 Box::new(|cc| {
+                    let platform_services = logic_analyzer_platform::standard_services();
+                    let (ui_services, node_catalogs) =
+                        platform_services.into_ui_and_node_catalogs();
                     Ok(Box::new(
-                        logic_analyzer_ui::App::new_with_demo_graphs_and_services(
+                        logic_analyzer_ui::App::new_with_demo_graphs_catalogs_and_services(
                             cc,
                             embedded_demo_graphs(),
-                            logic_analyzer_platform::standard_services().into_ui_services(),
+                            node_catalogs,
+                            ui_services,
                         ),
                     ))
                 }),

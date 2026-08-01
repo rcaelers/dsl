@@ -1042,8 +1042,18 @@ impl App {
         demo_graphs: Vec<DemoGraph>,
         services: crate::AppServices,
     ) -> Self {
+        Self::new_with_demo_graphs_catalogs_and_services(cc, demo_graphs, Vec::new(), services)
+    }
+
+    /// Builds the application with embedded demos and host-selected node catalogs.
+    pub fn new_with_demo_graphs_catalogs_and_services(
+        cc: &eframe::CreationContext,
+        demo_graphs: Vec<DemoGraph>,
+        node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
+        services: crate::AppServices,
+    ) -> Self {
         let default_graph = demo_graphs.first().map(|demo| demo.graph.clone());
-        let mut app = Self::build_with_app_services(cc, Vec::new(), services);
+        let mut app = Self::build_with_app_services(cc, node_catalogs, services);
         app.demo_graphs = demo_graphs;
         if let Some(graph) = default_graph {
             app.apply_graph_document(graph);

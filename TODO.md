@@ -95,9 +95,6 @@ Detailed architecture and capability contracts are documented in
 - [platform.data-plane.adapter-usb] Move asynchronous USB transport host adapters into
   `logic_analyzer_platform`. Native USB remains the initial implementation; unavailable browser USB is an explicit
   capability result until a WebUSB adapter is introduced.
-- [platform.data-plane.adapter-composition] Complete the `logic_analyzer_platform` service bundle and migrate
-  reusable target selection to it. Keep `app_native` and `app_web` as bootstrap-only composition roots, and add
-  native and browser composition tests for the injected adapters.
 - [platform.data-plane.storage-contracts] Apply the established platform-neutral prepared-byte-source,
   immutable-byte-region, artifact-repository, reader/writer, capability, and error contracts to the existing
   derived and capture stores. Keep paths, mmap, filesystem operations, and browser handles in
