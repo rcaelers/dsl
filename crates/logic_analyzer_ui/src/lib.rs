@@ -23,11 +23,11 @@ mod toast;
 mod viewer_selection;
 
 pub use app::{App, DemoGraph};
-#[cfg(target_os = "macos")]
-pub use app_platform::{NativeMenuCommand, dispatch_native_menu_command};
 pub use app_services::{AppServices, ApplicationStoragePaths};
 pub use application_settings::{ApplicationSettings, default_input_bindings};
-pub use host_service::{CacheClearStats, CacheEntrySnapshot, HostService, OpenDialog, SaveDialog};
+pub use host_service::{
+    CacheClearStats, CacheEntrySnapshot, HostCommand, HostService, OpenDialog, SaveDialog,
+};
 pub use node_registry::build_node_registry;
 pub use plugin_panel::{PluginPanel, PluginPanelContext, PluginPanelIcon, UiPanelRegistration};
 pub use product::{APPLICATION_ID, APPLICATION_NAME};

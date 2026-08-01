@@ -37,3 +37,21 @@ fn preferences_use_the_host_directory_capability_on_every_target() {
     assert!(implementation.contains("&mut dyn HostService"));
     assert!(implementation.contains("host_service.choose_directory()"));
 }
+
+#[test]
+fn native_shell_command_transport_is_not_stored_in_ui_state() {
+    let state = include_str!("../app_platform/native.rs");
+    let hooks = include_str!("../app_platform/native_hooks.rs");
+
+    for transport_detail in [
+        "crossbeam_channel",
+        "NATIVE_MENU_BRIDGE",
+        "native_menu_commands",
+    ] {
+        assert!(
+            !state.contains(transport_detail),
+            "UI application state must not own host command transport detail {transport_detail:?}"
+        );
+    }
+    assert!(hooks.contains("host_service.take_commands()"));
+}

@@ -54,52 +54,6 @@ pub(crate) struct PlatformState {
     pub(crate) confirm_clear_derived_caches: bool,
     pub(crate) derived_cache_nodes: HashSet<NodeId>,
     pub(crate) capture_presentation_identity: Option<String>,
-    #[cfg(target_os = "macos")]
-    pub(crate) native_menu_commands: crossbeam_channel::Receiver<NativeMenuCommand>,
-}
-
-#[cfg(target_os = "macos")]
-#[derive(Clone)]
-pub enum NativeMenuCommand {
-    About,
-    Preferences,
-    New,
-    Load,
-    LoadPath(PathBuf),
-    ClearRecent,
-    Save,
-    SaveAs,
-    SaveCaptureData,
-    Quit,
-    Run,
-    Stop,
-    ClearDerivedCaches,
-    ShowLogicAnalyzer,
-    ShowNodeGraph,
-    ShowLog,
-    ShowMemory,
-    ShowWatches,
-    ShowTriggers,
-    ShowDecoder,
-    ResetLaneHeights,
-    ResetLayout,
-}
-
-#[cfg(target_os = "macos")]
-struct NativeMenuBridge {
-    sender: crossbeam_channel::Sender<NativeMenuCommand>,
-    context: egui::Context,
-}
-
-#[cfg(target_os = "macos")]
-static NATIVE_MENU_BRIDGE: std::sync::OnceLock<NativeMenuBridge> = std::sync::OnceLock::new();
-
-#[cfg(target_os = "macos")]
-pub fn dispatch_native_menu_command(command: NativeMenuCommand) {
-    if let Some(bridge) = NATIVE_MENU_BRIDGE.get() {
-        let _ = bridge.sender.send(command);
-        bridge.context.request_repaint();
-    }
 }
 
 impl PlatformState {
@@ -119,20 +73,6 @@ impl PlatformState {
         let saved_graph = widget
             .snapshot_value()
             .expect("new graph should always serialize");
-        #[cfg(target_os = "macos")]
-        let native_menu_commands = {
-            let (sender, receiver) = crossbeam_channel::unbounded();
-            assert!(
-                NATIVE_MENU_BRIDGE
-                    .set(NativeMenuBridge {
-                        sender,
-                        context: cc.egui_ctx.clone(),
-                    })
-                    .is_ok(),
-                "only one native application instance is supported"
-            );
-            receiver
-        };
         Self {
             current_file: None,
             saved_graph,
@@ -143,8 +83,6 @@ impl PlatformState {
             confirm_clear_derived_caches: false,
             derived_cache_nodes: HashSet::new(),
             capture_presentation_identity: None,
-            #[cfg(target_os = "macos")]
-            native_menu_commands,
         }
     }
 

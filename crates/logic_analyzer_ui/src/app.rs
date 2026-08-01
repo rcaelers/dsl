@@ -1080,7 +1080,7 @@ impl App {
         cc: &eframe::CreationContext,
         node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
         graph_service: Box<dyn GraphService>,
-        host_service: Box<dyn HostService>,
+        mut host_service: Box<dyn HostService>,
         storage_paths: crate::ApplicationStoragePaths,
         input_bindings: InputBindings,
         application_settings: crate::ApplicationSettings,
@@ -1091,6 +1091,8 @@ impl App {
         // controls, or their dark foreground text becomes unreadable there.
         cc.egui_ctx.set_theme(egui::Theme::Dark);
         install_fonts(&cc.egui_ctx, host_symbol_fonts);
+        let repaint_context = cc.egui_ctx.clone();
+        host_service.set_command_repaint(Box::new(move || repaint_context.request_repaint()));
         let registry = crate::build_node_registry();
         let input_bindings = Arc::new(input_bindings);
         let plugin_panel_registry = PluginPanelRegistry::standard();

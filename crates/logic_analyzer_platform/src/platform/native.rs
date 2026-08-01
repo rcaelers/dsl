@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use logic_analyzer_ui::{
     APPLICATION_ID, AppServices, ApplicationSettings, ApplicationStoragePaths, CacheClearStats,
-    CacheEntrySnapshot, HostService, OpenDialog, SaveDialog, default_input_bindings,
+    CacheEntrySnapshot, HostCommand, HostService, OpenDialog, SaveDialog, default_input_bindings,
 };
 use signal_processing::PersistentStoreConfig;
 
@@ -20,13 +20,45 @@ pub fn set_recent_files_listener(listener: impl Fn(&[PathBuf]) + Send + Sync + '
     let _ = RECENT_FILES_LISTENER.set(Box::new(listener));
 }
 
+struct HostCommandBridge {
+    sender: crossbeam_channel::Sender<HostCommand>,
+    receiver: crossbeam_channel::Receiver<HostCommand>,
+    repaint: std::sync::Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+}
+
+static HOST_COMMAND_BRIDGE: std::sync::OnceLock<HostCommandBridge> = std::sync::OnceLock::new();
+
+fn host_command_bridge() -> &'static HostCommandBridge {
+    HOST_COMMAND_BRIDGE.get_or_init(|| {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        HostCommandBridge {
+            sender,
+            receiver,
+            repaint: std::sync::Mutex::new(None),
+        }
+    })
+}
+
+#[cfg(target_os = "macos")]
+pub fn dispatch_host_command(command: HostCommand) {
+    queue_host_command(command);
+}
+
+fn queue_host_command(command: HostCommand) {
+    let bridge = host_command_bridge();
+    let _ = bridge.sender.send(command);
+    if let Some(repaint) = bridge.repaint.lock().unwrap().as_ref() {
+        repaint();
+    }
+}
+
 pub(crate) fn standard_services() -> PlatformServices {
     let storage_paths = ApplicationStoragePaths::new(Some(derived_cache_directory()))
         .with_capture_session_directory(Some(capture_session_directory()));
     let input_bindings = load_input_bindings();
     let application_settings = load_application_settings();
     PlatformServices::with_ui_services(AppServices::with_host_storage_and_configuration(
-        Box::new(NativeHostService),
+        Box::new(NativeHostService::new()),
         storage_paths,
         input_bindings,
         application_settings,
@@ -162,9 +194,27 @@ fn application_directory(parent: PathBuf) -> PathBuf {
     parent.join(APPLICATION_ID)
 }
 
-struct NativeHostService;
+struct NativeHostService {
+    commands: crossbeam_channel::Receiver<HostCommand>,
+}
+
+impl NativeHostService {
+    fn new() -> Self {
+        Self {
+            commands: host_command_bridge().receiver.clone(),
+        }
+    }
+}
 
 impl HostService for NativeHostService {
+    fn set_command_repaint(&mut self, repaint: Box<dyn Fn() + Send + Sync>) {
+        *host_command_bridge().repaint.lock().unwrap() = Some(repaint);
+    }
+
+    fn take_commands(&mut self) -> Vec<HostCommand> {
+        self.commands.try_iter().collect()
+    }
+
     fn publish_recent_files(&self, paths: &[PathBuf]) {
         #[cfg(target_os = "macos")]
         if let Some(listener) = RECENT_FILES_LISTENER.get() {
@@ -256,9 +306,31 @@ impl HostService for NativeHostService {
 
 #[cfg(test)]
 mod native_tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use logic_analyzer_ui::{HostCommand, HostService};
     use logic_analyzer_viewer::ColorProfile;
 
-    use super::{application_directory, load_application_settings_path, load_input_bindings_path};
+    use super::{
+        NativeHostService, application_directory, load_application_settings_path,
+        load_input_bindings_path, queue_host_command,
+    };
+
+    #[test]
+    fn native_shell_commands_wake_and_reach_the_ui_service_port() {
+        let repaint_count = Arc::new(AtomicUsize::new(0));
+        let callback_count = Arc::clone(&repaint_count);
+        let mut host = NativeHostService::new();
+        host.set_command_repaint(Box::new(move || {
+            callback_count.fetch_add(1, Ordering::Relaxed);
+        }));
+
+        queue_host_command(HostCommand::Run);
+
+        assert_eq!(repaint_count.load(Ordering::Relaxed), 1);
+        assert_eq!(host.take_commands(), vec![HostCommand::Run]);
+    }
 
     #[test]
     fn native_cache_directories_use_the_application_identifier() {

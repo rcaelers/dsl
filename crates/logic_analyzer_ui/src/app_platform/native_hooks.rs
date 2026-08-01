@@ -5,10 +5,8 @@ use logic_analyzer_graph_compiler as compiler;
 use node_graph::NodeId;
 
 use crate::app::App;
-#[cfg(target_os = "macos")]
-use crate::app_platform::NativeMenuCommand;
 use crate::app_platform::{FileCommand, GuardedAction};
-use crate::host_service::{OpenDialog, SaveDialog};
+use crate::host_service::{HostCommand, OpenDialog, SaveDialog};
 use crate::live_capture::{CaptureCoordinatorContract, CaptureRawExportFormat};
 use crate::memory_panel::{
     MemoryServiceSnapshot, PersistentCacheSnapshot, PersistentCacheSnapshotState,
@@ -213,73 +211,72 @@ impl App {
     }
 
     pub(crate) fn platform_logic(&mut self, ctx: &egui::Context) {
-        #[cfg(target_os = "macos")]
-        while let Ok(command) = self.platform.native_menu_commands.try_recv() {
+        for command in self.host_service.take_commands() {
             let command = match command {
-                NativeMenuCommand::About => {
+                HostCommand::About => {
                     self.about.open();
                     continue;
                 }
-                NativeMenuCommand::Preferences => {
+                HostCommand::Preferences => {
                     self.preferences.open();
                     continue;
                 }
-                NativeMenuCommand::Run => {
+                HostCommand::Run => {
                     self.run_command();
                     continue;
                 }
-                NativeMenuCommand::Stop => {
+                HostCommand::Stop => {
                     self.stop_command();
                     continue;
                 }
-                NativeMenuCommand::ClearDerivedCaches => {
+                HostCommand::ClearDerivedCaches => {
                     self.request_clear_all_derived_caches();
                     continue;
                 }
-                NativeMenuCommand::ShowLogicAnalyzer => {
+                HostCommand::ShowLogicAnalyzer => {
                     self.show_primary_panel("logic_analyzer");
                     continue;
                 }
-                NativeMenuCommand::ShowNodeGraph => {
+                HostCommand::ShowNodeGraph => {
                     self.show_primary_panel("node_graph");
                     continue;
                 }
-                NativeMenuCommand::ShowLog => {
+                HostCommand::ShowLog => {
                     self.show_auxiliary_panel("log");
                     continue;
                 }
-                NativeMenuCommand::ShowMemory => {
+                HostCommand::ShowMemory => {
                     self.show_auxiliary_panel("memory");
                     continue;
                 }
-                NativeMenuCommand::ShowWatches => {
+                HostCommand::ShowWatches => {
                     self.show_auxiliary_panel("watches");
                     continue;
                 }
-                NativeMenuCommand::ShowTriggers => {
+                HostCommand::ShowTriggers => {
                     self.show_auxiliary_panel("triggers");
                     continue;
                 }
-                NativeMenuCommand::ShowDecoder => {
+                HostCommand::ShowDecoder => {
                     self.show_auxiliary_panel("decoder");
                     continue;
                 }
-                NativeMenuCommand::ResetLaneHeights => {
+                HostCommand::ResetLaneHeights => {
                     self.reset_viewer_lane_heights();
                     continue;
                 }
-                NativeMenuCommand::ResetLayout => {
+                HostCommand::ResetLayout => {
                     self.reset_panel_layout();
                     continue;
                 }
-                NativeMenuCommand::New => FileCommand::New,
-                NativeMenuCommand::Load => FileCommand::Load,
-                NativeMenuCommand::LoadPath(path) => FileCommand::LoadPath(path),
-                NativeMenuCommand::ClearRecent => FileCommand::ClearRecent,
-                NativeMenuCommand::Save => FileCommand::Save,
-                NativeMenuCommand::SaveAs => FileCommand::SaveAs,
-                NativeMenuCommand::SaveCaptureData => FileCommand::SaveCaptureData,
-                NativeMenuCommand::Quit => FileCommand::Quit,
+                HostCommand::New => FileCommand::New,
+                HostCommand::Load => FileCommand::Load,
+                HostCommand::LoadPath(path) => FileCommand::LoadPath(path),
+                HostCommand::ClearRecent => FileCommand::ClearRecent,
+                HostCommand::Save => FileCommand::Save,
+                HostCommand::SaveAs => FileCommand::SaveAs,
+                HostCommand::SaveCaptureData => FileCommand::SaveCaptureData,
+                HostCommand::Quit => FileCommand::Quit,
             };
             self.execute_file_command(command, ctx);
         }

@@ -29,8 +29,9 @@ native configuration-file discovery and I/O, and supplies both derived-cache and
 directories to the UI. It then passes decoded portable settings and bindings to the UI. It supplies
 optional system symbol fonts; the UI owns bundled fallback fonts and the portable font installation
 algorithm. The web adapter exposes unavailable storage operations and supplies embedded settings.
-Native shell integrations receive portable UI state through that service contract. The UI owns the
-portable request, result, and service contract and does not select an implementation.
+Native shell integrations exchange portable commands and UI state through that service contract;
+their queues and repaint wake-ups remain inside the platform adapter. The UI owns the portable
+request, result, and service contract and does not select an implementation.
 
 ## Proposed future: unified native and web data plane
 

@@ -38,12 +38,47 @@ pub struct CacheEntrySnapshot {
     pub last_timestamp_ns: Option<u64>,
 }
 
+/// A portable application command emitted by an optional host shell.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HostCommand {
+    About,
+    Preferences,
+    New,
+    Load,
+    LoadPath(PathBuf),
+    ClearRecent,
+    Save,
+    SaveAs,
+    SaveCaptureData,
+    Quit,
+    Run,
+    Stop,
+    ClearDerivedCaches,
+    ShowLogicAnalyzer,
+    ShowNodeGraph,
+    ShowLog,
+    ShowMemory,
+    ShowWatches,
+    ShowTriggers,
+    ShowDecoder,
+    ResetLaneHeights,
+    ResetLayout,
+}
+
 /// Host operations requested by UI behavior.
 ///
 /// Implementations belong at the application composition boundary. Hosts that
 /// do not provide a capability return an explanatory error or decline the
 /// optional picker request.
 pub trait HostService {
+    /// Installs the wake-up callback used when the host queues a command.
+    fn set_command_repaint(&mut self, _repaint: Box<dyn Fn() + Send + Sync>) {}
+
+    /// Drains application commands queued by an optional host shell.
+    fn take_commands(&mut self) -> Vec<HostCommand> {
+        Vec::new()
+    }
+
     /// Publishes the portable recent-document list to an optional host shell.
     ///
     /// Hosts without a native document menu leave this as a no-op.

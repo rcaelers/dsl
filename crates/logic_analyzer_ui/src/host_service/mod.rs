@@ -6,4 +6,6 @@ mod contract;
 #[cfg(test)]
 mod host_service_tests;
 
-pub use contract::{CacheClearStats, CacheEntrySnapshot, HostService, OpenDialog, SaveDialog};
+pub use contract::{
+    CacheClearStats, CacheEntrySnapshot, HostCommand, HostService, OpenDialog, SaveDialog,
+};

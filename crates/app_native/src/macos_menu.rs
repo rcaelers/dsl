@@ -8,8 +8,8 @@ use objc2_app_kit::{NSApp, NSImage, NSMenu, NSMenuItem, NSWindow};
 use objc2_foundation::{MainThreadMarker, NSObject, NSString, ns_string};
 
 use input_bindings::InputBindings;
-use logic_analyzer_platform::set_recent_files_listener;
-use logic_analyzer_ui::{APPLICATION_NAME, NativeMenuCommand, dispatch_native_menu_command};
+use logic_analyzer_platform::{dispatch_host_command, set_recent_files_listener};
+use logic_analyzer_ui::{APPLICATION_NAME, HostCommand};
 
 thread_local! {
     /// "Open Recent" items dispatch through one shared `openRecent:`
@@ -39,22 +39,22 @@ define_class!(
 
         #[unsafe(method(showAbout:))]
         fn show_about(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::About);
+            dispatch_host_command(HostCommand::About);
         }
 
         #[unsafe(method(showPreferences:))]
         fn show_preferences(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::Preferences);
+            dispatch_host_command(HostCommand::Preferences);
         }
 
         #[unsafe(method(newGraph:))]
         fn new_graph(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::New);
+            dispatch_host_command(HostCommand::New);
         }
 
         #[unsafe(method(loadGraph:))]
         fn load_graph(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::Load);
+            dispatch_host_command(HostCommand::Load);
         }
 
         #[unsafe(method(openRecent:))]
@@ -66,93 +66,93 @@ define_class!(
                     .and_then(|i| files.borrow().get(i).cloned())
             });
             if let Some(path) = path {
-                dispatch_native_menu_command(NativeMenuCommand::LoadPath(path));
+                dispatch_host_command(HostCommand::LoadPath(path));
             }
         }
 
         #[unsafe(method(clearRecent:))]
         fn clear_recent(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::ClearRecent);
+            dispatch_host_command(HostCommand::ClearRecent);
         }
 
         #[unsafe(method(saveGraph:))]
         fn save_graph(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::Save);
+            dispatch_host_command(HostCommand::Save);
         }
 
         #[unsafe(method(saveGraphAs:))]
         fn save_graph_as(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::SaveAs);
+            dispatch_host_command(HostCommand::SaveAs);
         }
 
         #[unsafe(method(saveCaptureData:))]
         fn save_capture_data(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::SaveCaptureData);
+            dispatch_host_command(HostCommand::SaveCaptureData);
         }
 
         #[unsafe(method(quitApplication:))]
         fn quit_application(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::Quit);
+            dispatch_host_command(HostCommand::Quit);
         }
 
         #[unsafe(method(runPipeline:))]
         fn run_pipeline(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::Run);
+            dispatch_host_command(HostCommand::Run);
         }
 
         #[unsafe(method(stopPipeline:))]
         fn stop_pipeline(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::Stop);
+            dispatch_host_command(HostCommand::Stop);
         }
 
         #[unsafe(method(clearDerivedCaches:))]
         fn clear_derived_caches(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::ClearDerivedCaches);
+            dispatch_host_command(HostCommand::ClearDerivedCaches);
         }
 
         #[unsafe(method(showLogicAnalyzer:))]
         fn show_logic_analyzer(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::ShowLogicAnalyzer);
+            dispatch_host_command(HostCommand::ShowLogicAnalyzer);
         }
 
         #[unsafe(method(showNodeGraph:))]
         fn show_node_graph(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::ShowNodeGraph);
+            dispatch_host_command(HostCommand::ShowNodeGraph);
         }
 
         #[unsafe(method(showLog:))]
         fn show_log(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::ShowLog);
+            dispatch_host_command(HostCommand::ShowLog);
         }
 
         #[unsafe(method(showMemory:))]
         fn show_memory(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::ShowMemory);
+            dispatch_host_command(HostCommand::ShowMemory);
         }
 
         #[unsafe(method(showWatches:))]
         fn show_watches(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::ShowWatches);
+            dispatch_host_command(HostCommand::ShowWatches);
         }
 
         #[unsafe(method(showTriggers:))]
         fn show_triggers(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::ShowTriggers);
+            dispatch_host_command(HostCommand::ShowTriggers);
         }
 
         #[unsafe(method(showDecoder:))]
         fn show_decoder(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::ShowDecoder);
+            dispatch_host_command(HostCommand::ShowDecoder);
         }
 
         #[unsafe(method(resetLaneHeights:))]
         fn reset_lane_heights(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::ResetLaneHeights);
+            dispatch_host_command(HostCommand::ResetLaneHeights);
         }
 
         #[unsafe(method(resetLayout:))]
         fn reset_layout(&self, _sender: &AnyObject) {
-            dispatch_native_menu_command(NativeMenuCommand::ResetLayout);
+            dispatch_host_command(HostCommand::ResetLayout);
         }
     }
 );

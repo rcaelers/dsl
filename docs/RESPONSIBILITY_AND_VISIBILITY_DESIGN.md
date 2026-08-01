@@ -188,7 +188,8 @@ adapter owns dialogs, graph-document file I/O, persistent-cache administration, 
 derived-cache and live-capture-session directories. It also owns native configuration-file discovery
 and I/O; the UI owns the portable configuration model. It supplies optional system symbol fonts while
 the UI owns bundled fallback fonts and portable installation. Native shell integrations, such as the
-macOS recent-document menu, receive portable UI state through the same host-service contract. The web
+macOS application menu, publish portable commands and receive recent-document state through the same
+host-service contract. The platform adapter owns command transport and repaint wake-ups. The web
 adapter reports unavailable storage capabilities and supplies embedded configuration. The UI does not
 select either implementation.
 
