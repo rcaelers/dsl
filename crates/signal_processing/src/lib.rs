@@ -43,6 +43,7 @@ mod sample_kind;
 mod sampling_points;
 mod scheduler;
 mod sender;
+mod storage;
 mod type_registry;
 mod watchdog;
 
@@ -154,5 +155,9 @@ pub(crate) use sample_kind::negotiate as negotiate_sample_kind;
 pub use sampling_points::{SamplingPoint, SamplingPointProvider, SamplingPointStore};
 pub use scheduler::{Scheduler, StopHandle};
 pub use sender::{ChannelMessage, OverflowPolicy, Sender, SharedSenders};
+pub use storage::{
+    ByteRange, ImmutableByteRegion, OwnedByteSource, PreparedByteSource, RandomAccessReader,
+    SourceCapabilities, SourceIdentity, SourceReadError,
+};
 pub(crate) use watchdog::OperationGuard;
 pub use watchdog::{Watchdog, WatchdogHandle};

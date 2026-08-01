@@ -16,8 +16,11 @@ made explicit at its load or migration boundary.
 The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol level:
 
 - `signal_processing` owns generic runtime, capture, storage, indexing, and derived-data
-  contracts. Its public capture vocabulary is `Capture*`; it does not expose DSL, Sigrok, USB,
-  decoder, graph-node, or UI terminology.
+  contracts. Its root exposes fixed-width byte ranges, stable source identities, prepared
+  random-access sources, immutable byte regions, and the portable owned-memory source. Host paths,
+  files, mappings, and browser handles are absent from those contracts. Its public capture
+  vocabulary is `Capture*`; it does not expose DSL, Sigrok, USB, decoder, graph-node, or UI
+  terminology.
 - `logic_analyzer_processing` owns concrete capture formats, devices, protocol decoders,
   processing nodes, and sinks. Format parsing and device-transport errors originate here and are
   mapped to generic runtime errors only where a generic trait requires it.
