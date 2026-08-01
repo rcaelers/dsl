@@ -85,9 +85,6 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.adapter-storage] Move native file, atomic-publication, and mmap adapters, plus web and
-  in-memory repository selection, into `logic_analyzer_platform` behind the existing `signal_processing` storage
-  contracts. Keep storage data models, codecs, indexes, and cache policy portable and outside the adapter crate.
 - [platform.data-plane.adapter-execution] Provide the injected bounded-execution service: native workers, the
   portable cooperative executor, and a future Web Worker adapter all implement one runtime contract. Remove
   reusable compiler and processing target selection for execution.

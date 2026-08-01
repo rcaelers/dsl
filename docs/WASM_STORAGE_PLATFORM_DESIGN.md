@@ -25,9 +25,12 @@ Target-selected code also currently exists inside reusable runtime, compiler, pr
 and UI crates. The proposed architecture removes those internal platform module trees rather than
 merely giving them matching public APIs.
 
-`logic_analyzer_platform` currently composes the UI host-service port. Native and web application
-bootstraps obtain an opaque `PlatformServices` bundle from that crate and inject its UI services
-when constructing the application. The native adapter owns file dialogs, graph document I/O, and
+`logic_analyzer_platform` currently composes the UI host-service port and selects the artifact
+repository contract. Native and web application bootstraps obtain an opaque `PlatformServices`
+bundle from that crate and inject its UI services when constructing the application. The native
+adapter provides a durable repository whose same-directory publication is atomic and whose
+immutable reads use mmap-backed byte regions. The web adapter selects the portable process-lifetime
+memory repository. The native adapter also owns file dialogs, graph document I/O, and
 persistent-cache administration, including allocation of the derived-cache directory. It also owns
 native configuration-file discovery and I/O, and supplies both derived-cache and live-capture-session
 directories to the UI. It then passes decoded portable settings and bindings to the UI. It supplies

@@ -2257,6 +2257,7 @@ dependencies = [
  "egui",
  "input-bindings",
  "logic-analyzer-ui",
+ "memmap2",
  "node-graph",
  "rfd",
  "serde_json",

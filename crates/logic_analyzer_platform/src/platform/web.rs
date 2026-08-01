@@ -1,11 +1,12 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use logic_analyzer_ui::{
     AppServices, ApplicationSettings, ApplicationStoragePaths, CacheClearStats, CacheEntrySnapshot,
     HostService, OpenDialog, SaveDialog, default_input_bindings,
 };
 use node_graph::{FileDialogRequest, FileDialogService};
-use signal_processing::PersistentStoreConfig;
+use signal_processing::{MemoryArtifactRepository, PersistentStoreConfig};
 
 use crate::services::PlatformServices;
 
@@ -18,7 +19,7 @@ pub(crate) fn standard_services() -> PlatformServices {
         Vec::new(),
     )
     .with_node_file_dialog(Box::new(WebNodeFileDialogService));
-    PlatformServices::with_ui_services(ui_services)
+    PlatformServices::with_ui_services(ui_services, Arc::new(MemoryArtifactRepository::new()))
 }
 
 struct WebHostService;
