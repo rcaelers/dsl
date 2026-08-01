@@ -72,6 +72,10 @@ impl CollectedWordLaneQuery {
     }
 
     #[cfg(test)]
+    #[allow(
+        dead_code,
+        reason = "the collector's in-memory test suite is native-only"
+    )]
     pub(crate) fn in_memory_for_test(storage: InMemoryWordLaneStorage) -> Self {
         Self {
             storage: Arc::new(RwLock::new(WordLaneStorage::InMemory(storage))),
@@ -498,16 +502,28 @@ impl CollectedWordLaneOptions {
     }
 
     #[cfg(test)]
+    #[allow(
+        dead_code,
+        reason = "the collector's in-memory test suite is native-only"
+    )]
     pub(crate) fn set_indexed_for_test(&mut self, indexed: bool) {
         self.indexed = indexed;
     }
 
     #[cfg(test)]
+    #[allow(
+        dead_code,
+        reason = "the collector's in-memory test suite is native-only"
+    )]
     pub(crate) fn set_store_config_for_test(&mut self, store_config: LiveStoreConfig) {
         self.store_config = store_config;
     }
 
     #[cfg(test)]
+    #[allow(
+        dead_code,
+        reason = "the collector's in-memory test suite is native-only"
+    )]
     pub(crate) fn in_memory_for_test() -> Self {
         Self {
             indexed: false,

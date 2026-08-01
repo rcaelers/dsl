@@ -96,10 +96,10 @@ Detailed architecture and capability contracts are documented in
   derived and capture stores. Keep paths, mmap, filesystem operations, and browser handles in
   `logic_analyzer_platform`; add native and web repository adapters without changing shared algorithms. This and
   the adapter-crate boundary form the foundation for the remaining work.
-- [platform.data-plane.shared-derived-store] Replace the wasm `Vec<Word>` store with the shared encoded block,
-  directory, presence-index, exact-query, nearest-boundary, integrity, and decoded-block-cache implementation.
-  Provide native file/mmap and platform-independent chunked-memory artifact repositories, keep repository budgets
-  configurable, and remove the separate authoritative wasm query path.
+- [platform.data-plane.shared-derived-store] Unify the native and wasm encoded-block, directory, presence-index,
+  exact-query, nearest-boundary, integrity, and decoded-block-cache implementation. Provide native file/mmap and
+  platform-independent chunked-memory artifact repositories, keep repository budgets configurable, and remove the
+  remaining target-specific authoritative query path.
 - [platform.data-plane.shared-capture-storage] Run packed raw captures, waveform indexes, growing live repositories,
   and finalized replay through the same artifact and byte-region contracts. Keep native mmap and owned memory as
   interchangeable backings, expose committed generations consistently, and avoid requiring one capture or index to

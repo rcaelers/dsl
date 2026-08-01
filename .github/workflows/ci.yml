@@ -122,6 +122,10 @@ jobs:
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
         run: cargo test -p logic-analyzer-graph-nodes --target wasm32-unknown-unknown --lib platform_parity_tests
+      - name: Test encoded derived-word storage in wasm
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+        run: cargo test -p signal-processing --target wasm32-unknown-unknown --lib wasm_store_tests
       - name: Build wasm UI with compile-time plugin constructors
         env:
           RUSTFLAGS: -D unreachable-pub

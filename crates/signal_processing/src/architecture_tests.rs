@@ -194,6 +194,28 @@ fn derived_word_encoding_and_presence_are_shared_between_targets() {
 }
 
 #[test]
+fn wasm_derived_store_keeps_committed_words_in_encoded_blocks() {
+    let wasm_store = include_str!("derived_word_store/store_wasm.rs");
+
+    for required in [
+        "struct EncodedBlock",
+        "blocks: Vec<EncodedBlock>",
+        "WordBlockBuilder",
+        "decode_word_block",
+        "word_presence_summaries",
+    ] {
+        assert!(
+            wasm_store.contains(required),
+            "the wasm derived-word store is missing encoded-block component {required}"
+        );
+    }
+    assert!(
+        !wasm_store.contains("words: Vec<Word>"),
+        "the wasm derived-word store must not retain an authoritative word vector"
+    );
+}
+
+#[test]
 fn application_manager_is_a_facade_instead_of_a_target_dependent_alias() {
     let library = include_str!("lib.rs");
     assert!(!library.contains("type AppManager"));

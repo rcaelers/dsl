@@ -13,11 +13,11 @@ viewer, and graph-node code does not conditionally add fields, variants, match a
 statements based on the compilation target.
 
 The separate native and wasm derived stores preserve API parity. Their encoded-block codec, binary
-format, CRC integrity validation, and presence-index and summary source tree are target-neutral,
-while the wasm store still retains a `Vec<Word>` rather than using those encoded blocks. The stores
-do not yet share the decoded-block cache, persistence policy, or exact-query implementation. Likewise,
-the compiler's wasm cache backend currently omits persistent-cache lookup and graph pruning rather
-than applying the same policy to an ephemeral artifact repository.
+format, CRC integrity validation, and presence-index and summary source tree are target-neutral. Both
+stores retain committed words as encoded blocks and expose only an immutable live-tail snapshot. The
+stores do not yet share the decoded-block cache, persistence policy, or exact-query implementation.
+Likewise, the compiler's wasm cache backend currently omits persistent-cache lookup and graph pruning
+rather than applying the same policy to an ephemeral artifact repository.
 
 Target-selected code also currently exists inside reusable runtime, compiler, processing, viewer,
 and UI crates. The proposed architecture removes those internal platform module trees rather than
