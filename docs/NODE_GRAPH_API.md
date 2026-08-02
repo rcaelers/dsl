@@ -68,7 +68,8 @@ pub trait SocketWithControlDef: SocketDef {
 Builtins: `BoolSocket`, `IntSocket`, `FloatSocket`, `StrSocket`, `FileSocket` (all with
 controls) and `AnySocket` (the wildcard: compatible with everything; used by reroutes).
 Their value types — `BoolValue`, `IntValue` (with optional range), `FloatValue` (range +
-drag speed), `StringValue`, `FileValue` (optionally a save dialog with title and filters),
+drag speed), `StringValue`, `FileValue` (open/save intent, title and filters, asynchronous host
+completion, and file drop),
 `EnumValue` (variant list; **persists by variant name**, so saved files survive reorders) —
 are serde types you embed directly in node state.
 

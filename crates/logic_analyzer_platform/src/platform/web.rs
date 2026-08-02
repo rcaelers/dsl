@@ -6,13 +6,15 @@ use logic_analyzer_graph_compiler::InlineSourcePreparationExecutor;
 use logic_analyzer_ui::{
     AppServices, ApplicationSettings, HostService, OpenDialog, SaveDialog, default_input_bindings,
 };
-use node_graph::{FileDialogRequest, FileDialogService};
 use signal_processing::{
     CooperativeAppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor,
     MemoryArtifactRepository, WorkerOperationExecutor, portable_worker_kernels,
 };
 
 use super::web_artifact_repository::BrowserArtifactRepository;
+use super::web_file_import::{
+    BrowserFileRegistry, BrowserNodeFileDialogService, dsl_source_factory, sigrok_source_factory,
+};
 use super::web_worker::WebWorkerAdapter;
 use crate::services::PlatformServices;
 
@@ -59,10 +61,9 @@ fn compose_services(
     artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
 ) -> PlatformServices {
     let work_executor: Arc<dyn signal_processing::WorkExecutor> = Arc::new(InlineWorkExecutor);
-    let dsl_file_source_factory =
-        logic_analyzer_processing::nodes::sources::dsl_file::unavailable_source_factory();
-    let sigrok_file_source_factory =
-        logic_analyzer_processing::nodes::sources::sigrok_file::portable_source_factory();
+    let imported_files = Arc::new(BrowserFileRegistry::default());
+    let dsl_file_source_factory = dsl_source_factory(Arc::clone(&imported_files));
+    let sigrok_file_source_factory = sigrok_source_factory(Arc::clone(&imported_files));
     logic_analyzer_graph_nodes::install_file_source_factories(
         Arc::clone(&dsl_file_source_factory),
         Arc::clone(&sigrok_file_source_factory),
@@ -74,7 +75,7 @@ fn compose_services(
         Vec::new(),
     )
     .with_capture_export_service(logic_analyzer_ui::unavailable_capture_export_service())
-    .with_node_file_dialog(Box::new(WebNodeFileDialogService))
+    .with_node_file_dialog(Box::new(BrowserNodeFileDialogService::new(imported_files)))
     .with_graph_execution_and_builder_overrides(
         Box::new(InlineSourcePreparationExecutor),
         Arc::new(CooperativeAppManagerFactory),
@@ -106,17 +107,6 @@ fn browser_parallelism() -> usize {
 }
 
 struct WebHostService;
-struct WebNodeFileDialogService;
-
-impl FileDialogService for WebNodeFileDialogService {
-    fn available(&self) -> bool {
-        false
-    }
-
-    fn pick(&mut self, _request: FileDialogRequest<'_>) -> Option<String> {
-        None
-    }
-}
 
 impl HostService for WebHostService {
     fn choose_open_file(&mut self, _request: OpenDialog<'_>) -> Option<PathBuf> {

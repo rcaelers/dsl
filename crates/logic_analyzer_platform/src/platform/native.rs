@@ -1422,7 +1422,7 @@ struct NativeHostService {
 struct NativeNodeFileDialogService;
 
 impl FileDialogService for NativeNodeFileDialogService {
-    fn available(&self) -> bool {
+    fn available(&self, _save: bool) -> bool {
         true
     }
 

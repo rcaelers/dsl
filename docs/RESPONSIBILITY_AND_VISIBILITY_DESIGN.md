@@ -17,7 +17,7 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
 
 - `signal_processing` owns generic runtime, capture, storage, indexing, and derived-data
   contracts. Its root exposes fixed-width byte ranges, stable source identities, prepared
-  random-access sources, immutable byte regions, and the portable owned-memory source. Host paths,
+  random-access sources, immutable byte regions, and portable contiguous or chunked-memory sources. Host paths,
   files, mappings, and browser handles are absent from those contracts. Its public capture
   vocabulary is `Capture*`; it does not expose DSL, Sigrok, USB, decoder, graph-node, or UI
   terminology.
@@ -203,11 +203,13 @@ macOS application menu, publish portable commands and receive recent-document st
 host-service contract. Runtime decoded-block diagnostics also cross that contract, while persistent
 cache diagnostics use the compiler graph-service facade and one portable Memory-panel path. The
 platform adapter owns command transport and repaint wake-ups. The web adapter reports unavailable
-direct-file capabilities and supplies embedded configuration. The UI does not select either
-implementation. Platform composition also installs file-source factories, file-writer output
+direct graph-document and output-file capabilities, supplies embedded configuration, and acquires
+bounded capture files through asynchronous picker and drop requests from the portable node file
+control. The UI does not select either implementation. Platform composition also installs file-source factories, file-writer output
 storage, the U3Pro16 USB transport and FPGA-image provider, and capture-export services through
-contracts owned by processing, graph-node, and UI crates. Web composition uses explicit unavailable
-file and export capabilities; synthetic capture remains an authored demo-source choice.
+contracts owned by processing, graph-node, and UI crates. Web composition uses browser capture-file
+factories plus explicit unavailable writer and export capabilities; synthetic capture remains an
+authored demo-source choice.
 
 ## Isolated host adapter crate
 

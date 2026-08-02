@@ -351,6 +351,8 @@ pub struct FileValue {
     /// an *open* dialog (pick an existing file).
     #[serde(default)]
     pub save: bool,
+    #[serde(skip)]
+    pub dialog_error: Option<String>,
 }
 
 impl FileValue {
@@ -360,6 +362,7 @@ impl FileValue {
             dialog_title: "Select file".to_string(),
             filters: Vec::new(),
             save: false,
+            dialog_error: None,
         }
     }
 
@@ -370,6 +373,7 @@ impl FileValue {
             dialog_title: dialog_title.into(),
             filters: Vec::new(),
             save: true,
+            dialog_error: None,
         }
     }
 
@@ -390,6 +394,7 @@ impl FileValue {
                     .collect(),
             }],
             save: false,
+            dialog_error: None,
         }
     }
 }
@@ -405,6 +410,48 @@ impl InlineControl for FileValue {
         context: &mut InlineControlContext<'_>,
     ) -> bool {
         let old = self.value.clone();
+        let request_id = ui.id().with(("file-dialog", label)).value();
+        if let Some(result) = context.take_picked_file(request_id) {
+            match result {
+                Ok(path) => {
+                    self.value = path;
+                    self.dialog_error = None;
+                }
+                Err(error) => self.dialog_error = Some(error),
+            }
+        }
+
+        let pointer_position = ui.input(|input| input.pointer.hover_pos());
+        let accepts_drop = pointer_position.is_some_and(|position| rect.contains(position));
+        let dropped = accepts_drop
+            .then(|| ui.input(|input| input.raw.dropped_files.first().cloned()))
+            .flatten();
+        if let Some(file) = dropped {
+            let accepted = self.filters.is_empty()
+                || self.filters.iter().any(|filter| {
+                    filter.extensions.iter().any(|extension| {
+                        file.name
+                            .rsplit_once('.')
+                            .is_some_and(|(_, actual)| actual.eq_ignore_ascii_case(extension))
+                    })
+                });
+            if accepted {
+                match context.import_dropped_file(super::control::DroppedFile {
+                    name: file.name,
+                    path: file.path,
+                    bytes: file.bytes,
+                }) {
+                    Ok(path) => {
+                        self.value = path;
+                        self.dialog_error = None;
+                    }
+                    Err(error) => self.dialog_error = Some(error),
+                }
+            } else {
+                self.dialog_error = Some("the dropped file does not match this input".to_owned());
+            }
+        }
+
         ui.scope_builder(
             egui::UiBuilder::new()
                 .max_rect(rect)
@@ -413,21 +460,32 @@ impl InlineControl for FileValue {
                 ui.set_clip_rect(ui.clip_rect().intersect(clip_rect));
                 ui.style_mut().spacing.item_spacing = Vec2::splat(2.0 * zoom);
                 let button_width = 28.0 * zoom;
-                ui.add(
+                let text = ui.add(
                     egui::TextEdit::singleline(&mut self.value)
                         .hint_text(label)
                         .desired_width((rect.width() - button_width - 6.0 * zoom).max(24.0 * zoom)),
                 );
+                if text.changed() {
+                    self.dialog_error = None;
+                }
+                if let Some(error) = &self.dialog_error {
+                    text.on_hover_text(error);
+                }
                 if ui
-                    .add_enabled(context.file_dialog_available(), egui::Button::new("…"))
+                    .add_enabled(
+                        context.file_dialog_available(self.save),
+                        egui::Button::new("…"),
+                    )
                     .clicked()
                     && let Some(path) = context.pick_file(FileDialogRequest {
+                        request_id,
                         title: &self.dialog_title,
                         filters: &self.filters,
                         save: self.save,
                     })
                 {
                     self.value = path;
+                    self.dialog_error = None;
                 }
             },
         );

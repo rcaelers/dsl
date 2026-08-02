@@ -34,9 +34,9 @@ No capture, raw cache, waveform index, or replay session must fit in one residen
 Host source acquisition and output destinations are selected in `logic_analyzer_platform`.
 Native composition injects DSL and Sigrok path adapters, filesystem-backed writer storage, the
 U3Pro16 USB transport and FPGA-image provider, and repository-backed capture export. Web composition
-injects explicit unavailable file, writer, USB, and export capabilities. The portable Sigrok source
-supports explicitly configured demo data; web composition does not silently substitute it for a
-file. Browser file/blob handles and browser download destinations are optional future adapters.
+injects browser DSL and Sigrok import adapters plus explicit unavailable writer, USB, and export
+capabilities. The portable Sigrok source supports explicitly configured demo data; web composition
+does not silently substitute it for a file. Browser download destinations remain a future adapter.
 
 Platform selection occurs at complete implementation-file boundaries in `logic_analyzer_platform`.
 Generic compiler, runtime, viewer, graph-node, and UI code contains no target-selected source. The
@@ -65,7 +65,9 @@ preview, pruning, invalidation, inspection, and cleanup paths. The native adapte
 configuration-file discovery and I/O. It then passes decoded portable settings and bindings
 to the UI. It supplies
 optional system symbol fonts; the UI owns bundled fallback fonts and the portable font installation
-algorithm. The web adapter exposes unavailable direct-file operations and supplies embedded settings.
+algorithm. The web adapter exposes unavailable direct graph-document and output-file operations,
+supplies embedded settings, and implements capture-file selection asynchronously through the node
+file-dialog contract.
 Finite-source preparation uses the compiler-owned execution contract: the native platform adapter
 uses a bounded worker, while the web adapter selects the portable inline executor. The compiler
 polls one task contract and contains no target-selected source-preparation implementation.
@@ -106,8 +108,9 @@ The design applies to:
 - compiler cache discovery, validation, pruning, and publication;
 - finite-source preparation and viewer attachment.
 
-Browser file import, browser file export, OPFS persistence, Web Workers, and WebUSB are optional host
-adapters. The shared data plane does not depend on their availability.
+Browser file export and WebUSB remain optional host adapters. Browser file import, OPFS persistence,
+and Web Workers are installed capabilities whose absence or failure does not change the shared data
+plane.
 
 ### Goals
 
@@ -609,11 +612,18 @@ as durable application cache entries.
 
 ### Browser file import and export
 
-Browser file import is a proposed optional `logic_analyzer_platform` acquisition adapter. A picker
-or drag-and-drop event produces a `File`, `Blob`, or file handle under a user gesture. The adapter
-validates it and creates a `PreparedByteSource`. The first implementation may materialize small
-files into chunked memory; larger-file support can place input in an owning worker or copy it to
-OPFS before indexing.
+Browser file import is a `logic_analyzer_platform` acquisition adapter. A node file-control picker
+or a file dropped on that control produces bytes under a user gesture. The adapter enforces the
+resident import limits of 256 MiB per file and 512 MiB per browser session, content-addresses the
+bytes, partitions them into immutable bounded chunks, and retains an opaque process-lifetime
+reference in a browser-file registry. DSL and Sigrok source factories resolve that reference to the
+ordinary `PreparedByteSource` contract; format parsing, indexing, caching, and viewing then use
+exactly the same code as native prepared sources.
+
+Browser references deliberately do not imply durable access to the user's original file. A saved
+graph that is reopened in a new browser session reports that the capture must be selected again.
+Files above the resident import limit require a future worker-owned or OPFS-backed source adapter;
+they are rejected rather than partially retained.
 
 Browser export is a separate destination adapter. Cache publication never triggers a download, and
 download/export destinations are not used as internal artifact repositories.

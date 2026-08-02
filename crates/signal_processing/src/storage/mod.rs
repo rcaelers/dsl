@@ -18,5 +18,5 @@ pub use contract::{
     ByteRange, ByteRegion, ImmutableByteRegion, PreparedByteSource, RandomAccessReader,
     SourceCapabilities, SourceIdentity, SourceReadError,
 };
-pub use memory::OwnedByteSource;
+pub use memory::{ChunkedByteSource, OwnedByteSource};
 pub use repository_source::{ArtifactByteSource, read_artifact_region};

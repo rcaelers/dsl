@@ -53,7 +53,10 @@ additionally binds a value type that renders as an inline control while the sock
 unconnected. Builtins: `Bool`, `Int`, `Float`, `Str`, `File`, `Any`, with value types
 (`IntValue`, `FloatValue`, `BoolValue`, `StringValue`, `FileValue`, `EnumValue`).
 `EnumValue` persists by variant *name*, not index, so save files survive variant reorders.
-`FileValue` can open a native save dialog (used by writer nodes).
+`FileValue` uses the injected `FileDialogService` for immediate native dialogs or asynchronously
+completed browser selection. A dropped file is offered to the same service when it lands on the
+control. Save availability is independent from open/import availability, so a web host can import
+capture bytes without advertising an output destination.
 
 `NodeTypeRegistry::register::<T>()` records the def and auto-collects every socket type it
 mentions (inputs, outputs, `.accepts::<T>()`) into a **type identity table**

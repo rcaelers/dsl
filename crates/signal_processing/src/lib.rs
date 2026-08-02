@@ -144,9 +144,10 @@ pub use scheduler::{Scheduler, StopHandle};
 pub use sender::{ChannelMessage, OverflowPolicy, Sender, SharedSenders};
 pub use storage::{
     ArtifactByteSource, ArtifactKey, ArtifactMetadata, ArtifactNamespace, ArtifactRepository,
-    ByteRange, ByteRegion, ImmutableByteRegion, MemoryArtifactRepository, OwnedByteSource,
-    PreparedByteSource, RandomAccessReader, ReadArtifact, RepositoryCapabilities, RepositoryError,
-    SourceCapabilities, SourceIdentity, SourceReadError, WriteArtifact, read_artifact_region,
+    ByteRange, ByteRegion, ChunkedByteSource, ImmutableByteRegion, MemoryArtifactRepository,
+    OwnedByteSource, PreparedByteSource, RandomAccessReader, ReadArtifact, RepositoryCapabilities,
+    RepositoryError, SourceCapabilities, SourceIdentity, SourceReadError, WriteArtifact,
+    read_artifact_region,
 };
 pub use time_source::{SystemUnixTimeSource, UnixTimeSource};
 pub(crate) use watchdog::OperationGuard;

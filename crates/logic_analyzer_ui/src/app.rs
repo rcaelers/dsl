@@ -1136,7 +1136,9 @@ impl App {
         let input_bindings = Arc::new(input_bindings);
         let plugin_panel_registry = PluginPanelRegistry::standard();
         let mut widget = NodeGraphWidget::new(registry);
-        if let Some(file_dialog) = node_file_dialog {
+        if let Some(mut file_dialog) = node_file_dialog {
+            let repaint_context = cc.egui_ctx.clone();
+            file_dialog.set_repaint(Box::new(move || repaint_context.request_repaint()));
             widget.set_file_dialog_service(file_dialog);
         }
         widget.set_input_bindings(input_bindings.clone());
