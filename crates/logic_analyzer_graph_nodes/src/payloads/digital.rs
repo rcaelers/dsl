@@ -90,7 +90,7 @@ inventory::submit! {
 }
 
 inventory::submit! {
-    PayloadRegistration::subscribable::<signal_processing::Sample>(
+    PayloadRegistration::subscribable_with_persistent_cache::<signal_processing::Sample>(
         "org.logicconduit.digital-sample/v1",
         signal_processing::digital_payload_adapter,
         presentation,

@@ -2,7 +2,9 @@ use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
 use super::collector::{DRAIN_BATCH_SIZE, DerivedDataRetention};
+use super::indexed::{IndexedLaneQuery, IndexedLaneSnapshot, IndexedLaneWriter, indexed_lane};
 use super::storage::in_memory_storage_snapshot;
+use crate::Word;
 use crate::derived_index::{AppendOnlyMipmap, LaneFold, MipmapRecord};
 use crate::errors::WorkResult;
 use crate::payload::{
@@ -33,6 +35,7 @@ pub(crate) struct DigitalLaneStorage {
 
 pub(crate) struct DigitalLaneQuery {
     pub(crate) storage: Arc<RwLock<DigitalLaneStorage>>,
+    pub(crate) indexed: Option<IndexedLaneQuery>,
 }
 
 impl CollectedLaneQuery for DigitalLaneQuery {
@@ -41,15 +44,51 @@ impl CollectedLaneQuery for DigitalLaneQuery {
     }
 
     fn snapshot_generation(&self) -> Option<u64> {
-        Some(self.storage.read().unwrap().generation)
+        self.indexed
+            .as_ref()
+            .map(IndexedLaneQuery::generation)
+            .or_else(|| {
+                self.storage
+                    .try_read()
+                    .ok()
+                    .map(|storage| storage.generation)
+            })
     }
 
     fn snapshot(
         &self,
         request: CollectedLaneSnapshotRequest,
     ) -> Option<OpaqueCollectedLaneSnapshot> {
-        let snapshot = {
-            let storage = self.storage.read().unwrap();
+        let snapshot = if let Some(indexed) = &self.indexed {
+            let mut initial = indexed
+                .latest_word_at_or_before(request.start_time_ns.saturating_sub(1))
+                .is_some_and(|word| word.value != 0);
+            match indexed.snapshot(
+                request.start_time_ns,
+                request.end_time_ns,
+                request.max_items,
+            ) {
+                IndexedLaneSnapshot::Exact(annotations) => {
+                    let samples = annotations
+                        .into_iter()
+                        .filter_map(|annotation| {
+                            if annotation.start_ns < request.start_time_ns {
+                                initial = annotation.value != 0;
+                                None
+                            } else {
+                                Some(Sample::new(annotation.value != 0, annotation.start_ns))
+                            }
+                        })
+                        .collect();
+                    DigitalLaneSnapshot::Exact { samples, initial }
+                }
+                IndexedLaneSnapshot::Activity(records) => {
+                    DigitalLaneSnapshot::Activity { records, initial }
+                }
+                IndexedLaneSnapshot::Error => return None,
+            }
+        } else {
+            let storage = self.storage.try_read().ok()?;
             let first = storage
                 .samples
                 .partition_point(|sample| sample.start_time_ns < request.start_time_ns);
@@ -80,7 +119,10 @@ impl CollectedLaneQuery for DigitalLaneQuery {
     }
 
     fn nearest_time_boundary(&self, timestamp_ns: u64, max_distance_ns: u64) -> Option<u64> {
-        let storage = self.storage.read().unwrap();
+        if let Some(indexed) = &self.indexed {
+            return indexed.nearest_time_boundary(timestamp_ns, max_distance_ns);
+        }
+        let storage = self.storage.try_read().ok()?;
         let index = storage
             .samples
             .partition_point(|sample| sample.start_time_ns <= timestamp_ns);
@@ -92,20 +134,32 @@ impl CollectedLaneQuery for DigitalLaneQuery {
     }
 
     fn timeline_extent_end_ns(&self) -> Option<u64> {
+        if let Some(indexed) = &self.indexed {
+            return indexed.timeline_extent_end_ns();
+        }
         self.storage
-            .read()
-            .unwrap()
+            .try_read()
+            .ok()?
             .samples
             .last()
             .map(|sample| sample.start_time_ns)
     }
 
     fn storage_snapshot(&self) -> CollectedLaneStorageSnapshot {
-        let storage = self.storage.read().unwrap();
+        if let Some(indexed) = &self.indexed {
+            return indexed.storage_snapshot();
+        }
+        let Ok(storage) = self.storage.try_read() else {
+            return CollectedLaneStorageSnapshot::adapter_managed(true);
+        };
         in_memory_storage_snapshot::<Sample>(
             storage.samples.len(),
             storage.summary.resident_records(),
         )
+    }
+
+    fn is_live(&self) -> bool {
+        self.indexed.as_ref().is_some_and(IndexedLaneQuery::is_live)
     }
 }
 
@@ -141,19 +195,32 @@ struct DigitalLane {
     buffer: VecDeque<Sample>,
     eos: bool,
     retention: DerivedDataRetention,
+    indexed: Option<IndexedLaneWriter>,
 }
 
 impl DigitalLane {
     fn new(request: CollectedLaneRequest) -> Self {
         let storage = Arc::new(RwLock::new(DigitalLaneStorage::default()));
+        let (indexed, indexed_query) = request.indexed_store().cloned().map_or(
+            (None, None),
+            |config| match indexed_lane(request.name(), config) {
+                Ok((writer, query)) => (Some(writer), Some(query)),
+                Err(error) => {
+                    tracing::warn!(lane = request.name(), %error, "could not create indexed digital lane; using memory");
+                    (None, None)
+                }
+            },
+        );
         request.publish_query(Arc::new(DigitalLaneQuery {
             storage: Arc::clone(&storage),
+            indexed: indexed_query,
         }));
         Self {
             storage,
             buffer: VecDeque::new(),
             eos: false,
             retention: request.retention(),
+            indexed,
         }
     }
 }
@@ -177,16 +244,29 @@ impl CollectedLaneIngestor for DigitalLane {
         }
         let batch_len = batch.len();
         if !batch.is_empty() {
-            let mut storage = self.storage.write().unwrap();
-            for sample in &batch {
-                storage.summary.push(sample);
+            if let Some(indexed) = &mut self.indexed {
+                let words = batch
+                    .iter()
+                    .map(|sample| Word::new(u64::from(sample.value), sample.start_time_ns))
+                    .collect::<Vec<_>>();
+                indexed.append(&words);
+            } else {
+                let mut storage = self.storage.write().unwrap();
+                for sample in &batch {
+                    storage.summary.push(sample);
+                }
+                storage.samples.extend(batch.iter().copied());
+                if let Some(target) = self.retention.trim_target(storage.samples.len()) {
+                    let excess = storage.samples.len() - target;
+                    storage.samples.drain(..excess);
+                }
+                storage.generation = storage.generation.wrapping_add(1);
             }
-            storage.samples.extend(batch.iter().copied());
-            if let Some(target) = self.retention.trim_target(storage.samples.len()) {
-                let excess = storage.samples.len() - target;
-                storage.samples.drain(..excess);
-            }
-            storage.generation = storage.generation.wrapping_add(1);
+        }
+        if self.eos
+            && let Some(indexed) = &mut self.indexed
+        {
+            indexed.finish();
         }
         Ok(batch_len)
     }

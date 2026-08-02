@@ -3,6 +3,7 @@
 mod catalog;
 mod collector;
 mod digital;
+mod indexed;
 mod number;
 mod storage;
 #[cfg(test)]

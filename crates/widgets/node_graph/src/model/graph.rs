@@ -10,6 +10,24 @@ use super::ids::{NodeId, SocketDirection, SocketId};
 use super::node::{Node, NodeKind};
 use super::socket::{Socket, VariadicInfo};
 
+#[derive(Serialize)]
+struct SemanticGraphSnapshot<'a> {
+    nodes: Vec<SemanticNodeSnapshot<'a>>,
+    connections: &'a [Connection],
+    extensions: &'a BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Serialize)]
+struct SemanticNodeSnapshot<'a> {
+    id: NodeId,
+    kind: &'a NodeKind,
+    type_name: &'a str,
+    inputs: &'a [Socket],
+    outputs: &'a [Socket],
+    muted: bool,
+    state: &'a serde_json::Value,
+}
+
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct GraphState {
     pub nodes: HashMap<NodeId, Node>,
@@ -31,6 +49,34 @@ pub struct GraphMetadata {
 }
 
 impl GraphState {
+    /// Serializes the executable meaning of this graph without editor-only layout state.
+    ///
+    /// Position, selection, collapse state, display title, header color, frames, and allocation
+    /// counters cannot affect graph lowering. Consumers can compare this stable snapshot before
+    /// performing expensive semantic discovery or synchronization.
+    pub fn semantic_snapshot(&self) -> Vec<u8> {
+        let mut nodes = self.nodes.values().collect::<Vec<_>>();
+        nodes.sort_by_key(|node| node.id.0);
+        let nodes = nodes
+            .into_iter()
+            .map(|node| SemanticNodeSnapshot {
+                id: node.id,
+                kind: &node.kind,
+                type_name: node.def_name(),
+                inputs: &node.inputs,
+                outputs: &node.outputs,
+                muted: node.muted,
+                state: &node.state,
+            })
+            .collect();
+        serde_json::to_vec(&SemanticGraphSnapshot {
+            nodes,
+            connections: &self.connections,
+            extensions: &self.metadata.extensions,
+        })
+        .expect("graph semantic state is always serializable")
+    }
+
     /// Reads one owner namespace without exposing the extension map itself.
     ///
     /// Owners migrate and clean up their own values. A caller that cannot
@@ -872,6 +918,26 @@ mod tests {
             serde_json::from_str(&json).expect("graph state should deserialize");
 
         assert_eq!(loaded.nodes[&id].kind, NodeKind::Reroute);
+    }
+
+    #[test]
+    fn semantic_snapshot_ignores_editor_layout_but_tracks_processing_state() {
+        let mut graph = GraphState::default();
+        let id = graph.next_id();
+        graph.add_node(Node::blank(id, "Test Node", Pos2::ZERO));
+        let original = graph.semantic_snapshot();
+
+        let node = graph.nodes.get_mut(&id).unwrap();
+        node.pos = Pos2::new(100.0, 200.0);
+        node.selected = true;
+        node.collapsed = true;
+        node.title = "Renamed".into();
+        node.header_color = Color32::RED;
+        graph.add_frame("Group".into(), Color32::BLUE, vec![id]);
+        assert_eq!(graph.semantic_snapshot(), original);
+
+        graph.nodes.get_mut(&id).unwrap().state = serde_json::json!({"threshold": 7});
+        assert_ne!(graph.semantic_snapshot(), original);
     }
 
     #[test]

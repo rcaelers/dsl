@@ -2172,6 +2172,7 @@ pub(crate) fn load_cached_data_with_subscriptions(
     let mut compiled = lower_with_subscriptions(graph, registry, subscriptions)?;
     cache_policy::configure_repository(&mut compiled, &ctx.artifact_repository);
     let Some(preview) = cache_policy::prepare_cached_preview(&compiled) else {
+        cache_policy::schedule_maintenance(&compiled, &ctx.work_executor);
         return Ok(false);
     };
 
@@ -2180,8 +2181,8 @@ pub(crate) fn load_cached_data_with_subscriptions(
         .clone_from(&compiled.sampling_overlays);
     ctx.sampling_points = sampling_point_map(&compiled, subscriptions);
     ctx.collected_output_subscriptions =
-        collected_output_subscriptions(&compiled, registry, subscriptions);
-    ctx.collected_table_subscriptions = collected_table_subscriptions(&compiled, registry);
+        collected_output_subscriptions(&preview, registry, subscriptions);
+    ctx.collected_table_subscriptions = collected_table_subscriptions(&preview, registry);
 
     for node in &preview.nodes {
         let builder = registry.get(&node.builder).ok_or_else(|| {
@@ -2195,6 +2196,7 @@ pub(crate) fn load_cached_data_with_subscriptions(
         materialize_compiled_node(node, builder, &node.runtime_name, registry, ctx)
             .map_err(|message| vec![CompileError::on(node.id, message)])?;
     }
+    cache_policy::schedule_maintenance(&compiled, &ctx.work_executor);
     Ok(true)
 }
 
@@ -2651,7 +2653,7 @@ pub(crate) fn start_app_run_with_source_overrides_and_subscriptions(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     use node_graph::api::{
         AnySocket, BoolSocket, GraphDocumentBuilder, InputDef, IntSocket, NodeDef,
@@ -2679,14 +2681,6 @@ mod tests {
     #[derive(Default)]
     struct TestDerivedCacheBackend {
         lookups: HashMap<[u8; 32], DerivedCacheLookup>,
-        cleanup_calls: Mutex<Vec<TestCleanupCall>>,
-        cleanup_error: Option<String>,
-    }
-
-    #[derive(Clone, Debug, PartialEq, Eq)]
-    struct TestCleanupCall {
-        max_total_bytes: u64,
-        pinned_keys: Vec<[u8; 32]>,
     }
 
     impl TestDerivedCacheBackend {
@@ -2694,31 +2688,9 @@ mod tests {
             self.lookups.insert(key, lookup);
             self
         }
-
-        fn with_cleanup_error(mut self, error: &str) -> Self {
-            self.cleanup_error = Some(error.to_owned());
-            self
-        }
-
-        fn cleanup_calls(&self) -> Vec<TestCleanupCall> {
-            self.cleanup_calls.lock().unwrap().clone()
-        }
     }
 
     impl DerivedCacheBackend for TestDerivedCacheBackend {
-        fn cleanup(
-            &self,
-            _repository: &Arc<dyn ArtifactRepository>,
-            max_total_bytes: u64,
-            pinned_keys: &[[u8; 32]],
-        ) -> Result<(), String> {
-            self.cleanup_calls.lock().unwrap().push(TestCleanupCall {
-                max_total_bytes,
-                pinned_keys: pinned_keys.to_vec(),
-            });
-            self.cleanup_error.clone().map_or(Ok(()), Err)
-        }
-
         fn lookup(&self, config: &PersistentStoreConfig) -> DerivedCacheLookup {
             self.lookups
                 .get(&config.cache_key)
@@ -3912,10 +3884,11 @@ mod tests {
             .flat_map(|node| node.derived_word_caches.iter().flatten().cloned())
             .collect::<Vec<_>>();
         assert!(!caches.is_empty());
-        let backend = caches.iter().fold(
-            TestDerivedCacheBackend::default().with_cleanup_error("controlled cleanup failure"),
-            |backend, config| backend.with_lookup(config.cache_key, DerivedCacheLookup::Hit),
-        );
+        let backend = caches
+            .iter()
+            .fold(TestDerivedCacheBackend::default(), |backend, config| {
+                backend.with_lookup(config.cache_key, DerivedCacheLookup::Hit)
+            });
 
         let (execution, pruned) =
             cache_policy::prepare_execution_with_backend(&compiled, &registry, &backend);
@@ -3933,16 +3906,6 @@ mod tests {
                 .edges
                 .iter()
                 .all(|edge| edge.kind != PortKind::of::<Word>())
-        );
-        let cleanup_calls = backend.cleanup_calls();
-        assert_eq!(cleanup_calls.len(), 1);
-        assert_eq!(cleanup_calls[0].max_total_bytes, caches[0].max_cache_bytes);
-        assert_eq!(
-            cleanup_calls[0].pinned_keys,
-            caches
-                .iter()
-                .map(|config| config.cache_key)
-                .collect::<Vec<_>>()
         );
     }
 
@@ -3977,6 +3940,13 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(preview_caches.len(), 1);
         assert_eq!(preview_caches[0].cache_key, hit.cache_key);
+        let preview_inputs = preview
+            .nodes
+            .iter()
+            .flat_map(|node| node.resolved.members(0))
+            .collect::<Vec<_>>();
+        assert_eq!(preview_inputs.len(), 1);
+        assert_eq!(preview_inputs[0].0, 0);
     }
 
     #[test]
@@ -4076,7 +4046,6 @@ mod tests {
                 .iter()
                 .any(|edge| edge.kind == PortKind::of::<Word>())
         );
-        assert_eq!(backend.cleanup_calls().len(), 1);
     }
 
     #[test]

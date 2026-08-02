@@ -83,7 +83,7 @@ fn buffered_hardware_feature_lowers_opaque_channels_and_portable_trigger_edits()
     let source = widget
         .add_node_at(node_name(U3PRO16_ID), Pos2::ZERO)
         .unwrap();
-    let compiler = GraphCompiler::new();
+    let compiler = integration_tests_support::test_platform_compiler();
     let streaming = compiler
         .discover_live_capture_feature(widget.graph())
         .unwrap()
@@ -200,7 +200,7 @@ fn dsl_source_presentation_is_builder_owned_after_node_rename() {
     widget.graph_mut().nodes.get_mut(&source_id).unwrap().title = "My capture".to_owned();
     widget.graph_mut().nodes.get_mut(&source_id).unwrap().state["file"]["value"] =
         serde_json::Value::String("capture.dsl".to_owned());
-    let presentation = GraphCompiler::new()
+    let presentation = integration_tests_support::test_platform_compiler()
         .discover_capture_presentation(widget.graph())
         .unwrap()
         .unwrap();

@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::derived_data_collector::{DerivedDataRetention, DerivedLanes};
+use crate::derived_word_store::LiveStoreConfig;
 use crate::errors::WorkResult;
 use crate::events::WordPayload;
 use crate::ports::{InputPort, PortSchema};
@@ -200,6 +201,7 @@ pub struct CollectedLaneRequest {
     lanes: DerivedLanes,
     payload: PayloadDescriptor,
     retention: DerivedDataRetention,
+    indexed_store: Option<LiveStoreConfig>,
     options: Arc<dyn Any + Send + Sync>,
 }
 
@@ -217,6 +219,7 @@ impl CollectedLaneRequest {
             lanes,
             payload,
             retention,
+            indexed_store: None,
             options: Arc::new(()),
         }
     }
@@ -239,6 +242,17 @@ impl CollectedLaneRequest {
 
     pub fn retention(&self) -> DerivedDataRetention {
         self.retention
+    }
+
+    /// Supplies the generic indexed storage selected for this collected lane.
+    /// Payload adapters decide how their values map onto that storage format.
+    pub fn with_indexed_store(mut self, config: LiveStoreConfig) -> Self {
+        self.indexed_store = Some(config);
+        self
+    }
+
+    pub fn indexed_store(&self) -> Option<&LiveStoreConfig> {
+        self.indexed_store.as_ref()
     }
 
     /// Attaches adapter-owned construction options without making the

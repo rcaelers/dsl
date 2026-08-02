@@ -23,9 +23,7 @@ std::cfg_select! {
         #[cfg(target_os = "macos")]
         pub use native::{dispatch_host_command, set_recent_files_listener};
         #[cfg(feature = "developer-tools")]
-        pub use native_hardware_validation::{
-            validate_capture_hardware, validate_fpga_hardware,
-        };
+        pub use native_hardware_validation::{validate_capture_hardware, validate_fpga_hardware};
         #[cfg(feature = "developer-tools")]
         pub use native_sigrok::{validate_spi_chunk_boundaries, validate_spi_oracle};
     }

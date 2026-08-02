@@ -13,7 +13,9 @@ std::cfg_select! {
             use logic_analyzer_platform::{validate_spi_chunk_boundaries, validate_spi_oracle};
 
             #[derive(Debug, Parser)]
-            #[command(about = "Validate the hosted decoder against an explicit upstream Sigrok tree")]
+            #[command(
+                about = "Validate the hosted decoder against an explicit upstream Sigrok tree"
+            )]
             struct Args {
                 #[command(subcommand)]
                 command: Command,

@@ -1391,29 +1391,23 @@ fn derived_cache_directory() -> PathBuf {
 
 fn application_cache_directory() -> PathBuf {
     std::cfg_select! {
-        target_os = "macos" => {
-            std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .map(|home| application_directory(home.join("Library").join("Caches")))
-                .unwrap_or_else(|| application_directory(std::env::temp_dir()))
-        }
-        target_os = "windows" => {
-            std::env::var_os("LOCALAPPDATA")
-                .map(PathBuf::from)
-                .map(application_directory)
-                .unwrap_or_else(|| application_directory(std::env::temp_dir()))
-        }
-        _ => {
-            std::env::var_os("XDG_CACHE_HOME")
-                .map(PathBuf::from)
-                .or_else(|| {
-                    std::env::var_os("HOME")
-                        .map(PathBuf::from)
-                        .map(|home| home.join(".cache"))
-                })
-                .map(application_directory)
-                .unwrap_or_else(|| application_directory(std::env::temp_dir()))
-        }
+        target_os = "macos" => std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .map(|home| application_directory(home.join("Library").join("Caches")))
+            .unwrap_or_else(|| application_directory(std::env::temp_dir())),
+        target_os = "windows" => std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .map(application_directory)
+            .unwrap_or_else(|| application_directory(std::env::temp_dir())),
+        _ => std::env::var_os("XDG_CACHE_HOME")
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .map(PathBuf::from)
+                    .map(|home| home.join(".cache"))
+            })
+            .map(application_directory)
+            .unwrap_or_else(|| application_directory(std::env::temp_dir())),
     }
 }
 

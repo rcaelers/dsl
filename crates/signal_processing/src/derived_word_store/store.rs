@@ -478,6 +478,32 @@ impl AnnotationQuery for IndexedAnnotationStore {
         })
     }
 
+    fn latest_word_at_or_before(&self, timestamp_ns: u64) -> AnnotationQueryResult<Option<Word>> {
+        let (_, entries, hot_tail) = self.exact_context(timestamp_ns, timestamp_ns);
+        let mut latest = hot_tail
+            .iter()
+            .filter(|word| word.timestamp_ns <= timestamp_ns)
+            .max_by_key(|word| word.timestamp_ns)
+            .cloned();
+        for entry in entries {
+            let block = self
+                .query_entry_words(entry, timestamp_ns, timestamp_ns, 3)
+                .map_err(query_store_error)?;
+            if let Some(word) = block
+                .words()
+                .iter()
+                .filter(|word| word.timestamp_ns <= timestamp_ns)
+                .max_by_key(|word| word.timestamp_ns)
+                && latest
+                    .as_ref()
+                    .is_none_or(|current| current.timestamp_ns <= word.timestamp_ns)
+            {
+                latest = Some(word.clone());
+            }
+        }
+        Ok(latest)
+    }
+
     fn nearest_boundary(
         &self,
         timestamp_ns: u64,

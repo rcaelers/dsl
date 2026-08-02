@@ -285,21 +285,6 @@ fn validate_persistent_generation(
         ));
     }
     validate_directory(&index.directory, manifest.data_len)?;
-    for entry in &index.directory {
-        let key = block_key(config.cache_key, entry.sequence)?;
-        let Some(reader) = config.artifact_repository.open(&key)? else {
-            return Err(StoreError::Persistent(format!(
-                "persistent word block {} is missing",
-                entry.sequence
-            )));
-        };
-        if reader.len()? != u64::from(entry.block_len) {
-            return Err(StoreError::Persistent(format!(
-                "persistent word block {} has the wrong length",
-                entry.sequence
-            )));
-        }
-    }
     Ok(())
 }
 
@@ -735,7 +720,7 @@ mod tests {
 
     use super::*;
     use crate::derived_word_store::{
-        IndexedAnnotationStore, IndexedAnnotationWriter, LiveStoreConfig,
+        AnnotationQuery, IndexedAnnotationStore, IndexedAnnotationWriter, LiveStoreConfig,
     };
     use crate::events::Word;
     use crate::{ArtifactRepository, MemoryArtifactRepository};
@@ -798,6 +783,31 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn opening_a_generation_defers_block_validation_until_the_block_is_queried() {
+        let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+        let cache_key = [0xC3; 32];
+        let persistent =
+            PersistentStoreConfig::new(cache_key).with_artifact_repository(Arc::clone(&repository));
+        let config = LiveStoreConfig {
+            persistence: Some(persistent.clone()),
+            ..LiveStoreConfig::default()
+        };
+        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        writer.append(Word::new(0x42, 100)).unwrap();
+        writer.finish().unwrap();
+        drop(store);
+
+        repository
+            .remove(&block_key(cache_key, 0).unwrap())
+            .unwrap();
+
+        let reopened = IndexedAnnotationStore::open_persistent(&persistent)
+            .expect("metadata should remain readable")
+            .expect("the complete manifest and index should identify a cache hit");
+        assert!(reopened.exact_window(0, 200, 8).is_err());
     }
 
     #[test]

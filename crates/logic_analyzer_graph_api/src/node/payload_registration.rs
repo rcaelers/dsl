@@ -33,6 +33,22 @@ impl PayloadRegistration {
         )
     }
 
+    /// Registers a collectable payload whose adapter supports the generic
+    /// repository-backed indexed-store contract.
+    pub const fn subscribable_with_persistent_cache<T: PortValue>(
+        stable_id: &'static str,
+        adapter: fn() -> Arc<dyn PayloadAdapter>,
+        presentation: fn() -> DefaultLanePresentationDescriptor,
+    ) -> Self {
+        Self::subscribable_with_request_configurator::<T>(
+            stable_id,
+            adapter,
+            presentation,
+            identity_request,
+            true,
+        )
+    }
+
     /// Registers a collectable kind whose payload type is owned below the
     /// graph-plugin layer and is therefore supplied as an explicit kind factory.
     pub const fn subscribable_kind(

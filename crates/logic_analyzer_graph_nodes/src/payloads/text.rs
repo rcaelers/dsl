@@ -52,7 +52,7 @@ inventory::submit! {
 }
 
 inventory::submit! {
-    PayloadRegistration::subscribable::<signal_processing::TextSample>(
+    PayloadRegistration::subscribable_with_persistent_cache::<signal_processing::TextSample>(
         "org.logicconduit.text-sample/v1",
         signal_processing::text_payload_adapter,
         presentation,

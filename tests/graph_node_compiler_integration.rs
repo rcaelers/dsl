@@ -894,8 +894,7 @@ fn built_in_live_analysis_matches_finalized_replay_using_source_override() {
         .into_iter()
         .collect::<OutputSubscriptionPlan>();
 
-    let mut live_compiler = GraphCompiler::new();
-    live_compiler.set_output_subscriptions(subscriptions.clone());
+    let live_compiler = nodes::test_live_compiler(subscriptions.clone());
     let captured_feature = live_compiler
         .discover_live_capture_feature(widget.graph())
         .unwrap()
@@ -959,7 +958,7 @@ fn built_in_live_analysis_matches_finalized_replay_using_source_override() {
     assert_eq!(store.snapshot().committed_samples, committed_samples);
     let finalized = store.finalize().unwrap();
     while !live_run.is_finished() {
-        std::thread::yield_now();
+        live_run.pump(1_024);
     }
     let final_processed = live_run
         .progress()
@@ -981,6 +980,9 @@ fn built_in_live_analysis_matches_finalized_replay_using_source_override() {
     let mut replay_run = replay_compiler
         .start_app_run_with_source_overrides(widget.graph(), &mut replay_context, overrides)
         .unwrap();
+    while !replay_run.is_finished() {
+        replay_run.pump(1_024);
+    }
     replay_run.wait();
 
     assert_eq!(
@@ -991,10 +993,20 @@ fn built_in_live_analysis_matches_finalized_replay_using_source_override() {
 }
 
 #[test]
-fn built_in_binary_second_run_reuses_persistent_words() {
+fn built_in_binary_cached_preview_restores_every_built_in_lane_payload() {
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
     nodes::build_binary_decoder_demo(&mut widget);
-    select_output(&mut widget, "Parallel Decoder", "Words");
+    for (node, output) in [
+        ("SR Flip-Flop", "Q"),
+        ("Parallel Enable Gate", "Out"),
+        ("Match Start 0x9A", "Match"),
+        ("Match Stop 0xDE", "Match"),
+        ("Counter", "Count"),
+        ("String Formatter", "Text"),
+        ("Parallel Decoder", "Words"),
+    ] {
+        select_output(&mut widget, node, output);
+    }
     let subscriptions = selected_outputs(widget.graph())
         .into_iter()
         .collect::<OutputSubscriptionPlan>();
@@ -1011,12 +1023,37 @@ fn built_in_binary_second_run_reuses_persistent_words() {
 
     let mut second_context = CompileCtx::default();
     let lanes = second_context.derived_lanes().clone();
-    let mut second = compiler
-        .start_app_run(widget.graph(), &mut second_context)
-        .unwrap();
-    second.wait();
+    assert!(
+        compiler
+            .load_cached_data(widget.graph(), &mut second_context)
+            .unwrap(),
+        "the completed run should be available without executing the graph"
+    );
 
-    assert!(lanes.opaque_lanes().iter().any(|lane| {
+    let restored = lanes.opaque_lanes();
+    for payload in [
+        "org.logicconduit.digital-sample/v1",
+        "org.logicconduit.trigger/v1",
+        "org.logicconduit.number-sample/v1",
+        "org.logicconduit.text-sample/v1",
+        "org.logicconduit.word/v1",
+    ] {
+        assert!(
+            restored.iter().any(|lane| {
+                lane.payload().stable_id() == payload && lane.timeline_extent_end_ns().is_some()
+            }),
+            "cached preview did not restore payload '{payload}'; restored {:?}",
+            restored
+                .iter()
+                .map(|lane| (
+                    lane.name(),
+                    lane.payload().stable_id(),
+                    lane.timeline_extent_end_ns()
+                ))
+                .collect::<Vec<_>>()
+        );
+    }
+    assert!(restored.iter().any(|lane| {
         lane.payload().stable_id() == "org.logicconduit.word/v1"
             && lane
                 .table_metadata()

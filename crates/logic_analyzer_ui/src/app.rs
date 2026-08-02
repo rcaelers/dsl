@@ -439,6 +439,7 @@ pub struct App {
     /// *did* apply, one that failed) go through `toasts` instead (Phase 4.2).
     pub(crate) run_message: Option<(String, bool /* is_error */)>,
     pub(crate) cached_preview_graph: Option<Vec<u8>>,
+    pub(crate) running_graph_semantics: Option<Vec<u8>>,
     /// Transient one-off notifications (file loaded/saved, node(s)
     /// copied/pasted, live-edit results) — bottom-right, self-clearing.
     pub(crate) toasts: Toasts,
@@ -1181,6 +1182,7 @@ impl App {
             run: None,
             run_message: None,
             cached_preview_graph: None,
+            running_graph_semantics: None,
             toasts: Toasts::default(),
             platform,
             about: AboutWindow::new(),
@@ -1619,6 +1621,7 @@ impl App {
         if let Some(mut run) = self.run.take() {
             run.stop();
         }
+        self.running_graph_semantics = None;
         let lanes = signal_processing::DerivedLanes::new();
         self.set_presented_derived_lanes(lanes.clone());
         self.logic_analyzer
@@ -1653,7 +1656,7 @@ impl App {
         if self.run.is_some() || self.capture.is_active() || self.is_capture_analysis_active() {
             return;
         }
-        self.cached_preview_graph = serde_json::to_vec(self.node_graph.graph()).ok();
+        self.cached_preview_graph = Some(self.node_graph.graph().semantic_snapshot());
         let mut ctx = compiler::CompileCtx::default();
         self.supply_timeline_cursors(&mut ctx);
         match self
@@ -1744,6 +1747,7 @@ impl App {
             Ok(run) => {
                 let run_data = ctx.run_data();
                 self.bind_run_data(run_data);
+                self.running_graph_semantics = Some(self.node_graph.graph().semantic_snapshot());
                 self.run = Some(run);
             }
             Err(errors) => {
@@ -1817,15 +1821,20 @@ impl App {
             self.restore_cached_derived_data();
             return;
         }
+        let graph_semantics = self.node_graph.graph().semantic_snapshot();
         let result = {
             let run = self.run.as_mut().expect("run existence checked above");
             self.graph_service
                 .apply_run(run.as_mut(), self.node_graph.graph())
         };
         match result {
-            Ok(_) => self.bind_current_run_presentations(),
+            Ok(_) => {
+                self.running_graph_semantics = Some(graph_semantics);
+                self.bind_current_run_presentations();
+            }
             Err(compiler::ApplyError::Compile(_)) => {}
             Err(compiler::ApplyError::NeedsFullRestart(reason)) => {
+                self.running_graph_semantics = Some(graph_semantics);
                 self.run_message = Some((
                     format!("view update could not use cached data: {reason}"),
                     true,
@@ -2584,7 +2593,7 @@ impl App {
             }
             if now - self.last_live_sync >= SYNC_INTERVAL_S {
                 self.last_live_sync = now;
-                let graph_snapshot = serde_json::to_vec(self.node_graph.graph()).ok();
+                let graph_snapshot = Some(self.node_graph.graph().semantic_snapshot());
                 if graph_snapshot != self.cached_preview_graph {
                     self.restore_cached_derived_data();
                 }
@@ -2631,6 +2640,10 @@ impl App {
         if run.is_finished() || run.is_stopping() {
             return;
         }
+        let graph_semantics = self.node_graph.graph().semantic_snapshot();
+        if self.running_graph_semantics.as_ref() == Some(&graph_semantics) {
+            return;
+        }
 
         let mut refresh_sampling_overlays = false;
         match self
@@ -2638,6 +2651,7 @@ impl App {
             .apply_run(run.as_mut(), self.node_graph.graph())
         {
             Ok(summary) if summary.is_empty() => {
+                self.running_graph_semantics = Some(graph_semantics.clone());
                 match waveform_presentation_registry(run.output_subscriptions()) {
                     Ok(presentations) => self
                         .logic_analyzer
@@ -2657,6 +2671,7 @@ impl App {
                 refresh_sampling_overlays = true;
             }
             Ok(summary) => {
+                self.running_graph_semantics = Some(graph_semantics.clone());
                 match waveform_presentation_registry(run.output_subscriptions()) {
                     Ok(presentations) => self
                         .logic_analyzer
@@ -2684,6 +2699,7 @@ impl App {
                 // running pipeline and wait for the graph to become valid.
             }
             Err(compiler::ApplyError::NeedsFullRestart(reason)) => {
+                self.running_graph_semantics = Some(graph_semantics);
                 self.run_message = Some((format!("stop & rerun to apply: {reason}"), false));
             }
             Err(compiler::ApplyError::Apply(message)) => {
@@ -2895,7 +2911,11 @@ impl App {
     }
 
     fn show_memory_panel(&mut self, ui: &mut egui::Ui) {
-        if self.memory_panel.refresh_due() {
+        // Repository inspection and graph cache inventory are diagnostics, never interaction
+        // critical. Defer a due refresh until the pointer is released so the Memory panel cannot
+        // introduce a periodic hitch while a node, panel boundary, cursor, or waveform is moving.
+        let pointer_interaction_active = ui.input(|input| input.pointer.any_down());
+        if self.memory_panel.refresh_due() && !pointer_interaction_active {
             let derived_lanes = self
                 .presented_derived_lanes
                 .opaque_lanes()

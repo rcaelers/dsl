@@ -183,12 +183,7 @@ unsafe fn menu_item(
     handler: &MenuHandler,
 ) -> Retained<NSMenuItem> {
     let item = unsafe {
-        NSMenuItem::initWithTitle_action_keyEquivalent(
-            mtm.alloc(),
-            title,
-            Some(action),
-            shortcut,
-        )
+        NSMenuItem::initWithTitle_action_keyEquivalent(mtm.alloc(), title, Some(action), shortcut)
     };
     unsafe { item.setTarget(Some(handler as &AnyObject)) };
     item
@@ -286,8 +281,7 @@ pub(crate) fn refresh_recent_files(paths: &[PathBuf]) {
 }
 
 pub(crate) fn disable_automatic_window_tabbing() {
-    let mtm =
-        MainThreadMarker::new().expect("must configure window tabbing on the main thread");
+    let mtm = MainThreadMarker::new().expect("must configure window tabbing on the main thread");
     NSWindow::setAllowsAutomaticWindowTabbing(false, mtm);
 }
 
@@ -474,9 +468,7 @@ pub(crate) fn install(recent_files: &[PathBuf], bindings: &InputBindings) {
                     continue;
                 };
                 if item.keyEquivalent().to_string() == "q" {
-                    item.setTitle(&NSString::from_str(&format!(
-                        "Quit {APPLICATION_NAME}"
-                    )));
+                    item.setTitle(&NSString::from_str(&format!("Quit {APPLICATION_NAME}")));
                     item.setKeyEquivalent(&shortcut(bindings, "quit"));
                     unsafe {
                         item.setTarget(Some(&handler as &AnyObject));
@@ -486,18 +478,14 @@ pub(crate) fn install(recent_files: &[PathBuf], bindings: &InputBindings) {
                 // Point the standard "About …" item at our in-app window
                 // instead of the Cocoa about panel.
                 if item.action() == Some(sel!(orderFrontStandardAboutPanel:)) {
-                    item.setTitle(&NSString::from_str(&format!(
-                        "About {APPLICATION_NAME}"
-                    )));
+                    item.setTitle(&NSString::from_str(&format!("About {APPLICATION_NAME}")));
                     unsafe {
                         item.setTarget(Some(&handler as &AnyObject));
                         item.setAction(Some(sel!(showAbout:)));
                     }
                 }
                 if item.action() == Some(sel!(hide:)) {
-                    item.setTitle(&NSString::from_str(&format!(
-                        "Hide {APPLICATION_NAME}"
-                    )));
+                    item.setTitle(&NSString::from_str(&format!("Hide {APPLICATION_NAME}")));
                 }
             }
         }

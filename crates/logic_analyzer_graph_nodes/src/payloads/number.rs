@@ -49,7 +49,7 @@ inventory::submit! {
 }
 
 inventory::submit! {
-    PayloadRegistration::subscribable::<signal_processing::NumberSample>(
+    PayloadRegistration::subscribable_with_persistent_cache::<signal_processing::NumberSample>(
         "org.logicconduit.number-sample/v1",
         signal_processing::number_payload_adapter,
         presentation,

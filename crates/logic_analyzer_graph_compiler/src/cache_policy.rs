@@ -8,7 +8,7 @@ use serde_json::Value;
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::CaptureCacheIdentity;
 use node_graph::api::{GraphState, NodeId};
-use signal_processing::{ArtifactRepository, PersistentStoreConfig};
+use signal_processing::{ArtifactRepository, PersistentStoreConfig, WorkExecutor};
 
 use super::OutputSubscriptionPlan;
 use super::derived_cache_backend::{
@@ -140,8 +140,6 @@ pub(crate) fn prepare_execution_with_backend(
     registry: &BuilderRegistry,
     backend: &dyn DerivedCacheBackend,
 ) -> (CompiledGraph, bool) {
-    prepare_cache(compiled, backend);
-
     let mut execution = compiled.clone();
     let mut cached_inputs = HashSet::new();
     for collector in &compiled.nodes {
@@ -198,43 +196,68 @@ pub(crate) fn prepare_cached_preview_with_backend(
     compiled: &CompiledGraph,
     backend: &dyn DerivedCacheBackend,
 ) -> Option<CompiledGraph> {
-    prepare_cache(compiled, backend);
-
     let mut preview = compiled.clone();
     let mut any_hit = false;
     preview.nodes.retain_mut(|node| {
         if !node.data_collector {
             return false;
         }
-        let mut collector_hit = false;
-        for config in &mut node.derived_word_caches {
-            let hit = config
-                .as_ref()
-                .is_some_and(|config| backend.lookup(config) == DerivedCacheLookup::Hit);
-            if hit {
-                collector_hit = true;
-                any_hit = true;
-            } else {
-                *config = None;
-            }
+        let retained = node
+            .resolved
+            .members(0)
+            .into_iter()
+            .filter_map(|(member, input)| {
+                let config = node.derived_word_caches.get(member)?.as_ref()?;
+                (backend.lookup(config) == DerivedCacheLookup::Hit)
+                    .then(|| (input.clone(), config.clone()))
+            })
+            .collect::<Vec<_>>();
+        if retained.is_empty() {
+            return false;
         }
-        collector_hit
+        let mut resolved = logic_analyzer_graph_api::node_support::ResolvedInputs::default();
+        node.derived_word_caches.clear();
+        for (member, (input, config)) in retained.into_iter().enumerate() {
+            resolved.insert(0, member, input);
+            node.derived_word_caches.push(Some(config));
+        }
+        node.resolved = resolved;
+        any_hit = true;
+        true
     });
     preview.edges.clear();
     any_hit.then_some(preview)
 }
 
-fn prepare_cache(compiled: &CompiledGraph, backend: &dyn DerivedCacheBackend) {
-    let configs: Vec<_> = compiled
+pub(crate) fn schedule_maintenance(
+    compiled: &CompiledGraph,
+    work_executor: &Arc<dyn WorkExecutor>,
+) {
+    if !work_executor.supports_long_running_tasks() {
+        return;
+    }
+    let configs = compiled
         .nodes
         .iter()
         .flat_map(|node| node.derived_word_caches.iter().flatten())
-        .collect();
+        .collect::<Vec<_>>();
     let Some(first) = configs.first() else {
         return;
     };
-    let pinned: Vec<_> = configs.iter().map(|config| config.cache_key).collect();
-    let _ = backend.cleanup(&first.artifact_repository, first.max_cache_bytes, &pinned);
+    let repository = Arc::clone(&first.artifact_repository);
+    let max_total_bytes = first.max_cache_bytes;
+    let pinned_keys = configs
+        .iter()
+        .map(|config| config.cache_key)
+        .collect::<Vec<_>>();
+    let submitted = work_executor.submit(Box::new(move || {
+        let _ = signal_processing::derived_word_store::cleanup_cache(
+            &repository,
+            max_total_bytes,
+            &pinned_keys,
+        );
+    }));
+    drop(submitted);
 }
 
 pub(crate) fn cache_configs_by_node(

@@ -142,6 +142,9 @@ Interaction highlights:
   up automatically.
 - **Node presentation**: collapse (header only) and hide-unconnected-sockets toggles;
   per-node title rename; selection (click, box select, shift-add).
+- **Semantic snapshot**: `GraphState::semantic_snapshot` serializes topology, socket contracts,
+  node type, mute state, node-owned processing state, and document extensions while excluding
+  editor-only layout and selection. Hosts use it to avoid semantic work for visual-only edits.
 - **Menus**: right-click context menu (add, cut/copy/paste, duplicate, delete, dissolve,
   frame ops, show/hide, undo/redo) and a `Shift+A` add-search popup with fuzzy matching over
   `category → name`.

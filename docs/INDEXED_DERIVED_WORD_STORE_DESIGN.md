@@ -1,8 +1,9 @@
-# Indexed Derived Word Store Design
+# Indexed Derived Data Store Design
 
-The indexed derived-word store keeps decoded word lanes queryable without retaining every
-annotation in viewer-owned memory. It provides exact values and cursor boundaries for narrow
-time windows, presence summaries for overview rendering, and bounded decoded-block caching.
+The indexed derived-data store keeps retained lanes queryable without retaining every value in
+viewer-owned memory. Its encoded storage primitive is a timestamped `Word` stream. The built-in
+word, digital, trigger, number, and text payload adapters translate to and from that primitive, so
+all of those lane types share persistence, indexing, bounded queries, and restart restoration.
 
 Primary code locations:
 
@@ -21,30 +22,32 @@ Related documents:
 
 ## Responsibilities
 
-The store:
+The store and its built-in payload adapters:
 
-- preserves each decoded `Word` numeric value or arbitrary-width payload, timestamp, and explicit duration;
-- keeps viewer memory independent of recording duration on native builds;
+- preserve decoded words as well as digital levels, trigger events, numeric levels, and text levels;
+- keep viewer memory independent of recording duration;
 - answers exact-window, presence-window, and nearest-boundary queries;
 - supports queries while decoding is active;
 - detects malformed blocks and stale or incomplete persistent caches;
 - isolates storage failure from other consumers of the decoded word stream.
 
 The store belongs to a derived-data collector rather than to a decoder or presentation subscriber.
-Any decoder or plugin that emits retained words can use the same storage path, while an output
-connected only to a non-collecting sink does not create a derived-word cache. `ParallelDecoder`
-and other producers remain responsible for producing ordered word batches;
-`DerivedDataCollector` materializes those batches for later subscribers.
+Payload registrations explicitly declare whether their adapter supports persistent indexed
+collection. An output connected only to a non-collecting sink does not create a cache.
+Producers remain responsible for ordered values; `DerivedDataCollector` materializes those values
+for later subscribers.
 
 ## Architecture
 
 ```text
-word-producing runtime node
+retained-output runtime node
   |
-  | ordered Word batches
-  +------------------------------> other word consumers
+  | ordered payload batches
+  +------------------------------> other consumers
   |
-  +----> DerivedDataCollector word lane
+  +----> DerivedDataCollector payload adapter
+           |
+           | lossless Word encoding
            |
            v
       IndexedAnnotationWriter
@@ -63,26 +66,22 @@ word-producing runtime node
       renderer       cursor snapping
 ```
 
-The pipeline node appends blocks outside the egui thread. The viewer holds an
-`Arc<dyn AnnotationQuery>` and performs bounded queries after releasing the derived-lane lock.
-Only fully committed blocks are visible to readers.
+The pipeline node appends blocks outside the egui thread. The viewer holds an opaque
+`CollectedLaneQuery`; each adapter converts bounded indexed results back to its typed immutable
+snapshot. Only fully committed blocks and an immutable hot tail are visible to readers.
 
 ## Platform model
 
 `IndexedAnnotationStore`, `IndexedAnnotationWriter`, `AnnotationQuery`, configuration, status,
-and viewer lane types exist on native and wasm.
-
-- Native storage writes compact blocks to a temporary file. A completed store is mmap-backed and
-  can be published to or reopened from the persistent cache.
-- Wasm storage uses an in-memory ordered store with the same append and query semantics.
-
-Platform selection is contained in `derived_word_store/platform/`. Generic viewer, sink, and
-compiler code do not change lane shape by target. See
+payload adapters, and viewer lane types use identical source on native and wasm. The store reads
+and writes through the injected `ArtifactRepository`; the platform crate chooses filesystem,
+browser, or memory-backed artifact storage at composition time. Generic viewer, collector, and
+compiler code do not change lane shape or cache behavior by target. See
 [WASM_STORAGE_PLATFORM_DESIGN.md](WASM_STORAGE_PLATFORM_DESIGN.md).
 
 ## Data model
 
-The input is the runtime `Word` type:
+The encoded storage input is the runtime `Word` type:
 
 ```rust
 pub struct Word {
@@ -105,6 +104,11 @@ any width, while text supplies an explicit decoder-owned label; `value` remains 
 generic numeric tag for styling and filtering. Instantaneous words use adjacent word starts or a
 cadence-bounded inferred end for display and boundary queries, so long inactive intervals remain
 empty.
+
+The built-in scalar and event adapters use the same representation without protocol knowledge:
+digital values use numeric zero or one, signed numeric values preserve their bit pattern, text
+uses `WordPayload::Text`, and triggers use timestamped zero-valued events. Typed snapshots restore
+those representations before they cross the payload adapter boundary.
 
 The public query surface is viewer-oriented and independent of the storage format:
 
@@ -232,7 +236,7 @@ word stream received by other graph branches.
 
 ## Persistent cache
 
-A native persistent cache entry contains:
+A persistent cache entry contains:
 
 ```text
 words.dwd     encoded word blocks
@@ -240,25 +244,28 @@ words.dwi     block directory and presence index
 manifest.dwm  cache identity, sizes, word count, and commit marker
 ```
 
-The manifest is published last. A cache is discoverable only when its manifest, cache key, data
-size, index size, directory, counts, and checksums validate. Completed data is immutable and
-mmap-backed.
+The manifest is published last. Discovery validates the manifest, cache key, index size,
+directory, and counts without opening every data block on the UI thread. Each block's presence,
+length, header, and checksum are validated lazily when a bounded query first reads it. Completed
+data is immutable through the repository contract.
 
 The compiler derives the cache key from source identity and the relevant graph configuration.
 When a graph document is opened, valid entries are published as a passive derived-data preview
 without executing producers or sinks. An explicit Run clears the selected graph entries before
 execution and rebuilds them from the source, so Run never silently substitutes old results for
 processing or sink side effects. Clearing or rejecting an entry never changes the source capture.
-Native cache administration supports per-entry clearing and an LRU size budget.
+Cache administration supports per-entry clearing and an LRU size budget.
+Routine validation and LRU cleanup are submitted to the injected work executor after preview
+discovery; graph loading and rendering never perform repository-wide maintenance synchronously.
 Read-only inspection validates one entry without changing its LRU access time or deleting invalid
 data. The Memory panel uses this contract to report data bytes, index bytes, blocks, and word counts
 for the persistent entries selected by the current graph.
 
 ## Viewer integration
 
-Word payload adapters publish an opaque `CollectedLaneQuery` backed by either
-an in-memory word store or `IndexedAnnotationLane`. The indexed lane exposes
-query, metadata, status, and platform-neutral store handles to its adapter.
+Built-in payload adapters publish an opaque `CollectedLaneQuery` backed by either in-memory data
+or the indexed annotation store. The indexed handle remains private to the adapter, which exposes
+typed snapshots, cursor boundaries, timeline extent, liveness, and storage accounting.
 
 Every collected-lane query also publishes a presentation-neutral storage snapshot. Built-in
 adapters report their backing (memory, indexed working storage, or reopened persistent cache),
@@ -278,7 +285,9 @@ entry immediately.
 While a lane is live, a newer generation refreshes at most once per 50 ms; a completed lane stays
 entirely on its last immutable snapshot until the view changes. Adapters without a generation
 contract are queried on every use, so caching cannot make third-party data stale. Exact mode uses
-the ordinary annotation-box renderer; presence mode renders summarized activity.
+the payload's ordinary renderer; presence mode renders summarized activity. If a writer holds a
+lane briefly, adapters decline the query instead of blocking and the viewer keeps the last
+immutable snapshot for that request.
 
 ## Correctness invariants
 
@@ -300,11 +309,13 @@ the ordinary annotation-box renderer; presence mode renders summarized activity.
 
 ## Validation
 
-Native and wasm contract tests cover append, exact windows, presence windows, nearest-boundary
-queries, finish, cancellation, and metadata semantics. Native tests additionally cover codec
-round trips, corrupt and truncated data, persistent publication and reopening, cache invalidation,
-decoded-block caching, live queries, cursor behavior across blocks, deliberately reordered block
-completion, and visibility at a batched append boundary.
+Repository-independent contract tests cover append, exact windows, presence windows,
+nearest-boundary queries, finish, cancellation, metadata semantics, codec round trips, corrupt and
+truncated data, persistent publication and reopening, cache invalidation, decoded-block caching,
+live queries, cursor behavior across blocks, deliberately reordered block completion, and
+visibility at a batched append boundary. Adapter tests additionally reopen digital, trigger,
+number, text, and word lanes from isolated in-memory repositories and compare their typed
+snapshots.
 
 Large-capture performance and operational follow-ups are tracked in [TODO.md](../TODO.md).
 

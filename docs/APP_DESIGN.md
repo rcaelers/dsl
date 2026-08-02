@@ -229,11 +229,14 @@ through the live machinery (a file replay is just a run whose source finishes).
 
 Per frame, the app calls `run.pump(budget)` (no-op on the native threaded manager; on wasm
 this is what executes node `work()`s) and requests ~16 ms repaints while running so derived
-lanes fill visibly. Every 500 ms it:
+lanes fill visibly. Every 500 ms it publishes per-node progress counters into node headers. The
+app also compares a stable semantic graph snapshot with the snapshot last applied to the run.
+This snapshot excludes editor-only position, selection, collapse, title, header-color, frame, and
+allocation state. Only when the semantic snapshot changes does the app:
 
-1. Publishes per-node progress counters into node headers (`set_node_status`).
-2. Re-lowers the edited graph and calls `run.apply(graph, builders)`, which diffs desired
-   vs. running by `NodeId` and applies the cheapest edit class per difference:
+1. Re-lower the edited graph.
+2. Call `run.apply(graph, builders)`, which diffs desired vs. running by `NodeId` and applies the
+   cheapest edit class per difference:
 
 | Edit | Action | Node threads touched |
 |---|---|---|

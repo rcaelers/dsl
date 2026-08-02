@@ -52,24 +52,16 @@ use super::errors::WorkError;
 use super::events::{NumberSample, TextSample};
 use super::manager::{DisconnectEvent, InputSub, NodeSpec};
 use super::node::{ConfigOutcome, ConfigurationBoundary, InputScheduling, NodeConfig, ProcessNode};
-use super::ports::{InputPort, OutputPort, StreamReadiness};
+use super::ports::{InputPort, OutputPort, PortSchema, StreamReadiness};
 use super::sample::Sample;
 use super::type_registry::{ErasedReceiverReadiness, ErasedSharedSenders, TYPE_REGISTRY};
 use super::watchdog::Watchdog;
+use crate::SampleKind;
 
 /// Level streams get sticky lists; kept in sync with
 /// [`manager::is_level_type`](super::manager) by hand — both are tiny and
 /// change together only if a new level type is ever registered.
 ///
-/// This manager deliberately does **not** get `SampleKind` negotiation
-/// (the `Sample`/`SampleBlock` port-unification work `PipelineManager`
-/// has): polymorphic raw-channel producers are excluded from the cooperative
-/// platform registry and are unreachable from this manager by construction.
-/// A connection here still
-/// requires an exact `TypeId` match, which is correct as long as that
-/// stays true. If a cooperative-platform node ever needs to negotiate
-/// `SampleKind`, mirror `manager.rs`'s `build_output_lists`/
-/// `negotiate_sample_kind_list`/`output_port_from_lists` here too.
 fn is_level_type(type_id: TypeId) -> bool {
     type_id == TypeId::of::<Sample>()
         || type_id == TypeId::of::<NumberSample>()
@@ -106,13 +98,78 @@ impl Probe {
 }
 
 struct OutputList {
-    list: Arc<dyn ErasedSharedSenders>,
     type_id: TypeId,
+    sample_kinds: Vec<SampleKind>,
+    lists: Vec<(TypeId, Arc<dyn ErasedSharedSenders>)>,
     /// Flipped once this node stops producing (finished, removed, or
     /// stopped). Shared with every current and future subscriber's probe so
     /// a drained-and-finished input stays permanently ready — see the
     /// module doc.
     closed: Arc<AtomicBool>,
+}
+
+fn build_output_lists(
+    output_schemas: &[PortSchema],
+) -> Result<HashMap<String, OutputList>, String> {
+    let mut outputs = HashMap::new();
+    let registry = TYPE_REGISTRY.lock().unwrap();
+    for schema in output_schemas {
+        let sample_kinds = schema.sample_kinds.clone();
+        let type_ids = if sample_kinds.is_empty() {
+            vec![schema.type_id]
+        } else {
+            sample_kinds
+                .iter()
+                .map(|kind| kind.payload_type())
+                .collect()
+        };
+        let lists = type_ids
+            .into_iter()
+            .map(|type_id| {
+                registry
+                    .create_shared(type_id, is_level_type(type_id))
+                    .map(|list| (type_id, list))
+                    .ok_or_else(|| format!("type of port '{}' not registered", schema.name))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        outputs.insert(
+            schema.name.clone(),
+            OutputList {
+                type_id: schema.type_id,
+                sample_kinds,
+                lists,
+                closed: Arc::new(AtomicBool::new(false)),
+            },
+        );
+    }
+    Ok(outputs)
+}
+
+fn negotiated_list<'a>(
+    output: &'a OutputList,
+    accepted: &[SampleKind],
+    input_type: TypeId,
+) -> Option<&'a Arc<dyn ErasedSharedSenders>> {
+    let negotiated_type =
+        crate::negotiate_sample_kind(&output.sample_kinds, output.type_id, accepted, input_type)?;
+    output
+        .lists
+        .iter()
+        .find_map(|(type_id, list)| (*type_id == negotiated_type).then_some(list))
+}
+
+fn output_port(output: &OutputList) -> OutputPort {
+    output
+        .lists
+        .iter()
+        .fold(None::<OutputPort>, |port, (type_id, list)| {
+            let sender = list.sender_box();
+            Some(match port {
+                None => OutputPort::from_type_erased(*type_id, sender),
+                Some(port) => port.extend_type_erased(*type_id, sender),
+            })
+        })
+        .expect("every output has at least one payload list")
 }
 
 struct CooperativeNode {
@@ -176,24 +233,7 @@ impl CooperativeManager {
             ));
         }
 
-        let mut output_lists: HashMap<String, OutputList> = HashMap::new();
-        {
-            let registry = TYPE_REGISTRY.lock().unwrap();
-            for schema in &output_schemas {
-                let sticky = is_level_type(schema.type_id);
-                let list = registry
-                    .create_shared(schema.type_id, sticky)
-                    .ok_or_else(|| format!("type of port '{}' not registered", schema.name))?;
-                output_lists.insert(
-                    schema.name.clone(),
-                    OutputList {
-                        list,
-                        type_id: schema.type_id,
-                        closed: Arc::new(AtomicBool::new(false)),
-                    },
-                );
-            }
-        }
+        let output_lists = build_output_lists(&output_schemas)?;
 
         let mut input_ports: Vec<InputPort> = Vec::with_capacity(inputs.len());
         let mut probes: Vec<Probe> = Vec::with_capacity(inputs.len());
@@ -219,17 +259,20 @@ impl CooperativeManager {
                             sub.from_node, sub.from_port
                         )
                     })?;
-                    if output.type_id != input_schemas[index].type_id {
-                        return Err(format!(
+                    let list = negotiated_list(
+                        output,
+                        &input_schemas[index].sample_kinds,
+                        input_schemas[index].type_id,
+                    )
+                    .ok_or_else(|| {
+                        format!(
                             "type mismatch: {}.{} -> {}.{}",
                             sub.from_node, sub.from_port, name, input_schemas[index].name
-                        ));
-                    }
+                        )
+                    })?;
                     let closed = Arc::clone(&output.closed);
                     let label = Some(format!("{}.{}", name, input_schemas[index].name));
-                    let subscription = output
-                        .list
-                        .subscribe_with_label(sub.buffer, sub.policy, label);
+                    let subscription = list.subscribe_with_label(sub.buffer, sub.policy, label);
                     input_subs.push((
                         sub.from_node.clone(),
                         sub.from_port.clone(),
@@ -245,9 +288,11 @@ impl CooperativeManager {
         let output_ports: Vec<OutputPort> = output_schemas
             .iter()
             .map(|schema| {
-                let sender = output_lists[&schema.name].list.sender_box();
-                OutputPort::from_type_erased(output_lists[&schema.name].type_id, sender)
-                    .with_watchdog(self.watchdog.clone(), name.clone(), schema.name.clone())
+                output_port(&output_lists[&schema.name]).with_watchdog(
+                    self.watchdog.clone(),
+                    name.clone(),
+                    schema.name.clone(),
+                )
             })
             .collect();
 
@@ -288,7 +333,9 @@ impl CooperativeManager {
             if let Some(producer) = self.nodes.get(from_node)
                 && let Some(output) = producer.output_lists.get(from_port)
             {
-                output.list.unsubscribe(*sub_id);
+                for (_, list) in &output.lists {
+                    list.unsubscribe(*sub_id);
+                }
             }
         }
     }
@@ -380,17 +427,20 @@ impl CooperativeManager {
                             sub.from_node, sub.from_port
                         )
                     })?;
-                    if output.type_id != input_schemas[index].type_id {
-                        return Err(format!(
+                    let list = negotiated_list(
+                        output,
+                        &input_schemas[index].sample_kinds,
+                        input_schemas[index].type_id,
+                    )
+                    .ok_or_else(|| {
+                        format!(
                             "type mismatch: {}.{} -> {}.{}",
                             sub.from_node, sub.from_port, name, input_schemas[index].name
-                        ));
-                    }
+                        )
+                    })?;
                     let closed = Arc::clone(&output.closed);
                     let label = Some(format!("{}.{}", name, input_schemas[index].name));
-                    let subscription = output
-                        .list
-                        .subscribe_with_label(sub.buffer, sub.policy, label);
+                    let subscription = list.subscribe_with_label(sub.buffer, sub.policy, label);
                     input_subs.push((
                         sub.from_node.clone(),
                         sub.from_port.clone(),
@@ -407,9 +457,11 @@ impl CooperativeManager {
         let output_ports: Vec<OutputPort> = output_schemas
             .iter()
             .map(|schema| {
-                let sender = old.output_lists[&schema.name].list.sender_box();
-                OutputPort::from_type_erased(old.output_lists[&schema.name].type_id, sender)
-                    .with_watchdog(self.watchdog.clone(), name.to_owned(), schema.name.clone())
+                output_port(&old.output_lists[&schema.name]).with_watchdog(
+                    self.watchdog.clone(),
+                    name.to_owned(),
+                    schema.name.clone(),
+                )
             })
             .collect();
 
@@ -448,12 +500,14 @@ impl CooperativeManager {
         let mut events = Vec::new();
         for (name, node) in &self.nodes {
             for (port, output) in &node.output_lists {
-                for sub_id in output.list.take_disconnected() {
-                    events.push(DisconnectEvent {
-                        producer: name.clone(),
-                        port: port.clone(),
-                        consumer: consumers.get(&sub_id).map(|s| s.to_string()),
-                    });
+                for (_, list) in &output.lists {
+                    for sub_id in list.take_disconnected() {
+                        events.push(DisconnectEvent {
+                            producer: name.clone(),
+                            port: port.clone(),
+                            consumer: consumers.get(&sub_id).map(|s| s.to_string()),
+                        });
+                    }
                 }
             }
         }
@@ -540,7 +594,7 @@ impl CooperativeManager {
                 if node
                     .output_lists
                     .values()
-                    .any(|output| output.list.would_block())
+                    .any(|output| output.lists.iter().any(|(_, list)| list.would_block()))
                 {
                     continue;
                 }
@@ -552,7 +606,9 @@ impl CooperativeManager {
                         if node.node.should_stop() {
                             node.done = true;
                             for output in node.output_lists.values() {
-                                output.list.close();
+                                for (_, list) in &output.lists {
+                                    list.close();
+                                }
                                 output.closed.store(true, Ordering::Release);
                             }
                         }
@@ -560,7 +616,9 @@ impl CooperativeManager {
                     Err(WorkError::Shutdown) => {
                         node.done = true;
                         for output in node.output_lists.values() {
-                            output.list.close();
+                            for (_, list) in &output.lists {
+                                list.close();
+                            }
                             output.closed.store(true, Ordering::Release);
                         }
                     }
@@ -568,7 +626,9 @@ impl CooperativeManager {
                         tracing::error!("[{}] work error: {error}", node.node.name());
                         node.done = true;
                         for output in node.output_lists.values() {
-                            output.list.close();
+                            for (_, list) in &output.lists {
+                                list.close();
+                            }
                             output.closed.store(true, Ordering::Release);
                         }
                     }
@@ -592,7 +652,9 @@ impl Default for CooperativeManager {
 
 fn close_outputs(node: &CooperativeNode) {
     for output in node.output_lists.values() {
-        output.list.close();
+        for (_, list) in &output.lists {
+            list.close();
+        }
         output.closed.store(true, Ordering::Release);
     }
 }

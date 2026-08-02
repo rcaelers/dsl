@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
 use super::collector::{DRAIN_BATCH_SIZE, DerivedDataRetention};
+use super::indexed::{IndexedLaneQuery, IndexedLaneSnapshot, IndexedLaneWriter, indexed_lane};
 use super::storage::in_memory_storage_snapshot;
 use crate::derived_index::{AppendOnlyMipmap, LaneFold, MipmapRecord};
 use crate::errors::WorkResult;
@@ -11,6 +12,7 @@ use crate::payload::{
     CollectedLaneStorageSnapshot, OpaqueCollectedLaneSnapshot, PayloadAdapter,
 };
 use crate::ports::{InputPort, PortDirection, PortSchema};
+use crate::{Word, WordPayload};
 
 /// Immutable bounded result of a built-in text-level lane query.
 #[derive(Clone, Debug)]
@@ -28,6 +30,7 @@ pub(crate) struct TextLaneStorage {
 
 pub(crate) struct TextLaneQuery {
     pub(crate) storage: Arc<RwLock<TextLaneStorage>>,
+    pub(crate) indexed: Option<IndexedLaneQuery>,
 }
 
 impl CollectedLaneQuery for TextLaneQuery {
@@ -36,14 +39,50 @@ impl CollectedLaneQuery for TextLaneQuery {
     }
 
     fn snapshot_generation(&self) -> Option<u64> {
-        Some(self.storage.read().unwrap().generation)
+        self.indexed
+            .as_ref()
+            .map(IndexedLaneQuery::generation)
+            .or_else(|| {
+                self.storage
+                    .try_read()
+                    .ok()
+                    .map(|storage| storage.generation)
+            })
     }
 
     fn snapshot(
         &self,
         request: CollectedLaneSnapshotRequest,
     ) -> Option<OpaqueCollectedLaneSnapshot> {
-        let storage = self.storage.read().unwrap();
+        if let Some(indexed) = &self.indexed {
+            let previous = indexed
+                .latest_word_at_or_before(request.start_time_ns.saturating_sub(1))
+                .map(text_sample_from_word);
+            let snapshot = match indexed.snapshot(
+                request.start_time_ns,
+                request.end_time_ns,
+                request.max_items,
+            ) {
+                IndexedLaneSnapshot::Exact(annotations) => {
+                    let mut values = previous.into_iter().collect::<Vec<_>>();
+                    values.extend(annotations.into_iter().map(|annotation| {
+                        TextSample::new(
+                            annotation
+                                .payload
+                                .as_ref()
+                                .and_then(text_payload)
+                                .unwrap_or_default(),
+                            annotation.start_ns,
+                        )
+                    }));
+                    TextLaneSnapshot::Exact(values)
+                }
+                IndexedLaneSnapshot::Activity(records) => TextLaneSnapshot::Activity(records),
+                IndexedLaneSnapshot::Error => return None,
+            };
+            return Some(OpaqueCollectedLaneSnapshot::new(Arc::new(snapshot)));
+        }
+        let storage = self.storage.try_read().ok()?;
         let first = storage
             .values
             .partition_point(|value| value.start_time_ns < request.start_time_ns)
@@ -64,7 +103,10 @@ impl CollectedLaneQuery for TextLaneQuery {
     }
 
     fn nearest_time_boundary(&self, timestamp_ns: u64, max_distance_ns: u64) -> Option<u64> {
-        let storage = self.storage.read().unwrap();
+        if let Some(indexed) = &self.indexed {
+            return indexed.nearest_time_boundary(timestamp_ns, max_distance_ns);
+        }
+        let storage = self.storage.try_read().ok()?;
         let index = storage
             .values
             .partition_point(|value| value.start_time_ns <= timestamp_ns);
@@ -76,16 +118,24 @@ impl CollectedLaneQuery for TextLaneQuery {
     }
 
     fn timeline_extent_end_ns(&self) -> Option<u64> {
+        if let Some(indexed) = &self.indexed {
+            return indexed.timeline_extent_end_ns();
+        }
         self.storage
-            .read()
-            .unwrap()
+            .try_read()
+            .ok()?
             .values
             .last()
             .map(|value| value.start_time_ns)
     }
 
     fn storage_snapshot(&self) -> CollectedLaneStorageSnapshot {
-        let storage = self.storage.read().unwrap();
+        if let Some(indexed) = &self.indexed {
+            return indexed.storage_snapshot();
+        }
+        let Ok(storage) = self.storage.try_read() else {
+            return CollectedLaneStorageSnapshot::adapter_managed(true);
+        };
         let payload_bytes = storage
             .values
             .iter()
@@ -100,6 +150,27 @@ impl CollectedLaneQuery for TextLaneQuery {
             .map(|bytes| bytes.saturating_add(payload_bytes as u64));
         snapshot
     }
+
+    fn is_live(&self) -> bool {
+        self.indexed.as_ref().is_some_and(IndexedLaneQuery::is_live)
+    }
+}
+
+fn text_payload(payload: &WordPayload) -> Option<String> {
+    match payload {
+        WordPayload::Text(text) => Some(text.to_string()),
+        WordPayload::Bytes(bytes) => String::from_utf8(bytes.to_vec()).ok(),
+    }
+}
+
+fn text_sample_from_word(word: Word) -> TextSample {
+    TextSample::new(
+        word.payload
+            .as_ref()
+            .and_then(text_payload)
+            .unwrap_or_default(),
+        word.timestamp_ns,
+    )
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -130,19 +201,32 @@ struct TextLane {
     buffer: VecDeque<TextSample>,
     eos: bool,
     retention: DerivedDataRetention,
+    indexed: Option<IndexedLaneWriter>,
 }
 
 impl TextLane {
     fn new(request: CollectedLaneRequest) -> Self {
         let storage = Arc::new(RwLock::new(TextLaneStorage::default()));
+        let (indexed, indexed_query) = request.indexed_store().cloned().map_or(
+            (None, None),
+            |config| match indexed_lane(request.name(), config) {
+                Ok((writer, query)) => (Some(writer), Some(query)),
+                Err(error) => {
+                    tracing::warn!(lane = request.name(), %error, "could not create indexed text lane; using memory");
+                    (None, None)
+                }
+            },
+        );
         request.publish_query(Arc::new(TextLaneQuery {
             storage: Arc::clone(&storage),
+            indexed: indexed_query,
         }));
         Self {
             storage,
             buffer: VecDeque::new(),
             eos: false,
             retention: request.retention(),
+            indexed,
         }
     }
 }
@@ -166,16 +250,29 @@ impl CollectedLaneIngestor for TextLane {
         }
         let batch_len = batch.len();
         if !batch.is_empty() {
-            let mut storage = self.storage.write().unwrap();
-            for sample in &batch {
-                storage.summary.push(sample);
+            if let Some(indexed) = &mut self.indexed {
+                let words = batch
+                    .iter()
+                    .map(|sample| Word::text(sample.value.clone(), sample.start_time_ns, 0))
+                    .collect::<Vec<_>>();
+                indexed.append(&words);
+            } else {
+                let mut storage = self.storage.write().unwrap();
+                for sample in &batch {
+                    storage.summary.push(sample);
+                }
+                storage.values.extend(batch.iter().cloned());
+                if let Some(target) = self.retention.trim_target(storage.values.len()) {
+                    let excess = storage.values.len() - target;
+                    storage.values.drain(..excess);
+                }
+                storage.generation = storage.generation.wrapping_add(1);
             }
-            storage.values.extend(batch.iter().cloned());
-            if let Some(target) = self.retention.trim_target(storage.values.len()) {
-                let excess = storage.values.len() - target;
-                storage.values.drain(..excess);
-            }
-            storage.generation = storage.generation.wrapping_add(1);
+        }
+        if self.eos
+            && let Some(indexed) = &mut self.indexed
+        {
+            indexed.finish();
         }
         Ok(batch_len)
     }

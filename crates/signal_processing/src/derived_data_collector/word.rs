@@ -64,7 +64,7 @@ pub struct CollectedWordLaneQuery {
 
 impl CollectedWordLaneQuery {
     pub fn indexed_lane(&self) -> Option<IndexedAnnotationLane> {
-        let storage = self.storage.read().unwrap();
+        let storage = self.storage.try_read().ok()?;
         let WordLaneStorage::Indexed(indexed) = &*storage else {
             return None;
         };
@@ -83,7 +83,13 @@ impl CollectedWordLaneQuery {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn snapshot(&self, request: CollectedLaneSnapshotRequest) -> WordLaneSnapshot {
+        self.try_snapshot(request)
+            .unwrap_or(WordLaneSnapshot::Error)
+    }
+
+    fn try_snapshot(&self, request: CollectedLaneSnapshotRequest) -> Option<WordLaneSnapshot> {
         enum Source {
             InMemory(WordLaneSnapshot),
             Indexed {
@@ -93,7 +99,7 @@ impl CollectedWordLaneQuery {
         }
 
         let source = {
-            let storage = self.storage.read().unwrap();
+            let storage = self.storage.try_read().ok()?;
             match &*storage {
                 WordLaneStorage::InMemory(storage) => {
                     let first = storage
@@ -129,29 +135,28 @@ impl CollectedWordLaneQuery {
                 query,
                 display_format,
             } => {
-                let target_points = request.max_items.max(1);
+                let metadata = query.metadata();
+                let available_items = metadata.total_word_count.try_into().unwrap_or(usize::MAX);
+                let target_points = request.max_items.max(1).min(available_items.max(1));
                 let Ok(buckets) = query.coarse_presence_window(
                     request.start_time_ns,
                     request.end_time_ns,
                     target_points,
                 ) else {
-                    return WordLaneSnapshot::Error;
+                    return Some(WordLaneSnapshot::Error);
                 };
                 let count = buckets
                     .iter()
                     .map(|bucket| bucket.word_count)
                     .fold(0u64, u64::saturating_add);
                 if count > request.max_items as u64 {
-                    return WordLaneSnapshot::Presence(buckets);
+                    return Some(WordLaneSnapshot::Presence(buckets));
                 }
-                match query.exact_window(
-                    request.start_time_ns,
-                    request.end_time_ns,
-                    request.max_items.max(1),
-                ) {
+                match query.exact_window(request.start_time_ns, request.end_time_ns, target_points)
+                {
                     Ok(window) if window.complete => WordLaneSnapshot::Exact {
                         annotations: window.annotations,
-                        last_timestamp_ns: query.metadata().last_timestamp_ns,
+                        last_timestamp_ns: metadata.last_timestamp_ns,
                         display_format,
                     },
                     Ok(_) => WordLaneSnapshot::Presence(buckets),
@@ -159,6 +164,7 @@ impl CollectedWordLaneQuery {
                 }
             }
         }
+        .into()
     }
 }
 
@@ -168,7 +174,7 @@ impl CollectedLaneQuery for CollectedWordLaneQuery {
     }
 
     fn snapshot_generation(&self) -> Option<u64> {
-        let storage = self.storage.read().unwrap();
+        let storage = self.storage.try_read().ok()?;
         Some(match &*storage {
             WordLaneStorage::InMemory(storage) => storage.generation,
             WordLaneStorage::Indexed(indexed) => indexed.metadata().generation,
@@ -179,14 +185,13 @@ impl CollectedLaneQuery for CollectedWordLaneQuery {
         &self,
         request: CollectedLaneSnapshotRequest,
     ) -> Option<OpaqueCollectedLaneSnapshot> {
-        Some(OpaqueCollectedLaneSnapshot::new(Arc::new(
-            self.snapshot(request),
-        )))
+        self.try_snapshot(request)
+            .map(|snapshot| OpaqueCollectedLaneSnapshot::new(Arc::new(snapshot)))
     }
 
     fn nearest_time_boundary(&self, timestamp_ns: u64, max_distance_ns: u64) -> Option<u64> {
         let indexed_query = {
-            let storage = self.storage.read().unwrap();
+            let storage = self.storage.try_read().ok()?;
             match &*storage {
                 WordLaneStorage::InMemory(storage) => {
                     return nearest_annotation_boundary(
@@ -206,7 +211,7 @@ impl CollectedLaneQuery for CollectedWordLaneQuery {
     }
 
     fn timeline_extent_end_ns(&self) -> Option<u64> {
-        let storage = self.storage.read().unwrap();
+        let storage = self.storage.try_read().ok()?;
         match &*storage {
             WordLaneStorage::InMemory(storage) => storage
                 .annotations
@@ -217,12 +222,14 @@ impl CollectedLaneQuery for CollectedWordLaneQuery {
     }
 
     fn is_live(&self) -> bool {
-        let storage = self.storage.read().unwrap();
+        let Ok(storage) = self.storage.try_read() else {
+            return true;
+        };
         matches!(&*storage, WordLaneStorage::Indexed(indexed) if indexed.status() == StoreStatus::Live)
     }
 
     fn table_metadata(&self) -> Option<CollectedLaneTableMetadata> {
-        let storage = self.storage.read().unwrap();
+        let storage = self.storage.try_read().ok()?;
         match &*storage {
             WordLaneStorage::InMemory(storage) => Some(CollectedLaneTableMetadata {
                 generation: storage.generation,
@@ -252,7 +259,7 @@ impl CollectedLaneQuery for CollectedWordLaneQuery {
         }
 
         let source = {
-            let storage = self.storage.read().unwrap();
+            let storage = self.storage.try_read().ok()?;
             match &*storage {
                 WordLaneStorage::InMemory(storage) => Source::InMemory {
                     rows: storage
@@ -304,7 +311,9 @@ impl CollectedLaneQuery for CollectedWordLaneQuery {
     }
 
     fn storage_snapshot(&self) -> CollectedLaneStorageSnapshot {
-        let storage = self.storage.read().unwrap();
+        let Ok(storage) = self.storage.try_read() else {
+            return CollectedLaneStorageSnapshot::adapter_managed(true);
+        };
         match &*storage {
             WordLaneStorage::InMemory(storage) => {
                 let payload_bytes = storage
@@ -542,6 +551,7 @@ struct WordLane {
     eos: bool,
     writer: Option<IndexedAnnotationWriter>,
     retention: DerivedDataRetention,
+    in_memory: bool,
 }
 
 impl WordLane {
@@ -579,6 +589,7 @@ impl WordLane {
                             eos: false,
                             writer: None,
                             retention,
+                            in_memory: false,
                         };
                     }
                     Ok(None) => {}
@@ -600,6 +611,7 @@ impl WordLane {
                         eos: false,
                         writer: Some(writer),
                         retention,
+                        in_memory: false,
                     };
                 }
                 Err(error) => tracing::warn!(
@@ -623,6 +635,7 @@ impl WordLane {
             eos: false,
             writer: None,
             retention,
+            in_memory: true,
         }
     }
 }
@@ -661,7 +674,9 @@ impl CollectedLaneIngestor for WordLane {
                 tracing::warn!(lane = %self.name, %error, "indexed derived-data word lane failed; disabling further appends");
                 self.writer = None;
             }
-            if let WordLaneStorage::InMemory(storage) = &mut *self.storage.write().unwrap() {
+            if self.in_memory
+                && let WordLaneStorage::InMemory(storage) = &mut *self.storage.write().unwrap()
+            {
                 for batch in &batches {
                     append_words_to_in_memory_storage(storage, batch, self.retention);
                 }

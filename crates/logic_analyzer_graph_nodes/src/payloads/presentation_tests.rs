@@ -2,12 +2,14 @@ use std::sync::Arc;
 
 use egui::{Color32, Stroke};
 
+use logic_analyzer_graph_api::node::PayloadRegistration;
 use logic_analyzer_viewer::{
     AnnotationVisual, DerivedLaneId, ViewerLaneInteraction, ViewerLaneInteractionContext,
     ViewerLaneRenderer, ViewerLaneTheme, ViewerLaneTrack, ViewerLaneTrackId,
 };
 use signal_processing::{
-    DigitalLaneSnapshot, OpaqueCollectedLaneSnapshot, Sample, TriggerLaneSnapshot,
+    DigitalLaneSnapshot, NumberSample, OpaqueCollectedLaneSnapshot, Sample, TextSample, Trigger,
+    TriggerLaneSnapshot, Word,
 };
 
 use super::digital::DigitalSnapshotRenderer;
@@ -15,6 +17,27 @@ use super::trigger::TriggerSnapshotRenderer;
 use super::word::WordSnapshotRenderer;
 
 struct SemanticRenderer;
+
+#[test]
+fn every_built_in_lane_payload_supports_persistent_restoration() {
+    let registrations = inventory::iter::<PayloadRegistration>
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    for type_id in [
+        std::any::TypeId::of::<Sample>(),
+        std::any::TypeId::of::<Word>(),
+        std::any::TypeId::of::<Trigger>(),
+        std::any::TypeId::of::<NumberSample>(),
+        std::any::TypeId::of::<TextSample>(),
+    ] {
+        let registration = registrations
+            .iter()
+            .find(|registration| registration.kind().type_id() == type_id)
+            .expect("built-in lane payload registration");
+        assert!(registration.persistent_cache());
+    }
+}
 
 impl ViewerLaneRenderer for SemanticRenderer {
     fn annotation_visual(

@@ -2,7 +2,9 @@ use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
 use super::collector::{DRAIN_BATCH_SIZE, DerivedDataRetention};
+use super::indexed::{IndexedLaneQuery, IndexedLaneSnapshot, IndexedLaneWriter, indexed_lane};
 use super::storage::in_memory_storage_snapshot;
+use crate::Word;
 use crate::derived_index::{AppendOnlyMipmap, LaneFold, MipmapRecord};
 use crate::errors::WorkResult;
 use crate::events::NumberSample;
@@ -28,6 +30,7 @@ pub(crate) struct NumberLaneStorage {
 
 pub(crate) struct NumberLaneQuery {
     pub(crate) storage: Arc<RwLock<NumberLaneStorage>>,
+    pub(crate) indexed: Option<IndexedLaneQuery>,
 }
 
 impl CollectedLaneQuery for NumberLaneQuery {
@@ -36,14 +39,43 @@ impl CollectedLaneQuery for NumberLaneQuery {
     }
 
     fn snapshot_generation(&self) -> Option<u64> {
-        Some(self.storage.read().unwrap().generation)
+        self.indexed
+            .as_ref()
+            .map(IndexedLaneQuery::generation)
+            .or_else(|| {
+                self.storage
+                    .try_read()
+                    .ok()
+                    .map(|storage| storage.generation)
+            })
     }
 
     fn snapshot(
         &self,
         request: CollectedLaneSnapshotRequest,
     ) -> Option<OpaqueCollectedLaneSnapshot> {
-        let storage = self.storage.read().unwrap();
+        if let Some(indexed) = &self.indexed {
+            let previous = indexed
+                .latest_word_at_or_before(request.start_time_ns.saturating_sub(1))
+                .map(|word| NumberSample::new(word.value as i64, word.timestamp_ns));
+            let snapshot = match indexed.snapshot(
+                request.start_time_ns,
+                request.end_time_ns,
+                request.max_items,
+            ) {
+                IndexedLaneSnapshot::Exact(annotations) => {
+                    let mut values = previous.into_iter().collect::<Vec<_>>();
+                    values.extend(annotations.into_iter().map(|annotation| {
+                        NumberSample::new(annotation.value as i64, annotation.start_ns)
+                    }));
+                    NumberLaneSnapshot::Exact(values)
+                }
+                IndexedLaneSnapshot::Activity(records) => NumberLaneSnapshot::Activity(records),
+                IndexedLaneSnapshot::Error => return None,
+            };
+            return Some(OpaqueCollectedLaneSnapshot::new(Arc::new(snapshot)));
+        }
+        let storage = self.storage.try_read().ok()?;
         let first = storage
             .values
             .partition_point(|value| value.start_time_ns < request.start_time_ns)
@@ -64,7 +96,10 @@ impl CollectedLaneQuery for NumberLaneQuery {
     }
 
     fn nearest_time_boundary(&self, timestamp_ns: u64, max_distance_ns: u64) -> Option<u64> {
-        let storage = self.storage.read().unwrap();
+        if let Some(indexed) = &self.indexed {
+            return indexed.nearest_time_boundary(timestamp_ns, max_distance_ns);
+        }
+        let storage = self.storage.try_read().ok()?;
         let index = storage
             .values
             .partition_point(|value| value.start_time_ns <= timestamp_ns);
@@ -76,20 +111,32 @@ impl CollectedLaneQuery for NumberLaneQuery {
     }
 
     fn timeline_extent_end_ns(&self) -> Option<u64> {
+        if let Some(indexed) = &self.indexed {
+            return indexed.timeline_extent_end_ns();
+        }
         self.storage
-            .read()
-            .unwrap()
+            .try_read()
+            .ok()?
             .values
             .last()
             .map(|value| value.start_time_ns)
     }
 
     fn storage_snapshot(&self) -> CollectedLaneStorageSnapshot {
-        let storage = self.storage.read().unwrap();
+        if let Some(indexed) = &self.indexed {
+            return indexed.storage_snapshot();
+        }
+        let Ok(storage) = self.storage.try_read() else {
+            return CollectedLaneStorageSnapshot::adapter_managed(true);
+        };
         in_memory_storage_snapshot::<NumberSample>(
             storage.values.len(),
             storage.summary.resident_records(),
         )
+    }
+
+    fn is_live(&self) -> bool {
+        self.indexed.as_ref().is_some_and(IndexedLaneQuery::is_live)
     }
 }
 
@@ -121,19 +168,32 @@ struct NumberLane {
     buffer: VecDeque<NumberSample>,
     eos: bool,
     retention: DerivedDataRetention,
+    indexed: Option<IndexedLaneWriter>,
 }
 
 impl NumberLane {
     fn new(request: CollectedLaneRequest) -> Self {
         let storage = Arc::new(RwLock::new(NumberLaneStorage::default()));
+        let (indexed, indexed_query) = request.indexed_store().cloned().map_or(
+            (None, None),
+            |config| match indexed_lane(request.name(), config) {
+                Ok((writer, query)) => (Some(writer), Some(query)),
+                Err(error) => {
+                    tracing::warn!(lane = request.name(), %error, "could not create indexed number lane; using memory");
+                    (None, None)
+                }
+            },
+        );
         request.publish_query(Arc::new(NumberLaneQuery {
             storage: Arc::clone(&storage),
+            indexed: indexed_query,
         }));
         Self {
             storage,
             buffer: VecDeque::new(),
             eos: false,
             retention: request.retention(),
+            indexed,
         }
     }
 }
@@ -157,16 +217,29 @@ impl CollectedLaneIngestor for NumberLane {
         }
         let batch_len = batch.len();
         if !batch.is_empty() {
-            let mut storage = self.storage.write().unwrap();
-            for sample in &batch {
-                storage.summary.push(sample);
+            if let Some(indexed) = &mut self.indexed {
+                let words = batch
+                    .iter()
+                    .map(|sample| Word::new(sample.value as u64, sample.start_time_ns))
+                    .collect::<Vec<_>>();
+                indexed.append(&words);
+            } else {
+                let mut storage = self.storage.write().unwrap();
+                for sample in &batch {
+                    storage.summary.push(sample);
+                }
+                storage.values.extend(batch.iter().copied());
+                if let Some(target) = self.retention.trim_target(storage.values.len()) {
+                    let excess = storage.values.len() - target;
+                    storage.values.drain(..excess);
+                }
+                storage.generation = storage.generation.wrapping_add(1);
             }
-            storage.values.extend(batch.iter().copied());
-            if let Some(target) = self.retention.trim_target(storage.values.len()) {
-                let excess = storage.values.len() - target;
-                storage.values.drain(..excess);
-            }
-            storage.generation = storage.generation.wrapping_add(1);
+        }
+        if self.eos
+            && let Some(indexed) = &mut self.indexed
+        {
+            indexed.finish();
         }
         Ok(batch_len)
     }

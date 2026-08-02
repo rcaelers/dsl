@@ -602,6 +602,169 @@ fn level_adapters_publish_typed_snapshots_after_collection() {
 }
 
 #[test]
+fn built_in_scalar_and_event_adapters_reopen_persistent_indexed_lanes() {
+    let configs = (1_u8..=4)
+        .map(|key| LiveStoreConfig {
+            persistence: Some(crate::derived_word_store::PersistentStoreConfig::new(
+                [key; 32],
+            )),
+            ..LiveStoreConfig::default()
+        })
+        .collect::<Vec<_>>();
+    let mut payloads = PayloadRegistry::new();
+    register_test_payload_adapters(&mut payloads);
+    let lanes = DerivedLanes::new();
+    let digital = digital_payload_adapter()
+        .create_ingestor(
+            CollectedLaneRequest::new(
+                "digital",
+                0,
+                lanes.clone(),
+                payloads.descriptor::<Sample>().unwrap().clone(),
+                DerivedDataRetention::Unlimited,
+            )
+            .with_indexed_store(configs[0].clone()),
+        )
+        .unwrap();
+    let number = number_payload_adapter()
+        .create_ingestor(
+            CollectedLaneRequest::new(
+                "number",
+                1,
+                lanes.clone(),
+                payloads.descriptor::<NumberSample>().unwrap().clone(),
+                DerivedDataRetention::Unlimited,
+            )
+            .with_indexed_store(configs[1].clone()),
+        )
+        .unwrap();
+    let text = text_payload_adapter()
+        .create_ingestor(
+            CollectedLaneRequest::new(
+                "text",
+                2,
+                lanes.clone(),
+                payloads.descriptor::<TextSample>().unwrap().clone(),
+                DerivedDataRetention::Unlimited,
+            )
+            .with_indexed_store(configs[2].clone()),
+        )
+        .unwrap();
+    let trigger = trigger_payload_adapter()
+        .create_ingestor(
+            CollectedLaneRequest::new(
+                "trigger",
+                3,
+                lanes.clone(),
+                payloads.descriptor::<Trigger>().unwrap().clone(),
+                DerivedDataRetention::Unlimited,
+            )
+            .with_indexed_store(configs[3].clone()),
+        )
+        .unwrap();
+    let mut collector = DerivedDataCollector::new()
+        .with_ingestor(digital)
+        .with_ingestor(number)
+        .with_ingestor(text)
+        .with_ingestor(trigger);
+    let watchdog = Watchdog::new();
+    let (digital_sender, digital_receiver) = bounded(4);
+    digital_sender
+        .send(ChannelMessage::Sample(Sample::new(true, 10)))
+        .unwrap();
+    drop(digital_sender);
+    let (number_sender, number_receiver) = bounded(4);
+    number_sender
+        .send(ChannelMessage::Sample(NumberSample::new(-7, 20)))
+        .unwrap();
+    drop(number_sender);
+    let (text_sender, text_receiver) = bounded(4);
+    text_sender
+        .send(ChannelMessage::Sample(TextSample::new("cached", 30)))
+        .unwrap();
+    drop(text_sender);
+    let (trigger_sender, trigger_receiver) = bounded(4);
+    trigger_sender
+        .send(ChannelMessage::Sample(Trigger { timestamp_ns: 40 }))
+        .unwrap();
+    drop(trigger_sender);
+    run_sink(
+        &mut collector,
+        vec![
+            InputPort::new_with_watchdog(digital_receiver, &watchdog, "collector", "in0"),
+            InputPort::new_with_watchdog(number_receiver, &watchdog, "collector", "in1"),
+            InputPort::new_with_watchdog(text_receiver, &watchdog, "collector", "in2"),
+            InputPort::new_with_watchdog(trigger_receiver, &watchdog, "collector", "in3"),
+        ],
+    );
+
+    let reopened_lanes = DerivedLanes::new();
+    let reopened = [
+        digital_payload_adapter().create_ingestor(
+            CollectedLaneRequest::new(
+                "digital",
+                0,
+                reopened_lanes.clone(),
+                payloads.descriptor::<Sample>().unwrap().clone(),
+                DerivedDataRetention::Unlimited,
+            )
+            .with_indexed_store(configs[0].clone()),
+        ),
+        number_payload_adapter().create_ingestor(
+            CollectedLaneRequest::new(
+                "number",
+                1,
+                reopened_lanes.clone(),
+                payloads.descriptor::<NumberSample>().unwrap().clone(),
+                DerivedDataRetention::Unlimited,
+            )
+            .with_indexed_store(configs[1].clone()),
+        ),
+        text_payload_adapter().create_ingestor(
+            CollectedLaneRequest::new(
+                "text",
+                2,
+                reopened_lanes.clone(),
+                payloads.descriptor::<TextSample>().unwrap().clone(),
+                DerivedDataRetention::Unlimited,
+            )
+            .with_indexed_store(configs[2].clone()),
+        ),
+        trigger_payload_adapter().create_ingestor(
+            CollectedLaneRequest::new(
+                "trigger",
+                3,
+                reopened_lanes.clone(),
+                payloads.descriptor::<Trigger>().unwrap().clone(),
+                DerivedDataRetention::Unlimited,
+            )
+            .with_indexed_store(configs[3].clone()),
+        ),
+    ];
+    assert!(reopened.iter().all(Result::is_ok));
+
+    assert!(matches!(
+        lane_snapshot::<DigitalLaneSnapshot>(&lane(&reopened_lanes, "digital"), 0, 100, 8)
+            .as_ref(),
+        DigitalLaneSnapshot::Exact { samples, initial: false }
+            if samples == &[Sample::new(true, 10)]
+    ));
+    assert!(matches!(
+        lane_snapshot::<NumberLaneSnapshot>(&lane(&reopened_lanes, "number"), 0, 100, 8).as_ref(),
+        NumberLaneSnapshot::Exact(samples) if samples == &[NumberSample::new(-7, 20)]
+    ));
+    assert!(matches!(
+        lane_snapshot::<TextLaneSnapshot>(&lane(&reopened_lanes, "text"), 0, 100, 8).as_ref(),
+        TextLaneSnapshot::Exact(samples) if samples == &[TextSample::new("cached", 30)]
+    ));
+    assert!(matches!(
+        lane_snapshot::<TriggerLaneSnapshot>(&lane(&reopened_lanes, "trigger"), 0, 100, 8)
+            .as_ref(),
+        TriggerLaneSnapshot::Exact(markers) if markers == &[40]
+    ));
+}
+
+#[test]
 fn word_query_returns_only_a_bounded_visible_snapshot() {
     let query = CollectedWordLaneQuery::in_memory_for_test(InMemoryWordLaneStorage {
         annotations: vec![
@@ -901,6 +1064,7 @@ fn digital_query_returns_bounded_exact_or_activity_snapshots() {
     }
     let query = DigitalLaneQuery {
         storage: Arc::new(RwLock::new(storage)),
+        indexed: None,
     };
 
     let exact = query
@@ -942,6 +1106,7 @@ fn trigger_query_returns_bounded_exact_or_activity_snapshots() {
     }
     let query = TriggerLaneQuery {
         storage: Arc::new(RwLock::new(storage)),
+        indexed: None,
     };
 
     let exact = query
@@ -985,6 +1150,7 @@ fn number_and_text_queries_preserve_typed_values_and_bound_dense_windows() {
     }
     let number_query = NumberLaneQuery {
         storage: Arc::clone(&number_storage),
+        indexed: None,
     };
     let number_exact = number_query
         .snapshot(CollectedLaneSnapshotRequest {
@@ -1022,6 +1188,7 @@ fn number_and_text_queries_preserve_typed_values_and_bound_dense_windows() {
     }
     let text_query = TextLaneQuery {
         storage: Arc::clone(&text_storage),
+        indexed: None,
     };
     let text_exact = text_query
         .snapshot(CollectedLaneSnapshotRequest {

@@ -66,6 +66,14 @@ impl DerivedSnapshotCache {
         }
 
         let snapshot = lane.snapshot(request);
+        if snapshot.is_none()
+            && let Some(cached) = entries.iter().find(|cached| cached.request == request)
+        {
+            // A live adapter may decline a query rather than wait for its
+            // writer. Keep the last immutable snapshot so a busy collector
+            // can never stall or blank the UI thread.
+            return cached.snapshot.clone();
+        }
         if let Some(cached) = entries.iter_mut().find(|cached| cached.request == request) {
             *cached = DerivedSnapshotCacheEntry {
                 lane: lane.clone(),
@@ -118,6 +126,34 @@ mod derived_snapshot_tests {
         snapshots: AtomicU64,
     }
 
+    struct BusyQuery {
+        generation: AtomicU64,
+        available: AtomicBool,
+    }
+
+    impl CollectedLaneQuery for BusyQuery {
+        fn into_any(self: Arc<Self>) -> Arc<dyn std::any::Any + Send + Sync> {
+            self
+        }
+
+        fn snapshot_generation(&self) -> Option<u64> {
+            Some(self.generation.load(Ordering::Acquire))
+        }
+
+        fn snapshot(
+            &self,
+            _request: CollectedLaneSnapshotRequest,
+        ) -> Option<OpaqueCollectedLaneSnapshot> {
+            self.available
+                .load(Ordering::Acquire)
+                .then(|| OpaqueCollectedLaneSnapshot::new(Arc::new(42_u64)))
+        }
+
+        fn is_live(&self) -> bool {
+            true
+        }
+    }
+
     impl CollectedLaneQuery for TestQuery {
         fn into_any(self: Arc<Self>) -> Arc<dyn std::any::Any + Send + Sync> {
             self
@@ -142,7 +178,10 @@ mod derived_snapshot_tests {
         }
     }
 
-    fn published_lane(query: Arc<TestQuery>) -> OpaqueCollectedLane {
+    fn published_lane<Q>(query: Arc<Q>) -> OpaqueCollectedLane
+    where
+        Q: CollectedLaneQuery + 'static,
+    {
         let mut payloads = PayloadRegistry::new();
         payloads.register::<TestPayload>(PAYLOAD_ID).unwrap();
         let lanes = DerivedLanes::new();
@@ -227,5 +266,29 @@ mod derived_snapshot_tests {
             started,
         );
         assert_eq!(replacement.snapshots.load(Ordering::Acquire), 1);
+    }
+
+    #[test]
+    fn busy_live_query_keeps_the_last_complete_snapshot() {
+        let query = Arc::new(BusyQuery {
+            generation: AtomicU64::new(0),
+            available: AtomicBool::new(true),
+        });
+        let lane = published_lane(Arc::clone(&query));
+        let mut cache = DerivedSnapshotCache::new();
+        let started = Instant::now();
+        let first = cache
+            .snapshot_at(&lane, request(100), started)
+            .and_then(|snapshot| snapshot.value::<u64>())
+            .expect("initial complete snapshot");
+        assert_eq!(*first, 42);
+
+        query.available.store(false, Ordering::Release);
+        query.generation.store(1, Ordering::Release);
+        let retained = cache
+            .snapshot_at(&lane, request(100), started + LIVE_REFRESH_INTERVAL)
+            .and_then(|snapshot| snapshot.value::<u64>())
+            .expect("cached snapshot while the writer is busy");
+        assert_eq!(*retained, 42);
     }
 }

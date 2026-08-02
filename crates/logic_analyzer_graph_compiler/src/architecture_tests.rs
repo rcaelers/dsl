@@ -195,11 +195,11 @@ fn compiler_tests_build_graph_documents_without_the_widget() {
 fn compiler_cache_policy_uses_its_storage_backend_contract() {
     let policy = implementation_source(include_str!("cache_policy.rs"));
     assert!(!policy.contains("IndexedAnnotationStore"));
-    assert!(!policy.contains("signal_processing::cleanup_cache"));
+    assert!(policy.contains("derived_word_store::cleanup_cache"));
 
     let adapter = implementation_source(include_str!("derived_cache_backend.rs"));
     assert!(adapter.contains("IndexedAnnotationStore::open_persistent"));
-    assert!(adapter.contains("derived_word_store::cleanup_cache"));
+    assert!(!adapter.contains("derived_word_store::cleanup_cache"));
 
     let facade = include_str!("lib.rs");
     assert!(!facade.contains("cache_platform_native"));

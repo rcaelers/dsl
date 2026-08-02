@@ -2,7 +2,9 @@ use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
 use super::collector::{DRAIN_BATCH_SIZE, DerivedDataRetention};
+use super::indexed::{IndexedLaneQuery, IndexedLaneSnapshot, IndexedLaneWriter, indexed_lane};
 use super::storage::in_memory_storage_snapshot;
+use crate::Word;
 use crate::derived_index::{AppendOnlyMipmap, LaneFold, MipmapRecord};
 use crate::errors::WorkResult;
 use crate::events::Trigger;
@@ -30,6 +32,7 @@ pub(crate) struct TriggerLaneStorage {
 
 pub(crate) struct TriggerLaneQuery {
     pub(crate) storage: Arc<RwLock<TriggerLaneStorage>>,
+    pub(crate) indexed: Option<IndexedLaneQuery>,
 }
 
 impl CollectedLaneQuery for TriggerLaneQuery {
@@ -38,15 +41,38 @@ impl CollectedLaneQuery for TriggerLaneQuery {
     }
 
     fn snapshot_generation(&self) -> Option<u64> {
-        Some(self.storage.read().unwrap().generation)
+        self.indexed
+            .as_ref()
+            .map(IndexedLaneQuery::generation)
+            .or_else(|| {
+                self.storage
+                    .try_read()
+                    .ok()
+                    .map(|storage| storage.generation)
+            })
     }
 
     fn snapshot(
         &self,
         request: CollectedLaneSnapshotRequest,
     ) -> Option<OpaqueCollectedLaneSnapshot> {
-        let snapshot = {
-            let storage = self.storage.read().unwrap();
+        let snapshot = if let Some(indexed) = &self.indexed {
+            match indexed.snapshot(
+                request.start_time_ns,
+                request.end_time_ns,
+                request.max_items,
+            ) {
+                IndexedLaneSnapshot::Exact(annotations) => TriggerLaneSnapshot::Exact(
+                    annotations
+                        .into_iter()
+                        .map(|annotation| annotation.start_ns)
+                        .collect(),
+                ),
+                IndexedLaneSnapshot::Activity(records) => TriggerLaneSnapshot::Activity(records),
+                IndexedLaneSnapshot::Error => return None,
+            }
+        } else {
+            let storage = self.storage.try_read().ok()?;
             let first = storage
                 .timestamps
                 .partition_point(|timestamp| *timestamp < request.start_time_ns);
@@ -67,7 +93,10 @@ impl CollectedLaneQuery for TriggerLaneQuery {
     }
 
     fn nearest_time_boundary(&self, timestamp_ns: u64, max_distance_ns: u64) -> Option<u64> {
-        let storage = self.storage.read().unwrap();
+        if let Some(indexed) = &self.indexed {
+            return indexed.nearest_time_boundary(timestamp_ns, max_distance_ns);
+        }
+        let storage = self.storage.try_read().ok()?;
         let index = storage
             .timestamps
             .partition_point(|marker| *marker <= timestamp_ns);
@@ -79,15 +108,27 @@ impl CollectedLaneQuery for TriggerLaneQuery {
     }
 
     fn timeline_extent_end_ns(&self) -> Option<u64> {
-        self.storage.read().unwrap().timestamps.last().copied()
+        if let Some(indexed) = &self.indexed {
+            return indexed.timeline_extent_end_ns();
+        }
+        self.storage.try_read().ok()?.timestamps.last().copied()
     }
 
     fn storage_snapshot(&self) -> CollectedLaneStorageSnapshot {
-        let storage = self.storage.read().unwrap();
+        if let Some(indexed) = &self.indexed {
+            return indexed.storage_snapshot();
+        }
+        let Ok(storage) = self.storage.try_read() else {
+            return CollectedLaneStorageSnapshot::adapter_managed(true);
+        };
         in_memory_storage_snapshot::<u64>(
             storage.timestamps.len(),
             storage.summary.resident_records(),
         )
+    }
+
+    fn is_live(&self) -> bool {
+        self.indexed.as_ref().is_some_and(IndexedLaneQuery::is_live)
     }
 }
 
@@ -118,19 +159,32 @@ struct TriggerLane {
     buffer: VecDeque<Trigger>,
     eos: bool,
     retention: DerivedDataRetention,
+    indexed: Option<IndexedLaneWriter>,
 }
 
 impl TriggerLane {
     fn new(request: CollectedLaneRequest) -> Self {
         let storage = Arc::new(RwLock::new(TriggerLaneStorage::default()));
+        let (indexed, indexed_query) = request.indexed_store().cloned().map_or(
+            (None, None),
+            |config| match indexed_lane(request.name(), config) {
+                Ok((writer, query)) => (Some(writer), Some(query)),
+                Err(error) => {
+                    tracing::warn!(lane = request.name(), %error, "could not create indexed trigger lane; using memory");
+                    (None, None)
+                }
+            },
+        );
         request.publish_query(Arc::new(TriggerLaneQuery {
             storage: Arc::clone(&storage),
+            indexed: indexed_query,
         }));
         Self {
             storage,
             buffer: VecDeque::new(),
             eos: false,
             retention: request.retention(),
+            indexed,
         }
     }
 }
@@ -158,16 +212,29 @@ impl CollectedLaneIngestor for TriggerLane {
                 .iter()
                 .map(|trigger| trigger.timestamp_ns)
                 .collect::<Vec<_>>();
-            let mut storage = self.storage.write().unwrap();
-            for timestamp_ns in &timestamps {
-                storage.summary.push(timestamp_ns);
+            if let Some(indexed) = &mut self.indexed {
+                let words = timestamps
+                    .iter()
+                    .map(|timestamp_ns| Word::new(0, *timestamp_ns))
+                    .collect::<Vec<_>>();
+                indexed.append(&words);
+            } else {
+                let mut storage = self.storage.write().unwrap();
+                for timestamp_ns in &timestamps {
+                    storage.summary.push(timestamp_ns);
+                }
+                storage.timestamps.extend(timestamps.iter().copied());
+                if let Some(target) = self.retention.trim_target(storage.timestamps.len()) {
+                    let excess = storage.timestamps.len() - target;
+                    storage.timestamps.drain(..excess);
+                }
+                storage.generation = storage.generation.wrapping_add(1);
             }
-            storage.timestamps.extend(timestamps.iter().copied());
-            if let Some(target) = self.retention.trim_target(storage.timestamps.len()) {
-                let excess = storage.timestamps.len() - target;
-                storage.timestamps.drain(..excess);
-            }
-            storage.generation = storage.generation.wrapping_add(1);
+        }
+        if self.eos
+            && let Some(indexed) = &mut self.indexed
+        {
+            indexed.finish();
         }
         Ok(batch_len)
     }

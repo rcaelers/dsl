@@ -74,7 +74,7 @@ inventory::submit! {
 }
 
 inventory::submit! {
-    PayloadRegistration::subscribable::<signal_processing::Trigger>(
+    PayloadRegistration::subscribable_with_persistent_cache::<signal_processing::Trigger>(
         "org.logicconduit.trigger/v1",
         signal_processing::trigger_payload_adapter,
         presentation,

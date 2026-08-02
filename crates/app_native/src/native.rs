@@ -131,9 +131,7 @@ mod logging_tests {
     #[test]
     fn expands_an_application_subsystem_filter_to_its_local_target() {
         assert_eq!(
-            expand_application_log_directives(
-                "logic_conduit.logic_analyzer_processing=debug"
-            ),
+            expand_application_log_directives("logic_conduit.logic_analyzer_processing=debug"),
             "logic_analyzer_processing=debug"
         );
     }
@@ -145,7 +143,6 @@ mod logging_tests {
             "warn,eframe=info,logic_conduit=debug,logic_analyzer_ui=debug,logic_analyzer_graph_compiler=debug,logic_analyzer_processing=debug,logic_analyzer_viewer=debug,node_graph=debug,panel_layout=debug,trigger_editor=debug,input_bindings=debug,signal_processing=debug"
         );
     }
-
 }
 
 #[cfg(test)]
@@ -188,5 +185,4 @@ mod tests {
             Some(std::path::Path::new("pipeline.json"))
         );
     }
-
 }

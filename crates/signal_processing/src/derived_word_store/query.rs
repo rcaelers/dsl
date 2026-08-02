@@ -250,6 +250,13 @@ pub trait AnnotationQuery: Send + Sync {
         max_words: usize,
     ) -> AnnotationQueryResult<ExactAnnotationWindow>;
 
+    /// Returns the most recent stored value at or before a timeline point.
+    /// Level-valued payload adapters use this bounded predecessor lookup to
+    /// reconstruct the value at the left edge of a visible window.
+    fn latest_word_at_or_before(&self, _timestamp_ns: u64) -> AnnotationQueryResult<Option<Word>> {
+        Ok(None)
+    }
+
     fn nearest_boundary(
         &self,
         timestamp_ns: u64,

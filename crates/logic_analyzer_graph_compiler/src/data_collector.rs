@@ -7,7 +7,7 @@ use serde_json::Value;
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{NodeBuildContext, PortKind, ResolvedInputs};
 use node_graph::api::Socket;
-use signal_processing::{CollectedLaneRequest, DerivedDataCollector, ProcessNode};
+use signal_processing::{CollectedLaneRequest, DerivedDataCollector, LiveStoreConfig, ProcessNode};
 
 use super::graph::BuilderRegistry;
 
@@ -50,13 +50,23 @@ impl DataCollectorBuilder {
                 .descriptor_by_type_id(input.kind.type_id())
                 .ok_or_else(|| format!("collector cannot retain {:?}", input.kind))?
                 .clone();
-            let request = CollectedLaneRequest::new(
+            let mut request = CollectedLaneRequest::new(
                 lane_name,
                 *member,
                 ctx.derived_lanes().clone(),
                 descriptor,
                 ctx.derived_data_retention(),
             );
+            if let Some(persistent) = ctx.derived_word_cache(*member) {
+                request = request.with_indexed_store(
+                    LiveStoreConfig {
+                        persistence: Some(persistent.clone()),
+                        ..LiveStoreConfig::default()
+                    }
+                    .with_work_executor(ctx.work_executor())
+                    .with_artifact_repository(ctx.artifact_repository()),
+                );
+            }
             let (request, diagnostic_name) = registry
                 .configure_collected_lane_request(input.kind, request, *member, input, ctx)?;
             let adapter = registry
