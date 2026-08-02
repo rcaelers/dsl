@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::Path;
 use std::rc::Rc;
@@ -274,6 +274,103 @@ fn toggle_sampling_overlay(selected: &mut Vec<NodeId>, node: NodeId) {
     }
 }
 
+fn visible_output_subscriptions(
+    catalog: &[compiler::CollectedOutputSubscription],
+    graph: &GraphState,
+) -> Vec<compiler::CollectedOutputSubscription> {
+    let selected = viewer_output_selections(graph)
+        .into_iter()
+        .filter(|selection| selection.selected)
+        .map(|selection| (selection.node, selection.output))
+        .collect::<HashSet<_>>();
+    catalog
+        .iter()
+        .filter_map(|subscription| {
+            let mut subscription = subscription.clone();
+            subscription.lanes.retain(|lane| {
+                selected.contains(&(lane.input.source_node, lane.input.source_output))
+            });
+            (!subscription.lanes.is_empty()).then_some(subscription)
+        })
+        .collect()
+}
+
+fn visible_table_subscriptions(
+    catalog: &[compiler::CollectedTableSubscription],
+    graph: &GraphState,
+) -> Vec<compiler::CollectedTableSubscription> {
+    catalog
+        .iter()
+        .filter_map(|subscription| {
+            let mut subscription = subscription.clone();
+            subscription
+                .lanes
+                .retain(|lane| graph.nodes.contains_key(&lane.input.source_node));
+            (!subscription.lanes.is_empty()).then_some(subscription)
+        })
+        .collect()
+}
+
+fn merge_output_subscription_catalog(
+    catalog: &mut Vec<compiler::CollectedOutputSubscription>,
+    incoming: &[compiler::CollectedOutputSubscription],
+) {
+    for subscription in incoming {
+        for lane in &subscription.lanes {
+            for existing in catalog.iter_mut() {
+                existing.lanes.retain(|candidate| {
+                    candidate.input.source_node != lane.input.source_node
+                        || candidate.input.source_output != lane.input.source_output
+                });
+            }
+        }
+        let target = if let Some(existing) = catalog
+            .iter_mut()
+            .find(|existing| existing.runtime_name == subscription.runtime_name)
+        {
+            existing
+        } else {
+            catalog.push(compiler::CollectedOutputSubscription {
+                runtime_name: subscription.runtime_name.clone(),
+                lanes: Vec::new(),
+            });
+            catalog.last_mut().unwrap()
+        };
+        target.lanes.extend(subscription.lanes.iter().cloned());
+    }
+    catalog.retain(|subscription| !subscription.lanes.is_empty());
+}
+
+fn merge_table_subscription_catalog(
+    catalog: &mut Vec<compiler::CollectedTableSubscription>,
+    incoming: &[compiler::CollectedTableSubscription],
+) {
+    for subscription in incoming {
+        for lane in &subscription.lanes {
+            for existing in catalog.iter_mut() {
+                existing.lanes.retain(|candidate| {
+                    candidate.input.source_node != lane.input.source_node
+                        || candidate.input.source_output != lane.input.source_output
+                });
+            }
+        }
+        let target = if let Some(existing) = catalog
+            .iter_mut()
+            .find(|existing| existing.collector == subscription.collector)
+        {
+            existing
+        } else {
+            catalog.push(compiler::CollectedTableSubscription {
+                collector: subscription.collector,
+                lanes: Vec::new(),
+            });
+            catalog.last_mut().unwrap()
+        };
+        target.lanes.extend(subscription.lanes.iter().cloned());
+    }
+    catalog.retain(|subscription| !subscription.lanes.is_empty());
+}
+
 fn saved_viewer_lane_order(graph: &GraphState) -> Result<Vec<SavedViewerRow>, serde_json::Error> {
     Ok(graph
         .extension(VIEWER_LANE_ORDER_EXTENSION)?
@@ -459,6 +556,9 @@ pub struct App {
     pub(crate) plugin_panels: PluginPanels,
     pub(crate) memory_panel: MemoryPanel,
     pub(crate) presented_derived_lanes: signal_processing::DerivedLanes,
+    pub(crate) output_presentation_catalog: Vec<compiler::CollectedOutputSubscription>,
+    pub(crate) table_presentation_catalog: Vec<compiler::CollectedTableSubscription>,
+    pub(crate) presentation_graph_nodes: HashSet<NodeId>,
     pub(crate) capture_storage: Option<CaptureStorageSnapshot>,
     pub(crate) timeline_marker_owners: HashMap<String, (NodeId, String)>,
     pub(crate) timeline_marker_error: Option<String>,
@@ -1158,6 +1258,7 @@ impl App {
             graph_service.as_ref(),
             capture.backend_unavailable_reason(),
         );
+        let presentation_graph_nodes = widget.graph().nodes.keys().copied().collect();
         Self {
             node_graph: widget,
             logic_analyzer,
@@ -1197,6 +1298,9 @@ impl App {
             plugin_panels: PluginPanels::new(plugin_panel_registry),
             memory_panel: MemoryPanel::default(),
             presented_derived_lanes: signal_processing::DerivedLanes::new(),
+            output_presentation_catalog: Vec::new(),
+            table_presentation_catalog: Vec::new(),
+            presentation_graph_nodes,
             capture_storage: None,
             timeline_marker_owners: HashMap::new(),
             timeline_marker_error: None,
@@ -1466,7 +1570,14 @@ impl App {
             .filter_map(|selected| {
                 self.sampling_overlay_candidates
                     .iter()
-                    .find(|candidate| candidate.node_id() == *selected)
+                    .find(|candidate| {
+                        candidate.node_id() == *selected
+                            && self
+                                .node_graph
+                                .graph()
+                                .nodes
+                                .contains_key(&candidate.node_id())
+                    })
                     .map(|candidate| sampling_overlay_presentation(candidate.overlay()))
             })
             .collect();
@@ -1614,6 +1725,8 @@ impl App {
             run.stop();
         }
         self.running_graph_semantics = None;
+        self.output_presentation_catalog.clear();
+        self.table_presentation_catalog.clear();
         let lanes = signal_processing::DerivedLanes::new();
         self.set_presented_derived_lanes(lanes.clone());
         self.logic_analyzer
@@ -1626,7 +1739,21 @@ impl App {
     fn bind_run_data(&mut self, run_data: compiler::RunData) {
         let lanes = run_data.derived_lanes().clone();
         self.set_presented_derived_lanes(lanes.clone());
-        match waveform_presentation_registry(run_data.output_subscriptions()) {
+        self.output_presentation_catalog = run_data.output_subscriptions().to_vec();
+        self.table_presentation_catalog = run_data.table_subscriptions().to_vec();
+        self.bind_catalog_presentations();
+        self.plugin_panels.set_run_data(lanes);
+        self.set_sampling_overlay_candidates(run_data.sampling_overlays().to_vec());
+    }
+
+    fn bind_catalog_presentations(&mut self) {
+        let outputs = visible_output_subscriptions(
+            &self.output_presentation_catalog,
+            self.node_graph.graph(),
+        );
+        let tables =
+            visible_table_subscriptions(&self.table_presentation_catalog, self.node_graph.graph());
+        match waveform_presentation_registry(&outputs) {
             Ok(presentations) => self
                 .logic_analyzer
                 .set_waveform_presentations(presentations),
@@ -1634,14 +1761,36 @@ impl App {
                 "Could not bind collected output presentation: {error}"
             )),
         }
-        match decoder_table_registry(run_data.table_subscriptions()) {
-            Ok(tables) => self.decoder_panels.set_run_data(lanes.clone(), tables),
+        match decoder_table_registry(&tables) {
+            Ok(tables) => self
+                .decoder_panels
+                .set_run_data(self.presented_derived_lanes.clone(), tables),
             Err(error) => self.toasts.error(format!(
                 "Could not bind decoder-table presentation: {error}"
             )),
         }
-        self.plugin_panels.set_run_data(lanes);
-        self.set_sampling_overlay_candidates(run_data.sampling_overlays().to_vec());
+    }
+
+    fn merge_current_run_presentation_catalog(&mut self) {
+        let Some(run) = self.run.as_ref() else {
+            return;
+        };
+        let outputs = run.output_subscriptions().to_vec();
+        let tables = run.table_subscriptions().to_vec();
+        merge_output_subscription_catalog(&mut self.output_presentation_catalog, &outputs);
+        merge_table_subscription_catalog(&mut self.table_presentation_catalog, &tables);
+        self.bind_catalog_presentations();
+    }
+
+    fn synchronize_presentation_graph_nodes(&mut self) -> bool {
+        let graph_nodes = self.node_graph.graph().nodes.keys().copied().collect();
+        if self.presentation_graph_nodes == graph_nodes {
+            return false;
+        }
+        self.presentation_graph_nodes = graph_nodes;
+        self.bind_catalog_presentations();
+        self.refresh_sampling_overlay_ui();
+        true
     }
 
     fn restore_cached_derived_data(&mut self) {
@@ -1779,26 +1928,7 @@ impl App {
     }
 
     fn bind_current_run_presentations(&mut self) {
-        let Some(run) = self.run.as_ref() else {
-            return;
-        };
-        let waveform_presentations = waveform_presentation_registry(run.output_subscriptions());
-        let table_presentations = decoder_table_registry(run.table_subscriptions());
-        let lanes = run.derived_lanes().clone();
-        match waveform_presentations {
-            Ok(presentations) => self
-                .logic_analyzer
-                .set_waveform_presentations(presentations),
-            Err(error) => self.toasts.error(format!(
-                "Could not bind collected output presentation: {error}"
-            )),
-        }
-        match table_presentations {
-            Ok(tables) => self.decoder_panels.set_run_data(lanes, tables),
-            Err(error) => self.toasts.error(format!(
-                "Could not bind decoder-table presentation: {error}"
-            )),
-        }
+        self.merge_current_run_presentation_catalog();
     }
 
     fn apply_view_configuration_to_run(&mut self) {
@@ -2097,6 +2227,8 @@ impl App {
         if !contains_source {
             return;
         }
+        self.output_presentation_catalog.clear();
+        self.table_presentation_catalog.clear();
         let mut ctx = compiler::CompileCtx::default();
         self.supply_timeline_cursors(&mut ctx);
         self.set_presented_derived_lanes(ctx.derived_lanes().clone());
@@ -2114,24 +2246,7 @@ impl App {
             .start_live_analysis(&graph, &mut ctx, source)
         {
             Ok(run) => {
-                let run_data = ctx.run_data();
-                match waveform_presentation_registry(run_data.output_subscriptions()) {
-                    Ok(presentations) => self
-                        .logic_analyzer
-                        .set_waveform_presentations(presentations),
-                    Err(error) => self.toasts.error(format!(
-                        "Could not bind collected output presentation: {error}"
-                    )),
-                }
-                match decoder_table_registry(run_data.table_subscriptions()) {
-                    Ok(tables) => self
-                        .decoder_panels
-                        .set_run_data(run_data.derived_lanes().clone(), tables),
-                    Err(error) => self.toasts.error(format!(
-                        "Could not bind decoder-table presentation: {error}"
-                    )),
-                }
-                self.set_sampling_overlay_candidates(run_data.sampling_overlays().to_vec());
+                self.bind_run_data(ctx.run_data());
                 self.capture_analysis = Some(run);
                 self.publish_live_source_artifacts(true, false);
             }
@@ -2637,50 +2752,18 @@ impl App {
             return;
         }
 
-        let mut refresh_sampling_overlays = false;
+        let mut refresh_run_presentations = false;
         match self
             .graph_service
             .apply_run(run.as_mut(), self.node_graph.graph())
         {
             Ok(summary) if summary.is_empty() => {
                 self.running_graph_semantics = Some(graph_semantics.clone());
-                match waveform_presentation_registry(run.output_subscriptions()) {
-                    Ok(presentations) => self
-                        .logic_analyzer
-                        .set_waveform_presentations(presentations),
-                    Err(error) => self.toasts.error(format!(
-                        "Could not bind collected output presentation: {error}"
-                    )),
-                }
-                match decoder_table_registry(run.table_subscriptions()) {
-                    Ok(tables) => self
-                        .decoder_panels
-                        .set_run_data(run.derived_lanes().clone(), tables),
-                    Err(error) => self.toasts.error(format!(
-                        "Could not bind decoder-table presentation: {error}"
-                    )),
-                }
-                refresh_sampling_overlays = true;
+                refresh_run_presentations = true;
             }
             Ok(summary) => {
                 self.running_graph_semantics = Some(graph_semantics.clone());
-                match waveform_presentation_registry(run.output_subscriptions()) {
-                    Ok(presentations) => self
-                        .logic_analyzer
-                        .set_waveform_presentations(presentations),
-                    Err(error) => self.toasts.error(format!(
-                        "Could not bind collected output presentation: {error}"
-                    )),
-                }
-                match decoder_table_registry(run.table_subscriptions()) {
-                    Ok(tables) => self
-                        .decoder_panels
-                        .set_run_data(run.derived_lanes().clone(), tables),
-                    Err(error) => self.toasts.error(format!(
-                        "Could not bind decoder-table presentation: {error}"
-                    )),
-                }
-                refresh_sampling_overlays = true;
+                refresh_run_presentations = true;
                 self.toasts.info(format!(
                     "live: +{} −{} cfg {} restart {}",
                     summary.added, summary.removed, summary.configured, summary.restarted
@@ -2711,9 +2794,10 @@ impl App {
                 self.error_badges.push(id);
             }
         }
-        if refresh_sampling_overlays {
+        if refresh_run_presentations {
             let candidates = run.sampling_overlays().to_vec();
             self.set_sampling_overlay_candidates(candidates);
+            self.merge_current_run_presentation_catalog();
         }
     }
 
@@ -3560,9 +3644,13 @@ impl eframe::App for App {
         );
         self.panel_layout = panel_layout;
 
+        let presentation_ownership_changed = self.synchronize_presentation_graph_nodes();
         let view_panel_state_changed = self.node_graph.take_contributed_panel_state_changed();
         if viewer_subscriptions_changed || view_panel_state_changed {
             self.apply_view_configuration_to_run();
+            ui.ctx().request_repaint();
+        }
+        if presentation_ownership_changed {
             ui.ctx().request_repaint();
         }
 
@@ -3619,20 +3707,69 @@ impl eframe::App for App {
 #[cfg(test)]
 mod font_tests {
     use logic_analyzer_graph_api::node_support::{
-        TimelineMarkerReference, TimelineMarkerReferenceBindingDescriptor,
+        PortKind, ResolvedInput, TimelineMarkerReference, TimelineMarkerReferenceBindingDescriptor,
         TimelineMarkerReferenceChoice,
     };
-    use node_graph::{GraphState, NodeId, SocketIndicatorPresentation};
+    use logic_analyzer_graph_compiler::{
+        CollectedOutputLane, CollectedOutputSubscription, CollectedTableSubscription,
+    };
+    use node_graph::{GraphState, Node, NodeId, Socket, SocketIndicatorPresentation, SocketShape};
+    use signal_processing::Word;
 
     use super::{
         PluginPanelsState, SavedViewerRow, StatusAction, TIMELINE_CURSORS_EXTENSION,
-        ViewerSocketIndicator, bundled_symbol_fonts, install_fonts, save_panel_layout,
-        save_sampling_overlays, save_timeline_cursors, save_viewer_lane_heights,
-        save_viewer_lane_order, saved_panel_layout, saved_sampling_overlays,
-        saved_timeline_cursors, saved_viewer_lane_heights, saved_viewer_lane_order,
-        timeline_cursor_schema_version, timeline_marker_reference_binding_is_synchronized,
-        toggle_sampling_overlay,
+        ViewerSocketIndicator, bundled_symbol_fonts, install_fonts,
+        merge_output_subscription_catalog, save_panel_layout, save_sampling_overlays,
+        save_timeline_cursors, save_viewer_lane_heights, save_viewer_lane_order,
+        saved_panel_layout, saved_sampling_overlays, saved_timeline_cursors,
+        saved_viewer_lane_heights, saved_viewer_lane_order, timeline_cursor_schema_version,
+        timeline_marker_reference_binding_is_synchronized, toggle_sampling_overlay,
+        visible_output_subscriptions, visible_table_subscriptions,
     };
+
+    fn output_socket() -> Socket {
+        Socket {
+            schema_id: "out".to_owned(),
+            name: "Out".to_owned(),
+            type_name: "Word".to_owned(),
+            color: egui::Color32::WHITE,
+            shape: SocketShape::Circle,
+            allowed: Vec::new(),
+            resolved_type: None,
+            def_index: 0,
+            variadic: None,
+            visible: true,
+            editor_visible: true,
+            hidden: false,
+            has_control: false,
+            extensions: [("show_in_view".to_owned(), serde_json::Value::Bool(true))]
+                .into_iter()
+                .collect(),
+        }
+    }
+
+    fn output_subscription(source_node: NodeId) -> CollectedOutputSubscription {
+        CollectedOutputSubscription {
+            runtime_name: "collector".to_owned(),
+            lanes: vec![CollectedOutputLane {
+                member: 0,
+                lane_name: "Decoder.Out".to_owned(),
+                source_label: "Decoder".to_owned(),
+                input: ResolvedInput {
+                    kind: PortKind::of::<Word>(),
+                    source: "decoder.out".to_owned(),
+                    source_node,
+                    source_output: 0,
+                    source_node_title: "Decoder".to_owned(),
+                    word_display_format: None,
+                    lane_presentation: None,
+                    default_lane_presentation: None,
+                    decoder_table_column: None,
+                    capture_channel: None,
+                },
+            }],
+        }
+    }
 
     #[test]
     fn empty_cursor_choices_are_a_stable_synchronized_state() {
@@ -3748,6 +3885,34 @@ mod font_tests {
 
         toggle_sampling_overlay(&mut selected, NodeId(17));
         assert_eq!(selected, [NodeId(23)]);
+    }
+
+    #[test]
+    fn derived_lane_visibility_follows_node_delete_and_undo_without_losing_catalog_data() {
+        let mut graph = GraphState::default();
+        let node_id = graph.next_id();
+        let mut node = Node::blank(node_id, "Test Decoder", egui::Pos2::ZERO);
+        node.outputs.push(output_socket());
+        graph.add_node(node.clone());
+        let mut catalog = vec![output_subscription(node_id)];
+        let table_catalog = vec![CollectedTableSubscription {
+            collector: NodeId(99),
+            lanes: catalog[0].lanes.clone(),
+        }];
+
+        assert_eq!(visible_output_subscriptions(&catalog, &graph).len(), 1);
+        assert_eq!(visible_table_subscriptions(&table_catalog, &graph).len(), 1);
+
+        graph.remove_node(node_id);
+        assert!(visible_output_subscriptions(&catalog, &graph).is_empty());
+        assert!(visible_table_subscriptions(&table_catalog, &graph).is_empty());
+        merge_output_subscription_catalog(&mut catalog, &[]);
+        assert_eq!(catalog.len(), 1);
+
+        graph.add_node(node);
+        assert_eq!(visible_output_subscriptions(&catalog, &graph).len(), 1);
+        assert_eq!(visible_table_subscriptions(&table_catalog, &graph).len(), 1);
+        assert_eq!(catalog[0].lanes[0].lane_name, "Decoder.Out");
     }
 
     #[test]

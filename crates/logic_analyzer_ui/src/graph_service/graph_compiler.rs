@@ -12,8 +12,7 @@ use logic_analyzer_graph_compiler::{
 };
 use node_graph::{GraphState, NodeId};
 use signal_processing::{
-    AppManagerFactory, ConfigurationBoundary, DerivedLanes, DisconnectEvent, PersistentStoreConfig,
-    WorkExecutor,
+    AppManagerFactory, ConfigurationBoundary, DisconnectEvent, PersistentStoreConfig, WorkExecutor,
 };
 
 use super::contract::{GraphRun, GraphService};
@@ -30,10 +29,6 @@ impl GraphRun for LiveRun {
 
     fn sampling_overlays(&self) -> &[SamplingOverlayCandidate] {
         LiveRun::sampling_overlays(self)
-    }
-
-    fn derived_lanes(&self) -> &DerivedLanes {
-        LiveRun::derived_lanes(self)
     }
 
     fn output_subscriptions(&self) -> &[CollectedOutputSubscription] {

@@ -10,7 +10,7 @@ use logic_analyzer_graph_compiler::{
 };
 use node_graph::{GraphState, NodeId};
 use signal_processing::{
-    ArtifactRepository, ConfigurationBoundary, DerivedLanes, DisconnectEvent, PersistentStoreConfig,
+    ArtifactRepository, ConfigurationBoundary, DisconnectEvent, PersistentStoreConfig,
 };
 
 use super::contract::{GraphRun, GraphService};
@@ -21,24 +21,12 @@ struct FakeGraphService {
     contains_node: bool,
 }
 
+#[derive(Default)]
 struct FakeGraphRun {
-    derived_lanes: DerivedLanes,
     output_subscriptions: Vec<CollectedOutputSubscription>,
     table_subscriptions: Vec<CollectedTableSubscription>,
     source_readiness: SourceReadinessRegistry,
     stopping: bool,
-}
-
-impl Default for FakeGraphRun {
-    fn default() -> Self {
-        Self {
-            derived_lanes: DerivedLanes::new(),
-            output_subscriptions: Vec::new(),
-            table_subscriptions: Vec::new(),
-            source_readiness: SourceReadinessRegistry::default(),
-            stopping: false,
-        }
-    }
 }
 
 impl GraphRun for FakeGraphRun {
@@ -52,10 +40,6 @@ impl GraphRun for FakeGraphRun {
 
     fn sampling_overlays(&self) -> &[SamplingOverlayCandidate] {
         &[]
-    }
-
-    fn derived_lanes(&self) -> &DerivedLanes {
-        &self.derived_lanes
     }
 
     fn output_subscriptions(&self) -> &[CollectedOutputSubscription] {

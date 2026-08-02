@@ -15,7 +15,7 @@ use logic_analyzer_graph_compiler::{
 };
 use node_graph::{GraphState, NodeId};
 use signal_processing::{
-    ArtifactRepository, ConfigurationBoundary, DerivedLanes, DisconnectEvent, PersistentStoreConfig,
+    ArtifactRepository, ConfigurationBoundary, DisconnectEvent, PersistentStoreConfig,
 };
 
 use crate::live_capture::CaptureFeatureDiscovery;
@@ -26,8 +26,6 @@ pub(crate) trait GraphRun {
     fn persistent_cache_configs(&self) -> Vec<PersistentStoreConfig>;
 
     fn sampling_overlays(&self) -> &[SamplingOverlayCandidate];
-
-    fn derived_lanes(&self) -> &DerivedLanes;
 
     fn output_subscriptions(&self) -> &[CollectedOutputSubscription];
 

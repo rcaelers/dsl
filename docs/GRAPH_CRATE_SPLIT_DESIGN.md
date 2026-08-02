@@ -215,6 +215,13 @@ descriptions into waveform groups and tracks. Missing renderer registrations are
 binding errors. Live graph updates publish replacement subscription metadata before the UI
 rebinds presentations. The compiler only transports the descriptors.
 
+The UI retains a presentation catalog separately from the run-owned lane data and projects that
+catalog through the current graph's stable node and output identities. Deleting a producer node
+therefore removes its waveform and table presentations immediately without deleting cached data.
+Undoing or redoing the graph edit changes the projection again, so a restored node can reuse the
+same retained lane without rerunning the processing graph. New or reconfigured live outputs merge
+their replacement metadata into the catalog by stable source endpoint.
+
 `RunData` is the compiler-owned application-facing snapshot for both initial materialization and
 live runs. It consolidates retained `DerivedLanes`, output and table subscriptions, sampling plans,
 shared run diagnostics, and shared source readiness. Source readiness identifies file or live data
