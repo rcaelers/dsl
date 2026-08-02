@@ -265,7 +265,17 @@ Architecture enforcement rejects target conditionals, target-selected module pat
 inspection through `cfg!`, and target-specific dependencies outside `logic_analyzer_platform`, the
 native/web bootstrap crates, and the explicit processing-adapter allowlist. It also verifies that
 portable graph-node catalogs use one module tree on both targets and that core crates do not depend
-on the adapter crate.
+on the adapter crate. `scripts/check_platform_boundaries.rb` is the machine-readable owner of this
+allowlist. Its fixture tests and repository check run in CI before compilation; additions to the
+allowlist therefore require an architecture-document update and an explicit checker change.
+
+Application bootstrap enforcement rejects direct dependencies on storage, processing, compiler,
+viewer, and capture-export owners. The application crates may depend on the UI composition facade,
+the platform adapters they inject, and inventory or document types needed to register plugins and
+embedded graphs, but they do not own execution or data-plane policy. Target-conditioned synthetic
+sources and discard sinks are rejected even in otherwise allowlisted target-selection locations;
+those portable implementations are chosen through explicit graph configuration or injected
+capabilities.
 
 ## Enforcement
 

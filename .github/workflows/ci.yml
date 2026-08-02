@@ -26,6 +26,10 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Check Rust module structure
         run: ruby scripts/check_rust_module_structure.rb
+      - name: Test and check native/web platform boundaries
+        run: |
+          ruby scripts/check_platform_boundaries_test.rb
+          ruby scripts/check_platform_boundaries.rb
       - name: Check UI processing boundary
         run: |
           if rg -n 'logic-analyzer-processing|logic_analyzer_processing' crates/logic_analyzer_ui; then

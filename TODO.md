@@ -80,17 +80,6 @@ Task IDs start with their ownership category and remain stable when task wording
   a capture-integrity event. Keep the existing generic lifecycle, integrity, and storage contracts
   in `signal_processing`, with no platform conditionals in their consumers.
 
-### Unified native and web data plane
-
-Detailed architecture and capability contracts are documented in
-[`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
-
-- [platform.data-plane.boundary-enforcement] Extend architecture checks to reject target conditionals,
-  target-selected modules, `cfg!` target inspection, and target-specific dependencies in every reusable crate except
-  `logic_analyzer_platform` and explicitly allowlisted complete file-I/O adapter leaves in
-  `logic_analyzer_processing`. Check that application crates remain bootstrap-only, portable node catalogs compile
-  from one module tree, and synthetic sources or discard sinks are selected explicitly rather than by target.
-
 ### Node-graph extraction
 
 - [graph.extraction.standalone-crate] Prepare `node-graph` for an eventual separate repository: replace workspace-inherited

@@ -55,27 +55,28 @@ impl MenuShortcut {
             consumed
         })
     }
-}
 
-impl fmt::Display for MenuShortcut {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    /// Formats the shortcut for the operating system reported by the host UI.
+    pub fn format(self, is_mac: bool) -> String {
+        let mut result = String::new();
         if self.modifiers.command {
-            if cfg!(target_os = "macos") {
-                write!(f, "⌘ ")?;
+            if is_mac {
+                result.push_str("⌘ ");
             } else {
-                write!(f, "^ ")?;
+                result.push_str("^ ");
             }
         }
         if self.modifiers.ctrl {
-            write!(f, "^ ")?;
+            result.push_str("^ ");
         }
         if self.modifiers.shift {
-            write!(f, "⇧ ")?;
+            result.push_str("⇧ ");
         }
         if self.modifiers.alt {
-            write!(f, "Alt+")?;
+            result.push_str("Alt+");
         }
-        write!(f, "{}", self.key.name())
+        result.push_str(self.key.name());
+        result
     }
 }
 
@@ -137,18 +138,13 @@ impl ModifierSpec {
             alt: self.alt,
             ctrl: self.control,
             shift: self.shift,
-            mac_cmd: cfg!(target_os = "macos") && self.command,
+            mac_cmd: false,
             command: self.command,
         }
     }
 
     pub fn matches(self, actual: Modifiers) -> bool {
-        let expected_control = self.control || (!cfg!(target_os = "macos") && self.command);
-        let expected_mac_command = cfg!(target_os = "macos") && self.command;
-        self.alt == actual.alt
-            && expected_control == actual.ctrl
-            && self.shift == actual.shift
-            && expected_mac_command == actual.mac_cmd
+        actual.matches_exact(self.to_egui())
     }
 }
 
@@ -527,7 +523,7 @@ impl fmt::Display for Binding {
                 write!(
                     formatter,
                     "{}",
-                    shortcut.format(&egui::ModifierNames::NAMES, cfg!(target_os = "macos"))
+                    shortcut.format(&egui::ModifierNames::NAMES, false)
                 )
             }
             Trigger::Pointer { button, .. } => write!(formatter, "{button:?}"),
@@ -610,6 +606,37 @@ fn parse_key(name: &str) -> Option<Key> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn command_bindings_follow_runtime_modifier_semantics() {
+        let command = ModifierSpec {
+            command: true,
+            ..ModifierSpec::default()
+        };
+        let native_non_mac = Modifiers {
+            ctrl: true,
+            command: true,
+            ..Modifiers::default()
+        };
+        let native_mac = Modifiers {
+            mac_cmd: true,
+            command: true,
+            ..Modifiers::default()
+        };
+
+        assert!(command.matches(native_non_mac));
+        assert!(command.matches(native_mac));
+        assert!(!command.matches(Modifiers::NONE));
+    }
+
+    #[test]
+    fn menu_shortcuts_use_the_host_operating_system_not_the_compile_target() {
+        let shortcut =
+            MenuShortcut::from_keyboard(KeyboardShortcut::new(Modifiers::COMMAND, Key::S));
+
+        assert_eq!(shortcut.format(false), "^ S");
+        assert_eq!(shortcut.format(true), "⌘ S");
+    }
 
     #[test]
     fn specific_context_shadows_global_and_menu_bindings_are_not_hints() {

@@ -774,7 +774,9 @@ portable.
 target-selected files, or target-specific dependencies. Portable processing code in
 `logic_analyzer_processing` follows the same rule. Shared codecs, indexes, cache policy, source
 preparation, graph lowering, viewer queries, and node contracts therefore compile from exactly the
-same source files. Runtime capability values describe what the injected host can do.
+same source files. Runtime capability values describe what the injected host can do. CI executes
+`scripts/check_platform_boundaries.rb`, whose explicit source and dependency allowlists implement
+this boundary and whose fixture suite verifies that representative violations are rejected.
 
 ### Browser constraints informing the proposal
 

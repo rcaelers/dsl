@@ -1552,7 +1552,7 @@ fn area_menu_button(
     let mut button = egui::Button::new(egui::WidgetText::LayoutJob(job.into()))
         .wrap_mode(egui::TextWrapMode::Extend);
     if let Some(shortcut) = shortcut {
-        button = button.right_text(shortcut.to_string());
+        button = button.right_text(shortcut.format(ui.ctx().os().is_mac()));
     }
     ui.add_enabled(enabled, button)
 }
@@ -3317,7 +3317,10 @@ mod tests {
     fn area_menu_uses_shared_shortcut_formatter() {
         for (key, expected) in [(egui::Key::Space, "^ Space"), (egui::Key::A, "^ A")] {
             let shortcut = KeyboardShortcut::new(egui::Modifiers::CTRL, key);
-            assert_eq!(MenuShortcut::from_keyboard(shortcut).to_string(), expected);
+            assert_eq!(
+                MenuShortcut::from_keyboard(shortcut).format(false),
+                expected
+            );
         }
     }
 

@@ -626,7 +626,7 @@ impl<T: Clone> Menu<T> {
                             .fill(fill)
                             .wrap_mode(egui::TextWrapMode::Extend);
                         if let Some(sc) = entry.shortcut {
-                            btn = btn.right_text(sc.to_string());
+                            btn = btn.right_text(sc.format(ui.ctx().os().is_mac()));
                         }
                         let btn =
                             btn.min_size(egui::vec2(column_width, ui.spacing().interact_size.y));
@@ -709,7 +709,9 @@ impl<T: Clone> Menu<T> {
                     MenuKind::SubMenu(_) => {
                         Some(egui::containers::menu::SubMenuButton::RIGHT_ARROW.to_owned())
                     }
-                    MenuKind::Action(_) => entry.shortcut.map(|shortcut| shortcut.to_string()),
+                    MenuKind::Action(_) => entry
+                        .shortcut
+                        .map(|shortcut| shortcut.format(ui.ctx().os().is_mac())),
                     MenuKind::Palette(_) | MenuKind::Separator => None,
                 };
                 let right_width = right_text.map_or(0.0, |text| {
