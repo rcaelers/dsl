@@ -1,4 +1,4 @@
-mod builder;
+pub(crate) mod builder;
 mod capture_configuration;
 mod definition;
 mod implementation;
@@ -7,5 +7,3 @@ mod live_edit;
 mod registration;
 mod trigger;
 mod trigger_lowering;
-
-pub(crate) use builder::runtime_builder_override;

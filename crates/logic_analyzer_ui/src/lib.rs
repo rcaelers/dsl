@@ -30,7 +30,8 @@ pub use capture_export_service::{
     CaptureExportStatus, unavailable_capture_export_service,
 };
 pub use host_service::{
-    DecodedBlockCacheSnapshot, HostCommand, HostService, OpenDialog, SaveDialog,
+    DecodedBlockCacheSnapshot, HostCommand, HostService, HostUiCapabilities, ModifierKeyLabels,
+    OpenDialog, SaveDialog,
 };
 pub use node_registry::build_node_registry;
 pub use plugin_panel::{PluginPanel, PluginPanelContext, PluginPanelIcon, UiPanelRegistration};

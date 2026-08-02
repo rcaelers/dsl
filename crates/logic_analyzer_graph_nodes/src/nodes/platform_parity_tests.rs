@@ -63,12 +63,7 @@ const EXPECTATIONS: &str = r###"
         "cache": true,
         "index": true
       },
-      "native_presentation": {"kind": "none"},
-      "wasm_presentation": {
-        "kind": "in_memory",
-        "count": 2,
-        "excluded": []
-      },
+      "presentation": {"kind": "none"},
       "cache_identity": "dynamic"
     },
     {
@@ -161,8 +156,7 @@ const EXPECTATIONS: &str = r###"
         "cache": true,
         "index": true
       },
-      "native_presentation": {"kind": "channels", "count": 16},
-      "wasm_presentation": {"kind": "channels", "count": 16},
+      "presentation": {"kind": "channels", "count": 16},
       "cache_identity": "not_capture"
     },
     {
@@ -216,12 +210,7 @@ const EXPECTATIONS: &str = r###"
         "cache": true,
         "index": true
       },
-      "native_presentation": {
-        "kind": "in_memory",
-        "count": 15,
-        "excluded": [9]
-      },
-      "wasm_presentation": {
+      "presentation": {
         "kind": "in_memory",
         "count": 15,
         "excluded": [9]
@@ -262,8 +251,7 @@ const EXPECTATIONS: &str = r###"
       ],
       "outputs": {"count": 0},
       "lifecycle": null,
-      "native_presentation": {"kind": "none"},
-      "wasm_presentation": {"kind": "none"},
+      "presentation": {"kind": "none"},
       "cache_identity": "not_capture"
     },
     {
@@ -288,8 +276,7 @@ const EXPECTATIONS: &str = r###"
       ],
       "outputs": {"count": 0},
       "lifecycle": null,
-      "native_presentation": {"kind": "none"},
-      "wasm_presentation": {"kind": "none"},
+      "presentation": {"kind": "none"},
       "cache_identity": "not_capture"
     },
     {
@@ -331,16 +318,14 @@ const EXPECTATIONS: &str = r###"
       ],
       "outputs": {"count": 0},
       "lifecycle": null,
-      "native_presentation": {"kind": "none"},
-      "wasm_presentation": {"kind": "none"},
+      "presentation": {"kind": "none"},
       "cache_identity": "not_capture"
     }
   ],
-  "intentionally_unavailable": [
+  "registered_nodes": [
     {
       "stable_id": "org.logicconduit.graph-node.decoders.sigrok-decoder/v1",
-      "name": "Sigrok Decoder",
-      "available_on": "native"
+      "name": "Sigrok Decoder"
     }
   ]
 }
@@ -349,7 +334,7 @@ const EXPECTATIONS: &str = r###"
 #[derive(Deserialize)]
 struct Expectations {
     portable_nodes: Vec<NodeExpectation>,
-    intentionally_unavailable: Vec<UnavailableNodeExpectation>,
+    registered_nodes: Vec<RegisteredNodeExpectation>,
 }
 
 #[derive(Deserialize)]
@@ -362,16 +347,14 @@ struct NodeExpectation {
     inputs: Vec<InputExpectation>,
     outputs: OutputExpectation,
     lifecycle: Option<LifecycleExpectation>,
-    native_presentation: PresentationExpectation,
-    wasm_presentation: PresentationExpectation,
+    presentation: PresentationExpectation,
     cache_identity: String,
 }
 
 #[derive(Deserialize)]
-struct UnavailableNodeExpectation {
+struct RegisteredNodeExpectation {
     stable_id: String,
     name: String,
-    available_on: String,
 }
 
 #[derive(Deserialize)]
@@ -426,8 +409,7 @@ struct PresentationExpectation {
     excluded: Vec<usize>,
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[test]
 fn portable_capture_catalog_matches_shared_availability_contract() {
     crate::link();
     let expected = expectations();
@@ -439,27 +421,14 @@ fn portable_capture_catalog_matches_shared_availability_contract() {
         assert_eq!(registration.name(), node.name);
     }
 
-    for node in &expected.intentionally_unavailable {
-        let actual = registration(&registrations, &node.stable_id);
-        match node.available_on.as_str() {
-            "native" if cfg!(target_arch = "wasm32") => assert!(
-                actual.is_none(),
-                "native-only node '{}' leaked into the wasm catalog",
-                node.stable_id
-            ),
-            "native" => assert_eq!(
-                actual
-                    .unwrap_or_else(|| panic!("missing native node '{}'", node.stable_id))
-                    .name(),
-                node.name
-            ),
-            target => panic!("unsupported availability target '{target}'"),
-        }
+    for node in &expected.registered_nodes {
+        let actual = registration(&registrations, &node.stable_id)
+            .unwrap_or_else(|| panic!("portable node '{}' is unavailable", node.stable_id));
+        assert_eq!(actual.name(), node.name);
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[test]
 fn portable_capture_nodes_match_shared_graph_contracts() {
     crate::link();
     let expected = expectations();
@@ -491,8 +460,7 @@ fn portable_capture_nodes_match_shared_graph_contracts() {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[test]
 fn portable_capture_nodes_lower_through_the_same_neutral_factory_contracts() {
     crate::link();
     let expected = expectations();
@@ -669,11 +637,7 @@ fn assert_lifecycle(builder: &dyn RuntimeBuilder, expectation: &NodeExpectation)
 }
 
 fn assert_presentation(builder: &dyn RuntimeBuilder, state: &Value, node: &NodeExpectation) {
-    let expected = if cfg!(target_arch = "wasm32") {
-        &node.wasm_presentation
-    } else {
-        &node.native_presentation
-    };
+    let expected = &node.presentation;
     let presentation = builder
         .capture_presentation(state)
         .unwrap_or_else(|error| panic!("{} presentation failed: {error}", node.stable_id));

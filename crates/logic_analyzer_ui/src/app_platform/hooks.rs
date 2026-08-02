@@ -7,7 +7,6 @@ use crate::app::App;
 use crate::app_platform::{FileCommand, GuardedAction};
 use crate::host_service::{HostCommand, OpenDialog, SaveDialog};
 use crate::live_capture::{CaptureCoordinatorContract, CaptureRawExportFormat};
-#[cfg(not(target_os = "macos"))]
 use crate::product::APPLICATION_NAME;
 
 impl App {
@@ -105,8 +104,7 @@ impl App {
             self.execute_file_command(command, ctx);
         }
 
-        #[cfg(not(target_os = "macos"))]
-        {
+        if self.host_ui_capabilities.viewport_close_guard {
             let close_requested = ctx.input(|input| input.viewport().close_requested());
             if !self.platform.allow_close && close_requested {
                 if self.has_unsaved_changes() {
@@ -121,12 +119,17 @@ impl App {
     }
 
     pub(crate) fn platform_save(&mut self, storage: &mut dyn eframe::Storage) {
+        if let Err(error) = self.sync_panel_layout_setting() {
+            self.toasts
+                .error(format!("Could not update the graph panel layout: {error}"));
+        }
         self.platform.save(storage, self.node_graph.ui_prefs());
     }
 
-    pub(crate) fn platform_before_ui(&mut self, _ui: &mut egui::Ui) {
-        #[cfg(not(target_os = "macos"))]
-        self.show_menu_bar(_ui);
+    pub(crate) fn platform_before_ui(&mut self, ui: &mut egui::Ui) {
+        if !self.host_ui_capabilities.system_menu_bar {
+            self.show_menu_bar(ui);
+        }
     }
 
     pub(crate) fn platform_sync_capture(&mut self) {
@@ -634,7 +637,6 @@ impl App {
         }
     }
 
-    #[cfg(not(target_os = "macos"))]
     fn show_menu_bar(&mut self, ui: &mut egui::Ui) {
         let shortcut = |action| {
             self.input_bindings
@@ -648,7 +650,9 @@ impl App {
         let quit_shortcut = shortcut("quit");
         let run_shortcut = shortcut("run");
         let stop_shortcut = shortcut("stop");
-        let mut command = if ui.input_mut(|input| input.consume_shortcut(&new_shortcut)) {
+        let mut command = if !self.host_ui_capabilities.direct_document_access {
+            None
+        } else if ui.input_mut(|input| input.consume_shortcut(&new_shortcut)) {
             Some(FileCommand::New)
         } else if ui.input_mut(|input| input.consume_shortcut(&load_shortcut)) {
             Some(FileCommand::Load)
@@ -672,106 +676,108 @@ impl App {
         }
 
         egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("File", |ui| {
-                if ui
-                    .add(
-                        egui::Button::new("New")
-                            .shortcut_text(ui.ctx().format_shortcut(&new_shortcut)),
-                    )
-                    .clicked()
-                {
-                    command = Some(FileCommand::New);
-                    ui.close();
-                }
-                if ui
-                    .add(
-                        egui::Button::new("Load...")
-                            .shortcut_text(ui.ctx().format_shortcut(&load_shortcut)),
-                    )
-                    .clicked()
-                {
-                    command = Some(FileCommand::Load);
-                    ui.close();
-                }
-                ui.menu_button("Open Recent", |ui| {
-                    let existing: Vec<PathBuf> = self
-                        .recent_files()
-                        .iter()
-                        .filter(|path| path.exists())
-                        .cloned()
-                        .collect();
-                    if existing.is_empty() {
-                        ui.weak("No recent files");
-                    } else {
-                        for path in &existing {
-                            let label = path
-                                .file_name()
-                                .and_then(|name| name.to_str())
-                                .unwrap_or("?");
-                            if ui.button(label).clicked() {
-                                command = Some(FileCommand::LoadPath(path.clone()));
-                                ui.close();
+            if self.host_ui_capabilities.direct_document_access {
+                ui.menu_button("File", |ui| {
+                    if ui
+                        .add(
+                            egui::Button::new("New")
+                                .shortcut_text(ui.ctx().format_shortcut(&new_shortcut)),
+                        )
+                        .clicked()
+                    {
+                        command = Some(FileCommand::New);
+                        ui.close();
+                    }
+                    if ui
+                        .add(
+                            egui::Button::new("Load...")
+                                .shortcut_text(ui.ctx().format_shortcut(&load_shortcut)),
+                        )
+                        .clicked()
+                    {
+                        command = Some(FileCommand::Load);
+                        ui.close();
+                    }
+                    ui.menu_button("Open Recent", |ui| {
+                        let existing: Vec<PathBuf> = self
+                            .recent_files()
+                            .iter()
+                            .filter(|path| self.host_service.document_exists(path))
+                            .cloned()
+                            .collect();
+                        if existing.is_empty() {
+                            ui.weak("No recent files");
+                        } else {
+                            for path in &existing {
+                                let label = path
+                                    .file_name()
+                                    .and_then(|name| name.to_str())
+                                    .unwrap_or("?");
+                                if ui.button(label).clicked() {
+                                    command = Some(FileCommand::LoadPath(path.clone()));
+                                    ui.close();
+                                }
                             }
                         }
+                        ui.separator();
+                        if ui
+                            .add_enabled(!existing.is_empty(), egui::Button::new("Clear Recent"))
+                            .clicked()
+                        {
+                            command = Some(FileCommand::ClearRecent);
+                            ui.close();
+                        }
+                    });
+                    if ui
+                        .add(
+                            egui::Button::new("Save")
+                                .shortcut_text(ui.ctx().format_shortcut(&save_shortcut)),
+                        )
+                        .clicked()
+                    {
+                        command = Some(FileCommand::Save);
+                        ui.close();
+                    }
+                    if ui
+                        .add(
+                            egui::Button::new("Save As...")
+                                .shortcut_text(ui.ctx().format_shortcut(&save_as_shortcut)),
+                        )
+                        .clicked()
+                    {
+                        command = Some(FileCommand::SaveAs);
+                        ui.close();
+                    }
+                    ui.separator();
+                    let can_save_capture = self.capture.current_session_id().is_some()
+                        && !self.capture.is_active()
+                        && self.capture.export_status().is_none();
+                    if ui
+                        .add_enabled(can_save_capture, egui::Button::new("Save Capture Data..."))
+                        .on_disabled_hover_text("Finish a capture before saving its data")
+                        .clicked()
+                    {
+                        command = Some(FileCommand::SaveCaptureData);
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Preferences...").clicked() {
+                        self.preferences.open();
+                        ui.close();
                     }
                     ui.separator();
                     if ui
-                        .add_enabled(!existing.is_empty(), egui::Button::new("Clear Recent"))
+                        .add(
+                            egui::Button::new("Quit")
+                                .shortcut_text(ui.ctx().format_shortcut(&quit_shortcut)),
+                        )
                         .clicked()
                     {
-                        command = Some(FileCommand::ClearRecent);
+                        command = Some(FileCommand::Quit);
                         ui.close();
                     }
                 });
-                if ui
-                    .add(
-                        egui::Button::new("Save")
-                            .shortcut_text(ui.ctx().format_shortcut(&save_shortcut)),
-                    )
-                    .clicked()
-                {
-                    command = Some(FileCommand::Save);
-                    ui.close();
-                }
-                if ui
-                    .add(
-                        egui::Button::new("Save As...")
-                            .shortcut_text(ui.ctx().format_shortcut(&save_as_shortcut)),
-                    )
-                    .clicked()
-                {
-                    command = Some(FileCommand::SaveAs);
-                    ui.close();
-                }
-                ui.separator();
-                let can_save_capture = self.capture.current_session_id().is_some()
-                    && !self.capture.is_active()
-                    && self.capture.export_status().is_none();
-                if ui
-                    .add_enabled(can_save_capture, egui::Button::new("Save Capture Data..."))
-                    .on_disabled_hover_text("Finish a capture before saving its data")
-                    .clicked()
-                {
-                    command = Some(FileCommand::SaveCaptureData);
-                    ui.close();
-                }
-                ui.separator();
-                if ui.button("Preferences...").clicked() {
-                    self.preferences.open();
-                    ui.close();
-                }
-                ui.separator();
-                if ui
-                    .add(
-                        egui::Button::new("Quit")
-                            .shortcut_text(ui.ctx().format_shortcut(&quit_shortcut)),
-                    )
-                    .clicked()
-                {
-                    command = Some(FileCommand::Quit);
-                    ui.close();
-                }
-            });
+            }
             ui.menu_button("View", |ui| {
                 for (label, content_id, icon) in [
                     (

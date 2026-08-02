@@ -8,7 +8,6 @@
 //! and block cache via `Arc<Mutex<..>>`.
 
 use std::collections::{HashMap, VecDeque};
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -23,9 +22,8 @@ use signal_processing::{
     WorkTask,
 };
 
-use crate::support::capture_archive::{CaptureArchive, FileByteSource, ZipCaptureArchive};
+use crate::support::capture_archive::{CaptureArchive, ZipCaptureArchive};
 use crate::support::capture_format::get_packed_bit;
-use crate::support::capture_index::capture_cache_identity;
 use crate::support::dsl_file::{DslChunkedCaptureReader, DslFileCaptureDataSource, parse_header};
 const DEFAULT_BLOCK_CACHE_WINDOWS: usize = 2;
 
@@ -263,34 +261,6 @@ impl DslFileSource {
                 display_name,
             }),
         }
-    }
-
-    /// Temporary native-path entry point for developer tools and format tests.
-    pub fn indexed_capture_presentation_from_path(
-        path: impl AsRef<Path>,
-    ) -> Result<signal_processing::IndexedCapturePresentation> {
-        let path = path.as_ref();
-        let source = Arc::new(FileByteSource::open(path)?);
-        Ok(Self::indexed_capture_presentation(
-            source,
-            path.display().to_string(),
-        ))
-    }
-
-    /// Temporary native-path entry point for developer benchmarks.
-    pub fn capture_cache_identity(path: impl AsRef<Path>) -> Result<[u8; 32]> {
-        let path = path.as_ref();
-        let source = Arc::new(FileByteSource::open(path)?);
-        let identity = source.identity();
-        let source = DslFileCaptureDataSource::open_source(source, path.display().to_string())?;
-        Ok(capture_cache_identity(identity, &source))
-    }
-
-    /// Create a new DSL file source from a file path
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let path = path.as_ref();
-        let source = Arc::new(FileByteSource::open(path)?);
-        Self::from_prepared_source(source, path.display().to_string())
     }
 
     pub fn from_prepared_source(
@@ -964,7 +934,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::fs::File;
     use std::io::Write;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use signal_processing::{
         CompletedWorkTask, OutputPort, ProcessNode, Sender, SourceIdentity, Watchdog, WorkExecutor,
@@ -972,6 +942,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::support::capture_archive::FileByteSource;
     use crate::support::capture_format::{get_packed_bit, parse_sample_rate};
     use crate::support::dsl_file::DslCaptureReader;
 

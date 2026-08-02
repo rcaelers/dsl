@@ -33,9 +33,8 @@ fn normalize_recent_files(paths: impl IntoIterator<Item = PathBuf>) -> Vec<PathB
     let mut seen = HashSet::new();
     let mut result = Vec::new();
     for path in paths {
-        let canonical = path.canonicalize().unwrap_or(path);
-        if seen.insert(canonical.clone()) {
-            result.push(canonical);
+        if seen.insert(path.clone()) {
+            result.push(path);
         }
         if result.len() >= MAX_RECENT_FILES {
             break;

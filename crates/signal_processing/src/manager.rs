@@ -561,6 +561,7 @@ impl PipelineManager {
             .flat_map(|output| output.lists.iter().map(|(_, list)| Arc::clone(list)))
             .collect();
 
+        let task_executor = Arc::clone(&work_executor);
         let task = work_executor
             .submit_long_running(Box::new(move || {
                 if node.is_self_threading() {
@@ -577,7 +578,7 @@ impl PipelineManager {
                                     error!("[{thread_name}] config not hot-appliable");
                                 }
                             }
-                            std::thread::sleep(std::time::Duration::from_millis(50));
+                            task_executor.idle(std::time::Duration::from_millis(50));
                         }
                     }
                 } else {
@@ -597,6 +598,8 @@ impl PipelineManager {
                                         outcome.produced_items() as u64,
                                         Ordering::Relaxed,
                                     );
+                                } else {
+                                    task_executor.idle(std::time::Duration::from_millis(2));
                                 }
                             }
                             Err(WorkError::Shutdown) => {

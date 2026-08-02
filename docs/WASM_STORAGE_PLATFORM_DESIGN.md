@@ -38,22 +38,17 @@ injects explicit unavailable file, writer, USB, and export capabilities. The por
 supports explicitly configured demo data; web composition does not silently substitute it for a
 file. Browser file/blob handles and browser download destinations are optional future adapters.
 
-Platform selection occurs at complete implementation-file boundaries. Generic compiler, runtime,
-viewer, and graph-node code does not conditionally add fields, variants, match arms, functions, or
-statements based on the compilation target.
+Platform selection occurs at complete implementation-file boundaries in `logic_analyzer_platform`.
+Generic compiler, runtime, viewer, graph-node, and UI code contains no target-selected source. The
+temporary processing exceptions are the U3Pro16 native device-runtime leaves and isolated DSL and
+Sigrok path-compatibility leaves; archive parsing and prepared-source execution remain portable.
 
 Stores address every encoded block, index, and manifest with typed artifact keys. A block
 is published before its directory entry becomes visible, and a persistent manifest is published
 last. Missing manifests are cache misses; invalid manifests, indexes, or block generations are
 rejected and invalidated as a unit. Unfinished ephemeral artifacts are reclaimed when their last
-store handle is dropped. The compiler's wasm cache backend still omits cache lookup and graph
-pruning rather than applying the native policy to its ephemeral repository; that remaining policy
-split is separate from the shared store implementation.
-
-Target-selected code also currently exists inside reusable runtime, processing, viewer, and UI
-crates. The proposed architecture removes those remaining internal platform module trees
-rather than merely giving them matching public APIs. Processing temporarily retains complete native
-file-parser and device-runtime leaves, but not host factory or destination selection.
+store handle is dropped. Compiler cache lookup, graph pruning, preview, invalidation, and cleanup
+apply the same policy to durable native and process-lifetime web repositories.
 
 `logic_analyzer_platform` currently composes the UI host-service port and selects the artifact
 repository contract. Native and web application bootstraps obtain an opaque `PlatformServices`
@@ -94,7 +89,7 @@ the portable `node_graph::FileDialogService`, supplied through the same platform
 the widget contains no target selection or native dialog dependency. The UI owns the portable request,
 result, and service contract and does not select an implementation.
 
-## Proposed future: unified native and web data plane
+## Unified native and web data plane
 
 Native and web builds use the same capture buffering, block encoding, indexing, cache planning,
 cache lookup, query, and eviction algorithms. Platform implementations provide only the host

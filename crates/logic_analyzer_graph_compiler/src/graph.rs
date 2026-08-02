@@ -2648,7 +2648,7 @@ pub(crate) fn start_app_run_with_source_overrides_and_subscriptions(
     )
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod tests {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};

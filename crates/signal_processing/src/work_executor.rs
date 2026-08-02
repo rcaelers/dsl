@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -320,6 +321,16 @@ pub trait WorkExecutor: Send + Sync {
     /// Number of independent tasks the host can run concurrently.
     fn available_parallelism(&self) -> usize;
 
+    /// Whether the host can schedule a blocking or long-lived task without
+    /// blocking the cooperative caller.
+    fn supports_long_running_tasks(&self) -> bool {
+        false
+    }
+
+    /// Gives the host an opportunity to back off a quiet long-running task.
+    /// Cooperative hosts return immediately; threaded hosts may sleep.
+    fn idle(&self, _duration: Duration) {}
+
     /// Enqueues finite work without exposing worker implementation details.
     fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String>;
 
@@ -364,8 +375,7 @@ mod work_executor_tests {
         WorkerMessage, WorkerOperation, WorkerOperationExecutor, WorkerRequest,
     };
 
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
     fn worker_messages_round_trip_as_owned_data() {
         let messages = [
             WorkerMessage::Run(WorkerRequest {

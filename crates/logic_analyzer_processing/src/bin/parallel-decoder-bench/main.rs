@@ -1,15 +1,10 @@
 //! Parallel decoder benchmark.
 
-std::cfg_select! {
-    target_arch = "wasm32" => {
-        fn main() {}
-    }
-    _ => {
-        fn main() -> Result<(), Box<dyn std::error::Error>> {
-            native::main()
-        }
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    implementation::main()
+}
 
-        mod native {
+mod implementation {
     use std::collections::VecDeque;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
@@ -30,8 +25,9 @@ std::cfg_select! {
         DecodedBlockCacheStats, DerivedDataCollector, DerivedDataCollectorMetrics,
         DerivedDataRetention, DerivedLanes, InputPort, LiveStoreConfig, MemoryArtifactRepository,
         OutputPort, PersistentStoreConfig, Pipeline, PortSchema, ProcessNode, ProtocolKind, Word,
-        WorkError, WorkExecutor, WorkExecutorTask, WorkResult, WorkTask, built_in_word_lane_ingestor,
-        configure_decoded_block_cache, decoded_block_cache_stats, reset_decoded_block_cache_stats,
+        WorkError, WorkExecutor, WorkExecutorTask, WorkResult, WorkTask,
+        built_in_word_lane_ingestor, configure_decoded_block_cache, decoded_block_cache_stats,
+        reset_decoded_block_cache_stats,
     };
 
     const DEFAULT_MAX_WORDS_PER_BLOCK: usize = 32_768;
@@ -73,10 +69,7 @@ std::cfg_select! {
             2
         }
 
-        fn submit(
-            &self,
-            task: WorkExecutorTask,
-        ) -> Result<Box<dyn WorkTask>, String> {
+        fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
             Ok(Box::new(BenchmarkWorkTask {
                 handle: Some(std::thread::spawn(task)),
             }))
@@ -391,66 +384,6 @@ std::cfg_select! {
         }
     }
 
-    #[derive(Debug, Clone, Copy)]
-    struct ResourceMetrics {
-        user_seconds: f64,
-        system_seconds: f64,
-        peak_rss_bytes: u64,
-    }
-
-    impl ResourceMetrics {
-        fn report(self, elapsed: Duration) -> String {
-            let cpu_cores = (self.user_seconds + self.system_seconds) / elapsed.as_secs_f64();
-            format!(
-                "cpu_user_s={:.3} cpu_system_s={:.3} avg_cpu_cores={:.2} peak_rss_mib={:.1}",
-                self.user_seconds,
-                self.system_seconds,
-                cpu_cores,
-                self.peak_rss_bytes as f64 / (1024.0 * 1024.0),
-            )
-        }
-    }
-
-    #[cfg(unix)]
-    fn resource_usage() -> Option<ResourceMetrics> {
-        let mut usage = std::mem::MaybeUninit::<libc::rusage>::zeroed();
-        // SAFETY: `usage` points to writable storage for exactly one
-        // `libc::rusage`, and `getrusage` initializes it on success.
-        if unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) } != 0 {
-            return None;
-        }
-        // SAFETY: the successful call above initialized the structure.
-        let usage = unsafe { usage.assume_init() };
-        let timeval_seconds =
-            |time: libc::timeval| time.tv_sec as f64 + time.tv_usec as f64 / 1_000_000.0;
-        #[cfg(target_os = "macos")]
-        let peak_rss_bytes = usage.ru_maxrss.max(0) as u64;
-        #[cfg(not(target_os = "macos"))]
-        let peak_rss_bytes = (usage.ru_maxrss.max(0) as u64).saturating_mul(1024);
-        Some(ResourceMetrics {
-            user_seconds: timeval_seconds(usage.ru_utime),
-            system_seconds: timeval_seconds(usage.ru_stime),
-            peak_rss_bytes,
-        })
-    }
-
-    #[cfg(not(unix))]
-    fn resource_usage() -> Option<ResourceMetrics> {
-        None
-    }
-
-    fn resource_delta(
-        before: Option<ResourceMetrics>,
-        after: Option<ResourceMetrics>,
-    ) -> Option<ResourceMetrics> {
-        let (before, after) = (before?, after?);
-        Some(ResourceMetrics {
-            user_seconds: (after.user_seconds - before.user_seconds).max(0.0),
-            system_seconds: (after.system_seconds - before.system_seconds).max(0.0),
-            peak_rss_bytes: after.peak_rss_bytes,
-        })
-    }
-
     #[derive(Debug, Clone, Copy, Default)]
     struct LatencyMetrics {
         median_us: f64,
@@ -497,7 +430,6 @@ std::cfg_select! {
         words_measured: bool,
         fingerprint: Option<u64>,
         fingerprint_scope: Option<&'static str>,
-        resources: Option<ResourceMetrics>,
         selected_protocol: &'static str,
         strobe_activity_ratio: Option<f64>,
         requested_workers: usize,
@@ -522,10 +454,6 @@ std::cfg_select! {
             let capture_seconds = self.samples as f64 / self.samplerate_hz;
             let msamples_per_second = self.samples as f64 / seconds / 1_000_000.0;
             let realtime = capture_seconds / seconds;
-            let resources = self
-                .resources
-                .map(|resources| resources.report(self.elapsed))
-                .unwrap_or_else(|| "cpu_user_s=unavailable cpu_system_s=unavailable avg_cpu_cores=unavailable peak_rss_mib=unavailable".to_string());
             let activity = self
                 .strobe_activity_ratio
                 .map(|ratio| format!("{ratio:.6}"))
@@ -555,7 +483,7 @@ std::cfg_select! {
                     .map(|fingerprint| format!("{fingerprint:016x}"))
                     .unwrap_or_else(|| "unmeasured".to_string());
                 println!(
-                    "mode={:?} protocol={} {} strobe_activity_ratio={} sink={:?} samples={} words_indexed={} output_hash={} hash_scope={} viewer_drain_s={:.3} viewer_append_s={:.3} viewer_batches={} setup_s={:.3} run_s={:.3} capture_s={:.3} MSamples_s={:.3} realtime_x={:.3} {}",
+                    "mode={:?} protocol={} {} strobe_activity_ratio={} sink={:?} samples={} words_indexed={} output_hash={} hash_scope={} viewer_drain_s={:.3} viewer_append_s={:.3} viewer_batches={} setup_s={:.3} run_s={:.3} capture_s={:.3} MSamples_s={:.3} realtime_x={:.3}",
                     self.mode,
                     self.selected_protocol,
                     parallel,
@@ -573,7 +501,6 @@ std::cfg_select! {
                     capture_seconds,
                     msamples_per_second,
                     realtime,
-                    resources,
                 );
                 if let Some(store) = self.indexed_store {
                     let requests = store.decoded_cache.hits + store.decoded_cache.misses;
@@ -606,7 +533,7 @@ std::cfg_select! {
             } else if self.words_measured {
                 let mwords_per_second = self.words as f64 / seconds / 1_000_000.0;
                 println!(
-                    "mode={:?} protocol={} {} strobe_activity_ratio={} sink={:?} samples={} words={} output_hash={:016x} hash_scope={} setup_s={:.3} run_s={:.3} capture_s={:.3} MSamples_s={:.3} MWords_s={:.3} realtime_x={:.3} {}",
+                    "mode={:?} protocol={} {} strobe_activity_ratio={} sink={:?} samples={} words={} output_hash={:016x} hash_scope={} setup_s={:.3} run_s={:.3} capture_s={:.3} MSamples_s={:.3} MWords_s={:.3} realtime_x={:.3}",
                     self.mode,
                     self.selected_protocol,
                     parallel,
@@ -623,11 +550,10 @@ std::cfg_select! {
                     msamples_per_second,
                     mwords_per_second,
                     realtime,
-                    resources,
                 );
             } else {
                 println!(
-                    "mode={:?} protocol={} {} strobe_activity_ratio={} sink={:?} samples={} words=unmeasured output_hash=unmeasured setup_s={:.3} run_s={:.3} capture_s={:.3} MSamples_s={:.3} realtime_x={:.3} {}",
+                    "mode={:?} protocol={} {} strobe_activity_ratio={} sink={:?} samples={} words=unmeasured output_hash=unmeasured setup_s={:.3} run_s={:.3} capture_s={:.3} MSamples_s={:.3} realtime_x={:.3}",
                     self.mode,
                     self.selected_protocol,
                     parallel,
@@ -639,7 +565,6 @@ std::cfg_select! {
                     capture_seconds,
                     msamples_per_second,
                     realtime,
-                    resources,
                 );
             }
         }
@@ -844,7 +769,8 @@ std::cfg_select! {
         } else {
             1
         };
-        let packed_channels = 1 + args.data.len() + usize::from(cs_polarity != CsPolarity::Disabled);
+        let packed_channels =
+            1 + args.data.len() + usize::from(cs_polarity != CsPolarity::Disabled);
         let packed_input_bytes = samples
             .div_ceil(u8::BITS as u64)
             .saturating_mul(packed_channels as u64);
@@ -883,7 +809,9 @@ std::cfg_select! {
                 pipeline.add_process(
                     "sink",
                     DerivedDataCollector::new()
-                        .with_retention(DerivedDataRetention::MaxEntries(args.viewer_max_entries.max(1)))
+                        .with_retention(DerivedDataRetention::MaxEntries(
+                            args.viewer_max_entries.max(1),
+                        ))
                         .with_metrics(viewer_metrics.clone())
                         .with_ingestor(built_in_word_lane_ingestor(
                             "parallel",
@@ -927,11 +855,9 @@ std::cfg_select! {
 
         let scheduler = pipeline.build(Arc::new(BenchmarkWorkExecutor))?;
         let setup = setup_start.elapsed();
-        let resources_before = resource_usage();
         let run_start = Instant::now();
         scheduler.wait();
         let elapsed = run_start.elapsed();
-        let resources = resource_delta(resources_before, resource_usage());
         let parallel_metrics = parallel_metrics.snapshot();
         let viewer_metrics = viewer_metrics.snapshot();
 
@@ -984,7 +910,6 @@ std::cfg_select! {
             ),
             fingerprint: fingerprint_scope.map(|_| stats.fingerprint),
             fingerprint_scope,
-            resources,
             selected_protocol,
             strobe_activity_ratio,
             requested_workers: args.workers,
@@ -1008,9 +933,7 @@ std::cfg_select! {
         const REQUESTED_WORKERS: [usize; 6] = [1, 2, 4, 8, 16, 32];
 
         if !matches!(args.sink, SinkKind::Count | SinkKind::Discard) {
-            return Err(
-                "--worker-sweep requires --sink count or --sink discard".into(),
-            );
+            return Err("--worker-sweep requires --sink count or --sink discard".into());
         }
         let mut reference: Option<(u64, u64)> = None;
         let mut fastest: Option<(usize, usize, Duration)> = None;
@@ -1240,10 +1163,7 @@ std::cfg_select! {
             assert_eq!(args.cs, Some(8));
             assert!(matches!(args.cs_polarity, BenchCsPolarity::ActiveLow));
             assert_eq!(args.viewer_max_entries, 4_000_000);
-            assert_eq!(
-                args.workers,
-                ParallelDecoder::ADAPTIVE_PARALLEL_WORKERS
-            );
+            assert_eq!(args.workers, ParallelDecoder::ADAPTIVE_PARALLEL_WORKERS);
             assert!(!args.worker_sweep);
         }
 
@@ -1374,8 +1294,6 @@ std::cfg_select! {
             assert_eq!(indexed.fingerprint, auto.fingerprint);
             assert_eq!(auto.selected_protocol, "packed-stream");
             assert!(auto.max_outstanding > 0);
-        }
-    }
         }
     }
 }

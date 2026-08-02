@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use serde::{Deserialize, Serialize};
+use web_time::{Instant, SystemTime, UNIX_EPOCH};
 
 use logic_analyzer_graph_api::node::CaptureGraphSourceFactory;
 use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
@@ -48,6 +48,10 @@ struct TestWorkExecutor;
 impl WorkExecutor for TestWorkExecutor {
     fn available_parallelism(&self) -> usize {
         1
+    }
+
+    fn supports_long_running_tasks(&self) -> bool {
+        true
     }
 
     fn submit(
@@ -263,7 +267,7 @@ struct ActiveCapture {
     waveforms: Receiver<GrowingCaptureIndex>,
     analyses: Receiver<CaptureAnalysisAttachment>,
     events: CaptureEventQueueReader,
-    worker: Option<JoinHandle<()>>,
+    worker: Option<Box<dyn signal_processing::WorkTask>>,
     stop_requested: bool,
     abort_requested: bool,
 }
@@ -518,10 +522,13 @@ impl CaptureCoordinator {
         let (completion_sender, completion_receiver) = crossbeam_channel::bounded(1);
         let (waveform_sender, waveform_receiver) = crossbeam_channel::bounded(1);
         let (analysis_sender, analysis_receiver) = crossbeam_channel::bounded(1);
-        let work_executor = Arc::clone(&self.work_executor);
-        let worker = std::thread::Builder::new()
-            .name("live-capture-supervisor".into())
-            .spawn(move || {
+        if !self.work_executor.supports_long_running_tasks() {
+            return Err("the selected host cannot schedule live capture supervision".into());
+        }
+        let supervisor_executor = Arc::clone(&self.work_executor);
+        let capture_work_executor = Arc::clone(&self.work_executor);
+        let worker = supervisor_executor
+            .submit_long_running(Box::new(move || {
                 let completion = match run_capture_worker(
                     session_id,
                     feature,
@@ -536,19 +543,14 @@ impl CaptureCoordinator {
                         waveform_ready: waveform_sender,
                         analysis_ready: analysis_sender,
                     },
-                    work_executor,
+                    capture_work_executor,
                 ) {
                     Ok(capture) => WorkerCompletion::Complete(Box::new(capture)),
                     Err(error) => WorkerCompletion::Failed(error),
                 };
                 let _ = completion_sender.send(completion);
-            });
-        let worker = match worker {
-            Ok(worker) => worker,
-            Err(error) => {
-                return Err(format!("could not start capture supervisor: {error}"));
-            }
-        };
+            }))
+            .map_err(|error| format!("could not start capture supervisor: {error}"))?;
 
         self.status = Some(CaptureSessionStatus {
             session_id,
@@ -746,7 +748,7 @@ impl CaptureCoordinator {
             return;
         };
         if let Some(worker) = active.worker.take() {
-            let _ = worker.join();
+            worker.wait();
         }
         match completion {
             WorkerCompletion::Complete(capture) => {
@@ -833,12 +835,9 @@ impl CaptureCoordinator {
 }
 
 impl CaptureCoordinatorContract for CaptureCoordinator {
-    fn backend_available() -> bool {
-        true
-    }
-
-    fn backend_unavailable_reason() -> &'static str {
-        ""
+    fn backend_unavailable_reason(&self) -> Option<&'static str> {
+        (!self.work_executor.supports_long_running_tasks())
+            .then_some("The selected host cannot schedule live capture supervision")
     }
 
     fn request_stop(&mut self) {
@@ -1096,7 +1095,7 @@ impl Drop for CaptureCoordinator {
             let _ = active.commands.try_send(CaptureCommand::Stop);
             drop(active.commands);
             if let Some(worker) = active.worker.take() {
-                let _ = worker.join();
+                worker.wait();
             }
         }
     }

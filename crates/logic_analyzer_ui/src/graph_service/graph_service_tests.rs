@@ -278,7 +278,7 @@ fn capture_discovery_uses_the_same_substitutable_graph_service() {
         contains_node: false,
     });
 
-    let availability = capture_availability(&GraphState::default(), service.as_ref());
+    let availability = capture_availability(&GraphState::default(), service.as_ref(), None);
 
     assert_eq!(
         availability.reason(),

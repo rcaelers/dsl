@@ -3,12 +3,8 @@ fn application_orchestration_depends_on_the_ui_owned_graph_service() {
     for (name, source) in [
         ("application", include_str!("../app.rs")),
         (
-            "native platform hooks",
-            include_str!("../app_platform/native_hooks.rs"),
-        ),
-        (
-            "wasm platform hooks",
-            include_str!("../app_platform/wasm_hooks.rs"),
+            "application hooks",
+            include_str!("../app_platform/hooks.rs"),
         ),
         (
             "capture coordinator",

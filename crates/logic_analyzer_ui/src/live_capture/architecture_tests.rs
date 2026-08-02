@@ -25,7 +25,7 @@ fn generic_ui_capture_components_contain_no_provider_model_or_sigrok_contracts()
     let sources = [
         ("application", include_str!("../app.rs")),
         ("coordinator contract", include_str!("implementation.rs")),
-        ("native coordinator", include_str!("native.rs")),
+        ("capture coordinator", include_str!("coordinator.rs")),
     ];
     let forbidden = [
         "DeterministicFake",
@@ -50,7 +50,7 @@ fn generic_ui_capture_components_contain_no_provider_model_or_sigrok_contracts()
 
 #[test]
 fn capture_session_storage_uses_the_injected_artifact_repository() {
-    let source = include_str!("native.rs");
+    let source = include_str!("coordinator.rs");
 
     assert!(
         !source.contains("app_platform"),

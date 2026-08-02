@@ -1,8 +1,5 @@
-//! Test-only live-capture platform facade.
+//! Test-only deterministic live-capture feature.
 
-mod implementation;
+mod feature;
 
-#[path = "native.rs"]
-mod platform;
-
-pub(crate) use implementation::feature;
+pub(crate) use feature::feature;

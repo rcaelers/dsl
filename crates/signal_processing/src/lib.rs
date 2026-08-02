@@ -59,22 +59,6 @@ mod work_executor;
 mod worker_kernels;
 mod worker_operation_queue;
 
-std::cfg_select! {
-    target_arch = "wasm32" => {
-        #[path = "idle_wasm.rs"]
-        mod idle;
-
-    }
-    _ => {
-        #[path = "idle_native.rs"]
-        mod idle;
-        pub use derived_word_store::{
-            DecodedBlockCacheStats, cleanup_cache, clear_cache, clear_cache_entry,
-            configure_decoded_block_cache, decoded_block_cache_stats, reset_decoded_block_cache_stats,
-        };
-    }
-}
-
 pub use advanced_trigger::{
     RegisteredTriggerPredicateSchema, TRIGGER_PROGRAM_FORMAT_VERSION, TriggerChoice, TriggerCount,
     TriggerCountCapabilities, TriggerCountMode, TriggerEditorSchema, TriggerIdentifier,
@@ -111,8 +95,10 @@ pub use derived_data_collector::{
 };
 pub use derived_index::{AppendOnlyMipmap, ChunkedMipmap, LaneFold, MipmapRecord};
 pub use derived_word_store::{
-    AnnotationQuery, BlockCodecConfig, IndexedAnnotationStore, IndexedAnnotationWriter,
-    LiveStoreConfig, PersistentStoreConfig, StoreStatus, WordPresenceBucket,
+    AnnotationQuery, BlockCodecConfig, DecodedBlockCacheStats, IndexedAnnotationStore,
+    IndexedAnnotationWriter, LiveStoreConfig, PersistentStoreConfig, StoreStatus,
+    WordPresenceBucket, cleanup_cache, clear_cache, clear_cache_entry,
+    configure_decoded_block_cache, decoded_block_cache_stats, reset_decoded_block_cache_stats,
 };
 pub use edge_query::EdgeQuery;
 pub use errors::{ConnectionError, Error, PortError, Result, WorkError, WorkResult};
@@ -121,7 +107,6 @@ pub use events::{
     TimelineMarker, Trigger, Word, WordPayload, instantaneous_word_end_ns,
 };
 pub use graph::{Connection, GraphBuilder, NodeId};
-use idle::idle_backoff;
 pub use live_capture::{
     AcquisitionContext, AcquisitionError, AcquisitionOutcome, AcquisitionResult,
     CAPTURE_CHUNK_FORMAT_VERSION, CaptureAcquisitionPhase, CaptureAnalysisChannel,

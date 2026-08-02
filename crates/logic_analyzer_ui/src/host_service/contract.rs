@@ -27,6 +27,31 @@ pub struct DecodedBlockCacheSnapshot {
     pub misses: u64,
 }
 
+/// Host-selected labels for modifier keys shown in portable input hints.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ModifierKeyLabels {
+    pub alternate: &'static str,
+    pub command: &'static str,
+}
+
+impl Default for ModifierKeyLabels {
+    fn default() -> Self {
+        Self {
+            alternate: "Alt",
+            command: "Ctrl",
+        }
+    }
+}
+
+/// Presentation and document capabilities supplied by the application host.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HostUiCapabilities {
+    pub direct_document_access: bool,
+    pub system_menu_bar: bool,
+    pub viewport_close_guard: bool,
+    pub modifier_key_labels: ModifierKeyLabels,
+}
+
 /// A portable application command emitted by an optional host shell.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HostCommand {
@@ -60,6 +85,11 @@ pub enum HostCommand {
 /// do not provide a capability return an explanatory error or decline the
 /// optional picker request.
 pub trait HostService {
+    /// Returns immutable host UI capabilities selected during composition.
+    fn ui_capabilities(&self) -> HostUiCapabilities {
+        HostUiCapabilities::default()
+    }
+
     /// Returns runtime-cache diagnostics when the selected data-plane adapter
     /// provides that cache.
     fn decoded_block_cache_snapshot(&self) -> Option<DecodedBlockCacheSnapshot> {
@@ -78,6 +108,11 @@ pub trait HostService {
     ///
     /// Hosts without a native document menu leave this as a no-op.
     fn publish_recent_files(&self, _paths: &[PathBuf]) {}
+
+    /// Reports whether a previously selected document still exists.
+    fn document_exists(&self, _path: &Path) -> bool {
+        false
+    }
 
     fn choose_open_file(&mut self, request: OpenDialog<'_>) -> Option<PathBuf>;
 

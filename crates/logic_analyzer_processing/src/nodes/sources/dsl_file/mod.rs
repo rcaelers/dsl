@@ -2,10 +2,9 @@
 
 mod configuration;
 mod facade;
-#[cfg(not(target_arch = "wasm32"))]
 mod implementation;
+mod path_compatibility;
 
 pub use configuration::DslFileSourceConfig;
 pub use facade::{DslFileSourceFactory, unavailable_source_factory};
-#[cfg(not(target_arch = "wasm32"))]
 pub use implementation::DslFileSource;

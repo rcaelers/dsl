@@ -332,8 +332,7 @@ mod worker_operation_queue_tests {
         }
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
     fn rejects_invalid_capacity_and_unregistered_or_non_monotonic_requests() {
         assert!(WorkerOperationQueue::new(0, 1, [operation()]).is_err());
         assert!(WorkerOperationQueue::new(2, 1, [operation()]).is_err());
@@ -352,8 +351,7 @@ mod worker_operation_queue_tests {
         assert!(queue.submit(request(2)).is_err());
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
     fn bounds_accepted_work_until_an_ordered_result_is_available() {
         let mut queue = WorkerOperationQueue::new(1, 2, [operation()]).unwrap();
         queue.worker_ready(0);
@@ -367,8 +365,7 @@ mod worker_operation_queue_tests {
         assert!(queue.submit(request(3)).is_ok());
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
     fn releases_terminal_messages_in_submission_order() {
         let mut queue = WorkerOperationQueue::new(2, 4, [operation()]).unwrap();
         queue.worker_ready(0);
@@ -396,8 +393,7 @@ mod worker_operation_queue_tests {
         );
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
     fn cancellation_covers_queued_and_active_requests_without_late_results() {
         let mut queue = WorkerOperationQueue::new(1, 3, [operation()]).unwrap();
         queue.worker_ready(0);
@@ -435,8 +431,7 @@ mod worker_operation_queue_tests {
         assert!(!queue.cancel(1).0);
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
     fn worker_failure_preserves_order_and_fails_pending_work_when_pool_is_lost() {
         let mut queue = WorkerOperationQueue::new(2, 4, [operation()]).unwrap();
         queue.worker_ready(0);
@@ -470,8 +465,7 @@ mod worker_operation_queue_tests {
         );
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
     fn mismatched_completion_fails_the_actual_request() {
         let mut queue = WorkerOperationQueue::new(1, 1, [operation()]).unwrap();
         queue.worker_ready(0);
@@ -486,8 +480,7 @@ mod worker_operation_queue_tests {
         );
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
     fn parallel_queue_and_cooperative_fallback_emit_equivalent_results() {
         let mut kernels = WorkerKernelRegistry::new();
         kernels

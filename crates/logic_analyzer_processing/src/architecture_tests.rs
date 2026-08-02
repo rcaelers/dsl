@@ -36,6 +36,35 @@ fn cross_platform_capture_nodes_are_not_excluded_from_the_processing_catalog() {
 }
 
 #[test]
+fn file_source_algorithms_compile_from_one_portable_module_tree() {
+    let manifest = include_str!("../Cargo.toml");
+    assert!(!manifest.contains("[target."));
+
+    for module in [
+        include_str!("nodes/sources/dsl_file/mod.rs"),
+        include_str!("nodes/sources/sigrok_file/mod.rs"),
+    ] {
+        assert!(!module.contains("target_arch"));
+        assert!(module.contains("mod implementation;"));
+        assert!(module.contains("mod path_compatibility;"));
+    }
+
+    for implementation in [
+        include_str!("nodes/sources/dsl_file/implementation.rs"),
+        include_str!("nodes/sources/sigrok_file/implementation.rs"),
+        include_str!("support/dsl_file/implementation.rs"),
+        include_str!("support/sigrok_file/implementation.rs"),
+    ] {
+        let production = implementation
+            .split_once("#[cfg(test)]")
+            .map_or(implementation, |(production, _)| production);
+        assert!(!production.contains("target_arch"));
+        assert!(!production.contains("std::fs"));
+        assert!(!production.contains("FileByteSource"));
+    }
+}
+
+#[test]
 fn cross_platform_capture_facades_expose_neutral_factories() {
     let crate_root = include_str!("lib.rs");
     let value_types = include_str!("types/mod.rs");

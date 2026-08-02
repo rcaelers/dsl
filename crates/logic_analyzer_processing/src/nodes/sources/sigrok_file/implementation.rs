@@ -1,6 +1,5 @@
 //! Sigrok session (`.sr`) processing-node file source.
 
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -11,7 +10,6 @@ use signal_processing::{
     WorkResult, WorkTask,
 };
 
-use crate::support::capture_archive::FileByteSource;
 use crate::support::sigrok_file::{SigrokCapture, SigrokFileCaptureDataSource};
 
 /// A PulseView/sigrok session source.
@@ -150,23 +148,6 @@ impl SigrokFileSource {
                 display_name,
             }),
         }
-    }
-
-    /// Temporary native-path entry point for developer tools and format tests.
-    pub fn indexed_capture_presentation_from_path(
-        path: impl AsRef<Path>,
-    ) -> Result<signal_processing::IndexedCapturePresentation> {
-        let path = path.as_ref();
-        let source = Arc::new(FileByteSource::open(path)?);
-        Ok(Self::indexed_capture_presentation(
-            source,
-            path.display().to_string(),
-        ))
-    }
-
-    pub fn new(path: impl AsRef<Path>) -> Result<Self> {
-        let source = Arc::new(FileByteSource::open(path)?);
-        Self::from_prepared_source(source)
     }
 
     pub fn from_prepared_source(source: Arc<dyn PreparedByteSource>) -> Result<Self> {

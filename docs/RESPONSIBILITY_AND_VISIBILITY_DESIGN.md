@@ -137,7 +137,7 @@ nearest owning facade. The allowlist names canonical public namespaces.
 
 | Crate | Public modules | Rationale |
 | --- | --- | --- |
-| `signal_processing` | `capture`, `live_capture`, `live_capture_store`, `logic_analyzer`, `derived_word_store`; native-only `waveform_index` | These are substantial, independent generic capture and storage domains. `live_capture` owns the provider-neutral configured and prepared acquisition contracts. `logic_analyzer` owns the driver-neutral capture, trigger, and processing-source contracts consumed by concrete device nodes. Runtime plumbing such as ports, senders, receivers, scheduling, workers, errors, and pipeline implementation remains private behind root re-exports. |
+| `signal_processing` | `capture`, `live_capture`, `live_capture_store`, `logic_analyzer`, `derived_word_store`, `waveform_index` | These are substantial, independent generic capture and storage domains. `live_capture` owns the provider-neutral configured and prepared acquisition contracts. `logic_analyzer` owns the driver-neutral capture, trigger, and processing-source contracts consumed by concrete device nodes. Runtime plumbing such as ports, senders, receivers, scheduling, workers, errors, and pipeline implementation remains private behind root re-exports. |
 | `logic_analyzer_processing` | `nodes`, `nodes::decoders`, `nodes::logic`, `nodes::sinks`, `nodes::sources`, each node module under its family, `types` | Each concrete node owns a directory-backed public facade, so its configuration, factory, and discovery contracts have an unambiguous owner such as `nodes::decoders::parallel_decoder::StrobeMode` or `nodes::decoders::sigrok_decoder::SigrokDecoderDescriptor`. The crate root exposes the shared `ProcessNodeConstruction` factory result and lazy capture-source metadata contracts. Shared implementation support is crate-private. Protocol-neutral processing value conventions are exposed through `types`. Node implementation, transport, and format details remain private behind their owning node facade. |
 | `logic_analyzer_graph_api` | `node`, `node_support` | `node` owns the traits and inventory submissions implemented by graph-node plugins. `node_support` owns open port identity, protocol-neutral presentation descriptions, capture descriptions, decoder-table contracts, and the restricted node build context. It contains no compiler, host, built-in-node, UI, or export operations. |
 | `logic_analyzer_graph_compiler` | none | Its crate root exposes `GraphCompiler`, host result types, `CompileCtx` result extraction, and saved-document operations consumed by application hosts. Graph-node and node-support contracts are imported from `logic_analyzer_graph_api`; the compiler crate does not forward them. |
@@ -179,13 +179,15 @@ generic crate.
 
 ## Current platform surfaces
 
-Native and wasm public surfaces share the platform-neutral data model. Native-only filesystem,
-USB, mmap, worker, export, and host-integration capabilities are selected as complete modules or
-registry entries. A platform facade exposes a complete contract; consumers do not depend on an
-unnameable backend type or a target-dependent collection of incidental helpers.
+Native and wasm reusable crates share the platform-neutral data model and compile the same source
+tree. Native-only filesystem, USB, mmap, worker, export, and host-integration capabilities are
+selected as complete adapter modules in `logic_analyzer_platform`. A platform facade exposes a
+complete contract; consumers do not depend on an unnameable backend type or a target-dependent
+collection of incidental helpers.
 
-`AppManager` is one such facade. Its public type and operations are identical on every target;
-whole implementation files delegate to the threaded native manager or cooperative wasm manager.
+`AppManager` owns one portable facade over an injected `AppManagerBackend`. Platform composition
+selects a threaded or cooperative backend through `AppManagerFactory`; compiler and processing
+code do not inspect the target.
 
 `logic_analyzer_platform` composes the UI `HostService` port today. It selects complete native and
 web adapter modules and returns an opaque service bundle to the application bootstrap. The native
@@ -205,7 +207,7 @@ storage, the U3Pro16 USB transport and FPGA-image provider, and capture-export s
 contracts owned by processing, graph-node, and UI crates. Web composition uses explicit unavailable
 file and export capabilities; synthetic capture remains an authored demo-source choice.
 
-## Proposed future: isolated host adapter crate
+## Isolated host adapter crate
 
 Reusable core crates compile the same Rust source and module tree on native and web targets.
 Matching public APIs backed by separate target-selected implementations inside a core crate are not
@@ -242,11 +244,15 @@ acquires those sources in `logic_analyzer_platform`. Host factory selection, dia
 destinations, USB transport, and firmware acquisition are not exceptions and live in
 `logic_analyzer_platform`. Node state, schemas, and builders remain portable.
 
-The temporary processing-adapter allowlist is restricted to the host-access leaves of:
+The temporary processing-adapter allowlist is restricted to:
 
-- `nodes::sources::dsl_file::implementation` and its format support leaves;
-- `nodes::sources::sigrok_file::implementation` and its archive support leaves;
-- the native U3Pro16 device-runtime leaves under `nodes::sources::dslogic_u3pro16`.
+- `support::capture_archive::file_byte_source` and the DSL/Sigrok
+  `path_compatibility` leaves that expose compatibility path constructors;
+- the native U3Pro16 device-runtime leaves under `nodes::sources::dslogic_u3pro16`, including its
+  developer benchmark entry point.
+
+DSL and Sigrok archive parsing, index construction, streaming, and prepared-source execution are
+portable and compile on every target; only path acquisition remains in the compatibility leaves.
 
 Sink implementations, graph builders, wasm synthetic/discard substitutes, and platform factory
 selectors are not allowlisted. Decoder execution strategy, embedded-runtime hosting, preferences,

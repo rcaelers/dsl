@@ -85,13 +85,6 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.core-source-parity] Remove existing target-selected module trees, target conditionals, and
-  target-specific manifest dependencies from `signal_processing`, the compiler, graph nodes, `node_graph`, the
-  viewer, reusable widgets, and the UI. Convert application managers, cache backends, source preparation, viewer
-  workers, dialogs, preferences, graph services, capture export, decoder execution strategies, registrations, and
-  test harnesses to portable code plus injected adapters. In `logic_analyzer_processing`, restrict any remaining
-  target selection to the documented temporary file-I/O and USB host-access leaves; keep node schemas, builders,
-  parsers, encoders, protocol state machines, and unavailable-capability behavior identical.
 - [platform.data-plane.fixed-width-formats] Remove persisted and cross-boundary `usize` values from capture, index,
   cache, manifest, and worker-message formats. Use `u64` offsets and counts with checked conversions only at resident
   slice boundaries, and add tests above the wasm32 addressable range without allocating those ranges so the data

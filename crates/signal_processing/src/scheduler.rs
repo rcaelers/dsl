@@ -72,6 +72,7 @@ impl Scheduler {
 
         debug!("Starting process node: {}", name);
 
+        let task_executor = Arc::clone(&work_executor);
         let task = work_executor
             .submit_long_running(Box::new(move || {
                 if node.is_self_threading() {
@@ -95,7 +96,7 @@ impl Scheduler {
                                 info!("[{}] Self-threading node completed", thread_name);
                                 break;
                             }
-                            std::thread::sleep(std::time::Duration::from_millis(100));
+                            task_executor.idle(std::time::Duration::from_millis(100));
                         }
                     }
 
@@ -115,6 +116,9 @@ impl Scheduler {
                         match node.work_outcome(&inputs, &outputs) {
                             Ok(outcome) => {
                                 items_produced += outcome.produced_items();
+                                if outcome.produced_items() == 0 {
+                                    task_executor.idle(std::time::Duration::from_millis(2));
+                                }
                             }
                             Err(e) => {
                                 error!("[{}] Work error: {}", thread_name, e);

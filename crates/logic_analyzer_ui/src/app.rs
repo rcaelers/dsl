@@ -421,6 +421,7 @@ pub struct App {
     pub(crate) panel_layout: PanelLayout,
     pub(crate) graph_service: Box<dyn GraphService>,
     pub(crate) host_service: Box<dyn HostService>,
+    pub(crate) host_ui_capabilities: crate::HostUiCapabilities,
     pub(crate) capture: CaptureCoordinator,
     pub(crate) capture_availability: CaptureAvailability,
     pub(crate) trigger_configuration: Option<compiler::DiscoveredTriggerConfiguration>,
@@ -608,8 +609,11 @@ impl App {
             self.refresh_simple_trigger_ui();
             return;
         }
-        self.capture_availability =
-            capture_availability(self.node_graph.graph(), self.graph_service.as_ref());
+        self.capture_availability = capture_availability(
+            self.node_graph.graph(),
+            self.graph_service.as_ref(),
+            self.capture.backend_unavailable_reason(),
+        );
         self.refresh_trigger_configuration();
     }
 
@@ -646,8 +650,11 @@ impl App {
                 "The trigger could not be changed while the graph is read-only",
             );
         }
-        self.capture_availability =
-            capture_availability(self.node_graph.graph(), self.graph_service.as_ref());
+        self.capture_availability = capture_availability(
+            self.node_graph.graph(),
+            self.graph_service.as_ref(),
+            self.capture.backend_unavailable_reason(),
+        );
         self.refresh_trigger_configuration();
     }
 
@@ -919,8 +926,11 @@ impl App {
         self.clear_capture_presentation();
         self.platform_restore_graph_capture();
         self.apply_graph_document(graph);
-        self.capture_availability =
-            capture_availability(self.node_graph.graph(), self.graph_service.as_ref());
+        self.capture_availability = capture_availability(
+            self.node_graph.graph(),
+            self.graph_service.as_ref(),
+            self.capture.backend_unavailable_reason(),
+        );
         self.refresh_trigger_configuration();
         self.toasts.info(format!("Loaded demo {name}"));
     }
@@ -1096,6 +1106,7 @@ impl App {
             artifact_repository,
         } = services;
         let mut host_service = host_service;
+        let host_ui_capabilities = host_service.ui_capabilities();
         // The graph canvas and its custom widgets use a dark palette. Do not
         // inherit a light OS/browser preference for the surrounding egui
         // controls, or their dark foreground text becomes unreadable there.
@@ -1125,7 +1136,11 @@ impl App {
             work_executor,
             capture_export_service,
         );
-        let capture_availability = capture_availability(widget.graph(), graph_service.as_ref());
+        let capture_availability = capture_availability(
+            widget.graph(),
+            graph_service.as_ref(),
+            capture.backend_unavailable_reason(),
+        );
         Self {
             node_graph: widget,
             logic_analyzer,
@@ -1133,6 +1148,7 @@ impl App {
             panel_layout: Self::default_panel_layout(),
             graph_service,
             host_service,
+            host_ui_capabilities,
             capture,
             capture_availability,
             trigger_configuration: None,
@@ -1656,7 +1672,11 @@ impl App {
 
         if replay.is_none()
             && matches!(
-                capture_availability(self.node_graph.graph(), self.graph_service.as_ref()),
+                capture_availability(
+                    self.node_graph.graph(),
+                    self.graph_service.as_ref(),
+                    self.capture.backend_unavailable_reason(),
+                ),
                 CaptureAvailability::Available { .. }
             )
         {
@@ -2551,8 +2571,11 @@ impl App {
                 if graph_snapshot != self.cached_preview_graph {
                     self.restore_cached_derived_data();
                 }
-                self.capture_availability =
-                    capture_availability(self.node_graph.graph(), self.graph_service.as_ref());
+                self.capture_availability = capture_availability(
+                    self.node_graph.graph(),
+                    self.graph_service.as_ref(),
+                    self.capture.backend_unavailable_reason(),
+                );
                 self.refresh_trigger_configuration();
                 if let Ok(candidates) = self
                     .graph_service
@@ -2971,7 +2994,13 @@ impl App {
             .input_bindings
             .status_bindings(&contexts, modifiers)
             .into_iter()
-            .filter_map(|binding| StatusAction::from_binding(binding, modifiers))
+            .filter_map(|binding| {
+                StatusAction::from_binding(
+                    binding,
+                    modifiers,
+                    self.host_ui_capabilities.modifier_key_labels,
+                )
+            })
             .collect();
         actions.sort_by_key(|action| action.input.sort_group());
         actions
@@ -3032,6 +3061,7 @@ impl StatusAction {
     fn from_binding(
         binding: &input_bindings::Binding,
         active_modifiers: egui::Modifiers,
+        modifier_labels: crate::ModifierKeyLabels,
     ) -> Option<Self> {
         if binding.status_modifier_only {
             let (key, active) = if binding.modifiers.control {
@@ -3039,23 +3069,9 @@ impl StatusAction {
             } else if binding.modifiers.shift {
                 ("Shift", active_modifiers.shift)
             } else if binding.modifiers.alt {
-                (
-                    if cfg!(target_os = "macos") {
-                        "Option"
-                    } else {
-                        "Alt"
-                    },
-                    active_modifiers.alt,
-                )
+                (modifier_labels.alternate, active_modifiers.alt)
             } else if binding.modifiers.command {
-                (
-                    if cfg!(target_os = "macos") {
-                        "Command"
-                    } else {
-                        "Ctrl"
-                    },
-                    active_modifiers.command,
-                )
+                (modifier_labels.command, active_modifiers.command)
             } else {
                 return None;
             };
@@ -3831,7 +3847,13 @@ mod font_tests {
         let viewer: Vec<_> = bindings
             .status_bindings(&["logic_analyzer"], egui::Modifiers::NONE)
             .into_iter()
-            .filter_map(|binding| StatusAction::from_binding(binding, egui::Modifiers::NONE))
+            .filter_map(|binding| {
+                StatusAction::from_binding(
+                    binding,
+                    egui::Modifiers::NONE,
+                    crate::ModifierKeyLabels::default(),
+                )
+            })
             .collect();
         assert!(viewer.iter().any(|action| {
             action.label == "Measure Edge Delta"
@@ -3890,7 +3912,13 @@ mod font_tests {
                 egui::Modifiers::NONE,
             )
             .into_iter()
-            .filter_map(|binding| StatusAction::from_binding(binding, egui::Modifiers::NONE))
+            .filter_map(|binding| {
+                StatusAction::from_binding(
+                    binding,
+                    egui::Modifiers::NONE,
+                    crate::ModifierKeyLabels::default(),
+                )
+            })
             .collect();
         rendered_extending_panels.sort_by_key(|action| action.input.sort_group());
         let rendered_labels: Vec<_> = rendered_extending_panels
@@ -3912,7 +3940,13 @@ mod font_tests {
                 egui::Modifiers::NONE,
             )
             .into_iter()
-            .filter_map(|binding| StatusAction::from_binding(binding, egui::Modifiers::NONE))
+            .filter_map(|binding| {
+                StatusAction::from_binding(
+                    binding,
+                    egui::Modifiers::NONE,
+                    crate::ModifierKeyLabels::default(),
+                )
+            })
             .collect();
         rendered_breaking_panels.sort_by_key(|action| action.input.sort_group());
         let rendered_labels: Vec<_> = rendered_breaking_panels

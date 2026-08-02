@@ -6,8 +6,8 @@ fn application_orchestration_depends_on_the_ui_owned_host_service() {
 
     for (name, source) in [
         (
-            "native application hooks",
-            include_str!("../app_platform/native_hooks.rs"),
+            "application hooks",
+            include_str!("../app_platform/hooks.rs"),
         ),
         (
             "preferences",
@@ -38,9 +38,9 @@ fn preferences_use_the_host_directory_capability_on_every_target() {
 }
 
 #[test]
-fn native_shell_command_transport_is_not_stored_in_ui_state() {
-    let state = include_str!("../app_platform/native.rs");
-    let hooks = include_str!("../app_platform/native_hooks.rs");
+fn host_command_transport_is_not_stored_in_ui_state() {
+    let state = include_str!("../app_platform/state.rs");
+    let hooks = include_str!("../app_platform/hooks.rs");
 
     for transport_detail in [
         "crossbeam_channel",

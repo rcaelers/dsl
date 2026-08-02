@@ -193,11 +193,8 @@ impl ProcessNode for DerivedDataCollector {
                 }
             }
         }
-        if progress == 0 {
-            if self.lanes.iter().all(|lane| lane.is_finished()) {
-                return Err(WorkError::Shutdown);
-            }
-            crate::idle_backoff();
+        if progress == 0 && self.lanes.iter().all(|lane| lane.is_finished()) {
+            return Err(WorkError::Shutdown);
         }
         Ok(progress)
     }

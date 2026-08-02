@@ -1,4 +1,4 @@
-//! Native deterministic acquisition provider adapter for tests.
+//! Deterministic acquisition provider adapter for tests.
 
 use std::sync::Arc;
 

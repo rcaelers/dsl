@@ -5,7 +5,6 @@ mod build_context;
 mod capture_index_factory;
 mod platform_parity;
 mod process_node;
-#[cfg(not(target_arch = "wasm32"))]
 mod sigrok_descriptor;
 
 pub(crate) use assertion::{
@@ -20,5 +19,4 @@ pub(crate) use platform_parity::{
     platform_parity_builder,
 };
 pub(crate) use process_node::TestProcessNode;
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) use sigrok_descriptor::{test_sigrok_logic_descriptor, test_sigrok_stacked_descriptor};

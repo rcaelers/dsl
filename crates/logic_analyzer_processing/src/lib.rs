@@ -6,7 +6,6 @@ mod capture_source_metadata;
 mod process_node_construction;
 
 pub mod nodes;
-#[cfg(not(target_arch = "wasm32"))]
 mod support;
 pub mod types;
 

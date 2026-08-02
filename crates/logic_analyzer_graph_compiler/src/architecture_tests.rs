@@ -183,7 +183,7 @@ fn compiler_has_no_production_ui_dependencies() {
 #[test]
 fn compiler_tests_build_graph_documents_without_the_widget() {
     let tests = include_str!("graph.rs")
-        .split_once("#[cfg(all(test, not(target_arch = \"wasm32\")))]\nmod tests")
+        .split_once("#[cfg(test)]\nmod tests")
         .expect("graph test module boundary")
         .1;
     assert!(tests.contains("GraphDocumentBuilder"));
@@ -235,7 +235,7 @@ fn compiler_uses_only_the_node_graph_api_namespace() {
     }
 
     let graph = include_str!("graph.rs")
-        .split_once("#[cfg(all(test, not(target_arch = \"wasm32\")))]\nmod tests")
+        .split_once("#[cfg(test)]\nmod tests")
         .expect("graph test module boundary")
         .0;
     for line in graph.lines().filter(|line| line.contains("node_graph::")) {

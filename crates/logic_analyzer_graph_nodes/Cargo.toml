@@ -22,9 +22,3 @@ inventory = { workspace = true }
 [dev-dependencies]
 logic-analyzer-test-support = { path = "../logic_analyzer_test_support" }
 tempfile = { workspace = true }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-dirs = { workspace = true }
-
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm-bindgen-test = "0.3.76"

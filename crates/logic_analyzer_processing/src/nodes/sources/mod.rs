@@ -6,5 +6,5 @@ pub mod sigrok_file;
 pub mod synthetic_capture_source;
 pub mod synthetic_uart_source;
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod conformance_tests;

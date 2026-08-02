@@ -96,7 +96,7 @@ fn sigrok_file_source_factory_slot() -> &'static RwLock<Arc<dyn SigrokFileSource
 pub fn u3pro16_runtime_builder_override(
     source_factory: Arc<dyn DsLogicU3Pro16SourceFactory>,
 ) -> RuntimeBuilderOverride {
-    crate::nodes::sources::dslogic_u3pro16::runtime_builder_override(source_factory)
+    crate::nodes::sources::dslogic_u3pro16::builder::runtime_builder_override(source_factory)
 }
 
 /// Returns the DSL file-source override for one host acquisition factory.
@@ -138,10 +138,10 @@ pub fn text_file_writer_runtime_builder_override(
 pub fn sigrok_decoder_runtime_builder_override(
     runtime: Arc<dyn SigrokDecoderRuntime>,
 ) -> RuntimeBuilderOverride {
-    crate::nodes::decoders::sigrok_decoder::runtime_builder_override(runtime)
+    crate::nodes::decoders::sigrok_decoder::builder::runtime_builder_override(runtime)
 }
 
 /// Builds graph-node templates from portable Sigrok discovery metadata.
 pub fn sigrok_node_templates(snapshot: &SigrokCatalogSnapshot) -> Vec<node_graph::NodeTemplate> {
-    crate::nodes::decoders::sigrok_decoder::node_templates(snapshot)
+    crate::nodes::decoders::sigrok_decoder::definition::node_templates(snapshot)
 }

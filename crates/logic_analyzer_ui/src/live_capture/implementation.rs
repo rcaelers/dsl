@@ -5,8 +5,6 @@ use signal_processing::{
     CaptureSessionOutcome, CaptureSessionPlan, CaptureSessionState, ProcessNode,
 };
 
-use super::platform::CaptureCoordinator;
-
 /// Outer `Option` on the coordinator method means "no update"; this inner
 /// option carries either a new growing index or an explicit detach.
 pub(crate) type CaptureWaveformUpdate = Option<Box<dyn CaptureIndex>>;
@@ -52,13 +50,14 @@ pub(crate) trait CaptureFeatureDiscovery {
 pub(crate) fn capture_availability<Discovery>(
     graph: &GraphState,
     discovery: &Discovery,
+    backend_unavailable_reason: Option<&str>,
 ) -> CaptureAvailability
 where
     Discovery: CaptureFeatureDiscovery + ?Sized,
 {
-    if !CaptureCoordinator::backend_available() {
+    if let Some(reason) = backend_unavailable_reason {
         return CaptureAvailability::Unavailable {
-            reason: CaptureCoordinator::backend_unavailable_reason().into(),
+            reason: reason.into(),
         };
     }
     discovery.discover_capture_availability(graph)
@@ -98,8 +97,7 @@ pub(crate) enum ConfigurationEpochResolution {
 }
 
 pub(crate) trait CaptureCoordinatorContract {
-    fn backend_available() -> bool;
-    fn backend_unavailable_reason() -> &'static str;
+    fn backend_unavailable_reason(&self) -> Option<&'static str>;
     fn request_stop(&mut self);
     fn request_abort(&mut self) -> Result<(), String>;
     fn request_force_trigger(&mut self) -> Result<(), String>;
@@ -139,7 +137,7 @@ pub(crate) trait CaptureCoordinatorContract {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod tests {
     use signal_processing::{CaptureChannelId, CaptureDataDelivery};
 
@@ -169,7 +167,7 @@ mod tests {
         });
 
         assert!(matches!(
-            capture_availability(&GraphState::default(), &discovery),
+            capture_availability(&GraphState::default(), &discovery, None),
             CaptureAvailability::Available { .. }
         ));
     }
@@ -180,7 +178,7 @@ mod tests {
             reason: "not a live source".into(),
         });
 
-        let availability = capture_availability(&GraphState::default(), &discovery);
+        let availability = capture_availability(&GraphState::default(), &discovery, None);
         assert_eq!(availability.reason(), Some("not a live source"));
     }
 }

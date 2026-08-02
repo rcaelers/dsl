@@ -37,7 +37,8 @@ use logic_analyzer_processing::{
 };
 use logic_analyzer_ui::{
     APPLICATION_ID, AppServices, ApplicationSettings, DecodedBlockCacheSnapshot, HostCommand,
-    HostService, OpenDialog, SaveDialog, default_input_bindings,
+    HostService, HostUiCapabilities, ModifierKeyLabels, OpenDialog, SaveDialog,
+    default_input_bindings,
 };
 use node_graph::{FileDialogRequest, FileDialogService};
 use signal_processing::logic_analyzer::LogicAnalyzerError;
@@ -1013,6 +1014,14 @@ impl WorkExecutor for NativeWorkExecutor {
         self.workers
     }
 
+    fn supports_long_running_tasks(&self) -> bool {
+        true
+    }
+
+    fn idle(&self, duration: Duration) {
+        std::thread::sleep(duration);
+    }
+
     fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
         let completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let task_completed = Arc::clone(&completed);
@@ -1056,6 +1065,14 @@ struct NativeRuntimeExecutor;
 impl WorkExecutor for NativeRuntimeExecutor {
     fn available_parallelism(&self) -> usize {
         1
+    }
+
+    fn supports_long_running_tasks(&self) -> bool {
+        true
+    }
+
+    fn idle(&self, duration: Duration) {
+        std::thread::sleep(duration);
     }
 
     fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
@@ -1430,6 +1447,30 @@ impl NativeHostService {
 }
 
 impl HostService for NativeHostService {
+    fn ui_capabilities(&self) -> HostUiCapabilities {
+        #[cfg(target_os = "macos")]
+        {
+            HostUiCapabilities {
+                direct_document_access: true,
+                system_menu_bar: true,
+                viewport_close_guard: false,
+                modifier_key_labels: ModifierKeyLabels {
+                    alternate: "Option",
+                    command: "Command",
+                },
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            HostUiCapabilities {
+                direct_document_access: true,
+                system_menu_bar: false,
+                viewport_close_guard: true,
+                modifier_key_labels: ModifierKeyLabels::default(),
+            }
+        }
+    }
+
     fn decoded_block_cache_snapshot(&self) -> Option<DecodedBlockCacheSnapshot> {
         let stats = signal_processing::decoded_block_cache_stats();
         Some(DecodedBlockCacheSnapshot {
@@ -1456,6 +1497,10 @@ impl HostService for NativeHostService {
         }
         #[cfg(not(target_os = "macos"))]
         let _ = paths;
+    }
+
+    fn document_exists(&self, path: &Path) -> bool {
+        path.exists()
     }
 
     fn choose_open_file(&mut self, request: OpenDialog<'_>) -> Option<PathBuf> {
