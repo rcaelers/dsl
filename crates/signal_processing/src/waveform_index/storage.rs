@@ -8,8 +8,9 @@
 //! to the injected repository; the index never requires one capture-sized
 //! allocation.
 
+use std::collections::{HashMap, VecDeque};
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use super::types::{
     BlockIndex, DIR_ENTRY_SIZE, HEADER_SIZE, IndexHeader, L1_WORDS, L2_WORDS, MAGIC, RootDirEntry,
@@ -139,7 +140,10 @@ impl IndexWriter {
 // IndexReader — read an existing index generation
 // ---------------------------------------------------------------------------
 
+const LEAF_CACHE_CAPACITY: usize = 128;
+
 /// Decoded view of one leaf artifact.
+#[derive(Clone)]
 pub(crate) struct LeafView {
     pub(crate) valid_samples: u32,
     pub(crate) first: bool,
@@ -147,6 +151,7 @@ pub(crate) struct LeafView {
     pub(crate) levels: Option<LevelsView>,
 }
 
+#[derive(Clone)]
 pub(crate) struct LevelsView {
     pub l1_toggle: Arc<[u64]>,
     pub l1_last: Arc<[u64]>,
@@ -160,6 +165,38 @@ pub(crate) struct IndexReader {
     identity: SourceIdentity,
     header: CaptureMetadata,
     directory: Vec<Vec<RootDirEntry>>,
+    leaf_cache: Mutex<LeafCache>,
+}
+
+#[derive(Default)]
+struct LeafCache {
+    entries: HashMap<(usize, usize), LeafView>,
+    recency: VecDeque<(usize, usize)>,
+}
+
+impl LeafCache {
+    fn get(&mut self, key: (usize, usize)) -> Option<LeafView> {
+        let value = self.entries.get(&key)?.clone();
+        self.touch(key);
+        Some(value)
+    }
+
+    fn insert(&mut self, key: (usize, usize), value: LeafView) {
+        self.entries.insert(key, value);
+        self.touch(key);
+        while self.entries.len() > LEAF_CACHE_CAPACITY {
+            if let Some(oldest) = self.recency.pop_front() {
+                self.entries.remove(&oldest);
+            }
+        }
+    }
+
+    fn touch(&mut self, key: (usize, usize)) {
+        if let Some(index) = self.recency.iter().position(|candidate| *candidate == key) {
+            self.recency.remove(index);
+        }
+        self.recency.push_back(key);
+    }
 }
 
 impl IndexReader {
@@ -202,6 +239,7 @@ impl IndexReader {
             identity,
             header,
             directory,
+            leaf_cache: Mutex::new(LeafCache::default()),
         })
     }
 
@@ -214,6 +252,16 @@ impl IndexReader {
     }
 
     pub(crate) fn load_leaf(&self, channel: usize, block: usize) -> Result<LeafView> {
+        let key = (channel, block);
+        if let Some(leaf) = self
+            .leaf_cache
+            .lock()
+            .map_err(|_| Error::ParseError("waveform-index leaf cache is unavailable".into()))?
+            .get(key)
+        {
+            return Ok(leaf);
+        }
+
         let entry = self
             .directory
             .get(channel)
@@ -241,6 +289,10 @@ impl IndexReader {
                 "invalid waveform-index leaf length".to_string(),
             ));
         }
+        self.leaf_cache
+            .lock()
+            .map_err(|_| Error::ParseError("waveform-index leaf cache is unavailable".into()))?
+            .insert(key, leaf.clone());
         Ok(leaf)
     }
 
@@ -575,5 +627,45 @@ mod tests {
         assert!(decoded.levels.is_none());
         assert!(decoded.first);
         assert!(decoded.last);
+    }
+
+    #[test]
+    fn reader_reuses_decoded_leaf_views() -> Result<()> {
+        let repository: Arc<dyn ArtifactRepository> =
+            Arc::new(crate::MemoryArtifactRepository::new());
+        let identity = SourceIdentity::from_bytes([7; 32]);
+        let metadata = CaptureMetadata {
+            total_probes: 1,
+            samplerate: "1 MHz".into(),
+            samplerate_hz: 1_000_000.0,
+            sample_period: 0.000_001,
+            total_samples: 16,
+            total_blocks: 1,
+            samples_per_block: 16,
+            probe_names: vec!["0".into()],
+            trigger_sample: None,
+        };
+        let mut levels = BlockLevels::zeroed();
+        set_bit(&mut levels.l1_toggle[0], 0);
+        let leaf = BlockIndex {
+            valid_samples: 16,
+            first: false,
+            last: true,
+            levels: Some(levels),
+        };
+        let mut writer = IndexWriter::create(Arc::clone(&repository), identity, &metadata, 1)?;
+        writer.write_block(0, 0, &leaf)?;
+        writer.finish()?;
+
+        let reader = IndexReader::open(repository, identity, metadata, 1)?;
+        let first = reader.load_leaf(0, 0)?;
+        let second = reader.load_leaf(0, 0)?;
+        let first_levels = first.levels.expect("active leaf should have levels");
+        let second_levels = second.levels.expect("active leaf should have levels");
+        assert!(Arc::ptr_eq(
+            &first_levels.l1_toggle,
+            &second_levels.l1_toggle,
+        ));
+        Ok(())
     }
 }

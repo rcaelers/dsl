@@ -1,3 +1,4 @@
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use super::builder::IndexBuilder;
@@ -18,6 +19,44 @@ use crate::{
     read_artifact_region,
 };
 
+const RAW_BLOCK_CACHE_CAPACITY: usize = 16;
+
+#[derive(Default)]
+struct RawBlockCache {
+    entries: HashMap<(usize, u64), BlockData>,
+    recency: VecDeque<(usize, u64)>,
+}
+
+impl RawBlockCache {
+    fn get(&mut self, key: (usize, u64)) -> Option<BlockData> {
+        let value = self.entries.get(&key)?.clone();
+        self.touch(key);
+        Some(value)
+    }
+
+    fn insert(&mut self, key: (usize, u64), value: BlockData) {
+        self.entries.insert(key, value);
+        self.touch(key);
+        while self.entries.len() > RAW_BLOCK_CACHE_CAPACITY {
+            if let Some(oldest) = self.recency.pop_front() {
+                self.entries.remove(&oldest);
+            }
+        }
+    }
+
+    fn touch(&mut self, key: (usize, u64)) {
+        if self
+            .recency
+            .back()
+            .is_some_and(|candidate| *candidate == key)
+        {
+            return;
+        }
+        self.recency.retain(|candidate| *candidate != key);
+        self.recency.push_back(key);
+    }
+}
+
 /// Windowed sampler for indexed capture data.
 ///
 /// Handles index construction/loading and samples visible windows from an
@@ -28,6 +67,7 @@ pub struct IndexSampler<R: BlockCaptureSource> {
     raw_reader: R,
     repository: Arc<dyn ArtifactRepository>,
     identity: SourceIdentity,
+    raw_block_cache: RawBlockCache,
 }
 
 impl<R> IndexSampler<R>
@@ -47,6 +87,7 @@ where
             raw_reader,
             repository,
             identity,
+            raw_block_cache: RawBlockCache::default(),
         }
     }
 
@@ -673,11 +714,18 @@ where
     /// compressed) capture source; freshly decompressed blocks are stored in
     /// the cache for later zero-copy reads.
     fn cached_packed_block(&mut self, channel: usize, block: u64) -> Result<BlockData> {
-        if let Some(data) = self.cached_raw_block(channel, block)? {
+        let key = (channel, block);
+        if let Some(data) = self.raw_block_cache.get(key) {
             return Ok(data);
         }
-        let data = self.raw_reader.read_packed_block(channel, block)?;
-        self.publish_raw_block(channel, block, &data)?;
+        let data = if let Some(data) = self.cached_raw_block(channel, block)? {
+            data
+        } else {
+            let data = self.raw_reader.read_packed_block(channel, block)?;
+            self.publish_raw_block(channel, block, &data)?;
+            data
+        };
+        self.raw_block_cache.insert(key, data.clone());
         Ok(data)
     }
 
@@ -717,7 +765,9 @@ where
         writer
             .truncate(data.len() as u64)
             .map_err(repository_error)?;
-        writer.flush().map_err(repository_error)?;
+        // This exact block is an opportunistic, rebuildable cache. Atomic
+        // publication matters to concurrent readers; forcing durable media
+        // synchronization for every random-access miss does not.
         writer.publish().map_err(repository_error)
     }
 
@@ -1101,5 +1151,29 @@ impl<R: BlockCaptureSource> CaptureIndex for IndexSampler<R> {
         target_points: usize,
     ) -> Result<CaptureSampledWindow> {
         self.sampled_window(channels, start_sample, end_sample, target_points)
+    }
+}
+
+#[cfg(test)]
+mod reader_tests {
+    use super::*;
+
+    #[test]
+    fn raw_block_cache_reuses_backing_and_evicts_the_oldest_block() {
+        let mut cache = RawBlockCache::default();
+        for block in 0..RAW_BLOCK_CACHE_CAPACITY as u64 {
+            cache.insert((0, block), BlockData::from(vec![block as u8]));
+        }
+
+        let recent = cache.get((0, 0)).expect("first block should be cached");
+        let recent_again = cache.get((0, 0)).expect("first block should be reused");
+        assert!(recent.shares_backing(&recent_again));
+
+        cache.insert(
+            (0, RAW_BLOCK_CACHE_CAPACITY as u64),
+            BlockData::from(vec![0xff]),
+        );
+        assert!(cache.get((0, 1)).is_none());
+        assert!(cache.get((0, 0)).is_some());
     }
 }

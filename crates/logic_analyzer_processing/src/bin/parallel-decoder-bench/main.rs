@@ -26,11 +26,11 @@ std::cfg_select! {
     use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
     use logic_analyzer_processing::types::CsPolarity;
     use signal_processing::{
-        CollectedWordLaneOptions, CollectedWordLaneQuery, DecodedBlockCacheStats,
-        DerivedDataCollector, DerivedDataCollectorMetrics, DerivedDataRetention, DerivedLanes,
-        InputPort, LiveStoreConfig, OutputPort, PersistentStoreConfig, Pipeline, PortSchema,
-        ProcessNode, ProtocolKind, Word, WorkError, WorkExecutor, WorkExecutorTask, WorkResult,
-        WorkTask, built_in_word_lane_ingestor,
+        ArtifactRepository, CollectedWordLaneOptions, CollectedWordLaneQuery,
+        DecodedBlockCacheStats, DerivedDataCollector, DerivedDataCollectorMetrics,
+        DerivedDataRetention, DerivedLanes, InputPort, LiveStoreConfig, MemoryArtifactRepository,
+        OutputPort, PersistentStoreConfig, Pipeline, PortSchema, ProcessNode, ProtocolKind, Word,
+        WorkError, WorkExecutor, WorkExecutorTask, WorkResult, WorkTask, built_in_word_lane_ingestor,
         configure_decoded_block_cache, decoded_block_cache_stats, reset_decoded_block_cache_stats,
     };
 
@@ -759,6 +759,25 @@ std::cfg_select! {
         key
     }
 
+    fn source_for_mode(
+        path: &Path,
+        mode: BenchMode,
+        work_executor: Arc<dyn WorkExecutor>,
+    ) -> Result<DslFileSource, Box<dyn std::error::Error>> {
+        let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+        if matches!(mode, BenchMode::Indexed | BenchMode::Auto) {
+            let presentation = DslFileSource::indexed_capture_presentation(path);
+            presentation.factory.open(
+                Arc::clone(&repository),
+                Arc::clone(&work_executor),
+                &mut |_| {},
+            )?;
+        }
+        Ok(DslFileSource::new(path)?
+            .with_artifact_repository(repository)
+            .with_work_executor(work_executor))
+    }
+
     fn run(args: &Args, mode: BenchMode) -> Result<BenchResult, Box<dyn std::error::Error>> {
         let decoded_cache_bytes = args
             .decoded_cache_mib
@@ -773,7 +792,8 @@ std::cfg_select! {
             .chain(args.cs)
             .max()
             .map_or(0, |channel| channel + 1);
-        let source = DslFileSource::new(&args.capture)?;
+        let work_executor: Arc<dyn WorkExecutor> = Arc::new(BenchmarkWorkExecutor);
+        let source = source_for_mode(&args.capture, mode, Arc::clone(&work_executor))?;
         if required_channels > source.num_channels() {
             return Err(format!(
                 "capture has {} channels, but channel {} is required",
@@ -784,9 +804,7 @@ std::cfg_select! {
         }
         let samples = args.samples.min(source.total_samples());
         let samplerate_hz = source.samplerate_hz();
-        let source = source
-            .with_max_samples(Some(samples))
-            .with_work_executor(Arc::new(BenchmarkWorkExecutor));
+        let source = source.with_max_samples(Some(samples));
         let cs_polarity = CsPolarity::from(args.cs_polarity);
         let input_strategy = match mode {
             BenchMode::Indexed => ParallelInputStrategy::Indexed,
@@ -796,7 +814,8 @@ std::cfg_select! {
         };
         let decoder = ParallelDecoder::new(args.data.len(), args.trigger.into(), cs_polarity)
             .with_input_strategy(input_strategy)
-            .with_parallel_workers(args.workers);
+            .with_parallel_workers(args.workers)
+            .with_work_executor(work_executor);
         let parallel_workers = decoder.parallel_workers();
         let parallel_metrics = decoder.parallel_metrics();
 
@@ -1268,7 +1287,12 @@ std::cfg_select! {
             let directory = tempfile::tempdir().unwrap();
             let capture = directory.path().join("sparse.dsl");
             write_sparse_capture(&capture);
-            let source = DslFileSource::new(&capture).unwrap();
+            let source = source_for_mode(
+                &capture,
+                BenchMode::Indexed,
+                Arc::new(BenchmarkWorkExecutor),
+            )
+            .unwrap();
             let activity = source
                 .edge_query(2, &[])
                 .and_then(|query| query.activity_ratio_hint())
@@ -1311,7 +1335,12 @@ std::cfg_select! {
             let directory = tempfile::tempdir().unwrap();
             let capture = directory.path().join("dense.dsl");
             write_dense_capture(&capture);
-            let source = DslFileSource::new(&capture).unwrap();
+            let source = source_for_mode(
+                &capture,
+                BenchMode::Indexed,
+                Arc::new(BenchmarkWorkExecutor),
+            )
+            .unwrap();
             let activity = source
                 .edge_query(2, &[])
                 .and_then(|query| query.activity_ratio_hint())

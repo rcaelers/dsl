@@ -46,6 +46,15 @@ fn work_with_platform_backend(
     blocks: &mut StreamBlockState,
 ) -> WorkResult<usize> {
     let workers = effective_workers(decoder);
+    if decoder.work_call_count == 0 {
+        debug!(
+            decoder = %decoder.name,
+            workers,
+            available_workers = decoder.work_executor.available_parallelism(),
+            requested_workers = decoder.parallel_workers,
+            "configured parallel decoder packed execution"
+        );
+    }
     if workers > 1 {
         work_parallel(decoder, inputs, outputs, blocks, workers)
     } else {

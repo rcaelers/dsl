@@ -137,6 +137,7 @@ impl ArtifactRepository for NativeArtifactRepository {
             file: Some(file),
             temporary_path,
             published: false,
+            flushed: false,
         }))
     }
 
@@ -250,6 +251,7 @@ struct NativeWriteArtifact {
     temporary_path: PathBuf,
     final_path: PathBuf,
     published: bool,
+    flushed: bool,
 }
 
 impl NativeWriteArtifact {
@@ -266,6 +268,7 @@ impl WriteArtifact for NativeWriteArtifact {
     }
 
     fn write_at(&mut self, offset: u64, source: &[u8]) -> Result<(), RepositoryError> {
+        self.flushed = false;
         self.file_mut()?
             .seek(SeekFrom::Start(offset))
             .map_err(repository_io)?;
@@ -273,19 +276,27 @@ impl WriteArtifact for NativeWriteArtifact {
     }
 
     fn truncate(&mut self, len: u64) -> Result<(), RepositoryError> {
+        self.flushed = false;
         self.file_mut()?.set_len(len).map_err(repository_io)
     }
 
     fn flush(&mut self) -> Result<(), RepositoryError> {
-        self.file_mut()?.sync_all().map_err(repository_io)
+        self.file_mut()?.sync_all().map_err(repository_io)?;
+        self.flushed = true;
+        Ok(())
     }
 
     fn publish(mut self: Box<Self>) -> Result<(), RepositoryError> {
-        let file = self
+        let mut file = self
             .file
             .take()
             .ok_or_else(|| RepositoryError::Io("artifact write was already published".into()))?;
-        file.sync_all().map_err(repository_io)?;
+        if !self.flushed {
+            // Publication still closes the complete file before the atomic
+            // rename, but rebuildable caches can deliberately omit the
+            // durability barrier exposed by `flush`.
+            file.flush().map_err(repository_io)?;
+        }
         drop(file);
         std::fs::rename(&self.temporary_path, &self.final_path).map_err(repository_io)?;
         self.published = true;
