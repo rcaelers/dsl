@@ -496,8 +496,8 @@ The executor contract provides:
 
 The native executor adapter in `logic_analyzer_platform` uses a bounded worker pool for finite
 work and host-created tasks for long-running readers and runtime supervision. The portable
-cooperative executor compiles on every target; the web composition selects it and drives it through
-the application pump. `signal_processing::WorkerMessage` carries owned operation identifiers,
+cooperative executor compiles on every target and is the explicit fallback when the web host cannot
+provide parallel workers. `signal_processing::WorkerMessage` carries owned operation identifiers,
 sequence numbers, payloads, progress, cancellation, completion, and failure across a worker
 boundary. A Web Worker adapter in `logic_analyzer_platform` dispatches registered operations with
 those messages and returns owned result chunks. It does not attempt to send Rust closures, trait
@@ -514,7 +514,9 @@ Capture-index scheduling reads at most the executor's advertised parallelism wor
 ahead. It then merges independently completed leaves by channel and block before applying boundary
 transitions and publishing them. Derived-word publication likewise commits completed encoded blocks
 by sequence. Worker completion order therefore cannot change either persistent format or query
-results, and the cooperative and parallel paths execute the same kernels.
+results, and the cooperative and parallel paths execute the same kernels. Index and derived-store
+manifests are published only after all ordered results succeed; cancellation or failure leaves no
+partially published generation for a later reader to accept.
 
 `logic_analyzer_platform::WebWorkerAdapter` owns a bounded pool of browser workers and is constructed
 with the absolute URLs of the generated JavaScript module and WASM binary. Worker construction
@@ -538,12 +540,20 @@ queue, and loss of the complete pool rejects all queued requests. Dropping the a
 the pool and releases its JavaScript callbacks.
 
 `signal_processing::WorkerOperationQueue` owns this bounded scheduling state independently of the
-browser transport. Host readiness and results enter as portable events; runnable and cancellation
-work leaves as `WorkerHostCommand` values. The Web Worker adapter translates those commands without
-reimplementing queue policy. The queue's native and wasm conformance suite covers every portable
-message variant, operation validation, backpressure, out-of-order completion, queued and active
-cancellation, mismatched results, partial and complete worker-pool failure, and observable parity
-with `CooperativeWorkerOperationExecutor`.
+host transport. Host readiness and results enter as portable events; runnable and cancellation work
+leaves as `WorkerHostCommand` values. Native and Web Worker adapters translate those commands
+without reimplementing queue policy. The queue's native and wasm conformance suite covers every
+portable message variant, operation validation, backpressure, out-of-order completion, queued and
+active cancellation, mismatched results, partial and complete worker-pool failure, and observable
+parity with `CooperativeWorkerOperationExecutor`.
+
+The native finite-operation adapter in `logic_analyzer_platform` runs those commands in a bounded
+worker pool. Each slot owns one request channel and executes at most one operation at a time; the
+shared queue bounds accepted work to four requests per advertised worker. The adapter converts a
+kernel panic or transport loss into an ordered failure. Cancellation publishes an ordered failure
+immediately and suppresses any late result, without claiming to preempt synchronous native code.
+Closing the adapter disconnects the request channels, so idle workers exit without making shutdown
+wait for a defective finite kernel.
 
 `WorkerOperationExecutor` is the target-independent finite-operation host contract. Its capability
 snapshot reports the selected cooperative or parallel mode, advertised parallelism, registered

@@ -43,9 +43,8 @@ use node_graph::{FileDialogRequest, FileDialogService};
 use signal_processing::logic_analyzer::LogicAnalyzerError;
 use signal_processing::{
     AppManager, AppManagerBackend, AppManagerFactory, ArtifactRepository, CaptureIndex,
-    CaptureIndexBuildProgress, CaptureIndexFactory, CooperativeWorkerOperationExecutor,
-    IndexedCapturePresentation, PipelineManager, PreparedByteSource, ProcessNode, SourceIdentity,
-    WorkExecutor, WorkExecutorTask, WorkTask, portable_worker_kernels,
+    CaptureIndexBuildProgress, CaptureIndexFactory, IndexedCapturePresentation, PipelineManager,
+    PreparedByteSource, ProcessNode, SourceIdentity, WorkExecutor, WorkExecutorTask, WorkTask,
 };
 
 use super::native_artifact_repository::NativeArtifactRepository;
@@ -54,6 +53,7 @@ use super::native_file_identity_cache::NativeFileIdentityCache;
 use super::native_file_source::NativeFileByteSource;
 use super::native_sigrok;
 use super::native_sigrok::{PythonSigrokExecutionFactory, discover_sigrok_decoder, scan_catalog};
+use super::native_worker::NativeWorkerOperationExecutor;
 use crate::services::PlatformServices;
 
 #[cfg(target_os = "macos")]
@@ -175,10 +175,7 @@ pub(crate) fn standard_services() -> PlatformServices {
         node_catalogs,
         artifact_repository,
         work_executor,
-        Rc::new(CooperativeWorkerOperationExecutor::new(
-            portable_worker_kernels(),
-            "native serialized worker operations use the existing work executor",
-        )),
+        Rc::new(NativeWorkerOperationExecutor::new()),
     )
 }
 

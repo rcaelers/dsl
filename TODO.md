@@ -85,11 +85,6 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.execution] Define bounded execution semantics for storage and index work: advertised
-  parallelism, reader concurrency, backpressure, progress, cancellation, deterministic merge ordering, and failure
-  without partial publication. Keep the cooperative implementation portable; put the native worker pool and future
-  Web Worker adapter in `logic_analyzer_platform`, selected through injection rather than compiler/runtime target
-  modules. Retain explicit serializable work messages as the browser-worker boundary.
 - [platform.data-plane.core-source-parity] Remove existing target-selected module trees, target conditionals, and
   target-specific manifest dependencies from `signal_processing`, the compiler, graph nodes, `node_graph`, the
   viewer, reusable widgets, and the UI. Convert application managers, cache backends, source preparation, viewer

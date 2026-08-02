@@ -12,6 +12,8 @@ mod native_file_source;
 mod native_hardware_validation;
 #[cfg(not(target_arch = "wasm32"))]
 mod native_sigrok;
+#[cfg(not(target_arch = "wasm32"))]
+mod native_worker;
 #[cfg(target_arch = "wasm32")]
 mod web;
 #[cfg(target_arch = "wasm32")]
