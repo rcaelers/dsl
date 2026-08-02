@@ -314,6 +314,10 @@ pub struct IndexedCapturePresentation {
 pub trait CaptureIndexFactory: Send + 'static {
     fn display_name(&self) -> String;
 
+    /// Inspects the capture before index construction so hosts can publish
+    /// channel and time-span metadata while the index is still being built.
+    fn metadata(&self) -> Result<CaptureMetadata>;
+
     fn open(
         self: Box<Self>,
         artifact_repository: Arc<dyn crate::ArtifactRepository>,

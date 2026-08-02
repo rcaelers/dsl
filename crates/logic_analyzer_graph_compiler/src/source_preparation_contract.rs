@@ -1,5 +1,5 @@
 use logic_analyzer_graph_api::node_support::CapturePresentationSignal;
-use signal_processing::{CaptureIndex, CaptureIndexBuildProgress};
+use signal_processing::{CaptureIndex, CaptureIndexBuildProgress, CaptureMetadata};
 
 pub struct PreparedCapture {
     pub identity: String,
@@ -16,10 +16,21 @@ pub enum PreparedCaptureData {
     Channels(Vec<(usize, String)>),
 }
 
+/// Presentation information available while a finite capture index is built.
+///
+/// This deliberately contains only immutable source metadata and build
+/// progress. Index ownership remains with source preparation until `Ready`.
+pub struct PreparingCapture {
+    pub identity: String,
+    pub visible_channels: Vec<usize>,
+    pub metadata: Option<CaptureMetadata>,
+    pub progress: Option<CaptureIndexBuildProgress>,
+}
+
 pub enum SourcePreparationUpdate {
     Unchanged,
     Cleared,
-    Preparing,
+    Preparing(PreparingCapture),
     Ready(PreparedCapture),
     Failed(String),
 }

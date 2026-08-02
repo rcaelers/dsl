@@ -10,8 +10,8 @@ use super::source_preparation_executor::{
     SourcePreparationTask, SourcePreparationTaskUpdate,
 };
 use super::{
-    DiscoveredCapturePresentation, PreparedCapture, PreparedCaptureData, SourcePreparationSnapshot,
-    SourcePreparationStatus, SourcePreparationUpdate,
+    DiscoveredCapturePresentation, PreparedCapture, PreparedCaptureData, PreparingCapture,
+    SourcePreparationSnapshot, SourcePreparationStatus, SourcePreparationUpdate,
 };
 
 pub(crate) struct SourcePreparation {
@@ -99,7 +99,9 @@ impl SourcePreparation {
                 self.status = SourcePreparationStatus::Failed(error.clone());
                 SourcePreparationUpdate::Failed(error)
             }
-            SourcePreparationTaskUpdate::Pending => SourcePreparationUpdate::Preparing,
+            SourcePreparationTaskUpdate::Pending => {
+                self.preparing_update(discovered.identity, discovered.visible_channels)
+            }
             SourcePreparationTaskUpdate::Disconnected => {
                 self.task = None;
                 self.control = None;
@@ -159,11 +161,17 @@ impl SourcePreparation {
         self.cancel_active();
         self.advance_generation();
         self.status = SourcePreparationStatus::Preparing;
+        let identity = discovered.identity;
+        let visible_channels = discovered.visible_channels;
         match discovered.presentation {
             CapturePresentation::Indexed { factory, .. } => {
                 let work_executor = Arc::clone(&self.work_executor);
                 let artifact_repository = Arc::clone(&self.artifact_repository);
                 let work = Box::new(move |control: SourcePreparationControl| {
+                    let metadata = factory.metadata().map_err(|error| error.to_string())?;
+                    if !control.report_metadata(metadata) {
+                        return Err("source preparation cancelled".to_owned());
+                    }
                     factory
                         .open(artifact_repository, work_executor, &mut |progress| {
                             control.report_progress(progress)
@@ -176,7 +184,7 @@ impl SourcePreparation {
                     Ok(task) => {
                         self.task = Some(task);
                         self.control = Some(control);
-                        SourcePreparationUpdate::Preparing
+                        self.preparing_update(identity, visible_channels)
                     }
                     Err(error) => {
                         let error = format!("could not start capture preparation worker: {error}");
@@ -191,8 +199,8 @@ impl SourcePreparation {
             } => {
                 self.status = SourcePreparationStatus::Ready;
                 SourcePreparationUpdate::Ready(PreparedCapture {
-                    identity: discovered.identity,
-                    visible_channels: discovered.visible_channels,
+                    identity,
+                    visible_channels,
                     data: PreparedCaptureData::InMemory {
                         signals,
                         duration_us,
@@ -202,12 +210,31 @@ impl SourcePreparation {
             CapturePresentation::Channels(channels) => {
                 self.status = SourcePreparationStatus::Ready;
                 SourcePreparationUpdate::Ready(PreparedCapture {
-                    identity: discovered.identity,
-                    visible_channels: discovered.visible_channels,
+                    identity,
+                    visible_channels,
                     data: PreparedCaptureData::Channels(channels),
                 })
             }
         }
+    }
+
+    fn preparing_update(
+        &self,
+        identity: String,
+        visible_channels: Vec<usize>,
+    ) -> SourcePreparationUpdate {
+        SourcePreparationUpdate::Preparing(PreparingCapture {
+            identity,
+            visible_channels,
+            metadata: self
+                .control
+                .as_ref()
+                .and_then(SourcePreparationControl::metadata),
+            progress: self
+                .control
+                .as_ref()
+                .and_then(SourcePreparationControl::progress),
+        })
     }
 
     fn cancel_active(&mut self) {
@@ -434,9 +461,27 @@ mod source_preparation_tests {
         observed_parallelism: Option<Arc<Mutex<Option<usize>>>>,
     }
 
+    fn test_metadata() -> CaptureMetadata {
+        CaptureMetadata {
+            total_probes: 1,
+            samplerate: "1 MHz".into(),
+            samplerate_hz: 1_000_000.0,
+            sample_period: 0.000_001,
+            total_samples: 10,
+            total_blocks: 1,
+            samples_per_block: 64,
+            probe_names: vec!["D0".into()],
+            trigger_sample: None,
+        }
+    }
+
     impl CaptureIndexFactory for TestFactory {
         fn display_name(&self) -> String {
             "test factory".into()
+        }
+
+        fn metadata(&self) -> signal_processing::Result<CaptureMetadata> {
+            Ok(test_metadata())
         }
 
         fn open(
@@ -450,17 +495,7 @@ mod source_preparation_tests {
                 *observed_parallelism.lock().unwrap() = Some(work_executor.available_parallelism());
             }
             Ok(Box::new(TestIndex {
-                metadata: CaptureMetadata {
-                    total_probes: 1,
-                    samplerate: "1 MHz".into(),
-                    samplerate_hz: 1_000_000.0,
-                    sample_period: 0.000_001,
-                    total_samples: 10,
-                    total_blocks: 1,
-                    samples_per_block: 64,
-                    probe_names: vec!["D0".into()],
-                    trigger_sample: None,
-                },
+                metadata: test_metadata(),
                 identity: signal_processing::SourceIdentity::from_bytes([7; 32]),
             }))
         }
@@ -471,6 +506,10 @@ mod source_preparation_tests {
     impl CaptureIndexFactory for FailingFactory {
         fn display_name(&self) -> String {
             "failing test factory".into()
+        }
+
+        fn metadata(&self) -> signal_processing::Result<CaptureMetadata> {
+            Ok(test_metadata())
         }
 
         fn open(
@@ -492,6 +531,10 @@ mod source_preparation_tests {
             "progress test factory".into()
         }
 
+        fn metadata(&self) -> signal_processing::Result<CaptureMetadata> {
+            Ok(test_metadata())
+        }
+
         fn open(
             self: Box<Self>,
             _artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
@@ -503,17 +546,7 @@ mod source_preparation_tests {
                 total: 5,
             }));
             Ok(Box::new(TestIndex {
-                metadata: CaptureMetadata {
-                    total_probes: 1,
-                    samplerate: "1 MHz".into(),
-                    samplerate_hz: 1_000_000.0,
-                    sample_period: 0.000_001,
-                    total_samples: 10,
-                    total_blocks: 1,
-                    samples_per_block: 64,
-                    probe_names: vec!["D0".into()],
-                    trigger_sample: None,
-                },
+                metadata: test_metadata(),
                 identity: signal_processing::SourceIdentity::from_bytes([8; 32]),
             }))
         }
@@ -615,13 +648,13 @@ mod source_preparation_tests {
         let mut preparation = SourcePreparation::with_executor(Box::new(executor.clone()));
         assert!(matches!(
             preparation.synchronize(Some(indexed("indexed-capture", open_count.clone()))),
-            SourcePreparationUpdate::Preparing
+            SourcePreparationUpdate::Preparing(_)
         ));
         assert_eq!(executor.pending_count(), 1);
         assert_eq!(*open_count.lock().unwrap(), 0);
         assert!(matches!(
             preparation.synchronize(Some(indexed("indexed-capture", open_count.clone()))),
-            SourcePreparationUpdate::Preparing
+            SourcePreparationUpdate::Preparing(_)
         ));
 
         executor.complete_next();
@@ -642,7 +675,7 @@ mod source_preparation_tests {
 
         assert!(matches!(
             preparation.synchronize(Some(progress_indexed("indexed-capture"))),
-            SourcePreparationUpdate::Preparing
+            SourcePreparationUpdate::Preparing(_)
         ));
         assert_eq!(preparation.snapshot().generation, 1);
         assert_eq!(preparation.snapshot().progress, None);
@@ -702,10 +735,14 @@ mod source_preparation_tests {
             Arc::new(FixedWorkExecutor { parallelism: 7 }),
         );
 
-        assert!(matches!(
-            preparation.synchronize(Some(presentation)),
-            SourcePreparationUpdate::Preparing
-        ));
+        let SourcePreparationUpdate::Preparing(preparing) =
+            preparation.synchronize(Some(presentation))
+        else {
+            panic!("indexed capture should first publish preparation metadata");
+        };
+        assert_eq!(preparing.identity, "indexed-capture");
+        assert_eq!(preparing.visible_channels, vec![0]);
+        assert_eq!(preparing.metadata.unwrap().total_probes, 1);
         assert_eq!(*open_count.lock().unwrap(), 1);
         assert_eq!(*observed_parallelism.lock().unwrap(), Some(7));
     }
@@ -717,7 +754,7 @@ mod source_preparation_tests {
         let mut preparation = SourcePreparation::with_executor(Box::new(executor.clone()));
         assert!(matches!(
             preparation.synchronize(Some(indexed("indexed-capture", open_count.clone()))),
-            SourcePreparationUpdate::Preparing
+            SourcePreparationUpdate::Preparing(_)
         ));
 
         executor.fail_next("controlled preparation failure");
@@ -737,7 +774,7 @@ mod source_preparation_tests {
         let mut preparation = SourcePreparation::with_executor(Box::new(ImmediateExecutor));
         assert!(matches!(
             preparation.synchronize(Some(failing_indexed("indexed-capture"))),
-            SourcePreparationUpdate::Preparing
+            SourcePreparationUpdate::Preparing(_)
         ));
         assert!(matches!(
             preparation.synchronize(Some(failing_indexed("indexed-capture"))),
@@ -753,7 +790,7 @@ mod source_preparation_tests {
         let mut preparation = SourcePreparation::with_executor(Box::new(executor.clone()));
         assert!(matches!(
             preparation.synchronize(Some(indexed("indexed-capture", open_count.clone()))),
-            SourcePreparationUpdate::Preparing
+            SourcePreparationUpdate::Preparing(_)
         ));
 
         preparation.reset();
@@ -787,7 +824,7 @@ mod source_preparation_tests {
         let mut preparation = SourcePreparation::with_executor(Box::new(executor.clone()));
         assert!(matches!(
             preparation.synchronize(Some(indexed("indexed-capture", open_count.clone()))),
-            SourcePreparationUpdate::Preparing
+            SourcePreparationUpdate::Preparing(_)
         ));
 
         executor.disconnect_next();

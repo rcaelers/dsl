@@ -10,9 +10,8 @@ use logic_analyzer_graph_compiler::{
     CompileError, DerivedCacheClearStats, DerivedCacheEntrySnapshot, DiscoveredLiveCaptureFeature,
     DiscoveredTimelineMarker, DiscoveredTimelineMarkerReferenceBinding,
     DiscoveredTriggerConfiguration, LiveAnalysisSource, LiveCaptureDiscoveryError,
-    OutputSubscriptionPlan, SamplingOverlayCandidate, SourcePreparationSnapshot,
-    SourcePreparationStatus, SourcePreparationUpdate, SourceProcessOverrides,
-    SourceReadinessRegistry,
+    OutputSubscriptionPlan, SamplingOverlayCandidate, SourcePreparationStatus,
+    SourcePreparationUpdate, SourceProcessOverrides, SourceReadinessRegistry,
 };
 use node_graph::{GraphState, NodeId};
 use signal_processing::{
@@ -80,8 +79,6 @@ pub(crate) trait GraphService: CaptureFeatureDiscovery {
     fn reset_prepared_capture(&mut self);
 
     fn source_preparation_status(&self) -> SourcePreparationStatus;
-
-    fn source_preparation_snapshot(&self) -> SourcePreparationSnapshot;
 
     fn discover_live_capture_feature(
         &self,

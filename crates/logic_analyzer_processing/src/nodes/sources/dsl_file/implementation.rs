@@ -13,7 +13,9 @@ use std::sync::{Arc, Mutex};
 
 use tracing::{debug, info, warn};
 
-use signal_processing::capture::{BlockData, CaptureMetadata, CaptureTransition};
+use signal_processing::capture::{
+    BlockData, CaptureDataSource, CaptureMetadata, CaptureTransition,
+};
 use signal_processing::waveform_index::IndexSampler;
 use signal_processing::{
     ArtifactRepository, CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, EdgeQuery,
@@ -97,6 +99,11 @@ struct DslCaptureIndexFactory {
 impl CaptureIndexFactory for DslCaptureIndexFactory {
     fn display_name(&self) -> String {
         self.display_name.clone()
+    }
+
+    fn metadata(&self) -> Result<CaptureMetadata> {
+        DslFileCaptureDataSource::open_source(Arc::clone(&self.source), self.display_name.clone())
+            .map(|source| source.metadata().clone())
     }
 
     fn open(

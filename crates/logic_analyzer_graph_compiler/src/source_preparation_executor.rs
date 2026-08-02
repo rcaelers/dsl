@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use signal_processing::CaptureIndexBuildProgress;
+use signal_processing::{CaptureIndexBuildProgress, CaptureMetadata};
 
 use super::PreparedCaptureData;
 
@@ -20,6 +20,7 @@ pub struct SourcePreparationControl {
 
 struct SourcePreparationControlState {
     cancelled: AtomicBool,
+    metadata: Mutex<Option<CaptureMetadata>>,
     progress: Mutex<Option<CaptureIndexBuildProgress>>,
 }
 
@@ -28,6 +29,7 @@ impl SourcePreparationControl {
         Self {
             inner: Arc::new(SourcePreparationControlState {
                 cancelled: AtomicBool::new(false),
+                metadata: Mutex::new(None),
                 progress: Mutex::new(None),
             }),
         }
@@ -45,12 +47,24 @@ impl SourcePreparationControl {
         true
     }
 
+    pub(crate) fn report_metadata(&self, metadata: CaptureMetadata) -> bool {
+        if self.is_cancelled() {
+            return false;
+        }
+        *self.inner.metadata.lock().unwrap() = Some(metadata);
+        true
+    }
+
     pub(crate) fn cancel(&self) {
         self.inner.cancelled.store(true, Ordering::Release);
     }
 
     pub(crate) fn progress(&self) -> Option<CaptureIndexBuildProgress> {
         *self.inner.progress.lock().unwrap()
+    }
+
+    pub(crate) fn metadata(&self) -> Option<CaptureMetadata> {
+        self.inner.metadata.lock().unwrap().clone()
     }
 }
 

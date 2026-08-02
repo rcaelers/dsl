@@ -6,7 +6,7 @@ use std::sync::Arc;
 use egui::{FontId, Pos2, Rect, Sense, Ui};
 
 use input_bindings::InputBindings;
-use signal_processing::{CaptureIndex, DerivedLanes};
+use signal_processing::{CaptureIndex, CaptureIndexBuildProgress, CaptureMetadata, DerivedLanes};
 
 use crate::channel::LogicChannel;
 use crate::derived_snapshot::DerivedSnapshotCache;
@@ -298,6 +298,58 @@ impl LogicAnalyzerViewer {
         self.visible_span_us = duration_us.max(1.0);
         self.fit_to_capture = true;
         self.status = "In-memory capture ready".to_owned();
+    }
+
+    /// Presents immutable capture metadata while the host prepares its index.
+    ///
+    /// The viewer does not own or advance index construction. It only renders
+    /// the source shape and progress published by the preparation service.
+    pub fn set_preparing_capture(
+        &mut self,
+        identity: impl Into<PathBuf>,
+        metadata: Option<CaptureMetadata>,
+        progress: Option<CaptureIndexBuildProgress>,
+    ) {
+        let identity = identity.into();
+        if self.capture_path.as_ref() != Some(&identity) {
+            self.clear_capture();
+            self.capture_path = Some(identity);
+        }
+
+        if self.capture_info.is_none()
+            && let Some(metadata) = metadata
+        {
+            let duration_us = metadata.duration_us();
+            self.capture_info = Some(CaptureInfo {
+                header: metadata.clone(),
+                duration_us,
+            });
+            self.channels = crate::channel::placeholder_channels(&metadata)
+                .into_iter()
+                .filter(|channel| self.capture_channel_is_visible(channel.index))
+                .collect();
+            self.visible_start_us = 0.0;
+            self.visible_span_us = duration_us.max(1.0);
+            self.fit_to_capture = true;
+            self.ensure_row_order();
+        }
+
+        let progress = progress.unwrap_or(CaptureIndexBuildProgress {
+            completed: 0,
+            total: 1,
+        });
+        self.index_progress = Some(IndexBuildProgress {
+            completed_roots: progress.completed,
+            total_roots: progress.total,
+        });
+        self.status = if progress.total > 0 {
+            format!(
+                "Building waveform index… {}/{}",
+                progress.completed, progress.total
+            )
+        } else {
+            "Preparing capture index…".to_owned()
+        };
     }
 
     /// Attaches an index fully prepared by the host.
@@ -934,6 +986,41 @@ mod tests {
         assert!(viewer.capture_info.is_some());
         assert!(viewer.sampler.is_some());
         assert_eq!(viewer.status, "Indexed capture ready");
+    }
+
+    #[test]
+    fn preparing_capture_exposes_channels_span_and_progress_before_index_attachment() {
+        let mut viewer = LogicAnalyzerViewer::default();
+        viewer.set_visible_capture_channels([1]);
+        viewer.set_preparing_capture(
+            "cold-capture",
+            Some(CaptureMetadata {
+                total_probes: 2,
+                samplerate: "1 MHz".into(),
+                samplerate_hz: 1_000_000.0,
+                sample_period: 0.000_001,
+                total_samples: 250_000_000,
+                total_blocks: 4,
+                samples_per_block: 64,
+                probe_names: vec!["D0".into(), "D1".into()],
+                trigger_sample: None,
+            }),
+            Some(signal_processing::CaptureIndexBuildProgress {
+                completed: 1,
+                total: 4,
+            }),
+        );
+
+        assert_eq!(
+            viewer.capture_path.as_deref(),
+            Some(Path::new("cold-capture"))
+        );
+        assert_eq!(viewer.channels.len(), 1);
+        assert_eq!(viewer.channels[0].index, 1);
+        assert_eq!(viewer.visible_span_us, 250_000_000.0);
+        assert_eq!(viewer.index_progress_fraction(), Some(0.25));
+        assert_eq!(viewer.status, "Building waveform index… 1/4");
+        assert!(viewer.sampler.is_none());
     }
 
     #[test]

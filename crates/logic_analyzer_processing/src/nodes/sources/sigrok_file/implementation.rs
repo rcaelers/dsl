@@ -4,10 +4,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use signal_processing::{
-    ArtifactRepository, CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory,
-    InlineWorkExecutor, InputPort, OutputPort, PortDirection, PortSchema, PreparedByteSource,
-    ProcessNode, Result, Sample, SampleBlock, SampleKind, Sender, WorkError, WorkExecutor,
-    WorkResult, WorkTask,
+    ArtifactRepository, CaptureDataSource, CaptureIndex, CaptureIndexBuildProgress,
+    CaptureIndexFactory, CaptureMetadata, InlineWorkExecutor, InputPort, OutputPort, PortDirection,
+    PortSchema, PreparedByteSource, ProcessNode, Result, Sample, SampleBlock, SampleKind, Sender,
+    WorkError, WorkExecutor, WorkResult, WorkTask,
 };
 
 use crate::support::sigrok_file::{SigrokCapture, SigrokFileCaptureDataSource};
@@ -110,6 +110,14 @@ struct SigrokCaptureIndexFactory {
 impl CaptureIndexFactory for SigrokCaptureIndexFactory {
     fn display_name(&self) -> String {
         self.display_name.clone()
+    }
+
+    fn metadata(&self) -> Result<CaptureMetadata> {
+        SigrokFileCaptureDataSource::open_source(
+            Arc::clone(&self.source),
+            self.display_name.clone(),
+        )
+        .map(|source| source.metadata().clone())
     }
 
     fn open(

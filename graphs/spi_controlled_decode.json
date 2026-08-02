@@ -734,6 +734,10 @@
       1,
       8
     ],
+    "logic_analyzer_ui.viewer_lane_heights": {
+      "global_scale": 1.0876284837722778,
+      "rows": []
+    },
     "logic_analyzer_ui.viewer_lane_order": [
       {
         "Channel": 0

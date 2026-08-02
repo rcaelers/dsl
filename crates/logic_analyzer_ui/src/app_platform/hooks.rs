@@ -141,19 +141,20 @@ impl App {
             .synchronize_prepared_capture(self.node_graph.graph());
         match update {
             compiler::SourcePreparationUpdate::Unchanged => {}
-            compiler::SourcePreparationUpdate::Preparing => {
-                if self.platform.capture_presentation_identity.take().is_some() {
+            compiler::SourcePreparationUpdate::Preparing(preparing) => {
+                if self.platform.capture_presentation_identity.as_deref()
+                    != Some(preparing.identity.as_str())
+                {
                     self.clear_capture_presentation();
                 }
-                let progress = self
-                    .graph_service
-                    .source_preparation_snapshot()
-                    .progress
-                    .and_then(|progress| {
-                        (progress.total > 0)
-                            .then(|| progress.completed as f32 / progress.total as f32)
-                    });
-                self.mark_capture_index_building(progress);
+                self.logic_analyzer
+                    .set_visible_capture_channels(preparing.visible_channels);
+                self.platform.capture_presentation_identity = Some(preparing.identity.clone());
+                self.mark_capture_index_building(
+                    preparing.identity,
+                    preparing.metadata,
+                    preparing.progress,
+                );
             }
             compiler::SourcePreparationUpdate::Cleared => {
                 self.platform.capture_presentation_identity = None;

@@ -48,8 +48,8 @@ pub use run_data::{
     SourceDataKind, SourceReadiness, SourceReadinessRegistry,
 };
 pub use source_preparation_contract::{
-    PreparedCapture, PreparedCaptureData, SourcePreparationSnapshot, SourcePreparationStatus,
-    SourcePreparationUpdate,
+    PreparedCapture, PreparedCaptureData, PreparingCapture, SourcePreparationSnapshot,
+    SourcePreparationStatus, SourcePreparationUpdate,
 };
 pub use source_preparation_executor::{
     InlineSourcePreparationExecutor, SourcePreparationControl, SourcePreparationExecutor,

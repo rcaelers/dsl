@@ -245,6 +245,14 @@ impl CaptureIndexFactory for NativeDslCaptureIndexFactory {
         self.path.display().to_string()
     }
 
+    fn metadata(&self) -> signal_processing::Result<signal_processing::CaptureMetadata> {
+        let source = acquire_native_file(&self.path, &self.identities)
+            .map_err(signal_processing::Error::ParseError)?;
+        DslFileSource::indexed_capture_presentation(source, self.path.display().to_string())
+            .factory
+            .metadata()
+    }
+
     fn open(
         self: Box<Self>,
         artifact_repository: Arc<dyn ArtifactRepository>,
@@ -267,6 +275,14 @@ struct NativeSigrokCaptureIndexFactory {
 impl CaptureIndexFactory for NativeSigrokCaptureIndexFactory {
     fn display_name(&self) -> String {
         self.path.display().to_string()
+    }
+
+    fn metadata(&self) -> signal_processing::Result<signal_processing::CaptureMetadata> {
+        let source = acquire_native_file(&self.path, &self.identities)
+            .map_err(signal_processing::Error::ParseError)?;
+        SigrokFileSource::indexed_capture_presentation(source, self.path.display().to_string())
+            .factory
+            .metadata()
     }
 
     fn open(

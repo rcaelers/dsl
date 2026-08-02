@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use signal_processing::{CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory};
+use signal_processing::{
+    CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, CaptureMetadata,
+};
 
 pub(crate) struct TestCaptureIndexFactory {
     path: PathBuf,
@@ -15,6 +17,20 @@ impl TestCaptureIndexFactory {
 impl CaptureIndexFactory for TestCaptureIndexFactory {
     fn display_name(&self) -> String {
         self.path.display().to_string()
+    }
+
+    fn metadata(&self) -> signal_processing::Result<CaptureMetadata> {
+        Ok(CaptureMetadata {
+            total_probes: 1,
+            samplerate: "1 MHz".into(),
+            samplerate_hz: 1_000_000.0,
+            sample_period: 0.000_001,
+            total_samples: 1,
+            total_blocks: 1,
+            samples_per_block: 1,
+            probe_names: vec!["D0".into()],
+            trigger_sample: None,
+        })
     }
 
     fn open(

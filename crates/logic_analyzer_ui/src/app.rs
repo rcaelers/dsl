@@ -817,17 +817,34 @@ impl App {
         );
     }
 
-    pub(crate) fn mark_capture_index_building(&mut self, progress: Option<f32>) {
+    pub(crate) fn mark_capture_index_building(
+        &mut self,
+        identity: String,
+        metadata: Option<signal_processing::CaptureMetadata>,
+        progress: Option<signal_processing::CaptureIndexBuildProgress>,
+    ) {
+        let progress_fraction = progress.and_then(|progress| {
+            (progress.total > 0).then(|| progress.completed as f32 / progress.total as f32)
+        });
         self.capture_storage = Some(CaptureStorageSnapshot {
-            name: "Raw capture".to_owned(),
+            name: identity.clone(),
             status: "Preparing capture index".to_owned(),
             backing: CaptureStorageBacking::BuildingIndex,
-            channels: 0,
-            total_samples: None,
-            data_bytes: None,
+            channels: metadata
+                .as_ref()
+                .map_or(0, |metadata| metadata.total_probes),
+            total_samples: metadata.as_ref().map(|metadata| metadata.total_samples),
+            data_bytes: metadata.as_ref().map(|metadata| {
+                metadata
+                    .total_samples
+                    .div_ceil(8)
+                    .saturating_mul(metadata.total_probes as u64)
+            }),
             index_identity: None,
-            index_progress: progress,
+            index_progress: progress_fraction,
         });
+        self.logic_analyzer
+            .set_preparing_capture(identity, metadata, progress);
     }
 
     pub(crate) fn clear_capture_presentation(&mut self) {
@@ -3365,6 +3382,13 @@ impl eframe::App for App {
         let viewport_rect = ui.available_rect_before_wrap();
         self.poll_capture(ui.ctx());
         self.platform_sync_capture();
+        if matches!(
+            self.graph_service.source_preparation_status(),
+            compiler::SourcePreparationStatus::Preparing
+        ) {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(100));
+        }
         self.sync_run(ui.ctx());
         let plugin_panel_definitions = self.plugin_panels.definitions();
         let mut specs = vec![
