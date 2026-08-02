@@ -114,6 +114,11 @@ pub trait HostService {
         false
     }
 
+    /// Returns a user-facing document name without exposing an opaque host reference.
+    fn document_display_name(&self, path: &Path) -> String {
+        path.display().to_string()
+    }
+
     fn choose_open_file(&mut self, request: OpenDialog<'_>) -> Option<PathBuf>;
 
     fn choose_save_file(&mut self, request: SaveDialog<'_>) -> Option<PathBuf>;

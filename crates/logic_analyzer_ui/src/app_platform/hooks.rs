@@ -230,7 +230,8 @@ impl App {
                 self.mark_graph_saved();
                 self.push_recent_file(path.clone());
                 self.refresh_derived_cache_nodes();
-                self.toasts.info(format!("Loaded {}", path.display()));
+                let name = self.host_service.document_display_name(&path);
+                self.toasts.info(format!("Loaded {name}"));
             }
             Err(error) => self.toasts.error(error),
         }
@@ -295,7 +296,7 @@ impl App {
             .and_then(|path| path.parent())
             .map(Path::to_owned);
         let path = self.host_service.choose_open_file(OpenDialog {
-            title: "Load graph",
+            title: "Open graph",
             filter_label: "Graph JSON",
             extensions: &["json"],
             initial_directory: initial_directory.as_deref(),
@@ -359,7 +360,8 @@ impl App {
                 self.platform.current_file = Some(path.clone());
                 self.mark_graph_saved();
                 self.push_recent_file(path.clone());
-                self.toasts.info(format!("Saved {}", path.display()));
+                let name = self.host_service.document_display_name(&path);
+                self.toasts.info(format!("Saved {name}"));
                 true
             }
             Err(error) => {
@@ -691,7 +693,7 @@ impl App {
                     }
                     if ui
                         .add(
-                            egui::Button::new("Load...")
+                            egui::Button::new("Open...")
                                 .shortcut_text(ui.ctx().format_shortcut(&load_shortcut)),
                         )
                         .clicked()

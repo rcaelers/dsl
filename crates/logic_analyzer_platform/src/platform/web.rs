@@ -1,17 +1,15 @@
-use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
 use logic_analyzer_graph_compiler::InlineSourcePreparationExecutor;
-use logic_analyzer_ui::{
-    AppServices, ApplicationSettings, HostService, OpenDialog, SaveDialog, default_input_bindings,
-};
+use logic_analyzer_ui::{AppServices, ApplicationSettings, default_input_bindings};
 use signal_processing::{
     CooperativeAppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor,
     MemoryArtifactRepository, WorkerOperationExecutor, portable_worker_kernels,
 };
 
 use super::web_artifact_repository::BrowserArtifactRepository;
+use super::web_document::BrowserDocumentHostService;
 use super::web_file_import::{
     BrowserFileRegistry, BrowserNodeFileDialogService, dsl_source_factory, sigrok_source_factory,
 };
@@ -69,7 +67,7 @@ fn compose_services(
         Arc::clone(&sigrok_file_source_factory),
     );
     let ui_services = AppServices::with_host_configuration(
-        Box::new(WebHostService),
+        Box::new(BrowserDocumentHostService::new()),
         default_input_bindings(),
         ApplicationSettings::default(),
         Vec::new(),
@@ -104,34 +102,6 @@ fn browser_parallelism() -> usize {
         .unwrap_or(1)
         .saturating_sub(1)
         .clamp(1, 8)
-}
-
-struct WebHostService;
-
-impl HostService for WebHostService {
-    fn choose_open_file(&mut self, _request: OpenDialog<'_>) -> Option<PathBuf> {
-        None
-    }
-
-    fn choose_save_file(&mut self, _request: SaveDialog<'_>) -> Option<PathBuf> {
-        None
-    }
-
-    fn choose_directory(&mut self) -> Option<PathBuf> {
-        None
-    }
-
-    fn load_graph(&mut self, _path: &Path) -> Result<node_graph::GraphState, String> {
-        Err(unavailable())
-    }
-
-    fn save_graph(&mut self, _path: &Path, _graph: &serde_json::Value) -> Result<(), String> {
-        Err(unavailable())
-    }
-}
-
-fn unavailable() -> String {
-    "this web host does not provide direct filesystem access".into()
 }
 
 #[cfg(test)]

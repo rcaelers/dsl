@@ -138,6 +138,10 @@ jobs:
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
         run: cargo test -p logic-analyzer-platform --target wasm32-unknown-unknown --lib web_file_import_tests
+      - name: Test browser graph-document adapters
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+        run: cargo test -p logic-analyzer-platform --target wasm32-unknown-unknown --lib web_document_tests
       - name: Test portable worker scheduling in wasm
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner

@@ -70,7 +70,10 @@ payload IDs and storage contracts; it does not infer protocols or concrete nodes
   scheduler (below).
 - File commands include New, Open, Open Recent, Save, and Save As. Destructive actions over
   an unsaved graph share one save/discard/cancel guard; recent paths are deduplicated and
-  persisted.
+  persisted. Native hosts use filesystem paths and dialogs. The browser host asynchronously imports
+  Open selections, keeps their opaque references valid for the page session, and implements Save
+  and Save As as named JSON downloads; stale browser references are omitted from Open Recent after
+  a reload.
 - `eframe` storage retains panel layout, node-graph panel/minimap preferences, recent files, and
   dialog directory. The viewport uses eframe's own persisted geometry.
 - Transient file/edit/live-run results use dismissible, self-expiring toasts; persistent run state

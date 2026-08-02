@@ -305,7 +305,7 @@ pub(crate) fn install(recent_files: &[PathBuf], bindings: &InputBindings) {
         ));
         file_menu.addItem(&menu_item(
             mtm,
-            ns_string!("Load..."),
+            ns_string!("Open..."),
             sel!(loadGraph:),
             &shortcut(bindings, "open"),
             &handler,

@@ -58,16 +58,19 @@ boundary passes the selected repository through the graph service to every compi
 selecting a target backend. The native adapter provides a durable repository whose same-directory
 publication is atomic and whose immutable reads use mmap-backed byte regions. The web adapter
 selects the portable process-lifetime memory repository. The native adapter also owns file dialogs,
-graph document I/O, and
-allocation of the application directory backing its repository. Cache administration is common
+graph document I/O, and allocation of the application directory backing its repository. Cache
+administration is common
 compiler policy over the injected repository, so ephemeral web caches use the same identity,
 preview, pruning, invalidation, inspection, and cleanup paths. The native adapter also owns native
 configuration-file discovery and I/O. It then passes decoded portable settings and bindings
 to the UI. It supplies
 optional system symbol fonts; the UI owns bundled fallback fonts and the portable font installation
-algorithm. The web adapter exposes unavailable direct graph-document and output-file operations,
-supplies embedded settings, and implements capture-file selection asynchronously through the node
-file-dialog contract.
+algorithm. The web adapter supplies embedded settings, opens graph documents through an
+asynchronous browser picker, retains selected and saved graph bytes in a process-lifetime document
+registry, and implements Save and Save As as browser JSON downloads. Its opaque document
+references never enter the saved graph. Capture-file selection remains a separate asynchronous
+node file-dialog capability. General output-file operations remain unavailable until their owning
+service has a browser destination adapter.
 Finite-source preparation uses the compiler-owned execution contract: the native platform adapter
 uses a bounded worker, while the web adapter selects the portable inline executor. The compiler
 polls one task contract and contains no target-selected source-preparation implementation.
