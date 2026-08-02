@@ -42,6 +42,7 @@ class PlatformBoundaryCheck
   TARGET_PREDICATE = /\b(?:target_(?:abi|arch|endian|env|family|feature|os|pointer_width|vendor)|unix|windows)\b/
   TARGET_ATTRIBUTE = /#\s*\[\s*cfg(?:_attr)?\s*\(.*?\)\s*\]/m
   TARGET_INSPECTION = /\bcfg!\s*\(.*?\)/m
+  TARGET_SELECTION_MACRO = /\b(?:std::)?cfg_select!\s*[({]/
   TARGET_MODULE = /^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+(?:native|unix|wasm|web|windows)\b/
   TARGET_PATH = /#\s*\[\s*path\s*=\s*"[^"]*(?:native|unix|wasm|web|windows)[^"]*"\s*\]/
 
@@ -74,6 +75,9 @@ class PlatformBoundaryCheck
           next unless match.match?(TARGET_PREDICATE)
 
           errors << "#{relative}:#{line}: reusable source must not inspect the compilation target with cfg!"
+        end
+        each_match(source, TARGET_SELECTION_MACRO) do |_match, line, _match_end|
+          errors << "#{relative}:#{line}: target-selection macros belong in an approved platform facade"
         end
         each_match(source, TARGET_MODULE) do |_match, line, _match_end|
           errors << "#{relative}:#{line}: target-specific modules belong in logic_analyzer_platform"

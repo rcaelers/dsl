@@ -109,9 +109,10 @@ The workspace uses an owner-facade module layout.
   module declarations, and re-exports only. Structs, enums, traits, implementations, functions,
   constants, type aliases, executable macro bodies, and other implementation code live in leaf
   files.
-- Target selection uses attributes on complete module declarations and re-exports in an allowed
-  root file. It does not require inline implementation modules or executable selection macros in
-  a `mod.rs`.
+- Target selection groups complete module declarations and re-exports with `std::cfg_select!` in
+  the explicitly allowlisted platform and device-adapter selection facades. The macro arms contain
+  declarations and re-exports only; inline implementation modules and executable macro bodies do
+  not belong in a `mod.rs`. Other modules do not use selection macros.
 
 ### Visibility through facades
 

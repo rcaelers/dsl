@@ -14,11 +14,13 @@ class PlatformBoundaryCheckTest < Minitest::Test
         #[cfg(target_arch = "wasm32")]
         mod web;
         const IS_WEB: bool = cfg!(target_arch = "wasm32");
+        std::cfg_select! { target_arch = "wasm32" => {} _ => {} }
       RUST
 
       errors = PlatformBoundaryCheck.new(root).errors
       assert(errors.any? { |error| error.include?("select behavior") })
       assert(errors.any? { |error| error.include?("inspect the compilation target") })
+      assert(errors.any? { |error| error.include?("target-selection macros") })
     end
   end
 
@@ -50,7 +52,7 @@ class PlatformBoundaryCheckTest < Minitest::Test
       write(
         root,
         "crates/logic_analyzer_processing/src/nodes/sources/dslogic_u3pro16/mod.rs",
-        "#[cfg(not(target_arch = \"wasm32\"))]\nmod implementation;\n"
+        "std::cfg_select! { target_arch = \"wasm32\" => {} _ => { mod implementation; } }\n"
       )
 
       assert_empty(PlatformBoundaryCheck.new(root).errors)

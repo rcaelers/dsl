@@ -1,35 +1,35 @@
 //! DSLogic U3Pro16 source node, USB driver, and acquisition profiles.
 
-#[cfg(all(feature = "developer-tools", not(target_arch = "wasm32")))]
-mod benchmark;
-#[cfg(not(target_arch = "wasm32"))]
-mod buffered;
-#[cfg(not(target_arch = "wasm32"))]
-mod capture;
-#[cfg(not(target_arch = "wasm32"))]
-mod common;
 mod facade;
-#[cfg(all(feature = "developer-tools", not(target_arch = "wasm32")))]
-mod hardware_validation;
-#[cfg(not(target_arch = "wasm32"))]
-mod implementation;
-#[cfg(not(target_arch = "wasm32"))]
-mod source;
-#[cfg(not(target_arch = "wasm32"))]
-mod streaming;
 mod transport;
 
-#[cfg(all(feature = "developer-tools", not(target_arch = "wasm32")))]
-pub use benchmark::run_streaming_benchmark;
-#[cfg(not(target_arch = "wasm32"))]
-pub use capture::DsLogicU3Pro16Capture;
 pub use facade::{DsLogicU3Pro16SourceFactory, unavailable_source_factory};
-#[cfg(all(feature = "developer-tools", not(target_arch = "wasm32")))]
-pub use hardware_validation::{validate_capture_hardware, validate_fpga_hardware};
 pub use signal_processing::logic_analyzer::{
     CaptureMode, ClockEdge, ClockSource, LogicCaptureConfig, LogicEncodingRequest, LogicTrigger,
     LogicTriggerStage, TriggerCondition, TriggerLogic,
 };
-#[cfg(not(target_arch = "wasm32"))]
-pub use source::DsLogicU3Pro16Source;
 pub use transport::{DsLogicU3Pro16TransportFactory, LinkSpeed, UsbError, UsbTransport};
+
+std::cfg_select! {
+    target_arch = "wasm32" => {}
+    _ => {
+        mod buffered;
+        mod capture;
+        mod common;
+        mod implementation;
+        mod source;
+        mod streaming;
+
+        #[cfg(feature = "developer-tools")]
+        mod benchmark;
+        #[cfg(feature = "developer-tools")]
+        mod hardware_validation;
+
+        pub use capture::DsLogicU3Pro16Capture;
+        pub use source::DsLogicU3Pro16Source;
+        #[cfg(feature = "developer-tools")]
+        pub use benchmark::run_streaming_benchmark;
+        #[cfg(feature = "developer-tools")]
+        pub use hardware_validation::{validate_capture_hardware, validate_fpga_hardware};
+    }
+}

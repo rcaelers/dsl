@@ -8,6 +8,10 @@
 ROOT = File.expand_path("..", __dir__)
 SOURCE_GLOBS = ["crates/**/*.rs", "plugins/**/*.rs", "tests/**/*.rs", "benches/**/*.rs"].freeze
 ROOT_FILES = %w[lib.rs main.rs mod.rs].freeze
+DECLARATIVE_SELECTION_FACADES = %w[
+  crates/logic_analyzer_platform/src/platform/mod.rs
+  crates/logic_analyzer_processing/src/nodes/sources/dslogic_u3pro16/mod.rs
+].freeze
 
 PUBLIC_MODULES = {
   "crates/signal_processing/src/lib.rs" => %w[capture derived_word_store live_capture live_capture_store logic_analyzer waveform_index],
@@ -352,8 +356,13 @@ files.each do |path|
   source.to_enum(:scan, implementation).each do
     errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: mod.rs files may contain declarations and re-exports only"
   end
-  source.to_enum(:scan, /\b(?:cfg_select|include)!\s*[({]/).each do
-    errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: executable selection/include macros are not allowed in mod.rs"
+  source.to_enum(:scan, /\bcfg_select!\s*[({]/).each do
+    next if DECLARATIVE_SELECTION_FACADES.include?(rel)
+
+    errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: declaration selection macros are allowed only in approved target-selection facades"
+  end
+  source.to_enum(:scan, /\binclude!\s*[({]/).each do
+    errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: executable include macros are not allowed in mod.rs"
   end
   source.to_enum(:scan, /^\s*use\s+/).each do
     errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: mod.rs imports must be facade re-exports"
