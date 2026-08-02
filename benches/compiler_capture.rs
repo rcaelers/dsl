@@ -526,12 +526,8 @@ fn temporary_workspace() -> tempfile::TempDir {
     workspace
 }
 
-fn compile_context(workspace: &Path) -> CompileCtx {
-    let cache = workspace.join("derived-cache");
-    std::fs::create_dir_all(&cache).expect("temporary derived cache should be available");
-    let mut context = CompileCtx::default();
-    context.set_persistent_cache_directory(cache);
-    context
+fn compile_context(_workspace: &Path) -> CompileCtx {
+    CompileCtx::default()
 }
 
 fn binary_files(directory: &Path) -> Vec<String> {

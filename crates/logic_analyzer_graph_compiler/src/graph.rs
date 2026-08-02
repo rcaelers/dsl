@@ -48,7 +48,7 @@ use super::errors::{ApplyError, CompileError};
 use super::{
     CollectedOutputLane, CollectedOutputSubscription, CollectedTableSubscription,
     OutputSubscriptionPlan, RunData, RunDiagnosticRegistry, SourceArtifactReadiness,
-    SourceDataKind, SourceReadiness, SourceReadinessRegistry, cache_platform,
+    SourceDataKind, SourceReadiness, SourceReadinessRegistry, cache_policy,
 };
 
 /// Shared resources handed to builders. A fresh `DerivedLanes` store per
@@ -60,7 +60,6 @@ pub struct CompileCtx {
     /// bounded rolling window.
     derived_data_retention: DerivedDataRetention,
     derived_word_caches: Vec<Option<PersistentStoreConfig>>,
-    persistent_cache_directory: Option<std::path::PathBuf>,
     timeline_markers: HashMap<TimelineMarkerReference, signal_processing::TimelineMarker>,
     /// Clocked-node sampling overlays resolved during lowering. The host
     /// application chooses at most one candidate to display.
@@ -80,7 +79,6 @@ impl Default for CompileCtx {
             derived_lanes: DerivedLanes::default(),
             derived_data_retention: DerivedDataRetention::default(),
             derived_word_caches: Vec::new(),
-            persistent_cache_directory: None,
             timeline_markers: HashMap::new(),
             sampling_overlays: Vec::new(),
             sampling_points: HashMap::new(),
@@ -95,11 +93,6 @@ impl Default for CompileCtx {
 }
 
 impl CompileCtx {
-    /// Selects the host-owned directory used for persistent derived-data caches.
-    pub fn set_persistent_cache_directory(&mut self, directory: std::path::PathBuf) {
-        self.persistent_cache_directory = Some(directory);
-    }
-
     /// Supplies the host-selected bounded work executor to node builders.
     pub fn set_work_executor(&mut self, executor: Arc<dyn WorkExecutor>) {
         self.work_executor = executor;
@@ -1664,7 +1657,7 @@ pub(crate) fn lower_with_subscriptions(
         sampling_overlays,
     };
     let mut compiled = compiled;
-    cache_platform::assign_derived_word_caches(&mut compiled, registry);
+    cache_policy::assign_derived_word_caches(&mut compiled, registry);
     Ok(compiled)
 }
 
@@ -1925,27 +1918,19 @@ pub(crate) fn derived_cache_configs_by_node_with_subscriptions(
     graph: &GraphState,
     registry: &BuilderRegistry,
     subscriptions: &OutputSubscriptionPlan,
-    directory: &std::path::Path,
     repository: &Arc<dyn ArtifactRepository>,
 ) -> Result<HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>> {
-    cache_platform::cache_configs_by_node(graph, registry, subscriptions, directory, repository)
+    cache_policy::cache_configs_by_node(graph, registry, subscriptions, repository)
 }
 
 #[cfg(test)]
 fn derived_cache_configs_by_node(
     graph: &GraphState,
     registry: &BuilderRegistry,
-    directory: &std::path::Path,
 ) -> Result<HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>> {
     let subscriptions = test_output_subscriptions(graph, registry);
     let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
-    derived_cache_configs_by_node_with_subscriptions(
-        graph,
-        registry,
-        &subscriptions,
-        directory,
-        &repository,
-    )
+    derived_cache_configs_by_node_with_subscriptions(graph, registry, &subscriptions, &repository)
 }
 
 /// Input subscriptions for `id`, matched to the built node's input schema.
@@ -2140,7 +2125,6 @@ pub struct LiveRun {
     /// threads may still be finishing their current `work()` call.
     stop_requested: bool,
     cache_pruned: bool,
-    persistent_cache_directory: Option<std::path::PathBuf>,
     timeline_markers: HashMap<TimelineMarkerReference, signal_processing::TimelineMarker>,
     work_executor: Arc<dyn WorkExecutor>,
     artifact_repository: Arc<dyn ArtifactRepository>,
@@ -2186,9 +2170,8 @@ pub(crate) fn load_cached_data_with_subscriptions(
     ctx: &mut CompileCtx,
 ) -> Result<bool, Vec<CompileError>> {
     let mut compiled = lower_with_subscriptions(graph, registry, subscriptions)?;
-    cache_platform::configure_directory(&mut compiled, ctx.persistent_cache_directory.as_deref());
-    cache_platform::configure_repository(&mut compiled, &ctx.artifact_repository);
-    let Some(preview) = cache_platform::prepare_cached_preview(&compiled) else {
+    cache_policy::configure_repository(&mut compiled, &ctx.artifact_repository);
+    let Some(preview) = cache_policy::prepare_cached_preview(&compiled) else {
         return Ok(false);
     };
 
@@ -2247,8 +2230,7 @@ fn start_live_inner(
     runtime_factory: &dyn signal_processing::AppManagerFactory,
 ) -> Result<LiveRun, Vec<CompileError>> {
     let mut compiled = lower_with_subscriptions(graph, registry, subscriptions)?;
-    cache_platform::configure_directory(&mut compiled, ctx.persistent_cache_directory.as_deref());
-    cache_platform::configure_repository(&mut compiled, &ctx.artifact_repository);
+    cache_policy::configure_repository(&mut compiled, &ctx.artifact_repository);
     ctx.derived_data_retention = compiled.derived_data_retention;
     ctx.sampling_overlays
         .clone_from(&compiled.sampling_overlays);
@@ -2259,7 +2241,7 @@ fn start_live_inner(
     let mut manager = runtime_factory.create();
     let mut names: HashMap<NodeId, String> = HashMap::new();
 
-    let (execution, cache_pruned) = cache_platform::prepare_execution(&compiled, registry);
+    let (execution, cache_pruned) = cache_policy::prepare_execution(&compiled, registry);
 
     for source_node in source_overrides.keys().copied() {
         let Some(node) = execution.nodes.iter().find(|node| node.id == source_node) else {
@@ -2324,7 +2306,6 @@ fn start_live_inner(
         source_readiness: ctx.source_readiness.clone(),
         stop_requested: false,
         cache_pruned,
-        persistent_cache_directory: ctx.persistent_cache_directory.clone(),
         timeline_markers: ctx.timeline_markers.clone(),
         work_executor: Arc::clone(&ctx.work_executor),
         artifact_repository: Arc::clone(&ctx.artifact_repository),
@@ -2389,8 +2370,7 @@ impl LiveRun {
         let mut new = lower_with_subscriptions(graph, registry, subscriptions)
             .map_err(ApplyError::Compile)?;
         reuse_sampling_points(&self.compiled, &mut new);
-        cache_platform::configure_directory(&mut new, self.persistent_cache_directory.as_deref());
-        cache_platform::configure_repository(&mut new, &self.artifact_repository);
+        cache_policy::configure_repository(&mut new, &self.artifact_repository);
         let edits = diff(&self.compiled, &new, registry).map_err(ApplyError::NeedsFullRestart)?;
         if edits.is_empty() {
             self.collected_output_subscriptions =
@@ -2410,7 +2390,6 @@ impl LiveRun {
             derived_lanes: self.lanes.clone(),
             derived_data_retention: new.derived_data_retention,
             derived_word_caches: Vec::new(),
-            persistent_cache_directory: self.persistent_cache_directory.clone(),
             sampling_overlays: new.sampling_overlays.clone(),
             sampling_points: sampling_point_map(&new, subscriptions),
             collected_output_subscriptions: collected_output_subscriptions(
@@ -2516,8 +2495,7 @@ impl LiveRun {
         let mut new = lower_with_subscriptions(graph, registry, subscriptions)
             .map_err(ApplyError::Compile)?;
         reuse_sampling_points(&self.compiled, &mut new);
-        cache_platform::configure_directory(&mut new, self.persistent_cache_directory.as_deref());
-        cache_platform::configure_repository(&mut new, &self.artifact_repository);
+        cache_policy::configure_repository(&mut new, &self.artifact_repository);
         let edits = diff(&self.compiled, &new, registry).map_err(ApplyError::NeedsFullRestart)?;
         if edits.is_empty() {
             self.collected_output_subscriptions =
@@ -2673,7 +2651,6 @@ pub(crate) fn start_app_run_with_source_overrides_and_subscriptions(
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use std::collections::HashMap;
-    use std::path::Path;
     use std::sync::{Arc, Mutex};
 
     use node_graph::api::{
@@ -3887,12 +3864,7 @@ mod tests {
             .map(|config| config.cache_key)
             .collect();
 
-        let inventory = derived_cache_configs_by_node(
-            document.graph(),
-            &registry,
-            std::path::Path::new("cache"),
-        )
-        .unwrap();
+        let inventory = derived_cache_configs_by_node(document.graph(), &registry).unwrap();
         let actual = inventory[&collector.id]
             .iter()
             .map(|config| config.cache_key)
@@ -3921,8 +3893,8 @@ mod tests {
             .find(|edge| edge.to.0 == collector.id && edge.kind == PortKind::of::<Word>())
             .unwrap();
         assert_ne!(
-            cache_platform::persistent_lane_key(&compiled, collector.id, 0, edge),
-            cache_platform::persistent_lane_key(&compiled, collector.id, 1, edge)
+            cache_policy::persistent_lane_key(&compiled, collector.id, 0, edge),
+            cache_policy::persistent_lane_key(&compiled, collector.id, 1, edge)
         );
     }
 
@@ -3932,9 +3904,7 @@ mod tests {
         let explicit_sink = node_by_def(&document, CONTRACT_SINK);
         document.graph_mut().remove_node(explicit_sink);
 
-        let mut compiled = lower(document.graph(), &registry).unwrap();
-        let directory = Path::new("controlled-cache");
-        cache_platform::configure_directory(&mut compiled, Some(directory));
+        let compiled = lower(document.graph(), &registry).unwrap();
         let caches = compiled
             .nodes
             .iter()
@@ -3948,7 +3918,7 @@ mod tests {
         );
 
         let (execution, pruned) =
-            cache_platform::prepare_execution_with_backend(&compiled, &registry, &backend);
+            cache_policy::prepare_execution_with_backend(&compiled, &registry, &backend);
 
         assert!(pruned);
         assert!(execution.nodes.iter().all(|node| node.id != producer));
@@ -3980,8 +3950,7 @@ mod tests {
     fn cached_preview_materializes_only_hit_collectors_without_executable_edges() {
         let (document, registry, producer) = selectable_word_output_contract();
         let explicit_sink = node_by_def(&document, CONTRACT_SINK);
-        let mut compiled = lower(document.graph(), &registry).unwrap();
-        cache_platform::configure_directory(&mut compiled, Some(Path::new("controlled-cache")));
+        let compiled = lower(document.graph(), &registry).unwrap();
         let caches = compiled
             .nodes
             .iter()
@@ -3994,7 +3963,7 @@ mod tests {
         let backend =
             TestDerivedCacheBackend::default().with_lookup(hit.cache_key, DerivedCacheLookup::Hit);
 
-        let preview = cache_platform::prepare_cached_preview_with_backend(&compiled, &backend)
+        let preview = cache_policy::prepare_cached_preview_with_backend(&compiled, &backend)
             .expect("one cache hit should produce a preview");
 
         assert!(preview.edges.is_empty());
@@ -4017,8 +3986,7 @@ mod tests {
         let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
         let mut compiled =
             lower_with_subscriptions(document.graph(), &registry, &subscriptions).unwrap();
-        cache_platform::configure_directory(&mut compiled, Some(Path::new("cache")));
-        cache_platform::configure_repository(&mut compiled, &repository);
+        cache_policy::configure_repository(&mut compiled, &repository);
         let persistent = compiled
             .nodes
             .iter()
@@ -4038,7 +4006,6 @@ mod tests {
         writer.finish().unwrap();
 
         let mut context = CompileCtx::default();
-        context.set_persistent_cache_directory("cache".into());
         context.set_artifact_repository(repository);
         assert!(
             load_cached_data_with_subscriptions(
@@ -4076,8 +4043,7 @@ mod tests {
         let (mut document, registry, producer) = selectable_word_output_contract();
         let explicit_sink = node_by_def(&document, CONTRACT_SINK);
         document.graph_mut().remove_node(explicit_sink);
-        let mut compiled = lower(document.graph(), &registry).unwrap();
-        cache_platform::configure_directory(&mut compiled, Some(Path::new("controlled-cache")));
+        let compiled = lower(document.graph(), &registry).unwrap();
         let cache_keys = compiled
             .nodes
             .iter()
@@ -4100,7 +4066,7 @@ mod tests {
         );
 
         let (execution, pruned) =
-            cache_platform::prepare_execution_with_backend(&compiled, &registry, &backend);
+            cache_policy::prepare_execution_with_backend(&compiled, &registry, &backend);
 
         assert!(!pruned);
         assert!(execution.nodes.iter().any(|node| node.id == producer));

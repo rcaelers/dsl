@@ -38,23 +38,9 @@ impl App {
             )],
             persistent_caches: Vec::new(),
         };
-        let Some(directory) = self
-            .storage_paths
-            .derived_cache_directory()
-            .map(ToOwned::to_owned)
-        else {
-            snapshot.services.push(MemoryServiceSnapshot {
-                name: "Persistent derived cache".to_owned(),
-                state: "Unavailable".to_owned(),
-                detail: "The host did not provide a derived-cache directory".to_owned(),
-                used_bytes: None,
-                budget_bytes: None,
-            });
-            return snapshot;
-        };
         let inventory = match self
             .graph_service
-            .derived_cache_configs_by_node(self.node_graph.graph(), &directory)
+            .derived_cache_configs_by_node(self.node_graph.graph())
         {
             Ok(inventory) => inventory,
             Err(errors) => {
@@ -90,7 +76,7 @@ impl App {
             }
         }
         for (_, (config, owners)) in entries {
-            let inspected = self.host_service.inspect_cache_entry(&config);
+            let inspected = self.graph_service.inspect_derived_cache_entry(&config);
             let (state, info) = match inspected {
                 Ok(Some(info)) => (PersistentCacheSnapshotState::Ready, Some(info)),
                 Ok(None) => (PersistentCacheSnapshotState::Missing, None),

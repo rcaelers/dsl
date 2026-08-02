@@ -3,10 +3,10 @@ use std::sync::{Arc, Mutex};
 use logic_analyzer_graph_api::node_support::LiveCaptureEdit;
 use logic_analyzer_graph_compiler::{
     ApplyError, ApplySummary, CollectedOutputSubscription, CollectedTableSubscription, CompileCtx,
-    CompileError, DiscoveredLiveCaptureFeature, DiscoveredTriggerConfiguration, LiveAnalysisSource,
-    LiveCaptureDiscoveryError, OutputSubscriptionPlan, SamplingOverlayCandidate,
-    SourcePreparationStatus, SourcePreparationUpdate, SourceProcessOverrides,
-    SourceReadinessRegistry,
+    CompileError, DerivedCacheClearStats, DerivedCacheEntrySnapshot, DiscoveredLiveCaptureFeature,
+    DiscoveredTriggerConfiguration, LiveAnalysisSource, LiveCaptureDiscoveryError,
+    OutputSubscriptionPlan, SamplingOverlayCandidate, SourcePreparationStatus,
+    SourcePreparationUpdate, SourceProcessOverrides, SourceReadinessRegistry,
 };
 use node_graph::{GraphState, NodeId};
 use signal_processing::{
@@ -107,10 +107,27 @@ impl GraphService for FakeGraphService {
     fn derived_cache_configs_by_node(
         &self,
         _graph: &GraphState,
-        _directory: &std::path::Path,
     ) -> Result<std::collections::HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>>
     {
         Ok(std::collections::HashMap::new())
+    }
+
+    fn clear_derived_cache_entry(
+        &self,
+        _config: &PersistentStoreConfig,
+    ) -> Result<DerivedCacheClearStats, String> {
+        Ok(DerivedCacheClearStats::default())
+    }
+
+    fn clear_derived_caches(&self) -> Result<DerivedCacheClearStats, String> {
+        Ok(DerivedCacheClearStats::default())
+    }
+
+    fn inspect_derived_cache_entry(
+        &self,
+        _config: &PersistentStoreConfig,
+    ) -> Result<Option<DerivedCacheEntrySnapshot>, String> {
+        Ok(None)
     }
 
     fn set_output_subscriptions(&mut self, subscriptions: OutputSubscriptionPlan) {

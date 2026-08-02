@@ -1,28 +1,14 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
-use signal_processing::PersistentStoreConfig;
+use super::contract::{HostService, OpenDialog, SaveDialog};
 
-use super::contract::{CacheClearStats, CacheEntrySnapshot, HostService, OpenDialog, SaveDialog};
-
+#[derive(Default)]
 struct FakeHostService {
     open_paths: VecDeque<Option<PathBuf>>,
     save_paths: VecDeque<Option<PathBuf>>,
     directories: VecDeque<Option<PathBuf>>,
     saved_graphs: Vec<(PathBuf, serde_json::Value)>,
-    cache_result: Result<CacheClearStats, String>,
-}
-
-impl Default for FakeHostService {
-    fn default() -> Self {
-        Self {
-            open_paths: VecDeque::new(),
-            save_paths: VecDeque::new(),
-            directories: VecDeque::new(),
-            saved_graphs: Vec::new(),
-            cache_result: Ok(CacheClearStats::default()),
-        }
-    }
 }
 
 impl HostService for FakeHostService {
@@ -46,24 +32,6 @@ impl HostService for FakeHostService {
         self.saved_graphs.push((path.to_owned(), graph.clone()));
         Ok(())
     }
-
-    fn clear_cache_entry(
-        &mut self,
-        _config: &PersistentStoreConfig,
-    ) -> Result<CacheClearStats, String> {
-        self.cache_result.clone()
-    }
-
-    fn clear_cache(&mut self, _directory: &Path) -> Result<CacheClearStats, String> {
-        self.cache_result.clone()
-    }
-
-    fn inspect_cache_entry(
-        &self,
-        _config: &PersistentStoreConfig,
-    ) -> Result<Option<CacheEntrySnapshot>, String> {
-        Ok(None)
-    }
 }
 
 #[test]
@@ -72,10 +40,6 @@ fn fake_host_effects_are_ordered_and_do_not_touch_the_host() {
         open_paths: VecDeque::from([Some(PathBuf::from("first.json")), None]),
         save_paths: VecDeque::from([Some(PathBuf::from("saved.json"))]),
         directories: VecDeque::from([Some(PathBuf::from("decoders"))]),
-        cache_result: Ok(CacheClearStats {
-            removed_entries: 2,
-            removed_bytes: 4096,
-        }),
         ..FakeHostService::default()
     };
 
@@ -116,25 +80,5 @@ fn fake_host_effects_are_ordered_and_do_not_touch_the_host() {
     assert_eq!(
         host.saved_graphs,
         vec![(PathBuf::from("saved.json"), graph)]
-    );
-    assert_eq!(
-        host.clear_cache(Path::new("cache")).unwrap(),
-        CacheClearStats {
-            removed_entries: 2,
-            removed_bytes: 4096,
-        }
-    );
-}
-
-#[test]
-fn fake_host_propagates_effect_failures() {
-    let mut host = FakeHostService {
-        cache_result: Err("cache is busy".into()),
-        ..FakeHostService::default()
-    };
-
-    assert_eq!(
-        host.clear_cache(Path::new("cache")),
-        Err("cache is busy".into())
     );
 }

@@ -11,16 +11,6 @@ use crate::live_capture::{CaptureCoordinatorContract, CaptureRawExportFormat};
 use crate::product::APPLICATION_NAME;
 
 impl App {
-    pub(crate) fn platform_clear_capture_caches(
-        &mut self,
-        configs: &[signal_processing::PersistentStoreConfig],
-    ) -> Result<(), String> {
-        for config in configs {
-            self.host_service.clear_cache_entry(config)?;
-        }
-        Ok(())
-    }
-
     fn can_replace_graph(&mut self) -> bool {
         if self.capture.is_active() || self.is_capture_analysis_active() {
             self.toasts
@@ -35,42 +25,6 @@ impl App {
         if let Some(file) = file {
             self.load_file(file.to_owned());
         }
-    }
-
-    pub(crate) fn platform_prepare_cached_data(&mut self, ctx: &mut compiler::CompileCtx) {
-        if let Some(directory) = self.storage_paths.derived_cache_directory() {
-            ctx.set_persistent_cache_directory(directory.to_owned());
-        }
-    }
-
-    pub(crate) fn platform_prepare_run(
-        &mut self,
-        ctx: &mut compiler::CompileCtx,
-    ) -> Result<(), String> {
-        self.refresh_derived_cache_nodes();
-        let Some(directory) = self
-            .storage_paths
-            .derived_cache_directory()
-            .map(ToOwned::to_owned)
-        else {
-            return Ok(());
-        };
-        ctx.set_persistent_cache_directory(directory.clone());
-        let Ok(inventory) = self
-            .graph_service
-            .derived_cache_configs_by_node(self.node_graph.graph(), &directory)
-        else {
-            // The ordinary start path reports compile errors with node
-            // ownership and badges. Cache cleanup must not replace that
-            // diagnostic boundary with a generic platform error.
-            return Ok(());
-        };
-        let mut unique = std::collections::HashMap::new();
-        for config in inventory.into_values().flatten() {
-            unique.entry(config.cache_key).or_insert(config);
-        }
-        self.platform_clear_capture_caches(&unique.into_values().collect::<Vec<_>>())
-            .map_err(|error| format!("Could not clear derived data cache before running: {error}"))
     }
 
     pub(crate) fn platform_raw_input_hook(
@@ -910,17 +864,9 @@ impl App {
     }
 
     fn refresh_derived_cache_nodes(&mut self) {
-        let Some(directory) = self
-            .storage_paths
-            .derived_cache_directory()
-            .map(ToOwned::to_owned)
-        else {
-            self.platform.derived_cache_nodes.clear();
-            return;
-        };
         self.platform.derived_cache_nodes = self
             .graph_service
-            .derived_cache_configs_by_node(self.node_graph.graph(), &directory)
+            .derived_cache_configs_by_node(self.node_graph.graph())
             .map(|inventory| {
                 inventory
                     .into_keys()
@@ -941,18 +887,9 @@ impl App {
             .get(&node_id)
             .map(|node| node.title.clone())
             .unwrap_or_else(|| "node".to_owned());
-        let Some(directory) = self
-            .storage_paths
-            .derived_cache_directory()
-            .map(ToOwned::to_owned)
-        else {
-            self.toasts
-                .error("The host does not provide a derived-cache directory");
-            return;
-        };
         let configs = match self
             .graph_service
-            .derived_cache_configs_by_node(self.node_graph.graph(), &directory)
+            .derived_cache_configs_by_node(self.node_graph.graph())
         {
             Ok(mut inventory) => inventory.remove(&node_id).unwrap_or_default(),
             Err(errors) => {
@@ -975,7 +912,7 @@ impl App {
         let mut removed_entries = 0usize;
         let mut removed_bytes = 0u64;
         for config in &configs {
-            match self.host_service.clear_cache_entry(config) {
+            match self.graph_service.clear_derived_cache_entry(config) {
                 Ok(stats) => {
                     removed_entries += stats.removed_entries;
                     removed_bytes = removed_bytes.saturating_add(stats.removed_bytes);
@@ -1008,12 +945,7 @@ impl App {
             return;
         }
         self.release_derived_data_handles();
-        let Some(directory) = self.storage_paths.derived_cache_directory() else {
-            self.toasts
-                .error("The host does not provide a derived-cache directory");
-            return;
-        };
-        match self.host_service.clear_cache(directory) {
+        match self.graph_service.clear_derived_caches() {
             Ok(stats) if stats.removed_entries == 0 && stats.removed_bytes == 0 => {
                 self.toasts.info("No derived data caches found");
             }

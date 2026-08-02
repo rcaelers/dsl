@@ -85,10 +85,6 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.cache-policy] Move cache identity, validation, cached-preview attachment, producer pruning,
-  invalidation, publication, pinning, and cleanup policy into the common compiler path. Supply a durable native
-  repository and an ephemeral web repository initially; do not replace web cache planning with no-ops merely because
-  persistence across reloads is unavailable.
 - [platform.data-plane.source-preparation] Make finite-source preparation one capability-driven state machine for
   source resolution, metadata validation, cache lookup/build, index publication, readiness, progress, cancellation,
   and generation replacement. Parsers consume prepared random-access readers instead of `PathBuf`; host acquisition

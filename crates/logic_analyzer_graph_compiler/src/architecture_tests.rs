@@ -193,28 +193,28 @@ fn compiler_tests_build_graph_documents_without_the_widget() {
 
 #[test]
 fn compiler_cache_policy_uses_its_storage_backend_contract() {
-    let policy = implementation_source(include_str!("cache_platform_native.rs"));
+    let policy = implementation_source(include_str!("cache_policy.rs"));
     assert!(!policy.contains("IndexedAnnotationStore"));
     assert!(!policy.contains("signal_processing::cleanup_cache"));
 
-    let adapter = implementation_source(include_str!("derived_cache_backend_native.rs"));
+    let adapter = implementation_source(include_str!("derived_cache_backend.rs"));
     assert!(adapter.contains("IndexedAnnotationStore::open_persistent"));
-    assert!(adapter.contains("signal_processing::cleanup_cache"));
+    assert!(adapter.contains("derived_word_store::cleanup_cache"));
+
+    let facade = include_str!("lib.rs");
+    assert!(!facade.contains("cache_platform_native"));
+    assert!(!facade.contains("cache_platform_wasm"));
+    assert!(!facade.contains("target_arch = \"wasm32\""));
 }
 
 #[test]
 fn compiler_uses_only_the_node_graph_api_namespace() {
     let sources = [
-        ("cache native", include_str!("cache_platform_native.rs")),
-        ("cache wasm", include_str!("cache_platform_wasm.rs")),
+        ("cache policy", include_str!("cache_policy.rs")),
         ("data collector", include_str!("data_collector.rs")),
         (
             "derived-cache contract",
             include_str!("derived_cache_backend.rs"),
-        ),
-        (
-            "derived-cache native adapter",
-            include_str!("derived_cache_backend_native.rs"),
         ),
         ("errors", include_str!("errors.rs")),
         ("compiler facade", include_str!("graph_compiler.rs")),

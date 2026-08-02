@@ -4,14 +4,12 @@ use std::sync::Arc;
 
 use logic_analyzer_graph_compiler::InlineSourcePreparationExecutor;
 use logic_analyzer_ui::{
-    AppServices, ApplicationSettings, ApplicationStoragePaths, CacheClearStats, CacheEntrySnapshot,
-    HostService, OpenDialog, SaveDialog, default_input_bindings,
+    AppServices, ApplicationSettings, HostService, OpenDialog, SaveDialog, default_input_bindings,
 };
 use node_graph::{FileDialogRequest, FileDialogService};
 use signal_processing::{
     CooperativeAppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor,
-    MemoryArtifactRepository, PersistentStoreConfig, WorkerOperationExecutor,
-    portable_worker_kernels,
+    MemoryArtifactRepository, WorkerOperationExecutor, portable_worker_kernels,
 };
 
 use super::web_worker::WebWorkerAdapter;
@@ -57,9 +55,8 @@ fn compose_services(worker_operations: Rc<dyn WorkerOperationExecutor>) -> Platf
         Arc::clone(&dsl_file_source_factory),
         Arc::clone(&sigrok_file_source_factory),
     );
-    let ui_services = AppServices::with_host_storage_and_configuration(
+    let ui_services = AppServices::with_host_configuration(
         Box::new(WebHostService),
-        ApplicationStoragePaths::default(),
         default_input_bindings(),
         ApplicationSettings::default(),
         Vec::new(),
@@ -129,28 +126,10 @@ impl HostService for WebHostService {
     fn save_graph(&mut self, _path: &Path, _graph: &serde_json::Value) -> Result<(), String> {
         Err(unavailable())
     }
-
-    fn clear_cache_entry(
-        &mut self,
-        _config: &PersistentStoreConfig,
-    ) -> Result<CacheClearStats, String> {
-        Err(unavailable())
-    }
-
-    fn clear_cache(&mut self, _directory: &Path) -> Result<CacheClearStats, String> {
-        Err(unavailable())
-    }
-
-    fn inspect_cache_entry(
-        &self,
-        _config: &PersistentStoreConfig,
-    ) -> Result<Option<CacheEntrySnapshot>, String> {
-        Err(unavailable())
-    }
 }
 
 fn unavailable() -> String {
-    "this web host does not provide file or persistent-cache access".into()
+    "this web host does not provide direct filesystem access".into()
 }
 
 #[cfg(test)]

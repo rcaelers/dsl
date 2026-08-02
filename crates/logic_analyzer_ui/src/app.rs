@@ -421,7 +421,6 @@ pub struct App {
     pub(crate) panel_layout: PanelLayout,
     pub(crate) graph_service: Box<dyn GraphService>,
     pub(crate) host_service: Box<dyn HostService>,
-    pub(crate) storage_paths: crate::ApplicationStoragePaths,
     pub(crate) capture: CaptureCoordinator,
     pub(crate) capture_availability: CaptureAvailability,
     pub(crate) trigger_configuration: Option<compiler::DiscoveredTriggerConfiguration>,
@@ -1087,7 +1086,6 @@ impl App {
         let AppServiceParts {
             graph_service,
             host_service,
-            storage_paths,
             input_bindings,
             application_settings,
             host_symbol_fonts,
@@ -1135,7 +1133,6 @@ impl App {
             panel_layout: Self::default_panel_layout(),
             graph_service,
             host_service,
-            storage_paths,
             capture,
             capture_availability,
             trigger_configuration: None,
@@ -1626,7 +1623,6 @@ impl App {
         self.cached_preview_graph = serde_json::to_vec(self.node_graph.graph()).ok();
         let mut ctx = compiler::CompileCtx::default();
         self.supply_timeline_cursors(&mut ctx);
-        self.platform_prepare_cached_data(&mut ctx);
         match self
             .graph_service
             .load_cached_data(self.node_graph.graph(), &mut ctx)
@@ -1683,7 +1679,7 @@ impl App {
         let mut ctx = compiler::CompileCtx::default();
         self.supply_timeline_cursors(&mut ctx);
         if replay.is_none()
-            && let Err(error) = self.platform_prepare_run(&mut ctx)
+            && let Err(error) = self.prepare_fresh_run_caches()
         {
             self.run_message = Some((error.clone(), true));
             self.toasts.error(error);
@@ -1719,6 +1715,30 @@ impl App {
                 self.report_compile_errors(&errors);
             }
         }
+    }
+
+    fn prepare_fresh_run_caches(&self) -> Result<(), String> {
+        let Ok(inventory) = self
+            .graph_service
+            .derived_cache_configs_by_node(self.node_graph.graph())
+        else {
+            // The ordinary start path reports compile errors with node
+            // ownership and badges. Cache invalidation must not replace that
+            // diagnostic boundary with a generic error.
+            return Ok(());
+        };
+        let mut unique = std::collections::HashMap::new();
+        for config in inventory.into_values().flatten() {
+            unique.entry(config.cache_key).or_insert(config);
+        }
+        for config in unique.into_values() {
+            self.graph_service
+                .clear_derived_cache_entry(&config)
+                .map_err(|error| {
+                    format!("Could not clear derived data cache before running: {error}")
+                })?;
+        }
+        Ok(())
     }
 
     pub(crate) fn is_running(&self) -> bool {
@@ -1864,12 +1884,14 @@ impl App {
         self.capture_analysis = None;
         self.capture_analysis_error = None;
         self.set_presented_derived_lanes(signal_processing::DerivedLanes::new());
-        if let Err(error) = self.platform_clear_capture_caches(&capture_cache_configs) {
-            self.capture_graph = None;
-            self.capture_epoch_observed_graph = None;
-            self.toasts
-                .error(format!("Could not remove previous capture cache: {error}"));
-            return;
+        for config in &capture_cache_configs {
+            if let Err(error) = self.graph_service.clear_derived_cache_entry(config) {
+                self.capture_graph = None;
+                self.capture_epoch_observed_graph = None;
+                self.toasts
+                    .error(format!("Could not remove previous capture cache: {error}"));
+                return;
+            }
         }
         // Capture data is replaceable working state. Drop the viewer's index
         // handle before the coordinator removes the previous store and index.

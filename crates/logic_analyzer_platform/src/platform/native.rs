@@ -36,15 +36,14 @@ use logic_analyzer_processing::{
     CaptureSourcePresentation, CaptureSourceRuntimeCapabilities, ProcessNodeConstruction,
 };
 use logic_analyzer_ui::{
-    APPLICATION_ID, AppServices, ApplicationSettings, ApplicationStoragePaths, CacheClearStats,
-    CacheEntrySnapshot, DecodedBlockCacheSnapshot, HostCommand, HostService, OpenDialog,
-    SaveDialog, default_input_bindings,
+    APPLICATION_ID, AppServices, ApplicationSettings, DecodedBlockCacheSnapshot, HostCommand,
+    HostService, OpenDialog, SaveDialog, default_input_bindings,
 };
 use node_graph::{FileDialogRequest, FileDialogService};
 use signal_processing::logic_analyzer::LogicAnalyzerError;
 use signal_processing::{
     AppManager, AppManagerBackend, AppManagerFactory, CooperativeWorkerOperationExecutor,
-    PersistentStoreConfig, PipelineManager, ProcessNode, WorkExecutor, WorkExecutorTask, WorkTask,
+    PipelineManager, ProcessNode, WorkExecutor, WorkExecutorTask, WorkTask,
     portable_worker_kernels,
 };
 
@@ -103,7 +102,6 @@ pub(crate) fn standard_services() -> PlatformServices {
     let artifact_repository: Arc<dyn signal_processing::ArtifactRepository> = Arc::new(
         NativeArtifactRepository::new(cache_directory.join("artifacts")),
     );
-    let storage_paths = ApplicationStoragePaths::new(Some(cache_directory));
     let input_bindings = load_input_bindings();
     let application_settings = load_application_settings();
     let capture_export_service = native_capture_export_service(Arc::clone(&artifact_repository));
@@ -126,9 +124,8 @@ pub(crate) fn standard_services() -> PlatformServices {
         Arc::clone(&work_executor),
     ))
         as Box<dyn logic_analyzer_graph_api::node::DirectoryNodeCatalog>];
-    let ui_services = AppServices::with_host_storage_and_configuration(
-        Box::new(NativeHostService::new(Arc::clone(&artifact_repository))),
-        storage_paths,
+    let ui_services = AppServices::with_host_configuration(
+        Box::new(NativeHostService::new()),
         input_bindings,
         application_settings,
         system_symbol_fonts(),
@@ -1302,7 +1299,6 @@ fn application_directory(parent: PathBuf) -> PathBuf {
 
 struct NativeHostService {
     commands: crossbeam_channel::Receiver<HostCommand>,
-    artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
 }
 
 struct NativeNodeFileDialogService;
@@ -1335,10 +1331,9 @@ impl FileDialogService for NativeNodeFileDialogService {
 }
 
 impl NativeHostService {
-    fn new(artifact_repository: Arc<dyn signal_processing::ArtifactRepository>) -> Self {
+    fn new() -> Self {
         Self {
             commands: host_command_bridge().receiver.clone(),
-            artifact_repository,
         }
     }
 }
@@ -1409,46 +1404,6 @@ impl HostService for NativeHostService {
             .map_err(|error| format!("could not serialize graph: {error}"))?;
         std::fs::write(path, json)
             .map_err(|error| format!("could not write {}: {error}", path.display()))
-    }
-
-    fn clear_cache_entry(
-        &mut self,
-        config: &PersistentStoreConfig,
-    ) -> Result<CacheClearStats, String> {
-        signal_processing::clear_cache_entry(config)
-            .map(|stats| CacheClearStats {
-                removed_entries: stats.removed_entries,
-                removed_bytes: stats.removed_bytes,
-            })
-            .map_err(|error| error.to_string())
-    }
-
-    fn clear_cache(&mut self, _directory: &Path) -> Result<CacheClearStats, String> {
-        signal_processing::clear_cache(&self.artifact_repository)
-            .map(|stats| CacheClearStats {
-                removed_entries: stats.removed_entries,
-                removed_bytes: stats.removed_bytes,
-            })
-            .map_err(|error| error.to_string())
-    }
-
-    fn inspect_cache_entry(
-        &self,
-        config: &PersistentStoreConfig,
-    ) -> Result<Option<CacheEntrySnapshot>, String> {
-        signal_processing::derived_word_store::inspect_cache_entry(config)
-            .map(|entry| {
-                entry.map(|entry| CacheEntrySnapshot {
-                    total_bytes: entry.total_bytes,
-                    data_bytes: entry.data_bytes,
-                    index_bytes: entry.index_bytes,
-                    item_count: entry.word_count,
-                    index_item_count: entry.block_count as u64,
-                    first_timestamp_ns: entry.first_timestamp_ns,
-                    last_timestamp_ns: entry.last_timestamp_ns,
-                })
-            })
-            .map_err(|error| error.to_string())
     }
 }
 
@@ -1536,9 +1491,7 @@ mod native_tests {
     #[test]
     fn native_composition_preserves_injected_host_services_and_catalogs() {
         let services = crate::services::PlatformServices::with_ui_services(
-            AppServices::with_host_service(Box::new(NativeHostService::new(Arc::new(
-                MemoryArtifactRepository::new(),
-            )))),
+            AppServices::with_host_service(Box::new(NativeHostService::new())),
             Vec::new(),
             Arc::new(MemoryArtifactRepository::new()),
             Arc::new(InlineWorkExecutor),
@@ -1558,7 +1511,7 @@ mod native_tests {
     fn native_shell_commands_wake_and_reach_the_ui_service_port() {
         let repaint_count = Arc::new(AtomicUsize::new(0));
         let callback_count = Arc::clone(&repaint_count);
-        let mut host = NativeHostService::new(Arc::new(MemoryArtifactRepository::new()));
+        let mut host = NativeHostService::new();
         host.set_command_repaint(Box::new(move || {
             callback_count.fetch_add(1, Ordering::Relaxed);
         }));

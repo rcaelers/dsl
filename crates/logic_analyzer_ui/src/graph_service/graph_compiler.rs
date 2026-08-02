@@ -110,10 +110,29 @@ impl GraphService for GraphCompiler {
     fn derived_cache_configs_by_node(
         &self,
         graph: &GraphState,
-        directory: &std::path::Path,
     ) -> Result<std::collections::HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>>
     {
-        GraphCompiler::derived_cache_configs_by_node(self, graph, directory)
+        GraphCompiler::derived_cache_configs_by_node(self, graph)
+    }
+
+    fn clear_derived_cache_entry(
+        &self,
+        config: &PersistentStoreConfig,
+    ) -> Result<logic_analyzer_graph_compiler::DerivedCacheClearStats, String> {
+        GraphCompiler::clear_derived_cache_entry(self, config)
+    }
+
+    fn clear_derived_caches(
+        &self,
+    ) -> Result<logic_analyzer_graph_compiler::DerivedCacheClearStats, String> {
+        GraphCompiler::clear_derived_caches(self)
+    }
+
+    fn inspect_derived_cache_entry(
+        &self,
+        config: &PersistentStoreConfig,
+    ) -> Result<Option<logic_analyzer_graph_compiler::DerivedCacheEntrySnapshot>, String> {
+        GraphCompiler::inspect_derived_cache_entry(self, config)
     }
 
     fn set_output_subscriptions(&mut self, subscriptions: OutputSubscriptionPlan) {

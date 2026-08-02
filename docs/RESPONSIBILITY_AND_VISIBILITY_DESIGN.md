@@ -189,16 +189,18 @@ whole implementation files delegate to the threaded native manager or cooperativ
 
 `logic_analyzer_platform` composes the UI `HostService` port today. It selects complete native and
 web adapter modules and returns an opaque service bundle to the application bootstrap. The native
-adapter owns dialogs, graph-document file I/O, persistent-cache administration, and the
-derived-cache directory that backs the injected artifact repository. It also owns native configuration-file discovery
-and I/O; the UI owns the portable configuration model. It supplies optional system symbol fonts while
+adapter owns dialogs, graph-document file I/O, and allocation of the application directory backing
+its injected artifact repository. Cache identity, inspection, invalidation, cleanup, preview, and
+producer-pruning policy remain in the compiler and operate identically on the web process-lifetime
+memory repository. The native adapter also owns native configuration-file discovery and I/O; the UI
+owns the portable configuration model. It supplies optional system symbol fonts while
 the UI owns bundled fallback fonts and portable installation. Native shell integrations, such as the
 macOS application menu, publish portable commands and receive recent-document state through the same
-host-service contract. Runtime cache diagnostics also cross that contract, while the Memory panel
-uses one portable inventory and presentation path. The platform adapter owns command transport,
-repaint wake-ups, and access to platform-backed cache diagnostics. The web adapter reports
-unavailable storage capabilities and supplies embedded configuration. The UI does not select either
-implementation. The platform composition also installs file-source factories, file-writer output
+host-service contract. Runtime decoded-block diagnostics also cross that contract, while persistent
+cache diagnostics use the compiler graph-service facade and one portable Memory-panel path. The
+platform adapter owns command transport and repaint wake-ups. The web adapter reports unavailable
+direct-file capabilities and supplies embedded configuration. The UI does not select either
+implementation. Platform composition also installs file-source factories, file-writer output
 storage, the U3Pro16 USB transport and FPGA-image provider, and capture-export services through
 contracts owned by processing, graph-node, and UI crates. Web composition uses explicit unavailable
 file and export capabilities; synthetic capture remains an authored demo-source choice.

@@ -5,11 +5,9 @@
 //! presentations live in `logic-analyzer-graph-nodes`; application composition and window
 //! integration belong in `logic-analyzer-ui`.
 
+mod cache_policy;
 mod data_collector;
-#[cfg(not(target_arch = "wasm32"))]
 mod derived_cache_backend;
-#[cfg(not(target_arch = "wasm32"))]
-mod derived_cache_backend_native;
 mod errors;
 mod graph;
 mod graph_compiler;
@@ -25,13 +23,7 @@ mod source_preparation_executor;
 #[cfg(test)]
 mod architecture_tests;
 
-#[cfg(not(target_arch = "wasm32"))]
-#[path = "cache_platform_native.rs"]
-mod cache_platform;
-#[cfg(target_arch = "wasm32")]
-#[path = "cache_platform_wasm.rs"]
-mod cache_platform;
-
+pub use cache_policy::{DerivedCacheClearStats, DerivedCacheEntrySnapshot};
 pub(crate) use data_collector::{
     BUILDER_NAME as DATA_COLLECTOR_BUILDER, DataCollectorBuilder, OUTPUT_SUBSCRIPTION_BUILDER_NAME,
 };

@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 
 use logic_analyzer_graph_api::node::RuntimeBuilderOverride;
@@ -22,8 +21,9 @@ use super::graph::{
 };
 use super::source_preparation::SourcePreparation;
 use super::{
-    OutputSubscriptionPlan, SourcePreparationExecutor, SourcePreparationStatus,
-    SourcePreparationUpdate, graph,
+    DerivedCacheClearStats, DerivedCacheEntrySnapshot, OutputSubscriptionPlan,
+    SourcePreparationExecutor, SourcePreparationStatus, SourcePreparationUpdate, cache_policy,
+    graph,
 };
 
 /// Stateful application-facing facade for graph discovery, compilation, and execution.
@@ -218,15 +218,31 @@ impl GraphCompiler {
     pub fn derived_cache_configs_by_node(
         &self,
         graph: &GraphState,
-        directory: &Path,
     ) -> Result<HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>> {
         graph::derived_cache_configs_by_node_with_subscriptions(
             graph,
             &self.builders,
             &self.output_subscriptions,
-            directory,
             &self.artifact_repository,
         )
+    }
+
+    pub fn clear_derived_cache_entry(
+        &self,
+        config: &PersistentStoreConfig,
+    ) -> Result<DerivedCacheClearStats, String> {
+        cache_policy::clear_entry(config)
+    }
+
+    pub fn clear_derived_caches(&self) -> Result<DerivedCacheClearStats, String> {
+        cache_policy::clear_repository(&self.artifact_repository)
+    }
+
+    pub fn inspect_derived_cache_entry(
+        &self,
+        config: &PersistentStoreConfig,
+    ) -> Result<Option<DerivedCacheEntrySnapshot>, String> {
+        cache_policy::inspect_entry(config)
     }
 
     pub fn start_app_run(

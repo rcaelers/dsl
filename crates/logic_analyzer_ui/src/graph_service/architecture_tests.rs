@@ -47,4 +47,6 @@ fn graph_service_uses_one_contract_and_adapter_on_every_target() {
     assert!(!module.contains("platform_contract"));
     assert!(!module.contains("platform_graph_compiler"));
     assert!(contract.contains("fn derived_cache_configs_by_node("));
+    assert!(contract.contains("fn clear_derived_cache_entry("));
+    assert!(contract.contains("fn inspect_derived_cache_entry("));
 }

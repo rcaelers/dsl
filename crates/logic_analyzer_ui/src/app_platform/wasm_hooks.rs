@@ -4,23 +4,7 @@ use crate::app::App;
 use crate::product::APPLICATION_NAME;
 
 impl App {
-    pub(crate) fn platform_clear_capture_caches(
-        &mut self,
-        _configs: &[signal_processing::PersistentStoreConfig],
-    ) -> Result<(), String> {
-        Ok(())
-    }
-
     pub(crate) fn platform_load_startup_file(&mut self, _file: Option<&std::path::Path>) {}
-
-    pub(crate) fn platform_prepare_cached_data(&mut self, _ctx: &mut compiler::CompileCtx) {}
-
-    pub(crate) fn platform_prepare_run(
-        &mut self,
-        _ctx: &mut compiler::CompileCtx,
-    ) -> Result<(), String> {
-        Ok(())
-    }
 
     pub(crate) fn platform_raw_input_hook(
         &mut self,

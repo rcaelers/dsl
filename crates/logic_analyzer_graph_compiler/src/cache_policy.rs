@@ -1,7 +1,6 @@
-//! Native persistent-cache capability boundary.
+//! Target-independent derived-data cache planning over an injected repository.
 
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -12,11 +11,71 @@ use node_graph::api::{GraphState, NodeId};
 use signal_processing::{ArtifactRepository, PersistentStoreConfig};
 
 use super::OutputSubscriptionPlan;
-use super::derived_cache_backend::{DerivedCacheBackend, DerivedCacheLookup};
-use super::derived_cache_backend_native::NativeDerivedCacheBackend;
+use super::derived_cache_backend::{
+    DerivedCacheBackend, DerivedCacheLookup, RepositoryDerivedCacheBackend,
+};
 use super::errors::CompileError;
 use super::graph::{BuilderRegistry, CompiledEdge, CompiledGraph, compiled_node};
 const DERIVED_CACHE_ABI_VERSION: u32 = 2;
+
+/// Result of removing persistent derived-data cache entries.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DerivedCacheClearStats {
+    pub removed_entries: usize,
+    pub removed_bytes: u64,
+}
+
+/// Diagnostics for one validated persistent derived-data cache entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DerivedCacheEntrySnapshot {
+    pub total_bytes: u64,
+    pub data_bytes: u64,
+    pub index_bytes: u64,
+    pub item_count: u64,
+    pub index_item_count: u64,
+    pub first_timestamp_ns: Option<u64>,
+    pub last_timestamp_ns: Option<u64>,
+}
+
+pub(crate) fn clear_entry(
+    config: &PersistentStoreConfig,
+) -> Result<DerivedCacheClearStats, String> {
+    signal_processing::derived_word_store::clear_cache_entry(config)
+        .map(|stats| DerivedCacheClearStats {
+            removed_entries: stats.removed_entries,
+            removed_bytes: stats.removed_bytes,
+        })
+        .map_err(|error| error.to_string())
+}
+
+pub(crate) fn clear_repository(
+    repository: &Arc<dyn ArtifactRepository>,
+) -> Result<DerivedCacheClearStats, String> {
+    signal_processing::derived_word_store::clear_cache(repository)
+        .map(|stats| DerivedCacheClearStats {
+            removed_entries: stats.removed_entries,
+            removed_bytes: stats.removed_bytes,
+        })
+        .map_err(|error| error.to_string())
+}
+
+pub(crate) fn inspect_entry(
+    config: &PersistentStoreConfig,
+) -> Result<Option<DerivedCacheEntrySnapshot>, String> {
+    signal_processing::derived_word_store::inspect_cache_entry(config)
+        .map(|entry| {
+            entry.map(|entry| DerivedCacheEntrySnapshot {
+                total_bytes: entry.total_bytes,
+                data_bytes: entry.data_bytes,
+                index_bytes: entry.index_bytes,
+                item_count: entry.word_count,
+                index_item_count: entry.block_count as u64,
+                first_timestamp_ns: entry.first_timestamp_ns,
+                last_timestamp_ns: entry.last_timestamp_ns,
+            })
+        })
+        .map_err(|error| error.to_string())
+}
 
 pub(crate) fn assign_derived_word_caches(compiled: &mut CompiledGraph, registry: &BuilderRegistry) {
     let collector_ids: Vec<_> = compiled
@@ -56,16 +115,6 @@ pub(crate) fn assign_derived_word_caches(compiled: &mut CompiledGraph, registry:
     }
 }
 
-pub(crate) fn configure_directory(compiled: &mut CompiledGraph, directory: Option<&Path>) {
-    for node in &mut compiled.nodes {
-        for slot in &mut node.derived_word_caches {
-            if directory.is_none() {
-                *slot = None;
-            }
-        }
-    }
-}
-
 pub(crate) fn configure_repository(
     compiled: &mut CompiledGraph,
     repository: &Arc<dyn ArtifactRepository>,
@@ -83,7 +132,7 @@ pub(crate) fn prepare_execution(
     compiled: &CompiledGraph,
     registry: &BuilderRegistry,
 ) -> (CompiledGraph, bool) {
-    prepare_execution_with_backend(compiled, registry, &NativeDerivedCacheBackend)
+    prepare_execution_with_backend(compiled, registry, &RepositoryDerivedCacheBackend)
 }
 
 pub(crate) fn prepare_execution_with_backend(
@@ -142,7 +191,7 @@ pub(crate) fn prepare_execution_with_backend(
 }
 
 pub(crate) fn prepare_cached_preview(compiled: &CompiledGraph) -> Option<CompiledGraph> {
-    prepare_cached_preview_with_backend(compiled, &NativeDerivedCacheBackend)
+    prepare_cached_preview_with_backend(compiled, &RepositoryDerivedCacheBackend)
 }
 
 pub(crate) fn prepare_cached_preview_with_backend(
@@ -192,11 +241,9 @@ pub(crate) fn cache_configs_by_node(
     graph: &GraphState,
     registry: &BuilderRegistry,
     subscriptions: &OutputSubscriptionPlan,
-    directory: &Path,
     repository: &Arc<dyn ArtifactRepository>,
 ) -> Result<HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>> {
     let mut compiled = super::graph::lower_with_subscriptions(graph, registry, subscriptions)?;
-    configure_directory(&mut compiled, Some(directory));
     configure_repository(&mut compiled, repository);
     let mut result: HashMap<NodeId, Vec<PersistentStoreConfig>> = HashMap::new();
     for collector in compiled.nodes.iter().filter(|node| node.data_collector) {
@@ -348,4 +395,45 @@ fn canonical_json_bytes(value: &Value) -> Vec<u8> {
 fn hash_field(hasher: &mut blake3::Hasher, bytes: &[u8]) {
     hasher.update(&(bytes.len() as u64).to_le_bytes());
     hasher.update(bytes);
+}
+
+#[cfg(test)]
+mod cache_policy_tests {
+    use std::sync::Arc;
+
+    use signal_processing::{
+        ArtifactRepository, IndexedAnnotationWriter, LiveStoreConfig, MemoryArtifactRepository,
+        PersistentStoreConfig, Word,
+    };
+
+    use super::{clear_entry, clear_repository, inspect_entry};
+
+    #[test]
+    fn injected_memory_repository_supports_the_complete_cache_lifecycle() {
+        let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+        let persistent = PersistentStoreConfig::new([0x5a; 32])
+            .with_artifact_repository(Arc::clone(&repository));
+        let config = LiveStoreConfig {
+            persistence: Some(persistent.clone()),
+            ..LiveStoreConfig::default()
+        };
+        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        writer
+            .append_batch(&[Word::spanning(0x42, 100, 20)])
+            .unwrap();
+        writer.finish().unwrap();
+
+        let snapshot = inspect_entry(&persistent)
+            .unwrap()
+            .expect("the published memory-backed cache must be discoverable");
+        assert_eq!(snapshot.item_count, 1);
+        assert_eq!(snapshot.first_timestamp_ns, Some(100));
+
+        drop((writer, store));
+        let cleared = clear_entry(&persistent).unwrap();
+        assert_eq!(cleared.removed_entries, 1);
+        assert!(cleared.removed_bytes > 0);
+        assert_eq!(inspect_entry(&persistent).unwrap(), None);
+        assert_eq!(clear_repository(&repository).unwrap().removed_entries, 0);
+    }
 }

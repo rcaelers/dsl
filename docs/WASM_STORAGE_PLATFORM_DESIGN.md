@@ -50,8 +50,8 @@ store handle is dropped. The compiler's wasm cache backend still omits cache loo
 pruning rather than applying the native policy to its ephemeral repository; that remaining policy
 split is separate from the shared store implementation.
 
-Target-selected code also currently exists inside reusable runtime, compiler, processing, viewer,
-and UI crates. The proposed architecture removes those remaining internal platform module trees
+Target-selected code also currently exists inside reusable runtime, processing, viewer, and UI
+crates. The proposed architecture removes those remaining internal platform module trees
 rather than merely giving them matching public APIs. Processing temporarily retains complete native
 file-parser and device-runtime leaves, but not host factory or destination selection.
 
@@ -64,11 +64,13 @@ selecting a target backend. The native adapter provides a durable repository who
 publication is atomic and whose immutable reads use mmap-backed byte regions. The web adapter
 selects the portable process-lifetime memory repository. The native adapter also owns file dialogs,
 graph document I/O, and
-persistent-cache administration, including allocation of the derived-cache directory. It also owns
-native configuration-file discovery and I/O. It then passes decoded portable settings and bindings
+allocation of the application directory backing its repository. Cache administration is common
+compiler policy over the injected repository, so ephemeral web caches use the same identity,
+preview, pruning, invalidation, inspection, and cleanup paths. The native adapter also owns native
+configuration-file discovery and I/O. It then passes decoded portable settings and bindings
 to the UI. It supplies
 optional system symbol fonts; the UI owns bundled fallback fonts and the portable font installation
-algorithm. The web adapter exposes unavailable storage operations and supplies embedded settings.
+algorithm. The web adapter exposes unavailable direct-file operations and supplies embedded settings.
 Finite-source preparation uses the compiler-owned execution contract: the native platform adapter
 uses a bounded worker, while the web adapter selects the portable inline executor. The compiler
 polls one task contract and contains no target-selected source-preparation implementation.

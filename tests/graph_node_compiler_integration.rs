@@ -992,7 +992,6 @@ fn built_in_live_analysis_matches_finalized_replay_using_source_override() {
 
 #[test]
 fn built_in_binary_second_run_reuses_persistent_words() {
-    let directory = tempfile::tempdir().unwrap();
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
     nodes::build_binary_decoder_demo(&mut widget);
     select_output(&mut widget, "Parallel Decoder", "Words");
@@ -1003,7 +1002,6 @@ fn built_in_binary_second_run_reuses_persistent_words() {
     compiler.set_output_subscriptions(subscriptions);
 
     let mut first_context = CompileCtx::default();
-    first_context.set_persistent_cache_directory(directory.path().to_path_buf());
     let mut first = compiler
         .start_app_run(widget.graph(), &mut first_context)
         .unwrap();
@@ -1012,7 +1010,6 @@ fn built_in_binary_second_run_reuses_persistent_words() {
     drop((first, first_context));
 
     let mut second_context = CompileCtx::default();
-    second_context.set_persistent_cache_directory(directory.path().to_path_buf());
     let lanes = second_context.derived_lanes().clone();
     let mut second = compiler
         .start_app_run(widget.graph(), &mut second_context)

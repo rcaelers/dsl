@@ -1,6 +1,5 @@
 use std::any::Any;
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 
 use logic_analyzer_graph_api::node_support::{
@@ -8,11 +7,11 @@ use logic_analyzer_graph_api::node_support::{
 };
 use logic_analyzer_graph_compiler::{
     ApplyError, ApplySummary, CollectedOutputSubscription, CollectedTableSubscription, CompileCtx,
-    CompileError, DiscoveredLiveCaptureFeature, DiscoveredTimelineMarker,
-    DiscoveredTimelineMarkerReferenceBinding, DiscoveredTriggerConfiguration, LiveAnalysisSource,
-    LiveCaptureDiscoveryError, OutputSubscriptionPlan, SamplingOverlayCandidate,
-    SourcePreparationStatus, SourcePreparationUpdate, SourceProcessOverrides,
-    SourceReadinessRegistry,
+    CompileError, DerivedCacheClearStats, DerivedCacheEntrySnapshot, DiscoveredLiveCaptureFeature,
+    DiscoveredTimelineMarker, DiscoveredTimelineMarkerReferenceBinding,
+    DiscoveredTriggerConfiguration, LiveAnalysisSource, LiveCaptureDiscoveryError,
+    OutputSubscriptionPlan, SamplingOverlayCandidate, SourcePreparationStatus,
+    SourcePreparationUpdate, SourceProcessOverrides, SourceReadinessRegistry,
 };
 use node_graph::{GraphState, NodeId};
 use signal_processing::{
@@ -55,8 +54,23 @@ pub(crate) trait GraphService: CaptureFeatureDiscovery {
     fn derived_cache_configs_by_node(
         &self,
         graph: &GraphState,
-        directory: &Path,
     ) -> Result<HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>>;
+
+    fn clear_derived_cache_entry(
+        &self,
+        config: &PersistentStoreConfig,
+    ) -> Result<DerivedCacheClearStats, String>;
+
+    #[allow(
+        dead_code,
+        reason = "web cache policy is active although its UI has no clear-all command yet"
+    )]
+    fn clear_derived_caches(&self) -> Result<DerivedCacheClearStats, String>;
+
+    fn inspect_derived_cache_entry(
+        &self,
+        config: &PersistentStoreConfig,
+    ) -> Result<Option<DerivedCacheEntrySnapshot>, String>;
 
     fn set_output_subscriptions(&mut self, subscriptions: OutputSubscriptionPlan);
 

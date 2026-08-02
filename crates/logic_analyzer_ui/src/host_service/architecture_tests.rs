@@ -14,18 +14,17 @@ fn application_orchestration_depends_on_the_ui_owned_host_service() {
             include_str!("../preferences/implementation.rs"),
         ),
     ] {
-        for direct_effect in [
-            "rfd::",
-            "load_from_path",
-            "save_to_path",
-            "signal_processing::clear_cache",
-        ] {
+        for direct_effect in ["rfd::", "load_from_path", "save_to_path"] {
             assert!(
                 !source.contains(direct_effect),
                 "{name} must use HostService rather than {direct_effect}"
             );
         }
     }
+
+    let contract = include_str!("contract.rs");
+    assert!(!contract.contains("clear_cache"));
+    assert!(!contract.contains("inspect_cache_entry"));
 }
 
 #[test]
