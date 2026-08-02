@@ -119,16 +119,16 @@ impl WebHandle {
     pub async fn start(&self, canvas: web_sys::HtmlCanvasElement) -> Result<(), JsValue> {
         let worker_module_url = self.worker_module_url.clone();
         let worker_wasm_url = self.worker_wasm_url.clone();
+        let platform_services = logic_analyzer_platform::standard_services_with_worker_urls(
+            &worker_module_url,
+            &worker_wasm_url,
+        )
+        .await;
         self.runner
             .start(
                 canvas,
                 eframe::WebOptions::default(),
                 Box::new(move |cc| {
-                    let platform_services =
-                        logic_analyzer_platform::standard_services_with_worker_urls(
-                            &worker_module_url,
-                            &worker_wasm_url,
-                        );
                     let (ui_services, node_catalogs) =
                         platform_services.into_ui_and_node_catalogs();
                     Ok(Box::new(

@@ -20,6 +20,7 @@ command -v rg >/dev/null 2>&1 || {
 }
 
 node --check "${ROOT_DIR}/crates/logic_analyzer_platform/src/platform/web_worker_bootstrap.js"
+node --check "${ROOT_DIR}/crates/logic_analyzer_platform/src/platform/opfs_worker_bootstrap.js"
 
 BUILD_ARGS=(
   --manifest-path "${ROOT_DIR}/Cargo.toml"

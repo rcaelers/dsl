@@ -126,6 +126,10 @@ jobs:
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
         run: cargo test -p signal-processing --target wasm32-unknown-unknown --lib wasm_store_tests
+      - name: Test browser artifact persistence in OPFS
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+        run: cargo test -p logic-analyzer-platform --target wasm32-unknown-unknown --lib published_artifact_rehydrates_from_a_second_opfs_worker
       - name: Test portable worker scheduling in wasm
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner

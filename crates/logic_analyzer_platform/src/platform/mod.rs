@@ -17,6 +17,8 @@ mod native_worker;
 #[cfg(target_arch = "wasm32")]
 mod web;
 #[cfg(target_arch = "wasm32")]
+mod web_artifact_repository;
+#[cfg(target_arch = "wasm32")]
 mod web_worker;
 
 #[cfg(not(target_arch = "wasm32"))]

@@ -12,6 +12,7 @@ use signal_processing::{
     MemoryArtifactRepository, WorkerOperationExecutor, portable_worker_kernels,
 };
 
+use super::web_artifact_repository::BrowserArtifactRepository;
 use super::web_worker::WebWorkerAdapter;
 use crate::services::PlatformServices;
 
@@ -21,10 +22,10 @@ pub(crate) fn standard_services() -> PlatformServices {
             portable_worker_kernels(),
             "browser worker module URLs were not provided",
         ));
-    compose_services(worker_operations)
+    compose_services(worker_operations, Arc::new(MemoryArtifactRepository::new()))
 }
 
-pub(crate) fn standard_services_with_worker_urls(
+pub(crate) async fn standard_services_with_worker_urls(
     module_url: &str,
     wasm_url: &str,
 ) -> PlatformServices {
@@ -42,10 +43,21 @@ pub(crate) fn standard_services_with_worker_urls(
         Ok(adapter) => Rc::new(adapter),
         Err(reason) => Rc::new(CooperativeWorkerOperationExecutor::new(kernels, reason)),
     };
-    compose_services(worker_operations)
+    let artifact_repository: Arc<dyn signal_processing::ArtifactRepository> =
+        match BrowserArtifactRepository::open().await {
+            Ok(repository) => Arc::new(repository),
+            Err(error) => {
+                tracing::warn!(%error, "browser persistence is unavailable; using the memory repository");
+                Arc::new(MemoryArtifactRepository::new())
+            }
+        };
+    compose_services(worker_operations, artifact_repository)
 }
 
-fn compose_services(worker_operations: Rc<dyn WorkerOperationExecutor>) -> PlatformServices {
+fn compose_services(
+    worker_operations: Rc<dyn WorkerOperationExecutor>,
+    artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
+) -> PlatformServices {
     let work_executor: Arc<dyn signal_processing::WorkExecutor> = Arc::new(InlineWorkExecutor);
     let dsl_file_source_factory =
         logic_analyzer_processing::nodes::sources::dsl_file::unavailable_source_factory();
@@ -79,7 +91,7 @@ fn compose_services(worker_operations: Rc<dyn WorkerOperationExecutor>) -> Platf
     PlatformServices::with_ui_services(
         ui_services,
         Vec::new(),
-        Arc::new(MemoryArtifactRepository::new()),
+        artifact_repository,
         work_executor,
         worker_operations,
     )

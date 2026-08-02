@@ -26,6 +26,9 @@ pub fn standard_services() -> PlatformServices {
 /// Builds web services with a parallel finite-operation worker pool when the
 /// browser accepts the supplied generated-module URLs.
 #[cfg(target_arch = "wasm32")]
-pub fn standard_services_with_worker_urls(module_url: &str, wasm_url: &str) -> PlatformServices {
-    platform::standard_services_with_worker_urls(module_url, wasm_url)
+pub async fn standard_services_with_worker_urls(
+    module_url: &str,
+    wasm_url: &str,
+) -> PlatformServices {
+    platform::standard_services_with_worker_urls(module_url, wasm_url).await
 }

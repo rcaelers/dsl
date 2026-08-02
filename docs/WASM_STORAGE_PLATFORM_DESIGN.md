@@ -363,8 +363,8 @@ The native repository adapter is an isolated leaf in `logic_analyzer_platform`; 
 publication with files and atomic filesystem operations. The platform-independent memory repository
 in `signal_processing` keeps published artifacts in bounded, chunked process-lifetime memory and
 can be selected on any target. Both implementations satisfy the same lifecycle and prepared-source
-conformance fixture. A future OPFS adapter in `logic_analyzer_platform` can add web durability
-without changing store, compiler, or viewer behavior.
+conformance fixture. The browser composition adds a platform-owned OPFS mirror without changing
+store, compiler, or viewer behavior.
 
 Durability is a repository capability. A cache requested on an ephemeral repository is still a
 real cache for the current application lifetime: it uses the same keys, validation, graph pruning,
@@ -422,8 +422,8 @@ The compiler owns target-independent cache planning:
 - apply size and age policy while respecting pinned active generations.
 
 A platform adapter supplies repository discovery and cleanup operations. It does not replace the
-planning algorithm with no-ops. An ephemeral web repository can therefore satisfy repeated runs or
-graph changes during one application session even before browser persistence exists.
+planning algorithm with no-ops. When browser persistence is unavailable, the ephemeral web
+repository still satisfies repeated runs or graph changes during one application session.
 
 Compiler IR and saved documents contain storage intent and stable identities, not native paths,
 mmap flags, browser handles, or target-specific variants. Saved-graph migrations remain explicit
@@ -585,18 +585,27 @@ Correctness and file-format parity do not depend on shared memory.
 
 ### Browser persistence
 
-OPFS is the preferred future durable browser repository because it provides origin-private random
-access storage and worker-only synchronous access handles. It remains quota-managed browser data:
+OPFS is the durable browser cache because it provides origin-private storage owned by the
+application origin. It remains quota-managed browser data:
 the browser or user can evict it, clearing site data removes it, and it is not a user-visible file
 tree.
 
-The OPFS adapter in `logic_analyzer_platform` runs storage operations in its owning worker. The main
-application exchanges artifact keys, operation requests, progress, and owned byte chunks with that
-worker. Generic code does not expose `FileSystemHandle`, Promise, or JavaScript error types.
+The OPFS adapter in `logic_analyzer_platform` hydrates a bounded synchronous memory repository before
+the UI is constructed, then mirrors publications and removals through a dedicated worker. The
+session mirror remains the hot path required by the synchronous core repository contract. The
+worker serializes immutable generation writes, publishes a small pointer only after its data file
+closes, and removes superseded or interrupted generations. Cache writes are rebuildable and may be
+lost if the page closes before the bounded mirror queue drains; processing correctness never waits
+for the mirror. Generic code does not expose `FileSystemHandle`, Promise, worker, or JavaScript error
+types.
 
-An OPFS cache reports durability only for its current origin and successful storage grant. Cache
-miss and eviction remain normal outcomes. User-selected files are source inputs and are not
-silently treated as durable application cache entries.
+The worker requests persistent storage and reports durability only for its current origin and a
+successful storage grant. It reports quota and usage estimates, retries quota failures after
+evicting the least-recently-published cache generation, recreates its root after site-data loss, and
+logs failures while the in-session memory cache remains usable. Startup discards corrupt pointers,
+orphaned generations, and entries that exceed the configured hydration budget. Cache miss and
+eviction remain normal outcomes. User-selected files are source inputs and are not silently treated
+as durable application cache entries.
 
 ### Browser file import and export
 
@@ -739,8 +748,8 @@ Every storage and execution implementation is tested through shared conformance 
 - Wasm compilation and `wasm-bindgen-test-runner` tests verify that core crates compile one module
   tree without target selection and execute the common storage, query, node-contract, worker
   ordering, and cancellation behavior without native symbols.
-- Future OPFS, file-import, worker, and WebUSB tests use repository-owned deterministic fixtures;
-  hardware tests remain explicitly ignored and require an attached device.
+- A headless-browser test publishes through one OPFS worker and rehydrates through another.
+- Hardware tests remain explicitly ignored and require an attached device.
 
 ### Platform selection
 
