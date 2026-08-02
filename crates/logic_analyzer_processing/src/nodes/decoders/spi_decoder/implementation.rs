@@ -660,7 +660,7 @@ impl SpiDecoder {
             let mut sampling_point_batch = self
                 .sampling_points
                 .as_ref()
-                .filter(|store| store.is_recording_enabled())
+                .filter(|store| !store.has_provider())
                 .map(|_| Vec::with_capacity(sample_positions.len()));
             for (index, &sample_position) in sample_positions.iter().enumerate() {
                 let clock_edge = sample_position.saturating_add(1);
@@ -990,7 +990,7 @@ impl SpiDecoder {
         let mut sampling_point_batch = self
             .sampling_points
             .as_ref()
-            .filter(|store| store.is_recording_enabled())
+            .filter(|store| !store.has_provider())
             .map(|_| Vec::new());
         let mut incomplete_bits = 0usize;
 

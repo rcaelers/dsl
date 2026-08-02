@@ -9,7 +9,6 @@ use node_graph::api::NodeId;
 pub struct OutputSubscriptionPlan {
     visible_outputs: Vec<(NodeId, usize)>,
     retained_outputs: Vec<(NodeId, usize)>,
-    sampling_overlays: Vec<NodeId>,
 }
 
 /// One retained lane produced for an application output subscription.
@@ -69,21 +68,6 @@ impl OutputSubscriptionPlan {
     pub fn retained_outputs(&self) -> impl Iterator<Item = (NodeId, usize)> + '_ {
         self.retained_outputs.iter().copied()
     }
-
-    /// Collects sampling decisions for one application-visible overlay.
-    pub fn subscribe_sampling_overlay(&mut self, node: NodeId) {
-        if !self.collects_sampling_overlay(node) {
-            self.sampling_overlays.push(node);
-        }
-    }
-
-    pub fn collects_sampling_overlay(&self, node: NodeId) -> bool {
-        self.sampling_overlays.contains(&node)
-    }
-
-    pub fn sampling_overlays(&self) -> impl Iterator<Item = NodeId> + '_ {
-        self.sampling_overlays.iter().copied()
-    }
 }
 
 impl FromIterator<(NodeId, usize)> for OutputSubscriptionPlan {
@@ -123,15 +107,5 @@ mod output_subscription_tests {
 
         assert!(!plan.contains(NodeId(2), 3));
         assert!(plan.is_retained(NodeId(2), 3));
-    }
-
-    #[test]
-    fn sampling_overlay_subscriptions_are_deduplicated() {
-        let mut plan = OutputSubscriptionPlan::new();
-        plan.subscribe_sampling_overlay(NodeId(4));
-        plan.subscribe_sampling_overlay(NodeId(4));
-
-        assert!(plan.collects_sampling_overlay(NodeId(4)));
-        assert_eq!(plan.sampling_overlays().collect::<Vec<_>>(), [NodeId(4)]);
     }
 }

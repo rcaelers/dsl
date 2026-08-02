@@ -877,12 +877,12 @@ mod tests {
             SamplingOverlay {
                 clock_channel: 1,
                 sampled_channels: vec![2],
-                points: SamplingPointStore::disabled(),
+                points: SamplingPointStore::default(),
             },
             SamplingOverlay {
                 clock_channel: 3,
                 sampled_channels: vec![4],
-                points: SamplingPointStore::disabled(),
+                points: SamplingPointStore::default(),
             },
         ]);
 

@@ -1,4 +1,3 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
 /// One sampling decision produced by a clocked processing node.
@@ -46,7 +45,6 @@ pub trait SamplingPointProvider: std::fmt::Debug + Send + Sync {
 /// node restarting against the same retained presentation handle.
 #[derive(Debug)]
 struct SamplingPointStoreInner {
-    recording_enabled: AtomicBool,
     points: RwLock<Vec<SamplingPoint>>,
     provider: RwLock<Option<Arc<dyn SamplingPointProvider>>>,
 }
@@ -58,40 +56,18 @@ pub struct SamplingPointStore {
 
 impl Default for SamplingPointStore {
     fn default() -> Self {
-        Self::with_recording_enabled(true)
-    }
-}
-
-impl SamplingPointStore {
-    /// Creates an empty store that ignores records until explicitly enabled.
-    pub fn disabled() -> Self {
-        Self::with_recording_enabled(false)
-    }
-
-    fn with_recording_enabled(recording_enabled: bool) -> Self {
         Self {
             inner: Arc::new(SamplingPointStoreInner {
-                recording_enabled: AtomicBool::new(recording_enabled),
                 points: RwLock::new(Vec::new()),
                 provider: RwLock::new(None),
             }),
         }
     }
+}
 
-    pub fn set_recording_enabled(&self, enabled: bool) {
-        let enabled = enabled && !self.has_provider();
-        self.inner
-            .recording_enabled
-            .store(enabled, Ordering::Release);
-    }
-
-    pub fn is_recording_enabled(&self) -> bool {
-        self.inner.recording_enabled.load(Ordering::Acquire)
-    }
-
+impl SamplingPointStore {
     pub fn set_provider(&self, provider: Arc<dyn SamplingPointProvider>) {
         *self.inner.provider.write().unwrap() = Some(provider);
-        self.inner.recording_enabled.store(false, Ordering::Release);
     }
 
     pub fn has_provider(&self) -> bool {
@@ -103,7 +79,7 @@ impl SamplingPointStore {
     }
 
     pub fn record_batch(&self, points: impl IntoIterator<Item = SamplingPoint>) {
-        if !self.is_recording_enabled() {
+        if self.has_provider() {
             return;
         }
         let mut points = points.into_iter().peekable();
@@ -278,41 +254,11 @@ mod sampling_point_store_tests {
     }
 
     #[test]
-    fn disabled_store_ignores_records_until_enabled() {
-        let store = SamplingPointStore::disabled();
-        store.record(SamplingPoint::new(10, true, vec![false]));
-        assert!(store.is_empty());
-
-        store.set_recording_enabled(true);
-        store.record(SamplingPoint::new(20, false, vec![true]));
-        assert_eq!(
-            store.points_in_range(0, 30),
-            vec![SamplingPoint::new(20, false, vec![true])]
-        );
-    }
-
-    #[test]
-    fn disabling_collection_preserves_existing_points() {
+    fn provider_serves_ranges_instead_of_recorded_points() {
         let store = SamplingPointStore::default();
-        store.record(SamplingPoint::new(10, true, vec![false]));
-
-        store.set_recording_enabled(false);
-        store.record(SamplingPoint::new(20, false, vec![true]));
-
-        assert_eq!(
-            store.points_in_range(0, 30),
-            vec![SamplingPoint::new(10, true, vec![false])]
-        );
-    }
-
-    #[test]
-    fn provider_serves_ranges_without_enabling_recording() {
-        let store = SamplingPointStore::disabled();
         store.set_provider(Arc::new(FixedProvider));
-        store.set_recording_enabled(true);
         store.record(SamplingPoint::new(15, true, vec![true]));
 
-        assert!(!store.is_recording_enabled());
         assert_eq!(
             store.points_in_range(10, 20),
             vec![

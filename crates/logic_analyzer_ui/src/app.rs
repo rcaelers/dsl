@@ -993,9 +993,6 @@ impl App {
                 subscriptions.subscribe(selection.node, selection.output);
             }
         }
-        for &selected in &self.selected_sampling_overlays {
-            subscriptions.subscribe_sampling_overlay(selected);
-        }
         self.graph_service.set_output_subscriptions(subscriptions);
         let mut by_node: HashMap<NodeId, Vec<ViewerOutputPanelEntry>> = HashMap::new();
         self.node_graph
@@ -1463,12 +1460,6 @@ impl App {
     }
 
     fn refresh_sampling_overlay_ui(&mut self) {
-        for candidate in &self.sampling_overlay_candidates {
-            candidate.set_collection_enabled(
-                self.selected_sampling_overlays
-                    .contains(&candidate.node_id()),
-            );
-        }
         let overlays = self
             .selected_sampling_overlays
             .iter()
@@ -1574,7 +1565,6 @@ impl App {
         }
         toggle_sampling_overlay(&mut self.selected_sampling_overlays, node_id);
         self.persist_sampling_overlay_setting();
-        self.refresh_graph_output_selections();
         self.refresh_sampling_overlay_ui();
     }
 

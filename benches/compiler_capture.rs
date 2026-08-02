@@ -237,10 +237,7 @@ fn output_subscriptions(
 
 fn configured_compiler(widget: &NodeGraphWidget) -> GraphCompiler {
     let mut compiler = GraphCompiler::new();
-    let mut subscriptions = startup_output_subscriptions(widget);
-    subscriptions.subscribe_sampling_overlay(node_by_definition(widget, "SPI Decoder"));
-    subscriptions.subscribe_sampling_overlay(node_by_definition(widget, "Parallel Decoder"));
-    compiler.set_output_subscriptions(subscriptions);
+    compiler.set_output_subscriptions(startup_output_subscriptions(widget));
     compiler
 }
 

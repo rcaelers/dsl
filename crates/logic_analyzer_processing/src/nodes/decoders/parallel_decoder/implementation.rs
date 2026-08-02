@@ -1291,7 +1291,7 @@ impl ParallelDecoder {
         if let Some(store) = self
             .sampling_points
             .as_ref()
-            .filter(|store| store.is_recording_enabled())
+            .filter(|store| !store.has_provider())
         {
             store.record_batch(buffers.eligible_positions.iter().enumerate().map(
                 |(trigger_index, &position)| {
@@ -1534,7 +1534,7 @@ impl ParallelDecoder {
         let mut sampling_point_batch = self
             .sampling_points
             .as_ref()
-            .filter(|store| store.is_recording_enabled())
+            .filter(|store| !store.has_provider())
             .map(|_| Vec::new());
         let words_emitted = merge_stream_fragment(
             &fragment,

@@ -396,7 +396,7 @@ mod sampling_provider_tests {
 
     #[test]
     fn provider_queries_processed_parallel_edges_without_recording_them() {
-        let store = SamplingPointStore::disabled();
+        let store = SamplingPointStore::default();
         let progress = ParallelSamplingProgress::default();
         progress.advance(8);
         let inputs = [
@@ -416,7 +416,6 @@ mod sampling_provider_tests {
         );
 
         assert!(store.has_provider());
-        assert!(!store.is_recording_enabled());
         assert_eq!(
             store.points_in_range(0, 7),
             [

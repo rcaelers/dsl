@@ -296,7 +296,7 @@ fn work_parallel(
     let mut sampling_point_batch = decoder
         .sampling_points
         .as_ref()
-        .filter(|store| store.is_recording_enabled())
+        .filter(|store| !store.has_provider())
         .map(|_| Vec::new());
     let words_emitted = merge_stream_fragment(
         &fragment,

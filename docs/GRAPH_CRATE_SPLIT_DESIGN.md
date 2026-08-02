@@ -235,12 +235,15 @@ live cache and growing-index availability as each artifact becomes attachable.
 
 Sampling overlays follow the same boundary. `signal_processing::SamplingPointStore` is the
 neutral run-owned cache; the compiler resolves only the clock and sampled inputs to capture rows
-and gives the shared store to the concrete runtime node. The node either records decisions while
+and gives the shared store to the concrete runtime node. Every run retains the sampling decisions
+independently of whether the corresponding overlay is visible, so attaching an overlay after the
+run uses existing data and never requires re-execution. The node either records decisions while
 processing or supplies a lazy `SamplingPointProvider` backed by input indexes and sparse derived
 control queries. Dense captures therefore do not require a second capture-sized vector merely to
-retain sampling markers. The UI converts the row identities and shared store into the
-logic-analyzer widget's passive overlay type. The compiler does not construct a widget overlay,
-and the widget does not reinterpret raw capture channels.
+retain sampling markers. The UI controls only which shared stores are presented, converts their
+row identities into the logic-analyzer widget's passive overlay type, and never changes collection
+policy. The compiler does not construct a widget overlay, and the widget does not reinterpret raw
+capture channels.
 
 Decoder-table subscriptions are published as collected table lanes with their resolved producer
 metadata. The UI owns the resolved decoder-table source, column, and registry models, resolves
