@@ -409,7 +409,7 @@ struct PresentationExpectation {
     excluded: Vec<usize>,
 }
 
-#[test]
+#[wasm_bindgen_test::wasm_bindgen_test(unsupported = test)]
 fn portable_capture_catalog_matches_shared_availability_contract() {
     crate::link();
     let expected = expectations();
@@ -428,7 +428,7 @@ fn portable_capture_catalog_matches_shared_availability_contract() {
     }
 }
 
-#[test]
+#[wasm_bindgen_test::wasm_bindgen_test(unsupported = test)]
 fn portable_capture_nodes_match_shared_graph_contracts() {
     crate::link();
     let expected = expectations();
@@ -460,7 +460,7 @@ fn portable_capture_nodes_match_shared_graph_contracts() {
     }
 }
 
-#[test]
+#[wasm_bindgen_test::wasm_bindgen_test(unsupported = test)]
 fn portable_capture_nodes_lower_through_the_same_neutral_factory_contracts() {
     crate::link();
     let expected = expectations();

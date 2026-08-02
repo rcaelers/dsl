@@ -38,8 +38,9 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
 - `logic_analyzer_capture_export` owns native streaming export of finalized generic capture
   storage. It depends on capture contracts and format libraries, not graph crates or concrete
   processing nodes.
-- `logic_analyzer_test_support` owns deterministic capture providers shared by cross-crate tests.
-  It depends on generic runtime contracts rather than concrete processing, graph, or UI crates.
+- `logic_analyzer_test_support` owns deterministic capture providers and data-plane conformance
+  fixtures shared by cross-crate tests. It depends on generic runtime contracts rather than
+  concrete processing, graph, or UI crates.
 - `logic_analyzer_ui` owns the application-facing graph service port. Application and platform
   orchestration depend on its private `GraphService` and `GraphRun` traits; the crate's production
   adapter delegates to `GraphCompiler` and `LiveRun`, while UI tests provide deterministic local
@@ -144,7 +145,7 @@ nearest owning facade. The allowlist names canonical public namespaces.
 | `logic_analyzer_graph_nodes` | none | The crate root exposes the linker anchor plus host-injection and portable-template helpers for concrete node contracts. Built-in graph-node definitions, socket types, migrations, presentations, inventory submissions, and crate-local test fixtures remain private. Cross-component fixtures belong to the top-level integration-test package. |
 | `logic_analyzer_capture_export` | none | The cohesive native exporter exposes its curated format, progress, observer, report, and export operation through the crate root. Encoder and archive implementation modules remain private. |
 | `logic_analyzer_platform` | none | The crate root exposes its opaque composition bundle and constructors. Private target-selected modules implement host capabilities owned by the core contract crates. |
-| `logic_analyzer_test_support` | none | Shared deterministic acquisition providers are exposed through the crate root. Their synchronization and acquisition implementations remain private. |
+| `logic_analyzer_test_support` | none | Shared deterministic acquisition providers and data-plane conformance fixtures are exposed through the crate root. Their synchronization, repository observation, and fixture implementations remain private. |
 | `node_graph` | `api` | `api` exposes graph documents, identifiers, sockets, and node-definition contracts to compilers and graph-node implementations. The crate root exposes the widget/editor composition surface used by UI hosts. |
 | `logic_analyzer_viewer` | none | The reusable viewer exposes one curated crate-root API; drawing, sampling, input, cursor, lane, worker, and indexing modules remain private. |
 | `logic_analyzer_ui` | none | The application-composition crate exposes only its host-facing crate-root facade. |

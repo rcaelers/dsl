@@ -22,3 +22,4 @@ inventory = { workspace = true }
 [dev-dependencies]
 logic-analyzer-test-support = { path = "../logic_analyzer_test_support" }
 tempfile = { workspace = true }
+wasm-bindgen-test = { workspace = true }

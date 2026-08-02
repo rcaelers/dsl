@@ -155,6 +155,9 @@ names, or a storage implementation name.
 Portable implementations remain in their behavioral owner and compile everywhere. This includes
 the chunked-memory repository, owned byte backing, deterministic fake sources, and cooperative
 executor. `logic_analyzer_platform` selects or constructs them but does not fork their algorithms.
+Persistent metadata receives the root-level `signal_processing::UnixTimeSource` capability. Its
+default implementation uses `web-time` on every target, while deterministic conformance fixtures
+inject a fixed clock so complete manifests and encoded generations can be compared byte for byte.
 
 ### Platform adapter crate
 
@@ -715,6 +718,9 @@ synthetic data. Demo nodes explicitly request deterministic generated sources.
 
 Every storage and execution implementation is tested through shared conformance suites.
 
+- `logic_analyzer_test_support` owns the reusable repository, capture-store, and derived-store
+  fixtures. They accept only core traits, exercise deterministic inputs and clocks, and return
+  comparable observations without knowing whether the backing is memory, files, or mmap.
 - The in-memory repository suite runs as an ordinary unit test without filesystem dependencies.
 - Native file and mmap repositories run the same artifact lifecycle, corruption, publication,
   cleanup, and query fixtures in isolated temporary directories.
@@ -730,8 +736,9 @@ Every storage and execution implementation is tested through shared conformance 
   without publishing partial generations.
 - Fixed-width format tests exercise values above the wasm32 `usize` range without allocating those
   ranges.
-- Wasm compilation and browser tests verify that core crates compile one module tree without target
-  selection and that common storage/query behavior does not depend on native symbols.
+- Wasm compilation and `wasm-bindgen-test-runner` tests verify that core crates compile one module
+  tree without target selection and execute the common storage, query, node-contract, worker
+  ordering, and cancellation behavior without native symbols.
 - Future OPFS, file-import, worker, and WebUSB tests use repository-owned deterministic fixtures;
   hardware tests remain explicitly ignored and require an attached device.
 

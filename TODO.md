@@ -85,10 +85,6 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.parity-tests] Add reusable conformance suites for memory, native file, and mmap repositories;
-  byte-identical encoded output; exact/presence/boundary queries; growing-prefix visibility; cache planning; source
-  preparation; ordered execution; cancellation; corruption; short I/O; and quota exhaustion. Run filesystem-free
-  memory tests in every crate build and compile/browser checks for the selected wasm modules.
 - [platform.data-plane.browser-persistence] After the shared memory backend is established, add an optional
   worker-owned OPFS artifact repository in `logic_analyzer_platform` with quota reporting, atomic-generation
   publication, eviction recovery, and site-data-loss semantics. Keep OPFS handles and promises in that adapter so

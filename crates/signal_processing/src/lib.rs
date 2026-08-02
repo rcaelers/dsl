@@ -13,6 +13,8 @@
 
 #[cfg(test)]
 mod architecture_tests;
+#[cfg(test)]
+mod wasm_store_tests;
 
 mod advanced_trigger;
 mod app_manager;
@@ -20,12 +22,6 @@ pub mod capture;
 mod capture_index_kernel;
 mod capture_policy;
 mod cooperative_manager;
-// The shared derived-word codec uses this on native today; the wasm store will
-// consume the same integrity implementation once it adopts encoded blocks.
-#[allow(
-    dead_code,
-    reason = "the wasm store has not adopted encoded blocks yet"
-)]
 mod crc32c;
 mod derived_data_collector;
 mod derived_index;
@@ -52,6 +48,7 @@ mod sampling_points;
 mod scheduler;
 mod sender;
 mod storage;
+mod time_source;
 mod type_registry;
 mod watchdog;
 pub mod waveform_index;
@@ -151,6 +148,7 @@ pub use storage::{
     PreparedByteSource, RandomAccessReader, ReadArtifact, RepositoryCapabilities, RepositoryError,
     SourceCapabilities, SourceIdentity, SourceReadError, WriteArtifact, read_artifact_region,
 };
+pub use time_source::{SystemUnixTimeSource, UnixTimeSource};
 pub(crate) use watchdog::OperationGuard;
 pub use watchdog::{Watchdog, WatchdogHandle};
 pub use waveform_index::{

@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender, TryRecvError, bounded};
+use web_time::Instant;
 
 use super::backend::{AnnotationStoreBackend, AnnotationStoreWriterBackend};
 use super::cache::{cache_block, cached_block};
@@ -740,11 +741,10 @@ impl IndexedAnnotationWriter {
                 "hot_tail_publish_words must be greater than zero",
             )));
         }
-        let created_unix_ns = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-            .min(u128::from(u64::MAX)) as u64;
+        let created_unix_ns = config
+            .persistence
+            .as_ref()
+            .map_or(0, |persistent| persistent.time_source.now_unix_ns());
         let store_id = NEXT_STORE_ID.fetch_add(1, Ordering::Relaxed);
         let store_identity = config.persistence.as_ref().map_or_else(
             || ephemeral_store_identity(config.cache_key_prefix, store_id),

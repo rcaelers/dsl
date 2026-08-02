@@ -1,5 +1,5 @@
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -12,7 +12,7 @@ use crate::{
     ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion, CaptureChunk,
     CaptureChunkPayload, CaptureChunkWriter, CaptureSampledChannel, CaptureSampledWindow,
     CaptureSessionId, CaptureSessionPlan, CaptureTransition, CaptureWriteError, Error,
-    SourceIdentity, read_artifact_region,
+    SourceIdentity, SystemUnixTimeSource, UnixTimeSource, read_artifact_region,
 };
 
 const CAPTURE_MANIFEST_NAMESPACE: &str = "capture-manifest-v1";
@@ -26,6 +26,7 @@ const CHUNK_FORMAT_VERSION: u16 = 1;
 pub struct CaptureStoreConfig {
     repository: Arc<dyn ArtifactRepository>,
     descriptor: CaptureStoreDescriptor,
+    time_source: Arc<dyn UnixTimeSource>,
 }
 
 impl CaptureStoreConfig {
@@ -36,7 +37,13 @@ impl CaptureStoreConfig {
         Self {
             repository,
             descriptor,
+            time_source: Arc::new(SystemUnixTimeSource),
         }
+    }
+
+    pub fn with_time_source(mut self, time_source: Arc<dyn UnixTimeSource>) -> Self {
+        self.time_source = time_source;
+        self
     }
 
     pub fn repository(&self) -> Arc<dyn ArtifactRepository> {
@@ -178,6 +185,7 @@ struct StoreState {
 struct SharedStore {
     repository: Arc<dyn ArtifactRepository>,
     descriptor: CaptureStoreDescriptor,
+    time_source: Arc<dyn UnixTimeSource>,
     state: Mutex<StoreState>,
     changed: Condvar,
 }
@@ -242,7 +250,7 @@ impl CaptureStore {
             finalized: false,
         };
         publish_json(config.repository.as_ref(), key, &manifest)?;
-        let now = unix_ns();
+        let now = config.time_source.now_unix_ns();
         write_session_metadata(
             config.repository.as_ref(),
             &CaptureSessionMetadata {
@@ -259,6 +267,7 @@ impl CaptureStore {
         let shared = Arc::new(SharedStore {
             repository: config.repository,
             descriptor: config.descriptor,
+            time_source: config.time_source,
             state: Mutex::new(StoreState {
                 manifest,
                 writer_open: true,
@@ -296,6 +305,7 @@ impl CaptureStore {
             shared: Arc::new(SharedStore {
                 repository,
                 descriptor,
+                time_source: Arc::new(SystemUnixTimeSource),
                 state: Mutex::new(StoreState {
                     writer_open: false,
                     writer_failure: None,
@@ -363,7 +373,7 @@ impl CaptureStore {
             CaptureStoreError::Corrupt("capture session metadata is missing".into())
         })?;
         metadata.timeline = Some(timeline);
-        metadata.accessed_unix_ns = unix_ns();
+        metadata.accessed_unix_ns = self.shared.time_source.now_unix_ns();
         write_session_metadata(self.shared.repository.as_ref(), &metadata)
     }
 
@@ -430,7 +440,7 @@ impl CaptureStore {
         })?;
         metadata.outcome = outcome;
         metadata.recording_origin = recording_origin;
-        metadata.accessed_unix_ns = unix_ns();
+        metadata.accessed_unix_ns = self.shared.time_source.now_unix_ns();
         if let Some(timeline) = metadata.timeline.as_mut() {
             timeline.set_trigger_sample(trigger_sample);
         }
@@ -717,7 +727,7 @@ impl FinalizedCapture {
                 CaptureStoreError::Corrupt("capture session metadata is missing".into())
             })?;
             metadata.outcome = CaptureSessionOutcome::Incomplete;
-            metadata.accessed_unix_ns = unix_ns();
+            metadata.accessed_unix_ns = store.shared.time_source.now_unix_ns();
             write_session_metadata(store.shared.repository.as_ref(), &metadata)?;
             let mut state = store
                 .shared
@@ -770,7 +780,7 @@ impl FinalizedCapture {
             CaptureStoreError::Corrupt("capture session metadata is missing".into())
         })?;
         metadata.kept = kept;
-        metadata.accessed_unix_ns = unix_ns();
+        metadata.accessed_unix_ns = self.store.shared.time_source.now_unix_ns();
         write_session_metadata(self.store.shared.repository.as_ref(), &metadata)
     }
 
@@ -778,7 +788,7 @@ impl FinalizedCapture {
         let mut metadata = self.session_metadata()?.ok_or_else(|| {
             CaptureStoreError::Corrupt("capture session metadata is missing".into())
         })?;
-        metadata.accessed_unix_ns = unix_ns();
+        metadata.accessed_unix_ns = self.store.shared.time_source.now_unix_ns();
         write_session_metadata(self.store.shared.repository.as_ref(), &metadata)
     }
 
@@ -1092,13 +1102,6 @@ fn parse_session_id(value: &str) -> CaptureStoreResult<CaptureSessionId> {
     u128::from_str_radix(value, 16)
         .map(CaptureSessionId::new)
         .map_err(|_| CaptureStoreError::Corrupt("capture session identity is invalid".into()))
-}
-
-fn unix_ns() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX))
-        .unwrap_or(0)
 }
 
 fn store_as_capture_error(error: CaptureStoreError) -> Error {

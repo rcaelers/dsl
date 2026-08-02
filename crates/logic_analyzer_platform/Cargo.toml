@@ -63,3 +63,6 @@ web-sys = { workspace = true, features = [
     "WorkerType",
     "Window",
 ] }
+
+[dev-dependencies]
+logic-analyzer-test-support = { path = "../logic_analyzer_test_support" }

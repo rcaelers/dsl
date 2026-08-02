@@ -137,6 +137,7 @@ fn immutable_regions_fall_back_to_owned_bytes() {
     struct ReadOnlyArtifact {
         key: ArtifactKey,
         bytes: &'static [u8],
+        max_read: usize,
     }
 
     impl ReadArtifact for ReadOnlyArtifact {
@@ -156,7 +157,8 @@ fn immutable_regions_fall_back_to_owned_bytes() {
             let start = offset as usize;
             let count = destination
                 .len()
-                .min(self.bytes.len().saturating_sub(start));
+                .min(self.bytes.len().saturating_sub(start))
+                .min(self.max_read);
             destination[..count].copy_from_slice(&self.bytes[start..start + count]);
             Ok(count)
         }
@@ -169,6 +171,7 @@ fn immutable_regions_fall_back_to_owned_bytes() {
     let mut reader = ReadOnlyArtifact {
         key: key(),
         bytes: b"fallback",
+        max_read: 2,
     };
     let region = read_artifact_region(&mut reader, ByteRange::new(2, 4).unwrap()).unwrap();
     assert_eq!(region.bytes(), b"llba");

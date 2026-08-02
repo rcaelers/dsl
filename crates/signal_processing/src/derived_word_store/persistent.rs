@@ -1,6 +1,5 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::config::PersistentStoreConfig;
 use super::format::{BlockDirectoryEntry, FORMAT_VERSION};
@@ -217,7 +216,7 @@ pub(crate) fn publish(
         &index_bytes,
     )?;
 
-    let now = unix_ns();
+    let now = config.time_source.now_unix_ns();
     let manifest = Manifest {
         cache_key: config.cache_key,
         data_len: publication.committed_data_len,
@@ -250,7 +249,7 @@ fn open_validated(config: &PersistentStoreConfig) -> StoreResult<Option<Persiste
     let index_bytes = read_required(config.artifact_repository.as_ref(), &index_key(config)?)?;
     let index = decode_index(&index_bytes, config.cache_key)?;
     validate_persistent_generation(config, manifest, &index)?;
-    manifest.accessed_unix_ns = unix_ns();
+    manifest.accessed_unix_ns = config.time_source.now_unix_ns();
     publish_bytes(
         config.artifact_repository.as_ref(),
         manifest_key(config)?,
@@ -658,14 +657,6 @@ fn decode_manifest(bytes: &[u8]) -> StoreResult<Manifest> {
         created_unix_ns: get_u64(bytes, 72)?,
         accessed_unix_ns: get_u64(bytes, 80)?,
     })
-}
-
-fn unix_ns() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos()
-        .min(u128::from(u64::MAX)) as u64
 }
 
 fn hex_key(key: &[u8; 32]) -> String {

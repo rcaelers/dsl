@@ -364,13 +364,10 @@ fn hex_value(value: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod native_artifact_repository_tests {
-    use signal_processing::{
-        AnnotationQuery, ArtifactByteSource, CaptureChannelId, CaptureChunk, CaptureChunkWriter,
-        CaptureCursorItem, CaptureSessionId, CaptureStore, CaptureStoreConfig, CaptureStoreCursor,
-        CaptureStoreDescriptor, FinalizedCapture, IndexedAnnotationStore, IndexedAnnotationWriter,
-        LiveStoreConfig, MemoryArtifactRepository, PersistentStoreConfig, PreparedByteSource,
-        SourceCapabilities, Word,
+    use logic_analyzer_test_support::{
+        capture_store_conformance, derived_store_conformance, repository_conformance,
     };
+    use signal_processing::MemoryArtifactRepository;
 
     use super::*;
 
@@ -380,10 +377,17 @@ mod native_artifact_repository_tests {
         let native: Arc<dyn ArtifactRepository> = Arc::new(NativeArtifactRepository::new(
             directory.path().join("artifacts"),
         ));
-        assert_repository_contract(native, true);
+        repository_conformance(
+            native,
+            RepositoryCapabilities {
+                durable: true,
+                atomic_publication: true,
+                immutable_regions: true,
+            },
+        );
 
         let memory: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
-        assert_repository_contract(memory, false);
+        repository_conformance(memory, RepositoryCapabilities::EPHEMERAL_MEMORY);
     }
 
     #[test]
@@ -414,10 +418,12 @@ mod native_artifact_repository_tests {
         let native: Arc<dyn ArtifactRepository> = Arc::new(NativeArtifactRepository::new(
             directory.path().join("artifacts"),
         ));
-        assert_derived_store_contract(native);
-
         let memory: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
-        assert_derived_store_contract(memory);
+
+        assert_eq!(
+            derived_store_conformance(native),
+            derived_store_conformance(memory)
+        );
     }
 
     #[test]
@@ -426,138 +432,11 @@ mod native_artifact_repository_tests {
         let native: Arc<dyn ArtifactRepository> = Arc::new(NativeArtifactRepository::new(
             directory.path().join("artifacts"),
         ));
-        assert_capture_store_contract(native);
-
         let memory: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
-        assert_capture_store_contract(memory);
-    }
 
-    fn assert_capture_store_contract(repository: Arc<dyn ArtifactRepository>) {
-        let descriptor = CaptureStoreDescriptor::new(
-            CaptureSessionId::new(0xace),
-            [
-                CaptureChannelId::new("clock"),
-                CaptureChannelId::new("data"),
-            ],
-        )
-        .unwrap();
-        let (store, mut writer) = CaptureStore::create(CaptureStoreConfig::new(
-            Arc::clone(&repository),
-            descriptor.clone(),
-        ))
-        .unwrap();
-        writer
-            .append(
-                CaptureChunk::packed_lsb_first(
-                    descriptor.session_id(),
-                    0,
-                    0,
-                    4,
-                    descriptor.channel_table(),
-                    [0b0110_1001],
-                    0,
-                )
-                .unwrap(),
-            )
-            .unwrap();
-        assert_eq!(store.generation(), 1);
-        writer.finish().unwrap();
-        let finalized = store.finalize().unwrap();
-        assert_eq!(finalized.generation(), 2);
-
-        let reopened = FinalizedCapture::open(repository, descriptor.session_id()).unwrap();
-        assert_eq!(reopened.generation(), 2);
-        let mut cursor = reopened.open_cursor().unwrap();
-        let CaptureCursorItem::Chunk(chunk) = cursor.next().unwrap() else {
-            panic!("published capture must replay its committed chunk");
-        };
-        assert_eq!(chunk.packed_level(0, 0), Some(true));
-        assert_eq!(chunk.packed_level(0, 1), Some(false));
-        assert_eq!(cursor.next().unwrap(), CaptureCursorItem::End);
-    }
-
-    fn assert_derived_store_contract(repository: Arc<dyn ArtifactRepository>) {
-        let persistent = PersistentStoreConfig::new([0x71; 32])
-            .with_artifact_repository(Arc::clone(&repository));
-        let config = LiveStoreConfig {
-            persistence: Some(persistent.clone()),
-            ..LiveStoreConfig::default()
-        }
-        .with_artifact_repository(repository);
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
-        writer
-            .append_batch(&[Word::spanning(0x12, 100, 20), Word::new(0x34, 200)])
-            .unwrap();
-        writer.finish().unwrap();
-        drop(store);
-
-        let reopened = IndexedAnnotationStore::open_persistent(&persistent)
-            .unwrap()
-            .expect("published store must reopen");
-        let exact = reopened.exact_window(0, 300, 8).unwrap();
-        assert!(exact.complete);
         assert_eq!(
-            exact
-                .annotations
-                .iter()
-                .map(|annotation| annotation.value)
-                .collect::<Vec<_>>(),
-            vec![0x12, 0x34]
+            capture_store_conformance(native),
+            capture_store_conformance(memory)
         );
-    }
-
-    fn assert_repository_contract(repository: Arc<dyn ArtifactRepository>, expected_durable: bool) {
-        let namespace = ArtifactNamespace::new("derived payload").unwrap();
-        let key = ArtifactKey::new(namespace.clone(), SourceIdentity::from_bytes([0x5a; 32]));
-
-        let mut writer = repository.begin_write(key.clone()).unwrap();
-        writer.write_at(2, b"cde").unwrap();
-        writer.write_at(0, b"ab").unwrap();
-        assert!(repository.open(&key).unwrap().is_none());
-        writer.publish().unwrap();
-
-        let source = ArtifactByteSource::new(Arc::clone(&repository), key.clone());
-        assert_eq!(source.capabilities(), SourceCapabilities::RANDOM_ACCESS);
-        let mut reader = source.open_reader().unwrap();
-        let mut bytes = [0_u8; 5];
-        reader.read_exact_at(0, &mut bytes).unwrap();
-        assert_eq!(&bytes, b"abcde");
-
-        let reader = repository.open(&key).unwrap().unwrap();
-        assert_eq!(
-            reader
-                .region(ByteRange::new(1, 3).unwrap())
-                .unwrap()
-                .unwrap()
-                .bytes(),
-            b"bcd"
-        );
-        assert_eq!(repository.entries(&namespace).unwrap().len(), 1);
-        assert_eq!(repository.namespaces().unwrap(), vec![namespace.clone()]);
-        let capabilities = repository.capabilities();
-        assert_eq!(capabilities.durable, expected_durable);
-        assert!(capabilities.atomic_publication);
-        assert!(capabilities.immutable_regions);
-
-        let mut previous_generation = repository.open(&key).unwrap().unwrap();
-        let mut replacement = repository.begin_write(key.clone()).unwrap();
-        replacement.write_at(0, b"vwxyz").unwrap();
-        replacement.publish().unwrap();
-        let mut previous = [0_u8; 5];
-        previous_generation.read_at(0, &mut previous).unwrap();
-        assert_eq!(&previous, b"abcde");
-
-        let mut unpublished = repository.begin_write(key.clone()).unwrap();
-        unpublished.write_at(0, b"incomplete").unwrap();
-        drop(unpublished);
-
-        let mut reader = repository.open(&key).unwrap().unwrap();
-        let mut preserved = [0_u8; 5];
-        reader.read_at(0, &mut preserved).unwrap();
-        assert_eq!(&preserved, b"vwxyz");
-
-        repository.remove(&key).unwrap();
-        assert!(repository.entries(&namespace).unwrap().is_empty());
-        assert!(repository.namespaces().unwrap().is_empty());
     }
 }

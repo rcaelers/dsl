@@ -2,7 +2,10 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::{ArtifactRepository, InlineWorkExecutor, MemoryArtifactRepository, WorkExecutor};
+use crate::{
+    ArtifactRepository, InlineWorkExecutor, MemoryArtifactRepository, SystemUnixTimeSource,
+    UnixTimeSource, WorkExecutor,
+};
 
 pub(crate) const DEFAULT_MAX_WORDS_PER_BLOCK: usize = 131_072;
 
@@ -33,6 +36,7 @@ pub struct PersistentStoreConfig {
     pub cache_key: [u8; 32],
     pub max_cache_bytes: u64,
     pub artifact_repository: Arc<dyn ArtifactRepository>,
+    pub time_source: Arc<dyn UnixTimeSource>,
 }
 
 impl PersistentStoreConfig {
@@ -41,11 +45,17 @@ impl PersistentStoreConfig {
             cache_key,
             max_cache_bytes: DEFAULT_MAX_PERSISTENT_CACHE_BYTES,
             artifact_repository: Arc::new(MemoryArtifactRepository::new()),
+            time_source: Arc::new(SystemUnixTimeSource),
         }
     }
 
     pub fn with_artifact_repository(mut self, repository: Arc<dyn ArtifactRepository>) -> Self {
         self.artifact_repository = repository;
+        self
+    }
+
+    pub fn with_time_source(mut self, time_source: Arc<dyn UnixTimeSource>) -> Self {
+        self.time_source = time_source;
         self
     }
 }
@@ -60,6 +70,7 @@ impl fmt::Debug for PersistentStoreConfig {
                 "repository_capabilities",
                 &self.artifact_repository.capabilities(),
             )
+            .field("time_source", &"UnixTimeSource")
             .finish()
     }
 }

@@ -375,7 +375,7 @@ mod work_executor_tests {
         WorkerMessage, WorkerOperation, WorkerOperationExecutor, WorkerRequest,
     };
 
-    #[test]
+    #[wasm_bindgen_test::wasm_bindgen_test(unsupported = test)]
     fn worker_messages_round_trip_as_owned_data() {
         let above_wasm32 = u64::from(u32::MAX) + 53;
         let messages = [
