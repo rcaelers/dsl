@@ -68,6 +68,15 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ## Refactorings
 
+### Graph execution
+
+- [graph.execution.debounced-live-sync] Replace fixed-interval semantic graph polling with an
+  event-driven dirty revision and a true debounce: reset the quiet-period timer after every
+  processing-relevant edit, lower only the latest immutable graph revision after the quiet period,
+  and discard stale results when a newer revision exists. Perform lowering and edit-plan
+  preparation away from the UI thread, keep runtime application ordered through its control
+  boundary, and leave periodic progress reporting independent from graph synchronization.
+
 ### Capture provider and host architecture
 
 - [capture.live.provider-unification] Represent file and live sources through one generic capture
