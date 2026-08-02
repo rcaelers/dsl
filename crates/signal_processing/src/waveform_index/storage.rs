@@ -45,9 +45,18 @@ impl IndexWriter {
         source_revision: u64,
     ) -> Result<Self> {
         let channels = capture_header.total_probes;
-        let total_blocks = capture_header.total_blocks as usize;
+        let total_blocks = usize::try_from(capture_header.total_blocks).map_err(|_| {
+            Error::ParseError("waveform-index block count exceeds this address space".into())
+        })?;
+        let directory_entries = channels.checked_mul(total_blocks).ok_or_else(|| {
+            Error::ParseError("waveform-index directory entry count overflows usize".into())
+        })?;
         let dir_offset = HEADER_SIZE;
-        let payload_offset = dir_offset + (channels * total_blocks) as u64 * DIR_ENTRY_SIZE;
+        let payload_offset = u64::try_from(directory_entries)
+            .ok()
+            .and_then(|entries| entries.checked_mul(DIR_ENTRY_SIZE))
+            .and_then(|directory_bytes| dir_offset.checked_add(directory_bytes))
+            .ok_or_else(|| Error::ParseError("waveform-index directory size overflow".into()))?;
 
         let index_header = IndexHeader {
             source_revision,
@@ -55,8 +64,10 @@ impl IndexWriter {
             total_blocks: capture_header.total_blocks,
             samples_per_block: capture_header.samples_per_block,
             samplerate_bits: capture_header.samplerate_hz.to_bits(),
-            total_channels: channels as u32,
-            blocks_per_channel: total_blocks as u32,
+            total_channels: u64::try_from(channels).map_err(|_| {
+                Error::ParseError("waveform-index channel count exceeds u64".into())
+            })?,
+            blocks_per_channel: capture_header.total_blocks,
             dir_offset,
             payload_offset,
         };
@@ -96,7 +107,10 @@ impl IndexWriter {
 
     /// Publishes the root and makes the completed generation discoverable.
     pub(crate) fn finish(self) -> Result<()> {
-        let mut bytes = Vec::with_capacity(self.index_header.payload_offset as usize);
+        let root_capacity = usize::try_from(self.index_header.payload_offset).map_err(|_| {
+            Error::ParseError("waveform-index root exceeds this address space".into())
+        })?;
+        let mut bytes = Vec::with_capacity(root_capacity);
         Self::write_header(&mut bytes, &self.index_header)?;
         for channel_dir in &self.directory {
             for entry in channel_dir {
@@ -108,18 +122,18 @@ impl IndexWriter {
 
     fn write_header(file: &mut impl Write, header: &IndexHeader) -> Result<()> {
         file.write_all(MAGIC)?;
-        write_u32(file, 6)?;
+        write_u32(file, 7)?;
         write_u32(file, HEADER_SIZE as u32)?;
         write_u64(file, header.source_revision)?;
         write_u64(file, header.total_samples)?;
         write_u64(file, header.total_blocks)?;
         write_u64(file, header.samples_per_block)?;
         write_u64(file, header.samplerate_bits)?;
-        write_u32(file, header.total_channels)?;
-        write_u32(file, header.blocks_per_channel)?;
+        write_u64(file, header.total_channels)?;
+        write_u64(file, header.blocks_per_channel)?;
         write_u64(file, header.dir_offset)?;
         write_u64(file, header.payload_offset)?;
-        let written = 8 + 4 + 4 + 8 * 7 + 4 * 2;
+        let written = 8 + 4 + 4 + 8 * 9;
         file.write_all(&vec![0_u8; HEADER_SIZE as usize - written])?;
         Ok(())
     }
@@ -227,7 +241,10 @@ impl IndexReader {
         let mut file = Cursor::new(bytes);
         let index_header = Self::read_header(&mut file)?;
         Self::validate_header(&index_header, &header, source_revision)?;
-        let blocks_per_channel = index_header.blocks_per_channel as usize;
+        let blocks_per_channel =
+            usize::try_from(index_header.blocks_per_channel).map_err(|_| {
+                Error::ParseError("waveform-index block count exceeds this address space".into())
+            })?;
         let directory = Self::read_directory(
             &mut file,
             &index_header,
@@ -314,8 +331,10 @@ impl IndexReader {
             || index_header.total_blocks != header.total_blocks
             || index_header.samples_per_block != header.samples_per_block
             || index_header.samplerate_bits != header.samplerate_hz.to_bits()
-            || index_header.total_channels != header.total_probes as u32
-            || index_header.blocks_per_channel != header.total_blocks as u32
+            || index_header.total_channels
+                != u64::try_from(header.total_probes)
+                    .map_err(|_| Error::ParseError("capture channel count exceeds u64".into()))?
+            || index_header.blocks_per_channel != header.total_blocks
         {
             return Err(Error::ParseError("waveform index is stale".to_string()));
         }
@@ -332,20 +351,25 @@ impl IndexReader {
             ));
         }
         let version = read_u32(file)?;
-        if version != 6 {
+        if version != 7 {
             return Err(Error::ParseError(
                 "unsupported waveform-index root version".to_string(),
             ));
         }
-        let _header_size = read_u32(file)?;
+        let header_size = read_u32(file)?;
+        if u64::from(header_size) != HEADER_SIZE {
+            return Err(Error::ParseError(
+                "unsupported waveform-index root header size".to_string(),
+            ));
+        }
         Ok(IndexHeader {
             source_revision: read_u64(file)?,
             total_samples: read_u64(file)?,
             total_blocks: read_u64(file)?,
             samples_per_block: read_u64(file)?,
             samplerate_bits: read_u64(file)?,
-            total_channels: read_u32(file)?,
-            blocks_per_channel: read_u32(file)?,
+            total_channels: read_u64(file)?,
+            blocks_per_channel: read_u64(file)?,
             dir_offset: read_u64(file)?,
             payload_offset: read_u64(file)?,
         })
@@ -627,6 +651,30 @@ mod tests {
         assert!(decoded.levels.is_none());
         assert!(decoded.first);
         assert!(decoded.last);
+    }
+
+    #[test]
+    fn root_header_preserves_counts_above_the_wasm32_address_range() {
+        let count = u64::from(u32::MAX) + 41;
+        let header = IndexHeader {
+            source_revision: 1,
+            total_samples: count + 2,
+            total_blocks: count,
+            samples_per_block: 16,
+            samplerate_bits: 1_000_000_f64.to_bits(),
+            total_channels: count + 1,
+            blocks_per_channel: count,
+            dir_offset: HEADER_SIZE,
+            payload_offset: HEADER_SIZE + 8,
+        };
+        let mut bytes = Vec::new();
+
+        IndexWriter::write_header(&mut bytes, &header).unwrap();
+        let decoded = IndexReader::read_header(&mut Cursor::new(bytes)).unwrap();
+
+        assert_eq!(decoded.total_channels, count + 1);
+        assert_eq!(decoded.blocks_per_channel, count);
+        assert_eq!(decoded.total_blocks, count);
     }
 
     #[test]

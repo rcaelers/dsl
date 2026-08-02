@@ -123,7 +123,7 @@ pub trait ImmutableByteRegion: Send + Sync {
     fn bytes(&self) -> &[u8];
 
     fn len(&self) -> u64 {
-        self.bytes().len() as u64
+        u64::try_from(self.bytes().len()).expect("resident byte regions fit in u64")
     }
 
     fn is_empty(&self) -> bool {
@@ -139,8 +139,14 @@ pub trait ImmutableByteRegion: Send + Sync {
                 source_length,
             });
         }
-        let start = range.offset as usize;
-        let end = range.end() as usize;
+        let start = usize::try_from(range.offset).map_err(|_| SourceReadError::RangeOverflow {
+            offset: range.offset,
+            length: range.length,
+        })?;
+        let end = usize::try_from(range.end()).map_err(|_| SourceReadError::RangeOverflow {
+            offset: range.offset,
+            length: range.length,
+        })?;
         Ok(&self.bytes()[start..end])
     }
 }

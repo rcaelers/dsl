@@ -55,8 +55,16 @@ where
     where
         P: FnMut(CaptureIndexProgress) -> bool,
     {
-        let total_blocks = self.header.total_blocks as usize;
-        let job_count = self.header.total_probes * total_blocks;
+        let total_blocks = usize::try_from(self.header.total_blocks).map_err(|_| {
+            Error::ParseError("capture-index block count exceeds this address space".into())
+        })?;
+        let job_count = self
+            .header
+            .total_probes
+            .checked_mul(total_blocks)
+            .ok_or_else(|| Error::ParseError("capture-index job count overflow".into()))?;
+        let total_roots = u64::try_from(job_count)
+            .map_err(|_| Error::ParseError("capture-index job count exceeds u64".into()))?;
 
         let mut jobs = VecDeque::with_capacity(job_count);
         for channel in 0..self.header.total_probes {
@@ -67,7 +75,7 @@ where
 
         if !progress(CaptureIndexProgress {
             completed_roots: 0,
-            total_roots: job_count,
+            total_roots,
         }) {
             return Err(Error::Cancelled);
         }
@@ -103,6 +111,8 @@ where
         progress: &mut impl FnMut(CaptureIndexProgress) -> bool,
     ) -> Result<()> {
         let total_jobs = jobs.len();
+        let total_roots = u64::try_from(total_jobs)
+            .map_err(|_| Error::ParseError("capture-index job count exceeds u64".into()))?;
         if total_jobs == 0 {
             return writer.finish();
         }
@@ -145,9 +155,12 @@ where
                     while let Some(mut leaf) = pending.remove(&(channel, next_block[channel])) {
                         Self::apply_boundary_transition(&mut leaf, previous_last[channel]);
                         previous_last[channel] = Some(leaf.last);
-                        if let Err(err) =
-                            writer.write_block(channel, next_block[channel] as usize, &leaf)
-                        {
+                        let block = usize::try_from(next_block[channel]).map_err(|_| {
+                            Error::ParseError(
+                                "capture-index block exceeds this address space".into(),
+                            )
+                        })?;
+                        if let Err(err) = writer.write_block(channel, block, &leaf) {
                             first_error = Some(err);
                             break;
                         }
@@ -157,8 +170,10 @@ where
                         break;
                     }
                     if !progress(CaptureIndexProgress {
-                        completed_roots: received,
-                        total_roots: total_jobs,
+                        completed_roots: u64::try_from(received).map_err(|_| {
+                            Error::ParseError("capture-index progress exceeds u64".into())
+                        })?,
+                        total_roots,
                     }) {
                         first_error = Some(Error::Cancelled);
                     }
@@ -215,6 +230,8 @@ where
         progress: &mut impl FnMut(CaptureIndexProgress) -> bool,
     ) -> Result<()> {
         let total_jobs = jobs.len();
+        let total_roots = u64::try_from(total_jobs)
+            .map_err(|_| Error::ParseError("capture-index job count exceeds u64".into()))?;
         let mut source = data_source.open_reader()?;
         let mut previous_last = vec![None; header.total_probes];
         for (completed, job) in jobs.into_iter().enumerate() {
@@ -223,10 +240,14 @@ where
             let (_, mut leaf) = Self::finish_block_result(result)?;
             Self::apply_boundary_transition(&mut leaf, previous_last[job.channel]);
             previous_last[job.channel] = Some(leaf.last);
-            writer.write_block(job.channel, job.block as usize, &leaf)?;
+            let block = usize::try_from(job.block).map_err(|_| {
+                Error::ParseError("capture-index block exceeds this address space".into())
+            })?;
+            writer.write_block(job.channel, block, &leaf)?;
             if !progress(CaptureIndexProgress {
-                completed_roots: completed + 1,
-                total_roots: total_jobs,
+                completed_roots: u64::try_from(completed + 1)
+                    .map_err(|_| Error::ParseError("capture-index progress exceeds u64".into()))?,
+                total_roots,
             }) {
                 return Err(Error::Cancelled);
             }

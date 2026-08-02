@@ -5,8 +5,8 @@ pub(crate) struct IndexHeader {
     pub total_blocks: u64,
     pub samples_per_block: u64,
     pub samplerate_bits: u64,
-    pub total_channels: u32,
-    pub blocks_per_channel: u32,
+    pub total_channels: u64,
+    pub blocks_per_channel: u64,
     pub dir_offset: u64,
     pub payload_offset: u64,
 }
@@ -51,8 +51,8 @@ impl BlockLevels {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CaptureIndexProgress {
-    pub completed_roots: usize,
-    pub total_roots: usize,
+    pub completed_roots: u64,
+    pub total_roots: u64,
 }
 
 impl CaptureIndexProgress {
@@ -72,7 +72,7 @@ pub(crate) const SAMPLES_PER_L2_BIT: u64 = (1_usize << (LEVEL_POWER * 2)) as u64
 pub(crate) const SAMPLES_PER_L3_BIT: u64 = (1_usize << (LEVEL_POWER * 3)) as u64; // 262 144
 pub(crate) const L1_WORDS: usize = 1 << (LEVEL_POWER * 2); // 64^3 bits / 64 bits-per-word = 4 096
 pub(crate) const L2_WORDS: usize = 1 << LEVEL_POWER; // 64^2 bits / 64 bits-per-word = 64
-pub(crate) const MAGIC: &[u8; 8] = b"CAPIDX06";
+pub(crate) const MAGIC: &[u8; 8] = b"CAPIDX07";
 pub(crate) const HEADER_SIZE: u64 = 96;
 pub(crate) const DIR_ENTRY_SIZE: u64 = 40;
 

@@ -85,10 +85,6 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.fixed-width-formats] Remove persisted and cross-boundary `usize` values from capture, index,
-  cache, manifest, and worker-message formats. Use `u64` offsets and counts with checked conversions only at resident
-  slice boundaries, and add tests above the wasm32 addressable range without allocating those ranges so the data
-  model remains suitable for future wasm64 builds.
 - [platform.data-plane.parity-tests] Add reusable conformance suites for memory, native file, and mmap repositories;
   byte-identical encoded output; exact/presence/boundary queries; growing-prefix visibility; cache planning; source
   preparation; ordered execution; cancellation; corruption; short I/O; and quota exhaustion. Run filesystem-free

@@ -965,12 +965,14 @@ fn read_chunk(
     let bit_offset = bytes[10];
     let start_sample = get_u64(bytes, 36)?;
     let sample_count = get_u64(bytes, 44)?;
-    let channel_count = get_u32(bytes, 52)? as usize;
+    let channel_count = usize::try_from(get_u32(bytes, 52)?)
+        .map_err(|_| CaptureStoreError::Corrupt("capture channel count is too large".into()))?;
     let payload_len = get_u64(bytes, 56)?;
     let mut offset = 64_usize;
     let mut channels = Vec::with_capacity(channel_count);
     for _ in 0..channel_count {
-        let name_len = get_u32(bytes, offset)? as usize;
+        let name_len = usize::try_from(get_u32(bytes, offset)?)
+            .map_err(|_| CaptureStoreError::Corrupt("capture channel name is too large".into()))?;
         offset = offset
             .checked_add(4)
             .ok_or_else(|| CaptureStoreError::Corrupt("chunk channel offset overflow".into()))?;
@@ -1000,8 +1002,10 @@ fn read_chunk(
             "capture chunk payload length is invalid".into(),
         ));
     }
+    let payload_offset = u64::try_from(offset)
+        .map_err(|_| CaptureStoreError::Corrupt("capture payload offset exceeds u64".into()))?;
     let payload_range =
-        ByteRange::new(offset as u64, payload_len).map_err(crate::RepositoryError::from)?;
+        ByteRange::new(payload_offset, payload_len).map_err(crate::RepositoryError::from)?;
     let payload = ByteRegion::new(backing, payload_range).map_err(crate::RepositoryError::from)?;
     CaptureChunk::packed_lsb_first(
         descriptor.session_id(),
@@ -1135,11 +1139,35 @@ fn get_u128(bytes: &[u8], offset: usize) -> CaptureStoreResult<u128> {
 mod artifact_store_tests {
     use std::sync::Arc;
 
-    use super::{CaptureStore, CaptureStoreConfig, FinalizedCapture, chunk_key};
+    use super::{CaptureStore, CaptureStoreConfig, FinalizedCapture, PersistedManifest, chunk_key};
     use crate::{
         ArtifactRepository, CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId,
         CaptureStoreCursor, CaptureStoreDescriptor, CaptureStoreError, MemoryArtifactRepository,
     };
+
+    #[test]
+    fn manifest_preserves_counts_above_the_wasm32_address_range() {
+        let count = u64::from(u32::MAX) + 67;
+        let manifest = PersistedManifest {
+            format_version: 1,
+            session_id: "17".into(),
+            channels: vec!["data".into()],
+            generation: count,
+            first_sequence: count + 1,
+            committed_chunks: count + 2,
+            committed_samples: count + 3,
+            committed_data_bytes: count + 4,
+            finalized: true,
+        };
+
+        let encoded = serde_json::to_vec(&manifest).unwrap();
+        let decoded: PersistedManifest = serde_json::from_slice(&encoded).unwrap();
+
+        assert_eq!(decoded.generation, count);
+        assert_eq!(decoded.committed_chunks, count + 2);
+        assert_eq!(decoded.committed_samples, count + 3);
+        assert_eq!(decoded.committed_data_bytes, count + 4);
+    }
 
     #[test]
     fn memory_repository_supports_live_visibility_and_finalized_replay() {

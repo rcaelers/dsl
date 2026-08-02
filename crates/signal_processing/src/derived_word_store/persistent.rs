@@ -13,9 +13,9 @@ use crate::{
 
 const INDEX_MAGIC: &[u8; 8] = b"DWRIDX1\0";
 const MANIFEST_MAGIC: &[u8; 8] = b"DWRMAN1\0";
-const INDEX_VERSION: u32 = 3;
+const INDEX_VERSION: u32 = 4;
 const MANIFEST_VERSION: u32 = 1;
-const INDEX_HEADER_SIZE: usize = 96;
+const INDEX_HEADER_SIZE: usize = 104;
 const INDEX_RECORD_SIZE: usize = 64;
 const SUMMARY_RECORD_SIZE: usize = 40;
 const MANIFEST_SIZE: usize = 96;
@@ -434,8 +434,8 @@ fn encode_index(
         .checked_add(directory_bytes)
         .and_then(|length| length.checked_add(summary_bytes))
         .ok_or_else(|| StoreError::Persistent("index size overflow".into()))?;
-    let summary_count = u32::try_from(summaries.len())
-        .map_err(|_| StoreError::Persistent("summary count exceeds u32".into()))?;
+    let summary_count = u64::try_from(summaries.len())
+        .map_err(|_| StoreError::Persistent("summary count exceeds u64".into()))?;
     validate_summaries(directory, summaries, word_count)?;
     let mut bytes = vec![0u8; index_len];
     bytes[..8].copy_from_slice(INDEX_MAGIC);
@@ -447,7 +447,7 @@ fn encode_index(
     put_optional_u64(&mut bytes, 64, first_timestamp_ns);
     put_optional_u64(&mut bytes, 72, last_timestamp_ns);
     put_u64(&mut bytes, 80, data_len);
-    put_u32(&mut bytes, 92, summary_count);
+    put_u64(&mut bytes, 88, summary_count);
     for (index, entry) in directory.iter().enumerate() {
         let offset = INDEX_HEADER_SIZE + index * INDEX_RECORD_SIZE;
         put_u64(&mut bytes, offset, entry.sequence);
@@ -468,8 +468,8 @@ fn encode_index(
         put_u64(&mut bytes, offset + 24, summary.first_block);
         put_u32(&mut bytes, offset + 32, summary.block_count);
     }
-    let checksum = crate::crc32c::block_checksum(&bytes, 88);
-    put_u32(&mut bytes, 88, checksum);
+    let checksum = crate::crc32c::block_checksum(&bytes, 96);
+    put_u32(&mut bytes, 96, checksum);
     Ok(bytes)
 }
 
@@ -487,15 +487,16 @@ fn decode_index(bytes: &[u8], cache_key: [u8; 32]) -> StoreResult<PersistentInde
     if bytes[16..48] != cache_key {
         return Err(StoreError::Persistent("index cache key mismatch".into()));
     }
-    let expected_checksum = get_u32(bytes, 88)?;
-    if crate::crc32c::block_checksum(bytes, 88) != expected_checksum {
+    let expected_checksum = get_u32(bytes, 96)?;
+    if crate::crc32c::block_checksum(bytes, 96) != expected_checksum {
         return Err(StoreError::Persistent(
             "persistent index checksum mismatch".into(),
         ));
     }
     let block_count = usize::try_from(get_u64(bytes, 48)?)
         .map_err(|_| StoreError::Persistent("block count exceeds usize".into()))?;
-    let summary_count = get_u32(bytes, 92)? as usize;
+    let summary_count = usize::try_from(get_u64(bytes, 88)?)
+        .map_err(|_| StoreError::Persistent("summary count exceeds usize".into()))?;
     let directory_bytes = block_count
         .checked_mul(INDEX_RECORD_SIZE)
         .ok_or_else(|| StoreError::Persistent("persistent index record size overflow".into()))?;
@@ -747,6 +748,18 @@ mod tests {
     };
     use crate::events::Word;
     use crate::{ArtifactRepository, MemoryArtifactRepository};
+
+    #[test]
+    fn index_header_preserves_counts_above_the_wasm32_address_range() {
+        let count = u64::from(u32::MAX) + 37;
+        let mut bytes = vec![0_u8; INDEX_HEADER_SIZE];
+
+        put_u64(&mut bytes, 48, count);
+        put_u64(&mut bytes, 88, count + 1);
+
+        assert_eq!(get_u64(&bytes, 48).unwrap(), count);
+        assert_eq!(get_u64(&bytes, 88).unwrap(), count + 1);
+    }
 
     #[test]
     fn corrupt_manifest_invalidates_the_complete_repository_generation() {

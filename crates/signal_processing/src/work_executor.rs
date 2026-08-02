@@ -377,6 +377,7 @@ mod work_executor_tests {
 
     #[test]
     fn worker_messages_round_trip_as_owned_data() {
+        let above_wasm32 = u64::from(u32::MAX) + 53;
         let messages = [
             WorkerMessage::Run(WorkerRequest {
                 sequence: u64::MAX,
@@ -385,9 +386,9 @@ mod work_executor_tests {
             }),
             WorkerMessage::Cancel { sequence: 2 },
             WorkerMessage::Progress {
-                sequence: 3,
-                completed: 5,
-                total: Some(8),
+                sequence: above_wasm32,
+                completed: above_wasm32 + 1,
+                total: Some(above_wasm32 + 2),
             },
             WorkerMessage::Progress {
                 sequence: 4,

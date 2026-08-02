@@ -49,11 +49,18 @@ struct OwnedByteReader {
 
 impl RandomAccessReader for OwnedByteReader {
     fn len(&self) -> Result<u64, SourceReadError> {
-        Ok(self.bytes.len() as u64)
+        u64::try_from(self.bytes.len()).map_err(|_| SourceReadError::RangeOverflow {
+            offset: 0,
+            length: u64::MAX,
+        })
     }
 
     fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize, SourceReadError> {
-        let source_length = self.bytes.len() as u64;
+        let source_length =
+            u64::try_from(self.bytes.len()).map_err(|_| SourceReadError::RangeOverflow {
+                offset: 0,
+                length: u64::MAX,
+            })?;
         if offset > source_length {
             return Err(SourceReadError::OutOfBounds {
                 offset,
@@ -61,7 +68,8 @@ impl RandomAccessReader for OwnedByteReader {
                 source_length,
             });
         }
-        let start = offset as usize;
+        let start = usize::try_from(offset)
+            .map_err(|_| SourceReadError::RangeOverflow { offset, length: 0 })?;
         let count = destination.len().min(self.bytes.len() - start);
         destination[..count].copy_from_slice(&self.bytes[start..start + count]);
         Ok(count)

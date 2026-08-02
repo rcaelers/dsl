@@ -554,7 +554,7 @@ pub enum CaptureStartMode {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct CaptureSessionPlan {
     pub sample_rate_hz: u64,
-    pub channel_count: usize,
+    pub channel_count: u64,
     #[serde(default)]
     pub capture_window_samples: Option<u64>,
     pub policy: EffectiveCapturePolicy,
@@ -837,6 +837,32 @@ mod tests {
             actual.policy.effective.completion,
             CompletionPolicy::SamplesAfterOrigin(806)
         );
+    }
+
+    #[test]
+    fn session_plan_preserves_channel_counts_above_the_wasm32_address_range() {
+        let channel_count = u64::from(u32::MAX) + 29;
+        let plan = CaptureSessionPlan {
+            sample_rate_hz: 50_000_000,
+            channel_count,
+            capture_window_samples: Some(channel_count + 1),
+            policy: selectable()
+                .negotiate(
+                    &CapturePolicy::default(),
+                    CapturePolicyContext {
+                        sample_rate_hz: 50_000_000,
+                        capture_window_samples: Some(channel_count + 1),
+                        has_trigger_program: false,
+                    },
+                )
+                .unwrap(),
+        };
+
+        let encoded = serde_json::to_vec(&plan).unwrap();
+        let decoded: CaptureSessionPlan = serde_json::from_slice(&encoded).unwrap();
+
+        assert_eq!(decoded.channel_count, channel_count);
+        assert_eq!(decoded.capture_window_samples, Some(channel_count + 1));
     }
 
     #[test]

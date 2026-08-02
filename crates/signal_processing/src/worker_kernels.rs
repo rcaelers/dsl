@@ -316,10 +316,11 @@ mod worker_kernel_tests {
 
     #[test]
     fn capture_index_kernel_round_trips_owned_input_and_output() {
+        let above_wasm32 = u64::from(u32::MAX) + 71;
         let request = CaptureIndexBlockRequest {
-            sequence: 8,
-            channel: 2,
-            block: 5,
+            sequence: above_wasm32,
+            channel: above_wasm32 + 1,
+            block: above_wasm32 + 2,
             valid_samples: 16,
             packed_samples: vec![0b1111_0000, 0b1010_1010],
         };

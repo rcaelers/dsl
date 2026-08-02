@@ -883,7 +883,7 @@ fn discover_live_capture_feature_from(
                 {
                     Some("live capture trigger channel references an unknown viewer channel")
                 } else if feature.session_plan().is_some_and(|plan| {
-                    plan.channel_count != feature.channels().len()
+                    plan.channel_count != feature.channels().len() as u64
                         || plan.sample_rate_hz as f64 != feature.sample_rate_hz()
                 }) {
                     Some("live capture session plan differs from its active channel/rate tuple")

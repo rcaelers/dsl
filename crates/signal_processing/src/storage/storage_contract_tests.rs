@@ -48,6 +48,16 @@ fn immutable_regions_validate_fixed_width_ranges() {
 }
 
 #[test]
+fn byte_ranges_preserve_offsets_above_the_wasm32_address_range() {
+    let offset = u64::from(u32::MAX) + 61;
+    let range = ByteRange::new(offset, 17).unwrap();
+
+    assert_eq!(range.offset, offset);
+    assert_eq!(range.length, 17);
+    assert_eq!(range.end(), offset + 17);
+}
+
+#[test]
 fn exact_reads_reject_requests_beyond_the_prepared_source() {
     let mut reader = source().open_reader().unwrap();
     let mut bytes = [0; 4];

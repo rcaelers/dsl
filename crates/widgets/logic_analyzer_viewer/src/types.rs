@@ -237,8 +237,8 @@ pub(crate) struct CaptureInfo {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct IndexBuildProgress {
-    pub(crate) completed_roots: usize,
-    pub(crate) total_roots: usize,
+    pub(crate) completed_roots: u64,
+    pub(crate) total_roots: u64,
 }
 
 impl IndexBuildProgress {

@@ -296,8 +296,8 @@ pub trait CaptureIndex {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CaptureIndexBuildProgress {
-    pub completed: usize,
-    pub total: usize,
+    pub completed: u64,
+    pub total: u64,
 }
 
 /// Generic indexed-capture presentation supplied by a concrete source.

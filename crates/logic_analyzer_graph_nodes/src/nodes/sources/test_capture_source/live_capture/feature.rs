@@ -298,7 +298,8 @@ pub(crate) fn feature(state: &Value) -> Result<Option<Box<dyn LiveCaptureFeature
     }
     let session_plan = CaptureSessionPlan {
         sample_rate_hz: SAMPLE_RATE_HZ as u64,
-        channel_count: channels.len(),
+        channel_count: u64::try_from(channels.len())
+            .map_err(|_| "capture channel count exceeds the fixed-width plan format")?,
         capture_window_samples: Some(config.total_samples()),
         policy,
     };
