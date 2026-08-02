@@ -1,13 +1,16 @@
 use super::config::BlockCodecConfig;
+#[cfg(test)]
+use super::config::DEFAULT_MAX_WORDS_PER_BLOCK;
 use super::errors::{CodecError, CodecResult};
 use super::format::{
     BLOCK_CHECKSUM_OFFSET, BLOCK_FLAG_GROUPED_TIMESTAMPS, BLOCK_FLAG_HAS_DURATIONS,
-    BLOCK_FLAG_HAS_PAYLOADS, BLOCK_HEADER_SIZE, DEFAULT_MAX_WORDS_PER_BLOCK, RESTART_ENTRY_SIZE,
-    RestartEntry, WordBlockHeader,
+    BLOCK_FLAG_HAS_PAYLOADS, BLOCK_HEADER_SIZE, RESTART_ENTRY_SIZE, RestartEntry, WordBlockHeader,
 };
 use super::vlq::{decode_u64, encode_u64, encoded_len};
 use crate::crc32c::block_checksum;
 use crate::events::{Word, WordPayload};
+
+const INITIAL_WORD_CAPACITY: usize = 32_768;
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,7 +124,7 @@ impl WordBlockBuilder {
         }
         Ok(Self {
             config,
-            words: Vec::with_capacity(config.max_words.min(DEFAULT_MAX_WORDS_PER_BLOCK)),
+            words: Vec::with_capacity(config.max_words.min(INITIAL_WORD_CAPACITY)),
             timestamp_bytes: 0,
             duration_bytes: 0,
             duration_count: 0,

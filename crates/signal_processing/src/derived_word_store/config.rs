@@ -4,6 +4,8 @@ use std::time::Duration;
 
 use crate::{ArtifactRepository, InlineWorkExecutor, MemoryArtifactRepository, WorkExecutor};
 
+pub(crate) const DEFAULT_MAX_WORDS_PER_BLOCK: usize = 131_072;
+
 /// Platform-neutral sizing knobs for repository-backed encoded blocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockCodecConfig {
@@ -17,7 +19,7 @@ pub struct BlockCodecConfig {
 impl Default for BlockCodecConfig {
     fn default() -> Self {
         Self {
-            max_words: 32_768,
+            max_words: DEFAULT_MAX_WORDS_PER_BLOCK,
             restart_interval: 512,
             max_payload_bytes: 1024 * 1024,
             max_inter_word_gap_ns: 1_000_000,

@@ -9,8 +9,6 @@ pub(crate) const BLOCK_HEADER_SIZE: usize = 72;
 pub(crate) const RESTART_ENTRY_SIZE: usize = 16;
 pub(crate) const BLOCK_CHECKSUM_OFFSET: usize = 64;
 
-pub(crate) const DEFAULT_MAX_WORDS_PER_BLOCK: usize = 32_768;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WordBlockHeader {
     pub flags: u16,

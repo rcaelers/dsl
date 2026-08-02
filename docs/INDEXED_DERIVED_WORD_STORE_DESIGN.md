@@ -213,12 +213,16 @@ Appending:
 Each writer admits one preparation task on one- and two-worker hosts and between two and four on
 larger hosts. Both the in-flight task count and out-of-order completion map share this bound, and
 the collector drain is bounded independently. Reaching either limit applies real backpressure.
-An append call waits until all complete blocks from that call are visible, so live queries retain
-the same publication contract while preparation within the call can use several cores.
+Each append harvests every block that has completed, then returns while the remaining bounded
+preparation tasks continue. Later appends harvest and publish the next contiguous prefix; finishing
+waits for every outstanding block. This keeps decoder production and block encoding overlapped
+without weakening ordered publication or final completeness.
 
 The active block is exposed through an immutable hot-tail snapshot. Publication is bounded by
 `LiveStoreConfig` and defaults to 262,144 words or 50 ms. Dense lanes normally commit a complete
 block before either hot-tail threshold, avoiding repeated copies of an ever-growing active block.
+A hot tail is published only when no earlier block is still being prepared, so a live snapshot
+never exposes a later range ahead of a missing prefix.
 File writes, VLQ encoding, mmap page faults, and block decoding never occur while the
 published-lane catalog is locked.
 

@@ -179,8 +179,9 @@ accepts their completion in any order, and gives one file owner sole responsibil
 ordered publication. One writer uses at most four block tasks and scales its bound from the
 executor's advertised capacity, reserving remaining capacity for decoder scans, other nodes, and
 concurrent lanes. This removes block encoding and presence-summary construction from the
-serialized output path without relaxing deterministic ordering, complete append visibility,
-storage-failure isolation, or backpressure.
+serialized output path without relaxing deterministic ordering, complete final publication,
+storage-failure isolation, or backpressure. Collector drains harvest the contiguous prepared prefix
+without waiting for every dispatched encoder, allowing production and cache encoding to overlap.
 
 The manual compiler-capture benchmark loads the checked-in controlled parallel-decoder graph and
 includes its production binary writer, connected-output retention, and explicitly subscribed

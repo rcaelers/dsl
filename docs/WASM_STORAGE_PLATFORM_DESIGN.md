@@ -26,10 +26,10 @@ compact root directory last. Growing indexes publish fixed-size summary pages. E
 individual packed raw blocks as artifacts and retain the repository's immutable byte backing, so a
 native mmap and an owned-memory region execute the same query code. These opportunistic raw-block
 cache publications are atomic but omit the native durability barrier; they are validated by
-identity and can always be reconstructed from the authoritative capture. Authoritative capture
-chunks, waveform indexes, persistent derived blocks, indexes, and manifests explicitly flush before
-publication. No capture, raw cache, waveform index, or replay session must fit in one resident
-allocation.
+identity and can always be reconstructed from the authoritative capture. Derived cache blocks use
+the same policy because they are not discoverable without the final index and manifest. Authoritative
+capture chunks, waveform indexes, derived indexes, and manifests explicitly flush before publication.
+No capture, raw cache, waveform index, or replay session must fit in one resident allocation.
 
 Host source acquisition and output destinations are selected in `logic_analyzer_platform`.
 Native composition injects DSL and Sigrok path adapters, filesystem-backed writer storage, the
@@ -350,8 +350,8 @@ The actual Rust API may split administrative and hot-path handles further, but i
 semantics:
 
 - a writer creates an unpublished artifact;
-- authoritative data and manifests are flushed before publication; explicitly rebuildable cache
-  artifacts may omit the durability barrier while retaining atomic publication;
+- authoritative data, indexes, and manifests are flushed before publication; explicitly
+  rebuildable cache blocks may omit the durability barrier while retaining atomic publication;
 - publication makes one validated generation discoverable;
 - incomplete artifacts are not cache hits;
 - readers observe an immutable published generation;

@@ -895,8 +895,12 @@ impl IndexedAnnotationWriter {
     }
 
     fn publish_appended_prefix(&mut self) -> StoreResult<()> {
-        self.flush_dispatched_blocks()?;
-        if !self.builder.is_empty()
+        // Keep encoding asynchronous between collector drains. Backpressure in
+        // `dispatch_current_block` bounds the queued builders, while completed
+        // blocks are still published in sequence on every subsequent append.
+        self.drain_completed_blocks()?;
+        if self.outstanding_blocks() == 0
+            && !self.builder.is_empty()
             && (self.words_since_tail_publish >= self.hot_tail_publish_words
                 || self.last_tail_publish.elapsed() >= self.hot_tail_publish_interval)
         {
@@ -1058,7 +1062,10 @@ impl IndexedAnnotationWriter {
         let mut writer = self.shared.repository.begin_write(key)?;
         writer.write_at(0, &block.encoded)?;
         writer.truncate(block.encoded.len() as u64)?;
-        writer.flush()?;
+        // A block is not a discoverable persistent generation by itself.
+        // The flushed index and manifest published by `finish_inner` make
+        // the complete set visible; an interrupted run is rebuilt. Avoid a
+        // durability barrier for every block in dense multi-gigabyte lanes.
         writer.publish()?;
         {
             let mut state = self.shared.state.write().unwrap();
@@ -1162,6 +1169,7 @@ fn ephemeral_store_identity(cache_key_prefix: [u8; 16], store_id: u64) -> [u8; 3
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::thread;
 
@@ -1173,6 +1181,37 @@ mod tests {
     struct RecordingWorkExecutor {
         workers: usize,
         submissions: AtomicUsize,
+    }
+
+    struct QueuedWorkExecutor {
+        tasks: Mutex<Vec<crate::WorkExecutorTask>>,
+    }
+
+    impl QueuedWorkExecutor {
+        fn new() -> Self {
+            Self {
+                tasks: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn run_pending(&self) {
+            let tasks = std::mem::take(&mut *self.tasks.lock().unwrap());
+            tasks.into_iter().for_each(|task| task());
+        }
+    }
+
+    impl WorkExecutor for QueuedWorkExecutor {
+        fn available_parallelism(&self) -> usize {
+            8
+        }
+
+        fn submit(
+            &self,
+            task: crate::WorkExecutorTask,
+        ) -> Result<Box<dyn crate::WorkTask>, String> {
+            self.tasks.lock().unwrap().push(task);
+            Ok(Box::new(crate::CompletedWorkTask))
+        }
     }
 
     impl RecordingWorkExecutor {
@@ -1247,6 +1286,27 @@ mod tests {
 
         assert_eq!(writer.max_outstanding_blocks, block_encoder_count(9));
         assert_eq!(executor.submissions.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn append_does_not_wait_for_dispatched_block_encoding() {
+        let executor = Arc::new(QueuedWorkExecutor::new());
+        let config = test_config().with_work_executor(executor.clone());
+        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let words = (0..16)
+            .map(|index| Word::new(index, index * 10))
+            .collect::<Vec<_>>();
+
+        writer.append_batch(&words).unwrap();
+
+        assert_eq!(store.snapshot().metadata.committed_word_count, 0);
+        assert_eq!(executor.tasks.lock().unwrap().len(), 1);
+
+        executor.run_pending();
+        writer.append_batch(&[]).unwrap();
+
+        assert_eq!(store.snapshot().metadata.committed_word_count, 16);
+        writer.finish().unwrap();
     }
 
     #[test]
