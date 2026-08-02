@@ -766,11 +766,11 @@ std::cfg_select! {
     ) -> Result<DslFileSource, Box<dyn std::error::Error>> {
         let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
         if matches!(mode, BenchMode::Indexed | BenchMode::Auto) {
-            let presentation = DslFileSource::indexed_capture_presentation(path);
+            let presentation = DslFileSource::indexed_capture_presentation_from_path(path)?;
             presentation.factory.open(
                 Arc::clone(&repository),
                 Arc::clone(&work_executor),
-                &mut |_| {},
+                &mut |_| true,
             )?;
         }
         Ok(DslFileSource::new(path)?

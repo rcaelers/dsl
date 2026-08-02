@@ -99,14 +99,14 @@ where
             data_source,
             Arc::new(MemoryArtifactRepository::new()),
             Arc::new(InlineWorkExecutor),
-            |_| {},
+            |_| true,
         )
     }
 
     pub fn open_data_source_with_progress<S, C>(data_source: S, progress: C) -> Result<Self>
     where
         S: CaptureDataSource<Reader = R>,
-        C: FnMut(CaptureIndexProgress),
+        C: FnMut(CaptureIndexProgress) -> bool,
     {
         Self::open_data_source_with_executor_and_progress(
             data_source,
@@ -124,7 +124,7 @@ where
     ) -> Result<Self>
     where
         S: CaptureDataSource<Reader = R>,
-        C: FnMut(CaptureIndexProgress),
+        C: FnMut(CaptureIndexProgress) -> bool,
     {
         let header = data_source.metadata().clone();
         let fingerprint = data_source.fingerprint();

@@ -85,10 +85,6 @@ Task IDs start with their ownership category and remain stable when task wording
 Detailed architecture and capability contracts are documented in
 [`docs/WASM_STORAGE_PLATFORM_DESIGN.md`](docs/WASM_STORAGE_PLATFORM_DESIGN.md).
 
-- [platform.data-plane.source-preparation] Make finite-source preparation one capability-driven state machine for
-  source resolution, metadata validation, cache lookup/build, index publication, readiness, progress, cancellation,
-  and generation replacement. Parsers consume prepared random-access readers instead of `PathBuf`; host acquisition
-  remains in `logic_analyzer_platform`, outside the compiler and processing algorithms.
 - [platform.data-plane.execution] Define bounded execution semantics for storage and index work: advertised
   parallelism, reader concurrency, backpressure, progress, cancellation, deterministic merge ordering, and failure
   without partial publication. Keep the cooperative implementation portable; put the native worker pool and future

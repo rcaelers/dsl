@@ -5,8 +5,9 @@ use logic_analyzer_graph_compiler::{
     ApplyError, ApplySummary, CollectedOutputSubscription, CollectedTableSubscription, CompileCtx,
     CompileError, DerivedCacheClearStats, DerivedCacheEntrySnapshot, DiscoveredLiveCaptureFeature,
     DiscoveredTriggerConfiguration, LiveAnalysisSource, LiveCaptureDiscoveryError,
-    OutputSubscriptionPlan, SamplingOverlayCandidate, SourcePreparationStatus,
-    SourcePreparationUpdate, SourceProcessOverrides, SourceReadinessRegistry,
+    OutputSubscriptionPlan, SamplingOverlayCandidate, SourcePreparationSnapshot,
+    SourcePreparationStatus, SourcePreparationUpdate, SourceProcessOverrides,
+    SourceReadinessRegistry,
 };
 use node_graph::{GraphState, NodeId};
 use signal_processing::{
@@ -142,6 +143,14 @@ impl GraphService for FakeGraphService {
 
     fn source_preparation_status(&self) -> SourcePreparationStatus {
         SourcePreparationStatus::Ready
+    }
+
+    fn source_preparation_snapshot(&self) -> SourcePreparationSnapshot {
+        SourcePreparationSnapshot {
+            generation: 1,
+            status: SourcePreparationStatus::Ready,
+            progress: None,
+        }
     }
 
     fn discover_live_capture_feature(

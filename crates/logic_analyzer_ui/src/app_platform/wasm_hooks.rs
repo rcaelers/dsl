@@ -137,7 +137,15 @@ impl App {
                 if self.platform.capture_presentation_identity.take().is_some() {
                     self.clear_capture_presentation();
                 }
-                self.mark_capture_index_building();
+                let progress = self
+                    .graph_service
+                    .source_preparation_snapshot()
+                    .progress
+                    .and_then(|progress| {
+                        (progress.total > 0)
+                            .then(|| progress.completed as f32 / progress.total as f32)
+                    });
+                self.mark_capture_index_building(progress);
             }
             compiler::SourcePreparationUpdate::Cleared => {
                 self.platform.capture_presentation_identity = None;

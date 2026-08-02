@@ -6,6 +6,8 @@ mod native_artifact_repository;
 mod native_capture_export;
 #[cfg(not(target_arch = "wasm32"))]
 mod native_file_identity_cache;
+#[cfg(not(target_arch = "wasm32"))]
+mod native_file_source;
 #[cfg(all(feature = "developer-tools", not(target_arch = "wasm32")))]
 mod native_hardware_validation;
 #[cfg(not(target_arch = "wasm32"))]

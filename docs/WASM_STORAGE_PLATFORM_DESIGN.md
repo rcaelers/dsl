@@ -460,6 +460,26 @@ Source preparation owns long-running progress, cancellation, and generation repl
 requests an operation and renders its state; it does not parse files, build indexes, or manage
 storage.
 
+Native file-source factories resolve configured paths into host-owned `PreparedByteSource`
+instances before constructing a processing source or deferred viewer index. The native adapter
+validates the acquired file stamp whenever it opens or reads a session and reports replacement as
+`SourceChanged`. DSL and Sigrok archive readers adapt an acquired `RandomAccessReader` to the ZIP
+container interface; their metadata parsers, capture readers, and index factories do not open a
+path. Fresh reader sessions preserve parallel-indexing capability without sharing a native file
+cursor.
+
+The compiler assigns a monotonically increasing generation to each configured source preparation.
+Its observable snapshot contains the generation, readiness state, and latest index progress.
+Replacing, clearing, failing, or explicitly resetting the source cancels the active control before
+discarding its task. Progress callbacks return whether work may continue, so capture-index builders
+stop at a deterministic work boundary after cancellation. Completion is published only from the
+task retained by the active generation; stale workers cannot replace current viewer data.
+
+The preparation algorithm is identical for inline/cooperative and native execution. The host
+executor only decides where the capability-driven operation runs. Cache validation, index build and
+atomic index publication remain in the shared capture-index implementation behind the deferred
+`CaptureIndexFactory` contract.
+
 ### Execution
 
 Execution is a separate platform capability because native blocking threads are not available to

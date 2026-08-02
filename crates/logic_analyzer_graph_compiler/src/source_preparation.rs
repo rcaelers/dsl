@@ -6,12 +6,12 @@ use signal_processing::{
 };
 
 use super::source_preparation_executor::{
-    InlineSourcePreparationExecutor, SourcePreparationExecutor, SourcePreparationTask,
-    SourcePreparationTaskUpdate,
+    InlineSourcePreparationExecutor, SourcePreparationControl, SourcePreparationExecutor,
+    SourcePreparationTask, SourcePreparationTaskUpdate,
 };
 use super::{
-    DiscoveredCapturePresentation, PreparedCapture, PreparedCaptureData, SourcePreparationStatus,
-    SourcePreparationUpdate,
+    DiscoveredCapturePresentation, PreparedCapture, PreparedCaptureData, SourcePreparationSnapshot,
+    SourcePreparationStatus, SourcePreparationUpdate,
 };
 
 pub(crate) struct SourcePreparation {
@@ -20,6 +20,8 @@ pub(crate) struct SourcePreparation {
     work_executor: Arc<dyn WorkExecutor>,
     artifact_repository: Arc<dyn ArtifactRepository>,
     task: Option<Box<dyn SourcePreparationTask>>,
+    control: Option<SourcePreparationControl>,
+    generation: u64,
     status: SourcePreparationStatus,
 }
 
@@ -45,11 +47,14 @@ impl SourcePreparation {
             work_executor,
             artifact_repository: Arc::new(MemoryArtifactRepository::new()),
             task: None,
+            control: None,
+            generation: 0,
             status: SourcePreparationStatus::Empty,
         }
     }
 
     pub(crate) fn set_artifact_repository(&mut self, repository: Arc<dyn ArtifactRepository>) {
+        self.reset();
         self.artifact_repository = repository;
     }
 
@@ -59,7 +64,10 @@ impl SourcePreparation {
     ) -> SourcePreparationUpdate {
         let Some(discovered) = discovered else {
             let changed = self.identity.take().is_some();
-            self.task = None;
+            self.cancel_active();
+            if changed {
+                self.advance_generation();
+            }
             self.status = SourcePreparationStatus::Empty;
             return if changed {
                 SourcePreparationUpdate::Cleared
@@ -77,6 +85,7 @@ impl SourcePreparation {
         match task.poll() {
             SourcePreparationTaskUpdate::Complete(Ok(data)) => {
                 self.task = None;
+                self.control = None;
                 self.status = SourcePreparationStatus::Ready;
                 SourcePreparationUpdate::Ready(PreparedCapture {
                     identity: discovered.identity,
@@ -86,12 +95,14 @@ impl SourcePreparation {
             }
             SourcePreparationTaskUpdate::Complete(Err(error)) => {
                 self.task = None;
+                self.control = None;
                 self.status = SourcePreparationStatus::Failed(error.clone());
                 SourcePreparationUpdate::Failed(error)
             }
             SourcePreparationTaskUpdate::Pending => SourcePreparationUpdate::Preparing,
             SourcePreparationTaskUpdate::Disconnected => {
                 self.task = None;
+                self.control = None;
                 let error = "capture preparation worker stopped".to_owned();
                 self.status = SourcePreparationStatus::Failed(error.clone());
                 SourcePreparationUpdate::Failed(error)
@@ -100,8 +111,12 @@ impl SourcePreparation {
     }
 
     pub(crate) fn reset(&mut self) {
+        let changed = self.identity.is_some() || self.task.is_some();
+        self.cancel_active();
         self.identity = None;
-        self.task = None;
+        if changed {
+            self.advance_generation();
+        }
         self.status = SourcePreparationStatus::Empty;
     }
 
@@ -111,8 +126,12 @@ impl SourcePreparation {
             &self.status,
             SourcePreparationStatus::Failed(previous) if previous == &error
         );
+        let changed = self.identity.is_some() || self.task.is_some();
+        self.cancel_active();
         self.identity = None;
-        self.task = None;
+        if changed {
+            self.advance_generation();
+        }
         self.status = SourcePreparationStatus::Failed(error.clone());
         if unchanged {
             SourcePreparationUpdate::Unchanged
@@ -125,22 +144,38 @@ impl SourcePreparation {
         self.status.clone()
     }
 
+    pub(crate) fn snapshot(&self) -> SourcePreparationSnapshot {
+        SourcePreparationSnapshot {
+            generation: self.generation,
+            status: self.status.clone(),
+            progress: self
+                .control
+                .as_ref()
+                .and_then(SourcePreparationControl::progress),
+        }
+    }
+
     fn start(&mut self, discovered: DiscoveredCapturePresentation) -> SourcePreparationUpdate {
-        self.task = None;
+        self.cancel_active();
+        self.advance_generation();
         self.status = SourcePreparationStatus::Preparing;
         match discovered.presentation {
             CapturePresentation::Indexed { factory, .. } => {
                 let work_executor = Arc::clone(&self.work_executor);
                 let artifact_repository = Arc::clone(&self.artifact_repository);
-                let work = Box::new(move || {
+                let work = Box::new(move |control: SourcePreparationControl| {
                     factory
-                        .open(artifact_repository, work_executor, &mut |_| {})
+                        .open(artifact_repository, work_executor, &mut |progress| {
+                            control.report_progress(progress)
+                        })
                         .map(PreparedCaptureData::Indexed)
                         .map_err(|error| error.to_string())
                 });
-                match self.executor.submit(work) {
+                let control = SourcePreparationControl::new();
+                match self.executor.submit(work, control.clone()) {
                     Ok(task) => {
                         self.task = Some(task);
+                        self.control = Some(control);
                         SourcePreparationUpdate::Preparing
                     }
                     Err(error) => {
@@ -173,6 +208,17 @@ impl SourcePreparation {
                 })
             }
         }
+    }
+
+    fn cancel_active(&mut self) {
+        if let Some(control) = self.control.take() {
+            control.cancel();
+        }
+        self.task = None;
+    }
+
+    fn advance_generation(&mut self) {
+        self.generation = self.generation.saturating_add(1);
     }
 }
 
@@ -209,7 +255,9 @@ mod source_preparation_tests {
             let result = submission
                 .work
                 .take()
-                .expect("the preparation task should run once")();
+                .expect("the preparation task should run once")(
+                submission.control
+            );
             *submission.state.lock().unwrap() = ControlledTaskState::Complete(Some(result));
         }
 
@@ -247,12 +295,22 @@ mod source_preparation_tests {
                 })
                 .count()
         }
+
+        fn cancelled_control_count(&self) -> usize {
+            self.submissions
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|submission| submission.control.is_cancelled())
+                .count()
+        }
     }
 
     impl SourcePreparationExecutor for ControlledExecutor {
         fn submit(
             &self,
             work: SourcePreparationWork,
+            control: SourcePreparationControl,
         ) -> Result<Box<dyn SourcePreparationTask>, String> {
             let state = Arc::new(Mutex::new(ControlledTaskState::Pending));
             self.submissions
@@ -260,6 +318,7 @@ mod source_preparation_tests {
                 .unwrap()
                 .push_back(ControlledSubmission {
                     work: Some(work),
+                    control,
                     state: state.clone(),
                 });
             Ok(Box::new(ControlledTask { state }))
@@ -268,6 +327,7 @@ mod source_preparation_tests {
 
     struct ControlledSubmission {
         work: Option<SourcePreparationWork>,
+        control: SourcePreparationControl,
         state: Arc<Mutex<ControlledTaskState>>,
     }
 
@@ -313,8 +373,9 @@ mod source_preparation_tests {
         fn submit(
             &self,
             work: SourcePreparationWork,
+            control: SourcePreparationControl,
         ) -> Result<Box<dyn SourcePreparationTask>, String> {
-            Ok(Box::new(ImmediateTask(Some(work()))))
+            Ok(Box::new(ImmediateTask(Some(work(control)))))
         }
     }
 
@@ -382,7 +443,7 @@ mod source_preparation_tests {
             self: Box<Self>,
             _artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
             work_executor: Arc<dyn signal_processing::WorkExecutor>,
-            _progress: &mut dyn FnMut(CaptureIndexBuildProgress),
+            _progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
         ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
             *self.open_count.lock().unwrap() += 1;
             if let Some(observed_parallelism) = &self.observed_parallelism {
@@ -416,11 +477,45 @@ mod source_preparation_tests {
             self: Box<Self>,
             _artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
             _work_executor: Arc<dyn signal_processing::WorkExecutor>,
-            _progress: &mut dyn FnMut(CaptureIndexBuildProgress),
+            _progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
         ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
             Err(signal_processing::Error::ParseError(
                 "controlled index error".into(),
             ))
+        }
+    }
+
+    struct ProgressFactory;
+
+    impl CaptureIndexFactory for ProgressFactory {
+        fn display_name(&self) -> String {
+            "progress test factory".into()
+        }
+
+        fn open(
+            self: Box<Self>,
+            _artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
+            _work_executor: Arc<dyn signal_processing::WorkExecutor>,
+            progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
+        ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
+            assert!(progress(CaptureIndexBuildProgress {
+                completed: 2,
+                total: 5,
+            }));
+            Ok(Box::new(TestIndex {
+                metadata: CaptureMetadata {
+                    total_probes: 1,
+                    samplerate: "1 MHz".into(),
+                    samplerate_hz: 1_000_000.0,
+                    sample_period: 0.000_001,
+                    total_samples: 10,
+                    total_blocks: 1,
+                    samples_per_block: 64,
+                    probe_names: vec!["D0".into()],
+                    trigger_sample: None,
+                },
+                identity: signal_processing::SourceIdentity::from_bytes([8; 32]),
+            }))
         }
     }
 
@@ -478,6 +573,17 @@ mod source_preparation_tests {
         }
     }
 
+    fn progress_indexed(identity: &str) -> DiscoveredCapturePresentation {
+        DiscoveredCapturePresentation {
+            identity: identity.into(),
+            visible_channels: vec![0],
+            presentation: CapturePresentation::Indexed {
+                identity: signal_processing::SourceIdentity::from_bytes([4; 32]),
+                factory: Box::new(ProgressFactory),
+            },
+        }
+    }
+
     #[test]
     fn immediate_capture_is_published_once_and_can_be_reset() {
         let mut preparation = SourcePreparation::new();
@@ -527,6 +633,53 @@ mod source_preparation_tests {
         assert!(matches!(prepared.data, PreparedCaptureData::Indexed(_)));
         assert_eq!(*open_count.lock().unwrap(), 1);
         assert_eq!(preparation.status(), SourcePreparationStatus::Ready);
+    }
+
+    #[test]
+    fn preparation_reports_progress_for_the_active_generation() {
+        let executor = ControlledExecutor::default();
+        let mut preparation = SourcePreparation::with_executor(Box::new(executor.clone()));
+
+        assert!(matches!(
+            preparation.synchronize(Some(progress_indexed("indexed-capture"))),
+            SourcePreparationUpdate::Preparing
+        ));
+        assert_eq!(preparation.snapshot().generation, 1);
+        assert_eq!(preparation.snapshot().progress, None);
+
+        executor.complete_next();
+        assert_eq!(
+            preparation.snapshot().progress,
+            Some(CaptureIndexBuildProgress {
+                completed: 2,
+                total: 5,
+            })
+        );
+        assert!(matches!(
+            preparation.synchronize(Some(progress_indexed("indexed-capture"))),
+            SourcePreparationUpdate::Ready(_)
+        ));
+        assert_eq!(preparation.snapshot().progress, None);
+    }
+
+    #[test]
+    fn replacement_cancels_the_old_generation_before_starting_the_next() {
+        let executor = ControlledExecutor::default();
+        let first_open_count = Arc::new(Mutex::new(0));
+        let second_open_count = Arc::new(Mutex::new(0));
+        let mut preparation = SourcePreparation::with_executor(Box::new(executor.clone()));
+
+        preparation.synchronize(Some(indexed("first", first_open_count)));
+        let first_generation = preparation.snapshot().generation;
+        preparation.synchronize(Some(indexed("second", second_open_count)));
+
+        assert_eq!(executor.cancelled_count(), 1);
+        assert_eq!(executor.cancelled_control_count(), 1);
+        assert!(preparation.snapshot().generation > first_generation);
+        assert_eq!(
+            preparation.snapshot().status,
+            SourcePreparationStatus::Preparing
+        );
     }
 
     #[test]

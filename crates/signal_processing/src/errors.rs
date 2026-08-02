@@ -21,6 +21,9 @@ pub enum Error {
 
     #[error("Position out of bounds: {0}")]
     OutOfBounds(u64),
+
+    #[error("operation cancelled")]
+    Cancelled,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

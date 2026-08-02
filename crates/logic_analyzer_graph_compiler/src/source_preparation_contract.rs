@@ -1,5 +1,5 @@
 use logic_analyzer_graph_api::node_support::CapturePresentationSignal;
-use signal_processing::CaptureIndex;
+use signal_processing::{CaptureIndex, CaptureIndexBuildProgress};
 
 pub struct PreparedCapture {
     pub identity: String,
@@ -30,4 +30,12 @@ pub enum SourcePreparationStatus {
     Preparing,
     Ready,
     Failed(String),
+}
+
+/// Observable state of the current finite-source preparation generation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourcePreparationSnapshot {
+    pub generation: u64,
+    pub status: SourcePreparationStatus,
+    pub progress: Option<CaptureIndexBuildProgress>,
 }

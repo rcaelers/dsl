@@ -15,7 +15,6 @@ mod graph_node_registration;
 mod output_subscription;
 mod payload_registration;
 mod run_data;
-#[path = "source_preparation_native.rs"]
 mod source_preparation;
 mod source_preparation_contract;
 mod source_preparation_executor;
@@ -49,9 +48,11 @@ pub use run_data::{
     SourceDataKind, SourceReadiness, SourceReadinessRegistry,
 };
 pub use source_preparation_contract::{
-    PreparedCapture, PreparedCaptureData, SourcePreparationStatus, SourcePreparationUpdate,
+    PreparedCapture, PreparedCaptureData, SourcePreparationSnapshot, SourcePreparationStatus,
+    SourcePreparationUpdate,
 };
 pub use source_preparation_executor::{
-    InlineSourcePreparationExecutor, SourcePreparationExecutor, SourcePreparationResult,
-    SourcePreparationTask, SourcePreparationTaskUpdate, SourcePreparationWork,
+    InlineSourcePreparationExecutor, SourcePreparationControl, SourcePreparationExecutor,
+    SourcePreparationResult, SourcePreparationTask, SourcePreparationTaskUpdate,
+    SourcePreparationWork,
 };

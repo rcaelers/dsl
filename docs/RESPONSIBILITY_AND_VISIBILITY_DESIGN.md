@@ -235,11 +235,12 @@ sources, discard sinks, and cooperative execution—remain in their behavioral o
 every target. Composition selects them explicitly. A web build does not obtain a synthetic source
 or discard sink merely because a native capability is absent.
 
-The only temporary reusable-crate exceptions are complete file-I/O or device-runtime leaves in
-`logic_analyzer_processing` whose parser or device protocol still accepts a native path or requires
-native execution. Host factory selection, dialogs, output destinations, USB transport, and firmware
-acquisition are not exceptions and live in `logic_analyzer_platform`. Node state, schemas, and
-builders remain portable.
+The only temporary reusable-crate exceptions are complete file-I/O compatibility constructors or
+device-runtime leaves in `logic_analyzer_processing` that still require native execution. Format
+parsers and index factories consume prepared random-access sources; native application composition
+acquires those sources in `logic_analyzer_platform`. Host factory selection, dialogs, output
+destinations, USB transport, and firmware acquisition are not exceptions and live in
+`logic_analyzer_platform`. Node state, schemas, and builders remain portable.
 
 The temporary processing-adapter allowlist is restricted to the host-access leaves of:
 

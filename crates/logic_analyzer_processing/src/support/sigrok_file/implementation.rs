@@ -1,12 +1,11 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use signal_processing::capture::{
     BlockCaptureSource, BlockData, CaptureDataSource, CaptureFingerprint, CaptureMetadata,
     CaptureSource,
 };
-use signal_processing::{Error, Result, SourceIdentity};
+use signal_processing::{Error, PreparedByteSource, Result, SourceIdentity};
 
 use crate::support::capture_archive::{CaptureArchive, ZipCaptureArchive};
 use crate::support::capture_format::parse_sample_rate;
@@ -20,8 +19,11 @@ pub(crate) struct SigrokCapture {
 }
 
 impl SigrokCapture {
-    pub(crate) fn open(path: impl AsRef<Path>, minimum_channels: u8) -> Result<Self> {
-        let mut archive = ZipCaptureArchive::open(path)?;
+    pub(crate) fn open_source(
+        source: &dyn PreparedByteSource,
+        minimum_channels: u8,
+    ) -> Result<Self> {
+        let mut archive = ZipCaptureArchive::open_source(source)?;
         Self::from_archive(&mut archive, minimum_channels)
     }
 
@@ -205,27 +207,40 @@ impl BlockCaptureSource for SigrokCaptureReader {
 }
 
 /// Indexable sigrok capture data for the logic-analyzer viewer.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct SigrokFileCaptureDataSource {
-    path: PathBuf,
+    identity: SourceIdentity,
+    display_name: String,
     capture: SigrokCapture,
     source_len: u64,
 }
 impl SigrokFileCaptureDataSource {
-    pub(crate) fn open(path: impl AsRef<Path>) -> Result<Self> {
-        let path = path.as_ref().to_path_buf();
-        let source_len = std::fs::metadata(&path)?.len();
-        let capture = SigrokCapture::open(&path, 1)?;
-        Ok(Self::from_capture(path, source_len, capture))
+    pub(crate) fn open_source(
+        source: Arc<dyn PreparedByteSource>,
+        display_name: impl Into<String>,
+    ) -> Result<Self> {
+        let source_len = source
+            .open_reader()
+            .and_then(|reader| reader.len())
+            .map_err(|error| Error::ParseError(error.to_string()))?;
+        let capture = SigrokCapture::open_source(source.as_ref(), 1)?;
+        Ok(Self::from_capture(
+            source.identity(),
+            display_name,
+            source_len,
+            capture,
+        ))
     }
 
     pub(crate) fn from_capture(
-        path: impl Into<PathBuf>,
+        identity: SourceIdentity,
+        display_name: impl Into<String>,
         source_len: u64,
         capture: SigrokCapture,
     ) -> Self {
         Self {
-            path: path.into(),
+            identity,
+            display_name: display_name.into(),
             capture,
             source_len,
         }
@@ -246,15 +261,11 @@ impl CaptureDataSource for SigrokFileCaptureDataSource {
     }
     fn index_identity(&self) -> Option<SourceIdentity> {
         Some(SourceIdentity::from_bytes(
-            super::super::capture_index::capture_cache_identity(&self.path, self),
+            super::super::capture_index::capture_cache_identity(self.identity, self),
         ))
     }
     fn display_name(&self) -> String {
-        self.path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("capture.sr")
-            .to_string()
+        self.display_name.clone()
     }
 }
 

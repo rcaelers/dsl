@@ -22,8 +22,8 @@ use super::graph::{
 use super::source_preparation::SourcePreparation;
 use super::{
     DerivedCacheClearStats, DerivedCacheEntrySnapshot, OutputSubscriptionPlan,
-    SourcePreparationExecutor, SourcePreparationStatus, SourcePreparationUpdate, cache_policy,
-    graph,
+    SourcePreparationExecutor, SourcePreparationSnapshot, SourcePreparationStatus,
+    SourcePreparationUpdate, cache_policy, graph,
 };
 
 /// Stateful application-facing facade for graph discovery, compilation, and execution.
@@ -143,6 +143,10 @@ impl GraphCompiler {
 
     pub fn source_preparation_status(&self) -> SourcePreparationStatus {
         self.source_preparation.status()
+    }
+
+    pub fn source_preparation_snapshot(&self) -> SourcePreparationSnapshot {
+        self.source_preparation.snapshot()
     }
 
     pub fn discover_live_capture_feature(

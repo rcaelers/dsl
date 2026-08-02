@@ -810,7 +810,7 @@ impl App {
         );
     }
 
-    pub(crate) fn mark_capture_index_building(&mut self) {
+    pub(crate) fn mark_capture_index_building(&mut self, progress: Option<f32>) {
         self.capture_storage = Some(CaptureStorageSnapshot {
             name: "Raw capture".to_owned(),
             status: "Preparing capture index".to_owned(),
@@ -819,7 +819,7 @@ impl App {
             total_samples: None,
             data_bytes: None,
             index_identity: None,
-            index_progress: None,
+            index_progress: progress,
         });
     }
 

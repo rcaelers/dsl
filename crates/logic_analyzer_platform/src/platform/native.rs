@@ -42,14 +42,16 @@ use logic_analyzer_ui::{
 use node_graph::{FileDialogRequest, FileDialogService};
 use signal_processing::logic_analyzer::LogicAnalyzerError;
 use signal_processing::{
-    AppManager, AppManagerBackend, AppManagerFactory, CooperativeWorkerOperationExecutor,
-    PipelineManager, ProcessNode, WorkExecutor, WorkExecutorTask, WorkTask,
-    portable_worker_kernels,
+    AppManager, AppManagerBackend, AppManagerFactory, ArtifactRepository, CaptureIndex,
+    CaptureIndexBuildProgress, CaptureIndexFactory, CooperativeWorkerOperationExecutor,
+    IndexedCapturePresentation, PipelineManager, PreparedByteSource, ProcessNode, SourceIdentity,
+    WorkExecutor, WorkExecutorTask, WorkTask, portable_worker_kernels,
 };
 
 use super::native_artifact_repository::NativeArtifactRepository;
 use super::native_capture_export::native_capture_export_service;
 use super::native_file_identity_cache::NativeFileIdentityCache;
+use super::native_file_source::NativeFileByteSource;
 use super::native_sigrok;
 use super::native_sigrok::{PythonSigrokExecutionFactory, discover_sigrok_decoder, scan_catalog};
 use crate::services::PlatformServices;
@@ -221,6 +223,68 @@ struct NativeDslFileSourceMetadata {
     identities: Arc<NativeFileIdentityCache>,
 }
 
+fn acquire_native_file(
+    path: &Path,
+    identities: &NativeFileIdentityCache,
+) -> Result<Arc<dyn PreparedByteSource>, String> {
+    let identity = identities.resolve(path, |path| {
+        NativeFileByteSource::acquire(path)
+            .map(|source| *source.identity().as_bytes())
+            .map_err(|error| error.to_string())
+    })?;
+    NativeFileByteSource::open(path, SourceIdentity::from_bytes(identity))
+        .map(|source| Arc::new(source) as Arc<dyn PreparedByteSource>)
+        .map_err(|error| error.to_string())
+}
+
+struct NativeDslCaptureIndexFactory {
+    path: PathBuf,
+    identities: Arc<NativeFileIdentityCache>,
+}
+
+impl CaptureIndexFactory for NativeDslCaptureIndexFactory {
+    fn display_name(&self) -> String {
+        self.path.display().to_string()
+    }
+
+    fn open(
+        self: Box<Self>,
+        artifact_repository: Arc<dyn ArtifactRepository>,
+        work_executor: Arc<dyn WorkExecutor>,
+        progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
+    ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
+        let source = acquire_native_file(&self.path, &self.identities)
+            .map_err(signal_processing::Error::ParseError)?;
+        DslFileSource::indexed_capture_presentation(source, self.path.display().to_string())
+            .factory
+            .open(artifact_repository, work_executor, progress)
+    }
+}
+
+struct NativeSigrokCaptureIndexFactory {
+    path: PathBuf,
+    identities: Arc<NativeFileIdentityCache>,
+}
+
+impl CaptureIndexFactory for NativeSigrokCaptureIndexFactory {
+    fn display_name(&self) -> String {
+        self.path.display().to_string()
+    }
+
+    fn open(
+        self: Box<Self>,
+        artifact_repository: Arc<dyn ArtifactRepository>,
+        work_executor: Arc<dyn WorkExecutor>,
+        progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
+    ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
+        let source = acquire_native_file(&self.path, &self.identities)
+            .map_err(signal_processing::Error::ParseError)?;
+        SigrokFileSource::indexed_capture_presentation(source, self.path.display().to_string())
+            .factory
+            .open(artifact_repository, work_executor, progress)
+    }
+}
+
 impl CaptureSourceMetadata for NativeDslFileSourceMetadata {
     fn lifecycle(&self) -> CaptureSourceLifecycle {
         FILE_SOURCE_LIFECYCLE
@@ -230,8 +294,15 @@ impl CaptureSourceMetadata for NativeDslFileSourceMetadata {
         if self.config.path().as_os_str().is_empty() {
             return Ok(None);
         }
+        let source = acquire_native_file(self.config.path(), &self.identities)?;
         Ok(Some(CaptureSourcePresentation::Indexed(
-            DslFileSource::indexed_capture_presentation(self.config.path()),
+            IndexedCapturePresentation {
+                identity: source.identity(),
+                factory: Box::new(NativeDslCaptureIndexFactory {
+                    path: self.config.path().to_owned(),
+                    identities: Arc::clone(&self.identities),
+                }),
+            },
         )))
     }
 
@@ -239,18 +310,21 @@ impl CaptureSourceMetadata for NativeDslFileSourceMetadata {
         if self.config.path().as_os_str().is_empty() {
             return CaptureSourceCacheIdentity::Dynamic;
         }
-        self.identities
-            .resolve(self.config.path(), |path| {
-                DslFileSource::capture_cache_identity(path).map_err(|error| error.to_string())
-            })
-            .map(CaptureSourceCacheIdentity::Stable)
+        acquire_native_file(self.config.path(), &self.identities)
+            .map(|source| CaptureSourceCacheIdentity::Stable(*source.identity().as_bytes()))
             .unwrap_or(CaptureSourceCacheIdentity::Dynamic)
     }
 
     fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
-        DslFileSource::new(self.config.path())
+        acquire_native_file(self.config.path(), &self.identities)
+            .and_then(|source| {
+                DslFileSource::from_prepared_source(
+                    source,
+                    self.config.path().display().to_string(),
+                )
+                .map_err(|error| error.to_string())
+            })
             .map(|source| Some(source.header().probe_names.clone()))
-            .map_err(|error| error.to_string())
     }
 }
 
@@ -278,7 +352,11 @@ impl DslFileSourceFactory for NativeDslFileSourceFactory {
         work_executor: Arc<dyn WorkExecutor>,
     ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
         let metadata = self.metadata(config.clone());
-        DslFileSource::new(config.path())
+        acquire_native_file(config.path(), &self.identities)
+            .and_then(|source| {
+                DslFileSource::from_prepared_source(source, config.path().display().to_string())
+                    .map_err(|error| error.to_string())
+            })
             .map(|source| {
                 ProcessNodeConstruction::new(
                     Box::new(
@@ -290,7 +368,6 @@ impl DslFileSourceFactory for NativeDslFileSourceFactory {
                     metadata,
                 )
             })
-            .map_err(|error| error.to_string())
     }
 }
 
@@ -319,8 +396,15 @@ impl CaptureSourceMetadata for NativeSigrokFileSourceMetadata {
         if self.config.path().as_os_str().is_empty() {
             return Ok(None);
         }
+        let source = acquire_native_file(self.config.path(), &self.identities)?;
         Ok(Some(CaptureSourcePresentation::Indexed(
-            SigrokFileSource::indexed_capture_presentation(self.config.path()),
+            IndexedCapturePresentation {
+                identity: source.identity(),
+                factory: Box::new(NativeSigrokCaptureIndexFactory {
+                    path: self.config.path().to_owned(),
+                    identities: Arc::clone(&self.identities),
+                }),
+            },
         )))
     }
 
@@ -328,11 +412,8 @@ impl CaptureSourceMetadata for NativeSigrokFileSourceMetadata {
         if self.config.demo_data() {
             return CaptureSourceCacheIdentity::NotCapture;
         }
-        self.identities
-            .resolve(self.config.path(), |path| {
-                SigrokFileSource::capture_cache_identity(path).map_err(|error| error.to_string())
-            })
-            .map(CaptureSourceCacheIdentity::Stable)
+        acquire_native_file(self.config.path(), &self.identities)
+            .map(|source| CaptureSourceCacheIdentity::Stable(*source.identity().as_bytes()))
             .unwrap_or(CaptureSourceCacheIdentity::Dynamic)
     }
 
@@ -340,9 +421,11 @@ impl CaptureSourceMetadata for NativeSigrokFileSourceMetadata {
         if self.config.demo_data() {
             return Ok(Some(self.config.channel_names().to_vec()));
         }
-        SigrokFileSource::new(self.config.path())
+        acquire_native_file(self.config.path(), &self.identities)
+            .and_then(|source| {
+                SigrokFileSource::from_prepared_source(source).map_err(|error| error.to_string())
+            })
             .map(|source| Some(source.header().probe_names.clone()))
-            .map_err(|error| error.to_string())
     }
 }
 
@@ -377,10 +460,13 @@ impl SigrokFileSourceFactory for NativeSigrokFileSourceFactory {
             ) as Box<dyn ProcessNode>
         } else {
             Box::new(
-                SigrokFileSource::new(config.path())
-                    .map_err(|error| error.to_string())?
-                    .with_name(name)
-                    .with_work_executor(work_executor),
+                SigrokFileSource::from_prepared_source(acquire_native_file(
+                    config.path(),
+                    &self.identities,
+                )?)
+                .map_err(|error| error.to_string())?
+                .with_name(name)
+                .with_work_executor(work_executor),
             )
         };
         Ok(ProcessNodeConstruction::new(process, metadata))
@@ -1121,11 +1207,13 @@ impl SourcePreparationExecutor for NativeSourcePreparationExecutor {
     fn submit(
         &self,
         work: SourcePreparationWork,
+        control: logic_analyzer_graph_compiler::SourcePreparationControl,
     ) -> Result<Box<dyn SourcePreparationTask>, String> {
         let (sender, receiver) = crossbeam_channel::bounded(1);
         self.sender
             .try_send(QueuedSourcePreparation {
                 work,
+                control,
                 result_sender: sender,
             })
             .map_err(|error| match error {
@@ -1142,17 +1230,23 @@ impl SourcePreparationExecutor for NativeSourcePreparationExecutor {
 
 struct QueuedSourcePreparation {
     work: SourcePreparationWork,
+    control: logic_analyzer_graph_compiler::SourcePreparationControl,
     result_sender: crossbeam_channel::Sender<SourcePreparationResult>,
 }
 
 fn run_source_preparation_worker(receiver: crossbeam_channel::Receiver<QueuedSourcePreparation>) {
     while let Ok(QueuedSourcePreparation {
         work,
+        control,
         result_sender,
     }) = receiver.recv()
     {
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
-            .unwrap_or_else(|_| Err("source-preparation worker panicked".into()));
+        let result = if control.is_cancelled() {
+            Err("source preparation cancelled".into())
+        } else {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(control)))
+                .unwrap_or_else(|_| Err("source-preparation worker panicked".into()))
+        };
         let _ = result_sender.send(result);
     }
 }
@@ -1413,7 +1507,8 @@ mod native_tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use logic_analyzer_graph_compiler::{
-        PreparedCaptureData, SourcePreparationExecutor, SourcePreparationTaskUpdate,
+        PreparedCaptureData, SourcePreparationControl, SourcePreparationExecutor,
+        SourcePreparationTaskUpdate,
     };
     use logic_analyzer_ui::{AppServices, HostCommand, HostService};
     use signal_processing::{
@@ -1442,9 +1537,10 @@ mod native_tests {
     fn native_source_preparation_executor_completes_work_off_the_caller() {
         let executor = NativeSourcePreparationExecutor::new();
         let mut task = executor
-            .submit(Box::new(|| {
-                Ok(PreparedCaptureData::Channels(vec![(4, "Data".into())]))
-            }))
+            .submit(
+                Box::new(|_| Ok(PreparedCaptureData::Channels(vec![(4, "Data".into())]))),
+                SourcePreparationControl::new(),
+            )
             .unwrap();
 
         for _ in 0..10_000 {

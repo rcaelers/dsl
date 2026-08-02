@@ -53,7 +53,7 @@ where
         mut progress: P,
     ) -> Result<()>
     where
-        P: FnMut(CaptureIndexProgress),
+        P: FnMut(CaptureIndexProgress) -> bool,
     {
         let total_blocks = self.header.total_blocks as usize;
         let job_count = self.header.total_probes * total_blocks;
@@ -65,10 +65,12 @@ where
             }
         }
 
-        progress(CaptureIndexProgress {
+        if !progress(CaptureIndexProgress {
             completed_roots: 0,
             total_roots: job_count,
-        });
+        }) {
+            return Err(Error::Cancelled);
+        }
 
         let writer = IndexWriter::create(
             Arc::clone(&self.repository),
@@ -98,7 +100,7 @@ where
         jobs: VecDeque<BuildJob>,
         mut writer: IndexWriter,
         work_executor: Arc<dyn WorkExecutor>,
-        progress: &mut impl FnMut(CaptureIndexProgress),
+        progress: &mut impl FnMut(CaptureIndexProgress) -> bool,
     ) -> Result<()> {
         let total_jobs = jobs.len();
         if total_jobs == 0 {
@@ -154,10 +156,12 @@ where
                     if first_error.is_some() {
                         break;
                     }
-                    progress(CaptureIndexProgress {
+                    if !progress(CaptureIndexProgress {
                         completed_roots: received,
                         total_roots: total_jobs,
-                    });
+                    }) {
+                        first_error = Some(Error::Cancelled);
+                    }
                 }
                 Ok(Err(err)) => {
                     in_flight -= 1;
@@ -208,7 +212,7 @@ where
         header: &CaptureMetadata,
         jobs: VecDeque<BuildJob>,
         mut writer: IndexWriter,
-        progress: &mut impl FnMut(CaptureIndexProgress),
+        progress: &mut impl FnMut(CaptureIndexProgress) -> bool,
     ) -> Result<()> {
         let total_jobs = jobs.len();
         let mut source = data_source.open_reader()?;
@@ -220,10 +224,12 @@ where
             Self::apply_boundary_transition(&mut leaf, previous_last[job.channel]);
             previous_last[job.channel] = Some(leaf.last);
             writer.write_block(job.channel, job.block as usize, &leaf)?;
-            progress(CaptureIndexProgress {
+            if !progress(CaptureIndexProgress {
                 completed_roots: completed + 1,
                 total_roots: total_jobs,
-            });
+            }) {
+                return Err(Error::Cancelled);
+            }
         }
         writer.finish()
     }

@@ -2,4 +2,4 @@
 
 mod implementation;
 
-pub(crate) use implementation::{CaptureArchive, ZipCaptureArchive};
+pub(crate) use implementation::{CaptureArchive, FileByteSource, ZipCaptureArchive};

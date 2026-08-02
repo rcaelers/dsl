@@ -825,7 +825,7 @@ mod tests {
                 source.clone(),
                 Arc::clone(&repository),
                 Arc::new(InlineWorkExecutor),
-                |_| {},
+                |_| true,
             )?;
             reader.sampled_window(&[0], 3_000, 6_000, 50)?
         };
@@ -840,7 +840,7 @@ mod tests {
                 source.clone(),
                 Arc::clone(&repository),
                 Arc::new(InlineWorkExecutor),
-                |_| {},
+                |_| true,
             )?;
             reader.sampled_window(&[0], 3_000, 6_000, 50)?
         };
@@ -884,7 +884,7 @@ mod tests {
                 source.clone(),
                 Arc::clone(&repository),
                 Arc::new(InlineWorkExecutor),
-                |_| {},
+                |_| true,
             )?;
             let reads_after_build = source.raw_reads();
             reader.packed_block(0, 0)?;
@@ -896,10 +896,43 @@ mod tests {
             source.clone(),
             repository,
             Arc::new(InlineWorkExecutor),
-            |_| {},
+            |_| true,
         )?;
         reopened.packed_block(0, 0)?;
         assert_eq!(source.raw_reads(), reads_after_build + 1);
+
+        source.remove_index();
+        Ok(())
+    }
+
+    #[test]
+    fn cancelled_index_build_does_not_publish_an_unusable_generation() -> Result<()> {
+        let samples_per_block = 4_096_u64;
+        let total_samples = samples_per_block * 3;
+        let source = MemoryCaptureDataSource::new(
+            total_samples,
+            samples_per_block,
+            single_channel_blocks_from_fn(total_samples, samples_per_block, |sample| {
+                (sample / 127) % 2 == 1
+            }),
+        );
+        let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+
+        let cancelled = IndexSampler::open_data_source_with_executor_and_progress(
+            source.clone(),
+            Arc::clone(&repository),
+            Arc::new(InlineWorkExecutor),
+            |progress| progress.completed_roots == 0,
+        );
+        assert!(matches!(cancelled, Err(Error::Cancelled)));
+
+        let reopened = IndexSampler::open_data_source_with_executor_and_progress(
+            source.clone(),
+            repository,
+            Arc::new(InlineWorkExecutor),
+            |_| true,
+        );
+        assert!(reopened.is_ok());
 
         source.remove_index();
         Ok(())

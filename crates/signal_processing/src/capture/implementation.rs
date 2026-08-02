@@ -318,7 +318,7 @@ pub trait CaptureIndexFactory: Send + 'static {
         self: Box<Self>,
         artifact_repository: Arc<dyn crate::ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
-        progress: &mut dyn FnMut(CaptureIndexBuildProgress),
+        progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
     ) -> Result<Box<dyn CaptureIndex + Send>>;
 }
 

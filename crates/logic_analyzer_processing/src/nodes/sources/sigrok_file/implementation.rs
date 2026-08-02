@@ -1,17 +1,17 @@
 //! Sigrok session (`.sr`) processing-node file source.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use signal_processing::{
     ArtifactRepository, CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory,
-    InlineWorkExecutor, InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Result,
-    Sample, SampleBlock, SampleKind, Sender, SourceIdentity, WorkError, WorkExecutor, WorkResult,
-    WorkTask,
+    InlineWorkExecutor, InputPort, OutputPort, PortDirection, PortSchema, PreparedByteSource,
+    ProcessNode, Result, Sample, SampleBlock, SampleKind, Sender, WorkError, WorkExecutor,
+    WorkResult, WorkTask,
 };
 
-use crate::support::capture_index::capture_cache_identity;
+use crate::support::capture_archive::FileByteSource;
 use crate::support::sigrok_file::{SigrokCapture, SigrokFileCaptureDataSource};
 
 /// A PulseView/sigrok session source.
@@ -105,21 +105,22 @@ impl ChannelBlockStream {
 }
 
 struct SigrokCaptureIndexFactory {
-    path: PathBuf,
+    source: Arc<dyn PreparedByteSource>,
+    display_name: String,
 }
 
 impl CaptureIndexFactory for SigrokCaptureIndexFactory {
     fn display_name(&self) -> String {
-        self.path.display().to_string()
+        self.display_name.clone()
     }
 
     fn open(
         self: Box<Self>,
         artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
-        progress: &mut dyn FnMut(CaptureIndexBuildProgress),
+        progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
     ) -> Result<Box<dyn CaptureIndex + Send>> {
-        let source = SigrokFileCaptureDataSource::open(&self.path)?;
+        let source = SigrokFileCaptureDataSource::open_source(self.source, self.display_name)?;
         signal_processing::IndexSampler::open_data_source_with_executor_and_progress(
             source,
             artifact_repository,
@@ -128,7 +129,7 @@ impl CaptureIndexFactory for SigrokCaptureIndexFactory {
                 progress(CaptureIndexBuildProgress {
                     completed: value.completed_roots,
                     total: value.total_roots,
-                });
+                })
             },
         )
         .map(|index| Box::new(index) as Box<dyn CaptureIndex + Send>)
@@ -138,26 +139,38 @@ impl CaptureIndexFactory for SigrokCaptureIndexFactory {
 impl SigrokFileSource {
     /// Creates the generic indexed-capture presentation for a static sigrok file.
     pub fn indexed_capture_presentation(
-        path: impl AsRef<Path>,
+        source: Arc<dyn PreparedByteSource>,
+        display_name: impl Into<String>,
     ) -> signal_processing::IndexedCapturePresentation {
-        let path = path.as_ref().to_path_buf();
+        let display_name = display_name.into();
         signal_processing::IndexedCapturePresentation {
-            identity: SourceIdentity::from_bytes(
-                *blake3::hash(path.to_string_lossy().as_bytes()).as_bytes(),
-            ),
-            factory: Box::new(SigrokCaptureIndexFactory { path }),
+            identity: source.identity(),
+            factory: Box::new(SigrokCaptureIndexFactory {
+                source,
+                display_name,
+            }),
         }
     }
 
-    /// Returns the persistent-cache identity for a static sigrok file.
-    pub fn capture_cache_identity(path: impl AsRef<Path>) -> Result<[u8; 32]> {
+    /// Temporary native-path entry point for developer tools and format tests.
+    pub fn indexed_capture_presentation_from_path(
+        path: impl AsRef<Path>,
+    ) -> Result<signal_processing::IndexedCapturePresentation> {
         let path = path.as_ref();
-        let source = SigrokFileCaptureDataSource::open(path)?;
-        Ok(capture_cache_identity(path, &source))
+        let source = Arc::new(FileByteSource::open(path)?);
+        Ok(Self::indexed_capture_presentation(
+            source,
+            path.display().to_string(),
+        ))
     }
 
     pub fn new(path: impl AsRef<Path>) -> Result<Self> {
-        let capture = SigrokCapture::open(path, 1)?;
+        let source = Arc::new(FileByteSource::open(path)?);
+        Self::from_prepared_source(source)
+    }
+
+    pub fn from_prepared_source(source: Arc<dyn PreparedByteSource>) -> Result<Self> {
+        let capture = SigrokCapture::open_source(source.as_ref(), 1)?;
         Ok(Self::from_capture(capture))
     }
 
@@ -305,7 +318,8 @@ mod tests {
 
     use signal_processing::capture::{CaptureDataSource, CaptureSource};
     use signal_processing::{
-        CompletedWorkTask, OutputPort, Sender, Watchdog, WorkExecutor, WorkExecutorTask, WorkTask,
+        CompletedWorkTask, OutputPort, Sender, SourceIdentity, Watchdog, WorkExecutor,
+        WorkExecutorTask, WorkTask,
     };
 
     use super::*;
@@ -364,8 +378,12 @@ mod tests {
 
     #[test]
     fn data_source_is_private_support_for_the_node() {
-        let source =
-            SigrokFileCaptureDataSource::from_capture("virtual/hello.sr", 123, fixture("2", true));
+        let source = SigrokFileCaptureDataSource::from_capture(
+            SourceIdentity::from_bytes([0x11; 32]),
+            "virtual/hello.sr",
+            123,
+            fixture("2", true),
+        );
         assert_eq!(source.metadata().total_samples, 8);
         assert_eq!(source.open_reader().unwrap().metadata().total_probes, 8);
         assert_eq!(source.fingerprint().revision, 123);
@@ -384,8 +402,12 @@ mod tests {
                 .all(|port| { port.sample_kinds == [SampleKind::Block, SampleKind::Edge] })
         );
 
-        let data_source =
-            SigrokFileCaptureDataSource::from_capture("virtual/hello.sr", 123, capture);
+        let data_source = SigrokFileCaptureDataSource::from_capture(
+            SourceIdentity::from_bytes([0x11; 32]),
+            "virtual/hello.sr",
+            123,
+            capture,
+        );
         assert_eq!(
             data_source.open_reader().unwrap().metadata().total_samples,
             8

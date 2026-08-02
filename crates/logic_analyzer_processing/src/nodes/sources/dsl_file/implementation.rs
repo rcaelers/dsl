@@ -8,7 +8,7 @@
 //! and block cache via `Arc<Mutex<..>>`.
 
 use std::collections::{HashMap, VecDeque};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -18,11 +18,12 @@ use signal_processing::capture::{BlockData, CaptureMetadata, CaptureTransition};
 use signal_processing::waveform_index::IndexSampler;
 use signal_processing::{
     ArtifactRepository, CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, EdgeQuery,
-    Error, InlineWorkExecutor, InputPort, OutputPort, ProcessNode, ProtocolKind, Result, Sample,
-    SampleBlock, SampleKind, Sender, SourceIdentity, WorkExecutor, WorkResult, WorkTask,
+    Error, InlineWorkExecutor, InputPort, OutputPort, PreparedByteSource, ProcessNode,
+    ProtocolKind, Result, Sample, SampleBlock, SampleKind, Sender, WorkExecutor, WorkResult,
+    WorkTask,
 };
 
-use crate::support::capture_archive::{CaptureArchive, ZipCaptureArchive};
+use crate::support::capture_archive::{CaptureArchive, FileByteSource, ZipCaptureArchive};
 use crate::support::capture_format::get_packed_bit;
 use crate::support::capture_index::capture_cache_identity;
 use crate::support::dsl_file::{DslChunkedCaptureReader, DslFileCaptureDataSource, parse_header};
@@ -91,21 +92,22 @@ struct DslChannelEdgeIndex {
 }
 
 struct DslCaptureIndexFactory {
-    path: PathBuf,
+    source: Arc<dyn PreparedByteSource>,
+    display_name: String,
 }
 
 impl CaptureIndexFactory for DslCaptureIndexFactory {
     fn display_name(&self) -> String {
-        self.path.display().to_string()
+        self.display_name.clone()
     }
 
     fn open(
         self: Box<Self>,
         artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
-        progress: &mut dyn FnMut(CaptureIndexBuildProgress),
+        progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
     ) -> Result<Box<dyn CaptureIndex + Send>> {
-        let source = DslFileCaptureDataSource::open(&self.path)?;
+        let source = DslFileCaptureDataSource::open_source(self.source, self.display_name)?;
         IndexSampler::open_data_source_with_executor_and_progress(
             source,
             artifact_repository,
@@ -114,7 +116,7 @@ impl CaptureIndexFactory for DslCaptureIndexFactory {
                 progress(CaptureIndexBuildProgress {
                     completed: value.completed_roots,
                     total: value.total_roots,
-                });
+                })
             },
         )
         .map(|index| Box::new(index) as Box<dyn CaptureIndex + Send>)
@@ -221,8 +223,8 @@ impl EdgeQuery for DslChannelEdgeIndex {
 /// ```
 pub struct DslFileSource {
     name: String,
-    // File access shared across all channel readers.
-    path: PathBuf,
+    source: Arc<dyn PreparedByteSource>,
+    display_name: String,
     archive: SharedCaptureArchive,
     header: CaptureMetadata,
     blocks: BlockCache,
@@ -250,39 +252,68 @@ pub struct DslFileSource {
 impl DslFileSource {
     /// Creates the generic indexed-capture presentation for a static DSL file.
     pub fn indexed_capture_presentation(
-        path: impl AsRef<Path>,
+        source: Arc<dyn PreparedByteSource>,
+        display_name: impl Into<String>,
     ) -> signal_processing::IndexedCapturePresentation {
-        let path = path.as_ref().to_path_buf();
+        let display_name = display_name.into();
         signal_processing::IndexedCapturePresentation {
-            identity: SourceIdentity::from_bytes(
-                *blake3::hash(path.to_string_lossy().as_bytes()).as_bytes(),
-            ),
-            factory: Box::new(DslCaptureIndexFactory { path }),
+            identity: source.identity(),
+            factory: Box::new(DslCaptureIndexFactory {
+                source,
+                display_name,
+            }),
         }
     }
 
-    /// Returns the persistent-cache identity for a static DSL file.
+    /// Temporary native-path entry point for developer tools and format tests.
+    pub fn indexed_capture_presentation_from_path(
+        path: impl AsRef<Path>,
+    ) -> Result<signal_processing::IndexedCapturePresentation> {
+        let path = path.as_ref();
+        let source = Arc::new(FileByteSource::open(path)?);
+        Ok(Self::indexed_capture_presentation(
+            source,
+            path.display().to_string(),
+        ))
+    }
+
+    /// Temporary native-path entry point for developer benchmarks.
     pub fn capture_cache_identity(path: impl AsRef<Path>) -> Result<[u8; 32]> {
         let path = path.as_ref();
-        let source = DslFileCaptureDataSource::open(path)?;
-        Ok(capture_cache_identity(path, &source))
+        let source = Arc::new(FileByteSource::open(path)?);
+        let identity = source.identity();
+        let source = DslFileCaptureDataSource::open_source(source, path.display().to_string())?;
+        Ok(capture_cache_identity(identity, &source))
     }
 
     /// Create a new DSL file source from a file path
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let path = path.as_ref().to_path_buf();
-        let archive = Box::new(ZipCaptureArchive::open(&path)?);
-        Self::from_archive(path, archive)
+        let path = path.as_ref();
+        let source = Arc::new(FileByteSource::open(path)?);
+        Self::from_prepared_source(source, path.display().to_string())
     }
 
-    fn from_archive(path: PathBuf, mut archive: Box<dyn CaptureArchive>) -> Result<Self> {
+    pub fn from_prepared_source(
+        source: Arc<dyn PreparedByteSource>,
+        display_name: impl Into<String>,
+    ) -> Result<Self> {
+        let archive = Box::new(ZipCaptureArchive::open_source(source.as_ref())?);
+        Self::from_archive(source, display_name.into(), archive)
+    }
+
+    fn from_archive(
+        source: Arc<dyn PreparedByteSource>,
+        display_name: String,
+        mut archive: Box<dyn CaptureArchive>,
+    ) -> Result<Self> {
         let header = parse_header(archive.as_mut())?;
 
         let num_channels = header.total_probes;
 
         Ok(Self {
             name: "dsl_file_source".to_string(),
-            path,
+            source,
+            display_name,
             archive: Arc::new(Mutex::new(archive)),
             header: header.clone(),
             blocks: Arc::new(Mutex::new(BoundedBlockCache::new(
@@ -309,7 +340,10 @@ impl DslFileSource {
     fn edge_index_handle(&self) -> Option<Arc<Mutex<DslChunkedCaptureReader>>> {
         let mut guard = self.index.lock().unwrap();
         if guard.is_none() {
-            let source = match DslFileCaptureDataSource::open(&self.path) {
+            let source = match DslFileCaptureDataSource::open_source(
+                Arc::clone(&self.source),
+                self.display_name.clone(),
+            ) {
                 Ok(source) => source,
                 Err(e) => {
                     warn!("Failed to open capture for edge queries: {}", e);
@@ -930,9 +964,10 @@ mod tests {
     use std::collections::BTreeMap;
     use std::fs::File;
     use std::io::Write;
+    use std::path::PathBuf;
 
     use signal_processing::{
-        CompletedWorkTask, OutputPort, ProcessNode, Sender, Watchdog, WorkExecutor,
+        CompletedWorkTask, OutputPort, ProcessNode, Sender, SourceIdentity, Watchdog, WorkExecutor,
         WorkExecutorTask, WorkTask,
     };
 
@@ -943,12 +978,14 @@ mod tests {
     fn indexed_dsl_source(path: &Path) -> Result<(DslFileSource, DslChunkedCaptureReader)> {
         let repository: Arc<dyn ArtifactRepository> =
             Arc::new(signal_processing::MemoryArtifactRepository::new());
-        let data_source = DslFileCaptureDataSource::open(path)?;
+        let prepared_source = Arc::new(FileByteSource::open(path)?);
+        let data_source =
+            DslFileCaptureDataSource::open_source(prepared_source, path.display().to_string())?;
         let sampler = IndexSampler::open_data_source_with_executor_and_progress(
             data_source,
             Arc::clone(&repository),
             Arc::new(InlineWorkExecutor),
-            |_| {},
+            |_| true,
         )?;
         let source = DslFileSource::new(path)?.with_artifact_repository(repository);
         Ok((source, sampler))
@@ -1024,7 +1061,8 @@ mod tests {
     fn test_capture_reader_reads_a_window_from_a_generated_fixture() {
         let (_directory, path) = dsl_fixture();
 
-        let mut reader = DslCaptureReader::open(&path)
+        let source = FileByteSource::open(&path).unwrap();
+        let mut reader = DslCaptureReader::open_source(&source)
             .expect("generated DSL capture should open with the windowed reader")
             .with_max_cached_blocks(4);
         assert!(reader.header().total_samples > 0);
@@ -1171,7 +1209,11 @@ mod tests {
 
     fn dsl_source() -> DslFileSource {
         DslFileSource::from_archive(
-            PathBuf::from("virtual/fixture.dsl"),
+            Arc::new(signal_processing::OwnedByteSource::new(
+                SourceIdentity::from_bytes([0x77; 32]),
+                Arc::<[u8]>::from([]),
+            )),
+            "virtual/fixture.dsl".into(),
             Box::new(TestCaptureArchive::fixture()),
         )
         .unwrap()

@@ -21,7 +21,7 @@ impl CaptureIndexFactory for TestCaptureIndexFactory {
         self: Box<Self>,
         _artifact_repository: std::sync::Arc<dyn signal_processing::ArtifactRepository>,
         _work_executor: std::sync::Arc<dyn signal_processing::WorkExecutor>,
-        _progress: &mut dyn FnMut(CaptureIndexBuildProgress),
+        _progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
     ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
         panic!("a builder contract must not open its deferred viewer index")
     }

@@ -1,8 +1,7 @@
 //! Random-access DSLogic `.dsl` capture-file support.
 
 use std::collections::{HashMap, VecDeque};
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use tracing::debug;
 
@@ -13,7 +12,7 @@ use signal_processing::capture::{
     CaptureSource,
 };
 use signal_processing::waveform_index::IndexSampler;
-use signal_processing::{Error, Result, SourceIdentity};
+use signal_processing::{Error, PreparedByteSource, Result, SourceIdentity};
 
 use crate::support::capture_archive::{CaptureArchive, ZipCaptureArchive};
 use crate::support::capture_format::{get_packed_bit, parse_sample_rate};
@@ -41,8 +40,8 @@ impl DslCaptureReader {
     /// [`DslCaptureReader::with_max_cached_blocks`].
     const DEFAULT_MAX_CACHED_BLOCKS: usize = 1;
 
-    pub(crate) fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
-        Self::from_archive(Box::new(ZipCaptureArchive::open(path)?))
+    pub(crate) fn open_source(source: &dyn PreparedByteSource) -> Result<Self> {
+        Self::from_archive(Box::new(ZipCaptureArchive::open_source(source)?))
     }
 
     pub(crate) fn from_archive(mut archive: Box<dyn CaptureArchive>) -> Result<Self> {
@@ -157,21 +156,28 @@ impl BlockCaptureSource for DslCaptureReader {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct DslFileCaptureDataSource {
-    path: PathBuf,
+    source: Arc<dyn PreparedByteSource>,
+    display_name: String,
     header: CaptureMetadata,
     source_len: u64,
 }
 
 impl DslFileCaptureDataSource {
-    pub(crate) fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let path = path.as_ref().to_path_buf();
-        let source_len = fs::metadata(&path)?.len();
-        let mut archive = ZipCaptureArchive::open(&path)?;
+    pub(crate) fn open_source(
+        source: Arc<dyn PreparedByteSource>,
+        display_name: impl Into<String>,
+    ) -> Result<Self> {
+        let source_len = source
+            .open_reader()
+            .and_then(|reader| reader.len())
+            .map_err(|error| Error::ParseError(error.to_string()))?;
+        let mut archive = ZipCaptureArchive::open_source(source.as_ref())?;
         let header = parse_header(&mut archive)?;
         Ok(Self {
-            path,
+            source,
+            display_name: display_name.into(),
             header,
             source_len,
         })
@@ -182,7 +188,7 @@ impl CaptureDataSource for DslFileCaptureDataSource {
     type Reader = DslCaptureReader;
 
     fn open_reader(&self) -> Result<Self::Reader> {
-        DslCaptureReader::open(&self.path)
+        DslCaptureReader::open_source(self.source.as_ref())
     }
 
     fn metadata(&self) -> &CaptureMetadata {
@@ -197,16 +203,12 @@ impl CaptureDataSource for DslFileCaptureDataSource {
 
     fn index_identity(&self) -> Option<SourceIdentity> {
         Some(SourceIdentity::from_bytes(
-            super::super::capture_index::capture_cache_identity(&self.path, self),
+            super::super::capture_index::capture_cache_identity(self.source.identity(), self),
         ))
     }
 
     fn display_name(&self) -> String {
-        self.path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("capture")
-            .to_string()
+        self.display_name.clone()
     }
 }
 
