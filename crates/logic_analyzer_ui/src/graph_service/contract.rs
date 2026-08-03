@@ -1,6 +1,7 @@
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use logic_analyzer_graph_api::node_support::{
     LiveCaptureEdit, TimelineMarkerEdit, TimelineMarkerReferenceBindingEdit,
@@ -41,13 +42,27 @@ pub(crate) trait GraphRun {
 
     fn pump(&mut self, budget: usize);
 
+    fn pump_for(&mut self, budget: usize, _max_duration: Duration) {
+        self.pump(budget);
+    }
+
     fn progress(&self) -> Vec<(NodeId, u64)>;
 
     fn take_disconnected(&self) -> Vec<(Option<NodeId>, DisconnectEvent)>;
+
+    fn take_failure(&mut self) -> Option<String> {
+        None
+    }
 }
 
 pub(crate) trait GraphService: CaptureFeatureDiscovery {
     fn set_artifact_repository(&mut self, repository: Arc<dyn ArtifactRepository>);
+
+    fn set_graph_worker_client(
+        &mut self,
+        _client: Option<Arc<logic_analyzer_graph_compiler::GraphWorkerClient>>,
+    ) {
+    }
 
     fn derived_cache_configs_by_node(
         &self,
@@ -170,4 +185,12 @@ pub(crate) trait GraphService: CaptureFeatureDiscovery {
         graph: &GraphState,
         boundary: ConfigurationBoundary,
     ) -> Result<ApplySummary, ApplyError>;
+
+    fn synchronize_run_data(
+        &self,
+        _run: &mut dyn GraphRun,
+        _graph: &GraphState,
+    ) -> Result<bool, Vec<CompileError>> {
+        Ok(false)
+    }
 }

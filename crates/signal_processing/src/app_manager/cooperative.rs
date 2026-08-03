@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use super::contract::{AppManagerBackend, AppManagerFactory};
 use super::implementation::AppManager;
 use crate::cooperative_manager::CooperativeManager;
@@ -84,6 +86,10 @@ impl AppManagerBackend for CooperativeAppManagerBackend {
 
     fn pump(&mut self, budget: usize) {
         self.manager.pump(budget);
+    }
+
+    fn pump_for(&mut self, budget: usize, max_duration: Duration) {
+        self.manager.pump_for(budget, max_duration);
     }
 }
 

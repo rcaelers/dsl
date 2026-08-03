@@ -70,9 +70,15 @@ pub use app_manager::{
 };
 pub use capture::{
     BlockCaptureSource, BlockData, CaptureDataSource, CaptureFingerprint, CaptureIndex,
-    CaptureIndexBuildProgress, CaptureIndexFactory, CaptureMetadata, CaptureSampledChannel,
-    CaptureSampledWindow, CaptureSource, CaptureTransition, CaptureWaveformSegment,
-    IndexedCapturePresentation, packed_bit,
+    CaptureIndexBuildProgress, CaptureIndexFactory, CaptureIndexOpenStep, CaptureIndexOpenTask,
+    CaptureIndexPreparationRequest, CaptureIndexProxy, CaptureIndexQuery,
+    CaptureIndexQueryExecutor, CaptureIndexQueryUpdate, CaptureMetadata, CaptureSampledChannel,
+    CaptureSampledWindow, CaptureSampledWindowPoll, CaptureSource, CaptureTransition,
+    CaptureWaveformSegment, CaptureWorkerClient, CaptureWorkerIndexQueryExecutor,
+    CaptureWorkerMessage, CaptureWorkerOperationRegistry, CaptureWorkerPreparedIndex,
+    CaptureWorkerReplayBlock, CaptureWorkerReplayRequest, CaptureWorkerReplaySource,
+    CaptureWorkerRequest, CaptureWorkerRuntime, IndexedCapturePresentation,
+    decode_capture_worker_messages, encode_capture_worker_messages, packed_bit,
 };
 pub use capture_policy::{
     CaptureFraction, CapturePolicy, CapturePolicyCapabilities, CapturePolicyContext,
@@ -122,7 +128,8 @@ pub use live_capture_store::*;
 pub use manager::{DisconnectEvent, InputSub, NodeSpec, PipelineManager};
 pub use node::{
     ConfigOutcome, ConfigValue, ConfigurationBoundary, ConfigurationScheduler,
-    InputProtocolCandidate, NodeCancellation, NodeConfig, ProcessNode, WorkOutcome,
+    InputProtocolCandidate, NodeCancellation, NodeConfig, ProcessNode, RuntimeExecutionMode,
+    WorkOutcome,
 };
 pub use payload::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
@@ -143,9 +150,10 @@ pub use sampling_points::{SamplingPoint, SamplingPointProvider, SamplingPointSto
 pub use scheduler::{Scheduler, StopHandle};
 pub use sender::{ChannelMessage, OverflowPolicy, Sender, SharedSenders};
 pub use storage::{
-    ArtifactByteSource, ArtifactKey, ArtifactMetadata, ArtifactNamespace, ArtifactRepository,
-    ByteRange, ByteRegion, ChunkedByteSource, ImmutableByteRegion, MemoryArtifactRepository,
-    OwnedByteSource, PreparedByteSource, RandomAccessReader, ReadArtifact, RepositoryCapabilities,
+    ArtifactByteSource, ArtifactKey, ArtifactMetadata, ArtifactNamespace, ArtifactReplicationEvent,
+    ArtifactReplicationReceiver, ArtifactRepository, ByteRange, ByteRegion, ChunkedByteSource,
+    ImmutableByteRegion, MemoryArtifactRepository, OwnedByteSource, PreparedByteSource,
+    RandomAccessReader, ReadArtifact, ReplicatingArtifactRepository, RepositoryCapabilities,
     RepositoryError, SourceCapabilities, SourceIdentity, SourceReadError, WriteArtifact,
     read_artifact_region,
 };

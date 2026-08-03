@@ -2266,7 +2266,10 @@ impl App {
         if self.capture_analysis.is_none() {
             return;
         }
-        self.capture_analysis.as_mut().unwrap().pump(256);
+        self.capture_analysis
+            .as_mut()
+            .unwrap()
+            .pump_for(256, std::time::Duration::from_millis(8));
         for (id, items) in self.capture_analysis.as_ref().unwrap().progress() {
             let status = (items > 0).then(|| format_count(items));
             self.node_graph.set_node_status(id, status);
@@ -2719,11 +2722,34 @@ impl App {
             }
             return;
         }
-        let Some(run) = &mut self.run else {
-            return;
+        let (failure, synchronized, candidates, finished) = {
+            let Some(run) = &mut self.run else {
+                return;
+            };
+            run.pump_for(256, std::time::Duration::from_millis(8));
+            let failure = run.take_failure();
+            let synchronized = self
+                .graph_service
+                .synchronize_run_data(run.as_mut(), self.node_graph.graph());
+            let candidates = synchronized
+                .as_ref()
+                .is_ok_and(|changed| *changed)
+                .then(|| run.sampling_overlays().to_vec());
+            (failure, synchronized, candidates, run.is_finished())
         };
-        run.pump(256);
-        if !run.is_finished() {
+        if let Some(message) = failure {
+            self.run_message = Some((message.clone(), true));
+            self.toasts.error(message);
+        }
+        match synchronized {
+            Ok(true) => {
+                self.set_sampling_overlay_candidates(candidates.unwrap_or_default());
+                self.merge_current_run_presentation_catalog();
+            }
+            Ok(false) => {}
+            Err(errors) => self.report_compile_errors(&errors),
+        }
+        if !finished {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
         }
 
@@ -2734,7 +2760,7 @@ impl App {
 
         // Per-node progress in the headers — also after the
         // run finished, so the final counts stick.
-        for (id, items) in run.progress() {
+        for (id, items) in self.run.as_ref().unwrap().progress() {
             let status = (items > 0).then(|| format_count(items));
             self.node_graph.set_node_status(id, status);
         }

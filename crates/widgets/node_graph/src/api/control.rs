@@ -17,6 +17,13 @@ pub struct FileDialogRequest<'a> {
     pub save: bool,
 }
 
+/// Host-neutral progress for an asynchronous file selection or import.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FileDialogProgress {
+    pub completed_bytes: u64,
+    pub total_bytes: Option<u64>,
+}
+
 /// Host-neutral file data delivered by drag-and-drop.
 pub struct DroppedFile {
     pub name: String,
@@ -32,6 +39,16 @@ pub trait FileDialogService: Send {
     /// Returns a completed asynchronous selection for one control.
     fn take_picked(&mut self, _request_id: u64) -> Option<Result<String, String>> {
         None
+    }
+
+    /// Returns current asynchronous selection/import progress.
+    fn progress(&self, _request_id: u64) -> Option<FileDialogProgress> {
+        None
+    }
+
+    /// Cancels a pending asynchronous selection/import when supported.
+    fn cancel(&mut self, _request_id: u64) -> bool {
+        false
     }
 
     /// Imports bytes supplied by the host's drag-and-drop mechanism.
@@ -64,6 +81,14 @@ impl<'a> InlineControlContext<'a> {
 
     pub fn take_picked_file(&mut self, request_id: u64) -> Option<Result<String, String>> {
         self.file_dialog.take_picked(request_id)
+    }
+
+    pub fn picked_file_progress(&self, request_id: u64) -> Option<FileDialogProgress> {
+        self.file_dialog.progress(request_id)
+    }
+
+    pub fn cancel_picked_file(&mut self, request_id: u64) -> bool {
+        self.file_dialog.cancel(request_id)
     }
 
     pub fn import_dropped_file(&mut self, file: DroppedFile) -> Result<String, String> {

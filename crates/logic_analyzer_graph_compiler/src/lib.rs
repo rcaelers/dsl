@@ -18,6 +18,9 @@ mod run_data;
 mod source_preparation;
 mod source_preparation_contract;
 mod source_preparation_executor;
+mod worker_client;
+mod worker_execution;
+mod worker_execution_codec;
 
 #[cfg(test)]
 mod architecture_tests;
@@ -52,7 +55,13 @@ pub use source_preparation_contract::{
     SourcePreparationStatus, SourcePreparationUpdate,
 };
 pub use source_preparation_executor::{
-    InlineSourcePreparationExecutor, SourcePreparationControl, SourcePreparationExecutor,
-    SourcePreparationResult, SourcePreparationTask, SourcePreparationTaskUpdate,
-    SourcePreparationWork,
+    CaptureWorkerSourcePreparationExecutor, InlineSourcePreparationExecutor,
+    SourcePreparationControl, SourcePreparationExecutor, SourcePreparationResult,
+    SourcePreparationTask, SourcePreparationTaskUpdate, SourcePreparationWork,
+};
+pub use worker_client::GraphWorkerClient;
+pub use worker_execution::{GraphWorkerMessage, GraphWorkerRequest, GraphWorkerRuntime};
+pub use worker_execution_codec::{
+    decode_graph_worker_messages, decode_graph_worker_request, encode_graph_worker_messages,
+    encode_graph_worker_request,
 };

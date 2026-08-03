@@ -69,6 +69,10 @@ mod implementation {
             2
         }
 
+        fn supports_long_running_tasks(&self) -> bool {
+            true
+        }
+
         fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
             Ok(Box::new(BenchmarkWorkTask {
                 handle: Some(std::thread::spawn(task)),

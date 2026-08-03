@@ -18,12 +18,13 @@ use signal_processing::capture::{
 };
 use signal_processing::waveform_index::IndexSampler;
 use signal_processing::{
-    ArtifactRepository, CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, EdgeQuery,
-    Error, InlineWorkExecutor, InputPort, OutputPort, PreparedByteSource, ProcessNode,
-    ProtocolKind, Result, Sample, SampleBlock, SampleKind, Sender, WorkExecutor, WorkResult,
-    WorkTask,
+    ArtifactRepository, CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory,
+    CaptureIndexOpenTask, EdgeQuery, Error, InlineWorkExecutor, InputPort, OutputPort,
+    PreparedByteSource, ProcessNode, ProtocolKind, Result, RuntimeExecutionMode, Sample,
+    SampleBlock, SampleKind, Sender, WorkExecutor, WorkOutcome, WorkResult, WorkTask,
 };
 
+use super::cooperative::CooperativeDslReader;
 use crate::support::capture_archive::{CaptureArchive, ZipCaptureArchive};
 use crate::support::capture_format::get_packed_bit;
 use crate::support::dsl_file::{DslChunkedCaptureReader, DslFileCaptureDataSource, parse_header};
@@ -125,6 +126,15 @@ impl CaptureIndexFactory for DslCaptureIndexFactory {
             },
         )
         .map(|index| Box::new(index) as Box<dyn CaptureIndex + Send>)
+    }
+
+    fn open_task(
+        self: Box<Self>,
+        artifact_repository: Arc<dyn ArtifactRepository>,
+        _work_executor: Arc<dyn WorkExecutor>,
+    ) -> Result<Box<dyn CaptureIndexOpenTask>> {
+        let source = DslFileCaptureDataSource::open_source(self.source, self.display_name)?;
+        IndexSampler::begin_open_data_source(source, artifact_repository)
     }
 }
 
@@ -246,6 +256,9 @@ pub struct DslFileSource {
     num_threads: usize,
     work_executor: Arc<dyn WorkExecutor>,
     artifact_repository: Arc<dyn ArtifactRepository>,
+    cooperative_reader: Option<CooperativeDslReader>,
+    cooperative_complete: bool,
+    runtime_execution_mode: RuntimeExecutionMode,
 
     // Lazily-built random-access waveform index, shared across every
     // channel's `edge_query()` handle. Built at most once, only if a
@@ -305,6 +318,9 @@ impl DslFileSource {
             num_threads: 0,
             work_executor: Arc::new(InlineWorkExecutor),
             artifact_repository: Arc::new(signal_processing::MemoryArtifactRepository::new()),
+            cooperative_reader: None,
+            cooperative_complete: false,
+            runtime_execution_mode: RuntimeExecutionMode::Independent,
             index: Mutex::new(None),
         })
     }
@@ -676,11 +692,20 @@ impl ProcessNode for DslFileSource {
     }
 
     fn should_stop(&self) -> bool {
-        self.threads_spawned && self.threads_completed.load(Ordering::Relaxed) >= self.num_threads
+        if self.runtime_execution_mode == RuntimeExecutionMode::Independent {
+            self.threads_spawned
+                && self.threads_completed.load(Ordering::Relaxed) >= self.num_threads
+        } else {
+            self.cooperative_complete
+        }
     }
 
     fn is_self_threading(&self) -> bool {
-        true
+        self.runtime_execution_mode == RuntimeExecutionMode::Independent
+    }
+
+    fn set_runtime_execution_mode(&mut self, mode: RuntimeExecutionMode) {
+        self.runtime_execution_mode = mode;
     }
 
     fn num_inputs(&self) -> usize {
@@ -740,6 +765,56 @@ impl ProcessNode for DslFileSource {
     }
 
     fn work(&mut self, _inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
+        self.work_once(outputs)
+            .map(signal_processing::WorkOutcome::produced_items)
+    }
+
+    fn work_outcome(
+        &mut self,
+        _inputs: &[InputPort],
+        outputs: &[OutputPort],
+    ) -> WorkResult<WorkOutcome> {
+        self.work_once(outputs)
+    }
+}
+
+impl DslFileSource {
+    fn work_once(&mut self, outputs: &[OutputPort]) -> WorkResult<WorkOutcome> {
+        if self.runtime_execution_mode == RuntimeExecutionMode::Cooperative {
+            return self.work_cooperatively(outputs);
+        }
+        self.start_reader_tasks(outputs)
+            .map(WorkOutcome::progressed)
+    }
+
+    fn work_cooperatively(&mut self, outputs: &[OutputPort]) -> WorkResult<WorkOutcome> {
+        if self.cooperative_reader.is_none() {
+            let sampler = self.edge_index_handle().ok_or_else(|| {
+                signal_processing::WorkError::NodeError(
+                    "cooperative file replay requires the prepared waveform index".to_owned(),
+                )
+            })?;
+            self.cooperative_reader = Some(CooperativeDslReader::new(
+                sampler,
+                outputs,
+                self.max_samples
+                    .unwrap_or(self.header.total_samples)
+                    .min(self.header.total_samples),
+                self.header.total_blocks,
+                self.header.samples_per_block,
+                self.header.samplerate_hz,
+            ));
+        }
+        let reader = self
+            .cooperative_reader
+            .as_mut()
+            .expect("cooperative reader initialized above");
+        let outcome = reader.step()?;
+        self.cooperative_complete = reader.is_finished();
+        Ok(outcome)
+    }
+
+    fn start_reader_tasks(&mut self, outputs: &[OutputPort]) -> WorkResult<usize> {
         use signal_processing::WorkError;
 
         if self.threads_spawned {
@@ -1121,6 +1196,33 @@ mod tests {
     }
 
     #[test]
+    fn cooperative_replay_advances_without_submitting_a_long_running_reader() {
+        let (_directory, path) = dsl_fixture();
+        let (mut source, _sampler) =
+            indexed_dsl_source(&path).expect("generated DSL capture should be indexed");
+        source.set_runtime_execution_mode(RuntimeExecutionMode::Cooperative);
+        let watchdog = Watchdog::new();
+        let (sender, receiver) = crossbeam_channel::bounded(2_048);
+        let outputs = [OutputPort::new_with_watchdog(
+            Sender::<Sample>::new(vec![sender]),
+            &watchdog,
+            "source",
+            "ch0",
+        )];
+
+        for _ in 0..2_048 {
+            if source.should_stop() {
+                break;
+            }
+            source.work_outcome(&[], &outputs).unwrap();
+        }
+
+        assert!(source.should_stop());
+        assert!(source.reader_tasks.is_none());
+        assert!(receiver.len() > 1);
+    }
+
+    #[test]
     fn test_dsl_channel_edge_index_next_edge_with_value() {
         let (_directory, path) = dsl_fixture();
         let (source, _sampler) =
@@ -1204,6 +1306,10 @@ mod tests {
     impl WorkExecutor for RecordingReaderExecutor {
         fn available_parallelism(&self) -> usize {
             1
+        }
+
+        fn supports_long_running_tasks(&self) -> bool {
+            true
         }
 
         fn submit(

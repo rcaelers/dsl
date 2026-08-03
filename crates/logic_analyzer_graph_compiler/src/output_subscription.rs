@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use logic_analyzer_graph_api::node_support::ResolvedInput;
 use node_graph::api::NodeId;
 
@@ -5,7 +7,7 @@ use node_graph::api::NodeId;
 ///
 /// Retention affects runtime collection. Visibility only selects metadata for
 /// consumers of already-retained lanes; changing it does not alter execution.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OutputSubscriptionPlan {
     visible_outputs: Vec<(NodeId, usize)>,
     retained_outputs: Vec<(NodeId, usize)>,

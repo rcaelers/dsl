@@ -1,6 +1,7 @@
 //! DSL capture-file source node.
 
 mod configuration;
+mod cooperative;
 mod facade;
 mod implementation;
 mod path_compatibility;

@@ -7,15 +7,17 @@ use logic_analyzer_graph_api::node_support::{
     CapturePresentation, TimelineMarkerEdit, TimelineMarkerReference, ViewerOutputControl,
 };
 use logic_analyzer_graph_compiler::{
-    CompileCtx, CompiledGraph, GraphCompiler, LiveAnalysisSource, OutputSubscriptionPlan,
-    SourceArtifactReadiness, SourceDataKind, SourceProcessOverrides,
+    CompileCtx, CompiledGraph, GraphCompiler, GraphWorkerMessage, GraphWorkerRequest,
+    GraphWorkerRuntime, LiveAnalysisSource, OutputSubscriptionPlan, SourceArtifactReadiness,
+    SourceDataKind, SourceProcessOverrides,
 };
 use node_graph::{GraphState, NodeGraphWidget, NodeId};
 use signal_processing::{
-    Annotation, CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId, CaptureStore,
-    CaptureStoreConfig, CollectedLaneSnapshotRequest, DerivedLanes, DigitalLaneSnapshot,
-    MemoryArtifactRepository, NumberLaneSnapshot, ProtocolPacketLaneSnapshot, ProtocolValue,
-    Sample, SampleBlock, TextLaneSnapshot, Trigger, TriggerLaneSnapshot, Word,
+    Annotation, ArtifactReplicationReceiver, ArtifactRepository, CaptureChannelId, CaptureChunk,
+    CaptureChunkWriter, CaptureSessionId, CaptureStore, CaptureStoreConfig,
+    CollectedLaneSnapshotRequest, DerivedLanes, DigitalLaneSnapshot, MemoryArtifactRepository,
+    NumberLaneSnapshot, ProtocolPacketLaneSnapshot, ProtocolValue, Sample, SampleBlock,
+    TextLaneSnapshot, Trigger, TriggerLaneSnapshot, Word,
 };
 
 use integration_tests_support as nodes;
@@ -274,6 +276,74 @@ fn event_controls_demo_fixture_loads_lowers_and_executes() {
             .any(|name| name.contains("Automatic Rearm"))
     );
     assert!(lane_names.iter().any(|name| name.contains("Manual Rearm")));
+}
+
+#[test]
+fn worker_hosted_large_timeline_returns_bounded_artifacts_and_loadable_cached_lanes() {
+    let graph: GraphState =
+        serde_json::from_str(include_str!("../graphs/event_controls_demo.json"))
+            .expect("event-controls demo should deserialize");
+    let subscriptions = (1..=5)
+        .map(|node| (NodeId(node), 0))
+        .collect::<OutputSubscriptionPlan>();
+    let destination: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+    let mut receiver = ArtifactReplicationReceiver::new(Arc::clone(&destination));
+    let mut runtime = GraphWorkerRuntime::new(Vec::new());
+    let mut messages = Vec::new();
+    runtime.execute_streaming(
+        GraphWorkerRequest::Start {
+            sequence: 41,
+            graph: graph.clone(),
+            subscriptions: subscriptions.clone(),
+            timeline_markers: Vec::new(),
+        },
+        &mut |message| messages.push(message),
+    );
+    assert!(matches!(
+        messages.as_slice(),
+        [GraphWorkerMessage::Started { sequence: 41 }]
+    ));
+
+    let mut host_turns = 0;
+    while runtime.has_active_run() {
+        host_turns += 1;
+        assert!(host_turns < 100_000, "worker graph should make progress");
+        messages.clear();
+        runtime.advance_streaming(&mut |message| messages.push(message));
+        for message in messages.drain(..) {
+            if let GraphWorkerMessage::Artifacts { events, .. } = message {
+                assert!(events.len() <= 8);
+                assert!(
+                    events
+                        .iter()
+                        .map(|event| match event {
+                            signal_processing::ArtifactReplicationEvent::PublishedChunk {
+                                data,
+                                ..
+                            } => data.len(),
+                            signal_processing::ArtifactReplicationEvent::Removed { .. } => 0,
+                        })
+                        .sum::<usize>()
+                        <= 4 * 1024 * 1024
+                );
+                for event in events {
+                    receiver.apply(event).unwrap();
+                }
+            }
+        }
+    }
+    assert!(
+        host_turns > 1,
+        "the graph must yield to its host while running"
+    );
+    assert!(receiver.is_idle());
+
+    let mut compiler = GraphCompiler::new();
+    compiler.set_artifact_repository(destination);
+    compiler.set_output_subscriptions(subscriptions);
+    let mut context = CompileCtx::default();
+    assert!(compiler.load_cached_data(&graph, &mut context).unwrap());
+    assert_eq!(context.derived_lanes().opaque_lanes().len(), 5);
 }
 
 #[test]

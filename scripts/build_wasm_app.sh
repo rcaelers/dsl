@@ -54,5 +54,7 @@ node --check "${OUT_DIR}/main.js"
 node --check "${OUT_DIR}/pkg/logic_conduit.js"
 rg --quiet "export function executePortableWorkerOperation" \
   "${OUT_DIR}/pkg/logic_conduit.js"
+rg --quiet "export function initializeWorkerHost" \
+  "${OUT_DIR}/pkg/logic_conduit.js"
 
 echo "WASM app written to ${OUT_DIR}"

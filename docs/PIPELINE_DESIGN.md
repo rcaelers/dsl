@@ -284,9 +284,10 @@ restarts-in-place) that the UI draws in node headers.
 
 Single-threaded sibling for `wasm32` (no `std::thread`). Drives the same `NodeSpec`s and
 subscriber-list machinery — live add/remove/restart/reconfigure and sticky priming behave
-identically — but never blocks: `pump(budget)` (driven from the UI frame loop) only calls a
-node's `work()` when every input is ready **and** no output would block
-(`SharedSenders::would_block`). A blocked-downstream node is skipped for that pump cycle and
+identically — but never blocks: `pump(budget)` only calls a node's `work()` when every input
+is ready **and** no output would block (`SharedSenders::would_block`). Interactive callers use
+`pump_for(budget, duration)` so the cooperative run returns after a short host-time slice even when
+the call-count budget has not been exhausted. A blocked-downstream node is skipped for that cycle and
 retried once the consumer drains. `WorkOutcome::made_progress` keeps the pump running when a
 node consumed input but deliberately produced no output; the independent produced-item count
 continues to drive node-header counters. This relies on one invariant: on the cooperative backend

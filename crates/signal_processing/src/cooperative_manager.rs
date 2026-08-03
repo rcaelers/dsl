@@ -47,11 +47,17 @@ use std::any::TypeId;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+
+use web_time::Instant;
 
 use super::errors::WorkError;
 use super::events::{NumberSample, TextSample};
 use super::manager::{DisconnectEvent, InputSub, NodeSpec};
-use super::node::{ConfigOutcome, ConfigurationBoundary, InputScheduling, NodeConfig, ProcessNode};
+use super::node::{
+    ConfigOutcome, ConfigurationBoundary, InputScheduling, NodeConfig, ProcessNode,
+    RuntimeExecutionMode,
+};
 use super::ports::{InputPort, OutputPort, PortSchema, StreamReadiness};
 use super::sample::Sample;
 use super::type_registry::{ErasedReceiverReadiness, ErasedSharedSenders, TYPE_REGISTRY};
@@ -215,7 +221,12 @@ impl CooperativeManager {
         if self.nodes.contains_key(&spec.name) {
             return Err(format!("node '{}' already exists", spec.name));
         }
-        let NodeSpec { name, node, inputs } = spec;
+        let NodeSpec {
+            name,
+            mut node,
+            inputs,
+        } = spec;
+        node.set_runtime_execution_mode(RuntimeExecutionMode::Cooperative);
 
         let input_scheduling = node.input_scheduling();
         let input_schemas = node.input_schema();
@@ -381,9 +392,10 @@ impl CooperativeManager {
     pub fn restart_node(
         &mut self,
         name: &str,
-        node: Box<dyn ProcessNode>,
+        mut node: Box<dyn ProcessNode>,
         inputs: Vec<Option<InputSub>>,
     ) -> Result<(), String> {
+        node.set_runtime_execution_mode(RuntimeExecutionMode::Cooperative);
         let old = self
             .nodes
             .remove(name)
@@ -554,6 +566,15 @@ impl CooperativeManager {
     /// frame loop on wasm) is expected to call this every frame regardless
     /// of run state.
     pub fn pump(&mut self, budget: usize) {
+        self.pump_until(budget, None);
+    }
+
+    /// Pumps with both a deterministic call budget and an interactive host-time budget.
+    pub fn pump_for(&mut self, budget: usize, max_duration: Duration) {
+        self.pump_until(budget, Some(Instant::now() + max_duration));
+    }
+
+    fn pump_until(&mut self, budget: usize, deadline: Option<Instant>) {
         let mut calls = 0usize;
         while calls < budget {
             let mut made_progress = false;
@@ -635,6 +656,9 @@ impl CooperativeManager {
                 }
                 if calls >= budget {
                     break;
+                }
+                if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                    return;
                 }
             }
             if !made_progress {

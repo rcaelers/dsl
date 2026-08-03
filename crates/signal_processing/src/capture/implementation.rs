@@ -1,8 +1,14 @@
+use std::collections::VecDeque;
 use std::sync::Arc;
 
-use crate::{ByteRange, ByteRegion, ImmutableByteRegion, Result, SourceIdentity, WorkExecutor};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+use super::preparation::CaptureIndexPreparationRequest;
+use crate::{
+    ByteRange, ByteRegion, Error, ImmutableByteRegion, Result, SourceIdentity, WorkExecutor,
+};
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CaptureMetadata {
     /// Total number of probes/channels.
     pub total_probes: usize,
@@ -33,13 +39,13 @@ impl CaptureMetadata {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureTransition {
     pub sample: u64,
     pub value: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CaptureWaveformSegment {
     Level {
         start_sample: u64,
@@ -59,7 +65,7 @@ pub enum CaptureWaveformSegment {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureSampledChannel {
     pub channel: usize,
     pub name: String,
@@ -68,12 +74,23 @@ pub struct CaptureSampledChannel {
     pub waveform: Vec<CaptureWaveformSegment>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureSampledWindow {
     pub start_sample: u64,
     pub end_sample: u64,
     pub sample_step: u64,
     pub channels: Vec<CaptureSampledChannel>,
+}
+
+/// Result of a non-blocking sampled-window query.
+///
+/// Local indexes normally return [`Self::Ready`] immediately. A host-backed
+/// index may enqueue bounded work and return [`Self::Pending`], then publish
+/// the result from a later call with the same query.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CaptureSampledWindowPoll {
+    Pending,
+    Ready(CaptureSampledWindow),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -259,13 +276,9 @@ pub trait CaptureDataSource: Clone + Send + Sync + 'static {
 
 /// Windowed access to an already-opened capture's sample data.
 ///
-/// The only implementation ([`IndexSampler`](super::waveform_index::IndexSampler))
-/// is native-only — it depends on a persistent on-disk index, which wasm has
-/// no filesystem to hold. This trait exists so consumers (the viewer) can
-/// hold `Box<dyn CaptureIndex>` on both targets: on wasm nothing ever
-/// constructs one, so the field simply stays `None` and every call site that
-/// already handles "no sampler yet" continues to work unchanged, without
-/// needing to know why.
+/// Implementations may read an in-process index or proxy bounded queries to a
+/// host-owned index. Consumers use [`CaptureIndex::poll_sampled_window`] when
+/// they must remain responsive while the backing executes independently.
 pub trait CaptureIndex {
     fn display_name(&self) -> String;
     fn index_identity(&self) -> SourceIdentity;
@@ -292,12 +305,58 @@ pub trait CaptureIndex {
         end_sample: u64,
         target_points: usize,
     ) -> Result<CaptureSampledWindow>;
+
+    /// Returns one packed raw capture block when this index retains replay access.
+    ///
+    /// Viewer-only or growing indexes may return `None`. Host-backed file
+    /// sessions use this optional capability to stream bounded blocks without
+    /// reopening or copying the complete capture.
+    fn packed_block(&mut self, _channel: usize, _block: u64) -> Result<Option<BlockData>> {
+        Ok(None)
+    }
+
+    /// Polls a sampled window without requiring the backing host to block.
+    ///
+    /// The default preserves immediate local index behavior. Remote indexes
+    /// override this method to deduplicate an outstanding query and return
+    /// [`CaptureSampledWindowPoll::Pending`] until its bounded result arrives.
+    fn poll_sampled_window(
+        &mut self,
+        channels: &[usize],
+        start_sample: u64,
+        end_sample: u64,
+        target_points: usize,
+    ) -> Result<CaptureSampledWindowPoll> {
+        self.sampled_window(channels, start_sample, end_sample, target_points)
+            .map(CaptureSampledWindowPoll::Ready)
+    }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureIndexBuildProgress {
     pub completed: u64,
     pub total: u64,
+}
+
+/// One bounded result from resumable capture-index preparation.
+pub enum CaptureIndexOpenStep {
+    Progress(CaptureIndexBuildProgress),
+    Ready(Box<dyn CaptureIndex + Send>),
+}
+
+/// Resumable capture-index construction owned by a host executor.
+pub trait CaptureIndexOpenTask: Send + 'static {
+    /// Returns the canonical identity expected from the completed index.
+    ///
+    /// Incremental builders should expose this before construction completes
+    /// so hosts can reject an index assembled for different source data. The
+    /// compatibility task returns `None` because legacy synchronous factories
+    /// do not declare an identity until they produce the index.
+    fn expected_index_identity(&self) -> Option<SourceIdentity> {
+        None
+    }
+
+    fn step(&mut self) -> Result<CaptureIndexOpenStep>;
 }
 
 /// Generic indexed-capture presentation supplied by a concrete source.
@@ -314,6 +373,16 @@ pub struct IndexedCapturePresentation {
 pub trait CaptureIndexFactory: Send + 'static {
     fn display_name(&self) -> String;
 
+    /// Returns an opaque host-preparation request when the source backing
+    /// cannot be opened in the caller's execution context.
+    ///
+    /// Generic consumers submit this request through their injected host
+    /// executor and must not call [`Self::metadata`] or [`Self::open`] for the
+    /// same factory.
+    fn preparation_request(&self) -> Option<CaptureIndexPreparationRequest> {
+        None
+    }
+
     /// Inspects the capture before index construction so hosts can publish
     /// channel and time-span metadata while the index is still being built.
     fn metadata(&self) -> Result<CaptureMetadata>;
@@ -324,6 +393,60 @@ pub trait CaptureIndexFactory: Send + 'static {
         work_executor: Arc<dyn WorkExecutor>,
         progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
     ) -> Result<Box<dyn CaptureIndex + Send>>;
+
+    /// Creates a resumable preparation task.
+    ///
+    /// The compatibility implementation performs the existing synchronous
+    /// open on its first step. Capture formats with block-addressable inputs
+    /// override this to yield at deterministic index boundaries.
+    fn open_task(
+        self: Box<Self>,
+        artifact_repository: Arc<dyn crate::ArtifactRepository>,
+        work_executor: Arc<dyn WorkExecutor>,
+    ) -> Result<Box<dyn CaptureIndexOpenTask>> {
+        Ok(Box::new(BlockingCaptureIndexOpenTask {
+            factory: Some(self),
+            artifact_repository,
+            work_executor,
+            progress: VecDeque::new(),
+            ready: None,
+        }))
+    }
+}
+
+struct BlockingCaptureIndexOpenTask<F: CaptureIndexFactory + ?Sized> {
+    factory: Option<Box<F>>,
+    artifact_repository: Arc<dyn crate::ArtifactRepository>,
+    work_executor: Arc<dyn WorkExecutor>,
+    progress: VecDeque<CaptureIndexBuildProgress>,
+    ready: Option<Box<dyn CaptureIndex + Send>>,
+}
+
+impl<F> CaptureIndexOpenTask for BlockingCaptureIndexOpenTask<F>
+where
+    F: CaptureIndexFactory + ?Sized,
+{
+    fn step(&mut self) -> Result<CaptureIndexOpenStep> {
+        if let Some(progress) = self.progress.pop_front() {
+            return Ok(CaptureIndexOpenStep::Progress(progress));
+        }
+        if let Some(index) = self.ready.take() {
+            return Ok(CaptureIndexOpenStep::Ready(index));
+        }
+        let factory = self.factory.take().ok_or_else(|| {
+            Error::ParseError("capture-index task is already complete".to_owned())
+        })?;
+        let index = factory.open(
+            Arc::clone(&self.artifact_repository),
+            Arc::clone(&self.work_executor),
+            &mut |progress| {
+                self.progress.push_back(progress);
+                true
+            },
+        )?;
+        self.ready = Some(index);
+        self.step()
+    }
 }
 
 pub fn packed_bit(data: &[u8], bit_index: usize) -> bool {

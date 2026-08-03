@@ -113,6 +113,16 @@ impl CompileCtx {
         std::mem::take(&mut self.sampling_overlays)
     }
 
+    /// Supplies a shared lane catalog that a deferred execution host can populate later.
+    pub fn set_derived_lanes(&mut self, lanes: DerivedLanes) {
+        self.derived_lanes = lanes;
+    }
+
+    /// Supplies statically lowered overlay metadata before deferred execution starts.
+    pub fn set_sampling_overlays(&mut self, overlays: Vec<SamplingOverlayCandidate>) {
+        self.sampling_overlays = overlays;
+    }
+
     /// Returns application-requested retained outputs and their resolved lane metadata.
     pub fn collected_output_subscriptions(&self) -> &[CollectedOutputSubscription] {
         &self.collected_output_subscriptions
@@ -151,6 +161,12 @@ impl CompileCtx {
         marker: signal_processing::TimelineMarker,
     ) {
         self.timeline_markers.insert(reference, marker);
+    }
+
+    pub(crate) fn timeline_markers(
+        &self,
+    ) -> impl Iterator<Item = (&TimelineMarkerReference, &signal_processing::TimelineMarker)> {
+        self.timeline_markers.iter()
     }
 }
 
@@ -2571,6 +2587,11 @@ impl LiveRun {
     /// UI frame loop must call it every frame regardless of target.
     pub fn pump(&mut self, budget: usize) {
         self.manager.pump(budget);
+    }
+
+    /// Drives cooperative work without monopolizing an interactive host event loop.
+    pub fn pump_for(&mut self, budget: usize, max_duration: std::time::Duration) {
+        self.manager.pump_for(budget, max_duration);
     }
 
     /// Blocks until the run completes naturally (tests / headless).

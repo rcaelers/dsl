@@ -1,6 +1,6 @@
 use egui::Pos2;
 
-use signal_processing::CaptureWaveformSegment;
+use signal_processing::{CaptureSampledWindowPoll, CaptureWaveformSegment};
 
 use crate::channel::channels_from_window;
 use crate::types::{
@@ -9,12 +9,11 @@ use crate::types::{
 use crate::viewer::LogicAnalyzerViewer;
 
 impl LogicAnalyzerViewer {
-    /// Samples the visible window from the index synchronously, so the drawn
-    /// waveform always matches the current view exactly. Skipped when neither
-    /// the view nor the viewport size changed since the last sampling. A
-    /// no-op whenever `sampler` is `None` — always true on wasm, since
-    /// nothing there ever constructs one (see `CaptureIndex`).
+    /// Polls the visible window from the index, keeping the current waveform
+    /// while a host-backed query is pending. Skipped when neither the view nor
+    /// the viewport size changed since the last completed sampling.
     pub(crate) fn sample_visible_window(&mut self, layout: AnalyzerLayout) {
+        self.sample_query_pending = false;
         if layout.wave_rect.width() <= 1.0 {
             return;
         }
@@ -49,17 +48,21 @@ impl LogicAnalyzerViewer {
             return;
         };
 
-        match sampler.sampled_window(
+        match sampler.poll_sampled_window(
             &requested_channels,
             visible_start,
             visible_end,
             target_points,
         ) {
-            Ok(window) => {
+            Ok(CaptureSampledWindowPoll::Ready(window)) => {
                 let mut channels = channels_from_window(&window, samplerate_hz);
                 self.apply_channel_names(&mut channels);
                 self.apply_channel_order(&mut channels);
                 self.channels = channels;
+            }
+            Ok(CaptureSampledWindowPoll::Pending) => {
+                self.sample_query_pending = true;
+                return;
             }
             Err(err) => {
                 self.status = format!("Could not read capture window: {err}");
@@ -257,11 +260,15 @@ impl LogicAnalyzerViewer {
             return None;
         }
         const POINTS: usize = 1_024;
-        let window = self
-            .sampler
-            .as_mut()?
-            .sampled_window(&[channel_index], lo, hi, POINTS)
-            .ok()?;
+        let window =
+            match self
+                .sampler
+                .as_mut()?
+                .poll_sampled_window(&[channel_index], lo, hi, POINTS)
+            {
+                Ok(CaptureSampledWindowPoll::Ready(window)) => window,
+                Ok(CaptureSampledWindowPoll::Pending) | Err(_) => return None,
+            };
         let channel = window.channels.first()?;
         if window.sample_step == 1 {
             return if backward {
@@ -367,9 +374,15 @@ impl LogicAnalyzerViewer {
         }
         let window_samples = (end_sample - start_sample) as usize;
 
-        let window = sampler
-            .sampled_window(&[channel_index], start_sample, end_sample, window_samples)
-            .ok()?;
+        let window = match sampler.poll_sampled_window(
+            &[channel_index],
+            start_sample,
+            end_sample,
+            window_samples,
+        ) {
+            Ok(CaptureSampledWindowPoll::Ready(window)) => window,
+            Ok(CaptureSampledWindowPoll::Pending) | Err(_) => return None,
+        };
         let sampled = window.channels.first()?;
         Some(ExactWindow {
             initial: sampled.initial,

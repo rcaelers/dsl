@@ -19,6 +19,16 @@ fn initialize_compile_time_inventories() {
     });
 }
 
+/// Initializes compile-time inventories in a worker-hosted instance of this WASM module.
+///
+/// A worker imports the same module without constructing [`WebHandle`], so its
+/// linker-provided registrations must be initialized explicitly before any
+/// compiler/runtime service is used.
+#[wasm_bindgen(js_name = initializeWorkerHost)]
+pub fn initialize_worker_host() {
+    initialize_compile_time_inventories();
+}
+
 #[derive(Clone)]
 #[wasm_bindgen]
 pub struct WebHandle {

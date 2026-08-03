@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use logic_analyzer_graph_api::node::RuntimeBuilderOverride;
 use logic_analyzer_graph_api::node_support::{
     LiveCaptureEdit, TimelineMarkerEdit, TimelineMarkerReferenceBindingEdit,
@@ -6,13 +8,15 @@ use logic_analyzer_graph_compiler::{
     ApplyError, ApplySummary, CollectedOutputSubscription, CollectedTableSubscription, CompileCtx,
     CompileError, DiscoveredLiveCaptureFeature, DiscoveredTimelineMarker,
     DiscoveredTimelineMarkerReferenceBinding, DiscoveredTriggerConfiguration, GraphCompiler,
-    LiveAnalysisSource, LiveCaptureDiscoveryError, LiveRun, OutputSubscriptionPlan,
-    SamplingOverlayCandidate, SourcePreparationExecutor, SourcePreparationStatus,
-    SourcePreparationUpdate, SourceProcessOverrides, SourceReadinessRegistry,
+    GraphWorkerClient, GraphWorkerMessage, LiveAnalysisSource, LiveCaptureDiscoveryError, LiveRun,
+    OutputSubscriptionPlan, SamplingOverlayCandidate, SourcePreparationExecutor,
+    SourcePreparationStatus, SourcePreparationUpdate, SourceProcessOverrides,
+    SourceReadinessRegistry,
 };
 use node_graph::{GraphState, NodeId};
 use signal_processing::{
-    AppManagerFactory, ConfigurationBoundary, DisconnectEvent, PersistentStoreConfig, WorkExecutor,
+    AppManagerFactory, ConfigurationBoundary, DerivedLanes, DisconnectEvent, PersistentStoreConfig,
+    WorkExecutor,
 };
 
 use super::contract::{GraphRun, GraphService};
@@ -59,6 +63,10 @@ impl GraphRun for LiveRun {
         LiveRun::pump(self, budget);
     }
 
+    fn pump_for(&mut self, budget: usize, max_duration: std::time::Duration) {
+        LiveRun::pump_for(self, budget, max_duration);
+    }
+
     fn progress(&self) -> Vec<(NodeId, u64)> {
         LiveRun::progress(self)
     }
@@ -72,6 +80,156 @@ fn concrete_run(run: &mut dyn GraphRun) -> Result<&mut LiveRun, ApplyError> {
     run.as_any_mut()
         .downcast_mut::<LiveRun>()
         .ok_or_else(|| ApplyError::Apply("graph run was not created by GraphCompiler".into()))
+}
+
+struct WorkerGraphRun {
+    client: Arc<GraphWorkerClient>,
+    sequence: u64,
+    lanes: DerivedLanes,
+    caches: Vec<PersistentStoreConfig>,
+    sampling_overlays: Vec<SamplingOverlayCandidate>,
+    output_subscriptions: Vec<CollectedOutputSubscription>,
+    table_subscriptions: Vec<CollectedTableSubscription>,
+    source_readiness: SourceReadinessRegistry,
+    progress: Vec<(NodeId, u64)>,
+    finished: bool,
+    stopping: bool,
+    needs_data_sync: bool,
+    failure: Option<String>,
+}
+
+impl WorkerGraphRun {
+    fn start(
+        compiler: &GraphCompiler,
+        graph: &GraphState,
+        context: &mut CompileCtx,
+        client: Arc<GraphWorkerClient>,
+    ) -> Result<Self, Vec<CompileError>> {
+        let caches = compiler
+            .derived_cache_configs_by_node(graph)?
+            .into_values()
+            .flatten()
+            .collect();
+        let sampling_overlays = compiler.sampling_overlay_candidates(graph)?;
+        context.set_sampling_overlays(sampling_overlays.clone());
+        let sequence = client
+            .start(
+                graph.clone(),
+                compiler.output_subscriptions().clone(),
+                context,
+            )
+            .map_err(|message| {
+                vec![CompileError {
+                    node: None,
+                    message,
+                }]
+            })?;
+        Ok(Self {
+            client,
+            sequence,
+            lanes: context.derived_lanes().clone(),
+            caches,
+            sampling_overlays,
+            output_subscriptions: Vec::new(),
+            table_subscriptions: Vec::new(),
+            source_readiness: context.source_readiness().clone(),
+            progress: Vec::new(),
+            finished: false,
+            stopping: false,
+            needs_data_sync: false,
+            failure: None,
+        })
+    }
+
+    fn synchronize_data(
+        &mut self,
+        compiler: &GraphCompiler,
+        graph: &GraphState,
+    ) -> Result<bool, Vec<CompileError>> {
+        if !self.needs_data_sync {
+            return Ok(false);
+        }
+        let mut context = CompileCtx::default();
+        context.set_derived_lanes(self.lanes.clone());
+        let loaded = compiler.load_cached_data(graph, &mut context)?;
+        if loaded {
+            self.output_subscriptions = context.collected_output_subscriptions().to_vec();
+            self.table_subscriptions = context.collected_table_subscriptions().to_vec();
+            self.sampling_overlays = context.take_sampling_overlays();
+        }
+        self.needs_data_sync = false;
+        Ok(loaded)
+    }
+}
+
+impl GraphRun for WorkerGraphRun {
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
+    fn persistent_cache_configs(&self) -> Vec<PersistentStoreConfig> {
+        self.caches.clone()
+    }
+
+    fn sampling_overlays(&self) -> &[SamplingOverlayCandidate] {
+        &self.sampling_overlays
+    }
+
+    fn output_subscriptions(&self) -> &[CollectedOutputSubscription] {
+        &self.output_subscriptions
+    }
+
+    fn table_subscriptions(&self) -> &[CollectedTableSubscription] {
+        &self.table_subscriptions
+    }
+
+    fn source_readiness(&self) -> &SourceReadinessRegistry {
+        &self.source_readiness
+    }
+
+    fn is_finished(&self) -> bool {
+        self.finished
+    }
+
+    fn is_stopping(&self) -> bool {
+        self.stopping
+    }
+
+    fn stop(&mut self) {
+        self.stopping = self.client.cancel(self.sequence);
+    }
+
+    fn pump(&mut self, _budget: usize) {
+        for message in self.client.take_updates(self.sequence) {
+            match message {
+                GraphWorkerMessage::Started { .. } | GraphWorkerMessage::Artifacts { .. } => {}
+                GraphWorkerMessage::Progress { nodes, .. } => self.progress = nodes,
+                GraphWorkerMessage::Finished { .. } => {
+                    self.finished = true;
+                    self.needs_data_sync = true;
+                }
+                GraphWorkerMessage::Failed { message, .. } => {
+                    self.finished = true;
+                    self.failure = Some(message);
+                }
+                GraphWorkerMessage::Cancelled { .. } => {
+                    self.finished = true;
+                }
+            }
+        }
+    }
+
+    fn progress(&self) -> Vec<(NodeId, u64)> {
+        self.progress.clone()
+    }
+
+    fn take_disconnected(&self) -> Vec<(Option<NodeId>, DisconnectEvent)> {
+        Vec::new()
+    }
+
+    fn take_failure(&mut self) -> Option<String> {
+        self.failure.take()
+    }
 }
 
 impl CaptureFeatureDiscovery for GraphCompiler {
@@ -100,6 +258,10 @@ impl GraphService for GraphCompiler {
         repository: std::sync::Arc<dyn signal_processing::ArtifactRepository>,
     ) {
         GraphCompiler::set_artifact_repository(self, repository);
+    }
+
+    fn set_graph_worker_client(&mut self, client: Option<Arc<GraphWorkerClient>>) {
+        GraphCompiler::set_graph_worker_client(self, client);
     }
 
     fn derived_cache_configs_by_node(
@@ -235,6 +397,12 @@ impl GraphService for GraphCompiler {
         context: &mut CompileCtx,
         source_overrides: SourceProcessOverrides,
     ) -> Result<Box<dyn GraphRun>, Vec<CompileError>> {
+        if source_overrides.is_empty()
+            && let Some(client) = self.graph_worker_client()
+        {
+            return WorkerGraphRun::start(self, graph, context, client)
+                .map(|run| Box::new(run) as Box<dyn GraphRun>);
+        }
         GraphCompiler::start_app_run_with_source_overrides(self, graph, context, source_overrides)
             .map(|run| Box::new(run) as Box<dyn GraphRun>)
     }
@@ -264,6 +432,17 @@ impl GraphService for GraphCompiler {
         boundary: ConfigurationBoundary,
     ) -> Result<ApplySummary, ApplyError> {
         GraphCompiler::apply_configuration_epoch(self, concrete_run(run)?, graph, boundary)
+    }
+
+    fn synchronize_run_data(
+        &self,
+        run: &mut dyn GraphRun,
+        graph: &GraphState,
+    ) -> Result<bool, Vec<CompileError>> {
+        let Some(run) = run.as_any_mut().downcast_mut::<WorkerGraphRun>() else {
+            return Ok(false);
+        };
+        run.synchronize_data(self, graph)
     }
 }
 

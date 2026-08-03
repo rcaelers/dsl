@@ -2253,6 +2253,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "clap",
+ "console_error_panic_hook",
  "crossbeam-channel",
  "dirs",
  "egui",

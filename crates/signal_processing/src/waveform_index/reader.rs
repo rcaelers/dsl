@@ -5,13 +5,14 @@ use super::builder::IndexBuilder;
 use super::exact::exact_window_sample_limit;
 use super::query::{GroupSummary, SummaryGrid, sample_summary_channel};
 use super::resolution::select_summary_resolution;
-use super::storage::{IndexReader, LevelsView};
+use super::storage::{IndexReader, IndexWriter, LevelsView};
 use super::types::{
     CaptureIndexProgress, SAMPLES_PER_L1_BIT, SAMPLES_PER_L2_BIT, SAMPLES_PER_L3_BIT, bit,
 };
 use crate::capture::{
-    BlockCaptureSource, BlockData, CaptureDataSource, CaptureIndex, CaptureMetadata,
-    CaptureSampledChannel, CaptureSampledWindow, CaptureTransition, packed_bit,
+    BlockCaptureSource, BlockData, CaptureDataSource, CaptureIndex, CaptureIndexBuildProgress,
+    CaptureIndexOpenStep, CaptureIndexOpenTask, CaptureMetadata, CaptureSampledChannel,
+    CaptureSampledWindow, CaptureTransition, packed_bit,
 };
 use crate::{
     ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, Error, InlineWorkExecutor,
@@ -114,6 +115,24 @@ where
             Arc::new(InlineWorkExecutor),
             progress,
         )
+    }
+
+    /// Starts a sequential index build that yields after every channel block.
+    ///
+    /// This is intended for host workers that must return to their event loop
+    /// between bounded units of file and index work. The published index is
+    /// byte-for-byte identical to the synchronous builder's output.
+    pub fn begin_open_data_source<S>(
+        data_source: S,
+        repository: Arc<dyn ArtifactRepository>,
+    ) -> Result<Box<dyn CaptureIndexOpenTask>>
+    where
+        S: CaptureDataSource<Reader = R>,
+    {
+        Ok(Box::new(IncrementalIndexSamplerTask::new(
+            data_source,
+            repository,
+        )?))
     }
 
     pub fn open_data_source_with_executor_and_progress<S, C>(
@@ -975,6 +994,172 @@ where
     }
 }
 
+struct IncrementalIndexSamplerTask<S>
+where
+    S: CaptureDataSource,
+{
+    data_source: S,
+    reader: Option<S::Reader>,
+    repository: Arc<dyn ArtifactRepository>,
+    identity: SourceIdentity,
+    header: CaptureMetadata,
+    source_revision: u64,
+    writer: Option<IndexWriter>,
+    previous_last: Vec<Option<bool>>,
+    channel: usize,
+    block: u64,
+    completed: u64,
+    total: u64,
+    ready: Option<Box<dyn CaptureIndex + Send>>,
+}
+
+impl<S> IncrementalIndexSamplerTask<S>
+where
+    S: CaptureDataSource,
+{
+    fn new(data_source: S, repository: Arc<dyn ArtifactRepository>) -> Result<Self> {
+        let header = data_source.metadata().clone();
+        let fingerprint = data_source.fingerprint();
+        let identity = data_source
+            .index_identity()
+            .ok_or_else(|| Error::ParseError("capture source is not indexable".to_owned()))?;
+        let total = u64::try_from(header.total_probes)
+            .ok()
+            .and_then(|channels| channels.checked_mul(header.total_blocks))
+            .ok_or_else(|| Error::ParseError("capture-index job count overflow".to_owned()))?;
+
+        if IndexReader::is_valid(repository.as_ref(), identity, &header, fingerprint.revision)? {
+            let storage = IndexReader::open(
+                Arc::clone(&repository),
+                identity,
+                header.clone(),
+                fingerprint.revision,
+            )?;
+            let display_name = data_source.display_name();
+            let raw_reader = data_source.open_reader()?;
+            let ready = Box::new(IndexSampler::new(
+                display_name,
+                storage,
+                raw_reader,
+                Arc::clone(&repository),
+                identity,
+            ));
+            return Ok(Self {
+                data_source,
+                reader: None,
+                repository,
+                identity,
+                header,
+                source_revision: fingerprint.revision,
+                writer: None,
+                previous_last: Vec::new(),
+                channel: 0,
+                block: 0,
+                completed: total,
+                total,
+                ready: Some(ready),
+            });
+        }
+
+        let reader = data_source.open_reader()?;
+        let writer = IndexWriter::create(
+            Arc::clone(&repository),
+            identity,
+            &header,
+            fingerprint.revision,
+        )?;
+        Ok(Self {
+            data_source,
+            reader: Some(reader),
+            repository,
+            identity,
+            previous_last: vec![None; header.total_probes],
+            header,
+            source_revision: fingerprint.revision,
+            writer: Some(writer),
+            channel: 0,
+            block: 0,
+            completed: 0,
+            total,
+            ready: None,
+        })
+    }
+
+    fn finish(&mut self) -> Result<CaptureIndexOpenStep> {
+        self.writer
+            .take()
+            .ok_or_else(|| Error::ParseError("capture-index writer is unavailable".to_owned()))?
+            .finish()?;
+        let storage = IndexReader::open(
+            Arc::clone(&self.repository),
+            self.identity,
+            self.header.clone(),
+            self.source_revision,
+        )?;
+        let reader = self
+            .reader
+            .take()
+            .ok_or_else(|| Error::ParseError("capture reader is unavailable".to_owned()))?;
+        Ok(CaptureIndexOpenStep::Ready(Box::new(IndexSampler::new(
+            self.data_source.display_name(),
+            storage,
+            reader,
+            Arc::clone(&self.repository),
+            self.identity,
+        ))))
+    }
+}
+
+impl<S> CaptureIndexOpenTask for IncrementalIndexSamplerTask<S>
+where
+    S: CaptureDataSource,
+{
+    fn expected_index_identity(&self) -> Option<SourceIdentity> {
+        Some(self.identity)
+    }
+
+    fn step(&mut self) -> Result<CaptureIndexOpenStep> {
+        if let Some(index) = self.ready.take() {
+            return Ok(CaptureIndexOpenStep::Ready(index));
+        }
+        if self.completed >= self.total {
+            return self.finish();
+        }
+
+        let data = self
+            .reader
+            .as_mut()
+            .ok_or_else(|| Error::ParseError("capture reader is unavailable".to_owned()))?
+            .read_packed_block(self.channel, self.block)?;
+        let block_start = self.block.saturating_mul(self.header.samples_per_block);
+        let valid_samples = u64::try_from(data.len())
+            .unwrap_or(u64::MAX)
+            .saturating_mul(8)
+            .min(self.header.total_samples.saturating_sub(block_start));
+        let mut leaf = IndexBuilder::<S>::build_leaf(&data, valid_samples)?;
+        IndexBuilder::<S>::apply_boundary_transition(&mut leaf, self.previous_last[self.channel]);
+        self.previous_last[self.channel] = Some(leaf.last);
+        let block = usize::try_from(self.block).map_err(|_| {
+            Error::ParseError("capture-index block exceeds this address space".to_owned())
+        })?;
+        self.writer
+            .as_mut()
+            .ok_or_else(|| Error::ParseError("capture-index writer is unavailable".to_owned()))?
+            .write_block(self.channel, block, &leaf)?;
+
+        self.completed = self.completed.saturating_add(1);
+        self.block = self.block.saturating_add(1);
+        if self.block >= self.header.total_blocks {
+            self.block = 0;
+            self.channel += 1;
+        }
+        Ok(CaptureIndexOpenStep::Progress(CaptureIndexBuildProgress {
+            completed: self.completed,
+            total: self.total,
+        }))
+    }
+}
+
 /// Loads the 64-sample word at `word_index` from LSB-first packed bytes,
 /// zero-padding past the end of `data` (callers mask out padded bits).
 fn load_le_word(data: &[u8], word_index: usize) -> u64 {
@@ -1152,11 +1337,81 @@ impl<R: BlockCaptureSource> CaptureIndex for IndexSampler<R> {
     ) -> Result<CaptureSampledWindow> {
         self.sampled_window(channels, start_sample, end_sample, target_points)
     }
+
+    fn packed_block(&mut self, channel: usize, block: u64) -> Result<Option<BlockData>> {
+        IndexSampler::packed_block(self, channel, block).map(Some)
+    }
 }
 
 #[cfg(test)]
 mod reader_tests {
+    use std::sync::Arc;
+
     use super::*;
+    use crate::capture::{CaptureFingerprint, CaptureSource};
+
+    #[derive(Clone)]
+    struct TestDataSource {
+        metadata: CaptureMetadata,
+        blocks: Arc<Vec<Vec<Vec<u8>>>>,
+        identity: SourceIdentity,
+    }
+
+    struct TestReader {
+        metadata: CaptureMetadata,
+        blocks: Arc<Vec<Vec<Vec<u8>>>>,
+    }
+
+    impl CaptureDataSource for TestDataSource {
+        type Reader = TestReader;
+
+        fn open_reader(&self) -> Result<Self::Reader> {
+            Ok(TestReader {
+                metadata: self.metadata.clone(),
+                blocks: Arc::clone(&self.blocks),
+            })
+        }
+
+        fn metadata(&self) -> &CaptureMetadata {
+            &self.metadata
+        }
+
+        fn fingerprint(&self) -> CaptureFingerprint {
+            CaptureFingerprint { revision: 1 }
+        }
+
+        fn index_identity(&self) -> Option<SourceIdentity> {
+            Some(self.identity)
+        }
+
+        fn display_name(&self) -> String {
+            "incremental fixture".to_owned()
+        }
+    }
+
+    impl CaptureSource for TestReader {
+        fn metadata(&self) -> &CaptureMetadata {
+            &self.metadata
+        }
+
+        fn read_sample(&mut self, channel: usize, position: u64) -> Result<bool> {
+            let block = position / self.metadata.samples_per_block;
+            let offset = (position % self.metadata.samples_per_block) as usize;
+            self.read_packed_block(channel, block)
+                .map(|data| packed_bit(&data, offset))
+        }
+    }
+
+    impl BlockCaptureSource for TestReader {
+        fn read_packed_block(&mut self, channel: usize, block: u64) -> Result<BlockData> {
+            self.blocks
+                .get(channel)
+                .and_then(|blocks| blocks.get(block as usize))
+                .cloned()
+                .map(BlockData::from)
+                .ok_or(Error::InvalidBlock(block))
+        }
+    }
 
     #[test]
     fn raw_block_cache_reuses_backing_and_evicts_the_oldest_block() {
@@ -1175,5 +1430,44 @@ mod reader_tests {
         );
         assert!(cache.get((0, 1)).is_none());
         assert!(cache.get((0, 0)).is_some());
+    }
+
+    #[test]
+    fn incremental_open_yields_once_per_channel_block_before_publication() {
+        let source = TestDataSource {
+            metadata: CaptureMetadata {
+                total_probes: 2,
+                samplerate: "1 MHz".to_owned(),
+                samplerate_hz: 1_000_000.0,
+                sample_period: 0.000_001,
+                total_samples: 16,
+                total_blocks: 2,
+                samples_per_block: 8,
+                probe_names: vec!["D0".to_owned(), "D1".to_owned()],
+                trigger_sample: None,
+            },
+            blocks: Arc::new(vec![
+                vec![vec![0x0f], vec![0xf0]],
+                vec![vec![0x55], vec![0xaa]],
+            ]),
+            identity: SourceIdentity::from_bytes([31; 32]),
+        };
+        let repository = Arc::new(MemoryArtifactRepository::new());
+        let mut task = IndexSampler::<TestReader>::begin_open_data_source(source, repository)
+            .expect("incremental preparation should start");
+
+        for completed in 1..=4 {
+            assert!(matches!(
+                task.step().unwrap(),
+                CaptureIndexOpenStep::Progress(CaptureIndexBuildProgress {
+                    completed: actual,
+                    total: 4,
+                }) if actual == completed
+            ));
+        }
+        let CaptureIndexOpenStep::Ready(mut index) = task.step().unwrap() else {
+            panic!("the completed task should publish its index");
+        };
+        assert_eq!(index.packed_block(1, 1).unwrap().unwrap().as_ref(), [0xaa]);
     }
 }

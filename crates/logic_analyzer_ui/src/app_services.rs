@@ -104,6 +104,15 @@ impl AppServices {
         self
     }
 
+    /// Supplies a host worker used for ordinary, source-owned graph runs.
+    pub fn with_graph_worker_client(
+        mut self,
+        client: Option<Arc<logic_analyzer_graph_compiler::GraphWorkerClient>>,
+    ) -> Self {
+        self.graph_service.set_graph_worker_client(client);
+        self
+    }
+
     /// Supplies the host capability used by file controls embedded in graph nodes.
     pub fn with_node_file_dialog(mut self, service: Box<dyn FileDialogService>) -> Self {
         self.node_file_dialog = Some(service);

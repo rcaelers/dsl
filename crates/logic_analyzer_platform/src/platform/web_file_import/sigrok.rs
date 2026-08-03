@@ -14,6 +14,7 @@ use signal_processing::{
 };
 
 use super::registry::{BrowserFileRegistry, ImportedFile};
+use super::worker_source::sigrok_preparation_request;
 
 const FILE_SOURCE_LIFECYCLE: CaptureSourceLifecycle =
     CaptureSourceLifecycle::new(CaptureSourceKind::File, true, true, true);
@@ -27,9 +28,24 @@ impl CaptureIndexFactory for BrowserSigrokCaptureIndexFactory {
         self.imported.display_name.clone()
     }
 
+    fn preparation_request(&self) -> Option<signal_processing::CaptureIndexPreparationRequest> {
+        self.imported
+            .worker_reference
+            .as_ref()
+            .map(sigrok_preparation_request)
+    }
+
     fn metadata(&self) -> signal_processing::Result<signal_processing::CaptureMetadata> {
+        if let Some(metadata) = &self.imported.metadata {
+            return Ok(metadata.clone());
+        }
+        let source = self
+            .imported
+            .source
+            .as_ref()
+            .expect("resident browser captures retain their prepared source");
         SigrokFileSource::indexed_capture_presentation(
-            Arc::clone(&self.imported.source),
+            Arc::clone(source),
             self.imported.display_name.clone(),
         )
         .factory
@@ -42,12 +58,13 @@ impl CaptureIndexFactory for BrowserSigrokCaptureIndexFactory {
         work_executor: Arc<dyn WorkExecutor>,
         progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
     ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
-        SigrokFileSource::indexed_capture_presentation(
-            self.imported.source,
-            self.imported.display_name,
-        )
-        .factory
-        .open(artifact_repository, work_executor, progress)
+        let source = self
+            .imported
+            .source
+            .expect("local capture preparation requires resident browser bytes");
+        SigrokFileSource::indexed_capture_presentation(source, self.imported.display_name)
+            .factory
+            .open(artifact_repository, work_executor, progress)
     }
 }
 
@@ -73,7 +90,7 @@ impl CaptureSourceMetadata for BrowserSigrokFileSourceMetadata {
         let imported = self.registry.resolve(self.config.path())?;
         Ok(Some(CaptureSourcePresentation::Indexed(
             IndexedCapturePresentation {
-                identity: imported.source.identity(),
+                identity: imported.identity,
                 factory: Box::new(BrowserSigrokCaptureIndexFactory { imported }),
             },
         )))
@@ -85,9 +102,7 @@ impl CaptureSourceMetadata for BrowserSigrokFileSourceMetadata {
         }
         self.registry
             .resolve(self.config.path())
-            .map(|imported| {
-                CaptureSourceCacheIdentity::Stable(*imported.source.identity().as_bytes())
-            })
+            .map(|imported| CaptureSourceCacheIdentity::Stable(*imported.identity.as_bytes()))
             .unwrap_or(CaptureSourceCacheIdentity::Dynamic)
     }
 
@@ -96,14 +111,22 @@ impl CaptureSourceMetadata for BrowserSigrokFileSourceMetadata {
             return Ok(Some(self.config.channel_names().to_vec()));
         }
         let imported = self.registry.resolve(self.config.path())?;
-        SigrokFileSource::from_prepared_source(imported.source)
-            .map_err(|error| error.to_string())
-            .map(|source| Some(source.header().probe_names.clone()))
+        if let Some(metadata) = imported.metadata {
+            return Ok(Some(metadata.probe_names));
+        }
+        SigrokFileSource::from_prepared_source(
+            imported
+                .source
+                .expect("resident browser captures retain their prepared source"),
+        )
+        .map_err(|error| error.to_string())
+        .map(|source| Some(source.header().probe_names.clone()))
     }
 }
 
 struct BrowserSigrokFileSourceFactory {
     registry: Arc<BrowserFileRegistry>,
+    capture_worker: Option<Arc<signal_processing::CaptureWorkerClient>>,
 }
 
 impl SigrokFileSourceFactory for BrowserSigrokFileSourceFactory {
@@ -133,12 +156,34 @@ impl SigrokFileSourceFactory for BrowserSigrokFileSourceFactory {
             ) as Box<dyn ProcessNode>
         } else {
             let imported = self.registry.resolve(config.path())?;
-            Box::new(
-                SigrokFileSource::from_prepared_source(imported.source)
-                    .map_err(|error| error.to_string())?
-                    .with_name(name)
-                    .with_work_executor(work_executor),
-            )
+            if let Some(source) = imported.source {
+                Box::new(
+                    SigrokFileSource::from_prepared_source(source)
+                        .map_err(|error| error.to_string())?
+                        .with_name(name)
+                        .with_work_executor(work_executor),
+                ) as Box<dyn ProcessNode>
+            } else {
+                let client = self.capture_worker.clone().ok_or_else(|| {
+                    "worker-owned browser capture replay requires a capture worker".to_owned()
+                })?;
+                let request = imported
+                    .worker_reference
+                    .as_ref()
+                    .map(sigrok_preparation_request)
+                    .ok_or_else(|| {
+                        "worker-owned browser capture has no preparation request".to_owned()
+                    })?;
+                let capture_metadata = imported
+                    .metadata
+                    .ok_or_else(|| "worker-owned browser capture has no metadata".to_owned())?;
+                Box::new(signal_processing::CaptureWorkerReplaySource::new(
+                    name,
+                    client,
+                    request,
+                    capture_metadata,
+                )) as Box<dyn ProcessNode>
+            }
         };
         Ok(ProcessNodeConstruction::new(process, metadata))
     }
@@ -146,6 +191,10 @@ impl SigrokFileSourceFactory for BrowserSigrokFileSourceFactory {
 
 pub(crate) fn sigrok_source_factory(
     registry: Arc<BrowserFileRegistry>,
+    capture_worker: Option<Arc<signal_processing::CaptureWorkerClient>>,
 ) -> Arc<dyn SigrokFileSourceFactory> {
-    Arc::new(BrowserSigrokFileSourceFactory { registry })
+    Arc::new(BrowserSigrokFileSourceFactory {
+        registry,
+        capture_worker,
+    })
 }

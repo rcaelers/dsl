@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use super::contract::AppManagerBackend;
 use super::cooperative::CooperativeAppManagerBackend;
 use crate::manager::{DisconnectEvent, InputSub, NodeSpec};
@@ -79,6 +81,10 @@ impl AppManager {
 
     pub fn pump(&mut self, budget: usize) {
         self.backend.pump(budget);
+    }
+
+    pub fn pump_for(&mut self, budget: usize, max_duration: Duration) {
+        self.backend.pump_for(budget, max_duration);
     }
 }
 

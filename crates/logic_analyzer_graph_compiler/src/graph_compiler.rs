@@ -21,7 +21,7 @@ use super::graph::{
 };
 use super::source_preparation::SourcePreparation;
 use super::{
-    DerivedCacheClearStats, DerivedCacheEntrySnapshot, OutputSubscriptionPlan,
+    DerivedCacheClearStats, DerivedCacheEntrySnapshot, GraphWorkerClient, OutputSubscriptionPlan,
     SourcePreparationExecutor, SourcePreparationSnapshot, SourcePreparationStatus,
     SourcePreparationUpdate, cache_policy, graph,
 };
@@ -38,6 +38,7 @@ pub struct GraphCompiler {
     runtime_factory: Arc<dyn AppManagerFactory>,
     work_executor: Arc<dyn WorkExecutor>,
     artifact_repository: Arc<dyn ArtifactRepository>,
+    graph_worker_client: Option<Arc<GraphWorkerClient>>,
 }
 
 impl GraphCompiler {
@@ -49,6 +50,7 @@ impl GraphCompiler {
             runtime_factory: Arc::new(CooperativeAppManagerFactory),
             work_executor: Arc::new(InlineWorkExecutor),
             artifact_repository: Arc::new(MemoryArtifactRepository::new()),
+            graph_worker_client: None,
         }
     }
 
@@ -61,6 +63,7 @@ impl GraphCompiler {
             runtime_factory: Arc::new(CooperativeAppManagerFactory),
             work_executor: Arc::new(InlineWorkExecutor),
             artifact_repository: Arc::new(MemoryArtifactRepository::new()),
+            graph_worker_client: None,
         }
     }
 
@@ -95,6 +98,7 @@ impl GraphCompiler {
             runtime_factory,
             work_executor,
             artifact_repository: Arc::new(MemoryArtifactRepository::new()),
+            graph_worker_client: None,
         }
     }
 
@@ -106,6 +110,18 @@ impl GraphCompiler {
 
     pub fn set_output_subscriptions(&mut self, subscriptions: OutputSubscriptionPlan) {
         self.output_subscriptions = subscriptions;
+    }
+
+    pub fn output_subscriptions(&self) -> &OutputSubscriptionPlan {
+        &self.output_subscriptions
+    }
+
+    pub fn set_graph_worker_client(&mut self, client: Option<Arc<GraphWorkerClient>>) {
+        self.graph_worker_client = client;
+    }
+
+    pub fn graph_worker_client(&self) -> Option<Arc<GraphWorkerClient>> {
+        self.graph_worker_client.clone()
     }
 
     pub fn payloads(&self) -> &PayloadRegistry {

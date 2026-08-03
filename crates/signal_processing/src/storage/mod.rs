@@ -3,6 +3,7 @@
 mod artifact;
 mod contract;
 mod memory;
+mod replication;
 mod repository_source;
 
 #[cfg(test)]
@@ -19,4 +20,7 @@ pub use contract::{
     SourceCapabilities, SourceIdentity, SourceReadError,
 };
 pub use memory::{ChunkedByteSource, OwnedByteSource};
+pub use replication::{
+    ArtifactReplicationEvent, ArtifactReplicationReceiver, ReplicatingArtifactRepository,
+};
 pub use repository_source::{ArtifactByteSource, read_artifact_region};

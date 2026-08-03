@@ -333,6 +333,10 @@ where
 
     #[cfg(test)]
     fn build_leaf_summary(data: &[u8], valid_samples: u64) -> BlockIndex {
+        Self::build_leaf(data, valid_samples).unwrap()
+    }
+
+    pub(crate) fn build_leaf(data: &[u8], valid_samples: u64) -> Result<BlockIndex> {
         let result = build_capture_index_block(CaptureIndexBlockRequest {
             sequence: 0,
             channel: 0,
@@ -340,11 +344,11 @@ where
             valid_samples,
             packed_samples: data.to_vec(),
         })
-        .unwrap();
-        Self::finish_block_result(result).unwrap().1
+        .map_err(Error::ParseError)?;
+        Self::finish_block_result(result).map(|(_, leaf)| leaf)
     }
 
-    fn apply_boundary_transition(leaf: &mut BlockIndex, previous_last: Option<bool>) {
+    pub(crate) fn apply_boundary_transition(leaf: &mut BlockIndex, previous_last: Option<bool>) {
         let Some(previous_last) = previous_last else {
             return;
         };

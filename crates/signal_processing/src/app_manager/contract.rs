@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use super::implementation::AppManager;
 use crate::manager::{DisconnectEvent, InputSub, NodeSpec};
 use crate::node::{ConfigurationBoundary, NodeConfig, ProcessNode};
@@ -39,6 +41,10 @@ pub trait AppManagerBackend {
     fn wait(&mut self);
 
     fn pump(&mut self, budget: usize);
+
+    fn pump_for(&mut self, budget: usize, _max_duration: Duration) {
+        self.pump(budget);
+    }
 }
 
 /// Constructs one application-runtime facade for each graph run.

@@ -1,5 +1,7 @@
+use serde::{Deserialize, Serialize};
+
 /// Stable content-oriented identity used to address a prepared byte source.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct SourceIdentity([u8; 32]);
 
 impl SourceIdentity {

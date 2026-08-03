@@ -484,6 +484,129 @@ executor only decides where the capability-driven operation runs. Cache validati
 atomic index publication remain in the shared capture-index implementation behind the deferred
 `CaptureIndexFactory` contract.
 
+`CaptureIndexFactory` also supplies a resumable open task. The generic compatibility task preserves
+factories that can only open synchronously, while block-addressable DSL and Sigrok sources yield
+after each `(channel, block)` index leaf. Browser composition advances one task step per worker event
+turn. Cancellation therefore removes an unpublished preparation at a deterministic block boundary;
+it does not wait for the complete capture index. The synchronous native entry point drains the same
+task contract when callers require an immediate result.
+
+Viewer sampling uses the non-blocking `CaptureIndex::poll_sampled_window` contract. In-process
+indexes preserve the ordinary immediate query as the default implementation. A host-backed index
+may return `Pending`, deduplicate the outstanding viewport query, and later return the bounded
+sampled window. The viewer keeps its last completed window, does not mark a pending query as
+sampled, and requests another frame until the result arrives. Exact hover and edge queries also
+treat pending results as unavailable instead of blocking the UI event loop. Exact measurement
+refinement waits until the visible-window request is ready, so it cannot repeatedly supersede and
+starve the viewport request.
+
+`CaptureIndexProxy` adapts that polling contract to a `CaptureIndexQueryExecutor` bound to one
+host-owned index. The proxy submits only bounded channel/range/point requests, retains at most one
+active request, cancels it when the viewport is superseded or the proxy is dropped, and maps host
+completion, failure, and disconnect into the ordinary capture-index result boundary. The executor
+owns request identifiers and scheduling; neither the viewer nor the proxy knows whether it is
+backed by a native worker, browser worker, or deterministic test implementation.
+
+A capture-index factory whose backing cannot be opened in the caller exposes an opaque
+`CaptureIndexPreparationRequest` containing a registered operation identifier and owned payload.
+The generic compiler forwards it through `SourcePreparationExecutor::submit_request`; it does not
+call that factory's local metadata or open methods and does not interpret the operation. Local
+factories continue through the existing closure submission. Both paths report metadata, progress,
+cancellation, failure, and the ready index through the same preparation generation and task
+contracts.
+
+The stateful worker boundary uses owned `CaptureWorkerRequest` and `CaptureWorkerMessage`
+envelopes. Requests prepare an opaque registered operation, query a worker-owned session, cancel a
+sequence, or release a session. Results report metadata, progress, a stable prepared session,
+bounded sampled windows, cancellation, or failure. Sample positions, session IDs, sequence IDs,
+and point limits use fixed-width wire values, so captures beyond the wasm32 address range survive
+serialization. Browser `File`, OPFS handles, promises, and JavaScript objects are not part of this
+protocol.
+
+`CaptureWorkerClient` owns the platform-neutral client state machine. It assigns sequences, bounds
+outstanding preparation and query work, queues owned requests for the host transport, validates
+that each response kind matches its request, and retains updates until the corresponding task or
+proxy polls them. Cancellation and session release are explicit outbound commands. Worker loss
+clears unsent work and publishes a terminal failure for every pending sequence. The browser adapter
+therefore owns only worker creation and message transport, not queueing or capture semantics.
+
+`CaptureWorkerSourcePreparationExecutor` connects that client to the compiler's existing source
+preparation lifecycle while delegating ordinary local closures to another injected executor. A
+prepared worker message creates a `CaptureIndexProxy` whose `CaptureWorkerIndexQueryExecutor` is
+bound to the returned session. Dropping the proxy releases the session. Dropping unfinished
+preparation queues cancellation, and a session that becomes prepared concurrently with that
+cancellation is released by the client instead of being published or leaked.
+
+`CaptureWorkerRuntime` is the platform-neutral worker-side counterpart. It resolves opaque
+preparation operations through an explicit registry, owns prepared `CaptureIndex` sessions, and
+executes bounded sampled-window queries until the host releases each session. The browser adapter
+serializes batches of the shared result envelopes without interpreting capture coordinates or
+protocol metadata. Worker loss permanently disconnects the client so subsequent queries fail at
+submission instead of accumulating in an unserviced queue.
+
+The worker runtime emits preparation metadata and index progress as each update is produced. The
+browser transport forwards those updates individually instead of retaining a capture-sized or
+block-count-sized result batch until preparation completes. Concurrent consumers of one source
+identity share a pending task and receive their own progress and terminal messages; cancelling one
+consumer preserves the task while another lease still needs it.
+
+Prepared sessions also expose optional packed-block replay through the generic `CaptureIndex`
+contract. Repeated preparation of one content identity leases the existing session, allowing the
+viewer proxy and processing source to share its index and raw reader. `CaptureWorkerReplaySource`
+requests bounded channel batches, retains only the current blocks in UI memory, and reproduces
+negotiated block or edge streams for ordinary downstream nodes. Packed replay bytes use a compact
+framed encoding while small control messages remain JSON, preventing binary captures from being
+expanded into JSON integer arrays at the worker boundary.
+
+The worker protocol keeps source and index identities distinct. The source identity addresses the
+authoritative imported bytes and deduplicates preparation sessions. The index identity includes
+the parsed capture fingerprint and index schema inputs, addresses waveform artifacts, and is the
+identity exposed by the viewer proxy. Resumable index builders declare their expected index
+identity before completion; the worker rejects a completed index that does not match that declared
+identity rather than comparing it with the different source-identity domain.
+
+Derived graph execution for a worker-owned capture remains on that worker. `GraphWorkerRuntime`
+owns the ordinary `GraphCompiler`, cooperative `LiveRun`, node registry, processing nodes, and the
+same artifact repository used by capture preparation. The platform supplies worker-local DSL and
+Sigrok source factories that resolve opaque browser-file references to the already attached
+`PreparedByteSource`; they construct the ordinary processing sources and do not introduce a web
+decoder or alternate graph pipeline. Explicit Run clears derived generations in both repositories
+while preserving the prepared raw capture and index.
+
+`GraphWorkerClient` is the target-neutral main-side queue. It transfers an owned graph document,
+output-subscription plan, and timeline-marker snapshot, routes progress and terminal messages by
+sequence, and applies replicated artifact mutations before reporting completion. The UI's graph-run
+adapter only polls this client. Once the final cache manifests are present, the ordinary compiler
+cache-preview path publishes query adapters into the same shared `DerivedLanes` catalog already
+bound to the viewer and panels. Native composition does not install this adapter and continues to
+use its threaded runtime unchanged.
+
+The graph request codec frames the saved graph JSON separately from its fixed-width sequence,
+subscription, and timeline-marker fields. This preserves the graph's numeric node-map keys without
+routing them through a buffered tagged-enum representation. Artifact result messages use the same
+bounded framing contract in the opposite direction.
+
+Artifact bytes cross this boundary through `ReplicatingArtifactRepository` and
+`ArtifactReplicationReceiver`. Publications are immutable while in flight, are transferred in
+ordered chunks, and become visible in the destination repository only after the complete generation
+is received. Each worker turn performs at most 256 node calls within a four-millisecond host budget
+and emits at most eight replication events containing at most four MiB of artifact payload. The
+compact graph-worker codec leaves binary chunks as binary bytes rather than JSON arrays. A shared
+large-timeline integration fixture executes concrete nodes over 60 million source samples, verifies
+that execution yields across host turns, enforces the result bounds, and reloads all derived lanes
+from the replicated cache.
+
+For browser-selected files, `logic_analyzer_platform` attaches the `File` object to the dedicated
+capture worker through structured clone. The worker reads bounded asynchronous chunks to compute
+the same BLAKE3 content identity used by native sources, reports cancellable import progress, and
+inspects capture metadata before completing selection. The UI registry retains only that metadata
+and an opaque worker reference; it does not retain a second byte copy. A worker-only
+`PreparedByteSource` stores only the reference, stable identity, and fixed-width length; each fresh
+reader obtains bounded ranges with `FileReaderSync`. The ordinary DSL and Sigrok parsers and index
+factories consume that neutral source unchanged. Browser objects and synchronous browser APIs
+remain confined to the platform adapter and never enter the capture-worker request protocol or
+portable processing crates.
+
 ### Execution
 
 Execution is a separate platform capability because native blocking threads are not available to
@@ -507,6 +630,12 @@ boundary. A Web Worker adapter in `logic_analyzer_platform` dispatches registere
 those messages and returns owned result chunks. It does not attempt to send Rust closures, trait
 objects, mmap handles, or borrowed slices between workers.
 
+The selected runtime manager supplies each node with a target-neutral execution mode. File replay
+nodes retain resumable reader state and publish at most one item per output during each cooperative
+call; independently scheduled runtimes retain their long-running reader tasks. The interactive
+cooperative pump additionally uses a short host-time slice, so a large finite capture cannot
+monopolize the browser event loop.
+
 `signal_processing::portable_worker_kernels` registers the finite derived-word block encoder and
 capture-index leaf builder under stable, versioned operation identifiers. Their compact binary
 payloads use fixed-width coordinates and own all words or packed samples consumed by the operation.
@@ -526,8 +655,10 @@ partially published generation for a later reader to accept.
 with the absolute URLs of the generated JavaScript module and WASM binary. Worker construction
 validates that the browser accepts the host mechanism, while module import and initialization remain
 lazy until the first accepted operation. Each worker then initializes the same generated module and
-invokes the exported portable-kernel entry point. The adapter keeps at most one running operation in
-each worker and applies backpressure once its bounded host queue is full.
+invokes the application composition root's exported worker-host initializer before reading
+compile-time node and payload inventories. It then invokes the exported portable-kernel entry point.
+The adapter keeps at most one running operation in each worker and applies backpressure once its
+bounded host queue is full.
 
 Request payloads are copied once from WASM memory into an owned `ArrayBuffer` and transferred to the
 worker. Completed payloads use a standalone transferable buffer rather than attempting to detach
@@ -623,10 +754,16 @@ reference in a browser-file registry. DSL and Sigrok source factories resolve th
 ordinary `PreparedByteSource` contract; format parsing, indexing, caching, and viewing then use
 exactly the same code as native prepared sources.
 
+The asynchronous picker reads the browser `File` in bounded chunks, computes its content identity
+during that same pass, reports byte progress through the host-neutral file-dialog contract, and
+checks cancellation between chunks. Cancelling or superseding a request prevents its eventual
+picker result from being published. The adapter requests a repaint only at picker and chunk
+boundaries; it does not run a second whole-file hashing pass on the UI event loop.
+
 Browser references deliberately do not imply durable access to the user's original file. A saved
 graph that is reopened in a new browser session reports that the capture must be selected again.
-Files above the resident import limit require a future worker-owned or OPFS-backed source adapter;
-they are rejected rather than partially retained.
+The installed capture worker owns selected `File` objects independently of UI WebAssembly memory;
+resident fallback imports retain their explicit per-file and per-session limits.
 
 Browser export is a separate destination adapter. Cache publication never triggers a download, and
 download/export destinations are not used as internal artifact repositories.

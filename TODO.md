@@ -33,10 +33,6 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ### Web platform (lower priority)
 
-- [capture.web.large-file-import] Extend browser capture import beyond the bounded resident-file
-  path with a worker-owned or OPFS-backed `PreparedByteSource`. Preserve blockwise random access,
-  progress, cancellation, content identity, and the shared parser/index/cache pipeline without
-  copying the complete capture into the UI WebAssembly memory.
 - [capture.web.file-export] Let web users export captures and generated files through an explicit destination acquired
   by a user gesture. Keep downloads separate from internal cache publication and report unsupported or lost
   permissions without changing processing-node behavior.

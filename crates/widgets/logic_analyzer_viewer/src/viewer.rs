@@ -52,14 +52,13 @@ pub struct LogicAnalyzerViewer {
     pub(crate) channel_names: HashMap<usize, String>,
     pub(crate) derived_names: HashMap<ViewerLaneGroupId, String>,
     pub(crate) row_rename: Option<RowRenameState>,
-    /// Synchronous sampler over the waveform index; present once the index
-    /// build (which runs on a worker thread) has completed. Sampling the
-    /// visible window happens on the UI thread every frame the view changes,
-    /// so what is drawn is always the current view at the current zoom —
-    /// there is no asynchronous refinement that could disagree with it.
+    /// Provider-neutral sampler over the waveform index. Local indexes answer
+    /// immediately; host-backed indexes may complete bounded queries later.
     pub(crate) sampler: Option<Box<dyn CaptureIndex>>,
     /// (start_sample, end_sample, target_points) of the sampled `channels`.
     pub(crate) sampled_key: Option<(u64, u64, usize)>,
+    /// Whether the current visible-window query is awaiting its backing host.
+    pub(crate) sample_query_pending: bool,
     /// Pulse measurement for the current hover position, refreshed each frame
     /// by `sample_hover_measurement`. Computed separately from `channels`
     /// because at low zoom the hovered channel may only have summarized
@@ -136,6 +135,7 @@ impl LogicAnalyzerViewer {
             row_rename: None,
             sampler: None,
             sampled_key: None,
+            sample_query_pending: false,
             hover_measurement: None,
             edge_delta_measurement: None,
             visible_start_us: 0.0,
@@ -667,7 +667,9 @@ impl LogicAnalyzerViewer {
         } else {
             response.hover_pos()
         };
-        if self.edge_delta_measurement.is_some() {
+        if self.sample_query_pending {
+            self.hover_measurement = None;
+        } else if self.edge_delta_measurement.is_some() {
             self.hover_measurement = None;
             self.update_edge_measurement(layout, hover_pointer);
         } else {
@@ -702,6 +704,10 @@ impl LogicAnalyzerViewer {
         {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(100));
+        }
+        if self.sample_query_pending {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(16));
         }
         if self.edge_delta_measurement.is_some() {
             ui.ctx()
@@ -856,17 +862,22 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    use egui::{Pos2, Rect};
+
     use signal_processing::{
         CaptureIndex, CaptureMetadata, CaptureSampledChannel, CaptureSampledWindow,
-        CollectedLaneQuery, DerivedLanes, PayloadRegistry, SamplingPointStore, Word,
+        CaptureSampledWindowPoll, CollectedLaneQuery, DerivedLanes, PayloadRegistry,
+        SamplingPointStore, Word,
     };
 
     use super::{ChannelSignal, LogicAnalyzerViewer, SamplingOverlay};
+    use crate::types::AnalyzerLayout;
 
     struct GrowingTestIndex {
         header: CaptureMetadata,
         total_samples: Arc<AtomicU64>,
         generation: Arc<AtomicU64>,
+        pending_polls: Arc<AtomicU64>,
         identity: signal_processing::SourceIdentity,
     }
 
@@ -945,6 +956,21 @@ mod tests {
                     .collect(),
             })
         }
+
+        fn poll_sampled_window(
+            &mut self,
+            channels: &[usize],
+            start_sample: u64,
+            end_sample: u64,
+            target_points: usize,
+        ) -> signal_processing::Result<CaptureSampledWindowPoll> {
+            if self.pending_polls.load(Ordering::Relaxed) > 0 {
+                self.pending_polls.fetch_sub(1, Ordering::Relaxed);
+                return Ok(CaptureSampledWindowPoll::Pending);
+            }
+            self.sampled_window(channels, start_sample, end_sample, target_points)
+                .map(CaptureSampledWindowPoll::Ready)
+        }
     }
 
     fn growing_test_index(
@@ -965,6 +991,7 @@ mod tests {
             },
             total_samples,
             generation,
+            pending_polls: Arc::new(AtomicU64::new(0)),
             identity: signal_processing::SourceIdentity::from_bytes([9; 32]),
         }
     }
@@ -986,6 +1013,33 @@ mod tests {
         assert!(viewer.capture_info.is_some());
         assert!(viewer.sampler.is_some());
         assert_eq!(viewer.status, "Indexed capture ready");
+    }
+
+    #[test]
+    fn pending_sample_query_keeps_the_view_invalid_until_the_result_arrives() {
+        let total_samples = Arc::new(AtomicU64::new(100));
+        let generation = Arc::new(AtomicU64::new(0));
+        let index = growing_test_index(total_samples, generation);
+        index.pending_polls.store(1, Ordering::Relaxed);
+        let mut viewer = LogicAnalyzerViewer::default();
+        viewer.set_prepared_capture("deferred-capture", Box::new(index));
+        let layout = AnalyzerLayout {
+            ruler_rect: Rect::from_min_max(Pos2::ZERO, Pos2::new(100.0, 10.0)),
+            labels_rect: Rect::from_min_max(Pos2::ZERO, Pos2::new(10.0, 100.0)),
+            wave_rect: Rect::from_min_max(Pos2::ZERO, Pos2::new(100.0, 100.0)),
+            row_height: 30.0,
+            trigger_width: 0.0,
+            name_col_width: 10.0,
+            badge_width: 10.0,
+        };
+
+        viewer.sample_visible_window(layout);
+        assert!(viewer.sample_query_pending);
+        assert_eq!(viewer.sampled_key, None);
+
+        viewer.sample_visible_window(layout);
+        assert!(!viewer.sample_query_pending);
+        assert!(viewer.sampled_key.is_some());
     }
 
     #[test]

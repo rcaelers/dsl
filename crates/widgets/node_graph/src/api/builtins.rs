@@ -420,6 +420,7 @@ impl InlineControl for FileValue {
                 Err(error) => self.dialog_error = Some(error),
             }
         }
+        let progress = context.picked_file_progress(request_id);
 
         let pointer_position = ui.input(|input| input.pointer.hover_pos());
         let accepts_drop = pointer_position.is_some_and(|position| rect.contains(position));
@@ -460,32 +461,58 @@ impl InlineControl for FileValue {
                 ui.set_clip_rect(ui.clip_rect().intersect(clip_rect));
                 ui.style_mut().spacing.item_spacing = Vec2::splat(2.0 * zoom);
                 let button_width = 28.0 * zoom;
-                let text = ui.add(
-                    egui::TextEdit::singleline(&mut self.value)
-                        .hint_text(label)
-                        .desired_width((rect.width() - button_width - 6.0 * zoom).max(24.0 * zoom)),
-                );
-                if text.changed() {
-                    self.dialog_error = None;
-                }
-                if let Some(error) = &self.dialog_error {
-                    text.on_hover_text(error);
-                }
-                if ui
-                    .add_enabled(
-                        context.file_dialog_available(self.save),
-                        egui::Button::new("…"),
-                    )
-                    .clicked()
-                    && let Some(path) = context.pick_file(FileDialogRequest {
-                        request_id,
-                        title: &self.dialog_title,
-                        filters: &self.filters,
-                        save: self.save,
-                    })
-                {
-                    self.value = path;
-                    self.dialog_error = None;
+                let content_width = (rect.width() - button_width - 6.0 * zoom).max(24.0 * zoom);
+                if let Some(progress) = progress {
+                    let fraction = progress
+                        .total_bytes
+                        .filter(|total| *total > 0)
+                        .map_or(0.0, |total| progress.completed_bytes as f32 / total as f32);
+                    let text = progress.total_bytes.map_or_else(
+                        || "Selecting…".to_owned(),
+                        |total| {
+                            format!(
+                                "Importing {:.0}% · {} / {} MiB",
+                                fraction * 100.0,
+                                progress.completed_bytes / (1024 * 1024),
+                                total.div_ceil(1024 * 1024)
+                            )
+                        },
+                    );
+                    ui.add_sized(
+                        [content_width, rect.height()],
+                        egui::ProgressBar::new(fraction.clamp(0.0, 1.0)).text(text),
+                    );
+                    if ui.button("×").on_hover_text("Cancel import").clicked() {
+                        context.cancel_picked_file(request_id);
+                    }
+                } else {
+                    let text = ui.add(
+                        egui::TextEdit::singleline(&mut self.value)
+                            .hint_text(label)
+                            .desired_width(content_width),
+                    );
+                    if text.changed() {
+                        self.dialog_error = None;
+                    }
+                    if let Some(error) = &self.dialog_error {
+                        text.on_hover_text(error);
+                    }
+                    if ui
+                        .add_enabled(
+                            context.file_dialog_available(self.save),
+                            egui::Button::new("…"),
+                        )
+                        .clicked()
+                        && let Some(path) = context.pick_file(FileDialogRequest {
+                            request_id,
+                            title: &self.dialog_title,
+                            filters: &self.filters,
+                            save: self.save,
+                        })
+                    {
+                        self.value = path;
+                        self.dialog_error = None;
+                    }
                 }
             },
         );

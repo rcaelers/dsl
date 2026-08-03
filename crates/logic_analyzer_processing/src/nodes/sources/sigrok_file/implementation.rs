@@ -5,11 +5,13 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use signal_processing::{
     ArtifactRepository, CaptureDataSource, CaptureIndex, CaptureIndexBuildProgress,
-    CaptureIndexFactory, CaptureMetadata, InlineWorkExecutor, InputPort, OutputPort, PortDirection,
-    PortSchema, PreparedByteSource, ProcessNode, Result, Sample, SampleBlock, SampleKind, Sender,
-    WorkError, WorkExecutor, WorkResult, WorkTask,
+    CaptureIndexFactory, CaptureIndexOpenTask, CaptureMetadata, InlineWorkExecutor, InputPort,
+    OutputPort, PortDirection, PortSchema, PreparedByteSource, ProcessNode, Result,
+    RuntimeExecutionMode, Sample, SampleBlock, SampleKind, Sender, WorkError, WorkExecutor,
+    WorkOutcome, WorkResult, WorkTask,
 };
 
+use super::cooperative::CooperativeSigrokReader;
 use crate::support::sigrok_file::{SigrokCapture, SigrokFileCaptureDataSource};
 
 /// A PulseView/sigrok session source.
@@ -23,6 +25,9 @@ pub struct SigrokFileSource {
     spawned: bool,
     num_threads: usize,
     work_executor: Arc<dyn WorkExecutor>,
+    cooperative_reader: Option<CooperativeSigrokReader>,
+    cooperative_complete: bool,
+    runtime_execution_mode: RuntimeExecutionMode,
 }
 
 struct ChannelStream {
@@ -140,6 +145,15 @@ impl CaptureIndexFactory for SigrokCaptureIndexFactory {
         )
         .map(|index| Box::new(index) as Box<dyn CaptureIndex + Send>)
     }
+
+    fn open_task(
+        self: Box<Self>,
+        artifact_repository: Arc<dyn ArtifactRepository>,
+        _work_executor: Arc<dyn WorkExecutor>,
+    ) -> Result<Box<dyn CaptureIndexOpenTask>> {
+        let source = SigrokFileCaptureDataSource::open_source(self.source, self.display_name)?;
+        signal_processing::IndexSampler::begin_open_data_source(source, artifact_repository)
+    }
 }
 
 impl SigrokFileSource {
@@ -175,6 +189,9 @@ impl SigrokFileSource {
             spawned: false,
             num_threads: 0,
             work_executor: Arc::new(InlineWorkExecutor),
+            cooperative_reader: None,
+            cooperative_complete: false,
+            runtime_execution_mode: RuntimeExecutionMode::Independent,
         }
     }
 
@@ -199,10 +216,17 @@ impl ProcessNode for SigrokFileSource {
         &self.name
     }
     fn should_stop(&self) -> bool {
-        self.spawned && self.completed.load(Ordering::Relaxed) >= self.num_threads
+        if self.runtime_execution_mode == RuntimeExecutionMode::Independent {
+            self.spawned && self.completed.load(Ordering::Relaxed) >= self.num_threads
+        } else {
+            self.cooperative_complete
+        }
     }
     fn is_self_threading(&self) -> bool {
-        true
+        self.runtime_execution_mode == RuntimeExecutionMode::Independent
+    }
+    fn set_runtime_execution_mode(&mut self, mode: RuntimeExecutionMode) {
+        self.runtime_execution_mode = mode;
     }
     fn num_inputs(&self) -> usize {
         0
@@ -219,6 +243,47 @@ impl ProcessNode for SigrokFileSource {
             .collect()
     }
     fn work(&mut self, _inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
+        self.work_once(outputs).map(WorkOutcome::produced_items)
+    }
+
+    fn work_outcome(
+        &mut self,
+        _inputs: &[InputPort],
+        outputs: &[OutputPort],
+    ) -> WorkResult<WorkOutcome> {
+        self.work_once(outputs)
+    }
+}
+
+impl SigrokFileSource {
+    fn work_once(&mut self, outputs: &[OutputPort]) -> WorkResult<WorkOutcome> {
+        if self.runtime_execution_mode == RuntimeExecutionMode::Cooperative {
+            return self.work_cooperatively(outputs);
+        }
+        self.start_reader_tasks(outputs)
+            .map(WorkOutcome::progressed)
+    }
+
+    fn work_cooperatively(&mut self, outputs: &[OutputPort]) -> WorkResult<WorkOutcome> {
+        if self.cooperative_reader.is_none() {
+            self.cooperative_reader = Some(CooperativeSigrokReader::new(
+                self.capture.samples(),
+                self.capture.unitsize(),
+                self.capture.metadata().total_samples as usize,
+                self.capture.metadata().samplerate_hz,
+                outputs,
+            ));
+        }
+        let reader = self
+            .cooperative_reader
+            .as_mut()
+            .expect("cooperative reader initialized above");
+        let outcome = reader.step()?;
+        self.cooperative_complete = reader.is_finished();
+        Ok(outcome)
+    }
+
+    fn start_reader_tasks(&mut self, outputs: &[OutputPort]) -> WorkResult<usize> {
         if self.spawned {
             return Err(WorkError::NodeError(
                 "work() called multiple times on sigrok file source".into(),
@@ -338,6 +403,10 @@ mod tests {
             1
         }
 
+        fn supports_long_running_tasks(&self) -> bool {
+            true
+        }
+
         fn submit(
             &self,
             _task: WorkExecutorTask,
@@ -423,6 +492,31 @@ mod tests {
 
         assert_eq!(executor.submitted.load(Ordering::Relaxed), 1);
         assert!(source.should_stop());
+    }
+
+    #[test]
+    fn cooperative_replay_advances_without_submitting_a_long_running_reader() {
+        let mut source = SigrokFileSource::from_capture(fixture("2", true));
+        source.set_runtime_execution_mode(RuntimeExecutionMode::Cooperative);
+        let watchdog = Watchdog::new();
+        let (sender, receiver) = crossbeam_channel::bounded(16);
+        let outputs = [OutputPort::new_with_watchdog(
+            Sender::<Sample>::new(vec![sender]),
+            &watchdog,
+            "source",
+            "ch0",
+        )];
+
+        for _ in 0..32 {
+            if source.should_stop() {
+                break;
+            }
+            source.work_outcome(&[], &outputs).unwrap();
+        }
+
+        assert!(source.should_stop());
+        assert!(source.reader_tasks.is_none());
+        assert!(receiver.len() > 1);
     }
 
     #[derive(Default)]

@@ -8,12 +8,13 @@ mod support;
 mod widget;
 
 pub use api::{
-    AnySocket, BoolSocket, BoolValue, DroppedFile, EnumValue, FileDialogFilter, FileDialogRequest,
-    FileDialogService, FileSocket, FileValue, FloatSocket, FloatValue, InlineControl,
-    InlineControlContext, InputDef, IntSocket, IntValue, NodeDef, NodeInstanceSchema, NodePanelDef,
-    NodePanelPresentation, OutputDef, PanelAction, PanelContext, PanelDataProvider, PanelMetadata,
-    PanelSection, PanelTabDef, PropDef, PropertyPanelPresentation, SocketDef,
-    SocketIndicatorPresentation, SocketTypeIdentity, SocketWithControlDef, StrSocket, StringValue,
+    AnySocket, BoolSocket, BoolValue, DroppedFile, EnumValue, FileDialogFilter, FileDialogProgress,
+    FileDialogRequest, FileDialogService, FileSocket, FileValue, FloatSocket, FloatValue,
+    InlineControl, InlineControlContext, InputDef, IntSocket, IntValue, NodeDef,
+    NodeInstanceSchema, NodePanelDef, NodePanelPresentation, OutputDef, PanelAction, PanelContext,
+    PanelDataProvider, PanelMetadata, PanelSection, PanelTabDef, PropDef,
+    PropertyPanelPresentation, SocketDef, SocketIndicatorPresentation, SocketTypeIdentity,
+    SocketWithControlDef, StrSocket, StringValue,
 };
 pub use model::{
     BadgeSeverity, Connection, Frame, FrameId, GraphMetadata, GraphState, Node, NodeBadge, NodeId,

@@ -95,6 +95,16 @@ pub enum InputScheduling {
     Any,
 }
 
+/// Scheduling environment selected by the runtime manager for a node instance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RuntimeExecutionMode {
+    /// The node owns an independently scheduled host task and may block inside it.
+    #[default]
+    Independent,
+    /// The node shares the caller's event loop and must retain resumable bounded state.
+    Cooperative,
+}
+
 /// Result of one scheduler-visible [`ProcessNode::work`] call.
 ///
 /// `produced_items` remains the value used for node progress counters. The
@@ -162,6 +172,9 @@ pub trait ProcessNode: Send {
     fn is_self_threading(&self) -> bool {
         false
     }
+
+    /// Supplies the execution environment before the runtime inspects or starts the node.
+    fn set_runtime_execution_mode(&mut self, _mode: RuntimeExecutionMode) {}
 
     /// Declares whether `work()` requires all inputs or can multiplex any
     /// ready input. Threaded runners may block inside `work()` and ignore
@@ -298,6 +311,9 @@ impl ProcessNode for Box<dyn ProcessNode> {
     }
     fn is_self_threading(&self) -> bool {
         (**self).is_self_threading()
+    }
+    fn set_runtime_execution_mode(&mut self, mode: RuntimeExecutionMode) {
+        (**self).set_runtime_execution_mode(mode);
     }
     fn input_scheduling(&self) -> InputScheduling {
         (**self).input_scheduling()

@@ -165,22 +165,27 @@ impl SourcePreparation {
         let visible_channels = discovered.visible_channels;
         match discovered.presentation {
             CapturePresentation::Indexed { factory, .. } => {
-                let work_executor = Arc::clone(&self.work_executor);
-                let artifact_repository = Arc::clone(&self.artifact_repository);
-                let work = Box::new(move |control: SourcePreparationControl| {
-                    let metadata = factory.metadata().map_err(|error| error.to_string())?;
-                    if !control.report_metadata(metadata) {
-                        return Err("source preparation cancelled".to_owned());
-                    }
-                    factory
-                        .open(artifact_repository, work_executor, &mut |progress| {
-                            control.report_progress(progress)
-                        })
-                        .map(PreparedCaptureData::Indexed)
-                        .map_err(|error| error.to_string())
-                });
                 let control = SourcePreparationControl::new();
-                match self.executor.submit(work, control.clone()) {
+                let submission = if let Some(request) = factory.preparation_request() {
+                    self.executor.submit_request(request, control.clone())
+                } else {
+                    let work_executor = Arc::clone(&self.work_executor);
+                    let artifact_repository = Arc::clone(&self.artifact_repository);
+                    let work = Box::new(move |control: SourcePreparationControl| {
+                        let metadata = factory.metadata().map_err(|error| error.to_string())?;
+                        if !control.report_metadata(metadata) {
+                            return Err("source preparation cancelled".to_owned());
+                        }
+                        factory
+                            .open(artifact_repository, work_executor, &mut |progress| {
+                                control.report_progress(progress)
+                            })
+                            .map(PreparedCaptureData::Indexed)
+                            .map_err(|error| error.to_string())
+                    });
+                    self.executor.submit(work, control.clone())
+                };
+                match submission {
                     Ok(task) => {
                         self.task = Some(task);
                         self.control = Some(control);
@@ -255,8 +260,8 @@ mod source_preparation_tests {
     use std::sync::{Arc, Mutex};
 
     use signal_processing::{
-        CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, CaptureMetadata,
-        CaptureSampledWindow,
+        CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory,
+        CaptureIndexPreparationRequest, CaptureMetadata, CaptureSampledWindow, WorkerOperation,
     };
 
     use super::*;
@@ -418,6 +423,36 @@ mod source_preparation_tests {
         }
     }
 
+    #[derive(Clone, Default)]
+    struct HostedExecutor {
+        requests: Arc<Mutex<Vec<CaptureIndexPreparationRequest>>>,
+    }
+
+    impl SourcePreparationExecutor for HostedExecutor {
+        fn submit(
+            &self,
+            _work: SourcePreparationWork,
+            _control: SourcePreparationControl,
+        ) -> Result<Box<dyn SourcePreparationTask>, String> {
+            Err("hosted preparation must not use the local work path".to_owned())
+        }
+
+        fn submit_request(
+            &self,
+            request: CaptureIndexPreparationRequest,
+            control: SourcePreparationControl,
+        ) -> Result<Box<dyn SourcePreparationTask>, String> {
+            self.requests.lock().unwrap().push(request);
+            assert!(control.report_metadata(test_metadata()));
+            Ok(Box::new(ImmediateTask(Some(Ok(
+                PreparedCaptureData::Indexed(Box::new(TestIndex {
+                    metadata: test_metadata(),
+                    identity: signal_processing::SourceIdentity::from_bytes([6; 32]),
+                })),
+            )))))
+        }
+    }
+
     struct TestIndex {
         metadata: CaptureMetadata,
         identity: signal_processing::SourceIdentity,
@@ -552,6 +587,34 @@ mod source_preparation_tests {
         }
     }
 
+    struct HostedFactory;
+
+    impl CaptureIndexFactory for HostedFactory {
+        fn display_name(&self) -> String {
+            "hosted test factory".to_owned()
+        }
+
+        fn preparation_request(&self) -> Option<CaptureIndexPreparationRequest> {
+            Some(CaptureIndexPreparationRequest::new(
+                WorkerOperation::new("test.capture-index.prepare/v1").unwrap(),
+                vec![1, 2, 3],
+            ))
+        }
+
+        fn metadata(&self) -> signal_processing::Result<CaptureMetadata> {
+            panic!("hosted preparation must not inspect metadata on the caller")
+        }
+
+        fn open(
+            self: Box<Self>,
+            _artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
+            _work_executor: Arc<dyn signal_processing::WorkExecutor>,
+            _progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
+        ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
+            panic!("hosted preparation must not open the index on the caller")
+        }
+    }
+
     fn in_memory(identity: &str) -> DiscoveredCapturePresentation {
         DiscoveredCapturePresentation {
             identity: identity.into(),
@@ -617,6 +680,17 @@ mod source_preparation_tests {
         }
     }
 
+    fn hosted_indexed(identity: &str) -> DiscoveredCapturePresentation {
+        DiscoveredCapturePresentation {
+            identity: identity.into(),
+            visible_channels: vec![0],
+            presentation: CapturePresentation::Indexed {
+                identity: signal_processing::SourceIdentity::from_bytes([5; 32]),
+                factory: Box::new(HostedFactory),
+            },
+        }
+    }
+
     #[test]
     fn immediate_capture_is_published_once_and_can_be_reset() {
         let mut preparation = SourcePreparation::new();
@@ -666,6 +740,34 @@ mod source_preparation_tests {
         assert!(matches!(prepared.data, PreparedCaptureData::Indexed(_)));
         assert_eq!(*open_count.lock().unwrap(), 1);
         assert_eq!(preparation.status(), SourcePreparationStatus::Ready);
+    }
+
+    #[test]
+    fn hosted_capture_preparation_never_opens_the_factory_on_the_caller() {
+        let executor = HostedExecutor::default();
+        let mut preparation = SourcePreparation::with_executor(Box::new(executor.clone()));
+
+        let SourcePreparationUpdate::Preparing(preparing) =
+            preparation.synchronize(Some(hosted_indexed("hosted-capture")))
+        else {
+            panic!("hosted capture should publish preparation state");
+        };
+        assert_eq!(preparing.metadata.unwrap().total_probes, 1);
+        let requests = executor.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].operation().as_str(),
+            "test.capture-index.prepare/v1"
+        );
+        assert_eq!(requests[0].payload(), [1, 2, 3]);
+        drop(requests);
+
+        let SourcePreparationUpdate::Ready(prepared) =
+            preparation.synchronize(Some(hosted_indexed("hosted-capture")))
+        else {
+            panic!("hosted preparation result should become ready");
+        };
+        assert!(matches!(prepared.data, PreparedCaptureData::Indexed(_)));
     }
 
     #[test]

@@ -24,6 +24,12 @@ pub enum Error {
 
     #[error("operation cancelled")]
     Cancelled,
+
+    #[error("capture query is pending")]
+    CaptureQueryPending,
+
+    #[error("capture query failed: {0}")]
+    CaptureQuery(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
