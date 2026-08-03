@@ -34,6 +34,14 @@ jobs:
       - name: Build app
         run: scripts/build_wasm_app.sh
 
+      - name: Build Rustdoc
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --no-deps --lib
+
+      - name: Add Rustdoc to the site artifact
+        run: cp -R target/doc target/wasm-app/dist/rustdoc
+
       - name: Configure Pages
         uses: actions/configure-pages@v6
 
