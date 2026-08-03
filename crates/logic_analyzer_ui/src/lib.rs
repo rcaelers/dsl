@@ -12,6 +12,7 @@ mod host_service;
 mod live_capture;
 mod memory_panel;
 mod node_registry;
+mod panel_presentation;
 mod plugin_panel;
 mod preferences;
 mod product;
@@ -34,5 +35,9 @@ pub use host_service::{
     OpenDialog, SaveDialog,
 };
 pub use node_registry::build_node_registry;
+pub use panel_presentation::{
+    ApplicationPanelIcon, DECODER_PANEL_ICON, LOG_PANEL_ICON, LOGIC_ANALYZER_PANEL_ICON,
+    MEMORY_PANEL_ICON, NODE_GRAPH_PANEL_ICON, TRIGGERS_PANEL_ICON, WATCHES_PANEL_ICON,
+};
 pub use plugin_panel::{PluginPanel, PluginPanelContext, PluginPanelIcon, UiPanelRegistration};
 pub use product::{APPLICATION_ID, APPLICATION_NAME};

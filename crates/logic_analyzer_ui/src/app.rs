@@ -41,6 +41,10 @@ use crate::memory_panel::{
     CaptureStorageBacking, CaptureStorageSnapshot, DerivedSignalStorageSnapshot, MemoryPanel,
     MemoryPanelSnapshot, MemoryServiceSnapshot,
 };
+use crate::panel_presentation::{
+    DECODER_PANEL_ICON, LOG_PANEL_ICON, LOGIC_ANALYZER_PANEL_ICON, MEMORY_PANEL_ICON,
+    NODE_GRAPH_PANEL_ICON, TRIGGERS_PANEL_ICON, WATCHES_PANEL_ICON,
+};
 use crate::plugin_panel::{PluginPanelIcon, PluginPanelRegistry, PluginPanels, PluginPanelsState};
 use crate::preferences::PreferencesWindow;
 use crate::sampling_overlay_presentation::sampling_overlay_presentation;
@@ -2986,15 +2990,31 @@ impl App {
         &self,
     ) -> Vec<(String, String, panel_layout::PanelIcon)> {
         let mut panels = vec![
-            ("Log".to_owned(), "log".to_owned(), PanelIcon::List),
-            ("Memory".to_owned(), "memory".to_owned(), PanelIcon::Table),
-            ("Watches".to_owned(), "watches".to_owned(), PanelIcon::List),
+            (
+                "Log".to_owned(),
+                "log".to_owned(),
+                LOG_PANEL_ICON.panel_icon(),
+            ),
+            (
+                "Memory".to_owned(),
+                "memory".to_owned(),
+                MEMORY_PANEL_ICON.panel_icon(),
+            ),
+            (
+                "Watches".to_owned(),
+                "watches".to_owned(),
+                WATCHES_PANEL_ICON.panel_icon(),
+            ),
             (
                 "Triggers".to_owned(),
                 "triggers".to_owned(),
-                PanelIcon::Target,
+                TRIGGERS_PANEL_ICON.panel_icon(),
             ),
-            ("Decoder".to_owned(), "decoder".to_owned(), PanelIcon::Table),
+            (
+                "Decoder".to_owned(),
+                "decoder".to_owned(),
+                DECODER_PANEL_ICON.panel_icon(),
+            ),
         ];
         panels.extend(
             self.plugin_panels
@@ -3149,7 +3169,6 @@ impl App {
 const STATUS_BAR_HEIGHT: f32 = 28.0;
 const DEFAULT_ANALYZER_SPLIT: f32 = 0.42;
 const RIGHT_COLUMN_LAYOUT_FRACTION: f32 = 0.82;
-
 fn panel_icon(icon: PluginPanelIcon) -> PanelIcon {
     match icon {
         PluginPanelIcon::Panel => PanelIcon::Panel,
@@ -3515,28 +3534,28 @@ impl eframe::App for App {
         let plugin_panel_definitions = self.plugin_panels.definitions();
         let mut specs = vec![
             PanelSpec::new("logic_analyzer", "Logic Analyzer", 160.0)
-                .icon(PanelIcon::Waveform)
+                .icon(LOGIC_ANALYZER_PANEL_ICON.panel_icon())
                 .minimum_width(220.0)
                 .singleton(),
             PanelSpec::new("node_graph", "Node Graph", 160.0)
-                .icon(PanelIcon::Network)
+                .icon(NODE_GRAPH_PANEL_ICON.panel_icon())
                 .minimum_width(220.0)
                 .singleton(),
             PanelSpec::new("log", "Log", 160.0)
-                .icon(PanelIcon::List)
+                .icon(LOG_PANEL_ICON.panel_icon())
                 .minimum_width(240.0),
             PanelSpec::new("memory", "Memory", 160.0)
-                .icon(PanelIcon::Table)
+                .icon(MEMORY_PANEL_ICON.panel_icon())
                 .minimum_width(320.0)
                 .singleton(),
             PanelSpec::new("watches", "Watches", 120.0)
-                .icon(PanelIcon::List)
+                .icon(WATCHES_PANEL_ICON.panel_icon())
                 .minimum_width(180.0),
             PanelSpec::new("triggers", "Triggers", 120.0)
-                .icon(PanelIcon::Target)
+                .icon(TRIGGERS_PANEL_ICON.panel_icon())
                 .minimum_width(180.0),
             PanelSpec::new("decoder", "Decoder", 120.0)
-                .icon(PanelIcon::Table)
+                .icon(DECODER_PANEL_ICON.panel_icon())
                 .minimum_width(220.0),
         ];
         specs.extend(plugin_panel_definitions.iter().map(|panel| {
@@ -3752,6 +3771,29 @@ mod font_tests {
         timeline_marker_reference_binding_is_synchronized, toggle_sampling_overlay,
         visible_output_subscriptions, visible_table_subscriptions,
     };
+    use crate::panel_presentation::{
+        DECODER_PANEL_ICON, LOG_PANEL_ICON, LOGIC_ANALYZER_PANEL_ICON, MEMORY_PANEL_ICON,
+        NODE_GRAPH_PANEL_ICON, TRIGGERS_PANEL_ICON, WATCHES_PANEL_ICON,
+    };
+
+    #[test]
+    fn built_in_panels_have_unique_icons() {
+        let icons = [
+            LOGIC_ANALYZER_PANEL_ICON,
+            NODE_GRAPH_PANEL_ICON,
+            LOG_PANEL_ICON,
+            MEMORY_PANEL_ICON,
+            WATCHES_PANEL_ICON,
+            TRIGGERS_PANEL_ICON,
+            DECODER_PANEL_ICON,
+        ];
+        for (index, icon) in icons.iter().enumerate() {
+            assert!(
+                !icons[..index].contains(icon),
+                "built-in panel icon {icon:?} is assigned more than once"
+            );
+        }
+    }
 
     fn output_socket() -> Socket {
         Socket {

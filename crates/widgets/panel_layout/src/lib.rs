@@ -77,6 +77,9 @@ pub enum PanelIcon {
     Network,
     Image,
     List,
+    Console,
+    Eye,
+    Chip,
     Target,
     Table,
     Reset,
@@ -157,6 +160,86 @@ impl PanelIcon {
                         stroke,
                     );
                 }
+            }
+            Self::Console => {
+                let console = rect.shrink(1.5);
+                painter.rect_stroke(console, 1.5, stroke, StrokeKind::Inside);
+                let prompt_x = console.left() + 3.0;
+                let prompt_y = console.center().y;
+                painter.line_segment(
+                    [
+                        egui::pos2(prompt_x, prompt_y - 2.5),
+                        egui::pos2(prompt_x + 2.5, prompt_y),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        egui::pos2(prompt_x + 2.5, prompt_y),
+                        egui::pos2(prompt_x, prompt_y + 2.5),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        egui::pos2(prompt_x + 4.5, prompt_y + 2.5),
+                        egui::pos2(console.right() - 2.0, prompt_y + 2.5),
+                    ],
+                    stroke,
+                );
+            }
+            Self::Eye => {
+                let center = rect.center();
+                let left = egui::pos2(rect.left() + 1.0, center.y);
+                let right = egui::pos2(rect.right() - 1.0, center.y);
+                painter.add(egui::Shape::line(
+                    vec![
+                        left,
+                        egui::pos2(center.x - 3.5, center.y - 4.0),
+                        egui::pos2(center.x + 3.5, center.y - 4.0),
+                        right,
+                        egui::pos2(center.x + 3.5, center.y + 4.0),
+                        egui::pos2(center.x - 3.5, center.y + 4.0),
+                        left,
+                    ],
+                    stroke,
+                ));
+                painter.circle_filled(center, 2.2, color);
+            }
+            Self::Chip => {
+                let chip = Rect::from_center_size(rect.center(), egui::vec2(9.0, 9.0));
+                painter.rect_stroke(chip, 1.5, stroke, StrokeKind::Inside);
+                for offset in [-3.0, 0.0, 3.0] {
+                    painter.line_segment(
+                        [
+                            egui::pos2(chip.left() - 2.5, chip.center().y + offset),
+                            egui::pos2(chip.left(), chip.center().y + offset),
+                        ],
+                        stroke,
+                    );
+                    painter.line_segment(
+                        [
+                            egui::pos2(chip.right(), chip.center().y + offset),
+                            egui::pos2(chip.right() + 2.5, chip.center().y + offset),
+                        ],
+                        stroke,
+                    );
+                    painter.line_segment(
+                        [
+                            egui::pos2(chip.center().x + offset, chip.top() - 2.5),
+                            egui::pos2(chip.center().x + offset, chip.top()),
+                        ],
+                        stroke,
+                    );
+                    painter.line_segment(
+                        [
+                            egui::pos2(chip.center().x + offset, chip.bottom()),
+                            egui::pos2(chip.center().x + offset, chip.bottom() + 2.5),
+                        ],
+                        stroke,
+                    );
+                }
+                painter.rect_filled(chip.shrink(2.5), 0.5, color);
             }
             Self::Target => {
                 let center = rect.center();

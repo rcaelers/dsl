@@ -9,7 +9,11 @@ use objc2_foundation::{MainThreadMarker, NSObject, NSString, ns_string};
 
 use input_bindings::InputBindings;
 use logic_analyzer_platform::{dispatch_host_command, set_recent_files_listener};
-use logic_analyzer_ui::{APPLICATION_NAME, HostCommand};
+use logic_analyzer_ui::{
+    APPLICATION_NAME, ApplicationPanelIcon, DECODER_PANEL_ICON, HostCommand, LOG_PANEL_ICON,
+    LOGIC_ANALYZER_PANEL_ICON, MEMORY_PANEL_ICON, NODE_GRAPH_PANEL_ICON, TRIGGERS_PANEL_ICON,
+    WATCHES_PANEL_ICON,
+};
 
 thread_local! {
     /// "Open Recent" items dispatch through one shared `openRecent:`
@@ -205,6 +209,18 @@ unsafe fn menu_item_with_symbol(
     item
 }
 
+fn panel_system_symbol(icon: ApplicationPanelIcon) -> &'static NSString {
+    match icon {
+        ApplicationPanelIcon::Waveform => ns_string!("waveform.path.ecg"),
+        ApplicationPanelIcon::Network => ns_string!("point.3.connected.trianglepath.dotted"),
+        ApplicationPanelIcon::Console => ns_string!("terminal"),
+        ApplicationPanelIcon::Chip => ns_string!("memorychip"),
+        ApplicationPanelIcon::Eye => ns_string!("eye"),
+        ApplicationPanelIcon::Target => ns_string!("scope"),
+        ApplicationPanelIcon::Table => ns_string!("tablecells"),
+    }
+}
+
 /// Rebuilds `menu`'s items in place from `paths` (existing files only),
 /// each tagged with its index into `paths` for `openRecent:` to resolve,
 /// and updates `RECENT_FILES` to match. Used both for the initial build
@@ -354,14 +370,14 @@ pub(crate) fn install(recent_files: &[PathBuf], bindings: &InputBindings) {
             mtm,
             ns_string!("Logic Analyzer"),
             sel!(showLogicAnalyzer:),
-            ns_string!("waveform.path.ecg"),
+            panel_system_symbol(LOGIC_ANALYZER_PANEL_ICON),
             &handler,
         ));
         view_menu.addItem(&menu_item_with_symbol(
             mtm,
             ns_string!("Node Graph"),
             sel!(showNodeGraph:),
-            ns_string!("point.3.connected.trianglepath.dotted"),
+            panel_system_symbol(NODE_GRAPH_PANEL_ICON),
             &handler,
         ));
         view_menu.addItem(&NSMenuItem::separatorItem(mtm));
@@ -369,35 +385,35 @@ pub(crate) fn install(recent_files: &[PathBuf], bindings: &InputBindings) {
             mtm,
             ns_string!("Log"),
             sel!(showLog:),
-            ns_string!("list.bullet.rectangle"),
+            panel_system_symbol(LOG_PANEL_ICON),
             &handler,
         ));
         view_menu.addItem(&menu_item_with_symbol(
             mtm,
             ns_string!("Memory"),
             sel!(showMemory:),
-            ns_string!("memorychip"),
+            panel_system_symbol(MEMORY_PANEL_ICON),
             &handler,
         ));
         view_menu.addItem(&menu_item_with_symbol(
             mtm,
             ns_string!("Watches"),
             sel!(showWatches:),
-            ns_string!("list.bullet"),
+            panel_system_symbol(WATCHES_PANEL_ICON),
             &handler,
         ));
         view_menu.addItem(&menu_item_with_symbol(
             mtm,
             ns_string!("Triggers"),
             sel!(showTriggers:),
-            ns_string!("scope"),
+            panel_system_symbol(TRIGGERS_PANEL_ICON),
             &handler,
         ));
         view_menu.addItem(&menu_item_with_symbol(
             mtm,
             ns_string!("Decoder"),
             sel!(showDecoder:),
-            ns_string!("tablecells"),
+            panel_system_symbol(DECODER_PANEL_ICON),
             &handler,
         ));
         view_menu.addItem(&NSMenuItem::separatorItem(mtm));

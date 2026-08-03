@@ -7,6 +7,7 @@ use crate::app::App;
 use crate::app_platform::{FileCommand, GuardedAction};
 use crate::host_service::{HostCommand, OpenDialog, SaveDialog};
 use crate::live_capture::{CaptureCoordinatorContract, CaptureRawExportFormat};
+use crate::panel_presentation::{LOGIC_ANALYZER_PANEL_ICON, NODE_GRAPH_PANEL_ICON};
 use crate::product::APPLICATION_NAME;
 
 impl App {
@@ -786,9 +787,13 @@ impl App {
                     (
                         "Logic Analyzer",
                         "logic_analyzer",
-                        panel_layout::PanelIcon::Waveform,
+                        LOGIC_ANALYZER_PANEL_ICON.panel_icon(),
                     ),
-                    ("Node Graph", "node_graph", panel_layout::PanelIcon::Network),
+                    (
+                        "Node Graph",
+                        "node_graph",
+                        NODE_GRAPH_PANEL_ICON.panel_icon(),
+                    ),
                 ] {
                     if icon.menu_item(ui, label).clicked() {
                         self.show_primary_panel(content_id);
