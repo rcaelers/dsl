@@ -42,6 +42,13 @@ pub struct WebWorkerAdapter {
 
 impl WebWorkerAdapter {
     /// Creates a worker pool for the generated JS module and WASM binary.
+    ///
+    /// # Parameters
+    /// - `module_url`: Input consumed by this operation.
+    /// - `wasm_url`: Input consumed by this operation.
+    /// - `worker_count`: Input consumed by this operation.
+    /// - `max_outstanding`: Input consumed by this operation.
+    /// - `required_operations`: Input consumed by this operation.
     pub fn new(
         module_url: &str,
         wasm_url: &str,
@@ -133,6 +140,9 @@ impl WebWorkerAdapter {
     }
 
     /// Adds a finite request to the bounded worker queue.
+    ///
+    /// # Parameters
+    /// - `request`: Input consumed by this operation.
     pub fn submit(&self, request: WorkerRequest) -> Result<(), String> {
         let mut state = self.state.borrow_mut();
         let commands = state.queue.submit(request)?;
@@ -196,6 +206,7 @@ impl Drop for WebWorkerAdapter {
 }
 
 #[wasm_bindgen(js_name = executePortableWorkerOperation)]
+/// Executes one portable worker operation received from the browser bootstrap.
 pub fn execute_portable_worker_operation(
     operation: String,
     payload: Vec<u8>,

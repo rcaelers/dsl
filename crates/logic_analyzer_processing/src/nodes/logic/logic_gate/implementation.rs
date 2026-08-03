@@ -90,6 +90,10 @@ pub struct LogicGate {
 
 impl LogicGate {
     /// `num_inputs` must be 1 for [`GateOp::Not`], and ≥ 1 otherwise.
+    ///
+    /// # Parameters
+    /// - `op`: Input consumed by this operation.
+    /// - `num_inputs`: Input consumed by this operation.
     pub fn new(op: GateOp, num_inputs: usize) -> Self {
         assert!(num_inputs >= 1, "LogicGate needs at least one input");
         assert!(
@@ -110,6 +114,7 @@ impl LogicGate {
         }
     }
 
+    /// Returns this value configured with name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self

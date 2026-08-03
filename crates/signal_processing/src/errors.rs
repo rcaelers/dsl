@@ -7,39 +7,50 @@ use crossbeam_channel::{RecvError, SendError};
 /// Errors returned by capture and indexed-signal infrastructure.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// An underlying filesystem or device I/O operation failed.
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// Input could not be parsed into the requested capture representation.
     #[error("Parse error: {0}")]
     ParseError(String),
 
+    /// A requested probe index does not exist in the capture.
     #[error("Invalid probe number: {0}")]
     InvalidProbe(usize),
 
+    /// A requested capture block index does not exist.
     #[error("Invalid block number: {0}")]
     InvalidBlock(u64),
 
+    /// A requested sample or byte position lies outside the available data.
     #[error("Position out of bounds: {0}")]
     OutOfBounds(u64),
 
+    /// The operation stopped because its caller cancelled it.
     #[error("operation cancelled")]
     Cancelled,
 
+    /// A capture query has been scheduled but has not produced data yet.
     #[error("capture query is pending")]
     CaptureQueryPending,
 
+    /// A capture query completed unsuccessfully.
     #[error("capture query failed: {0}")]
     CaptureQuery(String),
 }
 
+/// Result alias for operations that return the runtime-wide [`Error`] type.
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Error type for port operations
 #[derive(Debug, thiserror::Error)]
 pub enum PortError {
+    /// The named port is absent from the named node.
     #[error("Port '{0}' not found on node '{1}'")]
     NotFound(String, String),
 
+    /// The positional port index is outside the named node's port list.
     #[error("Port index {0} out of range for node '{1}'")]
     IndexOutOfRange(usize, String),
 }
@@ -47,6 +58,7 @@ pub enum PortError {
 /// Error type for connection operations
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectionError {
+    /// The output and input ports carry incompatible payload types.
     #[error(
         "Type mismatch: {from_node}.{from_port} ({from_type:?}) -> {to_node}.{to_port} ({to_type:?})"
     )]
@@ -59,12 +71,19 @@ pub enum ConnectionError {
         to_type: TypeId,
     },
 
+    /// The named node is absent from the graph.
     #[error("Node '{0}' not found")]
     NodeNotFound(String),
 
     #[error("Port '{port}' not found on node '{node}'")]
-    PortNotFound { node: String, port: String },
+    PortNotFound {
+        /// Name of the node on which lookup failed.
+        node: String,
+        /// Name of the missing port.
+        port: String
+    },
 
+    /// The graph already contains the requested connection.
     #[error("{0}")]
     DuplicateConnection(String),
 }
@@ -72,15 +91,19 @@ pub enum ConnectionError {
 /// Error type for work function operations
 #[derive(Debug, thiserror::Error)]
 pub enum WorkError {
+    /// Receiving from an input channel failed because all senders disconnected.
     #[error("Failed to receive from input channel: {0}")]
     RecvError(#[from] RecvError),
 
+    /// Sending to an output channel failed because all receivers disconnected.
     #[error("Failed to send to output channel: {0}")]
     SendError(String),
 
+    /// A processing node rejected or could not process its input.
     #[error("Node-specific error: {0}")]
     NodeError(String),
 
+    /// The runtime requested that the worker stop processing.
     #[error("Shutdown signal received")]
     Shutdown,
 }
@@ -91,5 +114,5 @@ impl<T> From<SendError<T>> for WorkError {
     }
 }
 
-/// Result type for work functions
+/// Result alias for worker operations.
 pub type WorkResult<T = ()> = std::result::Result<T, WorkError>;

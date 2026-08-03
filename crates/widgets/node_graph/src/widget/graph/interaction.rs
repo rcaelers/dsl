@@ -199,6 +199,9 @@ impl NodeGraphWidget {
     /// The duplicate event is removed before any widget sees it and the drag
     /// is cancelled semantically, so no synthetic pointer event can leak to
     /// panel or window handling.
+    ///
+    /// # Parameters
+    /// - `raw_input`: Input consumed by this operation.
     pub fn filter_modal_raw_input(&mut self, raw_input: &mut egui::RawInput) -> bool {
         if !matches!(
             self.interaction_state,

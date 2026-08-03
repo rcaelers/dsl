@@ -30,6 +30,11 @@ pub struct CaptureStoreConfig {
 }
 
 impl CaptureStoreConfig {
+    /// Creates configuration for a new authoritative capture store.
+    ///
+    /// # Parameters
+    /// - `repository`: Artifact repository that persists store artifacts.
+    /// - `descriptor`: Session identity and ordered physical-channel table.
     pub fn new(
         repository: Arc<dyn ArtifactRepository>,
         descriptor: CaptureStoreDescriptor,
@@ -41,15 +46,22 @@ impl CaptureStoreConfig {
         }
     }
 
+    /// Replaces the wall-clock source used for durable session metadata.
+    ///
+    /// # Parameters
+    ///
+    /// - `time_source`: Injectable wall-clock capability.
     pub fn with_time_source(mut self, time_source: Arc<dyn UnixTimeSource>) -> Self {
         self.time_source = time_source;
         self
     }
 
+    /// Returns the configured artifact repository.
     pub fn repository(&self) -> Arc<dyn ArtifactRepository> {
         Arc::clone(&self.repository)
     }
 
+    /// Returns the configured session descriptor.
     pub fn descriptor(&self) -> &CaptureStoreDescriptor {
         &self.descriptor
     }
@@ -225,6 +237,10 @@ pub struct CaptureStore {
 }
 
 impl CaptureStore {
+    /// Creates fresh persistent artifacts and a writer for one session.
+    ///
+    /// # Parameters
+    /// - `config`: Repository, descriptor, and time source for the new session.
     pub fn create(config: CaptureStoreConfig) -> CaptureStoreResult<(Self, CaptureStoreWriter)> {
         let key = manifest_key(config.descriptor.session_id())?;
         if config.repository.open(&key)?.is_some() {
@@ -288,6 +304,12 @@ impl CaptureStore {
         ))
     }
 
+    /// Opens an existing live or finalized session without recovery.
+    ///
+    /// # Parameters
+    ///
+    /// - `repository`: Artifact repository holding the session.
+    /// - `session_id`: Session identity to open.
     pub fn open(
         repository: Arc<dyn ArtifactRepository>,
         session_id: CaptureSessionId,
@@ -316,14 +338,17 @@ impl CaptureStore {
         })
     }
 
+    /// Returns this store's stable descriptor.
     pub fn descriptor(&self) -> &CaptureStoreDescriptor {
         &self.shared.descriptor
     }
 
+    /// Returns the artifact repository used by this store.
     pub fn repository(&self) -> Arc<dyn ArtifactRepository> {
         Arc::clone(&self.shared.repository)
     }
 
+    /// Returns the current monotonically increasing commit generation.
     pub fn generation(&self) -> u64 {
         self.shared
             .state
@@ -333,10 +358,12 @@ impl CaptureStore {
             .generation
     }
 
+    /// Returns a consistent summary of currently committed data and writer state.
     pub fn snapshot(&self) -> CaptureStoreSnapshot {
         self.shared.snapshot()
     }
 
+    /// Opens a sequential cursor at the earliest retained chunk.
     pub fn open_cursor(&self) -> CaptureStoreResult<CaptureCursor> {
         let first_sequence = self
             .shared
@@ -351,12 +378,17 @@ impl CaptureStore {
         })
     }
 
+    /// Opens a random-access reader over currently committed capture data.
     pub fn open_random_reader(&self) -> CaptureStoreResult<CaptureRandomReader> {
         Ok(CaptureRandomReader {
             shared: Arc::clone(&self.shared),
         })
     }
 
+    /// Persists the requested capture session plan for later recovery and inspection.
+    ///
+    /// # Parameters
+    /// - `plan`: Negotiated retention and completion plan to persist.
     pub fn write_session_plan(&self, plan: &CaptureSessionPlan) -> CaptureStoreResult<()> {
         publish_json(
             self.shared.repository.as_ref(),
@@ -365,6 +397,11 @@ impl CaptureStore {
         )
     }
 
+    /// Persists display timebase and channel metadata for later reopening.
+    ///
+    /// # Parameters
+    ///
+    /// - `timeline`: Validated presentation metadata in descriptor channel order.
     pub fn write_timeline_metadata(
         &self,
         timeline: CaptureTimelineMetadata,
@@ -377,6 +414,7 @@ impl CaptureStore {
         write_session_metadata(self.shared.repository.as_ref(), &metadata)
     }
 
+    /// Reads the persisted session plan when it has been written.
     pub fn session_plan(&self) -> CaptureStoreResult<Option<CaptureSessionPlan>> {
         read_json(
             self.shared.repository.as_ref(),
@@ -384,6 +422,7 @@ impl CaptureStore {
         )
     }
 
+    /// Reads durable lifecycle metadata when it has been written.
     pub fn session_metadata(&self) -> CaptureStoreResult<Option<CaptureSessionMetadata>> {
         read_session_metadata(
             self.shared.repository.as_ref(),
@@ -391,10 +430,17 @@ impl CaptureStore {
         )
     }
 
+    /// Finalizes the store as a normally completed capture.
     pub fn finalize(&self) -> CaptureStoreResult<FinalizedCapture> {
         self.finalize_with_outcome(CaptureSessionOutcome::Complete, None)
     }
 
+    /// Finalizes the store with a terminal outcome and optional recording origin.
+    ///
+    /// # Parameters
+    ///
+    /// - `outcome`: Terminal capture outcome to persist.
+    /// - `recording_origin`: Authoritative sample mapped to recording-time zero.
     pub fn finalize_with_outcome(
         &self,
         outcome: CaptureSessionOutcome,
@@ -403,6 +449,7 @@ impl CaptureStore {
         self.finalize_with_details(outcome, recording_origin, None)
     }
 
+    /// Finalizes with terminal state and optional timeline metadata details.
     pub fn finalize_with_details(
         &self,
         outcome: CaptureSessionOutcome,
@@ -617,6 +664,12 @@ pub struct CaptureRandomReader {
 }
 
 impl CaptureRandomReader {
+    /// Reads a bounded sampled window from the finalized capture artifact.
+    ///
+    /// # Parameters
+    /// - `channels`: Indices into the descriptor channel table to sample.
+    /// - `start_sample`: Inclusive authoritative sample bound.
+    /// - `end_sample`: Exclusive authoritative sample bound.
     pub fn sampled_window(
         &mut self,
         channels: &[usize],
@@ -706,6 +759,11 @@ pub struct FinalizedCapture {
 }
 
 impl FinalizedCapture {
+    /// Opens a finalized session that is already consistent on disk.
+    ///
+    /// # Parameters
+    /// - `repository`: Artifact repository holding the session.
+    /// - `session_id`: Finalized session identity to open.
     pub fn open(
         repository: Arc<dyn ArtifactRepository>,
         session_id: CaptureSessionId,
@@ -717,6 +775,12 @@ impl FinalizedCapture {
         Ok(Self { store })
     }
 
+    /// Recovers an interrupted finalized session and reports repairs.
+    ///
+    /// # Parameters
+    ///
+    /// - `repository`: Artifact repository holding the session.
+    /// - `session_id`: Session identity to recover and open.
     pub fn recover(
         repository: Arc<dyn ArtifactRepository>,
         session_id: CaptureSessionId,
@@ -743,38 +807,50 @@ impl FinalizedCapture {
         Ok((Self { store }, CaptureRecoveryReport::default()))
     }
 
+    /// Returns the durable capture manifest.
     pub fn manifest(&self) -> CaptureStoreManifest {
         self.store.manifest()
     }
 
+    /// Returns the latest durable commit generation.
     pub fn generation(&self) -> u64 {
         self.store.generation()
     }
 
+    /// Returns the artifact repository holding the capture.
     pub fn repository(&self) -> Arc<dyn ArtifactRepository> {
         self.store.repository()
     }
 
+    /// Opens a sequential cursor over retained committed chunks.
     pub fn open_cursor(&self) -> CaptureStoreResult<CaptureCursor> {
         self.store.open_cursor()
     }
 
+    /// Opens a random-access reader over retained committed data.
     pub fn open_random_reader(&self) -> CaptureStoreResult<CaptureRandomReader> {
         self.store.open_random_reader()
     }
 
+    /// Reads the persisted negotiated capture plan, when present.
     pub fn session_plan(&self) -> CaptureStoreResult<Option<CaptureSessionPlan>> {
         self.store.session_plan()
     }
 
+    /// Reads the persisted lifecycle metadata, when present.
     pub fn session_metadata(&self) -> CaptureStoreResult<Option<CaptureSessionMetadata>> {
         self.store.session_metadata()
     }
 
+    /// Returns a cloneable handle to the underlying capture store.
     pub fn store_handle(&self) -> CaptureStore {
         self.store.clone()
     }
 
+    /// Sets kept.
+    ///
+    /// # Parameters
+    /// - `kept`: Whether automatic retention cleanup must preserve this session.
     pub fn set_kept(&self, kept: bool) -> CaptureStoreResult<()> {
         let mut metadata = self.session_metadata()?.ok_or_else(|| {
             CaptureStoreError::Corrupt("capture session metadata is missing".into())
@@ -784,6 +860,7 @@ impl FinalizedCapture {
         write_session_metadata(self.store.shared.repository.as_ref(), &metadata)
     }
 
+    /// Updates the session's durable last-access timestamp.
     pub fn touch(&self) -> CaptureStoreResult<()> {
         let mut metadata = self.session_metadata()?.ok_or_else(|| {
             CaptureStoreError::Corrupt("capture session metadata is missing".into())
@@ -792,6 +869,11 @@ impl FinalizedCapture {
         write_session_metadata(self.store.shared.repository.as_ref(), &metadata)
     }
 
+    /// Reclaims chunks wholly before a policy-approved sample boundary.
+    ///
+    /// # Parameters
+    ///
+    /// - `safe_sample`: First sample that must remain available after reclamation.
     pub fn reclaim_before(&self, safe_sample: u64) -> CaptureStoreResult<CaptureReclamationReport> {
         let mut state = self
             .store

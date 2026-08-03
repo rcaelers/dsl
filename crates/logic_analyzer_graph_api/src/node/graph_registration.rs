@@ -4,6 +4,10 @@ use node_graph::api::{NodeDef, NodeTypeRegistry};
 
 use super::contracts::RuntimeBuilder;
 
+/// Inventory submission describing one graph-node feature.
+///
+/// `stable_id` is the persisted feature identity; it is intentionally separate
+/// from the editable display name supplied by [`NodeDef`].
 pub struct GraphNodeRegistration {
     stable_id: &'static str,
     node_name: fn() -> &'static str,
@@ -14,6 +18,10 @@ pub struct GraphNodeRegistration {
 }
 
 impl GraphNodeRegistration {
+    /// Registers a node definition with a default runtime builder.
+    ///
+    /// # Parameters
+    /// - `stable_id`: Persisted identifier for the graph-node feature.
     pub const fn runnable<N, B>(stable_id: &'static str) -> Self
     where
         N: NodeDef,
@@ -29,6 +37,7 @@ impl GraphNodeRegistration {
         }
     }
 
+    /// Registers a definition-only node that cannot materialize a runtime node.
     pub const fn definition<N: NodeDef>(stable_id: &'static str) -> Self {
         Self {
             stable_id,
@@ -40,29 +49,38 @@ impl GraphNodeRegistration {
         }
     }
 
+    /// Declares payload stable IDs required before this feature can be used.
     pub const fn requiring_payloads(mut self, required_payloads: &'static [&'static str]) -> Self {
         self.required_payloads = required_payloads;
         self
     }
 
+    /// Adds setup functions that must run before a runtime builder is created.
+    ///
+    /// # Parameters
+    /// - `runtime_setup`: Registration hooks for runtime dependencies.
     pub const fn with_runtime_setup(mut self, runtime_setup: &'static [fn()]) -> Self {
         self.runtime_setup = runtime_setup;
         self
     }
 
+    /// Returns the stable persisted feature identifier.
     pub const fn stable_id(&self) -> &'static str {
         self.stable_id
     }
 
+    /// Returns the node definition's display name.
     pub fn name(&self) -> &'static str {
         (self.node_name)()
     }
 
+    /// Returns the required payload stable IDs.
     pub const fn required_payloads(&self) -> &'static [&'static str] {
         self.required_payloads
     }
 
     #[doc(hidden)]
+    /// Runs this feature's registered runtime setup hooks.
     pub fn apply_runtime_setup(&self) {
         for setup in self.runtime_setup {
             setup();
@@ -70,11 +88,13 @@ impl GraphNodeRegistration {
     }
 
     #[doc(hidden)]
+    /// Registers the feature's node definition with a graph registry.
     pub fn apply_node(&self, registry: &mut NodeTypeRegistry) {
         (self.register_node)(registry);
     }
 
     #[doc(hidden)]
+    /// Creates the feature's runtime builder, if it has one.
     pub fn builder(&self) -> Option<Box<dyn RuntimeBuilder>> {
         self.create_builder.map(|create_builder| create_builder())
     }
@@ -94,6 +114,7 @@ fn create_builder<B: RuntimeBuilder + Default + 'static>() -> Box<dyn RuntimeBui
 
 inventory::collect!(GraphNodeRegistration);
 
+/// Returns validated graph-node inventory registrations in stable-ID order.
 pub fn graph_node_registrations() -> Vec<&'static GraphNodeRegistration> {
     let mut registrations = inventory::iter::<GraphNodeRegistration>
         .into_iter()

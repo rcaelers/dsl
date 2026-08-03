@@ -1,4 +1,9 @@
-//! Built-in LogicConduit graph nodes and payload presentations.
+//! Built-in LogicConduit graph-node feature bundle.
+//!
+//! This crate owns concrete node definitions, builders, registrations, saved-state
+//! migrations, payloads, socket styling, and presentation metadata. It contributes
+//! those features through the graph API without making generic compiler, runtime,
+//! viewer, or widget code depend on node names, ports, or protocols.
 
 #[cfg(test)]
 mod architecture_tests;

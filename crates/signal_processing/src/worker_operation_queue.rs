@@ -50,6 +50,11 @@ pub struct WorkerOperationQueue {
 
 impl WorkerOperationQueue {
     /// Creates a bounded scheduler for `worker_count` equivalent host slots.
+    ///
+    /// # Parameters
+    /// - `worker_count`: Input consumed by this operation.
+    /// - `max_outstanding`: Input consumed by this operation.
+    /// - `operations`: Input consumed by this operation.
     pub fn new(
         worker_count: usize,
         max_outstanding: usize,
@@ -129,6 +134,11 @@ impl WorkerOperationQueue {
     }
 
     /// Records progress for an outstanding, non-cancelled request.
+    ///
+    /// # Parameters
+    /// - `sequence`: Input consumed by this operation.
+    /// - `completed`: Input consumed by this operation.
+    /// - `total`: Input consumed by this operation.
     pub fn worker_progress(&mut self, sequence: u64, completed: u64, total: Option<u64>) {
         if self.contains_sequence(sequence) && !self.cancelled.contains(&sequence) {
             self.delivered.push_back(WorkerMessage::Progress {

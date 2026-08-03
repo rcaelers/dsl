@@ -6,15 +6,20 @@ use crate::viewer::LogicAnalyzerViewer;
 /// A persisted, host-owned point displayed on the shared timeline.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TimelineMarker {
+    /// Host-owned stable marker identifier.
     pub id: String,
+    /// User-facing marker label.
     pub label: String,
+    /// Position in the viewer's microsecond time domain.
     pub time_us: f64,
 }
 
 /// A completed marker gesture for the host to apply to its document.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TimelineMarkerEdit {
+    /// Host-owned stable marker identifier.
     pub id: String,
+    /// New marker position in the viewer's microsecond time domain.
     pub time_us: f64,
 }
 
@@ -27,6 +32,9 @@ pub(crate) struct TimelineMarkerInput {
 impl LogicAnalyzerViewer {
     /// Replaces host-owned markers while preserving the position of a marker
     /// currently being dragged until the host receives the completed edit.
+    ///
+    /// # Parameters
+    /// - `markers`: Input consumed by this operation.
     pub fn set_timeline_markers(&mut self, mut markers: Vec<TimelineMarker>) {
         markers.retain(|marker| marker.time_us.is_finite() && marker.time_us >= 0.0);
         let active_id = self
@@ -46,6 +54,7 @@ impl LogicAnalyzerViewer {
         self.timeline_markers = markers;
     }
 
+    /// Sets timeline marker editing enabled.
     pub fn set_timeline_marker_editing_enabled(&mut self, enabled: bool) {
         self.timeline_marker_editing_enabled = enabled;
         if !enabled {
@@ -54,6 +63,7 @@ impl LogicAnalyzerViewer {
         }
     }
 
+    /// Takes timeline marker edit, leaving its default state.
     pub fn take_timeline_marker_edit(&mut self) -> Option<TimelineMarkerEdit> {
         self.pending_timeline_marker_edit.take()
     }

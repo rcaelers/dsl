@@ -295,7 +295,7 @@ Buffer size comes from the consumer edge's `PortKind` (`PortValue::buffer_size`)
 
 Sizes reflect item characteristics rather than inter-branch skew. The explicit `Buffer` node owns
 intentional decoupling and supplies its own input-capacity override. The runtime flow-control rule
-is defined by [`signal_processing` runtime](../modules/signal_processing/runtime.md).
+is defined by the `signal_processing` runtime Rustdoc.
 
 ## Source-readiness orchestration
 

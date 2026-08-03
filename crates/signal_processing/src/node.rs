@@ -10,9 +10,12 @@ use super::errors::WorkResult;
 use super::ports::{InputPort, OutputPort};
 use super::protocol::ProtocolKind;
 
+/// Producer capabilities considered while a consumer selects an input transport.
 #[derive(Clone)]
 pub struct InputProtocolCandidate {
+    /// Protocols offered by the upstream producer in preference order.
     pub offered: Vec<ProtocolKind>,
+    /// Optional random-access capability supplied by the producer.
     pub edge_query: Option<Arc<dyn EdgeQuery>>,
 }
 
@@ -21,9 +24,13 @@ pub struct InputProtocolCandidate {
 /// serde-free and nodes match on plain fields.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConfigValue {
+    /// Unsigned integer configuration value.
     U64(u64),
+    /// Signed integer configuration value.
     I64(i64),
+    /// Boolean configuration value.
     Bool(bool),
+    /// Text configuration value.
     Text(String),
 }
 
@@ -39,11 +46,18 @@ pub type NodeConfig = std::collections::HashMap<String, ConfigValue>;
 /// even when older events are already queued downstream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConfigurationBoundary {
+    /// Capture-relative sample position at which the change becomes eligible.
     pub sample_index: u64,
+    /// Shared timeline timestamp at which the change becomes eligible.
     pub timestamp_ns: u64,
 }
 
 impl ConfigurationBoundary {
+    /// Creates a future-only configuration boundary on the capture timeline.
+    ///
+    /// # Parameters
+    /// - `sample_index`: Recording-relative sample position.
+    /// - `timestamp_ns`: Shared event timestamp in nanoseconds.
     pub const fn new(sample_index: u64, timestamp_ns: u64) -> Self {
         Self {
             sample_index,
@@ -57,6 +71,11 @@ impl ConfigurationBoundary {
 /// into its worker, so scheduling is not delayed when `work()` is blocked
 /// waiting for its next input event.
 pub trait ConfigurationScheduler: Send + Sync {
+    /// Validates and queues configuration to take effect at a future boundary.
+    ///
+    /// # Parameters
+    /// - `config`: Named runtime configuration values.
+    /// - `boundary`: Earliest sample and timestamp at which values may apply.
     fn schedule_config(
         &self,
         config: &NodeConfig,
@@ -70,6 +89,7 @@ pub trait ConfigurationScheduler: Send + Sync {
 /// Nodes with internal workers use this to interrupt a blocked `work()`
 /// call promptly when an interactive run is stopped.
 pub trait NodeCancellation: Send + Sync {
+    /// Requests that blocked node work returns promptly for shutdown.
     fn request_cancel(&self);
 }
 
@@ -127,6 +147,9 @@ impl WorkOutcome {
     }
 
     /// Derives progress from an existing `work()` produced-item count.
+    ///
+    /// # Parameters
+    /// - `produced_items`: Number of outputs emitted by the completed work call.
     pub const fn from_produced(produced_items: usize) -> Self {
         Self {
             produced_items,
@@ -153,15 +176,15 @@ impl WorkOutcome {
     }
 }
 
-/// A processing node that transforms data
-/// - Sources have 0 inputs and N outputs
-/// - Sinks have N inputs and 0 outputs
-/// - Processors have N inputs and M outputs
+/// Processing-runtime node that transforms streaming data.
+///
+/// Sources have zero inputs, sinks have zero outputs, and processors connect
+/// both directions through type-erased runtime ports.
 pub trait ProcessNode: Send {
-    /// Get a debug name for this node
+    /// Returns the runtime debug name for this node instance.
     fn name(&self) -> &str;
 
-    /// Check if this node should stop processing
+    /// Returns whether the node has finished or requested scheduler shutdown.
     fn should_stop(&self) -> bool {
         false
     }
@@ -206,6 +229,9 @@ pub trait ProcessNode: Send {
     /// actual capabilities and optional query metadata. The default keeps
     /// producer preference order. Stateful consumers may override this to
     /// make one coordinated choice across a group of inputs.
+    ///
+    /// # Parameters
+    /// - `candidates`: Upstream protocol and query capabilities by input index.
     fn select_input_protocols(
         &self,
         candidates: &[Option<InputProtocolCandidate>],
@@ -226,8 +252,8 @@ pub trait ProcessNode: Send {
             .collect()
     }
 
-    /// Get node type identifier for serialization
-    /// Defaults to node name
+    /// Returns the stable concrete node type identifier for serialization.
+    /// Defaults to [`Self::name`].
     fn node_type(&self) -> &str {
         self.name()
     }
@@ -291,6 +317,10 @@ pub trait ProcessNode: Send {
     /// source nodes implement this, but a future pass-through node
     /// (e.g. a logic gate) would compose its output's answer from these.
     /// Default: unsupported.
+    ///
+    /// # Parameters
+    /// - `_port`: Output port index for which a query is requested.
+    /// - `_input_queries`: Negotiated query capabilities of this node's inputs.
     fn edge_query(
         &self,
         _port: usize,

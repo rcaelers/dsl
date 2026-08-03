@@ -20,37 +20,49 @@ use crate::{
 /// Static capabilities exposed by a logic-analyzer driver.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LogicAnalyzerInfo {
+    /// Stable driver identifier used for diagnostics and source naming.
     pub driver: String,
+    /// Human-readable device model.
     pub model: String,
+    /// Number of physical digital inputs exposed by the device.
     pub channels: u8,
+    /// Sample rates the device supports in hertz.
     pub sample_rates_hz: Vec<u64>,
 }
 
 /// Capture mode supported by most logic analyzers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptureMode {
+    /// Capture continues until the caller stops it.
     Streaming,
+    /// Capture stops after the configured sample limit.
     Finite,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LogicEncodingRequest {
+    /// Request uncompressed interleaved digital samples.
     #[default]
     Raw,
+    /// Request driver-supported run-length compression.
     RunLength,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClockEdge {
+    /// Sample on an external clock's rising edge.
     Rising,
+    /// Sample on an external clock's falling edge.
     Falling,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ClockSource {
+    /// Use the analyzer's internal sampling clock.
     #[default]
     Internal,
     External {
+        /// Edge of the external clock used for sampling.
         edge: ClockEdge,
     },
 }
@@ -59,20 +71,35 @@ pub enum ClockSource {
 /// exposes the enabled inputs in increasing physical-channel order.
 #[derive(Debug, Clone)]
 pub struct LogicCaptureConfig {
+    /// Whether capture is finite or continues until stopped.
     pub mode: CaptureMode,
+    /// Requested sampling rate in hertz.
     pub sample_rate_hz: u64,
+    /// Bitmask of enabled physical inputs.
     pub input_mask: u64,
+    /// Maximum samples for finite captures.
     pub sample_limit: u64,
+    /// Trigger position within a finite capture, as a percentage from 0 to 100.
     pub trigger_percent: u8,
     /// A common logic-analyzer control. Drivers without a threshold DAC reject it.
     pub threshold_volts: Option<f32>,
+    /// Portable multi-stage trigger program.
     pub trigger: LogicTrigger,
+    /// Requested wire encoding.
     pub encoding: LogicEncodingRequest,
+    /// Sampling-clock source.
     pub clock: ClockSource,
+    /// Whether the driver should apply its digital input filter.
     pub input_filter: bool,
 }
 
 impl LogicCaptureConfig {
+    /// Creates a finite capture request with conservative defaults.
+    ///
+    /// # Parameters
+    /// - `sample_rate_hz`: Requested sampling rate in hertz.
+    /// - `input_mask`: Bitmask of enabled physical inputs.
+    /// - `sample_limit`: Number of samples to retain.
     pub fn finite(sample_rate_hz: u64, input_mask: u64, sample_limit: u64) -> Self {
         Self {
             mode: CaptureMode::Finite,
@@ -104,11 +131,17 @@ pub enum LogicEncoding {
 /// driver to preserve transfer boundaries that occur in the middle of a sample.
 #[derive(Clone, Debug)]
 pub struct LogicChunk {
+    /// Raw transfer bytes containing the valid bit span.
     pub data: Arc<[u8]>,
+    /// Index of the first valid bit within `data`.
     pub bit_offset: u8,
+    /// Number of valid bits beginning at [`Self::bit_offset`].
     pub bit_len: usize,
+    /// Number of interleaved enabled input channels.
     pub channel_count: u8,
+    /// Absolute bit position of the first bit in the capture stream.
     pub start_bit: u64,
+    /// Encoding used for this transfer.
     pub encoding: LogicEncoding,
 }
 
@@ -131,6 +164,11 @@ impl LogicChunk {
     }
 
     #[inline]
+    /// Returns one bit from the chunk's valid span.
+    ///
+    /// # Parameters
+    ///
+    /// - `relative_bit`: Zero-based bit position within the valid span.
     pub fn bit(&self, relative_bit: usize) -> bool {
         debug_assert!(relative_bit < self.bit_len);
         let absolute = usize::from(self.bit_offset) + relative_bit;
@@ -141,31 +179,46 @@ impl LogicChunk {
 /// A driver-independent capture error.
 #[derive(Debug, Error)]
 pub enum LogicAnalyzerError {
+    /// The requested mode, channels, or trigger configuration is invalid.
     #[error("invalid capture settings: {0}")]
     InvalidSettings(String),
+    /// Communication with the device failed.
     #[error("transport error: {0}")]
     Transport(String),
+    /// The driver or device returned an invalid protocol response.
     #[error("protocol error: {0}")]
     Protocol(String),
+    /// Capture data violates its declared encoding or bounds.
     #[error("capture integrity error: {0}")]
     Integrity(String),
+    /// A device operation did not complete before its deadline.
     #[error("operation timed out: {0}")]
     Timeout(String),
+    /// An operation requiring an active capture was requested while idle.
     #[error("capture is not active")]
     NotCapturing,
 }
 
+/// Result alias for device-driver operations.
 pub type LogicAnalyzerResult<T> = std::result::Result<T, LogicAnalyzerError>;
 
 /// The minimal interface required by the runtime and by prospective C-driver
 /// bridges. Implementations must serialize their device control path.
 pub trait LogicAnalyzer: Send + 'static {
+    /// Returns static device capabilities.
     fn info(&self) -> &LogicAnalyzerInfo;
+    /// Validates and applies capture settings while the device is idle.
+    ///
+    /// # Parameters
+    /// - `config`: Complete capture request to apply.
     fn configure_capture(&mut self, config: &LogicCaptureConfig) -> LogicAnalyzerResult<()>;
     /// The rate of the active capture. Valid after `start_capture` succeeds.
     fn sample_rate_hz(&self) -> u64;
+    /// Starts acquisition using the most recently configured settings.
     fn start_capture(&mut self) -> LogicAnalyzerResult<()>;
+    /// Returns the next raw transfer, or `None` when a finite capture ends.
     fn next_chunk(&mut self) -> LogicAnalyzerResult<Option<LogicChunk>>;
+    /// Stops an active capture and releases device-side acquisition state.
     fn stop_capture(&mut self) -> LogicAnalyzerResult<()>;
 }
 
@@ -187,6 +240,12 @@ pub struct LogicAnalyzerSource<A: LogicAnalyzer> {
 }
 
 impl<A: LogicAnalyzer> LogicAnalyzerSource<A> {
+    /// Creates a graph source from one configured device driver.
+    ///
+    /// # Parameters
+    ///
+    /// - `analyzer`: Driver that owns the physical device.
+    /// - `config`: Validated portable capture request.
     pub fn new(analyzer: A, config: LogicCaptureConfig) -> LogicAnalyzerResult<Self> {
         crate::register_type::<LogicChunk>();
         let channels = config.input_mask.count_ones() as u8;
@@ -212,12 +271,21 @@ impl<A: LogicAnalyzer> LogicAnalyzerSource<A> {
         })
     }
 
+    /// Sets the graph-local name for this source.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: Name shown in graph and runtime diagnostics.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
     }
 
     /// Supplies the host-selected executor for the long-lived capture task.
+    ///
+    /// # Parameters
+    ///
+    /// - `work_executor`: Host capability that owns the capture task.
     pub fn with_work_executor(mut self, work_executor: Arc<dyn WorkExecutor>) -> Self {
         self.work_executor = work_executor;
         self

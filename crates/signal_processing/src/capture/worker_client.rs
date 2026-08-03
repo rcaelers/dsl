@@ -20,6 +20,11 @@ pub struct CaptureWorkerIndexQueryExecutor {
 }
 
 impl CaptureWorkerIndexQueryExecutor {
+    /// Binds an index-query executor to one prepared worker session.
+    ///
+    /// # Parameters
+    /// - `client`: Shared worker request and response state machine.
+    /// - `session_id`: Prepared capture session leased by this executor.
     pub fn new(client: Arc<CaptureWorkerClient>, session_id: u64) -> Self {
         Self { client, session_id }
     }
@@ -81,6 +86,7 @@ enum RequestKind {
 }
 
 impl CaptureWorkerClient {
+    /// Creates a worker client with a bounded number of outstanding requests.
     pub fn new(max_outstanding: usize) -> Result<Self, String> {
         if max_outstanding == 0 {
             return Err("capture-worker queue must accept at least one request".to_owned());
@@ -91,6 +97,7 @@ impl CaptureWorkerClient {
         })
     }
 
+    /// Queues capture preparation and returns its opaque request sequence.
     pub fn submit_preparation(
         &self,
         request: CaptureIndexPreparationRequest,
@@ -100,6 +107,11 @@ impl CaptureWorkerClient {
         })
     }
 
+    /// Queues a bounded sampled-window query for a prepared session.
+    ///
+    /// # Parameters
+    /// - `session_id`: Prepared capture session to query.
+    /// - `query`: Channels, sample range, and point budget to request.
     pub fn submit_query(&self, session_id: u64, query: CaptureIndexQuery) -> Result<u64, String> {
         self.submit(RequestKind::Query, |sequence| CaptureWorkerRequest::Query {
             sequence,
@@ -108,6 +120,12 @@ impl CaptureWorkerClient {
         })
     }
 
+    /// Queues a raw-block replay request for a prepared session.
+    ///
+    /// # Parameters
+    ///
+    /// - `session_id`: Prepared capture session to replay.
+    /// - `request`: Requested raw block range and channel data.
     pub fn submit_replay(
         &self,
         session_id: u64,
@@ -122,6 +140,11 @@ impl CaptureWorkerClient {
         })
     }
 
+    /// Requests cancellation of a still-pending request.
+    ///
+    /// # Parameters
+    ///
+    /// - `sequence`: Opaque request sequence returned by a submit method.
     pub fn cancel(&self, sequence: u64) -> bool {
         let mut state = self.state.lock().unwrap();
         if !state.pending.contains_key(&sequence) {
@@ -136,6 +159,11 @@ impl CaptureWorkerClient {
         true
     }
 
+    /// Releases a prepared-session lease held by a query proxy.
+    ///
+    /// # Parameters
+    ///
+    /// - `session_id`: Prepared capture session to release.
     pub fn release(&self, session_id: u64) {
         let mut state = self.state.lock().unwrap();
         if state.disconnected.is_none() {
@@ -145,10 +173,16 @@ impl CaptureWorkerClient {
         }
     }
 
+    /// Drains queued protocol requests for delivery to the host worker.
     pub fn drain_requests(&self) -> Vec<CaptureWorkerRequest> {
         self.state.lock().unwrap().outbound.drain(..).collect()
     }
 
+    /// Accepts one worker response after validating its request kind and sequence.
+    ///
+    /// # Parameters
+    ///
+    /// - `message`: Worker protocol message to route to the waiting request.
     pub fn publish(&self, mut message: CaptureWorkerMessage) -> Result<(), String> {
         let sequence = message_sequence(&message);
         let mut state = self.state.lock().unwrap();
@@ -188,6 +222,10 @@ impl CaptureWorkerClient {
         Ok(())
     }
 
+    /// Takes updates, leaving its default state.
+    ///
+    /// # Parameters
+    /// - `sequence`: Request sequence whose queued updates are drained.
     pub fn take_updates(&self, sequence: u64) -> Vec<CaptureWorkerMessage> {
         self.state
             .lock()
@@ -198,6 +236,11 @@ impl CaptureWorkerClient {
             .unwrap_or_default()
     }
 
+    /// Fails every pending request after worker transport disconnection.
+    ///
+    /// # Parameters
+    ///
+    /// - `message`: Diagnostic reason reported to all pending callers.
     pub fn fail_all(&self, message: impl Into<String>) {
         let message = message.into();
         let mut state = self.state.lock().unwrap();
@@ -217,6 +260,7 @@ impl CaptureWorkerClient {
         }
     }
 
+    /// Returns the number of requests awaiting a terminal worker response.
     pub fn outstanding(&self) -> usize {
         self.state.lock().unwrap().pending.len()
     }

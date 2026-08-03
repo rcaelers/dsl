@@ -94,6 +94,9 @@ impl Default for CompileCtx {
 
 impl CompileCtx {
     /// Supplies the host-selected bounded work executor to node builders.
+    ///
+    /// # Parameters
+    /// - `executor`: Input consumed by this operation.
     pub fn set_work_executor(&mut self, executor: Arc<dyn WorkExecutor>) {
         self.work_executor = executor;
     }
@@ -128,6 +131,7 @@ impl CompileCtx {
         &self.collected_output_subscriptions
     }
 
+    /// Returns requested retained-table subscriptions resolved for this run.
     pub fn collected_table_subscriptions(&self) -> &[CollectedTableSubscription] {
         &self.collected_table_subscriptions
     }
@@ -144,10 +148,12 @@ impl CompileCtx {
         )
     }
 
+    /// Returns runtime diagnostics registered during lowering and materialization.
     pub fn diagnostics(&self) -> &RunDiagnosticRegistry {
         &self.diagnostics
     }
 
+    /// Returns readiness handles for discovered capture sources.
     pub fn source_readiness(&self) -> &SourceReadinessRegistry {
         &self.source_readiness
     }
@@ -221,22 +227,29 @@ struct RetainedWordSamplingLane {
     clock_high: bool,
 }
 
+/// Fully resolved sampling inputs that can be rendered as one overlay.
 #[derive(Debug, Clone)]
 pub struct ResolvedSamplingOverlay {
+    /// Viewer channel carrying the sampling clock.
     pub clock_channel: usize,
+    /// Viewer channels sampled at clock transitions.
     pub sampled_channels: Vec<usize>,
+    /// Sampling-point store used to recover sample positions.
     pub points: SamplingPointStore,
 }
 
 impl SamplingOverlayCandidate {
+    /// Returns the graph node that owns this overlay.
     pub fn node_id(&self) -> NodeId {
         self.node_id
     }
 
+    /// Returns the node title for application presentation.
     pub fn node_title(&self) -> &str {
         &self.node_title
     }
 
+    /// Returns the resolved clock, channels, and sampling-point store.
     pub fn overlay(&self) -> &ResolvedSamplingOverlay {
         &self.overlay
     }
@@ -273,27 +286,40 @@ impl SamplingOverlayCandidate {
 
 // ── Builder trait & registry ─────────────────────────────────────────────────
 
+/// Trigger configuration discovered from one live-capture source.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiscoveredTriggerConfiguration {
+    /// Source node that contributed the feature.
     pub source_node: NodeId,
+    /// User-visible title of the source node.
     pub source_title: String,
+    /// Validated trigger configuration exposed by the source.
     pub feature: TriggerConfigurationFeature,
 }
 
+/// Node-owned marker discovered for presentation in the host timeline.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiscoveredTimelineMarker {
+    /// Node that owns and receives edits for the marker.
     pub owner_node: NodeId,
+    /// User-visible title of the owning node.
     pub owner_title: String,
+    /// Marker definition contributed by the node.
     pub marker: TimelineMarkerDescriptor,
 }
 
+/// Timeline-reference control discovered from one concrete node.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiscoveredTimelineMarkerReferenceBinding {
+    /// Node that owns and receives edits for the control.
     pub owner_node: NodeId,
+    /// User-visible title of the owning node.
     pub owner_title: String,
+    /// Host-reference binding contributed by the node.
     pub binding: TimelineMarkerReferenceBindingDescriptor,
 }
 
+/// One live-capture feature discovered from the lowered graph.
 pub struct DiscoveredLiveCaptureFeature {
     source_node: NodeId,
     source_title: String,
@@ -302,6 +328,12 @@ pub struct DiscoveredLiveCaptureFeature {
 }
 
 impl DiscoveredLiveCaptureFeature {
+    /// Creates a discovery result with every provider channel initially visible.
+    ///
+    /// # Parameters
+    /// - `source_node`: Graph node that owns the live-capture feature.
+    /// - `source_title`: User-visible title of that source node.
+    /// - `feature`: Provider feature used to prepare capture data.
     pub fn new(
         source_node: NodeId,
         source_title: impl Into<String>,
@@ -325,60 +357,78 @@ impl DiscoveredLiveCaptureFeature {
         }
     }
 
+    /// Returns physical provider channels in provider-defined order.
     pub fn channels(&self) -> &[CaptureChannelId] {
         self.feature.channels()
     }
 
+    /// Returns the graph node that owns this feature.
     pub fn source_node(&self) -> NodeId {
         self.source_node
     }
 
+    /// Returns the user-visible title of the source node.
     pub fn source_title(&self) -> &str {
         &self.source_title
     }
 
+    /// Returns display names in provider channel order.
     pub fn channel_names(&self) -> &[String] {
         self.feature.channel_names()
     }
 
+    /// Returns provider-channel indices selected for application presentation.
     pub fn visible_channels(&self) -> &[usize] {
         &self.visible_channels
     }
 
+    /// Returns the feature's capture sample rate in hertz.
     pub fn sample_rate_hz(&self) -> f64 {
         self.feature.sample_rate_hz()
     }
 
+    /// Returns the provider's capture and command capabilities.
     pub fn capabilities(&self) -> &CaptureProviderCapabilities {
         self.feature.capabilities()
     }
 
+    /// Returns simple-trigger controls supplied by the capture feature.
     pub fn simple_trigger_channels(&self) -> &[SimpleTriggerChannel] {
         self.feature.simple_trigger_channels()
     }
 
+    /// Returns the advanced trigger program, if the provider supplied one.
     pub fn trigger_program(&self) -> Option<&TriggerProgram> {
         self.feature.trigger_program()
     }
 
+    /// Returns whether either advanced or enabled simple triggering is configured.
     pub fn has_trigger_program(&self) -> bool {
         self.trigger_program().is_some() || self.has_simple_trigger()
     }
 
+    /// Returns the provider's capture session plan, when available.
     pub fn session_plan(&self) -> Option<&CaptureSessionPlan> {
         self.feature.session_plan()
     }
 
+    /// Returns whether any enabled channel has a non-ignore simple trigger.
     pub fn has_simple_trigger(&self) -> bool {
         self.simple_trigger_channels()
             .iter()
             .any(|channel| channel.enabled && channel.condition != SimpleTriggerCondition::Ignore)
     }
 
+    /// Returns the factory for replaying the prepared capture through the graph.
     pub fn graph_source_factory(&self) -> Arc<dyn CaptureGraphSourceFactory> {
         self.feature.graph_source_factory()
     }
 
+    /// Prepares the capture provider using the requested start mode.
+    ///
+    /// # Parameters
+    /// - `context`: Host capabilities, cancellation, and storage for preparation.
+    /// - `mode`: Requested acquisition start behavior.
     pub fn prepare(
         self,
         context: AcquisitionContext,
@@ -388,15 +438,22 @@ impl DiscoveredLiveCaptureFeature {
     }
 }
 
+/// Reason discovery could not choose a single live-capture feature.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LiveCaptureDiscoveryError {
+    /// Source nodes that made discovery ambiguous.
     pub source_nodes: Vec<NodeId>,
+    /// User-presentable explanation of the discovery failure.
     pub message: String,
 }
 
+/// Capture presentation discovered from a concrete source node.
 pub struct DiscoveredCapturePresentation {
+    /// Stable identity of the capture source.
     pub identity: String,
+    /// Viewer-channel indexes selected for display.
     pub visible_channels: Vec<usize>,
+    /// Indexed, in-memory, or metadata-only viewer representation.
     pub presentation: CapturePresentation,
 }
 
@@ -994,31 +1051,47 @@ fn discover_live_capture_feature_from(
 /// edit and cheap to diff (live reconfiguration).
 #[derive(Debug, Clone, Default)]
 pub struct CompiledGraph {
+    /// Lowered node definitions in materialization order.
     pub nodes: Vec<CompiledNode>,
+    /// Lowered runtime edges connecting named node ports.
     pub edges: Vec<CompiledEdge>,
+    /// Combined retention policy for data derived by the graph.
     pub derived_data_retention: DerivedDataRetention,
+    /// Sampling overlays available to application presentation.
     pub sampling_overlays: Vec<SamplingOverlayCandidate>,
 }
 
+/// Lowered runtime description of one graph node.
 #[derive(Debug, Clone)]
 pub struct CompiledNode {
+    /// Source node identity from the editor graph.
     pub id: NodeId,
     /// `BuilderRegistry` key (the UI def name).
     pub builder: String,
+    /// Persisted state used to build the node.
     pub state: Value,
     /// Pipeline node name: `n{id}_{title_slug}`.
     pub runtime_name: String,
+    /// Whether the node collects inputs into retained output lanes.
     pub data_collector: bool,
+    /// Negotiated upstream connections by input definition and member.
     pub resolved: ResolvedInputs,
+    /// Source cache-reuse identity determined during lowering.
     pub capture_cache_identity: CaptureCacheIdentity,
+    /// Persistent caches associated with retained word outputs.
     pub derived_word_caches: Vec<Option<PersistentStoreConfig>>,
 }
 
+/// Lowered runtime edge between two named node ports.
 #[derive(Debug, Clone)]
 pub struct CompiledEdge {
+    /// Source node and its runtime output name.
     pub from: (NodeId, String),
+    /// Destination node and its runtime input name.
     pub to: (NodeId, String),
+    /// Bounded channel capacity for this connection.
     pub buffer: usize,
+    /// Negotiated payload kind carried by the edge.
     pub kind: PortKind,
 }
 
@@ -2055,15 +2128,21 @@ enum LiveEdit {
     Restart(NodeId),
 }
 
+/// Summary of changes applied to a running graph without a full restart.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ApplySummary {
+    /// Nodes materialized into the running graph.
     pub added: usize,
+    /// Nodes removed from the running graph.
     pub removed: usize,
+    /// Nodes updated with in-place configuration.
     pub configured: usize,
+    /// Nodes rebuilt in place after a compatible change.
     pub restarted: usize,
 }
 
 impl ApplySummary {
+    /// Returns whether no live changes were applied.
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
     }
@@ -2212,7 +2291,9 @@ pub struct LiveRun {
 /// One provider-owned source process used only while a live capture follows
 /// its authoritative store.
 pub struct LiveAnalysisSource {
+    /// Live-capture source node replaced by this provider-owned process.
     pub source_node: NodeId,
+    /// Process that follows the provider's authoritative capture store.
     pub process: Box<dyn ProcessNode>,
 }
 
@@ -2413,10 +2494,12 @@ fn start_live_inner(
 }
 
 impl LiveRun {
+    /// Returns sampling overlays resolved from the compiled graph.
     pub fn sampling_overlays(&self) -> &[SamplingOverlayCandidate] {
         &self.compiled.sampling_overlays
     }
 
+    /// Returns persistent derived-word cache configurations for this run.
     pub fn persistent_cache_configs(&self) -> Vec<PersistentStoreConfig> {
         self.compiled
             .nodes
@@ -2425,14 +2508,17 @@ impl LiveRun {
             .collect()
     }
 
+    /// Returns resolved retained-output subscriptions.
     pub fn collected_output_subscriptions(&self) -> &[CollectedOutputSubscription] {
         &self.collected_output_subscriptions
     }
 
+    /// Returns resolved retained-table subscriptions.
     pub fn collected_table_subscriptions(&self) -> &[CollectedTableSubscription] {
         &self.collected_table_subscriptions
     }
 
+    /// Returns the run-owned catalog of collected derived lanes.
     pub fn derived_lanes(&self) -> &DerivedLanes {
         &self.lanes
     }
@@ -2449,10 +2535,12 @@ impl LiveRun {
         )
     }
 
+    /// Returns runtime diagnostics for this live run.
     pub fn diagnostics(&self) -> &RunDiagnosticRegistry {
         &self.diagnostics
     }
 
+    /// Returns readiness handles for this live run's capture sources.
     pub fn source_readiness(&self) -> &SourceReadinessRegistry {
         &self.source_readiness
     }
@@ -2655,6 +2743,7 @@ impl LiveRun {
         })
     }
 
+    /// Returns whether finished.
     pub fn is_finished(&self) -> bool {
         self.manager.is_finished()
     }
@@ -2679,6 +2768,9 @@ impl LiveRun {
     /// threaded native manager (its nodes run themselves); on wasm's
     /// cooperative manager this is what actually advances the run, so the
     /// UI frame loop must call it every frame regardless of target.
+    ///
+    /// # Parameters
+    /// - `budget`: Input consumed by this operation.
     pub fn pump(&mut self, budget: usize) {
         self.manager.pump(budget);
     }

@@ -36,14 +36,17 @@ struct PortState {
     operation: String, // "recv", "send", etc.
 }
 
-/// Handle to a port's watchdog state (held by receiver/sender wrappers)
+/// Handle held by a port wrapper to report the lifetime of a blocking operation.
 #[derive(Clone)]
 pub struct WatchdogHandle {
     state: Arc<PortState>,
 }
 
 impl WatchdogHandle {
-    /// Mark the start of a blocking operation (stores current timestamp)
+    /// Marks the start of an operation that may block.
+    ///
+    /// A later [`Self::finish_operation`] closes this interval. Starting a new
+    /// interval clears any warning associated with the previous one.
     #[inline(always)]
     pub fn start_operation(&self) {
         self.state
@@ -53,7 +56,10 @@ impl WatchdogHandle {
         self.state.has_warned.store(false, Ordering::Relaxed);
     }
 
-    /// Mark the end of a blocking operation (clears timestamp to 0)
+    /// Marks the current blocking operation as complete.
+    ///
+    /// If the watchdog reported it as blocked, this emits an accompanying
+    /// unblocked diagnostic.
     #[inline(always)]
     pub fn finish_operation(&self) {
         // Check if we warned about this operation being blocked
@@ -68,7 +74,11 @@ impl WatchdogHandle {
     }
 }
 
-/// Shared watchdog state
+/// Shared monitor for long-running send and receive operations.
+///
+/// Channel wrappers register ports, then bracket each potentially blocking
+/// operation through the returned [`WatchdogHandle`]. The monitor emits a
+/// warning once when an operation exceeds five seconds.
 #[derive(Clone)]
 pub struct Watchdog {
     ports: Arc<Mutex<Vec<Weak<PortState>>>>,
@@ -80,7 +90,7 @@ pub struct Watchdog {
 }
 
 impl Watchdog {
-    /// Create a new watchdog
+    /// Creates an enabled watchdog with no registered ports.
     pub fn new() -> Self {
         Self {
             ports: Arc::new(Mutex::new(Vec::new())),
@@ -89,7 +99,12 @@ impl Watchdog {
         }
     }
 
-    /// Register a new port for monitoring
+    /// Registers one named port operation for monitoring.
+    ///
+    /// # Parameters
+    /// - `node_name`: Graph node that owns the port.
+    /// - `operation`: Operation label, such as `send` or `recv`.
+    /// - `port_name`: Port name shown in blocked-operation diagnostics.
     pub fn register_port(
         &self,
         node_name: &str,
@@ -109,7 +124,9 @@ impl Watchdog {
         WatchdogHandle { state }
     }
 
-    /// Check for blocked operations (>5 seconds)
+    /// Scans registered operations and warns about ones blocked for over five seconds.
+    ///
+    /// Dead port handles are discarded during the scan.
     pub fn check_for_blocked(&self) {
         let now = now_millis();
         let threshold_ms = 5000; // 5 seconds
@@ -142,7 +159,11 @@ impl Watchdog {
         });
     }
 
-    /// Starts watchdog monitoring through the host execution capability.
+    /// Starts periodic monitoring through the supplied host execution capability.
+    ///
+    /// # Parameters
+    ///
+    /// - `work_executor`: Host service that owns the long-running monitor task.
     pub fn start_monitoring(
         &self,
         work_executor: Arc<dyn WorkExecutor>,
@@ -166,8 +187,10 @@ impl Watchdog {
         }))
     }
 
-    /// Stop the watchdog monitoring thread. Takes effect immediately (the
-    /// poll sleep is interrupted), so a following join returns promptly.
+    /// Stops monitoring and wakes the monitor task immediately.
+    ///
+    /// A caller can then join the [`WorkTask`] returned by
+    /// [`Self::start_monitoring`] without waiting for a polling interval.
     pub fn stop(&self) {
         *self.enabled.lock().unwrap() = false;
         self.wakeup.notify_all();

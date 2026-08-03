@@ -21,40 +21,62 @@ use crate::ports::{InputPort, PortSchema};
 /// retain bounded data in their own storage, and publish an opaque query
 /// handle through the [`CollectedLaneRequest`].
 pub trait CollectedLaneIngestor: Send {
+    /// Returns the port schema expected at a collector input position.
+    ///
+    /// # Parameters
+    /// - `index`: Input position requested by the generic collector.
     fn input_schema(&self, index: usize) -> PortSchema;
+    /// Drains available input values into adapter-owned retained storage.
+    ///
+    /// # Parameters
+    /// - `input`: Typed generic input port to drain.
+    /// - `retention`: Retention policy selected for the current run.
     fn drain(&mut self, input: &InputPort, retention: DerivedDataRetention) -> WorkResult<usize>;
+    /// Returns whether the ingestor will accept no further values.
     fn is_finished(&self) -> bool;
 }
 
 /// Bounded visible-window request supplied to an adapter-owned retained query.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct CollectedLaneSnapshotRequest {
+    /// Inclusive visible-window start in the shared timeline.
     pub start_time_ns: u64,
+    /// Inclusive visible-window end in the shared timeline.
     pub end_time_ns: u64,
+    /// Maximum snapshot items requested by the consumer.
     pub max_items: usize,
 }
 
 /// Revision and cardinality of one optional tabular lane projection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CollectedLaneTableMetadata {
+    /// Revision used to invalidate table snapshots.
     pub generation: u64,
+    /// Total rows retained by the adapter.
     pub total_rows: u64,
 }
 
 /// One scalar record supplied by an optional tabular lane projection.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CollectedLaneTableRow {
+    /// Inclusive start timestamp of the record.
     pub start_time_ns: u64,
+    /// Inclusive end timestamp of the record.
     pub end_time_ns: u64,
+    /// Scalar value associated with the record.
     pub value: u64,
+    /// Optional typed word payload retained with the scalar value.
     pub payload: Option<WordPayload>,
 }
 
 /// Bounded rows for an optional scalar table projection.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CollectedLaneTableSnapshot {
+    /// Bounded rows returned by the query.
     pub rows: Vec<CollectedLaneTableRow>,
+    /// Whether no more rows remain beyond this snapshot.
     pub complete: bool,
+    /// Optional owner-defined scalar formatting hint.
     pub format_hint: Option<String>,
 }
 
@@ -77,16 +99,24 @@ pub enum CollectedLaneStorageBacking {
 /// not include allocator bookkeeping or shared query-handle allocations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CollectedLaneStorageSnapshot {
+    /// Physical backing used by the lane.
     pub backing: CollectedLaneStorageBacking,
+    /// Number of retained records, when measurable.
     pub retained_items: Option<u64>,
+    /// In-memory bytes held by the lane, when measurable.
     pub resident_bytes: Option<u64>,
+    /// Durable bytes held by the lane, when measurable.
     pub stored_bytes: Option<u64>,
+    /// Number of index entries, when measurable.
     pub index_items: Option<u64>,
+    /// Bytes occupied by indexes, when measurable.
     pub index_bytes: Option<u64>,
+    /// Whether retained data can change without replacing the query.
     pub live: bool,
 }
 
 impl CollectedLaneStorageSnapshot {
+    /// Creates minimal diagnostics for an adapter-managed lane.
     pub fn adapter_managed(live: bool) -> Self {
         Self {
             backing: CollectedLaneStorageBacking::AdapterManaged,
@@ -107,10 +137,15 @@ pub struct OpaqueCollectedLaneSnapshot {
 }
 
 impl OpaqueCollectedLaneSnapshot {
+    /// Erases one immutable adapter-owned snapshot value.
+    ///
+    /// # Parameters
+    /// - `value`: Typed immutable snapshot to make available to consumers.
     pub fn new<T: Send + Sync + 'static>(value: Arc<T>) -> Self {
         Self { value }
     }
 
+    /// Downcasts the snapshot to the adapter's registered result type.
     pub fn value<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
         Arc::downcast::<T>(Arc::clone(&self.value)).ok()
     }
@@ -131,6 +166,7 @@ impl std::fmt::Debug for OpaqueCollectedLaneSnapshot {
 /// query type registered by that payload owner. The generic collector and
 /// storage registry never inspect the concrete query value.
 pub trait CollectedLaneQuery: Send + Sync {
+    /// Erases the query for storage in the generic derived-lane catalog.
     fn into_any(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
 
     /// Returns the revision of data observable through [`Self::snapshot`].
@@ -206,6 +242,14 @@ pub struct CollectedLaneRequest {
 }
 
 impl CollectedLaneRequest {
+    /// Creates context for one adapter-owned retained output lane.
+    ///
+    /// # Parameters
+    /// - `name`: Stable runtime lane name.
+    /// - `input_index`: Collector input position producing the lane.
+    /// - `lanes`: Run-owned catalog in which the query will be published.
+    /// - `payload`: Stable identity of the collected payload type.
+    /// - `retention`: Retention policy selected for the run.
     pub fn new(
         name: impl Into<String>,
         input_index: usize,
@@ -224,22 +268,27 @@ impl CollectedLaneRequest {
         }
     }
 
+    /// Returns the lane's stable runtime name.
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// Returns the collector input position producing the lane.
     pub fn input_index(&self) -> usize {
         self.input_index
     }
 
+    /// Returns the run-owned derived-lane catalog.
     pub fn lanes(&self) -> &DerivedLanes {
         &self.lanes
     }
 
+    /// Returns the stable payload descriptor.
     pub fn payload(&self) -> &PayloadDescriptor {
         &self.payload
     }
 
+    /// Returns the lane retention policy.
     pub fn retention(&self) -> DerivedDataRetention {
         self.retention
     }
@@ -251,6 +300,7 @@ impl CollectedLaneRequest {
         self
     }
 
+    /// Returns indexed storage selected by the compiler, when any.
     pub fn indexed_store(&self) -> Option<&LiveStoreConfig> {
         self.indexed_store.as_ref()
     }
@@ -262,6 +312,7 @@ impl CollectedLaneRequest {
         self
     }
 
+    /// Downcasts adapter-owned construction options to their declared type.
     pub fn options<T: Send + Sync + 'static>(&self) -> Option<&T> {
         self.options.downcast_ref::<T>()
     }
@@ -277,6 +328,10 @@ impl CollectedLaneRequest {
 
 /// Factory for the typed ingestion and retained-query behavior of one payload.
 pub trait PayloadAdapter: Send + Sync {
+    /// Creates the typed ingestor and publishes its retained-query behavior.
+    ///
+    /// # Parameters
+    /// - `request`: Generic lane identity, retention, storage, and opaque options.
     fn create_ingestor(
         &self,
         request: CollectedLaneRequest,
@@ -309,13 +364,21 @@ pub enum PayloadRegistrationError {
         requested_stable_id: String,
     },
     #[error("payload identifier '{stable_id}' is already registered for another type")]
-    StableIdAlreadyRegistered { stable_id: String },
+    StableIdAlreadyRegistered {
+        stable_id: String
+    },
     #[error("payload '{stable_id}' already has an ingestion adapter")]
-    AdapterAlreadyRegistered { stable_id: String },
+    AdapterAlreadyRegistered {
+        stable_id: String
+    },
     #[error("payload type '{type_name}' has no payload identity")]
-    PayloadNotRegistered { type_name: String },
+    PayloadNotRegistered {
+        type_name: String
+    },
     #[error("payload '{stable_id}' has no ingestion adapter")]
-    PayloadHasNoAdapter { stable_id: String },
+    PayloadHasNoAdapter {
+        stable_id: String
+    },
 }
 
 /// Bidirectional identity registry for payload types.
@@ -341,10 +404,12 @@ impl std::fmt::Debug for PayloadRegistry {
 }
 
 impl PayloadRegistry {
+    /// Creates an empty payload identity and adapter registry.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Registers a stable identity for a concrete payload Rust type.
     pub fn register<T: Clone + Send + Sync + 'static>(
         &mut self,
         stable_id: impl Into<String>,
@@ -376,6 +441,10 @@ impl PayloadRegistry {
     }
 
     /// Registers a payload identity supplied through a compile-time plugin descriptor.
+    ///
+    /// # Parameters
+    /// - `type_id`: Concrete payload type identity supplied by a plugin.
+    /// - `stable_id`: Stable persisted payload identity.
     pub fn register_erased(
         &mut self,
         type_id: TypeId,
@@ -404,14 +473,17 @@ impl PayloadRegistry {
         Ok(())
     }
 
+    /// Returns the descriptor registered for a concrete payload type.
     pub fn descriptor<T: 'static>(&self) -> Option<&PayloadDescriptor> {
         self.descriptor_by_type_id(TypeId::of::<T>())
     }
 
+    /// Returns the descriptor registered for a type identity.
     pub fn descriptor_by_type_id(&self, type_id: TypeId) -> Option<&PayloadDescriptor> {
         self.by_type.get(&type_id)
     }
 
+    /// Returns the descriptor registered for a stable persisted identity.
     pub fn descriptor_by_stable_id(&self, stable_id: &str) -> Option<&PayloadDescriptor> {
         self.by_stable_id
             .get(stable_id)
@@ -459,6 +531,10 @@ impl PayloadRegistry {
         Ok(())
     }
 
+    /// Returns the ingestion adapter registered for a type identity.
+    ///
+    /// # Parameters
+    /// - `type_id`: Concrete payload type identity to look up.
     pub fn adapter_by_type_id(&self, type_id: TypeId) -> Option<&Arc<dyn PayloadAdapter>> {
         self.adapters.get(&type_id)
     }

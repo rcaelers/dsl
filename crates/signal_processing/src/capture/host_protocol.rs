@@ -8,19 +8,28 @@ use crate::SourceIdentity;
 /// One bounded request for packed raw blocks from a prepared capture session.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureWorkerReplayRequest {
+    /// Raw channels requested from the prepared capture.
     pub channels: Vec<u64>,
+    /// Capture block number requested for every channel.
     pub block: u64,
+    /// First channel to include when resuming a bounded response.
     pub start_channel: u64,
+    /// Maximum packed payload bytes permitted in the response.
     pub max_payload_bytes: u64,
 }
 
 /// One packed channel block returned by a capture worker.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureWorkerReplayBlock {
+    /// Raw channel represented by this packed block.
     pub channel: u64,
+    /// Capture block number represented by this payload.
     pub block: u64,
+    /// First sample index contained in the block.
     pub start_sample: u64,
+    /// Number of valid samples in `data`.
     pub valid_samples: u64,
+    /// Packed raw sample bytes.
     pub data: Vec<u8>,
 }
 
@@ -28,24 +37,39 @@ pub struct CaptureWorkerReplayBlock {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CaptureWorkerRequest {
+    /// Prepares a source and creates a worker-owned capture-index session.
     Prepare {
+        /// Caller-assigned sequence used to correlate messages.
         sequence: u64,
+        /// Source preparation request and host-neutral input description.
         request: CaptureIndexPreparationRequest,
     },
+    /// Queries an already prepared index session.
     Query {
+        /// Caller-assigned sequence used to correlate messages.
         sequence: u64,
+        /// Worker-owned prepared session to query.
         session_id: u64,
+        /// Bounded index query.
         query: CaptureIndexQuery,
     },
+    /// Replays bounded packed raw capture data from a prepared session.
     Replay {
+        /// Caller-assigned sequence used to correlate messages.
         sequence: u64,
+        /// Worker-owned prepared session to replay.
         session_id: u64,
+        /// Bounded block and channel request.
         request: CaptureWorkerReplayRequest,
     },
+    /// Cancels preparation, query, or replay work for one sequence.
     Cancel {
+        /// Caller-assigned sequence to cancel.
         sequence: u64,
     },
+    /// Releases a worker-owned prepared capture session.
     Release {
+        /// Worker-owned session to release.
         session_id: u64,
     },
 }
@@ -54,37 +78,63 @@ pub enum CaptureWorkerRequest {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CaptureWorkerMessage {
+    /// Reports source preparation or index-building progress.
     Progress {
+        /// Caller-assigned sequence of the active preparation.
         sequence: u64,
+        /// Latest progress reported by source preparation.
         progress: CaptureIndexBuildProgress,
     },
+    /// Reports immutable source metadata discovered during preparation.
     Metadata {
+        /// Caller-assigned sequence of the active preparation.
         sequence: u64,
+        /// Discovered capture metadata.
         metadata: CaptureMetadata,
     },
+    /// Confirms preparation and provides a worker-owned query session.
     Prepared {
+        /// Caller-assigned preparation sequence.
         sequence: u64,
+        /// Worker-owned session for later queries and replay.
         session_id: u64,
+        /// User-facing source display name.
         display_name: String,
+        /// Identity of the raw source content.
         source_identity: SourceIdentity,
+        /// Identity of the prepared capture index.
         index_identity: SourceIdentity,
+        /// Final source metadata.
         metadata: CaptureMetadata,
     },
+    /// Returns a bounded sampled index window.
     Window {
+        /// Caller-assigned query sequence.
         sequence: u64,
+        /// Sampled index result.
         window: CaptureSampledWindow,
     },
+    /// Returns bounded packed raw replay blocks.
     Replay {
+        /// Caller-assigned replay sequence.
         sequence: u64,
+        /// Replay block number served by this response.
         block: u64,
+        /// Packed channel blocks included in this response.
         blocks: Vec<CaptureWorkerReplayBlock>,
+        /// Channel at which a subsequent bounded request should resume.
         next_channel: u64,
     },
+    /// Reports a worker-side failure without exposing host error types.
     Failed {
+        /// Caller-assigned sequence that failed.
         sequence: u64,
+        /// User-presentable failure explanation.
         message: String,
     },
+    /// Confirms cancellation of one sequence.
     Cancelled {
+        /// Caller-assigned sequence that was cancelled.
         sequence: u64,
     },
 }
@@ -94,6 +144,9 @@ const JSON_MESSAGE: u8 = 0;
 const REPLAY_MESSAGE: u8 = 1;
 
 /// Encodes worker results without expanding packed replay bytes through JSON.
+///
+/// # Parameters
+/// - `messages`: Ordered worker results to encode as one transport frame.
 pub fn encode_capture_worker_messages(
     messages: &[CaptureWorkerMessage],
 ) -> Result<Vec<u8>, String> {

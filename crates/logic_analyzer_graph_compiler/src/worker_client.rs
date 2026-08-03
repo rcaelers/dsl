@@ -25,6 +25,11 @@ struct ClientState {
 }
 
 impl GraphWorkerClient {
+    /// Creates a bounded client for sending graph runs to a host worker.
+    ///
+    /// # Parameters
+    /// - `max_outstanding`: Maximum worker runs awaiting a terminal message.
+    /// - `artifact_repository`: Repository into which replicated worker artifacts are applied.
     pub fn new(
         max_outstanding: usize,
         artifact_repository: Arc<dyn ArtifactRepository>,
@@ -39,6 +44,12 @@ impl GraphWorkerClient {
         })
     }
 
+    /// Enqueues a graph-execution request and returns its correlation sequence.
+    ///
+    /// # Parameters
+    /// - `graph`: Editor graph to execute in the worker.
+    /// - `subscriptions`: Retained and visible output selection.
+    /// - `context`: Timeline markers and other run-scoped context.
     pub fn start(
         &self,
         graph: GraphState,
@@ -76,6 +87,7 @@ impl GraphWorkerClient {
         Ok(sequence)
     }
 
+    /// Requests cancellation of one pending execution sequence.
     pub fn cancel(&self, sequence: u64) -> bool {
         let mut state = self.state.lock().unwrap();
         if !state.pending.contains(&sequence) {
@@ -89,10 +101,12 @@ impl GraphWorkerClient {
         true
     }
 
+    /// Drains outbound requests for delivery by the host worker adapter.
     pub fn drain_requests(&self) -> Vec<GraphWorkerRequest> {
         self.state.lock().unwrap().outbound.drain(..).collect()
     }
 
+    /// Applies one worker message and makes it available to the matching caller.
     pub fn publish(&self, message: GraphWorkerMessage) -> Result<(), String> {
         let sequence = message_sequence(&message);
         let mut state = self.state.lock().unwrap();
@@ -130,6 +144,10 @@ impl GraphWorkerClient {
         Ok(())
     }
 
+    /// Takes updates, leaving its default state.
+    ///
+    /// # Parameters
+    /// - `sequence`: Execution sequence whose queued updates should be drained.
     pub fn take_updates(&self, sequence: u64) -> Vec<GraphWorkerMessage> {
         self.state
             .lock()
@@ -140,6 +158,10 @@ impl GraphWorkerClient {
             .unwrap_or_default()
     }
 
+    /// Fails every pending execution after the worker transport disconnects.
+    ///
+    /// # Parameters
+    /// - `message`: User-presentable transport failure description.
     pub fn fail_all(&self, message: impl Into<String>) {
         let message = message.into();
         let mut state = self.state.lock().unwrap();
@@ -159,6 +181,7 @@ impl GraphWorkerClient {
         }
     }
 
+    /// Returns the number of requests awaiting terminal worker messages.
     pub fn outstanding(&self) -> usize {
         self.state.lock().unwrap().pending.len()
     }

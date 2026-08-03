@@ -52,6 +52,7 @@ impl Default for PacketFramer {
 }
 
 impl PacketFramer {
+    /// Creates a packet framer with the supplied framing configuration.
     pub fn new() -> Self {
         Self {
             name: "packet_framer".to_owned(),
@@ -76,36 +77,46 @@ impl PacketFramer {
         }
     }
 
+    /// Returns this value configured with name.
+    ///
+    /// # Parameters
+    /// - `name`: Input consumed by this operation.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
     }
 
+    /// Returns this value configured with fixed word count.
     pub fn with_fixed_word_count(mut self, count: Option<usize>) -> Self {
         self.fixed_word_count = count.filter(|count| *count > 0);
         self
     }
 
+    /// Returns this value configured with delimiter.
     pub fn with_delimiter(mut self, value: Option<u64>, include: bool) -> Self {
         self.delimiter = value.map(|value| (value, include));
         self
     }
 
+    /// Returns this value configured with maximum gap ns.
     pub fn with_maximum_gap_ns(mut self, maximum_gap_ns: Option<u64>) -> Self {
         self.maximum_gap_ns = maximum_gap_ns.filter(|gap| *gap > 0);
         self
     }
 
+    /// Returns this value configured with maximum words.
     pub fn with_maximum_words(mut self, maximum_words: usize) -> Self {
         self.maximum_words = maximum_words.max(1);
         self
     }
 
+    /// Returns this value configured with boundary input.
     pub fn with_boundary_input(mut self, enabled: bool) -> Self {
         self.boundary_enabled = enabled;
         self
     }
 
+    /// Returns this value configured with gate input.
     pub fn with_gate_input(mut self, polarity: Option<GatePolarity>) -> Self {
         self.gate_polarity = polarity;
         self

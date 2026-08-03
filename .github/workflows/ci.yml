@@ -26,6 +26,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Check Rust module structure
         run: ruby scripts/check_rust_module_structure.rb
+      - name: Check public function documentation
+        run: ruby scripts/check_public_function_docs.rb
       - name: Test and check native/web platform boundaries
         run: |
           ruby scripts/check_platform_boundaries_test.rb
@@ -40,6 +42,10 @@ jobs:
         env:
           RUSTFLAGS: -D unreachable-pub
         run: cargo check --workspace --all-targets
+      - name: Build public API documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --no-deps --lib
 
   test-crates:
     name: Test ${{ matrix.package }}

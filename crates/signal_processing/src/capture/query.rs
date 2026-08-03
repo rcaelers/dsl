@@ -10,16 +10,23 @@ use crate::{
 /// One bounded sampled-window request submitted to a host-owned index.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureIndexQuery {
+    /// Raw channel indexes requested from the index.
     pub channels: Vec<u64>,
+    /// Inclusive start sample of the requested window.
     pub start_sample: u64,
+    /// Exclusive end sample of the requested window.
     pub end_sample: u64,
+    /// Desired maximum sample points per channel.
     pub target_points: u64,
 }
 
 /// Current state of one host-owned sampled-window request.
 pub enum CaptureIndexQueryUpdate {
+    /// Submitted query has not produced a result.
     Pending,
+    /// Submitted query completed with a window or a worker error.
     Complete(std::result::Result<CaptureSampledWindow, String>),
+    /// Host query transport disconnected before a terminal result.
     Disconnected,
 }
 
@@ -29,10 +36,16 @@ pub enum CaptureIndexQueryUpdate {
 /// locally, on a native worker, or through a browser worker. Request IDs are
 /// opaque to the consumer and unique for the lifetime of the transport.
 pub trait CaptureIndexQueryExecutor: Send + Sync {
+    /// Submits one bounded sampled-window query.
+    ///
+    /// # Parameters
+    /// - `query`: Channels, sample range, and point budget to query.
     fn submit(&self, query: CaptureIndexQuery) -> std::result::Result<u64, String>;
 
+    /// Polls a submitted query without blocking.
     fn poll(&self, request_id: u64) -> CaptureIndexQueryUpdate;
 
+    /// Cancels a submitted query when the host supports cancellation.
     fn cancel(&self, request_id: u64) -> bool;
 }
 
@@ -51,6 +64,14 @@ struct ActiveQuery {
 }
 
 impl CaptureIndexProxy {
+    /// Creates a proxy backed by a host-owned capture-index query transport.
+    ///
+    /// # Parameters
+    ///
+    /// - `display_name`: Name exposed to query consumers.
+    /// - `identity`: Stable source identity for the prepared index.
+    /// - `metadata`: Immutable capture metadata supplied by the worker.
+    /// - `executor`: Bounded host query transport for sampled windows.
     pub fn new(
         display_name: impl Into<String>,
         identity: SourceIdentity,

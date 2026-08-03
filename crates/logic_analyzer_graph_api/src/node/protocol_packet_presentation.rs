@@ -13,6 +13,10 @@ pub struct ProtocolPacketDisplay {
 }
 
 impl ProtocolPacketDisplay {
+    /// Creates a visible duration-bearing packet display projection.
+    ///
+    /// # Parameters
+    /// - `label`: Protocol-owned label, truncated to the display length limit.
     pub fn new(label: impl Into<String>) -> Self {
         let label = label.into();
         if label.chars().count() <= MAX_LABEL_CHARS {
@@ -49,14 +53,17 @@ impl ProtocolPacketDisplay {
         }
     }
 
+    /// Returns the bounded user-facing packet label.
     pub fn label(&self) -> &str {
         &self.label
     }
 
+    /// Returns whether the viewer should render this packet.
     pub fn is_visible(&self) -> bool {
         self.visible
     }
 
+    /// Returns whether the packet is rendered as an instantaneous marker.
     pub fn is_marker(&self) -> bool {
         self.marker
     }
@@ -69,6 +76,11 @@ pub struct ProtocolPacketPresentationRegistration {
 }
 
 impl ProtocolPacketPresentationRegistration {
+    /// Registers a formatter for packets with one stable protocol ID.
+    ///
+    /// # Parameters
+    /// - `protocol_id`: Stable protocol identity accepted by the formatter.
+    /// - `display`: Protocol-owned projection from packet to viewer display data.
     pub const fn new(
         protocol_id: &'static str,
         display: fn(&ProtocolPacket) -> ProtocolPacketDisplay,
@@ -79,6 +91,7 @@ impl ProtocolPacketPresentationRegistration {
         }
     }
 
+    /// Returns the stable protocol identity claimed by this formatter.
     pub const fn protocol_id(&self) -> &'static str {
         self.protocol_id
     }
@@ -93,6 +106,9 @@ impl ProtocolPacketPresentationRegistration {
 /// Missing or ambiguous registrations return `None`, allowing the payload
 /// owner to use its protocol-neutral fallback without depending on inventory
 /// iteration order.
+///
+/// # Parameters
+/// - `packet`: Generic packet whose protocol-specific display projection is needed.
 pub fn protocol_packet_display(packet: &ProtocolPacket) -> Option<ProtocolPacketDisplay> {
     let mut registrations = inventory::iter::<ProtocolPacketPresentationRegistration>
         .into_iter()

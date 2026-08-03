@@ -25,13 +25,17 @@ const DEFAULT_VISIBLE_SPAN_US: f64 = 900.0;
 /// generic way for a host application to hand [`LogicAnalyzerViewer::set_channels`]
 /// waveform data it already has in memory.
 pub struct ChannelSignal {
+    /// Raw viewer channel index.
     pub index: usize,
+    /// User-facing channel name.
     pub name: String,
+    /// Logic level before the first transition.
     pub initial: bool,
     /// `(time_us, level after this transition)`, in increasing time order.
     pub transitions: Vec<(f64, bool)>,
 }
 
+/// Stateful generic waveform viewer for raw capture and derived lanes.
 pub struct LogicAnalyzerViewer {
     pub(crate) input_bindings: Arc<InputBindings>,
     pub(crate) channels: Vec<LogicChannel>,
@@ -115,6 +119,7 @@ impl Default for LogicAnalyzerViewer {
 }
 
 impl LogicAnalyzerViewer {
+    /// Creates a viewer with the default input bindings and DSView color profile.
     pub fn new() -> Self {
         Self {
             input_bindings: Arc::new(
@@ -167,14 +172,20 @@ impl LogicAnalyzerViewer {
         }
     }
 
+    /// Replaces the application-neutral bindings used while the viewer has focus.
+    ///
+    /// # Parameters
+    /// - `input_bindings`: Input consumed by this operation.
     pub fn set_input_bindings(&mut self, input_bindings: Arc<InputBindings>) {
         self.input_bindings = input_bindings;
     }
 
+    /// Selects the color profile used for waveform and lane presentation.
     pub fn set_color_profile(&mut self, color_profile: ColorProfile) {
         self.color_profile = color_profile;
     }
 
+    /// Returns a compact status-bar summary of visible channels, span, and capture state.
     pub fn status_summary(&self) -> String {
         format!(
             "{} channels · {} span · {}",
@@ -184,10 +195,12 @@ impl LogicAnalyzerViewer {
         )
     }
 
+    /// Returns source-preparation progress when a finite capture is being indexed.
     pub fn index_progress_fraction(&self) -> Option<f32> {
         self.index_progress.map(IndexBuildProgress::fraction)
     }
 
+    /// Returns the input-binding context currently reported while the viewer is hovered.
     pub fn hovered_input_context(&self) -> &'static str {
         self.hovered_input_context
     }
@@ -217,6 +230,7 @@ impl LogicAnalyzerViewer {
         self.sampling_overlays = overlays;
     }
 
+    /// Sets simple trigger lanes.
     pub fn set_simple_trigger_lanes(&mut self, lanes: Vec<SimpleTriggerLane>) {
         self.simple_trigger_lanes = lanes.into_iter().map(|lane| (lane.channel, lane)).collect();
         if self
@@ -228,6 +242,7 @@ impl LogicAnalyzerViewer {
         }
     }
 
+    /// Sets simple trigger editing enabled.
     pub fn set_simple_trigger_editing_enabled(&mut self, enabled: bool) {
         self.simple_trigger_editing_enabled = enabled;
         if !enabled {
@@ -235,6 +250,7 @@ impl LogicAnalyzerViewer {
         }
     }
 
+    /// Takes simple trigger edit, leaving its default state.
     pub fn take_simple_trigger_edit(&mut self) -> Option<SimpleTriggerEdit> {
         self.pending_simple_trigger_edit.take()
     }
@@ -243,6 +259,9 @@ impl LogicAnalyzerViewer {
     /// waveform lanes are unaffected. The host sets this before attaching a
     /// capture; standalone users that never call it continue to see every
     /// channel.
+    ///
+    /// # Parameters
+    /// - `channels`: Input consumed by this operation.
     pub fn set_visible_capture_channels(&mut self, channels: impl IntoIterator<Item = usize>) {
         self.visible_capture_channels = Some(channels.into_iter().collect());
     }
@@ -353,6 +372,10 @@ impl LogicAnalyzerViewer {
     }
 
     /// Attaches an index fully prepared by the host.
+    ///
+    /// # Parameters
+    /// - `identity`: Input consumed by this operation.
+    /// - `sampler`: Input consumed by this operation.
     pub fn set_prepared_capture(
         &mut self,
         identity: impl Into<PathBuf>,
@@ -456,28 +479,36 @@ impl LogicAnalyzerViewer {
         self.ensure_row_order();
     }
 
+    /// Reports whether a growing capture sampler is attached.
     pub fn has_growing_capture(&self) -> bool {
         self.growing_capture.is_some()
     }
 
+    /// Reports whether the attached growing capture has completed.
     pub fn growing_capture_complete(&self) -> bool {
         self.growing_capture
             .as_ref()
             .is_none_or(|capture| capture.complete)
     }
 
+    /// Reports whether automatic live-display updates are paused.
     pub fn display_paused(&self) -> bool {
         self.growing_capture
             .as_ref()
             .is_some_and(|capture| capture.paused)
     }
 
+    /// Reports whether the viewport follows the newest live-capture data.
     pub fn follows_newest(&self) -> bool {
         self.growing_capture
             .as_ref()
             .is_some_and(|capture| capture.follow_newest)
     }
 
+    /// Enables or disables following the newest sample of a growing capture.
+    ///
+    /// # Parameters
+    /// - `follow`: Input consumed by this operation.
     pub fn set_follow_newest(&mut self, follow: bool) {
         if let Some(capture) = &mut self.growing_capture {
             capture.follow_newest = follow;
@@ -488,6 +519,7 @@ impl LogicAnalyzerViewer {
         }
     }
 
+    /// Toggles automatic live-display updates without stopping capture.
     pub fn toggle_pause_display(&mut self) {
         if let Some(capture) = &mut self.growing_capture {
             capture.paused = !capture.paused;
@@ -497,6 +529,7 @@ impl LogicAnalyzerViewer {
         }
     }
 
+    /// Resumes live following for the attached growing capture.
     pub fn go_live(&mut self) {
         self.set_follow_newest(true);
     }
@@ -560,6 +593,10 @@ impl LogicAnalyzerViewer {
         "Click an edge to measure · Drag Pan · Scroll Zoom · Double-click view to add a cursor · Home Fit"
     }
 
+    /// Renders and handles one viewer frame in the available egui rectangle.
+    ///
+    /// # Parameters
+    /// - `ui`: Input consumed by this operation.
     pub fn show(&mut self, ui: &mut Ui) {
         let rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(rect, Sense::click_and_drag());

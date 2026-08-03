@@ -63,6 +63,7 @@ pub struct CollectedWordLaneQuery {
 }
 
 impl CollectedWordLaneQuery {
+    /// Returns the durable indexed annotation lane when this collector uses one.
     pub fn indexed_lane(&self) -> Option<IndexedAnnotationLane> {
         let storage = self.storage.try_read().ok()?;
         let WordLaneStorage::Indexed(indexed) = &*storage else {
@@ -417,6 +418,10 @@ fn annotation_display_end(
 }
 
 impl IndexedAnnotationLane {
+    /// Wraps an indexed annotation store as a viewer-discoverable lane.
+    ///
+    /// # Parameters
+    /// - `store`: Finished or live store that owns exact word history.
     pub fn from_store(store: IndexedAnnotationStore) -> Self {
         Self {
             query: Arc::new(store.clone()),
@@ -424,20 +429,24 @@ impl IndexedAnnotationLane {
         }
     }
 
+    /// Returns current annotation query metadata.
     pub fn metadata(&self) -> AnnotationStoreMetadata {
         self.query.metadata()
     }
 
+    /// Returns the polymorphic viewer annotation query handle.
     pub fn query(&self) -> &Arc<dyn AnnotationQuery> {
         &self.query
     }
 
+    /// Returns the store lifecycle status.
     pub fn status(&self) -> StoreStatus {
         AnnotationStoreBackend::snapshot(&self.store)
             .metadata
             .status
     }
 
+    /// Returns committed-block and hot-tail storage metadata.
     pub fn storage_metadata(&self) -> LiveStoreMetadata {
         AnnotationStoreBackend::snapshot(&self.store).metadata
     }
@@ -502,6 +511,11 @@ impl Default for CollectedWordLaneOptions {
 }
 
 impl CollectedWordLaneOptions {
+    /// Creates indexed word-lane options with an optional display format.
+    ///
+    /// # Parameters
+    /// - `store_config`: Live encoding and persistence configuration.
+    /// - `display_format`: Optional adapter-defined display-format identifier.
     pub fn new(store_config: LiveStoreConfig, display_format: Option<String>) -> Self {
         Self {
             indexed: true,
@@ -741,6 +755,12 @@ pub(crate) fn append_words_to_in_memory_storage(
 /// Creates the built-in retained word-lane adapter for non-graph callers
 /// such as benchmark tools. Graph compilation obtains the same adapter from
 /// [`PayloadRegistry`].
+///
+/// # Parameters
+/// - `name`: Input consumed by this operation.
+/// - `lanes`: Input consumed by this operation.
+/// - `retention`: Input consumed by this operation.
+/// - `options`: Input consumed by this operation.
 pub fn built_in_word_lane_ingestor(
     name: impl Into<String>,
     lanes: DerivedLanes,
@@ -774,6 +794,7 @@ impl PayloadAdapter for WordPayloadAdapter {
     }
 }
 
+/// Returns the payload adapter for built-in decoded-word lanes.
 pub fn word_payload_adapter() -> Arc<dyn PayloadAdapter> {
     Arc::new(WordPayloadAdapter)
 }

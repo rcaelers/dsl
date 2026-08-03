@@ -4,6 +4,9 @@
 //! split tree, boundary menus, split placement, content selection, dragging,
 //! closing, and maximizing. Hosts provide content descriptions and render
 //! arbitrary title-bar and body widgets through [`PanelSlot`].
+//!
+//! The split tree and interaction mechanics are reusable; application panel
+//! identity, content behavior, and command policy remain with the host.
 
 use std::collections::HashSet;
 
@@ -38,6 +41,13 @@ pub struct PanelSpec<'a> {
 }
 
 impl<'a> PanelSpec<'a> {
+    /// Creates a panel specification with a default icon and non-singleton behavior.
+    ///
+    /// # Parameters
+    /// - `id`: Opaque host identifier for the panel type.
+    /// - `title`: Title rendered in the panel's title bar.
+    /// - `minimum_height`: Smallest usable height in logical points. It also initializes the
+    ///   minimum width; use [`Self::minimum_width`] to choose a different width.
     pub const fn new(id: &'a str, title: &'a str, minimum_height: f32) -> Self {
         Self {
             id,
@@ -49,16 +59,25 @@ impl<'a> PanelSpec<'a> {
         }
     }
 
+    /// Sets the panel's minimum width in logical points.
+    ///
+    /// # Parameters
+    /// - `minimum_width`: Smallest usable width of this panel.
     pub const fn minimum_width(mut self, minimum_width: f32) -> Self {
         self.minimum_width = minimum_width;
         self
     }
 
+    /// Selects the icon shown for this panel in content-selection menus.
+    ///
+    /// # Parameters
+    /// - `icon`: Application-neutral icon selected by the host.
     pub const fn icon(mut self, icon: PanelIcon) -> Self {
         self.icon = icon;
         self
     }
 
+    /// Marks the panel as allowing at most one visible instance.
     pub const fn singleton(mut self) -> Self {
         self.singleton = true;
         self
@@ -308,6 +327,10 @@ impl PanelIcon {
     }
 
     /// Adds an icon-and-label row suitable for an egui popup menu.
+    ///
+    /// # Parameters
+    /// - `ui`: Menu UI receiving the widget.
+    /// - `label`: Text rendered beside the icon.
     pub fn menu_item(self, ui: &mut Ui, label: &str) -> egui::Response {
         ui.add(PanelIconMenuItem { icon: self, label })
     }
@@ -381,10 +404,18 @@ pub struct PanelLayoutResponse {
 }
 
 impl PanelLayoutResponse {
+    /// Finds geometry for the panel instance with this stable layout identifier.
+    ///
+    /// # Parameters
+    /// - `panel_id`: Persisted panel-instance identifier.
     pub fn panel(&self, panel_id: &str) -> Option<&PanelGeometry> {
         self.panels.iter().find(|panel| panel.panel_id == panel_id)
     }
 
+    /// Finds geometry for the first panel displaying a content identifier.
+    ///
+    /// # Parameters
+    /// - `content_id`: Opaque host content identifier.
     pub fn content_panel(&self, content_id: &str) -> Option<&PanelGeometry> {
         self.panels
             .iter()
@@ -503,6 +534,10 @@ pub struct PanelLayout {
 impl PanelLayout {
     /// Creates a top-to-bottom layout. The supplied weights determine the
     /// initial horizontal split fractions.
+    ///
+    /// # Parameters
+    /// - `panels`: Initial `(content identifier, relative weight)` pairs in top-to-bottom order.
+    ///   Weights are clamped to a small positive value before fractions are computed.
     pub fn new(panels: impl IntoIterator<Item = (impl Into<String>, f32)>) -> Self {
         let panels: Vec<_> = panels
             .into_iter()
@@ -520,6 +555,10 @@ impl PanelLayout {
         }
     }
 
+    /// Restores a layout from persisted state and repairs its next unique identifier.
+    ///
+    /// # Parameters
+    /// - `state`: Previously serialized layout tree.
     pub fn from_state(mut state: PanelLayoutState) -> Self {
         state.next_id = state
             .next_id
@@ -531,20 +570,33 @@ impl PanelLayout {
         }
     }
 
+    /// Returns the persisted split tree and maximized-panel state.
     pub fn state(&self) -> &PanelLayoutState {
         &self.state
     }
 
+    /// Replaces the visual metrics and colors used by subsequent rendering.
+    ///
+    /// # Parameters
+    /// - `style`: Complete visual style to apply.
     pub fn set_style(&mut self, style: PanelLayoutStyle) {
         self.style = style;
     }
 
     /// Configures the keyboard shortcut that toggles the area under the
     /// pointer between maximized and restored layout states.
+    ///
+    /// # Parameters
+    /// - `shortcut`: Shortcut to consume, or `None` to disable this interaction.
     pub fn set_maximize_shortcut(&mut self, shortcut: Option<KeyboardShortcut>) {
         self.maximize_shortcut = shortcut;
     }
 
+    /// Returns the fraction of the split directly separating two content identifiers.
+    ///
+    /// # Parameters
+    /// - `first_content`: Content expected on the first side of the split.
+    /// - `second_content`: Content expected on the second side of the split.
     pub fn split_fraction(&self, first_content: &str, second_content: &str) -> Option<f32> {
         find_content_split_fraction(self.state.root.as_ref()?, first_content, second_content)
     }
@@ -556,6 +608,14 @@ impl PanelLayout {
     /// the new content is inserted there and the column is rebuilt in the
     /// supplied order. Otherwise the complete current layout is wrapped in a
     /// new vertical split. Identifiers and ordering are opaque to the manager.
+    ///
+    /// # Parameters
+    /// - `content_id`: Content to add when it is not already present.
+    /// - `ordered_contents`: Complete intended order for the auxiliary column.
+    /// - `existing_layout_fraction`: Fraction retained by the existing layout when a new column
+    ///   must be created.
+    ///
+    /// Returns whether the layout changed.
     pub fn ensure_right_column_content(
         &mut self,
         content_id: &str,
@@ -577,6 +637,15 @@ impl PanelLayout {
     /// a primary panel area beside an auxiliary column. If the anchor is no
     /// longer present, the new panel wraps the current layout at the requested
     /// edge instead.
+    ///
+    /// # Parameters
+    /// - `content_id`: Content to add when it is not already present.
+    /// - `anchor_content`: Existing content to split beside when available.
+    /// - `axis`: Orientation of the new split.
+    /// - `content_first`: Whether the new content occupies the split's first side.
+    /// - `fraction`: Space assigned to the first side, clamped to `0.1..=0.9`.
+    ///
+    /// Returns whether the layout changed.
     pub fn ensure_adjacent_content(
         &mut self,
         content_id: &str,
@@ -632,6 +701,15 @@ impl PanelLayout {
 
     /// Ensures that at least `count` panels with `content_id` are present.
     /// Additional instances are placed in the same ordered right-side column.
+    ///
+    /// # Parameters
+    /// - `content_id`: Content whose visible instance count is enforced.
+    /// - `count`: Minimum number of instances to create.
+    /// - `ordered_contents`: Complete intended order for the auxiliary column.
+    /// - `existing_layout_fraction`: Fraction retained by the existing layout when a new column
+    ///   must be created.
+    ///
+    /// Returns whether one or more instances were added.
     pub fn ensure_right_column_content_count(
         &mut self,
         content_id: &str,
@@ -715,6 +793,16 @@ impl PanelLayout {
         true
     }
 
+    /// Synchronizes declared content and renders the complete split-panel layout.
+    ///
+    /// # Parameters
+    /// - `ui`: Parent UI used for painting and pointer input.
+    /// - `rect`: Allocated layout rectangle in screen coordinates.
+    /// - `footer_height`: Height reserved below panels for host-owned footer content.
+    /// - `specs`: Currently available panel content declarations.
+    /// - `add_widget`: Host callback used to render each title-bar and body slot.
+    ///
+    /// Returns panel geometry and boundary-interaction information for host input handling.
     pub fn show(
         &mut self,
         ui: &mut Ui,
@@ -1441,6 +1529,7 @@ impl PanelLayout {
                         ne: 0,
                         sw: self.style.corner_radius,
                         se: self.style.corner_radius,
+
                     },
                 ),
                 TitleBarPosition::Bottom => (
@@ -1456,6 +1545,7 @@ impl PanelLayout {
                         ne: self.style.corner_radius,
                         sw: 0,
                         se: 0,
+
                     },
                 ),
             };
@@ -1521,6 +1611,7 @@ impl PanelLayout {
                         id: new_panel_id,
                         content,
                         title_bar_position: TitleBarPosition::Top,
+
                     },
                 );
             }
@@ -1653,8 +1744,12 @@ struct BoundaryContext {
 
 #[derive(Debug, Clone, Copy)]
 enum SplitPlacement {
-    Panel { axis: SplitAxis },
-    Layout { side: LayoutSide },
+    Panel {
+        axis: SplitAxis
+    },
+    Layout {
+        side: LayoutSide
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1950,42 +2045,52 @@ enum LayoutAction {
     SetFraction {
         split_id: u64,
         fraction: f32,
+
     },
     Join {
         split_id: u64,
         keep: SplitSide,
+
     },
     SwapContent {
         first_panel_id: String,
         second_panel_id: String,
+
     },
     BreakSplit {
         split_id: u64,
         band: SplitSide,
         crossing_fraction: f32,
+
     },
     Split {
         panel_id: String,
         axis: SplitAxis,
         fraction: f32,
+
     },
     SplitLayout {
         side: LayoutSide,
         fraction: f32,
+
     },
     BeginSplit {
         axis: SplitAxis,
+
     },
     BeginLayoutSplit {
         side: LayoutSide,
+
     },
     ChangeContent {
         panel_id: String,
         content_id: String,
+
     },
     Panel {
         panel_id: String,
         action: PanelAction,
+
     },
 }
 

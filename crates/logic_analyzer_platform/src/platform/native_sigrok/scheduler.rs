@@ -38,18 +38,29 @@ pub(crate) enum SchedulerError {
     #[error("sample range overflows u64")]
     SampleRangeOverflow,
     #[error("expected chunk at sample {expected}, got {actual}")]
-    UnexpectedChunkStart { expected: u64, actual: u64 },
+    UnexpectedChunkStart {
+        expected: u64,
+        actual: u64
+    },
     #[error("expected {expected} channels, got {actual}")]
-    ChannelCount { expected: usize, actual: usize },
+    ChannelCount {
+        expected: usize,
+        actual: usize
+    },
     #[error("connected channel {channel} has no sample data")]
-    MissingChannelData { channel: usize },
+    MissingChannelData {
+        channel: usize
+    },
     #[error("disconnected channel {channel} unexpectedly has sample data")]
-    UnexpectedChannelData { channel: usize },
+    UnexpectedChannelData {
+        channel: usize
+    },
     #[error("channel {channel} needs {required} bytes, got {actual}")]
     ShortChannelData {
         channel: usize,
         required: usize,
         actual: usize,
+
     },
 }
 
@@ -127,10 +138,12 @@ enum TermState {
     Pin {
         channel: usize,
         condition: PinCondition,
+
     },
     Skip {
         target: u64,
         skipped: u64,
+
     },
     Never,
 }

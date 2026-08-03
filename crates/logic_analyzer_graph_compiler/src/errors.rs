@@ -5,6 +5,7 @@ use node_graph::api::NodeId;
 pub struct CompileError {
     /// Offending node, for editor badges; `None` for graph-level errors.
     pub node: Option<NodeId>,
+    /// User-presentable explanation of why lowering failed.
     pub message: String,
 }
 

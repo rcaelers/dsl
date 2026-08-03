@@ -11,6 +11,9 @@ pub struct ApplicationSettings {
 
 impl ApplicationSettings {
     /// Decodes settings acquired by a host adapter.
+    ///
+    /// # Parameters
+    /// - `json`: Host-supplied JSON settings document.
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         let document: ApplicationSettingsDocument = serde_json::from_str(json)?;
         Ok(Self {
@@ -20,14 +23,17 @@ impl ApplicationSettings {
         })
     }
 
+    /// Returns the color profile selected for waveform presentation.
     pub fn viewer_color_profile(&self) -> ColorProfile {
         self.viewer_color_profile
     }
 
+    /// Returns the maximum number of finalized capture sessions retained by the UI.
     pub fn max_recent_capture_sessions(&self) -> usize {
         self.max_recent_capture_sessions
     }
 
+    /// Returns the capture-storage budget in gibibytes.
     pub fn max_capture_storage_gib(&self) -> u64 {
         self.max_capture_storage_gib
     }

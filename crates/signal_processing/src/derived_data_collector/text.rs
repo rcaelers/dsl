@@ -293,6 +293,7 @@ impl PayloadAdapter for TextPayloadAdapter {
     }
 }
 
+/// Returns the payload adapter for built-in text lanes.
 pub fn text_payload_adapter() -> Arc<dyn PayloadAdapter> {
     Arc::new(TextPayloadAdapter)
 }

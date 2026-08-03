@@ -43,15 +43,21 @@ use crate::{SampleKind, WorkExecutor, WorkTask};
 /// One input wire of a node being added: which producer list to join.
 #[derive(Debug, Clone)]
 pub struct InputSub {
+    /// Name of the producer node.
     pub from_node: String,
+    /// Name of the producer output port.
     pub from_port: String,
+    /// Maximum number of queued messages for this subscription.
     pub buffer: usize,
+    /// Backpressure policy applied to this consumer.
     pub policy: OverflowPolicy,
 }
 
-/// A node to run under the supervisor.
+/// Complete wiring specification for a node owned by [`PipelineManager`].
 pub struct NodeSpec {
+    /// Unique live-manager name of this node.
     pub name: String,
+    /// Concrete node implementation, moved into the managed runtime.
     pub node: Box<dyn ProcessNode>,
     /// One entry per input-schema index; `None` = unconnected (dummy port).
     pub inputs: Vec<Option<InputSub>>,
@@ -249,15 +255,20 @@ fn output_port_from_lists(output: &OutputList) -> OutputPort {
 /// A consumer dropped by [`OverflowPolicy::Disconnect`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DisconnectEvent {
+    /// Name of the output-owning node.
     pub producer: String,
+    /// Producer output port from which the consumer was dropped.
     pub port: String,
+    /// Consumer name when it is still managed, otherwise `None`.
     pub consumer: Option<String>,
 }
 
 /// Terminal processing error reported by one runtime node.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeFailure {
+    /// Name of the node whose work loop terminated with an error.
     pub node: String,
+    /// Displayable error text reported by that node.
     pub message: String,
 }
 
@@ -319,6 +330,10 @@ struct RunningNode {
     input_subs: Vec<(String, String, u64)>,
 }
 
+/// Supervisor for a live, threaded graph that may be edited while running.
+///
+/// Unlike [`crate::Pipeline`], this manager owns shared subscriber lists so
+/// adding, removing, or restarting a node changes only the affected branch.
 pub struct PipelineManager {
     nodes: HashMap<String, RunningNode>,
     watchdog: Watchdog,
@@ -328,6 +343,10 @@ pub struct PipelineManager {
 }
 
 impl PipelineManager {
+    /// Creates an empty live graph manager and starts its watchdog.
+    ///
+    /// # Parameters
+    /// - `work_executor`: Host capability that runs node and watchdog tasks.
     pub fn new(work_executor: Arc<dyn WorkExecutor>) -> Self {
         let watchdog = Watchdog::new();
         let watchdog_task = watchdog
@@ -342,6 +361,7 @@ impl PipelineManager {
         }
     }
 
+    /// Returns the names of nodes currently registered with the manager.
     pub fn node_names(&self) -> Vec<String> {
         self.nodes.keys().cloned().collect()
     }
@@ -349,8 +369,17 @@ impl PipelineManager {
     /// No-op: threads drive themselves. Exists so callers that hold
     /// [`AppManager`](super::app_manager::AppManager) can call `pump` unconditionally — it only
     /// does real work on [`CooperativeManager`](super::cooperative_manager::CooperativeManager).
+    ///
+    /// # Parameters
+    ///
+    /// - `_budget`: Ignored in the threaded runtime; retained for manager API parity.
     pub fn pump(&mut self, _budget: usize) {}
 
+    /// Returns whether a node with `name` is currently registered.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: Graph-local node name to look up.
     pub fn contains(&self, name: &str) -> bool {
         self.nodes.contains_key(name)
     }
@@ -365,6 +394,10 @@ impl PipelineManager {
     /// Adds and starts a node immediately — the live-edit path: producers
     /// are already running, and regular nodes read their subscriber lists
     /// on every send, so a joiner is seen at once.
+    ///
+    /// # Parameters
+    ///
+    /// - `spec`: Node implementation and its full input wiring.
     pub fn add_node(&mut self, spec: NodeSpec) -> Result<(), String> {
         let name = spec.name.clone();
         self.add_node_deferred(spec)?;
@@ -375,6 +408,10 @@ impl PipelineManager {
     /// starting its thread. Initial materialization adds every node
     /// deferred, then calls [`Self::start_all_deferred`], so no producer
     /// can run ahead of (or snapshot past) its initial consumers.
+    ///
+    /// # Parameters
+    ///
+    /// - `spec`: Node implementation and its full input wiring.
     pub fn add_node_deferred(&mut self, spec: NodeSpec) -> Result<(), String> {
         if self.nodes.contains_key(&spec.name) {
             return Err(format!("node '{}' already exists", spec.name));
@@ -656,6 +693,9 @@ impl PipelineManager {
     /// Unsubscribes `name` from its producers (its next reads see
     /// end-of-stream), closes its own output lists (the cascade continues
     /// through the branch), and joins the thread.
+    ///
+    /// # Parameters
+    /// - `name`: Name of the node to detach, stop, and join.
     pub fn remove_node(&mut self, name: &str) -> Result<(), String> {
         let node = self
             .nodes
@@ -698,6 +738,11 @@ impl PipelineManager {
     /// `work()` calls. Whether the change is hot-appliable is decided
     /// statically by the caller (builder capability), so a `NeedsRestart`
     /// outcome inside the node is logged as a bug rather than handled.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: Name of the running node to configure.
+    /// - `config`: Validated configuration to apply between work calls.
     pub fn reconfigure(&self, name: &str, config: NodeConfig) -> Result<(), String> {
         let node = self
             .nodes
@@ -711,6 +756,12 @@ impl PipelineManager {
     /// Schedules validated hot configuration at an event-time boundary.
     /// The node, rather than its worker loop, decides when the boundary is
     /// crossed so already queued older input retains the prior settings.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: Name of the running node to configure.
+    /// - `config`: Validated configuration to apply.
+    /// - `boundary`: Event-time boundary at which the node should activate it.
     pub fn reconfigure_at(
         &self,
         name: &str,
@@ -735,6 +786,11 @@ impl PipelineManager {
     /// Replaces a running node with a fresh instance wired to the *same*
     /// output lists (downstream connections survive untouched), generation
     /// +1. `inputs` re-declares its input wiring.
+    ///
+    /// # Parameters
+    /// - `name`: Name of the logical node to replace.
+    /// - `node`: Fresh implementation instance.
+    /// - `inputs`: Replacement input wiring in input-schema order.
     pub fn restart_node(
         &mut self,
         name: &str,
@@ -886,6 +942,7 @@ impl PipelineManager {
         events
     }
 
+    /// Returns and clears all terminal node failures observed since the last call.
     pub fn take_failures(&mut self) -> Vec<NodeFailure> {
         std::mem::take(&mut *self.failures.lock().unwrap())
     }

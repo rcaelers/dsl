@@ -28,20 +28,32 @@ pub const CAPTURE_CHUNK_FORMAT_VERSION: u16 = 1;
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SimpleTriggerCondition {
+    /// Do not constrain this channel.
     #[default]
     Ignore,
+    /// Require the current level to be low.
     Low,
+    /// Require the current level to be high.
     High,
+    /// Require a low-to-high transition.
     Rising,
+    /// Require a high-to-low transition.
     Falling,
+    /// Require either level transition.
     Either,
 }
 
 impl SimpleTriggerCondition {
+    /// Returns whether the condition depends on a prior sample.
     pub const fn is_edge(self) -> bool {
         matches!(self, Self::Rising | Self::Falling | Self::Either)
     }
 
+    /// Tests a previous/current level pair against this condition.
+    ///
+    /// # Parameters
+    /// - `previous`: Prior level, or `None` when no prior sample exists.
+    /// - `current`: Current level to evaluate.
     pub const fn matches(self, previous: Option<bool>, current: bool) -> bool {
         match self {
             Self::Ignore => true,
@@ -61,10 +73,12 @@ impl SimpleTriggerCondition {
 pub struct CaptureSessionId(u128);
 
 impl CaptureSessionId {
+    /// Wraps a caller-assigned opaque session value.
     pub const fn new(value: u128) -> Self {
         Self(value)
     }
 
+    /// Returns the opaque value used to construct this identity.
     pub const fn get(self) -> u128 {
         self.0
     }
@@ -81,10 +95,12 @@ impl fmt::Display for CaptureSessionId {
 pub struct CaptureChannelId(Arc<str>);
 
 impl CaptureChannelId {
+    /// Creates an opaque physical-channel identifier.
     pub fn new(value: impl Into<Arc<str>>) -> Self {
         Self(value.into())
     }
 
+    /// Returns the provider-defined channel identifier text.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -129,6 +145,11 @@ pub struct CaptureSettingCombination {
 }
 
 impl CaptureSettingCombination {
+    /// Creates one valid channel-set and sample-rate capability tuple.
+    ///
+    /// # Parameters
+    /// - `channels`: Exact physical-channel set supported by this tuple.
+    /// - `sample_rates_hz`: Non-zero rates supported with that channel set.
     pub fn new(
         channels: impl Into<Arc<[CaptureChannelId]>>,
         sample_rates_hz: impl Into<Arc<[u64]>>,
@@ -155,14 +176,22 @@ impl CaptureSettingCombination {
         })
     }
 
+    /// Returns the exact channel set for this capability tuple.
     pub fn channels(&self) -> &[CaptureChannelId] {
         &self.channels
     }
 
+    /// Returns sample rates supported with [`Self::channels`].
     pub fn sample_rates_hz(&self) -> &[u64] {
         &self.sample_rates_hz
     }
 
+    /// Returns whether this tuple supports the requested channels and rate.
+    ///
+    /// # Parameters
+    ///
+    /// - `channels`: Exact physical-channel selection to check.
+    /// - `sample_rate_hz`: Requested rate in hertz.
     pub fn supports(&self, channels: &[CaptureChannelId], sample_rate_hz: f64) -> bool {
         self.channels.as_ref() == channels
             && self
@@ -182,6 +211,13 @@ pub struct CaptureProviderCapabilities {
 }
 
 impl CaptureProviderCapabilities {
+    /// Creates provider capabilities from an explicit settings matrix.
+    ///
+    /// # Parameters
+    ///
+    /// - `data_delivery`: When canonical chunks become available.
+    /// - `setting_matrix`: All valid channel/rate tuples.
+    /// - `force_trigger`: Whether a user can immediately fire an armed trigger.
     pub fn new(
         data_delivery: CaptureDataDelivery,
         setting_matrix: impl Into<Arc<[CaptureSettingCombination]>>,
@@ -205,6 +241,12 @@ impl CaptureProviderCapabilities {
         })
     }
 
+    /// Creates capabilities for one channel set and one sample rate.
+    ///
+    /// # Parameters
+    /// - `data_delivery`: When canonical chunks become available.
+    /// - `channels`: The sole supported physical-channel set.
+    /// - `sample_rate_hz`: The sole supported rate in hertz.
     pub fn single(
         data_delivery: CaptureDataDelivery,
         channels: impl Into<Arc<[CaptureChannelId]>>,
@@ -216,45 +258,72 @@ impl CaptureProviderCapabilities {
             .expect("single capture capability is valid")
     }
 
+    /// Returns when the provider makes canonical chunks available.
     pub const fn data_delivery(&self) -> CaptureDataDelivery {
         self.data_delivery
     }
 
+    /// Returns every supported channel/rate tuple.
     pub fn setting_matrix(&self) -> &[CaptureSettingCombination] {
         &self.setting_matrix
     }
 
+    /// Returns whether the provider supports an explicit force-trigger command.
     pub const fn supports_force_trigger(&self) -> bool {
         self.commands.force_trigger
     }
 
+    /// Returns supported session-control commands.
     pub const fn commands(&self) -> CaptureCommandCapabilities {
         self.commands
     }
 
+    /// Returns the capture-policy constraints exposed by this provider.
     pub fn policy(&self) -> &CapturePolicyCapabilities {
         &self.policy
     }
 
+    /// Replaces supported session-control commands.
+    ///
+    /// # Parameters
+    ///
+    /// - `commands`: Command capabilities advertised by the provider.
     pub fn with_commands(mut self, commands: CaptureCommandCapabilities) -> Self {
         self.commands = commands;
         self
     }
 
+    /// Replaces provider capture-policy constraints.
+    ///
+    /// # Parameters
+    ///
+    /// - `policy`: Policy capabilities advertised by the provider.
     pub fn with_policy(mut self, policy: CapturePolicyCapabilities) -> Self {
         self.policy = policy;
         self
     }
 
+    /// Adds a schema for validating advanced trigger programs.
+    ///
+    /// # Parameters
+    ///
+    /// - `schema`: Trigger editor contract supported by the provider.
     pub fn with_trigger_schema(mut self, schema: TriggerEditorSchema) -> Self {
         self.trigger_schema = Some(Arc::new(schema));
         self
     }
 
+    /// Returns the advanced-trigger schema, when the provider supports one.
     pub fn trigger_schema(&self) -> Option<&TriggerEditorSchema> {
         self.trigger_schema.as_deref()
     }
 
+    /// Validates a requested trigger program against provider capabilities.
+    ///
+    /// # Parameters
+    ///
+    /// - `program`: Optional user program; `None` needs no validation.
+    /// - `channels`: Physical channels available to the selected capture.
     pub fn negotiate_trigger_program(
         &self,
         program: Option<&TriggerProgram>,
@@ -269,6 +338,12 @@ impl CaptureProviderCapabilities {
         schema.validate_program(program, channels).map(Some)
     }
 
+    /// Returns whether any advertised tuple supports channels and rate.
+    ///
+    /// # Parameters
+    ///
+    /// - `channels`: Exact physical-channel selection to check.
+    /// - `sample_rate_hz`: Requested rate in hertz.
     pub fn supports(&self, channels: &[CaptureChannelId], sample_rate_hz: f64) -> bool {
         self.setting_matrix
             .iter()
@@ -278,13 +353,24 @@ impl CaptureProviderCapabilities {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CaptureCommandCapabilities {
+    /// Whether graceful completion can be requested.
     pub orderly_stop: bool,
+    /// Whether capture may be aborted without normal completion.
     pub abort: bool,
+    /// Whether an armed trigger can be forced immediately.
     pub force_trigger: bool,
+    /// Whether immediate untriggered capture is supported.
     pub capture_now: bool,
 }
 
 impl CaptureCommandCapabilities {
+    /// Creates a complete command-capability declaration.
+    ///
+    /// # Parameters
+    /// - `orderly_stop`: Whether graceful completion can be requested.
+    /// - `abort`: Whether capture may be aborted.
+    /// - `force_trigger`: Whether an armed trigger may be fired immediately.
+    /// - `capture_now`: Whether immediate capture can bypass triggering.
     pub const fn new(
         orderly_stop: bool,
         abort: bool,
@@ -375,6 +461,12 @@ pub struct CaptureFailure {
 }
 
 impl CaptureFailure {
+    /// Creates a terminal capture failure for one session.
+    ///
+    /// # Parameters
+    /// - `session_id`: Session whose acquisition failed.
+    /// - `kind`: Stable error category for the failure.
+    /// - `message`: Human-readable diagnostic text.
     pub fn new(
         session_id: CaptureSessionId,
         kind: CaptureFailureKind,
@@ -435,6 +527,7 @@ impl Drop for PooledCaptureBytes {
 }
 
 impl CaptureBytes {
+    /// Returns the immutable capture bytes without copying.
     pub fn as_slice(&self) -> &[u8] {
         match self.0.as_ref() {
             CaptureBytesInner::Owned(bytes) => bytes,
@@ -444,10 +537,12 @@ impl CaptureBytes {
         }
     }
 
+    /// Returns the byte length of this capture payload.
     pub fn len(&self) -> usize {
         self.as_slice().len()
     }
 
+    /// Returns whether empty.
     pub fn is_empty(&self) -> bool {
         self.as_slice().is_empty()
     }
@@ -533,6 +628,11 @@ pub struct CaptureBufferPool {
 }
 
 impl CaptureBufferPool {
+    /// Creates a bounded reusable capture-buffer pool.
+    ///
+    /// # Parameters
+    /// - `max_buffers`: Maximum buffers that may be leased concurrently.
+    /// - `initial_capacity`: Initial byte capacity for newly allocated buffers.
     pub fn new(
         max_buffers: usize,
         initial_capacity: usize,
@@ -555,6 +655,7 @@ impl CaptureBufferPool {
         })
     }
 
+    /// Blocks until a reusable capture buffer lease is available.
     pub fn acquire(&self) -> CaptureBufferLease {
         let mut state = self
             .inner
@@ -584,6 +685,7 @@ impl CaptureBufferPool {
         }
     }
 
+    /// Returns current allocation and lease metrics for the pool.
     pub fn metrics(&self) -> CaptureBufferPoolMetrics {
         let state = self
             .inner
@@ -606,6 +708,12 @@ pub struct CaptureBufferLease {
 }
 
 impl CaptureBufferLease {
+    /// Resizes the leased buffer, filling new bytes with a value.
+    ///
+    /// # Parameters
+    ///
+    /// - `len`: Target byte length.
+    /// - `value`: Fill value for newly allocated bytes.
     pub fn resize(&mut self, len: usize, value: u8) {
         self.buffer
             .as_mut()
@@ -613,6 +721,7 @@ impl CaptureBufferLease {
             .resize(len, value);
     }
 
+    /// Returns the mutable contents of the leased buffer.
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         self.buffer
             .as_mut()
@@ -620,6 +729,7 @@ impl CaptureBufferLease {
             .as_mut_slice()
     }
 
+    /// Freezes the lease into shared immutable bytes returned to the pool on final drop.
     pub fn freeze(mut self) -> CaptureBytes {
         let bytes = self
             .buffer
@@ -658,7 +768,10 @@ pub enum CaptureBufferPoolError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CaptureChunkPayload {
     /// Channel bits follow the chunk's channel table, least-significant bit first in each byte.
-    PackedLsbFirst { bytes: CaptureBytes, bit_offset: u8 },
+    PackedLsbFirst {
+        bytes: CaptureBytes,
+        bit_offset: u8
+    },
 }
 
 /// Immutable canonical raw data shared by acquisition, storage, and caught-up consumers.
@@ -675,6 +788,16 @@ pub struct CaptureChunk {
 
 impl CaptureChunk {
     #[allow(clippy::too_many_arguments)]
+    /// Creates a validated packed LSB-first canonical capture chunk.
+    ///
+    /// # Parameters
+    /// - `session_id`: Session that owns the chunk.
+    /// - `sequence`: Monotonically increasing chunk sequence.
+    /// - `start_sample`: First authoritative sample represented.
+    /// - `sample_count`: Number of interleaved samples represented.
+    /// - `channels`: Ordered physical-channel table.
+    /// - `bytes`: Packed transfer bytes holding the valid bit span.
+    /// - `bit_offset`: Valid-bit offset into the first transfer byte.
     pub fn packed_lsb_first(
         session_id: CaptureSessionId,
         sequence: u64,
@@ -722,44 +845,58 @@ impl CaptureChunk {
         })
     }
 
+    /// Returns the canonical chunk format version.
     pub const fn format_version(&self) -> u16 {
         self.format_version
     }
 
+    /// Returns the owning capture-session identity.
     pub const fn session_id(&self) -> CaptureSessionId {
         self.session_id
     }
 
+    /// Returns the chunk sequence within its session.
     pub const fn sequence(&self) -> u64 {
         self.sequence
     }
 
+    /// Returns the first authoritative sample represented by this chunk.
     pub const fn start_sample(&self) -> u64 {
         self.start_sample
     }
 
+    /// Returns the number of interleaved samples represented.
     pub const fn sample_count(&self) -> u64 {
         self.sample_count
     }
 
+    /// Returns the exclusive authoritative sample bound.
     pub fn end_sample(&self) -> u64 {
         self.start_sample + self.sample_count
     }
 
+    /// Returns the ordered physical-channel table.
     pub fn channels(&self) -> &[CaptureChannelId] {
         &self.channels
     }
 
+    /// Returns the canonical packed payload representation.
     pub fn payload(&self) -> &CaptureChunkPayload {
         &self.payload
     }
 
+    /// Returns bytes occupied by the encoded payload.
     pub fn encoded_byte_len(&self) -> usize {
         match &self.payload {
             CaptureChunkPayload::PackedLsbFirst { bytes, .. } => bytes.len(),
         }
     }
 
+    /// Reads one channel level relative to the start of this chunk.
+    ///
+    /// # Parameters
+    /// - `relative_sample`: Zero-based sample position within the chunk.
+    /// - `channel`: Zero-based index into [`Self::channels`].
     pub fn packed_level(&self, relative_sample: u64, channel: usize) -> Option<bool> {
         if relative_sample >= self.sample_count || channel >= self.channels.len() {
             return None;
@@ -857,6 +994,11 @@ pub struct CaptureQueueLimits {
 }
 
 impl CaptureQueueLimits {
+    /// Creates validated bounds for a producer-to-store chunk queue.
+    ///
+    /// # Parameters
+    /// - `max_queued_chunks`: Maximum in-flight chunks.
+    /// - `max_chunk_bytes`: Maximum encoded bytes accepted per chunk.
     pub fn new(
         max_queued_chunks: usize,
         max_chunk_bytes: usize,
@@ -873,10 +1015,12 @@ impl CaptureQueueLimits {
         })
     }
 
+    /// Returns the maximum number of queued chunks.
     pub const fn max_queued_chunks(self) -> usize {
         self.max_queued_chunks
     }
 
+    /// Returns the maximum encoded bytes per accepted chunk.
     pub const fn max_chunk_bytes(self) -> usize {
         self.max_chunk_bytes
     }
@@ -897,13 +1041,21 @@ pub enum CaptureWriteError {
     #[error("capture chunk queue is closed")]
     Closed,
     #[error("capture chunk contains {actual} bytes, exceeding the configured maximum of {limit}")]
-    ChunkTooLarge { actual: usize, limit: usize },
+    ChunkTooLarge {
+        actual: usize,
+        limit: usize
+    },
     #[error("capture writer rejected the chunk: {0}")]
     Rejected(String),
 }
 
 /// Synchronous authority boundary used by an acquisition worker.
 pub trait CaptureChunkWriter: Send {
+    /// Appends one validated chunk to the authoritative writer.
+    ///
+    /// # Parameters
+    ///
+    /// - `chunk`: Canonical raw capture chunk to commit.
     fn append(&mut self, chunk: CaptureChunk) -> Result<(), CaptureWriteError>;
 
     /// Makes every successfully appended chunk visible to committed readers.
@@ -924,6 +1076,11 @@ pub struct CaptureQueueReader {
     max_observed: Arc<AtomicUsize>,
 }
 
+/// Creates a bounded producer/consumer queue for canonical capture chunks.
+///
+/// # Parameters
+///
+/// - `limits`: Queue capacity and maximum encoded chunk size.
 pub fn bounded_capture_queue(
     limits: CaptureQueueLimits,
 ) -> (CaptureQueueWriter, CaptureQueueReader) {
@@ -962,12 +1119,17 @@ impl CaptureChunkWriter for CaptureQueueWriter {
 }
 
 impl CaptureQueueReader {
+    /// Blocks until the next queued chunk or queue closure.
     pub fn recv(&self) -> Result<CaptureChunk, CaptureQueueReceiveError> {
         self.receiver
             .recv()
             .map_err(|_| CaptureQueueReceiveError::Closed)
     }
 
+    /// Waits up to a timeout for the next queued chunk.
+    ///
+    /// # Parameters
+    /// - `timeout`: Maximum time to wait for a chunk.
     pub fn recv_timeout(
         &self,
         timeout: Duration,
@@ -980,6 +1142,7 @@ impl CaptureQueueReader {
             })
     }
 
+    /// Receives one chunk without blocking.
     pub fn try_recv(&self) -> Result<CaptureChunk, CaptureQueueReceiveError> {
         self.receiver.try_recv().map_err(|error| match error {
             TryRecvError::Empty => CaptureQueueReceiveError::Empty,
@@ -987,14 +1150,17 @@ impl CaptureQueueReader {
         })
     }
 
+    /// Returns the current queued-chunk count.
     pub fn queued_chunks(&self) -> usize {
         self.receiver.len()
     }
 
+    /// Returns the fixed chunk-queue capacity.
     pub const fn capacity(&self) -> usize {
         self.limits.max_queued_chunks
     }
 
+    /// Returns the high-water queued-chunk count.
     pub fn max_observed_queued_chunks(&self) -> usize {
         self.max_observed.load(Ordering::Relaxed)
     }
@@ -1019,6 +1185,11 @@ pub enum CaptureEventPublishError {
 }
 
 pub trait CaptureEventPublisher: Send {
+    /// Publishes one capture lifecycle event without blocking.
+    ///
+    /// # Parameters
+    ///
+    /// - `event`: Status, progress, plan, trigger, or failure event to publish.
     fn publish(&mut self, event: CaptureEvent) -> Result<(), CaptureEventPublishError>;
 }
 
@@ -1031,6 +1202,11 @@ pub struct CaptureEventQueueReader {
     capacity: usize,
 }
 
+/// Creates a bounded non-blocking event publisher and consumer queue.
+///
+/// # Parameters
+///
+/// - `capacity`: Maximum queued events; must be non-zero.
 pub fn bounded_capture_event_queue(
     capacity: usize,
 ) -> Result<(CaptureEventQueuePublisher, CaptureEventQueueReader), CaptureQueueConfigError> {
@@ -1054,12 +1230,17 @@ impl CaptureEventPublisher for CaptureEventQueuePublisher {
 }
 
 impl CaptureEventQueueReader {
+    /// Blocks until the next published event or queue closure.
     pub fn recv(&self) -> Result<CaptureEvent, CaptureQueueReceiveError> {
         self.receiver
             .recv()
             .map_err(|_| CaptureQueueReceiveError::Closed)
     }
 
+    /// Waits up to a timeout for the next published event.
+    ///
+    /// # Parameters
+    /// - `timeout`: Maximum time to wait for an event.
     pub fn recv_timeout(
         &self,
         timeout: Duration,
@@ -1072,6 +1253,7 @@ impl CaptureEventQueueReader {
             })
     }
 
+    /// Receives one event without blocking.
     pub fn try_recv(&self) -> Result<CaptureEvent, CaptureQueueReceiveError> {
         self.receiver.try_recv().map_err(|error| match error {
             TryRecvError::Empty => CaptureQueueReceiveError::Empty,
@@ -1079,10 +1261,12 @@ impl CaptureEventQueueReader {
         })
     }
 
+    /// Returns the current queued-event count.
     pub fn queued_events(&self) -> usize {
         self.receiver.len()
     }
 
+    /// Returns the fixed event-queue capacity.
     pub const fn capacity(&self) -> usize {
         self.capacity
     }

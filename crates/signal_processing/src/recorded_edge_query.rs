@@ -15,6 +15,10 @@ pub struct RecordedEdgeQuery {
 }
 
 impl RecordedEdgeQuery {
+    /// Creates a sparse query with an initial level at timestamp zero.
+    ///
+    /// # Parameters
+    /// - `initial`: Logic level before any recorded transition.
     pub fn new(initial: bool) -> Self {
         Self {
             transitions: Arc::new(RwLock::new(vec![CaptureTransition {

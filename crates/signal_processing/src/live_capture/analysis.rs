@@ -20,12 +20,20 @@ const CURSOR_WAIT: Duration = Duration::from_millis(10);
 /// describe one polymorphic port; different names describe two distinct ports.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CaptureAnalysisChannel {
+    /// Stable identifier of the physical channel in the capture store.
     pub channel: CaptureChannelId,
+    /// Output port that emits run-length edge samples.
     pub edge_port: String,
+    /// Output port that emits aligned packed sample blocks.
     pub block_port: String,
 }
 
 impl CaptureAnalysisChannel {
+    /// Maps both representations of a channel to one polymorphic output port.
+    ///
+    /// # Parameters
+    /// - `channel`: Capture-store channel to follow.
+    /// - `port`: Port name that negotiates edge or packed-block payloads.
     pub fn polymorphic(channel: CaptureChannelId, port: impl Into<String>) -> Self {
         let port = port.into();
         Self {
@@ -35,6 +43,13 @@ impl CaptureAnalysisChannel {
         }
     }
 
+    /// Maps a channel's edge and packed-block representations to separate ports.
+    ///
+    /// # Parameters
+    ///
+    /// - `channel`: Capture-store channel to follow.
+    /// - `edge_port`: Output port for run-length edge samples.
+    /// - `block_port`: Output port for aligned packed blocks.
     pub fn separate(
         channel: CaptureChannelId,
         edge_port: impl Into<String>,
@@ -72,6 +87,14 @@ pub struct CaptureAnalysisSource {
 }
 
 impl CaptureAnalysisSource {
+    /// Creates a source that converts committed store chunks into graph outputs.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: Graph-local source name.
+    /// - `cursor`: Authoritative store cursor to follow.
+    /// - `sample_rate_hz`: Capture sample rate used to timestamp graph data.
+    /// - `channels`: Physical-channel to output-port mappings.
     pub fn new(
         name: impl Into<String>,
         cursor: Box<dyn CaptureStoreCursor>,

@@ -35,6 +35,14 @@ pub trait UsbTransport: Send + 'static {
         Ok(None)
     }
     /// Performs one USB control write.
+    ///
+    /// # Parameters
+    /// - `request_type`: Input consumed by this operation.
+    /// - `request`: Input consumed by this operation.
+    /// - `value`: Input consumed by this operation.
+    /// - `index`: Input consumed by this operation.
+    /// - `data`: Input consumed by this operation.
+    /// - `timeout`: Input consumed by this operation.
     fn control_write(
         &mut self,
         request_type: u8,

@@ -12,10 +12,12 @@ use super::sender::Sender;
 pub use super::type_registry::register_type;
 use super::watchdog::{Watchdog, WatchdogHandle};
 
-/// Direction of a port
+/// Direction of a port relative to its processing node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PortDirection {
+    /// Port receives values from an upstream node.
     Input,
+    /// Port sends values to downstream nodes.
     Output,
 }
 
@@ -31,12 +33,16 @@ pub enum StreamReadiness {
     Complete,
 }
 
-/// Schema describing a port's metadata
+/// Schema describing a runtime port's identity, capabilities, and scheduling needs.
 #[derive(Debug, Clone)]
 pub struct PortSchema {
+    /// Stable runtime port name within its node.
     pub name: String,
+    /// Concrete Rust payload type identity.
     pub type_id: TypeId,
+    /// Definition index on the owning node.
     pub index: usize,
+    /// Whether the port receives or produces values.
     pub direction: PortDirection,
     /// Protocols this port can speak, most preferred first. Default:
     /// `[Stream]`, the guaranteed fallback every port supports — override
@@ -45,7 +51,7 @@ pub struct PortSchema {
     /// [`super::node::ProcessNode::edge_query`]).
     pub protocols: Vec<ProtocolKind>,
     /// Payload kinds (`Sample` vs `SampleBlock`) this *output* port can
-    /// produce, most preferred first — see [`crate::negotiate_sample_kind`].
+    /// produce, most preferred first. The runtime negotiates a compatible kind.
     /// Default empty, meaning "not polymorphic — `type_id` is the only
     /// option," true of every port except polymorphic raw-channel sources.
     /// Input ports leave this
@@ -59,7 +65,12 @@ pub struct PortSchema {
 }
 
 impl PortSchema {
-    /// Create a new port schema with type information
+    /// Creates a port schema with one concrete payload type.
+    ///
+    /// # Parameters
+    /// - `name`: Stable runtime name within the owning node.
+    /// - `index`: Definition index on the owning node.
+    /// - `direction`: Whether the port receives or produces values.
     pub fn new<T: 'static>(
         name: impl Into<String>,
         index: usize,
@@ -110,7 +121,7 @@ use crossbeam_channel::Receiver as CrossbeamReceiver;
 use super::edge_query::EdgeQuery;
 use super::sender::ChannelMessage;
 
-/// Type-erased input port wrapping a Receiver<T>
+/// Type-erased input port wrapping a `Receiver<T>`.
 pub struct InputPort {
     channel: Box<dyn std::any::Any + Send>,
     watchdog_handle: Option<WatchdogHandle>,
@@ -136,13 +147,19 @@ impl InputPort {
         }
     }
 
-    /// Create an intentionally disconnected input. Typed `get()` calls will
+    /// Creates an intentionally disconnected optional input. Typed `get()` calls will
     /// return `None`, matching an optional/unconnected port.
     pub fn disconnected() -> Self {
         Self::from_type_erased(Box::new(()))
     }
 
-    /// Create a new InputPort with a watchdog (for testing).
+    /// Creates a typed input port with watchdog instrumentation.
+    ///
+    /// # Parameters
+    /// - `receiver`: Stream receiver carrying typed channel messages.
+    /// - `watchdog`: Runtime watchdog that records blocked receives.
+    /// - `node_name`: Runtime name of the owning node.
+    /// - `port_name`: Runtime name of this input port.
     pub fn new_with_watchdog<T: Send + 'static>(
         receiver: CrossbeamReceiver<ChannelMessage<T>>,
         watchdog: &Watchdog,
@@ -207,7 +224,7 @@ impl InputPort {
 
     /// Get a Receiver with automatic watchdog monitoring.
     ///
-    /// Returns None if the port doesn't contain a Receiver<T>.
+    /// Returns `None` if the port doesn't contain a `Receiver<T>`.
     ///
     /// # Panics
     /// Panics if watchdog has not been attached to this port.
@@ -274,7 +291,13 @@ impl OutputPort {
         self
     }
 
-    /// Create a new OutputPort with a watchdog (for testing).
+    /// Creates a typed output port with watchdog instrumentation.
+    ///
+    /// # Parameters
+    /// - `sender`: Broadcast sender carrying typed channel messages.
+    /// - `watchdog`: Runtime watchdog that records blocked sends.
+    /// - `node_name`: Runtime name of the owning node.
+    /// - `port_name`: Runtime name of this output port.
     pub fn new_with_watchdog<T: Send + Clone + 'static>(
         sender: Sender<T>,
         watchdog: &Watchdog,
@@ -308,7 +331,7 @@ impl OutputPort {
     /// Get a Sender with automatic watchdog monitoring.
     /// Returns an owned sender (cheaply cloned from internal storage).
     ///
-    /// Returns None if the port doesn't contain a Sender<T>.
+    /// Returns `None` if the port doesn't contain a `Sender<T>`.
     ///
     /// # Panics
     /// Panics if watchdog has not been attached to this port.
@@ -332,7 +355,7 @@ impl OutputPort {
     /// this allows spawning one thread per destination. Each returned Sender
     /// sends to exactly one destination.
     ///
-    /// Returns None if the port doesn't contain a Sender<T>, or if the sender
+    /// Returns `None` if the port doesn't contain a `Sender<T>`, or if the sender
     /// has no destinations. A port carrying more than one `SampleKind`
     /// (see the struct doc) is queried independently per `T` — each call
     /// only sees the destinations that negotiated that particular type.

@@ -15,10 +15,16 @@ pub struct ArtifactByteSource {
 }
 
 impl ArtifactByteSource {
+    /// Creates a prepared byte source backed by a repository artifact.
+    ///
+    /// # Parameters
+    /// - `repository`: Repository containing the immutable artifact generation.
+    /// - `key`: Stable key of the artifact to open for each reader.
     pub fn new(repository: Arc<dyn ArtifactRepository>, key: ArtifactKey) -> Self {
         Self { repository, key }
     }
 
+    /// Returns the stable key of the backing artifact.
     pub fn key(&self) -> &ArtifactKey {
         &self.key
     }

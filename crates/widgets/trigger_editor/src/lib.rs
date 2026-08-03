@@ -1,4 +1,8 @@
 //! Generic schema-driven editor for provider-neutral trigger programs.
+//!
+//! The editor renders the trigger schema and emits edits against generic trigger
+//! contracts. Device-specific predicate semantics, acquisition behavior, and
+//! application composition belong to their respective owners.
 
 #[cfg(test)]
 mod architecture_tests;
@@ -11,12 +15,14 @@ use signal_processing::{
     TriggerOperandKind, TriggerOperandValue, TriggerPredicate, TriggerProgram, TriggerStage,
 };
 
+/// One enabled capture channel offered by the trigger editor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TriggerEditorChannel {
     pub id: CaptureChannelId,
     pub label: String,
 }
 
+/// User edit applied to a provider-neutral trigger program.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TriggerEditorAction {
     Clear,
@@ -73,6 +79,11 @@ pub struct TriggerEditorModel<'a> {
 }
 
 impl<'a> TriggerEditorModel<'a> {
+    /// Creates a trigger-program editor model for one current schema revision.
+    ///
+    /// # Parameters
+    /// - `schema`: Provider-advertised trigger grammar and limits.
+    /// - `channels`: Currently enabled capture channels available to predicates.
     pub const fn new(
         schema: &'a TriggerEditorSchema,
         channels: &'a [TriggerEditorChannel],
@@ -80,6 +91,13 @@ impl<'a> TriggerEditorModel<'a> {
         Self { schema, channels }
     }
 
+    /// Applies one edit, validates the result, and returns the replacement program.
+    ///
+    /// # Parameters
+    /// - `current`: Existing program, or `None` when no trigger is configured.
+    /// - `action`: Requested structural or value edit.
+    ///
+    /// Returns `Ok(None)` when the edit clears the last trigger stage.
     pub fn apply(
         &self,
         current: Option<&TriggerProgram>,
@@ -348,6 +366,12 @@ pub struct TriggerEditor<'a> {
 }
 
 impl<'a> TriggerEditor<'a> {
+    /// Creates an egui trigger editor bound to a schema, channels, and optional program.
+    ///
+    /// # Parameters
+    /// - `schema`: Provider-advertised trigger grammar and limits.
+    /// - `channels`: Currently enabled capture channels available to predicates.
+    /// - `program`: Existing program to display, if one is configured.
     pub const fn new(
         schema: &'a TriggerEditorSchema,
         channels: &'a [TriggerEditorChannel],
@@ -361,11 +385,19 @@ impl<'a> TriggerEditor<'a> {
         }
     }
 
+    /// Enables or disables interactive editing while retaining read-only presentation.
+    ///
+    /// # Parameters
+    /// - `enabled`: Whether the editor may emit program-changing actions.
     pub const fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }
 
+    /// Draws the editor and returns at most one validated program replacement or error.
+    ///
+    /// # Parameters
+    /// - `ui`: Egui UI allocated to the editor.
     pub fn show(self, ui: &mut egui::Ui) -> TriggerEditorResponse {
         let mut action = None;
         let validation = self

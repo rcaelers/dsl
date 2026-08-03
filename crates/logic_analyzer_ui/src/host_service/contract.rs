@@ -97,6 +97,9 @@ pub trait HostService {
     }
 
     /// Installs the wake-up callback used when the host queues a command.
+    ///
+    /// # Parameters
+    /// - `_repaint`: Callback that requests a UI repaint after the host queues a command.
     fn set_command_repaint(&mut self, _repaint: Box<dyn Fn() + Send + Sync>) {}
 
     /// Drains application commands queued by an optional host shell.
@@ -107,25 +110,58 @@ pub trait HostService {
     /// Publishes the portable recent-document list to an optional host shell.
     ///
     /// Hosts without a native document menu leave this as a no-op.
+    ///
+    /// # Parameters
+    /// - `_paths`: Recent document paths in most-recent-first order.
     fn publish_recent_files(&self, _paths: &[PathBuf]) {}
 
     /// Reports whether a previously selected document still exists.
+    ///
+    /// # Parameters
+    /// - `_path`: Host-owned document path to inspect.
     fn document_exists(&self, _path: &Path) -> bool {
         false
     }
 
     /// Returns a user-facing document name without exposing an opaque host reference.
+    ///
+    /// # Parameters
+    /// - `path`: Host-owned document path to render.
     fn document_display_name(&self, path: &Path) -> String {
         path.display().to_string()
     }
 
+    /// Opens a host file picker for an existing graph document.
+    ///
+    /// # Parameters
+    /// - `request`: Title, filters, and optional starting directory for the picker.
+    ///
+    /// Returns `None` when the picker is unavailable or the user cancels.
     fn choose_open_file(&mut self, request: OpenDialog<'_>) -> Option<PathBuf>;
 
+    /// Opens a host file picker for a graph-document destination.
+    ///
+    /// # Parameters
+    /// - `request`: Title, suggested name, filters, and optional starting directory.
+    ///
+    /// Returns `None` when the picker is unavailable or the user cancels.
     fn choose_save_file(&mut self, request: SaveDialog<'_>) -> Option<PathBuf>;
 
+    /// Opens a host directory picker.
+    ///
+    /// Returns `None` when the picker is unavailable or the user cancels.
     fn choose_directory(&mut self) -> Option<PathBuf>;
 
+    /// Loads and migrates a graph document selected through the host.
+    ///
+    /// # Parameters
+    /// - `path`: File path returned by the host picker or command.
     fn load_graph(&mut self, path: &Path) -> Result<node_graph::GraphState, String>;
 
+    /// Persists a serialized graph document through the host adapter.
+    ///
+    /// # Parameters
+    /// - `path`: Destination file path.
+    /// - `graph`: Current graph document serialized by the UI.
     fn save_graph(&mut self, path: &Path, graph: &serde_json::Value) -> Result<(), String>;
 }

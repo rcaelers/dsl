@@ -12,16 +12,26 @@ use super::{
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ArtifactReplicationEvent {
+    /// Consecutive bytes from a newly published immutable artifact generation.
     PublishedChunk {
+        /// Logical artifact namespace.
         namespace: String,
+        /// Stable content identity of the artifact.
         identity: SourceIdentity,
+        /// Offset of `data` within the complete artifact.
         offset: u64,
+        /// Total length of the complete artifact.
         total_length: u64,
+        /// Bytes carried by this bounded replication event.
         data: Vec<u8>,
+        /// Whether this chunk reaches the complete artifact length.
         complete: bool,
     },
+    /// Removal of a previously published artifact.
     Removed {
+        /// Logical artifact namespace.
         namespace: String,
+        /// Stable content identity of the removed artifact.
         identity: SourceIdentity,
     },
 }
@@ -46,6 +56,10 @@ pub struct ReplicatingArtifactRepository {
 }
 
 impl ReplicatingArtifactRepository {
+    /// Wraps a repository and journals its immutable mutations for transfer.
+    ///
+    /// # Parameters
+    /// - `inner`: Repository that stores the authoritative artifact generations.
     pub fn new(inner: Arc<dyn ArtifactRepository>) -> Self {
         Self {
             inner,
@@ -53,6 +67,7 @@ impl ReplicatingArtifactRepository {
         }
     }
 
+    /// Returns whether pending.
     pub fn has_pending(&self) -> bool {
         self.pending
             .lock()
@@ -249,6 +264,10 @@ pub struct ArtifactReplicationReceiver {
 }
 
 impl ArtifactReplicationReceiver {
+    /// Creates a receiver that applies transferred immutable artifact mutations.
+    ///
+    /// # Parameters
+    /// - `repository`: Repository that receives complete published generations.
     pub fn new(repository: Arc<dyn ArtifactRepository>) -> Self {
         Self {
             repository,
@@ -256,6 +275,10 @@ impl ArtifactReplicationReceiver {
         }
     }
 
+    /// Applies one bounded replication event in transfer order.
+    ///
+    /// # Parameters
+    /// - `event`: Published chunk or removal event emitted by a replicating repository.
     pub fn apply(&mut self, event: ArtifactReplicationEvent) -> Result<(), RepositoryError> {
         match event {
             ArtifactReplicationEvent::Removed {
@@ -313,6 +336,7 @@ impl ArtifactReplicationReceiver {
         }
     }
 
+    /// Returns whether idle.
     pub fn is_idle(&self) -> bool {
         self.pending.is_empty()
     }

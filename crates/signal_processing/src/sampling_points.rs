@@ -18,12 +18,21 @@ const PERSISTENT_BATCH_QUEUE_DEPTH: usize = 8;
 /// record deliberately carries no protocol or viewer knowledge.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SamplingPoint {
+    /// Shared timeline timestamp at which the node accepted input values.
     pub time_ns: u64,
+    /// Clock level associated with the accepted sample.
     pub clock_high: bool,
+    /// Input logic values in the node's declared sampled-input order.
     pub values: Vec<bool>,
 }
 
 impl SamplingPoint {
+    /// Creates one sampling decision in the shared nanosecond time domain.
+    ///
+    /// # Parameters
+    /// - `time_ns`: Timestamp at which the node accepted the values.
+    /// - `clock_high`: Clock level associated with the decision.
+    /// - `values`: Input values in declared sampled-input order.
     pub fn new(time_ns: u64, clock_high: bool, values: impl Into<Vec<bool>>) -> Self {
         Self {
             time_ns,
@@ -47,6 +56,7 @@ pub struct PackedSamplingPoint {
 }
 
 impl PackedSamplingPoint {
+    /// Packs up to 64 sampled logic values for allocation-free processing.
     pub fn new(time_ns: u64, clock_high: bool, values: u64, value_count: usize) -> Self {
         assert!(value_count <= u64::BITS as usize);
         let values = match value_count {
@@ -222,6 +232,12 @@ impl Default for SamplingPointStore {
 impl SamplingPointStore {
     /// Uses an already-retained indexed word lane whose events are identical
     /// to this node's sampling decisions.
+    ///
+    /// # Parameters
+    /// - `lanes`: Derived-lane catalog containing the retained word source.
+    /// - `lane_name`: Stable retained-word lane name.
+    /// - `clock_high`: Clock level associated with retained events.
+    /// - `value_count`: Number of sampled values packed into each word.
     pub fn set_retained_word_provider(
         &self,
         lanes: DerivedLanes,
@@ -237,6 +253,7 @@ impl SamplingPointStore {
         }));
     }
 
+    /// Creates a store backed by the shared persistent annotation repository.
     pub fn create_persistent(
         config: PersistentStoreConfig,
         work_executor: Arc<dyn WorkExecutor>,
@@ -261,6 +278,7 @@ impl SamplingPointStore {
         })
     }
 
+    /// Opens an existing persistent store as a read-only sampling-point source.
     pub fn open_persistent(config: &PersistentStoreConfig) -> StoreResult<Option<Self>> {
         let Some(store) = IndexedAnnotationStore::open_persistent(config)? else {
             return Ok(None);
@@ -277,6 +295,7 @@ impl SamplingPointStore {
         }))
     }
 
+    /// Installs a node-owned visible-range provider for transient queries.
     pub fn set_provider(&self, provider: Arc<dyn SamplingPointProvider>) {
         if self.inner.persistent.is_some() {
             return;
@@ -284,18 +303,25 @@ impl SamplingPointStore {
         *self.inner.provider.write().unwrap() = Some(provider);
     }
 
+    /// Returns whether the store delegates visible-range queries to a provider.
     pub fn has_provider(&self) -> bool {
         self.inner.provider.read().unwrap().is_some()
     }
 
+    /// Returns whether the store is backed by persistent indexed annotations.
     pub fn is_persistent(&self) -> bool {
         self.inner.persistent.is_some()
     }
 
+    /// Appends or replaces one sampling decision by timestamp.
+    ///
+    /// # Parameters
+    /// - `point`: Sampling decision to retain or persist.
     pub fn record(&self, point: SamplingPoint) -> StoreResult<()> {
         self.record_batch([point])
     }
 
+    /// Appends a chronological batch, replacing values at duplicate timestamps.
     pub fn record_batch(&self, points: impl IntoIterator<Item = SamplingPoint>) -> StoreResult<()> {
         if self.inner.provider.read().unwrap().is_some() {
             return Ok(());
@@ -337,6 +363,7 @@ impl SamplingPointStore {
         Ok(())
     }
 
+    /// Appends packed sampling decisions without allocating intermediate vectors.
     pub fn record_packed_batch(
         &self,
         points: impl IntoIterator<Item = PackedSamplingPoint>,
@@ -357,6 +384,7 @@ impl SamplingPointStore {
         self.record_batch(points.into_iter().map(PackedSamplingPoint::unpack))
     }
 
+    /// Finalizes queued persistent writes so all points become queryable.
     pub fn finish(&self) -> StoreResult<()> {
         let Some(persistent) = &self.inner.persistent else {
             return Ok(());
@@ -364,6 +392,7 @@ impl SamplingPointStore {
         persistent.writer.finish()
     }
 
+    /// Returns all retained decisions in the inclusive time range.
     pub fn points_in_range(&self, start_ns: u64, end_ns: u64) -> Vec<SamplingPoint> {
         self.points_in_range_with_minimum_spacing(start_ns, end_ns, 0)
             .unwrap_or_default()
@@ -372,6 +401,11 @@ impl SamplingPointStore {
     /// Returns the complete range only when every adjacent point meets the
     /// requested spacing. This lets presentation consumers enforce an
     /// all-or-nothing density policy without first cloning a dense range.
+    ///
+    /// # Parameters
+    /// - `start_ns`: Inclusive start of the shared timeline range.
+    /// - `end_ns`: Inclusive end of the shared timeline range.
+    /// - `minimum_spacing_ns`: Minimum separation required between returned points.
     pub fn points_in_range_with_minimum_spacing(
         &self,
         start_ns: u64,
@@ -410,10 +444,12 @@ impl SamplingPointStore {
         Some(visible.to_vec())
     }
 
+    /// Removes transient in-memory decisions without changing a persistent store.
     pub fn clear(&self) {
         self.inner.points.write().unwrap().clear();
     }
 
+    /// Returns whether empty.
     pub fn is_empty(&self) -> bool {
         if let Some(persistent) = &self.inner.persistent {
             return persistent.store.metadata().total_word_count == 0;

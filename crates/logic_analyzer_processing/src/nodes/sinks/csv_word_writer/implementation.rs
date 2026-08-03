@@ -93,10 +93,15 @@ pub struct CsvWordWriter {
 impl CsvWordWriter {
     const DRAIN_BATCH_SIZE: usize = 65_536;
 
+    /// Creates a CSV word writer with the supplied configuration and storage capability.
     pub fn new() -> Self {
         Self::with_output_storage(Arc::new(UnavailableOutputStorage))
     }
 
+    /// Returns this value configured with output storage.
+    ///
+    /// # Parameters
+    /// - `storage`: Input consumed by this operation.
     pub fn with_output_storage(storage: Arc<dyn OutputStorage>) -> Self {
         Self {
             name: "csv_word_writer".to_string(),
@@ -115,6 +120,7 @@ impl CsvWordWriter {
         }
     }
 
+    /// Returns this value configured with name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
@@ -126,6 +132,7 @@ impl CsvWordWriter {
         self
     }
 
+    /// Returns this value configured with value format.
     pub fn with_value_format(mut self, format: CsvValueFormat) -> Self {
         self.value_format = format;
         self

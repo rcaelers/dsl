@@ -16,7 +16,9 @@ struct Args {
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Load an FPGA image and verify HDL version 0x0e.
-    Fpga { image: PathBuf },
+    Fpga {
+        image: PathBuf
+    },
     /// Capture 1,024 samples and verify trigger-header ordering.
     Capture,
 }

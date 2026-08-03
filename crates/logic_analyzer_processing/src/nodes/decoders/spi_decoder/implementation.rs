@@ -222,6 +222,12 @@ fn spi_word_annotations(
 
 impl SpiDecoder {
     /// Create a new SPI decoder with active-low CS (standard)
+    ///
+    /// # Parameters
+    /// - `mode`: Input consumed by this operation.
+    /// - `bits_per_word`: Input consumed by this operation.
+    /// - `has_mosi`: Input consumed by this operation.
+    /// - `has_miso`: Input consumed by this operation.
     pub fn new(mode: SpiMode, bits_per_word: usize, has_mosi: bool, has_miso: bool) -> Self {
         Self::with_cs_polarity(
             mode,
@@ -282,6 +288,7 @@ impl SpiDecoder {
         self
     }
 
+    /// Returns this value configured with sampling points.
     pub fn with_sampling_points(mut self, points: SamplingPointStore) -> Self {
         self.sampling_points = Some(points);
         self

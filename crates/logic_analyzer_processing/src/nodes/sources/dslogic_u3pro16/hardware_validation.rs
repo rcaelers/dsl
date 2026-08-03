@@ -8,6 +8,10 @@ use super::implementation::DsLogicU3Pro16;
 use super::transport::DsLogicU3Pro16TransportFactory;
 
 /// Loads an explicit FPGA image into a connected U3Pro16 and verifies its HDL version.
+///
+/// # Parameters
+/// - `transport_factory`: Input consumed by this operation.
+/// - `image_path`: Input consumed by this operation.
 pub fn validate_fpga_hardware(
     transport_factory: &dyn DsLogicU3Pro16TransportFactory,
     image_path: &Path,

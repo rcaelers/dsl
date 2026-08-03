@@ -40,8 +40,14 @@ pub(crate) struct ViewerSelectionWarning {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
 enum SavedPayloadTarget {
-    ShowInView { node: NodeId, output: usize },
-    ViewerInput { node: NodeId, input: usize },
+    ShowInView {
+        node: NodeId,
+        output: usize
+    },
+    ViewerInput {
+        node: NodeId,
+        input: usize
+    },
 }
 
 impl SavedPayloadTarget {
@@ -476,6 +482,7 @@ fn synchronize_payload_subscriptions(
             SavedPayloadSubscriptions {
                 version: PAYLOAD_VERSION,
                 subscriptions,
+
             },
         )?;
     }
@@ -503,6 +510,7 @@ fn discover_payload_subscriptions(
                     node: selection.node,
                     index: selection.output,
                     direction: SocketDirection::Output,
+
                 },
                 format!("View selection '{}.{}'", node.title, output.name),
             ))
@@ -765,11 +773,13 @@ mod viewer_selection_tests {
                 node: decoder,
                 index: 0,
                 direction: SocketDirection::Output,
+
             },
             SocketId {
                 node: viewer,
                 index: 0,
                 direction: SocketDirection::Input,
+
             },
         );
         widget
@@ -829,11 +839,13 @@ mod viewer_selection_tests {
                 node: producer,
                 index: 0,
                 direction: SocketDirection::Output,
+
             },
             SocketId {
                 node: viewer,
                 index: 0,
                 direction: SocketDirection::Input,
+
             },
         );
 

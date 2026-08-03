@@ -35,83 +35,117 @@ impl RunData {
         }
     }
 
+    /// Returns derived lanes produced by the completed or active run.
     pub fn derived_lanes(&self) -> &DerivedLanes {
         &self.derived_lanes
     }
 
+    /// Returns retained-lane subscriptions requested by graph sinks.
     pub fn output_subscriptions(&self) -> &[CollectedOutputSubscription] {
         &self.output_subscriptions
     }
 
+    /// Returns decoder-table subscriptions requested by graph sinks.
     pub fn table_subscriptions(&self) -> &[CollectedTableSubscription] {
         &self.table_subscriptions
     }
 
+    /// Returns sampling-overlay candidates reconstructed from graph inputs.
     pub fn sampling_overlays(&self) -> &[SamplingOverlayCandidate] {
         &self.sampling_overlays
     }
 
+    /// Returns the run-scoped diagnostic publication registry.
     pub fn diagnostics(&self) -> &RunDiagnosticRegistry {
         &self.diagnostics
     }
 
+    /// Returns the run-scoped source-artifact readiness registry.
     pub fn source_readiness(&self) -> &SourceReadinessRegistry {
         &self.source_readiness
     }
 }
 
+/// Severity of a non-fatal diagnostic published while executing a run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RunDiagnosticSeverity {
+    /// Informational state that does not need user action.
     Info,
+    /// Condition the user may need to review.
     Warning,
+    /// Failure affecting a node or its produced data.
     Error,
 }
 
+/// One user-presentable diagnostic emitted by a processing run.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunDiagnostic {
+    /// Node that emitted the diagnostic, if it is node-specific.
     pub node: Option<NodeId>,
+    /// User-impact severity.
     pub severity: RunDiagnosticSeverity,
+    /// User-presentable explanation.
     pub message: String,
 }
 
+/// Thread-safe publication point for diagnostics produced by one run.
 #[derive(Clone, Debug, Default)]
 pub struct RunDiagnosticRegistry {
     inner: Arc<RwLock<Vec<RunDiagnostic>>>,
 }
 
 impl RunDiagnosticRegistry {
+    /// Adds a diagnostic to the run's ordered diagnostic history.
+    ///
+    /// # Parameters
+    /// - `diagnostic`: Diagnostic to make available to application consumers.
     pub fn publish(&self, diagnostic: RunDiagnostic) {
         self.inner.write().unwrap().push(diagnostic);
     }
 
+    /// Returns a snapshot of all diagnostics published so far.
     pub fn snapshot(&self) -> Vec<RunDiagnostic> {
         self.inner.read().unwrap().clone()
     }
 }
 
+/// Origin category of a source's preparation artifacts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceDataKind {
+    /// Imported or persisted finite capture data.
     File,
+    /// Data acquired from a live capture provider.
     Live,
 }
 
+/// Availability of one artifact exposed by source preparation.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum SourceArtifactReadiness {
     #[default]
+    /// Artifact preparation has not completed.
     Pending,
+    /// Artifact is available for application consumers.
     Available,
+    /// The source does not support this artifact kind.
     Unsupported,
+    /// Artifact preparation failed with a user-presentable error.
     Failed(String),
 }
 
 /// Readiness of source-owned artifacts needed by application consumers.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceReadiness {
+    /// Source node that owns these artifacts.
     pub source: NodeId,
+    /// Whether the source is file-backed or live.
     pub kind: SourceDataKind,
+    /// Readiness of preloaded source data.
     pub preload: SourceArtifactReadiness,
+    /// Readiness of reusable prepared-data cache state.
     pub cache: SourceArtifactReadiness,
+    /// Readiness of the waveform index.
     pub index: SourceArtifactReadiness,
+    /// Readiness of source data delivered to the runtime.
     pub data: SourceArtifactReadiness,
 }
 
@@ -122,6 +156,9 @@ pub struct SourceReadinessRegistry {
 }
 
 impl SourceReadinessRegistry {
+    /// Publishes the latest readiness state for one source.
+    ///
+    /// Replaces prior state for the same source while preserving source ordering.
     pub fn publish(&self, readiness: SourceReadiness) {
         let mut entries = self.inner.write().unwrap();
         if let Some(existing) = entries
@@ -135,6 +172,7 @@ impl SourceReadinessRegistry {
         }
     }
 
+    /// Returns a sorted snapshot of every source's latest readiness state.
     pub fn snapshot(&self) -> Vec<SourceReadiness> {
         self.inner.read().unwrap().clone()
     }

@@ -10,6 +10,9 @@ const EXACT_SCAN_BASE_MAX_SAMPLES: u64 = 4_096;
 /// short pulses. Keeping the exact path active until the viewport is at least
 /// one L1 bit per target point makes adjacent zoom levels represent the same
 /// waveform semantics.
+///
+/// # Parameters
+/// - `target_points`: Input consumed by this operation.
 pub fn exact_window_sample_limit(target_points: usize) -> u64 {
     let target_points = target_points.max(1) as u64;
     EXACT_SCAN_BASE_MAX_SAMPLES.max(target_points.saturating_mul(SAMPLES_PER_L1_BIT))

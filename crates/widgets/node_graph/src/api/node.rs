@@ -15,8 +15,11 @@ use crate::model::{NodeBadge, Socket, SocketShape};
 /// sockets that resolved to this type, regardless of any per-def idle styling.
 #[derive(Debug, Clone)]
 pub struct SocketTypeIdentity {
+    /// Stable type name used for graph-wide compatibility and resolved styling.
     pub name: &'static str,
+    /// Type-family color used once a socket resolves to this type.
     pub color: Color32,
+    /// Type-family shape used once a socket resolves to this type.
     pub shape: SocketShape,
 }
 
@@ -30,6 +33,7 @@ impl SocketTypeIdentity {
     }
 }
 
+/// Declarative schema for one input socket on a node definition.
 pub struct InputDef<S> {
     pub(crate) stable_id: String,
     pub(crate) label: String,
@@ -50,6 +54,10 @@ pub struct InputDef<S> {
 }
 
 impl<S: 'static> InputDef<S> {
+    /// Creates an input definition with the socket type's default presentation.
+    ///
+    /// # Parameters
+    /// - `label`: User-facing label and default stable socket identity.
     pub fn new<T: SocketDef>(label: impl Into<String>) -> Self {
         let label = label.into();
         Self {
@@ -65,6 +73,11 @@ impl<S: 'static> InputDef<S> {
         }
     }
 
+    /// Creates an input with an inline default-value control.
+    ///
+    /// # Parameters
+    /// - `label`: User-facing label and default stable socket identity.
+    /// - `accessor`: Selects the control value from mutable node state.
     pub fn control<T: SocketWithControlDef>(
         label: impl Into<String>,
         accessor: for<'a> fn(&'a mut S) -> &'a mut T::Control,
@@ -114,6 +127,7 @@ impl<S: 'static> InputDef<S> {
     }
 }
 
+/// Declarative schema for one output socket on a node definition.
 pub struct OutputDef<S> {
     pub(crate) stable_id: String,
     pub(crate) label: String,
@@ -126,6 +140,7 @@ pub struct OutputDef<S> {
 }
 
 impl<S: 'static> OutputDef<S> {
+    /// Creates an output definition with the socket type's default presentation.
     pub fn new<T: SocketDef>(label: impl Into<String>) -> Self {
         let label = label.into();
         Self {
@@ -140,6 +155,11 @@ impl<S: 'static> OutputDef<S> {
         }
     }
 
+    /// Creates an output definition with an inline control bound to node state.
+    ///
+    /// # Parameters
+    /// - `label`: User-facing label and default stable socket identity.
+    /// - `accessor`: Selects the control value from mutable node state.
     pub fn control<T: SocketWithControlDef>(
         label: impl Into<String>,
         accessor: for<'a> fn(&'a mut S) -> &'a mut T::Control,
@@ -253,6 +273,12 @@ pub struct PropDef<S> {
 }
 
 impl<S: 'static> PropDef<S> {
+    /// Binds an inline control to a node-state property.
+    ///
+    /// # Parameters
+    /// - `id`: Stable property identity within the node schema.
+    /// - `label`: User-facing control label.
+    /// - `accessor`: Selects the control value from mutable node state.
     pub fn control<T: InlineControl + 'static>(
         id: impl Into<String>,
         label: impl Into<String>,
@@ -297,11 +323,14 @@ impl<S: 'static> PropDef<S> {
 
 /// A titled, collapsible group of controls in a side panel.
 pub struct PanelSection<S> {
+    /// User-facing title of the collapsible group.
     pub title: String,
+    /// Controls rendered within the group.
     pub props: Vec<PropDef<S>>,
 }
 
 impl<S> PanelSection<S> {
+    /// Creates a titled group of controls for the node side panel.
     pub fn new(title: impl Into<String>, props: Vec<PropDef<S>>) -> Self {
         Self {
             title: title.into(),
@@ -311,15 +340,22 @@ impl<S> PanelSection<S> {
 }
 
 /// Complete socket and control schema for one saved node instance.
+/// Complete socket and control schema materialized for one saved node state.
 pub struct NodeInstanceSchema<S> {
+    /// Input socket definitions.
     pub inputs: Vec<InputDef<S>>,
+    /// Output socket definitions.
     pub outputs: Vec<OutputDef<S>>,
+    /// Inline property controls.
     pub props: Vec<PropDef<S>>,
+    /// Traditional side-panel control sections.
     pub panel: Vec<PanelSection<S>>,
+    /// Node-contributed widget-level panels.
     pub panels: Vec<NodePanelDef<S>>,
 }
 
 impl<S> NodeInstanceSchema<S> {
+    /// Creates a schema with inputs and outputs and no controls or panels.
     pub fn new(inputs: Vec<InputDef<S>>, outputs: Vec<OutputDef<S>>) -> Self {
         Self {
             inputs,
@@ -330,49 +366,64 @@ impl<S> NodeInstanceSchema<S> {
         }
     }
 
+    /// Adds inline property controls to the schema.
+    ///
+    /// # Parameters
+    /// - `props`: Inline controls to bind to this node state.
     pub fn props(mut self, props: Vec<PropDef<S>>) -> Self {
         self.props = props;
         self
     }
 
+    /// Adds traditional side-panel sections to the schema.
     pub fn panel(mut self, panel: Vec<PanelSection<S>>) -> Self {
         self.panel = panel;
         self
     }
 
+    /// Adds node-contributed widget-level panels to the schema.
     pub fn panels(mut self, panels: Vec<NodePanelDef<S>>) -> Self {
         self.panels = panels;
         self
     }
 }
 
+/// Compile-time definition of a concrete node type and its persisted state.
 pub trait NodeDef: 'static {
+    /// Serializable node-owned configuration state.
     type State: fmt::Debug + Clone + Serialize + DeserializeOwned + 'static;
 
+    /// Returns the stable registered node-type name.
     fn name() -> &'static str
     where
         Self: Sized;
+    /// Returns the user-facing category used by node creation menus.
     fn category() -> &'static str
     where
         Self: Sized;
+    /// Returns whether the node is offered in the add-node menu.
     fn add_menu_visible() -> bool
     where
         Self: Sized,
     {
         true
     }
+    /// Returns the default node-header color.
     fn color() -> Color32
     where
         Self: Sized,
     {
         Color32::from_rgb(80, 80, 80)
     }
+    /// Returns the static input socket schema.
     fn inputs() -> Vec<InputDef<Self::State>>
     where
         Self: Sized;
+    /// Returns the static output socket schema.
     fn outputs() -> Vec<OutputDef<Self::State>>
     where
         Self: Sized;
+    /// Creates default persisted state for a new node instance.
     fn state() -> Self::State
     where
         Self: Sized;
@@ -400,6 +451,7 @@ pub trait NodeDef: 'static {
             .panel(Self::panel())
             .panels(Self::panels())
     }
+    /// Returns inline property controls for static node definitions.
     fn props() -> Vec<PropDef<Self::State>>
     where
         Self: Sized,
@@ -423,6 +475,12 @@ pub trait NodeDef: 'static {
     {
         vec![]
     }
+    /// Recomputes definition-owned state-dependent socket schema and validation.
+    ///
+    /// # Parameters
+    /// - `state`: Mutable node state after a user edit or restore.
+    /// - `inputs`: Materialized input sockets that may be updated for the state.
+    /// - `outputs`: Materialized output sockets that may be updated for the state.
     fn on_update(_state: &mut Self::State, _inputs: &mut [Socket], _outputs: &mut [Socket])
     where
         Self: Sized,

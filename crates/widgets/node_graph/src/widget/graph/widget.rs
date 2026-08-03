@@ -20,6 +20,7 @@ use crate::support::ViewState;
 
 // ── Main widget ───────────────────────────────────────────────────────────────
 
+/// Stateful egui widget for editing and presenting a generic node graph.
 pub struct NodeGraphWidget {
     pub(crate) graph: GraphState,
     pub(crate) runtime: HashMap<NodeId, Box<dyn NodeInstance>>,
@@ -75,9 +76,13 @@ pub struct NodeGraphWidget {
 /// and its meaning are opaque to the node graph widget.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeContextAction {
+    /// Host-owned stable action identifier.
     pub id: String,
+    /// User-facing action label.
     pub label: String,
+    /// Optional host-provided icon identifier.
     pub icon: Option<String>,
+    /// Whether the action is currently shown as checked.
     pub checked: bool,
 }
 
@@ -97,6 +102,11 @@ impl PanelDataProvider for EmptyPanelDataProvider {
 }
 
 impl NodeContextAction {
+    /// Creates an unchecked host context-menu action without an icon.
+    ///
+    /// # Parameters
+    /// - `id`: Host-owned stable action identifier.
+    /// - `label`: User-facing action label.
     pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
         Self {
             id: id.into(),
@@ -106,11 +116,19 @@ impl NodeContextAction {
         }
     }
 
+    /// Sets an optional host-provided icon identifier for the action.
+    ///
+    /// # Parameters
+    /// - `icon`: Opaque icon identifier interpreted by the host renderer.
     pub fn with_icon(mut self, icon: impl Into<String>) -> Self {
         self.icon = Some(icon.into());
         self
     }
 
+    /// Sets whether the action is rendered as checked.
+    ///
+    /// # Parameters
+    /// - `checked`: Current checked state to display.
     pub fn with_checkmark(mut self, checked: bool) -> Self {
         self.checked = checked;
         self
@@ -135,8 +153,11 @@ pub(crate) struct NodeRenameState {
 /// [`NodeGraphWidget::set_ui_prefs`] on the next launch.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GraphUiPrefs {
+    /// Width of the graph widget's docked panel.
     pub panel_width: f32,
+    /// Identifier of the selected docked panel tab.
     pub panel_tab: Option<String>,
+    /// Whether the graph minimap is visible.
     pub minimap_visible: bool,
 }
 
@@ -151,10 +172,19 @@ fn graph_pointer(
 }
 
 impl NodeGraphWidget {
+    /// Replaces every node template contributed under one host namespace.
+    ///
+    /// # Parameters
+    /// - `namespace`: Stable contributor namespace whose templates are replaced.
+    /// - `templates`: Complete replacement template set for that namespace.
     pub fn replace_node_templates(&mut self, namespace: &str, templates: Vec<NodeTemplate>) {
         self.registry.replace_templates(namespace, templates);
     }
 
+    /// Creates an empty editable graph backed by a node-type registry.
+    ///
+    /// # Parameters
+    /// - `registry`: Node definitions and factories available for new and restored nodes.
     pub fn new(registry: NodeTypeRegistry) -> Self {
         let input_bindings = Arc::new(
             InputBindings::from_json(r#"{"bindings":[]}"#)
@@ -194,20 +224,32 @@ impl NodeGraphWidget {
         }
     }
 
+    /// Sets file dialog service.
+    ///
+    /// # Parameters
+    /// - `service`: Host adapter used by file-backed node controls.
     pub fn set_file_dialog_service(&mut self, service: Box<dyn FileDialogService>) {
         self.file_dialog_service = service;
     }
 
     /// Installs the host application's bindings. Context and action names are
     /// opaque to the binding manager and interpreted only by this widget.
+    ///
+    /// # Parameters
+    /// - `input_bindings`: Validated host binding set used for widget interactions.
     pub fn set_input_bindings(&mut self, input_bindings: Arc<InputBindings>) {
         self.input_bindings = input_bindings;
     }
 
+    /// Returns the current persisted graph document.
     pub fn graph(&self) -> &GraphState {
         &self.graph
     }
 
+    /// Returns mutable access to the persisted graph document.
+    ///
+    /// Call [`Self::sync_node_states`] before persisting or compiling changes made through this
+    /// reference when inline controls may still hold uncommitted state.
     pub fn graph_mut(&mut self) -> &mut GraphState {
         &mut self.graph
     }
@@ -217,12 +259,16 @@ impl NodeGraphWidget {
         std::mem::take(&mut self.contributed_panel_state_changed)
     }
 
+    /// Returns whether widget-initiated graph mutations are currently allowed.
     pub fn editing_enabled(&self) -> bool {
         self.editing_enabled
     }
 
     /// Enables or disables graph mutations initiated through the widget.
     /// Disabling during a modal edit restores its pre-edit snapshot.
+    ///
+    /// # Parameters
+    /// - `enabled`: Whether editing commands, drag mutations, and state edits may proceed.
     pub fn set_editing_enabled(&mut self, enabled: bool) {
         if self.editing_enabled == enabled {
             return;
@@ -270,22 +316,39 @@ impl NodeGraphWidget {
         self.io_status.take()
     }
 
+    /// Replaces the nodes whose context menus may request host-owned derived-cache clearing.
+    ///
+    /// # Parameters
+    /// - `nodes`: Node identities with clearable derived data.
     pub fn set_derived_cache_nodes(&mut self, nodes: impl IntoIterator<Item = NodeId>) {
         self.derived_cache_nodes = nodes.into_iter().collect();
     }
 
+    /// Takes clear derived cache request, leaving its default state.
     pub fn take_clear_derived_cache_request(&mut self) -> Option<NodeId> {
         self.clear_derived_cache_request.take()
     }
 
+    /// Replaces host-contributed context-menu actions for each node.
+    ///
+    /// # Parameters
+    /// - `actions`: Actions keyed by target node identity.
     pub fn set_node_context_actions(&mut self, actions: HashMap<NodeId, Vec<NodeContextAction>>) {
         self.node_context_actions = actions;
     }
 
+    /// Takes node context action, leaving its default state.
     pub fn take_node_context_action(&mut self) -> Option<(NodeId, String)> {
         self.node_context_action_request.take()
     }
 
+    /// Inserts or replaces a socket decoration owned by a host namespace.
+    ///
+    /// # Parameters
+    /// - `owner`: Namespace isolating this contributor's decorations.
+    /// - `socket`: Socket to decorate.
+    /// - `id`: Stable decoration identifier within the owner and socket.
+    /// - `presentation`: Visual behavior drawn for the decoration.
     pub fn set_socket_indicator(
         &mut self,
         owner: impl Into<String>,
@@ -301,6 +364,12 @@ impl NodeGraphWidget {
             .insert(id.into(), Arc::new(presentation));
     }
 
+    /// Removes one socket decoration without affecting other owners or decorations.
+    ///
+    /// # Parameters
+    /// - `owner`: Namespace that owns the decoration.
+    /// - `socket`: Decorated socket.
+    /// - `id`: Decoration identifier within the owner and socket.
     pub fn remove_socket_indicator(&mut self, owner: &str, socket: SocketId, id: &str) {
         let Some(by_socket) = self.socket_indicators.get_mut(owner) else {
             return;
@@ -316,12 +385,19 @@ impl NodeGraphWidget {
         }
     }
 
+    /// Removes every socket decoration owned by one contributor namespace.
+    ///
+    /// # Parameters
+    /// - `owner`: Namespace whose decorations are removed.
     pub fn clear_socket_indicators(&mut self, owner: &str) {
         self.socket_indicators.remove(owner);
     }
 
     /// Replaces the host-defined tabs. The built-in `Node` tab is always the
     /// first tab and must not be supplied by the host.
+    ///
+    /// # Parameters
+    /// - `tabs`: Host-contributed tabs. Duplicate identifiers are ignored after the first.
     pub fn set_panel_tabs(&mut self, tabs: Vec<PanelTabDef>) {
         let mut seen = HashSet::from(["node".to_owned()]);
         self.panel_tabs = std::iter::once(PanelTabDef::new("node", "Node"))
@@ -352,6 +428,9 @@ impl NodeGraphWidget {
 
     /// Restores UI prefs saved via [`Self::ui_prefs`] — call once after
     /// construction, before the first `show`.
+    ///
+    /// # Parameters
+    /// - `prefs`: Persisted docked-panel and minimap preferences to restore.
     pub fn set_ui_prefs(&mut self, prefs: GraphUiPrefs) {
         self.panel.width = prefs.panel_width;
         self.panel.active_tab = prefs.panel_tab.map(|requested| {
@@ -364,6 +443,13 @@ impl NodeGraphWidget {
         self.minimap_visible = prefs.minimap_visible;
     }
 
+    /// Instantiates and adds a registered node template at graph coordinates.
+    ///
+    /// # Parameters
+    /// - `name`: Registered template name, or the built-in `Reroute` name.
+    /// - `pos`: Initial graph-space node position.
+    ///
+    /// Returns the new node identity, or `None` when the template is unknown.
     pub fn add_node_at(&mut self, name: &str, pos: Pos2) -> Option<NodeId> {
         let id = self.graph.next_id();
         if name == "Reroute" {
@@ -440,6 +526,10 @@ impl NodeGraphWidget {
 
     /// Sets (or clears) the short live-status text drawn in a node's header
     /// (e.g. "1.2M" items while a pipeline runs).
+    ///
+    /// # Parameters
+    /// - `id`: Input consumed by this operation.
+    /// - `status`: Input consumed by this operation.
     pub fn set_node_status(&mut self, id: NodeId, status: Option<String>) {
         match status {
             Some(status) => {
@@ -585,6 +675,10 @@ impl NodeGraphWidget {
 
     // ── Viewport render ───────────────────────────────────────────────────────
 
+    /// Draws the graph using no host-supplied panel data.
+    ///
+    /// # Parameters
+    /// - `ui`: Parent UI receiving the graph canvas and floating panels.
     pub fn show(&mut self, ui: &mut Ui) -> Vec<PanelAction> {
         self.show_with_panel_data(ui, &EmptyPanelDataProvider)
     }
@@ -592,6 +686,10 @@ impl NodeGraphWidget {
     /// Draws the graph using host-owned panel models borrowed for this call.
     /// Every contributed-panel action emitted during the draw is returned in
     /// creation order; neither models nor actions are retained by the widget.
+    ///
+    /// # Parameters
+    /// - `ui`: Parent UI receiving the graph canvas and floating panels.
+    /// - `panel_data`: Host data provider queried while drawing contributed panels.
     pub fn show_with_panel_data(
         &mut self,
         ui: &mut Ui,

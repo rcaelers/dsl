@@ -3,14 +3,31 @@ use std::fmt;
 
 use signal_processing::{NumberSample, Sample, SampleBlock, TextSample, Trigger, Word};
 
+/// Rust value type that may flow through a graph port.
+///
+/// Implementations provide stable, presentation-independent type metadata used
+/// by graph negotiation and runtime channel sizing.
 pub trait PortValue: Send + Sync + Clone + 'static {
+    /// Returns the stable runtime name used to identify this payload kind.
     fn kind_name() -> &'static str;
 
-    fn buffer_size(_producer_is_source: bool) -> usize {
+    /// Returns the preferred bounded-channel capacity for this payload.
+    ///
+    /// Source outputs may need a larger buffer than transformed intermediate
+    /// values to absorb capture bursts.
+    ///
+    /// # Parameters
+    /// - `producer_is_source`: Whether the producing node originates capture data.
+    fn buffer_size(producer_is_source: bool) -> usize {
+        let _ = producer_is_source;
         100
     }
 }
 
+/// Runtime metadata for a graph-port payload type.
+///
+/// A `PortKind` retains type identity without exposing the concrete value type,
+/// allowing the generic graph compiler to negotiate compatible connections.
 #[derive(Clone, Copy)]
 pub struct PortKind {
     type_id: TypeId,
@@ -34,6 +51,7 @@ impl std::hash::Hash for PortKind {
 }
 
 impl PortKind {
+    /// Creates metadata for a payload type implementing [`PortValue`].
     pub fn of<T: PortValue>() -> Self {
         Self {
             type_id: TypeId::of::<T>(),
@@ -54,18 +72,25 @@ impl PortKind {
         }
     }
 
+    /// Returns the concrete Rust type identity used for compatibility checks.
     pub fn type_id(&self) -> TypeId {
         self.type_id
     }
 
+    /// Returns the stable payload-kind name shown in graph diagnostics.
     pub fn name(&self) -> &'static str {
         self.name
     }
 
+    /// Returns the channel capacity selected for a producer role.
+    ///
+    /// # Parameters
+    /// - `producer_is_source`: Whether the producing node originates capture data.
     pub fn buffer_size(&self, producer_is_source: bool) -> usize {
         (self.buffer_size_fn)(producer_is_source)
     }
 
+    /// Registers the payload type with the runtime serialization registry.
     pub fn register_runtime_type(&self) {
         (self.register_type_fn)();
     }

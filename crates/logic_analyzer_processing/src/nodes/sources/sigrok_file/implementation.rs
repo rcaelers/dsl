@@ -158,6 +158,10 @@ impl CaptureIndexFactory for SigrokCaptureIndexFactory {
 
 impl SigrokFileSource {
     /// Creates the generic indexed-capture presentation for a static sigrok file.
+    ///
+    /// # Parameters
+    /// - `source`: Input consumed by this operation.
+    /// - `display_name`: Input consumed by this operation.
     pub fn indexed_capture_presentation(
         source: Arc<dyn PreparedByteSource>,
         display_name: impl Into<String>,
@@ -172,6 +176,7 @@ impl SigrokFileSource {
         }
     }
 
+    /// Creates the runtime source from an already prepared Sigrok session source.
     pub fn from_prepared_source(source: Arc<dyn PreparedByteSource>) -> Result<Self> {
         let capture = SigrokCapture::open_source(source.as_ref(), 1)?;
         Ok(Self::from_capture(capture))
@@ -195,6 +200,7 @@ impl SigrokFileSource {
         }
     }
 
+    /// Returns this value configured with name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
@@ -206,6 +212,7 @@ impl SigrokFileSource {
         self
     }
 
+    /// Returns parsed session metadata from the prepared source.
     pub fn header(&self) -> &signal_processing::CaptureMetadata {
         self.capture.metadata()
     }

@@ -5,10 +5,13 @@ use serde_json::Value;
 use super::ids::NodeId;
 use super::socket::{Socket, SocketShape};
 
+/// Structural role of a node in the graph editor.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub enum NodeKind {
     #[default]
+    /// Normal user-visible node backed by a registered node definition.
     Regular,
+    /// Connection-routing node without concrete runtime behavior.
     Reroute,
 }
 
@@ -17,30 +20,42 @@ pub enum NodeKind {
 /// set compile/runtime errors.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeBadge {
+    /// User-presentable status message.
     pub text: String,
+    /// Severity used for badge styling and presentation.
     pub severity: BadgeSeverity,
 }
 
+/// Severity of a node validation or runtime status badge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BadgeSeverity {
+    /// Informational state that does not need user action.
     Info,
+    /// State the user may need to review.
     Warning,
+    /// Error preventing correct graph behavior.
     Error,
 }
 
 impl NodeBadge {
+    /// Creates an informational node badge.
+    ///
+    /// # Parameters
+    /// - `text`: User-presentable status message.
     pub fn info(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             severity: BadgeSeverity::Info,
         }
     }
+    /// Creates a warning node badge.
     pub fn warning(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             severity: BadgeSeverity::Warning,
         }
     }
+    /// Creates an error node badge.
     pub fn error(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -49,9 +64,12 @@ impl NodeBadge {
     }
 }
 
+/// Persisted editor state for one graph node.
 #[derive(Serialize, Deserialize)]
 pub struct Node {
+    /// Stable node identity in the graph document.
     pub id: NodeId,
+    /// Structural editor role of this node.
     pub kind: NodeKind,
     /// Display name; user-renamable. The registered def is identified by
     /// `type_name`, never by the title.
@@ -60,11 +78,16 @@ pub struct Node {
     /// existed; those fall back to `title` (which then still equals it).
     #[serde(default)]
     pub type_name: String,
+    /// Definition-provided header color.
     pub header_color: Color32,
+    /// Position in graph-canvas coordinates.
     pub pos: Pos2,
+    /// Materialized input sockets.
     pub inputs: Vec<Socket>,
+    /// Materialized output sockets.
     pub outputs: Vec<Socket>,
     #[serde(default)]
+    /// Whether the editor renders this node in collapsed form.
     pub collapsed: bool,
     /// Bypassed for compilation (Phase 3): the compiler splices its
     /// compatible inputs directly to its outputs and drops the node, rather
@@ -73,15 +96,19 @@ pub struct Node {
     #[serde(default)]
     pub muted: bool,
     #[serde(default)]
+    /// Concrete node-owned persisted configuration state.
     pub state: Value,
     #[serde(flatten)]
+    /// Generic editor metadata not owned by the node definition.
     pub metadata: NodeMetadata,
     /// Def-driven status message, recomputed on every state update.
     #[serde(skip)]
     pub badge: Option<NodeBadge>,
+    /// Whether the editor currently selects this node.
     pub selected: bool,
 }
 
+/// Generic non-persisted metadata associated with one node instance.
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct NodeMetadata {
     #[serde(skip)]
@@ -161,6 +188,11 @@ impl Node {
 }
 
 impl Node {
+    /// Creates an untyped built-in reroute node at a graph-space position.
+    ///
+    /// # Parameters
+    /// - `id`: Stable document identity assigned by the graph.
+    /// - `pos`: Initial graph-canvas position.
     pub fn new_reroute(id: NodeId, pos: Pos2) -> Self {
         let input = Socket {
             schema_id: String::new(),

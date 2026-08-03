@@ -23,13 +23,18 @@ struct DerivedDataCollectorMetricsInner {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DerivedDataCollectorMetricsSnapshot {
+    /// Nanoseconds spent draining input channels.
     pub drain_ns: u64,
+    /// Nanoseconds spent appending drained data to lane storage.
     pub append_ns: u64,
+    /// Total individual items drained.
     pub items: u64,
+    /// Number of non-empty drain batches.
     pub batches: u64,
 }
 
 impl DerivedDataCollectorMetrics {
+    /// Returns relaxed atomic counters suitable for telemetry display.
     pub fn snapshot(&self) -> DerivedDataCollectorMetricsSnapshot {
         DerivedDataCollectorMetricsSnapshot {
             drain_ns: self.inner.drain_ns.load(Ordering::Relaxed),
@@ -80,6 +85,9 @@ pub enum DerivedDataRetention {
 impl DerivedDataRetention {
     /// Returns the retained entry target when an adapter should trim its
     /// current exact-detail sequence.
+    ///
+    /// # Parameters
+    /// - `len`: Current number of exact retained entries.
     pub fn trim_target(self, len: usize) -> Option<usize> {
         let Self::MaxEntries(max) = self else {
             return None;
@@ -104,6 +112,7 @@ pub struct DerivedDataCollector {
 }
 
 impl DerivedDataCollector {
+    /// Creates an empty collector with unlimited adapter retention.
     pub fn new() -> Self {
         Self {
             name: "derived-data-collector".to_owned(),
@@ -113,22 +122,41 @@ impl DerivedDataCollector {
         }
     }
 
+    /// Sets the graph-local collector name.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: Name used in runtime diagnostics.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
     }
 
+    /// Sets the exact-detail retention policy passed to each ingestor.
+    ///
+    /// # Parameters
+    ///
+    /// - `retention`: Unlimited or rolling entry retention policy.
     pub fn with_retention(mut self, retention: DerivedDataRetention) -> Self {
         self.retention = retention;
         self
     }
 
+    /// Enables collection timing and throughput telemetry.
+    ///
+    /// # Parameters
+    ///
+    /// - `metrics`: Shared metrics accumulator to update during work calls.
     pub fn with_metrics(mut self, metrics: DerivedDataCollectorMetrics) -> Self {
         self.metrics = Some(metrics);
         self
     }
 
     /// Adds an adapter-owned lane; input port order follows insertion order.
+    ///
+    /// # Parameters
+    ///
+    /// - `ingestor`: Typed adapter that drains and retains one input lane.
     pub fn with_ingestor(mut self, ingestor: Box<dyn CollectedLaneIngestor>) -> Self {
         self.lanes.push(ingestor);
         self

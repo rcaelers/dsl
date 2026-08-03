@@ -42,7 +42,10 @@ pub(crate) enum ToastSource {
     Global,
     Panel(String),
     Node(String),
-    Socket { node: String, socket: String },
+    Socket {
+        node: String,
+        socket: String
+    },
 }
 
 impl ToastSource {

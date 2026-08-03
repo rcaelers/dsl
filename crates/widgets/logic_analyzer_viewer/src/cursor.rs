@@ -10,6 +10,9 @@ impl LogicAnalyzerViewer {
     }
 
     /// Restores host-owned cursors without reporting a user edit.
+    ///
+    /// # Parameters
+    /// - `cursors`: Input consumed by this operation.
     pub fn set_time_cursors(&mut self, cursors: Vec<TimeCursor>) {
         self.cursors = cursors;
         self.drag_cursor = None;

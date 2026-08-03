@@ -7,14 +7,18 @@ use crate::lanes::ViewerLaneGroupId;
 /// Stable identity of one displayed viewer row for host-owned persistence.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ViewerRowId {
+    /// Raw capture channel identified by its capture index.
     Channel(usize),
+    /// Derived lane group identified by its stable presentation key.
     Derived(ViewerLaneGroupId),
 }
 
 /// A user-selected height multiplier for one stable viewer row.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ViewerRowHeight {
+    /// Row whose height is customized.
     pub row: ViewerRowId,
+    /// Height multiplier applied after the global scale.
     pub scale: f32,
 }
 
@@ -23,7 +27,9 @@ pub struct ViewerRowHeight {
 /// row scales refine it for rows the user adjusted directly.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ViewerRowHeightSettings {
+    /// Height multiplier applied to every viewer row.
     pub global_scale: f32,
+    /// Per-row refinements persisted by stable row identity.
     pub rows: Vec<ViewerRowHeight>,
 }
 
@@ -31,7 +37,9 @@ pub struct ViewerRowHeightSettings {
 /// traces) is the default; Classic is the viewer's original muted look.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorProfile {
+    /// Bright DSView-inspired channel colors and traces.
     DsView,
+    /// Original muted viewer palette.
     Classic,
 }
 
@@ -139,6 +147,7 @@ pub struct TimeCursor {
     /// number — and the flag color derived from it — stays stable while
     /// other cursors come and go.
     pub number: u32,
+    /// Cursor position in the viewer's microsecond time domain.
     pub time_us: f64,
 }
 
@@ -167,9 +176,17 @@ pub(crate) struct WaveformSegment {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum WaveformSegmentKind {
-    Level { value: bool },
-    Edge { before: bool, after: bool },
-    Activity { first: bool, last: bool },
+    Level {
+        value: bool
+    },
+    Edge {
+        before: bool,
+        after: bool
+    },
+    Activity {
+        first: bool,
+        last: bool
+    },
 }
 
 #[derive(Debug, Clone, Copy)]

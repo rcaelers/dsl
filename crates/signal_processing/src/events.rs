@@ -26,6 +26,11 @@ pub const MAX_ANNOTATION_NS: u64 = 100_000_000;
 /// Adjacent words in a burst still meet exactly. When the next word is much
 /// later than the recent cadence, the current word closes after one expected
 /// period so the intervening interval remains visibly empty.
+///
+/// # Parameters
+/// - `previous_start_ns`: Prior word start used to infer current burst cadence.
+/// - `start_ns`: Start of the instantaneous word being displayed.
+/// - `next_start_ns`: Start of the following word.
 pub fn instantaneous_word_end_ns(
     previous_start_ns: Option<u64>,
     start_ns: u64,
@@ -72,6 +77,7 @@ pub struct TimelineMarker {
 }
 
 impl TimelineMarker {
+    /// Creates a timeline marker at a shared nanosecond timestamp.
     pub fn new(timestamp_ns: u64) -> Self {
         Self { timestamp_ns }
     }
@@ -82,14 +88,23 @@ impl TimelineMarker {
 /// meaningful on a connection.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ProtocolValue {
+    /// No structured value.
     Null,
+    /// Boolean structured value.
     Bool(bool),
+    /// Signed integer structured value.
     Integer(i128),
+    /// Floating-point structured value.
     Float(f64),
+    /// UTF-8 string structured value.
     String(String),
+    /// Arbitrary immutable bytes.
     Bytes(Arc<[u8]>),
+    /// Ordered collection of structured values.
     List(Vec<Self>),
+    /// Fixed-position structured values.
     Tuple(Vec<Self>),
+    /// Named structured values.
     Mapping(BTreeMap<String, Self>),
 }
 
@@ -100,13 +115,18 @@ pub struct ProtocolPacket {
     /// carry time but no sample position set both sample coordinates to zero.
     pub start_sample: u64,
     pub end_sample: u64,
+    /// Shared timeline start timestamp.
     pub start_time_ns: u64,
+    /// Shared timeline end timestamp.
     pub end_time_ns: u64,
+    /// Stable protocol identity owned by the decoder.
     pub protocol_id: String,
+    /// Protocol-owned structured packet value.
     pub value: ProtocolValue,
 }
 
 impl ProtocolPacket {
+    /// Returns a bounded protocol-neutral fallback display string.
     pub fn display_text(&self) -> String {
         let value = match &self.value {
             ProtocolValue::Null => "null".into(),
@@ -124,6 +144,10 @@ impl ProtocolPacket {
 }
 
 impl Trigger {
+    /// Creates an instantaneous trigger event at a shared nanosecond timestamp.
+    ///
+    /// # Parameters
+    /// - `timestamp_ns`: Shared timeline timestamp of the event.
     pub fn new(timestamp_ns: u64) -> Self {
         Self { timestamp_ns }
     }
@@ -136,7 +160,9 @@ impl Trigger {
 /// preferred label without introducing protocol-specific payload types.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WordPayload {
+    /// Arbitrary-width immutable decoded bytes.
     Bytes(Arc<[u8]>),
+    /// Decoder-provided text label.
     Text(Arc<str>),
 }
 
@@ -147,7 +173,9 @@ pub enum WordPayload {
 /// not adequately represented by a `u64` alone.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Word {
+    /// Numeric decoder value or presentation tag.
     pub value: u64,
+    /// Optional arbitrary-width or textual decoder payload.
     pub payload: Option<WordPayload>,
     /// Timestamp of the word's start (its first sampling edge), ns.
     pub timestamp_ns: u64,
@@ -210,6 +238,12 @@ impl Word {
     }
 
     /// A numeric word with an explicit presentation label.
+    ///
+    /// # Parameters
+    /// - `value`: Numeric decoder value.
+    /// - `label`: Decoder-provided presentation text.
+    /// - `timestamp_ns`: Shared timeline start timestamp.
+    /// - `duration_ns`: Explicit duration in nanoseconds, or zero for an event.
     pub fn labeled(
         value: u64,
         label: impl Into<Arc<str>>,
@@ -224,6 +258,7 @@ impl Word {
         }
     }
 
+    /// Returns whether numeric.
     pub fn is_numeric(&self) -> bool {
         self.payload.is_none()
     }
@@ -239,9 +274,13 @@ impl Word {
 /// their encoded duration.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Annotation {
+    /// Inclusive timeline start of the rendered annotation.
     pub start_ns: u64,
+    /// Exclusive or inferred timeline end of the rendered annotation.
     pub end_ns: u64,
+    /// Numeric decoder value or presentation tag.
     pub value: u64,
+    /// Optional arbitrary-width or textual decoder payload.
     pub payload: Option<WordPayload>,
 }
 
@@ -255,6 +294,7 @@ pub struct NumberSample {
 }
 
 impl NumberSample {
+    /// Creates an integer level beginning at a shared timeline timestamp.
     pub fn new(value: i64, start_time_ns: u64) -> Self {
         Self {
             value,
@@ -273,6 +313,7 @@ pub struct TextSample {
 }
 
 impl TextSample {
+    /// Creates a text level beginning at a shared timeline timestamp.
     pub fn new(value: impl Into<String>, start_time_ns: u64) -> Self {
         Self {
             value: value.into(),

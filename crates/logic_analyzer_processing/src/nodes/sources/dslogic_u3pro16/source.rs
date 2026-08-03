@@ -15,6 +15,10 @@ pub struct DsLogicU3Pro16Source {
 
 impl DsLogicU3Pro16Source {
     /// Configures a host-opened U3Pro16 transport as a pipeline source.
+    ///
+    /// # Parameters
+    /// - `config`: Input consumed by this operation.
+    /// - `transport`: Input consumed by this operation.
     pub fn from_transport(
         config: LogicCaptureConfig,
         transport: Box<dyn UsbTransport>,

@@ -52,7 +52,10 @@ pub enum StoreError {
     NotLive(StoreStatus),
 
     #[error("committed word block {index} is out of bounds (block count {block_count})")]
-    BlockOutOfBounds { index: usize, block_count: usize },
+    BlockOutOfBounds {
+        index: usize,
+        block_count: usize
+    },
 
     #[error("committed word-block directory does not match encoded block {0}")]
     DirectoryMismatch(u64),
@@ -115,6 +118,10 @@ pub struct IndexedAnnotationStore {
 }
 
 impl IndexedAnnotationStore {
+    /// Opens a finalized persistent store if all required artifacts are valid.
+    ///
+    /// # Parameters
+    /// - `config`: Persistent cache identity and repository configuration.
     pub fn open_persistent(
         config: &PersistentStoreConfig,
     ) -> StoreResult<Option<IndexedAnnotationStore>> {
@@ -143,6 +150,7 @@ impl IndexedAnnotationStore {
         }))
     }
 
+    /// Returns a consistent snapshot of committed data and the live hot tail.
     pub fn snapshot(&self) -> LiveStoreSnapshot {
         let state = self.shared.state.read().unwrap();
         let first_timestamp_ns = state
@@ -592,7 +600,10 @@ fn annotation_presence_buckets(
 
 enum QueryBlockWords {
     Cached(Arc<DecodedWordBlock>),
-    Partial { words: Vec<Word>, complete: bool },
+    Partial {
+        words: Vec<Word>,
+        complete: bool
+    },
 }
 
 fn merge_hot_tail_presence(buckets: &mut [WordPresenceBucket], words: &[Word]) {
@@ -755,6 +766,10 @@ pub struct IndexedAnnotationWriter {
 }
 
 impl IndexedAnnotationWriter {
+    /// Creates a live writer together with its cloneable query handle.
+    ///
+    /// # Parameters
+    /// - `config`: Live encoding, publishing, execution, and persistence policy.
     pub fn create(config: LiveStoreConfig) -> StoreResult<(Self, IndexedAnnotationStore)> {
         if config.hot_tail_publish_words == 0 {
             return Err(StoreError::Codec(CodecError::InvalidConfiguration(
@@ -834,16 +849,26 @@ impl IndexedAnnotationWriter {
         ))
     }
 
+    /// Returns a cloneable query handle for the writer's current store.
     pub fn store(&self) -> IndexedAnnotationStore {
         IndexedAnnotationStore {
             shared: Arc::clone(&self.shared),
         }
     }
 
+    /// Appends one timestamp-ordered word to the live store.
+    ///
+    /// # Parameters
+    /// - `word`: Next word, whose timestamp must not precede prior appends.
     pub fn append(&mut self, word: Word) -> StoreResult<()> {
         self.append_batch(std::slice::from_ref(&word))
     }
 
+    /// Appends a timestamp-ordered batch and publishes ready immutable blocks.
+    ///
+    /// # Parameters
+    ///
+    /// - `words`: Batch whose timestamps do not precede earlier appends.
     pub fn append_batch(&mut self, words: &[Word]) -> StoreResult<()> {
         self.ensure_live()?;
         let result = self
@@ -855,6 +880,7 @@ impl IndexedAnnotationWriter {
         result
     }
 
+    /// Publishes the current mutable tail for live query consumers.
     pub fn publish_hot_tail(&mut self) -> StoreResult<()> {
         self.ensure_live()?;
         self.flush_dispatched_blocks()?;
@@ -862,6 +888,7 @@ impl IndexedAnnotationWriter {
         Ok(())
     }
 
+    /// Flushes all blocks and publishes a final immutable store manifest.
     pub fn finish(&mut self) -> StoreResult<()> {
         self.ensure_live()?;
         let result = self.finish_inner();

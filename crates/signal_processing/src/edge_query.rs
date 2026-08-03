@@ -43,6 +43,9 @@ pub trait EdgeQuery: Send + Sync {
     }
 
     /// Value of the channel at `position`.
+    ///
+    /// # Parameters
+    /// - `position`: Sample position at which to read the current level.
     fn value_at(&self, position: u64) -> Result<bool>;
 
     /// First transition strictly after `position`, at or before `limit`.

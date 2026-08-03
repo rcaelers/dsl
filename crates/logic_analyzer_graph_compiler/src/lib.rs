@@ -4,6 +4,12 @@
 //! into the UI-independent [`signal_processing`] runtime. Concrete graph nodes and their
 //! presentations live in `logic-analyzer-graph-nodes`; application composition and window
 //! integration belong in `logic-analyzer-ui`.
+//!
+//! The public facade owns document validation, lowering, execution coordination,
+//! saved-document synchronization, and host-facing results. It consumes generic
+//! inventory registrations rather than concrete node names or protocols. Built-in
+//! node definitions, widget presentation, and target-specific adapters are outside
+//! this crate.
 
 mod cache_policy;
 mod data_collector;

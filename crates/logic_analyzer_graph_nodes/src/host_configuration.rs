@@ -22,6 +22,10 @@ use signal_processing::{ProcessNode, WorkExecutor};
 /// Host-provided discovery and execution for Sigrok decoder packages.
 pub trait SigrokDecoderRuntime: Send + Sync {
     /// Discovers the saved decoder package and its current contract.
+    ///
+    /// # Parameters
+    /// - `decoder_root`: Input consumed by this operation.
+    /// - `decoder_id`: Input consumed by this operation.
     fn discover(
         &self,
         decoder_root: &std::path::Path,
@@ -100,6 +104,9 @@ pub fn u3pro16_runtime_builder_override(
 }
 
 /// Returns the DSL file-source override for one host acquisition factory.
+///
+/// # Parameters
+/// - `source_factory`: Input consumed by this operation.
 pub fn dsl_file_source_runtime_builder_override(
     source_factory: Arc<dyn DslFileSourceFactory>,
 ) -> RuntimeBuilderOverride {

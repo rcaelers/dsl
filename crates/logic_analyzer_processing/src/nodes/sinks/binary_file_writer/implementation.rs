@@ -63,10 +63,15 @@ pub struct BinaryFileWriter {
 impl BinaryFileWriter {
     const DRAIN_BATCH_SIZE: usize = 65_536;
 
+    /// Creates a binary-file writer with the supplied configuration and storage capability.
     pub fn new() -> Self {
         Self::with_output_storage(Arc::new(UnavailableOutputStorage))
     }
 
+    /// Returns this value configured with output storage.
+    ///
+    /// # Parameters
+    /// - `storage`: Input consumed by this operation.
     pub fn with_output_storage(storage: Arc<dyn OutputStorage>) -> Self {
         Self {
             name: "binary_file_writer".to_string(),
@@ -88,11 +93,13 @@ impl BinaryFileWriter {
         }
     }
 
+    /// Returns this value configured with name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
     }
 
+    /// Returns this value configured with width.
     pub fn with_width(mut self, width: WriteWidth) -> Self {
         self.width = width;
         self

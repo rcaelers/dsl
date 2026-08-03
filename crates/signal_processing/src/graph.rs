@@ -10,10 +10,15 @@ use std::collections::HashMap;
 pub struct NodeId(usize);
 
 impl NodeId {
+    /// Wraps a graph-local numeric node identifier.
+    ///
+    /// # Parameters
+    /// - `id`: Graph-local numeric identifier.
     pub fn new(id: usize) -> Self {
         Self(id)
     }
 
+    /// Returns the graph-local numeric identifier.
     pub fn as_usize(&self) -> usize {
         self.0
     }
@@ -92,6 +97,13 @@ impl GraphBuilder {
     }
 
     /// Connect two nodes with a typed channel
+    ///
+    /// # Parameters
+    /// - `from_node`: Input consumed by this operation.
+    /// - `from_port`: Input consumed by this operation.
+    /// - `to_node`: Input consumed by this operation.
+    /// - `to_port`: Input consumed by this operation.
+    /// - `buffer_size`: Input consumed by this operation.
     pub fn connect<T: Send + 'static>(
         &mut self,
         from_node: NodeId,

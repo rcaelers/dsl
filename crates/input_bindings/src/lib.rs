@@ -3,6 +3,9 @@
 //! Contexts and actions are deliberately opaque strings. This crate knows
 //! nothing about the application that supplies them or the widgets that use
 //! them.
+//!
+//! The crate owns binding configuration, lookup, and application-neutral shortcut
+//! presentation. It does not own application menu layout or command policy.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -22,6 +25,10 @@ pub struct MenuShortcut {
 }
 
 impl MenuShortcut {
+    /// Adapts an egui keyboard shortcut for menu rendering and dispatch.
+    ///
+    /// # Parameters
+    /// - `shortcut`: Shortcut whose modifiers and logical key are preserved.
     pub fn from_keyboard(shortcut: KeyboardShortcut) -> Self {
         Self {
             modifiers: shortcut.modifiers,
@@ -29,6 +36,13 @@ impl MenuShortcut {
         }
     }
 
+    /// Consumes this shortcut from the current UI input pass.
+    ///
+    /// # Parameters
+    /// - `ui`: UI receiving the input pass.
+    ///
+    /// Returns `true` only when this call removed a matching keyboard or standard
+    /// command event from the pass.
     pub fn consume(&self, ui: &mut Ui) -> bool {
         if ui.input_mut(|input| {
             input.consume_shortcut(&KeyboardShortcut::new(self.modifiers, self.key))
@@ -57,6 +71,9 @@ impl MenuShortcut {
     }
 
     /// Formats the shortcut for the operating system reported by the host UI.
+    ///
+    /// # Parameters
+    /// - `is_mac`: Whether the host uses macOS modifier glyphs.
     pub fn format(self, is_mac: bool) -> String {
         let mut result = String::new();
         if self.modifiers.command {
@@ -80,12 +97,14 @@ impl MenuShortcut {
     }
 }
 
+/// Deserialized top-level input-binding document.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BindingFile {
     pub bindings: Vec<Binding>,
 }
 
+/// One context-qualified action binding from a [`BindingFile`].
 #[derive(Debug, Clone, Deserialize)]
 pub struct Binding {
     pub context: String,
@@ -118,6 +137,7 @@ impl Binding {
     }
 }
 
+/// Required modifier state for a binding.
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq, Hash)]
 #[serde(deny_unknown_fields)]
 pub struct ModifierSpec {
@@ -133,6 +153,7 @@ pub struct ModifierSpec {
 }
 
 impl ModifierSpec {
+    /// Converts this portable modifier specification to egui's representation.
     pub fn to_egui(self) -> Modifiers {
         Modifiers {
             alt: self.alt,
@@ -143,11 +164,16 @@ impl ModifierSpec {
         }
     }
 
+    /// Returns whether the actual state exactly matches this specification.
+    ///
+    /// # Parameters
+    /// - `actual`: Modifier state observed in the current input pass.
     pub fn matches(self, actual: Modifiers) -> bool {
         actual.matches_exact(self.to_egui())
     }
 }
 
+/// Input event that may activate a binding.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "input", rename_all = "snake_case")]
 pub enum Trigger {
@@ -165,6 +191,7 @@ pub enum Trigger {
     Zoom,
 }
 
+/// Portable name for an egui pointer button.
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum PointerButtonName {
@@ -176,6 +203,7 @@ pub enum PointerButtonName {
 }
 
 impl PointerButtonName {
+    /// Converts this portable button name to its egui equivalent.
     pub fn to_egui(self) -> PointerButton {
         match self {
             Self::Primary => PointerButton::Primary,
@@ -187,6 +215,7 @@ impl PointerButtonName {
     }
 }
 
+/// Pointer interaction phase selected by a pointer binding.
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum PointerGesture {
@@ -199,6 +228,7 @@ pub enum PointerGesture {
     Hold,
 }
 
+/// Mouse-wheel direction selected by a wheel binding.
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum WheelAxis {
@@ -207,6 +237,7 @@ pub enum WheelAxis {
     Both,
 }
 
+/// Error while parsing or validating input bindings.
 #[derive(Debug, Error)]
 pub enum BindingError {
     #[error("invalid input binding JSON: {0}")]
@@ -225,6 +256,7 @@ pub enum BindingError {
     },
 }
 
+/// Validated, indexed bindings used for input dispatch and shortcut presentation.
 #[derive(Debug, Clone)]
 pub struct InputBindings {
     bindings: Vec<Binding>,
@@ -232,11 +264,22 @@ pub struct InputBindings {
 }
 
 impl InputBindings {
+    /// Parses and validates a JSON binding document.
+    ///
+    /// # Parameters
+    /// - `json`: JSON text matching [`BindingFile`].
+    ///
+    /// Returns an error for malformed JSON, unknown key names, or conflicts within a context.
     pub fn from_json(json: &str) -> Result<Self, BindingError> {
         let file: BindingFile = serde_json::from_str(json)?;
         Self::new(file.bindings)
     }
 
+    /// Validates and indexes bindings supplied programmatically.
+    ///
+    /// # Parameters
+    /// - `bindings`: Bindings to validate. Within one context, no two actions may use the same
+    ///   trigger and modifier specification.
     pub fn new(bindings: Vec<Binding>) -> Result<Self, BindingError> {
         let mut by_action = HashMap::new();
         let mut triggers = HashMap::<(String, TriggerIdentity), String>::new();
@@ -273,6 +316,11 @@ impl InputBindings {
         })
     }
 
+    /// Finds the first binding for an action using context-precedence order.
+    ///
+    /// # Parameters
+    /// - `contexts`: Contexts ordered from most to least specific.
+    /// - `action`: Opaque action identifier to look up.
     pub fn binding(&self, contexts: &[&str], action: &str) -> Option<&Binding> {
         contexts.iter().find_map(|context| {
             self.by_action
@@ -282,6 +330,11 @@ impl InputBindings {
         })
     }
 
+    /// Returns all bindings for the first context that defines an action.
+    ///
+    /// # Parameters
+    /// - `contexts`: Contexts ordered from most to least specific.
+    /// - `action`: Opaque action identifier to look up.
     pub fn bindings(&self, contexts: &[&str], action: &str) -> Vec<&Binding> {
         contexts
             .iter()
@@ -293,6 +346,13 @@ impl InputBindings {
             .unwrap_or_default()
     }
 
+    /// Returns the first keyboard shortcut for an action in context-precedence order.
+    ///
+    /// # Parameters
+    /// - `contexts`: Contexts ordered from most to least specific.
+    /// - `action`: Opaque action identifier to look up.
+    ///
+    /// Returns `None` when the action has no keyboard binding.
     pub fn shortcut(&self, contexts: &[&str], action: &str) -> Option<KeyboardShortcut> {
         let binding = self.binding(contexts, action)?;
         let Trigger::Key { key } = &binding.trigger else {
@@ -304,6 +364,12 @@ impl InputBindings {
         ))
     }
 
+    /// Consumes any matching keyboard shortcut for an action from the current UI pass.
+    ///
+    /// # Parameters
+    /// - `ui`: UI receiving the input pass.
+    /// - `contexts`: Contexts ordered from most to least specific.
+    /// - `action`: Opaque action identifier to dispatch.
     pub fn consume_shortcut(&self, ui: &mut Ui, contexts: &[&str], action: &str) -> bool {
         self.bindings(contexts, action).into_iter().any(|binding| {
             let Trigger::Key { key } = &binding.trigger else {
@@ -329,6 +395,11 @@ impl InputBindings {
     /// Consumes a configured shortcut only for its initial key press.
     /// Auto-repeat events are consumed but do not retrigger the action, which
     /// is useful for toggles and other state transitions.
+    ///
+    /// # Parameters
+    /// - `ui`: UI receiving the input pass.
+    /// - `contexts`: Contexts ordered from most to least specific.
+    /// - `action`: Opaque action identifier to dispatch.
     pub fn consume_shortcut_once(&self, ui: &mut Ui, contexts: &[&str], action: &str) -> bool {
         self.bindings(contexts, action).into_iter().any(|binding| {
             let Trigger::Key { key } = &binding.trigger else {
@@ -363,6 +434,12 @@ impl InputBindings {
         })
     }
 
+    /// Consumes any matching keyboard shortcut from an egui context input pass.
+    ///
+    /// # Parameters
+    /// - `context`: Egui context whose current input pass is consumed.
+    /// - `contexts`: Contexts ordered from most to least specific.
+    /// - `action`: Opaque action identifier to dispatch.
     pub fn consume_shortcut_ctx(
         &self,
         context: &egui::Context,
@@ -390,6 +467,11 @@ impl InputBindings {
         })
     }
 
+    /// Returns the configured pointer button for an action, if its first binding is a pointer one.
+    ///
+    /// # Parameters
+    /// - `contexts`: Contexts ordered from most to least specific.
+    /// - `action`: Opaque action identifier to look up.
     pub fn pointer_button(&self, contexts: &[&str], action: &str) -> Option<PointerButton> {
         let Trigger::Pointer { button, .. } = self.binding(contexts, action)?.trigger else {
             return None;
@@ -397,6 +479,11 @@ impl InputBindings {
         Some(button.to_egui())
     }
 
+    /// Returns the configured pointer gesture for an action, if its first binding is a pointer one.
+    ///
+    /// # Parameters
+    /// - `contexts`: Contexts ordered from most to least specific.
+    /// - `action`: Opaque action identifier to look up.
     pub fn pointer_gesture(&self, contexts: &[&str], action: &str) -> Option<PointerGesture> {
         let Trigger::Pointer { gesture, .. } = self.binding(contexts, action)?.trigger else {
             return None;
@@ -404,6 +491,12 @@ impl InputBindings {
         Some(gesture)
     }
 
+    /// Finds the first matching pointer trigger for an action and current modifier state.
+    ///
+    /// # Parameters
+    /// - `contexts`: Contexts ordered from most to least specific.
+    /// - `action`: Opaque action identifier to look up.
+    /// - `modifiers`: Current pointer-event modifiers to test against each binding.
     pub fn pointer_trigger(
         &self,
         contexts: &[&str],
@@ -423,9 +516,14 @@ impl InputBindings {
             })
     }
 
-    /// Returns effective bindings in context-precedence order. An action in a
-    /// more specific context shadows the same action in a later context.
-    /// Menu-visible shortcuts are intentionally omitted from status hints.
+    /// Returns effective status hints in context-precedence order.
+    ///
+    /// An action in a more specific context shadows the same action in a later
+    /// context. Menu-visible shortcuts are intentionally omitted from status hints.
+    ///
+    /// # Parameters
+    /// - `contexts`: Contexts ordered from most to least specific.
+    /// - `modifiers`: Current modifier state used to select visible bindings.
     pub fn status_bindings(&self, contexts: &[&str], modifiers: Modifiers) -> Vec<&Binding> {
         let mut seen = HashSet::new();
         let mut seen_triggers = HashSet::new();

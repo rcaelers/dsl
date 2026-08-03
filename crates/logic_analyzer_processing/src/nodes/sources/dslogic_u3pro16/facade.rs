@@ -6,8 +6,19 @@ use crate::{CaptureSourceLifecycle, CaptureSourceMetadata, ProcessNodeConstructi
 
 /// Platform-neutral construction contract for a U3Pro16 capture source.
 pub trait DsLogicU3Pro16SourceFactory: Send + Sync {
+    /// Returns the lifecycle requirements shared by sources created by this factory.
     fn lifecycle(&self) -> CaptureSourceLifecycle;
+
+    /// Creates lazy device-source metadata without starting acquisition.
+    ///
+    /// # Parameters
+    /// - `config`: Requested capture settings to inspect.
     fn metadata(&self, config: LogicCaptureConfig) -> Arc<dyn CaptureSourceMetadata>;
+    /// Creates the executable live source and metadata for one configured node.
+    ///
+    /// # Parameters
+    /// - `name`: User-facing node name used by the runtime source.
+    /// - `config`: Requested capture settings to instantiate.
     fn create(
         &self,
         name: &str,

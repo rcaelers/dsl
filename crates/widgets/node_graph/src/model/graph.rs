@@ -28,15 +28,21 @@ struct SemanticNodeSnapshot<'a> {
     state: &'a serde_json::Value,
 }
 
+/// Persisted graph document, including nodes, wires, frames, and extensions.
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct GraphState {
+    /// Nodes keyed by their stable document identity.
     pub nodes: HashMap<NodeId, Node>,
+    /// Directed output-to-input connections.
     pub connections: Vec<Connection>,
+    /// User-arranged visual frame groups.
     pub frames: Vec<Frame>,
     #[serde(flatten)]
+    /// Generic allocation counters and owner-managed document extensions.
     pub metadata: GraphMetadata,
 }
 
+/// Generic persisted metadata associated with the entire graph document.
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct GraphMetadata {
     next_id: u32,
@@ -81,6 +87,9 @@ impl GraphState {
     ///
     /// Owners migrate and clean up their own values. A caller that cannot
     /// understand the stored value must leave it unchanged.
+    ///
+    /// # Parameters
+    /// - `key`: Namespaced extension key owned by the caller.
     pub fn extension<T: DeserializeOwned>(
         &self,
         key: &str,
@@ -93,6 +102,11 @@ impl GraphState {
             .transpose()
     }
 
+    /// Serializes and stores a value in one owner-managed extension namespace.
+    ///
+    /// # Parameters
+    /// - `key`: Namespaced extension key owned by the caller.
+    /// - `value`: Serializable owner-managed document state to store.
     pub fn set_extension<T: Serialize>(
         &mut self,
         key: impl Into<String>,
@@ -104,20 +118,33 @@ impl GraphState {
         Ok(())
     }
 
+    /// Removes one owner-managed extension value.
+    ///
+    /// # Parameters
+    /// - `key`: Namespaced extension key to remove. Unknown keys are ignored.
     pub fn remove_extension(&mut self, key: &str) {
         self.metadata.extensions.remove(key);
     }
 
+    /// Allocates the next stable node identity for this graph document.
     pub fn next_id(&mut self) -> NodeId {
         let id = NodeId(self.metadata.next_id);
         self.metadata.next_id += 1;
         id
     }
 
+    /// Inserts or replaces a node by its stable identity.
+    ///
+    /// # Parameters
+    /// - `node`: Node to add. Existing connections are not reconciled automatically.
     pub fn add_node(&mut self, node: Node) {
         self.nodes.insert(node.id, node);
     }
 
+    /// Removes a node and every incoming or outgoing connection attached to it.
+    ///
+    /// # Parameters
+    /// - `id`: Stable identity of the node to remove. Unknown identities are ignored.
     pub fn remove_node(&mut self, id: NodeId) {
         self.nodes.remove(&id);
         self.connections
@@ -138,6 +165,10 @@ impl GraphState {
     /// the input socket's type to the output's type when they differ. When
     /// `to` is a variadic placeholder, it becomes a member and a new
     /// placeholder is spawned (until the group's max).
+    ///
+    /// # Parameters
+    /// - `from`: Output socket supplying the connection.
+    /// - `to`: Input socket receiving the connection.
     pub fn add_connection(&mut self, from: SocketId, to: SocketId) {
         self.connections.retain(|connection| connection.to != to);
         self.connections.push(Connection { from, to });
@@ -149,6 +180,9 @@ impl GraphState {
     /// Removes the connection feeding `to`, if any, and reverts the input
     /// socket: back to its native type, or removed entirely if it is a
     /// variadic member. Returns whether a connection was removed.
+    ///
+    /// # Parameters
+    /// - `to`: Input socket whose single incoming connection is removed.
     pub fn disconnect_input(&mut self, to: SocketId) -> bool {
         let before = self.connections.len();
         self.connections.retain(|connection| connection.to != to);
@@ -160,6 +194,9 @@ impl GraphState {
     }
 
     /// Removes the connection at `index` and reverts its input socket.
+    ///
+    /// # Parameters
+    /// - `index`: Position in [`Self::connections`] of the connection to remove.
     pub fn remove_connection_at(&mut self, index: usize) -> Connection {
         let connection = self.connections.remove(index);
         self.on_input_disconnected(connection.to);
@@ -400,6 +437,9 @@ impl GraphState {
     /// pasting, where a socket may have been copied resolved (or as a grown
     /// variadic member) while its feeding connection was not part of the
     /// payload.
+    ///
+    /// # Parameters
+    /// - `ids`: Nodes whose copied or restored inputs must be reconciled with their connections.
     pub fn prune_unconnected_resolutions(&mut self, ids: &[NodeId]) {
         for &id in ids {
             // Collapse unconnected variadic members one at a time: each
@@ -444,24 +484,39 @@ impl GraphState {
         }
     }
 
+    /// Returns whether an input socket currently has an incoming connection.
+    ///
+    /// # Parameters
+    /// - `socket`: Input socket identity to test.
     pub fn is_input_connected(&self, socket: SocketId) -> bool {
         self.connections
             .iter()
             .any(|connection| connection.to == socket)
     }
 
+    /// Returns whether an output socket currently has an outgoing connection.
+    ///
+    /// # Parameters
+    /// - `socket`: Output socket identity to test.
     pub fn is_output_connected(&self, socket: SocketId) -> bool {
         self.connections
             .iter()
             .any(|connection| connection.from == socket)
     }
 
+    /// Returns node identities in stable ascending document order.
     pub fn sorted_node_ids(&self) -> Vec<NodeId> {
         let mut ids: Vec<NodeId> = self.nodes.keys().copied().collect();
         ids.sort_by_key(|id| id.0);
         ids
     }
 
+    /// Adds a visual frame group and returns its new stable identity.
+    ///
+    /// # Parameters
+    /// - `label`: User-facing frame title.
+    /// - `color`: Frame accent color.
+    /// - `node_ids`: Initial nodes grouped by the frame.
     pub fn add_frame(&mut self, label: String, color: Color32, node_ids: Vec<NodeId>) -> FrameId {
         let id = FrameId(self.metadata.next_frame_id);
         self.metadata.next_frame_id += 1;
@@ -475,6 +530,7 @@ impl GraphState {
         id
     }
 
+    /// Removes missing node identities from frames and drops empty frame groups.
     pub fn cleanup_frames(&mut self) {
         let alive: HashSet<NodeId> = self.nodes.keys().copied().collect();
         for frame in &mut self.frames {

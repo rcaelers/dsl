@@ -111,6 +111,10 @@ pub struct HeadlessGraphRunner {
 }
 
 impl HeadlessGraphRunner {
+    /// Creates a headless runner from the same injected services used by the UI.
+    ///
+    /// # Parameters
+    /// - `services`: Graph, host, repository, and executor services selected by composition.
     pub fn new(services: AppServices) -> Self {
         let AppServiceParts {
             graph_service,
@@ -126,6 +130,10 @@ impl HeadlessGraphRunner {
     }
 
     /// Loads and executes a graph using the host's ordinary document loader.
+    ///
+    /// # Parameters
+    /// - `path`: Graph-document path passed to the host loader.
+    /// - `emit`: Callback receiving warnings and periodic execution progress.
     pub fn run_file(
         &mut self,
         path: &Path,
@@ -144,6 +152,10 @@ impl HeadlessGraphRunner {
 
     /// Executes an already-deserialized graph through the same restoration and
     /// application execution policy as [`Self::run_file`].
+    ///
+    /// # Parameters
+    /// - `graph`: Persisted graph document to restore, migrate, and run.
+    /// - `emit`: Callback receiving warnings and periodic execution progress.
     pub fn run_graph(
         &mut self,
         graph: GraphState,

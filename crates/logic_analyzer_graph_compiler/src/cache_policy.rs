@@ -24,19 +24,28 @@ const DERIVED_CACHE_ABI_VERSION: u32 = 2;
 /// Result of removing persistent derived-data cache entries.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DerivedCacheClearStats {
+    /// Number of persistent cache entries removed.
     pub removed_entries: usize,
+    /// Total artifact bytes removed.
     pub removed_bytes: u64,
 }
 
 /// Diagnostics for one validated persistent derived-data cache entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DerivedCacheEntrySnapshot {
+    /// Combined size of data and index artifacts.
     pub total_bytes: u64,
+    /// Bytes occupied by retained data artifacts.
     pub data_bytes: u64,
+    /// Bytes occupied by index artifacts.
     pub index_bytes: u64,
+    /// Number of retained data items.
     pub item_count: u64,
+    /// Number of index entries.
     pub index_item_count: u64,
+    /// Timestamp of the earliest retained item, if known.
     pub first_timestamp_ns: Option<u64>,
+    /// Timestamp of the latest retained item, if known.
     pub last_timestamp_ns: Option<u64>,
 }
 
@@ -56,6 +65,9 @@ enum DerivedCacheClearMode {
 impl DerivedCacheClearTask {
     /// Advances cooperative cleanup by a bounded number of repository
     /// artifacts, or polls host-threaded cleanup without blocking.
+    ///
+    /// # Parameters
+    /// - `artifact_budget`: Maximum number of artifacts to remove cooperatively.
     pub fn poll(
         &mut self,
         artifact_budget: usize,

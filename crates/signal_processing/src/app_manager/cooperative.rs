@@ -6,12 +6,13 @@ use crate::cooperative_manager::CooperativeManager;
 use crate::manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec};
 use crate::node::{ConfigurationBoundary, NodeConfig, ProcessNode};
 
-/// Portable cooperative execution backend.
+/// Portable [`AppManagerBackend`] that runs graph work on the caller's thread.
 pub struct CooperativeAppManagerBackend {
     manager: CooperativeManager,
 }
 
 impl CooperativeAppManagerBackend {
+    /// Creates an empty cooperative execution backend.
     pub fn new() -> Self {
         Self {
             manager: CooperativeManager::new(),
@@ -97,7 +98,7 @@ impl AppManagerBackend for CooperativeAppManagerBackend {
     }
 }
 
-/// Factory for portable cooperative execution.
+/// Factory for the portable cooperative execution backend.
 pub struct CooperativeAppManagerFactory;
 
 impl AppManagerFactory for CooperativeAppManagerFactory {

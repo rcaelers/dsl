@@ -7,6 +7,11 @@ use crate::lanes::{AnnotationVisual, OpaqueLaneDrawContext, ViewerLaneTheme};
 const MIN_ANNOTATION_WIDTH_PX: f32 = 8.0;
 
 /// Draws an exact digital transition snapshot supplied by a lane adapter.
+///
+/// # Parameters
+/// - `context`: Clipped geometry, time range, painter, and theme for the lane.
+/// - `samples`: Exact visible digital transitions in chronological order.
+/// - `initial`: Logic level immediately before the first returned transition.
 pub fn draw_digital_snapshot(
     context: &OpaqueLaneDrawContext<'_>,
     samples: &[Sample],
@@ -117,6 +122,10 @@ pub fn draw_digital_activity(
 }
 
 /// Draws exact trigger markers supplied by a lane adapter.
+///
+/// # Parameters
+/// - `context`: Input consumed by this operation.
+/// - `markers`: Input consumed by this operation.
 pub fn draw_trigger_snapshot(context: &OpaqueLaneDrawContext<'_>, markers: &[u64]) {
     let color = context.theme.accent;
     let top = context.top + context.height * 0.18;
@@ -228,6 +237,11 @@ pub fn draw_value_snapshot(
 /// Draws independently bounded labeled spans supplied by a payload adapter.
 /// Unlike [`draw_value_snapshot`], gaps between entries remain empty and the
 /// final entry does not extend to the visible-window boundary.
+///
+/// # Parameters
+/// - `context`: Input consumed by this operation.
+/// - `spans`: Input consumed by this operation.
+/// - `color`: Input consumed by this operation.
 pub fn draw_span_snapshot(
     context: &OpaqueLaneDrawContext<'_>,
     spans: &[(u64, u64, String)],
@@ -326,6 +340,11 @@ pub fn draw_event_snapshot(
 }
 
 /// Draws bounded dense value activity supplied by a lane query.
+///
+/// # Parameters
+/// - `context`: Input consumed by this operation.
+/// - `records`: Input consumed by this operation.
+/// - `color`: Input consumed by this operation.
 pub fn draw_value_activity(
     context: &OpaqueLaneDrawContext<'_>,
     records: &[MipmapRecord],
@@ -352,6 +371,7 @@ pub fn draw_value_activity(
     }
 }
 
+/// Returns the generic default visual for one annotation value.
 pub fn default_annotation_visual(
     value: u64,
     display_format: Option<&str>,
@@ -442,6 +462,10 @@ pub fn draw_annotation_snapshot<F>(
 
 /// Draws a bounded coarse presence snapshot supplied by a payload-owned
 /// query.
+///
+/// # Parameters
+/// - `context`: Input consumed by this operation.
+/// - `buckets`: Input consumed by this operation.
 pub fn draw_annotation_presence<I>(context: &OpaqueLaneDrawContext<'_>, buckets: I)
 where
     I: IntoIterator<Item = (u64, u64, u64)>,

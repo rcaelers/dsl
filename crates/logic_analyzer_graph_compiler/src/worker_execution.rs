@@ -22,13 +22,20 @@ const MAX_REPLICATION_PAYLOAD_BYTES: usize = 4 * 1024 * 1024;
 /// Owned command envelope for one worker-hosted processing graph.
 #[derive(Clone)]
 pub enum GraphWorkerRequest {
+    /// Starts a new graph execution generation.
     Start {
+        /// Host-assigned generation used to correlate later messages.
         sequence: u64,
+        /// Editor graph to lower and execute.
         graph: GraphState,
+        /// Retained and visible output selection for the run.
         subscriptions: OutputSubscriptionPlan,
+        /// Host cursor markers expressed as `(number, timestamp_ns)`.
         timeline_markers: Vec<(u32, u64)>,
     },
+    /// Cancels the active execution generation when it matches the sequence.
     Cancel {
+        /// Generation to cancel.
         sequence: u64,
     },
 }
@@ -37,25 +44,40 @@ pub enum GraphWorkerRequest {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum GraphWorkerMessage {
+    /// The requested generation successfully started.
     Started {
+        /// Generation that started.
         sequence: u64,
     },
+    /// Progress counters changed for one or more graph nodes.
     Progress {
+        /// Generation producing the progress update.
         sequence: u64,
+        /// `(node_id, progress_count)` entries for active nodes.
         nodes: Vec<(NodeId, u64)>,
     },
+    /// New derived-data artifact replication events are available.
     Artifacts {
+        /// Generation that produced the artifacts.
         sequence: u64,
+        /// Bounded batch of artifact replication events.
         events: Vec<ArtifactReplicationEvent>,
     },
+    /// The generation finished without node failures.
     Finished {
+        /// Generation that finished.
         sequence: u64,
     },
+    /// The generation could not start or failed during execution.
     Failed {
+        /// Generation that failed.
         sequence: u64,
+        /// User-presentable failure description.
         message: String,
     },
+    /// The generation stopped after a matching cancellation request.
     Cancelled {
+        /// Generation that was cancelled.
         sequence: u64,
     },
 }
@@ -74,10 +96,19 @@ pub struct GraphWorkerRuntime {
 }
 
 impl GraphWorkerRuntime {
+    /// Creates a worker runtime backed by in-memory artifact storage.
+    ///
+    /// # Parameters
+    /// - `builder_overrides`: Host-selected replacements for inventory builders.
     pub fn new(builder_overrides: Vec<RuntimeBuilderOverride>) -> Self {
         Self::with_repository(builder_overrides, Arc::new(MemoryArtifactRepository::new()))
     }
 
+    /// Creates a worker runtime using the supplied artifact repository.
+    ///
+    /// # Parameters
+    /// - `builder_overrides`: Host-selected replacements for inventory builders.
+    /// - `artifact_repository`: Durable repository that receives replicated artifacts.
     pub fn with_repository(
         builder_overrides: Vec<RuntimeBuilderOverride>,
         artifact_repository: Arc<dyn ArtifactRepository>,
@@ -97,6 +128,11 @@ impl GraphWorkerRuntime {
         }
     }
 
+    /// Processes a start or cancellation request and emits immediate messages.
+    ///
+    /// # Parameters
+    /// - `request`: Command to execute.
+    /// - `emit`: Callback receiving worker messages in request order.
     pub fn execute_streaming(
         &mut self,
         request: GraphWorkerRequest,
@@ -166,6 +202,7 @@ impl GraphWorkerRuntime {
         false
     }
 
+    /// Returns whether a graph execution generation is currently active.
     pub fn has_active_run(&self) -> bool {
         self.active.is_some()
     }

@@ -10,6 +10,7 @@ use signal_processing::{
     SimpleTriggerCondition,
 };
 
+/// Boolean operation combining predicates in one deterministic trigger stage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeterministicTriggerLogic {
     And,
@@ -19,24 +20,28 @@ pub enum DeterministicTriggerLogic {
     Nor,
 }
 
+/// How a deterministic trigger stage's match count is accumulated.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeterministicTriggerCountMode {
     Occurrences,
     Consecutive,
 }
 
+/// Non-zero count requirement for one deterministic trigger stage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DeterministicTriggerCount {
     pub mode: DeterministicTriggerCountMode,
     pub value: u64,
 }
 
+/// One channel-level predicate used by a deterministic trigger stage.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeterministicTriggerPredicate {
     pub channel: usize,
     pub condition: SimpleTriggerCondition,
 }
 
+/// One ordered stage in a deterministic trigger.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeterministicTriggerStage {
     pub predicates: Vec<DeterministicTriggerPredicate>,
@@ -45,6 +50,7 @@ pub struct DeterministicTriggerStage {
     pub count: Option<DeterministicTriggerCount>,
 }
 
+/// Complete multi-stage trigger used by the deterministic live fake.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeterministicTrigger {
     pub stages: Vec<DeterministicTriggerStage>,
@@ -121,6 +127,7 @@ impl DeterministicTriggerEvaluator {
     }
 }
 
+/// Configuration for a deterministic chunked live-capture provider.
 #[derive(Clone, Debug)]
 pub struct DeterministicFakeConfig {
     channels: Arc<[CaptureChannelId]>,
@@ -130,6 +137,12 @@ pub struct DeterministicFakeConfig {
 }
 
 impl DeterministicFakeConfig {
+    /// Validates deterministic live-capture configuration.
+    ///
+    /// # Parameters
+    /// - `channels`: Non-empty channels in packed-data order.
+    /// - `chunk_sample_counts`: Non-empty, non-zero chunk lengths emitted in order.
+    /// - `seed`: Stable seed selecting the generated waveform.
     pub fn new(
         channels: impl Into<Arc<[CaptureChannelId]>>,
         chunk_sample_counts: impl Into<Arc<[u64]>>,
@@ -162,19 +175,25 @@ impl DeterministicFakeConfig {
         Ok(config)
     }
 
+    /// Returns channels in the order used for packed chunk data.
     pub fn channels(&self) -> &[CaptureChannelId] {
         &self.channels
     }
 
+    /// Returns the configured emitted chunk lengths.
     pub fn chunk_sample_counts(&self) -> &[u64] {
         &self.chunk_sample_counts
     }
 
+    /// Returns the total finite sample count across all configured chunks.
     pub fn total_samples(&self) -> u64 {
         self.chunk_sample_counts.iter().sum()
     }
 
     /// Configures a portable simple trigger. `None` disables the corresponding physical input.
+    ///
+    /// # Parameters
+    /// - `conditions`: One optional simple trigger condition per configured channel.
     pub fn with_simple_trigger(
         mut self,
         conditions: impl Into<Arc<[Option<SimpleTriggerCondition>]>>,
@@ -210,6 +229,10 @@ impl DeterministicFakeConfig {
         Ok(self)
     }
 
+    /// Validates and installs a complete multi-stage trigger, or removes it with `None`.
+    ///
+    /// # Parameters
+    /// - `trigger`: Trigger whose channel references and stage counts are validated.
     pub fn with_trigger(
         mut self,
         trigger: Option<DeterministicTrigger>,
@@ -248,24 +271,33 @@ impl DeterministicFakeConfig {
         Ok(self)
     }
 
+    /// Returns the configured multi-stage trigger, if any.
     pub fn trigger(&self) -> Option<&DeterministicTrigger> {
         self.trigger.as_deref()
     }
 
+    /// Returns this configuration with triggering disabled.
     pub fn without_trigger(mut self) -> Self {
         self.trigger = None;
         self
     }
 
+    /// Returns whether acquisition waits for a configured trigger.
     pub fn has_trigger(&self) -> bool {
         self.trigger.is_some()
     }
 
+    /// Returns the first sample that completes every configured trigger stage.
     pub fn first_trigger_sample(&self) -> Option<u64> {
         let mut evaluator = DeterministicTriggerEvaluator::default();
         self.first_trigger_sample_in(0, self.total_samples(), &mut evaluator)
     }
 
+    /// Returns the deterministic level generated at a sample and channel index.
+    ///
+    /// # Parameters
+    /// - `sample`: Absolute sample index in the generated capture.
+    /// - `channel`: Zero-based index into [`Self::channels`].
     pub fn level_at(&self, sample: u64, channel: usize) -> bool {
         let channel = channel as u64;
         let mixed = sample
@@ -430,17 +462,23 @@ impl FakeControl {
     }
 }
 
+/// Controller for manually pacing a [`DeterministicFakeProvider`].
 #[derive(Clone, Debug)]
 pub struct DeterministicFakeController {
     control: Arc<FakeControl>,
 }
 
 impl DeterministicFakeController {
+    /// Allows this many pending chunks to be emitted.
+    ///
+    /// # Parameters
+    /// - `chunks`: Number of chunks to release; zero leaves the provider blocked.
     pub fn grant_chunks(&self, chunks: usize) {
         self.control.grant(chunks);
     }
 }
 
+/// Prepared-acquisition provider that emits deterministic live capture chunks.
 pub struct DeterministicFakeProvider {
     config: DeterministicFakeConfig,
     control: Arc<FakeControl>,
@@ -448,6 +486,10 @@ pub struct DeterministicFakeProvider {
 }
 
 impl DeterministicFakeProvider {
+    /// Creates a provider that emits configured chunks without test-controlled pauses.
+    ///
+    /// # Parameters
+    /// - `config`: Validated live-capture configuration.
     pub fn new(config: DeterministicFakeConfig) -> Self {
         let initial_capacity = config
             .maximum_chunk_bytes()
@@ -460,6 +502,10 @@ impl DeterministicFakeProvider {
         }
     }
 
+    /// Creates a provider whose chunk progression is controlled by a returned controller.
+    ///
+    /// # Parameters
+    /// - `config`: Validated live-capture configuration.
     pub fn manually_paced(config: DeterministicFakeConfig) -> (Self, DeterministicFakeController) {
         let control = Arc::new(FakeControl::new(true));
         let initial_capacity = config
@@ -476,10 +522,15 @@ impl DeterministicFakeProvider {
         )
     }
 
+    /// Returns a clone of the pool used to allocate emitted capture chunk buffers.
     pub fn buffer_pool(&self) -> CaptureBufferPool {
         self.buffer_pool.clone()
     }
 
+    /// Creates a prepared acquisition and publishes the normal preparation states.
+    ///
+    /// # Parameters
+    /// - `context`: Session context receiving status, chunks, progress, and completion events.
     pub fn prepare(
         self,
         mut context: AcquisitionContext,

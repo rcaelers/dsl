@@ -3,6 +3,10 @@
 //! This crate is the composition boundary for host APIs. Core crates define
 //! portable contracts and receive their implementations from application
 //! roots; they never depend on this crate.
+//!
+//! The public facade exposes only the opaque service bundle and constructors.
+//! Platform-neutral policy and data models remain in the core crates that own
+//! their capability contracts.
 
 mod platform;
 mod services;
@@ -20,6 +24,10 @@ std::cfg_select! {
 
         /// Builds web services with a parallel finite-operation worker pool when the
         /// browser accepts the supplied generated-module URLs.
+        ///
+        /// # Parameters
+        /// - `module_url`: Input consumed by this operation.
+        /// - `wasm_url`: Input consumed by this operation.
         pub async fn standard_services_with_worker_urls(
             module_url: &str,
             wasm_url: &str,

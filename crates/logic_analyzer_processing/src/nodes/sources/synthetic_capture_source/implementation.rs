@@ -27,6 +27,7 @@ pub struct SyntheticCaptureSource {
 }
 
 impl SyntheticCaptureSource {
+    /// Creates the default deterministic synthetic capture source.
     pub fn new() -> Self {
         Self {
             name: "synthetic_capture_source".to_owned(),
@@ -38,11 +39,15 @@ impl SyntheticCaptureSource {
     /// Uses the demo waveform for an arbitrary capture width. Channels past
     /// the authored demo lanes repeat deterministic waveforms, which keeps
     /// browser-only stand-ins useful for wide file and hardware sources.
+    ///
+    /// # Parameters
+    /// - `channel_count`: Input consumed by this operation.
     pub fn with_channel_count(mut self, channel_count: usize) -> Self {
         self.channel_count = channel_count.clamp(1, 32);
         self
     }
 
+    /// Returns this value configured with name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
@@ -59,6 +64,7 @@ impl SyntheticCaptureSource {
         Self::preview_channels_with_count(DEFAULT_CHANNEL_COUNT)
     }
 
+    /// Generates preview channels for the requested synthetic channel count.
     pub fn preview_channels_with_count(channel_count: usize) -> Vec<Vec<Sample>> {
         let channels = demo_channels();
         (0..channel_count.clamp(1, 32))

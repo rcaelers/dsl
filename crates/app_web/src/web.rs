@@ -40,6 +40,11 @@ pub struct WebHandle {
 #[wasm_bindgen]
 impl WebHandle {
     #[wasm_bindgen(constructor)]
+    /// Creates the web application shell and installs browser host services.
+    ///
+    /// # Parameters
+    /// - `worker_module_url`: Input consumed by this operation.
+    /// - `worker_wasm_url`: Input consumed by this operation.
     pub fn new(worker_module_url: String, worker_wasm_url: String) -> Self {
         initialize_compile_time_inventories();
         eframe::WebLogger::init(log::LevelFilter::Debug).ok();
@@ -51,6 +56,7 @@ impl WebHandle {
     }
 
     #[wasm_bindgen]
+    /// Starts the web application in the supplied browser canvas.
     pub async fn start(&self, canvas: web_sys::HtmlCanvasElement) -> Result<(), JsValue> {
         let worker_module_url = self.worker_module_url.clone();
         let worker_wasm_url = self.worker_wasm_url.clone();
@@ -80,6 +86,7 @@ impl WebHandle {
     }
 
     #[wasm_bindgen]
+    /// Tears down the running web application and releases browser resources.
     pub fn destroy(&self) {
         self.runner.destroy();
     }

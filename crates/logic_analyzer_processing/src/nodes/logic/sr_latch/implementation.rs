@@ -32,6 +32,10 @@ pub struct SrLatch {
 }
 
 impl SrLatch {
+    /// Creates an SR latch with the supplied initial state.
+    ///
+    /// # Parameters
+    /// - `initial`: Input consumed by this operation.
     pub fn new(initial: bool) -> Self {
         Self {
             name: "sr_latch".to_string(),
@@ -47,6 +51,7 @@ impl SrLatch {
         }
     }
 
+    /// Returns this value configured with name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self

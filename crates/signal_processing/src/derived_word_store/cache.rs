@@ -132,16 +132,22 @@ pub(crate) fn cache_block(store_id: u64, block: Arc<DecodedWordBlock>) {
         .insert(CacheKey { store_id, sequence }, block);
 }
 
+/// Sets the process-wide decoded-block cache byte budget.
+///
+/// # Parameters
+/// - `budget_bytes`: Maximum bytes retained by decoded immutable blocks.
 pub fn configure_decoded_block_cache(budget_bytes: usize) {
     let mut cache = shared_cache().lock().unwrap();
     cache.budget_bytes = budget_bytes;
     cache.evict_to_budget();
 }
 
+/// Returns current process-wide decoded-block cache statistics.
 pub fn decoded_block_cache_stats() -> DecodedBlockCacheStats {
     shared_cache().lock().unwrap().stats()
 }
 
+/// Clears hit and miss counters without evicting cached blocks.
 pub fn reset_decoded_block_cache_stats() {
     let mut cache = shared_cache().lock().unwrap();
     cache.hits = 0;

@@ -48,6 +48,13 @@ struct PendingBlock {
 }
 
 impl CaptureWorkerReplaySource {
+    /// Creates a replay source from a prepared worker-backed capture.
+    ///
+    /// # Parameters
+    /// - `name`: Input consumed by this operation.
+    /// - `client`: Input consumed by this operation.
+    /// - `preparation`: Input consumed by this operation.
+    /// - `metadata`: Input consumed by this operation.
     pub fn new(
         name: impl Into<String>,
         client: Arc<CaptureWorkerClient>,

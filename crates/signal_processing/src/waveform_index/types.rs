@@ -51,11 +51,14 @@ impl BlockLevels {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CaptureIndexProgress {
+    /// Number of root blocks whose summaries are complete.
     pub completed_roots: u64,
+    /// Total root blocks required for the capture.
     pub total_roots: u64,
 }
 
 impl CaptureIndexProgress {
+    /// Returns completion as a clamped fraction in the range `0.0..=1.0`.
     pub fn fraction(self) -> f32 {
         if self.total_roots == 0 {
             1.0

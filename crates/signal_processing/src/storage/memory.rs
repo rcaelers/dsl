@@ -25,6 +25,12 @@ pub struct ChunkedByteSource {
 }
 
 impl ChunkedByteSource {
+    /// Validates and creates an immutable random-access source from fixed-size chunks.
+    ///
+    /// # Parameters
+    /// - `identity`: Stable content identity represented by the chunks.
+    /// - `chunks`: Non-empty immutable chunks, except that the complete sequence may be empty.
+    /// - `chunk_size`: Required size of each non-final chunk.
     pub fn new(
         identity: SourceIdentity,
         chunks: Vec<Arc<[u8]>>,
@@ -128,6 +134,11 @@ impl RandomAccessReader for ChunkedByteReader {
 }
 
 impl OwnedByteSource {
+    /// Creates an immutable random-access source from one owned byte allocation.
+    ///
+    /// # Parameters
+    /// - `identity`: Stable content identity represented by the bytes.
+    /// - `bytes`: Immutable byte allocation to retain.
     pub fn new(identity: SourceIdentity, bytes: impl Into<Arc<[u8]>>) -> Self {
         Self {
             identity,

@@ -1,4 +1,23 @@
+//! # `signal_processing::capture`
+//!
+//! ## Responsibility
+//!
+//! This module owns generic immutable capture-source, index, query, and worker-operation contracts.
+//! It describes sampled data and prepared random access without naming a file format, device, path, or
+//! viewer.
+//!
+//! ## Boundaries
+//!
+//! Concrete parsers and source nodes implement these contracts above `signal_processing`. Artifact
+//! backing is supplied through generic storage contracts; waveform summary construction belongs to
+//! `waveform_index`.
+
 //! Generic immutable capture contracts and packed capture data.
+//!
+//! The module owns source, index, query, and worker-operation contracts for sampled
+//! data and prepared random access. Concrete parsers and source nodes implement
+//! these contracts above `signal_processing`; formats, devices, paths, and viewer
+//! policy are intentionally absent.
 
 mod host_protocol;
 mod implementation;

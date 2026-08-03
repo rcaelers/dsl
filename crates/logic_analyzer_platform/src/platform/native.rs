@@ -64,6 +64,10 @@ type RecentFilesListener = Box<dyn Fn(&[PathBuf]) + Send + Sync>;
 static RECENT_FILES_LISTENER: std::sync::OnceLock<RecentFilesListener> = std::sync::OnceLock::new();
 
 #[cfg(target_os = "macos")]
+/// Sets recent files listener.
+///
+/// # Parameters
+/// - `listener`: Input consumed by this operation.
 pub fn set_recent_files_listener(listener: impl Fn(&[PathBuf]) + Send + Sync + 'static) {
     let _ = RECENT_FILES_LISTENER.set(Box::new(listener));
 }
@@ -88,6 +92,7 @@ fn host_command_bridge() -> &'static HostCommandBridge {
 }
 
 #[cfg(target_os = "macos")]
+/// Dispatches one host-shell command into the portable application command queue.
 pub fn dispatch_host_command(command: HostCommand) {
     queue_host_command(command);
 }

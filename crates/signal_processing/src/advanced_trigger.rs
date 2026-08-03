@@ -8,6 +8,7 @@ use thiserror::Error;
 
 use crate::live_capture::{CaptureChannelId, SimpleTriggerCondition};
 
+/// Serialized format version for [`TriggerProgram`] values.
 pub const TRIGGER_PROGRAM_FORMAT_VERSION: u16 = 1;
 
 /// Stable registered identity used by schemas, predicates, operands, and choices.
@@ -16,6 +17,13 @@ pub const TRIGGER_PROGRAM_FORMAT_VERSION: u16 = 1;
 pub struct TriggerIdentifier(String);
 
 impl TriggerIdentifier {
+    /// Validates and constructs a stable trigger identifier.
+    ///
+    /// Identifiers are non-empty ASCII strings containing letters, digits, `.`,
+    /// `_`, or `-`; they are persisted in trigger schemas and programs.
+    ///
+    /// # Parameters
+    /// - `value`: Input consumed by this operation.
     pub fn new(value: impl Into<String>) -> Result<Self, String> {
         let value = value.into();
         if value.is_empty() {
@@ -32,6 +40,7 @@ impl TriggerIdentifier {
         Ok(Self(value))
     }
 
+    /// Returns the validated identifier text.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -53,23 +62,33 @@ impl<'de> Deserialize<'de> for TriggerIdentifier {
     }
 }
 
+/// Boolean operator used to combine predicates in a trigger stage.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TriggerLogicOperator {
+    /// Stage fires when every predicate matches.
     And,
+    /// Stage fires when at least one predicate matches.
     Or,
+    /// Stage fires when an odd number of predicates match.
     Xor,
+    /// Negated conjunction of all predicates.
     Nand,
+    /// Negated disjunction of all predicates.
     Nor,
 }
 
+/// Counting interpretation supported by a trigger provider.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TriggerCountMode {
+    /// Count matching predicate occurrences, allowing non-matches between them.
     Occurrences,
+    /// Count only adjacent matching predicate occurrences.
     Consecutive,
 }
 
+/// Provider-advertised valid modes and range for a trigger-count operand.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TriggerCountCapabilities {
     modes: Vec<TriggerCountMode>,
@@ -79,6 +98,10 @@ pub struct TriggerCountCapabilities {
 }
 
 impl TriggerCountCapabilities {
+    /// Creates validated count capabilities.
+    ///
+    /// The mode list must be non-empty and unique, and `step` must describe a
+    /// non-empty inclusive range from `minimum` through `maximum`.
     pub fn new(
         modes: Vec<TriggerCountMode>,
         minimum: u64,
@@ -102,23 +125,28 @@ impl TriggerCountCapabilities {
         })
     }
 
+    /// Returns the supported counting modes.
     pub fn modes(&self) -> &[TriggerCountMode] {
         &self.modes
     }
 
+    /// Returns the inclusive lower count bound.
     pub const fn minimum(&self) -> u64 {
         self.minimum
     }
 
+    /// Returns the inclusive upper count bound.
     pub const fn maximum(&self) -> u64 {
         self.maximum
     }
 
+    /// Returns the increment between supported count values.
     pub const fn step(&self) -> u64 {
         self.step
     }
 }
 
+/// One stable value offered by a choice trigger operand.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TriggerChoice {
     id: TriggerIdentifier,
@@ -126,6 +154,11 @@ pub struct TriggerChoice {
 }
 
 impl TriggerChoice {
+    /// Creates a choice with a stable persisted ID and a non-empty display label.
+    ///
+    /// # Parameters
+    /// - `id`: Stable value persisted in trigger programs.
+    /// - `label`: Non-empty provider-facing display label.
     pub fn new(id: TriggerIdentifier, label: impl Into<String>) -> Result<Self, String> {
         let label = label.into();
         if label.trim().is_empty() {
@@ -134,48 +167,80 @@ impl TriggerChoice {
         Ok(Self { id, label })
     }
 
+    /// Returns the stable value persisted in trigger programs.
     pub fn id(&self) -> &TriggerIdentifier {
         &self.id
     }
 
+    /// Returns the provider-facing display label.
     pub fn label(&self) -> &str {
         &self.label
     }
 }
 
+/// The editable value domain of a registered trigger predicate operand.
+///
+/// The schema carries provider capabilities only; it does not define the runtime
+/// semantics of a concrete predicate.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TriggerOperandKind {
+    /// Boolean operand with a default value.
     Boolean {
+        /// Value selected when the predicate is first created.
         default: bool,
     },
+    /// Unsigned numeric operand with an inclusive stepped range.
     Unsigned {
+        /// Inclusive lower bound.
         minimum: u64,
+        /// Inclusive upper bound.
         maximum: u64,
+        /// Allowed increment.
         step: u64,
+        /// Value selected when the predicate is first created.
         default: u64,
     },
+    /// Signed numeric operand with an inclusive stepped range.
     Signed {
+        /// Inclusive lower bound.
         minimum: i64,
+        /// Inclusive upper bound.
         maximum: i64,
+        /// Allowed increment.
         step: u64,
+        /// Value selected when the predicate is first created.
         default: i64,
     },
+    /// Nanosecond duration operand with an inclusive stepped range.
     DurationNs {
+        /// Inclusive lower duration.
         minimum: u64,
+        /// Inclusive upper duration.
         maximum: u64,
+        /// Allowed duration increment.
         step: u64,
+        /// Default duration.
         default: u64,
     },
+    /// Operand selected from a provider-defined stable choice list.
     Choice {
+        /// Available stable choices and labels.
         choices: Vec<TriggerChoice>,
+        /// Choice selected when the predicate is first created.
         default: TriggerIdentifier,
     },
+    /// Operand that selects an enabled capture channel.
     Channel {
+        /// Initial selected channel, or no selection.
         default: Option<CaptureChannelId>,
     },
+    /// Byte-string operand with length constraints.
     Bytes {
+        /// Minimum accepted byte count.
         minimum_length: usize,
+        /// Maximum accepted byte count.
         maximum_length: usize,
+        /// Default byte string.
         default: Vec<u8>,
     },
 }
@@ -232,6 +297,7 @@ impl TriggerOperandKind {
     }
 }
 
+/// Validated schema for one operand of a registered trigger predicate.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TriggerOperandSchema {
     id: TriggerIdentifier,
@@ -240,6 +306,12 @@ pub struct TriggerOperandSchema {
 }
 
 impl TriggerOperandSchema {
+    /// Creates a validated operand definition for a registered predicate.
+    ///
+    /// # Parameters
+    /// - `id`: Stable operand identity persisted in trigger programs.
+    /// - `label`: Non-empty label for schema-driven editors.
+    /// - `kind`: Supported value domain and its default.
     pub fn new(
         id: TriggerIdentifier,
         label: impl Into<String>,
@@ -253,19 +325,23 @@ impl TriggerOperandSchema {
         Ok(Self { id, label, kind })
     }
 
+    /// Returns the operand's stable identifier.
     pub fn id(&self) -> &TriggerIdentifier {
         &self.id
     }
 
+    /// Returns the operand label shown by schema-driven editors.
     pub fn label(&self) -> &str {
         &self.label
     }
 
+    /// Returns the operand's value domain and default.
     pub fn kind(&self) -> &TriggerOperandKind {
         &self.kind
     }
 }
 
+/// Provider-registered trigger predicate and its operand schema.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RegisteredTriggerPredicateSchema {
     id: TriggerIdentifier,
@@ -274,6 +350,12 @@ pub struct RegisteredTriggerPredicateSchema {
 }
 
 impl RegisteredTriggerPredicateSchema {
+    /// Creates a predicate schema with unique, validated operand identifiers.
+    ///
+    /// # Parameters
+    /// - `id`: Stable provider predicate identity.
+    /// - `label`: Non-empty label for schema-driven editors.
+    /// - `operands`: Ordered operand schemas with unique identifiers.
     pub fn new(
         id: TriggerIdentifier,
         label: impl Into<String>,
@@ -299,19 +381,23 @@ impl RegisteredTriggerPredicateSchema {
         })
     }
 
+    /// Returns the predicate's stable identifier.
     pub fn id(&self) -> &TriggerIdentifier {
         &self.id
     }
 
+    /// Returns the predicate label displayed by a trigger editor.
     pub fn label(&self) -> &str {
         &self.label
     }
 
+    /// Returns the predicate operands in display and serialization order.
     pub fn operands(&self) -> &[TriggerOperandSchema] {
         &self.operands
     }
 }
 
+/// Provider capabilities and registered predicates for an advanced trigger editor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TriggerEditorSchema {
     id: TriggerIdentifier,
@@ -326,6 +412,14 @@ pub struct TriggerEditorSchema {
 }
 
 impl TriggerEditorSchema {
+    /// Creates a provider-neutral editor schema with validated stage limits and operators.
+    ///
+    /// # Parameters
+    /// - `id`: Stable provider schema identity.
+    /// - `revision`: Non-zero revision used to detect incompatible saved programs.
+    /// - `maximum_stages`: Maximum number of stages supported by the provider.
+    /// - `maximum_predicates_per_stage`: Maximum predicates permitted in one stage.
+    /// - `logic_operators`: Non-empty unique set of supported boolean operators.
     pub fn new(
         id: TriggerIdentifier,
         revision: u32,
@@ -362,6 +456,7 @@ impl TriggerEditorSchema {
         })
     }
 
+    /// Adds the supported simple digital conditions to this schema.
     pub fn with_digital_conditions(
         mut self,
         conditions: Vec<SimpleTriggerCondition>,
@@ -376,16 +471,19 @@ impl TriggerEditorSchema {
         Ok(self)
     }
 
+    /// Sets whether stages may be inverted.
     pub const fn with_stage_inversion(mut self, enabled: bool) -> Self {
         self.stage_inversion = enabled;
         self
     }
 
+    /// Adds a provider-advertised trigger-count capability.
     pub fn with_count(mut self, count: TriggerCountCapabilities) -> Self {
         self.count = Some(count);
         self
     }
 
+    /// Adds validated provider-specific predicates to the editor schema.
     pub fn with_registered_predicates(
         mut self,
         predicates: Vec<RegisteredTriggerPredicateSchema>,
@@ -403,42 +501,55 @@ impl TriggerEditorSchema {
         Ok(self)
     }
 
+    /// Returns the schema's stable identifier.
     pub fn id(&self) -> &TriggerIdentifier {
         &self.id
     }
 
+    /// Returns the provider-defined schema revision.
     pub const fn revision(&self) -> u32 {
         self.revision
     }
 
+    /// Returns the maximum number of stages accepted by this schema.
     pub const fn maximum_stages(&self) -> usize {
         self.maximum_stages
     }
 
+    /// Returns the maximum number of predicates allowed in one stage.
     pub const fn maximum_predicates_per_stage(&self) -> usize {
         self.maximum_predicates_per_stage
     }
 
+    /// Returns the boolean operators available to stage predicates.
     pub fn logic_operators(&self) -> &[TriggerLogicOperator] {
         &self.logic_operators
     }
 
+    /// Returns supported simple digital conditions.
     pub fn digital_conditions(&self) -> &[SimpleTriggerCondition] {
         &self.digital_conditions
     }
 
+    /// Reports whether a stage may invert its combined predicate result.
     pub const fn supports_stage_inversion(&self) -> bool {
         self.stage_inversion
     }
 
+    /// Returns count capabilities when the provider supports count predicates.
     pub fn count_capabilities(&self) -> Option<&TriggerCountCapabilities> {
         self.count.as_ref()
     }
 
+    /// Returns provider-specific predicates registered with this schema.
     pub fn registered_predicates(&self) -> &[RegisteredTriggerPredicateSchema] {
         &self.predicates
     }
 
+    /// Builds the equivalent single-stage digital program, or `None` for free run.
+    ///
+    /// # Parameters
+    /// - `conditions`: Simple conditions keyed by capture channel; `Ignore` is omitted.
     pub fn simple_program(
         &self,
         conditions: impl IntoIterator<Item = (CaptureChannelId, SimpleTriggerCondition)>,
@@ -528,6 +639,14 @@ impl TriggerEditorSchema {
         Ok(program)
     }
 
+    /// Validates a program against this schema and the enabled capture channels.
+    ///
+    /// Validation is semantic only: providers remain responsible for executing their
+    /// registered predicate identities.
+    ///
+    /// # Parameters
+    /// - `program`: Program to validate against this schema.
+    /// - `channels`: Enabled capture channels accepted by digital predicates.
     pub fn validate_program(
         &self,
         program: &TriggerProgram,
@@ -739,19 +858,28 @@ impl TriggerEditorSchema {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct TriggerProgram {
+    /// Serialized trigger-program format version.
     pub format_version: u16,
+    /// Stable identity of the schema that validates this program.
     pub schema_id: TriggerIdentifier,
+    /// Revision of that schema used to create this program.
     pub schema_revision: u32,
+    /// Ordered trigger stages evaluated by the provider.
     pub stages: Vec<TriggerStage>,
 }
 
+/// Simplified classification of a trigger program for common UI controls.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TriggerProgramForm {
+    /// No trigger; capture runs freely.
     FreeRun,
+    /// Simple per-channel digital conditions.
     CommonDigital(BTreeMap<CaptureChannelId, SimpleTriggerCondition>),
+    /// Program requires the advanced trigger editor.
     Advanced,
 }
 
+/// Failure while converting between common controls and a trigger program.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum TriggerProgramEditError {
     #[error(transparent)]
@@ -771,6 +899,12 @@ impl From<String> for TriggerProgramEditError {
 }
 
 impl TriggerProgram {
+    /// Creates a program for the supplied schema revision using the current format version.
+    ///
+    /// # Parameters
+    /// - `schema_id`: Stable schema identity that validates this program.
+    /// - `schema_revision`: Schema revision used to create the program.
+    /// - `stages`: Ordered predicate stages evaluated by the provider.
     pub fn new(
         schema_id: TriggerIdentifier,
         schema_revision: u32,
@@ -787,27 +921,40 @@ impl TriggerProgram {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct TriggerStage {
+    /// Predicates combined in this stage.
     pub predicates: Vec<TriggerPredicate>,
+    /// Boolean operation used to combine predicates.
     pub logic: TriggerLogicOperator,
+    /// Whether the combined result is negated.
     pub inverted: bool,
+    /// Optional repetition requirement before the stage completes.
     pub count: Option<TriggerCount>,
 }
 
+/// Repetition requirement applied to one trigger stage.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct TriggerCount {
+    /// Interpretation of the count.
     pub mode: TriggerCountMode,
+    /// Number of matching occurrences required.
     pub value: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TriggerPredicate {
+    /// Built-in digital edge or level predicate.
     Digital {
+        /// Capture channel to test.
         channel: CaptureChannelId,
+        /// Required logic condition on the channel.
         condition: SimpleTriggerCondition,
     },
+    /// Provider-registered predicate with typed operands.
     Registered {
+        /// Stable provider predicate identity.
         predicate: TriggerIdentifier,
+        /// Values keyed by stable operand identity.
         operands: BTreeMap<TriggerIdentifier, TriggerOperandValue>,
     },
 }
@@ -815,12 +962,19 @@ pub enum TriggerPredicate {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum TriggerOperandValue {
+    /// Boolean value.
     Boolean(bool),
+    /// Unsigned numeric value.
     Unsigned(u64),
+    /// Signed numeric value.
     Signed(i64),
+    /// Duration in nanoseconds.
     DurationNs(u64),
+    /// Provider-defined stable choice identity.
     Choice(TriggerIdentifier),
+    /// Enabled capture channel identity.
     Channel(CaptureChannelId),
+    /// Arbitrary byte string.
     Bytes(Vec<u8>),
 }
 
@@ -828,10 +982,12 @@ pub enum TriggerOperandValue {
 pub struct ValidatedTriggerProgram(TriggerProgram);
 
 impl ValidatedTriggerProgram {
+    /// Returns the program that was validated against its schema.
     pub fn program(&self) -> &TriggerProgram {
         &self.0
     }
 
+    /// Consumes this validation result and returns the validated program.
     pub fn into_program(self) -> TriggerProgram {
         self.0
     }
@@ -865,8 +1021,11 @@ pub enum TriggerValidationCode {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TriggerValidationDiagnostic {
+    /// Structured path to the invalid program element.
     pub path: String,
+    /// Machine-readable category of the validation failure.
     pub code: TriggerValidationCode,
+    /// User-presentable explanation of the failure.
     pub message: String,
 }
 
@@ -897,6 +1056,7 @@ impl fmt::Display for TriggerValidationErrors {
 impl std::error::Error for TriggerValidationErrors {}
 
 impl TriggerValidationErrors {
+    /// Returns every diagnostic collected while validating the program.
     pub fn diagnostics(&self) -> &[TriggerValidationDiagnostic] {
         &self.diagnostics
     }

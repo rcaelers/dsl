@@ -222,8 +222,10 @@ lazy_static::lazy_static! {
     };
 }
 
-/// Register a custom type for use in pipelines
-/// Call this before building pipelines that use custom types
+/// Registers a custom cloneable payload type for graph channels.
+///
+/// Call this before building a pipeline or live manager that exposes `T` on a
+/// port, so generic channel construction can recover its concrete type.
 pub fn register_type<T: 'static + Send + Sync + Clone>() {
     TYPE_REGISTRY.lock().unwrap().register::<T>();
 }

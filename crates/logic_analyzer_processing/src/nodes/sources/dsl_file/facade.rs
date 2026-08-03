@@ -13,8 +13,21 @@ const LIFECYCLE: CaptureSourceLifecycle =
 
 /// Platform-neutral construction contract for a DSL capture source.
 pub trait DslFileSourceFactory: Send + Sync {
+    /// Returns the lifecycle requirements shared by sources created by this factory.
     fn lifecycle(&self) -> CaptureSourceLifecycle;
+
+    /// Creates lazy source metadata without opening or executing the source.
+    ///
+    /// # Parameters
+    /// - `config`: Persisted source configuration to inspect.
     fn metadata(&self, config: DslFileSourceConfig) -> Arc<dyn CaptureSourceMetadata>;
+    /// Creates the executable source and metadata for one configured node.
+    ///
+    /// # Parameters
+    /// - `name`: User-facing node name used by the runtime source.
+    /// - `config`: Persisted source configuration to instantiate.
+    /// - `artifact_repository`: Durable repository used for source capture artifacts.
+    /// - `work_executor`: Executor used for source work that may be scheduled asynchronously.
     fn create(
         &self,
         name: &str,

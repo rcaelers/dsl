@@ -17,6 +17,11 @@ pub struct SyntheticUartSource {
 }
 
 impl SyntheticUartSource {
+    /// Creates the deterministic synthetic UART source.
+    ///
+    /// # Parameters
+    /// - `message`: Input consumed by this operation.
+    /// - `baud`: Input consumed by this operation.
     pub fn new(message: impl Into<Vec<u8>>, baud: u64) -> Self {
         Self {
             name: "synthetic_uart_source".to_string(),
@@ -27,6 +32,7 @@ impl SyntheticUartSource {
         }
     }
 
+    /// Returns this value configured with name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self

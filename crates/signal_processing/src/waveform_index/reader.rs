@@ -61,7 +61,7 @@ impl RawBlockCache {
 /// Windowed sampler for indexed capture data.
 ///
 /// Handles index construction/loading and samples visible windows from an
-/// [`IndexReader`], falling back to a raw reader for deep zoom levels.
+/// an internal index reader, falling back to a raw reader for deep zoom levels.
 pub struct IndexSampler<R: BlockCaptureSource> {
     display_name: String,
     storage: IndexReader,
@@ -92,6 +92,10 @@ where
         }
     }
 
+    /// Opens a data source, building or loading its waveform index synchronously.
+    ///
+    /// # Parameters
+    /// - `data_source`: Capture source whose raw blocks and index artifacts are opened.
     pub fn open_data_source<S>(data_source: S) -> Result<Self>
     where
         S: CaptureDataSource<Reader = R>,
@@ -104,6 +108,14 @@ where
         )
     }
 
+    /// Opens a data source while reporting synchronous index-build progress.
+    ///
+    /// Returning `false` from `progress` cancels construction.
+    ///
+    /// # Parameters
+    ///
+    /// - `data_source`: Capture source whose raw blocks and index artifacts are opened.
+    /// - `progress`: Callback invoked as root-block summaries complete.
     pub fn open_data_source_with_progress<S, C>(data_source: S, progress: C) -> Result<Self>
     where
         S: CaptureDataSource<Reader = R>,
@@ -135,6 +147,14 @@ where
         )?))
     }
 
+    /// Opens a data source using a host executor for index construction.
+    ///
+    /// # Parameters
+    ///
+    /// - `data_source`: Capture source whose raw blocks and index artifacts are opened.
+    /// - `repository`: Artifact repository that holds persistent index pages.
+    /// - `work_executor`: Host capability used for construction work.
+    /// - `progress`: Callback invoked as root-block summaries complete.
     pub fn open_data_source_with_executor_and_progress<S, C>(
         data_source: S,
         repository: Arc<dyn ArtifactRepository>,
@@ -184,6 +204,10 @@ where
     /// Runtime capability discovery uses this path because it must remain
     /// bounded and non-blocking. Index construction belongs to source
     /// preparation, where the host can schedule it away from the caller.
+    ///
+    /// # Parameters
+    /// - `data_source`: Capture source whose identity selects an existing index.
+    /// - `repository`: Artifact repository that may contain that index.
     pub fn open_existing_data_source<S>(
         data_source: S,
         repository: Arc<dyn ArtifactRepository>,
@@ -217,18 +241,22 @@ where
         )))
     }
 
+    /// Returns a display name for this indexed capture.
     pub fn display_name(&self) -> String {
         self.display_name.clone()
     }
 
+    /// Returns the source identity that keys this index's artifacts.
     pub fn index_identity(&self) -> SourceIdentity {
         self.storage.identity()
     }
 
+    /// Returns immutable capture metadata used by every query.
     pub fn header(&self) -> &CaptureMetadata {
         self.storage.header()
     }
 
+    /// Returns capture duration in microseconds.
     pub fn capture_duration_us(&self) -> f64 {
         self.header().total_samples as f64 * 1_000_000.0 / self.header().samplerate_hz
     }
@@ -280,6 +308,10 @@ where
     /// Estimated high-level occupancy from the final value of each 64-sample
     /// index group. Reads only waveform-index artifacts and never touches raw
     /// capture blocks.
+    ///
+    /// # Parameters
+    /// - `channel`: Zero-based capture channel to summarize.
+    /// - `limit`: Exclusive sample bound for the estimate.
     pub fn high_level_ratio_hint(&self, channel: usize, limit: u64) -> Result<f64> {
         if channel >= self.header().total_probes {
             return Err(Error::InvalidProbe(channel));
@@ -412,6 +444,13 @@ where
 
     /// Appends up to `max_transitions` exact transitions after `position` and
     /// before `limit`, descending the index once per active 64-sample group.
+    ///
+    /// # Parameters
+    /// - `channel`: Zero-based capture channel to inspect.
+    /// - `position`: First sample position to search after.
+    /// - `limit`: Exclusive sample bound for returned transitions.
+    /// - `max_transitions`: Maximum transitions appended to `output`.
+    /// - `output`: Destination vector for ordered transitions.
     pub fn next_transitions(
         &mut self,
         channel: usize,
@@ -500,6 +539,11 @@ where
 
     /// Reads a sorted batch of positions with one packed block acquisition
     /// per block instead of one acquisition per sample.
+    ///
+    /// # Parameters
+    /// - `channel`: Zero-based capture channel to read.
+    /// - `positions`: Sorted absolute sample positions to query.
+    /// - `output`: Destination vector that receives values in input order.
     pub fn values_at(
         &mut self,
         channel: usize,
@@ -579,6 +623,13 @@ where
         }))
     }
 
+    /// Samples a multi-channel window at a resolution suitable for rendering.
+    ///
+    /// # Parameters
+    /// - `channels`: Zero-based capture channels to sample.
+    /// - `start_sample`: Inclusive first sample in the requested window.
+    /// - `end_sample`: Exclusive end of the requested window.
+    /// - `target_points`: Rendering resolution that selects index coarseness.
     pub fn sampled_window(
         &mut self,
         channels: &[usize],
@@ -755,6 +806,10 @@ where
     /// processing may visit the complete capture, whereas the archive store is
     /// intentionally sparse and reserved for regions inspected through
     /// random-access queries.
+    ///
+    /// # Parameters
+    /// - `channel`: Input consumed by this operation.
+    /// - `block`: Input consumed by this operation.
     pub fn packed_block(&mut self, channel: usize, block: u64) -> Result<BlockData> {
         if let Some(data) = self.cached_raw_block(channel, block)? {
             return Ok(data);

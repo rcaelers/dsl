@@ -61,6 +61,9 @@ impl WorkTask for ValidationWorkTask {
 }
 
 /// Verifies that the upstream SPI decoder is invariant across every input chunk boundary.
+///
+/// # Parameters
+/// - `decoder_root`: Input consumed by this operation.
 pub fn validate_spi_chunk_boundaries(decoder_root: &Path) -> Result<(), String> {
     validate_decoder_root(decoder_root)?;
     let signals = spi_signals(0xa5);

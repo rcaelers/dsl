@@ -34,6 +34,7 @@ pub struct CaptureMetadata {
 }
 
 impl CaptureMetadata {
+    /// Returns the currently available capture duration in microseconds.
     pub fn duration_us(&self) -> f64 {
         self.total_samples as f64 * 1_000_000.0 / self.samplerate_hz
     }
@@ -41,44 +42,68 @@ impl CaptureMetadata {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureTransition {
+    /// Sample index at which the logic level changes.
     pub sample: u64,
+    /// Logic level after the transition.
     pub value: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CaptureWaveformSegment {
+    /// Constant logic level across a sampled range.
     Level {
+        /// Inclusive first sample of the segment.
         start_sample: u64,
+        /// Exclusive end sample of the segment.
         end_sample: u64,
+        /// Constant logic value.
         value: bool,
     },
+    /// Explicit level transition at one sample.
     Edge {
+        /// Sample at which the transition occurs.
         sample: u64,
+        /// Logic level before the transition.
         before: bool,
+        /// Logic level after the transition.
         after: bool,
     },
+    /// Dense transition activity summarized over a sampled range.
     Activity {
+        /// Inclusive first sample of the summarized range.
         start_sample: u64,
+        /// Exclusive end sample of the summarized range.
         end_sample: u64,
+        /// First observed logic value.
         first: bool,
+        /// Last observed logic value.
         last: bool,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureSampledChannel {
+    /// Raw channel index.
     pub channel: usize,
+    /// User-facing channel name.
     pub name: String,
+    /// Logic level at the start of the sampled window.
     pub initial: bool,
+    /// Explicit transitions retained at the selected sampling resolution.
     pub transitions: Vec<CaptureTransition>,
+    /// Level, edge, and dense-activity segments for waveform drawing.
     pub waveform: Vec<CaptureWaveformSegment>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureSampledWindow {
+    /// Inclusive start sample of the requested window.
     pub start_sample: u64,
+    /// Exclusive end sample of the requested window.
     pub end_sample: u64,
+    /// Sampling stride used to meet the target point count.
     pub sample_step: u64,
+    /// Sampled raw channels.
     pub channels: Vec<CaptureSampledChannel>,
 }
 
@@ -89,7 +114,9 @@ pub struct CaptureSampledWindow {
 /// the result from a later call with the same query.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CaptureSampledWindowPoll {
+    /// Host-backed query remains in progress.
     Pending,
+    /// Host-backed query returned a complete sampled window.
     Ready(CaptureSampledWindow),
 }
 
@@ -103,14 +130,22 @@ pub struct CaptureFingerprint {
 }
 
 pub trait CaptureSource {
+    /// Returns currently available capture metadata.
     fn metadata(&self) -> &CaptureMetadata;
 
+    /// Reads one raw logic sample from a channel.
+    ///
+    /// # Parameters
+    /// - `channel`: Raw probe index to read.
+    /// - `position`: Sample index within the capture.
     fn read_sample(&mut self, channel: usize, position: u64) -> Result<bool>;
 
+    /// Returns capture duration in microseconds.
     fn capture_duration_us(&self) -> f64 {
         self.metadata().duration_us()
     }
 
+    /// Samples a bounded waveform window for the requested channels.
     fn sampled_window(
         &mut self,
         channels: &[usize],
@@ -191,6 +226,10 @@ impl ImmutableByteRegion for OwnedBlockRegion {
 }
 
 impl BlockData {
+    /// Wraps a zero-copy immutable byte region as packed block data.
+    ///
+    /// # Parameters
+    /// - `region`: Immutable byte range that backs the packed block.
     pub fn from_region(region: ByteRegion) -> Self {
         Self { region }
     }
@@ -209,6 +248,7 @@ impl BlockData {
             .map(Self::from_region)
     }
 
+    /// Returns whether two block views share the same backing allocation.
     pub fn shares_backing(&self, other: &Self) -> bool {
         self.region.shares_backing(&other.region)
     }
@@ -251,6 +291,7 @@ impl From<Vec<u8>> for BlockData {
 }
 
 pub trait BlockCaptureSource: CaptureSource {
+    /// Reads one packed raw block for a channel.
     fn read_packed_block(&mut self, channel: usize, block: u64) -> Result<BlockData>;
 }
 
@@ -260,6 +301,7 @@ pub trait BlockCaptureSource: CaptureSource {
 /// boundary. The indexer only uses this trait; it does not know how the source
 /// is opened, reloaded, or backed.
 pub trait CaptureDataSource: Clone + Send + Sync + 'static {
+    /// Reader type opened for one source revision.
     type Reader: BlockCaptureSource + Send + 'static;
 
     /// Open a fresh reader for the current source revision.
@@ -268,9 +310,13 @@ pub trait CaptureDataSource: Clone + Send + Sync + 'static {
     /// return a reader over the latest immutable snapshot or a reloadable
     /// source-specific view.
     fn open_reader(&self) -> Result<Self::Reader>;
+    /// Returns the currently available capture metadata.
     fn metadata(&self) -> &CaptureMetadata;
+    /// Returns the revision used to invalidate cached indexes.
     fn fingerprint(&self) -> CaptureFingerprint;
+    /// Returns the stable identity of a reusable capture index, when available.
     fn index_identity(&self) -> Option<SourceIdentity>;
+    /// Returns a user-facing source name.
     fn display_name(&self) -> String;
 }
 
@@ -280,8 +326,11 @@ pub trait CaptureDataSource: Clone + Send + Sync + 'static {
 /// host-owned index. Consumers use [`CaptureIndex::poll_sampled_window`] when
 /// they must remain responsive while the backing executes independently.
 pub trait CaptureIndex {
+    /// Returns a display name for this capture index.
     fn display_name(&self) -> String;
+    /// Returns the stable identity that keys this capture index.
     fn index_identity(&self) -> SourceIdentity;
+    /// Returns immutable capture metadata.
     fn header(&self) -> &CaptureMetadata;
     /// Current metadata snapshot. Finite indexes inherit the immutable
     /// header; growing indexes override this with their committed extent.
@@ -297,7 +346,15 @@ pub trait CaptureIndex {
     fn is_complete(&self) -> bool {
         true
     }
+    /// Returns capture duration in microseconds.
     fn capture_duration_us(&self) -> f64;
+    /// Samples a channel window at an implementation-chosen resolution.
+    ///
+    /// # Parameters
+    /// - `channels`: Zero-based capture channels to sample.
+    /// - `start_sample`: Inclusive first sample in the window.
+    /// - `end_sample`: Exclusive sample bound.
+    /// - `target_points`: Rendering point budget for choosing a resolution.
     fn sampled_window(
         &mut self,
         channels: &[usize],
@@ -356,6 +413,7 @@ pub trait CaptureIndexOpenTask: Send + 'static {
         None
     }
 
+    /// Advances construction by one bounded unit of work.
     fn step(&mut self) -> Result<CaptureIndexOpenStep>;
 }
 
@@ -371,6 +429,7 @@ pub struct IndexedCapturePresentation {
 /// Concrete file formats implement this at their owning integration boundary. Consumers can move
 /// the factory to a worker without knowing the format or opening files on the UI thread.
 pub trait CaptureIndexFactory: Send + 'static {
+    /// Returns a display name before the index is opened.
     fn display_name(&self) -> String;
 
     /// Returns an opaque host-preparation request when the source backing
@@ -387,6 +446,12 @@ pub trait CaptureIndexFactory: Send + 'static {
     /// channel and time-span metadata while the index is still being built.
     fn metadata(&self) -> Result<CaptureMetadata>;
 
+    /// Opens or builds a capture index through injected host capabilities.
+    ///
+    /// # Parameters
+    /// - `artifact_repository`: Repository that owns generated index artifacts.
+    /// - `work_executor`: Host capability that runs index construction.
+    /// - `progress`: Callback that may cancel progressive index construction.
     fn open(
         self: Box<Self>,
         artifact_repository: Arc<dyn crate::ArtifactRepository>,
@@ -449,6 +514,7 @@ where
     }
 }
 
+/// Returns the least-significant-bit-first packed sample at a channel offset.
 pub fn packed_bit(data: &[u8], bit_index: usize) -> bool {
     let byte_index = bit_index / 8;
     let bit_offset = bit_index % 8;

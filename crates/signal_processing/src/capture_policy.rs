@@ -14,7 +14,9 @@ use thiserror::Error;
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RecordingStart {
+    /// Begin recording as soon as acquisition starts.
     Immediate,
+    /// Wait for the configured trigger program before recording origin.
     Trigger,
 }
 
@@ -24,6 +26,10 @@ pub struct CaptureFraction(u16);
 impl CaptureFraction {
     pub const DENOMINATOR: u16 = 10_000;
 
+    /// Creates a fraction expressed in ten-thousandths of a capture.
+    ///
+    /// # Parameters
+    /// - `parts`: Value in the inclusive range `0..=DENOMINATOR`.
     pub fn new(parts: u16) -> Result<Self, CapturePolicyError> {
         if parts > Self::DENOMINATOR {
             return Err(CapturePolicyError::Invalid(
@@ -33,18 +39,22 @@ impl CaptureFraction {
         Ok(Self(parts))
     }
 
+    /// Converts a whole percentage into a capture fraction.
     pub fn from_percent(percent: u8) -> Result<Self, CapturePolicyError> {
         Self::new(u16::from(percent) * 100)
     }
 
+    /// Returns the fraction in ten-thousandths.
     pub const fn parts(self) -> u16 {
         self.0
     }
 
+    /// Returns the whole-percent portion, rounded down.
     pub const fn percent_floor(self) -> u8 {
         (self.0 / 100) as u8
     }
 
+    /// Returns this fraction of a sample count without overflow.
     pub fn samples_of(self, samples: u64) -> u64 {
         ((u128::from(samples) * u128::from(self.0)) / u128::from(Self::DENOMINATOR)) as u64
     }
@@ -92,49 +102,70 @@ impl<'de> Deserialize<'de> for CaptureFraction {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TriggerPlacement {
+    /// Place the trigger at a fraction of retained capture capacity.
     Fraction(CaptureFraction),
+    /// Retain a fixed number of samples before the trigger origin.
     SamplesBefore(u64),
+    /// Retain a fixed duration before the trigger origin.
     DurationBefore(Duration),
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RetentionPolicy {
+    /// Retain all capture data in the applicable interval.
     Everything,
+    /// Retain only the most recent duration of capture data.
     RecentDuration(Duration),
+    /// Retain only the most recent byte budget of capture data.
     RecentBytes(u64),
+    /// Device enforces retention outside the generic runtime.
     DeviceManaged,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CompletionPolicy {
+    /// Continue acquisition until an external stop request.
     UntilStopped,
+    /// Stop after a duration following recording origin.
     DurationAfterOrigin(Duration),
+    /// Stop after a sample count following recording origin.
     SamplesAfterOrigin(u64),
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TriggerTimeoutAction {
+    /// Continue waiting for a trigger after the timeout.
     ContinueWaiting,
+    /// Stop acquisition when the timeout expires.
     Stop,
+    /// Treat the timeout as a trigger origin.
     ForceTrigger,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct TriggerTimeout {
+    /// Maximum wait before applying the timeout action.
     pub after: Duration,
+    /// Behavior selected when the wait expires.
     pub action: TriggerTimeoutAction,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct CapturePolicy {
+    /// Recording origin behavior.
     pub start: RecordingStart,
+    /// Requested trigger placement, when recording begins from a trigger.
     pub trigger_placement: Option<TriggerPlacement>,
+    /// Retention policy before recording origin.
     pub retention_before_origin: RetentionPolicy,
+    /// Retention policy after recording origin.
     pub retention_after_origin: RetentionPolicy,
+    /// Condition that ends capture after recording origin.
     pub completion: CompletionPolicy,
+    /// Optional timeout behavior while waiting for a trigger.
     pub trigger_timeout: Option<TriggerTimeout>,
 }
 
@@ -189,12 +220,19 @@ impl From<CompletionPolicy> for CompletionPolicyKind {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TriggerPlacementCapability {
+    /// Provider does not support choosing trigger placement.
     Unsupported,
+    /// Provider uses a single fixed placement.
     Fixed(TriggerPlacement),
+    /// Provider permits a stepped placement fraction within a range.
     SelectableFraction {
+        /// Inclusive smallest supported fraction.
         minimum: CaptureFraction,
+        /// Inclusive largest supported fraction.
         maximum: CaptureFraction,
+        /// Increment between supported fractions.
         step: CaptureFraction,
+        /// Required sample-index alignment for placement.
         sample_alignment: u64,
     },
 }
@@ -209,6 +247,14 @@ pub struct CapturePolicyCapabilities {
 }
 
 impl CapturePolicyCapabilities {
+    /// Creates validated provider capture-policy capabilities.
+    ///
+    /// # Parameters
+    /// - `recording_starts`: Supported recording-origin behaviors.
+    /// - `retention`: Supported retention-policy kinds.
+    /// - `completion`: Supported capture-completion kinds.
+    /// - `trigger_placement`: Trigger placement behavior offered by the provider.
+    /// - `trigger_timeout_actions`: Actions allowed when trigger wait expires.
     pub fn new(
         recording_starts: impl Into<Arc<[RecordingStart]>>,
         retention: impl Into<Arc<[RetentionPolicyKind]>>,
@@ -247,6 +293,7 @@ impl CapturePolicyCapabilities {
         })
     }
 
+    /// Returns conservative capabilities suitable for finite imported captures.
     pub fn finite_default() -> Self {
         Self::new(
             Arc::from([RecordingStart::Immediate, RecordingStart::Trigger]),
@@ -266,6 +313,7 @@ impl CapturePolicyCapabilities {
         .expect("default finite policy capabilities are valid")
     }
 
+    /// Returns capabilities suitable for continuously growing captures.
     pub fn continuous_default() -> Self {
         Self::new(
             Arc::from([RecordingStart::Immediate, RecordingStart::Trigger]),
@@ -291,26 +339,36 @@ impl CapturePolicyCapabilities {
         .expect("default continuous policy capabilities are valid")
     }
 
+    /// Returns supported recording-origin behaviors.
     pub fn recording_starts(&self) -> &[RecordingStart] {
         &self.recording_starts
     }
 
+    /// Returns supported retention-policy kinds.
     pub fn retention(&self) -> &[RetentionPolicyKind] {
         &self.retention
     }
 
+    /// Returns supported completion-policy kinds.
     pub fn completion(&self) -> &[CompletionPolicyKind] {
         &self.completion
     }
 
+    /// Returns supported trigger placement behavior.
     pub const fn trigger_placement(&self) -> TriggerPlacementCapability {
         self.trigger_placement
     }
 
+    /// Returns allowed actions after trigger timeout.
     pub fn trigger_timeout_actions(&self) -> &[TriggerTimeoutAction] {
         &self.trigger_timeout_actions
     }
 
+    /// Validates and resolves a requested policy against provider capabilities.
+    ///
+    /// # Parameters
+    /// - `requested`: Concrete source's persisted policy request.
+    /// - `context`: Capture capacity and trigger availability used for resolution.
     pub fn negotiate(
         &self,
         requested: &CapturePolicy,
@@ -491,18 +549,25 @@ impl CapturePolicyCapabilities {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CapturePolicyContext {
+    /// Source sample rate used to convert durations to sample counts.
     pub sample_rate_hz: u64,
+    /// Finite capture capacity when the source has one.
     pub capture_window_samples: Option<u64>,
+    /// Whether a valid trigger program is configured for the source.
     pub has_trigger_program: bool,
 }
 
+/// Requested policy alongside the provider-resolved policy it will execute.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct EffectiveCapturePolicy {
+    /// Concrete source request retained for diagnostics and persistence.
     pub requested: CapturePolicy,
+    /// Capability-compatible policy executed by the source.
     pub effective: CapturePolicy,
 }
 
 impl EffectiveCapturePolicy {
+    /// Converts a triggered plan into immediate capture while preserving its span.
     pub fn capture_now(&self) -> Self {
         let mut effective = self.effective.clone();
         effective.completion = match (effective.trigger_placement, effective.completion) {
@@ -525,6 +590,11 @@ impl EffectiveCapturePolicy {
         }
     }
 
+    /// Calculates the absolute sample at which capture should complete.
+    ///
+    /// # Parameters
+    /// - `origin_sample`: Sample at which recording origin occurred.
+    /// - `sample_rate_hz`: Source rate used for duration-based completion.
     pub fn completion_sample(
         &self,
         origin_sample: u64,
@@ -547,25 +617,34 @@ impl EffectiveCapturePolicy {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CaptureStartMode {
     #[default]
+    /// Use the source's persisted capture policy.
     SavedPolicy,
+    /// Override policy and begin capture immediately.
     CaptureNow,
 }
 
+/// Fully resolved capture configuration supplied to a concrete source.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct CaptureSessionPlan {
+    /// Source sample rate in hertz.
     pub sample_rate_hz: u64,
+    /// Number of capture channels selected for the session.
     pub channel_count: u64,
     #[serde(default)]
+    /// Finite capture capacity, when known.
     pub capture_window_samples: Option<u64>,
+    /// Requested and resolved capture policy for this session.
     pub policy: EffectiveCapturePolicy,
 }
 
 impl CaptureSessionPlan {
+    /// Returns a copy of the session plan configured for immediate capture.
     pub fn capture_now(mut self) -> Self {
         self.policy = self.policy.capture_now();
         self
     }
 
+    /// Returns this value configured with actual trigger sample.
     pub fn with_actual_trigger_sample(mut self, sample: u64) -> Self {
         if self.policy.effective.start != RecordingStart::Trigger {
             return self;
@@ -603,6 +682,12 @@ pub struct CaptureRetentionTracker {
 }
 
 impl CaptureRetentionTracker {
+    /// Creates a retention tracker for the source's before/after-origin policies.
+    ///
+    /// # Parameters
+    /// - `sample_rate_hz`: Source sample rate used for duration retention.
+    /// - `before`: Retention policy before recording origin.
+    /// - `after`: Retention policy after recording origin.
     pub fn new(
         sample_rate_hz: u64,
         before: RetentionPolicy,
@@ -623,6 +708,7 @@ impl CaptureRetentionTracker {
         })
     }
 
+    /// Pins capture data from a sample so reclamation cannot pass it.
     pub fn pin_from(&mut self, sample: u64) -> CaptureRetentionPin {
         let pin = CaptureRetentionPin(self.next_pin);
         self.next_pin = self.next_pin.saturating_add(1);
@@ -630,6 +716,7 @@ impl CaptureRetentionTracker {
         pin
     }
 
+    /// Advances or rewinds an existing retention pin.
     pub fn update_pin(&mut self, pin: CaptureRetentionPin, sample: u64) -> bool {
         let Some(current) = self.pins.get_mut(&pin) else {
             return false;
@@ -638,10 +725,12 @@ impl CaptureRetentionTracker {
         true
     }
 
+    /// Removes a retention pin when its consumer no longer needs data.
     pub fn unpin(&mut self, pin: CaptureRetentionPin) -> bool {
         self.pins.remove(&pin).is_some()
     }
 
+    /// Returns the earliest sample that may be reclaimed safely.
     pub fn safe_reclaim_before(
         &self,
         committed_samples: u64,
@@ -689,6 +778,13 @@ impl CaptureRetentionTracker {
             .max(self.retained_start_sample)
     }
 
+    /// Records reclamation after verifying it respects policy and active pins.
+    ///
+    /// # Parameters
+    /// - `requested`: New first retained sample requested by the source.
+    /// - `committed_samples`: Samples committed by the source so far.
+    /// - `committed_bytes`: Bytes committed by the source so far.
+    /// - `recording_origin`: Trigger origin sample, when it has occurred.
     pub fn record_reclaimed_to(
         &mut self,
         requested: u64,
@@ -704,6 +800,7 @@ impl CaptureRetentionTracker {
         Ok(())
     }
 
+    /// Returns the first sample currently retained after successful reclamation.
     pub const fn retained_start_sample(&self) -> u64 {
         self.retained_start_sample
     }
@@ -716,7 +813,10 @@ pub enum CapturePolicyError {
     #[error("unsupported capture policy: {0}")]
     Unsupported(String),
     #[error("cannot reclaim to sample {requested}; the safe boundary is {safe}")]
-    UnsafeReclamation { requested: u64, safe: u64 },
+    UnsafeReclamation {
+        requested: u64,
+        safe: u64
+    },
 }
 
 fn duration_to_samples(duration: Duration, sample_rate_hz: u64) -> Result<u64, CapturePolicyError> {
@@ -807,6 +907,7 @@ mod tests {
                     sample_rate_hz: 1_000,
                     capture_window_samples: Some(1_000),
                     has_trigger_program: true,
+
                 },
             )
             .unwrap();
@@ -853,6 +954,7 @@ mod tests {
                         sample_rate_hz: 50_000_000,
                         capture_window_samples: Some(channel_count + 1),
                         has_trigger_program: false,
+
                     },
                 )
                 .unwrap(),

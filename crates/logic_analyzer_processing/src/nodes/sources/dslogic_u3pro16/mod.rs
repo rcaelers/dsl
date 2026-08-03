@@ -1,4 +1,19 @@
+//! # `dslogic_u3pro16`
+//!
+//! ## Responsibility
+//!
+//! This module owns the DSLogic U3Pro16 capture protocol, source state machine, and processing-source
+//! behavior.
+//!
+//! ## Boundaries
+//!
+//! USB transport and FPGA-image acquisition are host capabilities injected by platform composition.
+//! Graph state, editor controls, and target selection do not belong to this module.
+
 //! DSLogic U3Pro16 source node, USB driver, and acquisition profiles.
+//!
+//! It owns concrete device behavior and portable configuration contracts. USB
+//! transport and firmware capabilities are injected by platform composition.
 
 mod facade;
 mod transport;

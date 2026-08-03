@@ -191,8 +191,10 @@ struct CooperativeNode {
     done: bool,
 }
 
-/// Cooperative sibling of [`PipelineManager`](super::manager::PipelineManager);
-/// see the module docs for how it differs.
+/// Single-threaded, caller-pumped sibling of [`PipelineManager`](super::manager::PipelineManager).
+///
+/// It owns the same node wiring and backpressure contracts but never blocks
+/// the host: callers advance ready work through [`Self::pump`] or [`Self::pump_for`].
 pub struct CooperativeManager {
     nodes: HashMap<String, CooperativeNode>,
     watchdog: Watchdog,
@@ -200,6 +202,7 @@ pub struct CooperativeManager {
 }
 
 impl CooperativeManager {
+    /// Creates an empty cooperative graph manager.
     pub fn new() -> Self {
         Self {
             nodes: HashMap::new(),
@@ -208,6 +211,7 @@ impl CooperativeManager {
         }
     }
 
+    /// Returns whether every registered node has reached a terminal state.
     pub fn is_finished(&self) -> bool {
         self.nodes.values().all(|node| node.done)
     }
@@ -215,10 +219,21 @@ impl CooperativeManager {
     /// Same call as [`add_node_deferred`](Self::add_node_deferred) — there is
     /// no thread to start, so nothing is actually deferred; kept as a
     /// separate name only for API parity with `PipelineManager`.
+    ///
+    /// # Parameters
+    /// - `spec`: Node implementation and its full input wiring.
     pub fn add_node(&mut self, spec: NodeSpec) -> Result<(), String> {
         self.add_node_deferred(spec)
     }
 
+    /// Registers a node and subscribes its inputs without executing work.
+    ///
+    /// No execution is actually deferred in this runtime; the node first
+    /// runs when the host next calls [`Self::pump`].
+    ///
+    /// # Parameters
+    ///
+    /// - `spec`: Node implementation and its full input wiring.
     pub fn add_node_deferred(&mut self, spec: NodeSpec) -> Result<(), String> {
         if self.nodes.contains_key(&spec.name) {
             return Err(format!("node '{}' already exists", spec.name));
@@ -327,10 +342,17 @@ impl CooperativeManager {
         Ok(())
     }
 
+    /// Completes the threaded-manager-compatible startup phase.
+    ///
+    /// This is a no-op because cooperative nodes are started by pumping.
     pub fn start_all_deferred(&mut self) -> Result<(), String> {
         Ok(())
     }
 
+    /// Removes a node, disconnects its inputs, and closes its outputs.
+    ///
+    /// # Parameters
+    /// - `name`: Name of the node to remove.
     pub fn remove_node(&mut self, name: &str) -> Result<(), String> {
         let node = self
             .nodes
@@ -353,6 +375,12 @@ impl CooperativeManager {
         }
     }
 
+    /// Applies a validated hot configuration to a registered node.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: Name of the node to configure.
+    /// - `config`: Configuration to apply before the next work call.
     pub fn reconfigure(&mut self, name: &str, config: NodeConfig) -> Result<(), String> {
         let node = self
             .nodes
@@ -367,6 +395,13 @@ impl CooperativeManager {
         Ok(())
     }
 
+    /// Schedules a hot configuration at an event-time boundary.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: Name of the node to configure.
+    /// - `config`: Validated configuration to schedule.
+    /// - `boundary`: Event-time boundary at which activation should occur.
     pub fn reconfigure_at(
         &mut self,
         name: &str,
@@ -391,6 +426,12 @@ impl CooperativeManager {
     /// Replaces a running node with a fresh instance wired to the *same*
     /// output lists — downstream connections and produced-item count survive
     /// untouched, mirroring `PipelineManager::restart_node`.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: Name of the logical node to replace.
+    /// - `node`: Fresh implementation instance.
+    /// - `inputs`: Replacement input wiring in input-schema order.
     pub fn restart_node(
         &mut self,
         name: &str,
@@ -497,6 +538,7 @@ impl CooperativeManager {
         Ok(())
     }
 
+    /// Returns each node's cumulative produced-item count.
     pub fn progress(&self) -> Vec<(String, u64)> {
         self.nodes
             .iter()
@@ -504,6 +546,7 @@ impl CooperativeManager {
             .collect()
     }
 
+    /// Returns disconnect-policy events accumulated since the previous call.
     pub fn take_disconnected(&self) -> Vec<DisconnectEvent> {
         let mut consumers: HashMap<u64, &str> = HashMap::new();
         for (name, node) in &self.nodes {
@@ -535,6 +578,7 @@ impl CooperativeManager {
         self.stop_all();
     }
 
+    /// Closes every output and drops all registered nodes.
     pub fn stop_all(&mut self) {
         for node in self.nodes.values() {
             close_outputs(node);
@@ -567,11 +611,19 @@ impl CooperativeManager {
     /// no-op once [`is_finished`](Self::is_finished) — the caller (the UI
     /// frame loop on wasm) is expected to call this every frame regardless
     /// of run state.
+    ///
+    /// # Parameters
+    /// - `budget`: Maximum number of `work()` calls to make during this pump.
     pub fn pump(&mut self, budget: usize) {
         self.pump_until(budget, None);
     }
 
-    /// Pumps with both a deterministic call budget and an interactive host-time budget.
+    /// Pumps with both a deterministic call budget and a host-time budget.
+    ///
+    /// # Parameters
+    ///
+    /// - `budget`: Maximum number of `work()` calls to make.
+    /// - `max_duration`: Maximum wall-clock time to spend in this call.
     pub fn pump_for(&mut self, budget: usize, max_duration: Duration) {
         self.pump_until(budget, Some(Instant::now() + max_duration));
     }
@@ -673,6 +725,7 @@ impl CooperativeManager {
         }
     }
 
+    /// Returns and clears terminal node failures observed since the last call.
     pub fn take_failures(&mut self) -> Vec<NodeFailure> {
         std::mem::take(&mut self.failures)
     }

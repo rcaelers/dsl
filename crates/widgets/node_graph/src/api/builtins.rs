@@ -7,10 +7,15 @@ use crate::model::SocketShape;
 
 // ── Built-in socket types ─────────────────────────────────────────────────────
 
+/// Boolean configuration socket with a checkbox inline control.
 pub struct BoolSocket;
+/// Signed integer configuration socket with a bounded numeric control.
 pub struct IntSocket;
+/// Floating-point configuration socket with a bounded numeric control.
 pub struct FloatSocket;
+/// String configuration socket with a text inline control.
 pub struct StrSocket;
+/// File-path configuration socket with host file-dialog support.
 pub struct FileSocket;
 /// Wildcard type: accepts (and is accepted by) every other type. Useful as
 /// the native type of variadic placeholder inputs and reroute nodes.
@@ -124,17 +129,31 @@ impl SocketWithControlDef for FileSocket {
 
 // ── Built-in value types ──────────────────────────────────────────────────────
 
+/// Integer value and optional bounds edited by an inline numeric control.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntValue {
+    /// Current value.
     pub value: i32,
+    /// Inclusive lower bound.
     pub min: i32,
+    /// Inclusive upper bound.
     pub max: i32,
 }
 
 impl IntValue {
+    /// Creates an integer control value with inclusive bounds.
+    ///
+    /// # Parameters
+    /// - `value`: Initial value.
+    /// - `min`: Inclusive lower bound.
+    /// - `max`: Inclusive upper bound.
     pub fn new(value: i32, min: i32, max: i32) -> Self {
         Self { value, min, max }
     }
+    /// Creates an integer control value without practical bounds.
+    ///
+    /// # Parameters
+    /// - `value`: Initial integer value.
     pub fn plain(value: i32) -> Self {
         Self {
             value,
@@ -184,15 +203,21 @@ impl InlineControl for IntValue {
     }
 }
 
+/// Floating-point value, bounds, and drag speed for an inline numeric control.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FloatValue {
+    /// Current value.
     pub value: f32,
+    /// Inclusive lower bound.
     pub min: f32,
+    /// Inclusive upper bound.
     pub max: f32,
+    /// Value delta per unit of drag.
     pub speed: f32,
 }
 
 impl FloatValue {
+    /// Creates a floating-point control value with explicit bounds and drag speed.
     pub fn new(value: f32, min: f32, max: f32, speed: f32) -> Self {
         Self {
             value,
@@ -201,6 +226,7 @@ impl FloatValue {
             speed,
         }
     }
+    /// Returns this value configured with range.
     pub fn with_range(value: f32, min: f32, max: f32) -> Self {
         let speed = if max > min { (max - min) / 100.0 } else { 0.01 };
         Self {
@@ -210,6 +236,10 @@ impl FloatValue {
             speed,
         }
     }
+    /// Creates a floating-point control value without practical bounds.
+    ///
+    /// # Parameters
+    /// - `value`: Initial floating-point value.
     pub fn plain(value: f32) -> Self {
         Self {
             value,
@@ -260,12 +290,15 @@ impl InlineControl for FloatValue {
     }
 }
 
+/// Boolean value edited by an inline checkbox.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BoolValue {
+    /// Current checkbox state.
     pub value: bool,
 }
 
 impl BoolValue {
+    /// Creates a boolean control value.
     pub fn new(value: bool) -> Self {
         Self { value }
     }
@@ -298,12 +331,18 @@ impl InlineControl for BoolValue {
     }
 }
 
+/// String value edited by an inline text field.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StringValue {
+    /// Current text value.
     pub value: String,
 }
 
 impl StringValue {
+    /// Creates a string control value.
+    ///
+    /// # Parameters
+    /// - `value`: Initial text value.
     pub fn new(value: impl Into<String>) -> Self {
         Self {
             value: value.into(),
@@ -340,22 +379,28 @@ impl InlineControl for StringValue {
     }
 }
 
+/// File selection value and host-picker configuration for an inline control.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileValue {
+    /// Selected path or host-owned file identifier.
     pub value: String,
     #[serde(default)]
+    /// Title shown by the host file picker.
     pub dialog_title: String,
     #[serde(default)]
+    /// File-type filters offered by the host picker.
     pub filters: Vec<FileDialogFilter>,
     /// Browse with a *save* dialog (pick a new/overwrite target) instead of
     /// an *open* dialog (pick an existing file).
     #[serde(default)]
     pub save: bool,
     #[serde(skip)]
+    /// Last user-presentable picker or import error.
     pub dialog_error: Option<String>,
 }
 
 impl FileValue {
+    /// Creates an open-file control with the default picker title and no filters.
     pub fn new(value: impl Into<String>) -> Self {
         Self {
             value: value.into(),
@@ -377,6 +422,7 @@ impl FileValue {
         }
     }
 
+    /// Returns this value configured with filter.
     pub fn with_filter(
         value: impl Into<String>,
         dialog_title: impl Into<String>,
@@ -520,13 +566,21 @@ impl InlineControl for FileValue {
     }
 }
 
+/// Selected index and choices for an inline enumeration control.
 #[derive(Debug, Clone)]
 pub struct EnumValue {
+    /// Index of the selected variant.
     pub index: usize,
+    /// User-facing variant names in selection order.
     pub variants: Vec<String>,
 }
 
 impl EnumValue {
+    /// Creates an enumeration control value from borrowed variant names.
+    ///
+    /// # Parameters
+    /// - `index`: Initially selected variant index.
+    /// - `variants`: User-facing choices in selection order.
     pub fn new(index: usize, variants: &[&str]) -> Self {
         Self {
             index,

@@ -1,4 +1,7 @@
 //! Application-neutral presentation helpers shared by reusable egui widgets.
+//!
+//! This crate owns small, neutral rendering primitives only; it does not select
+//! concrete nodes, protocols, application commands, or menu policy.
 
 use egui::Ui;
 
@@ -9,6 +12,11 @@ pub const MENU_ICON_COLUMN_WIDTH: f32 = 22.0;
 ///
 /// Placeholder colors let the hosting egui button apply hover, active, and
 /// disabled colors consistently.
+///
+/// # Parameters
+/// - `ui`: Input consumed by this operation.
+/// - `icon`: Input consumed by this operation.
+/// - `label`: Input consumed by this operation.
 pub fn menu_item_layout_job(ui: &Ui, icon: Option<&str>, label: &str) -> egui::text::LayoutJob {
     let font_id = egui::TextStyle::Button.resolve(ui.style());
     let color = egui::Color32::PLACEHOLDER;

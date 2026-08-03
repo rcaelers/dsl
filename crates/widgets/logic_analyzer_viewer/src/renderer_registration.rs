@@ -9,10 +9,16 @@ pub struct ViewerLaneRendererRegistration {
 }
 
 impl ViewerLaneRendererRegistration {
+    /// Creates an inventory registration for a stable renderer key.
+    ///
+    /// # Parameters
+    /// - `key`: Stable metadata key emitted by a payload or node feature.
+    /// - `factory`: Constructor for the renderer selected by that key.
     pub const fn new(key: &'static str, factory: fn() -> Arc<dyn ViewerLaneRenderer>) -> Self {
         Self { key, factory }
     }
 
+    /// Returns the stable renderer key.
     pub fn key(&self) -> &'static str {
         self.key
     }

@@ -3,6 +3,10 @@ use node_graph::NodeTypeRegistry;
 
 use crate::viewer_selection::LEGACY_VIEWER_NODE_ID;
 
+/// Builds the UI node registry from compiled graph-node inventory registrations.
+///
+/// The obsolete viewer node is deliberately excluded because output selection is
+/// now persisted as UI-owned state rather than represented by a graph node.
 pub fn build_node_registry() -> NodeTypeRegistry {
     let mut registry = NodeTypeRegistry::new();
     for registration in graph_node_registrations() {

@@ -16,19 +16,25 @@ pub struct OpaqueCollectedLane {
 }
 
 impl OpaqueCollectedLane {
+    /// Returns the graph-local lane name.
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// Returns the payload descriptor that selected this adapter.
     pub fn payload(&self) -> &PayloadDescriptor {
         &self.payload
     }
 
+    /// Downcasts the adapter-owned query to the requested concrete query type.
     pub fn query<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
         Arc::downcast::<T>(Arc::clone(&self.query).into_any()).ok()
     }
 
     /// Whether both handles address the same adapter-owned query instance.
+    ///
+    /// # Parameters
+    /// - `other`: Another discovered lane to compare by query identity.
     pub fn is_same_query(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.query, &other.query)
     }
@@ -59,6 +65,7 @@ impl OpaqueCollectedLane {
         self.query.timeline_extent_end_ns()
     }
 
+    /// Returns whether live.
     pub fn is_live(&self) -> bool {
         self.query.is_live()
     }
@@ -73,6 +80,7 @@ impl OpaqueCollectedLane {
         self.query.table_snapshot(max_rows)
     }
 
+    /// Returns adapter-defined retained-storage diagnostics.
     pub fn storage_snapshot(&self) -> CollectedLaneStorageSnapshot {
         self.query.storage_snapshot()
     }
@@ -98,6 +106,7 @@ pub struct DerivedLanes {
 }
 
 impl DerivedLanes {
+    /// Creates an empty derived-lane catalog.
     pub fn new() -> Self {
         Self::default()
     }
@@ -105,6 +114,11 @@ impl DerivedLanes {
     /// Publishes an adapter-owned retained query. A later subscriber can
     /// attach after collection has completed and downcast only to the payload
     /// type it registered.
+    ///
+    /// # Parameters
+    /// - `name`: Graph-local lane name, replacing any prior lane with the same name.
+    /// - `payload`: Descriptor that identifies the retained payload representation.
+    /// - `query`: Adapter-owned query handle retained by the catalog.
     pub fn publish_opaque_lane<T: CollectedLaneQuery + 'static>(
         &self,
         name: impl Into<String>,
@@ -125,6 +139,7 @@ impl DerivedLanes {
         }
     }
 
+    /// Returns a snapshot of all published opaque lanes.
     pub fn opaque_lanes(&self) -> Vec<OpaqueCollectedLane> {
         self.opaque.read().unwrap().clone()
     }

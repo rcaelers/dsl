@@ -1,4 +1,8 @@
 //! Shared deterministic fixtures for cross-crate integration tests.
+//!
+//! These deterministic providers and data-plane conformance fixtures exercise
+//! generic runtime contracts. Production composition and concrete processing,
+//! graph, and UI behavior remain with their owning crates.
 
 mod buffered_fake;
 mod data_plane;

@@ -26,7 +26,10 @@ use super::ports::{InputPort, OutputPort};
 use super::watchdog::Watchdog;
 use crate::{WorkExecutor, WorkTask};
 
-/// Runtime scheduler that executes a streaming graph
+/// Threaded runtime owner for a statically built streaming graph.
+///
+/// The scheduler owns node tasks and the watchdog task. Dropping it requests
+/// stop, while [`Self::wait`] explicitly joins all outstanding work.
 pub struct Scheduler {
     tasks: Vec<(String, Box<dyn WorkTask>)>,
     stop_signal: Arc<AtomicBool>,
@@ -36,7 +39,10 @@ pub struct Scheduler {
 }
 
 impl Scheduler {
-    /// Create a new scheduler with watchdog monitoring
+    /// Creates a scheduler and starts its watchdog monitor.
+    ///
+    /// # Parameters
+    /// - `work_executor`: Host capability used for node and watchdog tasks.
     pub fn new(work_executor: Arc<dyn WorkExecutor>) -> Self {
         let watchdog = Watchdog::new();
         let watchdog_task = watchdog
@@ -52,13 +58,21 @@ impl Scheduler {
         }
     }
 
-    /// Get a reference to the watchdog
+    /// Returns the watchdog used to register pipeline port operations.
     pub fn watchdog(&self) -> &Watchdog {
         &self.watchdog
     }
 
-    /// Start a process node in its own thread
-    /// Process nodes include sources (0 inputs), sinks (0 outputs), and transformers (N inputs, M outputs)
+    /// Starts one process node with its resolved input and output ports.
+    ///
+    /// Nodes may be sources (zero inputs), sinks (zero outputs), or
+    /// transforms. The scheduler owns the submitted task until [`Self::wait`].
+    ///
+    /// # Parameters
+    ///
+    /// - `node`: Process implementation to run.
+    /// - `inputs`: Transport/query capabilities arranged in input-schema order.
+    /// - `outputs`: Transport capabilities arranged in output-schema order.
     pub fn start_process(
         &mut self,
         mut node: Box<dyn ProcessNode>,
@@ -143,18 +157,18 @@ impl Scheduler {
         self.tasks.push((name, task));
     }
 
-    /// Signal all nodes to stop
+    /// Requests cooperative cancellation from all running node loops.
     pub fn stop(&self) {
         self.stop_signal.store(true, Ordering::Relaxed);
     }
 
-    /// Cloneable handle to request a stop from another thread while `wait()`
+    /// Returns a handle that can request stop while [`Self::wait`]
     /// owns the scheduler (e.g. a UI Stop button).
     pub fn stop_handle(&self) -> StopHandle {
         StopHandle(Arc::clone(&self.stop_signal))
     }
 
-    /// Wait for all node tasks to complete.
+    /// Stops the watchdog and blocks until every node task completes.
     pub fn wait(mut self) {
         let total_tasks = self.tasks.len();
         info!("Waiting for {} tasks to complete...", total_tasks);
@@ -171,12 +185,12 @@ impl Scheduler {
         }
     }
 
-    /// Get the number of running threads
+    /// Returns the number of node tasks currently owned by the scheduler.
     pub fn num_threads(&self) -> usize {
         self.tasks.len()
     }
 
-    /// Get the names of all running threads
+    /// Returns node names for tasks currently owned by the scheduler.
     pub fn thread_names(&self) -> Vec<String> {
         self.tasks.iter().map(|(name, _)| name.clone()).collect()
     }
@@ -187,6 +201,7 @@ impl Scheduler {
 pub struct StopHandle(Arc<AtomicBool>);
 
 impl StopHandle {
+    /// Requests cooperative cancellation from all nodes in the scheduler.
     pub fn stop(&self) {
         self.0.store(true, Ordering::Relaxed);
     }

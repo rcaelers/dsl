@@ -402,17 +402,26 @@ impl RegisteredNodeType {
     }
 }
 
+/// Preconfigured graph-node instance that can be installed by a host catalog.
 #[derive(Clone, Debug)]
 pub struct NodeTemplate {
+    /// Registered name assigned to the template node type.
     pub name: String,
+    /// User-facing add-menu category for the template.
     pub category: String,
+    /// Registered concrete node type on which the template is based.
     pub base_type: String,
+    /// Initial user-visible title for created template instances.
     pub title: String,
+    /// Concrete node-owned state restored into each template instance.
     pub state: serde_json::Value,
 }
 
 impl NodeTypeRegistry {
     /// Category of a registered node type, for read-only display.
+    ///
+    /// # Parameters
+    /// - `type_name`: Registered node-type name.
     pub fn category_of(&self, type_name: &str) -> Option<&str> {
         self.find(type_name).map(|def| def.category.as_str())
     }
@@ -425,10 +434,13 @@ impl NodeTypeRegistry {
 /// idle looks stay under node-def control.
 #[derive(Debug, Clone, Copy)]
 pub struct SocketTypeStyle {
+    /// Type-family color applied when a socket resolves to this type.
     pub color: Color32,
+    /// Type-family shape applied when a socket resolves to this type.
     pub shape: SocketShape,
 }
 
+/// Registry of concrete node definitions and graph-wide socket type identities.
 #[derive(Default)]
 pub struct NodeTypeRegistry {
     types: Vec<RegisteredNodeType>,
@@ -436,10 +448,12 @@ pub struct NodeTypeRegistry {
 }
 
 impl NodeTypeRegistry {
+    /// Creates an empty node-type registry.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Registers a concrete node definition and its socket type identities.
     pub fn register<T: NodeDef>(&mut self) -> &mut Self {
         for input in T::inputs() {
             self.record_socket_type(&input.identity);
@@ -454,6 +468,7 @@ impl NodeTypeRegistry {
         self
     }
 
+    /// Replaces all catalog templates contributed by one host namespace.
     pub fn replace_templates(&mut self, namespace: &str, templates: Vec<NodeTemplate>) {
         self.types
             .retain(|definition| definition.template_namespace.as_deref() != Some(namespace));
@@ -494,6 +509,10 @@ impl NodeTypeRegistry {
             });
     }
 
+    /// Returns graph-wide presentation for a registered socket type.
+    ///
+    /// # Parameters
+    /// - `type_name`: Stable socket type name to look up.
     pub fn socket_type_style(&self, type_name: &str) -> Option<SocketTypeStyle> {
         self.socket_types.get(type_name).copied()
     }

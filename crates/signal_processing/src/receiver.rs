@@ -46,7 +46,13 @@ impl<'a, T> Receiver<'a, T> {
         Some(first)
     }
 
-    /// Create a new receiver with watchdog monitoring.
+    /// Creates a receiver backed by one channel and caller-owned putback state.
+    ///
+    /// # Parameters
+    /// - `receiver`: Channel from which envelopes are received.
+    /// - `buffer`: Caller-owned queue that preserves looked-ahead values.
+    /// - `watchdog_handle`: Port operation handle used while blocking.
+    /// - `eos`: Caller-owned flag shared across transient receiver wrappers.
     pub fn new(
         receiver: &'a CrossbeamReceiver<ChannelMessage<T>>,
         buffer: &'a mut VecDeque<T>,
@@ -61,7 +67,14 @@ impl<'a, T> Receiver<'a, T> {
         }
     }
 
-    /// Create a new receiver with watchdog monitoring.
+    /// Alias for [`Self::new`] retained for explicit call-site readability.
+    ///
+    /// # Parameters
+    ///
+    /// - `receiver`: Channel from which envelopes are received.
+    /// - `buffer`: Caller-owned queue that preserves looked-ahead values.
+    /// - `watchdog_handle`: Port operation handle used while blocking.
+    /// - `eos`: Caller-owned flag shared across transient receiver wrappers.
     pub fn with_watchdog(
         receiver: &'a CrossbeamReceiver<ChannelMessage<T>>,
         buffer: &'a mut VecDeque<T>,
@@ -182,6 +195,10 @@ impl<'a, T> Receiver<'a, T> {
     /// Appends up to `limit` available items, consuming scalar and batch
     /// envelopes without one channel operation per item. Returns `Empty` or
     /// `Disconnected` only when no item was appended.
+    ///
+    /// # Parameters
+    /// - `output`: Destination vector to append received items to.
+    /// - `limit`: Maximum number of items to append.
     pub fn try_recv_many(
         &mut self,
         output: &mut Vec<T>,
@@ -300,6 +317,9 @@ impl<'a, T> Receiver<'a, T> {
 
     /// Receive with a timeout. Returns from the putback buffer first (immediate),
     /// then tries the underlying channel with timeout.
+    ///
+    /// # Parameters
+    /// - `timeout`: Maximum time to wait for an envelope after buffered items.
     pub fn recv_timeout(
         &mut self,
         timeout: std::time::Duration,
@@ -332,6 +352,10 @@ impl<'a, T> Receiver<'a, T> {
 
     /// Push an item back to the front of the buffer so the next `recv()`
     /// returns it.
+    ///
+    /// # Parameters
+    ///
+    /// - `item`: Value that should be observed by the next scalar receive.
     pub fn put_back(&mut self, item: T) {
         self.buffer.push_front(item);
     }
@@ -354,6 +378,11 @@ impl<'a, T> Receiver<'a, T> {
     /// determine if the first one ended before `before`.
     ///
     /// `start_time_fn` extracts the start time from each item.
+    ///
+    /// # Parameters
+    ///
+    /// - `before`: Exclusive upper bound for items to discard.
+    /// - `start_time_fn`: Maps an item to the start of its validity interval.
     pub fn drain_before(
         &mut self,
         before: u64,
@@ -391,7 +420,10 @@ pub struct ReceiverSelector<'b, 'a, T> {
 }
 
 impl<'b, 'a, T> ReceiverSelector<'b, 'a, T> {
-    /// Create a selector over a mutable slice of receivers.
+    /// Creates a selector over a mutable slice of receivers.
+    ///
+    /// # Parameters
+    /// - `channels`: Receivers to multiplex; their indices are preserved in results.
     pub fn new(channels: &'b mut [Receiver<'a, T>]) -> Self {
         Self { channels }
     }
@@ -480,6 +512,9 @@ impl<'b, 'a, T> ReceiverSelector<'b, 'a, T> {
     ///
     /// Returns `(channel_index, item)` where `channel_index` is the
     /// original index into the slice.
+    ///
+    /// # Parameters
+    /// - `indices`: Subset of receiver indices eligible for this selection.
     pub fn select_from(&mut self, indices: &[usize]) -> WorkResult<(usize, T)> {
         loop {
             // Check buffers first

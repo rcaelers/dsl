@@ -146,6 +146,7 @@ pub struct TgckRecorder {
 }
 
 impl TgckRecorder {
+    /// Creates a TGCK recorder with the supplied configuration.
     pub fn new() -> Self {
         Self {
             name: "tgck_recorder".to_string(),
@@ -162,6 +163,10 @@ impl TgckRecorder {
         }
     }
 
+    /// Returns this value configured with name.
+    ///
+    /// # Parameters
+    /// - `name`: Input consumed by this operation.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self

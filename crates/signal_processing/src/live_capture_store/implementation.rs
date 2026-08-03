@@ -15,6 +15,11 @@ pub struct CaptureStoreDescriptor {
 }
 
 impl CaptureStoreDescriptor {
+    /// Creates a descriptor for one live-capture session.
+    ///
+    /// # Parameters
+    /// - `session_id`: Unique identity assigned to the capture session.
+    /// - `channels`: Non-empty ordered physical-channel table.
     pub fn new(
         session_id: CaptureSessionId,
         channels: impl Into<Arc<[CaptureChannelId]>>,
@@ -31,14 +36,17 @@ impl CaptureStoreDescriptor {
         })
     }
 
+    /// Returns the capture-session identity.
     pub const fn session_id(&self) -> CaptureSessionId {
         self.session_id
     }
 
+    /// Returns the ordered physical-channel table.
     pub fn channels(&self) -> &[CaptureChannelId] {
         &self.channels
     }
 
+    /// Returns a shared owned copy of the physical-channel table.
     pub fn channel_table(&self) -> Arc<[CaptureChannelId]> {
         Arc::clone(&self.channels)
     }
@@ -46,11 +54,17 @@ impl CaptureStoreDescriptor {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CaptureStoreSnapshot {
+    /// Number of chunks durably committed so far.
     pub committed_chunks: u64,
+    /// Number of samples represented by committed chunks.
     pub committed_samples: u64,
+    /// Total encoded payload bytes durably committed.
     pub committed_data_bytes: u64,
+    /// Whether the acquisition writer is still accepting chunks.
     pub writer_open: bool,
+    /// Whether the writer encountered an unrecoverable failure.
     pub writer_failed: bool,
+    /// Whether no more chunks can be committed.
     pub finalized: bool,
     /// Commit records remain on disk; the live store retains none in an in-memory vector.
     pub resident_commit_records: usize,
@@ -58,29 +72,42 @@ pub struct CaptureStoreSnapshot {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CaptureStoreManifest {
+    /// Stable identity and channel table for the stored capture.
     pub descriptor: CaptureStoreDescriptor,
+    /// Number of chunks durably committed.
     pub committed_chunks: u64,
+    /// Number of samples represented by committed chunks.
     pub committed_samples: u64,
+    /// Total encoded payload bytes durably committed.
     pub committed_data_bytes: u64,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CaptureSessionOutcome {
+    /// Acquisition is still running or recovery has not finalized it.
     InProgress,
+    /// Capture completed normally.
     Complete,
+    /// Capture was stopped gracefully by the user.
     Stopped,
+    /// Capture ended before the recording trigger resolved.
     CancelledBeforeTrigger,
+    /// Capture ended with retained data but without normal completion.
     Incomplete,
+    /// Capture was explicitly aborted.
     Aborted,
+    /// Persistent capture contents failed integrity or recovery checks.
     Corrupt,
 }
 
 impl CaptureSessionOutcome {
+    /// Returns whether this outcome cannot transition further.
     pub const fn is_terminal(self) -> bool {
         !matches!(self, Self::InProgress)
     }
 
+    /// Returns whether the capture lacks a normal complete recording.
     pub const fn is_incomplete(self) -> bool {
         matches!(
             self,
@@ -91,13 +118,21 @@ impl CaptureSessionOutcome {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CaptureSessionMetadata {
+    /// Stable session identity and physical-channel table.
     pub descriptor: CaptureStoreDescriptor,
+    /// Optional timebase and channel presentation metadata.
     pub timeline: Option<CaptureTimelineMetadata>,
+    /// Terminal or in-progress capture state.
     pub outcome: CaptureSessionOutcome,
+    /// Wall-clock creation timestamp in Unix nanoseconds.
     pub created_unix_ns: u64,
+    /// Wall-clock last-access timestamp in Unix nanoseconds.
     pub accessed_unix_ns: u64,
+    /// Authoritative sample at which the recording timeline begins.
     pub recording_origin: Option<u64>,
+    /// Earliest authoritative sample retained after reclamation.
     pub retained_start_sample: u64,
+    /// Whether policy cleanup must preserve this session.
     pub kept: bool,
 }
 
@@ -113,6 +148,11 @@ pub struct CaptureTimelineMetadata {
 }
 
 impl CaptureTimelineMetadata {
+    /// Creates timebase and display metadata for a capture session.
+    ///
+    /// # Parameters
+    /// - `sample_rate_hz`: Finite positive sample rate in hertz.
+    /// - `channel_names`: Non-empty display names in descriptor channel order.
     pub fn new(sample_rate_hz: f64, channel_names: Vec<String>) -> CaptureStoreResult<Self> {
         if !sample_rate_hz.is_finite() || sample_rate_hz <= 0.0 {
             return Err(CaptureStoreError::InvalidConfig(
@@ -131,18 +171,26 @@ impl CaptureTimelineMetadata {
         })
     }
 
+    /// Returns the exact stored sample rate in hertz.
     pub fn sample_rate_hz(&self) -> f64 {
         f64::from_bits(self.sample_rate_hz_bits)
     }
 
+    /// Returns display names in descriptor channel order.
     pub fn channel_names(&self) -> &[String] {
         &self.channel_names
     }
 
+    /// Returns the optional authoritative trigger sample.
     pub const fn trigger_sample(&self) -> Option<u64> {
         self.trigger_sample
     }
 
+    /// Sets or clears the authoritative trigger sample.
+    ///
+    /// # Parameters
+    ///
+    /// - `trigger_sample`: Trigger position, or `None` when unknown.
     pub fn set_trigger_sample(&mut self, trigger_sample: Option<u64>) {
         self.trigger_sample = trigger_sample;
     }
@@ -150,28 +198,44 @@ impl CaptureTimelineMetadata {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CaptureRecoveryReport {
+    /// Whether recovery repaired an interrupted capture artifact.
     pub recovered: bool,
+    /// Bytes removed from incomplete encoded data.
     pub truncated_data_bytes: u64,
+    /// Bytes removed from incomplete commit records.
     pub truncated_commit_bytes: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CaptureReclamationReport {
+    /// Number of leading chunks reclaimed.
     pub reclaimed_chunks: u64,
+    /// Number of leading samples reclaimed.
     pub reclaimed_samples: u64,
+    /// Number of encoded bytes reclaimed.
     pub reclaimed_data_bytes: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CaptureCursorItem {
+    /// Next committed capture chunk.
     Chunk(CaptureChunk),
+    /// No chunk is currently available but the writer may commit more.
     Pending,
+    /// The cursor is permanently exhausted.
     End,
 }
 
 pub trait CaptureStoreCursor: Send {
+    /// Returns the next currently available item without waiting.
     fn next(&mut self) -> CaptureStoreResult<CaptureCursorItem>;
+    /// Waits up to a timeout for a new cursor item.
+    ///
+    /// # Parameters
+    ///
+    /// - `timeout`: Maximum time to wait before returning [`CaptureCursorItem::Pending`].
     fn wait_next(&mut self, timeout: Duration) -> CaptureStoreResult<CaptureCursorItem>;
+    /// Returns the sequence number expected for the next chunk.
     fn next_sequence(&self) -> u64;
 
     /// Sample offset that maps this cursor's zero-based processing timeline
@@ -205,14 +269,20 @@ pub struct CaptureRecordingGate {
 }
 
 impl CaptureRecordingGate {
+    /// Creates a gate whose recording timeline begins at sample zero.
     pub fn immediate() -> Self {
         Self::with_state(RecordingGateState::Origin(0))
     }
 
+    /// Creates a gate that withholds recording data until trigger resolution.
     pub fn pending() -> Self {
         Self::with_state(RecordingGateState::Pending)
     }
 
+    /// Creates an already-resolved gate for a finalized capture.
+    ///
+    /// # Parameters
+    /// - `origin_sample`: Recording origin, or `None` when no recording exists.
     pub fn finalized(origin_sample: Option<u64>) -> Self {
         Self::with_state(match origin_sample {
             Some(origin_sample) => RecordingGateState::Origin(origin_sample),
@@ -229,10 +299,16 @@ impl CaptureRecordingGate {
         }
     }
 
+    /// Resolves a pending gate at the supplied trigger sample.
+    ///
+    /// # Parameters
+    ///
+    /// - `sample`: Authoritative sample that becomes recording-time zero.
     pub fn resolve_trigger(&self, sample: u64) -> bool {
         self.resolve(RecordingGateState::Origin(sample))
     }
 
+    /// Resolves a pending gate as having no recording.
     pub fn finish_without_trigger(&self) -> bool {
         self.resolve(RecordingGateState::NoRecording)
     }
@@ -251,6 +327,7 @@ impl CaptureRecordingGate {
         true
     }
 
+    /// Returns the resolved authoritative recording origin, if any.
     pub fn recording_origin(&self) -> Option<u64> {
         match *self
             .inner
@@ -263,6 +340,7 @@ impl CaptureRecordingGate {
         }
     }
 
+    /// Returns whether resolved.
     pub fn is_resolved(&self) -> bool {
         *self
             .inner
@@ -272,6 +350,11 @@ impl CaptureRecordingGate {
             != RecordingGateState::Pending
     }
 
+    /// Wraps a store cursor so it exposes the resolved recording timeline.
+    ///
+    /// # Parameters
+    ///
+    /// - `cursor`: Authoritative raw-capture cursor to gate and rebase.
     pub fn cursor(&self, cursor: Box<dyn CaptureStoreCursor>) -> RecordingCaptureCursor {
         RecordingCaptureCursor {
             cursor,

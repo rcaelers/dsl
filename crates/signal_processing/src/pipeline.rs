@@ -29,7 +29,10 @@ struct NodeSchemas {
     outputs: Vec<PortSchema>,
 }
 
-/// Pipeline builder that manages nodes and connections
+/// Builder for a statically connected processing pipeline.
+///
+/// It validates port schemas and payload compatibility before allocating
+/// transport channels, then consumes itself to create a running [`Scheduler`].
 pub struct Pipeline {
     nodes: Vec<(usize, Box<dyn ProcessNode>)>,
     node_names: HashMap<String, usize>,
@@ -49,7 +52,7 @@ struct PendingConnection {
 }
 
 impl Pipeline {
-    /// Create a new pipeline
+    /// Creates an empty pipeline with the standard connection buffer size.
     pub fn new() -> Self {
         Self {
             nodes: Vec::new(),
@@ -61,13 +64,25 @@ impl Pipeline {
         }
     }
 
-    /// Set the default buffer size for connections
+    /// Sets the default capacity used for newly connected channels.
+    ///
+    /// # Parameters
+    /// - `size`: Maximum queued messages for ordinary connections. Packed-block
+    ///   and word connections apply smaller protective defaults.
     pub fn with_default_buffer_size(mut self, size: usize) -> Self {
         self.default_buffer_size = size;
         self
     }
 
-    /// Add a process node by name (inputs/outputs determined automatically from node)
+    /// Adds a named process node, caching its declared input and output schemas.
+    ///
+    /// Names are unique within this pipeline and become the stable connection
+    /// endpoints accepted by [`Self::connect`].
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: Unique graph-local name for the node.
+    /// - `node`: Processing implementation whose schemas define its ports.
     pub fn add_process<N: ProcessNode + 'static>(
         &mut self,
         name: impl Into<String>,
@@ -93,7 +108,17 @@ impl Pipeline {
         Ok(())
     }
 
-    /// Connect two nodes by name and port name
+    /// Connects an output port to an input port using the default buffer capacity.
+    ///
+    /// The connection is validated immediately for existence, uniqueness, and
+    /// compatible payload kinds; transport protocol selection happens in [`Self::build`].
+    ///
+    /// # Parameters
+    ///
+    /// - `from_node`: Name of the producing node.
+    /// - `from_port`: Name of its output port.
+    /// - `to_node`: Name of the consuming node.
+    /// - `to_port`: Name of its input port.
     pub fn connect(
         &mut self,
         from_node: &str,
@@ -104,7 +129,15 @@ impl Pipeline {
         self.connect_impl(from_node, from_port, to_node, to_port, None)
     }
 
-    /// Connect with custom buffer size
+    /// Connects ports with a caller-selected channel capacity.
+    ///
+    /// # Parameters
+    ///
+    /// - `from_node`: Name of the producing node.
+    /// - `from_port`: Name of its output port.
+    /// - `to_node`: Name of the consuming node.
+    /// - `to_port`: Name of its input port.
+    /// - `buffer_size`: Maximum queued stream messages for this connection.
     pub fn connect_with_buffer(
         &mut self,
         from_node: &str,
@@ -233,7 +266,11 @@ impl Pipeline {
         Ok(())
     }
 
-    /// Get input port schema for a node by name
+    /// Returns one input-port schema by node and port name.
+    ///
+    /// # Parameters
+    /// - `name`: Name of the node that owns the input.
+    /// - `port`: Declared name of the input port.
     pub fn get_node_input_schema(&self, name: &str, port: &str) -> Result<&PortSchema, String> {
         let id = self
             .node_names
@@ -250,7 +287,12 @@ impl Pipeline {
             .ok_or_else(|| format!("Input port '{}' not found on node '{}'", port, name))
     }
 
-    /// Get output port schema for a node by name
+    /// Returns one output-port schema by node and port name.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: Name of the node that owns the output.
+    /// - `port`: Declared name of the output port.
     pub fn get_node_output_schema(&self, name: &str, port: &str) -> Result<&PortSchema, String> {
         let id = self
             .node_names
@@ -267,7 +309,11 @@ impl Pipeline {
             .ok_or_else(|| format!("Output port '{}' not found on node '{}'", port, name))
     }
 
-    /// List all input ports for a node by name
+    /// Returns all input-port schemas for a named node in schema order.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: Name of the node to inspect.
     pub fn list_node_inputs(&self, name: &str) -> Result<&[PortSchema], String> {
         let id = self
             .node_names
@@ -280,7 +326,11 @@ impl Pipeline {
         Ok(schemas.inputs.as_slice())
     }
 
-    /// List all output ports for a node by name
+    /// Returns all output-port schemas for a named node in schema order.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: Name of the node to inspect.
     pub fn list_node_outputs(&self, name: &str) -> Result<&[PortSchema], String> {
         let id = self
             .node_names
@@ -293,12 +343,20 @@ impl Pipeline {
         Ok(schemas.outputs.as_slice())
     }
 
-    /// List all node names
+    /// Returns the graph-local names of all added nodes.
     pub fn list_nodes(&self) -> Vec<&str> {
         self.node_names.keys().map(|s| s.as_str()).collect()
     }
 
-    /// Build the pipeline and return a ready-to-run scheduler
+    /// Validates, lowers, and starts the configured nodes in a scheduler.
+    ///
+    /// Each input chooses a mutually supported stream or edge-query protocol.
+    /// Stream connections receive typed channels; edge-query connections receive
+    /// the producer capability directly. This consumes the builder.
+    ///
+    /// # Parameters
+    ///
+    /// - `work_executor`: Host capability that runs node and watchdog tasks.
     pub fn build(
         mut self,
         work_executor: Arc<dyn crate::WorkExecutor>,

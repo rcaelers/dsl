@@ -24,6 +24,11 @@ pub struct TriggerCounter {
 }
 
 impl TriggerCounter {
+    /// Creates a trigger counter with the supplied count sequence configuration.
+    ///
+    /// # Parameters
+    /// - `start`: Input consumed by this operation.
+    /// - `step`: Input consumed by this operation.
     pub fn new(start: i64, step: i64) -> Self {
         Self {
             name: "trigger_counter".to_string(),
@@ -35,6 +40,7 @@ impl TriggerCounter {
         }
     }
 
+    /// Returns this value configured with name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self

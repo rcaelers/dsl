@@ -260,6 +260,7 @@ impl PayloadAdapter for NumberPayloadAdapter {
     }
 }
 
+/// Returns the payload adapter for built-in numeric lanes.
 pub fn number_payload_adapter() -> Arc<dyn PayloadAdapter> {
     Arc::new(NumberPayloadAdapter)
 }

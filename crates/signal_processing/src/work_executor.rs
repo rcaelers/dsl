@@ -21,6 +21,9 @@ pub struct WorkerOperation(String);
 impl WorkerOperation {
     /// Creates an operation identifier suitable for a serialized worker
     /// request.
+    ///
+    /// # Parameters
+    /// - `value`: Non-empty stable operation identifier owned by a kernel.
     pub fn new(value: impl Into<String>) -> Result<Self, WorkerMessageError> {
         let value = value.into();
         if value.trim().is_empty() {
@@ -55,17 +58,33 @@ pub enum WorkerMessage {
     /// Requests execution of one finite operation.
     Run(WorkerRequest),
     /// Requests cancellation of an outstanding operation.
-    Cancel { sequence: u64 },
+    Cancel {
+        /// Caller-assigned sequence of the operation to cancel.
+        sequence: u64
+    },
     /// Reports monotonic operation progress when its total is known.
     Progress {
+        /// Caller-assigned sequence of the active operation.
         sequence: u64,
+        /// Completed work units reported by the operation.
         completed: u64,
+        /// Total work units, when the operation can determine one.
         total: Option<u64>,
     },
     /// Returns the owned result payload for one completed operation.
-    Complete { sequence: u64, payload: Vec<u8> },
+    Complete {
+        /// Caller-assigned sequence of the completed operation.
+        sequence: u64,
+        /// Owned result bytes interpreted by the operation owner.
+        payload: Vec<u8>
+    },
     /// Reports an operation failure without leaking host-specific error types.
-    Failed { sequence: u64, message: String },
+    Failed {
+        /// Caller-assigned sequence of the failed operation.
+        sequence: u64,
+        /// User-presentable failure explanation.
+        message: String
+    },
 }
 
 /// Validation error for the portable worker-message envelope.
@@ -109,6 +128,10 @@ pub struct WorkerExecutionCapability {
 
 impl WorkerExecutionCapability {
     /// Creates a capability for an active parallel worker host.
+    ///
+    /// # Parameters
+    /// - `parallelism`: Maximum independently scheduled operations.
+    /// - `operations`: Stable operation identifiers supported by the host.
     pub fn parallel(parallelism: usize, mut operations: Vec<WorkerOperation>) -> Self {
         operations.sort();
         operations.dedup();
@@ -194,6 +217,10 @@ pub struct CooperativeWorkerOperationExecutor {
 
 impl CooperativeWorkerOperationExecutor {
     /// Creates a fallback for a host that cannot provide parallel workers.
+    ///
+    /// # Parameters
+    /// - `kernels`: Portable operation catalog executed by the fallback.
+    /// - `unavailable_reason`: Reason a parallel host was not selected.
     pub fn new(kernels: WorkerKernelRegistry, unavailable_reason: impl Into<String>) -> Self {
         let operations = kernels.operations().cloned().collect::<Vec<_>>();
         Self {
@@ -279,6 +306,9 @@ impl WorkerKernelRegistry {
     }
 
     /// Reports whether the catalog can execute `operation`.
+    ///
+    /// # Parameters
+    /// - `operation`: Stable operation identifier to test.
     pub fn supports(&self, operation: &WorkerOperation) -> bool {
         self.kernels.contains_key(operation)
     }

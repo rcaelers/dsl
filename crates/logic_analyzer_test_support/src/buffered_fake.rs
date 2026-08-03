@@ -11,6 +11,7 @@ use signal_processing::{
     CaptureSessionState, CaptureSettingCombination, PreparedAcquisition, SimpleTriggerCondition,
 };
 
+/// Configuration for a deterministic provider that captures on-device then uploads in chunks.
 #[derive(Clone, Debug)]
 pub struct BufferedFakeConfig {
     channels: Arc<[CaptureChannelId]>,
@@ -23,6 +24,14 @@ pub struct BufferedFakeConfig {
 }
 
 impl BufferedFakeConfig {
+    /// Validates configuration for a deterministic buffered capture.
+    ///
+    /// # Parameters
+    /// - `channels`: Non-empty channel set exposed by the fake.
+    /// - `sample_rate_hz`: Non-zero acquisition sample rate.
+    /// - `total_samples`: Non-zero number of samples captured before upload.
+    /// - `upload_chunk_samples`: Non-zero maximum number of samples per uploaded chunk.
+    /// - `seed`: Stable seed selecting the generated waveform.
     pub fn new(
         channels: impl Into<Arc<[CaptureChannelId]>>,
         sample_rate_hz: u64,
@@ -74,6 +83,11 @@ impl BufferedFakeConfig {
         Ok(config)
     }
 
+    /// Returns this value configured with simple trigger.
+    ///
+    /// # Parameters
+    /// - `conditions`: One optional condition per configured channel; `None` and `Ignore` do not
+    ///   constrain triggering.
     pub fn with_simple_trigger(
         mut self,
         conditions: impl Into<Arc<[Option<SimpleTriggerCondition>]>>,
@@ -90,28 +104,38 @@ impl BufferedFakeConfig {
         Ok(self)
     }
 
+    /// Returns the configured capture channels in packed-data order.
     pub fn channels(&self) -> &[CaptureChannelId] {
         &self.channels
     }
 
+    /// Returns the configured acquisition rate in hertz.
     pub const fn sample_rate_hz(&self) -> u64 {
         self.sample_rate_hz
     }
 
+    /// Returns the finite number of captured samples before upload starts.
     pub const fn total_samples(&self) -> u64 {
         self.total_samples
     }
 
+    /// Returns the supported channel/rate combinations and buffered-delivery behavior.
     pub fn capabilities(&self) -> &CaptureProviderCapabilities {
         &self.capabilities
     }
 
+    /// Returns the deterministic level generated at a sample and channel index.
+    ///
+    /// # Parameters
+    /// - `sample`: Absolute sample index within the finite capture.
+    /// - `channel`: Zero-based index into [`Self::channels`].
     pub fn level_at(&self, sample: u64, channel: usize) -> bool {
         let channel = channel as u64;
         let period = channel.wrapping_mul(2).wrapping_add(3);
         ((sample / period) ^ channel ^ self.seed) & 1 != 0
     }
 
+    /// Returns the first sample satisfying the configured trigger, if any.
     pub fn first_trigger_sample(&self) -> Option<u64> {
         if !self.has_trigger() {
             return None;
@@ -258,12 +282,17 @@ impl BufferedFakeControl {
     }
 }
 
+/// Controller for manually releasing chunks from a [`BufferedFakeProvider`].
 #[derive(Clone, Debug)]
 pub struct BufferedFakeController {
     control: Arc<BufferedFakeControl>,
 }
 
 impl BufferedFakeController {
+    /// Waits for sampling to finish and the fake to enter its upload phase.
+    ///
+    /// # Parameters
+    /// - `timeout`: Maximum time to wait for the upload phase.
     pub fn wait_until_upload(&self, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
         let mut state = self
@@ -289,6 +318,10 @@ impl BufferedFakeController {
         state.phase == BufferedFakePhase::Uploading
     }
 
+    /// Allows this many pending upload chunks to be emitted.
+    ///
+    /// # Parameters
+    /// - `chunks`: Number of chunks to release; zero leaves the provider blocked.
     pub fn grant_upload_chunks(&self, chunks: usize) {
         let mut state = self
             .control
@@ -300,6 +333,7 @@ impl BufferedFakeController {
     }
 }
 
+/// Prepared-acquisition provider that models a device-buffered capture.
 pub struct BufferedFakeProvider {
     config: BufferedFakeConfig,
     control: Arc<BufferedFakeControl>,
@@ -307,10 +341,18 @@ pub struct BufferedFakeProvider {
 }
 
 impl BufferedFakeProvider {
+    /// Creates a provider that uploads all chunks without test-controlled pauses.
+    ///
+    /// # Parameters
+    /// - `config`: Validated finite-capture configuration.
     pub fn new(config: BufferedFakeConfig) -> Self {
         Self::with_control(config, Arc::new(BufferedFakeControl::new(false)))
     }
 
+    /// Creates a provider whose upload progression is controlled by a returned controller.
+    ///
+    /// # Parameters
+    /// - `config`: Validated finite-capture configuration.
     pub fn manually_uploaded(config: BufferedFakeConfig) -> (Self, BufferedFakeController) {
         let control = Arc::new(BufferedFakeControl::new(true));
         let provider = Self::with_control(config, Arc::clone(&control));
@@ -329,10 +371,15 @@ impl BufferedFakeProvider {
         }
     }
 
+    /// Returns the provider capabilities derived from its configuration.
     pub fn capabilities(&self) -> &CaptureProviderCapabilities {
         self.config.capabilities()
     }
 
+    /// Creates a prepared acquisition and publishes the normal preparation states.
+    ///
+    /// # Parameters
+    /// - `context`: Session context receiving status, chunks, progress, and completion events.
     pub fn prepare(
         self,
         mut context: AcquisitionContext,

@@ -28,6 +28,7 @@ struct SourcePreparationControlState {
 }
 
 impl SourcePreparationControl {
+    /// Creates fresh progress and cancellation state for one preparation task.
     pub fn new() -> Self {
         Self {
             inner: Arc::new(SourcePreparationControlState {
@@ -38,10 +39,15 @@ impl SourcePreparationControl {
         }
     }
 
+    /// Returns whether the host has cancelled this preparation generation.
     pub fn is_cancelled(&self) -> bool {
         self.inner.cancelled.load(Ordering::Acquire)
     }
 
+    /// Publishes index-build progress unless preparation was cancelled.
+    ///
+    /// # Parameters
+    /// - `progress`: Latest progress reported by the source or index builder.
     pub fn report_progress(&self, progress: CaptureIndexBuildProgress) -> bool {
         if self.is_cancelled() {
             return false;
@@ -50,6 +56,10 @@ impl SourcePreparationControl {
         true
     }
 
+    /// Publishes immutable capture metadata unless preparation was cancelled.
+    ///
+    /// # Parameters
+    /// - `metadata`: Metadata discovered while preparing the source.
     pub fn report_metadata(&self, metadata: CaptureMetadata) -> bool {
         if self.is_cancelled() {
             return false;
@@ -79,13 +89,17 @@ impl Default for SourcePreparationControl {
 
 /// The current state of one submitted source-preparation operation.
 pub enum SourcePreparationTaskUpdate {
+    /// Submitted work has not produced a terminal result.
     Pending,
+    /// Submitted work completed with its result or failure.
     Complete(SourcePreparationResult),
+    /// The host can no longer provide results for the submitted work.
     Disconnected,
 }
 
 /// A host-owned source-preparation operation that the compiler can poll.
 pub trait SourcePreparationTask {
+    /// Polls for the task's current completion state without blocking.
     fn poll(&mut self) -> SourcePreparationTaskUpdate;
 }
 
@@ -95,6 +109,11 @@ pub trait SourcePreparationTask {
 /// decide whether work runs inline, on native workers, or in a future browser
 /// worker without introducing target selection into compiler behavior.
 pub trait SourcePreparationExecutor: Send + Sync {
+    /// Starts one finite-source preparation operation.
+    ///
+    /// # Parameters
+    /// - `work`: Source-owned operation that returns the prepared capture representation.
+    /// - `control`: Shared cancellation and progress publication handle.
     fn submit(
         &self,
         work: SourcePreparationWork,
@@ -140,6 +159,11 @@ pub struct CaptureWorkerSourcePreparationExecutor {
 }
 
 impl CaptureWorkerSourcePreparationExecutor {
+    /// Combines a capture-worker client with a local fallback executor.
+    ///
+    /// # Parameters
+    /// - `client`: Host worker client for opaque index-preparation requests.
+    /// - `local`: Executor for local preparation closures.
     pub fn new(
         client: Arc<CaptureWorkerClient>,
         local: Box<dyn SourcePreparationExecutor>,

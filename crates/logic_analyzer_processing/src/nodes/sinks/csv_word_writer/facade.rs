@@ -8,6 +8,11 @@ use crate::nodes::sinks::OutputStorage;
 
 /// Platform-neutral construction contract for a CSV word writer.
 pub trait CsvWordWriterFactory: Send + Sync {
+    /// Returns the destination-storage capability used by the writer.
+    ///
+    /// # Parameters
+    /// - `name`: Input consumed by this operation.
+    /// - `config`: Input consumed by this operation.
     fn create(
         &self,
         name: &str,

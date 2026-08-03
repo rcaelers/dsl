@@ -10,6 +10,9 @@ use crate::support::dsl_file::DslFileCaptureDataSource;
 
 impl DslFileSource {
     /// Temporary path entry point for developer tools and format tests.
+    ///
+    /// # Parameters
+    /// - `path`: Input consumed by this operation.
     pub fn indexed_capture_presentation_from_path(
         path: impl AsRef<Path>,
     ) -> Result<signal_processing::IndexedCapturePresentation> {

@@ -55,21 +55,32 @@ struct Manifest {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PersistentCacheStats {
+    /// Number of valid persistent entries retained after maintenance.
     pub entries: usize,
+    /// Total bytes retained after maintenance.
     pub total_bytes: u64,
+    /// Number of entries removed during maintenance.
     pub removed_entries: usize,
+    /// Bytes removed during maintenance.
     pub removed_bytes: u64,
 }
 
 /// Read-only diagnostics for one valid persistent derived-data entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PersistentCacheEntrySnapshot {
+    /// Combined manifest, index, and data bytes.
     pub total_bytes: u64,
+    /// Bytes occupied by encoded data blocks.
     pub data_bytes: u64,
+    /// Bytes occupied by the persistent index.
     pub index_bytes: u64,
+    /// Exact words represented by the entry.
     pub word_count: u64,
+    /// Immutable encoded block count.
     pub block_count: usize,
+    /// Earliest stored word timestamp.
     pub first_timestamp_ns: Option<u64>,
+    /// Latest stored word timestamp.
     pub last_timestamp_ns: Option<u64>,
 }
 
@@ -86,6 +97,10 @@ pub struct PersistentCacheClearTask {
 }
 
 impl PersistentCacheClearTask {
+    /// Enumerates every derived-word artifact for incremental removal.
+    ///
+    /// # Parameters
+    /// - `repository`: Artifact repository whose derived-word entries are cleared.
     pub fn new(repository: Arc<dyn ArtifactRepository>) -> StoreResult<Self> {
         let mut artifacts = BTreeMap::new();
         let mut cache_keys = BTreeSet::new();
@@ -141,6 +156,13 @@ impl PersistentCacheClearTask {
     }
 }
 
+/// Removes invalid and least-recently-used persistent entries until within budget.
+///
+/// # Parameters
+///
+/// - `repository`: Artifact repository containing cache entries.
+/// - `max_total_bytes`: Maximum retained bytes after cleanup.
+/// - `pinned_keys`: Cache identities that cleanup must not remove.
 pub fn cleanup_cache(
     repository: &Arc<dyn ArtifactRepository>,
     max_total_bytes: u64,
@@ -206,6 +228,10 @@ pub fn cleanup_cache(
     Ok(stats)
 }
 
+/// Clears cache.
+///
+/// # Parameters
+/// - `repository`: Artifact repository whose derived-word entries are cleared.
 pub fn clear_cache(repository: &Arc<dyn ArtifactRepository>) -> StoreResult<PersistentCacheStats> {
     let mut stats = PersistentCacheStats::default();
     for cache_key in all_cache_keys(repository)? {
@@ -219,6 +245,11 @@ pub fn clear_cache(repository: &Arc<dyn ArtifactRepository>) -> StoreResult<Pers
     Ok(stats)
 }
 
+/// Removes one persistent cache entry and all of its artifacts.
+///
+/// # Parameters
+///
+/// - `config`: Persistent identity and repository configuration for the entry.
 pub fn clear_cache_entry(config: &PersistentStoreConfig) -> StoreResult<PersistentCacheStats> {
     if config
         .artifact_repository
@@ -236,6 +267,10 @@ pub fn clear_cache_entry(config: &PersistentStoreConfig) -> StoreResult<Persiste
 }
 
 /// Inspects an entry without updating its LRU timestamp or deleting invalid data.
+///
+/// # Parameters
+///
+/// - `config`: Persistent identity and repository configuration for the entry.
 pub fn inspect_cache_entry(
     config: &PersistentStoreConfig,
 ) -> StoreResult<Option<PersistentCacheEntrySnapshot>> {

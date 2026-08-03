@@ -52,6 +52,9 @@ pub(crate) struct AppServiceParts {
 impl AppServices {
     /// Combines the standard graph/compiler service with a host-provided UI
     /// service implementation.
+    ///
+    /// # Parameters
+    /// - `host_service`: Input consumed by this operation.
     pub fn with_host_service(host_service: Box<dyn HostService>) -> Self {
         Self::with_host_configuration(
             host_service,
@@ -134,6 +137,11 @@ impl AppServices {
     }
 
     /// Replaces portable graph execution with host-selected adapters.
+    ///
+    /// # Parameters
+    /// - `source_preparation_executor`: Input consumed by this operation.
+    /// - `runtime_factory`: Input consumed by this operation.
+    /// - `work_executor`: Input consumed by this operation.
     pub fn with_graph_execution(
         mut self,
         source_preparation_executor: Box<dyn SourcePreparationExecutor>,

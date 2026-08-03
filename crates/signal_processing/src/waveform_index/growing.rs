@@ -700,6 +700,14 @@ impl Clone for GrowingCaptureIndex {
 }
 
 impl GrowingCaptureIndex {
+    /// Builds a growing index for a finalized capture using the same worker path as live capture.
+    ///
+    /// # Parameters
+    /// - `capture`: Finalized authoritative capture to index.
+    /// - `display_name`: Human-readable name for query consumers.
+    /// - `sample_rate_hz`: Positive capture sample rate in hertz.
+    /// - `probe_names`: Display names in capture channel order.
+    /// - `work_executor`: Host capability that runs the indexing worker.
     pub fn rebuild(
         capture: &FinalizedCapture,
         display_name: impl Into<String>,
@@ -716,6 +724,18 @@ impl GrowingCaptureIndex {
         )
     }
 
+    /// Starts a growing index that follows a live capture store cursor.
+    ///
+    /// The returned query is usable immediately; wide windows gain summaries
+    /// as the worker consumes committed chunks.
+    ///
+    /// # Parameters
+    ///
+    /// - `store`: Authoritative capture store to follow.
+    /// - `display_name`: Human-readable name for query consumers.
+    /// - `sample_rate_hz`: Positive capture sample rate in hertz.
+    /// - `probe_names`: Display names in descriptor channel order.
+    /// - `work_executor`: Host capability that runs the indexing worker.
     pub fn spawn(
         store: CaptureStore,
         display_name: impl Into<String>,
@@ -792,6 +812,10 @@ impl GrowingCaptureIndex {
         metadata
     }
 
+    /// Sets trigger sample.
+    ///
+    /// # Parameters
+    /// - `sample`: Authoritative trigger sample to expose through metadata.
     pub fn set_trigger_sample(&self, sample: u64) {
         let mut state = self
             .state
@@ -971,10 +995,12 @@ pub struct GrowingCaptureIndexWorker {
 }
 
 impl GrowingCaptureIndexWorker {
+    /// Returns whether finished.
     pub fn is_finished(&self) -> bool {
         self.completed.load(Ordering::Acquire)
     }
 
+    /// Waits for the background index worker and returns its final result.
     pub fn join(self) -> Result<()> {
         while !self.is_finished() {
             std::thread::sleep(Duration::from_millis(1));

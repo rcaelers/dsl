@@ -362,6 +362,15 @@ fn fail_attachments(
 }
 
 #[wasm_bindgen(js_name = executeCaptureWorkerRequest)]
+/// Executes one serialized capture-worker request in the browser worker.
+///
+/// Messages produced while handling the request are passed to `publish` as encoded
+/// capture-worker message batches. The returned boolean reports whether preparation
+/// work remains and must be advanced with [`advance_capture_worker_preparation`].
+///
+/// # Parameters
+/// - `payload`: JSON-encoded [`CaptureWorkerRequest`].
+/// - `publish`: JavaScript callback receiving each encoded message batch.
 pub fn execute_capture_worker_request(
     payload: Vec<u8>,
     publish: &Function,
@@ -384,6 +393,13 @@ pub fn execute_capture_worker_request(
 }
 
 #[wasm_bindgen(js_name = advanceCaptureWorkerPreparation)]
+/// Advances one pending capture preparation in the browser worker.
+///
+/// Messages produced during the step are passed to `publish`; the returned boolean
+/// indicates whether any preparation remains pending.
+///
+/// # Parameters
+/// - `publish`: JavaScript callback receiving each encoded message batch.
 pub fn advance_capture_worker_preparation(publish: &Function) -> Result<bool, JsValue> {
     install_worker_panic_hook();
     let mut failure = None;
@@ -396,6 +412,15 @@ pub fn advance_capture_worker_preparation(publish: &Function) -> Result<bool, Js
 }
 
 #[wasm_bindgen(js_name = executeGraphWorkerRequest)]
+/// Executes one serialized graph-worker request in the browser worker.
+///
+/// Messages produced while handling the request are passed to `publish` as encoded
+/// graph-worker message batches. The returned boolean reports whether a graph run
+/// remains active and must be advanced with [`advance_graph_worker_run`].
+///
+/// # Parameters
+/// - `payload`: Binary-encoded [`GraphWorkerRequest`].
+/// - `publish`: JavaScript callback receiving each encoded message batch.
 pub fn execute_graph_worker_request(payload: Vec<u8>, publish: &Function) -> Result<bool, JsValue> {
     install_worker_panic_hook();
     let request = decode_graph_worker_request(&payload)
@@ -415,6 +440,13 @@ pub fn execute_graph_worker_request(payload: Vec<u8>, publish: &Function) -> Res
 }
 
 #[wasm_bindgen(js_name = advanceGraphWorkerRun)]
+/// Advances the active graph run by one cooperative browser-worker step.
+///
+/// Messages produced during the step are passed to `publish`; the returned boolean
+/// indicates whether the graph run remains active.
+///
+/// # Parameters
+/// - `publish`: JavaScript callback receiving each encoded message batch.
 pub fn advance_graph_worker_run(publish: &Function) -> Result<bool, JsValue> {
     install_worker_panic_hook();
     let mut failure = None;
@@ -469,6 +501,10 @@ fn publish_graph_message(
 }
 
 #[wasm_bindgen(js_name = beginCaptureIdentity)]
+/// Allocates an incremental BLAKE3 capture-identity handle.
+///
+/// Feed the handle with [`update_capture_identity`] and consume it exactly once with
+/// [`finish_capture_identity`] or discard it with [`cancel_capture_identity`].
 pub fn begin_capture_identity() -> Result<u32, JsValue> {
     CAPTURE_IDENTITY_HASHERS.with(|state| {
         let mut state = state.borrow_mut();
@@ -483,6 +519,11 @@ pub fn begin_capture_identity() -> Result<u32, JsValue> {
 }
 
 #[wasm_bindgen(js_name = updateCaptureIdentity)]
+/// Adds bytes to an incremental capture-identity hash.
+///
+/// # Parameters
+/// - `id`: Handle returned by [`begin_capture_identity`].
+/// - `bytes`: Next contiguous file-data bytes to hash.
 pub fn update_capture_identity(id: u32, bytes: Vec<u8>) -> Result<(), JsValue> {
     CAPTURE_IDENTITY_HASHERS.with(|state| {
         let mut state = state.borrow_mut();
@@ -496,6 +537,12 @@ pub fn update_capture_identity(id: u32, bytes: Vec<u8>) -> Result<(), JsValue> {
 }
 
 #[wasm_bindgen(js_name = finishCaptureIdentity)]
+/// Finalizes and removes an incremental capture-identity hash.
+///
+/// # Parameters
+/// - `id`: Handle returned by [`begin_capture_identity`].
+///
+/// Returns the 32-byte BLAKE3 digest or an error when the handle is unknown.
 pub fn finish_capture_identity(id: u32) -> Result<Vec<u8>, JsValue> {
     CAPTURE_IDENTITY_HASHERS.with(|state| {
         state
@@ -508,6 +555,10 @@ pub fn finish_capture_identity(id: u32) -> Result<Vec<u8>, JsValue> {
 }
 
 #[wasm_bindgen(js_name = cancelCaptureIdentity)]
+/// Discards an incremental capture-identity hash without producing a digest.
+///
+/// # Parameters
+/// - `id`: Handle returned by [`begin_capture_identity`]. Unknown handles are ignored.
 pub fn cancel_capture_identity(id: u32) {
     CAPTURE_IDENTITY_HASHERS.with(|state| {
         state.borrow_mut().hashers.remove(&id);
@@ -515,6 +566,15 @@ pub fn cancel_capture_identity(id: u32) {
 }
 
 #[wasm_bindgen(js_name = inspectCaptureFile)]
+/// Creates serialized capture metadata for an already-attached browser file.
+///
+/// # Parameters
+/// - `reference`: Opaque file reference used by the browser import pipeline.
+/// - `display_name`: User-facing file name.
+/// - `identity`: 32-byte BLAKE3 content identity returned by the incremental hash API.
+/// - `length`: Non-negative integral file length in bytes.
+///
+/// Returns JSON-encoded [`CaptureMetadata`] suitable for the worker attach response.
 pub fn inspect_capture_file(
     reference: String,
     display_name: String,

@@ -209,8 +209,8 @@ The documentation set is organized by ownership and by cross-cutting aspect:
   includes responsibility, public façade, dependency allowlist, owned data and persistence,
   extension points, error boundary, and test boundary. Public API references live beside their
   crate owner when they are useful to embedders.
-- `docs/modules/<crate>/<public-module>.md` is added when a public module or internal owner module
-  contains an independent domain. It does not document every implementation leaf.
+- A public module or independently-owned internal domain documents its contract in Rustdoc at its
+  owning source facade. It does not document every implementation leaf.
 - `docs/integrations/` contains external protocol and decoder-host contracts. `docs/references/`
   contains hardware reference material.
 - `docs/INDEX.md` is the entry point. It maps each crate and public module to exactly one owner

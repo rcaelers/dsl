@@ -26,6 +26,10 @@ pub struct EventGate {
 }
 
 impl EventGate {
+    /// Creates an event gate with the supplied gating configuration.
+    ///
+    /// # Parameters
+    /// - `polarity`: Input consumed by this operation.
     pub fn new(polarity: GatePolarity) -> Self {
         Self {
             name: "event_gate".to_owned(),
@@ -40,6 +44,7 @@ impl EventGate {
         }
     }
 
+    /// Returns this value configured with name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self

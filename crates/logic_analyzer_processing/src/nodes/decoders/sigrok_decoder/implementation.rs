@@ -74,6 +74,11 @@ pub struct SigrokDecoder {
 }
 
 impl SigrokDecoder {
+    /// Returns this value configured with execution factory.
+    ///
+    /// # Parameters
+    /// - `config`: Input consumed by this operation.
+    /// - `execution_factory`: Input consumed by this operation.
     pub fn with_execution_factory(
         config: SigrokDecoderConfig,
         execution_factory: &dyn SigrokExecutionFactory,
@@ -155,6 +160,10 @@ impl SigrokDecoder {
         })
     }
 
+    /// Returns this value configured with name.
+    ///
+    /// # Parameters
+    /// - `name`: Input consumed by this operation.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self

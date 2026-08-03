@@ -14,6 +14,10 @@ pub struct DiscardWordWriter {
 }
 
 impl DiscardWordWriter {
+    /// Creates a discard sink for word input.
+    ///
+    /// # Parameters
+    /// - `name`: Input consumed by this operation.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -66,6 +70,7 @@ pub struct DiscardTextWriter {
 }
 
 impl DiscardTextWriter {
+    /// Creates a discard sink for text-line input.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),

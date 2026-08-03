@@ -4,11 +4,15 @@ use crate::events::{Annotation, Word, instantaneous_word_end_ns};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AnnotationStoreMetadata {
+    /// Monotonically increasing generation of visible store contents.
     pub generation: u64,
     /// Whether the producer can still append annotations to this store.
     pub is_live: bool,
+    /// Total exact words retained by the store.
     pub total_word_count: u64,
+    /// Earliest retained word timestamp.
     pub first_timestamp_ns: Option<u64>,
+    /// Latest retained word timestamp.
     pub last_timestamp_ns: Option<u64>,
     /// Greatest explicit word end, or word start for instantaneous words.
     pub extent_end_ns: Option<u64>,
@@ -16,22 +20,31 @@ pub struct AnnotationStoreMetadata {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExactAnnotationWindow {
+    /// Exact annotations intersecting the requested window.
     pub annotations: Vec<Annotation>,
+    /// Whether another matching annotation exists beyond the requested limit.
     pub complete: bool,
+    /// Generation from which the window was read.
     pub generation: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WordPresenceBucket {
+    /// Inclusive bucket start in nanoseconds.
     pub start_ns: u64,
+    /// Exclusive bucket end in nanoseconds.
     pub end_ns: u64,
+    /// Number of words intersecting this bucket.
     pub word_count: u64,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum AnnotationQueryError {
     #[error("invalid annotation query window: start {start_ns} ns is after end {end_ns} ns")]
-    InvalidWindow { start_ns: u64, end_ns: u64 },
+    InvalidWindow {
+        start_ns: u64,
+        end_ns: u64
+    },
 
     #[error("annotation query word limit must be greater than zero")]
     ZeroWordLimit,
@@ -46,6 +59,7 @@ pub enum AnnotationQueryError {
     Store(String),
 }
 
+/// Result alias for viewer annotation queries.
 pub type AnnotationQueryResult<T> = std::result::Result<T, AnnotationQueryError>;
 
 /// Chooses committed blocks that can contribute to an exact annotation query,
@@ -212,12 +226,20 @@ fn consider_boundary(
 
 /// Viewer-oriented query surface shared by indexed and in-memory word lanes.
 pub trait AnnotationQuery: Send + Sync {
+    /// Returns a snapshot of current store size, liveness, and generation.
     fn metadata(&self) -> AnnotationStoreMetadata;
 
+    /// Returns the generation represented by subsequent query results.
     fn generation(&self) -> u64 {
         self.metadata().generation
     }
 
+    /// Returns bounded overview buckets for a time window.
+    ///
+    /// # Parameters
+    /// - `_start_ns`: Inclusive time-window start in nanoseconds.
+    /// - `_end_ns`: Inclusive time-window end in nanoseconds.
+    /// - `_target_buckets`: Maximum overview bucket count.
     fn presence_window(
         &self,
         _start_ns: u64,
@@ -243,6 +265,13 @@ pub trait AnnotationQuery: Send + Sync {
         self.presence_window(start_ns, end_ns, target_buckets)
     }
 
+    /// Returns exact annotations intersecting a bounded time window.
+    ///
+    /// # Parameters
+    ///
+    /// - `start_ns`: Inclusive time-window start in nanoseconds.
+    /// - `end_ns`: Inclusive time-window end in nanoseconds.
+    /// - `max_words`: Maximum exact annotations to return.
     fn exact_window(
         &self,
         start_ns: u64,
@@ -257,6 +286,12 @@ pub trait AnnotationQuery: Send + Sync {
         Ok(None)
     }
 
+    /// Finds the nearest annotation boundary within a maximum distance.
+    ///
+    /// # Parameters
+    ///
+    /// - `timestamp_ns`: Timeline point around which to search.
+    /// - `max_distance_ns`: Inclusive maximum distance from that point.
     fn nearest_boundary(
         &self,
         timestamp_ns: u64,
@@ -287,12 +322,14 @@ mod query_tests {
                     end_ns: 120,
                     value: 0x11,
                     payload: None,
+
                 },
                 Annotation {
                     start_ns: 200,
                     end_ns: 220,
                     value: 0x22,
                     payload: None,
+
                 },
             ]
         );
@@ -314,6 +351,7 @@ mod query_tests {
                 word_count: 1,
                 value_bytes: 1,
                 flags: 0,
+
             },
             BlockDirectoryEntry {
                 sequence: 1,
@@ -324,6 +362,7 @@ mod query_tests {
                 word_count: 1,
                 value_bytes: 1,
                 flags: 0,
+
             },
         ];
         let mut presence = WordPresenceIndex::new();

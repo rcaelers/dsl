@@ -1,4 +1,20 @@
+//! # `signal_processing::live_capture`
+//!
+//! ## Responsibility
+//!
+//! This module owns driver-neutral acquisition configuration, commands, events, progress, queueing,
+//! and terminal outcomes for a live capture session.
+//!
+//! ## Boundaries
+//!
+//! It does not implement a device transport, create a graph run, persist an application document, or
+//! present controls. Concrete sources implement its provider contracts and the UI coordinates sessions.
+
 //! Provider-neutral live-capture contracts, events, queues, and buffers.
+//!
+//! Providers implement configured and prepared acquisition contracts while this
+//! module owns portable lifecycle, delivery, trigger, and bounded-buffer vocabulary.
+//! Device transport, UI workflow, and target selection belong to other owners.
 
 mod acquisition;
 mod analysis;

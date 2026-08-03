@@ -12,19 +12,38 @@ impl<'a> PluginPanelContext<'a> {
         Self { lanes }
     }
 
+    /// Returns the read-only collected lanes available to this draw call.
     pub fn collected_lanes(&self) -> &'a [OpaqueCollectedLane] {
         self.lanes
     }
 }
 
 /// One independently persisted panel instance.
+/// Persistable panel implementation contributed by a plugin feature.
+///
+/// Plugin panels own their state and rendering but receive application data only through
+/// [`PluginPanelContext`].
 pub trait PluginPanel: Send {
+    /// Draws the panel for the current UI frame.
+    ///
+    /// # Parameters
+    /// - `ui`: Egui UI allocated to this panel instance.
+    /// - `context`: Read-only application data available to the panel.
     fn show(&mut self, ui: &mut egui::Ui, context: PluginPanelContext<'_>);
 
+    /// Serializes the panel's owner-managed persistent state.
+    ///
+    /// The default indicates that the panel has no saved state.
     fn save_state(&self) -> serde_json::Value {
         serde_json::Value::Null
     }
 
+    /// Restores owner-managed state previously returned by [`Self::save_state`].
+    ///
+    /// # Parameters
+    /// - `_state`: Persisted JSON value for this panel instance.
+    ///
+    /// The default accepts no state and leaves the panel unchanged.
     fn restore_state(&mut self, _state: serde_json::Value) -> Result<(), String> {
         Ok(())
     }

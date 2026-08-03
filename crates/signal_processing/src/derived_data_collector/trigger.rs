@@ -255,6 +255,7 @@ impl PayloadAdapter for TriggerPayloadAdapter {
     }
 }
 
+/// Returns the payload adapter for built-in trigger-event lanes.
 pub fn trigger_payload_adapter() -> Arc<dyn PayloadAdapter> {
     Arc::new(TriggerPayloadAdapter)
 }

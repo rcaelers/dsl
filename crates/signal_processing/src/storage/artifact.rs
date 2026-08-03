@@ -11,6 +11,10 @@ use super::memory::OwnedByteSource;
 pub struct ArtifactNamespace(String);
 
 impl ArtifactNamespace {
+    /// Creates a non-empty logical artifact namespace.
+    ///
+    /// # Parameters
+    /// - `value`: Stable logical namespace, independent of host paths.
     pub fn new(value: impl Into<String>) -> Result<Self, RepositoryError> {
         let value = value.into();
         if value.is_empty() {
@@ -21,6 +25,7 @@ impl ArtifactNamespace {
         Ok(Self(value))
     }
 
+    /// Returns the namespace's stable string value.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -34,6 +39,7 @@ pub struct ArtifactKey {
 }
 
 impl ArtifactKey {
+    /// Creates an artifact address from namespace and content identity.
     pub fn new(namespace: ArtifactNamespace, identity: SourceIdentity) -> Self {
         Self {
             namespace,
@@ -41,10 +47,12 @@ impl ArtifactKey {
         }
     }
 
+    /// Returns the logical namespace portion of this address.
     pub fn namespace(&self) -> &ArtifactNamespace {
         &self.namespace
     }
 
+    /// Returns the content-oriented identity portion of this address.
     pub fn identity(&self) -> SourceIdentity {
         self.identity
     }
@@ -53,19 +61,25 @@ impl ArtifactKey {
 /// Information available without opening an artifact's content.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArtifactMetadata {
+    /// Stable repository address of the artifact.
     pub key: ArtifactKey,
+    /// Published artifact length in bytes.
     pub length: u64,
 }
 
 /// Storage properties used by cache policy and source preparation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RepositoryCapabilities {
+    /// Whether artifacts survive process or host restarts.
     pub durable: bool,
+    /// Whether readers observe a complete generation or no publication.
     pub atomic_publication: bool,
+    /// Whether opened byte regions remain stable through later publication.
     pub immutable_regions: bool,
 }
 
 impl RepositoryCapabilities {
+    /// Capabilities of the in-memory repository implementation.
     pub const EPHEMERAL_MEMORY: Self = Self {
         durable: false,
         atomic_publication: true,
@@ -84,11 +98,21 @@ pub enum RepositoryError {
     #[error("artifact key is invalid: {0}")]
     InvalidKey(String),
     #[error("artifact range {offset}..+{length} overflows the address space")]
-    RangeOverflow { offset: u64, length: u64 },
-    #[error("artifact range {offset}..{end} exceeds artifact length {artifact_length}")]
-    OutOfBounds {
+    /// A requested range cannot be represented without overflowing `u64`.
+    RangeOverflow {
+        /// Starting byte offset.
         offset: u64,
+        /// Requested byte count.
+        length: u64
+    },
+    #[error("artifact range {offset}..{end} exceeds artifact length {artifact_length}")]
+    /// A requested range extends past the published artifact length.
+    OutOfBounds {
+        /// Starting byte offset.
+        offset: u64,
+        /// First byte after the requested range.
         end: u64,
+        /// Published artifact length.
         artifact_length: u64,
     },
     #[error("artifact repository data is corrupt: {0}")]
@@ -122,44 +146,64 @@ impl From<SourceReadError> for RepositoryError {
 
 /// Immutable reader for one published artifact generation.
 pub trait ReadArtifact: Send {
+    /// Returns the stable address of the opened artifact generation.
     fn key(&self) -> &ArtifactKey;
 
+    /// Returns the published byte length.
     fn len(&self) -> Result<u64, RepositoryError>;
 
+    /// Returns whether the artifact contains no bytes.
     fn is_empty(&self) -> Result<bool, RepositoryError> {
         self.len().map(|length| length == 0)
     }
 
+    /// Reads bytes beginning at an absolute artifact offset.
+    ///
+    /// # Parameters
+    /// - `offset`: Absolute byte offset in the artifact.
+    /// - `destination`: Buffer receiving the read bytes.
     fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize, RepositoryError>;
 
+    /// Opens an immutable region for a valid artifact byte range.
     fn region(&self, range: ByteRange) -> Result<Option<ByteRegion>, RepositoryError>;
 }
 
 /// One unpublished artifact write. Dropping it never publishes incomplete data.
 pub trait WriteArtifact: Send {
+    /// Returns the stable address reserved for this pending write.
     fn key(&self) -> &ArtifactKey;
 
+    /// Writes bytes at an absolute artifact offset.
     fn write_at(&mut self, offset: u64, source: &[u8]) -> Result<(), RepositoryError>;
 
+    /// Sets the pending artifact's byte length.
     fn truncate(&mut self, len: u64) -> Result<(), RepositoryError>;
 
+    /// Flushes pending data without making it visible to readers.
     fn flush(&mut self) -> Result<(), RepositoryError>;
 
+    /// Atomically publishes this completed artifact generation.
     fn publish(self: Box<Self>) -> Result<(), RepositoryError>;
 }
 
 /// Repository of immutable published artifacts and private pending writes.
 pub trait ArtifactRepository: Send + Sync {
+    /// Returns storage and region-access capabilities.
     fn capabilities(&self) -> RepositoryCapabilities;
 
+    /// Lists namespaces containing published artifacts.
     fn namespaces(&self) -> Result<Vec<ArtifactNamespace>, RepositoryError>;
 
+    /// Opens one published artifact generation by key.
     fn open(&self, key: &ArtifactKey) -> Result<Option<Box<dyn ReadArtifact>>, RepositoryError>;
 
+    /// Begins an unpublished write at a stable artifact address.
     fn begin_write(&self, key: ArtifactKey) -> Result<Box<dyn WriteArtifact>, RepositoryError>;
 
+    /// Removes the published artifact addressed by `key`.
     fn remove(&self, key: &ArtifactKey) -> Result<(), RepositoryError>;
 
+    /// Lists metadata for artifacts published in one namespace.
     fn entries(
         &self,
         namespace: &ArtifactNamespace,
@@ -190,10 +234,15 @@ pub struct MemoryArtifactRepository {
 }
 
 impl MemoryArtifactRepository {
+    /// Creates an empty in-memory immutable-artifact repository.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Returns this value configured with budget.
+    ///
+    /// # Parameters
+    /// - `max_bytes`: Input consumed by this operation.
     pub fn with_budget(max_bytes: u64) -> Self {
         Self {
             max_bytes,
@@ -201,6 +250,7 @@ impl MemoryArtifactRepository {
         }
     }
 
+    /// Returns this value configured with budget and chunk size.
     pub fn with_budget_and_chunk_size(
         max_bytes: u64,
         chunk_bytes: usize,
@@ -217,6 +267,7 @@ impl MemoryArtifactRepository {
         })
     }
 
+    /// Returns the total bytes occupied by published in-memory artifacts.
     pub fn used_bytes(&self) -> Result<u64, RepositoryError> {
         self.state
             .lock()

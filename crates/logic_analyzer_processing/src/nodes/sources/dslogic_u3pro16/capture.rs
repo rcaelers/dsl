@@ -35,6 +35,11 @@ pub struct DsLogicU3Pro16Capture {
 
 impl DsLogicU3Pro16Capture {
     /// Validates a U3Pro16 capture request without opening the device.
+    ///
+    /// # Parameters
+    /// - `config`: Input consumed by this operation.
+    /// - `channels`: Input consumed by this operation.
+    /// - `transport_factory`: Input consumed by this operation.
     pub fn new(
         config: LogicCaptureConfig,
         channels: impl Into<Arc<[CaptureChannelId]>>,

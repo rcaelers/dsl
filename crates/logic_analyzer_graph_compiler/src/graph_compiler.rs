@@ -42,6 +42,7 @@ pub struct GraphCompiler {
 }
 
 impl GraphCompiler {
+    /// Creates a compiler with cooperative in-memory host services.
     pub fn new() -> Self {
         Self {
             builders: BuilderRegistry::standard(),
@@ -55,6 +56,9 @@ impl GraphCompiler {
     }
 
     /// Constructs a compiler with host-selected finite-source preparation.
+    ///
+    /// # Parameters
+    /// - `executor`: Host executor for finite-source preparation tasks.
     pub fn with_source_preparation_executor(executor: Box<dyn SourcePreparationExecutor>) -> Self {
         Self {
             builders: BuilderRegistry::standard(),
@@ -102,32 +106,42 @@ impl GraphCompiler {
         }
     }
 
+    /// Sets artifact repository.
     pub fn set_artifact_repository(&mut self, repository: Arc<dyn ArtifactRepository>) {
         self.source_preparation
             .set_artifact_repository(Arc::clone(&repository));
         self.artifact_repository = repository;
     }
 
+    /// Sets output subscriptions.
     pub fn set_output_subscriptions(&mut self, subscriptions: OutputSubscriptionPlan) {
         self.output_subscriptions = subscriptions;
     }
 
+    /// Returns the configured retained and visible output selection.
     pub fn output_subscriptions(&self) -> &OutputSubscriptionPlan {
         &self.output_subscriptions
     }
 
+    /// Sets graph worker client.
     pub fn set_graph_worker_client(&mut self, client: Option<Arc<GraphWorkerClient>>) {
         self.graph_worker_client = client;
     }
 
+    /// Returns the optional client used to delegate graph execution to a worker.
     pub fn graph_worker_client(&self) -> Option<Arc<GraphWorkerClient>> {
         self.graph_worker_client.clone()
     }
 
+    /// Returns discovered payload registrations available to graph lowering.
     pub fn payloads(&self) -> &PayloadRegistry {
         self.builders.payloads()
     }
 
+    /// Discovers the capture source's viewer presentation for the current graph.
+    ///
+    /// # Parameters
+    /// - `graph`: Editor graph to inspect without executing it.
     pub fn discover_capture_presentation(
         &self,
         graph: &GraphState,
@@ -157,14 +171,17 @@ impl GraphCompiler {
         self.source_preparation.reset();
     }
 
+    /// Returns the current finite-source preparation lifecycle phase.
     pub fn source_preparation_status(&self) -> SourcePreparationStatus {
         self.source_preparation.status()
     }
 
+    /// Returns the current finite-source preparation snapshot and progress.
     pub fn source_preparation_snapshot(&self) -> SourcePreparationSnapshot {
         self.source_preparation.snapshot()
     }
 
+    /// Discovers the graph's single live-capture feature, if present.
     pub fn discover_live_capture_feature(
         &self,
         graph: &GraphState,
@@ -176,6 +193,7 @@ impl GraphCompiler {
         )
     }
 
+    /// Discovers validated trigger configuration from the live-capture source.
     pub fn discover_trigger_configuration(
         &self,
         graph: &GraphState,
@@ -183,6 +201,12 @@ impl GraphCompiler {
         graph::discover_trigger_configuration(graph, &self.builders)
     }
 
+    /// Applies a trigger edit to the live-capture source's persisted state.
+    ///
+    /// # Parameters
+    /// - `graph`: Graph containing the live-capture source.
+    /// - `source_node`: Source node that owns the edit.
+    /// - `edit`: Requested simple or advanced trigger change.
     pub fn apply_live_capture_edit(
         &self,
         graph: &GraphState,
@@ -192,6 +216,7 @@ impl GraphCompiler {
         graph::apply_live_capture_edit(graph, &self.builders, source_node, edit)
     }
 
+    /// Discovers markers contributed by concrete graph nodes.
     pub fn discover_timeline_markers(
         &self,
         graph: &GraphState,
@@ -199,6 +224,12 @@ impl GraphCompiler {
         graph::discover_timeline_markers(graph, &self.builders)
     }
 
+    /// Applies a host marker edit to its owning node's persisted state.
+    ///
+    /// # Parameters
+    /// - `graph`: Graph containing the marker owner.
+    /// - `owner_node`: Node that owns the edited marker.
+    /// - `edit`: Requested marker timestamp update.
     pub fn apply_timeline_marker_edit(
         &self,
         graph: &GraphState,
@@ -208,6 +239,10 @@ impl GraphCompiler {
         graph::apply_timeline_marker_edit(graph, &self.builders, owner_node, edit)
     }
 
+    /// Discovers controls that reference host-owned timeline markers.
+    ///
+    /// # Parameters
+    /// - `graph`: Graph to inspect for reference controls.
     pub fn discover_timeline_marker_reference_bindings(
         &self,
         graph: &GraphState,
@@ -215,6 +250,12 @@ impl GraphCompiler {
         graph::discover_timeline_marker_reference_bindings(graph, &self.builders)
     }
 
+    /// Applies new host reference choices to a node-owned control.
+    ///
+    /// # Parameters
+    /// - `graph`: Graph containing the control owner.
+    /// - `owner_node`: Node that owns the edited control.
+    /// - `edit`: New choices to synchronize into node state.
     pub fn apply_timeline_marker_reference_binding_edit(
         &self,
         graph: &GraphState,
@@ -224,10 +265,12 @@ impl GraphCompiler {
         graph::apply_timeline_marker_reference_binding_edit(graph, &self.builders, owner_node, edit)
     }
 
+    /// Lowers an editor graph into a materializable runtime description.
     pub fn lower(&self, graph: &GraphState) -> Result<CompiledGraph, Vec<CompileError>> {
         graph::lower_with_subscriptions(graph, &self.builders, &self.output_subscriptions)
     }
 
+    /// Resolves sampling overlays available for presentation in the graph.
     pub fn sampling_overlay_candidates(
         &self,
         graph: &GraphState,
@@ -235,6 +278,7 @@ impl GraphCompiler {
         graph::sampling_overlay_candidates(graph, &self.builders, &self.output_subscriptions)
     }
 
+    /// Returns persistent derived-data cache configurations grouped by source node.
     pub fn derived_cache_configs_by_node(
         &self,
         graph: &GraphState,
@@ -247,6 +291,7 @@ impl GraphCompiler {
         )
     }
 
+    /// Clears derived cache entry.
     pub fn clear_derived_cache_entry(
         &self,
         config: &PersistentStoreConfig,
@@ -254,14 +299,17 @@ impl GraphCompiler {
         cache_policy::clear_entry(config)
     }
 
+    /// Clears derived caches.
     pub fn clear_derived_caches(&self) -> Result<DerivedCacheClearStats, String> {
         cache_policy::clear_repository(&self.artifact_repository)
     }
 
+    /// Starts host-scheduled cleanup of all persistent derived-data caches.
     pub fn start_clear_derived_caches(&self) -> Result<DerivedCacheClearTask, String> {
         cache_policy::start_clear_repository(&self.artifact_repository, &self.work_executor)
     }
 
+    /// Inspects size and timestamp diagnostics for one derived-data cache entry.
     pub fn inspect_derived_cache_entry(
         &self,
         config: &PersistentStoreConfig,
@@ -269,6 +317,11 @@ impl GraphCompiler {
         cache_policy::inspect_entry(config)
     }
 
+    /// Lowers and starts an in-process graph run using the supplied context.
+    ///
+    /// # Parameters
+    /// - `graph`: Editor graph to lower and materialize.
+    /// - `ctx`: Run-scoped host services and timeline state.
     pub fn start_app_run(
         &self,
         graph: &GraphState,
@@ -285,6 +338,10 @@ impl GraphCompiler {
     }
 
     /// Loads persistent derived lanes for presentation without executing producers or sinks.
+    ///
+    /// # Parameters
+    /// - `graph`: Editor graph whose persistent derived lanes should be loaded.
+    /// - `ctx`: Run-scoped host services and timeline state.
     pub fn load_cached_data(
         &self,
         graph: &GraphState,
@@ -299,6 +356,12 @@ impl GraphCompiler {
         )
     }
 
+    /// Starts a graph run while replacing selected source nodes with supplied processes.
+    ///
+    /// # Parameters
+    /// - `graph`: Editor graph to lower and materialize.
+    /// - `ctx`: Run-scoped host services and timeline state.
+    /// - `overrides`: Concrete source processes keyed by source node ID.
     pub fn start_app_run_with_source_overrides(
         &self,
         graph: &GraphState,
@@ -316,6 +379,12 @@ impl GraphCompiler {
         )
     }
 
+    /// Starts live analysis using a provider-owned source process.
+    ///
+    /// # Parameters
+    /// - `graph`: Editor graph to lower and materialize.
+    /// - `ctx`: Run-scoped host services and timeline state.
+    /// - `source`: Provider-owned live source substituted into the graph.
     pub fn start_live_analysis(
         &self,
         graph: &GraphState,
@@ -338,6 +407,11 @@ impl GraphCompiler {
         ctx.set_artifact_repository(Arc::clone(&self.artifact_repository));
     }
 
+    /// Applies compatible graph edits to an active run.
+    ///
+    /// # Parameters
+    /// - `run`: Active run to reconfigure.
+    /// - `graph`: Updated editor graph.
     pub fn apply_run(
         &self,
         run: &mut LiveRun,
@@ -346,6 +420,12 @@ impl GraphCompiler {
         run.apply_with_subscriptions(graph, &self.builders, &self.output_subscriptions)
     }
 
+    /// Applies compatible edits at an explicit application configuration boundary.
+    ///
+    /// # Parameters
+    /// - `run`: Active run to reconfigure.
+    /// - `graph`: Updated editor graph.
+    /// - `boundary`: Application-defined boundary that permits configuration changes.
     pub fn apply_configuration_epoch(
         &self,
         run: &mut LiveRun,

@@ -1,5 +1,8 @@
 //! Example compile-time plugin crate proving the graph, runtime, viewer, and
 //! application-panel extension contracts with payloads owned outside the host crates.
+//!
+//! It is intentionally a reference implementation of the supported plugin surface,
+//! not a dependency of the host's generic compiler, viewer, or UI infrastructure.
 
 mod camera_frame;
 mod pulse_measure;

@@ -17,6 +17,9 @@ const CANCEL_REQUEST: u8 = 1;
 /// `GraphState` contains a map keyed by numeric newtypes. Deserializing that
 /// map through Serde's buffered internally-tagged enum representation loses
 /// JSON's numeric-map-key adapter, so the transport frames the graph separately.
+///
+/// # Parameters
+/// - `request`: Start or cancellation command to encode for a worker transport.
 pub fn encode_graph_worker_request(request: &GraphWorkerRequest) -> Result<Vec<u8>, String> {
     let mut output = Vec::new();
     output.extend_from_slice(REQUEST_MAGIC);
@@ -96,6 +99,9 @@ pub fn decode_graph_worker_request(bytes: &[u8]) -> Result<GraphWorkerRequest, S
 }
 
 /// Encodes graph-worker results without expanding artifact bytes through JSON.
+///
+/// # Parameters
+/// - `messages`: Ordered worker messages to encode as one bounded transport frame.
 pub fn encode_graph_worker_messages(messages: &[GraphWorkerMessage]) -> Result<Vec<u8>, String> {
     let mut output = Vec::new();
     output.extend_from_slice(MAGIC);

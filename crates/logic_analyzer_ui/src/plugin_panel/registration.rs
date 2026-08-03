@@ -17,6 +17,11 @@ pub struct UiPanelRegistration {
 }
 
 impl UiPanelRegistration {
+    /// Creates an inventory registration for a default-constructible panel type.
+    ///
+    /// # Parameters
+    /// - `stable_id`: Globally unique, persistable panel-kind identifier.
+    /// - `title`: User-facing default title for instances of the panel.
     pub const fn panel<P: PluginPanel + Default + 'static>(
         stable_id: &'static str,
         title: &'static str,
@@ -32,26 +37,38 @@ impl UiPanelRegistration {
         }
     }
 
+    /// Selects the icon shown for the registered panel.
+    ///
+    /// # Parameters
+    /// - `icon`: Application-neutral icon supplied by the panel feature.
     pub const fn icon(mut self, icon: PluginPanelIcon) -> Self {
         self.icon = icon;
         self
     }
 
+    /// Sets the minimum content size for panel-layout placement.
+    ///
+    /// # Parameters
+    /// - `width`: Minimum width in logical points.
+    /// - `height`: Minimum height in logical points.
     pub const fn minimum_size(mut self, width: f32, height: f32) -> Self {
         self.minimum_width = width;
         self.minimum_height = height;
         self
     }
 
+    /// Restricts the registered panel kind to one visible instance.
     pub const fn singleton(mut self) -> Self {
         self.singleton = true;
         self
     }
 
+    /// Returns the globally unique persistable panel-kind identifier.
     pub const fn stable_id(&self) -> &'static str {
         self.stable_id
     }
 
+    /// Returns the user-facing default panel title.
     pub const fn title(&self) -> &'static str {
         self.title
     }

@@ -43,6 +43,10 @@ impl UnixTimeSource for FixedTimeSource {
 }
 
 /// Verifies the common artifact lifecycle and immutable-region contract.
+///
+/// # Parameters
+/// - `repository`: Input consumed by this operation.
+/// - `expected_capabilities`: Input consumed by this operation.
 pub fn repository_conformance(
     repository: Arc<dyn ArtifactRepository>,
     expected_capabilities: RepositoryCapabilities,
@@ -160,6 +164,9 @@ pub fn capture_store_conformance(
 }
 
 /// Exercises deterministic encoding plus live and reopened query behavior.
+///
+/// # Parameters
+/// - `repository`: Input consumed by this operation.
 pub fn derived_store_conformance(
     repository: Arc<dyn ArtifactRepository>,
 ) -> DerivedStoreConformanceSnapshot {

@@ -20,6 +20,11 @@ pub struct CaptureWorkerPreparedIndex {
 }
 
 impl CaptureWorkerPreparedIndex {
+    /// Associates a prepared index factory with its stable source identity.
+    ///
+    /// # Parameters
+    /// - `source_identity`: Identity used to deduplicate preparation work.
+    /// - `factory`: Factory that opens indexes for this capture source.
     pub fn new(source_identity: SourceIdentity, factory: Box<dyn CaptureIndexFactory>) -> Self {
         Self {
             source_identity,
@@ -39,10 +44,17 @@ pub struct CaptureWorkerOperationRegistry {
 }
 
 impl CaptureWorkerOperationRegistry {
+    /// Creates an empty registry of host preparation operations.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Registers one named capture preparation operation.
+    ///
+    /// # Parameters
+    ///
+    /// - `operation`: Provider-specific operation identifier.
+    /// - `handler`: Decoder that turns opaque request bytes into an index factory.
     pub fn register(
         &mut self,
         operation: WorkerOperation,
@@ -105,6 +117,12 @@ pub struct CaptureWorkerRuntime {
 }
 
 impl CaptureWorkerRuntime {
+    /// Creates a stateful runtime for host-worker capture preparation and queries.
+    ///
+    /// # Parameters
+    /// - `operations`: Registered provider preparation handlers.
+    /// - `artifact_repository`: Repository that owns generated index artifacts.
+    /// - `work_executor`: Host capability used for bounded index construction.
     pub fn new(
         operations: CaptureWorkerOperationRegistry,
         artifact_repository: Arc<dyn ArtifactRepository>,
@@ -122,6 +140,7 @@ impl CaptureWorkerRuntime {
         }
     }
 
+    /// Executes a complete protocol request and collects immediately available messages.
     pub fn execute(&mut self, request: CaptureWorkerRequest) -> Vec<CaptureWorkerMessage> {
         let complete_preparation = matches!(request, CaptureWorkerRequest::Prepare { .. });
         let mut messages = Vec::new();
@@ -198,6 +217,7 @@ impl CaptureWorkerRuntime {
         !self.preparations.is_empty()
     }
 
+    /// Returns whether pending preparations.
     pub fn has_pending_preparations(&self) -> bool {
         !self.preparations.is_empty()
     }

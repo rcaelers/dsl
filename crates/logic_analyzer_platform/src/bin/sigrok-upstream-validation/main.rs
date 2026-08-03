@@ -24,7 +24,9 @@ std::cfg_select! {
             #[derive(Debug, Subcommand)]
             enum Command {
                 /// Compare output across every raw-input chunk boundary.
-                ChunkBoundaries { decoder_root: PathBuf },
+                ChunkBoundaries {
+                    decoder_root: PathBuf
+                },
                 /// Compare hosted output with an installed libsigrokdecode C oracle.
                 Oracle {
                     decoder_root: PathBuf,
@@ -32,6 +34,7 @@ std::cfg_select! {
                     pkg_config: String,
                     #[arg(long, default_value = "cc")]
                     cc: String,
+
                 },
             }
 

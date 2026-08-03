@@ -1,3 +1,10 @@
+//! Portable application interaction and panel composition.
+//!
+//! `logic_analyzer_ui` composes widgets and application services through explicit
+//! graph, host, capture, and export ports. It owns no concrete graph-node
+//! definitions, processing execution policy, or target selection; platform and
+//! application roots supply those capabilities through the corresponding contracts.
+
 mod about;
 mod app;
 mod app_platform;

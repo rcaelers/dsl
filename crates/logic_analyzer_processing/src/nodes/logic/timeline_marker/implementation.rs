@@ -19,6 +19,10 @@ pub struct TimelineMarkerSource {
 }
 
 impl TimelineMarkerSource {
+    /// Creates a source that emits one marker at a fixed timestamp.
+    ///
+    /// # Parameters
+    /// - `timestamp_ns`: Marker time in nanoseconds.
     pub fn new(timestamp_ns: u64) -> Self {
         Self {
             name: "timeline_marker".into(),
@@ -26,6 +30,10 @@ impl TimelineMarkerSource {
         }
     }
 
+    /// Replaces the runtime name used for diagnostics and graph execution.
+    ///
+    /// # Parameters
+    /// - `name`: New runtime name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
@@ -84,6 +92,7 @@ pub struct TimelineMarkerToTrigger {
 }
 
 impl TimelineMarkerToTrigger {
+    /// Creates a converter from timeline markers to trigger events.
     pub fn new() -> Self {
         Self {
             name: "timeline_marker_to_trigger".into(),
@@ -91,6 +100,10 @@ impl TimelineMarkerToTrigger {
         }
     }
 
+    /// Replaces the runtime name used for diagnostics and graph execution.
+    ///
+    /// # Parameters
+    /// - `name`: New runtime name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
@@ -160,6 +173,10 @@ pub struct TimelineMarkerRelation {
 }
 
 impl TimelineMarkerRelation {
+    /// Creates a relation signal generator for one timeline marker.
+    ///
+    /// # Parameters
+    /// - `relation`: Whether the signal is high before or from the marker timestamp.
     pub fn new(relation: MarkerRelation) -> Self {
         Self {
             name: "timeline_marker_relation".into(),
@@ -170,6 +187,10 @@ impl TimelineMarkerRelation {
         }
     }
 
+    /// Replaces the runtime name used for diagnostics and graph execution.
+    ///
+    /// # Parameters
+    /// - `name`: New runtime name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
@@ -246,6 +267,7 @@ pub struct TimelineMarkerWindow {
 }
 
 impl TimelineMarkerWindow {
+    /// Creates a signal generator that is high between two timeline markers.
     pub fn new() -> Self {
         Self {
             name: "timeline_marker_window".into(),
@@ -256,6 +278,10 @@ impl TimelineMarkerWindow {
         }
     }
 
+    /// Replaces the runtime name used for diagnostics and graph execution.
+    ///
+    /// # Parameters
+    /// - `name`: New runtime name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self

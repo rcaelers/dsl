@@ -16,31 +16,45 @@ pub struct OutputSubscriptionPlan {
 /// One retained lane produced for an application output subscription.
 #[derive(Clone, Debug)]
 pub struct CollectedOutputLane {
+    /// Variadic input member that produced the retained lane.
     pub member: usize,
+    /// Runtime lane name used by the derived-data store.
     pub lane_name: String,
+    /// User-facing label for the source contributing the lane.
     pub source_label: String,
+    /// Negotiated input and presentation metadata for the lane.
     pub input: ResolvedInput,
 }
 
 /// Runtime identities and source metadata for one collected output set.
 #[derive(Clone, Debug)]
 pub struct CollectedOutputSubscription {
+    /// Runtime name of the collector node.
     pub runtime_name: String,
+    /// Retained lanes produced by that collector.
     pub lanes: Vec<CollectedOutputLane>,
 }
 
 /// Retained lanes carrying decoder-table column metadata for one collector.
 #[derive(Clone, Debug)]
 pub struct CollectedTableSubscription {
+    /// Graph node that owns the decoder-table collector.
     pub collector: NodeId,
+    /// Retained lanes carrying decoder-table column descriptors.
     pub lanes: Vec<CollectedOutputLane>,
 }
 
 impl OutputSubscriptionPlan {
+    /// Creates an empty output-subscription plan.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Retains and makes one node output visible to application consumers.
+    ///
+    /// # Parameters
+    /// - `node`: Source graph node.
+    /// - `output`: Output-definition index on that node.
     pub fn subscribe(&mut self, node: NodeId, output: usize) {
         self.retain(node, output);
         if !self.contains(node, output) {
@@ -55,18 +69,22 @@ impl OutputSubscriptionPlan {
         }
     }
 
+    /// Returns whether an endpoint is included in the visible-output subset.
     pub fn contains(&self, node: NodeId, output: usize) -> bool {
         self.visible_outputs.contains(&(node, output))
     }
 
+    /// Returns whether retained.
     pub fn is_retained(&self, node: NodeId, output: usize) -> bool {
         self.retained_outputs.contains(&(node, output))
     }
 
+    /// Iterates visible output endpoints in subscription order.
     pub fn outputs(&self) -> impl Iterator<Item = (NodeId, usize)> + '_ {
         self.visible_outputs.iter().copied()
     }
 
+    /// Iterates all retained endpoints in retention order.
     pub fn retained_outputs(&self) -> impl Iterator<Item = (NodeId, usize)> + '_ {
         self.retained_outputs.iter().copied()
     }

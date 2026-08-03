@@ -16,48 +16,63 @@ use signal_processing::OpaqueCollectedLaneSnapshot;
 pub struct DerivedLaneId(String);
 
 impl DerivedLaneId {
+    /// Creates a stable derived-lane identity from an owner-provided key.
+    ///
+    /// # Parameters
+    /// - `value`: Stable lane key; it is not treated as display text.
     pub fn new(value: impl Into<String>) -> Self {
         Self(value.into())
     }
 
+    /// Returns the stable lane key.
     pub fn as_str(&self) -> &str {
         &self.0
     }
 }
 
+/// Stable presentation identity for a compound derived-lane group.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ViewerLaneGroupId(String);
 
 impl ViewerLaneGroupId {
+    /// Creates a lane-group identity from an owner-provided stable key.
     pub fn new(value: impl Into<String>) -> Self {
         Self(value.into())
     }
 
+    /// Returns the stable group key.
     pub fn as_str(&self) -> &str {
         &self.0
     }
 }
 
+/// Stable presentation identity for a track within a lane group.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ViewerLaneTrackId(String);
 
 impl ViewerLaneTrackId {
+    /// Creates a lane-track identity from an owner-provided stable key.
     pub fn new(value: impl Into<String>) -> Self {
         Self(value.into())
     }
 
+    /// Returns the stable track key.
     pub fn as_str(&self) -> &str {
         &self.0
     }
 }
 
+/// Short colored badge displayed beside a derived lane group.
 #[derive(Debug, Clone)]
 pub struct ViewerLaneBadge {
+    /// Badge text.
     pub text: String,
+    /// Badge color.
     pub color: Color32,
 }
 
 impl ViewerLaneBadge {
+    /// Creates a lane badge with text and display color.
     pub fn new(text: impl Into<String>, color: Color32) -> Self {
         Self {
             text: text.into(),
@@ -66,14 +81,19 @@ impl ViewerLaneBadge {
     }
 }
 
+/// One derived-data track rendered within a lane group.
 #[derive(Debug, Clone)]
 pub struct ViewerLaneTrack {
+    /// Stable presentation identifier within the group.
     pub id: ViewerLaneTrackId,
+    /// Stable derived-data lane supplying this track.
     pub lane: DerivedLaneId,
+    /// Height multiplier relative to a base viewer row.
     pub relative_height: f32,
 }
 
 impl ViewerLaneTrack {
+    /// Creates a track and clamps its height multiplier to a usable minimum.
     pub fn new(id: impl Into<String>, lane: DerivedLaneId, relative_height: f32) -> Self {
         Self {
             id: ViewerLaneTrackId::new(id),
@@ -86,35 +106,56 @@ impl ViewerLaneTrack {
 /// Fully resolved visual properties for one annotation box.
 #[derive(Debug, Clone)]
 pub struct AnnotationVisual {
+    /// Text rendered inside the annotation.
     pub label: String,
+    /// Annotation background color.
     pub fill: Color32,
+    /// Annotation outline stroke.
     pub border: Stroke,
 }
 
 /// Geometry and drawing access supplied to an adapter-owned opaque payload
 /// renderer. The painter is already clipped to the waveform region.
 pub struct OpaqueLaneDrawContext<'a> {
+    /// Painter clipped to the waveform region.
     pub painter: &'a Painter,
+    /// Bounds of the waveform drawing region.
     pub wave_rect: Rect,
+    /// Top coordinate of the lane group.
     pub top: f32,
+    /// Lane group height in points.
     pub height: f32,
+    /// First visible timeline timestamp.
     pub visible_start_ns: u64,
+    /// Last visible timeline timestamp.
     pub visible_end_ns: u64,
+    /// Viewer color roles for renderer-owned drawing.
     pub theme: ViewerLaneTheme,
+    /// Bounded hover and cursor data for renderer interaction.
     pub interaction: ViewerLaneInteractionContext,
 }
 
 /// Theme roles available to payload renderers without exposing viewer state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ViewerLaneTheme {
+    /// Lane background color.
     pub background: Color32,
+    /// Primary text and stroke color.
     pub foreground: Color32,
+    /// De-emphasized text and stroke color.
     pub muted_foreground: Color32,
+    /// Highlight color.
     pub accent: Color32,
+    /// Error color.
     pub error: Color32,
 }
 
 impl ViewerLaneTheme {
+    /// Derives renderer color roles from egui visuals and a host accent.
+    ///
+    /// # Parameters
+    /// - `visuals`: Current egui visual theme.
+    /// - `accent`: Host-selected highlight color.
     pub fn from_visuals(visuals: &egui::Visuals, accent: Color32) -> Self {
         Self {
             background: visuals.extreme_bg_color,
@@ -133,18 +174,26 @@ impl ViewerLaneTheme {
 /// inspecting an adapter's retained snapshot type.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ViewerLaneInteraction {
+    /// Logic level before the first returned transition.
     pub initial: bool,
+    /// Bounded `(timestamp_ns, level_after)` transitions.
     pub transitions: Vec<(u64, bool)>,
+    /// Whether the lane represents instantaneous events rather than spans.
     pub event: bool,
 }
 
 /// Bounded viewer request accompanying a renderer's interaction projection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ViewerLaneInteractionContext {
+    /// First visible timeline timestamp.
     pub visible_start_ns: u64,
+    /// Last visible timeline timestamp.
     pub visible_end_ns: u64,
+    /// Maximum interaction items the renderer should return.
     pub max_items: usize,
+    /// Whether the pointer currently hovers this lane.
     pub hovered: bool,
+    /// Timeline timestamp beneath the pointer, when available.
     pub pointer_time_ns: Option<u64>,
 }
 
@@ -166,6 +215,11 @@ impl OpaqueLaneDrawContext<'_> {
 /// Concrete renderers select row sizing, annotation semantics, and which
 /// explicitly registered tracks participate in cursor snapping.
 pub trait ViewerLaneRenderer: Send + Sync {
+    /// Returns the total row height requested for a lane group.
+    ///
+    /// # Parameters
+    /// - `group`: Tracks and presentation metadata in the lane group.
+    /// - `base_height`: Standard viewer-row height before group weighting.
     fn row_height(&self, group: &ViewerLaneGroup, base_height: f32) -> f32 {
         let weight = group
             .tracks
@@ -176,6 +230,13 @@ pub trait ViewerLaneRenderer: Send + Sync {
         base_height * weight
     }
 
+    /// Selects visual properties for one decoded annotation value.
+    ///
+    /// # Parameters
+    /// - `track`: Track on which the annotation will render.
+    /// - `theme`: Viewer color roles.
+    /// - `value`: Payload value represented by the annotation.
+    /// - `default`: Default visual computed by generic viewer code.
     fn annotation_visual(
         &self,
         _track: &ViewerLaneTrackId,
@@ -205,6 +266,12 @@ pub trait ViewerLaneRenderer: Send + Sync {
         false
     }
 
+    /// Projects a bounded opaque snapshot into interaction transitions.
+    ///
+    /// # Parameters
+    /// - `track`: Track whose snapshot is being queried.
+    /// - `snapshot`: Immutable bounded retained-data snapshot, if available.
+    /// - `context`: Visible window and hover constraints.
     fn interaction(
         &self,
         _track: &ViewerLaneTrack,
@@ -214,6 +281,11 @@ pub trait ViewerLaneRenderer: Send + Sync {
         None
     }
 
+    /// Returns tracks whose transitions may be considered for pointer snapping.
+    ///
+    /// # Parameters
+    /// - `group`: Lane group containing the renderer's tracks.
+    /// - `pointer_fraction`: Vertical pointer position within the group, from zero to one.
     fn snap_lanes(&self, group: &ViewerLaneGroup, pointer_fraction: f32) -> Vec<DerivedLaneId> {
         let total = group
             .tracks
@@ -236,16 +308,23 @@ pub trait ViewerLaneRenderer: Send + Sync {
     }
 }
 
+/// Default renderer for an ordinary single derived lane.
 #[derive(Default)]
 pub struct DefaultViewerLaneRenderer;
 
 impl ViewerLaneRenderer for DefaultViewerLaneRenderer {}
 
+/// Compound presentation group that combines one or more derived-data tracks.
 pub struct ViewerLaneGroup {
+    /// Stable group identity used for persistence and row ordering.
     pub id: ViewerLaneGroupId,
+    /// User-facing group label.
     pub label: String,
+    /// Badge rendered beside the group label.
     pub badge: ViewerLaneBadge,
+    /// Ordered tracks rendered in the group.
     pub tracks: Vec<ViewerLaneTrack>,
+    /// Renderer that owns track-specific drawing and interaction projection.
     pub renderer: Arc<dyn ViewerLaneRenderer>,
 }
 
@@ -274,6 +353,7 @@ impl Clone for ViewerLaneGroup {
 }
 
 impl ViewerLaneGroup {
+    /// Creates a one-track group using the default renderer.
     pub fn singleton(
         id: ViewerLaneGroupId,
         label: impl Into<String>,
@@ -289,6 +369,11 @@ impl ViewerLaneGroup {
         }
     }
 
+    /// Divides a group rectangle among tracks by relative height.
+    ///
+    /// # Parameters
+    /// - `top`: Top coordinate of the containing group rectangle.
+    /// - `height`: Height of the containing group rectangle.
     pub fn track_rects(&self, top: f32, height: f32) -> Vec<(ViewerLaneTrack, f32, f32)> {
         let total = self
             .tracks
@@ -309,6 +394,7 @@ impl ViewerLaneGroup {
     }
 }
 
+/// Thread-safe registry of explicit and default derived-lane presentations.
 #[derive(Clone)]
 pub struct WaveformPresentationRegistry {
     inner: Arc<RwLock<Vec<ViewerLaneGroup>>>,
@@ -344,10 +430,12 @@ impl Default for WaveformPresentationRegistry {
 }
 
 impl WaveformPresentationRegistry {
+    /// Creates an empty presentation registry with implicit groups enabled.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Registers or replaces one explicit compound lane group.
     pub fn register(&self, group: ViewerLaneGroup) {
         let claimed: HashSet<&DerivedLaneId> =
             group.tracks.iter().map(|track| &track.lane).collect();
@@ -366,16 +454,23 @@ impl WaveformPresentationRegistry {
         }
     }
 
+    /// Acquires a read guard over registered compound lane groups.
     pub fn read(&self) -> RwLockReadGuard<'_, Vec<ViewerLaneGroup>> {
         self.inner.read().unwrap()
     }
 
+    /// Removes every explicit compound lane group.
     pub fn clear(&self) {
         self.inner.write().unwrap().clear();
     }
 
     /// Registers the singleton presentation used when an opaque lane with
     /// this stable payload identity appears without an explicit group.
+    ///
+    /// # Parameters
+    /// - `stable_id`: Payload identity receiving a default presentation.
+    /// - `badge`: Badge used for implicit groups of that payload.
+    /// - `renderer`: Renderer used for implicit groups of that payload.
     pub fn register_default_payload(
         &self,
         stable_id: impl Into<String>,
@@ -425,6 +520,7 @@ impl WaveformPresentationRegistry {
         self.implicit_groups.store(enabled, Ordering::Relaxed);
     }
 
+    /// Returns whether ungrouped lanes may receive implicit default groups.
     pub fn implicit_groups(&self) -> bool {
         self.implicit_groups.load(Ordering::Relaxed)
     }

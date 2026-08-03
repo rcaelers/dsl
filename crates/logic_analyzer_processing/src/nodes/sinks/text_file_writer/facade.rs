@@ -7,6 +7,10 @@ use crate::nodes::sinks::OutputStorage;
 
 /// Platform-neutral construction contract for a text file writer.
 pub trait TextFileWriterFactory: Send + Sync {
+    /// Returns the destination-storage capability used by the writer.
+    ///
+    /// # Parameters
+    /// - `name`: Input consumed by this operation.
     fn create(&self, name: &str) -> Result<ProcessNodeConstruction, String>;
 }
 

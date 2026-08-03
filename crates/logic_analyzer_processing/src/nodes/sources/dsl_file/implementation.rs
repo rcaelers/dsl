@@ -269,6 +269,10 @@ pub struct DslFileSource {
 
 impl DslFileSource {
     /// Creates the generic indexed-capture presentation for a static DSL file.
+    ///
+    /// # Parameters
+    /// - `source`: Input consumed by this operation.
+    /// - `display_name`: Input consumed by this operation.
     pub fn indexed_capture_presentation(
         source: Arc<dyn PreparedByteSource>,
         display_name: impl Into<String>,
@@ -283,6 +287,7 @@ impl DslFileSource {
         }
     }
 
+    /// Creates the runtime source from an already prepared byte source.
     pub fn from_prepared_source(
         source: Arc<dyn PreparedByteSource>,
         display_name: impl Into<String>,
@@ -358,6 +363,10 @@ impl DslFileSource {
         guard.clone()
     }
 
+    /// Returns this value configured with artifact repository.
+    ///
+    /// # Parameters
+    /// - `repository`: Input consumed by this operation.
     pub fn with_artifact_repository(mut self, repository: Arc<dyn ArtifactRepository>) -> Self {
         self.artifact_repository = repository;
         self

@@ -4,7 +4,7 @@ use std::fmt;
 
 use super::capture::BlockData;
 
-/// Sample representing a signal value at a specific time
+/// Logic sample representing a signal value at a specific time.
 ///
 /// This is a run-length encoded representation that sends only when a signal changes,
 /// dramatically reducing bandwidth for signals that don't toggle frequently.
@@ -20,7 +20,11 @@ pub struct Sample {
 }
 
 impl Sample {
-    /// Create a new sample
+    /// Creates a logic level beginning at a shared timeline timestamp.
+    ///
+    /// # Parameters
+    /// - `value`: Logic level that remains active until the next sample.
+    /// - `start_time_ns`: Shared timeline timestamp at which the level starts.
     pub fn new(value: bool, start_time_ns: u64) -> Self {
         Self {
             value,
@@ -35,7 +39,7 @@ impl fmt::Display for Sample {
     }
 }
 
-/// A block of packed-bit samples from a single channel
+/// A block of packed-bit samples from a single channel.
 ///
 /// Carries raw packed-bit data from block-oriented capture sources, enabling
 /// O(1) bit lookup instead of per-edge channel operations.
@@ -66,7 +70,7 @@ pub struct SampleBlock {
 }
 
 impl SampleBlock {
-    /// Create a new SampleBlock
+    /// Creates a packed block with a shared sample-time mapping.
     pub fn new(
         data: impl Into<BlockData>,
         start_position: u64,
@@ -93,13 +97,13 @@ impl SampleBlock {
         (self.data[byte_index] >> bit_offset) & 1 == 1
     }
 
-    /// Convert a global sample position to a nanosecond timestamp
+    /// Converts a global sample position to a nanosecond timestamp.
     #[inline]
     pub fn position_to_timestamp(&self, position: u64) -> u64 {
         position * self.timestamp_step
     }
 
-    /// The position one past the last valid sample in this block
+    /// Returns the position one past the last valid sample in this block.
     #[inline]
     pub fn end_position(&self) -> u64 {
         self.start_position + self.num_samples as u64
@@ -108,6 +112,10 @@ impl SampleBlock {
     /// Creates a byte-aligned sample subview without copying packed data.
     /// Non-byte-aligned starts cannot use the existing LSB-at-bit-zero wire
     /// representation and therefore return `None`.
+    ///
+    /// # Parameters
+    /// - `sample_offset`: Byte-aligned sample offset within this block.
+    /// - `num_samples`: Number of valid samples in the returned view.
     pub fn sub_block(&self, sample_offset: usize, num_samples: usize) -> Option<Self> {
         let sample_end = sample_offset.checked_add(num_samples)?;
         if !sample_offset.is_multiple_of(8) || sample_end > self.num_samples {

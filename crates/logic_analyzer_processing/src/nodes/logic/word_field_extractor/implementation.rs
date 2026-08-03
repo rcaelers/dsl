@@ -23,6 +23,11 @@ pub struct WordFieldExtractor {
 }
 
 impl WordFieldExtractor {
+    /// Creates a word-field extractor with the supplied bit-range configuration.
+    ///
+    /// # Parameters
+    /// - `first_bit`: Input consumed by this operation.
+    /// - `bit_count`: Input consumed by this operation.
     pub fn new(first_bit: usize, bit_count: usize) -> Self {
         Self {
             name: "word_field_extractor".to_owned(),
@@ -32,6 +37,7 @@ impl WordFieldExtractor {
         }
     }
 
+    /// Returns this value configured with name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self

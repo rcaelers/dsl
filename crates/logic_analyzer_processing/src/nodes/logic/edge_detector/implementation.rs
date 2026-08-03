@@ -25,6 +25,12 @@ pub struct EdgeDetector {
 }
 
 impl EdgeDetector {
+    /// Creates an edge detector with the supplied transition policy.
+    ///
+    /// # Parameters
+    /// - `mode`: Input consumed by this operation.
+    /// - `debounce_ns`: Input consumed by this operation.
+    /// - `minimum_pulse_width_ns`: Input consumed by this operation.
     pub fn new(mode: EdgeMode, debounce_ns: u64, minimum_pulse_width_ns: u64) -> Self {
         Self {
             name: "edge_detector".to_owned(),
@@ -37,6 +43,7 @@ impl EdgeDetector {
         }
     }
 
+    /// Returns this value configured with name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self

@@ -36,6 +36,9 @@ impl MatchOp {
     }
 
     /// Parse from the wire names used by node configs ("eq", "ne", …).
+    ///
+    /// # Parameters
+    /// - `name`: Input consumed by this operation.
     pub fn parse(name: &str) -> Option<Self> {
         Some(match name {
             "eq" => MatchOp::Eq,
@@ -81,6 +84,7 @@ pub enum PredicateMode {
 }
 
 impl PredicateMode {
+    /// Parses a configured word literal into the matcher representation.
     pub fn parse(name: &str) -> Option<Self> {
         Some(match name {
             "compare" => Self::Compare,
@@ -173,6 +177,11 @@ impl ConfigurationScheduler for WordMatcherConfigurationScheduler {
 }
 
 impl WordMatcher {
+    /// Creates a word matcher with the supplied comparison configuration.
+    ///
+    /// # Parameters
+    /// - `pattern`: Input consumed by this operation.
+    /// - `mask`: Input consumed by this operation.
     pub fn new(pattern: u64, mask: u64) -> Self {
         Self {
             name: "word_matcher".to_string(),
@@ -204,21 +213,25 @@ impl WordMatcher {
         }
     }
 
+    /// Returns this value configured with name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
     }
 
+    /// Returns this value configured with op.
     pub fn with_op(mut self, op: MatchOp) -> Self {
         self.op = op;
         self
     }
 
+    /// Returns this value configured with trigger at.
     pub fn with_trigger_at(mut self, trigger_at: TriggerAt) -> Self {
         self.trigger_at = trigger_at;
         self
     }
 
+    /// Returns this value configured with inclusive range.
     pub fn with_inclusive_range(mut self, minimum: u64, maximum: u64) -> Self {
         self.predicate_mode = PredicateMode::InclusiveRange;
         self.range_min = minimum;
@@ -226,27 +239,35 @@ impl WordMatcher {
         self
     }
 
+    /// Returns this value configured with set.
     pub fn with_set(mut self, values: Vec<u64>) -> Self {
         self.predicate_mode = PredicateMode::Set;
         self.set_values = values;
         self
     }
 
+    /// Returns this value configured with match count.
     pub fn with_match_count(mut self, match_count: u64) -> Self {
         self.match_count = match_count.max(1);
         self
     }
 
+    /// Returns this value configured with holdoff ns.
     pub fn with_holdoff_ns(mut self, holdoff_ns: u64) -> Self {
         self.holdoff_ns = holdoff_ns;
         self
     }
 
+    /// Returns this value configured with manual rearm.
     pub fn with_manual_rearm(mut self, manual_rearm: bool) -> Self {
         self.manual_rearm = manual_rearm;
         self
     }
 
+    /// Returns this value configured with pulse ns.
+    ///
+    /// # Parameters
+    /// - `pulse_ns`: Input consumed by this operation.
     pub fn with_pulse_ns(mut self, pulse_ns: u64) -> Self {
         self.pulse_ns = pulse_ns.max(1);
         self

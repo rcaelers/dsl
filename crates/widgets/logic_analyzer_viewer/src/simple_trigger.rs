@@ -5,16 +5,23 @@ use signal_processing::SimpleTriggerCondition;
 use crate::types::{AnalyzerLayout, RowKey};
 use crate::viewer::LogicAnalyzerViewer;
 
+/// Current simple-trigger state displayed for one raw capture channel.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SimpleTriggerLane {
+    /// Raw viewer channel index.
     pub channel: usize,
+    /// Configured trigger condition.
     pub condition: SimpleTriggerCondition,
+    /// Whether this channel participates in the capture.
     pub enabled: bool,
 }
 
+/// User edit changing a channel's simple trigger condition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SimpleTriggerEdit {
+    /// Raw viewer channel index to change.
     pub channel: usize,
+    /// Replacement trigger condition.
     pub condition: SimpleTriggerCondition,
 }
 

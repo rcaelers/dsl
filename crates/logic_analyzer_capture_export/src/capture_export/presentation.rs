@@ -22,6 +22,7 @@ pub struct CaptureExportDescriptor {
 }
 
 impl CaptureExportFormat {
+    /// Returns user-facing dialog and filename metadata for this export format.
     pub const fn descriptor(self) -> CaptureExportDescriptor {
         match self {
             Self::Portable => CaptureExportDescriptor {
@@ -41,10 +42,15 @@ pub struct CaptureExportProgress {
 }
 
 pub trait CaptureExportObserver {
+    /// Returns whether the caller has requested cooperative cancellation.
     fn is_cancelled(&self) -> bool {
         false
     }
 
+    /// Receives monotonic export progress updates.
+    ///
+    /// # Parameters
+    /// - `_progress`: Number of samples exported relative to the capture total.
     fn on_progress(&mut self, _progress: CaptureExportProgress) {}
 }
 
@@ -71,6 +77,13 @@ impl RawCaptureExportObserver for ObserverAdapter<'_> {
     }
 }
 
+/// Exports a finalized capture using the requested concrete file format.
+///
+/// # Parameters
+/// - `capture`: Finalized raw capture and metadata to encode.
+/// - `format`: Output format selected by the UI.
+/// - `destination`: Destination file path; the exporter overwrites it.
+/// - `observer`: Cancellation and progress observer called during encoding.
 pub fn export_finalized_capture(
     capture: &FinalizedCapture,
     format: CaptureExportFormat,

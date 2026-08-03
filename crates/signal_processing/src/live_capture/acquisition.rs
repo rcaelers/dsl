@@ -11,38 +11,53 @@ use super::implementation::{
 use crate::capture_policy::{CaptureSessionPlan, CaptureStartMode};
 use crate::{InlineWorkExecutor, WorkExecutor};
 
+/// Result alias for provider preparation and acquisition execution.
 pub type AcquisitionResult<T> = Result<T, AcquisitionError>;
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum AcquisitionError {
+    /// The request conflicts with provider capabilities or capture policy.
     #[error("invalid acquisition request: {0}")]
     InvalidRequest(String),
+    /// An attempt was made to start an already-started acquisition.
     #[error("acquisition has already started")]
     AlreadyStarted,
+    /// An operation requiring a started acquisition was requested too early.
     #[error("acquisition has not been started")]
     NotStarted,
+    /// The provider does not implement the requested lifecycle operation.
     #[error("unsupported acquisition operation: {0}")]
     UnsupportedOperation(String),
+    /// The authoritative capture writer rejected a chunk or finalization.
     #[error("capture writer failed: {0}")]
     Writer(#[from] CaptureWriteError),
+    /// Publishing capture status to observers failed.
     #[error("capture status publication failed: {0}")]
     Event(#[from] CaptureEventPublishError),
+    /// Transport communication with the acquisition device failed.
     #[error("acquisition transport failed: {0}")]
     Transport(String),
+    /// The provider or device returned an invalid protocol response.
     #[error("acquisition protocol failed: {0}")]
     Protocol(String),
+    /// Received data violated capture integrity guarantees.
     #[error("capture integrity was lost: {0}")]
     Integrity(String),
+    /// The acquisition was cooperatively cancelled.
     #[error("acquisition was cancelled")]
     Cancelled,
+    /// The host worker executing acquisition panicked.
     #[error("acquisition worker panicked")]
     WorkerPanicked,
+    /// The host could not start the acquisition worker.
     #[error("acquisition worker could not be started: {0}")]
     WorkerStart(String),
+    /// An uncategorized provider-internal failure occurred.
     #[error("acquisition failed: {0}")]
     Internal(String),
 }
 
 impl AcquisitionError {
+    /// Converts this error into the persistent capture-failure category.
     pub fn failure_kind(&self) -> CaptureFailureKind {
         match self {
             Self::InvalidRequest(_) => CaptureFailureKind::InvalidRequest,
@@ -62,7 +77,7 @@ impl AcquisitionError {
     }
 }
 
-/// Dependencies supplied to a prepared acquisition without exposing a store implementation.
+/// Dependencies supplied to a prepared acquisition without exposing store internals.
 pub struct AcquisitionContext {
     session_id: CaptureSessionId,
     writer: Box<dyn CaptureChunkWriter>,
@@ -71,6 +86,12 @@ pub struct AcquisitionContext {
 }
 
 impl AcquisitionContext {
+    /// Creates an acquisition context with the portable inline executor.
+    ///
+    /// # Parameters
+    /// - `session_id`: Identity assigned to this capture session.
+    /// - `writer`: Authority that commits ordered capture chunks.
+    /// - `events`: Publisher used for lifecycle and progress notifications.
     pub fn new(
         session_id: CaptureSessionId,
         writer: Box<dyn CaptureChunkWriter>,
@@ -85,6 +106,10 @@ impl AcquisitionContext {
     }
 
     /// Selects the host executor used by a prepared acquisition.
+    ///
+    /// # Parameters
+    ///
+    /// - `work_executor`: Host capability that runs long-lived acquisition work.
     pub fn with_work_executor(mut self, work_executor: std::sync::Arc<dyn WorkExecutor>) -> Self {
         self.work_executor = work_executor;
         self
@@ -95,10 +120,16 @@ impl AcquisitionContext {
         std::sync::Arc::clone(&self.work_executor)
     }
 
+    /// Returns the identity of the capture session being acquired.
     pub const fn session_id(&self) -> CaptureSessionId {
         self.session_id
     }
 
+    /// Commits one session-owned chunk through the authoritative writer.
+    ///
+    /// # Parameters
+    ///
+    /// - `chunk`: Capture data belonging to this context's session.
     pub fn append(&mut self, chunk: CaptureChunk) -> AcquisitionResult<()> {
         if chunk.session_id() != self.session_id {
             return Err(AcquisitionError::InvalidRequest(format!(
@@ -111,11 +142,18 @@ impl AcquisitionContext {
         Ok(())
     }
 
+    /// Finalizes the authoritative writer after the provider stops producing chunks.
     pub fn finish_writer(&mut self) -> AcquisitionResult<()> {
         self.writer.finish()?;
         Ok(())
     }
 
+    /// Publishes a lifecycle state and acquisition phase.
+    ///
+    /// # Parameters
+    ///
+    /// - `state`: New durable session state.
+    /// - `phase`: Current acquisition phase within that state.
     pub fn publish_status(
         &mut self,
         state: CaptureSessionState,
@@ -129,6 +167,11 @@ impl AcquisitionContext {
         Ok(())
     }
 
+    /// Publishes current acquisition progress.
+    ///
+    /// # Parameters
+    ///
+    /// - `progress`: Progress snapshot to expose to observers.
     pub fn publish_progress(&mut self, progress: CaptureProgress) -> AcquisitionResult<()> {
         self.events.publish(CaptureEvent::Progress {
             session_id: self.session_id,
@@ -137,6 +180,11 @@ impl AcquisitionContext {
         Ok(())
     }
 
+    /// Publishes current acquisition health.
+    ///
+    /// # Parameters
+    ///
+    /// - `health`: Health snapshot to expose to observers.
     pub fn publish_health(&mut self, health: CaptureHealth) -> AcquisitionResult<()> {
         self.events.publish(CaptureEvent::Health {
             session_id: self.session_id,
@@ -145,6 +193,10 @@ impl AcquisitionContext {
         Ok(())
     }
 
+    /// Publishes the negotiated capture-session plan.
+    ///
+    /// # Parameters
+    /// - `plan`: Effective policy and retention plan for this session.
     pub fn publish_plan(&mut self, plan: CaptureSessionPlan) -> AcquisitionResult<()> {
         self.events.publish(CaptureEvent::Plan {
             session_id: self.session_id,
@@ -153,6 +205,11 @@ impl AcquisitionContext {
         Ok(())
     }
 
+    /// Publishes the sample position at which the trigger fired.
+    ///
+    /// # Parameters
+    ///
+    /// - `sample`: Absolute capture sample at the trigger boundary.
     pub fn publish_triggered(&mut self, sample: u64) -> AcquisitionResult<()> {
         self.events.publish(CaptureEvent::Triggered {
             session_id: self.session_id,
@@ -161,6 +218,11 @@ impl AcquisitionContext {
         Ok(())
     }
 
+    /// Best-effort publishes a terminal failure and error status.
+    ///
+    /// # Parameters
+    ///
+    /// - `error`: Acquisition failure to classify and expose.
     pub fn publish_failure(&mut self, error: &AcquisitionError) {
         let _ = self
             .events
@@ -179,21 +241,31 @@ impl AcquisitionContext {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AcquisitionOutcome {
+    /// Identity of the finished session.
     pub session_id: CaptureSessionId,
+    /// Number of samples accepted by the session.
     pub captured_samples: u64,
+    /// Number of chunks committed by the provider.
     pub chunk_count: u64,
+    /// Whether completion resulted from an explicit stop request.
     pub stopped: bool,
+    /// Final completion reason.
     pub completion: CaptureCompletion,
 }
 
-/// Object-safe ownership boundary returned after a provider has prepared a session.
+/// Object-safe lifecycle boundary returned after a provider prepares a session.
 pub trait PreparedAcquisition: Send {
+    /// Returns the identity assigned during preparation.
     fn session_id(&self) -> CaptureSessionId;
+    /// Starts acquisition and the provider-owned worker if needed.
     fn start(&mut self) -> AcquisitionResult<()>;
+    /// Requests graceful stop while retaining captured data.
     fn request_stop(&self) -> AcquisitionResult<()>;
+    /// Requests immediate abort when the provider supports it.
     fn request_abort(&self) -> AcquisitionResult<()> {
         Err(AcquisitionError::UnsupportedOperation("abort".into()))
     }
+    /// Requests immediate trigger activation when the provider supports it.
     fn request_force_trigger(&self) -> AcquisitionResult<()> {
         Err(AcquisitionError::UnsupportedOperation(
             "force trigger".into(),
@@ -202,6 +274,7 @@ pub trait PreparedAcquisition: Send {
     /// Non-blocking completion probe used by an acquisition supervisor so
     /// Stop remains available while Join runs off the UI thread.
     fn is_finished(&self) -> bool;
+    /// Waits for provider work to finish and returns its terminal outcome.
     fn join(self: Box<Self>) -> AcquisitionResult<AcquisitionOutcome>;
 }
 
@@ -211,8 +284,15 @@ pub trait PreparedAcquisition: Send {
 /// Hosts can inspect generic delivery facts and choose a start mode without
 /// depending on the device implementation.
 pub trait ConfiguredAcquisition: Send {
+    /// Returns whether data is delivered by polling, callbacks, or a worker.
     fn data_delivery(&self) -> CaptureDataDelivery;
+    /// Returns the physical capture window, in samples.
     fn capture_window_samples(&self) -> u64;
+    /// Consumes validated settings and prepares a startable session.
+    ///
+    /// # Parameters
+    /// - `context`: Session-owned writer, event publisher, and host executor.
+    /// - `mode`: Start mode negotiated from policy and delivery capabilities.
     fn prepare(
         self: Box<Self>,
         context: AcquisitionContext,

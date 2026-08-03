@@ -52,10 +52,15 @@ pub struct TextFileWriter {
 }
 
 impl TextFileWriter {
+    /// Creates a text-file writer with the supplied configuration and storage capability.
     pub fn new() -> Self {
         Self::with_output_storage(Arc::new(UnavailableOutputStorage))
     }
 
+    /// Returns this value configured with output storage.
+    ///
+    /// # Parameters
+    /// - `storage`: Input consumed by this operation.
     pub fn with_output_storage(storage: Arc<dyn OutputStorage>) -> Self {
         Self {
             name: "text_file_writer".to_string(),
@@ -70,6 +75,7 @@ impl TextFileWriter {
         }
     }
 
+    /// Returns this value configured with name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self

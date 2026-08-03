@@ -23,6 +23,12 @@ pub struct EventControl {
 }
 
 impl EventControl {
+    /// Creates an event-control node with the supplied rearm configuration.
+    ///
+    /// # Parameters
+    /// - `delay_ns`: Input consumed by this operation.
+    /// - `holdoff_ns`: Input consumed by this operation.
+    /// - `manual_rearm`: Input consumed by this operation.
     pub fn new(delay_ns: u64, holdoff_ns: u64, manual_rearm: bool) -> Self {
         Self {
             name: "event_control".to_owned(),
@@ -40,6 +46,7 @@ impl EventControl {
         }
     }
 
+    /// Returns this value configured with name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self

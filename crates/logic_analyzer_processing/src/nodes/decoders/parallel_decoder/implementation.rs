@@ -184,6 +184,10 @@ impl ParallelDecoder {
     /// Auto mode.
     pub const AUTO_PACKED_ACTIVITY_RATIO: f64 = 0.125;
 
+    /// Selects the scan protocol preferred for the observed activity ratio.
+    ///
+    /// # Parameters
+    /// - `activity_ratio`: Input consumed by this operation.
     pub fn auto_protocol_for_activity_ratio(activity_ratio: f64) -> ProtocolKind {
         if activity_ratio >= Self::AUTO_PACKED_ACTIVITY_RATIO {
             ProtocolKind::Stream
@@ -275,16 +279,21 @@ impl ParallelDecoder {
     }
 
     /// With custom name
+    ///
+    /// # Parameters
+    /// - `name`: Input consumed by this operation.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
     }
 
+    /// Returns this value configured with input strategy.
     pub fn with_input_strategy(mut self, strategy: ParallelInputStrategy) -> Self {
         self.input_strategy = strategy;
         self
     }
 
+    /// Returns this value configured with sampling points.
     pub fn with_sampling_points(mut self, points: SamplingPointStore) -> Self {
         self.sampling_points = Some(points);
         self
@@ -304,6 +313,7 @@ impl ParallelDecoder {
         self
     }
 
+    /// Returns the configured parallel scan worker count.
     pub fn parallel_workers(&self) -> usize {
         effective_workers(self)
     }

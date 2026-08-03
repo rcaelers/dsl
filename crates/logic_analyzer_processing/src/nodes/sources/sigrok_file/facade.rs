@@ -16,8 +16,20 @@ const LIFECYCLE: CaptureSourceLifecycle =
 
 /// Platform-neutral construction contract for a Sigrok capture source.
 pub trait SigrokFileSourceFactory: Send + Sync {
+    /// Returns the lifecycle requirements shared by sources created by this factory.
     fn lifecycle(&self) -> CaptureSourceLifecycle;
+
+    /// Creates lazy source metadata without opening or executing the source.
+    ///
+    /// # Parameters
+    /// - `config`: Persisted source configuration to inspect.
     fn metadata(&self, config: SigrokFileSourceConfig) -> Arc<dyn CaptureSourceMetadata>;
+    /// Creates the executable source and metadata for one configured node.
+    ///
+    /// # Parameters
+    /// - `name`: User-facing node name used by the runtime source.
+    /// - `config`: Persisted source configuration to instantiate.
+    /// - `work_executor`: Executor used for source work that may be scheduled asynchronously.
     fn create(
         &self,
         name: &str,
@@ -87,7 +99,7 @@ impl SigrokFileSourceFactory for PortableSigrokFileSourceFactory {
     }
 }
 
-/// Returns the portable factory for explicit demo data and unavailable files.
+/// Returns the portable factory for explicit demo data and unavailable file acquisition.
 pub fn portable_source_factory() -> Arc<dyn SigrokFileSourceFactory> {
     Arc::new(PortableSigrokFileSourceFactory)
 }

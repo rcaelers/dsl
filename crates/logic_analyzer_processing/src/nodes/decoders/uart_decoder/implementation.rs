@@ -78,6 +78,11 @@ pub struct UartDecoder {
 }
 
 impl UartDecoder {
+    /// Creates a UART decoder with its default frame configuration.
+    ///
+    /// # Parameters
+    /// - `baud`: Input consumed by this operation.
+    /// - `data_bits`: Input consumed by this operation.
     pub fn new(baud: u64, data_bits: usize) -> Self {
         assert!(baud > 0, "baud rate must be positive");
         assert!(
@@ -100,17 +105,20 @@ impl UartDecoder {
         }
     }
 
+    /// Returns this value configured with name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
     }
 
+    /// Returns this value configured with parity.
     pub fn with_parity(mut self, parity: UartParity, check: bool) -> Self {
         self.parity = parity;
         self.check_parity = check;
         self
     }
 
+    /// Returns this value configured with stop bits.
     pub fn with_stop_bits(mut self, stop_bits: UartStopBits) -> Self {
         self.stop_bits = stop_bits;
         self
@@ -122,6 +130,7 @@ impl UartDecoder {
         self
     }
 
+    /// Returns this value configured with invert.
     pub fn with_invert(mut self, invert: bool) -> Self {
         self.invert = invert;
         self

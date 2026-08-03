@@ -73,7 +73,7 @@ fn format_template(template: &str, values: &[i64]) -> String {
 /// Single input keeps the original 1:1 mapping: every incoming sample
 /// (including the t=0 initial) emits the formatted text at the same
 /// timestamp. With several inputs the node merges them in strict timestamp
-/// order (like [`LogicGate`](super::logic_gate::LogicGate)) — holding every input's
+/// order (like [`LogicGate`](crate::nodes::logic::logic_gate::LogicGate)) — holding every input's
 /// current value, initially 0 — and emits whenever the formatted text
 /// changes.
 pub struct TextFormatter {
@@ -116,6 +116,10 @@ impl ConfigurationScheduler for TextFormatterConfigurationScheduler {
 }
 
 impl TextFormatter {
+    /// Creates a text formatter with the supplied template configuration.
+    ///
+    /// # Parameters
+    /// - `template`: Input consumed by this operation.
     pub fn new(template: impl Into<String>) -> Self {
         Self::with_num_values(template, 1)
     }
@@ -135,6 +139,7 @@ impl TextFormatter {
         }
     }
 
+    /// Returns this value configured with name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self

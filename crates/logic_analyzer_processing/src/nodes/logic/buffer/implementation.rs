@@ -24,6 +24,10 @@ pub struct BufferNode<T> {
 impl<T> BufferNode<T> {
     const BATCH_SIZE: usize = 65_536;
 
+    /// Creates a pass-through buffer node.
+    ///
+    /// # Parameters
+    /// - `name`: Input consumed by this operation.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),

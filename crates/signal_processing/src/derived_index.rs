@@ -26,9 +26,13 @@
 /// `CaptureWaveformSegment::Level`/`Activity` already work for raw channels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MipmapRecord {
+    /// Inclusive start of the summarized event-time span in nanoseconds.
     pub start_ns: u64,
+    /// Inclusive end of the summarized event-time span in nanoseconds.
     pub end_ns: u64,
+    /// Number of raw records represented by this summary.
     pub count: u32,
+    /// First and last boolean level when this is a digital lane, otherwise `None`.
     pub level_hint: Option<(bool, bool)>,
 }
 
@@ -37,10 +41,20 @@ pub struct MipmapRecord {
 /// are pure, stateless rules per lane kind, dispatched at the type level via
 /// [`AppendOnlyMipmap`]'s `F` parameter.
 pub trait LaneFold<T> {
+    /// Converts one exact lane entry into its leaf summary.
+    ///
+    /// # Parameters
+    /// - `entry`: Exact lane entry being appended.
     fn leaf(entry: &T) -> MipmapRecord;
+    /// Folds a non-empty, time-sorted run of records into one summary.
+    ///
     /// `records` is always non-empty and time-sorted (it's a contiguous run
     /// from one tier of the mipmap, which is itself built only from
     /// time-sorted input).
+    ///
+    /// # Parameters
+    ///
+    /// - `records`: Contiguous same-tier records to summarize.
     fn combine(records: &[MipmapRecord]) -> MipmapRecord;
 }
 
@@ -72,6 +86,7 @@ pub struct AppendOnlyMipmap<T, F> {
 }
 
 impl<T, F: LaneFold<T>> AppendOnlyMipmap<T, F> {
+    /// Creates an empty append-only index.
     pub fn new() -> Self {
         Self {
             tiers: vec![Vec::new()],
@@ -85,6 +100,7 @@ impl<T, F: LaneFold<T>> AppendOnlyMipmap<T, F> {
         self.len
     }
 
+    /// Returns whether no raw entries have been appended.
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
@@ -93,11 +109,21 @@ impl<T, F: LaneFold<T>> AppendOnlyMipmap<T, F> {
         self.tiers.iter().map(Vec::len).sum()
     }
 
+    /// Appends one exact lane entry and updates every completed summary tier.
+    ///
+    /// # Parameters
+    ///
+    /// - `entry`: Exact lane entry to index.
     pub fn push(&mut self, entry: &T) {
         self.push_record(0, F::leaf(entry));
         self.len += 1;
     }
 
+    /// Appends every entry in iteration order.
+    ///
+    /// # Parameters
+    ///
+    /// - `entries`: Time-sorted exact entries to index.
     pub fn extend<'a>(&mut self, entries: impl IntoIterator<Item = &'a T>)
     where
         T: 'a,
@@ -132,9 +158,14 @@ impl<T, F: LaneFold<T>> AppendOnlyMipmap<T, F> {
     /// fan-out group — appends since then haven't been folded up into it
     /// yet. Those are exactly the most recently appended entries, i.e.
     /// exactly what a live view is usually looking at, so
-    /// [`Self::append_uncovered_tail`] always folds them in as one extra
+    /// `append_uncovered_tail` always folds them in as one extra
     /// record rather than letting a coarse, zoomed-out view of a live lane
     /// silently miss whatever just arrived.
+    ///
+    /// # Parameters
+    /// - `start_ns`: Inclusive start of the event-time window in nanoseconds.
+    /// - `end_ns`: Inclusive end of the event-time window in nanoseconds.
+    /// - `target_points`: Rendering resolution that determines summary coarseness.
     pub fn sampled_window(
         &self,
         start_ns: u64,
@@ -240,6 +271,7 @@ pub struct ChunkedMipmap<T, F> {
 }
 
 impl<T, F: LaneFold<T>> ChunkedMipmap<T, F> {
+    /// Creates an empty index with a bounded exact active chunk.
     pub fn new() -> Self {
         Self {
             completed: AppendOnlyMipmap::new(),
@@ -249,10 +281,12 @@ impl<T, F: LaneFold<T>> ChunkedMipmap<T, F> {
         }
     }
 
+    /// Returns the number of exact entries appended so far.
     pub fn len(&self) -> usize {
         self.len
     }
 
+    /// Returns whether no exact entries have been appended.
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
@@ -261,6 +295,10 @@ impl<T, F: LaneFold<T>> ChunkedMipmap<T, F> {
         self.completed.resident_records() + self.active.len()
     }
 
+    /// Appends one exact entry to the active chunk.
+    ///
+    /// # Parameters
+    /// - `entry`: Exact lane entry to index.
     pub fn push(&mut self, entry: &T) {
         self.active.push(F::leaf(entry));
         self.len += 1;
@@ -271,6 +309,11 @@ impl<T, F: LaneFold<T>> ChunkedMipmap<T, F> {
         }
     }
 
+    /// Appends every entry in iteration order.
+    ///
+    /// # Parameters
+    ///
+    /// - `entries`: Time-sorted exact entries to index.
     pub fn extend<'a>(&mut self, entries: impl IntoIterator<Item = &'a T>)
     where
         T: 'a,
@@ -280,6 +323,15 @@ impl<T, F: LaneFold<T>> ChunkedMipmap<T, F> {
         }
     }
 
+    /// Returns a bounded-resolution summary of an event-time window.
+    ///
+    /// Recent active entries remain exact where the output budget permits.
+    ///
+    /// # Parameters
+    ///
+    /// - `start_ns`: Inclusive start of the event-time window in nanoseconds.
+    /// - `end_ns`: Inclusive end of the event-time window in nanoseconds.
+    /// - `target_points`: Rendering resolution that determines summary coarseness.
     pub fn sampled_window(
         &self,
         start_ns: u64,

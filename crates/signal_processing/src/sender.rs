@@ -98,8 +98,14 @@ impl<T> Clone for SharedSenders<T> {
 }
 
 impl<T: Clone + Send> SharedSenders<T> {
-    /// `sticky` enables last-value priming — set it for level streams
+    /// Creates a shared subscriber list.
+    ///
+    /// `sticky` enables last-value priming — use it for level streams
     /// (`Sample`, `NumberSample`, `TextSample`), never for events.
+    ///
+    /// # Parameters
+    /// - `sticky`: Whether a later subscriber immediately receives the most
+    ///   recently broadcast value.
     pub fn new(sticky: bool) -> Self {
         Self {
             inner: Arc::new(Mutex::new(SharedSendersInner {
@@ -117,6 +123,11 @@ impl<T: Clone + Send> SharedSenders<T> {
     /// prime the new channel with the last value (original timestamp — the
     /// consumer treats it as its initial level). Subscribing to a closed
     /// list yields an immediate end-of-stream.
+    ///
+    /// # Parameters
+    ///
+    /// - `buffer`: Maximum number of queued envelopes; zero is promoted to one.
+    /// - `policy`: Backpressure behavior to apply when that buffer is full.
     pub fn subscribe(
         &self,
         buffer: usize,
@@ -125,6 +136,16 @@ impl<T: Clone + Send> SharedSenders<T> {
         self.subscribe_with_label(buffer, policy, None)
     }
 
+    /// Subscribes with an optional diagnostic label.
+    ///
+    /// The label identifies this branch in disconnect diagnostics; it does
+    /// not affect routing or backpressure.
+    ///
+    /// # Parameters
+    ///
+    /// - `buffer`: Maximum number of queued envelopes; zero is promoted to one.
+    /// - `policy`: Backpressure behavior to apply when that buffer is full.
+    /// - `label`: Optional human-readable branch label for diagnostics.
     pub fn subscribe_with_label(
         &self,
         buffer: usize,
@@ -154,8 +175,12 @@ impl<T: Clone + Send> SharedSenders<T> {
         (id, rx)
     }
 
-    /// Removes a subscription; dropping its sender disconnects the
+    /// Removes a subscription by identifier; dropping its sender disconnects the
     /// subscriber's channel, which downstream reads as end-of-stream.
+    ///
+    /// # Parameters
+    ///
+    /// - `id`: Identifier returned by [`Self::subscribe`].
     pub fn unsubscribe(&self, id: u64) {
         let mut inner = self.inner.lock().unwrap();
         inner.subscribers.retain(|subscriber| subscriber.id != id);
@@ -183,6 +208,7 @@ impl<T: Clone + Send> SharedSenders<T> {
         std::mem::take(&mut self.inner.lock().unwrap().disconnected)
     }
 
+    /// Returns the number of currently subscribed channels.
     pub fn subscriber_count(&self) -> usize {
         self.inner.lock().unwrap().subscribers.len()
     }
@@ -354,7 +380,10 @@ impl<T> Clone for Destination<T> {
 }
 
 impl<T: Clone + Send> Sender<T> {
-    /// Create a new Sender from a vector of crossbeam senders
+    /// Creates a static broadcast sender from crossbeam destinations.
+    ///
+    /// # Parameters
+    /// - `destinations`: Channels that each receive every sent envelope.
     pub fn new(destinations: Vec<CrossbeamSender<ChannelMessage<T>>>) -> Self {
         Self::new_labeled(destinations.into_iter().map(|tx| (tx, None)).collect())
     }
@@ -372,7 +401,7 @@ impl<T: Clone + Send> Sender<T> {
         }
     }
 
-    /// Create a Sender that broadcasts through a supervisor-owned
+    /// Creates a sender that broadcasts through a supervisor-owned
     /// subscriber list (live pipelines).
     pub fn from_shared(shared: SharedSenders<T>) -> Self {
         Self {
@@ -382,7 +411,11 @@ impl<T: Clone + Send> Sender<T> {
         }
     }
 
-    /// Attach a watchdog handle to monitor send operations
+    /// Returns a clone that reports blocking sends through a watchdog handle.
+    ///
+    /// # Parameters
+    ///
+    /// - `watchdog_handle`: Registered operation handle for this sender's port.
     pub fn with_watchdog(&self, watchdog_handle: WatchdogHandle) -> Self {
         Self {
             destinations: self.destinations.clone(),
@@ -437,6 +470,9 @@ impl<T: Clone + Send> Sender<T> {
             .collect()
     }
 
+    /// Returns the diagnostic label of this sender's sole static destination.
+    ///
+    /// Shared and multi-destination senders do not have one unambiguous label.
     pub fn destination_label(&self) -> Option<&str> {
         if self.destinations.len() == 1 && self.shared.is_none() {
             self.destinations[0].label.as_deref()
@@ -445,7 +481,7 @@ impl<T: Clone + Send> Sender<T> {
         }
     }
 
-    /// Get the number of broadcast destinations
+    /// Returns the number of static destinations plus current shared subscribers.
     pub fn num_destinations(&self) -> usize {
         self.destinations.len()
             + self
@@ -462,6 +498,9 @@ impl<T: Clone + Send> Sender<T> {
     ///
     /// For nodes that need non-blocking broadcast, use `split_senders()`
     /// to spawn one thread per destination.
+    ///
+    /// # Parameters
+    /// - `value`: Item to broadcast, cloned for all but one destination.
     pub fn send(&self, value: T) -> Result<(), SendError<T>> {
         if self.destinations.is_empty() && self.shared.is_none() {
             return Ok(());
@@ -501,8 +540,12 @@ impl<T: Clone + Send> Sender<T> {
         Ok(())
     }
 
-    /// Sends an ordered batch in one channel operation. `Receiver<T>`
+    /// Sends an ordered batch in one channel operation. [`crate::Receiver`]
     /// transparently flattens the envelope for scalar consumers.
+    ///
+    /// # Parameters
+    ///
+    /// - `values`: Ordered values to broadcast; an empty batch is a no-op.
     pub fn send_batch(&self, values: Vec<T>) -> Result<(), SendError<Vec<T>>> {
         if values.is_empty() || (self.destinations.is_empty() && self.shared.is_none()) {
             return Ok(());
@@ -568,6 +611,9 @@ impl<T: Clone + Send> Sender<T> {
 
     /// Try to send without blocking on the static destinations. Shared
     /// subscribers are served with their own per-subscription policies.
+    ///
+    /// # Parameters
+    /// - `value`: Item to enqueue without waiting for static destinations.
     pub fn try_send(&self, value: T) -> Result<(), crossbeam_channel::TrySendError<T>> {
         if let Some(shared) = &self.shared {
             let _ = shared.send(&value);

@@ -13,6 +13,7 @@ use crate::{
 
 const DRAIN_BATCH_SIZE: usize = 1_024;
 
+/// Bounded protocol-packet projection for a visible timeline window.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProtocolPacketLaneSnapshot {
     packets: Vec<ProtocolPacket>,
@@ -20,10 +21,12 @@ pub struct ProtocolPacketLaneSnapshot {
 }
 
 impl ProtocolPacketLaneSnapshot {
+    /// Returns individually retained packets when the visible window is not dense.
     pub fn packets(&self) -> &[ProtocolPacket] {
         &self.packets
     }
 
+    /// Returns coarse activity spans when the visible packet count exceeds the request limit.
     pub fn activity_spans(&self) -> &[(u64, u64)] {
         &self.activity_spans
     }
@@ -252,6 +255,7 @@ impl PayloadAdapter for ProtocolPacketPayloadAdapter {
     }
 }
 
+/// Returns the generic retention adapter for [`ProtocolPacket`] payloads.
 pub fn protocol_packet_payload_adapter() -> Arc<dyn PayloadAdapter> {
     Arc::new(ProtocolPacketPayloadAdapter)
 }

@@ -6,12 +6,17 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::ids::SocketDirection;
 
+/// Visual shape used to distinguish socket families.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SocketShape {
     #[default]
+    /// Round socket, the default stream-data shape.
     Circle,
+    /// Diamond socket.
     Diamond,
+    /// Square socket, used by built-in configuration values.
     Square,
+    /// Triangle socket.
     Triangle,
 }
 
@@ -25,6 +30,7 @@ pub struct VariadicInfo {
     pub base: String,
     /// Maximum number of members.
     pub max: usize,
+    /// Whether this is the unconnected member slot that can grow the group.
     pub placeholder: bool,
 }
 
@@ -35,6 +41,7 @@ pub struct Socket {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub schema_id: String,
     #[serde(default, skip_serializing)]
+    /// User-facing label, derived from the owning definition.
     pub name: String,
     /// Native type. For inputs this is what the node primarily expects; the
     /// socket may temporarily resolve to one of `allowed` while connected.
@@ -45,6 +52,7 @@ pub struct Socket {
     #[serde(default = "default_socket_color", skip_serializing)]
     pub color: Color32,
     #[serde(default, skip_serializing)]
+    /// Definition-provided visual shape for the socket family.
     pub shape: SocketShape,
     /// Additional type names this input accepts besides `type_name`. The node
     /// declared it can handle these itself. Empty = strict.
@@ -79,6 +87,7 @@ pub struct Socket {
     #[serde(default, skip_serializing_if = "is_false")]
     pub hidden: bool,
     #[serde(default, skip_serializing)]
+    /// Whether an unconnected input can render an inline control.
     pub has_control: bool,
     /// Opaque owner-managed metadata local to this socket. Values travel with
     /// node fragments during copy/paste and survive definition reconciliation
@@ -145,6 +154,9 @@ impl Socket {
     /// Whether this input socket accepts a connection from an output of
     /// `incoming` type. Acceptance is per-socket (declared by the node),
     /// not a property of the socket type.
+    ///
+    /// # Parameters
+    /// - `incoming`: Input consumed by this operation.
     pub fn accepts(&self, incoming: &str) -> bool {
         incoming == "Any"
             || self.type_name == "Any"
@@ -152,10 +164,12 @@ impl Socket {
             || self.allowed.iter().any(|t| t == incoming)
     }
 
+    /// Returns whether variadic placeholder.
     pub fn is_variadic_placeholder(&self) -> bool {
         self.variadic.as_ref().is_some_and(|info| info.placeholder)
     }
 
+    /// Returns whether variadic member.
     pub fn is_variadic_member(&self) -> bool {
         self.variadic.as_ref().is_some_and(|info| !info.placeholder)
     }

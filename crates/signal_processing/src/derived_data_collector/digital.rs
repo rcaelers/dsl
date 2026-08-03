@@ -18,7 +18,10 @@ use crate::sample::Sample;
 #[derive(Clone, Debug)]
 pub enum DigitalLaneSnapshot {
     /// Exact level transitions in the requested visible window.
-    Exact { samples: Vec<Sample>, initial: bool },
+    Exact {
+        samples: Vec<Sample>,
+        initial: bool
+    },
     /// Bounded summary records for a dense visible window.
     Activity {
         records: Vec<MipmapRecord>,
@@ -287,6 +290,7 @@ impl PayloadAdapter for DigitalPayloadAdapter {
     }
 }
 
+/// Returns the payload adapter for built-in digital lanes.
 pub fn digital_payload_adapter() -> Arc<dyn PayloadAdapter> {
     Arc::new(DigitalPayloadAdapter)
 }

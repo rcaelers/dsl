@@ -34,6 +34,7 @@ impl Default for I2cDecoder {
 }
 
 impl I2cDecoder {
+    /// Creates an I²C decoder with its default configuration.
     pub fn new() -> Self {
         Self {
             name: "i2c_decoder".into(),
@@ -49,6 +50,10 @@ impl I2cDecoder {
         }
     }
 
+    /// Returns this value configured with name.
+    ///
+    /// # Parameters
+    /// - `name`: Input consumed by this operation.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self

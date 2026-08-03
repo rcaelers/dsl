@@ -521,6 +521,11 @@ pub struct DemoGraph {
 }
 
 impl DemoGraph {
+    /// Creates a named graph document for the application's Demos menu.
+    ///
+    /// # Parameters
+    /// - `name`: User-facing demo name.
+    /// - `graph`: Complete graph document loaded when the demo is selected.
     pub fn new(name: impl Into<String>, graph: GraphState) -> Self {
         Self {
             name: name.into(),
@@ -528,6 +533,7 @@ impl DemoGraph {
         }
     }
 
+    /// Returns this demo's user-facing name.
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -1003,6 +1009,10 @@ impl App {
         ToastSource::socket(node, socket)
     }
 
+    /// Creates the application with unavailable default host services and an empty graph.
+    ///
+    /// # Parameters
+    /// - `cc`: Eframe creation context used to initialize UI resources.
     pub fn new(cc: &eframe::CreationContext) -> Self {
         Self::build_with_app_services(
             cc,
@@ -1013,6 +1023,10 @@ impl App {
 
     /// Builds the application around an initial graph supplied by the host
     /// application. The host owns where that graph comes from.
+    ///
+    /// # Parameters
+    /// - `cc`: Eframe creation context used to initialize UI resources.
+    /// - `graph`: Initial persisted graph document to restore.
     pub fn new_with_graph(cc: &eframe::CreationContext, graph: node_graph::GraphState) -> Self {
         let mut app = Self::new(cc);
         app.apply_graph_document(graph);
@@ -1021,6 +1035,10 @@ impl App {
 
     /// Builds the application with host-supplied demo documents. The first
     /// entry is loaded at startup and remains available from the Demos menu.
+    ///
+    /// # Parameters
+    /// - `cc`: Eframe creation context used to initialize UI resources.
+    /// - `demo_graphs`: Available named demo documents, with the first selected initially.
     pub fn new_with_demo_graphs(cc: &eframe::CreationContext, demo_graphs: Vec<DemoGraph>) -> Self {
         let default_graph = demo_graphs.first().map(|demo| demo.graph.clone());
         let mut app = Self::new(cc);
@@ -1042,6 +1060,10 @@ impl App {
         self.restore_cached_derived_data();
     }
 
+    /// Loads one configured demo after rejecting the request during active capture work.
+    ///
+    /// # Parameters
+    /// - `index`: Position in the configured demo list. Invalid indices are ignored.
     pub fn load_demo_graph(&mut self, index: usize) {
         let Some((name, graph)) = self
             .demo_graphs
@@ -1145,14 +1167,26 @@ impl App {
         self.platform.recent_files()
     }
 
+    /// Returns the validated binding configuration installed by the host services.
     pub fn input_bindings(&self) -> &InputBindings {
         &self.input_bindings
     }
 
+    /// Creates the application and asks host services to load an optional startup file.
+    ///
+    /// # Parameters
+    /// - `cc`: Eframe creation context used to initialize UI resources.
+    /// - `file`: Optional startup path delegated to the configured host service.
     pub fn new_with_file(cc: &eframe::CreationContext, file: Option<&Path>) -> Self {
         Self::new_with_file_and_catalogs(cc, file, Vec::new())
     }
 
+    /// Creates the application with additional host-discovered node catalogs and an optional file.
+    ///
+    /// # Parameters
+    /// - `cc`: Eframe creation context used to initialize UI resources.
+    /// - `file`: Optional startup path delegated to the configured host service.
+    /// - `node_catalogs`: Host-owned node catalogs added to the built-in registry.
     pub fn new_with_file_and_catalogs(
         cc: &eframe::CreationContext,
         file: Option<&Path>,
@@ -1169,6 +1203,12 @@ impl App {
 
     /// Builds the application with services selected by the host composition
     /// root.
+    ///
+    /// # Parameters
+    /// - `cc`: Eframe creation context used to initialize UI resources.
+    /// - `file`: Optional startup path delegated to the configured host service.
+    /// - `node_catalogs`: Host-owned node catalogs added to the built-in registry.
+    /// - `services`: Complete injected host service set.
     pub fn new_with_file_catalogs_and_services(
         cc: &eframe::CreationContext,
         file: Option<&Path>,
@@ -1180,6 +1220,12 @@ impl App {
         app
     }
 
+    /// Creates the application with demos and a complete injected host service set.
+    ///
+    /// # Parameters
+    /// - `cc`: Eframe creation context used to initialize UI resources.
+    /// - `demo_graphs`: Available named demo documents, with the first selected initially.
+    /// - `services`: Complete injected host service set.
     pub fn new_with_demo_graphs_and_services(
         cc: &eframe::CreationContext,
         demo_graphs: Vec<DemoGraph>,
@@ -1189,6 +1235,12 @@ impl App {
     }
 
     /// Builds the application with embedded demos and host-selected node catalogs.
+    ///
+    /// # Parameters
+    /// - `cc`: Eframe creation context used to initialize UI resources.
+    /// - `demo_graphs`: Available named demo documents, with the first selected initially.
+    /// - `node_catalogs`: Host-owned node catalogs added to the built-in registry.
+    /// - `services`: Complete injected host service set.
     pub fn new_with_demo_graphs_catalogs_and_services(
         cc: &eframe::CreationContext,
         demo_graphs: Vec<DemoGraph>,

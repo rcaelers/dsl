@@ -385,6 +385,9 @@ impl LogicAnalyzerViewer {
     /// Applies the host's preferred order to rows that currently exist.
     /// Missing rows are ignored and newly appearing rows retain their current
     /// relative order until a later call includes them.
+    ///
+    /// # Parameters
+    /// - `requested`: Input consumed by this operation.
     pub fn apply_viewer_row_order(&mut self, requested: &[ViewerRowId]) {
         self.ensure_row_order();
         let current = self.row_order.iter().cloned().collect::<HashSet<_>>();
@@ -459,6 +462,7 @@ impl LogicAnalyzerViewer {
         }
     }
 
+    /// Takes viewer row height changed, leaving its default state.
     pub fn take_viewer_row_height_changed(&mut self) -> bool {
         std::mem::take(&mut self.row_height_changed)
     }

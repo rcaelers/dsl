@@ -11,18 +11,26 @@ pub struct ProcessNodeConstruction<M = ()> {
 }
 
 impl<M> ProcessNodeConstruction<M> {
+    /// Couples a constructed process node with its source metadata.
+    ///
+    /// # Parameters
+    /// - `process`: Input consumed by this operation.
+    /// - `metadata`: Input consumed by this operation.
     pub fn new(process: Box<dyn ProcessNode>, metadata: M) -> Self {
         Self { process, metadata }
     }
 
+    /// Returns the source metadata retained with this construction.
     pub fn metadata(&self) -> &M {
         &self.metadata
     }
 
+    /// Consumes this value and returns process.
     pub fn into_process(self) -> Box<dyn ProcessNode> {
         self.process
     }
 
+    /// Consumes this value and returns parts.
     pub fn into_parts(self) -> (Box<dyn ProcessNode>, M) {
         (self.process, self.metadata)
     }

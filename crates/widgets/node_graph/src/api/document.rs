@@ -17,6 +17,10 @@ pub struct GraphDocumentBuilder {
 }
 
 impl GraphDocumentBuilder {
+    /// Creates an empty headless document builder with registered node definitions.
+    ///
+    /// # Parameters
+    /// - `node_types`: Definitions used for node construction, migration, and dynamic schemas.
     pub fn new(node_types: NodeTypeRegistry) -> Self {
         Self {
             graph: GraphState::default(),
@@ -24,14 +28,22 @@ impl GraphDocumentBuilder {
         }
     }
 
+    /// Returns the graph document under construction.
     pub fn graph(&self) -> &GraphState {
         &self.graph
     }
 
+    /// Returns mutable access to the graph document under construction.
     pub fn graph_mut(&mut self) -> &mut GraphState {
         &mut self.graph
     }
 
+    /// Adds a registered node with its definition-owned initial state and sockets.
+    ///
+    /// # Parameters
+    /// - `type_name`: Registered node type name, or the built-in `Reroute` name.
+    ///
+    /// Returns `None` when the requested type is unknown.
     pub fn add_node(&mut self, type_name: &str) -> Option<NodeId> {
         let id = self.graph.next_id();
         let node = if type_name == "Reroute" {
