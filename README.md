@@ -211,16 +211,16 @@ for inspecting captured CCD image data rather than a processing pipeline.
 
 | Document | Contents |
 |---|---|
-| [docs/APP_DESIGN.md](docs/APP_DESIGN.md) | Application shell, node set, graph→pipeline compiler, live editing |
-| [docs/NODE_GRAPH_DESIGN.md](docs/NODE_GRAPH_DESIGN.md) | Node editor architecture: model, socket type system, widget |
-| [docs/NODE_GRAPH_API.md](docs/NODE_GRAPH_API.md) | Embedding the editor widget and defining node types |
-| [docs/LOGIC_ANALYZER_VIEWER_DESIGN.md](docs/LOGIC_ANALYZER_VIEWER_DESIGN.md) | Waveform viewer: index format, sampling, rendering |
-| [docs/LOGIC_ANALYZER_VIEWER_API.md](docs/LOGIC_ANALYZER_VIEWER_API.md) | Embedding the viewer widget |
-| [docs/LIVE_CAPTURE_TRIGGER_DESIGN.md](docs/LIVE_CAPTURE_TRIGGER_DESIGN.md) | Live-capture foundation and staged plan for hardware triggering, capture, and replay |
-| [docs/PIPELINE_DESIGN.md](docs/PIPELINE_DESIGN.md) | Streaming engine: nodes, channels, backpressure, live supervision |
-| [docs/DSLOGIC_U3PRO16_PROTOCOL.md](docs/DSLOGIC_U3PRO16_PROTOCOL.md) | DSLogic U3Pro16 USB protocol (hardware reference) |
-| [docs/REGISTERS.md](docs/REGISTERS.md) | Hardware register reference |
-| [docs/CCD_DATA_STREAM.md](docs/CCD_DATA_STREAM.md) | The CCD data stream the example pipeline decodes |
+| [docs/INDEX.md](docs/INDEX.md) | Documentation entry point and crate-owner map |
+| [docs/architecture/application_composition.md](docs/architecture/application_composition.md) | UI composition, graph interaction, and live editing |
+| [docs/crates/node_graph.md](docs/crates/node_graph.md) | Node editor architecture: model, socket type system, widget |
+| [docs/crates/node_graph_api.md](docs/crates/node_graph_api.md) | Embedding the editor widget and defining node types |
+| [docs/crates/logic_analyzer_viewer.md](docs/crates/logic_analyzer_viewer.md) | Waveform viewer: index format, sampling, rendering |
+| [docs/crates/logic_analyzer_viewer_api.md](docs/crates/logic_analyzer_viewer_api.md) | Embedding the viewer widget |
+| [docs/aspects/live_capture_trigger.md](docs/aspects/live_capture_trigger.md) | Live-capture foundation and staged plan for hardware triggering, capture, and replay |
+| [docs/modules/signal_processing/runtime.md](docs/modules/signal_processing/runtime.md) | Streaming engine: nodes, channels, backpressure, live supervision |
+| [docs/integrations/dslogic_u3pro16_protocol.md](docs/integrations/dslogic_u3pro16_protocol.md) | DSLogic U3Pro16 USB protocol (hardware reference) |
+| [docs/references/ccd_afe_registers.md](docs/references/ccd_afe_registers.md) | Hardware register reference |
 
 ## Development
 
