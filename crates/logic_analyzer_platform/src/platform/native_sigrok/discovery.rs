@@ -23,22 +23,22 @@ use super::python_host::{
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SigrokSearchPathError {
+enum SigrokSearchPathError {
     Missing,
     Unreadable(String),
 }
 
-pub trait SigrokSearchPathDiscovery: Send + Sync {
+trait SigrokSearchPathDiscovery: Send + Sync {
     fn normalize(&self, path: &Path) -> PathBuf;
 
     fn decoder_packages(&self, path: &Path) -> Result<Vec<PathBuf>, SigrokSearchPathError>;
 }
 
-pub trait SigrokPackageDiscovery: Send + Sync {
+trait SigrokPackageDiscovery: Send + Sync {
     fn discover(&self, decoder_root: &Path, id: &str) -> Result<SigrokDecoderDescriptor, String>;
 }
 
-pub struct SigrokDecoderCatalog {
+struct SigrokDecoderCatalog {
     snapshots: Mutex<HashMap<Vec<PathBuf>, Arc<SigrokCatalogSnapshot>>>,
     scan_lock: Mutex<()>,
     search_paths: Arc<dyn SigrokSearchPathDiscovery>,
@@ -55,7 +55,7 @@ impl Default for SigrokDecoderCatalog {
 }
 
 impl SigrokDecoderCatalog {
-    pub fn with_discovery(
+    fn with_discovery(
         search_paths: Arc<dyn SigrokSearchPathDiscovery>,
         packages: Arc<dyn SigrokPackageDiscovery>,
     ) -> Self {
@@ -68,7 +68,7 @@ impl SigrokDecoderCatalog {
     }
 
     #[cfg(test)]
-    pub fn snapshot(&self, search_paths: &[PathBuf]) -> Arc<SigrokCatalogSnapshot> {
+    fn snapshot(&self, search_paths: &[PathBuf]) -> Arc<SigrokCatalogSnapshot> {
         let key = normalized_search_paths(search_paths, self.search_paths.as_ref());
         if let Some(snapshot) = self.snapshots.lock().unwrap().get(&key).cloned() {
             return snapshot;
@@ -80,7 +80,7 @@ impl SigrokDecoderCatalog {
         self.store_scan(key)
     }
 
-    pub fn refresh(&self, search_paths: &[PathBuf]) -> Arc<SigrokCatalogSnapshot> {
+    fn refresh(&self, search_paths: &[PathBuf]) -> Arc<SigrokCatalogSnapshot> {
         let key = normalized_search_paths(search_paths, self.search_paths.as_ref());
         let _scan = self.scan_lock.lock().unwrap();
         self.store_scan(key)
