@@ -582,9 +582,10 @@ mod parallel_worker_tests {
         let decoder = ParallelDecoder::new(1, StrobeMode::AnyEdge, CsPolarity::Disabled)
             .with_input_strategy(ParallelInputStrategy::PackedStream)
             .with_parallel_workers(ParallelDecoder::MAX_PARALLEL_WORKERS)
-            .with_work_executor(Arc::new(SpawnWorkExecutor::new(
-                ParallelDecoder::MAX_PARALLEL_WORKERS,
-            )));
+            // The executor reports the host's finite-worker capacity. Requesting the
+            // maximum still exercises worker clamping and a saturated work queue without
+            // manufacturing 64 runnable threads on a smaller CI host.
+            .with_work_executor(Arc::new(SpawnWorkExecutor::new(2)));
         let metrics = decoder.parallel_metrics();
         scheduler.start_process(Box::new(decoder), inputs, Vec::new());
 
