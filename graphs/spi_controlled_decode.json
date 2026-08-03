@@ -1458,10 +1458,10 @@
         }
       ],
       "pos": {
-        "x": 1622.48828125,
-        "y": 104.234375
+        "x": 1535.91796875,
+        "y": 269.02734375
       },
-      "selected": false,
+      "selected": true,
       "state": {
         "cs_polarity": {
           "value": "Disabled",
@@ -1538,8 +1538,8 @@
       "muted": false,
       "outputs": [],
       "pos": {
-        "x": 1807.40234375,
-        "y": 278.16796875
+        "x": 2014.4921875,
+        "y": 269.90625
       },
       "selected": false,
       "state": {
