@@ -125,7 +125,7 @@ pub use live_capture::{
     bounded_capture_event_queue, bounded_capture_queue,
 };
 pub use live_capture_store::*;
-pub use manager::{DisconnectEvent, InputSub, NodeSpec, PipelineManager};
+pub use manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec, PipelineManager};
 pub use node::{
     ConfigOutcome, ConfigValue, ConfigurationBoundary, ConfigurationScheduler,
     InputProtocolCandidate, NodeCancellation, NodeConfig, ProcessNode, RuntimeExecutionMode,

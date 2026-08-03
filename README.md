@@ -110,10 +110,25 @@ and write each start/stop window to its own file — see
 ```bash
 cargo run --release --bin logic-conduit -- <graph.json>   # open a graph at startup
 
+# Execute exactly the saved graph without opening the UI. This uses the same
+# native source factories, output-retention plan, durable caches, and runtime
+# as the Run button.
+cargo run --release --bin logic-conduit -- run <graph.json>
+
+# Machine-readable timing, throughput, node-progress, and cache report.
+cargo run --release --bin logic-conduit -- run <graph.json> --json
+
 # Logging via RUST_LOG (per-module filtering)
 RUST_LOG=info cargo run --release --bin logic-conduit
 RUST_LOG=info,logic_analyzer_processing::nodes::decoders::spi_decoder=debug cargo run --release --bin logic-conduit
 ```
+
+Headless execution performs a fresh run just like the UI: it removes that
+graph's previous derived-data entries, preserves the raw waveform index, runs
+every connected sink, and publishes replacement derived caches. File-writer
+nodes write to the destinations saved in the graph. Progress is written to
+standard error so JSON standard output can be redirected directly into a
+benchmark report.
 
 If a pipeline appears stuck, the built-in watchdog logs which node is blocked on which
 port after ~5 seconds.

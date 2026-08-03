@@ -6,6 +6,7 @@ use logic_analyzer_graph_api::node::{
     PayloadRegistration, RuntimeBuilder, graph_node_registrations,
 };
 use logic_analyzer_graph_api::node_support::{PortKind, ViewerOutputControl};
+use logic_analyzer_graph_compiler::OutputSubscriptionPlan;
 use node_graph::{GraphState, NodeId, NodeKind, SocketDirection, SocketId};
 
 const EXTENSION: &str = "logic_analyzer_graph.viewer_selections";
@@ -201,6 +202,30 @@ pub(crate) fn viewer_output_selections(graph: &GraphState) -> Vec<ViewerOutputSe
     }
     selections.sort_by_key(|selection| (selection.node.0, selection.output));
     selections
+}
+
+/// Builds the application-owned retention and presentation plan used at every
+/// graph execution boundary.
+///
+/// Selected outputs are presented. Outputs owned by a node participating in
+/// the processing graph remain retained so presentation-only edits can use
+/// cached data without rerunning the graph.
+pub(crate) fn output_subscription_plan(graph: &GraphState) -> OutputSubscriptionPlan {
+    let connected_nodes = graph
+        .connections
+        .iter()
+        .flat_map(|connection| [connection.from.node, connection.to.node])
+        .collect::<HashSet<_>>();
+    let mut subscriptions = OutputSubscriptionPlan::new();
+    for selection in viewer_output_selections(graph) {
+        if selection.selected || connected_nodes.contains(&selection.node) {
+            subscriptions.retain(selection.node, selection.output);
+        }
+        if selection.selected {
+            subscriptions.subscribe(selection.node, selection.output);
+        }
+    }
+    subscriptions
 }
 
 pub(crate) fn synchronize_viewer_selections(
@@ -788,5 +813,40 @@ mod viewer_selection_tests {
             payloads.subscriptions[0].target,
             SavedPayloadTarget::ShowInView { node, output: 0 } if node == decoder
         ));
+    }
+
+    #[test]
+    fn execution_plan_retains_connected_outputs_and_presents_only_selections() {
+        let mut widget = NodeGraphWidget::new(build_test_node_registry());
+        let producer = widget
+            .add_node_at(WORD_PRODUCER_NAME, egui::Pos2::ZERO)
+            .unwrap();
+        let viewer = widget
+            .add_node_at("Viewer", egui::Pos2::new(200.0, 0.0))
+            .unwrap();
+        widget.graph_mut().add_connection(
+            SocketId {
+                node: producer,
+                index: 0,
+                direction: SocketDirection::Output,
+            },
+            SocketId {
+                node: viewer,
+                index: 0,
+                direction: SocketDirection::Input,
+            },
+        );
+
+        let retained = output_subscription_plan(widget.graph());
+        assert!(retained.is_retained(producer, 0));
+        assert!(!retained.contains(producer, 0));
+
+        let output_id = viewer_output_selections(widget.graph())[0]
+            .output_id
+            .clone();
+        set_viewer_output_selected(widget.graph_mut(), producer, &output_id, true).unwrap();
+        let selected = output_subscription_plan(widget.graph());
+        assert!(selected.is_retained(producer, 0));
+        assert!(selected.contains(producer, 0));
     }
 }

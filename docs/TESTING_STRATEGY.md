@@ -78,7 +78,24 @@ state their prerequisites, and do not make an unavailable local resource a
 test failure. Their assertions complement rather than replace deterministic
 tests using checked-in fixtures and fakes.
 
-The compiler capture tool contains the graph-runtime timing probes and the
+The native application command is the authoritative end-to-end graph runtime
+benchmark because it exercises the durable repository, saved application
+subscription plan, native source factories, and runtime completion boundary
+used by the interactive Run command:
+
+```console
+cargo run --release --bin logic-conduit -- \
+  run graphs/spi_controlled_decode.json --json > ui-equivalent-run.json
+```
+
+The command removes only the selected graph's previous derived entries, keeps
+its raw waveform index, executes configured file sinks, writes progress to
+standard error, and reports preparation, cache-clear, execution, total time,
+capture real-time factor, final node counts, and persistent cache sizes. Run it
+from an otherwise idle machine. A cold raw-index build and a warm indexed run
+are distinct measurements.
+
+The compiler capture tool contains isolated graph-runtime timing probes and
 full-capture differential validations. It requires an explicit,
 developer-supplied DSL capture path and runs in the release benchmark profile:
 
@@ -105,15 +122,14 @@ cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
   baseline /path/to/reference.dsl > reference-pipeline.json
 ```
 
-Execution and cancellation use fresh derived-cache directories and separate
-child processes. This prevents a previous run from turning the execution
-measurement into a derived-data cache hit and gives cancellation its own clean
-pipeline. Throughput comparisons use the application's normal preloaded and
-indexed capture state and an otherwise idle machine; cold filesystem-cache runs
-measure storage warmup as well as pipeline execution and are recorded
-separately. Environment, graph, capture-cache, and output fingerprints make
-reports comparable without checking a developer capture or generated data into
-the repository.
+Execution and cancellation use fresh in-memory derived repositories and
+separate child processes. This prevents a previous run from becoming a cache
+hit and gives cancellation its own clean pipeline, but deliberately excludes
+native durable-publication cost. These probes compare decoder algorithms,
+protocol selection, ordering, output integrity, CPU use, and cancellation;
+they are not substitutes for the UI-equivalent command above. Environment,
+graph, capture-cache, and output fingerprints make their reports comparable
+without checking a developer capture or generated data into the repository.
 
 `live-viewer-runtime` attaches the production logic-analyzer viewer to the running graph and drives
 it through a headless egui update at a 16 ms cadence. Every frame contains pointer input. The probe

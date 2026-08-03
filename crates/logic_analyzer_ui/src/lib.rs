@@ -8,6 +8,7 @@ mod collected_output_presentation;
 mod decoder_panel;
 mod decoder_table_presentation;
 mod graph_service;
+mod headless;
 mod host_service;
 mod live_capture;
 mod memory_panel;
@@ -29,6 +30,10 @@ pub use application_settings::{ApplicationSettings, default_input_bindings};
 pub use capture_export_service::{
     CaptureExportCompletion, CaptureExportDescriptor, CaptureExportFormat, CaptureExportService,
     CaptureExportStatus, unavailable_capture_export_service,
+};
+pub use headless::{
+    HeadlessCacheReport, HeadlessGraphRunner, HeadlessNodeProgress, HeadlessRunError,
+    HeadlessRunEvent, HeadlessRunReport,
 };
 pub use host_service::{
     DecodedBlockCacheSnapshot, HostCommand, HostService, HostUiCapabilities, ModifierKeyLabels,

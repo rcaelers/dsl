@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use super::contract::AppManagerBackend;
 use super::cooperative::CooperativeAppManagerBackend;
-use crate::manager::{DisconnectEvent, InputSub, NodeSpec};
+use crate::manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec};
 use crate::node::{ConfigurationBoundary, NodeConfig, ProcessNode};
 
 /// Platform-neutral application runtime manager.
@@ -69,6 +69,10 @@ impl AppManager {
 
     pub fn take_disconnected(&self) -> Vec<DisconnectEvent> {
         self.backend.take_disconnected()
+    }
+
+    pub fn take_failures(&mut self) -> Vec<NodeFailure> {
+        self.backend.take_failures()
     }
 
     pub fn request_stop(&mut self) {

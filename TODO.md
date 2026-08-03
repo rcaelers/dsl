@@ -65,6 +65,18 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ## Refactorings
 
+### Derived-data storage
+
+- [derived.storage.segmented-artifacts] Replace one-file-per-derived-block publication with a
+  bounded number of large immutable segment artifacts. Encode blocks concurrently, append their
+  ordered bytes into segment-sized writable mappings or buffered regions, and publish only complete
+  segments plus the final index/manifest generation. Native mappings rely on ordinary OS page-cache
+  writeback rather than a durability barrier per block; web storage uses the same segment/index
+  model over its injected repository. Preserve atomic generation visibility, cancellation cleanup,
+  exact range queries, cache portability, and corruption validation. Use `logic-conduit run
+  graphs/spi_controlled_decode.json --json` as the end-to-end acceptance benchmark and keep artifact
+  count, bytes, execution time, CPU utilization, and final-publication latency visible in its report.
+
 ### Graph execution
 
 - [graph.execution.debounced-live-sync] Replace fixed-interval semantic graph polling with an

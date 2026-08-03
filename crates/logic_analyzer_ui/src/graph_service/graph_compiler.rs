@@ -67,12 +67,20 @@ impl GraphRun for LiveRun {
         LiveRun::pump_for(self, budget, max_duration);
     }
 
+    fn wait(&mut self) {
+        LiveRun::wait(self);
+    }
+
     fn progress(&self) -> Vec<(NodeId, u64)> {
         LiveRun::progress(self)
     }
 
     fn take_disconnected(&self) -> Vec<(Option<NodeId>, DisconnectEvent)> {
         LiveRun::take_disconnected(self)
+    }
+
+    fn take_node_failures(&mut self) -> Vec<(Option<NodeId>, signal_processing::NodeFailure)> {
+        LiveRun::take_node_failures(self)
     }
 }
 

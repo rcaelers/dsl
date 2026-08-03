@@ -61,8 +61,14 @@ payload IDs and storage contracts; it does not infer protocols or concrete nodes
   layout. The app and viewer do not identify node types or know what DSL and Sigrok paths mean.
   Runtime processing nodes remain compiler-owned and are created only when a run starts.
 - `logic-analyzer-app-native` binary (named `logic-conduit`): clap CLI,
-  `tracing_subscriber` with `RUST_LOG` env filter,
-  and an eframe native window.
+  `tracing_subscriber` with `RUST_LOG` env filter, and an eframe native window.
+  `logic-conduit run <graph.json>` instead composes the same native
+  `AppServices` without a window. The application-owned headless runner restores
+  the document through the node registry, applies the saved output-retention
+  and cursor contracts, prepares its source, replaces the same per-graph
+  durable cache entries as the Run button, and waits for every runtime node.
+  Its report separates preparation, cache removal, execution, and total time;
+  runtime node failures produce an unsuccessful process exit.
 - `logic-analyzer-app-web` exports the wasm-bindgen `WebHandle` used by the browser shell. The shell
   supplies the generated JavaScript-module and WASM URLs so `logic_analyzer_platform` can activate
   finite-operation Web Workers or expose its cooperative fallback.

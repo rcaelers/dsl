@@ -1418,7 +1418,7 @@ fn reference_pipeline_baseline(capture: &Path) {
     );
 }
 
-fn compiler_runtime_benchmark(capture: &Path) {
+fn in_memory_compiler_runtime_benchmark(capture: &Path) {
     let workspace = temporary_workspace();
     let output = workspace.path().join("compiled");
     std::fs::create_dir_all(&output).unwrap();
@@ -1867,7 +1867,7 @@ fn print_usage() {
          \n\
          commands:\n\
            baseline               report timing, resources, storage, and output identity\n\
-           compiler-runtime       time the compiled startup graph\n\
+           compiler-runtime-memory time graph processing with derived artifacts in memory\n\
            protocol-selection     validate and compare indexed and packed parallel decoding\n\
            phase-one-runtime      time the phase-one reference pipeline\n\
            current-runtime        time the current reference pipeline\n\
@@ -1974,7 +1974,7 @@ fn main() {
 
     match command.to_string_lossy().as_ref() {
         "baseline" => reference_pipeline_baseline(&capture),
-        "compiler-runtime" => compiler_runtime_benchmark(&capture),
+        "compiler-runtime-memory" => in_memory_compiler_runtime_benchmark(&capture),
         "protocol-selection" => protocol_selection_benchmark(&capture),
         "phase-one-runtime" => phase_one_reference_runtime_benchmark(&capture),
         "current-runtime" => current_reference_runtime_benchmark(&capture),
@@ -1982,7 +1982,7 @@ fn main() {
         "validate-compiled" => compiled_graph_matches_current_reference(&capture),
         "validate-live-attach" => live_attach_detach_preserves_writer_output(&capture),
         "all" => {
-            compiler_runtime_benchmark(&capture);
+            in_memory_compiler_runtime_benchmark(&capture);
             protocol_selection_benchmark(&capture);
             phase_one_reference_runtime_benchmark(&capture);
             current_reference_runtime_benchmark(&capture);

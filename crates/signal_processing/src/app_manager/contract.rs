@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use super::implementation::AppManager;
-use crate::manager::{DisconnectEvent, InputSub, NodeSpec};
+use crate::manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec};
 use crate::node::{ConfigurationBoundary, NodeConfig, ProcessNode};
 
 /// Execution behavior behind the portable application-runtime facade.
@@ -35,6 +35,10 @@ pub trait AppManagerBackend {
     fn progress(&self) -> Vec<(String, u64)>;
 
     fn take_disconnected(&self) -> Vec<DisconnectEvent>;
+
+    fn take_failures(&mut self) -> Vec<NodeFailure> {
+        Vec::new()
+    }
 
     fn request_stop(&mut self);
 

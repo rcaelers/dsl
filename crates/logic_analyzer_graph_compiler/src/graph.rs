@@ -38,7 +38,7 @@ use signal_processing::{
     AcquisitionContext, AcquisitionResult, AppManager, ArtifactRepository, CaptureChannelId,
     CaptureProviderCapabilities, CaptureSessionPlan, CaptureStartMode, CollectedLaneRequest,
     ConfigurationBoundary, DerivedDataRetention, DerivedLanes, DisconnectEvent, InlineWorkExecutor,
-    InputSub, MemoryArtifactRepository, NodeConfig, OverflowPolicy, PayloadRegistry,
+    InputSub, MemoryArtifactRepository, NodeConfig, NodeFailure, OverflowPolicy, PayloadRegistry,
     PersistentStoreConfig, PreparedAcquisition, ProcessNode, SampleBlock, SamplingPointStore,
     SimpleTriggerCondition, TriggerProgram, WorkExecutor,
 };
@@ -2717,6 +2717,22 @@ impl LiveRun {
                         .map(|(id, _)| *id)
                 });
                 (id, event)
+            })
+            .collect()
+    }
+
+    /// Terminal node failures since the last call, mapped back to UI nodes.
+    pub fn take_node_failures(&mut self) -> Vec<(Option<NodeId>, NodeFailure)> {
+        self.manager
+            .take_failures()
+            .into_iter()
+            .map(|failure| {
+                let id = self
+                    .names
+                    .iter()
+                    .find(|(_, name)| **name == failure.node)
+                    .map(|(id, _)| *id);
+                (id, failure)
             })
             .collect()
     }

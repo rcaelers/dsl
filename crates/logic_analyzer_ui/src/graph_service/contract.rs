@@ -16,7 +16,7 @@ use logic_analyzer_graph_compiler::{
 };
 use node_graph::{GraphState, NodeId};
 use signal_processing::{
-    ArtifactRepository, ConfigurationBoundary, DisconnectEvent, PersistentStoreConfig,
+    ArtifactRepository, ConfigurationBoundary, DisconnectEvent, NodeFailure, PersistentStoreConfig,
 };
 
 use crate::live_capture::CaptureFeatureDiscovery;
@@ -46,9 +46,20 @@ pub(crate) trait GraphRun {
         self.pump(budget);
     }
 
+    fn wait(&mut self) {
+        while !self.is_finished() {
+            self.pump_for(256, Duration::from_millis(4));
+            std::thread::yield_now();
+        }
+    }
+
     fn progress(&self) -> Vec<(NodeId, u64)>;
 
     fn take_disconnected(&self) -> Vec<(Option<NodeId>, DisconnectEvent)>;
+
+    fn take_node_failures(&mut self) -> Vec<(Option<NodeId>, NodeFailure)> {
+        Vec::new()
+    }
 
     fn take_failure(&mut self) -> Option<String> {
         None

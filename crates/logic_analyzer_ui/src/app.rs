@@ -51,7 +51,8 @@ use crate::sampling_overlay_presentation::sampling_overlay_presentation;
 use crate::symbol_fonts::bundled_symbol_fonts;
 use crate::toast::{ToastSource, Toasts};
 use crate::viewer_selection::{
-    set_viewer_output_selected, synchronize_viewer_compatibility, viewer_output_selections,
+    output_subscription_plan, set_viewer_output_selected, synchronize_viewer_compatibility,
+    viewer_output_selections,
 };
 
 const VIEWER_OUTPUT_PANEL_ID: &str = "viewer-outputs";
@@ -440,6 +441,23 @@ fn saved_timeline_cursors(
             time_us: cursor.time_us,
         })
         .collect())
+}
+
+pub(crate) fn supply_saved_timeline_cursors(
+    graph: &GraphState,
+    context: &mut compiler::CompileCtx,
+) -> Result<(), String> {
+    for cursor in saved_timeline_cursors(graph).map_err(|error| error.to_string())? {
+        context.set_timeline_marker(
+            TimelineMarkerReference::Cursor {
+                number: cursor.number,
+            },
+            signal_processing::TimelineMarker::new(
+                (cursor.time_us.max(0.0) * 1_000.0).round() as u64
+            ),
+        );
+    }
+    Ok(())
 }
 
 fn save_timeline_cursors(
@@ -1083,21 +1101,7 @@ impl App {
 
     fn refresh_graph_output_selections(&mut self) -> ViewerOutputPanelData {
         let selections = viewer_output_selections(self.node_graph.graph());
-        let graph = self.node_graph.graph();
-        let connected_nodes = graph
-            .connections
-            .iter()
-            .flat_map(|connection| [connection.from.node, connection.to.node])
-            .collect::<std::collections::HashSet<_>>();
-        let mut subscriptions = compiler::OutputSubscriptionPlan::new();
-        for selection in &selections {
-            if selection.selected || connected_nodes.contains(&selection.node) {
-                subscriptions.retain(selection.node, selection.output);
-            }
-            if selection.selected {
-                subscriptions.subscribe(selection.node, selection.output);
-            }
-        }
+        let subscriptions = output_subscription_plan(self.node_graph.graph());
         self.graph_service.set_output_subscriptions(subscriptions);
         let mut by_node: HashMap<NodeId, Vec<ViewerOutputPanelEntry>> = HashMap::new();
         self.node_graph

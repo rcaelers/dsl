@@ -1201,6 +1201,10 @@ impl AppManagerBackend for NativeAppManagerBackend {
         self.manager.take_disconnected()
     }
 
+    fn take_failures(&mut self) -> Vec<signal_processing::NodeFailure> {
+        self.manager.take_failures()
+    }
+
     fn request_stop(&mut self) {
         self.manager.request_stop();
     }

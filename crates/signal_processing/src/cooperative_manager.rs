@@ -53,7 +53,7 @@ use web_time::Instant;
 
 use super::errors::WorkError;
 use super::events::{NumberSample, TextSample};
-use super::manager::{DisconnectEvent, InputSub, NodeSpec};
+use super::manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec};
 use super::node::{
     ConfigOutcome, ConfigurationBoundary, InputScheduling, NodeConfig, ProcessNode,
     RuntimeExecutionMode,
@@ -196,6 +196,7 @@ struct CooperativeNode {
 pub struct CooperativeManager {
     nodes: HashMap<String, CooperativeNode>,
     watchdog: Watchdog,
+    failures: Vec<NodeFailure>,
 }
 
 impl CooperativeManager {
@@ -203,6 +204,7 @@ impl CooperativeManager {
         Self {
             nodes: HashMap::new(),
             watchdog: Watchdog::new(),
+            failures: Vec::new(),
         }
     }
 
@@ -578,7 +580,7 @@ impl CooperativeManager {
         let mut calls = 0usize;
         while calls < budget {
             let mut made_progress = false;
-            for node in self.nodes.values_mut() {
+            for (runtime_name, node) in &mut self.nodes {
                 if node.done {
                     continue;
                 }
@@ -644,7 +646,11 @@ impl CooperativeManager {
                         }
                     }
                     Err(error) => {
-                        tracing::error!("[{}] work error: {error}", node.node.name());
+                        tracing::error!("[{runtime_name}] work error: {error}");
+                        self.failures.push(NodeFailure {
+                            node: runtime_name.clone(),
+                            message: error.to_string(),
+                        });
                         node.done = true;
                         for output in node.output_lists.values() {
                             for (_, list) in &output.lists {
@@ -665,6 +671,10 @@ impl CooperativeManager {
                 break;
             }
         }
+    }
+
+    pub fn take_failures(&mut self) -> Vec<NodeFailure> {
+        std::mem::take(&mut self.failures)
     }
 }
 
@@ -700,6 +710,49 @@ mod tests {
     struct CountingSource {
         next: i64,
         max: i64,
+    }
+
+    struct FailingNode;
+
+    impl ProcessNode for FailingNode {
+        fn name(&self) -> &str {
+            "failing"
+        }
+
+        fn num_inputs(&self) -> usize {
+            0
+        }
+
+        fn num_outputs(&self) -> usize {
+            0
+        }
+
+        fn work(&mut self, _inputs: &[InputPort], _outputs: &[OutputPort]) -> WorkResult<usize> {
+            Err(WorkError::NodeError("intentional failure".into()))
+        }
+    }
+
+    #[test]
+    fn terminal_node_errors_are_observable_by_the_runtime_owner() {
+        let mut manager = CooperativeManager::new();
+        manager
+            .add_node(NodeSpec {
+                name: "failure-node".into(),
+                node: Box::new(FailingNode),
+                inputs: Vec::new(),
+            })
+            .unwrap();
+
+        manager.pump(1);
+
+        assert_eq!(
+            manager.take_failures(),
+            vec![NodeFailure {
+                node: "failure-node".into(),
+                message: "Node-specific error: intentional failure".into(),
+            }]
+        );
+        assert!(manager.take_failures().is_empty());
     }
 
     impl ProcessNode for CountingSource {

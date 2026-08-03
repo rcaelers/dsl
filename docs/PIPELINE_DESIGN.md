@@ -183,12 +183,26 @@ serialized output path without relaxing deterministic ordering, complete final p
 storage-failure isolation, or backpressure. Collector drains harvest the contiguous prepared prefix
 without waiting for every dispatched encoder, allowing production and cache encoding to overlap.
 
-The manual compiler-capture benchmark loads the checked-in controlled parallel-decoder graph and
-includes its production binary writer, connected-output retention, and explicitly subscribed
-viewer lanes. This is the regression benchmark for end-to-end throughput rather than
-decoder-kernel throughput alone. Its `baseline` command emits graph/capture/output fingerprints,
-phase timing, average CPU utilization, peak RSS, derived storage sizes, throughput, and cancellation
-latency as versioned JSON:
+The native application's headless command is the end-to-end throughput benchmark. It restores the
+saved graph through the same application policy as the UI and uses the native durable artifact
+repository, source factories, connected-output retention, subscribed viewer lanes, processing
+runtime, and file sinks:
+
+```bash
+cargo run --release --bin logic-conduit -- \
+  run graphs/spi_controlled_decode.json --json > ui-equivalent-run.json
+```
+
+The report includes phase timing, capture throughput, final node progress, derived-lane counts, and
+durable cache sizes. Runtime node failures make the command fail. The command clears that graph's
+derived cache entries before execution, matching the UI Run command, while retaining the prepared
+raw capture index.
+
+The manual compiler-capture tool loads the checked-in controlled parallel-decoder graph and
+isolates processing, semantic validation, protocol selection, cancellation, and viewer-query
+latency from durable repository performance. Its `baseline` command emits graph/capture/output
+fingerprints, phase timing, average CPU utilization, peak RSS, derived storage sizes, throughput,
+and cancellation latency as versioned JSON:
 
 ```bash
 cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
@@ -210,12 +224,11 @@ It reports bounded lane-query and pointer-input frame latency, including counts 
 16 ms foreground budgets. These measurements diagnose presentation stalls and do not participate
 in the throughput acceptance threshold.
 
-The reference workload is the complete approximately 250-second, 50-MHz capture. Its throughput
-acceptance threshold is at least 6x real time (approximately 42 seconds) with deterministic output,
-bounded memory, and responsive cancellation. Throughput comparisons use the application's normal
-preloaded/indexed capture state and run on an otherwise idle machine. The benchmark uses fresh
-temporary derived-cache and output directories outside the repository for each measured execution,
-so it measures a real pipeline execution rather than a derived-data cache hit.
+The reference workload is the complete approximately 250-second, 50-MHz capture. Its end-to-end
+throughput acceptance threshold is at least 6x real time (approximately 42 seconds) in the native
+headless command, with deterministic output, bounded memory, durable cache publication, and
+responsive cancellation. Compiler-capture results remain useful component measurements but do not
+satisfy that end-to-end threshold on their own.
 
 Correctness tests compare indexed, packed, sequential, and parallel paths, including every
 strobe mode, CS/enable boundaries, partial-word assembly, deliberately reordered completion,

@@ -144,6 +144,23 @@ impl GraphWorkerRuntime {
         if self.repository.has_pending() {
             return true;
         }
+        let failures = self
+            .active
+            .as_mut()
+            .map(|active| active.run.take_node_failures())
+            .unwrap_or_default();
+        if !failures.is_empty() {
+            self.active = None;
+            emit(GraphWorkerMessage::Failed {
+                sequence,
+                message: failures
+                    .into_iter()
+                    .map(|(_, failure)| format!("{}: {}", failure.node, failure.message))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            });
+            return false;
+        }
         self.active = None;
         emit(GraphWorkerMessage::Finished { sequence });
         false

@@ -22,8 +22,8 @@
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use tracing::{debug, error, info};
 
@@ -254,6 +254,13 @@ pub struct DisconnectEvent {
     pub consumer: Option<String>,
 }
 
+/// Terminal processing error reported by one runtime node.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeFailure {
+    pub node: String,
+    pub message: String,
+}
+
 struct OutputList {
     /// This port's own declared type (before any `SampleKind`
     /// negotiation) — [`crate::negotiate_sample_kind`]'s fallback when
@@ -317,6 +324,7 @@ pub struct PipelineManager {
     watchdog: Watchdog,
     watchdog_task: Option<Box<dyn WorkTask>>,
     work_executor: Arc<dyn WorkExecutor>,
+    failures: Arc<Mutex<Vec<NodeFailure>>>,
 }
 
 impl PipelineManager {
@@ -330,6 +338,7 @@ impl PipelineManager {
             watchdog,
             watchdog_task: Some(watchdog_task),
             work_executor,
+            failures: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -555,6 +564,8 @@ impl PipelineManager {
         let thread_stop = Arc::clone(&entry.stop_flag);
         let thread_keep_open = Arc::clone(&entry.keep_outputs_open);
         let thread_items = Arc::clone(&entry.items);
+        let failures = Arc::clone(&self.failures);
+        let failure_node = name.to_owned();
         let close_handles: Vec<Arc<dyn ErasedSharedSenders>> = entry
             .outputs
             .values()
@@ -568,6 +579,10 @@ impl PipelineManager {
                     // Start internal threads once, then supervise.
                     if let Err(e) = node.work_outcome(&inputs, &outputs) {
                         error!("[{thread_name}] failed to start: {e}");
+                        failures.lock().unwrap().push(NodeFailure {
+                            node: failure_node.clone(),
+                            message: e.to_string(),
+                        });
                     } else {
                         loop {
                             if thread_stop.load(Ordering::Relaxed) || node.should_stop() {
@@ -608,6 +623,10 @@ impl PipelineManager {
                             }
                             Err(e) => {
                                 error!("[{thread_name}] work error: {e}");
+                                failures.lock().unwrap().push(NodeFailure {
+                                    node: failure_node.clone(),
+                                    message: e.to_string(),
+                                });
                                 break;
                             }
                         }
@@ -867,6 +886,10 @@ impl PipelineManager {
         events
     }
 
+    pub fn take_failures(&mut self) -> Vec<NodeFailure> {
+        std::mem::take(&mut *self.failures.lock().unwrap())
+    }
+
     /// Signals every node to stop — sets all stop flags and closes every
     /// output list (unblocking every blocked send/recv with end-of-stream)
     /// — **without joining the threads**. This is the stop an interactive
@@ -998,6 +1021,26 @@ mod tests {
     struct BlockingCancelableNode {
         receiver: crossbeam_channel::Receiver<()>,
         cancellation: Arc<BlockingCancellation>,
+    }
+
+    struct FailingNode;
+
+    impl ProcessNode for FailingNode {
+        fn name(&self) -> &str {
+            "failing"
+        }
+
+        fn num_inputs(&self) -> usize {
+            0
+        }
+
+        fn num_outputs(&self) -> usize {
+            0
+        }
+
+        fn work(&mut self, _inputs: &[InputPort], _outputs: &[OutputPort]) -> WorkResult<usize> {
+            Err(WorkError::NodeError("intentional failure".into()))
+        }
     }
 
     impl ProcessNode for BlockingCancelableNode {
@@ -1235,6 +1278,29 @@ mod tests {
             assert!(start.elapsed() < timeout, "pipeline did not finish in time");
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    #[test]
+    fn terminal_node_errors_are_observable_by_the_runtime_owner() {
+        let mut manager = manager();
+        manager
+            .add_node(NodeSpec {
+                name: "failure-node".into(),
+                node: Box::new(FailingNode),
+                inputs: Vec::new(),
+            })
+            .unwrap();
+
+        wait_finished(&manager, Duration::from_secs(1));
+
+        assert_eq!(
+            manager.take_failures(),
+            vec![NodeFailure {
+                node: "failure-node".into(),
+                message: "Node-specific error: intentional failure".into(),
+            }]
+        );
+        assert!(manager.take_failures().is_empty());
     }
 
     #[test]

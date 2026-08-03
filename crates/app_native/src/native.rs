@@ -1,6 +1,11 @@
-use clap::Parser;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
-use logic_analyzer_ui::{APPLICATION_ID, APPLICATION_NAME};
+use clap::{Args as ClapArgs, Parser, Subcommand};
+
+use logic_analyzer_ui::{
+    APPLICATION_ID, APPLICATION_NAME, HeadlessGraphRunner, HeadlessRunEvent, HeadlessRunReport,
+};
 
 const APPLICATION_LOG_TARGETS: &[&str] = &[
     "logic_conduit",
@@ -61,10 +66,33 @@ use crate::macos_menu;
 #[command(version, about = APPLICATION_NAME)]
 struct Args {
     /// Graph JSON file to load at startup
-    file: Option<std::path::PathBuf>,
+    file: Option<PathBuf>,
+
+    #[command(subcommand)]
+    command: Option<Command>,
 }
 
-pub(crate) type MainResult = eframe::Result;
+#[derive(Subcommand)]
+enum Command {
+    /// Execute a graph without opening the graphical interface
+    Run(RunArgs),
+}
+
+#[derive(ClapArgs)]
+struct RunArgs {
+    /// Graph JSON file to execute
+    graph: PathBuf,
+
+    /// Print the final report as JSON
+    #[arg(long)]
+    json: bool,
+
+    /// Seconds between progress messages; zero disables periodic progress
+    #[arg(long, default_value_t = 1.0, value_parser = parse_nonnegative_seconds)]
+    progress_interval: f64,
+}
+
+pub(crate) type MainResult = Result<(), Box<dyn std::error::Error>>;
 
 fn application_icon() -> egui::IconData {
     eframe::icon_data::from_png_bytes(include_bytes!(
@@ -86,6 +114,13 @@ pub(crate) fn run() -> MainResult {
         .init();
 
     let args = Args::parse();
+    if let Some(Command::Run(args)) = args.command {
+        return run_headless(args);
+    }
+    run_ui(args.file)
+}
+
+fn run_ui(file: Option<PathBuf>) -> MainResult {
     #[cfg(target_os = "macos")]
     macos_menu::disable_automatic_window_tabbing();
 
@@ -105,7 +140,7 @@ pub(crate) fn run() -> MainResult {
             let (ui_services, node_catalogs) = platform_services.into_ui_and_node_catalogs();
             let app = logic_analyzer_ui::App::new_with_file_catalogs_and_services(
                 cc,
-                args.file.as_deref(),
+                file.as_deref(),
                 node_catalogs,
                 ui_services,
             );
@@ -113,7 +148,141 @@ pub(crate) fn run() -> MainResult {
             macos_menu::install(app.recent_files(), app.input_bindings());
             Ok(Box::new(app))
         }),
-    )
+    )?;
+    Ok(())
+}
+
+fn run_headless(args: RunArgs) -> MainResult {
+    let platform_services = logic_analyzer_platform::standard_services();
+    let (ui_services, _node_catalogs) = platform_services.into_ui_and_node_catalogs();
+    let mut runner = HeadlessGraphRunner::new(ui_services);
+    let progress_interval = Duration::from_secs_f64(args.progress_interval);
+    let mut last_progress = Instant::now()
+        .checked_sub(progress_interval)
+        .unwrap_or_else(Instant::now);
+    let report = runner.run_file(&args.graph, &mut |event| match event {
+        HeadlessRunEvent::Warning { message } => eprintln!("warning: {message}"),
+        HeadlessRunEvent::PreparingCapture { completed, total } => {
+            if !progress_interval.is_zero() && last_progress.elapsed() >= progress_interval {
+                eprintln!(
+                    "Preparing capture: {completed}/{total} ({:.1}%)",
+                    percentage(completed, total)
+                );
+                last_progress = Instant::now();
+            }
+        }
+        HeadlessRunEvent::ClearingDerivedData => {
+            eprintln!("Clearing this graph's previous derived-data entries...");
+            last_progress = Instant::now()
+                .checked_sub(progress_interval)
+                .unwrap_or_else(Instant::now);
+        }
+        HeadlessRunEvent::Running {
+            elapsed_seconds,
+            capture_samples,
+            nodes,
+        } => {
+            if progress_interval.is_zero() || last_progress.elapsed() < progress_interval {
+                return;
+            }
+            let leading = nodes.iter().max_by_key(|node| node.items);
+            if let Some(leading) = leading {
+                if let Some(total) = capture_samples {
+                    eprintln!(
+                        "Running: {elapsed_seconds:.1}s · {:.1}% · {}: {} items",
+                        percentage(leading.items, total),
+                        leading.title,
+                        leading.items
+                    );
+                } else {
+                    eprintln!(
+                        "Running: {elapsed_seconds:.1}s · {}: {} items",
+                        leading.title, leading.items
+                    );
+                }
+            } else {
+                eprintln!("Running: {elapsed_seconds:.1}s");
+            }
+            last_progress = Instant::now();
+        }
+    })?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print_human_report(&args.graph, &report);
+    }
+    Ok(())
+}
+
+fn print_human_report(graph: &std::path::Path, report: &HeadlessRunReport) {
+    println!("Completed {}", graph.display());
+    if let (Some(capture_seconds), Some(realtime_factor)) =
+        (report.capture_seconds, report.realtime_factor)
+    {
+        println!(
+            "  Execution: {:.3}s for {:.3}s of capture ({realtime_factor:.2}x real-time)",
+            report.execution_seconds, capture_seconds
+        );
+    } else {
+        println!("  Execution: {:.3}s", report.execution_seconds);
+    }
+    println!(
+        "  Preparation: {:.3}s · cache clear: {:.3}s · total: {:.3}s",
+        report.source_preparation_seconds, report.cache_clear_seconds, report.total_seconds
+    );
+    let item_count = report
+        .derived_item_count
+        .map(|items| format!("{items} items"))
+        .unwrap_or_else(|| "item count unavailable".to_owned());
+    println!(
+        "  Derived data: {} lanes · {item_count} · {}",
+        report.derived_lane_count,
+        format_bytes(report.derived_cache_bytes)
+    );
+    if report.cleared_cache_entries > 0 {
+        println!(
+            "  Replaced cache: {} entries · {}",
+            report.cleared_cache_entries,
+            format_bytes(report.cleared_cache_bytes)
+        );
+    }
+    for warning in &report.warnings {
+        println!("  Warning: {warning}");
+    }
+}
+
+fn percentage(completed: u64, total: u64) -> f64 {
+    if total == 0 {
+        0.0
+    } else {
+        completed.min(total) as f64 * 100.0 / total as f64
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit + 1 < UNITS.len() {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} {}", UNITS[unit])
+    } else {
+        format!("{value:.2} {}", UNITS[unit])
+    }
+}
+
+fn parse_nonnegative_seconds(value: &str) -> Result<f64, String> {
+    let seconds = value
+        .parse::<f64>()
+        .map_err(|error| format!("invalid duration: {error}"))?;
+    if seconds.is_finite() && seconds >= 0.0 {
+        Ok(seconds)
+    } else {
+        Err("duration must be a finite non-negative number".into())
+    }
 }
 
 #[cfg(test)]
@@ -178,11 +347,50 @@ mod tests {
     fn accepts_optional_startup_file() {
         let empty = Args::try_parse_from(["logic-conduit"]).unwrap();
         assert!(empty.file.is_none());
+        assert!(empty.command.is_none());
 
         let with_file = Args::try_parse_from(["logic-conduit", "pipeline.json"]).unwrap();
         assert_eq!(
             with_file.file.as_deref(),
             Some(std::path::Path::new("pipeline.json"))
         );
+        assert!(with_file.command.is_none());
+    }
+
+    #[test]
+    fn run_subcommand_selects_headless_execution_without_a_startup_file() {
+        let args = Args::try_parse_from([
+            "logic-conduit",
+            "run",
+            "pipeline.json",
+            "--json",
+            "--progress-interval",
+            "0.25",
+        ])
+        .unwrap();
+
+        assert!(args.file.is_none());
+        let Some(Command::Run(run)) = args.command else {
+            panic!("run subcommand should be selected");
+        };
+        assert_eq!(run.graph, std::path::Path::new("pipeline.json"));
+        assert!(run.json);
+        assert_eq!(run.progress_interval, 0.25);
+    }
+
+    #[test]
+    fn headless_progress_interval_rejects_negative_or_non_finite_values() {
+        for value in ["-1", "NaN", "inf"] {
+            assert!(
+                Args::try_parse_from([
+                    "logic-conduit",
+                    "run",
+                    "pipeline.json",
+                    "--progress-interval",
+                    value,
+                ])
+                .is_err()
+            );
+        }
     }
 }

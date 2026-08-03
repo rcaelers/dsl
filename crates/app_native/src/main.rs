@@ -9,8 +9,14 @@ std::cfg_select! {
         mod macos_menu;
         mod native;
 
-        fn main() -> native::MainResult {
-            native::run()
+        fn main() -> std::process::ExitCode {
+            match native::run() {
+                Ok(()) => std::process::ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("Error: {error}");
+                    std::process::ExitCode::FAILURE
+                }
+            }
         }
     }
 }

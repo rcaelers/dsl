@@ -16,6 +16,7 @@ input-bindings = { path = "../input_bindings" }
 logic-analyzer-ui = { path = "../logic_analyzer_ui" }
 logic-analyzer-graph-nodes = { path = "../logic_analyzer_graph_nodes" }
 logic-analyzer-platform = { path = "../logic_analyzer_platform" }
+serde_json = { workspace = true }
 tracing-subscriber = { workspace = true }
 example-plugin = { path = "../../plugins/example-plugin", optional = true }
 
