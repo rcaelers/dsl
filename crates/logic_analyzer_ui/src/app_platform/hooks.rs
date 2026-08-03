@@ -3,8 +3,12 @@ use std::path::{Path, PathBuf};
 use logic_analyzer_graph_compiler as compiler;
 use node_graph::NodeId;
 
+use super::confirmation_dialog::{
+    ACCENT_COLOR, ConfirmationChoice, DESTRUCTIVE_BUTTON_COLOR, DESTRUCTIVE_TEXT_COLOR,
+    DestructiveConfirmation, show_destructive_confirmation, show_prominent_modal,
+};
+use super::state::{FileCommand, GuardedAction};
 use crate::app::App;
-use crate::app_platform::{FileCommand, GuardedAction};
 use crate::host_service::{HostCommand, OpenDialog, SaveDialog};
 use crate::live_capture::{CaptureCoordinatorContract, CaptureRawExportFormat};
 use crate::panel_presentation::{LOGIC_ANALYZER_PANEL_ICON, NODE_GRAPH_PANEL_ICON};
@@ -465,82 +469,65 @@ impl App {
         }
 
         let mut choice = None;
-        let warning_color = egui::Color32::from_rgb(240, 180, 70);
-        let discard_color = egui::Color32::from_rgb(135, 55, 50);
-        let style = ctx.style_of(ctx.theme());
-        let modal = egui::Modal::new(egui::Id::new("unsaved-graph-changes"))
-            .backdrop_color(egui::Color32::from_black_alpha(190))
-            .frame(
-                egui::Frame::popup(&style)
-                    .fill(egui::Color32::from_rgb(47, 39, 25))
-                    .stroke(egui::Stroke::new(2.0, warning_color))
-                    .inner_margin(egui::Margin::symmetric(28, 24)),
-            )
-            .show(ctx, |ui| {
-                ui.set_min_width(430.0);
-                ui.label(
-                    egui::RichText::new("Unsaved changes")
-                        .size(26.0)
-                        .strong()
-                        .color(warning_color),
-                );
-                ui.add_space(8.0);
-                ui.label(
-                    egui::RichText::new(format!(
-                        "Your graph has changes that have not been saved. Save before {continuation}?"
-                    ))
-                    .size(16.0),
-                );
-                ui.add_space(6.0);
-                ui.label(
-                    egui::RichText::new(
-                        "Choosing Don’t Save permanently discards those changes.",
-                    )
-                    .color(egui::Color32::from_rgb(245, 175, 165)),
-                );
-                ui.add_space(20.0);
+        let modal = show_prominent_modal(ctx, "unsaved-graph-changes", |ui| {
+            ui.label(
+                egui::RichText::new("Unsaved changes")
+                    .size(26.0)
+                    .strong()
+                    .color(ACCENT_COLOR),
+            );
+            ui.add_space(8.0);
+            ui.label(
+                egui::RichText::new(format!(
+                    "Your graph has changes that have not been saved. Save before {continuation}?"
+                ))
+                .size(16.0),
+            );
+            ui.add_space(6.0);
+            ui.label(
+                egui::RichText::new("Choosing Don’t Save permanently discards those changes.")
+                    .color(DESTRUCTIVE_TEXT_COLOR),
+            );
+            ui.add_space(20.0);
 
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_sized([108.0, 32.0], egui::Button::new("Keep Editing"))
-                        .clicked()
-                    {
-                        choice = Some(DialogChoice::Cancel);
-                    }
-                    let remaining_width = ui.available_width();
-                    ui.allocate_ui_with_layout(
-                        egui::Vec2::new(remaining_width, 32.0),
-                        egui::Layout::right_to_left(egui::Align::Center),
-                        |ui| {
-                            if ui
-                                .add_sized(
-                                    [132.0, 32.0],
-                                    egui::Button::new("Save Changes")
-                                        .fill(ui.visuals().selection.bg_fill),
-                                )
-                                .clicked()
-                            {
-                                choice = Some(DialogChoice::Save);
-                            }
-                            ui.add_space(8.0);
-                            if ui
-                                .add_sized(
-                                    [112.0, 32.0],
-                                    egui::Button::new("Don’t Save").fill(discard_color),
-                                )
-                                .clicked()
-                            {
-                                choice = Some(DialogChoice::Discard);
-                            }
-                        },
-                    );
-                });
+            ui.horizontal(|ui| {
+                if ui
+                    .add_sized([108.0, 32.0], egui::Button::new("Keep Editing"))
+                    .clicked()
+                {
+                    choice = Some(DialogChoice::Cancel);
+                }
+                let remaining_width = ui.available_width();
+                ui.allocate_ui_with_layout(
+                    egui::Vec2::new(remaining_width, 32.0),
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        if ui
+                            .add_sized(
+                                [132.0, 32.0],
+                                egui::Button::new("Save Changes")
+                                    .fill(ui.visuals().selection.bg_fill),
+                            )
+                            .clicked()
+                        {
+                            choice = Some(DialogChoice::Save);
+                        }
+                        ui.add_space(8.0);
+                        if ui
+                            .add_sized(
+                                [112.0, 32.0],
+                                egui::Button::new("Don’t Save").fill(DESTRUCTIVE_BUTTON_COLOR),
+                            )
+                            .clicked()
+                        {
+                            choice = Some(DialogChoice::Discard);
+                        }
+                    },
+                );
             });
+        });
 
-        if choice.is_none()
-            && modal.is_top_modal
-            && ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
-        {
+        if choice.is_none() && modal.should_close() {
             choice = Some(DialogChoice::Cancel);
         }
 
@@ -577,35 +564,24 @@ impl App {
             return;
         }
 
-        enum DialogChoice {
-            Clear,
-            Cancel,
-        }
-
-        let mut choice = None;
-        egui::Window::new("Clear recent files?")
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .show(ctx, |ui| {
-                ui.label("Remove all entries from the recent files list?");
-                ui.horizontal(|ui| {
-                    if ui.button("Clear").clicked() {
-                        choice = Some(DialogChoice::Clear);
-                    }
-                    if ui.button("Cancel").clicked() {
-                        choice = Some(DialogChoice::Cancel);
-                    }
-                });
-            });
+        let choice = show_destructive_confirmation(
+            ctx,
+            DestructiveConfirmation {
+                id: "clear-recent-files",
+                title: "Clear recent files?",
+                message: "Remove every entry from the recent files list?",
+                detail: "This does not delete the graph files themselves.",
+                confirm_label: "Clear Recent",
+            },
+        );
 
         match choice {
-            Some(DialogChoice::Clear) => {
+            Some(ConfirmationChoice::Confirm) => {
                 self.platform.recent_files.clear();
                 self.host_service.publish_recent_files(&[]);
                 self.platform.confirm_clear_recent = false;
             }
-            Some(DialogChoice::Cancel) => self.platform.confirm_clear_recent = false,
+            Some(ConfirmationChoice::Cancel) => self.platform.confirm_clear_recent = false,
             None => {}
         }
     }
@@ -615,29 +591,24 @@ impl App {
             return;
         }
 
-        let mut clear = false;
-        let mut cancel = false;
-        egui::Window::new("Clear all derived data caches?")
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .show(ctx, |ui| {
-                ui.label("Cached decoded data for every pipeline will be removed.");
-                ui.horizontal(|ui| {
-                    if ui.button("Clear All").clicked() {
-                        clear = true;
-                    }
-                    if ui.button("Cancel").clicked() {
-                        cancel = true;
-                    }
-                });
-            });
-
-        if clear {
-            self.platform.confirm_clear_derived_caches = false;
-            self.clear_all_derived_caches();
-        } else if cancel {
-            self.platform.confirm_clear_derived_caches = false;
+        match show_destructive_confirmation(
+            ctx,
+            DestructiveConfirmation {
+                id: "clear-all-derived-data-caches",
+                title: "Clear all derived data caches?",
+                message: "Cached decoded data for every pipeline will be removed.",
+                detail: "This cannot be undone. Required data must be rebuilt by running the pipeline again.",
+                confirm_label: "Clear All",
+            },
+        ) {
+            Some(ConfirmationChoice::Confirm) => {
+                self.platform.confirm_clear_derived_caches = false;
+                self.clear_all_derived_caches();
+            }
+            Some(ConfirmationChoice::Cancel) => {
+                self.platform.confirm_clear_derived_caches = false;
+            }
+            None => {}
         }
     }
 
