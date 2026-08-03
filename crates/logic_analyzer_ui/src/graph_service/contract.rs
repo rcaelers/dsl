@@ -74,11 +74,9 @@ pub(crate) trait GraphService: CaptureFeatureDiscovery {
         config: &PersistentStoreConfig,
     ) -> Result<DerivedCacheClearStats, String>;
 
-    #[allow(
-        dead_code,
-        reason = "web cache policy is active although its UI has no clear-all command yet"
-    )]
-    fn clear_derived_caches(&self) -> Result<DerivedCacheClearStats, String>;
+    fn start_clear_derived_caches(
+        &self,
+    ) -> Result<logic_analyzer_graph_compiler::DerivedCacheClearTask, String>;
 
     fn inspect_derived_cache_entry(
         &self,

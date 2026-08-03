@@ -25,7 +25,7 @@ mod worker_execution_codec;
 #[cfg(test)]
 mod architecture_tests;
 
-pub use cache_policy::{DerivedCacheClearStats, DerivedCacheEntrySnapshot};
+pub use cache_policy::{DerivedCacheClearStats, DerivedCacheClearTask, DerivedCacheEntrySnapshot};
 pub(crate) use data_collector::{
     BUILDER_NAME as DATA_COLLECTOR_BUILDER, DataCollectorBuilder, OUTPUT_SUBSCRIPTION_BUILDER_NAME,
 };

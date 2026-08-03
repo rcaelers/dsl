@@ -109,6 +109,8 @@ impl App {
             self.execute_file_command(command, ctx);
         }
 
+        self.poll_derived_cache_clear(ctx);
+
         if self.host_ui_capabilities.viewport_close_guard {
             let close_requested = ctx.input(|input| input.viewport().close_requested());
             if !self.platform.allow_close && close_requested {
@@ -820,7 +822,7 @@ impl App {
                 ui.separator();
                 if ui
                     .add_enabled(
-                        !self.is_running(),
+                        !self.is_running() && self.derived_cache_clear_task.is_none(),
                         egui::Button::new("Clear All Derived Data Caches..."),
                     )
                     .clicked()
@@ -846,6 +848,10 @@ impl App {
         if self.is_running() {
             self.toasts
                 .error("Stop the pipeline before clearing derived data caches");
+            false
+        } else if self.derived_cache_clear_task.is_some() {
+            self.toasts
+                .info("Derived data caches are already being cleared");
             false
         } else {
             true
@@ -938,7 +944,33 @@ impl App {
             return;
         }
         self.release_derived_data_handles();
-        match self.graph_service.clear_derived_caches() {
+        match self.graph_service.start_clear_derived_caches() {
+            Ok(task) => {
+                self.cached_preview_graph = Some(self.node_graph.graph().semantic_snapshot());
+                self.derived_cache_clear_task = Some(task);
+                self.toasts.info("Clearing derived data caches…");
+            }
+            Err(error) => {
+                self.cached_preview_graph = None;
+                self.toasts
+                    .error(format!("Failed to start clearing caches: {error}"));
+            }
+        }
+    }
+
+    fn poll_derived_cache_clear(&mut self, ctx: &egui::Context) {
+        const COOPERATIVE_ARTIFACT_BUDGET: usize = 16;
+
+        let Some(task) = self.derived_cache_clear_task.as_mut() else {
+            return;
+        };
+        let Some(result) = task.poll(COOPERATIVE_ARTIFACT_BUDGET) else {
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+            return;
+        };
+        self.derived_cache_clear_task = None;
+        self.platform.derived_cache_nodes.clear();
+        match result {
             Ok(stats) if stats.removed_entries == 0 && stats.removed_bytes == 0 => {
                 self.toasts.info("No derived data caches found");
             }
@@ -952,9 +984,11 @@ impl App {
                 },
                 stats.removed_bytes
             )),
-            Err(error) => self
-                .toasts
-                .error(format!("Failed to clear caches: {error}")),
+            Err(error) => {
+                self.cached_preview_graph = None;
+                self.toasts
+                    .error(format!("Failed to clear caches: {error}"));
+            }
         }
     }
 }

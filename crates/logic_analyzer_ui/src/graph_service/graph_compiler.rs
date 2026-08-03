@@ -279,10 +279,10 @@ impl GraphService for GraphCompiler {
         GraphCompiler::clear_derived_cache_entry(self, config)
     }
 
-    fn clear_derived_caches(
+    fn start_clear_derived_caches(
         &self,
-    ) -> Result<logic_analyzer_graph_compiler::DerivedCacheClearStats, String> {
-        GraphCompiler::clear_derived_caches(self)
+    ) -> Result<logic_analyzer_graph_compiler::DerivedCacheClearTask, String> {
+        GraphCompiler::start_clear_derived_caches(self)
     }
 
     fn inspect_derived_cache_entry(

@@ -1,14 +1,15 @@
 //! Target-independent derived-data cache planning over an injected repository.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::CaptureCacheIdentity;
 use node_graph::api::{GraphState, NodeId};
-use signal_processing::{ArtifactRepository, PersistentStoreConfig, WorkExecutor};
+use signal_processing::derived_word_store::PersistentCacheClearTask;
+use signal_processing::{ArtifactRepository, PersistentStoreConfig, WorkExecutor, WorkTask};
 
 use super::OutputSubscriptionPlan;
 use super::derived_cache_backend::{
@@ -37,6 +38,50 @@ pub struct DerivedCacheEntrySnapshot {
     pub last_timestamp_ns: Option<u64>,
 }
 
+/// Host-scheduled removal of all persistent derived-data artifacts.
+pub struct DerivedCacheClearTask {
+    mode: DerivedCacheClearMode,
+}
+
+enum DerivedCacheClearMode {
+    Background {
+        work: Box<dyn WorkTask>,
+        result: Arc<Mutex<Option<Result<DerivedCacheClearStats, String>>>>,
+    },
+    Cooperative(PersistentCacheClearTask),
+}
+
+impl DerivedCacheClearTask {
+    /// Advances cooperative cleanup by a bounded number of repository
+    /// artifacts, or polls host-threaded cleanup without blocking.
+    pub fn poll(
+        &mut self,
+        artifact_budget: usize,
+    ) -> Option<Result<DerivedCacheClearStats, String>> {
+        match &mut self.mode {
+            DerivedCacheClearMode::Background { work, result } => {
+                if !work.is_finished() {
+                    return None;
+                }
+                match result.lock() {
+                    Ok(mut result) => result.take().or_else(|| {
+                        Some(Err("derived-data cache worker returned no result".into()))
+                    }),
+                    Err(_) => Some(Err("derived-data cache worker result was poisoned".into())),
+                }
+            }
+            DerivedCacheClearMode::Cooperative(task) => match task.advance(artifact_budget) {
+                Ok(Some(stats)) => Some(Ok(DerivedCacheClearStats {
+                    removed_entries: stats.removed_entries,
+                    removed_bytes: stats.removed_bytes,
+                })),
+                Ok(None) => None,
+                Err(error) => Some(Err(error.to_string())),
+            },
+        }
+    }
+}
+
 pub(crate) fn clear_entry(
     config: &PersistentStoreConfig,
 ) -> Result<DerivedCacheClearStats, String> {
@@ -57,6 +102,32 @@ pub(crate) fn clear_repository(
             removed_bytes: stats.removed_bytes,
         })
         .map_err(|error| error.to_string())
+}
+
+pub(crate) fn start_clear_repository(
+    repository: &Arc<dyn ArtifactRepository>,
+    work_executor: &Arc<dyn WorkExecutor>,
+) -> Result<DerivedCacheClearTask, String> {
+    if !work_executor.supports_long_running_tasks() {
+        return PersistentCacheClearTask::new(Arc::clone(repository))
+            .map(|task| DerivedCacheClearTask {
+                mode: DerivedCacheClearMode::Cooperative(task),
+            })
+            .map_err(|error| error.to_string());
+    }
+
+    let result = Arc::new(Mutex::new(None));
+    let worker_result = Arc::clone(&result);
+    let worker_repository = Arc::clone(repository);
+    let work = work_executor.submit(Box::new(move || {
+        let cleared = clear_repository(&worker_repository);
+        if let Ok(mut result) = worker_result.lock() {
+            *result = Some(cleared);
+        }
+    }))?;
+    Ok(DerivedCacheClearTask {
+        mode: DerivedCacheClearMode::Background { work, result },
+    })
 }
 
 pub(crate) fn inspect_entry(
@@ -422,14 +493,62 @@ fn hash_field(hasher: &mut blake3::Hasher, bytes: &[u8]) {
 
 #[cfg(test)]
 mod cache_policy_tests {
-    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
 
     use signal_processing::{
         ArtifactRepository, IndexedAnnotationWriter, LiveStoreConfig, MemoryArtifactRepository,
-        PersistentStoreConfig, Word,
+        PersistentStoreConfig, Word, WorkExecutor, WorkExecutorTask, WorkTask,
     };
 
-    use super::{clear_entry, clear_repository, inspect_entry};
+    use super::{
+        DerivedCacheClearStats, clear_entry, clear_repository, inspect_entry,
+        start_clear_repository,
+    };
+
+    struct QueuedWorkExecutor {
+        queued: Mutex<Option<WorkExecutorTask>>,
+        finished: Arc<AtomicBool>,
+    }
+
+    impl QueuedWorkExecutor {
+        fn new() -> Self {
+            Self {
+                queued: Mutex::new(None),
+                finished: Arc::new(AtomicBool::new(false)),
+            }
+        }
+
+        fn run_queued(&self) {
+            self.queued.lock().unwrap().take().unwrap()();
+            self.finished.store(true, Ordering::Release);
+        }
+    }
+
+    struct QueuedWorkTask(Arc<AtomicBool>);
+
+    impl WorkTask for QueuedWorkTask {
+        fn is_finished(&self) -> bool {
+            self.0.load(Ordering::Acquire)
+        }
+
+        fn wait(self: Box<Self>) {}
+    }
+
+    impl WorkExecutor for QueuedWorkExecutor {
+        fn available_parallelism(&self) -> usize {
+            1
+        }
+
+        fn supports_long_running_tasks(&self) -> bool {
+            true
+        }
+
+        fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+            *self.queued.lock().unwrap() = Some(task);
+            Ok(Box::new(QueuedWorkTask(Arc::clone(&self.finished))))
+        }
+    }
 
     #[test]
     fn injected_memory_repository_supports_the_complete_cache_lifecycle() {
@@ -458,5 +577,18 @@ mod cache_policy_tests {
         assert!(cleared.removed_bytes > 0);
         assert_eq!(inspect_entry(&persistent).unwrap(), None);
         assert_eq!(clear_repository(&repository).unwrap().removed_entries, 0);
+    }
+
+    #[test]
+    fn threaded_cache_clear_is_only_polled_by_the_caller() {
+        let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+        let queued = Arc::new(QueuedWorkExecutor::new());
+        let executor: Arc<dyn WorkExecutor> = queued.clone();
+
+        let mut task = start_clear_repository(&repository, &executor).unwrap();
+        assert!(task.poll(1).is_none());
+
+        queued.run_queued();
+        assert_eq!(task.poll(1), Some(Ok(DerivedCacheClearStats::default())));
     }
 }

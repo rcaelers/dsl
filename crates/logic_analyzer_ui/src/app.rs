@@ -521,6 +521,7 @@ pub struct App {
     pub(crate) input_bindings: Arc<InputBindings>,
     pub(crate) panel_layout: PanelLayout,
     pub(crate) graph_service: Box<dyn GraphService>,
+    pub(crate) derived_cache_clear_task: Option<compiler::DerivedCacheClearTask>,
     pub(crate) host_service: Box<dyn HostService>,
     pub(crate) host_ui_capabilities: crate::HostUiCapabilities,
     pub(crate) capture: CaptureCoordinator,
@@ -1269,6 +1270,7 @@ impl App {
             input_bindings,
             panel_layout: Self::default_panel_layout(),
             graph_service,
+            derived_cache_clear_task: None,
             host_service,
             host_ui_capabilities,
             capture,
@@ -1982,7 +1984,11 @@ impl App {
     /// while it doesn't apply (Run while already running, Stop while not)
     /// is a safe no-op rather than double-starting or double-stopping.
     pub(crate) fn run_command(&mut self) {
-        if !self.is_running() && !self.capture.is_active() && !self.is_capture_analysis_active() {
+        if !self.is_running()
+            && !self.capture.is_active()
+            && !self.is_capture_analysis_active()
+            && self.derived_cache_clear_task.is_none()
+        {
             self.start_run();
         }
     }
@@ -1993,6 +1999,9 @@ impl App {
         }
         if self.capture.is_active() || self.is_capture_analysis_active() {
             return Some("Wait for live capture analysis to finish".into());
+        }
+        if self.derived_cache_clear_task.is_some() {
+            return Some("Wait for derived data caches to be cleared".into());
         }
         match &self.capture_availability {
             CaptureAvailability::Available {
@@ -2700,6 +2709,10 @@ impl App {
     /// can't be gated behind the same throttle as the `apply()` diff below.
     fn sync_run(&mut self, ctx: &egui::Context) {
         const SYNC_INTERVAL_S: f64 = 0.5;
+        if self.derived_cache_clear_task.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+            return;
+        }
         let now = ctx.input(|input| input.time);
         if self.run.is_none() {
             if self.capture.is_active() || self.is_capture_analysis_active() {
@@ -2877,6 +2890,9 @@ impl App {
             }
             ui.spinner();
             ui.label("Running");
+        } else if self.derived_cache_clear_task.is_some() {
+            ui.spinner();
+            ui.label("Clearing derived data caches…");
         } else if self.is_capture_analysis_active() {
             ui.spinner();
             ui.label("Analyzing capture…");

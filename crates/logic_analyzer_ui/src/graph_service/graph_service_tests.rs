@@ -103,8 +103,10 @@ impl GraphService for FakeGraphService {
         Ok(DerivedCacheClearStats::default())
     }
 
-    fn clear_derived_caches(&self) -> Result<DerivedCacheClearStats, String> {
-        Ok(DerivedCacheClearStats::default())
+    fn start_clear_derived_caches(
+        &self,
+    ) -> Result<logic_analyzer_graph_compiler::DerivedCacheClearTask, String> {
+        logic_analyzer_graph_compiler::GraphCompiler::new().start_clear_derived_caches()
     }
 
     fn inspect_derived_cache_entry(

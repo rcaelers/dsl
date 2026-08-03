@@ -28,8 +28,8 @@ pub(crate) use codec::{EncodeWordBlockRequest, encode_owned_word_block};
 pub use config::{BlockCodecConfig, LiveStoreConfig, PersistentStoreConfig};
 pub use errors::{CodecError, CodecResult};
 pub use persistent::{
-    PersistentCacheEntrySnapshot, cleanup_cache, clear_cache, clear_cache_entry,
-    inspect_cache_entry,
+    PersistentCacheClearTask, PersistentCacheEntrySnapshot, cleanup_cache, clear_cache,
+    clear_cache_entry, inspect_cache_entry,
 };
 pub use query::{
     AnnotationQuery, AnnotationQueryError, AnnotationQueryResult, AnnotationStoreMetadata,

@@ -21,9 +21,9 @@ use super::graph::{
 };
 use super::source_preparation::SourcePreparation;
 use super::{
-    DerivedCacheClearStats, DerivedCacheEntrySnapshot, GraphWorkerClient, OutputSubscriptionPlan,
-    SourcePreparationExecutor, SourcePreparationSnapshot, SourcePreparationStatus,
-    SourcePreparationUpdate, cache_policy, graph,
+    DerivedCacheClearStats, DerivedCacheClearTask, DerivedCacheEntrySnapshot, GraphWorkerClient,
+    OutputSubscriptionPlan, SourcePreparationExecutor, SourcePreparationSnapshot,
+    SourcePreparationStatus, SourcePreparationUpdate, cache_policy, graph,
 };
 
 /// Stateful application-facing facade for graph discovery, compilation, and execution.
@@ -256,6 +256,10 @@ impl GraphCompiler {
 
     pub fn clear_derived_caches(&self) -> Result<DerivedCacheClearStats, String> {
         cache_policy::clear_repository(&self.artifact_repository)
+    }
+
+    pub fn start_clear_derived_caches(&self) -> Result<DerivedCacheClearTask, String> {
+        cache_policy::start_clear_repository(&self.artifact_repository, &self.work_executor)
     }
 
     pub fn inspect_derived_cache_entry(

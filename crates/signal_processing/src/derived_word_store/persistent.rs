@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
 use super::config::PersistentStoreConfig;
@@ -71,6 +71,74 @@ pub struct PersistentCacheEntrySnapshot {
     pub block_count: usize,
     pub first_timestamp_ns: Option<u64>,
     pub last_timestamp_ns: Option<u64>,
+}
+
+/// Incremental removal of every derived-word artifact in a repository.
+///
+/// Cooperative hosts advance this operation with a bounded artifact budget so
+/// cache cleanup never monopolizes their UI thread. Threaded hosts may instead
+/// use [`clear_cache`] on a host worker.
+pub struct PersistentCacheClearTask {
+    repository: Arc<dyn ArtifactRepository>,
+    pending: VecDeque<crate::ArtifactMetadata>,
+    removed_entries: usize,
+    removed_bytes: u64,
+}
+
+impl PersistentCacheClearTask {
+    pub fn new(repository: Arc<dyn ArtifactRepository>) -> StoreResult<Self> {
+        let mut artifacts = BTreeMap::new();
+        let mut cache_keys = BTreeSet::new();
+        for namespace in [manifest_namespace()?, index_namespace()?] {
+            for metadata in repository.entries(&namespace)? {
+                cache_keys.insert(*metadata.key.identity().as_bytes());
+                artifacts.insert(metadata.key.clone(), metadata);
+            }
+        }
+        for namespace in repository.namespaces()? {
+            let Some(encoded) = namespace.as_str().strip_prefix(BLOCK_NAMESPACE_PREFIX) else {
+                continue;
+            };
+            let Some(cache_key) = parse_hex_key(encoded) else {
+                continue;
+            };
+            cache_keys.insert(cache_key);
+            for metadata in repository.entries(&namespace)? {
+                artifacts.insert(metadata.key.clone(), metadata);
+            }
+        }
+        Ok(Self {
+            repository,
+            pending: artifacts.into_values().collect(),
+            removed_entries: cache_keys.len(),
+            removed_bytes: 0,
+        })
+    }
+
+    /// Removes at most `artifact_budget` artifacts and returns final statistics
+    /// once no work remains.
+    pub fn advance(&mut self, artifact_budget: usize) -> StoreResult<Option<PersistentCacheStats>> {
+        for _ in 0..artifact_budget.max(1) {
+            let Some(metadata) = self.pending.pop_front() else {
+                return Ok(Some(self.stats()));
+            };
+            self.repository.remove(&metadata.key)?;
+            self.removed_bytes = self.removed_bytes.saturating_add(metadata.length);
+        }
+        if self.pending.is_empty() {
+            Ok(Some(self.stats()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn stats(&self) -> PersistentCacheStats {
+        PersistentCacheStats {
+            removed_entries: self.removed_entries,
+            removed_bytes: self.removed_bytes,
+            ..PersistentCacheStats::default()
+        }
+    }
 }
 
 pub fn cleanup_cache(
@@ -822,5 +890,30 @@ mod tests {
         assert_eq!(stats.removed_entries, 1);
         assert_eq!(stats.removed_bytes, 6);
         assert!(repository.open(&key).unwrap().is_none());
+    }
+
+    #[test]
+    fn cooperative_clear_respects_its_artifact_budget() {
+        let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+        let cache_key = [0xC4; 32];
+        let namespace = block_namespace(cache_key).unwrap();
+        for sequence in 0..3 {
+            publish_bytes(
+                repository.as_ref(),
+                block_key(cache_key, sequence).unwrap(),
+                &[sequence as u8],
+            )
+            .unwrap();
+        }
+        let mut task = PersistentCacheClearTask::new(Arc::clone(&repository)).unwrap();
+
+        assert_eq!(task.advance(1).unwrap(), None);
+        assert_eq!(repository.entries(&namespace).unwrap().len(), 2);
+        assert_eq!(task.advance(1).unwrap(), None);
+        let stats = task.advance(1).unwrap().expect("clear should finish");
+
+        assert_eq!(stats.removed_entries, 1);
+        assert_eq!(stats.removed_bytes, 3);
+        assert!(repository.entries(&namespace).unwrap().is_empty());
     }
 }
