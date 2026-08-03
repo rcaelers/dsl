@@ -310,7 +310,11 @@ fn work_parallel(
         sampling_point_batch.as_mut(),
     )?;
     if let (Some(store), Some(points)) = (&decoder.sampling_points, sampling_point_batch) {
-        store.record_batch(points);
+        store.record_batch(points).map_err(|error| {
+            WorkError::NodeError(format!(
+                "could not cache parallel-decoder sampling points: {error}"
+            ))
+        })?;
     }
 
     decoder.next_stream_merge_sequence += 1;

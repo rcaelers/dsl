@@ -493,7 +493,19 @@ impl ProcessNode for ParallelDecoder {
         inputs: &[InputPort],
         outputs: &[OutputPort],
     ) -> WorkResult<WorkOutcome> {
-        self.work(inputs, outputs).map(WorkOutcome::progressed)
+        match self.work(inputs, outputs) {
+            Err(WorkError::Shutdown) => {
+                if let Some(points) = &self.sampling_points {
+                    points.finish().map_err(|error| {
+                        WorkError::NodeError(format!(
+                            "could not finish the sampling-point cache: {error}"
+                        ))
+                    })?;
+                }
+                Err(WorkError::Shutdown)
+            }
+            result => result.map(WorkOutcome::progressed),
+        }
     }
 
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
@@ -1293,19 +1305,25 @@ impl ParallelDecoder {
             .as_ref()
             .filter(|store| !store.has_provider())
         {
-            store.record_batch(buffers.eligible_positions.iter().enumerate().map(
-                |(trigger_index, &position)| {
-                    SamplingPoint::new(
-                        position.saturating_mul(timestamp_step),
-                        buffers.eligible_clock_values[trigger_index],
-                        buffers
-                            .data_values
-                            .iter()
-                            .map(|values| values[trigger_index])
-                            .collect::<Vec<_>>(),
-                    )
-                },
-            ));
+            store
+                .record_batch(buffers.eligible_positions.iter().enumerate().map(
+                    |(trigger_index, &position)| {
+                        SamplingPoint::new(
+                            position.saturating_mul(timestamp_step),
+                            buffers.eligible_clock_values[trigger_index],
+                            buffers
+                                .data_values
+                                .iter()
+                                .map(|values| values[trigger_index])
+                                .collect::<Vec<_>>(),
+                        )
+                    },
+                ))
+                .map_err(|error| {
+                    WorkError::NodeError(format!(
+                        "could not cache parallel-decoder sampling points: {error}"
+                    ))
+                })?;
         }
 
         let mut words_emitted = 0u64;
@@ -1548,7 +1566,11 @@ impl ParallelDecoder {
             sampling_point_batch.as_mut(),
         )?;
         if let (Some(store), Some(points)) = (&self.sampling_points, sampling_point_batch) {
-            store.record_batch(points);
+            store.record_batch(points).map_err(|error| {
+                WorkError::NodeError(format!(
+                    "could not cache parallel-decoder sampling points: {error}"
+                ))
+            })?;
         }
         blocks.next_sequence += 1;
         self.next_stream_merge_sequence += 1;

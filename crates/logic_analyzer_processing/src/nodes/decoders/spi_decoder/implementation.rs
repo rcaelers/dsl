@@ -418,7 +418,19 @@ impl ProcessNode for SpiDecoder {
         inputs: &[InputPort],
         outputs: &[OutputPort],
     ) -> WorkResult<WorkOutcome> {
-        self.work(inputs, outputs).map(WorkOutcome::progressed)
+        match self.work(inputs, outputs) {
+            Err(WorkError::Shutdown) => {
+                if let Some(points) = &self.sampling_points {
+                    points.finish().map_err(|error| {
+                        WorkError::NodeError(format!(
+                            "could not finish the sampling-point cache: {error}"
+                        ))
+                    })?;
+                }
+                Err(WorkError::Shutdown)
+            }
+            result => result.map(WorkOutcome::progressed),
+        }
     }
 
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
@@ -759,7 +771,9 @@ impl SpiDecoder {
                 self.query_miso_bits.clear();
             }
             if let (Some(store), Some(points)) = (&self.sampling_points, sampling_point_batch) {
-                store.record_batch(points);
+                store.record_batch(points).map_err(|error| {
+                    WorkError::NodeError(format!("could not cache SPI sampling points: {error}"))
+                })?;
             }
 
             if window_exhausted {
@@ -1158,7 +1172,9 @@ impl SpiDecoder {
         }
 
         if let (Some(store), Some(points)) = (&self.sampling_points, sampling_point_batch) {
-            store.record_batch(points);
+            store.record_batch(points).map_err(|error| {
+                WorkError::NodeError(format!("could not cache SPI sampling points: {error}"))
+            })?;
         }
 
         if let Some(output) = mosi_output {

@@ -18,7 +18,9 @@ mod sampling_overlay_presentation_tests {
     #[test]
     fn ui_adapter_preserves_resolved_sampling_contract() {
         let points = SamplingPointStore::default();
-        points.record(SamplingPoint::new(12, true, vec![false, true]));
+        points
+            .record(SamplingPoint::new(12, true, vec![false, true]))
+            .unwrap();
         let resolved = ResolvedSamplingOverlay {
             clock_channel: 3,
             sampled_channels: vec![1, 2],

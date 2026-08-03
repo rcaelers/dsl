@@ -113,10 +113,16 @@ operation.
 Resolved sampling overlays contain only raw-row identities and a shared sampling-point store
 configured by the concrete runtime node. The UI adapts that metadata to the generic viewer, which
 queries the visible time range and renders the records without reading raw channels, selecting
-edges, evaluating qualifiers, or looking up sampled values. The host selects which overlays use
-eager future collection through `OutputSubscriptionPlan`; a node may instead satisfy the store
-through its lazy indexed provider. Hiding an overlay does not delete decisions already owned by
-the current run, so transient panel refreshes and hide/show operations are non-destructive.
+edges, evaluating qualifiers, or looking up sampled values. Every lowered overlay receives a store
+and its runtime node records accepted points independently of current UI visibility; a node may
+instead satisfy a transient store through its lazy indexed provider. For a stable capture identity,
+the compiler assigns a protocol-neutral persistent cache key to every sampling overlay. The store
+records accepted points
+in the same indexed artifact infrastructure as other derived data and reopens them for cached
+preview without materializing or executing the decoder. Dynamic live sources retain run-owned
+storage because they have no reusable capture identity. Hiding an overlay does not stop collection
+or delete decisions, so transient panel refreshes, hide/show operations, and application restarts
+are non-destructive.
 The UI persists an ordered set of independently selected overlay node identities. Loading the
 legacy single-node value migrates it to that set at the UI-owned document boundary and reports the
 migration to the user.

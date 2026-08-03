@@ -753,8 +753,10 @@ fn built_in_binary_demo_executes_and_publishes_sampling_and_latch_data() {
 
     let subscriptions: OutputSubscriptionPlan =
         selected_outputs(widget.graph()).into_iter().collect();
+    let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
     let mut compiler = GraphCompiler::new();
-    compiler.set_output_subscriptions(subscriptions);
+    compiler.set_output_subscriptions(subscriptions.clone());
+    compiler.set_artifact_repository(Arc::clone(&repository));
     let compiled = compiler.lower(widget.graph()).unwrap();
     let mut context = logic_analyzer_graph_compiler::CompileCtx::default();
     let lanes = context.derived_lanes().clone();
@@ -792,6 +794,36 @@ fn built_in_binary_demo_executes_and_publishes_sampling_and_latch_data() {
         spi_points
             .iter()
             .all(|point| { point.values.len() == spi_sampling.overlay().sampled_channels.len() })
+    );
+
+    let mut reopened_compiler = GraphCompiler::new();
+    reopened_compiler.set_output_subscriptions(subscriptions);
+    reopened_compiler.set_artifact_repository(repository);
+    let mut reopened_context = CompileCtx::default();
+    assert!(
+        reopened_compiler
+            .load_cached_data(widget.graph(), &mut reopened_context)
+            .unwrap()
+    );
+    let reopened_sampling = reopened_context.take_sampling_overlays();
+    let reopened_parallel = reopened_sampling
+        .iter()
+        .find(|candidate| candidate.node_title() == "Parallel Decoder")
+        .expect("cached parallel sampling points should reopen");
+    assert_eq!(
+        reopened_parallel
+            .overlay()
+            .points
+            .points_in_range(0, u64::MAX),
+        points
+    );
+    let reopened_spi = reopened_sampling
+        .iter()
+        .find(|candidate| candidate.node_title() == "SPI Decoder")
+        .expect("cached SPI sampling points should reopen");
+    assert_eq!(
+        reopened_spi.overlay().points.points_in_range(0, u64::MAX),
+        spi_points
     );
 
     let q = lanes

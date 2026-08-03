@@ -226,7 +226,7 @@ pub(crate) fn install_sampling_provider(
     cs_polarity: CsPolarity,
     progress: ParallelSamplingProgress,
 ) {
-    if store.has_provider() {
+    if store.has_provider() || store.is_persistent() {
         return;
     }
     let Some(strobe) = inputs.first().and_then(InputPort::edge_query_capability) else {

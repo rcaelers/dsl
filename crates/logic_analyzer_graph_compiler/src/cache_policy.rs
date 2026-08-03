@@ -16,7 +16,9 @@ use super::derived_cache_backend::{
     DerivedCacheBackend, DerivedCacheLookup, RepositoryDerivedCacheBackend,
 };
 use super::errors::CompileError;
-use super::graph::{BuilderRegistry, CompiledEdge, CompiledGraph, compiled_node};
+use super::graph::{
+    BuilderRegistry, CompiledEdge, CompiledGraph, SamplingOverlayCandidate, compiled_node,
+};
 const DERIVED_CACHE_ABI_VERSION: u32 = 2;
 
 /// Result of removing persistent derived-data cache entries.
@@ -186,6 +188,26 @@ pub(crate) fn assign_derived_word_caches(compiled: &mut CompiledGraph, registry:
     }
 }
 
+pub(crate) fn assign_sampling_point_caches(compiled: &mut CompiledGraph) {
+    let assignments = compiled
+        .sampling_overlays
+        .iter()
+        .map(|candidate| {
+            (
+                candidate.node_id(),
+                persistent_sampling_point_key(compiled, candidate.node_id()),
+            )
+        })
+        .collect::<Vec<_>>();
+    for candidate in &mut compiled.sampling_overlays {
+        let cache_key = assignments
+            .iter()
+            .find_map(|(node_id, key)| (*node_id == candidate.node_id()).then_some(*key))
+            .flatten();
+        candidate.set_cache_key(cache_key);
+    }
+}
+
 pub(crate) fn configure_repository(
     compiled: &mut CompiledGraph,
     repository: &Arc<dyn ArtifactRepository>,
@@ -302,6 +324,7 @@ pub(crate) fn prepare_cached_preview_with_backend(
 
 pub(crate) fn schedule_maintenance(
     compiled: &CompiledGraph,
+    repository: &Arc<dyn ArtifactRepository>,
     work_executor: &Arc<dyn WorkExecutor>,
 ) {
     if !work_executor.supports_long_running_tasks() {
@@ -312,15 +335,32 @@ pub(crate) fn schedule_maintenance(
         .iter()
         .flat_map(|node| node.derived_word_caches.iter().flatten())
         .collect::<Vec<_>>();
-    let Some(first) = configs.first() else {
+    let first = configs.first();
+    let sampling_key = compiled
+        .sampling_overlays
+        .iter()
+        .find_map(SamplingOverlayCandidate::cache_key);
+    if first.is_none() && sampling_key.is_none() {
         return;
-    };
-    let repository = Arc::clone(&first.artifact_repository);
-    let max_total_bytes = first.max_cache_bytes;
-    let pinned_keys = configs
+    }
+    let repository = Arc::clone(repository);
+    let max_total_bytes = first.map_or_else(
+        || {
+            let key = sampling_key.expect("a derived or sampling cache exists");
+            PersistentStoreConfig::new(key).max_cache_bytes
+        },
+        |config| config.max_cache_bytes,
+    );
+    let mut pinned_keys = configs
         .iter()
         .map(|config| config.cache_key)
         .collect::<Vec<_>>();
+    pinned_keys.extend(
+        compiled
+            .sampling_overlays
+            .iter()
+            .filter_map(SamplingOverlayCandidate::cache_key),
+    );
     let submitted = work_executor.submit(Box::new(move || {
         let _ = signal_processing::derived_word_store::cleanup_cache(
             &repository,
@@ -377,7 +417,87 @@ pub(crate) fn cache_configs_by_node(
             }
         }
     }
+    for candidate in &compiled.sampling_overlays {
+        let Some(cache_key) = candidate.cache_key() else {
+            continue;
+        };
+        let config =
+            PersistentStoreConfig::new(cache_key).with_artifact_repository(Arc::clone(repository));
+        let mut stack = vec![candidate.node_id()];
+        let mut visited = HashSet::new();
+        while let Some(node_id) = stack.pop() {
+            if !visited.insert(node_id) {
+                continue;
+            }
+            let configs = result.entry(node_id).or_default();
+            if !configs
+                .iter()
+                .any(|existing| existing.cache_key == cache_key)
+            {
+                configs.push(config.clone());
+            }
+            stack.extend(
+                compiled
+                    .edges
+                    .iter()
+                    .filter(|incoming| incoming.to.0 == node_id)
+                    .map(|incoming| incoming.from.0),
+            );
+        }
+    }
     Ok(result)
+}
+
+pub(crate) fn prepare_sampling_point_stores(
+    compiled: &mut CompiledGraph,
+    execution: &CompiledGraph,
+    repository: &Arc<dyn ArtifactRepository>,
+    work_executor: &Arc<dyn WorkExecutor>,
+) {
+    for candidate in &mut compiled.sampling_overlays {
+        let Some(cache_key) = candidate.cache_key() else {
+            continue;
+        };
+        let config =
+            PersistentStoreConfig::new(cache_key).with_artifact_repository(Arc::clone(repository));
+        let executed = execution
+            .nodes
+            .iter()
+            .any(|node| node.id == candidate.node_id());
+        let store = if executed {
+            signal_processing::SamplingPointStore::create_persistent(
+                config,
+                Arc::clone(work_executor),
+            )
+            .ok()
+        } else {
+            signal_processing::SamplingPointStore::open_persistent(&config)
+                .ok()
+                .flatten()
+        };
+        if let Some(store) = store {
+            candidate.set_points(store);
+        }
+    }
+}
+
+pub(crate) fn open_sampling_point_stores(
+    compiled: &mut CompiledGraph,
+    repository: &Arc<dyn ArtifactRepository>,
+) -> bool {
+    let mut opened = false;
+    for candidate in &mut compiled.sampling_overlays {
+        let Some(cache_key) = candidate.cache_key() else {
+            continue;
+        };
+        let config =
+            PersistentStoreConfig::new(cache_key).with_artifact_repository(Arc::clone(repository));
+        if let Ok(Some(store)) = signal_processing::SamplingPointStore::open_persistent(&config) {
+            candidate.set_points(store);
+            opened = true;
+        }
+    }
+    opened
 }
 
 pub(crate) fn persistent_lane_key(
@@ -397,6 +517,17 @@ pub(crate) fn persistent_lane_key(
     hash_field(&mut hasher, &(member as u64).to_le_bytes());
     hash_field(&mut hasher, edge.from.1.as_bytes());
     hash_field(&mut hasher, edge.kind.name().as_bytes());
+    hash_field(&mut hasher, &upstream);
+    Some(*hasher.finalize().as_bytes())
+}
+
+fn persistent_sampling_point_key(compiled: &CompiledGraph, node_id: NodeId) -> Option<[u8; 32]> {
+    let mut memo = HashMap::new();
+    let upstream = persistent_upstream_key(compiled, node_id, &mut memo)?;
+    let mut hasher = blake3::Hasher::new();
+    hash_field(&mut hasher, b"dsl-sampling-point-cache-v1");
+    hash_field(&mut hasher, env!("CARGO_PKG_VERSION").as_bytes());
+    hash_field(&mut hasher, &DERIVED_CACHE_ABI_VERSION.to_le_bytes());
     hash_field(&mut hasher, &upstream);
     Some(*hasher.finalize().as_bytes())
 }

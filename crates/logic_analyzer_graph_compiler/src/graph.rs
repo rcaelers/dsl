@@ -211,6 +211,7 @@ pub struct SamplingOverlayCandidate {
     node_id: NodeId,
     node_title: String,
     overlay: ResolvedSamplingOverlay,
+    cache_key: Option<[u8; 32]>,
 }
 
 #[derive(Debug, Clone)]
@@ -231,6 +232,18 @@ impl SamplingOverlayCandidate {
 
     pub fn overlay(&self) -> &ResolvedSamplingOverlay {
         &self.overlay
+    }
+
+    pub(crate) fn cache_key(&self) -> Option<[u8; 32]> {
+        self.cache_key
+    }
+
+    pub(crate) fn set_cache_key(&mut self, cache_key: Option<[u8; 32]>) {
+        self.cache_key = cache_key;
+    }
+
+    pub(crate) fn set_points(&mut self, points: SamplingPointStore) {
+        self.overlay.points = points;
     }
 }
 
@@ -1656,6 +1669,7 @@ pub(crate) fn lower_with_subscriptions(
                     sampled_channels,
                     points: SamplingPointStore::default(),
                 },
+                cache_key: None,
             })
         })
         .collect();
@@ -1667,6 +1681,7 @@ pub(crate) fn lower_with_subscriptions(
     };
     let mut compiled = compiled;
     cache_policy::assign_derived_word_caches(&mut compiled, registry);
+    cache_policy::assign_sampling_point_caches(&mut compiled);
     Ok(compiled)
 }
 
@@ -2175,32 +2190,42 @@ pub(crate) fn load_cached_data_with_subscriptions(
 ) -> Result<bool, Vec<CompileError>> {
     let mut compiled = lower_with_subscriptions(graph, registry, subscriptions)?;
     cache_policy::configure_repository(&mut compiled, &ctx.artifact_repository);
-    let Some(preview) = cache_policy::prepare_cached_preview(&compiled) else {
-        cache_policy::schedule_maintenance(&compiled, &ctx.work_executor);
+    let sampling_cache_loaded =
+        cache_policy::open_sampling_point_stores(&mut compiled, &ctx.artifact_repository);
+    let preview = cache_policy::prepare_cached_preview(&compiled);
+    if preview.is_none() && !sampling_cache_loaded {
+        cache_policy::schedule_maintenance(&compiled, &ctx.artifact_repository, &ctx.work_executor);
         return Ok(false);
-    };
+    }
 
     ctx.derived_data_retention = compiled.derived_data_retention;
     ctx.sampling_overlays
         .clone_from(&compiled.sampling_overlays);
     ctx.sampling_points = sampling_point_map(&compiled);
-    ctx.collected_output_subscriptions =
-        collected_output_subscriptions(&preview, registry, subscriptions);
-    ctx.collected_table_subscriptions = collected_table_subscriptions(&preview, registry);
+    ctx.collected_output_subscriptions = preview
+        .as_ref()
+        .map(|preview| collected_output_subscriptions(preview, registry, subscriptions))
+        .unwrap_or_default();
+    ctx.collected_table_subscriptions = preview
+        .as_ref()
+        .map(|preview| collected_table_subscriptions(preview, registry))
+        .unwrap_or_default();
 
-    for node in &preview.nodes {
-        let builder = registry.get(&node.builder).ok_or_else(|| {
-            vec![CompileError::on(
-                node.id,
-                format!("unknown builder '{}'", node.builder),
-            )]
-        })?;
-        ctx.derived_word_caches
-            .clone_from(&node.derived_word_caches);
-        materialize_compiled_node(node, builder, &node.runtime_name, registry, ctx)
-            .map_err(|message| vec![CompileError::on(node.id, message)])?;
+    if let Some(preview) = &preview {
+        for node in &preview.nodes {
+            let builder = registry.get(&node.builder).ok_or_else(|| {
+                vec![CompileError::on(
+                    node.id,
+                    format!("unknown builder '{}'", node.builder),
+                )]
+            })?;
+            ctx.derived_word_caches
+                .clone_from(&node.derived_word_caches);
+            materialize_compiled_node(node, builder, &node.runtime_name, registry, ctx)
+                .map_err(|message| vec![CompileError::on(node.id, message)])?;
+        }
     }
-    cache_policy::schedule_maintenance(&compiled, &ctx.work_executor);
+    cache_policy::schedule_maintenance(&compiled, &ctx.artifact_repository, &ctx.work_executor);
     Ok(true)
 }
 
@@ -2237,6 +2262,13 @@ fn start_live_inner(
 ) -> Result<LiveRun, Vec<CompileError>> {
     let mut compiled = lower_with_subscriptions(graph, registry, subscriptions)?;
     cache_policy::configure_repository(&mut compiled, &ctx.artifact_repository);
+    let (execution, cache_pruned) = cache_policy::prepare_execution(&compiled, registry);
+    cache_policy::prepare_sampling_point_stores(
+        &mut compiled,
+        &execution,
+        &ctx.artifact_repository,
+        &ctx.work_executor,
+    );
     ctx.derived_data_retention = compiled.derived_data_retention;
     ctx.sampling_overlays
         .clone_from(&compiled.sampling_overlays);
@@ -2246,8 +2278,6 @@ fn start_live_inner(
     ctx.collected_table_subscriptions = collected_table_subscriptions(&compiled, registry);
     let mut manager = runtime_factory.create();
     let mut names: HashMap<NodeId, String> = HashMap::new();
-
-    let (execution, cache_pruned) = cache_policy::prepare_execution(&compiled, registry);
 
     for source_node in source_overrides.keys().copied() {
         let Some(node) = execution.nodes.iter().find(|node| node.id == source_node) else {
@@ -3547,7 +3577,9 @@ mod tests {
     #[test]
     fn unchanged_live_lowering_reuses_runtime_sampling_points() {
         let points = SamplingPointStore::default();
-        points.record(SamplingPoint::new(100, true, vec![false]));
+        points
+            .record(SamplingPoint::new(100, true, vec![false]))
+            .unwrap();
         let old = CompiledGraph {
             sampling_overlays: vec![SamplingOverlayCandidate {
                 node_id: NodeId(7),
@@ -3557,6 +3589,7 @@ mod tests {
                     sampled_channels: vec![1],
                     points,
                 },
+                cache_key: None,
             }],
             ..CompiledGraph::default()
         };
@@ -3570,6 +3603,7 @@ mod tests {
                     sampled_channels: vec![1],
                     points: SamplingPointStore::default(),
                 },
+                cache_key: None,
             }],
             ..CompiledGraph::default()
         };
