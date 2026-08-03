@@ -24,8 +24,8 @@ mod implementation {
         ArtifactRepository, CollectedWordLaneOptions, CollectedWordLaneQuery,
         DecodedBlockCacheStats, DerivedDataCollector, DerivedDataCollectorMetrics,
         DerivedDataRetention, DerivedLanes, InputPort, LiveStoreConfig, MemoryArtifactRepository,
-        OutputPort, PersistentStoreConfig, Pipeline, PortSchema, ProcessNode, ProtocolKind, Word,
-        WorkError, WorkExecutor, WorkExecutorTask, WorkResult, WorkTask,
+        OutputPort, PersistentStoreConfig, Pipeline, PortSchema, ProcessNode, ProtocolKind,
+        SamplingPointStore, Word, WorkError, WorkExecutor, WorkExecutorTask, WorkResult, WorkTask,
         built_in_word_lane_ingestor, configure_decoded_block_cache, decoded_block_cache_stats,
         reset_decoded_block_cache_stats,
     };
@@ -62,11 +62,27 @@ mod implementation {
         }
     }
 
-    struct BenchmarkWorkExecutor;
+    struct BenchmarkWorkExecutor {
+        workers: usize,
+    }
+
+    impl BenchmarkWorkExecutor {
+        fn new(workers: usize) -> Self {
+            Self {
+                workers: workers.max(1),
+            }
+        }
+    }
+
+    impl Default for BenchmarkWorkExecutor {
+        fn default() -> Self {
+            Self::new(2)
+        }
+    }
 
     impl WorkExecutor for BenchmarkWorkExecutor {
         fn available_parallelism(&self) -> usize {
-            2
+            self.workers
         }
 
         fn supports_long_running_tasks(&self) -> bool {
@@ -128,6 +144,13 @@ mod implementation {
     enum CacheKind {
         Temporary,
         Persistent,
+    }
+
+    #[derive(Clone, Copy, Debug, ValueEnum)]
+    enum SamplingCacheKind {
+        None,
+        Direct,
+        Queued,
     }
 
     #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -210,6 +233,10 @@ mod implementation {
         #[arg(long, default_value_t = 0)]
         workers: usize,
 
+        /// Host work capacity advertised to decoders and cache encoders.
+        #[arg(long, default_value_t = 2)]
+        host_workers: usize,
+
         /// Benchmark packed decoding at requested worker counts 1,2,4,8,16,32.
         #[arg(long)]
         worker_sweep: bool,
@@ -221,6 +248,10 @@ mod implementation {
         /// Indexed viewer cache publication mode.
         #[arg(long, value_enum, default_value_t = CacheKind::Temporary)]
         cache: CacheKind,
+
+        /// Sampling-point persistence included in the measured decode path.
+        #[arg(long, value_enum, default_value_t = SamplingCacheKind::None)]
+        sampling_cache: SamplingCacheKind,
 
         /// Shared decoded-word block cache budget used by query validation.
         #[arg(long, default_value_t = 64)]
@@ -721,7 +752,8 @@ mod implementation {
             .chain(args.cs)
             .max()
             .map_or(0, |channel| channel + 1);
-        let work_executor: Arc<dyn WorkExecutor> = Arc::new(BenchmarkWorkExecutor);
+        let work_executor: Arc<dyn WorkExecutor> =
+            Arc::new(BenchmarkWorkExecutor::new(args.host_workers));
         let source = source_for_mode(&args.capture, mode, Arc::clone(&work_executor))?;
         if required_channels > source.num_channels() {
             return Err(format!(
@@ -744,7 +776,22 @@ mod implementation {
         let decoder = ParallelDecoder::new(args.data.len(), args.trigger.into(), cs_polarity)
             .with_input_strategy(input_strategy)
             .with_parallel_workers(args.workers)
-            .with_work_executor(work_executor);
+            .with_work_executor(Arc::clone(&work_executor));
+        let decoder = match args.sampling_cache {
+            SamplingCacheKind::None => decoder,
+            SamplingCacheKind::Direct | SamplingCacheKind::Queued => {
+                let persistence_executor: Arc<dyn WorkExecutor> = match args.sampling_cache {
+                    SamplingCacheKind::Direct => Arc::new(signal_processing::InlineWorkExecutor),
+                    SamplingCacheKind::Queued => Arc::clone(&work_executor),
+                    SamplingCacheKind::None => unreachable!(),
+                };
+                let points = SamplingPointStore::create_persistent(
+                    PersistentStoreConfig::new([0x53; 32]),
+                    persistence_executor,
+                )?;
+                decoder.with_sampling_points(points)
+            }
+        };
         let parallel_workers = decoder.parallel_workers();
         let parallel_metrics = decoder.parallel_metrics();
 
@@ -857,7 +904,7 @@ mod implementation {
             pipeline.connect("decoder", "words", "sink", sink_port)?;
         }
 
-        let scheduler = pipeline.build(Arc::new(BenchmarkWorkExecutor))?;
+        let scheduler = pipeline.build(Arc::new(BenchmarkWorkExecutor::default()))?;
         let setup = setup_start.elapsed();
         let run_start = Instant::now();
         scheduler.wait();
@@ -1214,7 +1261,7 @@ mod implementation {
             let source = source_for_mode(
                 &capture,
                 BenchMode::Indexed,
-                Arc::new(BenchmarkWorkExecutor),
+                Arc::new(BenchmarkWorkExecutor::default()),
             )
             .unwrap();
             let activity = source
@@ -1262,7 +1309,7 @@ mod implementation {
             let source = source_for_mode(
                 &capture,
                 BenchMode::Indexed,
-                Arc::new(BenchmarkWorkExecutor),
+                Arc::new(BenchmarkWorkExecutor::default()),
             )
             .unwrap();
             let activity = source

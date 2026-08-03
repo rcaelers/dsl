@@ -24,8 +24,9 @@ use tracing::{debug, trace};
 
 use signal_processing::capture::CaptureTransition;
 use signal_processing::{
-    EdgeQuery, InputPort, OutputPort, ProcessNode, ProtocolKind, ProtocolPacket, ProtocolValue,
-    Receiver, Sample, SamplingPoint, SamplingPointStore, Word, WorkError, WorkOutcome, WorkResult,
+    EdgeQuery, InputPort, OutputPort, PackedSamplingPoint, ProcessNode, ProtocolKind,
+    ProtocolPacket, ProtocolValue, Receiver, Sample, SamplingPointStore, Word, WorkError,
+    WorkOutcome, WorkResult,
 };
 
 use crate::types::{BitOrder, CsPolarity};
@@ -695,18 +696,21 @@ impl SpiDecoder {
                     self.query_miso_bits.push(miso_values[index]);
                 }
                 if let Some(points) = &mut sampling_point_batch {
-                    let mut values =
-                        Vec::with_capacity(usize::from(self.has_mosi) + usize::from(self.has_miso));
+                    let mut values = 0_u64;
+                    let mut value_count = 0;
                     if self.has_mosi {
-                        values.push(mosi_values[index]);
+                        values |= u64::from(mosi_values[index]) << value_count;
+                        value_count += 1;
                     }
                     if self.has_miso {
-                        values.push(miso_values[index]);
+                        values |= u64::from(miso_values[index]) << value_count;
+                        value_count += 1;
                     }
-                    points.push(SamplingPoint::new(
+                    points.push(PackedSamplingPoint::new(
                         position_to_ns(clock_edge),
                         sampling_value,
                         values,
+                        value_count,
                     ));
                 }
                 trace!(
@@ -771,7 +775,7 @@ impl SpiDecoder {
                 self.query_miso_bits.clear();
             }
             if let (Some(store), Some(points)) = (&self.sampling_points, sampling_point_batch) {
-                store.record_batch(points).map_err(|error| {
+                store.record_packed_batch(points).map_err(|error| {
                     WorkError::NodeError(format!("could not cache SPI sampling points: {error}"))
                 })?;
             }
@@ -1067,8 +1071,8 @@ impl SpiDecoder {
 
                 // Sample data lines at CLK edge time
                 let sample_time = edge.start_time_ns.saturating_sub(1);
-                let mut sampled_values =
-                    Vec::with_capacity(usize::from(has_mosi) + usize::from(has_miso));
+                let mut sampled_values = 0_u64;
+                let mut sampled_value_count = 0;
                 if has_mosi {
                     match Self::value_at_time(mosi.as_mut().unwrap(), sample_time)? {
                         Some(mosi_val) => {
@@ -1084,7 +1088,8 @@ impl SpiDecoder {
                             if need_mosi_annotations {
                                 mosi_bits.push(mosi_val);
                             }
-                            sampled_values.push(mosi_val);
+                            sampled_values |= u64::from(mosi_val) << sampled_value_count;
+                            sampled_value_count += 1;
                         }
                         None => {
                             // MOSI channel exhausted - signal shutdown
@@ -1103,7 +1108,8 @@ impl SpiDecoder {
                             if need_miso_annotations {
                                 miso_bits.push(miso_val);
                             }
-                            sampled_values.push(miso_val);
+                            sampled_values |= u64::from(miso_val) << sampled_value_count;
+                            sampled_value_count += 1;
                         }
                         None => {
                             // MISO channel exhausted - signal shutdown
@@ -1117,10 +1123,11 @@ impl SpiDecoder {
                     bit_timestamps.push(edge.start_time_ns);
                 }
                 if let Some(points) = &mut sampling_point_batch {
-                    points.push(SamplingPoint::new(
+                    points.push(PackedSamplingPoint::new(
                         edge.start_time_ns,
                         edge.value,
                         sampled_values,
+                        sampled_value_count,
                     ));
                 }
                 bits_collected += 1;
@@ -1172,7 +1179,7 @@ impl SpiDecoder {
         }
 
         if let (Some(store), Some(points)) = (&self.sampling_points, sampling_point_batch) {
-            store.record_batch(points).map_err(|error| {
+            store.record_packed_batch(points).map_err(|error| {
                 WorkError::NodeError(format!("could not cache SPI sampling points: {error}"))
             })?;
         }

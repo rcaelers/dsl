@@ -78,6 +78,7 @@ impl RuntimeBuilder for SpiDecoderBuilder {
         Some(SamplingOverlayDescriptor {
             clock_input: 0,
             sampled_input_groups: vec![1, 2],
+            retained_word_source: None,
         })
     }
 

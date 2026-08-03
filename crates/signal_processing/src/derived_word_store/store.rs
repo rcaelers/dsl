@@ -711,22 +711,16 @@ struct BlockCompletion {
 fn prepare_encoded_block(
     sequence: u64,
     mut builder: WordBlockBuilder,
-    encoded: Vec<u8>,
+    mut encoded: Vec<u8>,
 ) -> PreparedBlock {
     let duration_free = builder.is_duration_free();
     let summaries = word_presence_summaries(sequence, builder.words(), duration_free);
-    let request = super::codec::EncodeWordBlockRequest::new(
-        sequence,
-        builder.config(),
-        builder.words().to_vec(),
-    );
-    let (encoded, result) = match super::codec::encode_owned_word_block(request, encoded) {
-        Ok(encoded) => {
-            let result = Ok((encoded.metadata, summaries));
-            (encoded.bytes, result)
-        }
-        Err(error) => (Vec::new(), Err(error)),
-    };
+    let result = builder
+        .encode(sequence, &mut encoded)
+        .map(|metadata| (metadata, summaries));
+    if result.is_err() {
+        encoded.clear();
+    }
     builder.clear();
     PreparedBlock {
         builder,

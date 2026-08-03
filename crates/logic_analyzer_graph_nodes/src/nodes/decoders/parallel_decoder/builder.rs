@@ -5,7 +5,7 @@ use serde_json::Value;
 use logic_analyzer_graph_api::node::RuntimeBuilder;
 use logic_analyzer_graph_api::node_support::{
     DecoderTableColumnDescriptor, NodeBuildContext, PortKind, ResolvedInputs,
-    SamplingOverlayDescriptor, parse_state,
+    RetainedWordSamplingSource, SamplingOverlayDescriptor, parse_state,
 };
 use logic_analyzer_processing::nodes::decoders::parallel_decoder::{
     ParallelDecoder as ProcessingParallelDecoder, ParallelInputStrategy, StrobeMode,
@@ -65,9 +65,21 @@ impl RuntimeBuilder for ParallelDecoderBuilder {
             "Rising (SDR)" | "Falling (SDR)" | "Both (DDR)" => {}
             _ => return None,
         }
+        let retained_word_source = match (state.word_size.value, state.sample_on.selected()) {
+            (1, "Rising (SDR)") => Some(RetainedWordSamplingSource {
+                output: 0,
+                clock_high: true,
+            }),
+            (1, "Falling (SDR)") => Some(RetainedWordSamplingSource {
+                output: 0,
+                clock_high: false,
+            }),
+            _ => None,
+        };
         Some(SamplingOverlayDescriptor {
             clock_input: 0,
             sampled_input_groups: vec![1],
+            retained_word_source,
         })
     }
 
@@ -182,6 +194,43 @@ mod builder_tests {
             let descriptor = builder.sampling_overlay(&serde_json::to_value(&state).unwrap());
             assert_eq!(descriptor.is_some(), expected);
         }
+    }
+
+    #[test]
+    fn single_cycle_sdr_sampling_reuses_the_retained_word_lane() {
+        let builder = ParallelDecoderBuilder;
+        let mut state = ParallelDecoder::state();
+        for (mode, expected_clock) in [("Rising (SDR)", true), ("Falling (SDR)", false)] {
+            state.sample_on.select(mode);
+            let descriptor = builder
+                .sampling_overlay(&serde_json::to_value(&state).unwrap())
+                .unwrap();
+            assert_eq!(
+                descriptor.retained_word_source,
+                Some(RetainedWordSamplingSource {
+                    output: 0,
+                    clock_high: expected_clock,
+                })
+            );
+        }
+
+        state.sample_on.select("Both (DDR)");
+        assert!(
+            builder
+                .sampling_overlay(&serde_json::to_value(&state).unwrap())
+                .unwrap()
+                .retained_word_source
+                .is_none()
+        );
+        state.word_size.value = 2;
+        state.sample_on.select("Rising (SDR)");
+        assert!(
+            builder
+                .sampling_overlay(&serde_json::to_value(&state).unwrap())
+                .unwrap()
+                .retained_word_source
+                .is_none()
+        );
     }
 
     #[test]

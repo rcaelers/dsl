@@ -136,6 +136,16 @@ impl SourceDataLifecycle {
 pub struct SamplingOverlayDescriptor {
     pub clock_input: usize,
     pub sampled_input_groups: Vec<usize>,
+    pub retained_word_source: Option<RetainedWordSamplingSource>,
+}
+
+/// A retained word output whose events are identical to the node's sampling
+/// decisions. The compiler may use the indexed output lane instead of
+/// persisting a duplicate sampling-point stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RetainedWordSamplingSource {
+    pub output: usize,
+    pub clock_high: bool,
 }
 
 #[derive(Debug, Clone)]

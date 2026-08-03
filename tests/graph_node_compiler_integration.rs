@@ -774,6 +774,8 @@ fn built_in_binary_demo_executes_and_publishes_sampling_and_latch_data() {
         .iter()
         .find(|candidate| candidate.node_title() == "Parallel Decoder")
         .expect("parallel decoder should publish sampling points");
+    assert!(parallel_sampling.overlay().points.has_provider());
+    assert!(!parallel_sampling.overlay().points.is_persistent());
     let points = parallel_sampling
         .overlay()
         .points
@@ -810,6 +812,8 @@ fn built_in_binary_demo_executes_and_publishes_sampling_and_latch_data() {
         .iter()
         .find(|candidate| candidate.node_title() == "Parallel Decoder")
         .expect("cached parallel sampling points should reopen");
+    assert!(reopened_parallel.overlay().points.has_provider());
+    assert!(!reopened_parallel.overlay().points.is_persistent());
     assert_eq!(
         reopened_parallel
             .overlay()

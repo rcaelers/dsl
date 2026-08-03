@@ -1,13 +1,16 @@
 use std::sync::{Arc, Mutex, RwLock};
 
+use crossbeam_channel::{Receiver, Sender};
+
 use crate::derived_word_store::{
     AnnotationQuery, IndexedAnnotationStore, IndexedAnnotationWriter, LiveStoreConfig,
-    PersistentStoreConfig, StoreResult,
+    PersistentStoreConfig, StoreError, StoreResult,
 };
-use crate::{Word, WordPayload, WorkExecutor};
+use crate::{CollectedWordLaneQuery, DerivedLanes, Word, WordPayload, WorkExecutor, WorkTask};
 
 const INLINE_VALUE_BITS: usize = 57;
 const INLINE_VALUE_SHIFT: usize = 7;
+const PERSISTENT_BATCH_QUEUE_DEPTH: usize = 8;
 
 /// One sampling decision produced by a clocked processing node.
 ///
@@ -30,6 +33,46 @@ impl SamplingPoint {
     }
 }
 
+/// Allocation-free sampling decision used while a decoder is processing.
+///
+/// The packed representation is intentionally protocol-neutral. Values keep
+/// the same least-significant-bit-first order as [`SamplingPoint::values`]
+/// and are expanded only when a presentation query requests them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PackedSamplingPoint {
+    time_ns: u64,
+    values: u64,
+    value_count: u8,
+    clock_high: bool,
+}
+
+impl PackedSamplingPoint {
+    pub fn new(time_ns: u64, clock_high: bool, values: u64, value_count: usize) -> Self {
+        assert!(value_count <= u64::BITS as usize);
+        let values = match value_count {
+            0 => 0,
+            64 => values,
+            count => values & ((1_u64 << count) - 1),
+        };
+        Self {
+            time_ns,
+            values,
+            value_count: value_count as u8,
+            clock_high,
+        }
+    }
+
+    fn unpack(self) -> SamplingPoint {
+        SamplingPoint::new(
+            self.time_ns,
+            self.clock_high,
+            (0..usize::from(self.value_count))
+                .map(|index| self.values & (1_u64 << index) != 0)
+                .collect::<Vec<_>>(),
+        )
+    }
+}
+
 /// Random-access source of sampling decisions for a processed time range.
 ///
 /// Concrete processing nodes implement their own sampling semantics. The
@@ -46,6 +89,80 @@ pub trait SamplingPointProvider: std::fmt::Debug + Send + Sync {
     ) -> Option<Vec<SamplingPoint>>;
 }
 
+struct RetainedWordSamplingProvider {
+    lanes: DerivedLanes,
+    lane_name: String,
+    clock_high: bool,
+    value_count: usize,
+}
+
+impl std::fmt::Debug for RetainedWordSamplingProvider {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RetainedWordSamplingProvider")
+            .field("lane_name", &self.lane_name)
+            .field("clock_high", &self.clock_high)
+            .field("value_count", &self.value_count)
+            .finish()
+    }
+}
+
+impl SamplingPointProvider for RetainedWordSamplingProvider {
+    fn points_in_range_with_minimum_spacing(
+        &self,
+        start_ns: u64,
+        end_ns: u64,
+        minimum_spacing_ns: u64,
+    ) -> Option<Vec<SamplingPoint>> {
+        if start_ns > end_ns {
+            return Some(Vec::new());
+        }
+        let lane = self
+            .lanes
+            .opaque_lanes()
+            .into_iter()
+            .find(|lane| lane.name() == self.lane_name)?;
+        let indexed = lane.query::<CollectedWordLaneQuery>()?.indexed_lane()?;
+        let maximum_visible = match end_ns
+            .saturating_sub(start_ns)
+            .checked_div(minimum_spacing_ns)
+        {
+            Some(intervals) => usize::try_from(intervals).ok()?.saturating_add(1),
+            None => usize::try_from(indexed.metadata().total_word_count).ok()?,
+        };
+        let window = indexed
+            .query()
+            .exact_window(start_ns, end_ns, maximum_visible.saturating_add(4).max(1))
+            .ok()?;
+        if !window.complete {
+            return None;
+        }
+        let points = window
+            .annotations
+            .into_iter()
+            .filter(|annotation| (start_ns..=end_ns).contains(&annotation.start_ns))
+            .map(|annotation| {
+                SamplingPoint::new(
+                    annotation.start_ns,
+                    self.clock_high,
+                    (0..self.value_count)
+                        .map(|bit| annotation.value & (1_u64 << bit) != 0)
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>();
+        if points.len() > maximum_visible
+            || points
+                .windows(2)
+                .any(|pair| pair[1].time_ns.saturating_sub(pair[0].time_ns) < minimum_spacing_ns)
+        {
+            None
+        } else {
+            Some(points)
+        }
+    }
+}
+
 /// Thread-safe, visible-range store of sampling decisions produced by a node.
 ///
 /// Transient stores retain chronological batches in memory and may delegate
@@ -60,7 +177,19 @@ struct SamplingPointStoreInner {
 
 struct PersistentSamplingPoints {
     store: IndexedAnnotationStore,
-    writer: Mutex<Option<IndexedAnnotationWriter>>,
+    writer: PersistentSamplingWriter,
+}
+
+enum PersistentSamplingWriter {
+    ReadOnly,
+    Direct(Box<Mutex<Option<IndexedAnnotationWriter>>>),
+    Queued(QueuedSamplingWriter),
+}
+
+struct QueuedSamplingWriter {
+    sender: Mutex<Option<Sender<Vec<Word>>>>,
+    task: Mutex<Option<Box<dyn WorkTask>>>,
+    result: Arc<Mutex<Option<Result<(), String>>>>,
 }
 
 #[derive(Clone)]
@@ -91,24 +220,43 @@ impl Default for SamplingPointStore {
 }
 
 impl SamplingPointStore {
+    /// Uses an already-retained indexed word lane whose events are identical
+    /// to this node's sampling decisions.
+    pub fn set_retained_word_provider(
+        &self,
+        lanes: DerivedLanes,
+        lane_name: impl Into<String>,
+        clock_high: bool,
+        value_count: usize,
+    ) {
+        self.set_provider(Arc::new(RetainedWordSamplingProvider {
+            lanes,
+            lane_name: lane_name.into(),
+            clock_high,
+            value_count,
+        }));
+    }
+
     pub fn create_persistent(
         config: PersistentStoreConfig,
         work_executor: Arc<dyn WorkExecutor>,
     ) -> StoreResult<Self> {
         let live_config = LiveStoreConfig {
             persistence: Some(config),
-            work_executor,
+            work_executor: Arc::clone(&work_executor),
             ..LiveStoreConfig::default()
         };
         let (writer, store) = IndexedAnnotationWriter::create(live_config)?;
+        let writer = if work_executor.supports_long_running_tasks() {
+            PersistentSamplingWriter::Queued(start_queued_writer(writer, work_executor)?)
+        } else {
+            PersistentSamplingWriter::Direct(Box::new(Mutex::new(Some(writer))))
+        };
         Ok(Self {
             inner: Arc::new(SamplingPointStoreInner {
                 points: RwLock::new(Vec::new()),
                 provider: RwLock::new(None),
-                persistent: Some(PersistentSamplingPoints {
-                    store,
-                    writer: Mutex::new(Some(writer)),
-                }),
+                persistent: Some(PersistentSamplingPoints { store, writer }),
             }),
         })
     }
@@ -123,7 +271,7 @@ impl SamplingPointStore {
                 provider: RwLock::new(None),
                 persistent: Some(PersistentSamplingPoints {
                     store,
-                    writer: Mutex::new(None),
+                    writer: PersistentSamplingWriter::ReadOnly,
                 }),
             }),
         }))
@@ -157,10 +305,7 @@ impl SamplingPointStore {
             if words.is_empty() {
                 return Ok(());
             }
-            if let Some(writer) = persistent.writer.lock().unwrap().as_mut() {
-                writer.append_batch(&words)?;
-            }
-            return Ok(());
+            return persistent.writer.append(words);
         }
         let mut points = points.into_iter().peekable();
         let Some(first) = points.peek() else {
@@ -192,14 +337,31 @@ impl SamplingPointStore {
         Ok(())
     }
 
+    pub fn record_packed_batch(
+        &self,
+        points: impl IntoIterator<Item = PackedSamplingPoint>,
+    ) -> StoreResult<()> {
+        if self.inner.provider.read().unwrap().is_some() {
+            return Ok(());
+        }
+        if let Some(persistent) = &self.inner.persistent {
+            let words = points
+                .into_iter()
+                .map(encode_packed_point)
+                .collect::<Vec<_>>();
+            if words.is_empty() {
+                return Ok(());
+            }
+            return persistent.writer.append(words);
+        }
+        self.record_batch(points.into_iter().map(PackedSamplingPoint::unpack))
+    }
+
     pub fn finish(&self) -> StoreResult<()> {
         let Some(persistent) = &self.inner.persistent else {
             return Ok(());
         };
-        let Some(mut writer) = persistent.writer.lock().unwrap().take() else {
-            return Ok(());
-        };
-        writer.finish()
+        persistent.writer.finish()
     }
 
     pub fn points_in_range(&self, start_ns: u64, end_ns: u64) -> Vec<SamplingPoint> {
@@ -260,6 +422,106 @@ impl SamplingPointStore {
     }
 }
 
+impl PersistentSamplingWriter {
+    fn append(&self, words: Vec<Word>) -> StoreResult<()> {
+        match self {
+            Self::ReadOnly => Ok(()),
+            Self::Direct(writer) => {
+                let mut writer = writer.lock().unwrap();
+                let Some(writer) = writer.as_mut() else {
+                    return Ok(());
+                };
+                writer.append_batch(&words)
+            }
+            Self::Queued(writer) => writer.append(words),
+        }
+    }
+
+    fn finish(&self) -> StoreResult<()> {
+        match self {
+            Self::ReadOnly => Ok(()),
+            Self::Direct(writer) => {
+                let Some(mut writer) = writer.lock().unwrap().take() else {
+                    return Ok(());
+                };
+                writer.finish()
+            }
+            Self::Queued(writer) => writer.finish(),
+        }
+    }
+}
+
+impl QueuedSamplingWriter {
+    fn append(&self, words: Vec<Word>) -> StoreResult<()> {
+        let sender = self.sender.lock().unwrap();
+        let Some(sender) = sender.as_ref() else {
+            return self.completed_result();
+        };
+        sender.send(words).map_err(|_| {
+            StoreError::Persistent(
+                self.failure_message()
+                    .unwrap_or_else(|| "sampling-point cache writer stopped".into()),
+            )
+        })
+    }
+
+    fn finish(&self) -> StoreResult<()> {
+        self.sender.lock().unwrap().take();
+        if let Some(task) = self.task.lock().unwrap().take() {
+            task.wait();
+        }
+        self.completed_result()
+    }
+
+    fn completed_result(&self) -> StoreResult<()> {
+        match self.result.lock().unwrap().as_ref() {
+            Some(Ok(())) => Ok(()),
+            Some(Err(message)) => Err(StoreError::Persistent(message.clone())),
+            None => Err(StoreError::Persistent(
+                "sampling-point cache writer has not completed".into(),
+            )),
+        }
+    }
+
+    fn failure_message(&self) -> Option<String> {
+        self.result
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|result| result.as_ref().err().cloned())
+    }
+}
+
+fn start_queued_writer(
+    writer: IndexedAnnotationWriter,
+    work_executor: Arc<dyn WorkExecutor>,
+) -> StoreResult<QueuedSamplingWriter> {
+    let (sender, receiver) = crossbeam_channel::bounded(PERSISTENT_BATCH_QUEUE_DEPTH);
+    let result = Arc::new(Mutex::new(None));
+    let worker_result = Arc::clone(&result);
+    let task = work_executor
+        .submit_long_running(Box::new(move || {
+            let outcome = run_queued_writer(writer, receiver).map_err(|error| error.to_string());
+            *worker_result.lock().unwrap() = Some(outcome);
+        }))
+        .map_err(StoreError::Persistent)?;
+    Ok(QueuedSamplingWriter {
+        sender: Mutex::new(Some(sender)),
+        task: Mutex::new(Some(task)),
+        result,
+    })
+}
+
+fn run_queued_writer(
+    mut writer: IndexedAnnotationWriter,
+    receiver: Receiver<Vec<Word>>,
+) -> StoreResult<()> {
+    for words in receiver {
+        writer.append_batch(&words)?;
+    }
+    writer.finish()
+}
+
 fn encode_point(point: SamplingPoint) -> Word {
     let clock = u64::from(point.clock_high);
     if point.values.len() <= INLINE_VALUE_BITS {
@@ -281,6 +543,25 @@ fn encode_point(point: SamplingPoint) -> Word {
         Word::bytes_with_tag(
             clock | ((value_count as u64) << 1),
             packed,
+            point.time_ns,
+            0,
+        )
+    }
+}
+
+fn encode_packed_point(point: PackedSamplingPoint) -> Word {
+    let clock = u64::from(point.clock_high);
+    let value_count = usize::from(point.value_count);
+    if value_count <= INLINE_VALUE_BITS {
+        Word::new(
+            clock | ((value_count as u64) << 1) | (point.values << INLINE_VALUE_SHIFT),
+            point.time_ns,
+        )
+    } else {
+        let packed = point.values.to_le_bytes();
+        Word::bytes_with_tag(
+            clock | ((value_count as u64) << 1),
+            Arc::<[u8]>::from(&packed[..value_count.div_ceil(u8::BITS as usize)]),
             point.time_ns,
             0,
         )
@@ -351,7 +632,42 @@ mod sampling_point_store_tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::{ArtifactRepository, InlineWorkExecutor, MemoryArtifactRepository};
+    use crate::{
+        ArtifactRepository, InlineWorkExecutor, MemoryArtifactRepository, WorkExecutorTask,
+    };
+
+    struct ThreadWorkExecutor;
+
+    impl WorkExecutor for ThreadWorkExecutor {
+        fn available_parallelism(&self) -> usize {
+            4
+        }
+
+        fn supports_long_running_tasks(&self) -> bool {
+            true
+        }
+
+        fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+            let handle = std::thread::spawn(task);
+            Ok(Box::new(ThreadWorkTask(Some(handle))))
+        }
+    }
+
+    struct ThreadWorkTask(Option<std::thread::JoinHandle<()>>);
+
+    impl WorkTask for ThreadWorkTask {
+        fn is_finished(&self) -> bool {
+            self.0
+                .as_ref()
+                .is_none_or(std::thread::JoinHandle::is_finished)
+        }
+
+        fn wait(mut self: Box<Self>) {
+            if let Some(handle) = self.0.take() {
+                handle.join().unwrap();
+            }
+        }
+    }
 
     #[derive(Debug)]
     struct FixedProvider;
@@ -507,6 +823,41 @@ mod sampling_point_store_tests {
                 .points_in_range_with_minimum_spacing(0, 50, 10)
                 .unwrap(),
             expected
+        );
+    }
+
+    #[test]
+    fn queued_packed_store_reopens_without_decoder_owned_allocations() {
+        let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+        let config = PersistentStoreConfig::new([0x71; 32])
+            .with_artifact_repository(Arc::clone(&repository));
+        let store =
+            SamplingPointStore::create_persistent(config.clone(), Arc::new(ThreadWorkExecutor))
+                .unwrap();
+        store
+            .record_packed_batch([
+                PackedSamplingPoint::new(10, true, 0b101, 3),
+                PackedSamplingPoint::new(20, false, 0xfeed_beef_dead_cafe, 64),
+            ])
+            .unwrap();
+        store.finish().unwrap();
+        drop(store);
+
+        let reopened = SamplingPointStore::open_persistent(&config)
+            .unwrap()
+            .expect("queued sampling points should be published");
+        assert_eq!(
+            reopened.points_in_range(0, 30),
+            vec![
+                SamplingPoint::new(10, true, vec![true, false, true]),
+                SamplingPoint::new(
+                    20,
+                    false,
+                    (0..64)
+                        .map(|bit| 0xfeed_beef_dead_cafe_u64 & (1 << bit) != 0)
+                        .collect::<Vec<_>>(),
+                ),
+            ]
         );
     }
 }

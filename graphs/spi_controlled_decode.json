@@ -731,8 +731,8 @@
       }
     },
     "logic_analyzer_ui.sampling_overlay": [
-      1,
-      8
+      8,
+      1
     ],
     "logic_analyzer_ui.viewer_lane_heights": {
       "global_scale": 1.0876284837722778,
@@ -1458,10 +1458,10 @@
         }
       ],
       "pos": {
-        "x": 1535.91796875,
-        "y": 269.02734375
+        "x": 1394.6640625,
+        "y": 264.2109375
       },
-      "selected": true,
+      "selected": false,
       "state": {
         "cs_polarity": {
           "value": "Disabled",

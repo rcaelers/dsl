@@ -19,7 +19,7 @@ impl ParallelDecoder {
     fn adaptive_parallel_workers(available_workers: usize) -> usize {
         match available_workers.max(1) {
             1 | 2 => 1,
-            available => available.div_ceil(4).max(2),
+            available => available.div_ceil(2).max(2),
         }
     }
 }
@@ -310,7 +310,7 @@ fn work_parallel(
         sampling_point_batch.as_mut(),
     )?;
     if let (Some(store), Some(points)) = (&decoder.sampling_points, sampling_point_batch) {
-        store.record_batch(points).map_err(|error| {
+        store.record_packed_batch(points).map_err(|error| {
             WorkError::NodeError(format!(
                 "could not cache parallel-decoder sampling points: {error}"
             ))
@@ -355,8 +355,8 @@ mod parallel_worker_tests {
     use crossbeam_channel::bounded;
 
     use signal_processing::{
-        ChannelMessage, ProcessNode, Scheduler, Sender, Watchdog, WorkExecutor,
-        WorkExecutorTask, WorkTask,
+        ChannelMessage, ProcessNode, Scheduler, Sender, Watchdog, WorkExecutor, WorkExecutorTask,
+        WorkTask,
     };
 
     use super::*;
@@ -368,10 +368,7 @@ mod parallel_worker_tests {
             2
         }
 
-        fn submit(
-            &self,
-            task: WorkExecutorTask,
-        ) -> std::result::Result<Box<dyn WorkTask>, String> {
+        fn submit(&self, task: WorkExecutorTask) -> std::result::Result<Box<dyn WorkTask>, String> {
             Ok(Box::new(TestWorkTask {
                 handle: Some(std::thread::spawn(task)),
             }))
@@ -399,9 +396,9 @@ mod parallel_worker_tests {
         assert_eq!(ParallelDecoder::adaptive_parallel_workers(1), 1);
         assert_eq!(ParallelDecoder::adaptive_parallel_workers(2), 1);
         assert_eq!(ParallelDecoder::adaptive_parallel_workers(4), 2);
-        assert_eq!(ParallelDecoder::adaptive_parallel_workers(8), 2);
-        assert_eq!(ParallelDecoder::adaptive_parallel_workers(20), 5);
-        assert_eq!(ParallelDecoder::adaptive_parallel_workers(32), 8);
+        assert_eq!(ParallelDecoder::adaptive_parallel_workers(8), 4);
+        assert_eq!(ParallelDecoder::adaptive_parallel_workers(20), 10);
+        assert_eq!(ParallelDecoder::adaptive_parallel_workers(32), 16);
     }
 
     fn block_from_bits(bits: &[bool]) -> SampleBlock {
@@ -489,9 +486,7 @@ mod parallel_worker_tests {
         assert_eq!(blocks.parallel.in_flight, 0);
     }
 
-    fn run_multi_window_stream(
-        workers: usize,
-    ) -> (Vec<Word>, ParallelDecoderMetricsSnapshot) {
+    fn run_multi_window_stream(workers: usize) -> (Vec<Word>, ParallelDecoderMetricsSnapshot) {
         let watchdog = Watchdog::new();
         let sample_count = 2 * ParallelDecoder::STREAM_SAMPLES_PER_CALL + 17;
         let strobe: Vec<bool> = (0..sample_count)
@@ -555,9 +550,7 @@ mod parallel_worker_tests {
                 metrics.estimated_total_fragment_bytes,
                 metrics.max_outstanding * metrics.max_fragment_bytes
             );
-            assert!(
-                metrics.estimated_reorder_bytes <= metrics.estimated_total_fragment_bytes
-            );
+            assert!(metrics.estimated_reorder_bytes <= metrics.estimated_total_fragment_bytes);
         }
         assert!(sequential.len() > 10_000);
     }

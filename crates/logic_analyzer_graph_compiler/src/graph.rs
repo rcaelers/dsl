@@ -212,6 +212,13 @@ pub struct SamplingOverlayCandidate {
     node_title: String,
     overlay: ResolvedSamplingOverlay,
     cache_key: Option<[u8; 32]>,
+    retained_word_lane: Option<RetainedWordSamplingLane>,
+}
+
+#[derive(Debug, Clone)]
+struct RetainedWordSamplingLane {
+    name: String,
+    clock_high: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -244,6 +251,23 @@ impl SamplingOverlayCandidate {
 
     pub(crate) fn set_points(&mut self, points: SamplingPointStore) {
         self.overlay.points = points;
+    }
+
+    pub(crate) fn install_retained_word_provider(&mut self, lanes: DerivedLanes) -> bool {
+        let Some(source) = &self.retained_word_lane else {
+            return false;
+        };
+        self.overlay.points.set_retained_word_provider(
+            lanes,
+            &source.name,
+            source.clock_high,
+            self.overlay.sampled_channels.len(),
+        );
+        true
+    }
+
+    pub(crate) fn uses_retained_word_lane(&self) -> bool {
+        self.retained_word_lane.is_some()
     }
 }
 
@@ -1661,6 +1685,13 @@ pub(crate) fn lower_with_subscriptions(
             if sampled_channels.is_empty() {
                 return None;
             }
+            let retained_word_lane = descriptor.retained_word_source.and_then(|source| {
+                retained_word_sampling_lane_name(&nodes, registry, compiled_node.id, source.output)
+                    .map(|name| RetainedWordSamplingLane {
+                        name,
+                        clock_high: source.clock_high,
+                    })
+            });
             Some(SamplingOverlayCandidate {
                 node_id: compiled_node.id,
                 node_title: graph.nodes[&compiled_node.id].title.clone(),
@@ -1670,6 +1701,7 @@ pub(crate) fn lower_with_subscriptions(
                     points: SamplingPointStore::default(),
                 },
                 cache_key: None,
+                retained_word_lane,
             })
         })
         .collect();
@@ -1683,6 +1715,34 @@ pub(crate) fn lower_with_subscriptions(
     cache_policy::assign_derived_word_caches(&mut compiled, registry);
     cache_policy::assign_sampling_point_caches(&mut compiled);
     Ok(compiled)
+}
+
+fn retained_word_sampling_lane_name(
+    nodes: &[CompiledNode],
+    registry: &BuilderRegistry,
+    source_node: NodeId,
+    source_output: usize,
+) -> Option<String> {
+    nodes
+        .iter()
+        .filter(|node| node.data_collector)
+        .find_map(|node| {
+            let builder = registry.get(&node.builder)?;
+            let names = builder.collected_lane_names(&node.state, &node.resolved);
+            node.resolved
+                .members(0)
+                .into_iter()
+                .find_map(|(member, input)| {
+                    (input.source_node == source_node && input.source_output == source_output)
+                        .then(|| {
+                            names
+                                .iter()
+                                .find(|(candidate, _)| *candidate == member)
+                                .map(|(_, name)| name.clone())
+                        })
+                        .flatten()
+                })
+        })
 }
 
 #[cfg(test)]
@@ -2190,8 +2250,11 @@ pub(crate) fn load_cached_data_with_subscriptions(
 ) -> Result<bool, Vec<CompileError>> {
     let mut compiled = lower_with_subscriptions(graph, registry, subscriptions)?;
     cache_policy::configure_repository(&mut compiled, &ctx.artifact_repository);
-    let sampling_cache_loaded =
-        cache_policy::open_sampling_point_stores(&mut compiled, &ctx.artifact_repository);
+    let sampling_cache_loaded = cache_policy::open_sampling_point_stores(
+        &mut compiled,
+        &ctx.derived_lanes,
+        &ctx.artifact_repository,
+    );
     let preview = cache_policy::prepare_cached_preview(&compiled);
     if preview.is_none() && !sampling_cache_loaded {
         cache_policy::schedule_maintenance(&compiled, &ctx.artifact_repository, &ctx.work_executor);
@@ -2266,6 +2329,7 @@ fn start_live_inner(
     cache_policy::prepare_sampling_point_stores(
         &mut compiled,
         &execution,
+        &ctx.derived_lanes,
         &ctx.artifact_repository,
         &ctx.work_executor,
     );
@@ -3590,6 +3654,7 @@ mod tests {
                     points,
                 },
                 cache_key: None,
+                retained_word_lane: None,
             }],
             ..CompiledGraph::default()
         };
@@ -3604,6 +3669,7 @@ mod tests {
                     points: SamplingPointStore::default(),
                 },
                 cache_key: None,
+                retained_word_lane: None,
             }],
             ..CompiledGraph::default()
         };

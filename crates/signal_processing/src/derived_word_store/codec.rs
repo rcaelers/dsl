@@ -50,6 +50,7 @@ pub(crate) struct EncodeWordBlockRequest {
 }
 
 impl EncodeWordBlockRequest {
+    #[cfg(test)]
     pub(crate) fn new(sequence: u64, config: BlockCodecConfig, words: Vec<Word>) -> Self {
         Self {
             sequence,
@@ -154,10 +155,6 @@ impl WordBlockBuilder {
 
     pub(crate) fn words(&self) -> &[Word] {
         &self.words
-    }
-
-    pub(crate) const fn config(&self) -> BlockCodecConfig {
-        self.config
     }
 
     /// Appends `word`, or reports that the current non-empty block should be

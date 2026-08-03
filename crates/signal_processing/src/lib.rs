@@ -146,7 +146,9 @@ pub use recorded_edge_query::RecordedEdgeQuery;
 pub use sample::{Sample, SampleBlock};
 pub use sample_kind::SampleKind;
 pub(crate) use sample_kind::negotiate as negotiate_sample_kind;
-pub use sampling_points::{SamplingPoint, SamplingPointProvider, SamplingPointStore};
+pub use sampling_points::{
+    PackedSamplingPoint, SamplingPoint, SamplingPointProvider, SamplingPointStore,
+};
 pub use scheduler::{Scheduler, StopHandle};
 pub use sender::{ChannelMessage, OverflowPolicy, Sender, SharedSenders};
 pub use storage::{

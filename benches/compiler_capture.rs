@@ -11,7 +11,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use egui::{Color32, Event, Id, Pos2, Rect, UiBuilder};
 
-use logic_analyzer_graph_compiler::{CompileCtx, GraphCompiler, OutputSubscriptionPlan};
+use logic_analyzer_graph_compiler::{
+    CompileCtx, GraphCompiler, InlineSourcePreparationExecutor, OutputSubscriptionPlan,
+};
 use logic_analyzer_processing::nodes::decoders::parallel_decoder::{
     ParallelDecoder, ParallelInputStrategy, StrobeMode,
 };
@@ -23,16 +25,25 @@ use logic_analyzer_processing::nodes::logic::trigger_counter::TriggerCounter;
 use logic_analyzer_processing::nodes::logic::word_matcher::WordMatcher;
 use logic_analyzer_processing::nodes::sinks::binary_file_writer::BinaryFileWriter;
 use logic_analyzer_processing::nodes::sinks::{OutputFile, OutputStorage};
-use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
+use logic_analyzer_processing::nodes::sources::dsl_file::{
+    DslFileSource, DslFileSourceConfig, DslFileSourceFactory,
+};
 use logic_analyzer_processing::types::CsPolarity;
+use logic_analyzer_processing::{
+    CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
+    CaptureSourcePresentation, ProcessNodeConstruction,
+};
 use logic_analyzer_viewer::{
     LogicAnalyzerViewer, ViewerLaneBadge, WaveformPresentationRegistry, viewer_lane_renderer,
 };
 use node_graph::{NodeGraphWidget, NodeId, SocketDirection, SocketId};
 use signal_processing::{
-    CollectedLaneQuery, CollectedLaneSnapshotRequest, CollectedWordLaneQuery, DerivedLanes,
-    OpaqueCollectedLane, OpaqueCollectedLaneSnapshot, Pipeline, TriggerLaneSnapshot, WorkExecutor,
-    WorkExecutorTask, WorkTask,
+    AppManager, AppManagerBackend, AppManagerFactory, ArtifactKey, ArtifactMetadata,
+    ArtifactNamespace, ArtifactRepository, CollectedLaneQuery, CollectedLaneSnapshotRequest,
+    CollectedWordLaneQuery, ConfigurationBoundary, DerivedLanes, DisconnectEvent, InputSub,
+    NodeConfig, NodeSpec, OpaqueCollectedLane, OpaqueCollectedLaneSnapshot, Pipeline,
+    PipelineManager, ProcessNode, ReadArtifact, RepositoryCapabilities, RepositoryError,
+    TriggerLaneSnapshot, WorkExecutor, WorkExecutorTask, WorkTask, WriteArtifact,
 };
 
 use integration_tests_support as nodes;
@@ -49,6 +60,144 @@ const STARTUP_OUTPUTS: [(&str, &str); 7] = [
 const VALIDATION_OUTPUTS: [(&str, &str); 1] = [("SPI Decoder", "MOSI Bits")];
 
 struct BenchmarkOutputStorage;
+
+struct BenchmarkArtifactRepository {
+    waveform_indexes: Arc<dyn ArtifactRepository>,
+    transient: signal_processing::MemoryArtifactRepository,
+}
+
+impl BenchmarkArtifactRepository {
+    fn new(waveform_indexes: Arc<dyn ArtifactRepository>) -> Self {
+        Self {
+            waveform_indexes,
+            transient: signal_processing::MemoryArtifactRepository::new(),
+        }
+    }
+
+    fn can_read_persistent(namespace: &ArtifactNamespace) -> bool {
+        matches!(
+            namespace.as_str(),
+            "waveform-index-root-v1"
+                | "waveform-index-leaf-v1"
+                | "capture-raw-block-v1"
+                | "growing-waveform-page-v1"
+        )
+    }
+}
+
+impl ArtifactRepository for BenchmarkArtifactRepository {
+    fn capabilities(&self) -> RepositoryCapabilities {
+        self.transient.capabilities()
+    }
+
+    fn namespaces(&self) -> Result<Vec<ArtifactNamespace>, RepositoryError> {
+        let mut namespaces = self.transient.namespaces()?;
+        namespaces.extend(
+            self.waveform_indexes
+                .namespaces()?
+                .into_iter()
+                .filter(Self::can_read_persistent),
+        );
+        namespaces.sort();
+        namespaces.dedup();
+        Ok(namespaces)
+    }
+
+    fn open(&self, key: &ArtifactKey) -> Result<Option<Box<dyn ReadArtifact>>, RepositoryError> {
+        if let Some(artifact) = self.transient.open(key)? {
+            return Ok(Some(artifact));
+        }
+        if Self::can_read_persistent(key.namespace()) {
+            return self.waveform_indexes.open(key);
+        }
+        Ok(None)
+    }
+
+    fn begin_write(&self, key: ArtifactKey) -> Result<Box<dyn WriteArtifact>, RepositoryError> {
+        self.transient.begin_write(key)
+    }
+
+    fn remove(&self, key: &ArtifactKey) -> Result<(), RepositoryError> {
+        self.transient.remove(key)
+    }
+
+    fn entries(
+        &self,
+        namespace: &ArtifactNamespace,
+    ) -> Result<Vec<ArtifactMetadata>, RepositoryError> {
+        let mut entries = self.transient.entries(namespace)?;
+        if Self::can_read_persistent(namespace) {
+            entries.extend(self.waveform_indexes.entries(namespace)?);
+            entries.sort_by(|left, right| left.key.cmp(&right.key));
+            entries.dedup_by(|left, right| left.key == right.key);
+        }
+        Ok(entries)
+    }
+}
+
+struct BenchmarkDslFileSourceFactory;
+
+struct BenchmarkDslFileSourceMetadata {
+    config: DslFileSourceConfig,
+}
+
+impl CaptureSourceMetadata for BenchmarkDslFileSourceMetadata {
+    fn lifecycle(&self) -> CaptureSourceLifecycle {
+        CaptureSourceLifecycle::new(CaptureSourceKind::File, true, true, true)
+    }
+
+    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+        DslFileSource::indexed_capture_presentation_from_path(self.config.path())
+            .map(CaptureSourcePresentation::Indexed)
+            .map(Some)
+            .map_err(|error| error.to_string())
+    }
+
+    fn cache_identity(&self) -> CaptureSourceCacheIdentity {
+        DslFileSource::capture_cache_identity(self.config.path())
+            .map(CaptureSourceCacheIdentity::Stable)
+            .unwrap_or(CaptureSourceCacheIdentity::Dynamic)
+    }
+
+    fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+        DslFileSource::new(self.config.path())
+            .map(|source| Some(source.header().probe_names.clone()))
+            .map_err(|error| error.to_string())
+    }
+}
+
+impl DslFileSourceFactory for BenchmarkDslFileSourceFactory {
+    fn lifecycle(&self) -> CaptureSourceLifecycle {
+        CaptureSourceLifecycle::new(CaptureSourceKind::File, true, true, true)
+    }
+
+    fn metadata(&self, config: DslFileSourceConfig) -> Arc<dyn CaptureSourceMetadata> {
+        Arc::new(BenchmarkDslFileSourceMetadata { config })
+    }
+
+    fn create(
+        &self,
+        name: &str,
+        config: DslFileSourceConfig,
+        artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
+        work_executor: Arc<dyn WorkExecutor>,
+    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+        let metadata = self.metadata(config.clone());
+        DslFileSource::new(config.path())
+            .map(|source| {
+                ProcessNodeConstruction::new(
+                    Box::new(
+                        source
+                            .with_name(name)
+                            .with_artifact_repository(artifact_repository)
+                            .with_work_executor(work_executor),
+                    ) as Box<dyn ProcessNode>,
+                    metadata,
+                )
+            })
+            .map_err(|error| error.to_string())
+    }
+}
 
 impl OutputStorage for BenchmarkOutputStorage {
     fn create_parent_dirs(&self, path: &Path) -> std::io::Result<()> {
@@ -128,6 +277,86 @@ impl WorkExecutor for BenchmarkWorkExecutor {
 
 struct BenchmarkWorkTask {
     handle: Option<JoinHandle<()>>,
+}
+
+struct BenchmarkAppManagerFactory {
+    work_executor: Arc<dyn WorkExecutor>,
+}
+
+impl AppManagerFactory for BenchmarkAppManagerFactory {
+    fn create(&self) -> AppManager {
+        AppManager::with_backend(Box::new(BenchmarkAppManagerBackend {
+            manager: PipelineManager::new(Arc::clone(&self.work_executor)),
+        }))
+    }
+}
+
+struct BenchmarkAppManagerBackend {
+    manager: PipelineManager,
+}
+
+impl AppManagerBackend for BenchmarkAppManagerBackend {
+    fn is_finished(&self) -> bool {
+        self.manager.is_finished()
+    }
+
+    fn add_node(&mut self, spec: NodeSpec) -> Result<(), String> {
+        self.manager.add_node(spec)
+    }
+
+    fn add_node_deferred(&mut self, spec: NodeSpec) -> Result<(), String> {
+        self.manager.add_node_deferred(spec)
+    }
+
+    fn start_all_deferred(&mut self) -> Result<(), String> {
+        self.manager.start_all_deferred()
+    }
+
+    fn remove_node(&mut self, name: &str) -> Result<(), String> {
+        self.manager.remove_node(name)
+    }
+
+    fn reconfigure(&mut self, name: &str, config: NodeConfig) -> Result<(), String> {
+        self.manager.reconfigure(name, config)
+    }
+
+    fn reconfigure_at(
+        &mut self,
+        name: &str,
+        config: NodeConfig,
+        boundary: ConfigurationBoundary,
+    ) -> Result<(), String> {
+        self.manager.reconfigure_at(name, config, boundary)
+    }
+
+    fn restart_node(
+        &mut self,
+        name: &str,
+        node: Box<dyn ProcessNode>,
+        inputs: Vec<Option<InputSub>>,
+    ) -> Result<(), String> {
+        self.manager.restart_node(name, node, inputs)
+    }
+
+    fn progress(&self) -> Vec<(String, u64)> {
+        self.manager.progress()
+    }
+
+    fn take_disconnected(&self) -> Vec<DisconnectEvent> {
+        self.manager.take_disconnected()
+    }
+
+    fn request_stop(&mut self) {
+        self.manager.request_stop();
+    }
+
+    fn wait(&mut self) {
+        self.manager.wait();
+    }
+
+    fn pump(&mut self, budget: usize) {
+        self.manager.pump(budget);
+    }
 }
 
 impl WorkTask for BenchmarkWorkTask {
@@ -237,6 +466,35 @@ fn output_subscriptions(
 
 fn configured_compiler(widget: &NodeGraphWidget) -> GraphCompiler {
     let mut compiler = GraphCompiler::new();
+    compiler.set_output_subscriptions(startup_output_subscriptions(widget));
+    compiler
+}
+
+fn configured_platform_compiler(
+    widget: &NodeGraphWidget,
+    services: &logic_analyzer_platform::PlatformServices,
+) -> GraphCompiler {
+    let repository: Arc<dyn ArtifactRepository> = Arc::new(BenchmarkArtifactRepository::new(
+        services.artifact_repository(),
+    ));
+    let mut compiler = GraphCompiler::with_execution_and_builder_overrides(
+        Box::new(InlineSourcePreparationExecutor),
+        Arc::new(BenchmarkAppManagerFactory {
+            work_executor: runtime_executor(),
+        }),
+        services.work_executor(),
+        vec![
+            logic_analyzer_graph_nodes::binary_file_writer_runtime_builder_override(
+                logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
+                    Arc::new(BenchmarkOutputStorage),
+                ),
+            ),
+            logic_analyzer_graph_nodes::dsl_file_source_runtime_builder_override(Arc::new(
+                BenchmarkDslFileSourceFactory,
+            )),
+        ],
+    );
+    compiler.set_artifact_repository(repository);
     compiler.set_output_subscriptions(startup_output_subscriptions(widget));
     compiler
 }
@@ -1165,8 +1423,10 @@ fn compiler_runtime_benchmark(capture: &Path) {
     let output = workspace.path().join("compiled");
     std::fs::create_dir_all(&output).unwrap();
     let widget = configured_widget(capture, &output);
-    let compiler = configured_compiler(&widget);
+    let services = logic_analyzer_platform::standard_services();
+    let compiler = configured_platform_compiler(&widget, &services);
     let mut context = compile_context(workspace.path());
+    let usage_before = resource_usage();
     let started = Instant::now();
     let mut run = compiler
         .start_app_run(widget.graph(), &mut context)
@@ -1174,9 +1434,19 @@ fn compiler_runtime_benchmark(capture: &Path) {
     let sampling_overlays = context.take_sampling_overlays();
     run.wait();
     let execution_elapsed = started.elapsed();
+    let usage_after = resource_usage();
+    let execution_cpu_seconds = usage_before
+        .zip(usage_after)
+        .map(|(before, after)| {
+            (after.user_seconds - before.user_seconds).max(0.0)
+                + (after.system_seconds - before.system_seconds).max(0.0)
+        })
+        .unwrap_or_default();
     eprintln!(
-        "compiled graph execution: elapsed={:.3}s",
-        execution_elapsed.as_secs_f64()
+        "compiled graph execution: elapsed={:.3}s cpu={:.3}s average_cores={:.2}",
+        execution_elapsed.as_secs_f64(),
+        execution_cpu_seconds,
+        execution_cpu_seconds / execution_elapsed.as_secs_f64()
     );
     let files = binary_files(&output);
     let sampling_points = sampling_overlays
@@ -1185,13 +1455,13 @@ fn compiler_runtime_benchmark(capture: &Path) {
         .expect("configured SPI sampling overlay should be available")
         .overlay()
         .points
-        .points_in_range(0, u64::MAX)
+        .points_in_range(0, 1_000_000_000)
         .len();
     let parallel_sampling = sampling_overlays
         .iter()
         .find(|candidate| candidate.node_title() == "Parallel Decoder")
         .expect("parallel sampling overlay should be available");
-    let parallel_sampling_is_lazy = parallel_sampling.overlay().points.has_provider();
+    let parallel_sampling_uses_retained_lane = parallel_sampling.overlay().points.has_provider();
     let first_parallel_time = run
         .derived_lanes()
         .opaque_lanes()
@@ -1212,7 +1482,7 @@ fn compiler_runtime_benchmark(capture: &Path) {
         .points_in_range(visible_start, visible_end)
         .len();
     eprintln!(
-        "compiled graph: elapsed={:.3}s overlay_queries={:.3}s files={} sampling_points={sampling_points} parallel_lazy={parallel_sampling_is_lazy} parallel_visible_points={visible_parallel_points}",
+        "compiled graph: elapsed={:.3}s overlay_queries={:.3}s files={} sampling_points={sampling_points} parallel_retained_lane={parallel_sampling_uses_retained_lane} parallel_visible_points={visible_parallel_points}",
         started.elapsed().as_secs_f64(),
         started
             .elapsed()
@@ -1222,7 +1492,7 @@ fn compiler_runtime_benchmark(capture: &Path) {
     );
     assert!(!files.is_empty());
     assert!(sampling_points > 0);
-    assert!(parallel_sampling_is_lazy);
+    assert!(parallel_sampling_uses_retained_lane);
     assert!(parallel_sampling_is_dense);
     assert!(visible_parallel_points > 0);
 }
@@ -1609,6 +1879,10 @@ fn print_usage() {
 }
 
 fn main() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_target(true)
+        .try_init();
     let arguments = std::env::args_os()
         .skip(1)
         .filter(|argument| argument != "--bench")

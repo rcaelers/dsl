@@ -195,7 +195,9 @@ pub(crate) fn assign_sampling_point_caches(compiled: &mut CompiledGraph) {
         .map(|candidate| {
             (
                 candidate.node_id(),
-                persistent_sampling_point_key(compiled, candidate.node_id()),
+                (!candidate.uses_retained_word_lane())
+                    .then(|| persistent_sampling_point_key(compiled, candidate.node_id()))
+                    .flatten(),
             )
         })
         .collect::<Vec<_>>();
@@ -451,10 +453,14 @@ pub(crate) fn cache_configs_by_node(
 pub(crate) fn prepare_sampling_point_stores(
     compiled: &mut CompiledGraph,
     execution: &CompiledGraph,
+    lanes: &signal_processing::DerivedLanes,
     repository: &Arc<dyn ArtifactRepository>,
     work_executor: &Arc<dyn WorkExecutor>,
 ) {
     for candidate in &mut compiled.sampling_overlays {
+        if candidate.install_retained_word_provider(lanes.clone()) {
+            continue;
+        }
         let Some(cache_key) = candidate.cache_key() else {
             continue;
         };
@@ -483,10 +489,15 @@ pub(crate) fn prepare_sampling_point_stores(
 
 pub(crate) fn open_sampling_point_stores(
     compiled: &mut CompiledGraph,
+    lanes: &signal_processing::DerivedLanes,
     repository: &Arc<dyn ArtifactRepository>,
 ) -> bool {
     let mut opened = false;
     for candidate in &mut compiled.sampling_overlays {
+        if candidate.install_retained_word_provider(lanes.clone()) {
+            opened = true;
+            continue;
+        }
         let Some(cache_key) = candidate.cache_key() else {
             continue;
         };

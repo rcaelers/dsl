@@ -117,12 +117,13 @@ edges, evaluating qualifiers, or looking up sampled values. Every lowered overla
 and its runtime node records accepted points independently of current UI visibility; a node may
 instead satisfy a transient store through its lazy indexed provider. For a stable capture identity,
 the compiler assigns a protocol-neutral persistent cache key to every sampling overlay. The store
-records accepted points
-in the same indexed artifact infrastructure as other derived data and reopens them for cached
-preview without materializing or executing the decoder. Dynamic live sources retain run-owned
-storage because they have no reusable capture identity. Hiding an overlay does not stop collection
-or delete decisions, so transient panel refreshes, hide/show operations, and application restarts
-are non-destructive.
+records accepted points in the same indexed artifact infrastructure as other derived data and
+reopens them for cached preview without materializing or executing the decoder. Processing nodes
+submit allocation-free packed records to a bounded writer; artifact encoding and repository I/O
+run independently of the decoder's ordered merge. Cooperative hosts use the same format through a
+direct writer. Dynamic live sources retain run-owned storage because they have no reusable capture
+identity. Hiding an overlay does not stop collection or delete decisions, so transient panel
+refreshes, hide/show operations, and application restarts are non-destructive.
 The UI persists an ordered set of independently selected overlay node identities. Loading the
 legacy single-node value migrates it to that set at the UI-owned document boundary and reports the
 migration to the user.

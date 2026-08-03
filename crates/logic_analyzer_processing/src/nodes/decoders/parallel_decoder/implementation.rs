@@ -14,8 +14,8 @@ use signal_processing::capture::CaptureTransition;
 #[cfg(test)]
 use signal_processing::{CompletedWorkTask, WorkTask};
 use signal_processing::{
-    EdgeQuery, InputPort, InputProtocolCandidate, OutputPort, ProcessNode, ProtocolKind, Receiver,
-    Sample, SampleBlock, SamplingPoint, SamplingPointStore, Word, WorkError, WorkExecutor,
+    EdgeQuery, InputPort, InputProtocolCandidate, OutputPort, PackedSamplingPoint, ProcessNode,
+    ProtocolKind, Receiver, Sample, SampleBlock, SamplingPointStore, Word, WorkError, WorkExecutor,
     WorkOutcome, WorkResult,
 };
 
@@ -920,7 +920,7 @@ fn merge_stream_fragment(
     endianness: Endianness,
     assembly: &mut AssemblyState,
     word_batch: &mut Option<Vec<Word>>,
-    sampling_points: Option<&mut Vec<SamplingPoint>>,
+    sampling_points: Option<&mut Vec<PackedSamplingPoint>>,
 ) -> WorkResult<u64> {
     let mut words_emitted = 0u64;
     let buffers = &fragment.buffers;
@@ -936,12 +936,11 @@ fn merge_stream_fragment(
             }
             let timestamp_ns = position.saturating_mul(fragment.timestamp_step);
             if let Some(points) = &mut sampling_points {
-                points.push(SamplingPoint::new(
+                points.push(PackedSamplingPoint::new(
                     timestamp_ns,
                     clock_high,
-                    (0..num_data_bits)
-                        .map(|bit| value & (1 << bit) != 0)
-                        .collect::<Vec<_>>(),
+                    value,
+                    num_data_bits,
                 ));
             }
 
@@ -1306,16 +1305,19 @@ impl ParallelDecoder {
             .filter(|store| !store.has_provider())
         {
             store
-                .record_batch(buffers.eligible_positions.iter().enumerate().map(
+                .record_packed_batch(buffers.eligible_positions.iter().enumerate().map(
                     |(trigger_index, &position)| {
-                        SamplingPoint::new(
+                        let values = buffers.data_values.iter().enumerate().fold(
+                            0_u64,
+                            |packed, (bit, values)| {
+                                packed | (u64::from(values[trigger_index]) << bit)
+                            },
+                        );
+                        PackedSamplingPoint::new(
                             position.saturating_mul(timestamp_step),
                             buffers.eligible_clock_values[trigger_index],
-                            buffers
-                                .data_values
-                                .iter()
-                                .map(|values| values[trigger_index])
-                                .collect::<Vec<_>>(),
+                            values,
+                            num_data_bits,
                         )
                     },
                 ))
@@ -1566,7 +1568,7 @@ impl ParallelDecoder {
             sampling_point_batch.as_mut(),
         )?;
         if let (Some(store), Some(points)) = (&self.sampling_points, sampling_point_batch) {
-            store.record_batch(points).map_err(|error| {
+            store.record_packed_batch(points).map_err(|error| {
                 WorkError::NodeError(format!(
                     "could not cache parallel-decoder sampling points: {error}"
                 ))
