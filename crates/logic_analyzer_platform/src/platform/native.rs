@@ -73,6 +73,7 @@ pub fn set_recent_files_listener(listener: impl Fn(&[PathBuf]) + Send + Sync + '
 }
 
 struct HostCommandBridge {
+    #[cfg(any(target_os = "macos", test))]
     sender: crossbeam_channel::Sender<HostCommand>,
     receiver: crossbeam_channel::Receiver<HostCommand>,
     repaint: std::sync::Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
@@ -82,9 +83,10 @@ static HOST_COMMAND_BRIDGE: std::sync::OnceLock<HostCommandBridge> = std::sync::
 
 fn host_command_bridge() -> &'static HostCommandBridge {
     HOST_COMMAND_BRIDGE.get_or_init(|| {
-        let (sender, receiver) = crossbeam_channel::unbounded();
+        let (_sender, receiver) = crossbeam_channel::unbounded();
         HostCommandBridge {
-            sender,
+            #[cfg(any(target_os = "macos", test))]
+            sender: _sender,
             receiver,
             repaint: std::sync::Mutex::new(None),
         }
@@ -97,6 +99,7 @@ pub fn dispatch_host_command(command: HostCommand) {
     queue_host_command(command);
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn queue_host_command(command: HostCommand) {
     let bridge = host_command_bridge();
     let _ = bridge.sender.send(command);
