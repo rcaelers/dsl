@@ -60,7 +60,7 @@ pub enum WorkerMessage {
     /// Requests cancellation of an outstanding operation.
     Cancel {
         /// Caller-assigned sequence of the operation to cancel.
-        sequence: u64
+        sequence: u64,
     },
     /// Reports monotonic operation progress when its total is known.
     Progress {
@@ -76,14 +76,14 @@ pub enum WorkerMessage {
         /// Caller-assigned sequence of the completed operation.
         sequence: u64,
         /// Owned result bytes interpreted by the operation owner.
-        payload: Vec<u8>
+        payload: Vec<u8>,
     },
     /// Reports an operation failure without leaking host-specific error types.
     Failed {
         /// Caller-assigned sequence of the failed operation.
         sequence: u64,
         /// User-presentable failure explanation.
-        message: String
+        message: String,
     },
 }
 

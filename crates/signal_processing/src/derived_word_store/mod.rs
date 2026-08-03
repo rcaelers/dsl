@@ -84,6 +84,8 @@
 //! The encoded storage input is the runtime `Word` type:
 //!
 //! ```rust
+//! use std::sync::Arc;
+//!
 //! pub struct Word {
 //!     pub value: u64,
 //!     pub payload: Option<WordPayload>,
@@ -113,6 +115,10 @@
 //! The public query surface is viewer-oriented and independent of the storage format:
 //!
 //! ```rust
+//! use signal_processing::derived_word_store::{
+//!     AnnotationQueryResult, AnnotationStoreMetadata, ExactAnnotationWindow, WordPresenceBucket,
+//! };
+//!
 //! pub trait AnnotationQuery: Send + Sync {
 //!     fn metadata(&self) -> AnnotationStoreMetadata;
 //!

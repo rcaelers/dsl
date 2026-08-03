@@ -68,7 +68,7 @@ pub enum SourceReadError {
         /// Starting byte offset.
         offset: u64,
         /// Requested byte count.
-        length: u64
+        length: u64,
     },
     #[error("byte range {offset}..{end} exceeds source length {source_length}")]
     /// Requested range extends beyond the source length.

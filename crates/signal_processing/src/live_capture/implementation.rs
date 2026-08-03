@@ -768,10 +768,7 @@ pub enum CaptureBufferPoolError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CaptureChunkPayload {
     /// Channel bits follow the chunk's channel table, least-significant bit first in each byte.
-    PackedLsbFirst {
-        bytes: CaptureBytes,
-        bit_offset: u8
-    },
+    PackedLsbFirst { bytes: CaptureBytes, bit_offset: u8 },
 }
 
 /// Immutable canonical raw data shared by acquisition, storage, and caught-up consumers.
@@ -1041,10 +1038,7 @@ pub enum CaptureWriteError {
     #[error("capture chunk queue is closed")]
     Closed,
     #[error("capture chunk contains {actual} bytes, exceeding the configured maximum of {limit}")]
-    ChunkTooLarge {
-        actual: usize,
-        limit: usize
-    },
+    ChunkTooLarge { actual: usize, limit: usize },
     #[error("capture writer rejected the chunk: {0}")]
     Rejected(String),
 }

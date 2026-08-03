@@ -41,10 +41,7 @@ pub struct WordPresenceBucket {
 #[derive(Debug, thiserror::Error)]
 pub enum AnnotationQueryError {
     #[error("invalid annotation query window: start {start_ns} ns is after end {end_ns} ns")]
-    InvalidWindow {
-        start_ns: u64,
-        end_ns: u64
-    },
+    InvalidWindow { start_ns: u64, end_ns: u64 },
 
     #[error("annotation query word limit must be greater than zero")]
     ZeroWordLimit,
@@ -322,14 +319,12 @@ mod query_tests {
                     end_ns: 120,
                     value: 0x11,
                     payload: None,
-
                 },
                 Annotation {
                     start_ns: 200,
                     end_ns: 220,
                     value: 0x22,
                     payload: None,
-
                 },
             ]
         );
@@ -351,7 +346,6 @@ mod query_tests {
                 word_count: 1,
                 value_bytes: 1,
                 flags: 0,
-
             },
             BlockDirectoryEntry {
                 sequence: 1,
@@ -362,7 +356,6 @@ mod query_tests {
                 word_count: 1,
                 value_bytes: 1,
                 flags: 0,
-
             },
         ];
         let mut presence = WordPresenceIndex::new();

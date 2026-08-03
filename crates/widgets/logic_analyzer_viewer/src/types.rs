@@ -176,17 +176,9 @@ pub(crate) struct WaveformSegment {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum WaveformSegmentKind {
-    Level {
-        value: bool
-    },
-    Edge {
-        before: bool,
-        after: bool
-    },
-    Activity {
-        first: bool,
-        last: bool
-    },
+    Level { value: bool },
+    Edge { before: bool, after: bool },
+    Activity { first: bool, last: bool },
 }
 
 #[derive(Debug, Clone, Copy)]

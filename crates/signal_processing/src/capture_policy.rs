@@ -813,10 +813,7 @@ pub enum CapturePolicyError {
     #[error("unsupported capture policy: {0}")]
     Unsupported(String),
     #[error("cannot reclaim to sample {requested}; the safe boundary is {safe}")]
-    UnsafeReclamation {
-        requested: u64,
-        safe: u64
-    },
+    UnsafeReclamation { requested: u64, safe: u64 },
 }
 
 fn duration_to_samples(duration: Duration, sample_rate_hz: u64) -> Result<u64, CapturePolicyError> {
@@ -907,7 +904,6 @@ mod tests {
                     sample_rate_hz: 1_000,
                     capture_window_samples: Some(1_000),
                     has_trigger_program: true,
-
                 },
             )
             .unwrap();
@@ -954,7 +950,6 @@ mod tests {
                         sample_rate_hz: 50_000_000,
                         capture_window_samples: Some(channel_count + 1),
                         has_trigger_program: false,
-
                     },
                 )
                 .unwrap(),

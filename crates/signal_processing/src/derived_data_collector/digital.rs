@@ -18,10 +18,7 @@ use crate::sample::Sample;
 #[derive(Clone, Debug)]
 pub enum DigitalLaneSnapshot {
     /// Exact level transitions in the requested visible window.
-    Exact {
-        samples: Vec<Sample>,
-        initial: bool
-    },
+    Exact { samples: Vec<Sample>, initial: bool },
     /// Bounded summary records for a dense visible window.
     Activity {
         records: Vec<MipmapRecord>,

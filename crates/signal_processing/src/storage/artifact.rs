@@ -103,7 +103,7 @@ pub enum RepositoryError {
         /// Starting byte offset.
         offset: u64,
         /// Requested byte count.
-        length: u64
+        length: u64,
     },
     #[error("artifact range {offset}..{end} exceeds artifact length {artifact_length}")]
     /// A requested range extends past the published artifact length.

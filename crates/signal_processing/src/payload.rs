@@ -364,21 +364,13 @@ pub enum PayloadRegistrationError {
         requested_stable_id: String,
     },
     #[error("payload identifier '{stable_id}' is already registered for another type")]
-    StableIdAlreadyRegistered {
-        stable_id: String
-    },
+    StableIdAlreadyRegistered { stable_id: String },
     #[error("payload '{stable_id}' already has an ingestion adapter")]
-    AdapterAlreadyRegistered {
-        stable_id: String
-    },
+    AdapterAlreadyRegistered { stable_id: String },
     #[error("payload type '{type_name}' has no payload identity")]
-    PayloadNotRegistered {
-        type_name: String
-    },
+    PayloadNotRegistered { type_name: String },
     #[error("payload '{stable_id}' has no ingestion adapter")]
-    PayloadHasNoAdapter {
-        stable_id: String
-    },
+    PayloadHasNoAdapter { stable_id: String },
 }
 
 /// Bidirectional identity registry for payload types.

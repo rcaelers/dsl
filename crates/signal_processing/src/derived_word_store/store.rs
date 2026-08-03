@@ -52,10 +52,7 @@ pub enum StoreError {
     NotLive(StoreStatus),
 
     #[error("committed word block {index} is out of bounds (block count {block_count})")]
-    BlockOutOfBounds {
-        index: usize,
-        block_count: usize
-    },
+    BlockOutOfBounds { index: usize, block_count: usize },
 
     #[error("committed word-block directory does not match encoded block {0}")]
     DirectoryMismatch(u64),
@@ -600,10 +597,7 @@ fn annotation_presence_buckets(
 
 enum QueryBlockWords {
     Cached(Arc<DecodedWordBlock>),
-    Partial {
-        words: Vec<Word>,
-        complete: bool
-    },
+    Partial { words: Vec<Word>, complete: bool },
 }
 
 fn merge_hot_tail_presence(buckets: &mut [WordPresenceBucket], words: &[Word]) {

@@ -378,39 +378,18 @@ mod sampling_provider_tests {
         assert_eq!(
             intersect_ranges(
                 &[
-                    SampleRange {
-                        start: 1,
-                        end: 5
-                    },
-                    SampleRange {
-                        start: 8,
-                        end: 12
-                    },
+                    SampleRange { start: 1, end: 5 },
+                    SampleRange { start: 8, end: 12 },
                 ],
                 &[
-                    SampleRange {
-                        start: 3,
-                        end: 9
-                    },
-                    SampleRange {
-                        start: 10,
-                        end: 11
-                    },
+                    SampleRange { start: 3, end: 9 },
+                    SampleRange { start: 10, end: 11 },
                 ],
             ),
             [
-                SampleRange {
-                    start: 3,
-                    end: 5
-                },
-                SampleRange {
-                    start: 8,
-                    end: 9
-                },
-                SampleRange {
-                    start: 10,
-                    end: 11
-                },
+                SampleRange { start: 3, end: 5 },
+                SampleRange { start: 8, end: 9 },
+                SampleRange { start: 10, end: 11 },
             ]
         );
     }

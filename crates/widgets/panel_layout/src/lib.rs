@@ -1529,7 +1529,6 @@ impl PanelLayout {
                         ne: 0,
                         sw: self.style.corner_radius,
                         se: self.style.corner_radius,
-
                     },
                 ),
                 TitleBarPosition::Bottom => (
@@ -1545,7 +1544,6 @@ impl PanelLayout {
                         ne: self.style.corner_radius,
                         sw: 0,
                         se: 0,
-
                     },
                 ),
             };
@@ -1611,7 +1609,6 @@ impl PanelLayout {
                         id: new_panel_id,
                         content,
                         title_bar_position: TitleBarPosition::Top,
-
                     },
                 );
             }
@@ -1744,12 +1741,8 @@ struct BoundaryContext {
 
 #[derive(Debug, Clone, Copy)]
 enum SplitPlacement {
-    Panel {
-        axis: SplitAxis
-    },
-    Layout {
-        side: LayoutSide
-    },
+    Panel { axis: SplitAxis },
+    Layout { side: LayoutSide },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2045,52 +2038,42 @@ enum LayoutAction {
     SetFraction {
         split_id: u64,
         fraction: f32,
-
     },
     Join {
         split_id: u64,
         keep: SplitSide,
-
     },
     SwapContent {
         first_panel_id: String,
         second_panel_id: String,
-
     },
     BreakSplit {
         split_id: u64,
         band: SplitSide,
         crossing_fraction: f32,
-
     },
     Split {
         panel_id: String,
         axis: SplitAxis,
         fraction: f32,
-
     },
     SplitLayout {
         side: LayoutSide,
         fraction: f32,
-
     },
     BeginSplit {
         axis: SplitAxis,
-
     },
     BeginLayoutSplit {
         side: LayoutSide,
-
     },
     ChangeContent {
         panel_id: String,
         content_id: String,
-
     },
     Panel {
         panel_id: String,
         action: PanelAction,
-
     },
 }
 

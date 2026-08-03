@@ -4,9 +4,7 @@ pub enum CsvValueFormat {
     #[default]
     Decimal,
     /// Uppercase hex, zero-padded to `width` digits.
-    Hex {
-        width: usize
-    },
+    Hex { width: usize },
 }
 
 /// Platform-neutral CSV-writer configuration.

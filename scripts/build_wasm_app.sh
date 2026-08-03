@@ -14,11 +14,6 @@ command -v node >/dev/null 2>&1 || {
   echo "node is required to validate the Web Worker bootstrap"
   exit 1
 }
-command -v rg >/dev/null 2>&1 || {
-  echo "rg is required to validate the generated worker entry point"
-  exit 1
-}
-
 node --check "${ROOT_DIR}/crates/logic_analyzer_platform/src/platform/web_worker_bootstrap.js"
 node --check "${ROOT_DIR}/crates/logic_analyzer_platform/src/platform/opfs_worker_bootstrap.js"
 
@@ -52,9 +47,9 @@ wasm-bindgen \
 
 node --check "${OUT_DIR}/main.js"
 node --check "${OUT_DIR}/pkg/logic_conduit.js"
-rg --quiet "export function executePortableWorkerOperation" \
+grep --fixed-strings --quiet "export function executePortableWorkerOperation" \
   "${OUT_DIR}/pkg/logic_conduit.js"
-rg --quiet "export function initializeWorkerHost" \
+grep --fixed-strings --quiet "export function initializeWorkerHost" \
   "${OUT_DIR}/pkg/logic_conduit.js"
 
 echo "WASM app written to ${OUT_DIR}"

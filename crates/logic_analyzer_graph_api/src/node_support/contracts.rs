@@ -53,7 +53,7 @@ pub enum ViewerOutputPanelAction {
         /// Stable output identifier.
         id: String,
         /// New selection state.
-        selected: bool
+        selected: bool,
     },
 }
 
@@ -121,7 +121,7 @@ pub enum TimelineMarkerReference {
     /// A numbered cursor provided by the host timeline UI.
     Cursor {
         /// One-based cursor number in the host's timeline UI.
-        number: u32
+        number: u32,
     },
 }
 
@@ -501,7 +501,7 @@ pub enum TimelineMarkerEdit {
         /// Stable marker identifier.
         id: String,
         /// New marker position in nanoseconds.
-        timestamp_ns: u64
+        timestamp_ns: u64,
     },
 }
 

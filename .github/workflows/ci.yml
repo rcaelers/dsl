@@ -108,8 +108,8 @@ jobs:
           cargo check -p logic-analyzer-examples --bench compiler_capture
       - name: Check manual validation commands
         run: |
-          cargo check -p logic-analyzer-processing --features developer-tools --bin u3pro16-hardware-validation
-          cargo check -p logic-analyzer-processing --features developer-tools --bin sigrok-upstream-validation
+          cargo check -p logic-analyzer-platform --features developer-tools --bin u3pro16-hardware-validation
+          cargo check -p logic-analyzer-platform --features developer-tools --bin sigrok-upstream-validation
 
   check-wasm:
     needs: architecture

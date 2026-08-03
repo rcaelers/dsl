@@ -32,10 +32,7 @@ pub enum CodecError {
     InvalidFormat(String),
 
     #[error("derived-word block checksum mismatch: expected {expected:#010x}, got {actual:#010x}")]
-    ChecksumMismatch {
-        expected: u32,
-        actual: u32
-    },
+    ChecksumMismatch { expected: u32, actual: u32 },
 }
 
 pub type CodecResult<T> = std::result::Result<T, CodecError>;

@@ -80,7 +80,7 @@ pub enum ConnectionError {
         /// Name of the node on which lookup failed.
         node: String,
         /// Name of the missing port.
-        port: String
+        port: String,
     },
 
     /// The graph already contains the requested connection.
