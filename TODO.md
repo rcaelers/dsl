@@ -36,10 +36,33 @@ Task IDs start with their ownership category and remain stable when task wording
 - [capture.web.file-export] Let web users export captures and generated files through an explicit destination acquired
   by a user gesture. Keep downloads separate from internal cache publication and report unsupported or lost
   permissions without changing processing-node behavior.
-- [capture.web.usb] Investigate and, where the browser and device permit it, add U3Pro16 capture through WebUSB.
-  Preserve the existing device protocol and acquisition state machine behind an asynchronous USB transport; treat
-  browser support, secure-context requirements, permission, interface claiming, and disconnects as capabilities and
-  diagnostics rather than providing a synthetic live source.
+- [capture.web.usb-async-transport] Replace the U3Pro16 transport's blocking open, control-transfer, bulk-transfer,
+  timeout, and queued-read boundary with a portable asynchronous or explicitly pollable contract. Keep the device
+  protocol and acquisition state machine in `logic_analyzer_processing` and execute that identical implementation on
+  a native background executor or browser worker. Model cancellation without pretending that WebUSB can abort one
+  transfer independently; closing a web device may be required to abort its outstanding operations.
+- [capture.web.usb-access-preflight] Add a generic asynchronous capture-source access preflight started directly by a
+  user gesture. It lets the web host call `requestDevice()` without teaching the UI about USB or U3Pro16, and reports
+  unsupported browsers, insecure contexts, denied permission, and unavailable devices as source capabilities and
+  user-facing diagnostics.
+- [capture.web.usb-worker-session] Establish a worker-owned browser USB session after window permission is granted.
+  Resolve the permitted U3Pro16 by VID/PID, validate its runtime identity, select configuration 1, claim interface 0,
+  handle reconnect/disconnect, and conservatively select High-Speed acquisition limits unless the effective link
+  speed can be established from hardware-validated descriptors.
+- [capture.web.usb-fpga-image] Define and implement a lawful browser FPGA-image acquisition policy. The application
+  website does not bundle or redistribute `DSLogicU3Pro16.bin`, and users must not have to install DSView merely to
+  obtain it. Already-configured devices proceed without an upload. An unconfigured or incompatible device requires
+  an independently downloadable vendor-authorized image or an image explicitly selected by the user; if neither is
+  available, report that capture cannot configure the FPGA. Persist a user-supplied image only with explicit consent.
+- [capture.web.usb-adapter] Implement the WebUSB U3Pro16 transport and source-factory override in
+  `logic_analyzer_platform`. Translate WebUSB promises, endpoint numbers, control-request fields, transfer statuses,
+  short transfers, stalls, timeouts, cancellation, and disconnects into the portable transport contract. Preserve the
+  existing protocol and capture behavior; never substitute a synthetic live source.
+- [capture.web.usb-validation] Validate WebUSB with a real U3Pro16 in supported desktop Chromium: first permission,
+  permission propagation to the capture worker, interface contention, already-configured and image-required startup,
+  finite and streaming capture, trigger headers, sustained throughput, stop/abort, disconnect, reconnect, and browser
+  reload. Keep deterministic protocol tests based on a fake asynchronous transport in the processing crate, and keep
+  hardware/browser tests explicitly opt-in.
 
 ### Node graph editor
 
