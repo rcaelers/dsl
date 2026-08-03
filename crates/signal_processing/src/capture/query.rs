@@ -67,13 +67,30 @@ impl CaptureIndexProxy {
     }
 
     fn poll_query(&mut self, query: CaptureIndexQuery) -> Result<CaptureSampledWindowPoll> {
-        if self
-            .active
-            .as_ref()
-            .is_some_and(|active| active.query != query)
-            && let Some(active) = self.active.take()
+        if let Some(active) = self.active.as_ref()
+            && active.query != query
         {
-            self.executor.cancel(active.request_id);
+            match self.executor.poll(active.request_id) {
+                CaptureIndexQueryUpdate::Pending => {
+                    return Ok(CaptureSampledWindowPoll::Pending);
+                }
+                CaptureIndexQueryUpdate::Complete(Ok(_)) => {
+                    // The viewport moved while this bounded query was in
+                    // flight. Let it finish instead of repeatedly cancelling
+                    // worker work, then replace it with the latest request.
+                    self.active = None;
+                }
+                CaptureIndexQueryUpdate::Complete(Err(error)) => {
+                    self.active = None;
+                    return Err(Error::CaptureQuery(error));
+                }
+                CaptureIndexQueryUpdate::Disconnected => {
+                    self.active = None;
+                    return Err(Error::CaptureQuery(
+                        "capture-index query host disconnected".to_owned(),
+                    ));
+                }
+            }
         }
 
         if self.active.is_none() {
@@ -279,7 +296,7 @@ mod query_tests {
     }
 
     #[test]
-    fn proxy_cancels_a_stale_viewport_before_submitting_its_replacement() {
+    fn proxy_finishes_in_flight_work_and_coalesces_to_the_latest_viewport() {
         let executor = Arc::new(TestExecutor::default());
         let mut proxy = CaptureIndexProxy::new(
             "capture",
@@ -297,7 +314,20 @@ mod query_tests {
             CaptureSampledWindowPoll::Pending
         );
 
-        assert!(executor.was_cancelled(1));
+        assert!(!executor.was_cancelled(1));
+        assert_eq!(executor.request_ids(), [1]);
+
+        executor.complete(1, window(0, 20));
+        assert_eq!(
+            proxy.poll_sampled_window(&[1], 20, 40, 100).unwrap(),
+            CaptureSampledWindowPoll::Pending
+        );
         assert_eq!(executor.request_ids(), [1, 2]);
+
+        executor.complete(2, window(20, 40));
+        assert_eq!(
+            proxy.poll_sampled_window(&[1], 20, 40, 100).unwrap(),
+            CaptureSampledWindowPoll::Ready(window(20, 40))
+        );
     }
 }

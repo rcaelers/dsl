@@ -8,6 +8,8 @@ use crate::types::{
 };
 use crate::viewer::LogicAnalyzerViewer;
 
+const SAMPLE_QUERY_VIEWPORTS: usize = 3;
+
 impl LogicAnalyzerViewer {
     /// Polls the visible window from the index, keeping the current waveform
     /// while a host-backed query is pending. Skipped when neither the view nor
@@ -31,15 +33,16 @@ impl LogicAnalyzerViewer {
             .map(|span_us| us_to_sample(span_us, samplerate_hz))
             .unwrap_or(capture.header.total_samples)
             .max(capture.header.total_samples);
-        let (visible_start, visible_end) = sampled_visible_range(
+        let (query_start, query_end) = sampled_query_range(
             capture,
             self.visible_start_us,
             self.visible_span_us,
             sampling_extent,
         );
-        let target_points = layout.wave_rect.width().max(1.0).round() as usize;
+        let target_points = (layout.wave_rect.width().max(1.0).round() as usize)
+            .saturating_mul(SAMPLE_QUERY_VIEWPORTS);
 
-        let key = (visible_start, visible_end, target_points);
+        let key = (query_start, query_end, target_points);
         if self.sampled_key == Some(key) {
             return;
         }
@@ -50,8 +53,8 @@ impl LogicAnalyzerViewer {
 
         match sampler.poll_sampled_window(
             &requested_channels,
-            visible_start,
-            visible_end,
+            query_start,
+            query_end,
             target_points,
         ) {
             Ok(CaptureSampledWindowPoll::Ready(window)) => {
@@ -492,6 +495,24 @@ fn sampled_visible_range(
     )
 }
 
+/// Expands the viewport by one viewport on either side while preserving the
+/// same point density. Host-backed indexes can then keep drawing during a
+/// short pan or zoom while the next asynchronous window is in flight.
+fn sampled_query_range(
+    capture: &CaptureInfo,
+    start_us: f64,
+    span_us: f64,
+    sampling_extent: u64,
+) -> (u64, u64) {
+    let (visible_start, visible_end) =
+        sampled_visible_range(capture, start_us, span_us, sampling_extent);
+    let margin = visible_end.saturating_sub(visible_start).max(1);
+    (
+        visible_start.saturating_sub(margin),
+        visible_end.saturating_add(margin).min(sampling_extent),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use signal_processing::CaptureMetadata;
@@ -539,5 +560,20 @@ mod tests {
     fn sampled_visible_range_preserves_a_planned_future_extent() {
         let capture = capture(100);
         assert_eq!(sampled_visible_range(&capture, 0.0, 0.500, 1_000), (0, 501));
+    }
+
+    #[test]
+    fn sampled_query_range_keeps_a_viewport_margin_for_async_refresh() {
+        let capture = capture(1_000);
+        assert_eq!(sampled_query_range(&capture, 0.100, 0.100, 1_000), (0, 303));
+    }
+
+    #[test]
+    fn sampled_query_range_clamps_overscan_at_capture_edges() {
+        let capture = capture(1_000);
+        assert_eq!(
+            sampled_query_range(&capture, 0.850, 0.100, 1_000),
+            (747, 1_000)
+        );
     }
 }
