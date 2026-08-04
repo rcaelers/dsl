@@ -66,6 +66,11 @@ impl NativeArtifactRepository {
     }
 }
 
+#[cfg(feature = "developer-tools")]
+pub fn isolated_native_artifact_repository(root: PathBuf) -> Arc<dyn ArtifactRepository> {
+    Arc::new(NativeArtifactRepository::new(root))
+}
+
 impl ArtifactRepository for NativeArtifactRepository {
     fn capabilities(&self) -> RepositoryCapabilities {
         RepositoryCapabilities {

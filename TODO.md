@@ -104,7 +104,12 @@ Task IDs start with their ownership category and remain stable when task wording
      workers retain shared `BlockData` backing, each bounded worker owns one source reader, and the
      coordinator publishes completed leaves in per-channel order. Five post-change `scan.dsl` runs
      have a 0.76 s median, versus 1.66–1.69 s before the change, for an approximately 2.2× median
-     speedup with zero handoff-copy time.
+     speedup with zero handoff-copy time. Isolated native-durable profiles identify the next
+     bottleneck: publishing 605 leaf files takes about 3.4 s of a 3.44–4.04 s parallel build, and
+     publishing 1,309 leaf files takes about 7.56 s of a 7.59–8.49 s parallel build. Two and four
+     workers perform equivalently within about 1% on both captures, while 20 workers are 11–17%
+     slower and consume more CPU. Do not impose that native result as a generic executor cap;
+     remove the per-leaf publication overhead instead.
   3. [ ] Prototype a batched GPU implementation only for the regular packed digital waveform-summary
      kernel, retaining it only when it beats the optimized CPU baseline while producing bit-exact
      leaf artifacts with the same cancellation, bounded-memory, and progress behavior. The current
@@ -116,6 +121,16 @@ Task IDs start with their ownership category and remain stable when task wording
      dependencies to portable processing, viewer, compiler, or concrete-node crates. Keep
      decompression, source I/O, protocol decoding, and derived-data caching on their current CPU
      paths unless measurements identify a separate regular, transfer-efficient kernel.
+
+- [x] [capture.index.segmented-artifacts] Replace one-file-per-waveform-leaf publication with
+  bounded immutable segment artifacts and record each leaf's segment offset and length in the root.
+  The format groups 64 channel-major leaves per segment, retains a four-segment immutable-region
+  cache, publishes the root last, and rejects pre-segment format versions for automatic rebuild.
+  `scan.dsl` now publishes 10 segments instead of 605 leaves; durable publication falls from about
+  3.4 s to 0.10 s and the best sweep wall time falls from 3.44 s to 0.34 s. The 1,309-leaf capture
+  publishes 21 segments; publication falls from about 7.56 s to 0.18 s and best wall time falls from
+  7.59 s to 0.60 s. Both post-change sweeps peak at 12 workers and regress at 16–20, so finite index
+  builds cap their bounded worker pool at 12 to preserve host capacity and responsiveness.
 
 ### Derived-data storage
 

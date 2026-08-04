@@ -78,7 +78,7 @@ impl BenchmarkArtifactRepository {
         matches!(
             namespace.as_str(),
             "waveform-index-root-v1"
-                | "waveform-index-leaf-v1"
+                | "waveform-index-segment-v1"
                 | "capture-raw-block-v1"
                 | "growing-waveform-page-v1"
         )
@@ -267,6 +267,33 @@ impl WorkExecutor for BenchmarkWorkExecutor {
     fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
         let handle = std::thread::Builder::new()
             .name("compiler-capture-runtime".into())
+            .spawn(task)
+            .map_err(|error| error.to_string())?;
+        Ok(Box::new(BenchmarkWorkTask {
+            handle: Some(handle),
+        }))
+    }
+}
+
+struct ProfileWorkExecutor {
+    workers: usize,
+}
+
+impl ProfileWorkExecutor {
+    fn new(workers: usize) -> Self {
+        assert!(workers > 0);
+        Self { workers }
+    }
+}
+
+impl WorkExecutor for ProfileWorkExecutor {
+    fn available_parallelism(&self) -> usize {
+        self.workers
+    }
+
+    fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        let handle = std::thread::Builder::new()
+            .name("waveform-index-profile".into())
             .spawn(task)
             .map_err(|error| error.to_string())?;
         Ok(Box::new(BenchmarkWorkTask {
@@ -1419,24 +1446,48 @@ fn reference_pipeline_baseline(capture: &Path) {
 }
 
 fn waveform_index_profile(capture: &Path) {
+    let services = logic_analyzer_platform::standard_services();
+    print_waveform_index_profile(
+        capture,
+        Arc::new(signal_processing::MemoryArtifactRepository::new()),
+        services.work_executor(),
+        "memory",
+    );
+}
+
+fn persistent_waveform_index_profile(capture: &Path) {
+    let workspace = temporary_workspace();
+    let repository = logic_analyzer_platform::isolated_native_artifact_repository(
+        workspace.path().join("artifacts"),
+    );
+    let services = logic_analyzer_platform::standard_services();
+    print_waveform_index_profile(
+        capture,
+        repository,
+        services.work_executor(),
+        "native-durable",
+    );
+}
+
+fn print_waveform_index_profile(
+    capture: &Path,
+    repository: Arc<dyn ArtifactRepository>,
+    work_executor: Arc<dyn WorkExecutor>,
+    artifact_repository: &str,
+) {
     let presentation = DslFileSource::indexed_capture_presentation_from_path(capture)
         .expect("reference capture should provide an indexed presentation");
     let metadata = presentation
         .factory
         .metadata()
         .expect("reference capture metadata should be readable");
-    let services = logic_analyzer_platform::standard_services();
     let index = presentation
         .factory
-        .open(
-            Arc::new(signal_processing::MemoryArtifactRepository::new()),
-            services.work_executor(),
-            &mut |_| true,
-        )
+        .open(repository, work_executor, &mut |_| true)
         .expect("reference capture index should build");
     let profile = index
         .build_profile()
-        .expect("fresh in-memory repository must produce an index-build profile");
+        .expect("fresh repository must produce an index-build profile");
     let expected_blocks = u64::try_from(metadata.total_probes)
         .ok()
         .and_then(|channels| channels.checked_mul(metadata.total_blocks))
@@ -1446,7 +1497,7 @@ fn waveform_index_profile(capture: &Path) {
         "{}",
         serde_json::to_string_pretty(&serde_json::json!({
             "schema_version": 1,
-            "artifact_repository": "memory",
+            "artifact_repository": artifact_repository,
             "capture": {
                 "path": capture,
                 "channels": metadata.total_probes,
@@ -1457,6 +1508,66 @@ fn waveform_index_profile(capture: &Path) {
             "waveform_index_build": profile,
         }))
         .expect("waveform index profile should serialize")
+    );
+}
+
+fn waveform_index_concurrency_profile(capture: &Path) {
+    let logical_workers = std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(1)
+        .clamp(1, 32);
+    let mut worker_counts = vec![1, 2, 4, 8, 12];
+    worker_counts.retain(|workers| *workers <= logical_workers);
+    worker_counts.sort_unstable();
+    worker_counts.dedup();
+
+    let presentation = DslFileSource::indexed_capture_presentation_from_path(capture)
+        .expect("reference capture should provide an indexed presentation");
+    let metadata = presentation
+        .factory
+        .metadata()
+        .expect("reference capture metadata should be readable");
+    let mut results = Vec::with_capacity(worker_counts.len());
+    for workers in worker_counts {
+        let presentation = DslFileSource::indexed_capture_presentation_from_path(capture)
+            .expect("reference capture should provide an indexed presentation");
+        let workspace = temporary_workspace();
+        let repository = logic_analyzer_platform::isolated_native_artifact_repository(
+            workspace.path().join("artifacts"),
+        );
+        let index = presentation
+            .factory
+            .open(
+                repository,
+                Arc::new(ProfileWorkExecutor::new(workers)),
+                &mut |_| true,
+            )
+            .expect("reference capture index should build");
+        let profile = index
+            .build_profile()
+            .expect("fresh repository must produce an index-build profile");
+        eprintln!(
+            "waveform index workers={workers} wall_s={:.3}",
+            profile.wall_time_ns as f64 / 1_000_000_000.0
+        );
+        results.push(profile);
+    }
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "schema_version": 1,
+            "artifact_repository": "native-durable",
+            "logical_worker_limit": logical_workers,
+            "capture": {
+                "path": capture,
+                "channels": metadata.total_probes,
+                "total_blocks": metadata.total_blocks,
+                "samples_per_block": metadata.samples_per_block,
+                "total_samples": metadata.total_samples,
+            },
+            "waveform_index_builds": results,
+        }))
+        .expect("waveform index concurrency profile should serialize")
     );
 }
 
@@ -1910,6 +2021,10 @@ fn print_usage() {
          commands:\n\
            baseline               report timing, resources, storage, and output identity\n\
            waveform-index-profile profile cold waveform-index construction stages\n\
+           waveform-index-persistent-profile\n\
+                                  profile cold construction with native durable storage\n\
+           waveform-index-concurrency-profile\n\
+                                  sweep native durable builds across worker counts\n\
            compiler-runtime-memory time graph processing with derived artifacts in memory\n\
            protocol-selection     validate and compare indexed and packed parallel decoding\n\
            phase-one-runtime      time the phase-one reference pipeline\n\
@@ -2018,6 +2133,8 @@ fn main() {
     match command.to_string_lossy().as_ref() {
         "baseline" => reference_pipeline_baseline(&capture),
         "waveform-index-profile" => waveform_index_profile(&capture),
+        "waveform-index-persistent-profile" => persistent_waveform_index_profile(&capture),
+        "waveform-index-concurrency-profile" => waveform_index_concurrency_profile(&capture),
         "compiler-runtime-memory" => in_memory_compiler_runtime_benchmark(&capture),
         "protocol-selection" => protocol_selection_benchmark(&capture),
         "phase-one-runtime" => phase_one_reference_runtime_benchmark(&capture),

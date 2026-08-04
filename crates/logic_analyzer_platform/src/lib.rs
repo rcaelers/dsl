@@ -40,8 +40,8 @@ std::cfg_select! {
         pub use platform::{dispatch_host_command, set_recent_files_listener};
         #[cfg(feature = "developer-tools")]
         pub use platform::{
-            validate_capture_hardware, validate_fpga_hardware, validate_spi_chunk_boundaries,
-            validate_spi_oracle,
+            isolated_native_artifact_repository, validate_capture_hardware, validate_fpga_hardware,
+            validate_spi_chunk_boundaries, validate_spi_oracle,
         };
     }
 }

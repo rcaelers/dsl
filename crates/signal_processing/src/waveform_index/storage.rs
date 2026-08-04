@@ -1,12 +1,12 @@
 //! Repository-backed finite-capture waveform index.
 //!
-//! Each `(channel, block)` leaf is an immutable artifact containing its exact
-//! summary hierarchy. A compact root artifact contains the capture metadata
-//! and leaf directory and is published last, so readers observe either the
-//! previous complete generation or the new complete generation. Artifact
-//! readers retain either mmap-backed or owned-memory byte regions according
-//! to the injected repository; the index never requires one capture-sized
-//! allocation.
+//! Each bounded immutable segment contains the exact summary hierarchies for
+//! up to 64 `(channel, block)` leaves. A compact root artifact contains the
+//! capture metadata and segment directory and is published last, so readers
+//! observe either the previous complete generation or the new complete
+//! generation. Artifact readers retain either mmap-backed or owned-memory
+//! byte regions according to the injected repository; the index never
+//! requires one capture-sized allocation.
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
@@ -17,9 +17,15 @@ use super::types::{
 };
 use crate::capture::CaptureMetadata;
 use crate::{
-    ArtifactKey, ArtifactNamespace, ArtifactRepository, Error, RepositoryError, Result,
-    SourceIdentity,
+    ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion, Error,
+    ImmutableByteRegion, OwnedByteSource, RepositoryError, Result, SourceIdentity,
 };
+
+const ROOT_FORMAT_VERSION: u32 = 8;
+const LEAVES_PER_SEGMENT: u64 = 64;
+const SEGMENT_CACHE_CAPACITY: usize = 4;
+const ROOT_NAMESPACE: &str = "waveform-index-root-v1";
+const SEGMENT_NAMESPACE: &str = "waveform-index-segment-v1";
 
 // ---------------------------------------------------------------------------
 // IndexWriter — create and publish a new index generation
@@ -27,13 +33,17 @@ use crate::{
 
 /// Publishes a new index generation for one capture source.
 ///
-/// Leaf artifacts may complete in any order. [`IndexWriter::finish`] publishes
-/// the root artifact only after all leaves are available.
+/// Leaves arrive in channel-major order. Full bounded segments are published
+/// while the build proceeds, and [`IndexWriter::finish`] publishes the root
+/// artifact only after all leaves are available.
 pub(crate) struct IndexWriter {
     repository: Arc<dyn ArtifactRepository>,
     identity: SourceIdentity,
     directory: Vec<Vec<RootDirEntry>>,
     index_header: IndexHeader,
+    blocks_per_channel: usize,
+    next_ordinal: u64,
+    segment_bytes: Vec<u8>,
 }
 
 impl IndexWriter {
@@ -77,10 +87,13 @@ impl IndexWriter {
             identity,
             directory: vec![vec![RootDirEntry::default(); total_blocks]; channels],
             index_header,
+            blocks_per_channel: total_blocks,
+            next_ordinal: 0,
+            segment_bytes: Vec::new(),
         })
     }
 
-    /// Serialize `leaf` and append its chunk to the payload; record the directory entry.
+    /// Serializes one channel-major leaf into the current bounded segment.
     pub(crate) fn write_block(
         &mut self,
         channel: usize,
@@ -88,13 +101,24 @@ impl IndexWriter {
         leaf: &BlockIndex,
     ) -> Result<()> {
         let payload = serialize_leaf(leaf);
-        publish(
-            self.repository.as_ref(),
-            leaf_key(self.identity, channel, block)?,
-            &payload,
-        )?;
+        let ordinal = channel
+            .checked_mul(self.blocks_per_channel)
+            .and_then(|base| base.checked_add(block))
+            .and_then(|ordinal| u64::try_from(ordinal).ok())
+            .ok_or_else(|| Error::ParseError("waveform-index leaf ordinal overflow".into()))?;
+        if ordinal != self.next_ordinal {
+            return Err(Error::ParseError(
+                "waveform-index leaves must be written in channel-major order".into(),
+            ));
+        }
+        if ordinal > 0 && ordinal.is_multiple_of(LEAVES_PER_SEGMENT) {
+            self.publish_segment()?;
+        }
+        let offset = u64::try_from(self.segment_bytes.len())
+            .map_err(|_| Error::ParseError("waveform-index segment exceeds u64".into()))?;
+        self.segment_bytes.extend_from_slice(&payload);
         self.directory[channel][block] = RootDirEntry {
-            offset: 0,
+            offset,
             len: payload.len() as u64,
             toggle: leaf.levels.is_some(),
             first: leaf.first,
@@ -102,11 +126,22 @@ impl IndexWriter {
             l3_toggle: leaf.levels.as_ref().map_or(0, |l| l.l3_toggle),
             l3_last: leaf.levels.as_ref().map_or(0, |l| l.l3_last),
         };
+        self.next_ordinal = self.next_ordinal.saturating_add(1);
         Ok(())
     }
 
     /// Publishes the root and makes the completed generation discoverable.
-    pub(crate) fn finish(self) -> Result<()> {
+    pub(crate) fn finish(mut self) -> Result<()> {
+        let expected_leaves = self
+            .directory
+            .len()
+            .checked_mul(self.blocks_per_channel)
+            .and_then(|count| u64::try_from(count).ok())
+            .ok_or_else(|| Error::ParseError("waveform-index leaf count overflow".into()))?;
+        if self.next_ordinal != expected_leaves {
+            return Err(Error::ParseError("waveform index is incomplete".into()));
+        }
+        self.publish_segment()?;
         let root_capacity = usize::try_from(self.index_header.payload_offset).map_err(|_| {
             Error::ParseError("waveform-index root exceeds this address space".into())
         })?;
@@ -120,9 +155,22 @@ impl IndexWriter {
         publish(self.repository.as_ref(), root_key(self.identity)?, &bytes)
     }
 
+    fn publish_segment(&mut self) -> Result<()> {
+        if self.segment_bytes.is_empty() {
+            return Ok(());
+        }
+        let segment = (self.next_ordinal - 1) / LEAVES_PER_SEGMENT;
+        let bytes = std::mem::take(&mut self.segment_bytes);
+        publish(
+            self.repository.as_ref(),
+            segment_key(self.identity, segment)?,
+            &bytes,
+        )
+    }
+
     fn write_header(file: &mut impl Write, header: &IndexHeader) -> Result<()> {
         file.write_all(MAGIC)?;
-        write_u32(file, 7)?;
+        write_u32(file, ROOT_FORMAT_VERSION)?;
         write_u32(file, HEADER_SIZE as u32)?;
         write_u64(file, header.source_revision)?;
         write_u64(file, header.total_samples)?;
@@ -180,12 +228,48 @@ pub(crate) struct IndexReader {
     header: CaptureMetadata,
     directory: Vec<Vec<RootDirEntry>>,
     leaf_cache: Mutex<LeafCache>,
+    segment_cache: Mutex<SegmentCache>,
 }
 
 #[derive(Default)]
 struct LeafCache {
     entries: HashMap<(usize, usize), LeafView>,
     recency: VecDeque<(usize, usize)>,
+}
+
+#[derive(Default)]
+struct SegmentCache {
+    entries: HashMap<u64, ByteRegion>,
+    recency: VecDeque<u64>,
+}
+
+impl SegmentCache {
+    fn get(&mut self, segment: u64) -> Option<ByteRegion> {
+        let value = self.entries.get(&segment)?.clone();
+        self.touch(segment);
+        Some(value)
+    }
+
+    fn insert(&mut self, segment: u64, value: ByteRegion) {
+        self.entries.insert(segment, value);
+        self.touch(segment);
+        while self.entries.len() > SEGMENT_CACHE_CAPACITY {
+            if let Some(oldest) = self.recency.pop_front() {
+                self.entries.remove(&oldest);
+            }
+        }
+    }
+
+    fn touch(&mut self, segment: u64) {
+        if let Some(index) = self
+            .recency
+            .iter()
+            .position(|candidate| *candidate == segment)
+        {
+            self.recency.remove(index);
+        }
+        self.recency.push_back(segment);
+    }
 }
 
 impl LeafCache {
@@ -257,6 +341,7 @@ impl IndexReader {
             header,
             directory,
             leaf_cache: Mutex::new(LeafCache::default()),
+            segment_cache: Mutex::new(SegmentCache::default()),
         })
     }
 
@@ -285,15 +370,25 @@ impl IndexReader {
             .and_then(|blocks| blocks.get(block))
             .copied()
             .ok_or_else(|| Error::ParseError("block index out of bounds".to_string()))?;
-        let data = read(
-            self.repository.as_ref(),
-            &leaf_key(self.identity, channel, block)?,
-        )?
-        .ok_or_else(|| Error::ParseError("waveform index leaf is missing".into()))?;
-        if data.len() as u64 != entry.len {
-            return Err(Error::ParseError("waveform index leaf is truncated".into()));
-        }
-        let leaf = leaf_view(&data)?;
+        let ordinal = channel
+            .checked_mul(self.directory.first().map_or(0, Vec::len))
+            .and_then(|base| base.checked_add(block))
+            .and_then(|ordinal| u64::try_from(ordinal).ok())
+            .ok_or_else(|| Error::ParseError("waveform-index leaf ordinal overflow".into()))?;
+        let segment = ordinal / LEAVES_PER_SEGMENT;
+        let region = self.load_segment(segment)?;
+        let start = usize::try_from(entry.offset)
+            .map_err(|_| Error::ParseError("waveform-index leaf offset exceeds usize".into()))?;
+        let end = entry
+            .offset
+            .checked_add(entry.len)
+            .and_then(|end| usize::try_from(end).ok())
+            .ok_or_else(|| Error::ParseError("waveform-index leaf range overflow".into()))?;
+        let data = region
+            .bytes()
+            .get(start..end)
+            .ok_or_else(|| Error::ParseError("waveform index leaf is truncated".into()))?;
+        let leaf = leaf_view(data)?;
         let block_start = block as u64 * self.header.samples_per_block;
         let expected_samples = self
             .header
@@ -311,6 +406,53 @@ impl IndexReader {
             .map_err(|_| Error::ParseError("waveform-index leaf cache is unavailable".into()))?
             .insert(key, leaf.clone());
         Ok(leaf)
+    }
+
+    fn load_segment(&self, segment: u64) -> Result<ByteRegion> {
+        if let Some(region) = self
+            .segment_cache
+            .lock()
+            .map_err(|_| Error::ParseError("waveform-index segment cache is unavailable".into()))?
+            .get(segment)
+        {
+            return Ok(region);
+        }
+        let key = segment_key(self.identity, segment)?;
+        let mut reader = self
+            .repository
+            .open(&key)
+            .map_err(repository_error)?
+            .ok_or_else(|| Error::ParseError("waveform index segment is missing".into()))?;
+        let length = reader.len().map_err(repository_error)?;
+        let range =
+            ByteRange::new(0, length).map_err(|error| Error::ParseError(error.to_string()))?;
+        let region = if let Some(region) = reader.region(range).map_err(repository_error)? {
+            region
+        } else {
+            let length = usize::try_from(length)
+                .map_err(|_| Error::ParseError("waveform index segment is too large".into()))?;
+            let mut bytes = vec![0; length];
+            let mut copied = 0;
+            while copied < bytes.len() {
+                let count = reader
+                    .read_at(copied as u64, &mut bytes[copied..])
+                    .map_err(repository_error)?;
+                if count == 0 {
+                    return Err(Error::ParseError(
+                        "waveform index segment is truncated".into(),
+                    ));
+                }
+                copied += count;
+            }
+            let backing: Arc<dyn ImmutableByteRegion> =
+                Arc::new(OwnedByteSource::new(self.identity, bytes));
+            ByteRegion::new(backing, range).map_err(|error| Error::ParseError(error.to_string()))?
+        };
+        self.segment_cache
+            .lock()
+            .map_err(|_| Error::ParseError("waveform-index segment cache is unavailable".into()))?
+            .insert(segment, region.clone());
+        Ok(region)
     }
 
     pub(crate) fn load_root_summary(&self, channel: usize, block: usize) -> Result<RootDirEntry> {
@@ -351,7 +493,7 @@ impl IndexReader {
             ));
         }
         let version = read_u32(file)?;
-        if version != 7 {
+        if version != ROOT_FORMAT_VERSION {
             return Err(Error::ParseError(
                 "unsupported waveform-index root version".to_string(),
             ));
@@ -516,16 +658,11 @@ fn write_u64(file: &mut impl Write, value: u64) -> Result<()> {
 }
 
 fn root_key(identity: SourceIdentity) -> Result<ArtifactKey> {
-    artifact_key("waveform-index-root-v1", identity, None, None)
+    artifact_key(ROOT_NAMESPACE, identity, None, None)
 }
 
-fn leaf_key(identity: SourceIdentity, channel: usize, block: usize) -> Result<ArtifactKey> {
-    artifact_key(
-        "waveform-index-leaf-v1",
-        identity,
-        Some(channel as u64),
-        Some(block as u64),
-    )
+fn segment_key(identity: SourceIdentity, segment: u64) -> Result<ArtifactKey> {
+    artifact_key(SEGMENT_NAMESPACE, identity, Some(segment), None)
 }
 
 fn artifact_key(
@@ -714,6 +851,81 @@ mod tests {
             &first_levels.l1_toggle,
             &second_levels.l1_toggle,
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn writer_groups_channel_major_leaves_into_bounded_segments() -> Result<()> {
+        let repository: Arc<dyn ArtifactRepository> =
+            Arc::new(crate::MemoryArtifactRepository::new());
+        let identity = SourceIdentity::from_bytes([8; 32]);
+        let metadata = CaptureMetadata {
+            total_probes: 1,
+            samplerate: "1 MHz".into(),
+            samplerate_hz: 1_000_000.0,
+            sample_period: 0.000_001,
+            total_samples: 65 * 16,
+            total_blocks: 65,
+            samples_per_block: 16,
+            probe_names: vec!["0".into()],
+            trigger_sample: None,
+        };
+        let leaf = BlockIndex {
+            valid_samples: 16,
+            first: false,
+            last: false,
+            levels: None,
+        };
+        let mut writer = IndexWriter::create(Arc::clone(&repository), identity, &metadata, 1)?;
+        for block in 0..65 {
+            writer.write_block(0, block, &leaf)?;
+        }
+        writer.finish()?;
+
+        let segment_namespace = ArtifactNamespace::new(SEGMENT_NAMESPACE).unwrap();
+        assert_eq!(repository.entries(&segment_namespace).unwrap().len(), 2);
+        let legacy_leaf_namespace = ArtifactNamespace::new("waveform-index-leaf-v1").unwrap();
+        assert!(
+            repository
+                .entries(&legacy_leaf_namespace)
+                .unwrap()
+                .is_empty()
+        );
+
+        let reader = IndexReader::open(repository, identity, metadata, 1)?;
+        assert_eq!(reader.load_leaf(0, 0)?.valid_samples, 16);
+        assert_eq!(reader.load_leaf(0, 64)?.valid_samples, 16);
+        Ok(())
+    }
+
+    #[test]
+    fn previous_root_format_is_rejected_for_rebuild() -> Result<()> {
+        let repository: Arc<dyn ArtifactRepository> =
+            Arc::new(crate::MemoryArtifactRepository::new());
+        let identity = SourceIdentity::from_bytes([9; 32]);
+        let metadata = CaptureMetadata {
+            total_probes: 0,
+            samplerate: "1 MHz".into(),
+            samplerate_hz: 1_000_000.0,
+            sample_period: 0.000_001,
+            total_samples: 0,
+            total_blocks: 0,
+            samples_per_block: 16,
+            probe_names: Vec::new(),
+            trigger_sample: None,
+        };
+        IndexWriter::create(Arc::clone(&repository), identity, &metadata, 1)?.finish()?;
+        let root = root_key(identity)?;
+        let mut bytes = read(repository.as_ref(), &root)?.expect("root should exist");
+        bytes[8..12].copy_from_slice(&(ROOT_FORMAT_VERSION - 1).to_le_bytes());
+        publish(repository.as_ref(), root, &bytes)?;
+
+        assert!(!IndexReader::is_valid(
+            repository.as_ref(),
+            identity,
+            &metadata,
+            1,
+        )?);
         Ok(())
     }
 }

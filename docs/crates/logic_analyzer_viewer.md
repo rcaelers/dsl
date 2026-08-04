@@ -82,8 +82,8 @@ concrete capture source
   │         └─ concrete processing reader (DSL, Sigrok, or another registered format)
   │
   ├─ Waveform index (crates/signal_processing/src/waveform_index)
-  │    ├─ IndexBuilder              — builds finite root and leaf artifacts
-  │    ├─ IndexReader               — reads immutable root and leaf generations
+  │    ├─ IndexBuilder              — builds finite root and segment artifacts
+  │    ├─ IndexReader               — reads immutable root and segment generations
   │    ├─ IndexSampler              — finite sampled_window() query handle
   │    └─ GrowingCaptureIndex       — growing sampled_window() query handle
   │
@@ -113,7 +113,8 @@ implementations on every target.
 | Block | The raw-capture unit; one `L-{channel}/{block}` ZIP entry, `samples_per_block` samples |
 | Chunk / leaf | The serialized index payload for one (channel, block) pair: `valid_samples`, flags, and (if active) the L1/L2/L3 mipmap bitmaps |
 | Directory entry | The per-(channel, block) directory record: chunk offset/length plus a duplicated top-level (L3) summary, so coarse queries never need to touch the payload |
-| Root artifact | The published finite-index metadata and leaf directory for one source identity |
+| Segment artifact | Up to 64 channel-major leaf payloads in one bounded immutable publication |
+| Root artifact | The published finite-index metadata and segment directory for one source identity |
 | Raw-block artifact | A lazily populated packed source block used for exact/deep-zoom reads |
 
 Every (channel, block) pair gets its own directory entry and chunk; the directory entry's
@@ -160,59 +161,54 @@ an otherwise-constant block) so no edge is lost at block boundaries.
 
 ---
 
-## Sidecar Index File Format
+## Repository Index Format
 
-Magic `CAPIDX06`, built by `IndexWriter` / read by `IndexReader` in
+Magic `CAPIDX07`, built by `IndexWriter` / read by `IndexReader` in
 [storage.rs](../../crates/signal_processing/src/waveform_index/storage.rs):
 
 ```text
 ┌─────────────────────────────────────────────────────┐
 │  HEADER  (96 bytes, offset 0)                        │
-│    magic              [u8; 8]  = b"CAPIDX06"         │
-│    version             u32     = 6                   │
+│    magic              [u8; 8]  = b"CAPIDX07"         │
+│    version             u32     = 8                   │
 │    header_size         u32     = 96                  │
 │    source_revision     u64     (source file size)    │
 │    total_samples       u64                            │
 │    total_blocks        u64                            │
 │    samples_per_block   u64                            │
 │    samplerate_bits     u64  (f64::to_bits of Hz)      │
-│    total_channels      u32                            │
-│    blocks_per_channel  u32                            │
+│    total_channels      u64                            │
+│    blocks_per_channel  u64                            │
 │    dir_offset          u64  = 96                      │
 │    payload_offset      u64  = 96 + channels*blocks*40 │
 │    _padding            to fill 96 bytes               │
 ├─────────────────────────────────────────────────────┤
 │  DIRECTORY  (channels × blocks × 40 bytes)           │
 │  channel-major order; one entry per (channel, block) │
-│    offset     u64  (byte offset of chunk in file)    │
+│    offset     u64  (byte offset within its segment)  │
 │    len        u64  (byte length of chunk)            │
 │    flags      u8   bit0=toggle bit1=first bit2=last  │
 │    _padding   [u8; 7]                                │
 │    l3_toggle  u64  (duplicated top-level toggle word)│
 │    l3_last    u64  (duplicated top-level last word)  │
-├─────────────────────────────────────────────────────┤
-│  PAYLOAD  (all chunks, any order; see directory)     │
-│  Each chunk covers one (channel, block) pair:        │
-│    valid_samples  u32                                │
-│    flags          u8  bit0=first bit1=last bit2=active│
-│    _padding       [u8; 3]                            │
-│    [only when active:]                               │
-│      l1_toggle  [u64; 4096]   l1_last  [u64; 4096]   │
-│      l2_toggle  [u64;   64]   l2_last  [u64;   64]   │
-│      l3_toggle  u64           l3_last  u64           │
 └─────────────────────────────────────────────────────┘
 ```
 
-The injected artifact repository supplies immutable leaf regions. Native regions retain their
-mmap backing, while memory repositories retain owned chunks; query code does not distinguish them.
-The compact directory is read into a `Vec<Vec<RootDirEntry>>` at open time, so the coarsest-level
-query (`load_root_summary`) never touches a leaf artifact.
+Leaves use channel-major ordinals. Segment `ordinal / 64` contains up to 64 serialized leaf
+payloads, and the directory entry locates each payload within that segment. A payload stores
+`valid_samples`, flags, and the L1/L2/L3 arrays when active. The injected artifact repository
+supplies immutable segment regions. Native regions retain their mmap backing, while memory
+repositories retain owned chunks; query code does not distinguish them. `IndexReader` retains a
+four-segment region cache plus its decoded-leaf cache. The compact directory is read into a
+`Vec<Vec<RootDirEntry>>` at open time, so the coarsest-level query (`load_root_summary`) never
+touches a segment artifact.
 
 Validity: the header records `source_revision` (the source file's byte length) plus
 `total_samples`/`total_blocks`/`samples_per_block`/`samplerate_bits`/`total_channels`. On open,
 `IndexReader::is_valid` rejects a stale root so a changed capture rebuilds its index instead of
-serving mismatched data. The writer publishes every immutable leaf first and publishes the root
-last on `finish()`, so an unfinished generation is not discoverable.
+serving mismatched data. Format versions other than 8 are rejected and rebuilt. The writer
+publishes every immutable segment first and publishes the root last on `finish()`, so an unfinished
+generation is not discoverable.
 
 ---
 
@@ -234,17 +230,18 @@ query first reads that block. This cache is separate from the waveform summaries
 through the compiler-injected work executor during source preparation:
 
 1. Enumerate every `(channel, block)` job (`total_probes × total_blocks`).
-2. Spawn `index_worker_count()` worker threads (`CAPTURE_INDEX_THREADS` / `DSL_INDEX_THREADS`
-   env override, else `available_parallelism()`, capped to the job count). Each worker opens
-   its own `BlockCaptureSource` reader and pulls jobs from a shared queue.
+2. Submit up to 12 bounded workers through the injected executor, capped by its advertised
+   parallelism and the job count. Each worker opens its own `BlockCaptureSource` reader and pulls
+   jobs from a shared queue. The cap leaves host capacity for UI and other application work.
 3. Each worker reads the packed block, then `build_leaf_summary` computes `first`, `last`, and
    the L1/L2/L3 toggle/last bitmaps in one pass (allocating `BlockLevels` on the heap to avoid a
    large stack frame). A block with no internal toggles yields `levels: None`.
-4. Results are streamed back through an `mpsc` channel to a single collector, which reorders
-   them per-channel (a small `HashMap` reorder buffer, not the whole index) so each leaf can be
-   patched for boundary transitions against its immediate predecessor before being written.
-5. `IndexWriter::write_block` publishes the leaf and records its directory entry; `finish()`
-   publishes the root header and directory.
+4. Results are streamed back through a bounded channel to a single collector, which restores
+   channel-major order in a small bounded reorder buffer. Each leaf is patched for boundary
+   transitions against its immediate predecessor before being written.
+5. `IndexWriter::write_block` appends the leaf to its bounded segment and records its directory
+   entry. Each full segment is published immediately; `finish()` publishes the final segment and
+   then the root header and directory.
 
 Progress is reported as `CaptureIndexProgress { completed_roots, total_roots }` (one unit per
 completed (channel, block) job).
@@ -254,7 +251,7 @@ completed (channel, block) job).
 ## Runtime Querying — `IndexSampler`
 
 `IndexSampler::open_data_source_with_progress` builds the index if its root is missing or invalid,
-opens its root and leaf artifacts, and opens a raw `BlockCaptureSource` reader for exact reads.
+opens its root and segment artifacts, and opens a raw `BlockCaptureSource` reader for exact reads.
 
 ### `sampled_window(channels, start_sample, end_sample, target_points)`
 

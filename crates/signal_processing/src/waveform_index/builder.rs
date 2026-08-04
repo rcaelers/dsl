@@ -15,6 +15,8 @@ use crate::capture::{
 use crate::capture_index_kernel::{CaptureIndexBlockResult, build_capture_index_block_from_packed};
 use crate::{ArtifactRepository, Error, Result, SourceIdentity, WorkExecutor};
 
+const MAX_INDEX_WORKERS: usize = 12;
+
 #[derive(Debug, Clone, Copy)]
 struct BuildJob {
     sequence: u64,
@@ -133,11 +135,11 @@ where
     }
 
     /// Runs the per-(channel, block) summary jobs through the host executor and
-    /// publishes each leaf artifact as soon as its per-channel
-    /// predecessor has been written (boundary-transition patching needs the
-    /// predecessor's exit level), so peak memory is a handful of leaves
-    /// instead of the whole index. Workers pull jobs in order, so the
-    /// reorder buffer stays around the worker count.
+    /// restores channel-major leaf order as results arrive (boundary-transition
+    /// patching needs the predecessor's exit level) and streams those leaves
+    /// into bounded segment artifacts, so peak memory remains independent of
+    /// capture length. Workers pull jobs in order, so the reorder buffer stays
+    /// around the worker count.
     fn build_parallel_streaming(
         data_source: S,
         header: &CaptureMetadata,
@@ -161,7 +163,7 @@ where
         }
 
         let channels = header.total_probes;
-        let worker_count = work_executor.available_parallelism().min(total_jobs).max(1);
+        let worker_count = index_worker_count(work_executor.available_parallelism(), total_jobs);
         profile.workers = worker_count as u64;
         if worker_count == 1 {
             return Self::build_sequential_streaming(
@@ -231,9 +233,9 @@ where
         drop(job_rx);
         drop(result_tx);
         let mut job_tx = Some(job_tx);
-        let mut pending: HashMap<(usize, u64), BlockIndex> = HashMap::new();
+        let mut pending: HashMap<u64, (BuildJob, BlockIndex)> = HashMap::new();
         let mut previous_last: Vec<Option<bool>> = vec![None; channels];
-        let mut next_block: Vec<u64> = vec![0; channels];
+        let mut next_sequence = 0_u64;
         let mut received = 0;
         let mut first_error = None;
         let mut in_flight = 0_usize;
@@ -273,12 +275,12 @@ where
                             break;
                         }
                     };
-                    pending.insert((job.channel, job.block), leaf);
-                    let channel = job.channel;
-                    while let Some(mut leaf) = pending.remove(&(channel, next_block[channel])) {
+                    pending.insert(job.sequence, (job, leaf));
+                    while let Some((job, mut leaf)) = pending.remove(&next_sequence) {
+                        let channel = job.channel;
                         Self::apply_boundary_transition(&mut leaf, previous_last[channel]);
                         previous_last[channel] = Some(leaf.last);
-                        let block = match usize::try_from(next_block[channel]) {
+                        let block = match usize::try_from(job.block) {
                             Ok(block) => block,
                             Err(_) => {
                                 first_error = Some(Error::ParseError(
@@ -297,7 +299,7 @@ where
                             first_error = Some(err);
                             break;
                         }
-                        next_block[channel] += 1;
+                        next_sequence = next_sequence.saturating_add(1);
                     }
                     if first_error.is_some() {
                         break;
@@ -574,12 +576,27 @@ fn record_block_profile(profile: &mut CaptureIndexBuildProfile, result: &TimedBl
     );
 }
 
+fn index_worker_count(available_parallelism: usize, total_jobs: usize) -> usize {
+    available_parallelism
+        .min(MAX_INDEX_WORKERS)
+        .min(total_jobs)
+        .max(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::capture::{
         BlockCaptureSource, CaptureDataSource, CaptureFingerprint, CaptureMetadata, CaptureSource,
     };
+
+    #[test]
+    fn worker_count_preserves_host_capacity_for_responsiveness() {
+        assert_eq!(index_worker_count(20, 605), 12);
+        assert_eq!(index_worker_count(8, 605), 8);
+        assert_eq!(index_worker_count(20, 4), 4);
+        assert_eq!(index_worker_count(1, 0), 1);
+    }
 
     #[derive(Clone)]
     struct TestSource;

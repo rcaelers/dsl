@@ -107,6 +107,17 @@ cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
   waveform-index-profile /path/to/reference.dsl > waveform-index-profile.json
 ```
 
+Use the isolated native durable repository probe to include real filesystem cache publication, or
+the concurrency probe to compare cold durable builds across bounded worker counts without reading,
+removing, or warming the application's cache:
+
+```console
+cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
+  waveform-index-persistent-profile /path/to/reference.dsl
+cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
+  waveform-index-concurrency-profile /path/to/reference.dsl
+```
+
 The compiler capture tool contains isolated graph-runtime timing probes and
 full-capture differential validations. It requires an explicit,
 developer-supplied DSL capture path and runs in the release benchmark profile:

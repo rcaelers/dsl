@@ -21,15 +21,16 @@ into another representation. Session metadata, retention plans, and application 
 metadata are repository artifacts addressed by the capture-session identity. Cleanup, pinning,
 recovery, and prefix reclamation operate on those identities rather than directories or paths.
 
-Finite waveform indexes publish one bounded leaf artifact per `(channel, block)` and publish their
-compact root directory last. Growing indexes publish fixed-size summary pages. Exact queries cache
-individual packed raw blocks as artifacts and retain the repository's immutable byte backing, so a
-native mmap and an owned-memory region execute the same query code. These opportunistic raw-block
-cache publications are atomic but omit the native durability barrier; they are validated by
-identity and can always be reconstructed from the authoritative capture. Derived cache blocks use
-the same policy because they are not discoverable without the final index and manifest. Authoritative
-capture chunks, waveform indexes, derived indexes, and manifests explicitly flush before publication.
-No capture, raw cache, waveform index, or replay session must fit in one resident allocation.
+Finite waveform indexes group 64 channel-major `(channel, block)` leaves into each bounded immutable
+segment and publish their compact root directory last. Growing indexes publish fixed-size summary
+pages. Exact queries cache individual packed raw blocks as artifacts and retain the repository's
+immutable byte backing, so a native mmap and an owned-memory region execute the same query code.
+These opportunistic raw-block cache publications are atomic but omit the native durability barrier;
+they are validated by identity and can always be reconstructed from the authoritative capture.
+Derived cache blocks use the same policy because they are not discoverable without the final index
+and manifest. Authoritative capture chunks, waveform-index segments, derived indexes, and manifests
+explicitly flush before publication. No capture, raw cache, waveform index, or replay session must
+fit in one resident allocation.
 
 Host source acquisition and output destinations are selected in `logic_analyzer_platform`.
 Native composition injects DSL and Sigrok path adapters, filesystem-backed writer storage, the
@@ -486,7 +487,8 @@ atomic index publication remain in the shared capture-index implementation behin
 
 `CaptureIndexFactory` also supplies a resumable open task. The generic compatibility task preserves
 factories that can only open synchronously, while block-addressable DSL and Sigrok sources yield
-after each `(channel, block)` index leaf. Browser composition advances one task step per worker event
+after each `(channel, block)` index leaf. Full segments publish as those steps fill the bounded
+segment buffer. Browser composition advances one task step per worker event
 turn. Cancellation therefore removes an unpublished preparation at a deterministic block boundary;
 it does not wait for the complete capture index. The synchronous native entry point drains the same
 task contract when callers require an immediate result.
