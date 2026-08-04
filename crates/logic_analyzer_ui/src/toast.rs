@@ -227,7 +227,17 @@ impl Toasts {
                             })
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
-                                    ui.colored_label(fg, &toast.text);
+                                    // Notifications acknowledge an action; they are not an
+                                    // editable or copyable text surface. In particular, keeping
+                                    // them non-selectable prevents a visible diagnostic or the
+                                    // copy confirmation itself from taking over the browser
+                                    // clipboard while a graph copy command is being handled.
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(&toast.text).color(fg),
+                                        )
+                                        .selectable(false),
+                                    );
                                     if toast.severity != Severity::Info
                                         && ui
                                             .add(egui::Button::new("✕").small().frame(false))
