@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_api::node::{CaptureGraphSourceFactory, LiveCaptureFeature};
-use logic_analyzer_graph_api::node_support::{SimpleTriggerChannel, parse_state};
+use logic_analyzer_graph_capabilities::node::{CaptureGraphSourceFactory, LiveCaptureFeature};
+use logic_analyzer_graph_capabilities::node_support::{SimpleTriggerChannel, parse_state};
 use signal_processing::{
     AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureAnalysisChannel,
     CaptureAnalysisSource, CaptureChannelId, CaptureCommandCapabilities, CaptureFraction,

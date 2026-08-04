@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use logic_analyzer_graph_api::node::PayloadRegistration;
-use logic_analyzer_graph_api::node_support::{
+use logic_analyzer_graph_capabilities::node_support::{
     DefaultLanePresentationDescriptor, LaneBadgeDescriptor,
 };
+use logic_analyzer_graph_registry::PayloadRegistration;
 use logic_analyzer_viewer::{
     OpaqueLaneDrawContext, ViewerLaneInteraction, ViewerLaneInteractionContext, ViewerLaneRenderer,
     ViewerLaneRendererRegistration, ViewerLaneTrack, draw_digital_activity, draw_digital_snapshot,

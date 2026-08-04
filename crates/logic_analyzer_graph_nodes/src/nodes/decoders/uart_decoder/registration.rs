@@ -1,5 +1,5 @@
 inventory::submit! {
-    logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
         super::definition::UartDecoder,
         super::builder::UartDecoderBuilder,
     >("org.logicconduit.graph-node.decoders.uart-decoder/v1").requiring_payloads(&[

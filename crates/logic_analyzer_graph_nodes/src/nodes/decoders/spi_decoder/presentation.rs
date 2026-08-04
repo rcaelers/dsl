@@ -3,10 +3,10 @@
 use std::fmt::Write;
 use std::sync::Arc;
 
-use logic_analyzer_graph_api::node::{
+use logic_analyzer_graph_capabilities::node::{
     ProtocolPacketDisplay, ProtocolPacketPresentationRegistration,
 };
-use logic_analyzer_graph_api::node_support::{
+use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableCellMode, DecoderTableColumnDescriptor, LaneBadgeDescriptor,
     LanePresentationDescriptor,
 };

@@ -3,13 +3,12 @@ use std::collections::BTreeSet;
 use serde::Deserialize;
 use serde_json::Value;
 
-use logic_analyzer_graph_api::node::{
-    GraphNodeRegistration, RuntimeBuilder, graph_node_registrations,
-};
-use logic_analyzer_graph_api::node_support::{
+use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node_support::{
     CaptureCacheIdentity, CapturePresentation, ResolvedInput, ResolvedInputs,
     SourceDataLifecycleKind,
 };
+use logic_analyzer_graph_registry::{GraphNodeRegistration, graph_node_registrations};
 use node_graph::api::{GraphDocumentBuilder, NodeId, NodeTypeRegistry, Socket};
 
 use super::test_support::{TestNodeBuildContext, platform_parity_builder};
@@ -722,6 +721,7 @@ fn resolved_inputs(
                 source_node: NodeId(10_000 + socket.def_index as u32),
                 source_output: socket.def_index,
                 source_node_title: "Fixture source".to_owned(),
+                source_output_title: format!("Output {}", socket.def_index),
                 word_display_format: None,
                 lane_presentation: None,
                 default_lane_presentation: None,

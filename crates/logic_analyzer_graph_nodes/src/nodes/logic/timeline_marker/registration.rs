@@ -1,5 +1,5 @@
 inventory::submit! {
-    logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
         super::definition::CursorMarker,
         super::builder::CursorMarkerBuilder,
     >("org.logicconduit.graph-node.timeline.cursor-marker/v1")
@@ -7,7 +7,7 @@ inventory::submit! {
 }
 
 inventory::submit! {
-    logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
         super::definition::TimelineMarker,
         super::builder::TimelineMarkerBuilder,
     >("org.logicconduit.graph-node.timeline.marker/v1")
@@ -15,21 +15,21 @@ inventory::submit! {
 }
 
 inventory::submit! {
-    logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
         super::definition::MarkerToTrigger,
         super::builder::MarkerToTriggerBuilder,
     >("org.logicconduit.graph-node.timeline.marker-to-trigger/v1")
 }
 
 inventory::submit! {
-    logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
         super::definition::MarkerRelation,
         super::builder::MarkerRelationBuilder,
     >("org.logicconduit.graph-node.timeline.marker-relation/v1")
 }
 
 inventory::submit! {
-    logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
         super::definition::MarkerWindow,
         super::builder::MarkerWindowBuilder,
     >("org.logicconduit.graph-node.timeline.marker-window/v1")

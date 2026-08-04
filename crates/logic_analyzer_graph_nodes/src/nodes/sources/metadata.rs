@@ -1,4 +1,4 @@
-use logic_analyzer_graph_api::node_support::{
+use logic_analyzer_graph_capabilities::node_support::{
     CaptureCacheIdentity, CapturePresentation, CapturePresentationSignal, SourceDataLifecycle,
     SourceDataLifecycleKind,
 };

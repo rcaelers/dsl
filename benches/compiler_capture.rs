@@ -11,8 +11,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use egui::{Color32, Event, Id, Pos2, Rect, UiBuilder};
 
-use logic_analyzer_graph_compiler::{
-    CompileCtx, GraphCompiler, InlineSourcePreparationExecutor, OutputSubscriptionPlan,
+use logic_analyzer_graph_plan::OutputSubscriptionPlan;
+use logic_analyzer_graph_runtime::{
+    GraphRunContext, GraphRuntime, InlineSourcePreparationExecutor,
 };
 use logic_analyzer_processing::nodes::decoders::parallel_decoder::{
     ParallelDecoder, ParallelInputStrategy, StrobeMode,
@@ -1014,8 +1015,8 @@ fn output_subscriptions(
         .collect()
 }
 
-fn configured_compiler(widget: &NodeGraphWidget) -> GraphCompiler {
-    let mut compiler = GraphCompiler::new();
+fn configured_compiler(widget: &NodeGraphWidget) -> GraphRuntime {
+    let mut compiler = GraphRuntime::new();
     compiler.set_output_subscriptions(startup_output_subscriptions(widget));
     compiler
 }
@@ -1023,11 +1024,11 @@ fn configured_compiler(widget: &NodeGraphWidget) -> GraphCompiler {
 fn configured_platform_compiler(
     widget: &NodeGraphWidget,
     services: &logic_analyzer_platform::PlatformServices,
-) -> GraphCompiler {
+) -> GraphRuntime {
     let repository: Arc<dyn ArtifactRepository> = Arc::new(BenchmarkArtifactRepository::new(
         services.artifact_repository(),
     ));
-    let mut compiler = GraphCompiler::with_execution_and_builder_overrides(
+    let mut compiler = GraphRuntime::with_execution_and_builder_overrides(
         Box::new(InlineSourcePreparationExecutor),
         Arc::new(BenchmarkAppManagerFactory {
             work_executor: runtime_executor(),
@@ -1055,8 +1056,8 @@ fn configured_profile_compiler(
     repository: Arc<dyn ArtifactRepository>,
     work_executor: Arc<dyn WorkExecutor>,
     metrics: Arc<DerivedProfileMetrics>,
-) -> GraphCompiler {
-    let mut compiler = GraphCompiler::with_execution_and_builder_overrides(
+) -> GraphRuntime {
+    let mut compiler = GraphRuntime::with_execution_and_builder_overrides(
         Box::new(InlineSourcePreparationExecutor),
         Arc::new(BenchmarkAppManagerFactory {
             work_executor: runtime_executor(),
@@ -1079,14 +1080,14 @@ fn configured_profile_compiler(
     compiler
 }
 
-fn validation_compiler(widget: &NodeGraphWidget) -> GraphCompiler {
-    let mut compiler = GraphCompiler::new();
+fn validation_compiler(widget: &NodeGraphWidget) -> GraphRuntime {
+    let mut compiler = GraphRuntime::new();
     compiler.set_output_subscriptions(output_subscriptions(widget, &VALIDATION_OUTPUTS));
     compiler
 }
 
-fn protocol_selection_compiler(widget: &NodeGraphWidget) -> GraphCompiler {
-    let mut compiler = GraphCompiler::new();
+fn protocol_selection_compiler(widget: &NodeGraphWidget) -> GraphRuntime {
+    let mut compiler = GraphRuntime::new();
     compiler.set_output_subscriptions(output_subscriptions(
         widget,
         &[("Parallel Decoder", "Words")],
@@ -1361,8 +1362,8 @@ fn temporary_workspace() -> tempfile::TempDir {
     workspace
 }
 
-fn compile_context(_workspace: &Path) -> CompileCtx {
-    CompileCtx::default()
+fn compile_context(_workspace: &Path) -> GraphRunContext {
+    GraphRunContext::default()
 }
 
 fn binary_files(directory: &Path) -> Vec<String> {
@@ -1455,7 +1456,7 @@ fn manifest_fingerprint(manifest: &[OutputFingerprint]) -> String {
     hasher.finalize().to_hex().to_string()
 }
 
-fn parallel_lane_fingerprint(run: &logic_analyzer_graph_compiler::LiveRun) -> (u64, String) {
+fn parallel_lane_fingerprint(run: &logic_analyzer_graph_runtime::LiveRun) -> (u64, String) {
     let lane = run
         .derived_lanes()
         .opaque_lanes()
@@ -1509,7 +1510,7 @@ fn cache_key_hex(key: &[u8; 32]) -> String {
     key.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn derived_storage_report(run: &logic_analyzer_graph_compiler::LiveRun) -> serde_json::Value {
+fn derived_storage_report(run: &logic_analyzer_graph_runtime::LiveRun) -> serde_json::Value {
     let mut backing_counts = BTreeMap::<String, u64>::new();
     let mut retained_items = 0_u64;
     let mut resident_bytes = 0_u64;
@@ -1673,7 +1674,11 @@ fn run_compiled_validation_stage(capture: &Path, output: &Path, workspace: &Path
     let mut context = compile_context(workspace);
     let lanes = context.derived_lanes().clone();
     let mut run = compiler
-        .start_app_run(widget.graph(), &mut context)
+        .start(
+            compiler.lowerer().lower(widget.graph()).unwrap(),
+            &mut context,
+            Default::default(),
+        )
         .unwrap();
     run.wait();
 
@@ -1702,6 +1707,7 @@ fn run_compiled_baseline_stage(capture: &Path, output: &Path, workspace: &Path, 
 
     let lower_started = Instant::now();
     let compiled = compiler
+        .lowerer()
         .lower(widget.graph())
         .unwrap_or_else(|errors| panic!("checked-in graph did not lower: {errors:?}"));
     let lower = lower_started.elapsed();
@@ -1712,7 +1718,7 @@ fn run_compiled_baseline_stage(capture: &Path, output: &Path, workspace: &Path, 
     let resources_before = resource_usage();
     let start_started = Instant::now();
     let mut run = compiler
-        .start_app_run(widget.graph(), &mut context)
+        .start(compiled, &mut context, Default::default())
         .unwrap_or_else(|errors| panic!("checked-in graph did not start: {errors:?}"));
     let pipeline_start = start_started.elapsed();
     let execute_started = Instant::now();
@@ -1762,7 +1768,11 @@ fn run_protocol_selection_stage(
     let mut context = compile_context(workspace);
     let started = Instant::now();
     let mut run = compiler
-        .start_app_run(widget.graph(), &mut context)
+        .start(
+            compiler.lowerer().lower(widget.graph()).unwrap(),
+            &mut context,
+            Default::default(),
+        )
         .unwrap_or_else(|errors| panic!("protocol benchmark graph did not start: {errors:?}"));
     run.wait();
     let pipeline_wall = started.elapsed();
@@ -1797,7 +1807,11 @@ fn run_cancellation_stage(capture: &Path, output: &Path, workspace: &Path, repor
     let compiler = configured_compiler(&widget);
     let mut context = compile_context(workspace);
     let mut run = compiler
-        .start_app_run(widget.graph(), &mut context)
+        .start(
+            compiler.lowerer().lower(widget.graph()).unwrap(),
+            &mut context,
+            Default::default(),
+        )
         .unwrap_or_else(|errors| panic!("cancellation graph did not start: {errors:?}"));
     let warmup_started = Instant::now();
     while !run.is_finished()
@@ -2164,7 +2178,11 @@ fn derived_storage_profile(capture: &Path) {
     let resources_before = resource_usage();
     let started = Instant::now();
     let mut run = compiler
-        .start_app_run(widget.graph(), &mut context)
+        .start(
+            compiler.lowerer().lower(widget.graph()).unwrap(),
+            &mut context,
+            Default::default(),
+        )
         .unwrap_or_else(|errors| panic!("derived storage profile did not start: {errors:?}"));
     run.wait();
     let wall = started.elapsed();
@@ -2214,7 +2232,11 @@ fn in_memory_compiler_runtime_benchmark(capture: &Path) {
     let usage_before = resource_usage();
     let started = Instant::now();
     let mut run = compiler
-        .start_app_run(widget.graph(), &mut context)
+        .start(
+            compiler.lowerer().lower(widget.graph()).unwrap(),
+            &mut context,
+            Default::default(),
+        )
         .unwrap();
     let sampling_overlays = context.take_sampling_overlays();
     run.wait();
@@ -2480,7 +2502,11 @@ fn live_viewer_subscription_benchmark(capture: &Path) {
     let resources_before = resource_usage();
     let pipeline_started = Instant::now();
     let mut run = compiler
-        .start_app_run(widget.graph(), &mut context)
+        .start(
+            compiler.lowerer().lower(widget.graph()).unwrap(),
+            &mut context,
+            Default::default(),
+        )
         .unwrap();
     let displayed_lanes = DerivedLanes::new();
     let presentations = WaveformPresentationRegistry::new();
@@ -2665,7 +2691,11 @@ fn live_attach_detach_preserves_writer_output(capture: &Path) {
     let mut context = compile_context(temporary.path());
     let lanes = context.derived_lanes().clone();
     let mut run = compiler
-        .start_app_run(widget.graph(), &mut context)
+        .start(
+            compiler.lowerer().lower(widget.graph()).unwrap(),
+            &mut context,
+            Default::default(),
+        )
         .unwrap();
 
     while binary_files(&actual).is_empty() {
@@ -2676,7 +2706,9 @@ fn live_attach_detach_preserves_writer_output(capture: &Path) {
     let mut attached_subscriptions = base_subscriptions.clone();
     attached_subscriptions.subscribe(matcher, matcher_output);
     compiler.set_output_subscriptions(attached_subscriptions);
-    compiler.apply_run(&mut run, widget.graph()).unwrap();
+    compiler
+        .apply(&mut run, compiler.lowerer().lower(widget.graph()).unwrap())
+        .unwrap();
 
     loop {
         let observed = lanes.opaque_lanes().iter().any(|lane| {
@@ -2700,7 +2732,9 @@ fn live_attach_detach_preserves_writer_output(capture: &Path) {
     }
     widget.graph_mut().remove_node(matcher);
     compiler.set_output_subscriptions(base_subscriptions);
-    compiler.apply_run(&mut run, widget.graph()).unwrap();
+    compiler
+        .apply(&mut run, compiler.lowerer().lower(widget.graph()).unwrap())
+        .unwrap();
     run.wait();
     assert_outputs_equal(&actual, &expected);
 }

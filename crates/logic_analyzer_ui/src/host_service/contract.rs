@@ -34,8 +34,10 @@ pub struct DownloadableOutput {
     pub id: u64,
     /// User-facing filename proposed by the producing graph node.
     pub name: String,
-    /// MIME-like content type supplied by the host for download presentation.
-    pub content_type: String,
+    /// User-visible upstream graph node whose output data was written.
+    pub producer_node: String,
+    /// User-visible output socket whose data was written.
+    pub producer_socket: String,
     /// Number of retained bytes, used for compact UI presentation.
     pub byte_len: u64,
 }

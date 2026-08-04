@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use logic_analyzer_graph_api::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_processing::nodes::sinks::OutputOrigin;
 use logic_analyzer_processing::nodes::sinks::binary_file_writer::{
     BinaryFileWriterConfig, BinaryFileWriterFactory,
 };
@@ -196,7 +197,9 @@ impl BinaryFileWriterFactory for TestWriterFactory {
         &self,
         name: &str,
         _config: BinaryFileWriterConfig,
+        output_origin: OutputOrigin,
     ) -> Result<ProcessNodeConstruction, String> {
+        assert_writer_origin(output_origin);
         Ok(writer_construction(name))
     }
 }
@@ -206,15 +209,29 @@ impl CsvWordWriterFactory for TestWriterFactory {
         &self,
         name: &str,
         _config: CsvWordWriterConfig,
+        output_origin: OutputOrigin,
     ) -> Result<ProcessNodeConstruction, String> {
+        assert_writer_origin(output_origin);
         Ok(writer_construction(name))
     }
 }
 
 impl TextFileWriterFactory for TestWriterFactory {
-    fn create(&self, name: &str) -> Result<ProcessNodeConstruction, String> {
+    fn create(
+        &self,
+        name: &str,
+        output_origin: OutputOrigin,
+    ) -> Result<ProcessNodeConstruction, String> {
+        assert_writer_origin(output_origin);
         Ok(writer_construction(name))
     }
+}
+
+fn assert_writer_origin(output_origin: OutputOrigin) {
+    assert_eq!(
+        output_origin,
+        OutputOrigin::new("Fixture source", "Output 0")
+    );
 }
 
 fn writer_construction(name: &str) -> ProcessNodeConstruction {

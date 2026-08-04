@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use egui::{Color32, Stroke};
 
-use logic_analyzer_graph_api::node::PayloadRegistration;
+use logic_analyzer_graph_registry::payload_registrations;
 use logic_analyzer_viewer::{
     AnnotationVisual, DerivedLaneId, ViewerLaneInteraction, ViewerLaneInteractionContext,
     ViewerLaneRenderer, ViewerLaneTheme, ViewerLaneTrack, ViewerLaneTrackId,
@@ -20,9 +20,7 @@ struct SemanticRenderer;
 
 #[test]
 fn every_built_in_lane_payload_supports_persistent_restoration() {
-    let registrations = inventory::iter::<PayloadRegistration>
-        .into_iter()
-        .collect::<Vec<_>>();
+    let registrations = payload_registrations();
 
     for type_id in [
         std::any::TypeId::of::<Sample>(),

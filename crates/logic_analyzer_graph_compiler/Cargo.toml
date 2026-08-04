@@ -10,9 +10,10 @@ path = "src/lib.rs"
 
 [dependencies]
 signal-processing = { path = "../signal_processing" }
-logic-analyzer-graph-api = { path = "../logic_analyzer_graph_api" }
+logic-analyzer-graph-capabilities = { path = "../logic_analyzer_graph_capabilities" }
+logic-analyzer-graph-registry = { path = "../logic_analyzer_graph_registry" }
+logic-analyzer-graph-plan = { path = "../logic_analyzer_graph_plan" }
 node-graph = { path = "../widgets/node_graph" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 blake3 = { workspace = true }
-inventory = { workspace = true }

@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/app_native", "crates/app_web", "crates/input_bindings", "crates/logic_analyzer_capture_export", "crates/logic_analyzer_graph_api", "crates/logic_analyzer_graph_compiler", "crates/logic_analyzer_graph_nodes", "crates/logic_analyzer_platform", "crates/logic_analyzer_processing", "crates/logic_analyzer_test_support", "crates/logic_analyzer_ui", "crates/signal_processing", "crates/widgets/logic_analyzer_viewer", "crates/widgets/node_graph", "crates/widgets/panel_layout", "crates/widgets/trigger_editor", "crates/widgets/widget_support", "plugins/example-plugin"]
+members = [".", "crates/app_native", "crates/app_web", "crates/input_bindings", "crates/logic_analyzer_capture_export", "crates/logic_analyzer_graph_capabilities", "crates/logic_analyzer_graph_compiler", "crates/logic_analyzer_graph_nodes", "crates/logic_analyzer_graph_orchestration", "crates/logic_analyzer_graph_plan", "crates/logic_analyzer_graph_registry", "crates/logic_analyzer_graph_runtime", "crates/logic_analyzer_platform", "crates/logic_analyzer_processing", "crates/logic_analyzer_test_support", "crates/logic_analyzer_ui", "crates/signal_processing", "crates/widgets/logic_analyzer_viewer", "crates/widgets/node_graph", "crates/widgets/panel_layout", "crates/widgets/trigger_editor", "crates/widgets/widget_support", "plugins/example-plugin"]
 default-members = ["crates/app_native"]
 resolver = "2"
 
@@ -64,8 +64,12 @@ minifb = { workspace = true }
 blake3 = { workspace = true }
 egui = { workspace = true }
 example-plugin = { path = "plugins/example-plugin" }
-logic-analyzer-graph-api = { path = "crates/logic_analyzer_graph_api" }
+logic-analyzer-graph-capabilities = { path = "crates/logic_analyzer_graph_capabilities" }
 logic-analyzer-graph-compiler = { path = "crates/logic_analyzer_graph_compiler" }
+logic-analyzer-graph-orchestration = { path = "crates/logic_analyzer_graph_orchestration" }
+logic-analyzer-graph-plan = { path = "crates/logic_analyzer_graph_plan" }
+logic-analyzer-graph-registry = { path = "crates/logic_analyzer_graph_registry" }
+logic-analyzer-graph-runtime = { path = "crates/logic_analyzer_graph_runtime" }
 logic-analyzer-graph-nodes = { path = "crates/logic_analyzer_graph_nodes" }
 logic-analyzer-platform = { path = "crates/logic_analyzer_platform", features = ["developer-tools"] }
 logic-analyzer-processing = { path = "crates/logic_analyzer_processing" }

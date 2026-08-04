@@ -3,12 +3,12 @@
 ## Workspace structure
 
 - [Crate Responsibility Design](architecture/crate_responsibility.md) defines the responsibility map,
-  dependency direction, proposed graph-runtime boundary, and proposed decomposition of generic
+  dependency direction, graph compiler/runtime boundary, and proposed decomposition of generic
   processing infrastructure.
 - [Responsibility and Visibility Design](aspects/responsibility_visibility.md) defines module
   facades, public API visibility, platform ownership, and enforcement.
-- [Graph Composition Design](architecture/graph_composition.md) defines graph API, built-in-node,
-  compiler, UI, and compatibility ownership.
+- [Graph Composition Design](architecture/graph_composition.md) defines graph capabilities, registry,
+  built-in-node, compiler, UI, and compatibility ownership.
 - [Application Composition Design](architecture/application_composition.md) defines application
   composition and graph interaction.
 
@@ -38,6 +38,10 @@ The remaining crate narratives describe relationships that cannot belong to one 
 namespace. All other crate contracts are documented in Rustdoc.
 
 - [logic_analyzer_graph_nodes](crates/logic_analyzer_graph_nodes.md)
+- [logic_analyzer_graph_capabilities](crates/logic_analyzer_graph_capabilities.md)
+- [logic_analyzer_graph_registry](crates/logic_analyzer_graph_registry.md)
+- [logic_analyzer_graph_plan](crates/logic_analyzer_graph_plan.md)
+- [logic_analyzer_graph_orchestration](crates/logic_analyzer_graph_orchestration.md)
 - [node_graph](crates/node_graph.md)
 - [logic_analyzer_viewer](crates/logic_analyzer_viewer.md)
 - [Application shells](crates/application_shells.md)
@@ -50,7 +54,7 @@ These supported namespaces are documented at their source facades in Rustdoc:
 - `signal_processing`: `capture`, `live_capture`, `live_capture_store`, `logic_analyzer`,
   `derived_word_store`, and `waveform_index`
 - `logic_analyzer_processing`: `nodes`, `types`, each node family, and each concrete node
-- `logic_analyzer_graph_api`: `node` and `node_support`
+- `logic_analyzer_graph_capabilities`: `node` and `node_support`
 - `node_graph`: `api`
 
 ## Generic runtime and data plane

@@ -1,9 +1,9 @@
-use logic_analyzer_graph_api::node::graph_node_registrations;
+use logic_analyzer_graph_registry::graph_node_registrations;
 use node_graph::NodeTypeRegistry;
 
 use crate::viewer_selection::LEGACY_VIEWER_NODE_ID;
 
-/// Builds the UI node registry from compiled graph-node inventory registrations.
+/// Builds the UI node registry from validated graph-node registrations.
 ///
 /// The obsolete viewer node is deliberately excluded because output selection is
 /// now persisted as UI-owned state rather than represented by a graph node.

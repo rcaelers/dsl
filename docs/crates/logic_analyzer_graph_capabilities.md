@@ -1,0 +1,22 @@
+# `logic_analyzer_graph_capabilities` Design
+
+## Responsibility
+
+`logic_analyzer_graph_capabilities` owns the stable capability contracts exposed by graph nodes
+and payload plugins to generic graph infrastructure. These include runtime materializers, port and
+payload identities, resolved inputs, restricted build services, capture and trigger features, and
+protocol-neutral presentation descriptors.
+
+## Facade and dependencies
+
+The crate exposes the directory-backed `node` and `node_support` namespaces. It depends only on
+`node_graph`, `signal_processing`, and serialization support. It owns no inventory collection,
+graph lowering, processing plan, runtime lifecycle, built-in node, UI state, or target selection.
+
+Consumers import capability symbols from their owning namespace directly. Registry descriptors,
+processing-plan values, and concrete node implementations remain in their separate owner crates.
+
+## Known boundary exception
+
+`DirectoryNodeCatalog` still carries host-path configuration. It remains an explicitly documented
+migration item until the portable catalog presentation and platform path adapter are separated.

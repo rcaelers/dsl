@@ -1247,7 +1247,8 @@ dependencies = [
  "crossbeam-channel",
  "egui",
  "inventory",
- "logic-analyzer-graph-api",
+ "logic-analyzer-graph-capabilities",
+ "logic-analyzer-graph-registry",
  "logic-analyzer-ui",
  "logic-analyzer-viewer",
  "node-graph",
@@ -2164,6 +2165,9 @@ dependencies = [
  "log",
  "logic-analyzer-graph-compiler",
  "logic-analyzer-graph-nodes",
+ "logic-analyzer-graph-orchestration",
+ "logic-analyzer-graph-plan",
+ "logic-analyzer-graph-runtime",
  "logic-analyzer-platform",
  "logic-analyzer-ui",
  "node-graph",
@@ -2193,9 +2197,13 @@ dependencies = [
  "egui",
  "example-plugin",
  "libc",
- "logic-analyzer-graph-api",
+ "logic-analyzer-graph-capabilities",
  "logic-analyzer-graph-compiler",
  "logic-analyzer-graph-nodes",
+ "logic-analyzer-graph-orchestration",
+ "logic-analyzer-graph-plan",
+ "logic-analyzer-graph-registry",
+ "logic-analyzer-graph-runtime",
  "logic-analyzer-platform",
  "logic-analyzer-processing",
  "logic-analyzer-ui",
@@ -2211,7 +2219,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "logic-analyzer-graph-api"
+name = "logic-analyzer-graph-capabilities"
 version = "0.1.0"
 dependencies = [
  "inventory",
@@ -2226,8 +2234,9 @@ name = "logic-analyzer-graph-compiler"
 version = "0.1.0"
 dependencies = [
  "blake3",
- "inventory",
- "logic-analyzer-graph-api",
+ "logic-analyzer-graph-capabilities",
+ "logic-analyzer-graph-plan",
+ "logic-analyzer-graph-registry",
  "node-graph",
  "serde",
  "serde_json",
@@ -2240,7 +2249,8 @@ version = "0.1.0"
 dependencies = [
  "egui",
  "inventory",
- "logic-analyzer-graph-api",
+ "logic-analyzer-graph-capabilities",
+ "logic-analyzer-graph-registry",
  "logic-analyzer-processing",
  "logic-analyzer-test-support",
  "logic-analyzer-viewer",
@@ -2250,6 +2260,53 @@ dependencies = [
  "signal-processing",
  "tempfile",
  "wasm-bindgen-test",
+]
+
+[[package]]
+name = "logic-analyzer-graph-orchestration"
+version = "0.1.0"
+dependencies = [
+ "logic-analyzer-graph-capabilities",
+ "logic-analyzer-graph-compiler",
+ "logic-analyzer-graph-plan",
+ "logic-analyzer-graph-runtime",
+ "node-graph",
+ "serde",
+ "serde_json",
+ "signal-processing",
+]
+
+[[package]]
+name = "logic-analyzer-graph-plan"
+version = "0.1.0"
+dependencies = [
+ "logic-analyzer-graph-capabilities",
+ "node-graph",
+ "serde",
+ "serde_json",
+ "signal-processing",
+]
+
+[[package]]
+name = "logic-analyzer-graph-registry"
+version = "0.1.0"
+dependencies = [
+ "inventory",
+ "logic-analyzer-graph-capabilities",
+ "node-graph",
+ "signal-processing",
+]
+
+[[package]]
+name = "logic-analyzer-graph-runtime"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "logic-analyzer-graph-capabilities",
+ "logic-analyzer-graph-plan",
+ "node-graph",
+ "serde_json",
+ "signal-processing",
 ]
 
 [[package]]
@@ -2265,9 +2322,10 @@ dependencies = [
  "input-bindings",
  "js-sys",
  "logic-analyzer-capture-export",
- "logic-analyzer-graph-api",
- "logic-analyzer-graph-compiler",
+ "logic-analyzer-graph-capabilities",
  "logic-analyzer-graph-nodes",
+ "logic-analyzer-graph-orchestration",
+ "logic-analyzer-graph-runtime",
  "logic-analyzer-processing",
  "logic-analyzer-test-support",
  "logic-analyzer-ui",
@@ -2325,8 +2383,12 @@ dependencies = [
  "egui",
  "input-bindings",
  "inventory",
- "logic-analyzer-graph-api",
+ "logic-analyzer-graph-capabilities",
  "logic-analyzer-graph-compiler",
+ "logic-analyzer-graph-orchestration",
+ "logic-analyzer-graph-plan",
+ "logic-analyzer-graph-registry",
+ "logic-analyzer-graph-runtime",
  "logic-analyzer-viewer",
  "node-graph",
  "panel-layout",

@@ -4,9 +4,10 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_api::node::RuntimeBuilder;
-use logic_analyzer_graph_api::node_support::{NodeBuildContext, PortKind, ResolvedInputs};
+use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node_support::{NodeBuildContext, PortKind, ResolvedInputs};
 use logic_analyzer_processing::ProcessNodeConstruction;
+use logic_analyzer_processing::nodes::sinks::OutputOrigin;
 use logic_analyzer_processing::nodes::sinks::text_file_writer::{
     TextFileWriterFactory, unavailable_writer_factory,
 };
@@ -33,8 +34,8 @@ impl TextFileWriterBuilder {
 
 pub(crate) fn runtime_builder_override(
     writer_factory: Arc<dyn TextFileWriterFactory>,
-) -> logic_analyzer_graph_api::node::RuntimeBuilderOverride {
-    logic_analyzer_graph_api::node::RuntimeBuilderOverride::new(
+) -> logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride {
+    logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride::new(
         "org.logicconduit.graph-node.sinks.text-file-writer/v1",
         Box::new(TextFileWriterBuilder::with_writer_factory(writer_factory)),
     )
@@ -64,11 +65,20 @@ impl RuntimeBuilder for TextFileWriterBuilder {
         &self,
         name: &str,
         _state: &Value,
-        _resolved: &ResolvedInputs,
+        resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
+        let source = resolved
+            .get(0, 0)
+            .ok_or_else(|| "Text File Writer lines input is not connected".to_owned())?;
         self.writer_factory
-            .create(name)
+            .create(
+                name,
+                OutputOrigin::new(
+                    source.source_node_title.clone(),
+                    source.source_output_title.clone(),
+                ),
+            )
             .map(ProcessNodeConstruction::into_process)
     }
 }

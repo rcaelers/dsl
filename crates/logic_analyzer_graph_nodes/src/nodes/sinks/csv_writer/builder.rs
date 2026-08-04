@@ -4,11 +4,12 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_api::node::RuntimeBuilder;
-use logic_analyzer_graph_api::node_support::{
+use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
 use logic_analyzer_processing::ProcessNodeConstruction;
+use logic_analyzer_processing::nodes::sinks::OutputOrigin;
 use logic_analyzer_processing::nodes::sinks::csv_word_writer::{
     CsvValueFormat, CsvWordWriterConfig, CsvWordWriterFactory, unavailable_writer_factory,
 };
@@ -35,8 +36,8 @@ impl CsvWriterBuilder {
 
 pub(crate) fn runtime_builder_override(
     writer_factory: Arc<dyn CsvWordWriterFactory>,
-) -> logic_analyzer_graph_api::node::RuntimeBuilderOverride {
-    logic_analyzer_graph_api::node::RuntimeBuilderOverride::new(
+) -> logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride {
+    logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride::new(
         "org.logicconduit.graph-node.sinks.csv-writer/v1",
         Box::new(CsvWriterBuilder::with_writer_factory(writer_factory)),
     )
@@ -96,6 +97,9 @@ impl RuntimeBuilder for CsvWriterBuilder {
         let static_filename = state.filename.value.trim();
         let static_filename = (resolved.kind(1).is_none() && !static_filename.is_empty())
             .then(|| static_filename.to_owned());
+        let source = resolved
+            .get(0, 0)
+            .ok_or_else(|| "CSV Writer data input is not connected".to_owned())?;
         self.writer_factory
             .create(
                 name,
@@ -103,6 +107,10 @@ impl RuntimeBuilder for CsvWriterBuilder {
                     format,
                     (!header.is_empty()).then(|| header.to_owned()),
                     static_filename,
+                ),
+                OutputOrigin::new(
+                    source.source_node_title.clone(),
+                    source.source_output_title.clone(),
                 ),
             )
             .map(ProcessNodeConstruction::into_process)

@@ -7,7 +7,7 @@ use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use serde::{Deserialize, Serialize};
 use web_time::{Instant, SystemTime, UNIX_EPOCH};
 
-use logic_analyzer_graph_api::node::CaptureGraphSourceFactory;
+use logic_analyzer_graph_capabilities::node::CaptureGraphSourceFactory;
 use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
 use signal_processing::{
     AcquisitionContext, ArtifactKey, ArtifactNamespace, ArtifactRepository,
@@ -1629,8 +1629,8 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::{Duration, Instant};
 
-    use logic_analyzer_graph_api::node::{CaptureGraphSourceFactory, LiveCaptureFeature};
-    use logic_analyzer_graph_api::node_support::SimpleTriggerChannel;
+    use logic_analyzer_graph_capabilities::node::{CaptureGraphSourceFactory, LiveCaptureFeature};
+    use logic_analyzer_graph_capabilities::node_support::SimpleTriggerChannel;
     use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
     use node_graph::NodeId;
     use signal_processing::{

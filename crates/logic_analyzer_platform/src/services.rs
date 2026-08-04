@@ -1,7 +1,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use logic_analyzer_graph_api::node::DirectoryNodeCatalog;
+use logic_analyzer_graph_capabilities::node::DirectoryNodeCatalog;
 use logic_analyzer_ui::AppServices;
 use signal_processing::{
     ArtifactRepository, WorkExecutor, WorkerExecutionCapability, WorkerOperationExecutor,

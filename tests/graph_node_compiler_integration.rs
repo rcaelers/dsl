@@ -2,14 +2,18 @@ mod integration_tests_support;
 
 use std::sync::Arc;
 
-use logic_analyzer_graph_api::node::{RuntimeBuilder, graph_node_registrations};
-use logic_analyzer_graph_api::node_support::{
+use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, TimelineMarkerEdit, TimelineMarkerReference, ViewerOutputControl,
 };
-use logic_analyzer_graph_compiler::{
-    CompileCtx, CompiledGraph, GraphCompiler, GraphWorkerMessage, GraphWorkerRequest,
-    GraphWorkerRuntime, LiveAnalysisSource, OutputSubscriptionPlan, SourceArtifactReadiness,
-    SourceDataKind, SourceProcessOverrides,
+use logic_analyzer_graph_orchestration::{
+    GraphWorkerMessage, GraphWorkerRequest, GraphWorkerRuntime,
+};
+use logic_analyzer_graph_plan::{OutputSubscriptionPlan, ProcessingGraph};
+use logic_analyzer_graph_registry::graph_node_registrations;
+use logic_analyzer_graph_runtime::{
+    GraphRunContext, LiveAnalysisSource, SourceArtifactReadiness, SourceDataKind,
+    SourceProcessOverrides,
 };
 use node_graph::{GraphState, NodeGraphWidget, NodeId};
 use signal_processing::{
@@ -20,7 +24,7 @@ use signal_processing::{
     TextLaneSnapshot, Trigger, TriggerLaneSnapshot, Word,
 };
 
-use integration_tests_support as nodes;
+use integration_tests_support::{self as nodes, GraphHarness};
 
 fn selected_outputs(graph: &GraphState) -> Vec<(NodeId, usize)> {
     let builders: std::collections::HashMap<String, Box<dyn RuntimeBuilder>> =
@@ -60,7 +64,7 @@ fn selected_outputs(graph: &GraphState) -> Vec<(NodeId, usize)> {
 }
 
 fn retained_output_endpoints(
-    compiled: &CompiledGraph,
+    compiled: &ProcessingGraph,
 ) -> std::collections::HashSet<(NodeId, usize)> {
     compiled
         .nodes
@@ -146,9 +150,10 @@ fn all_bundled_demo_documents_load_and_lower_without_schema_repair() {
             .unwrap_or_else(|error| panic!("{name} should deserialize as a graph: {error}"));
         let mut widget = NodeGraphWidget::new(nodes::build_registry());
         widget.set_graph(graph);
-        let mut compiler = GraphCompiler::new();
+        let mut compiler = GraphHarness::new();
         compiler.set_output_subscriptions(subscriptions);
         compiler
+            .lowerer()
             .lower(widget.graph())
             .unwrap_or_else(|errors| panic!("{name} should lower: {errors:?}"));
     }
@@ -159,7 +164,7 @@ fn binary_decoder_demo_fixture_lowers_with_built_in_nodes() {
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
     nodes::build_binary_decoder_demo(&mut widget);
     let source_name = nodes::node_name("org.logicconduit.graph-node.sources.sigrok-file-source/v1");
-    let compiler = GraphCompiler::new();
+    let compiler = GraphHarness::new();
     let selected_nodes = selected_outputs(widget.graph())
         .into_iter()
         .map(|(node, _)| node)
@@ -176,6 +181,7 @@ fn binary_decoder_demo_fixture_lowers_with_built_in_nodes() {
     assert_eq!(derived_lanes, 0);
 
     let preview = compiler
+        .lowerer()
         .discover_capture_presentation(widget.graph())
         .unwrap()
         .expect("demo source should provide a pre-run capture preview");
@@ -194,6 +200,7 @@ fn binary_decoder_demo_fixture_lowers_with_built_in_nodes() {
     );
 
     let compiled = compiler
+        .lowerer()
         .lower(widget.graph())
         .expect("demo should lower cleanly");
     assert_eq!(widget.graph().nodes.len(), 9);
@@ -214,13 +221,14 @@ fn event_controls_demo_fixture_loads_lowers_and_executes() {
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
     widget.set_graph(graph);
 
-    let mut compiler = GraphCompiler::new();
+    let mut compiler = GraphHarness::new();
     compiler.set_output_subscriptions(
         (1..=5)
             .map(|node| (NodeId(node), 0))
             .collect::<OutputSubscriptionPlan>(),
     );
     let compiled = compiler
+        .lowerer()
         .lower(widget.graph())
         .expect("event-controls demo should lower");
     assert_eq!(widget.graph().nodes.len(), 6);
@@ -252,10 +260,14 @@ fn event_controls_demo_fixture_loads_lowers_and_executes() {
         );
     }
 
-    let mut context = CompileCtx::default();
+    let mut context = GraphRunContext::default();
     let lanes = context.derived_lanes().clone();
     let mut run = compiler
-        .start_app_run(widget.graph(), &mut context)
+        .start(
+            compiler.lowerer().lower(widget.graph()).unwrap(),
+            &mut context,
+            Default::default(),
+        )
         .expect("event-controls demo should start");
     run.wait();
 
@@ -338,11 +350,15 @@ fn worker_hosted_large_timeline_returns_bounded_artifacts_and_loadable_cached_la
     );
     assert!(receiver.is_idle());
 
-    let mut compiler = GraphCompiler::new();
+    let mut compiler = GraphHarness::new();
     compiler.set_artifact_repository(destination);
     compiler.set_output_subscriptions(subscriptions);
-    let mut context = CompileCtx::default();
-    assert!(compiler.load_cached_data(&graph, &mut context).unwrap());
+    let mut context = GraphRunContext::default();
+    assert!(
+        compiler
+            .load_cached_data(compiler.lowerer().lower(&graph).unwrap(), &mut context)
+            .unwrap()
+    );
     assert_eq!(context.derived_lanes().opaque_lanes().len(), 5);
 }
 
@@ -354,7 +370,7 @@ fn timeline_markers_demo_discovers_moves_and_executes_marker_conversions() {
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
     widget.set_graph(graph);
 
-    let mut compiler = GraphCompiler::new();
+    let mut compiler = GraphHarness::new();
     compiler.set_output_subscriptions(
         [
             (NodeId(2), 0),
@@ -366,6 +382,7 @@ fn timeline_markers_demo_discovers_moves_and_executes_marker_conversions() {
         .collect(),
     );
     let markers = compiler
+        .lowerer()
         .discover_timeline_markers(widget.graph())
         .expect("timeline markers should be discoverable");
     assert_eq!(markers.len(), 2);
@@ -375,6 +392,7 @@ fn timeline_markers_demo_discovers_moves_and_executes_marker_conversions() {
     assert_eq!(markers[1].marker.timestamp_ns, 650_000);
 
     let moved = compiler
+        .lowerer()
         .apply_timeline_marker_edit(
             widget.graph(),
             NodeId(0),
@@ -386,20 +404,27 @@ fn timeline_markers_demo_discovers_moves_and_executes_marker_conversions() {
         .expect("host marker edit should route to its owner");
     assert!(widget.edit_node_state(NodeId(0), moved));
     assert_eq!(
-        compiler.discover_timeline_markers(widget.graph()).unwrap()[0]
+        compiler
+            .lowerer()
+            .discover_timeline_markers(widget.graph())
+            .unwrap()[0]
             .marker
             .timestamp_ns,
         225_000
     );
 
-    let mut context = CompileCtx::default();
+    let mut context = GraphRunContext::default();
     context.set_timeline_marker(
         TimelineMarkerReference::Cursor { number: 1 },
         signal_processing::TimelineMarker::new(425_000),
     );
     let lanes = context.derived_lanes().clone();
     let mut run = compiler
-        .start_app_run(widget.graph(), &mut context)
+        .start(
+            compiler.lowerer().lower(widget.graph()).unwrap(),
+            &mut context,
+            Default::default(),
+        )
         .expect("timeline-markers demo should start");
     run.wait();
 
@@ -463,9 +488,10 @@ fn packet_framer_demo_fixture_loads_and_lowers() {
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
     widget.set_graph(graph);
 
-    let mut compiler = GraphCompiler::new();
+    let mut compiler = GraphHarness::new();
     compiler.set_output_subscriptions([(NodeId(2), 0)].into_iter().collect());
     let compiled = compiler
+        .lowerer()
         .lower(widget.graph())
         .expect("packet-framer demo should lower");
 
@@ -481,12 +507,16 @@ fn transaction_packets(json: &str, output: usize) -> Vec<signal_processing::Prot
     let graph: GraphState = serde_json::from_str(json).expect("demo should deserialize");
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
     widget.set_graph(graph);
-    let mut compiler = GraphCompiler::new();
+    let mut compiler = GraphHarness::new();
     compiler.set_output_subscriptions([(NodeId(1), output)].into_iter().collect());
-    let mut context = CompileCtx::default();
+    let mut context = GraphRunContext::default();
     let lanes = context.derived_lanes().clone();
     let mut run = compiler
-        .start_app_run(widget.graph(), &mut context)
+        .start(
+            compiler.lowerer().lower(widget.graph()).unwrap(),
+            &mut context,
+            Default::default(),
+        )
         .expect("transaction demo should start");
     run.wait();
 
@@ -576,7 +606,7 @@ fn word_matcher_demo_fixture_loads_lowers_and_executes() {
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
     widget.set_graph(graph);
 
-    let mut compiler = GraphCompiler::new();
+    let mut compiler = GraphHarness::new();
     compiler.set_output_subscriptions(
         [(2, 0), (2, 2), (3, 0), (3, 2), (4, 0), (4, 2)]
             .into_iter()
@@ -584,6 +614,7 @@ fn word_matcher_demo_fixture_loads_lowers_and_executes() {
             .collect::<OutputSubscriptionPlan>(),
     );
     let compiled = compiler
+        .lowerer()
         .lower(widget.graph())
         .expect("word-matcher demo should lower");
     assert_eq!(widget.graph().nodes.len(), 6);
@@ -602,15 +633,17 @@ fn word_matcher_demo_fixture_loads_lowers_and_executes() {
         .expect("set matcher should be present");
     assert_eq!(
         explicit_rearm.resolved.kind(1),
-        Some(logic_analyzer_graph_api::node_support::PortKind::of::<
-            Trigger,
-        >())
+        Some(logic_analyzer_graph_capabilities::node_support::PortKind::of::<Trigger>())
     );
 
-    let mut context = CompileCtx::default();
+    let mut context = GraphRunContext::default();
     let lanes = context.derived_lanes().clone();
     let mut run = compiler
-        .start_app_run(widget.graph(), &mut context)
+        .start(
+            compiler.lowerer().lower(widget.graph()).unwrap(),
+            &mut context,
+            Default::default(),
+        )
         .expect("word-matcher demo should start");
     run.wait();
 
@@ -657,13 +690,14 @@ fn built_in_startup_graph_lowers_with_explicit_subscriptions() {
         select_output(&mut widget, node, output);
     }
 
-    let mut compiler = GraphCompiler::new();
+    let mut compiler = GraphHarness::new();
     compiler.set_output_subscriptions(
         selected_outputs(widget.graph())
             .into_iter()
             .collect::<OutputSubscriptionPlan>(),
     );
     let compiled = compiler
+        .lowerer()
         .lower(widget.graph())
         .unwrap_or_else(|errors| panic!("lower failed: {errors:?}"));
 
@@ -701,11 +735,11 @@ fn built_in_startup_graph_lowers_with_explicit_subscriptions() {
         .flat_map(|node| node.resolved.members(0))
         .collect::<Vec<_>>();
     assert!(lanes.iter().any(|(_, input)| {
-        input.kind == logic_analyzer_graph_api::node_support::PortKind::of::<Word>()
+        input.kind == logic_analyzer_graph_capabilities::node_support::PortKind::of::<Word>()
             && input.source == "SPI Decoder.MOSI Bits"
     }));
     assert!(lanes.iter().any(|(_, input)| {
-        input.kind == logic_analyzer_graph_api::node_support::PortKind::of::<Trigger>()
+        input.kind == logic_analyzer_graph_capabilities::node_support::PortKind::of::<Trigger>()
             && input.source == "Match Start.Match"
     }));
 
@@ -721,13 +755,11 @@ fn built_in_startup_graph_lowers_with_explicit_subscriptions() {
         .unwrap();
     assert_eq!(
         spi.resolved.kind(0),
-        Some(logic_analyzer_graph_api::node_support::PortKind::of::<Sample>())
+        Some(logic_analyzer_graph_capabilities::node_support::PortKind::of::<Sample>())
     );
     assert_eq!(
         decoder.resolved.kind(0),
-        Some(logic_analyzer_graph_api::node_support::PortKind::of::<
-            SampleBlock,
-        >())
+        Some(logic_analyzer_graph_capabilities::node_support::PortKind::of::<SampleBlock>())
     );
 }
 
@@ -754,14 +786,18 @@ fn built_in_binary_demo_executes_and_publishes_sampling_and_latch_data() {
     let subscriptions: OutputSubscriptionPlan =
         selected_outputs(widget.graph()).into_iter().collect();
     let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
-    let mut compiler = GraphCompiler::new();
+    let mut compiler = GraphHarness::new();
     compiler.set_output_subscriptions(subscriptions.clone());
     compiler.set_artifact_repository(Arc::clone(&repository));
-    let compiled = compiler.lower(widget.graph()).unwrap();
-    let mut context = logic_analyzer_graph_compiler::CompileCtx::default();
+    let compiled = compiler.lowerer().lower(widget.graph()).unwrap();
+    let mut context = GraphRunContext::default();
     let lanes = context.derived_lanes().clone();
     let mut run = compiler
-        .start_app_run(widget.graph(), &mut context)
+        .start(
+            compiler.lowerer().lower(widget.graph()).unwrap(),
+            &mut context,
+            Default::default(),
+        )
         .unwrap();
     let sampling = context.take_sampling_overlays();
     run.wait();
@@ -798,13 +834,16 @@ fn built_in_binary_demo_executes_and_publishes_sampling_and_latch_data() {
             .all(|point| { point.values.len() == spi_sampling.overlay().sampled_channels.len() })
     );
 
-    let mut reopened_compiler = GraphCompiler::new();
+    let mut reopened_compiler = GraphHarness::new();
     reopened_compiler.set_output_subscriptions(subscriptions);
     reopened_compiler.set_artifact_repository(repository);
-    let mut reopened_context = CompileCtx::default();
+    let mut reopened_context = GraphRunContext::default();
     assert!(
         reopened_compiler
-            .load_cached_data(widget.graph(), &mut reopened_context)
+            .load_cached_data(
+                reopened_compiler.lowerer().lower(widget.graph()).unwrap(),
+                &mut reopened_context
+            )
             .unwrap()
     );
     let reopened_sampling = reopened_context.take_sampling_overlays();
@@ -990,6 +1029,7 @@ fn built_in_live_analysis_matches_finalized_replay_using_source_override() {
 
     let live_compiler = nodes::test_live_compiler(subscriptions.clone());
     let captured_feature = live_compiler
+        .lowerer()
         .discover_live_capture_feature(widget.graph())
         .unwrap()
         .expect("test graph has a live capture feature");
@@ -1009,11 +1049,11 @@ fn built_in_live_analysis_matches_finalized_replay_using_source_override() {
     let source = graph_source_factory
         .create(Box::new(store.open_cursor().unwrap()))
         .unwrap();
-    let mut live_context = CompileCtx::default();
+    let mut live_context = GraphRunContext::default();
     let live_lanes = live_context.derived_lanes().clone();
     let mut live_run = live_compiler
         .start_live_analysis(
-            widget.graph(),
+            live_compiler.lowerer().lower(widget.graph()).unwrap(),
             &mut live_context,
             LiveAnalysisSource {
                 source_node,
@@ -1065,14 +1105,18 @@ fn built_in_live_analysis_matches_finalized_replay_using_source_override() {
     let replay_source = graph_source_factory
         .create(Box::new(finalized.open_cursor().unwrap()))
         .unwrap();
-    let mut replay_compiler = GraphCompiler::new();
+    let mut replay_compiler = GraphHarness::new();
     replay_compiler.set_output_subscriptions(subscriptions);
-    let mut replay_context = CompileCtx::default();
+    let mut replay_context = GraphRunContext::default();
     let replay_lanes = replay_context.derived_lanes().clone();
     let mut overrides = SourceProcessOverrides::new();
     overrides.insert(source_node, replay_source);
     let mut replay_run = replay_compiler
-        .start_app_run_with_source_overrides(widget.graph(), &mut replay_context, overrides)
+        .start(
+            replay_compiler.lowerer().lower(widget.graph()).unwrap(),
+            &mut replay_context,
+            overrides,
+        )
         .unwrap();
     while !replay_run.is_finished() {
         replay_run.pump(1_024);
@@ -1104,22 +1148,29 @@ fn built_in_binary_cached_preview_restores_every_built_in_lane_payload() {
     let subscriptions = selected_outputs(widget.graph())
         .into_iter()
         .collect::<OutputSubscriptionPlan>();
-    let mut compiler = GraphCompiler::new();
+    let mut compiler = GraphHarness::new();
     compiler.set_output_subscriptions(subscriptions);
 
-    let mut first_context = CompileCtx::default();
+    let mut first_context = GraphRunContext::default();
     let mut first = compiler
-        .start_app_run(widget.graph(), &mut first_context)
+        .start(
+            compiler.lowerer().lower(widget.graph()).unwrap(),
+            &mut first_context,
+            Default::default(),
+        )
         .unwrap();
     first.wait();
     assert!(!first.persistent_cache_configs().is_empty());
     drop((first, first_context));
 
-    let mut second_context = CompileCtx::default();
+    let mut second_context = GraphRunContext::default();
     let lanes = second_context.derived_lanes().clone();
     assert!(
         compiler
-            .load_cached_data(widget.graph(), &mut second_context)
+            .load_cached_data(
+                compiler.lowerer().lower(widget.graph()).unwrap(),
+                &mut second_context
+            )
             .unwrap(),
         "the completed run should be available without executing the graph"
     );
@@ -1159,15 +1210,21 @@ fn built_in_binary_cached_preview_restores_every_built_in_lane_payload() {
 fn built_in_graph_json_round_trip_compiles_identically() {
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
     nodes::populate_startup(&mut widget);
-    let compiler = GraphCompiler::new();
-    let original = compiler.lower(widget.graph()).expect("original lowers");
+    let compiler = GraphHarness::new();
+    let original = compiler
+        .lowerer()
+        .lower(widget.graph())
+        .expect("original lowers");
 
     let json = serde_json::to_string(widget.graph()).expect("graph serializes");
     let restored_state: GraphState = serde_json::from_str(&json).expect("graph deserializes");
     let mut restored = NodeGraphWidget::new(nodes::build_registry());
     restored.set_graph(restored_state);
 
-    let reloaded = compiler.lower(restored.graph()).expect("restored lowers");
+    let reloaded = compiler
+        .lowerer()
+        .lower(restored.graph())
+        .expect("restored lowers");
 
     assert_eq!(original.nodes.len(), reloaded.nodes.len());
     for (before, after) in original.nodes.iter().zip(&reloaded.nodes) {
@@ -1178,7 +1235,7 @@ fn built_in_graph_json_round_trip_compiles_identically() {
     assert_eq!(compiled_edges(&original), compiled_edges(&reloaded));
 }
 
-fn compiled_edges(compiled: &CompiledGraph) -> Vec<String> {
+fn compiled_edges(compiled: &ProcessingGraph) -> Vec<String> {
     let mut edges = compiled
         .edges
         .iter()

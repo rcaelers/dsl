@@ -1,4 +1,4 @@
-use logic_analyzer_graph_compiler::ResolvedSamplingOverlay;
+use logic_analyzer_graph_plan::ResolvedSamplingOverlay;
 use logic_analyzer_viewer::SamplingOverlay;
 
 pub(crate) fn sampling_overlay_presentation(resolved: &ResolvedSamplingOverlay) -> SamplingOverlay {

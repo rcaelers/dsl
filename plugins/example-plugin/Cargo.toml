@@ -9,7 +9,8 @@ path = "src/lib.rs"
 
 [dependencies]
 signal-processing = { path = "../../crates/signal_processing" }
-logic-analyzer-graph-api = { path = "../../crates/logic_analyzer_graph_api" }
+logic-analyzer-graph-capabilities = { path = "../../crates/logic_analyzer_graph_capabilities" }
+logic-analyzer-graph-registry = { path = "../../crates/logic_analyzer_graph_registry" }
 logic-analyzer-ui = { path = "../../crates/logic_analyzer_ui" }
 logic-analyzer-viewer = { path = "../../crates/widgets/logic_analyzer_viewer" }
 node-graph = { path = "../../crates/widgets/node_graph" }

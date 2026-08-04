@@ -58,22 +58,15 @@ fn generic_compiler_contains_no_concrete_capture_provider_or_decoder_host() {
 }
 
 #[test]
-fn inventory_assembly_does_not_import_the_builtin_node_module() {
-    let sources = [
-        ("graph compiler", include_str!("graph.rs")),
-        (
-            "graph-node inventory",
-            include_str!("graph_node_registration.rs"),
-        ),
-        ("payload inventory", include_str!("payload_registration.rs")),
-    ];
+fn registry_consumption_does_not_import_the_builtin_node_module() {
+    let sources = [("graph compiler", include_str!("graph.rs"))];
 
     for (component, source) in sources {
         let implementation = implementation_source(source);
         assert!(
             !implementation.contains("crate::nodes")
                 && !implementation.contains("logic_analyzer_graph_nodes"),
-            "{component} must consume inventory contracts without importing built-in nodes"
+            "{component} must consume registry contracts without importing built-in nodes"
         );
     }
 }
@@ -85,17 +78,18 @@ fn compiler_manifest_has_no_concrete_graph_node_dependency() {
         !manifest.contains("logic-analyzer-graph-nodes"),
         "compiler tests must use local runtime-builder contracts; built-in-node composition belongs in the workspace integration package"
     );
+    assert!(manifest.contains("logic-analyzer-graph-registry"));
+    assert!(manifest.contains("logic-analyzer-graph-plan"));
+    assert!(!manifest.contains("logic-analyzer-graph-runtime"));
+    assert!(
+        !manifest.contains("inventory ="),
+        "compiler must not collect plugin inventory directly"
+    );
 }
 
 #[test]
 fn compiler_does_not_construct_editor_registries() {
-    let sources = [
-        ("compiler facade", include_str!("graph_compiler.rs")),
-        (
-            "runtime inventory",
-            include_str!("graph_node_registration.rs"),
-        ),
-    ];
+    let sources = [("compiler facade", include_str!("graph_lowerer.rs"))];
 
     for (component, source) in sources {
         let implementation = implementation_source(source);
@@ -110,7 +104,7 @@ fn compiler_does_not_construct_editor_registries() {
 
 #[test]
 fn compiler_facade_exposes_no_viewer_selection_controls() {
-    let facade = implementation_source(include_str!("graph_compiler.rs"));
+    let facade = implementation_source(include_str!("graph_lowerer.rs"));
     for token in [
         "synchronize_viewer_selections",
         "viewer_output_selections",
@@ -126,7 +120,7 @@ fn compiler_facade_exposes_no_viewer_selection_controls() {
 
 #[test]
 fn production_compiler_consumes_application_supplied_output_subscriptions() {
-    let facade = implementation_source(include_str!("graph_compiler.rs"));
+    let facade = implementation_source(include_str!("graph_lowerer.rs"));
     assert!(
         facade.contains("OutputSubscriptionPlan"),
         "compiler facade must accept the application-owned subscription plan"
@@ -181,45 +175,49 @@ fn compiler_has_no_production_ui_dependencies() {
 }
 
 #[test]
-fn compiler_tests_build_graph_documents_without_the_widget() {
-    let tests = include_str!("graph.rs")
-        .split_once("#[cfg(test)]\nmod tests")
-        .expect("graph test module boundary")
-        .1;
-    assert!(tests.contains("GraphDocumentBuilder"));
-    assert!(!tests.contains("NodeGraphWidget"));
-    assert!(!tests.contains("egui::"));
-}
-
-#[test]
-fn compiler_cache_policy_uses_its_storage_backend_contract() {
-    let policy = implementation_source(include_str!("cache_policy.rs"));
-    assert!(!policy.contains("IndexedAnnotationStore"));
-    assert!(policy.contains("derived_word_store::cleanup_cache"));
-
-    let adapter = implementation_source(include_str!("derived_cache_backend.rs"));
-    assert!(adapter.contains("IndexedAnnotationStore::open_persistent"));
-    assert!(!adapter.contains("derived_word_store::cleanup_cache"));
-
+fn compiler_facade_contains_only_compilation_owners() {
     let facade = include_str!("lib.rs");
-    assert!(!facade.contains("cache_platform_native"));
-    assert!(!facade.contains("cache_platform_wasm"));
-    assert!(!facade.contains("target_arch = \"wasm32\""));
+    assert!(
+        !facade.contains("pub(crate) use"),
+        "crate-internal consumers must import owning modules directly instead of using the crate facade"
+    );
+    for forbidden in [
+        "graph_compiler",
+        "cache_policy",
+        "run_data",
+        "source_preparation",
+        "worker_client",
+        "worker_execution",
+        "GraphWorker",
+        "LiveRun",
+    ] {
+        assert!(
+            !facade.contains(forbidden),
+            "compiler facade retains runtime owner {forbidden}"
+        );
+    }
+
+    let lowerer = implementation_source(include_str!("graph_lowerer.rs"));
+    for forbidden in [
+        "AppManager",
+        "ArtifactRepository",
+        "WorkExecutor",
+        "SourcePreparation",
+        "GraphWorkerClient",
+        "LiveRun",
+    ] {
+        assert!(
+            !lowerer.contains(forbidden),
+            "stateless lowerer retains {forbidden}"
+        );
+    }
 }
 
 #[test]
 fn compiler_uses_only_the_node_graph_api_namespace() {
     let sources = [
-        ("cache policy", include_str!("cache_policy.rs")),
         ("data collector", include_str!("data_collector.rs")),
-        (
-            "derived-cache contract",
-            include_str!("derived_cache_backend.rs"),
-        ),
-        ("errors", include_str!("errors.rs")),
-        ("compiler facade", include_str!("graph_compiler.rs")),
-        ("subscriptions", include_str!("output_subscription.rs")),
-        ("run data", include_str!("run_data.rs")),
+        ("compiler facade", include_str!("graph_lowerer.rs")),
     ];
 
     for (component, source) in sources {
@@ -234,40 +232,11 @@ fn compiler_uses_only_the_node_graph_api_namespace() {
         }
     }
 
-    let graph = include_str!("graph.rs")
-        .split_once("#[cfg(test)]\nmod tests")
-        .expect("graph test module boundary")
-        .0;
+    let graph = include_str!("graph.rs");
     for line in graph.lines().filter(|line| line.contains("node_graph::")) {
         assert!(
             line.contains("node_graph::api::"),
             "compiler graph lowering bypasses node_graph::api: {line}"
         );
-    }
-}
-
-#[test]
-fn run_data_contract_is_application_neutral() {
-    let implementation = include_str!("run_data.rs");
-    for forbidden in [
-        "logic_analyzer_viewer",
-        "egui::",
-        "DecoderTableRegistry",
-        "WaveformPresentationRegistry",
-        "NodeGraphWidget",
-    ] {
-        assert!(
-            !implementation.contains(forbidden),
-            "run-data contract contains UI type {forbidden}"
-        );
-    }
-    for required in [
-        "DerivedLanes",
-        "CollectedOutputSubscription",
-        "CollectedTableSubscription",
-        "RunDiagnosticRegistry",
-        "SourceReadinessRegistry",
-    ] {
-        assert!(implementation.contains(required));
     }
 }

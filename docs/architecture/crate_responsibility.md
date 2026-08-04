@@ -22,10 +22,13 @@ runtime or in the application UI.
 | --- | --- | --- |
 | `signal_processing` | Generic processing runtime and generic capture, storage, indexing, derived-data, and acquisition contracts | Concrete sources, protocols, formats, widgets, graph documents, or target selection |
 | `logic_analyzer_processing` | Concrete UI-independent sources, decoders, processing nodes, formats, devices, and sinks | Graph editor definitions, widget presentation, host selection, or application lifecycle |
-| `logic_analyzer_graph_api` | Compile-time graph-node and payload-plugin contracts | Built-in nodes, compiler policy, UI state, or platform adapters; its current directory-catalog path contract is a documented exception to remove |
+| `logic_analyzer_graph_capabilities` | Graph-node and payload capability contracts | Inventory assembly, built-in nodes, compiler policy, UI state, or platform adapters; its current directory-catalog path contract is a documented exception to remove |
+| `logic_analyzer_graph_registry` | Graph-node and payload registration descriptors, inventory collection, validation, host overrides, and immutable catalog snapshots | Graph documents, lowering, generated collectors, execution lifetimes, UI state, or target selection |
 | `logic_analyzer_graph_nodes` | Built-in graph-node feature bundle: definitions, migrations, builders, payloads, and presentation metadata | Generic lowering, graph lifecycle, or target selection |
-| `logic_analyzer_graph_compiler` | Graph-document semantic analysis, validation, lowering, inventory-derived catalog construction, execution, source preparation, cache policy, and worker protocol | Concrete node behavior, UI selection state, widgets, or target selection |
-| `logic_analyzer_graph_runtime` (proposed) | Materialization, graph-run lifecycle, live reconciliation, source preparation, cache execution planning, and worker execution protocol | Editable graph UI state, concrete node behavior, or target selection |
+| `logic_analyzer_graph_plan` | Neutral immutable processing-graph, payload-materialization, subscription, and sampling contracts | Graph documents, lowering, registry access, execution lifetimes, UI state, or target selection |
+| `logic_analyzer_graph_compiler` | Graph-document semantic analysis, validation, lowering, and discovery | Runtime services, execution lifetimes, concrete node behavior, UI selection state, widgets, or target selection |
+| `logic_analyzer_graph_runtime` | Processing-graph materialization, graph-run lifecycle, live reconciliation, source preparation, and cache execution planning | Editable graph documents, compiler or registry services, concrete node behavior, or target selection |
+| `logic_analyzer_graph_orchestration` | Application-neutral worker protocol and composition of compiler and runtime services | Graph semantics, processing-plan contracts, concrete nodes, UI state, or target selection |
 | `logic_analyzer_viewer` | Generic waveform and derived-lane presentation | Node/protocol special cases, graph compilation, or source acquisition |
 | `node_graph` | Generic graph document model, definitions, persistence reconciliation, and editor widget | Concrete node behavior, compiler policy, or host dialog implementation |
 | `logic_analyzer_ui` | Application interaction and panel composition through explicit service ports | Concrete node definitions, target selection, processing execution policy, or host I/O |
@@ -34,10 +37,9 @@ runtime or in the application UI.
 | `logic_analyzer_test_support` | Cross-crate deterministic fixtures and contract-conformance helpers | Production composition and concrete UI behavior |
 | Application crates | Thin native/web bootstrap and enabled-inventory composition | Reusable services, policy, storage, indexing, or execution |
 
-The current source tree follows most of these directions. The principal mismatch is that
-`logic_analyzer_graph_compiler` currently owns both lowering and graph execution through
-`GraphCompiler`, `LiveRun`, source preparation, cache policy, and graph-worker types. This is a
-real responsibility boundary, rather than a naming issue.
+The graph boundary separates document semantics from work with an execution lifetime. Compiler
+calls are safe for validation and discovery-only hosts; runtime calls consume their immutable
+plans and injected execution services.
 
 ## Dependency direction
 
@@ -45,67 +47,72 @@ The target dependency graph is acyclic. An arrow means "depends on"; inventory c
 not create a dependency from generic compiler/runtime crates to a built-in node bundle.
 
 ```text
-applications ──> platform ──> UI ──> graph runtime ──> graph compiler ──> graph API ──> node graph
-                    │              │                    │                    │
-                    │              ├────────────────────┴────────────────────┼──> signal processing
-                    │              └─────────────────────────────────────────┴──> viewer
+applications ──> platform ──> UI ──> graph compiler ──> graph registry ──> graph capabilities
+                    │              │          └────────> graph plan ──────────────┤
+                    │              ├──────────────> graph runtime ──> graph plan ─┤
+                    │              └────────> graph orchestration ──> compiler + runtime
+                    │                                                       │
+                    └──> built-in graph nodes ──> processing ───────────────┴──> signal processing
                     │
                     └──> built-in graph nodes ──> processing ──> signal processing
-                                             ├──> graph API
+                                             ├──> graph registry ──> graph capabilities
                                              ├──> node graph
                                              └──> viewer ──> signal processing
 ```
 
-`logic_analyzer_graph_runtime` depends on the compiler's public plan and catalog contract. The
-compiler never depends on the runtime. A host can therefore validate and lower documents without
-starting a processing graph, while every execution path consumes the same already-validated plan.
+`logic_analyzer_graph_compiler` and `logic_analyzer_graph_runtime` both depend on the neutral
+`logic_analyzer_graph_plan` contract and do not depend on each other. The compiler embeds resolved
+materializer handles and payload behavior while lowering; the runtime consumes that completed
+plan. `logic_analyzer_graph_orchestration` sits above both only for worker-hosted composition.
 
-The built-in node bundle and third-party plugins submit inventory contracts without depending on
-the compiler or runtime. `logic_analyzer_graph_runtime` reads those submissions only through the
-graph API's validated catalog; there is no manifest dependency from runtime to a built-in bundle.
+The built-in node bundle and third-party plugins submit registry-owned descriptors containing
+graph-API capabilities without depending on the compiler or runtime. The compiler and UI read
+those submissions through `logic_analyzer_graph_registry`; there is no manifest dependency
+from those generic consumers to a built-in bundle.
 A plugin with optional UI presentation is split into a core feature crate and a UI companion crate;
 only the companion depends on UI or viewer extension APIs.
 
-## Proposed-future graph split
+## Graph compiler and runtime split
 
 ### Compiler
 
 The compiler has one responsibility: transform a `node_graph::api::GraphState` plus an explicit
-output-subscription plan into a deterministic `CompiledGraph` or semantic diagnostics. It owns:
+output-subscription plan into a deterministic neutral `ProcessingGraph` or semantic diagnostics. It owns:
 
-- inventory validation and a read-only node catalog;
+- read-only access to graph and payload capabilities through a registry snapshot;
 - graph traversal, pruning, socket/port and semantic-contract validation;
 - kind negotiation, edge resolution, topological validation, and stable runtime identities;
 - document-semantic discovery and edits that do not start work, such as node-owned configuration
   feature discovery;
-- compiler diagnostics and the serializable execution-plan data types.
+- compiler diagnostics.
 
-It does not retain an artifact repository, work executor, runtime-manager factory, active run,
-source-preparation generation, or worker client. `GraphCompiler` is consequently replaced by a
-stateless `GraphLowerer` or a small immutable `GraphCatalog` plus `GraphLowerer` facade. The name
-`CompiledGraph` remains the execution-plan type; it does not imply that a run exists.
+It does not retain an artifact repository, runtime-manager factory, active run, or
+source-preparation generation. `GraphLowerer` is the stateless facade over an immutable
+`GraphRegistry`.
 
 ### Graph runtime
 
 `logic_analyzer_graph_runtime` owns the operations that have an execution lifetime:
 
-- materializing `CompiledGraph` nodes through the validated catalog;
+- materializing `ProcessingGraph` nodes through compiler-resolved materializer handles;
 - adding generated data collectors and configuring generic payload collection;
 - cache lookup, cache maintenance scheduling, and persistent derived-lane preparation;
 - finite source preparation and its progress state machine;
 - `GraphRun`, run data, progress, diagnostics, stop, wait, and live graph reconciliation;
 - source-process substitution for replay and live analysis;
-- platform-neutral graph-worker request, response, and worker-runtime state machine.
 
-It receives `AppManagerFactory`, `WorkExecutor`, `ArtifactRepository`, and worker transport ports
-from composition. It does not inspect a target or directly create native threads, web workers,
+It receives `AppManagerFactory`, `WorkExecutor`, and `ArtifactRepository` from composition. It does
+not inspect a target or directly create native threads, web workers,
 paths, dialogs, USB transports, or browser objects. `signal_processing::AppManager` remains the
 generic process-node executor; graph runtime only translates one compiled graph into its node and
 connection specifications.
 
-The UI's private service port composes a lowerer and a graph runtime. This preserves a small UI
+The UI's private service adapter owns a lowerer and a separate graph runtime. It lowers the current
+document before Run or apply and passes the resulting `ProcessingGraph` into the runtime. This preserves a small UI
 test seam without making the UI downcast an arbitrary run to `LiveRun`. The platform adapter owns
-the concrete worker transport and provides it through a graph-runtime port.
+the concrete worker transport and provides it through the UI graph-service port. The neutral
+graph-orchestration crate owns the worker message, codec, client, and worker-side compiler/runtime
+composition required by that adapter.
 
 ## Graph plugin contract boundaries
 
@@ -113,8 +120,7 @@ the concrete worker transport and provides it through a graph-runtime port.
 source discovery, live capture, timeline editing, and presentation discovery. Its default methods
 make new unrelated responsibilities cheap to add, so it is a high-risk extension point.
 
-The graph API uses capability-specific contracts submitted together in one
-`GraphNodeRegistration`:
+The graph registry groups graph-API capability contracts into one `GraphNodeRegistration`:
 
 | Contract | Consumer | Responsibility |
 | --- | --- | --- |
@@ -129,7 +135,7 @@ Optional capabilities remain explicit registration fields rather than methods th
 default. The compiler can then depend only on semantics, the runtime only on materialization and
 execution capabilities, and the UI only on presentation capabilities.
 
-`DirectoryNodeCatalog` does not belong in `logic_analyzer_graph_api` in its current form because
+`DirectoryNodeCatalog` does not belong in `logic_analyzer_graph_capabilities` in its current form because
 its `PathBuf` configuration exposes a host filesystem concept from the plugin contract. The UI
 owns the portable catalog presentation port and the platform owns directory discovery and
 persistence. The cross-crate value is a catalog snapshot and diagnostic, never a host path.
@@ -184,10 +190,10 @@ Every substantial owner module answers four questions in its module documentatio
 4. Which concerns are explicitly outside its boundary?
 
 Leaf files implement one cohesive part of that owner. Large leaves are split by behavior, not by
-arbitrary line count. `logic_analyzer_graph_compiler/src/graph.rs` currently contains lowering,
-materialization, cache use, live diffing, runtime control, and tests; these become compiler
-lowering modules and graph-runtime execution modules. Similar separation applies to the runtime
-manager, capture stores, and UI coordinators when their facades expose more than one lifecycle.
+arbitrary line count. Compiler graph leaves contain document semantics and lowering, while graph
+runtime leaves contain materialization, cache use, live diffing, and runtime control. Similar
+separation applies to the runtime manager, capture stores, and UI coordinators when their facades
+expose more than one lifecycle.
 
 Crate roots remain curated facades. A root re-exports only its primary public contract and the few
 cross-domain value types necessary to use that contract. It does not become a second, flat module
@@ -220,24 +226,17 @@ The documentation structure avoids duplicating behavior in several crate documen
 document links to an aspect design for shared rules and records only how that owner satisfies the
 rule. Proposed work remains in a clearly labeled proposed-future section or in `TODO.md`.
 
-## Migration order
+## Proposed-future migration order
 
 The following order preserves behavior and saved-graph compatibility while making each reviewable
 change architectural.
 
-1. Adopt this responsibility map, add `docs/INDEX.md`, and create owner documents for the graph
-   compiler, proposed graph runtime, and `signal_processing` domains. Add architecture checks for
-   the accepted dependency graph and for host paths outside platform/application code.
-2. Split compiler lowering from execution in place, with the same public plan and diagnostics.
-   Move `LiveRun`, execution cache policy, source preparation, worker runtime, and generated
-   collectors to `logic_analyzer_graph_runtime`. Keep a short-lived compatibility façade only at
-   the old crate root.
-3. Replace the broad `RuntimeBuilder` with submitted capability contracts. Migrate every built-in
+1. Replace the broad `RuntimeBuilder` with submitted capability contracts. Migrate every built-in
    node and plugin through explicit registrations. Node migration stays beside each concrete node
    and emits its existing user-visible warnings at the load boundary.
-4. Move graph catalog directory configuration behind a UI-owned portable service and a
+2. Move graph catalog directory configuration behind a UI-owned portable service and a
    platform-owned path adapter. Split UI-capable plugins into core and presentation companions.
-5. Establish private `signal_processing` owner facades, then extract `signal_artifacts` and
+3. Establish private `signal_processing` owner facades, then extract `signal_artifacts` and
    `signal_runtime` after their dependency tests pass. Extract capture and derived domains only
    when consumers need independent release or compilation boundaries.
 
@@ -249,14 +248,18 @@ legacy behavior from names.
 ## Architectural acceptance criteria
 
 - Lowering a document neither allocates runtime storage nor starts source preparation or a graph.
-- Starting a graph consumes a `CompiledGraph` and cannot perform document-semantic rewrites.
-- `logic_analyzer_graph_compiler` has no `AppManager`, `ProcessNode`, repository, executor,
-  worker-client, or active-run field in production code.
-- `logic_analyzer_graph_runtime` has no widget, `egui`, concrete node/protocol, path, or target
-  dependency.
-- `logic_analyzer_graph_api` contains no filesystem path, dialog, or target-specific contract.
-- A core graph/runtime plugin depends only on graph API and lower-level runtime contracts; optional
-  UI/viewer behavior lives in a companion crate.
+- Starting a graph consumes a `ProcessingGraph` and cannot perform document-semantic rewrites.
+- `logic_analyzer_graph_compiler` has no graph-runtime dependency, repository, executor, or
+  active-run field.
+- `logic_analyzer_graph_runtime` has no compiler, registry, editable graph document, widget,
+  `egui`, concrete node/protocol, path, or target dependency.
+- `logic_analyzer_graph_capabilities` contains no inventory assembly, filesystem path, dialog, or
+  target-specific contract.
+- `logic_analyzer_graph_registry` contains no graph documents, lowering, execution lifecycle, UI,
+  concrete node, or target dependency.
+- A core graph plugin depends only on graph capabilities, graph registry, and lower-level runtime contracts;
+  optional UI/viewer behavior lives in a companion crate, and the graph runtime remains registry
+  independent.
 - Artifact, runtime, capture, derived, and capture-session owners have only documented downward
   dependencies and no flat root imports for new code.
 - Every public module and every independently-owned internal domain has one linked design document

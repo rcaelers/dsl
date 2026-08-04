@@ -7,11 +7,12 @@ use std::sync::{Arc, RwLock};
 use egui::{Color32, Rect, Stroke, StrokeKind};
 use serde_json::Value;
 
-use logic_analyzer_graph_api::node::{GraphNodeRegistration, PayloadRegistration, RuntimeBuilder};
-use logic_analyzer_graph_api::node_support::{
+use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node_support::{
     DefaultLanePresentationDescriptor, LaneBadgeDescriptor, NodeBuildContext, PortKind, PortValue,
     ResolvedInputs,
 };
+use logic_analyzer_graph_registry::{GraphNodeRegistration, PayloadRegistration};
 use logic_analyzer_ui::{PluginPanel, PluginPanelContext, PluginPanelIcon, UiPanelRegistration};
 use logic_analyzer_viewer::{
     OpaqueLaneDrawContext, ViewerLaneRenderer, ViewerLaneRendererRegistration, ViewerLaneTrack,

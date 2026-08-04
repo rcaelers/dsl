@@ -1,8 +1,8 @@
-use logic_analyzer_graph_api::node::GraphNodeRegistration;
+use logic_analyzer_graph_registry::{GraphNodeRegistration, graph_node_registrations};
 use node_graph::NodeTypeRegistry;
 
 fn registrations() -> impl Iterator<Item = &'static GraphNodeRegistration> {
-    inventory::iter::<GraphNodeRegistration>.into_iter()
+    graph_node_registrations().into_iter()
 }
 
 pub(crate) fn build_registry() -> NodeTypeRegistry {

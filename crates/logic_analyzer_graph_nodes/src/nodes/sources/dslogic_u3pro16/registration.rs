@@ -1,5 +1,5 @@
 inventory::submit! {
-    logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
         super::definition::DsLogicU3Pro16,
         super::builder::DsLogicU3Pro16Builder,
     >("org.logicconduit.graph-node.sources.dslogic-u3pro16/v1")

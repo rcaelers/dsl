@@ -2,7 +2,9 @@ use std::any::Any;
 
 use egui::RichText;
 
-use logic_analyzer_graph_api::node_support::{ViewerOutputPanelAction, ViewerOutputPanelModel};
+use logic_analyzer_graph_capabilities::node_support::{
+    ViewerOutputPanelAction, ViewerOutputPanelModel,
+};
 use node_graph::{NodePanelDef, NodePanelPresentation, PanelContext};
 
 struct ViewerOutputsPresentation;

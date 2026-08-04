@@ -10,10 +10,11 @@ use egui::Color32;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use logic_analyzer_graph_api::node::{GraphNodeRegistration, RuntimeBuilder};
-use logic_analyzer_graph_api::node_support::{
+use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, PortValue, ResolvedInputs,
 };
+use logic_analyzer_graph_registry::GraphNodeRegistration;
 use node_graph::api::{InputDef, NodeDef, OutputDef, Socket, SocketDef, SocketShape};
 use signal_processing::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Sample, WorkError, WorkOutcome,

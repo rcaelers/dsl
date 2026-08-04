@@ -1,12 +1,17 @@
 use std::sync::{Arc, Mutex};
 
-use logic_analyzer_graph_api::node_support::LiveCaptureEdit;
+use logic_analyzer_graph_capabilities::node_support::LiveCaptureEdit;
 use logic_analyzer_graph_compiler::{
-    ApplyError, ApplySummary, CollectedOutputSubscription, CollectedTableSubscription, CompileCtx,
-    CompileError, DerivedCacheClearStats, DerivedCacheEntrySnapshot, DiscoveredLiveCaptureFeature,
-    DiscoveredTriggerConfiguration, LiveAnalysisSource, LiveCaptureDiscoveryError,
-    OutputSubscriptionPlan, SamplingOverlayCandidate, SourcePreparationStatus,
-    SourcePreparationUpdate, SourceProcessOverrides, SourceReadinessRegistry,
+    DiscoveredLiveCaptureFeature, DiscoveredTriggerConfiguration, LiveCaptureDiscoveryError,
+};
+use logic_analyzer_graph_plan::{
+    CollectedOutputSubscription, CollectedTableSubscription, OutputSubscriptionPlan,
+    ProcessingGraphError as CompileError, SamplingOverlayCandidate,
+};
+use logic_analyzer_graph_runtime::{
+    ApplyError, ApplySummary, DerivedCacheClearStats, DerivedCacheEntrySnapshot, GraphRunContext,
+    LiveAnalysisSource, SourcePreparationStatus, SourcePreparationUpdate, SourceProcessOverrides,
+    SourceReadinessRegistry,
 };
 use node_graph::{GraphState, NodeId};
 use signal_processing::{
@@ -30,10 +35,6 @@ struct FakeGraphRun {
 }
 
 impl GraphRun for FakeGraphRun {
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
-    }
-
     fn persistent_cache_configs(&self) -> Vec<PersistentStoreConfig> {
         Vec::new()
     }
@@ -105,8 +106,8 @@ impl GraphService for FakeGraphService {
 
     fn start_clear_derived_caches(
         &self,
-    ) -> Result<logic_analyzer_graph_compiler::DerivedCacheClearTask, String> {
-        logic_analyzer_graph_compiler::GraphCompiler::new().start_clear_derived_caches()
+    ) -> Result<logic_analyzer_graph_runtime::DerivedCacheClearTask, String> {
+        logic_analyzer_graph_runtime::GraphRuntime::new().start_clear_derived_caches()
     }
 
     fn inspect_derived_cache_entry(
@@ -171,7 +172,7 @@ impl GraphService for FakeGraphService {
     fn load_cached_data(
         &self,
         _graph: &GraphState,
-        _context: &mut CompileCtx,
+        _context: &mut GraphRunContext,
     ) -> Result<bool, Vec<CompileError>> {
         Ok(false)
     }
@@ -179,7 +180,7 @@ impl GraphService for FakeGraphService {
     fn start_run(
         &self,
         _graph: &GraphState,
-        _context: &mut CompileCtx,
+        _context: &mut GraphRunContext,
         _source_overrides: SourceProcessOverrides,
     ) -> Result<Box<dyn GraphRun>, Vec<CompileError>> {
         Ok(Box::new(FakeGraphRun::default()))
@@ -188,7 +189,7 @@ impl GraphService for FakeGraphService {
     fn start_live_analysis(
         &self,
         _graph: &GraphState,
-        _context: &mut CompileCtx,
+        _context: &mut GraphRunContext,
         _source: LiveAnalysisSource,
     ) -> Result<Box<dyn GraphRun>, Vec<CompileError>> {
         Ok(Box::new(FakeGraphRun::default()))
@@ -239,7 +240,7 @@ fn ui_graph_orchestration_accepts_a_local_service_fake() {
     let mut run = service
         .start_run(
             &GraphState::default(),
-            &mut CompileCtx::default(),
+            &mut GraphRunContext::default(),
             SourceProcessOverrides::new(),
         )
         .unwrap();

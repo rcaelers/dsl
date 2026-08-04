@@ -3,7 +3,7 @@ use std::io::{Error, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use super::implementation::{OutputFile, OutputStorage};
+use super::implementation::{OutputFile, OutputOrigin, OutputStorage};
 
 #[derive(Clone, Default)]
 pub(crate) struct TestOutputStorage {
@@ -13,6 +13,7 @@ pub(crate) struct TestOutputStorage {
 #[derive(Default)]
 struct TestOutputState {
     files: BTreeMap<PathBuf, Vec<u8>>,
+    origins: BTreeMap<PathBuf, OutputOrigin>,
     create_error: Option<ErrorKind>,
     write_error: Option<ErrorKind>,
     flush_error: Option<ErrorKind>,
@@ -40,6 +41,15 @@ impl TestOutputStorage {
     pub(crate) fn contents(&self, path: impl AsRef<Path>) -> Option<Vec<u8>> {
         self.state.lock().unwrap().files.get(path.as_ref()).cloned()
     }
+
+    pub(crate) fn origin(&self, path: impl AsRef<Path>) -> Option<OutputOrigin> {
+        self.state
+            .lock()
+            .unwrap()
+            .origins
+            .get(path.as_ref())
+            .cloned()
+    }
 }
 
 impl OutputStorage for TestOutputStorage {
@@ -48,11 +58,27 @@ impl OutputStorage for TestOutputStorage {
     }
 
     fn create(&self, path: &Path) -> std::io::Result<Box<dyn OutputFile>> {
-        self.open(path, false)
+        self.open(path, false, None)
+    }
+
+    fn create_for(
+        &self,
+        path: &Path,
+        origin: &OutputOrigin,
+    ) -> std::io::Result<Box<dyn OutputFile>> {
+        self.open(path, false, Some(origin))
     }
 
     fn append(&self, path: &Path) -> std::io::Result<Box<dyn OutputFile>> {
-        self.open(path, true)
+        self.open(path, true, None)
+    }
+
+    fn append_for(
+        &self,
+        path: &Path,
+        origin: &OutputOrigin,
+    ) -> std::io::Result<Box<dyn OutputFile>> {
+        self.open(path, true, Some(origin))
     }
 
     fn exists(&self, path: &Path) -> bool {
@@ -61,7 +87,12 @@ impl OutputStorage for TestOutputStorage {
 }
 
 impl TestOutputStorage {
-    fn open(&self, path: &Path, append: bool) -> std::io::Result<Box<dyn OutputFile>> {
+    fn open(
+        &self,
+        path: &Path,
+        append: bool,
+        origin: Option<&OutputOrigin>,
+    ) -> std::io::Result<Box<dyn OutputFile>> {
         let mut state = self.state.lock().unwrap();
         if let Some(kind) = state.create_error {
             return Err(Error::new(kind, "controlled create failure"));
@@ -70,6 +101,9 @@ impl TestOutputStorage {
             state.files.insert(path.to_path_buf(), Vec::new());
         } else {
             state.files.entry(path.to_path_buf()).or_default();
+        }
+        if let Some(origin) = origin {
+            state.origins.insert(path.to_path_buf(), origin.clone());
         }
         drop(state);
         Ok(Box::new(TestOutputFile {

@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, RwLock};
 
-use logic_analyzer_graph_api::node::RuntimeBuilderOverride;
+use logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride;
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     SigrokCatalogSnapshot, SigrokDecoderConfig, SigrokDecoderDescriptor,
 };

@@ -1,0 +1,15 @@
+[package]
+name = "logic-analyzer-graph-registry"
+version.workspace = true
+edition = "2024"
+authors = ["Rob Caelers <rob.caelers@gmail.com>"]
+
+[lib]
+name = "logic_analyzer_graph_registry"
+path = "src/lib.rs"
+
+[dependencies]
+inventory = { workspace = true }
+logic-analyzer-graph-capabilities = { path = "../logic_analyzer_graph_capabilities" }
+node-graph = { path = "../widgets/node_graph" }
+signal-processing = { path = "../signal_processing" }

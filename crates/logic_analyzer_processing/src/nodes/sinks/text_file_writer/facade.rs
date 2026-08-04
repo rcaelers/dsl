@@ -3,7 +3,7 @@ use std::sync::Arc;
 use super::super::output_storage::UnavailableOutputStorage;
 use super::implementation::TextFileWriter;
 use crate::ProcessNodeConstruction;
-use crate::nodes::sinks::OutputStorage;
+use crate::nodes::sinks::{OutputOrigin, OutputStorage};
 
 /// Platform-neutral construction contract for a text file writer.
 pub trait TextFileWriterFactory: Send + Sync {
@@ -11,7 +11,11 @@ pub trait TextFileWriterFactory: Send + Sync {
     ///
     /// # Parameters
     /// - `name`: Input consumed by this operation.
-    fn create(&self, name: &str) -> Result<ProcessNodeConstruction, String>;
+    fn create(
+        &self,
+        name: &str,
+        output_origin: OutputOrigin,
+    ) -> Result<ProcessNodeConstruction, String>;
 }
 
 struct StorageTextFileWriterFactory {
@@ -19,10 +23,16 @@ struct StorageTextFileWriterFactory {
 }
 
 impl TextFileWriterFactory for StorageTextFileWriterFactory {
-    fn create(&self, name: &str) -> Result<ProcessNodeConstruction, String> {
+    fn create(
+        &self,
+        name: &str,
+        output_origin: OutputOrigin,
+    ) -> Result<ProcessNodeConstruction, String> {
         Ok(ProcessNodeConstruction::new(
             Box::new(
-                TextFileWriter::with_output_storage(Arc::clone(&self.storage)).with_name(name),
+                TextFileWriter::with_output_storage(Arc::clone(&self.storage))
+                    .with_name(name)
+                    .with_output_origin(output_origin),
             ),
             (),
         ))

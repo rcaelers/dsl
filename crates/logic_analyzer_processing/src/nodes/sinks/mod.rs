@@ -29,4 +29,4 @@ pub mod tgck_recorder;
 
 mod output_storage;
 
-pub use output_storage::{OutputFile, OutputStorage};
+pub use output_storage::{OutputFile, OutputOrigin, OutputStorage};

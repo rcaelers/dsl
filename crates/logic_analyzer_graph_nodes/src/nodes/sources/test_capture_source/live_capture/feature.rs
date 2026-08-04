@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_api::node::{CaptureGraphSourceFactory, LiveCaptureFeature};
-use logic_analyzer_graph_api::node_support::SimpleTriggerChannel;
+use logic_analyzer_graph_capabilities::node::{CaptureGraphSourceFactory, LiveCaptureFeature};
+use logic_analyzer_graph_capabilities::node_support::SimpleTriggerChannel;
 use logic_analyzer_test_support::{
     DeterministicFakeConfig, DeterministicFakeProvider, DeterministicTrigger,
     DeterministicTriggerCount, DeterministicTriggerCountMode, DeterministicTriggerLogic,

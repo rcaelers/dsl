@@ -3,8 +3,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use input_bindings::InputBindings;
-use logic_analyzer_graph_api::node::RuntimeBuilderOverride;
-use logic_analyzer_graph_compiler::SourcePreparationExecutor;
+use logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride;
+use logic_analyzer_graph_runtime::SourcePreparationExecutor;
 use node_graph::FileDialogService;
 use signal_processing::{
     AppManagerFactory, ArtifactRepository, CooperativeWorkerOperationExecutor, InlineWorkExecutor,
@@ -110,7 +110,7 @@ impl AppServices {
     /// Supplies a host worker used for ordinary, source-owned graph runs.
     pub fn with_graph_worker_client(
         mut self,
-        client: Option<Arc<logic_analyzer_graph_compiler::GraphWorkerClient>>,
+        client: Option<Arc<logic_analyzer_graph_orchestration::GraphWorkerClient>>,
     ) -> Self {
         self.graph_service.set_graph_worker_client(client);
         self

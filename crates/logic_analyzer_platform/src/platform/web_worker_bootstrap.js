@@ -232,9 +232,6 @@ function scheduleGraphAdvance() {
 
 function publishBrowserOutputs() {
   const payload = runtime.takeBrowserOutputFiles();
-  if (payload.byteLength === 2) {
-    return;
-  }
   const buffer = transferableBuffer(payload);
   self.postMessage({ kind: "graph_output_files", payload: buffer }, [buffer]);
 }

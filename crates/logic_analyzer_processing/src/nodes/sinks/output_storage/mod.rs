@@ -19,6 +19,6 @@ mod implementation;
 mod testing;
 
 pub(crate) use implementation::UnavailableOutputStorage;
-pub use implementation::{OutputFile, OutputStorage};
+pub use implementation::{OutputFile, OutputOrigin, OutputStorage};
 #[cfg(test)]
 pub(crate) use testing::TestOutputStorage;

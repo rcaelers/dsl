@@ -6,7 +6,7 @@ use js_sys::Uint8Array;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use logic_analyzer_graph_api::node::RuntimeBuilderOverride;
+use logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride;
 use logic_analyzer_processing::nodes::sources::dsl_file::{
     DslFileSource, DslFileSourceConfig, DslFileSourceFactory,
 };

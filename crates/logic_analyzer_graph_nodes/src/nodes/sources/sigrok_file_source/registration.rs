@@ -1,5 +1,5 @@
 inventory::submit! {
-    logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
         super::definition::SigrokFileSource,
         super::builder::SigrokFileSourceBuilder,
     >("org.logicconduit.graph-node.sources.sigrok-file-source/v1")

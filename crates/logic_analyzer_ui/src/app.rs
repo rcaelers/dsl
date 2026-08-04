@@ -5,14 +5,16 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use input_bindings::{InputBindings, PointerButtonName, PointerGesture, Trigger};
-use logic_analyzer_graph_api::node::DirectoryNodeCatalog;
-use logic_analyzer_graph_api::node_support::{
+use logic_analyzer_graph_capabilities::node::DirectoryNodeCatalog;
+use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentationSignal, LiveCaptureEdit, TimelineMarkerEdit as GraphTimelineMarkerEdit,
     TimelineMarkerReference, TimelineMarkerReferenceBindingDescriptor,
     TimelineMarkerReferenceBindingEdit, TimelineMarkerReferenceChoice, ViewerOutputPanelAction,
     ViewerOutputPanelEntry, ViewerOutputPanelModel,
 };
 use logic_analyzer_graph_compiler as compiler;
+use logic_analyzer_graph_plan as plan;
+use logic_analyzer_graph_runtime as runtime;
 use logic_analyzer_viewer::{
     LogicAnalyzerViewer, SimpleTriggerEdit, SimpleTriggerLane, TimeCursor,
     TimelineMarker as ViewerTimelineMarker, TimelineMarkerEdit as ViewerTimelineMarkerEdit,
@@ -281,9 +283,9 @@ fn toggle_sampling_overlay(selected: &mut Vec<NodeId>, node: NodeId) {
 }
 
 fn visible_output_subscriptions(
-    catalog: &[compiler::CollectedOutputSubscription],
+    catalog: &[plan::CollectedOutputSubscription],
     graph: &GraphState,
-) -> Vec<compiler::CollectedOutputSubscription> {
+) -> Vec<plan::CollectedOutputSubscription> {
     let selected = viewer_output_selections(graph)
         .into_iter()
         .filter(|selection| selection.selected)
@@ -302,9 +304,9 @@ fn visible_output_subscriptions(
 }
 
 fn visible_table_subscriptions(
-    catalog: &[compiler::CollectedTableSubscription],
+    catalog: &[plan::CollectedTableSubscription],
     graph: &GraphState,
-) -> Vec<compiler::CollectedTableSubscription> {
+) -> Vec<plan::CollectedTableSubscription> {
     catalog
         .iter()
         .filter_map(|subscription| {
@@ -318,8 +320,8 @@ fn visible_table_subscriptions(
 }
 
 fn merge_output_subscription_catalog(
-    catalog: &mut Vec<compiler::CollectedOutputSubscription>,
-    incoming: &[compiler::CollectedOutputSubscription],
+    catalog: &mut Vec<plan::CollectedOutputSubscription>,
+    incoming: &[plan::CollectedOutputSubscription],
 ) {
     for subscription in incoming {
         for lane in &subscription.lanes {
@@ -336,7 +338,7 @@ fn merge_output_subscription_catalog(
         {
             existing
         } else {
-            catalog.push(compiler::CollectedOutputSubscription {
+            catalog.push(plan::CollectedOutputSubscription {
                 runtime_name: subscription.runtime_name.clone(),
                 lanes: Vec::new(),
             });
@@ -348,8 +350,8 @@ fn merge_output_subscription_catalog(
 }
 
 fn merge_table_subscription_catalog(
-    catalog: &mut Vec<compiler::CollectedTableSubscription>,
-    incoming: &[compiler::CollectedTableSubscription],
+    catalog: &mut Vec<plan::CollectedTableSubscription>,
+    incoming: &[plan::CollectedTableSubscription],
 ) {
     for subscription in incoming {
         for lane in &subscription.lanes {
@@ -366,7 +368,7 @@ fn merge_table_subscription_catalog(
         {
             existing
         } else {
-            catalog.push(compiler::CollectedTableSubscription {
+            catalog.push(plan::CollectedTableSubscription {
                 collector: subscription.collector,
                 lanes: Vec::new(),
             });
@@ -446,7 +448,7 @@ fn saved_timeline_cursors(
 
 pub(crate) fn supply_saved_timeline_cursors(
     graph: &GraphState,
-    context: &mut compiler::CompileCtx,
+    context: &mut runtime::GraphRunContext,
 ) -> Result<(), String> {
     for cursor in saved_timeline_cursors(graph).map_err(|error| error.to_string())? {
         context.set_timeline_marker(
@@ -546,7 +548,7 @@ pub struct App {
     pub(crate) input_bindings: Arc<InputBindings>,
     pub(crate) panel_layout: PanelLayout,
     pub(crate) graph_service: Box<dyn GraphService>,
-    pub(crate) derived_cache_clear_task: Option<compiler::DerivedCacheClearTask>,
+    pub(crate) derived_cache_clear_task: Option<runtime::DerivedCacheClearTask>,
     pub(crate) host_service: Box<dyn HostService>,
     pub(crate) host_ui_capabilities: crate::HostUiCapabilities,
     pub(crate) capture: CaptureCoordinator,
@@ -580,15 +582,15 @@ pub struct App {
     pub(crate) error_badges: Vec<NodeId>,
     /// Last time the running pipeline was diffed against the edited graph.
     pub(crate) last_live_sync: f64,
-    pub(crate) sampling_overlay_candidates: Vec<compiler::SamplingOverlayCandidate>,
+    pub(crate) sampling_overlay_candidates: Vec<plan::SamplingOverlayCandidate>,
     pub(crate) selected_sampling_overlays: Vec<NodeId>,
     pub(crate) viewer_lane_order: Vec<SavedViewerRow>,
     pub(crate) decoder_panels: DecoderPanels,
     pub(crate) plugin_panels: PluginPanels,
     pub(crate) memory_panel: MemoryPanel,
     pub(crate) presented_derived_lanes: signal_processing::DerivedLanes,
-    pub(crate) output_presentation_catalog: Vec<compiler::CollectedOutputSubscription>,
-    pub(crate) table_presentation_catalog: Vec<compiler::CollectedTableSubscription>,
+    pub(crate) output_presentation_catalog: Vec<plan::CollectedOutputSubscription>,
+    pub(crate) table_presentation_catalog: Vec<plan::CollectedTableSubscription>,
     pub(crate) presentation_graph_nodes: HashSet<NodeId>,
     pub(crate) capture_storage: Option<CaptureStorageSnapshot>,
     pub(crate) timeline_marker_owners: HashMap<String, (NodeId, String)>,
@@ -1610,7 +1612,7 @@ impl App {
         }
     }
 
-    fn supply_timeline_cursors(&self, context: &mut compiler::CompileCtx) {
+    fn supply_timeline_cursors(&self, context: &mut runtime::GraphRunContext) {
         for cursor in self.logic_analyzer.time_cursors() {
             context.set_timeline_marker(
                 TimelineMarkerReference::Cursor {
@@ -1699,10 +1701,7 @@ impl App {
         }
     }
 
-    fn set_sampling_overlay_candidates(
-        &mut self,
-        candidates: Vec<compiler::SamplingOverlayCandidate>,
-    ) {
+    fn set_sampling_overlay_candidates(&mut self, candidates: Vec<plan::SamplingOverlayCandidate>) {
         self.sampling_overlay_candidates = candidates;
         let previous_len = self.selected_sampling_overlays.len();
         self.selected_sampling_overlays.retain(|selected| {
@@ -1744,7 +1743,7 @@ impl App {
         self.refresh_sampling_overlay_ui();
     }
 
-    fn report_compile_errors(&mut self, errors: &[compiler::CompileError]) {
+    fn report_compile_errors(&mut self, errors: &[plan::ProcessingGraphError]) {
         for error in errors {
             if let Some(id) = error.node {
                 self.node_graph
@@ -1801,7 +1800,7 @@ impl App {
         self.plugin_panels.set_run_data(lanes);
     }
 
-    fn bind_run_data(&mut self, run_data: compiler::RunData) {
+    fn bind_run_data(&mut self, run_data: runtime::RunData) {
         let lanes = run_data.derived_lanes().clone();
         self.set_presented_derived_lanes(lanes.clone());
         self.output_presentation_catalog = run_data.output_subscriptions().to_vec();
@@ -1863,7 +1862,7 @@ impl App {
             return;
         }
         self.cached_preview_graph = Some(self.node_graph.graph().semantic_snapshot());
-        let mut ctx = compiler::CompileCtx::default();
+        let mut ctx = runtime::GraphRunContext::default();
         self.supply_timeline_cursors(&mut ctx);
         match self
             .graph_service
@@ -1922,7 +1921,7 @@ impl App {
         // this graph's entries and creating the replacement stores.
         self.cached_preview_graph = None;
         self.clear_derived_data_presentations();
-        let mut ctx = compiler::CompileCtx::default();
+        let mut ctx = runtime::GraphRunContext::default();
         self.supply_timeline_cursors(&mut ctx);
         if replay.is_none()
             && let Err(error) = self.prepare_fresh_run_caches()
@@ -1938,7 +1937,7 @@ impl App {
             .set_run_data(ctx.derived_lanes().clone(), DecoderTableRegistry::new());
         self.plugin_panels.set_run_data(ctx.derived_lanes().clone());
 
-        let mut source_overrides = compiler::SourceProcessOverrides::new();
+        let mut source_overrides = runtime::SourceProcessOverrides::new();
         if let Some(CaptureReplayAttachment {
             source_node,
             process,
@@ -2019,15 +2018,15 @@ impl App {
                 self.running_graph_semantics = Some(graph_semantics);
                 self.bind_current_run_presentations();
             }
-            Err(compiler::ApplyError::Compile(_)) => {}
-            Err(compiler::ApplyError::NeedsFullRestart(reason)) => {
+            Err(runtime::ApplyError::Compile(_)) => {}
+            Err(runtime::ApplyError::NeedsFullRestart(reason)) => {
                 self.running_graph_semantics = Some(graph_semantics);
                 self.run_message = Some((
                     format!("view update could not use cached data: {reason}"),
                     true,
                 ));
             }
-            Err(compiler::ApplyError::Apply(message)) => {
+            Err(runtime::ApplyError::Apply(message)) => {
                 self.toasts.error(format!("view update failed: {message}"))
             }
         }
@@ -2222,15 +2221,15 @@ impl App {
         for mut readiness in registry
             .snapshot()
             .into_iter()
-            .filter(|readiness| readiness.kind == compiler::SourceDataKind::Live)
+            .filter(|readiness| readiness.kind == runtime::SourceDataKind::Live)
         {
             if cache {
-                readiness.cache = compiler::SourceArtifactReadiness::Available;
+                readiness.cache = runtime::SourceArtifactReadiness::Available;
             }
             if index {
-                readiness.index = compiler::SourceArtifactReadiness::Available;
+                readiness.index = runtime::SourceArtifactReadiness::Available;
             }
-            readiness.data = compiler::SourceArtifactReadiness::Available;
+            readiness.data = runtime::SourceArtifactReadiness::Available;
             registry.publish(readiness);
         }
     }
@@ -2243,7 +2242,7 @@ impl App {
         for mut readiness in registry
             .snapshot()
             .into_iter()
-            .filter(|readiness| readiness.kind == compiler::SourceDataKind::File)
+            .filter(|readiness| readiness.kind == runtime::SourceDataKind::File)
         {
             for artifact in [
                 &mut readiness.preload,
@@ -2251,8 +2250,8 @@ impl App {
                 &mut readiness.index,
                 &mut readiness.data,
             ] {
-                if *artifact == compiler::SourceArtifactReadiness::Pending {
-                    *artifact = compiler::SourceArtifactReadiness::Available;
+                if *artifact == runtime::SourceArtifactReadiness::Pending {
+                    *artifact = runtime::SourceArtifactReadiness::Available;
                 }
             }
             registry.publish(readiness);
@@ -2267,7 +2266,7 @@ impl App {
         for mut readiness in registry
             .snapshot()
             .into_iter()
-            .filter(|readiness| readiness.kind == compiler::SourceDataKind::File)
+            .filter(|readiness| readiness.kind == runtime::SourceDataKind::File)
         {
             for artifact in [
                 &mut readiness.preload,
@@ -2275,8 +2274,8 @@ impl App {
                 &mut readiness.index,
                 &mut readiness.data,
             ] {
-                if *artifact != compiler::SourceArtifactReadiness::Unsupported {
-                    *artifact = compiler::SourceArtifactReadiness::Failed(error.to_owned());
+                if *artifact != runtime::SourceArtifactReadiness::Unsupported {
+                    *artifact = runtime::SourceArtifactReadiness::Failed(error.to_owned());
                 }
             }
             registry.publish(readiness);
@@ -2301,7 +2300,7 @@ impl App {
         }
         self.output_presentation_catalog.clear();
         self.table_presentation_catalog.clear();
-        let mut ctx = compiler::CompileCtx::default();
+        let mut ctx = runtime::GraphRunContext::default();
         self.supply_timeline_cursors(&mut ctx);
         self.set_presented_derived_lanes(ctx.derived_lanes().clone());
         self.logic_analyzer
@@ -2309,7 +2308,7 @@ impl App {
         self.decoder_panels
             .set_run_data(ctx.derived_lanes().clone(), DecoderTableRegistry::new());
         self.plugin_panels.set_run_data(ctx.derived_lanes().clone());
-        let source = compiler::LiveAnalysisSource {
+        let source = runtime::LiveAnalysisSource {
             source_node: attachment.source_node,
             process: attachment.process,
         };
@@ -2382,12 +2381,12 @@ impl App {
                             ));
                             ConfigurationEpochResolution::Applied
                         }
-                        Err(compiler::ApplyError::NeedsFullRestart(reason)) => {
+                        Err(runtime::ApplyError::NeedsFullRestart(reason)) => {
                             self.toasts
                                 .info(format!("live edit deferred to the next capture: {reason}"));
                             ConfigurationEpochResolution::Deferred(reason)
                         }
-                        Err(compiler::ApplyError::Compile(errors)) => {
+                        Err(runtime::ApplyError::Compile(errors)) => {
                             let message = errors
                                 .first()
                                 .map(|error| error.message.clone())
@@ -2396,7 +2395,7 @@ impl App {
                                 .error(format!("configuration epoch failed: {message}"));
                             ConfigurationEpochResolution::Failed(message)
                         }
-                        Err(compiler::ApplyError::Apply(message)) => {
+                        Err(runtime::ApplyError::Apply(message)) => {
                             self.toasts
                                 .error(format!("configuration epoch failed: {message}"));
                             ConfigurationEpochResolution::Failed(message)
@@ -2871,15 +2870,15 @@ impl App {
                     summary.added, summary.removed, summary.configured, summary.restarted
                 ));
             }
-            Err(compiler::ApplyError::Compile(_)) => {
+            Err(runtime::ApplyError::Compile(_)) => {
                 // Mid-edit graphs are often momentarily invalid; keep the
                 // running pipeline and wait for the graph to become valid.
             }
-            Err(compiler::ApplyError::NeedsFullRestart(reason)) => {
+            Err(runtime::ApplyError::NeedsFullRestart(reason)) => {
                 self.running_graph_semantics = Some(graph_semantics);
                 self.run_message = Some((format!("stop & rerun to apply: {reason}"), false));
             }
-            Err(compiler::ApplyError::Apply(message)) => {
+            Err(runtime::ApplyError::Apply(message)) => {
                 self.toasts.error(format!("live edit failed: {message}"));
             }
         }
@@ -3604,7 +3603,7 @@ impl eframe::App for App {
         self.platform_sync_capture();
         if matches!(
             self.graph_service.source_preparation_status(),
-            compiler::SourcePreparationStatus::Preparing
+            runtime::SourcePreparationStatus::Preparing
         ) {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(100));
@@ -3838,11 +3837,11 @@ impl eframe::App for App {
 
 #[cfg(test)]
 mod font_tests {
-    use logic_analyzer_graph_api::node_support::{
+    use logic_analyzer_graph_capabilities::node_support::{
         PortKind, ResolvedInput, TimelineMarkerReference, TimelineMarkerReferenceBindingDescriptor,
         TimelineMarkerReferenceChoice,
     };
-    use logic_analyzer_graph_compiler::{
+    use logic_analyzer_graph_plan::{
         CollectedOutputLane, CollectedOutputSubscription, CollectedTableSubscription,
     };
     use node_graph::{GraphState, Node, NodeId, Socket, SocketIndicatorPresentation, SocketShape};
@@ -3916,6 +3915,7 @@ mod font_tests {
                     source_node,
                     source_output: 0,
                     source_node_title: "Decoder".to_owned(),
+                    source_output_title: "Out".to_owned(),
                     word_display_format: None,
                     lane_presentation: None,
                     default_lane_presentation: None,

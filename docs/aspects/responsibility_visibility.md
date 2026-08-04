@@ -24,7 +24,9 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
 - `logic_analyzer_processing` owns concrete capture formats, devices, protocol decoders,
   processing nodes, and sinks. Format parsing and device-transport errors originate here and are
   mapped to generic runtime errors only where a generic trait requires it.
-- `logic_analyzer_graph_api` owns graph-node and payload plugin contracts.
+- `logic_analyzer_graph_capabilities` owns graph-node and payload capability contracts.
+- `logic_analyzer_graph_registry` owns graph-node and payload registration, inventory validation,
+  and immutable catalog assembly.
 - `logic_analyzer_graph_nodes` owns built-in concrete node definitions, builders, migrations,
   registrations, and presentation metadata.
 - `logic_analyzer_graph_compiler` owns generic graph lowering, discovery, execution, and host services.
@@ -43,7 +45,7 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
   concrete processing, graph, or UI crates.
 - `logic_analyzer_ui` owns the application-facing graph service port. Application and platform
   orchestration depend on its private `GraphService` and `GraphRun` traits; the crate's production
-  adapter delegates to `GraphCompiler` and `LiveRun`, while UI tests provide deterministic local
+  adapter composes `GraphLowerer`, `GraphRuntime`, and `LiveRun`, while UI tests provide deterministic local
   implementations. Its public `HostService` port owns file and directory dialogs, graph-document
   persistence, derived-cache commands and diagnostics, and native-shell state exchange. The
   platform crate implements that target-neutral contract. Its public `CaptureExportService` port
@@ -141,8 +143,10 @@ nearest owning facade. The allowlist names canonical public namespaces.
 | --- | --- | --- |
 | `signal_processing` | `capture`, `live_capture`, `live_capture_store`, `logic_analyzer`, `derived_word_store`, `waveform_index` | These are substantial, independent generic capture and storage domains. `live_capture` owns the provider-neutral configured and prepared acquisition contracts. `logic_analyzer` owns the driver-neutral capture, trigger, and processing-source contracts consumed by concrete device nodes. Runtime plumbing such as ports, senders, receivers, scheduling, workers, errors, and pipeline implementation remains private behind root re-exports. |
 | `logic_analyzer_processing` | `nodes`, `nodes::decoders`, `nodes::logic`, `nodes::sinks`, `nodes::sources`, each node module under its family, `types` | Each concrete node owns a directory-backed public facade, so its configuration, factory, and discovery contracts have an unambiguous owner such as `nodes::decoders::parallel_decoder::StrobeMode` or `nodes::decoders::sigrok_decoder::SigrokDecoderDescriptor`. The crate root exposes the shared `ProcessNodeConstruction` factory result and lazy capture-source metadata contracts. Shared implementation support is crate-private. Protocol-neutral processing value conventions are exposed through `types`. Node implementation, transport, and format details remain private behind their owning node facade. |
-| `logic_analyzer_graph_api` | `node`, `node_support` | `node` owns the traits and inventory submissions implemented by graph-node plugins. `node_support` owns open port identity, protocol-neutral presentation descriptions, capture descriptions, decoder-table contracts, and the restricted node build context. It contains no compiler, host, built-in-node, UI, or export operations. |
-| `logic_analyzer_graph_compiler` | none | Its crate root exposes `GraphCompiler`, host result types, `CompileCtx` result extraction, and saved-document operations consumed by application hosts. Graph-node and node-support contracts are imported from `logic_analyzer_graph_api`; the compiler crate does not forward them. |
+| `logic_analyzer_graph_capabilities` | `node`, `node_support` | `node` owns capability traits implemented by graph-node plugins. `node_support` owns open port identity, protocol-neutral presentation descriptions, capture descriptions, decoder-table contracts, and the restricted node build context. It contains no graph-node or payload inventory assembly, compiler, host, built-in-node, UI, or export operations. |
+| `logic_analyzer_graph_registry` | none | Its crate root exposes graph-node and payload registration descriptors, validated inventory access, and the immutable `GraphRegistry`. Implementation modules remain private. |
+| `logic_analyzer_graph_compiler` | none | Its crate root exposes `GraphLowerer`, immutable plan and diagnostic types, and discovery results. Capability contracts are imported from `logic_analyzer_graph_capabilities` and registry contracts from `logic_analyzer_graph_registry`; the compiler crate does not forward them. |
+| `logic_analyzer_graph_runtime` | none | Its crate root exposes `GraphRuntime`, `LiveRun`, run-data and source-preparation results, cache operations, and worker protocol types. Execution implementation modules remain private. |
 | `logic_analyzer_graph_nodes` | none | The crate root exposes the linker anchor plus host-injection and portable-template helpers for concrete node contracts. Built-in graph-node definitions, socket types, migrations, presentations, inventory submissions, and crate-local test fixtures remain private. Cross-component fixtures belong to the top-level integration-test package. |
 | `logic_analyzer_capture_export` | none | The cohesive native exporter exposes its curated format, progress, observer, report, and export operation through the crate root. Encoder and archive implementation modules remain private. |
 | `logic_analyzer_platform` | none | The crate root exposes its opaque composition bundle and constructors. Private target-selected modules implement host capabilities owned by the core contract crates. |

@@ -94,10 +94,11 @@ impl WebHandle {
 
 #[cfg(test)]
 mod web_tests {
-    use logic_analyzer_graph_compiler::{
-        GraphCompiler, GraphWorkerRequest, OutputSubscriptionPlan, decode_graph_worker_request,
-        encode_graph_worker_request,
+    use logic_analyzer_graph_compiler::GraphLowerer;
+    use logic_analyzer_graph_orchestration::{
+        GraphWorkerRequest, decode_graph_worker_request, encode_graph_worker_request,
     };
+    use logic_analyzer_graph_plan::OutputSubscriptionPlan;
 
     use super::WebHandle;
 
@@ -143,7 +144,7 @@ mod web_tests {
             "the worker transport must retain definition-derived socket labels"
         );
 
-        let compiler = GraphCompiler::new();
+        let compiler = GraphLowerer::new();
         compiler
             .lower(&graph)
             .expect("the default web demo lowers without missing inputs");

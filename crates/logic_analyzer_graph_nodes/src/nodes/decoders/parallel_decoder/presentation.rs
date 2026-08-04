@@ -1,6 +1,8 @@
 //! Viewer presentation for parallel-decoder output.
 
-use logic_analyzer_graph_api::node_support::{DecoderTableCellMode, DecoderTableColumnDescriptor};
+use logic_analyzer_graph_capabilities::node_support::{
+    DecoderTableCellMode, DecoderTableColumnDescriptor,
+};
 use logic_analyzer_viewer::{DefaultViewerLaneRenderer, ViewerLaneRendererRegistration};
 
 pub(crate) fn parallel_table_column(def_index: usize) -> Option<DecoderTableColumnDescriptor> {

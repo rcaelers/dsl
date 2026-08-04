@@ -2,14 +2,15 @@ mod integration_tests_support;
 
 use egui::Pos2;
 
-use logic_analyzer_graph_api::node_support::{
+use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, LiveCaptureEdit, SourceDataLifecycleKind,
 };
-use logic_analyzer_graph_compiler::GraphCompiler;
 use node_graph::NodeGraphWidget;
 use signal_processing::{CaptureChannelId, CaptureDataDelivery, SimpleTriggerCondition};
 
-use integration_tests_support::{build_live_binary_test, build_registry, node_builder, node_name};
+use integration_tests_support::{
+    GraphHarness, build_live_binary_test, build_registry, node_builder, node_name,
+};
 
 const U3PRO16_ID: &str = "org.logicconduit.graph-node.sources.dslogic-u3pro16/v1";
 const DSL_FILE_SOURCE_ID: &str = "org.logicconduit.graph-node.sources.dsl-file-source/v1";
@@ -51,9 +52,9 @@ fn native_hardware_source_registers_and_lowers() {
         .expect("parallel decoder exposes words");
     let decoder = decoder.id;
 
-    let mut compiler = GraphCompiler::new();
+    let mut compiler = GraphHarness::new();
     compiler.set_output_subscriptions([(decoder, words)].into_iter().collect());
-    let compiled = compiler.lower(widget.graph()).unwrap();
+    let compiled = compiler.lowerer().lower(widget.graph()).unwrap();
     assert!(
         compiled
             .nodes
@@ -85,6 +86,7 @@ fn buffered_hardware_feature_lowers_opaque_channels_and_portable_trigger_edits()
         .unwrap();
     let compiler = integration_tests_support::test_platform_compiler();
     let streaming = compiler
+        .lowerer()
         .discover_live_capture_feature(widget.graph())
         .unwrap()
         .expect("stream mode should expose a live feature");
@@ -97,6 +99,7 @@ fn buffered_hardware_feature_lowers_opaque_channels_and_portable_trigger_edits()
     enable_channels(state, &[0, 2, 9]);
 
     let feature = compiler
+        .lowerer()
         .discover_live_capture_feature(widget.graph())
         .unwrap()
         .expect("buffer mode should expose the concrete live feature");
@@ -120,6 +123,7 @@ fn buffered_hardware_feature_lowers_opaque_channels_and_portable_trigger_edits()
     );
 
     let edited = compiler
+        .lowerer()
         .apply_live_capture_edit(
             widget.graph(),
             source,
@@ -131,6 +135,7 @@ fn buffered_hardware_feature_lowers_opaque_channels_and_portable_trigger_edits()
         .unwrap();
     widget.graph_mut().nodes.get_mut(&source).unwrap().state = edited;
     let feature = compiler
+        .lowerer()
         .discover_live_capture_feature(widget.graph())
         .unwrap()
         .unwrap();
@@ -153,7 +158,8 @@ fn buffered_hardware_discovery_rejects_too_many_channels_for_the_rate() {
         .as_array_mut()
         .expect("capture source channels are an array");
     enabled.fill(serde_json::Value::Bool(true));
-    let error = GraphCompiler::new()
+    let error = GraphHarness::new()
+        .lowerer()
         .discover_live_capture_feature(widget.graph())
         .err()
         .expect("wide 1 GHz buffered capture must be rejected before opening hardware");
@@ -177,7 +183,8 @@ fn streaming_hardware_discovery_rejects_too_many_channels_for_the_rate() {
     select(state, "mode", "Stream");
     select(state, "sample_rate", "1 GHz");
     enable_channels(state, &[0, 3]);
-    let error = GraphCompiler::new()
+    let error = GraphHarness::new()
+        .lowerer()
         .discover_live_capture_feature(widget.graph())
         .err()
         .expect("four-input 1 GHz stream must be rejected before opening hardware");
@@ -201,6 +208,7 @@ fn dsl_source_presentation_is_builder_owned_after_node_rename() {
     widget.graph_mut().nodes.get_mut(&source_id).unwrap().state["file"]["value"] =
         serde_json::Value::String("capture.dsl".to_owned());
     let presentation = integration_tests_support::test_platform_compiler()
+        .lowerer()
         .discover_capture_presentation(widget.graph())
         .unwrap()
         .unwrap();

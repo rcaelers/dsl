@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use logic_analyzer_graph_compiler::CollectedOutputSubscription;
+use logic_analyzer_graph_plan::CollectedOutputSubscription;
 use logic_analyzer_viewer::{
     DerivedLaneId, ViewerLaneBadge, ViewerLaneGroup, ViewerLaneGroupId, ViewerLaneRenderer,
     ViewerLaneTrack, WaveformPresentationRegistry, viewer_lane_renderer,
@@ -119,10 +119,10 @@ pub(crate) fn waveform_presentation_registry(
 
 #[cfg(test)]
 mod collected_output_presentation_tests {
-    use logic_analyzer_graph_api::node_support::{
+    use logic_analyzer_graph_capabilities::node_support::{
         LaneBadgeDescriptor, LanePresentationDescriptor, PortKind, ResolvedInput,
     };
-    use logic_analyzer_graph_compiler::CollectedOutputLane;
+    use logic_analyzer_graph_plan::CollectedOutputLane;
     use logic_analyzer_viewer::{DefaultViewerLaneRenderer, ViewerLaneRendererRegistration};
     use node_graph::NodeId;
     use signal_processing::Word;
@@ -146,6 +146,7 @@ mod collected_output_presentation_tests {
                 source_node: NodeId(7),
                 source_output: member,
                 source_node_title: "Decoder".to_owned(),
+                source_output_title: track.to_owned(),
                 word_display_format: None,
                 lane_presentation: Some(LanePresentationDescriptor::new(
                     "frame",

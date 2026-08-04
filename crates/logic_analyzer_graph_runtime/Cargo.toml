@@ -1,0 +1,17 @@
+[package]
+name = "logic-analyzer-graph-runtime"
+version.workspace = true
+edition = "2024"
+authors = ["Rob Caelers <rob.caelers@gmail.com>"]
+
+[lib]
+name = "logic_analyzer_graph_runtime"
+path = "src/lib.rs"
+
+[dependencies]
+blake3 = { workspace = true }
+logic-analyzer-graph-capabilities = { path = "../logic_analyzer_graph_capabilities" }
+logic-analyzer-graph-plan = { path = "../logic_analyzer_graph_plan" }
+node-graph = { path = "../widgets/node_graph" }
+serde_json = { workspace = true }
+signal-processing = { path = "../signal_processing" }

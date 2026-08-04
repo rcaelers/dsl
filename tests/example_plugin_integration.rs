@@ -1,11 +1,11 @@
 mod integration_tests_support;
 
-use logic_analyzer_graph_api::node_support::PortKind;
-use logic_analyzer_graph_compiler::{CompileCtx, GraphCompiler};
+use logic_analyzer_graph_capabilities::node_support::PortKind;
+use logic_analyzer_graph_runtime::GraphRunContext;
 use node_graph::NodeGraphWidget;
 use signal_processing::CollectedLaneSnapshotRequest;
 
-use integration_tests_support::build_registry;
+use integration_tests_support::{GraphHarness, build_registry};
 
 const CAMERA_PAYLOAD_ID: &str = "org.logicconduit.example.camera-frame/v1";
 
@@ -14,9 +14,10 @@ fn plugin_inventory_composes_with_the_builtin_host_and_executes_typed_payloads()
     std::hint::black_box(logic_analyzer_graph_nodes::link());
     std::hint::black_box(example_plugin::link());
 
-    let mut compiler = GraphCompiler::new();
+    let mut compiler = GraphHarness::new();
     assert!(
         compiler
+            .lowerer()
             .payloads()
             .descriptor_by_stable_id(CAMERA_PAYLOAD_ID)
             .is_some()
@@ -34,7 +35,7 @@ fn plugin_inventory_composes_with_the_builtin_host_and_executes_typed_payloads()
         .expect("plugin source is registered");
     compiler.set_output_subscriptions([(source, 0)].into_iter().collect());
 
-    let compiled = compiler.lower(widget.graph()).unwrap();
+    let compiled = compiler.lowerer().lower(widget.graph()).unwrap();
     assert!(
         compiled
             .edges
@@ -42,10 +43,14 @@ fn plugin_inventory_composes_with_the_builtin_host_and_executes_typed_payloads()
             .any(|edge| edge.kind == PortKind::of::<example_plugin::CameraFrame>())
     );
 
-    let mut context = CompileCtx::default();
+    let mut context = GraphRunContext::default();
     let lanes = context.derived_lanes().clone();
     let mut run = compiler
-        .start_app_run(widget.graph(), &mut context)
+        .start(
+            compiler.lowerer().lower(widget.graph()).unwrap(),
+            &mut context,
+            Default::default(),
+        )
         .unwrap();
     while !run.is_finished() {
         run.pump(64);

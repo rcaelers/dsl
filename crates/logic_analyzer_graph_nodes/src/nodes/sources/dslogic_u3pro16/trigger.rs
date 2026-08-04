@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
-use logic_analyzer_graph_api::node_support::{SimpleTriggerChannel, TriggerConfigurationFeature};
+use logic_analyzer_graph_capabilities::node_support::{
+    SimpleTriggerChannel, TriggerConfigurationFeature,
+};
 use signal_processing::{
     CaptureChannelId, SimpleTriggerCondition, TriggerCountCapabilities, TriggerCountMode,
     TriggerEditorSchema, TriggerIdentifier, TriggerLogicOperator, TriggerPredicate, TriggerProgram,

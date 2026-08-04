@@ -1,12 +1,11 @@
 use std::fmt::Write;
 use std::sync::Arc;
 
-use logic_analyzer_graph_api::node::{
-    PayloadRegistration, ProtocolPacketDisplay, protocol_packet_display,
-};
-use logic_analyzer_graph_api::node_support::{
+use logic_analyzer_graph_capabilities::node::{ProtocolPacketDisplay, protocol_packet_display};
+use logic_analyzer_graph_capabilities::node_support::{
     DefaultLanePresentationDescriptor, LaneBadgeDescriptor, PortKind,
 };
+use logic_analyzer_graph_registry::PayloadRegistration;
 use logic_analyzer_viewer::{
     OpaqueLaneDrawContext, ViewerLaneRenderer, ViewerLaneRendererRegistration, ViewerLaneTrack,
     draw_event_snapshot, draw_span_snapshot,

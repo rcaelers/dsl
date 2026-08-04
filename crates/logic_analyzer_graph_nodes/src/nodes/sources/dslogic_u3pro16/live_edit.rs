@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use logic_analyzer_graph_api::node_support::{LiveCaptureEdit, parse_state};
+use logic_analyzer_graph_capabilities::node_support::{LiveCaptureEdit, parse_state};
 
 use super::definition::U3Pro16State;
 

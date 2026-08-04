@@ -29,7 +29,7 @@ PUBLIC_MODULES = {
   "crates/logic_analyzer_processing/src/nodes/sources/mod.rs" => %w[
     dsl_file dslogic_u3pro16 sigrok_file synthetic_capture_source synthetic_uart_source
   ],
-  "crates/logic_analyzer_graph_api/src/lib.rs" => %w[node node_support],
+  "crates/logic_analyzer_graph_capabilities/src/lib.rs" => %w[node node_support],
   "crates/widgets/node_graph/src/lib.rs" => %w[api]
 }.freeze
 
@@ -107,10 +107,10 @@ ui_compiler_free_functions = %w[
   synchronize_payload_subscriptions
 ].freeze
 
-graph_api_manifest = File.read(File.join(ROOT, "crates/logic_analyzer_graph_api/Cargo.toml"))
+graph_api_manifest = File.read(File.join(ROOT, "crates/logic_analyzer_graph_capabilities/Cargo.toml"))
 %w[logic-analyzer-capture-export logic-analyzer-graph logic-analyzer-processing logic-analyzer-ui].each do |dependency|
   if graph_api_manifest.match?(/^#{Regexp.escape(dependency)}\s*=/)
-    errors << "crates/logic_analyzer_graph_api/Cargo.toml: graph API must not depend on #{dependency}"
+    errors << "crates/logic_analyzer_graph_capabilities/Cargo.toml: graph API must not depend on #{dependency}"
   end
 end
 
@@ -139,14 +139,14 @@ if processing_production_manifest.match?(/^logic-analyzer-test-support\s*=/)
 end
 
 test_support_manifest = File.read(File.join(ROOT, "crates/logic_analyzer_test_support/Cargo.toml"))
-%w[logic-analyzer-capture-export logic-analyzer-graph-api logic-analyzer-graph-compiler logic-analyzer-graph-nodes logic-analyzer-processing logic-analyzer-ui].each do |dependency|
+%w[logic-analyzer-capture-export logic-analyzer-graph-capabilities logic-analyzer-graph-compiler logic-analyzer-graph-nodes logic-analyzer-processing logic-analyzer-ui].each do |dependency|
   if test_support_manifest.match?(/^#{Regexp.escape(dependency)}\s*=/)
     errors << "crates/logic_analyzer_test_support/Cargo.toml: shared test support must not depend on #{dependency}"
   end
 end
 
 capture_export_manifest = File.read(File.join(ROOT, "crates/logic_analyzer_capture_export/Cargo.toml"))
-%w[logic-analyzer-graph-api logic-analyzer-graph-compiler logic-analyzer-graph-nodes logic-analyzer-processing logic-analyzer-ui].each do |dependency|
+%w[logic-analyzer-graph-capabilities logic-analyzer-graph-compiler logic-analyzer-graph-nodes logic-analyzer-processing logic-analyzer-ui].each do |dependency|
   if capture_export_manifest.match?(/^#{Regexp.escape(dependency)}\s*=/)
     errors << "crates/logic_analyzer_capture_export/Cargo.toml: capture export must not depend on #{dependency}"
   end

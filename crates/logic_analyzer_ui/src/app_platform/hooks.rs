@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use logic_analyzer_graph_compiler as compiler;
+use logic_analyzer_graph_runtime as runtime;
 use node_graph::NodeId;
 
 use super::confirmation_dialog::{
@@ -147,8 +147,8 @@ impl App {
             .graph_service
             .synchronize_prepared_capture(self.node_graph.graph());
         match update {
-            compiler::SourcePreparationUpdate::Unchanged => {}
-            compiler::SourcePreparationUpdate::Preparing(preparing) => {
+            runtime::SourcePreparationUpdate::Unchanged => {}
+            runtime::SourcePreparationUpdate::Preparing(preparing) => {
                 if self.platform.capture_presentation_identity.as_deref()
                     != Some(preparing.identity.as_str())
                 {
@@ -163,41 +163,41 @@ impl App {
                     preparing.progress,
                 );
             }
-            compiler::SourcePreparationUpdate::Cleared => {
+            runtime::SourcePreparationUpdate::Cleared => {
                 self.platform.capture_presentation_identity = None;
                 self.clear_capture_presentation();
             }
-            compiler::SourcePreparationUpdate::Failed(error) => {
+            runtime::SourcePreparationUpdate::Failed(error) => {
                 self.platform.capture_presentation_identity = None;
                 self.clear_capture_presentation();
                 self.toasts
                     .error(format!("Could not prepare capture source: {error}"));
             }
-            compiler::SourcePreparationUpdate::Ready(prepared) => {
+            runtime::SourcePreparationUpdate::Ready(prepared) => {
                 self.logic_analyzer
                     .set_visible_capture_channels(prepared.visible_channels);
                 self.platform.capture_presentation_identity = Some(prepared.identity.clone());
                 match prepared.data {
-                    compiler::PreparedCaptureData::Indexed(index) => {
+                    runtime::PreparedCaptureData::Indexed(index) => {
                         self.set_prepared_capture(prepared.identity, index)
                     }
-                    compiler::PreparedCaptureData::InMemory {
+                    runtime::PreparedCaptureData::InMemory {
                         signals,
                         duration_us,
                     } => self.set_capture_preview(signals, duration_us),
-                    compiler::PreparedCaptureData::Channels(channels) => {
+                    runtime::PreparedCaptureData::Channels(channels) => {
                         self.set_capture_channel_metadata(prepared.identity, channels)
                     }
                 }
             }
         }
         match self.graph_service.source_preparation_status() {
-            compiler::SourcePreparationStatus::Ready => self.publish_file_source_ready(),
-            compiler::SourcePreparationStatus::Failed(error) => {
+            runtime::SourcePreparationStatus::Ready => self.publish_file_source_ready(),
+            runtime::SourcePreparationStatus::Failed(error) => {
                 self.publish_file_source_failure(&error)
             }
-            compiler::SourcePreparationStatus::Empty
-            | compiler::SourcePreparationStatus::Preparing => {}
+            runtime::SourcePreparationStatus::Empty
+            | runtime::SourcePreparationStatus::Preparing => {}
         }
     }
 

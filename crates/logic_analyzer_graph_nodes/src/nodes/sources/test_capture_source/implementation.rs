@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_api::node_support::LiveCaptureEdit;
+use logic_analyzer_graph_capabilities::node_support::LiveCaptureEdit;
 
 use super::definition::TestCaptureSourceState;
 

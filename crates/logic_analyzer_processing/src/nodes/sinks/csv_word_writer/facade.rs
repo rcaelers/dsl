@@ -4,7 +4,7 @@ use super::super::output_storage::UnavailableOutputStorage;
 use super::configuration::CsvWordWriterConfig;
 use super::implementation::CsvWordWriter;
 use crate::ProcessNodeConstruction;
-use crate::nodes::sinks::OutputStorage;
+use crate::nodes::sinks::{OutputOrigin, OutputStorage};
 
 /// Platform-neutral construction contract for a CSV word writer.
 pub trait CsvWordWriterFactory: Send + Sync {
@@ -17,6 +17,7 @@ pub trait CsvWordWriterFactory: Send + Sync {
         &self,
         name: &str,
         config: CsvWordWriterConfig,
+        output_origin: OutputOrigin,
     ) -> Result<ProcessNodeConstruction, String>;
 }
 
@@ -29,11 +30,13 @@ impl CsvWordWriterFactory for StorageCsvWordWriterFactory {
         &self,
         name: &str,
         config: CsvWordWriterConfig,
+        output_origin: OutputOrigin,
     ) -> Result<ProcessNodeConstruction, String> {
         let mut writer = CsvWordWriter::with_output_storage(Arc::clone(&self.storage))
             .with_value_format(config.value_format())
             .with_header(config.header().map(str::to_owned))
-            .with_name(name);
+            .with_name(name)
+            .with_output_origin(output_origin);
         if let Some(filename) = config.static_filename() {
             writer = writer.with_filename(filename);
         }

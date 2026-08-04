@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use logic_analyzer_graph_api::node::GraphNodeRegistration;
-use logic_analyzer_graph_api::node_support::{PortKind, ResolvedInput, ResolvedInputs};
+use logic_analyzer_graph_capabilities::node_support::{PortKind, ResolvedInput, ResolvedInputs};
+use logic_analyzer_graph_registry::graph_node_registrations;
 use node_graph::api::{GraphDocumentBuilder, NodeId, NodeTypeRegistry, Socket};
 
 use super::build_context::TestNodeBuildContext;
@@ -33,7 +33,7 @@ fn assert_node_registration_contract_impl(
     state: Option<serde_json::Value>,
     build_runtime: bool,
 ) {
-    let registration = inventory::iter::<GraphNodeRegistration>
+    let registration = graph_node_registrations()
         .into_iter()
         .find(|registration| registration.stable_id() == stable_id)
         .unwrap_or_else(|| panic!("missing graph-node registration '{stable_id}'"));
@@ -165,7 +165,7 @@ fn assert_node_registration_contract_impl(
 }
 
 fn resolved_inputs(
-    builder: &dyn logic_analyzer_graph_api::node::RuntimeBuilder,
+    builder: &dyn logic_analyzer_graph_capabilities::node::RuntimeBuilder,
     sockets: &[Socket],
     state: &serde_json::Value,
 ) -> ResolvedInputs {
@@ -186,6 +186,7 @@ fn resolved_inputs(
                 source_node: NodeId(10_000 + socket.def_index as u32),
                 source_output: socket.def_index,
                 source_node_title: "Fixture source".to_owned(),
+                source_output_title: format!("Output {}", socket.def_index),
                 word_display_format: None,
                 lane_presentation: None,
                 default_lane_presentation: None,

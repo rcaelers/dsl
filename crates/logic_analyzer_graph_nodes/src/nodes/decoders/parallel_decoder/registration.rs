@@ -1,5 +1,5 @@
 inventory::submit! {
-    logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
         super::definition::ParallelDecoder,
         super::builder::ParallelDecoderBuilder,
     >("org.logicconduit.graph-node.decoders.parallel-decoder/v1").requiring_payloads(&[
@@ -9,7 +9,7 @@ inventory::submit! {
 }
 
 inventory::submit! {
-    logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
         super::compatibility::BinaryDecoder,
         super::builder::ParallelDecoderBuilder,
     >("org.logicconduit.graph-node.decoders.binary-decoder/v1").requiring_payloads(&[

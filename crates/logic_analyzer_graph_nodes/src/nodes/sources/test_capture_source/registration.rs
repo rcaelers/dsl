@@ -1,5 +1,5 @@
 inventory::submit! {
-    logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
         super::definition::TestCaptureSource,
         super::builder::TestCaptureSourceBuilder,
     >("org.logicconduit.graph-node.sources.test-capture-source/v1")
@@ -20,7 +20,7 @@ mod registration_tests {
 }
 
 inventory::submit! {
-    logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
         super::definition::TestLiveCaptureSource,
         super::live_builder::TestLiveCaptureSourceBuilder,
     >("org.logicconduit.graph-node.sources.test-live-capture-source/v1")

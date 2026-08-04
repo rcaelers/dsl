@@ -25,7 +25,9 @@ use signal_processing::{
     WorkError, WorkResult,
 };
 
-use super::super::output_storage::{OutputFile, OutputStorage, UnavailableOutputStorage};
+use super::super::output_storage::{
+    OutputFile, OutputOrigin, OutputStorage, UnavailableOutputStorage,
+};
 use super::configuration::CsvValueFormat;
 
 impl CsvValueFormat {
@@ -72,6 +74,7 @@ impl CsvValueFormat {
 /// Outputs: none.
 pub struct CsvWordWriter {
     name: String,
+    output_origin: OutputOrigin,
     header: Option<String>,
     value_format: CsvValueFormat,
 
@@ -105,6 +108,7 @@ impl CsvWordWriter {
     pub fn with_output_storage(storage: Arc<dyn OutputStorage>) -> Self {
         Self {
             name: "csv_word_writer".to_string(),
+            output_origin: OutputOrigin::new("csv_word_writer", "Data"),
             header: Some("id,time_ns,value".to_string()),
             value_format: CsvValueFormat::default(),
             data_buffer: VecDeque::new(),
@@ -122,7 +126,17 @@ impl CsvWordWriter {
 
     /// Returns this value configured with name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        let old_name = self.name.clone();
         self.name = name.into();
+        if self.output_origin.node == old_name {
+            self.output_origin.node.clone_from(&self.name);
+        }
+        self
+    }
+
+    /// Returns this value with explicit upstream graph provenance for generated files.
+    pub fn with_output_origin(mut self, origin: OutputOrigin) -> Self {
+        self.output_origin = origin;
         self
     }
 
@@ -197,7 +211,7 @@ impl CsvWordWriter {
                 .map_err(|e| WorkError::NodeError(format!("creating parent for {path:?}: {e}")))?;
             let file = self
                 .storage
-                .create(&path)
+                .create_for(&path, &self.output_origin)
                 .map_err(|e| WorkError::NodeError(format!("creating {path:?}: {e}")))?;
             info!("[{}] created {}", self.name, path.display());
             let mut writer = BufWriter::new(file);

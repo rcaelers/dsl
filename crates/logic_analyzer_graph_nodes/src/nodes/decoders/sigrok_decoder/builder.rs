@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_api::node::{RuntimeBuilder, RuntimeBuilderOverride};
-use logic_analyzer_graph_api::node_support::{
+use logic_analyzer_graph_capabilities::node::{RuntimeBuilder, RuntimeBuilderOverride};
+use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
@@ -327,7 +327,7 @@ mod builder_tests {
     use std::path::{Path, PathBuf};
     use std::sync::Mutex;
 
-    use logic_analyzer_graph_api::node_support::ResolvedInput;
+    use logic_analyzer_graph_capabilities::node_support::ResolvedInput;
     use node_graph::NodeId;
 
     use super::*;
@@ -399,6 +399,7 @@ mod builder_tests {
                     source_node: NodeId(100 + index as u32),
                     source_output: index,
                     source_node_title: format!("Source {index}"),
+                    source_output_title: format!("Output {index}"),
                     word_display_format: None,
                     lane_presentation: None,
                     default_lane_presentation: None,

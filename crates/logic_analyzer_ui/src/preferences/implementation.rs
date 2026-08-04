@@ -1,4 +1,4 @@
-use logic_analyzer_graph_api::node::DirectoryNodeCatalog;
+use logic_analyzer_graph_capabilities::node::DirectoryNodeCatalog;
 
 use crate::host_service::HostService;
 

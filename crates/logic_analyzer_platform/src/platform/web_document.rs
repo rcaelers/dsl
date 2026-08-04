@@ -23,6 +23,8 @@ struct BrowserOutputDownloads {
 struct BrowserOutputDownload {
     name: String,
     bytes: Vec<u8>,
+    producer_node: String,
+    producer_socket: String,
 }
 
 #[derive(Clone)]
@@ -60,12 +62,13 @@ impl BrowserDocumentHostService {
     }
 }
 
-/// Queues graph-produced browser files until the user explicitly downloads them.
+/// Replaces the previous run's browser files with the latest completed run.
 pub(crate) fn queue_output_files(
     files: impl IntoIterator<Item = super::web_output_storage::BrowserOutputFile>,
 ) {
     OUTPUT_DOWNLOADS.with(|downloads| {
         let mut downloads = downloads.borrow_mut();
+        downloads.files.clear();
         for file in files {
             downloads.next_id = downloads.next_id.saturating_add(1);
             let id = downloads.next_id;
@@ -74,6 +77,8 @@ pub(crate) fn queue_output_files(
                 BrowserOutputDownload {
                     name: file.name,
                     bytes: file.bytes,
+                    producer_node: file.producer_node,
+                    producer_socket: file.producer_socket,
                 },
             );
         }
@@ -114,7 +119,8 @@ impl HostService for BrowserDocumentHostService {
                 .map(|(&id, file)| logic_analyzer_ui::DownloadableOutput {
                     id,
                     name: file.name.clone(),
-                    content_type: output_content_type(&file.name).to_owned(),
+                    producer_node: file.producer_node.clone(),
+                    producer_socket: file.producer_socket.clone(),
                     byte_len: file.bytes.len() as u64,
                 })
                 .collect::<Vec<_>>();
@@ -249,20 +255,6 @@ impl HostService for BrowserDocumentHostService {
     }
 }
 
-fn output_content_type(name: &str) -> &'static str {
-    match Path::new(name)
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .map(|extension| extension.to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("csv") => "text/csv",
-        Some("txt") | Some("log") => "text/plain",
-        Some("json") => "application/json",
-        _ => "application/octet-stream",
-    }
-}
-
 fn register_document(
     state: &mut BrowserDocumentState,
     display_name: String,
@@ -367,17 +359,35 @@ mod web_document_tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
-    fn graph_outputs_wait_for_an_explicit_download() {
+    fn graph_outputs_keep_only_the_latest_completed_run() {
         let service = BrowserDocumentHostService::new();
         queue_output_files([super::super::web_output_storage::BrowserOutputFile {
             name: "capture.bin".to_owned(),
             bytes: vec![1, 2, 3],
+            producer_node: "Parallel Decoder".to_owned(),
+            producer_socket: "Words".to_owned(),
         }]);
 
         let downloads = service.pending_output_downloads();
         assert_eq!(downloads.len(), 1);
         assert_eq!(downloads[0].name, "capture.bin");
         assert_eq!(downloads[0].byte_len, 3);
+        assert_eq!(downloads[0].producer_node, "Parallel Decoder");
+        assert_eq!(downloads[0].producer_socket, "Words");
         assert_eq!(service.pending_output_downloads()[0].id, downloads[0].id);
+
+        queue_output_files([super::super::web_output_storage::BrowserOutputFile {
+            name: "latest.csv".to_owned(),
+            bytes: vec![4, 5],
+            producer_node: "UART Decoder".to_owned(),
+            producer_socket: "Frames".to_owned(),
+        }]);
+        let latest = service.pending_output_downloads();
+        assert_eq!(latest.len(), 1);
+        assert_eq!(latest[0].name, "latest.csv");
+        assert_eq!(latest[0].producer_node, "UART Decoder");
+
+        queue_output_files(Vec::new());
+        assert!(service.pending_output_downloads().is_empty());
     }
 }

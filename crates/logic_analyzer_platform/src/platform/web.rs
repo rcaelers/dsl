@@ -1,7 +1,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use logic_analyzer_graph_compiler::{
+use logic_analyzer_graph_runtime::{
     CaptureWorkerSourcePreparationExecutor, InlineSourcePreparationExecutor,
     SourcePreparationExecutor,
 };

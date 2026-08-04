@@ -1,5 +1,5 @@
 inventory::submit! {
-    logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
         super::definition::SigrokDecoderDefinition,
         super::builder::SigrokDecoderBuilder,
     >("org.logicconduit.graph-node.decoders.sigrok-decoder/v1").requiring_payloads(&[
@@ -11,7 +11,7 @@ inventory::submit! {
 
 #[cfg(test)]
 mod registration_tests {
-    use logic_analyzer_graph_api::node::RuntimeBuilder;
+    use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
     use node_graph::NodeDef;
     use node_graph::api::{GraphDocumentBuilder, NodeTypeRegistry};
 

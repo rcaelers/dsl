@@ -2,8 +2,8 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_api::node::{LiveCaptureFeature, RuntimeBuilder};
-use logic_analyzer_graph_api::node_support::{
+use logic_analyzer_graph_capabilities::node::{LiveCaptureFeature, RuntimeBuilder};
+use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
     SimpleTriggerChannel, TriggerConfigurationFeature,
 };
@@ -72,10 +72,10 @@ impl RuntimeBuilder for TestLiveCaptureSourceBuilder {
 
     fn source_data_lifecycle(
         &self,
-    ) -> Option<logic_analyzer_graph_api::node_support::SourceDataLifecycle> {
+    ) -> Option<logic_analyzer_graph_capabilities::node_support::SourceDataLifecycle> {
         Some(
-            logic_analyzer_graph_api::node_support::SourceDataLifecycle::new(
-                logic_analyzer_graph_api::node_support::SourceDataLifecycleKind::Live,
+            logic_analyzer_graph_capabilities::node_support::SourceDataLifecycle::new(
+                logic_analyzer_graph_capabilities::node_support::SourceDataLifecycleKind::Live,
                 false,
                 true,
                 true,

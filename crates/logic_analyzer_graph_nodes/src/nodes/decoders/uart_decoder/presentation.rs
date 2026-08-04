@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use egui::Stroke;
 
-use logic_analyzer_graph_api::node_support::{
+use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableCellMode, DecoderTableColumnDescriptor, LaneBadgeDescriptor,
     LanePresentationDescriptor,
 };

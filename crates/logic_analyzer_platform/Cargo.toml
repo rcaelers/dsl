@@ -24,8 +24,9 @@ bench = false
 [dependencies]
 egui = { workspace = true }
 input-bindings = { path = "../input_bindings" }
-logic-analyzer-graph-compiler = { path = "../logic_analyzer_graph_compiler" }
-logic-analyzer-graph-api = { path = "../logic_analyzer_graph_api" }
+logic-analyzer-graph-runtime = { path = "../logic_analyzer_graph_runtime" }
+logic-analyzer-graph-orchestration = { path = "../logic_analyzer_graph_orchestration" }
+logic-analyzer-graph-capabilities = { path = "../logic_analyzer_graph_capabilities" }
 logic-analyzer-graph-nodes = { path = "../logic_analyzer_graph_nodes" }
 logic-analyzer-processing = { path = "../logic_analyzer_processing" }
 logic-analyzer-ui = { path = "../logic_analyzer_ui" }

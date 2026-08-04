@@ -73,7 +73,7 @@ registry, and implements Save and Save As as browser JSON downloads. Its opaque 
 references never enter the saved graph. Capture-file selection remains a separate asynchronous
 node file-dialog capability. General output-file operations remain unavailable until their owning
 service has a browser destination adapter.
-Finite-source preparation uses the compiler-owned execution contract: the native platform adapter
+Finite-source preparation uses the graph-runtime-owned execution contract: the native platform adapter
 uses a bounded worker, while the web adapter selects the portable inline executor. The compiler
 polls one task contract and contains no target-selected source-preparation implementation.
 The application-runtime facade likewise receives a factory from platform composition. Native runs
@@ -474,7 +474,7 @@ container interface; their metadata parsers, capture readers, and index factorie
 path. Fresh reader sessions preserve parallel-indexing capability without sharing a native file
 cursor.
 
-The compiler assigns a monotonically increasing generation to each configured source preparation.
+The graph runtime assigns a monotonically increasing generation to each configured source preparation.
 Its observable snapshot contains the generation, readiness state, and latest index progress.
 Replacing, clearing, failing, or explicitly resetting the source cancels the active control before
 discarding its task. Progress callbacks return whether work may continue, so capture-index builders
@@ -512,7 +512,7 @@ backed by a native worker, browser worker, or deterministic test implementation.
 
 A capture-index factory whose backing cannot be opened in the caller exposes an opaque
 `CaptureIndexPreparationRequest` containing a registered operation identifier and owned payload.
-The generic compiler forwards it through `SourcePreparationExecutor::submit_request`; it does not
+The graph runtime forwards it through `SourcePreparationExecutor::submit_request`; it does not
 call that factory's local metadata or open methods and does not interpret the operation. Local
 factories continue through the existing closure submission. Both paths report metadata, progress,
 cancellation, failure, and the ready index through the same preparation generation and task
@@ -533,7 +533,7 @@ proxy polls them. Cancellation and session release are explicit outbound command
 clears unsent work and publishes a terminal failure for every pending sequence. The browser adapter
 therefore owns only worker creation and message transport, not queueing or capture semantics.
 
-`CaptureWorkerSourcePreparationExecutor` connects that client to the compiler's existing source
+`CaptureWorkerSourcePreparationExecutor` connects that client to the graph runtime's source
 preparation lifecycle while delegating ordinary local closures to another injected executor. A
 prepared worker message creates a `CaptureIndexProxy` whose `CaptureWorkerIndexQueryExecutor` is
 bound to the returned session. Dropping the proxy releases the session. Dropping unfinished
@@ -569,7 +569,7 @@ identity before completion; the worker rejects a completed index that does not m
 identity rather than comparing it with the different source-identity domain.
 
 Derived graph execution for a worker-owned capture remains on that worker. `GraphWorkerRuntime`
-owns the ordinary `GraphCompiler`, cooperative `LiveRun`, node registry, processing nodes, and the
+owns the ordinary `GraphRuntime`, cooperative `LiveRun`, node registry, processing nodes, and the
 same artifact repository used by capture preparation. The platform supplies worker-local DSL and
 Sigrok source factories that resolve opaque browser-file references to the already attached
 `PreparedByteSource`; they construct the ordinary processing sources and do not introduce a web

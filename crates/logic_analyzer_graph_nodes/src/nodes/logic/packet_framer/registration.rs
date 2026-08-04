@@ -1,5 +1,5 @@
 inventory::submit! {
-    logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
         super::definition::PacketFramer,
         super::builder::PacketFramerBuilder,
     >("org.logicconduit.graph-node.logic.packet-framer/v1").requiring_payloads(&[

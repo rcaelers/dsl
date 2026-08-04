@@ -9,12 +9,12 @@ use std::time::{Duration, Instant};
 
 use rusb::{Context, DeviceHandle, UsbContext};
 
-use logic_analyzer_graph_compiler::{
-    SourcePreparationExecutor, SourcePreparationResult, SourcePreparationTask,
-    SourcePreparationTaskUpdate, SourcePreparationWork,
-};
 use logic_analyzer_graph_nodes::{
     SigrokCatalogScanner, SigrokDecoderRuntime, install_sigrok_catalog_scanner,
+};
+use logic_analyzer_graph_runtime::{
+    SourcePreparationExecutor, SourcePreparationResult, SourcePreparationTask,
+    SourcePreparationTaskUpdate, SourcePreparationWork,
 };
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     SigrokCatalogSnapshot, SigrokDecoder, SigrokDecoderConfig, SigrokDecoderDescriptor,
@@ -134,7 +134,7 @@ pub(crate) fn standard_services() -> PlatformServices {
         native_sigrok_decoder_directories(),
         Arc::clone(&work_executor),
     ))
-        as Box<dyn logic_analyzer_graph_api::node::DirectoryNodeCatalog>];
+        as Box<dyn logic_analyzer_graph_capabilities::node::DirectoryNodeCatalog>];
     let ui_services = AppServices::with_host_configuration(
         Box::new(NativeHostService::new()),
         input_bindings,
@@ -1249,7 +1249,7 @@ impl SourcePreparationExecutor for NativeSourcePreparationExecutor {
     fn submit(
         &self,
         work: SourcePreparationWork,
-        control: logic_analyzer_graph_compiler::SourcePreparationControl,
+        control: logic_analyzer_graph_runtime::SourcePreparationControl,
     ) -> Result<Box<dyn SourcePreparationTask>, String> {
         let (sender, receiver) = crossbeam_channel::bounded(1);
         self.sender
@@ -1272,7 +1272,7 @@ impl SourcePreparationExecutor for NativeSourcePreparationExecutor {
 
 struct QueuedSourcePreparation {
     work: SourcePreparationWork,
-    control: logic_analyzer_graph_compiler::SourcePreparationControl,
+    control: logic_analyzer_graph_runtime::SourcePreparationControl,
     result_sender: crossbeam_channel::Sender<SourcePreparationResult>,
 }
 
@@ -1570,7 +1570,7 @@ mod native_tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use logic_analyzer_graph_compiler::{
+    use logic_analyzer_graph_runtime::{
         PreparedCaptureData, SourcePreparationControl, SourcePreparationExecutor,
         SourcePreparationTaskUpdate,
     };

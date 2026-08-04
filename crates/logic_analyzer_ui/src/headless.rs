@@ -5,8 +5,9 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use logic_analyzer_graph_compiler::{
-    CompileError, PreparedCapture, PreparedCaptureData, SourcePreparationStatus,
+use logic_analyzer_graph_plan::ProcessingGraphError as CompileError;
+use logic_analyzer_graph_runtime::{
+    GraphRunContext, PreparedCapture, PreparedCaptureData, SourcePreparationStatus,
     SourcePreparationUpdate, SourceProcessOverrides,
 };
 use node_graph::{GraphState, NodeGraphWidget, NodeId};
@@ -200,7 +201,7 @@ impl HeadlessGraphRunner {
             self.clear_caches(cache_configs.values().map(|(_, config)| config))?;
         let cache_clear_seconds = cache_clear_started.elapsed().as_secs_f64();
 
-        let mut context = logic_analyzer_graph_compiler::CompileCtx::default();
+        let mut context = GraphRunContext::default();
         supply_saved_timeline_cursors(&graph, &mut context).map_err(HeadlessRunError::new)?;
         let lanes = context.derived_lanes().clone();
         let execution_started = Instant::now();

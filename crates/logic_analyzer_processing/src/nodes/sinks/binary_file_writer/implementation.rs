@@ -19,7 +19,9 @@ use signal_processing::{
     WorkError, WorkResult,
 };
 
-use super::super::output_storage::{OutputFile, OutputStorage, UnavailableOutputStorage};
+use super::super::output_storage::{
+    OutputFile, OutputOrigin, OutputStorage, UnavailableOutputStorage,
+};
 use super::configuration::WriteWidth;
 
 impl WriteWidth {
@@ -39,6 +41,7 @@ impl WriteWidth {
 /// Outputs: none
 pub struct BinaryFileWriter {
     name: String,
+    output_origin: OutputOrigin,
     width: WriteWidth,
     index_csv: bool,
 
@@ -75,6 +78,7 @@ impl BinaryFileWriter {
     pub fn with_output_storage(storage: Arc<dyn OutputStorage>) -> Self {
         Self {
             name: "binary_file_writer".to_string(),
+            output_origin: OutputOrigin::new("binary_file_writer", "Data"),
             width: WriteWidth::default(),
             index_csv: false,
             data_buffer: VecDeque::new(),
@@ -95,7 +99,17 @@ impl BinaryFileWriter {
 
     /// Returns this value configured with name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        let old_name = self.name.clone();
         self.name = name.into();
+        if self.output_origin.node == old_name {
+            self.output_origin.node.clone_from(&self.name);
+        }
+        self
+    }
+
+    /// Returns this value with explicit upstream graph provenance for generated files.
+    pub fn with_output_origin(mut self, origin: OutputOrigin) -> Self {
+        self.output_origin = origin;
         self
     }
 
@@ -125,7 +139,7 @@ impl BinaryFileWriter {
             .unwrap_or_else(|| Path::new("."))
             .join("captures.csv");
         let exists = self.storage.exists(&index_path);
-        let file = self.storage.append(&index_path)?;
+        let file = self.storage.append_for(&index_path, &self.output_origin)?;
         let mut writer = BufWriter::new(file);
         if !exists {
             writeln!(
@@ -212,7 +226,7 @@ impl BinaryFileWriter {
                 .map_err(|e| WorkError::NodeError(format!("creating parent for {path:?}: {e}")))?;
             let file = self
                 .storage
-                .create(&path)
+                .create_for(&path, &self.output_origin)
                 .map_err(|e| WorkError::NodeError(format!("creating {path:?}: {e}")))?;
             info!("[{}] created {}", self.name, path.display());
             self.current_file = Some(BufWriter::new(file));
@@ -477,7 +491,10 @@ mod tests {
         drop(data_tx);
 
         let (writer, storage) = memory_writer();
-        let mut writer = writer.with_filename(target);
+        let expected_origin = OutputOrigin::new("Parallel Decoder", "Words");
+        let mut writer = writer
+            .with_filename(target)
+            .with_output_origin(expected_origin.clone());
         loop {
             match writer.work(&inputs, &[]) {
                 Ok(_) => {}
@@ -487,6 +504,7 @@ mod tests {
         }
 
         assert_eq!(storage.contents(target), Some(vec![1, 2, 3]));
+        assert_eq!(storage.origin(target), Some(expected_origin));
     }
 
     #[test]

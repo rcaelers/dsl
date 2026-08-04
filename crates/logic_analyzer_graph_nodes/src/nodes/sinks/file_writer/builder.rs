@@ -4,11 +4,12 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_api::node::RuntimeBuilder;
-use logic_analyzer_graph_api::node_support::{
+use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
 use logic_analyzer_processing::ProcessNodeConstruction;
+use logic_analyzer_processing::nodes::sinks::OutputOrigin;
 use logic_analyzer_processing::nodes::sinks::binary_file_writer::{
     BinaryFileWriterConfig, BinaryFileWriterFactory, WriteWidth, unavailable_writer_factory,
 };
@@ -35,8 +36,8 @@ impl FileWriterBuilder {
 
 pub(crate) fn runtime_builder_override(
     writer_factory: Arc<dyn BinaryFileWriterFactory>,
-) -> logic_analyzer_graph_api::node::RuntimeBuilderOverride {
-    logic_analyzer_graph_api::node::RuntimeBuilderOverride::new(
+) -> logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride {
+    logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride::new(
         "org.logicconduit.graph-node.sinks.file-writer/v1",
         Box::new(FileWriterBuilder::with_writer_factory(writer_factory)),
     )
@@ -94,10 +95,17 @@ impl RuntimeBuilder for FileWriterBuilder {
         let static_filename = state.filename.value.trim();
         let static_filename = (resolved.kind(1).is_none() && !static_filename.is_empty())
             .then(|| static_filename.to_owned());
+        let source = resolved
+            .get(0, 0)
+            .ok_or_else(|| "File Writer data input is not connected".to_owned())?;
         self.writer_factory
             .create(
                 name,
                 BinaryFileWriterConfig::new(width, state.index_csv.value, static_filename),
+                OutputOrigin::new(
+                    source.source_node_title.clone(),
+                    source.source_output_title.clone(),
+                ),
             )
             .map(ProcessNodeConstruction::into_process)
     }

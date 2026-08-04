@@ -10,7 +10,8 @@ path = "src/lib.rs"
 
 [dependencies]
 signal-processing = { path = "../signal_processing" }
-logic-analyzer-graph-api = { path = "../logic_analyzer_graph_api" }
+logic-analyzer-graph-capabilities = { path = "../logic_analyzer_graph_capabilities" }
+logic-analyzer-graph-registry = { path = "../logic_analyzer_graph_registry" }
 logic-analyzer-processing = { path = "../logic_analyzer_processing" }
 logic-analyzer-viewer = { path = "../widgets/logic_analyzer_viewer" }
 node-graph = { path = "../widgets/node_graph" }

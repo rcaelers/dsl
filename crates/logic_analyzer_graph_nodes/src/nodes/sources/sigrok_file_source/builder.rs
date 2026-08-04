@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_api::node::RuntimeBuilder;
-use logic_analyzer_graph_api::node_support::{
+use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node_support::{
     CaptureCacheIdentity, CapturePresentation, NodeBuildContext, PortKind, ResolvedInputs,
     parse_state,
 };
@@ -49,8 +49,8 @@ impl SigrokFileSourceBuilder {
 
 pub(crate) fn runtime_builder_override(
     source_factory: Arc<dyn SigrokFileSourceFactory>,
-) -> logic_analyzer_graph_api::node::RuntimeBuilderOverride {
-    logic_analyzer_graph_api::node::RuntimeBuilderOverride::new(
+) -> logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride {
+    logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride::new(
         "org.logicconduit.graph-node.sources.sigrok-file-source/v1",
         Box::new(SigrokFileSourceBuilder::with_source_factory(source_factory)),
     )
@@ -62,7 +62,7 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
     }
     fn source_data_lifecycle(
         &self,
-    ) -> Option<logic_analyzer_graph_api::node_support::SourceDataLifecycle> {
+    ) -> Option<logic_analyzer_graph_capabilities::node_support::SourceDataLifecycle> {
         Some(super::super::metadata::lifecycle(
             self.source_factory.lifecycle(),
         ))

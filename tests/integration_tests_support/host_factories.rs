@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
-use logic_analyzer_graph_compiler::{
-    GraphCompiler, InlineSourcePreparationExecutor, OutputSubscriptionPlan,
-};
+use logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride;
+use logic_analyzer_graph_compiler::GraphLowerer;
+use logic_analyzer_graph_plan::OutputSubscriptionPlan;
+use logic_analyzer_graph_runtime::{GraphRuntime, InlineSourcePreparationExecutor};
 use logic_analyzer_processing::nodes::sources::dsl_file::{
     DslFileSourceConfig, DslFileSourceFactory,
 };
@@ -18,6 +19,50 @@ use signal_processing::{
     ConfiguredAcquisition, CooperativeAppManagerFactory, IndexedCapturePresentation,
     InlineWorkExecutor, PreparedAcquisition, SourceIdentity, WorkExecutor,
 };
+
+pub(crate) struct GraphHarness {
+    lowerer: GraphLowerer,
+    runtime: GraphRuntime,
+}
+
+impl GraphHarness {
+    pub(crate) fn new() -> Self {
+        Self::with_builder_overrides(Vec::new())
+    }
+
+    fn with_builder_overrides(builder_overrides: Vec<RuntimeBuilderOverride>) -> Self {
+        Self {
+            lowerer: GraphLowerer::with_builder_overrides(builder_overrides),
+            runtime: GraphRuntime::with_execution(
+                Box::new(InlineSourcePreparationExecutor),
+                Arc::new(CooperativeAppManagerFactory),
+                Arc::new(InlineWorkExecutor),
+            ),
+        }
+    }
+
+    pub(crate) fn lowerer(&self) -> &GraphLowerer {
+        &self.lowerer
+    }
+
+    pub(crate) fn set_output_subscriptions(&mut self, subscriptions: OutputSubscriptionPlan) {
+        self.lowerer.set_output_subscriptions(subscriptions);
+    }
+}
+
+impl std::ops::Deref for GraphHarness {
+    type Target = GraphRuntime;
+
+    fn deref(&self) -> &Self::Target {
+        &self.runtime
+    }
+}
+
+impl std::ops::DerefMut for GraphHarness {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.runtime
+    }
+}
 
 struct TestLiveSourceFactory;
 
@@ -194,23 +239,18 @@ impl DslFileSourceFactory for TestDslSourceFactory {
     }
 }
 
-pub(crate) fn test_platform_compiler() -> GraphCompiler {
-    GraphCompiler::with_execution_and_builder_overrides(
-        Box::new(InlineSourcePreparationExecutor),
-        Arc::new(CooperativeAppManagerFactory),
-        Arc::new(InlineWorkExecutor),
-        vec![
-            logic_analyzer_graph_nodes::u3pro16_runtime_builder_override(Arc::new(
-                TestLiveSourceFactory,
-            )),
-            logic_analyzer_graph_nodes::dsl_file_source_runtime_builder_override(Arc::new(
-                TestDslSourceFactory,
-            )),
-        ],
-    )
+pub(crate) fn test_platform_compiler() -> GraphHarness {
+    GraphHarness::with_builder_overrides(vec![
+        logic_analyzer_graph_nodes::u3pro16_runtime_builder_override(Arc::new(
+            TestLiveSourceFactory,
+        )),
+        logic_analyzer_graph_nodes::dsl_file_source_runtime_builder_override(Arc::new(
+            TestDslSourceFactory,
+        )),
+    ])
 }
 
-pub(crate) fn test_live_compiler(subscriptions: OutputSubscriptionPlan) -> GraphCompiler {
+pub(crate) fn test_live_compiler(subscriptions: OutputSubscriptionPlan) -> GraphHarness {
     let mut compiler = test_platform_compiler();
     compiler.set_output_subscriptions(subscriptions);
     compiler

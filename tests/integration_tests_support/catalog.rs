@@ -1,6 +1,5 @@
-use logic_analyzer_graph_api::node::{
-    GraphNodeRegistration, RuntimeBuilder, graph_node_registrations,
-};
+use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_registry::{GraphNodeRegistration, graph_node_registrations};
 use node_graph::NodeTypeRegistry;
 
 fn registration(stable_id: &str) -> &'static GraphNodeRegistration {

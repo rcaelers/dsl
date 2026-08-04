@@ -9,9 +9,9 @@ submission, and feature-local tests.
 ## Facade and dependencies
 
 The crate root exposes the linker-retention anchor and narrowly scoped host-configuration helpers.
-Internals depend on graph API, concrete processing, generic processing, node graph, and viewer
-registration contracts. The compiler reads registrations through inventory and never depends on
-this bundle.
+Internals depend on graph capabilities capabilities, graph registry descriptors, concrete processing,
+generic processing, node graph, and viewer registration contracts. Compiler, runtime, and UI read
+registrations through the graph registry and never depend on this bundle.
 
 ## Ownership boundaries
 

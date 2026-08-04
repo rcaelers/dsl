@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_api::node::{LiveCaptureFeature, RuntimeBuilder};
-use logic_analyzer_graph_api::node_support::{
+use logic_analyzer_graph_capabilities::node::{LiveCaptureFeature, RuntimeBuilder};
+use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
     TriggerConfigurationFeature, parse_state,
 };
@@ -51,8 +51,8 @@ impl DsLogicU3Pro16Builder {
 
 pub(crate) fn runtime_builder_override(
     source_factory: Arc<dyn DsLogicU3Pro16SourceFactory>,
-) -> logic_analyzer_graph_api::node::RuntimeBuilderOverride {
-    logic_analyzer_graph_api::node::RuntimeBuilderOverride::new(
+) -> logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride {
+    logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride::new(
         "org.logicconduit.graph-node.sources.dslogic-u3pro16/v1",
         Box::new(DsLogicU3Pro16Builder::with_source_factory(source_factory)),
     )
@@ -65,7 +65,7 @@ impl RuntimeBuilder for DsLogicU3Pro16Builder {
 
     fn source_data_lifecycle(
         &self,
-    ) -> Option<logic_analyzer_graph_api::node_support::SourceDataLifecycle> {
+    ) -> Option<logic_analyzer_graph_capabilities::node_support::SourceDataLifecycle> {
         Some(super::super::metadata::lifecycle(
             self.source_factory.lifecycle(),
         ))

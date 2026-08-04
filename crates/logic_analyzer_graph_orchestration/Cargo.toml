@@ -1,0 +1,19 @@
+[package]
+name = "logic-analyzer-graph-orchestration"
+version.workspace = true
+edition = "2024"
+authors = ["Rob Caelers <rob.caelers@gmail.com>"]
+
+[lib]
+name = "logic_analyzer_graph_orchestration"
+path = "src/lib.rs"
+
+[dependencies]
+logic-analyzer-graph-capabilities = { path = "../logic_analyzer_graph_capabilities" }
+logic-analyzer-graph-compiler = { path = "../logic_analyzer_graph_compiler" }
+logic-analyzer-graph-plan = { path = "../logic_analyzer_graph_plan" }
+logic-analyzer-graph-runtime = { path = "../logic_analyzer_graph_runtime" }
+node-graph = { path = "../widgets/node_graph" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+signal-processing = { path = "../signal_processing" }

@@ -1,5 +1,5 @@
 inventory::submit! {
-    logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
         super::definition::DslFileSource,
         super::builder::FileSourceBuilder,
     >("org.logicconduit.graph-node.sources.dsl-file-source/v1")

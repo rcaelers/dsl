@@ -25,7 +25,7 @@ submission.
 `PayloadRegistry` records a durable, plugin-owned identity for each payload intended to
 become collectable. `PayloadRegistration` inventory submissions atomically provide that
 identity, typed channel setup, adapter factory, request configuration, persistence policy, and
-default waveform presentation. `BuilderRegistry::standard()` applies submissions in stable-ID
+default waveform presentation. `logic_analyzer_graph_registry::GraphRegistry` applies submissions in stable-ID
 order and rejects identity/type collisions before graph-node payload requirements are validated.
 
 `DerivedDataCollector` schedules adapter-created lane ingestors beside its
@@ -34,7 +34,7 @@ so a later subscriber can discover it by stable payload identity and downcast on
 registered query type. Built-in payloads are registered through this same path and retain their
 digital, indexed-word, marker, numeric, and text data behind their adapters.
 
-`BuilderRegistry` owns one collection-subscription contract per subscribable payload. The contract
+`GraphRegistry` owns one collection-subscription contract per subscribable payload. The contract
 binds the open `PortKind` to its adapter descriptor, diagnostic name, default waveform
 presentation, request configuration, and optional persistent-cache policy. Lowering obtains the
 accepted kinds from these contracts. Materialization invokes the selected contract and adapter;

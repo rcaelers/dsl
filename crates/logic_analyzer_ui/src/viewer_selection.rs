@@ -2,11 +2,10 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use logic_analyzer_graph_api::node::{
-    PayloadRegistration, RuntimeBuilder, graph_node_registrations,
-};
-use logic_analyzer_graph_api::node_support::{PortKind, ViewerOutputControl};
-use logic_analyzer_graph_compiler::OutputSubscriptionPlan;
+use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node_support::{PortKind, ViewerOutputControl};
+use logic_analyzer_graph_plan::OutputSubscriptionPlan;
+use logic_analyzer_graph_registry::{graph_node_registrations, payload_registrations};
 use node_graph::{GraphState, NodeId, NodeKind, SocketDirection, SocketId};
 
 const EXTENSION: &str = "logic_analyzer_graph.viewer_selections";
@@ -104,9 +103,7 @@ impl SelectionContracts {
                     .map(|builder| (registration.name().to_owned(), builder))
             })
             .collect();
-        let registrations = inventory::iter::<PayloadRegistration>
-            .into_iter()
-            .collect::<Vec<_>>();
+        let registrations = payload_registrations();
         let subscribable_kinds = registrations
             .iter()
             .map(|registration| registration.kind())

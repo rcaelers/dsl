@@ -4,7 +4,7 @@ use super::super::output_storage::UnavailableOutputStorage;
 use super::configuration::BinaryFileWriterConfig;
 use super::implementation::BinaryFileWriter;
 use crate::ProcessNodeConstruction;
-use crate::nodes::sinks::OutputStorage;
+use crate::nodes::sinks::{OutputOrigin, OutputStorage};
 
 /// Platform-neutral construction contract for a binary file writer.
 pub trait BinaryFileWriterFactory: Send + Sync {
@@ -17,6 +17,7 @@ pub trait BinaryFileWriterFactory: Send + Sync {
         &self,
         name: &str,
         config: BinaryFileWriterConfig,
+        output_origin: OutputOrigin,
     ) -> Result<ProcessNodeConstruction, String>;
 }
 
@@ -29,11 +30,13 @@ impl BinaryFileWriterFactory for StorageBinaryFileWriterFactory {
         &self,
         name: &str,
         config: BinaryFileWriterConfig,
+        output_origin: OutputOrigin,
     ) -> Result<ProcessNodeConstruction, String> {
         let mut writer = BinaryFileWriter::with_output_storage(Arc::clone(&self.storage))
             .with_width(config.width())
             .with_index_csv(config.index_csv())
-            .with_name(name);
+            .with_name(name)
+            .with_output_origin(output_origin);
         if let Some(filename) = config.static_filename() {
             writer = writer.with_filename(filename);
         }

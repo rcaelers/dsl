@@ -2,7 +2,7 @@
 //!
 //! This crate owns concrete node definitions, builders, registrations, saved-state
 //! migrations, payloads, socket styling, and presentation metadata. It contributes
-//! those features through the graph API without making generic compiler, runtime,
+//! those features through the graph registry and graph capabilities without making generic compiler, runtime,
 //! viewer, or widget code depend on node names, ports, or protocols.
 
 #[cfg(test)]

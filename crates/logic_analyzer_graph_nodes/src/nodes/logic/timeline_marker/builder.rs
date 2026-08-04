@@ -2,8 +2,8 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_api::node::RuntimeBuilder;
-use logic_analyzer_graph_api::node_support::{
+use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, TimelineMarkerDescriptor, TimelineMarkerEdit,
     TimelineMarkerReference, TimelineMarkerReferenceBindingDescriptor,
     TimelineMarkerReferenceBindingEdit, TimelineMarkerReferenceChoice, parse_state,

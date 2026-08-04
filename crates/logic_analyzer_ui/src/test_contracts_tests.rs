@@ -1,8 +1,9 @@
-use logic_analyzer_graph_api::node::{
-    GraphNodeRegistration, PayloadRegistration, RuntimeBuilder, graph_node_registrations,
-};
-use logic_analyzer_graph_api::node_support::{
+use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node_support::{
     DefaultLanePresentationDescriptor, LaneBadgeDescriptor, PortKind,
+};
+use logic_analyzer_graph_registry::{
+    GraphNodeRegistration, PayloadRegistration, graph_node_registrations,
 };
 use node_graph::{AnySocket, InputDef, NodeDef, NodeTypeRegistry, OutputDef, Socket};
 use signal_processing::Word;

@@ -1,5 +1,5 @@
 inventory::submit! {
-    logic_analyzer_graph_api::node::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
         super::definition::TextFileWriter,
         super::builder::TextFileWriterBuilder,
     >("org.logicconduit.graph-node.sinks.text-file-writer/v1")

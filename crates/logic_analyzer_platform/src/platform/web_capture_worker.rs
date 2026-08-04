@@ -10,7 +10,7 @@ use web_sys::{
     Blob, BlobPropertyBag, ErrorEvent, MessageEvent, Url, Worker, WorkerOptions, WorkerType,
 };
 
-use logic_analyzer_graph_compiler::{
+use logic_analyzer_graph_orchestration::{
     GraphWorkerClient, GraphWorkerRequest, GraphWorkerRuntime, decode_graph_worker_messages,
     decode_graph_worker_request, encode_graph_worker_messages, encode_graph_worker_request,
 };
@@ -439,6 +439,9 @@ pub fn execute_graph_worker_request(payload: Vec<u8>, publish: &Function) -> Res
     install_worker_panic_hook();
     let request = decode_graph_worker_request(&payload)
         .map_err(|error| JsValue::from_str(&format!("invalid graph-worker request: {error}")))?;
+    if matches!(&request, GraphWorkerRequest::Start { .. }) {
+        super::web_output_storage::begin_output_run();
+    }
     let mut failure = None;
     GRAPH_WORKER_RUNTIME.with(|runtime| {
         runtime
@@ -502,7 +505,7 @@ fn publish_capture_message(
 
 fn publish_graph_message(
     publish: &Function,
-    message: logic_analyzer_graph_compiler::GraphWorkerMessage,
+    message: logic_analyzer_graph_orchestration::GraphWorkerMessage,
     failure: &mut Option<JsValue>,
 ) {
     if failure.is_some() {

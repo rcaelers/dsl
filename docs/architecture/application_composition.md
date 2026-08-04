@@ -34,12 +34,14 @@ payload IDs and storage contracts; it does not infer protocols or concrete nodes
 
 - `App::build` creates the editor node-type registry from graph-node inventory, composes the
   UI-owned graph and host service ports, and installs the platform symbol font used by menu
-  glyphs. The graph service owns the inventory-derived runtime-builder registry.
+  glyphs. The graph service's lowerer owns a validated
+  `logic_analyzer_graph_registry::GraphRegistry` snapshot; its separate runtime has no registry or
+  compiler dependency.
 - Graphs are saved/loaded as the editor's JSON document (`⌘O` / `⌘S` / `⇧⌘S`).
 - Every frame, the app asks the graph integration for an opaque pre-run capture presentation.
   Concrete source builders supply an indexed-capture factory, an in-memory preview, or a channel
   layout. The app and viewer do not identify node types or know what DSL and Sigrok paths mean.
-  Runtime processing nodes remain compiler-owned and are created only when a run starts.
+  Runtime processing nodes remain graph-runtime-owned and are created only when a run starts.
 - File commands include New, Open, Open Recent, Save, and Save As. Destructive actions over
   an unsaved graph share one save/discard/cancel guard; recent paths are deduplicated and
   persisted through injected host capabilities.
@@ -59,8 +61,9 @@ Run releases the preview handles, clears the graph's selected derived caches, an
 execution which rebuilds them. Run therefore always means execute, while reopening a document is
 enough to inspect previously completed derived data.
 
-`start_app_run` lowers the current graph and starts a `LiveRun` — the app always runs
-through the live machinery (a file replay is just a run whose source finishes).
+The graph service lowers the current document and passes the resulting `ProcessingGraph` to
+`GraphRuntime::start`; document semantics are complete before materialization begins. The app
+always runs through `LiveRun` machinery (a file replay is a run whose source finishes).
 
 Per frame, the app calls `run.pump(budget)` (no-op on the native threaded manager; on wasm
 this is what executes node `work()`s) and requests ~16 ms repaints while running so derived

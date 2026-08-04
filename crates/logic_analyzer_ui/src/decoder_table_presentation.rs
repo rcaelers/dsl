@@ -1,4 +1,4 @@
-use logic_analyzer_graph_compiler::CollectedTableSubscription;
+use logic_analyzer_graph_plan::CollectedTableSubscription;
 use logic_analyzer_viewer::{DerivedLaneId, ViewerLaneTrackId, viewer_lane_renderer};
 use node_graph::NodeId;
 
@@ -69,10 +69,10 @@ pub(crate) fn decoder_table_registry(
 
 #[cfg(test)]
 mod decoder_table_presentation_tests {
-    use logic_analyzer_graph_api::node_support::{
+    use logic_analyzer_graph_capabilities::node_support::{
         DecoderTableCellMode, DecoderTableColumnDescriptor, PortKind, ResolvedInput,
     };
-    use logic_analyzer_graph_compiler::CollectedOutputLane;
+    use logic_analyzer_graph_plan::CollectedOutputLane;
     use logic_analyzer_viewer::{DefaultViewerLaneRenderer, ViewerLaneRendererRegistration};
     use signal_processing::Word;
 
@@ -97,6 +97,7 @@ mod decoder_table_presentation_tests {
                 source_node: NodeId(9),
                 source_output: order,
                 source_node_title: "Decoder".to_owned(),
+                source_output_title: key.to_owned(),
                 word_display_format: None,
                 lane_presentation: None,
                 default_lane_presentation: None,
