@@ -41,20 +41,36 @@ pub(crate) struct CaptureIndexBlockResult {
 pub(crate) fn build_capture_index_block(
     request: CaptureIndexBlockRequest,
 ) -> Result<CaptureIndexBlockResult, String> {
-    let available_samples = (request.packed_samples.len() as u64).saturating_mul(8);
-    if request.valid_samples > available_samples {
+    build_capture_index_block_from_packed(
+        request.sequence,
+        request.channel,
+        request.block,
+        request.valid_samples,
+        &request.packed_samples,
+    )
+}
+
+pub(crate) fn build_capture_index_block_from_packed(
+    sequence: u64,
+    channel: u64,
+    block: u64,
+    requested_valid_samples: u64,
+    packed_samples: &[u8],
+) -> Result<CaptureIndexBlockResult, String> {
+    let available_samples = (packed_samples.len() as u64).saturating_mul(8);
+    if requested_valid_samples > available_samples {
         return Err(format!(
             "capture-index request declares {} valid samples but contains only {available_samples}",
-            request.valid_samples
+            requested_valid_samples
         ));
     }
-    let valid_samples = u32::try_from(request.valid_samples)
+    let valid_samples = u32::try_from(requested_valid_samples)
         .map_err(|_| "capture-index leaf exceeds the fixed-width sample limit".to_string())?;
     if valid_samples == 0 {
         return Ok(CaptureIndexBlockResult {
-            sequence: request.sequence,
-            channel: request.channel,
-            block: request.block,
+            sequence,
+            channel,
+            block,
             valid_samples,
             first: false,
             last: false,
@@ -62,8 +78,8 @@ pub(crate) fn build_capture_index_block(
         });
     }
 
-    let first = packed_bit(&request.packed_samples, 0);
-    let last = packed_bit(&request.packed_samples, valid_samples as usize - 1);
+    let first = packed_bit(packed_samples, 0);
+    let last = packed_bit(packed_samples, valid_samples as usize - 1);
     let mut entering = first;
     let mut levels = CaptureIndexBlockLevels {
         l1_toggle: vec![0; L1_WORDS],
@@ -76,7 +92,7 @@ pub(crate) fn build_capture_index_block(
 
     let l1_groups = (valid_samples as usize).div_ceil(64);
     let full_l1_groups = valid_samples as usize / 64;
-    let (full_l1_chunks, _) = request.packed_samples[..full_l1_groups * 8].as_chunks::<8>();
+    let (full_l1_chunks, _) = packed_samples[..full_l1_groups * 8].as_chunks::<8>();
     for (group, chunk) in full_l1_chunks.iter().enumerate() {
         record_l1_group(
             &mut levels.l1_toggle,
@@ -88,11 +104,8 @@ pub(crate) fn build_capture_index_block(
         );
     }
     if full_l1_groups < l1_groups {
-        let (word, valid_bits) = partial_l1_word(
-            &request.packed_samples,
-            full_l1_groups,
-            valid_samples as usize,
-        );
+        let (word, valid_bits) =
+            partial_l1_word(packed_samples, full_l1_groups, valid_samples as usize);
         record_l1_group(
             &mut levels.l1_toggle,
             &mut levels.l1_last,
@@ -126,9 +139,9 @@ pub(crate) fn build_capture_index_block(
     }
 
     Ok(CaptureIndexBlockResult {
-        sequence: request.sequence,
-        channel: request.channel,
-        block: request.block,
+        sequence,
+        channel,
+        block,
         valid_samples,
         first,
         last,

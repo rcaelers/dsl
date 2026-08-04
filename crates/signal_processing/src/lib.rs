@@ -441,8 +441,8 @@ pub use app_manager::{
 };
 pub use capture::{
     BlockCaptureSource, BlockData, CaptureDataSource, CaptureFingerprint, CaptureIndex,
-    CaptureIndexBuildProgress, CaptureIndexFactory, CaptureIndexOpenStep, CaptureIndexOpenTask,
-    CaptureIndexPreparationRequest, CaptureIndexProxy, CaptureIndexQuery,
+    CaptureIndexBuildProfile, CaptureIndexBuildProgress, CaptureIndexFactory, CaptureIndexOpenStep,
+    CaptureIndexOpenTask, CaptureIndexPreparationRequest, CaptureIndexProxy, CaptureIndexQuery,
     CaptureIndexQueryExecutor, CaptureIndexQueryUpdate, CaptureMetadata, CaptureSampledChannel,
     CaptureSampledWindow, CaptureSampledWindowPoll, CaptureSource, CaptureTransition,
     CaptureWaveformSegment, CaptureWorkerClient, CaptureWorkerIndexQueryExecutor,

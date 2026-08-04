@@ -10,9 +10,9 @@ use super::types::{
     CaptureIndexProgress, SAMPLES_PER_L1_BIT, SAMPLES_PER_L2_BIT, SAMPLES_PER_L3_BIT, bit,
 };
 use crate::capture::{
-    BlockCaptureSource, BlockData, CaptureDataSource, CaptureIndex, CaptureIndexBuildProgress,
-    CaptureIndexOpenStep, CaptureIndexOpenTask, CaptureMetadata, CaptureSampledChannel,
-    CaptureSampledWindow, CaptureTransition, packed_bit,
+    BlockCaptureSource, BlockData, CaptureDataSource, CaptureIndex, CaptureIndexBuildProfile,
+    CaptureIndexBuildProgress, CaptureIndexOpenStep, CaptureIndexOpenTask, CaptureMetadata,
+    CaptureSampledChannel, CaptureSampledWindow, CaptureTransition, packed_bit,
 };
 use crate::{
     ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, Error, InlineWorkExecutor,
@@ -69,6 +69,7 @@ pub struct IndexSampler<R: BlockCaptureSource> {
     repository: Arc<dyn ArtifactRepository>,
     identity: SourceIdentity,
     raw_block_cache: RawBlockCache,
+    build_profile: Option<CaptureIndexBuildProfile>,
 }
 
 impl<R> IndexSampler<R>
@@ -81,6 +82,7 @@ where
         raw_reader: R,
         repository: Arc<dyn ArtifactRepository>,
         identity: SourceIdentity,
+        build_profile: Option<CaptureIndexBuildProfile>,
     ) -> Self {
         Self {
             display_name,
@@ -89,6 +91,7 @@ where
             repository,
             identity,
             raw_block_cache: RawBlockCache::default(),
+            build_profile,
         }
     }
 
@@ -171,16 +174,25 @@ where
             .index_identity()
             .ok_or_else(|| Error::ParseError("capture source is not indexable".to_string()))?;
 
-        if !IndexReader::is_valid(repository.as_ref(), identity, &header, fingerprint.revision)? {
-            IndexBuilder::new(
-                &data_source,
-                Arc::clone(&repository),
-                identity,
-                &header,
-                fingerprint.revision,
+        let build_profile = if !IndexReader::is_valid(
+            repository.as_ref(),
+            identity,
+            &header,
+            fingerprint.revision,
+        )? {
+            Some(
+                IndexBuilder::new(
+                    &data_source,
+                    Arc::clone(&repository),
+                    identity,
+                    &header,
+                    fingerprint.revision,
+                )
+                .build(work_executor, progress)?,
             )
-            .build(work_executor, progress)?;
-        }
+        } else {
+            None
+        };
 
         let storage = IndexReader::open(
             Arc::clone(&repository),
@@ -196,6 +208,7 @@ where
             raw_reader,
             repository,
             identity,
+            build_profile,
         ))
     }
 
@@ -238,6 +251,7 @@ where
             raw_reader,
             repository,
             identity,
+            None,
         )))
     }
 
@@ -254,6 +268,12 @@ where
     /// Returns immutable capture metadata used by every query.
     pub fn header(&self) -> &CaptureMetadata {
         self.storage.header()
+    }
+
+    /// Returns measurements from the cold build that produced this sampler.
+    /// Reopened indexes return `None` because no build ran in this process.
+    pub fn build_profile(&self) -> Option<CaptureIndexBuildProfile> {
+        self.build_profile
     }
 
     /// Returns capture duration in microseconds.
@@ -1098,6 +1118,7 @@ where
                 raw_reader,
                 Arc::clone(&repository),
                 identity,
+                None,
             ));
             return Ok(Self {
                 data_source,
@@ -1161,6 +1182,7 @@ where
             reader,
             Arc::clone(&self.repository),
             self.identity,
+            None,
         ))))
     }
 }
@@ -1380,6 +1402,9 @@ impl<R: BlockCaptureSource> CaptureIndex for IndexSampler<R> {
     fn header(&self) -> &CaptureMetadata {
         self.header()
     }
+    fn build_profile(&self) -> Option<CaptureIndexBuildProfile> {
+        self.build_profile()
+    }
     fn capture_duration_us(&self) -> f64 {
         self.capture_duration_us()
     }
@@ -1401,9 +1426,43 @@ impl<R: BlockCaptureSource> CaptureIndex for IndexSampler<R> {
 #[cfg(test)]
 mod reader_tests {
     use std::sync::Arc;
+    use std::thread::JoinHandle;
 
     use super::*;
     use crate::capture::{CaptureFingerprint, CaptureSource};
+    use crate::{WorkExecutorTask, WorkTask};
+
+    struct SpawnExecutor;
+
+    impl WorkExecutor for SpawnExecutor {
+        fn available_parallelism(&self) -> usize {
+            2
+        }
+
+        fn submit(&self, task: WorkExecutorTask) -> std::result::Result<Box<dyn WorkTask>, String> {
+            std::thread::Builder::new()
+                .name("waveform-index-profile-test".to_owned())
+                .spawn(task)
+                .map(|handle| Box::new(JoinTask(Some(handle))) as Box<dyn WorkTask>)
+                .map_err(|error| error.to_string())
+        }
+    }
+
+    struct JoinTask(Option<JoinHandle<()>>);
+
+    impl WorkTask for JoinTask {
+        fn is_finished(&self) -> bool {
+            self.0.as_ref().is_none_or(JoinHandle::is_finished)
+        }
+
+        fn wait(mut self: Box<Self>) {
+            if let Some(handle) = self.0.take() {
+                handle
+                    .join()
+                    .expect("waveform index worker should not panic");
+            }
+        }
+    }
 
     #[derive(Clone)]
     struct TestDataSource {
@@ -1485,6 +1544,85 @@ mod reader_tests {
         );
         assert!(cache.get((0, 1)).is_none());
         assert!(cache.get((0, 0)).is_some());
+    }
+
+    #[test]
+    fn cold_open_reports_index_build_stage_metrics() {
+        let source = TestDataSource {
+            metadata: CaptureMetadata {
+                total_probes: 1,
+                samplerate: "1 MHz".to_owned(),
+                samplerate_hz: 1_000_000.0,
+                sample_period: 0.000_001,
+                total_samples: 8,
+                total_blocks: 1,
+                samples_per_block: 8,
+                probe_names: vec!["D0".to_owned()],
+                trigger_sample: None,
+            },
+            blocks: Arc::new(vec![vec![vec![0x55]]]),
+            identity: SourceIdentity::from_bytes([30; 32]),
+        };
+        let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+        let sampler = IndexSampler::<TestReader>::open_data_source_with_executor_and_progress(
+            source.clone(),
+            Arc::clone(&repository),
+            Arc::new(InlineWorkExecutor),
+            |_| true,
+        )
+        .expect("cold index build should succeed");
+        let profile = sampler
+            .build_profile()
+            .expect("cold index build should expose its profile");
+        assert_eq!(profile.blocks, 1);
+        assert_eq!(profile.packed_bytes, 1);
+
+        let reopened = IndexSampler::<TestReader>::open_existing_data_source(source, repository)
+            .expect("published index should reopen")
+            .expect("published index should exist");
+        assert_eq!(reopened.build_profile(), None);
+    }
+
+    #[test]
+    fn parallel_open_uses_bounded_workers_and_preserves_index_results() {
+        let source = TestDataSource {
+            metadata: CaptureMetadata {
+                total_probes: 2,
+                samplerate: "1 MHz".to_owned(),
+                samplerate_hz: 1_000_000.0,
+                sample_period: 0.000_001,
+                total_samples: 16,
+                total_blocks: 2,
+                samples_per_block: 8,
+                probe_names: vec!["D0".to_owned(), "D1".to_owned()],
+                trigger_sample: None,
+            },
+            blocks: Arc::new(vec![
+                vec![vec![0x0f], vec![0xf0]],
+                vec![vec![0x55], vec![0xaa]],
+            ]),
+            identity: SourceIdentity::from_bytes([32; 32]),
+        };
+        let mut sampler = IndexSampler::<TestReader>::open_data_source_with_executor_and_progress(
+            source,
+            Arc::new(MemoryArtifactRepository::new()),
+            Arc::new(SpawnExecutor),
+            |_| true,
+        )
+        .expect("parallel index build should succeed");
+        let profile = sampler
+            .build_profile()
+            .expect("parallel index build should expose its profile");
+        assert_eq!(profile.workers, 2);
+        assert_eq!(profile.blocks, 4);
+        assert_eq!(profile.handoff_copy_ns, 0);
+
+        let window = sampler
+            .sampled_window(&[0, 1], 0, 16, 16)
+            .expect("parallel index should remain queryable");
+        assert_eq!(window.channels.len(), 2);
+        assert!(!window.channels[0].transitions.is_empty());
+        assert!(!window.channels[1].transitions.is_empty());
     }
 
     #[test]

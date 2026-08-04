@@ -1418,6 +1418,48 @@ fn reference_pipeline_baseline(capture: &Path) {
     );
 }
 
+fn waveform_index_profile(capture: &Path) {
+    let presentation = DslFileSource::indexed_capture_presentation_from_path(capture)
+        .expect("reference capture should provide an indexed presentation");
+    let metadata = presentation
+        .factory
+        .metadata()
+        .expect("reference capture metadata should be readable");
+    let services = logic_analyzer_platform::standard_services();
+    let index = presentation
+        .factory
+        .open(
+            Arc::new(signal_processing::MemoryArtifactRepository::new()),
+            services.work_executor(),
+            &mut |_| true,
+        )
+        .expect("reference capture index should build");
+    let profile = index
+        .build_profile()
+        .expect("fresh in-memory repository must produce an index-build profile");
+    let expected_blocks = u64::try_from(metadata.total_probes)
+        .ok()
+        .and_then(|channels| channels.checked_mul(metadata.total_blocks))
+        .expect("capture block count should fit u64");
+    assert_eq!(profile.blocks, expected_blocks);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "schema_version": 1,
+            "artifact_repository": "memory",
+            "capture": {
+                "path": capture,
+                "channels": metadata.total_probes,
+                "total_blocks": metadata.total_blocks,
+                "samples_per_block": metadata.samples_per_block,
+                "total_samples": metadata.total_samples,
+            },
+            "waveform_index_build": profile,
+        }))
+        .expect("waveform index profile should serialize")
+    );
+}
+
 fn in_memory_compiler_runtime_benchmark(capture: &Path) {
     let workspace = temporary_workspace();
     let output = workspace.path().join("compiled");
@@ -1867,6 +1909,7 @@ fn print_usage() {
          \n\
          commands:\n\
            baseline               report timing, resources, storage, and output identity\n\
+           waveform-index-profile profile cold waveform-index construction stages\n\
            compiler-runtime-memory time graph processing with derived artifacts in memory\n\
            protocol-selection     validate and compare indexed and packed parallel decoding\n\
            phase-one-runtime      time the phase-one reference pipeline\n\
@@ -1974,6 +2017,7 @@ fn main() {
 
     match command.to_string_lossy().as_ref() {
         "baseline" => reference_pipeline_baseline(&capture),
+        "waveform-index-profile" => waveform_index_profile(&capture),
         "compiler-runtime-memory" => in_memory_compiler_runtime_benchmark(&capture),
         "protocol-selection" => protocol_selection_benchmark(&capture),
         "phase-one-runtime" => phase_one_reference_runtime_benchmark(&capture),

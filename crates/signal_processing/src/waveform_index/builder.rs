@@ -1,5 +1,7 @@
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
+use std::time::{Duration, Instant};
 
 use super::storage::IndexWriter;
 #[cfg(test)]
@@ -7,16 +9,34 @@ use super::types::bit;
 use super::types::{
     BlockIndex, BlockLevels, CaptureIndexProgress, L1_WORDS, L2_WORDS, SAMPLES_PER_L1_BIT, set_bit,
 };
-use crate::capture::{BlockCaptureSource, CaptureDataSource, CaptureMetadata};
-use crate::capture_index_kernel::{
-    CaptureIndexBlockRequest, CaptureIndexBlockResult, build_capture_index_block,
+use crate::capture::{
+    BlockCaptureSource, BlockData, CaptureDataSource, CaptureIndexBuildProfile, CaptureMetadata,
 };
+use crate::capture_index_kernel::{CaptureIndexBlockResult, build_capture_index_block_from_packed};
 use crate::{ArtifactRepository, Error, Result, SourceIdentity, WorkExecutor};
 
 #[derive(Debug, Clone, Copy)]
 struct BuildJob {
+    sequence: u64,
     channel: usize,
     block: u64,
+}
+
+struct TimedBlockRequest {
+    sequence: u64,
+    channel: u64,
+    block: u64,
+    valid_samples: u64,
+    packed_samples: BlockData,
+    read_duration: Duration,
+}
+
+struct TimedBlockResult {
+    result: CaptureIndexBlockResult,
+    packed_bytes: u64,
+    read_duration: Duration,
+    handoff_copy_duration: Duration,
+    summary_kernel_duration: Duration,
 }
 
 pub(crate) struct IndexBuilder<'a, S: CaptureDataSource> {
@@ -51,7 +71,7 @@ where
         &self,
         work_executor: Arc<dyn WorkExecutor>,
         mut progress: P,
-    ) -> Result<()>
+    ) -> Result<CaptureIndexBuildProfile>
     where
         P: FnMut(CaptureIndexProgress) -> bool,
     {
@@ -67,9 +87,15 @@ where
             .map_err(|_| Error::ParseError("capture-index job count exceeds u64".into()))?;
 
         let mut jobs = VecDeque::with_capacity(job_count);
+        let mut sequence = 0_u64;
         for channel in 0..self.header.total_probes {
             for block in 0..self.header.total_blocks {
-                jobs.push_back(BuildJob { channel, block });
+                jobs.push_back(BuildJob {
+                    sequence,
+                    channel,
+                    block,
+                });
+                sequence += 1;
             }
         }
 
@@ -80,12 +106,19 @@ where
             return Err(Error::Cancelled);
         }
 
+        let started = Instant::now();
+        let mut profile = CaptureIndexBuildProfile::default();
+        let publication_started = Instant::now();
         let writer = IndexWriter::create(
             Arc::clone(&self.repository),
             self.identity,
             self.header,
             self.source_revision,
         )?;
+        add_duration(
+            &mut profile.artifact_publication_ns,
+            publication_started.elapsed(),
+        );
         Self::build_parallel_streaming(
             (*self.data_source).clone(),
             self.header,
@@ -93,7 +126,10 @@ where
             writer,
             work_executor,
             &mut progress,
-        )
+            &mut profile,
+        )?;
+        profile.wall_time_ns = duration_ns(started.elapsed());
+        Ok(profile)
     }
 
     /// Runs the per-(channel, block) summary jobs through the host executor and
@@ -109,58 +145,155 @@ where
         mut writer: IndexWriter,
         work_executor: Arc<dyn WorkExecutor>,
         progress: &mut impl FnMut(CaptureIndexProgress) -> bool,
+        profile: &mut CaptureIndexBuildProfile,
     ) -> Result<()> {
         let total_jobs = jobs.len();
         let total_roots = u64::try_from(total_jobs)
             .map_err(|_| Error::ParseError("capture-index job count exceeds u64".into()))?;
         if total_jobs == 0 {
-            return writer.finish();
+            let publication_started = Instant::now();
+            let finish_result = writer.finish();
+            add_duration(
+                &mut profile.artifact_publication_ns,
+                publication_started.elapsed(),
+            );
+            return finish_result;
         }
 
         let channels = header.total_probes;
         let worker_count = work_executor.available_parallelism().min(total_jobs).max(1);
+        profile.workers = worker_count as u64;
         if worker_count == 1 {
-            return Self::build_sequential_streaming(data_source, header, jobs, writer, progress);
+            return Self::build_sequential_streaming(
+                data_source,
+                header,
+                jobs,
+                writer,
+                progress,
+                profile,
+            );
         }
 
         let mut jobs = jobs;
-        let mut source = data_source.open_reader()?;
-        let (result_tx, result_rx) = mpsc::channel();
+        let stopped = Arc::new(AtomicBool::new(false));
+        let (job_tx, job_rx) = crossbeam_channel::bounded(worker_count.saturating_mul(2));
+        let (result_tx, result_rx) = mpsc::sync_channel(worker_count.saturating_mul(2));
+        let mut tasks = Vec::with_capacity(worker_count);
+        for _ in 0..worker_count {
+            let worker_source = data_source.clone();
+            let worker_header = header.clone();
+            let worker_job_rx = job_rx.clone();
+            let worker_stopped = Arc::clone(&stopped);
+            let worker_result_tx = result_tx.clone();
+            match work_executor.submit(Box::new(move || {
+                let mut source = match worker_source.open_reader() {
+                    Ok(source) => source,
+                    Err(error) => {
+                        worker_stopped.store(true, Ordering::Release);
+                        let _ = worker_result_tx.send(Err(error));
+                        return;
+                    }
+                };
+                loop {
+                    if worker_stopped.load(Ordering::Acquire) {
+                        return;
+                    }
+                    let Ok(job) = worker_job_rx.recv() else {
+                        return;
+                    };
+                    let result =
+                        Self::read_block_request(&mut source, &worker_header, job, job.sequence)
+                            .and_then(Self::build_block_request);
+                    let failed = result.is_err();
+                    if worker_result_tx.send(result).is_err() {
+                        return;
+                    }
+                    if failed {
+                        worker_stopped.store(true, Ordering::Release);
+                        return;
+                    }
+                }
+            })) {
+                Ok(task) => tasks.push(task),
+                Err(error) => {
+                    stopped.store(true, Ordering::Release);
+                    drop(job_tx);
+                    drop(job_rx);
+                    drop(result_tx);
+                    while result_rx.recv().is_ok() {}
+                    for task in tasks {
+                        task.wait();
+                    }
+                    return Err(Error::ParseError(error));
+                }
+            }
+        }
+        drop(job_rx);
+        drop(result_tx);
+        let mut job_tx = Some(job_tx);
         let mut pending: HashMap<(usize, u64), BlockIndex> = HashMap::new();
         let mut previous_last: Vec<Option<bool>> = vec![None; channels];
         let mut next_block: Vec<u64> = vec![0; channels];
         let mut received = 0;
         let mut first_error = None;
-        let mut in_flight = 0;
-        let mut next_sequence = 0_u64;
+        let mut in_flight = 0_usize;
+        let max_outstanding = worker_count.saturating_mul(2);
 
         while in_flight < worker_count {
             let Some(job) = jobs.pop_front() else {
                 break;
             };
-            let request = Self::read_block_request(&mut source, header, job, next_sequence)?;
-            Self::submit_block_request(request, Arc::clone(&work_executor), result_tx.clone())?;
+            if job_tx
+                .as_ref()
+                .expect("job sender remains open while work is pending")
+                .send(job)
+                .is_err()
+            {
+                first_error = Some(Error::ParseError(
+                    "capture-index workers stopped".to_owned(),
+                ));
+                break;
+            }
             in_flight += 1;
-            next_sequence += 1;
+        }
+        if jobs.is_empty() {
+            job_tx.take();
         }
 
-        while in_flight > 0 {
+        while in_flight > 0 && first_error.is_none() {
             match result_rx.recv() {
                 Ok(Ok(result)) => {
                     in_flight -= 1;
                     received += 1;
-                    let (job, leaf) = Self::finish_block_result(result)?;
+                    record_block_profile(profile, &result);
+                    let (job, leaf) = match Self::finish_block_result(result.result) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            first_error = Some(error);
+                            break;
+                        }
+                    };
                     pending.insert((job.channel, job.block), leaf);
                     let channel = job.channel;
                     while let Some(mut leaf) = pending.remove(&(channel, next_block[channel])) {
                         Self::apply_boundary_transition(&mut leaf, previous_last[channel]);
                         previous_last[channel] = Some(leaf.last);
-                        let block = usize::try_from(next_block[channel]).map_err(|_| {
-                            Error::ParseError(
-                                "capture-index block exceeds this address space".into(),
-                            )
-                        })?;
-                        if let Err(err) = writer.write_block(channel, block, &leaf) {
+                        let block = match usize::try_from(next_block[channel]) {
+                            Ok(block) => block,
+                            Err(_) => {
+                                first_error = Some(Error::ParseError(
+                                    "capture-index block exceeds this address space".into(),
+                                ));
+                                break;
+                            }
+                        };
+                        let publication_started = Instant::now();
+                        let write_result = writer.write_block(channel, block, &leaf);
+                        add_duration(
+                            &mut profile.artifact_publication_ns,
+                            publication_started.elapsed(),
+                        );
+                        if let Err(err) = write_result {
                             first_error = Some(err);
                             break;
                         }
@@ -170,17 +303,15 @@ where
                         break;
                     }
                     if !progress(CaptureIndexProgress {
-                        completed_roots: u64::try_from(received).map_err(|_| {
-                            Error::ParseError("capture-index progress exceeds u64".into())
-                        })?,
+                        completed_roots: received as u64,
                         total_roots,
                     }) {
                         first_error = Some(Error::Cancelled);
                     }
                 }
                 Ok(Err(err)) => {
-                    in_flight -= 1;
                     first_error = Some(err);
+                    break;
                 }
                 Err(_) => {
                     first_error = Some(Error::ParseError(
@@ -189,26 +320,37 @@ where
                     break;
                 }
             }
-
-            if first_error.is_none()
-                && let Some(job) = jobs.pop_front()
-            {
-                match Self::read_block_request(&mut source, header, job, next_sequence).and_then(
-                    |request| {
-                        Self::submit_block_request(
-                            request,
-                            Arc::clone(&work_executor),
-                            result_tx.clone(),
-                        )
-                    },
-                ) {
-                    Ok(()) => {
-                        in_flight += 1;
-                        next_sequence += 1;
-                    }
-                    Err(error) => first_error = Some(error),
-                }
+            if first_error.is_some() {
+                break;
             }
+            while pending.len().saturating_add(in_flight) < max_outstanding {
+                let Some(job) = jobs.pop_front() else {
+                    job_tx.take();
+                    break;
+                };
+                if job_tx
+                    .as_ref()
+                    .expect("job sender remains open while work is pending")
+                    .send(job)
+                    .is_err()
+                {
+                    first_error = Some(Error::ParseError(
+                        "capture-index workers stopped".to_owned(),
+                    ));
+                    break;
+                }
+                in_flight += 1;
+            }
+            if first_error.is_some() {
+                break;
+            }
+        }
+
+        stopped.store(true, Ordering::Release);
+        job_tx.take();
+        while result_rx.recv().is_ok() {}
+        for task in tasks {
+            task.wait();
         }
 
         if let Some(err) = first_error {
@@ -219,7 +361,13 @@ where
                 "waveform index build did not complete".to_string(),
             ));
         }
-        writer.finish()
+        let publication_started = Instant::now();
+        let finish_result = writer.finish();
+        add_duration(
+            &mut profile.artifact_publication_ns,
+            publication_started.elapsed(),
+        );
+        finish_result
     }
 
     fn build_sequential_streaming(
@@ -228,6 +376,7 @@ where
         jobs: VecDeque<BuildJob>,
         mut writer: IndexWriter,
         progress: &mut impl FnMut(CaptureIndexProgress) -> bool,
+        profile: &mut CaptureIndexBuildProfile,
     ) -> Result<()> {
         let total_jobs = jobs.len();
         let total_roots = u64::try_from(total_jobs)
@@ -235,15 +384,22 @@ where
         let mut source = data_source.open_reader()?;
         let mut previous_last = vec![None; header.total_probes];
         for (completed, job) in jobs.into_iter().enumerate() {
-            let request = Self::read_block_request(&mut source, header, job, completed as u64)?;
-            let result = build_capture_index_block(request).map_err(Error::ParseError)?;
-            let (_, mut leaf) = Self::finish_block_result(result)?;
+            let request = Self::read_block_request(&mut source, header, job, job.sequence)?;
+            let result = Self::build_block_request(request)?;
+            record_block_profile(profile, &result);
+            let (_, mut leaf) = Self::finish_block_result(result.result)?;
             Self::apply_boundary_transition(&mut leaf, previous_last[job.channel]);
             previous_last[job.channel] = Some(leaf.last);
             let block = usize::try_from(job.block).map_err(|_| {
                 Error::ParseError("capture-index block exceeds this address space".into())
             })?;
-            writer.write_block(job.channel, block, &leaf)?;
+            let publication_started = Instant::now();
+            let write_result = writer.write_block(job.channel, block, &leaf);
+            add_duration(
+                &mut profile.artifact_publication_ns,
+                publication_started.elapsed(),
+            );
+            write_result?;
             if !progress(CaptureIndexProgress {
                 completed_roots: u64::try_from(completed + 1)
                     .map_err(|_| Error::ParseError("capture-index progress exceeds u64".into()))?,
@@ -252,7 +408,13 @@ where
                 return Err(Error::Cancelled);
             }
         }
-        writer.finish()
+        let publication_started = Instant::now();
+        let finish_result = writer.finish();
+        add_duration(
+            &mut profile.artifact_publication_ns,
+            publication_started.elapsed(),
+        );
+        finish_result
     }
 
     fn read_block_request<R>(
@@ -260,35 +422,43 @@ where
         header: &CaptureMetadata,
         job: BuildJob,
         sequence: u64,
-    ) -> Result<CaptureIndexBlockRequest>
+    ) -> Result<TimedBlockRequest>
     where
         R: BlockCaptureSource,
     {
+        let read_started = Instant::now();
         let data = source.read_packed_block(job.channel, job.block)?;
+        let read_duration = read_started.elapsed();
         let block_start = job.block * header.samples_per_block;
         let remaining = header.total_samples.saturating_sub(block_start);
         let valid_samples = ((data.len() as u64) * 8).min(remaining);
-        Ok(CaptureIndexBlockRequest {
+        Ok(TimedBlockRequest {
             sequence,
             channel: job.channel as u64,
             block: job.block,
             valid_samples,
-            packed_samples: data.to_vec(),
+            packed_samples: data,
+            read_duration,
         })
     }
 
-    fn submit_block_request(
-        request: CaptureIndexBlockRequest,
-        work_executor: Arc<dyn WorkExecutor>,
-        result_tx: mpsc::Sender<Result<CaptureIndexBlockResult>>,
-    ) -> Result<()> {
-        work_executor
-            .submit(Box::new(move || {
-                let result = build_capture_index_block(request).map_err(Error::ParseError);
-                let _ = result_tx.send(result);
-            }))
-            .map_err(Error::ParseError)?;
-        Ok(())
+    fn build_block_request(request: TimedBlockRequest) -> Result<TimedBlockResult> {
+        let summary_started = Instant::now();
+        build_capture_index_block_from_packed(
+            request.sequence,
+            request.channel,
+            request.block,
+            request.valid_samples,
+            &request.packed_samples,
+        )
+        .map(|result| TimedBlockResult {
+            result,
+            packed_bytes: request.packed_samples.len() as u64,
+            read_duration: request.read_duration,
+            handoff_copy_duration: Duration::ZERO,
+            summary_kernel_duration: summary_started.elapsed(),
+        })
+        .map_err(Error::ParseError)
     }
 
     fn finish_block_result(result: CaptureIndexBlockResult) -> Result<(BuildJob, BlockIndex)> {
@@ -319,6 +489,7 @@ where
             .transpose()?;
         Ok((
             BuildJob {
+                sequence: result.sequence,
                 channel,
                 block: result.block,
             },
@@ -337,14 +508,8 @@ where
     }
 
     pub(crate) fn build_leaf(data: &[u8], valid_samples: u64) -> Result<BlockIndex> {
-        let result = build_capture_index_block(CaptureIndexBlockRequest {
-            sequence: 0,
-            channel: 0,
-            block: 0,
-            valid_samples,
-            packed_samples: data.to_vec(),
-        })
-        .map_err(Error::ParseError)?;
+        let result = build_capture_index_block_from_packed(0, 0, 0, valid_samples, data)
+            .map_err(Error::ParseError)?;
         Self::finish_block_result(result).map(|(_, leaf)| leaf)
     }
 
@@ -388,6 +553,25 @@ where
             set_bit(&mut lvl.l3_last, group);
         }
     }
+}
+
+fn duration_ns(duration: Duration) -> u64 {
+    u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
+}
+
+fn add_duration(total: &mut u64, duration: Duration) {
+    *total = total.saturating_add(duration_ns(duration));
+}
+
+fn record_block_profile(profile: &mut CaptureIndexBuildProfile, result: &TimedBlockResult) {
+    profile.blocks = profile.blocks.saturating_add(1);
+    profile.packed_bytes = profile.packed_bytes.saturating_add(result.packed_bytes);
+    add_duration(&mut profile.read_ns, result.read_duration);
+    add_duration(&mut profile.handoff_copy_ns, result.handoff_copy_duration);
+    add_duration(
+        &mut profile.summary_kernel_ns,
+        result.summary_kernel_duration,
+    );
 }
 
 #[cfg(test)]

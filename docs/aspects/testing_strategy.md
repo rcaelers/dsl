@@ -95,6 +95,18 @@ capture real-time factor, final node counts, and persistent cache sizes. Run it
 from an otherwise idle machine. A cold raw-index build and a warm indexed run
 are distinct measurements.
 
+The waveform-index profile builds a cold index in a fresh in-memory artifact
+repository with the platform-selected work executor. Its JSON report separates
+packed-block reading/decompression, handoff copying, summary-kernel work,
+artifact publication, and total wall time. Per-stage worker time is cumulative,
+so parallel summary work can exceed wall time. Run it from an otherwise idle
+machine and retain the report beside the matching capture baseline:
+
+```console
+cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
+  waveform-index-profile /path/to/reference.dsl > waveform-index-profile.json
+```
+
 The compiler capture tool contains isolated graph-runtime timing probes and
 full-capture differential validations. It requires an explicit,
 developer-supplied DSL capture path and runs in the release benchmark profile:

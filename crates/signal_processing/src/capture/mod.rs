@@ -33,10 +33,10 @@ pub use host_protocol::{
 };
 pub use implementation::{
     BlockCaptureSource, BlockData, CaptureDataSource, CaptureFingerprint, CaptureIndex,
-    CaptureIndexBuildProgress, CaptureIndexFactory, CaptureIndexOpenStep, CaptureIndexOpenTask,
-    CaptureMetadata, CaptureSampledChannel, CaptureSampledWindow, CaptureSampledWindowPoll,
-    CaptureSource, CaptureTransition, CaptureWaveformSegment, IndexedCapturePresentation,
-    packed_bit,
+    CaptureIndexBuildProfile, CaptureIndexBuildProgress, CaptureIndexFactory, CaptureIndexOpenStep,
+    CaptureIndexOpenTask, CaptureMetadata, CaptureSampledChannel, CaptureSampledWindow,
+    CaptureSampledWindowPoll, CaptureSource, CaptureTransition, CaptureWaveformSegment,
+    IndexedCapturePresentation, packed_bit,
 };
 pub use preparation::CaptureIndexPreparationRequest;
 pub use query::{

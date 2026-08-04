@@ -337,6 +337,14 @@ pub trait CaptureIndex {
     fn current_metadata(&self) -> CaptureMetadata {
         self.header().clone()
     }
+    /// Returns metrics from the index build that produced this handle.
+    ///
+    /// Reopened indexes and host proxies return `None`: no local build ran in
+    /// the current process. The profile records aggregate worker time for
+    /// parallel stages, so individual stage totals may exceed wall-clock time.
+    fn build_profile(&self) -> Option<CaptureIndexBuildProfile> {
+        None
+    }
     /// Monotonic content generation used by viewers to invalidate a sampled
     /// window without polling or identifying a concrete index type.
     fn generation(&self) -> u64 {
@@ -393,6 +401,31 @@ pub trait CaptureIndex {
 pub struct CaptureIndexBuildProgress {
     pub completed: u64,
     pub total: u64,
+}
+
+/// Measured work completed while building one finite capture index.
+///
+/// Durations are nanoseconds. `wall_time_ns` measures the complete build;
+/// other duration fields are cumulative work across stages and can exceed the
+/// wall time when block summaries execute in parallel.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureIndexBuildProfile {
+    /// Maximum number of concurrent workers selected for this build.
+    pub workers: u64,
+    /// Number of packed channel blocks summarized.
+    pub blocks: u64,
+    /// Packed input bytes supplied by the capture source.
+    pub packed_bytes: u64,
+    /// Time spent reading packed source blocks, including source decompression.
+    pub read_ns: u64,
+    /// Time spent copying packed block bytes into owned worker requests.
+    pub handoff_copy_ns: u64,
+    /// Cumulative time spent building L1/L2/L3 summary leaves.
+    pub summary_kernel_ns: u64,
+    /// Time spent publishing leaf and root index artifacts.
+    pub artifact_publication_ns: u64,
+    /// Elapsed time from build start through root-artifact publication.
+    pub wall_time_ns: u64,
 }
 
 /// One bounded result from resumable capture-index preparation.
