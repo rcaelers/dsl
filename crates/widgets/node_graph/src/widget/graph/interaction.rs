@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
+use egui::text_selection::LabelSelectionState;
 use egui::{Pos2, Rect, Vec2};
 
 use super::action::ActionEffect;
@@ -1407,6 +1408,14 @@ impl NodeGraphWidget {
             .or_else(|| pointer.map(|p| self.view.screen_to_canvas(origin, p)))
             .unwrap_or_else(|| self.view.screen_to_canvas(origin, canvas_rect.center()));
         let no_focus = ui.ctx().memory(|m| m.focused().is_none());
+        // Label selections deliberately own the standard clipboard shortcuts:
+        // `Event::Copy` otherwise reaches the graph's menu shortcut and replaces
+        // a selected diagnostic or log entry with a node-graph payload.
+        let label_text_selected = ui
+            .ctx()
+            .plugin::<LabelSelectionState>()
+            .lock()
+            .has_selection();
 
         if no_focus
             && pointer.is_some()
@@ -1445,7 +1454,7 @@ impl NodeGraphWidget {
             return;
         }
 
-        if no_focus {
+        if no_focus && !label_text_selected {
             let any_selected = self.graph.nodes.values().any(|node| node.selected)
                 || self.graph.frames.iter().any(|frame| frame.selected);
             let shortcut_entries = build_context_entries(ContextMenuState {

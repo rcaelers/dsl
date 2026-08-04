@@ -297,6 +297,20 @@ fn handle_worker_message(
                 disconnect(capture_client, graph_client, disconnected, error);
             }
         }
+        "graph_output_files" => {
+            let result = property(&value, "payload")
+                .map(|payload| Uint8Array::new(&payload).to_vec())
+                .and_then(|payload| {
+                    serde_json::from_slice::<Vec<super::web_output_storage::BrowserOutputFile>>(
+                        &payload,
+                    )
+                    .map_err(|error| format!("graph worker returned invalid output files: {error}"))
+                })
+                .map(super::web_document::queue_output_files);
+            if let Err(error) = result {
+                tracing::warn!(%error, "browser graph output download failed");
+            }
+        }
         "capture_attach_progress" => {
             if let (Ok(reference), Ok(completed), Ok(total)) = (
                 string_property(&value, "reference"),
@@ -456,6 +470,13 @@ pub fn advance_graph_worker_run(publish: &Function) -> Result<bool, JsValue> {
         })
     });
     failure.map_or(Ok(active), Err)
+}
+
+#[wasm_bindgen(js_name = takeBrowserOutputFiles)]
+/// Drains completed browser-writer files for transfer to the page that owns downloads.
+pub fn take_browser_output_files() -> Result<Vec<u8>, JsValue> {
+    serde_json::to_vec(&super::web_output_storage::take_completed_files())
+        .map_err(|error| JsValue::from_str(&format!("could not encode browser outputs: {error}")))
 }
 
 fn publish_capture_message(

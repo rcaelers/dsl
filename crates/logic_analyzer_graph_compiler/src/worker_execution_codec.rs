@@ -1,3 +1,7 @@
+use serde::Serialize;
+use serde::ser::Error as _;
+
+use node_graph::api::{GraphState, Socket};
 use signal_processing::{ArtifactReplicationEvent, SourceIdentity};
 
 use super::{GraphWorkerMessage, GraphWorkerRequest, OutputSubscriptionPlan};
@@ -32,11 +36,7 @@ pub fn encode_graph_worker_request(request: &GraphWorkerRequest) -> Result<Vec<u
         } => {
             output.push(START_REQUEST);
             put_u64(&mut output, *sequence);
-            put_bytes(
-                &mut output,
-                &serde_json::to_vec(graph)
-                    .map_err(|error| format!("could not encode worker graph: {error}"))?,
-            );
+            put_bytes(&mut output, &encode_worker_graph(graph)?);
             put_bytes(
                 &mut output,
                 &serde_json::to_vec(subscriptions).map_err(|error| {
@@ -59,6 +59,80 @@ pub fn encode_graph_worker_request(request: &GraphWorkerRequest) -> Result<Vec<u
         }
     }
     Ok(output)
+}
+
+/// Serializes a graph for execution without applying the compact saved-document
+/// projection. Runtime lowering needs the definition-derived socket contract,
+/// while saved documents intentionally omit that redundant presentation state.
+fn encode_worker_graph(graph: &GraphState) -> Result<Vec<u8>, String> {
+    let mut document = serde_json::to_value(graph)
+        .map_err(|error| format!("could not encode worker graph: {error}"))?;
+    let nodes = document
+        .get_mut("nodes")
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or_else(|| "could not encode worker graph nodes".to_owned())?;
+    for node in graph.nodes.values() {
+        let encoded_node = nodes
+            .get_mut(&node.id.0.to_string())
+            .and_then(serde_json::Value::as_object_mut)
+            .ok_or_else(|| "could not encode worker graph node".to_owned())?;
+        encoded_node.insert(
+            "inputs".to_owned(),
+            serde_json::to_value(WorkerSockets(&node.inputs))
+                .map_err(|error| format!("could not encode worker input sockets: {error}"))?,
+        );
+        encoded_node.insert(
+            "outputs".to_owned(),
+            serde_json::to_value(WorkerSockets(&node.outputs))
+                .map_err(|error| format!("could not encode worker output sockets: {error}"))?,
+        );
+    }
+    serde_json::to_vec(&document).map_err(|error| format!("could not encode worker graph: {error}"))
+}
+
+struct WorkerSockets<'a>(&'a [Socket]);
+
+impl Serialize for WorkerSockets<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0
+            .iter()
+            .map(worker_socket_value)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(S::Error::custom)?
+            .serialize(serializer)
+    }
+}
+
+fn worker_socket_value(socket: &Socket) -> Result<serde_json::Value, serde_json::Error> {
+    let mut value = serde_json::to_value(socket)?;
+    let object = value
+        .as_object_mut()
+        .expect("socket serialization produces an object");
+    object.insert("name".to_owned(), serde_json::to_value(&socket.name)?);
+    object.insert(
+        "type_name".to_owned(),
+        serde_json::to_value(&socket.type_name)?,
+    );
+    object.insert("color".to_owned(), serde_json::to_value(socket.color)?);
+    object.insert("shape".to_owned(), serde_json::to_value(socket.shape)?);
+    object.insert("allowed".to_owned(), serde_json::to_value(&socket.allowed)?);
+    object.insert(
+        "variadic".to_owned(),
+        serde_json::to_value(&socket.variadic)?,
+    );
+    object.insert("visible".to_owned(), serde_json::to_value(socket.visible)?);
+    object.insert(
+        "editor_visible".to_owned(),
+        serde_json::to_value(socket.editor_visible)?,
+    );
+    object.insert(
+        "has_control".to_owned(),
+        serde_json::to_value(socket.has_control)?,
+    );
+    Ok(value)
 }
 
 /// Decodes one framed graph-worker request.

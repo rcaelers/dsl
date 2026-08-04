@@ -215,7 +215,23 @@ pub(crate) fn capture_metadata(
 }
 
 pub(crate) fn worker_graph_builder_overrides() -> Vec<RuntimeBuilderOverride> {
+    let output_storage = super::super::web_output_storage::output_storage();
     vec![
+        logic_analyzer_graph_nodes::binary_file_writer_runtime_builder_override(
+            logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
+                Arc::clone(&output_storage),
+            ),
+        ),
+        logic_analyzer_graph_nodes::csv_word_writer_runtime_builder_override(
+            logic_analyzer_processing::nodes::sinks::csv_word_writer::writer_factory(Arc::clone(
+                &output_storage,
+            )),
+        ),
+        logic_analyzer_graph_nodes::text_file_writer_runtime_builder_override(
+            logic_analyzer_processing::nodes::sinks::text_file_writer::writer_factory(
+                output_storage,
+            ),
+        ),
         logic_analyzer_graph_nodes::dsl_file_source_runtime_builder_override(Arc::new(
             WorkerDslFileSourceFactory,
         )),

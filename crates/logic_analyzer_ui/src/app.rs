@@ -41,6 +41,7 @@ use crate::memory_panel::{
     CaptureStorageBacking, CaptureStorageSnapshot, DerivedSignalStorageSnapshot, MemoryPanel,
     MemoryPanelSnapshot, MemoryServiceSnapshot,
 };
+use crate::output_downloads::OutputDownloadsWindow;
 use crate::panel_presentation::{
     DECODER_PANEL_ICON, LOG_PANEL_ICON, LOGIC_ANALYZER_PANEL_ICON, MEMORY_PANEL_ICON,
     NODE_GRAPH_PANEL_ICON, TRIGGERS_PANEL_ICON, WATCHES_PANEL_ICON,
@@ -571,6 +572,7 @@ pub struct App {
     pub(crate) toasts: Toasts,
     pub(crate) platform: crate::app_platform::PlatformState,
     pub(crate) about: AboutWindow,
+    pub(crate) output_downloads: OutputDownloadsWindow,
     pub(crate) preferences: PreferencesWindow,
     pub(crate) node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
     pub(crate) demo_graphs: Vec<DemoGraph>,
@@ -1348,6 +1350,7 @@ impl App {
             toasts: Toasts::default(),
             platform,
             about: AboutWindow::new(),
+            output_downloads: OutputDownloadsWindow::new(),
             preferences: PreferencesWindow::new(),
             node_catalogs,
             demo_graphs: Vec::new(),
@@ -2926,6 +2929,10 @@ impl App {
                 if about_button.clicked() {
                     self.about.open();
                 }
+                let output_count = self.host_service.pending_output_downloads().len();
+                if output_count != 0 && ui.button(format!("Downloads ({output_count})")).clicked() {
+                    self.output_downloads.open();
+                }
                 ui.weak(self.node_graph.selection_summary());
                 ui.weak(format!("{}%", self.node_graph.zoom_percent()));
             });
@@ -3814,6 +3821,14 @@ impl eframe::App for App {
             &mut self.node_catalogs,
             self.host_service.as_mut(),
         );
+
+        for error in self
+            .output_downloads
+            .show(ui.ctx(), self.host_service.as_mut())
+        {
+            self.toasts
+                .error(format!("Could not download output: {error}"));
+        }
 
         self.platform_after_ui(ui.ctx());
 

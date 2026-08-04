@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -7,6 +8,22 @@ use wasm_bindgen::JsCast;
 use logic_analyzer_ui::{HostCommand, HostService, HostUiCapabilities, OpenDialog, SaveDialog};
 
 const MAX_GRAPH_DOCUMENT_BYTES: f64 = 32.0 * 1024.0 * 1024.0;
+
+thread_local! {
+    static OUTPUT_DOWNLOADS: RefCell<BrowserOutputDownloads> = RefCell::new(BrowserOutputDownloads::default());
+    static OUTPUT_DOWNLOAD_REPAINT: RefCell<Option<Arc<dyn Fn() + Send + Sync>>> = const { RefCell::new(None) };
+}
+
+#[derive(Default)]
+struct BrowserOutputDownloads {
+    next_id: u64,
+    files: HashMap<u64, BrowserOutputDownload>,
+}
+
+struct BrowserOutputDownload {
+    name: String,
+    bytes: Vec<u8>,
+}
 
 #[derive(Clone)]
 struct BrowserDocument {
@@ -43,6 +60,31 @@ impl BrowserDocumentHostService {
     }
 }
 
+/// Queues graph-produced browser files until the user explicitly downloads them.
+pub(crate) fn queue_output_files(
+    files: impl IntoIterator<Item = super::web_output_storage::BrowserOutputFile>,
+) {
+    OUTPUT_DOWNLOADS.with(|downloads| {
+        let mut downloads = downloads.borrow_mut();
+        for file in files {
+            downloads.next_id = downloads.next_id.saturating_add(1);
+            let id = downloads.next_id;
+            downloads.files.insert(
+                id,
+                BrowserOutputDownload {
+                    name: file.name,
+                    bytes: file.bytes,
+                },
+            );
+        }
+    });
+    OUTPUT_DOWNLOAD_REPAINT.with(|repaint| {
+        if let Some(repaint) = repaint.borrow().as_ref() {
+            repaint();
+        }
+    });
+}
+
 impl HostService for BrowserDocumentHostService {
     fn ui_capabilities(&self) -> HostUiCapabilities {
         HostUiCapabilities {
@@ -52,11 +94,47 @@ impl HostService for BrowserDocumentHostService {
     }
 
     fn set_command_repaint(&mut self, repaint: Box<dyn Fn() + Send + Sync>) {
-        self.state.lock().unwrap().repaint = Some(repaint.into());
+        let repaint: Arc<dyn Fn() + Send + Sync> = repaint.into();
+        self.state.lock().unwrap().repaint = Some(Arc::clone(&repaint));
+        OUTPUT_DOWNLOAD_REPAINT.with(|output_repaint| {
+            *output_repaint.borrow_mut() = Some(repaint);
+        });
     }
 
     fn take_commands(&mut self) -> Vec<HostCommand> {
         std::mem::take(&mut self.state.lock().unwrap().commands)
+    }
+
+    fn pending_output_downloads(&self) -> Vec<logic_analyzer_ui::DownloadableOutput> {
+        OUTPUT_DOWNLOADS.with(|downloads| {
+            let mut downloads = downloads
+                .borrow()
+                .files
+                .iter()
+                .map(|(&id, file)| logic_analyzer_ui::DownloadableOutput {
+                    id,
+                    name: file.name.clone(),
+                    content_type: output_content_type(&file.name).to_owned(),
+                    byte_len: file.bytes.len() as u64,
+                })
+                .collect::<Vec<_>>();
+            downloads.sort_by_key(|output| output.id);
+            downloads
+        })
+    }
+
+    fn download_output(&mut self, id: u64) -> Result<(), String> {
+        let output = OUTPUT_DOWNLOADS.with(|downloads| downloads.borrow_mut().files.remove(&id));
+        let Some(output) = output else {
+            return Err("that output is no longer available".to_owned());
+        };
+        if let Err(error) = download_file(&output.name, &output.bytes, "application/octet-stream") {
+            OUTPUT_DOWNLOADS.with(|downloads| {
+                downloads.borrow_mut().files.insert(id, output);
+            });
+            return Err(error);
+        }
+        Ok(())
     }
 
     fn document_exists(&self, path: &Path) -> bool {
@@ -167,7 +245,21 @@ impl HostService for BrowserDocumentHostService {
             document.contents = Ok(Arc::from(contents.clone()));
             document.display_name.clone()
         };
-        download(&display_name, &contents)
+        download_file(&display_name, &contents, "application/json")
+    }
+}
+
+fn output_content_type(name: &str) -> &'static str {
+    match Path::new(name)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("csv") => "text/csv",
+        Some("txt") | Some("log") => "text/plain",
+        Some("json") => "application/json",
+        _ => "application/octet-stream",
     }
 }
 
@@ -200,12 +292,17 @@ fn ensure_extension(name: &str, extension: Option<&&str>) -> String {
     name
 }
 
-fn download(display_name: &str, contents: &[u8]) -> Result<(), String> {
+/// Starts a browser download from in-memory bytes.
+pub(crate) fn download_file(
+    display_name: &str,
+    contents: &[u8],
+    media_type: &str,
+) -> Result<(), String> {
     let array = js_sys::Array::new();
     let bytes = js_sys::Uint8Array::from(contents);
     array.push(&bytes.buffer());
     let options = web_sys::BlobPropertyBag::new();
-    options.set_type("application/json");
+    options.set_type(media_type);
     let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(&array, &options)
         .map_err(|error| format!("could not create graph download: {error:?}"))?;
     let url = web_sys::Url::create_object_url_with_blob(&blob)
@@ -267,5 +364,20 @@ mod web_document_tests {
             ensure_extension("folder/demo.json", Some(&"json")),
             "folder_demo.json"
         );
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn graph_outputs_wait_for_an_explicit_download() {
+        let service = BrowserDocumentHostService::new();
+        queue_output_files([super::super::web_output_storage::BrowserOutputFile {
+            name: "capture.bin".to_owned(),
+            bytes: vec![1, 2, 3],
+        }]);
+
+        let downloads = service.pending_output_downloads();
+        assert_eq!(downloads.len(), 1);
+        assert_eq!(downloads[0].name, "capture.bin");
+        assert_eq!(downloads[0].byte_len, 3);
+        assert_eq!(service.pending_output_downloads()[0].id, downloads[0].id);
     }
 }

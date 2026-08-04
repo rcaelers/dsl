@@ -27,6 +27,19 @@ pub struct DecodedBlockCacheSnapshot {
     pub misses: u64,
 }
 
+/// One host-retained output file ready for an explicit user download.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DownloadableOutput {
+    /// Stable host-local identifier used to request this download.
+    pub id: u64,
+    /// User-facing filename proposed by the producing graph node.
+    pub name: String,
+    /// MIME-like content type supplied by the host for download presentation.
+    pub content_type: String,
+    /// Number of retained bytes, used for compact UI presentation.
+    pub byte_len: u64,
+}
+
 /// Host-selected labels for modifier keys shown in portable input hints.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModifierKeyLabels {
@@ -94,6 +107,19 @@ pub trait HostService {
     /// provides that cache.
     fn decoded_block_cache_snapshot(&self) -> Option<DecodedBlockCacheSnapshot> {
         None
+    }
+
+    /// Lists completed output files retained by the host until the user downloads them.
+    fn pending_output_downloads(&self) -> Vec<DownloadableOutput> {
+        Vec::new()
+    }
+
+    /// Starts an explicit download for one previously listed output file.
+    ///
+    /// # Parameters
+    /// - `id`: Stable identifier returned by [`Self::pending_output_downloads`].
+    fn download_output(&mut self, _id: u64) -> Result<(), String> {
+        Err("output download is unavailable on this host".to_owned())
     }
 
     /// Installs the wake-up callback used when the host queues a command.

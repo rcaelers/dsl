@@ -20,6 +20,7 @@ mod host_service;
 mod live_capture;
 mod memory_panel;
 mod node_registry;
+mod output_downloads;
 mod panel_presentation;
 mod plugin_panel;
 mod preferences;
@@ -43,8 +44,8 @@ pub use headless::{
     HeadlessRunEvent, HeadlessRunReport,
 };
 pub use host_service::{
-    DecodedBlockCacheSnapshot, HostCommand, HostService, HostUiCapabilities, ModifierKeyLabels,
-    OpenDialog, SaveDialog,
+    DecodedBlockCacheSnapshot, DownloadableOutput, HostCommand, HostService, HostUiCapabilities,
+    ModifierKeyLabels, OpenDialog, SaveDialog,
 };
 pub use node_registry::build_node_registry;
 pub use panel_presentation::{

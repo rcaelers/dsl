@@ -192,6 +192,8 @@ function runGraph(message) {
     const active = runtime.executeGraphWorkerRequest(input, publishGraphOutput);
     if (active) {
       scheduleGraphAdvance();
+    } else {
+      publishBrowserOutputs();
     }
   } catch (error) {
     self.postMessage({
@@ -216,6 +218,8 @@ function scheduleGraphAdvance() {
     try {
       if (runtime.advanceGraphWorkerRun(publishGraphOutput)) {
         scheduleGraphAdvance();
+      } else {
+        publishBrowserOutputs();
       }
     } catch (error) {
       self.postMessage({
@@ -224,6 +228,15 @@ function scheduleGraphAdvance() {
       });
     }
   }, 0);
+}
+
+function publishBrowserOutputs() {
+  const payload = runtime.takeBrowserOutputFiles();
+  if (payload.byteLength === 2) {
+    return;
+  }
+  const buffer = transferableBuffer(payload);
+  self.postMessage({ kind: "graph_output_files", payload: buffer }, [buffer]);
 }
 
 self.onmessage = (event) => {

@@ -91,3 +91,61 @@ impl WebHandle {
         self.runner.destroy();
     }
 }
+
+#[cfg(test)]
+mod web_tests {
+    use logic_analyzer_graph_compiler::{
+        GraphCompiler, GraphWorkerRequest, OutputSubscriptionPlan, decode_graph_worker_request,
+        encode_graph_worker_request,
+    };
+
+    use super::WebHandle;
+
+    #[wasm_bindgen_test::wasm_bindgen_test(unsupported = test)]
+    fn inventory_restores_embedded_demo_socket_names() {
+        let _handle = WebHandle::new(
+            "test-worker-module.js".to_owned(),
+            "test-worker-module.wasm".to_owned(),
+        );
+        let graph = serde_json::from_str(include_str!("../data/wasm_decoder_demo.json"))
+            .expect("the default web demo is valid");
+        let mut widget = node_graph::NodeGraphWidget::new(logic_analyzer_ui::build_node_registry());
+        widget.set_graph(graph);
+
+        for node in widget.graph().nodes.values() {
+            for socket in node.inputs.iter().chain(&node.outputs) {
+                assert!(
+                    !socket.name.is_empty(),
+                    "{} retains an unnamed socket after web restoration",
+                    node.title
+                );
+            }
+        }
+
+        let request = GraphWorkerRequest::Start {
+            sequence: 1,
+            graph: widget.graph().clone(),
+            subscriptions: OutputSubscriptionPlan::new(),
+            timeline_markers: Vec::new(),
+        };
+        let GraphWorkerRequest::Start { graph, .. } = decode_graph_worker_request(
+            &encode_graph_worker_request(&request).expect("the worker request encodes"),
+        )
+        .expect("the worker request decodes") else {
+            panic!("a start request must remain a start request");
+        };
+        assert!(
+            graph
+                .nodes
+                .values()
+                .flat_map(|node| node.inputs.iter().chain(&node.outputs))
+                .all(|socket| !socket.name.is_empty()),
+            "the worker transport must retain definition-derived socket labels"
+        );
+
+        let compiler = GraphCompiler::new();
+        compiler
+            .lower(&graph)
+            .expect("the default web demo lowers without missing inputs");
+    }
+}
