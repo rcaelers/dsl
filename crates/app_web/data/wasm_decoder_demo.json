@@ -742,7 +742,9 @@
         "panels": {}
       }
     },
-    "logic_analyzer_ui.sampling_overlay": 1,
+    "logic_analyzer_ui.sampling_overlay": [
+      1
+    ],
     "logic_analyzer_ui.viewer_lane_order": [
       {
         "Channel": 0
@@ -899,7 +901,7 @@
         "x": 40.0,
         "y": 300.0
       },
-      "selected": false,
+      "selected": true,
       "state": {
         "channel_names": [
           "Ch 0",
@@ -1470,7 +1472,7 @@
         "x": 1520.0,
         "y": 300.0
       },
-      "selected": true,
+      "selected": false,
       "state": {
         "cs_polarity": {
           "value": "Disabled",
