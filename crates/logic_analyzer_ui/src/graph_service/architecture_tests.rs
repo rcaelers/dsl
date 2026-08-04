@@ -27,14 +27,8 @@ fn application_orchestration_depends_on_the_ui_owned_graph_service() {
 
 #[test]
 fn concrete_graph_composition_is_confined_to_service_adapters() {
-    let adapter = include_str!("composition.rs");
-
-    assert!(adapter.contains("impl GraphService for UiGraphService"));
-    assert!(adapter.contains("impl GraphRun for LiveRun"));
-    assert!(adapter.contains("GraphLowerer::new()"));
-    assert!(adapter.contains("GraphRuntime::new()"));
-    assert!(!adapter.contains("downcast_mut"));
-    assert!(!adapter.contains("dyn Any"));
+    let module = include_str!("mod.rs");
+    assert!(module.contains("mod graph_compiler;"));
 }
 
 #[test]

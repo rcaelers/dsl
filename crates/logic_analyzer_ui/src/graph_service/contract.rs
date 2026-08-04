@@ -13,25 +13,25 @@ use logic_analyzer_graph_compiler::{
 use logic_analyzer_graph_orchestration::GraphWorkerClient;
 use logic_analyzer_graph_plan::{
     CollectedOutputSubscription, CollectedTableSubscription, OutputSubscriptionPlan,
-    ProcessingGraphError as CompileError, SamplingOverlayCandidate,
+    ProcessingGraph, ProcessingGraphError as CompileError, SamplingOverlayCandidate,
 };
 use logic_analyzer_graph_runtime::{
     ApplyError, ApplySummary, DerivedCacheClearStats, DerivedCacheEntrySnapshot, GraphRunContext,
-    LiveAnalysisSource, LiveRun, SourcePreparationStatus, SourcePreparationUpdate,
-    SourceProcessOverrides, SourceReadinessRegistry,
+    LiveAnalysisSource, SourcePreparationStatus, SourcePreparationUpdate, SourceProcessOverrides,
+    SourceReadinessRegistry,
 };
 use node_graph::{GraphState, NodeId};
+use signal_artifacts::ArtifactRepository;
 use signal_processing::{
-    ArtifactRepository, ConfigurationBoundary, DisconnectEvent, NodeFailure, PersistentStoreConfig,
+    ConfigurationBoundary, DisconnectEvent, NodeFailure, PersistentStoreConfig,
 };
 
 use crate::live_capture::CaptureFeatureDiscovery;
 
-pub(crate) trait GraphRun {
-    fn live_run_mut(&mut self) -> Option<&mut LiveRun> {
-        None
-    }
+pub(crate) type CachedDataLoader<'a> =
+    dyn FnMut(&GraphState, &mut GraphRunContext) -> Result<bool, Vec<CompileError>> + 'a;
 
+pub(crate) trait GraphRun {
     fn persistent_cache_configs(&self) -> Vec<PersistentStoreConfig>;
 
     fn sampling_overlays(&self) -> &[SamplingOverlayCandidate];
@@ -73,10 +73,20 @@ pub(crate) trait GraphRun {
         None
     }
 
+    fn apply_processing_graph(
+        &mut self,
+        _graph: ProcessingGraph,
+        _boundary: Option<ConfigurationBoundary>,
+    ) -> Result<ApplySummary, ApplyError> {
+        Err(ApplyError::Apply(
+            "this graph execution host does not support live plan updates".into(),
+        ))
+    }
+
     fn synchronize_cached_data(
         &mut self,
         _graph: &GraphState,
-        _load: &mut dyn FnMut(&GraphState, &mut GraphRunContext) -> Result<bool, Vec<CompileError>>,
+        _load: &mut CachedDataLoader<'_>,
     ) -> Result<bool, Vec<CompileError>> {
         Ok(false)
     }

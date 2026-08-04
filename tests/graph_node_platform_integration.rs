@@ -217,6 +217,6 @@ fn dsl_source_presentation_is_builder_owned_after_node_rename() {
     };
     assert_eq!(
         identity,
-        signal_processing::SourceIdentity::from_bytes(*blake3::hash(b"capture.dsl").as_bytes(),)
+        signal_artifacts::SourceIdentity::from_bytes(*blake3::hash(b"capture.dsl").as_bytes(),)
     );
 }

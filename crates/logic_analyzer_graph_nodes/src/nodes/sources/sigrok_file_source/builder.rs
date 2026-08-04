@@ -173,7 +173,7 @@ mod builder_tests {
                 .unwrap()
                 .push(format!("presentation:{}", self.config.path().display()));
             let indexed = IndexedCapturePresentation {
-                identity: signal_processing::SourceIdentity::from_bytes([0x5B; 32]),
+                identity: signal_artifacts::SourceIdentity::from_bytes([0x5B; 32]),
                 factory: Box::new(TestCaptureIndexFactory::new(self.config.path())),
             };
             Ok(Some(CaptureSourcePresentation::Indexed(indexed)))
@@ -253,7 +253,7 @@ mod builder_tests {
         };
         assert_eq!(
             identity,
-            signal_processing::SourceIdentity::from_bytes([0x5B; 32])
+            signal_artifacts::SourceIdentity::from_bytes([0x5B; 32])
         );
         assert_eq!(factory.display_name(), "fixture.sr");
         assert_eq!(

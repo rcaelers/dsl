@@ -3,13 +3,13 @@ use std::time::{Duration, Instant};
 use logic_analyzer_test_support::{
     BufferedFakeConfig, BufferedFakeProvider, DeterministicFakeConfig, DeterministicFakeProvider,
 };
+use signal_artifacts::MemoryArtifactRepository;
 use signal_processing::{
     AcquisitionContext, AcquisitionResult, CaptureAcquisitionPhase, CaptureChannelId,
     CaptureCursorItem, CaptureDataDelivery, CaptureEvent, CaptureProviderCapabilities,
     CaptureQueueReceiveError, CaptureSessionId, CaptureSessionState, CaptureStore,
     CaptureStoreConfig, CaptureStoreCursor, CaptureStoreDescriptor, FinalizedCapture,
-    MemoryArtifactRepository, PreparedAcquisition, SimpleTriggerCondition,
-    bounded_capture_event_queue,
+    PreparedAcquisition, SimpleTriggerCondition, bounded_capture_event_queue,
 };
 
 const TIMEOUT: Duration = Duration::from_secs(2);

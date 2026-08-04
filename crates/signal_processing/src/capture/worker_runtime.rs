@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use signal_artifacts::{ArtifactRepository, SourceIdentity};
+
 use super::host_protocol::{
     CaptureWorkerMessage, CaptureWorkerReplayBlock, CaptureWorkerReplayRequest,
     CaptureWorkerRequest,
@@ -8,7 +10,7 @@ use super::host_protocol::{
 use super::implementation::{
     CaptureIndex, CaptureIndexFactory, CaptureIndexOpenStep, CaptureIndexOpenTask,
 };
-use crate::{ArtifactRepository, SourceIdentity, WorkExecutor, WorkerOperation};
+use crate::{WorkExecutor, WorkerOperation};
 
 type PreparationHandler =
     dyn Fn(Vec<u8>) -> Result<CaptureWorkerPreparedIndex, String> + Send + Sync + 'static;
@@ -528,11 +530,12 @@ impl CaptureWorkerRuntime {
 
 #[cfg(test)]
 mod worker_runtime_tests {
+    use signal_artifacts::MemoryArtifactRepository;
+
     use super::*;
     use crate::{
         BlockData, CaptureIndexBuildProgress, CaptureIndexPreparationRequest, CaptureMetadata,
-        CaptureSampledChannel, CaptureSampledWindow, CaptureTransition, InlineWorkExecutor,
-        MemoryArtifactRepository, Result,
+        CaptureSampledChannel, CaptureSampledWindow, CaptureTransition, InlineWorkExecutor, Result,
     };
 
     const OPERATION: &str = "test.capture.prepare/v1";

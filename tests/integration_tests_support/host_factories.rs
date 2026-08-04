@@ -12,12 +12,13 @@ use logic_analyzer_processing::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
     CaptureSourcePresentation, CaptureSourceRuntimeCapabilities, ProcessNodeConstruction,
 };
+use signal_artifacts::{ArtifactRepository, SourceIdentity};
 use signal_processing::logic_analyzer::{CaptureMode, LogicCaptureConfig};
 use signal_processing::{
-    AcquisitionContext, AcquisitionResult, ArtifactRepository, CaptureDataDelivery, CaptureIndex,
+    AcquisitionContext, AcquisitionResult, CaptureDataDelivery, CaptureIndex,
     CaptureIndexBuildProgress, CaptureIndexFactory, CaptureMetadata, CaptureStartMode,
     ConfiguredAcquisition, CooperativeAppManagerFactory, IndexedCapturePresentation,
-    InlineWorkExecutor, PreparedAcquisition, SourceIdentity, WorkExecutor,
+    InlineWorkExecutor, PreparedAcquisition, WorkExecutor,
 };
 
 pub(crate) struct GraphHarness {

@@ -1,13 +1,15 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use signal_artifacts::{
+    ArtifactByteSource, ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange,
+    PreparedByteSource, RepositoryCapabilities, SourceCapabilities, SourceIdentity,
+};
 use signal_processing::{
-    Annotation, AnnotationQuery, ArtifactByteSource, ArtifactKey, ArtifactNamespace,
-    ArtifactRepository, BlockCodecConfig, ByteRange, CaptureChannelId, CaptureChunk,
+    Annotation, AnnotationQuery, BlockCodecConfig, CaptureChannelId, CaptureChunk,
     CaptureChunkWriter, CaptureCursorItem, CaptureSessionId, CaptureStore, CaptureStoreConfig,
     CaptureStoreCursor, CaptureStoreDescriptor, FinalizedCapture, IndexedAnnotationStore,
-    IndexedAnnotationWriter, LiveStoreConfig, PersistentStoreConfig, PreparedByteSource,
-    RepositoryCapabilities, SourceCapabilities, SourceIdentity, UnixTimeSource, Word,
+    IndexedAnnotationWriter, LiveStoreConfig, PersistentStoreConfig, UnixTimeSource, Word,
     WordPresenceBucket,
 };
 
@@ -355,7 +357,7 @@ fn repository_snapshot(repository: &dyn ArtifactRepository) -> RepositoryConform
 
 #[cfg(test)]
 mod repository_tests {
-    use signal_processing::{MemoryArtifactRepository, RepositoryCapabilities, RepositoryError};
+    use signal_artifacts::{MemoryArtifactRepository, RepositoryCapabilities, RepositoryError};
 
     use super::*;
 

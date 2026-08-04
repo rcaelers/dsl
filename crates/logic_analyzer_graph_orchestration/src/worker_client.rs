@@ -5,7 +5,7 @@ use logic_analyzer_graph_capabilities::node_support::TimelineMarkerReference;
 use logic_analyzer_graph_plan::OutputSubscriptionPlan;
 use logic_analyzer_graph_runtime::GraphRunContext;
 use node_graph::api::GraphState;
-use signal_processing::{ArtifactReplicationReceiver, ArtifactRepository};
+use signal_artifacts::{ArtifactReplicationReceiver, ArtifactRepository};
 
 use crate::{GraphWorkerMessage, GraphWorkerRequest};
 
@@ -211,7 +211,7 @@ fn message_is_terminal(message: &GraphWorkerMessage) -> bool {
 
 #[cfg(test)]
 mod worker_client_tests {
-    use signal_processing::{ArtifactKey, ArtifactNamespace, MemoryArtifactRepository};
+    use signal_artifacts::{ArtifactKey, ArtifactNamespace, MemoryArtifactRepository};
 
     use super::*;
 
@@ -227,20 +227,18 @@ mod worker_client_tests {
             )
             .unwrap();
         let _ = client.drain_requests();
-        let identity = signal_processing::SourceIdentity::from_bytes([5; 32]);
+        let identity = signal_artifacts::SourceIdentity::from_bytes([5; 32]);
         client
             .publish(GraphWorkerMessage::Artifacts {
                 sequence,
-                events: vec![
-                    signal_processing::ArtifactReplicationEvent::PublishedChunk {
-                        namespace: "worker-client-test".to_owned(),
-                        identity,
-                        offset: 0,
-                        total_length: 4,
-                        data: b"done".to_vec(),
-                        complete: true,
-                    },
-                ],
+                events: vec![signal_artifacts::ArtifactReplicationEvent::PublishedChunk {
+                    namespace: "worker-client-test".to_owned(),
+                    identity,
+                    offset: 0,
+                    total_length: 4,
+                    data: b"done".to_vec(),
+                    complete: true,
+                }],
             })
             .unwrap();
         client

@@ -547,8 +547,8 @@ mod worker_client_tests {
                 sequence,
                 session_id: 42,
                 display_name: "cancelled.dsl".to_owned(),
-                source_identity: crate::SourceIdentity::from_bytes([2; 32]),
-                index_identity: crate::SourceIdentity::from_bytes([3; 32]),
+                source_identity: signal_artifacts::SourceIdentity::from_bytes([2; 32]),
+                index_identity: signal_artifacts::SourceIdentity::from_bytes([3; 32]),
                 metadata: metadata(),
             })
             .unwrap();

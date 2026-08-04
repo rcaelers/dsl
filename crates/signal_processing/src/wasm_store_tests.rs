@@ -1,9 +1,13 @@
 use std::sync::Arc;
 
+use signal_artifacts::{
+    ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, MemoryArtifactRepository,
+    RepositoryError, SourceIdentity,
+};
+
 use crate::{
-    AnnotationQuery, ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange,
-    IndexedAnnotationStore, IndexedAnnotationWriter, LiveStoreConfig, MemoryArtifactRepository,
-    PersistentStoreConfig, RepositoryError, SourceIdentity, Word,
+    AnnotationQuery, IndexedAnnotationStore, IndexedAnnotationWriter, LiveStoreConfig,
+    PersistentStoreConfig, Word,
 };
 
 #[wasm_bindgen_test::wasm_bindgen_test(unsupported = test)]

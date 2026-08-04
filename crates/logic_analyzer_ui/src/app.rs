@@ -631,7 +631,7 @@ fn capture_storage_from_index(
     }
 }
 
-fn hex_identity(identity: signal_processing::SourceIdentity) -> String {
+fn hex_identity(identity: signal_artifacts::SourceIdentity) -> String {
     identity
         .as_bytes()
         .iter()

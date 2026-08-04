@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use logic_analyzer_graph_capabilities::node_support::CapturePresentation;
 use logic_analyzer_graph_plan::DiscoveredCapturePresentation;
+use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 #[cfg(test)]
 use signal_processing::InlineWorkExecutor;
-use signal_processing::{ArtifactRepository, MemoryArtifactRepository, WorkExecutor};
+use signal_processing::WorkExecutor;
 
 #[cfg(test)]
 use super::source_preparation_executor::InlineSourcePreparationExecutor;
@@ -454,7 +455,7 @@ mod source_preparation_tests {
             Ok(Box::new(ImmediateTask(Some(Ok(
                 PreparedCaptureData::Indexed(Box::new(TestIndex {
                     metadata: test_metadata(),
-                    identity: signal_processing::SourceIdentity::from_bytes([6; 32]),
+                    identity: signal_artifacts::SourceIdentity::from_bytes([6; 32]),
                 })),
             )))))
         }
@@ -462,7 +463,7 @@ mod source_preparation_tests {
 
     struct TestIndex {
         metadata: CaptureMetadata,
-        identity: signal_processing::SourceIdentity,
+        identity: signal_artifacts::SourceIdentity,
     }
 
     impl CaptureIndex for TestIndex {
@@ -470,7 +471,7 @@ mod source_preparation_tests {
             "prepared test".into()
         }
 
-        fn index_identity(&self) -> signal_processing::SourceIdentity {
+        fn index_identity(&self) -> signal_artifacts::SourceIdentity {
             self.identity
         }
 
@@ -528,7 +529,7 @@ mod source_preparation_tests {
 
         fn open(
             self: Box<Self>,
-            _artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
+            _artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository>,
             work_executor: Arc<dyn signal_processing::WorkExecutor>,
             _progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
         ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
@@ -538,7 +539,7 @@ mod source_preparation_tests {
             }
             Ok(Box::new(TestIndex {
                 metadata: test_metadata(),
-                identity: signal_processing::SourceIdentity::from_bytes([7; 32]),
+                identity: signal_artifacts::SourceIdentity::from_bytes([7; 32]),
             }))
         }
     }
@@ -556,7 +557,7 @@ mod source_preparation_tests {
 
         fn open(
             self: Box<Self>,
-            _artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
+            _artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository>,
             _work_executor: Arc<dyn signal_processing::WorkExecutor>,
             _progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
         ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
@@ -579,7 +580,7 @@ mod source_preparation_tests {
 
         fn open(
             self: Box<Self>,
-            _artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
+            _artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository>,
             _work_executor: Arc<dyn signal_processing::WorkExecutor>,
             progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
         ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
@@ -589,7 +590,7 @@ mod source_preparation_tests {
             }));
             Ok(Box::new(TestIndex {
                 metadata: test_metadata(),
-                identity: signal_processing::SourceIdentity::from_bytes([8; 32]),
+                identity: signal_artifacts::SourceIdentity::from_bytes([8; 32]),
             }))
         }
     }
@@ -614,7 +615,7 @@ mod source_preparation_tests {
 
         fn open(
             self: Box<Self>,
-            _artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
+            _artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository>,
             _work_executor: Arc<dyn signal_processing::WorkExecutor>,
             _progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
         ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
@@ -638,7 +639,7 @@ mod source_preparation_tests {
             identity: identity.into(),
             visible_channels: vec![0],
             presentation: CapturePresentation::Indexed {
-                identity: signal_processing::SourceIdentity::from_bytes([1; 32]),
+                identity: signal_artifacts::SourceIdentity::from_bytes([1; 32]),
                 factory: Box::new(TestFactory {
                     open_count,
                     observed_parallelism: None,
@@ -670,7 +671,7 @@ mod source_preparation_tests {
             identity: identity.into(),
             visible_channels: vec![0],
             presentation: CapturePresentation::Indexed {
-                identity: signal_processing::SourceIdentity::from_bytes([2; 32]),
+                identity: signal_artifacts::SourceIdentity::from_bytes([2; 32]),
                 factory: Box::new(FailingFactory),
             },
         }
@@ -681,7 +682,7 @@ mod source_preparation_tests {
             identity: identity.into(),
             visible_channels: vec![0],
             presentation: CapturePresentation::Indexed {
-                identity: signal_processing::SourceIdentity::from_bytes([4; 32]),
+                identity: signal_artifacts::SourceIdentity::from_bytes([4; 32]),
                 factory: Box::new(ProgressFactory),
             },
         }
@@ -692,7 +693,7 @@ mod source_preparation_tests {
             identity: identity.into(),
             visible_channels: vec![0],
             presentation: CapturePresentation::Indexed {
-                identity: signal_processing::SourceIdentity::from_bytes([5; 32]),
+                identity: signal_artifacts::SourceIdentity::from_bytes([5; 32]),
                 factory: Box::new(HostedFactory),
             },
         }
@@ -832,7 +833,7 @@ mod source_preparation_tests {
             identity: "indexed-capture".into(),
             visible_channels: vec![0],
             presentation: CapturePresentation::Indexed {
-                identity: signal_processing::SourceIdentity::from_bytes([3; 32]),
+                identity: signal_artifacts::SourceIdentity::from_bytes([3; 32]),
                 factory: Box::new(TestFactory {
                     open_count: Arc::clone(&open_count),
                     observed_parallelism: Some(Arc::clone(&observed_parallelism)),

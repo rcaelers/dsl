@@ -23,6 +23,7 @@ bench = false
 
 [dependencies]
 signal-processing = { path = "../signal_processing" }
+signal-artifacts = { workspace = true }
 zip = { workspace = true }
 clap = { workspace = true }
 crossbeam-channel = { workspace = true }

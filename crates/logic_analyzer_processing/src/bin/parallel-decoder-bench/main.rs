@@ -20,14 +20,14 @@ mod implementation {
     use logic_analyzer_processing::nodes::sinks::{OutputFile, OutputStorage};
     use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
     use logic_analyzer_processing::types::CsPolarity;
+    use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
     use signal_processing::{
-        ArtifactRepository, CollectedWordLaneOptions, CollectedWordLaneQuery,
-        DecodedBlockCacheStats, DerivedDataCollector, DerivedDataCollectorMetrics,
-        DerivedDataRetention, DerivedLanes, InputPort, LiveStoreConfig, MemoryArtifactRepository,
-        OutputPort, PersistentStoreConfig, Pipeline, PortSchema, ProcessNode, ProtocolKind,
-        SamplingPointStore, Word, WorkError, WorkExecutor, WorkExecutorTask, WorkResult, WorkTask,
-        built_in_word_lane_ingestor, configure_decoded_block_cache, decoded_block_cache_stats,
-        reset_decoded_block_cache_stats,
+        CollectedWordLaneOptions, CollectedWordLaneQuery, DecodedBlockCacheStats,
+        DerivedDataCollector, DerivedDataCollectorMetrics, DerivedDataRetention, DerivedLanes,
+        InputPort, LiveStoreConfig, OutputPort, PersistentStoreConfig, Pipeline, PortSchema,
+        ProcessNode, ProtocolKind, SamplingPointStore, Word, WorkError, WorkExecutor,
+        WorkExecutorTask, WorkResult, WorkTask, built_in_word_lane_ingestor,
+        configure_decoded_block_cache, decoded_block_cache_stats, reset_decoded_block_cache_stats,
     };
 
     const DEFAULT_MAX_WORDS_PER_BLOCK: usize = 32_768;

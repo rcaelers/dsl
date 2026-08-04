@@ -12,14 +12,16 @@ use std::collections::{HashMap, VecDeque};
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::sync::{Arc, Mutex};
 
+use signal_artifacts::{
+    ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion, ImmutableByteRegion,
+    OwnedByteSource, RepositoryError, SourceIdentity,
+};
+
 use super::types::{
     BlockIndex, DIR_ENTRY_SIZE, HEADER_SIZE, IndexHeader, L1_WORDS, L2_WORDS, MAGIC, RootDirEntry,
 };
 use crate::capture::CaptureMetadata;
-use crate::{
-    ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion, Error,
-    ImmutableByteRegion, OwnedByteSource, RepositoryError, Result, SourceIdentity,
-};
+use crate::{Error, Result};
 
 const ROOT_FORMAT_VERSION: u32 = 8;
 const LEAVES_PER_SEGMENT: u64 = 64;
@@ -817,7 +819,7 @@ mod tests {
     #[test]
     fn reader_reuses_decoded_leaf_views() -> Result<()> {
         let repository: Arc<dyn ArtifactRepository> =
-            Arc::new(crate::MemoryArtifactRepository::new());
+            Arc::new(signal_artifacts::MemoryArtifactRepository::new());
         let identity = SourceIdentity::from_bytes([7; 32]);
         let metadata = CaptureMetadata {
             total_probes: 1,
@@ -857,7 +859,7 @@ mod tests {
     #[test]
     fn writer_groups_channel_major_leaves_into_bounded_segments() -> Result<()> {
         let repository: Arc<dyn ArtifactRepository> =
-            Arc::new(crate::MemoryArtifactRepository::new());
+            Arc::new(signal_artifacts::MemoryArtifactRepository::new());
         let identity = SourceIdentity::from_bytes([8; 32]);
         let metadata = CaptureMetadata {
             total_probes: 1,
@@ -901,7 +903,7 @@ mod tests {
     #[test]
     fn previous_root_format_is_rejected_for_rebuild() -> Result<()> {
         let repository: Arc<dyn ArtifactRepository> =
-            Arc::new(crate::MemoryArtifactRepository::new());
+            Arc::new(signal_artifacts::MemoryArtifactRepository::new());
         let identity = SourceIdentity::from_bytes([9; 32]);
         let metadata = CaptureMetadata {
             total_probes: 0,

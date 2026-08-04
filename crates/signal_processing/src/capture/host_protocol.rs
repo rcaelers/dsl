@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+use signal_artifacts::SourceIdentity;
+
 use super::implementation::{CaptureIndexBuildProgress, CaptureMetadata, CaptureSampledWindow};
 use super::preparation::CaptureIndexPreparationRequest;
 use super::query::CaptureIndexQuery;
-use crate::SourceIdentity;
 
 /// One bounded request for packed raw blocks from a prepared capture session.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

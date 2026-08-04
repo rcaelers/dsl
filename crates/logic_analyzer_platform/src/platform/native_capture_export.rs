@@ -11,8 +11,9 @@ use logic_analyzer_capture_export::{
 use logic_analyzer_ui::{
     CaptureExportCompletion, CaptureExportFormat, CaptureExportService, CaptureExportStatus,
 };
+use signal_artifacts::ArtifactRepository;
 use signal_processing::{
-    ArtifactRepository, CaptureSessionId, CaptureSessionRepository, CaptureSessionRepositoryConfig,
+    CaptureSessionId, CaptureSessionRepository, CaptureSessionRepositoryConfig,
 };
 
 struct ExportObserver {

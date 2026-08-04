@@ -1,14 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
+use signal_artifacts::{
+    ArtifactKey, ArtifactMetadata, ArtifactNamespace, ArtifactRepository, ByteRange,
+    RepositoryError, SourceIdentity, read_artifact_region,
+};
+
 use super::config::PersistentStoreConfig;
 use super::format::{BlockDirectoryEntry, FORMAT_VERSION};
 use super::presence::{WordPresenceIndex, WordSummaryRecord};
 use super::store::{StoreError, StoreResult};
-use crate::{
-    ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, RepositoryError, SourceIdentity,
-    read_artifact_region,
-};
 
 const INDEX_MAGIC: &[u8; 8] = b"DWRIDX1\0";
 const MANIFEST_MAGIC: &[u8; 8] = b"DWRMAN1\0";
@@ -92,7 +93,7 @@ pub struct PersistentCacheEntrySnapshot {
 /// use [`clear_cache`] on a host worker.
 pub struct PersistentCacheClearTask {
     repository: Arc<dyn ArtifactRepository>,
-    pending: VecDeque<crate::ArtifactMetadata>,
+    pending: VecDeque<ArtifactMetadata>,
     removed_entries: usize,
     removed_bytes: u64,
 }
@@ -855,12 +856,13 @@ fn get_optional_u64(bytes: &[u8], offset: usize) -> StoreResult<Option<u64>> {
 mod tests {
     use std::sync::Arc;
 
+    use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+
     use super::*;
     use crate::derived_word_store::{
         AnnotationQuery, IndexedAnnotationStore, IndexedAnnotationWriter, LiveStoreConfig,
     };
     use crate::events::Word;
-    use crate::{ArtifactRepository, MemoryArtifactRepository};
 
     #[test]
     fn index_header_preserves_counts_above_the_wasm32_address_range() {

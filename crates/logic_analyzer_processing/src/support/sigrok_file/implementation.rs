@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use signal_artifacts::{PreparedByteSource, SourceIdentity};
 use signal_processing::capture::{
     BlockCaptureSource, BlockData, CaptureDataSource, CaptureFingerprint, CaptureMetadata,
     CaptureSource,
 };
-use signal_processing::{Error, PreparedByteSource, Result, SourceIdentity};
+use signal_processing::{Error, Result};
 
 use crate::support::capture_archive::{CaptureArchive, ZipCaptureArchive};
 use crate::support::capture_format::parse_sample_rate;

@@ -6,6 +6,7 @@
 std::cfg_select! {
     target_arch = "wasm32" => {
         mod demo_graphs;
+        #[allow(unreachable_pub)]
         mod web;
 
         pub use web::WebHandle;

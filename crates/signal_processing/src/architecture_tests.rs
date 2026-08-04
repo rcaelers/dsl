@@ -133,28 +133,10 @@ fn generic_storage_does_not_choose_an_application_cache_namespace() {
 }
 
 #[test]
-fn prepared_byte_sources_are_portable_storage_contracts() {
-    let contract = include_str!("storage/contract.rs");
-    let memory = include_str!("storage/memory.rs");
-
-    for forbidden in ["target_arch", "PathBuf", "std::fs", "memmap", "web_sys"] {
-        assert!(
-            !contract.contains(forbidden) && !memory.contains(forbidden),
-            "portable prepared-byte storage contains host detail {forbidden:?}"
-        );
-    }
-    for required in [
-        "trait RandomAccessReader",
-        "trait PreparedByteSource",
-        "trait ImmutableByteRegion",
-        "struct SourceIdentity",
-        "struct ByteRange",
-    ] {
-        assert!(
-            contract.contains(required),
-            "missing storage contract {required}"
-        );
-    }
+fn artifact_contracts_are_not_redirected_through_signal_processing() {
+    let facade = include_str!("lib.rs");
+    assert!(!facade.contains("pub use signal_artifacts"));
+    assert!(!facade.contains("mod storage"));
 }
 
 #[test]

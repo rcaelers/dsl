@@ -1,6 +1,11 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
+use signal_artifacts::{
+    ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion,
+    MemoryArtifactRepository, RepositoryError, SourceIdentity, read_artifact_region,
+};
+
 use super::builder::IndexBuilder;
 use super::exact::exact_window_sample_limit;
 use super::query::{GroupSummary, SummaryGrid, sample_summary_channel};
@@ -14,11 +19,7 @@ use crate::capture::{
     CaptureIndexBuildProgress, CaptureIndexOpenStep, CaptureIndexOpenTask, CaptureMetadata,
     CaptureSampledChannel, CaptureSampledWindow, CaptureTransition, packed_bit,
 };
-use crate::{
-    ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, Error, InlineWorkExecutor,
-    MemoryArtifactRepository, RepositoryError, Result, SourceIdentity, WorkExecutor,
-    read_artifact_region,
-};
+use crate::{Error, InlineWorkExecutor, Result, WorkExecutor};
 
 const RAW_BLOCK_CACHE_CAPACITY: usize = 16;
 
@@ -845,7 +846,7 @@ where
         let range = ByteRange::new(0, reader.len().map_err(repository_error)?)
             .map_err(|error| Error::ParseError(error.to_string()))?;
         let backing = read_artifact_region(reader.as_mut(), range).map_err(repository_error)?;
-        let region = crate::ByteRegion::new(backing, range)
+        let region = ByteRegion::new(backing, range)
             .map_err(|error| Error::ParseError(error.to_string()))?;
         Ok(Some(BlockData::from_region(region)))
     }

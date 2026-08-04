@@ -117,7 +117,7 @@ pub trait LiveCaptureFeature: Send {
 ///
 /// Implementations own concrete protocol and node behavior. Generic consumers use
 /// the neutral discovery and build results and never branch on node names or ports.
-pub trait RuntimeBuilder {
+pub trait RuntimeBuilder: Send + Sync {
     /// Returns the part of saved node state that can affect runtime behavior.
     ///
     /// Presentation-only controls override this projection so changing them

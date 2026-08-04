@@ -712,10 +712,10 @@ fn persistent_points_in_range(
 mod sampling_point_store_tests {
     use std::sync::Arc;
 
+    use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+
     use super::*;
-    use crate::{
-        ArtifactRepository, InlineWorkExecutor, MemoryArtifactRepository, WorkExecutorTask,
-    };
+    use crate::{InlineWorkExecutor, WorkExecutorTask};
 
     struct ThreadWorkExecutor;
 

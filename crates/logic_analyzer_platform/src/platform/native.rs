@@ -41,11 +41,12 @@ use logic_analyzer_ui::{
     default_input_bindings,
 };
 use node_graph::{FileDialogRequest, FileDialogService};
+use signal_artifacts::{ArtifactRepository, PreparedByteSource, SourceIdentity};
 use signal_processing::logic_analyzer::LogicAnalyzerError;
 use signal_processing::{
-    AppManager, AppManagerBackend, AppManagerFactory, ArtifactRepository, CaptureIndex,
-    CaptureIndexBuildProgress, CaptureIndexFactory, IndexedCapturePresentation, PipelineManager,
-    PreparedByteSource, ProcessNode, SourceIdentity, WorkExecutor, WorkExecutorTask, WorkTask,
+    AppManager, AppManagerBackend, AppManagerFactory, CaptureIndex, CaptureIndexBuildProgress,
+    CaptureIndexFactory, IndexedCapturePresentation, PipelineManager, ProcessNode, WorkExecutor,
+    WorkExecutorTask, WorkTask,
 };
 
 use super::native_artifact_repository::NativeArtifactRepository;
@@ -110,7 +111,7 @@ fn queue_host_command(command: HostCommand) {
 
 pub(crate) fn standard_services() -> PlatformServices {
     let cache_directory = derived_cache_directory();
-    let artifact_repository: Arc<dyn signal_processing::ArtifactRepository> = Arc::new(
+    let artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository> = Arc::new(
         NativeArtifactRepository::new(cache_directory.join("artifacts")),
     );
     let input_bindings = load_input_bindings();
@@ -370,7 +371,7 @@ impl DslFileSourceFactory for NativeDslFileSourceFactory {
         &self,
         name: &str,
         config: DslFileSourceConfig,
-        artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
+        artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
     ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
         let metadata = self.metadata(config.clone());
@@ -1575,9 +1576,10 @@ mod native_tests {
         SourcePreparationTaskUpdate,
     };
     use logic_analyzer_ui::{AppServices, HostCommand, HostService};
+    use signal_artifacts::MemoryArtifactRepository;
     use signal_processing::{
-        AppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor,
-        MemoryArtifactRepository, WorkExecutor, portable_worker_kernels,
+        AppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor, WorkExecutor,
+        portable_worker_kernels,
     };
 
     use super::{

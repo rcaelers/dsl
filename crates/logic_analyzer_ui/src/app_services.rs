@@ -6,9 +6,10 @@ use input_bindings::InputBindings;
 use logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride;
 use logic_analyzer_graph_runtime::SourcePreparationExecutor;
 use node_graph::FileDialogService;
+use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 use signal_processing::{
-    AppManagerFactory, ArtifactRepository, CooperativeWorkerOperationExecutor, InlineWorkExecutor,
-    MemoryArtifactRepository, WorkExecutor, WorkerOperationExecutor, portable_worker_kernels,
+    AppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor, WorkExecutor,
+    WorkerOperationExecutor, portable_worker_kernels,
 };
 
 use crate::application_settings::{ApplicationSettings, default_input_bindings};

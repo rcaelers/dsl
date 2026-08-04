@@ -14,9 +14,8 @@ use logic_analyzer_graph_runtime::{
     SourceReadinessRegistry,
 };
 use node_graph::{GraphState, NodeId};
-use signal_processing::{
-    ArtifactRepository, ConfigurationBoundary, DisconnectEvent, PersistentStoreConfig,
-};
+use signal_artifacts::ArtifactRepository;
+use signal_processing::{ConfigurationBoundary, DisconnectEvent, PersistentStoreConfig};
 
 use super::contract::{GraphRun, GraphService};
 use crate::live_capture::{CaptureAvailability, CaptureFeatureDiscovery, capture_availability};

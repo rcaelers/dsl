@@ -20,7 +20,8 @@ runtime or in the application UI.
 
 | Crate | Primary responsibility | Must not own |
 | --- | --- | --- |
-| `signal_processing` | Generic processing runtime and generic capture, storage, indexing, derived-data, and acquisition contracts | Concrete sources, protocols, formats, widgets, graph documents, or target selection |
+| `signal_artifacts` | Platform-neutral immutable byte regions, artifact identities, repository contracts, in-memory storage, and replication | Capture formats, derived encodings, stream execution, host adapters, or target selection |
+| `signal_processing` | Generic processing runtime and generic capture, indexing, derived-data, and acquisition contracts | Artifact repository ownership, concrete sources, protocols, formats, widgets, graph documents, or target selection |
 | `logic_analyzer_processing` | Concrete UI-independent sources, decoders, processing nodes, formats, devices, and sinks | Graph editor definitions, widget presentation, host selection, or application lifecycle |
 | `logic_analyzer_graph_capabilities` | Graph-node and payload capability contracts | Inventory assembly, built-in nodes, compiler policy, UI state, or platform adapters; its current directory-catalog path contract is a documented exception to remove |
 | `logic_analyzer_graph_registry` | Graph-node and payload registration descriptors, inventory collection, validation, host overrides, and immutable catalog snapshots | Graph documents, lowering, generated collectors, execution lifetimes, UI state, or target selection |
@@ -142,13 +143,13 @@ persistence. The cross-crate value is a catalog snapshot and diagnostic, never a
 
 ## Generic processing decomposition
 
-`signal_processing` is coherent at the highest level but its 18k-line implementation contains
-five independently changing domains: stream execution, artifact storage, capture data/indexing,
-derived-data storage, and capture-session control. A single root with broad re-exports hides those
-ownership boundaries and makes unrelated dependencies appear equally fundamental.
+`signal_artifacts` owns the extracted platform-neutral artifact and byte-source boundary. Consumers
+import its contracts directly; `signal_processing` does not re-export them. The remaining
+`signal_processing` implementation contains four independently changing domains: stream execution,
+capture data/indexing, derived-data storage, and capture-session control.
 
-The target is a small set of lower-level crates with an umbrella facade only if it preserves a
-clear import path:
+The proposed-future endpoint is a small set of lower-level crates with an umbrella facade only if
+it preserves a clear import path:
 
 ```text
 signal_artifacts
@@ -163,18 +164,16 @@ signal_runtime
 
 | Proposed owner | Responsibility | Current material |
 | --- | --- | --- |
-| `signal_artifacts` | Platform-neutral immutable byte regions, artifact identities, repository contracts, in-memory implementation, and replication | `storage` |
+| `signal_artifacts` | Platform-neutral immutable byte regions, artifact identities, repository contracts, in-memory implementation, and replication | `crates/signal_artifacts` |
 | `signal_runtime` | Typed ports and channels, `ProcessNode`, pipeline construction, schedulers, managers, generic work execution, and runtime errors | `node`, `ports`, `sender`, `receiver`, `pipeline`, `scheduler`, `manager`, `cooperative_manager`, `work_executor` |
 | `signal_capture` | Generic capture source/index/query contracts and finite waveform indexing | `capture`, `waveform_index`, sample/edge query types |
 | `signal_derived` | Generic payload registration, collected-lane contracts, sampling points, derived indexes, and encoded derived stores | `payload`, `derived_data_collector`, `derived_word_store`, `sampling_points`, `derived_index` |
 | `signal_capture_session` | Driver-neutral acquisition lifecycle, session storage, capture policy, and trigger-program contracts | `live_capture`, `live_capture_store`, `capture_policy`, `advanced_trigger`, current `logic_analyzer` contracts |
 
-This is a proposed future structure, not a mandate to create five crates immediately. The first
-safe change is to establish these as private owner facades inside `signal_processing`, eliminate
-cross-domain leaf imports, and give each facade a design document. Extraction occurs only after
-the dependency direction is mechanically verified. `signal_artifacts` is the most valuable first
-extraction because it is a lower-level capability used by capture and derived stores without
-depending on either.
+The remaining decomposition is proposed future structure, not a mandate to create four more crates
+immediately. The next safe change is to establish the remaining private owner facades inside
+`signal_processing`, eliminate cross-domain leaf imports, and give each facade a design document.
+Further extraction occurs only after the dependency direction is mechanically verified.
 
 The umbrella name `signal_processing` remains suitable only if it exposes a curated compatibility
 facade. New cross-crate imports use the owning domain path rather than a flat root re-export.
@@ -236,9 +235,9 @@ change architectural.
    and emits its existing user-visible warnings at the load boundary.
 2. Move graph catalog directory configuration behind a UI-owned portable service and a
    platform-owned path adapter. Split UI-capable plugins into core and presentation companions.
-3. Establish private `signal_processing` owner facades, then extract `signal_artifacts` and
-   `signal_runtime` after their dependency tests pass. Extract capture and derived domains only
-   when consumers need independent release or compilation boundaries.
+3. Establish private `signal_processing` owner facades, then extract `signal_runtime` after its
+   dependency tests pass. Extract capture and derived domains only when consumers need independent
+   release or compilation boundaries.
 
 No migration changes stable node IDs, payload IDs, serialized graph state, graph extensions, or
 renderer keys. Saved-document compatibility is implemented by the affected concrete graph-node or

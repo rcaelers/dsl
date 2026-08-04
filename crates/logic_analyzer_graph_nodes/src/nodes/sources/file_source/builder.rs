@@ -178,7 +178,7 @@ mod builder_tests {
                 .unwrap()
                 .push(format!("presentation:{}", self.path.display()));
             let indexed = IndexedCapturePresentation {
-                identity: signal_processing::SourceIdentity::from_bytes([0x5A; 32]),
+                identity: signal_artifacts::SourceIdentity::from_bytes([0x5A; 32]),
                 factory: Box::new(TestCaptureIndexFactory::new(&self.path)),
             };
             Ok(Some(CaptureSourcePresentation::Indexed(indexed)))
@@ -220,7 +220,7 @@ mod builder_tests {
             &self,
             name: &str,
             config: DslFileSourceConfig,
-            _artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
+            _artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository>,
             _work_executor: Arc<dyn signal_processing::WorkExecutor>,
         ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
             self.opened
@@ -259,7 +259,7 @@ mod builder_tests {
         };
         assert_eq!(
             identity,
-            signal_processing::SourceIdentity::from_bytes([0x5A; 32])
+            signal_artifacts::SourceIdentity::from_bytes([0x5A; 32])
         );
         assert_eq!(factory.display_name(), "fixture.dsl");
         assert_eq!(

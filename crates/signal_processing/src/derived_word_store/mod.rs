@@ -363,7 +363,7 @@
 //! windows for overview rendering, exact windows for bounded detail, and nearest
 //! boundaries for snapping. An incomplete exact result must be presented through the
 //! presence path rather than as complete detail. Native decoded blocks use a bounded
-//! cache; the injected [`crate::ArtifactRepository`] selects native, browser, or
+//! cache; the injected [`signal_artifacts::ArtifactRepository`] selects native, browser, or
 //! memory storage without changing the API or lane behavior.
 //!
 //! # Related APIs

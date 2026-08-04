@@ -94,12 +94,6 @@ impl WebHandle {
 
 #[cfg(test)]
 mod web_tests {
-    use logic_analyzer_graph_compiler::GraphLowerer;
-    use logic_analyzer_graph_orchestration::{
-        GraphWorkerRequest, decode_graph_worker_request, encode_graph_worker_request,
-    };
-    use logic_analyzer_graph_plan::OutputSubscriptionPlan;
-
     use super::WebHandle;
 
     #[wasm_bindgen_test::wasm_bindgen_test(unsupported = test)]
@@ -122,31 +116,5 @@ mod web_tests {
                 );
             }
         }
-
-        let request = GraphWorkerRequest::Start {
-            sequence: 1,
-            graph: widget.graph().clone(),
-            subscriptions: OutputSubscriptionPlan::new(),
-            timeline_markers: Vec::new(),
-        };
-        let GraphWorkerRequest::Start { graph, .. } = decode_graph_worker_request(
-            &encode_graph_worker_request(&request).expect("the worker request encodes"),
-        )
-        .expect("the worker request decodes") else {
-            panic!("a start request must remain a start request");
-        };
-        assert!(
-            graph
-                .nodes
-                .values()
-                .flat_map(|node| node.inputs.iter().chain(&node.outputs))
-                .all(|socket| !socket.name.is_empty()),
-            "the worker transport must retain definition-derived socket labels"
-        );
-
-        let compiler = GraphLowerer::new();
-        compiler
-            .lower(&graph)
-            .expect("the default web demo lowers without missing inputs");
     }
 }

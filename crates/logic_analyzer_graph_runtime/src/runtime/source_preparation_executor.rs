@@ -289,9 +289,10 @@ impl SourcePreparationTask for InlineSourcePreparationTask {
 
 #[cfg(test)]
 mod source_preparation_executor_tests {
+    use signal_artifacts::SourceIdentity;
     use signal_processing::{
         CaptureIndexPreparationRequest, CaptureSampledWindow, CaptureSampledWindowPoll,
-        CaptureWorkerRequest, SourceIdentity, WorkerOperation,
+        CaptureWorkerRequest, WorkerOperation,
     };
 
     use super::*;

@@ -14,10 +14,10 @@ use logic_analyzer_graph_orchestration::{
     GraphWorkerClient, GraphWorkerRequest, GraphWorkerRuntime, decode_graph_worker_messages,
     decode_graph_worker_request, encode_graph_worker_messages, encode_graph_worker_request,
 };
+use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository, SourceIdentity};
 use signal_processing::{
-    ArtifactRepository, CaptureMetadata, CaptureWorkerClient, CaptureWorkerRequest,
-    CaptureWorkerRuntime, InlineWorkExecutor, MemoryArtifactRepository, SourceIdentity,
-    decode_capture_worker_messages, encode_capture_worker_messages,
+    CaptureMetadata, CaptureWorkerClient, CaptureWorkerRequest, CaptureWorkerRuntime,
+    InlineWorkExecutor, decode_capture_worker_messages, encode_capture_worker_messages,
 };
 
 const WORKER_BOOTSTRAP: &str = include_str!("web_worker_bootstrap.js");

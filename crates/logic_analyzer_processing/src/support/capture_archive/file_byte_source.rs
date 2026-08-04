@@ -5,10 +5,10 @@ use std::io::{Read, Seek, SeekFrom};
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 
-use signal_processing::{
-    PreparedByteSource, RandomAccessReader, Result, SourceCapabilities, SourceIdentity,
-    SourceReadError,
+use signal_artifacts::{
+    PreparedByteSource, RandomAccessReader, SourceCapabilities, SourceIdentity, SourceReadError,
 };
+use signal_processing::Result;
 
 /// Temporary path adapter retained inside the allowlisted file-I/O leaf.
 /// Application composition uses the equivalent host adapter from

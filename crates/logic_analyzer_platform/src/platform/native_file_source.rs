@@ -6,7 +6,7 @@ use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use signal_processing::{
+use signal_artifacts::{
     PreparedByteSource, RandomAccessReader, SourceCapabilities, SourceIdentity, SourceReadError,
 };
 

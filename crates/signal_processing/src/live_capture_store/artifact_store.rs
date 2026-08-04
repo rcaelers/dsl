@@ -3,16 +3,20 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use signal_artifacts::{
+    ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion, RepositoryError,
+    SourceIdentity, read_artifact_region,
+};
+
 use super::implementation::{
     CaptureCursorItem, CaptureReclamationReport, CaptureRecoveryReport, CaptureSessionMetadata,
     CaptureSessionOutcome, CaptureStoreCursor, CaptureStoreDescriptor, CaptureStoreError,
     CaptureStoreManifest, CaptureStoreResult, CaptureStoreSnapshot, CaptureTimelineMetadata,
 };
 use crate::{
-    ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion, CaptureChunk,
-    CaptureChunkPayload, CaptureChunkWriter, CaptureSampledChannel, CaptureSampledWindow,
-    CaptureSessionId, CaptureSessionPlan, CaptureTransition, CaptureWriteError, Error,
-    SourceIdentity, SystemUnixTimeSource, UnixTimeSource, read_artifact_region,
+    CaptureChunk, CaptureChunkPayload, CaptureChunkWriter, CaptureSampledChannel,
+    CaptureSampledWindow, CaptureSessionId, CaptureSessionPlan, CaptureTransition,
+    CaptureWriteError, Error, SystemUnixTimeSource, UnixTimeSource,
 };
 
 const CAPTURE_MANIFEST_NAMESPACE: &str = "capture-manifest-v1";
@@ -1030,10 +1034,9 @@ fn read_chunk(
         CaptureStoreError::Corrupt(format!("capture chunk {sequence} is missing"))
     })?;
     let length = reader.len()?;
-    let range = ByteRange::new(0, length).map_err(crate::RepositoryError::from)?;
+    let range = ByteRange::new(0, length).map_err(RepositoryError::from)?;
     let backing = read_artifact_region(reader.as_mut(), range)?;
-    let region =
-        ByteRegion::new(Arc::clone(&backing), range).map_err(crate::RepositoryError::from)?;
+    let region = ByteRegion::new(Arc::clone(&backing), range).map_err(RepositoryError::from)?;
     let bytes = region.bytes();
     if bytes.len() < 68 || &bytes[..8] != CHUNK_MAGIC {
         return Err(CaptureStoreError::Corrupt(format!(
@@ -1097,8 +1100,8 @@ fn read_chunk(
     let payload_offset = u64::try_from(offset)
         .map_err(|_| CaptureStoreError::Corrupt("capture payload offset exceeds u64".into()))?;
     let payload_range =
-        ByteRange::new(payload_offset, payload_len).map_err(crate::RepositoryError::from)?;
-    let payload = ByteRegion::new(backing, payload_range).map_err(crate::RepositoryError::from)?;
+        ByteRange::new(payload_offset, payload_len).map_err(RepositoryError::from)?;
+    let payload = ByteRegion::new(backing, payload_range).map_err(RepositoryError::from)?;
     CaptureChunk::packed_lsb_first(
         descriptor.session_id(),
         sequence,
@@ -1224,10 +1227,12 @@ fn get_u128(bytes: &[u8], offset: usize) -> CaptureStoreResult<u128> {
 mod artifact_store_tests {
     use std::sync::Arc;
 
+    use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+
     use super::{CaptureStore, CaptureStoreConfig, FinalizedCapture, PersistedManifest, chunk_key};
     use crate::{
-        ArtifactRepository, CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId,
-        CaptureStoreCursor, CaptureStoreDescriptor, CaptureStoreError, MemoryArtifactRepository,
+        CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId, CaptureStoreCursor,
+        CaptureStoreDescriptor, CaptureStoreError,
     };
 
     #[test]

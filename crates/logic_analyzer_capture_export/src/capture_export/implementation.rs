@@ -310,10 +310,11 @@ mod tests {
 
     use zip::ZipArchive;
 
+    use signal_artifacts::MemoryArtifactRepository;
     use signal_processing::{
         CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId,
         CaptureSessionOutcome, CaptureStore, CaptureStoreConfig, CaptureStoreDescriptor,
-        CaptureTimelineMetadata, FinalizedCapture, MemoryArtifactRepository,
+        CaptureTimelineMetadata, FinalizedCapture,
     };
 
     use super::*;

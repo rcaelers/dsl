@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use memmap2::MmapOptions;
 
-use signal_processing::{
+use signal_artifacts::{
     ArtifactKey, ArtifactMetadata, ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion,
     ImmutableByteRegion, ReadArtifact, RepositoryCapabilities, RepositoryError, SourceIdentity,
     WriteArtifact,
@@ -67,6 +67,10 @@ impl NativeArtifactRepository {
 }
 
 #[cfg(feature = "developer-tools")]
+/// Creates an isolated durable repository rooted at a developer-selected directory.
+///
+/// # Parameters
+/// - `root`: Directory that exclusively stores this repository's artifacts.
 pub fn isolated_native_artifact_repository(root: PathBuf) -> Arc<dyn ArtifactRepository> {
     Arc::new(NativeArtifactRepository::new(root))
 }
@@ -372,7 +376,7 @@ mod native_artifact_repository_tests {
     use logic_analyzer_test_support::{
         capture_store_conformance, derived_store_conformance, repository_conformance,
     };
-    use signal_processing::MemoryArtifactRepository;
+    use signal_artifacts::MemoryArtifactRepository;
 
     use super::*;
 

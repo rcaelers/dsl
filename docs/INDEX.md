@@ -46,6 +46,7 @@ namespace. All other crate contracts are documented in Rustdoc.
 - [logic_analyzer_viewer](crates/logic_analyzer_viewer.md)
 - [Application shells](crates/application_shells.md)
 - [Workspace examples and integration tests](crates/logic_analyzer_examples.md)
+- [signal_artifacts](crates/signal_artifacts.md)
 
 ## Public modules
 
@@ -59,6 +60,7 @@ These supported namespaces are documented at their source facades in Rustdoc:
 
 ## Generic runtime and data plane
 
+- [`signal_artifacts` Design](crates/signal_artifacts.md)
 - [`signal_processing` runtime Rustdoc](../crates/signal_processing/src/lib.rs)
 - [Unified Native and Web Storage Platform Design](aspects/native_web_storage.md)
 - [`signal_processing::derived_word_store` Rustdoc](../crates/signal_processing/src/derived_word_store/mod.rs)

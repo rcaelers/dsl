@@ -9,11 +9,11 @@ use logic_analyzer_graph_plan::{
     ProcessingGraphError, ProcessingNode, SamplingOverlayCandidate,
 };
 use node_graph::api::NodeId;
+use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 use signal_processing::{
-    AppManager, ArtifactRepository, ConfigurationBoundary, DerivedDataRetention, DerivedLanes,
-    DisconnectEvent, InlineWorkExecutor, InputSub, MemoryArtifactRepository, NodeConfig,
-    NodeFailure, OverflowPolicy, PersistentStoreConfig, ProcessNode, SampleBlock,
-    SamplingPointStore, WorkExecutor,
+    AppManager, ConfigurationBoundary, DerivedDataRetention, DerivedLanes, DisconnectEvent,
+    InlineWorkExecutor, InputSub, NodeConfig, NodeFailure, OverflowPolicy, PersistentStoreConfig,
+    ProcessNode, SampleBlock, SamplingPointStore, WorkExecutor,
 };
 
 use super::data_collector::DataCollectorBuilder;
@@ -138,6 +138,7 @@ impl GraphRunContext {
         self.timeline_markers.insert(reference, marker);
     }
 
+    /// Iterates over host-owned timeline positions supplied for this run.
     pub fn timeline_markers(
         &self,
     ) -> impl Iterator<Item = (&TimelineMarkerReference, &signal_processing::TimelineMarker)> {
@@ -800,10 +801,7 @@ impl LiveRun {
     /// difference live. On any error the running pipeline is untouched
     /// (edits either fail up front in `diff`, or — for build failures midway
     /// — leave already-applied edits in place and report).
-    pub(crate) fn apply_compiled(
-        &mut self,
-        mut new: ProcessingGraph,
-    ) -> Result<ApplySummary, ApplyError> {
+    pub fn apply_compiled(&mut self, mut new: ProcessingGraph) -> Result<ApplySummary, ApplyError> {
         cache_policy::assign_derived_word_caches(&mut new);
         cache_policy::assign_sampling_point_caches(&mut new);
         reuse_sampling_points(&self.compiled, &mut new);
@@ -904,7 +902,7 @@ impl LiveRun {
     /// explicit future-only boundary. Phase 13.1 deliberately accepts only
     /// builder-declared hot configuration; structural changes and restarts
     /// remain in the edited graph for the next capture or ordinary Run.
-    pub(crate) fn apply_configuration_epoch_compiled(
+    pub fn apply_configuration_epoch_compiled(
         &mut self,
         mut new: ProcessingGraph,
         boundary: ConfigurationBoundary,

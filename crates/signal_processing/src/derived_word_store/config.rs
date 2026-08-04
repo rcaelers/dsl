@@ -2,10 +2,9 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::{
-    ArtifactRepository, InlineWorkExecutor, MemoryArtifactRepository, SystemUnixTimeSource,
-    UnixTimeSource, WorkExecutor,
-};
+use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+
+use crate::{InlineWorkExecutor, SystemUnixTimeSource, UnixTimeSource, WorkExecutor};
 
 pub(crate) const DEFAULT_MAX_WORDS_PER_BLOCK: usize = 131_072;
 

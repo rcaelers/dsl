@@ -7,9 +7,10 @@ use logic_analyzer_processing::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
     CaptureSourcePresentation, ProcessNodeConstruction,
 };
+use signal_artifacts::ArtifactRepository;
 use signal_processing::{
-    ArtifactRepository, CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory,
-    IndexedCapturePresentation, WorkExecutor,
+    CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, IndexedCapturePresentation,
+    WorkExecutor,
 };
 
 use super::registry::{BrowserFileRegistry, ImportedFile};

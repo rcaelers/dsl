@@ -130,7 +130,7 @@ impl App {
     }
 }
 
-fn repository_description(capabilities: signal_processing::RepositoryCapabilities) -> String {
+fn repository_description(capabilities: signal_artifacts::RepositoryCapabilities) -> String {
     match (capabilities.durable, capabilities.immutable_regions) {
         (true, true) => "Durable mapped storage",
         (true, false) => "Durable storage",

@@ -16,10 +16,10 @@ use logic_analyzer_graph_runtime::{
     SourceProcessOverrides,
 };
 use node_graph::{GraphState, NodeGraphWidget, NodeId};
+use signal_artifacts::{ArtifactReplicationReceiver, ArtifactRepository, MemoryArtifactRepository};
 use signal_processing::{
-    Annotation, ArtifactReplicationReceiver, ArtifactRepository, CaptureChannelId, CaptureChunk,
-    CaptureChunkWriter, CaptureSessionId, CaptureStore, CaptureStoreConfig,
-    CollectedLaneSnapshotRequest, DerivedLanes, DigitalLaneSnapshot, MemoryArtifactRepository,
+    Annotation, CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId, CaptureStore,
+    CaptureStoreConfig, CollectedLaneSnapshotRequest, DerivedLanes, DigitalLaneSnapshot,
     NumberLaneSnapshot, ProtocolPacketLaneSnapshot, ProtocolValue, Sample, SampleBlock,
     TextLaneSnapshot, Trigger, TriggerLaneSnapshot, Word,
 };
@@ -329,11 +329,11 @@ fn worker_hosted_large_timeline_returns_bounded_artifacts_and_loadable_cached_la
                     events
                         .iter()
                         .map(|event| match event {
-                            signal_processing::ArtifactReplicationEvent::PublishedChunk {
+                            signal_artifacts::ArtifactReplicationEvent::PublishedChunk {
                                 data,
                                 ..
                             } => data.len(),
-                            signal_processing::ArtifactReplicationEvent::Removed { .. } => 0,
+                            signal_artifacts::ArtifactReplicationEvent::Removed { .. } => 0,
                         })
                         .sum::<usize>()
                         <= 4 * 1024 * 1024

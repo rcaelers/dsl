@@ -11,9 +11,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use egui::{Color32, Event, Id, Pos2, Rect, UiBuilder};
 
-use logic_analyzer_graph_plan::OutputSubscriptionPlan;
+use logic_analyzer_graph_compiler::GraphLowerer;
+use logic_analyzer_graph_plan::{OutputSubscriptionPlan, ProcessingGraph, ProcessingGraphError};
 use logic_analyzer_graph_runtime::{
-    GraphRunContext, GraphRuntime, InlineSourcePreparationExecutor,
+    ApplyError, ApplySummary, GraphRunContext, GraphRuntime, InlineSourcePreparationExecutor,
+    LiveRun, SourceProcessOverrides,
 };
 use logic_analyzer_processing::nodes::decoders::parallel_decoder::{
     ParallelDecoder, ParallelInputStrategy, StrobeMode,
@@ -38,13 +40,16 @@ use logic_analyzer_viewer::{
     LogicAnalyzerViewer, ViewerLaneBadge, WaveformPresentationRegistry, viewer_lane_renderer,
 };
 use node_graph::{NodeGraphWidget, NodeId, SocketDirection, SocketId};
+use signal_artifacts::{
+    ArtifactKey, ArtifactMetadata, ArtifactNamespace, ArtifactRepository, MemoryArtifactRepository,
+    ReadArtifact, RepositoryCapabilities, RepositoryError, SourceIdentity, WriteArtifact,
+};
 use signal_processing::{
-    AppManager, AppManagerBackend, AppManagerFactory, ArtifactKey, ArtifactMetadata,
-    ArtifactNamespace, ArtifactRepository, CollectedLaneQuery, CollectedLaneSnapshotRequest,
-    CollectedWordLaneQuery, ConfigurationBoundary, DerivedLanes, DisconnectEvent, InputSub,
-    NodeConfig, NodeSpec, OpaqueCollectedLane, OpaqueCollectedLaneSnapshot, Pipeline,
-    PipelineManager, ProcessNode, ReadArtifact, RepositoryCapabilities, RepositoryError,
-    SourceIdentity, TriggerLaneSnapshot, WorkExecutor, WorkExecutorTask, WorkTask, WriteArtifact,
+    AppManager, AppManagerBackend, AppManagerFactory, CollectedLaneQuery,
+    CollectedLaneSnapshotRequest, CollectedWordLaneQuery, ConfigurationBoundary, DerivedLanes,
+    DisconnectEvent, InputSub, NodeConfig, NodeSpec, OpaqueCollectedLane,
+    OpaqueCollectedLaneSnapshot, Pipeline, PipelineManager, ProcessNode, TriggerLaneSnapshot,
+    WorkExecutor, WorkExecutorTask, WorkTask,
 };
 
 use integration_tests_support as nodes;
@@ -60,11 +65,47 @@ const STARTUP_OUTPUTS: [(&str, &str); 7] = [
 ];
 const VALIDATION_OUTPUTS: [(&str, &str); 1] = [("SPI Decoder", "MOSI Bits")];
 
+struct BenchmarkGraphExecution {
+    lowerer: GraphLowerer,
+    runtime: GraphRuntime,
+}
+
+impl BenchmarkGraphExecution {
+    fn new(lowerer: GraphLowerer, runtime: GraphRuntime) -> Self {
+        Self { lowerer, runtime }
+    }
+
+    fn lowerer(&self) -> &GraphLowerer {
+        &self.lowerer
+    }
+
+    fn set_output_subscriptions(&mut self, subscriptions: OutputSubscriptionPlan) {
+        self.lowerer.set_output_subscriptions(subscriptions);
+    }
+
+    fn set_artifact_repository(&mut self, repository: Arc<dyn ArtifactRepository>) {
+        self.runtime.set_artifact_repository(repository);
+    }
+
+    fn start(
+        &self,
+        graph: ProcessingGraph,
+        context: &mut GraphRunContext,
+        source_overrides: SourceProcessOverrides,
+    ) -> Result<LiveRun, Vec<ProcessingGraphError>> {
+        self.runtime.start(graph, context, source_overrides)
+    }
+
+    fn apply(&self, run: &mut LiveRun, graph: ProcessingGraph) -> Result<ApplySummary, ApplyError> {
+        self.runtime.apply(run, graph)
+    }
+}
+
 struct BenchmarkOutputStorage;
 
 struct BenchmarkArtifactRepository {
     waveform_indexes: Arc<dyn ArtifactRepository>,
-    transient: signal_processing::MemoryArtifactRepository,
+    transient: MemoryArtifactRepository,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize)]
@@ -336,7 +377,7 @@ impl BenchmarkArtifactRepository {
     fn new(waveform_indexes: Arc<dyn ArtifactRepository>) -> Self {
         Self {
             waveform_indexes,
-            transient: signal_processing::MemoryArtifactRepository::new(),
+            transient: MemoryArtifactRepository::new(),
         }
     }
 
@@ -445,7 +486,7 @@ impl DslFileSourceFactory for BenchmarkDslFileSourceFactory {
         &self,
         name: &str,
         config: DslFileSourceConfig,
-        artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
+        artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
     ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
         let metadata = self.metadata(config.clone());
@@ -1015,8 +1056,8 @@ fn output_subscriptions(
         .collect()
 }
 
-fn configured_compiler(widget: &NodeGraphWidget) -> GraphRuntime {
-    let mut compiler = GraphRuntime::new();
+fn configured_compiler(widget: &NodeGraphWidget) -> BenchmarkGraphExecution {
+    let mut compiler = BenchmarkGraphExecution::new(GraphLowerer::new(), GraphRuntime::new());
     compiler.set_output_subscriptions(startup_output_subscriptions(widget));
     compiler
 }
@@ -1024,18 +1065,12 @@ fn configured_compiler(widget: &NodeGraphWidget) -> GraphRuntime {
 fn configured_platform_compiler(
     widget: &NodeGraphWidget,
     services: &logic_analyzer_platform::PlatformServices,
-) -> GraphRuntime {
+) -> BenchmarkGraphExecution {
     let repository: Arc<dyn ArtifactRepository> = Arc::new(BenchmarkArtifactRepository::new(
         services.artifact_repository(),
     ));
-    let mut compiler = GraphRuntime::with_execution_and_builder_overrides(
-        Box::new(InlineSourcePreparationExecutor),
-        Arc::new(BenchmarkAppManagerFactory {
-            work_executor: runtime_executor(),
-            metrics: None,
-        }),
-        services.work_executor(),
-        vec![
+    let mut compiler = BenchmarkGraphExecution::new(
+        GraphLowerer::with_builder_overrides(vec![
             logic_analyzer_graph_nodes::binary_file_writer_runtime_builder_override(
                 logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
                     Arc::new(BenchmarkOutputStorage),
@@ -1044,7 +1079,15 @@ fn configured_platform_compiler(
             logic_analyzer_graph_nodes::dsl_file_source_runtime_builder_override(Arc::new(
                 BenchmarkDslFileSourceFactory,
             )),
-        ],
+        ]),
+        GraphRuntime::with_execution(
+            Box::new(InlineSourcePreparationExecutor),
+            Arc::new(BenchmarkAppManagerFactory {
+                work_executor: runtime_executor(),
+                metrics: None,
+            }),
+            services.work_executor(),
+        ),
     );
     compiler.set_artifact_repository(repository);
     compiler.set_output_subscriptions(startup_output_subscriptions(widget));
@@ -1056,15 +1099,9 @@ fn configured_profile_compiler(
     repository: Arc<dyn ArtifactRepository>,
     work_executor: Arc<dyn WorkExecutor>,
     metrics: Arc<DerivedProfileMetrics>,
-) -> GraphRuntime {
-    let mut compiler = GraphRuntime::with_execution_and_builder_overrides(
-        Box::new(InlineSourcePreparationExecutor),
-        Arc::new(BenchmarkAppManagerFactory {
-            work_executor: runtime_executor(),
-            metrics: Some(metrics),
-        }),
-        work_executor,
-        vec![
+) -> BenchmarkGraphExecution {
+    let mut compiler = BenchmarkGraphExecution::new(
+        GraphLowerer::with_builder_overrides(vec![
             logic_analyzer_graph_nodes::binary_file_writer_runtime_builder_override(
                 logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
                     Arc::new(BenchmarkOutputStorage),
@@ -1073,21 +1110,29 @@ fn configured_profile_compiler(
             logic_analyzer_graph_nodes::dsl_file_source_runtime_builder_override(Arc::new(
                 BenchmarkDslFileSourceFactory,
             )),
-        ],
+        ]),
+        GraphRuntime::with_execution(
+            Box::new(InlineSourcePreparationExecutor),
+            Arc::new(BenchmarkAppManagerFactory {
+                work_executor: runtime_executor(),
+                metrics: Some(metrics),
+            }),
+            work_executor,
+        ),
     );
     compiler.set_artifact_repository(repository);
     compiler.set_output_subscriptions(startup_output_subscriptions(widget));
     compiler
 }
 
-fn validation_compiler(widget: &NodeGraphWidget) -> GraphRuntime {
-    let mut compiler = GraphRuntime::new();
+fn validation_compiler(widget: &NodeGraphWidget) -> BenchmarkGraphExecution {
+    let mut compiler = BenchmarkGraphExecution::new(GraphLowerer::new(), GraphRuntime::new());
     compiler.set_output_subscriptions(output_subscriptions(widget, &VALIDATION_OUTPUTS));
     compiler
 }
 
-fn protocol_selection_compiler(widget: &NodeGraphWidget) -> GraphRuntime {
-    let mut compiler = GraphRuntime::new();
+fn protocol_selection_compiler(widget: &NodeGraphWidget) -> BenchmarkGraphExecution {
+    let mut compiler = BenchmarkGraphExecution::new(GraphLowerer::new(), GraphRuntime::new());
     compiler.set_output_subscriptions(output_subscriptions(
         widget,
         &[("Parallel Decoder", "Words")],
@@ -2016,7 +2061,7 @@ fn waveform_index_profile(capture: &Path) {
     let services = logic_analyzer_platform::standard_services();
     print_waveform_index_profile(
         capture,
-        Arc::new(signal_processing::MemoryArtifactRepository::new()),
+        Arc::new(MemoryArtifactRepository::new()),
         services.work_executor(),
         "memory",
     );

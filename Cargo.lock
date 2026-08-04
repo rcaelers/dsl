@@ -2163,11 +2163,7 @@ dependencies = [
  "eframe",
  "example-plugin",
  "log",
- "logic-analyzer-graph-compiler",
  "logic-analyzer-graph-nodes",
- "logic-analyzer-graph-orchestration",
- "logic-analyzer-graph-plan",
- "logic-analyzer-graph-runtime",
  "logic-analyzer-platform",
  "logic-analyzer-ui",
  "node-graph",
@@ -2182,6 +2178,7 @@ dependencies = [
 name = "logic-analyzer-capture-export"
 version = "0.1.0"
 dependencies = [
+ "signal-artifacts",
  "signal-processing",
  "tempfile",
  "thiserror 2.0.19",
@@ -2213,6 +2210,7 @@ dependencies = [
  "node-graph",
  "serde",
  "serde_json",
+ "signal-artifacts",
  "signal-processing",
  "tempfile",
  "tracing-subscriber",
@@ -2226,6 +2224,7 @@ dependencies = [
  "node-graph",
  "serde",
  "serde_json",
+ "signal-artifacts",
  "signal-processing",
 ]
 
@@ -2257,6 +2256,7 @@ dependencies = [
  "node-graph",
  "serde",
  "serde_json",
+ "signal-artifacts",
  "signal-processing",
  "tempfile",
  "wasm-bindgen-test",
@@ -2273,6 +2273,7 @@ dependencies = [
  "node-graph",
  "serde",
  "serde_json",
+ "signal-artifacts",
  "signal-processing",
 ]
 
@@ -2306,6 +2307,7 @@ dependencies = [
  "logic-analyzer-graph-plan",
  "node-graph",
  "serde_json",
+ "signal-artifacts",
  "signal-processing",
 ]
 
@@ -2336,6 +2338,7 @@ dependencies = [
  "rusb",
  "serde",
  "serde_json",
+ "signal-artifacts",
  "signal-processing",
  "tempfile",
  "thiserror 2.0.19",
@@ -2357,6 +2360,7 @@ dependencies = [
  "logic-analyzer-test-support",
  "serde",
  "serde_json",
+ "signal-artifacts",
  "signal-processing",
  "tempfile",
  "thiserror 2.0.19",
@@ -2370,6 +2374,7 @@ dependencies = [
 name = "logic-analyzer-test-support"
 version = "0.1.0"
 dependencies = [
+ "signal-artifacts",
  "signal-processing",
  "tempfile",
 ]
@@ -2394,6 +2399,7 @@ dependencies = [
  "panel-layout",
  "serde",
  "serde_json",
+ "signal-artifacts",
  "signal-processing",
  "tempfile",
  "trigger-editor",
@@ -2407,6 +2413,7 @@ dependencies = [
  "egui",
  "input-bindings",
  "inventory",
+ "signal-artifacts",
  "signal-processing",
  "web-time",
 ]
@@ -3759,6 +3766,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
+name = "signal-artifacts"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "signal-hook-registry"
 version = "1.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3777,6 +3792,7 @@ dependencies = [
  "lazy_static",
  "serde",
  "serde_json",
+ "signal-artifacts",
  "thiserror 2.0.19",
  "tracing",
  "wasm-bindgen-test",

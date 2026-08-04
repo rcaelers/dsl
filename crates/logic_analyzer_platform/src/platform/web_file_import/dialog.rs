@@ -5,7 +5,7 @@ use js_sys::Uint8Array;
 use wasm_bindgen_futures::JsFuture;
 
 use node_graph::{DroppedFile, FileDialogProgress, FileDialogRequest, FileDialogService};
-use signal_processing::SourceIdentity;
+use signal_artifacts::SourceIdentity;
 
 use super::super::web_capture_worker::{attach_capture_file, cancel_capture_file_attachment};
 use super::registry::{

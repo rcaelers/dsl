@@ -111,7 +111,7 @@ impl DslFileSourceFactory for TestSourceFactory {
         &self,
         name: &str,
         _config: DslFileSourceConfig,
-        _artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
+        _artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository>,
         _work_executor: Arc<dyn signal_processing::WorkExecutor>,
     ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
         Ok(self.construction(name))

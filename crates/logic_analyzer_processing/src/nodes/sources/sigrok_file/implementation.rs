@@ -3,12 +3,12 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+use signal_artifacts::{ArtifactRepository, PreparedByteSource};
 use signal_processing::{
-    ArtifactRepository, CaptureDataSource, CaptureIndex, CaptureIndexBuildProgress,
-    CaptureIndexFactory, CaptureIndexOpenTask, CaptureMetadata, InlineWorkExecutor, InputPort,
-    OutputPort, PortDirection, PortSchema, PreparedByteSource, ProcessNode, Result,
-    RuntimeExecutionMode, Sample, SampleBlock, SampleKind, Sender, WorkError, WorkExecutor,
-    WorkOutcome, WorkResult, WorkTask,
+    CaptureDataSource, CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory,
+    CaptureIndexOpenTask, CaptureMetadata, InlineWorkExecutor, InputPort, OutputPort,
+    PortDirection, PortSchema, ProcessNode, Result, RuntimeExecutionMode, Sample, SampleBlock,
+    SampleKind, Sender, WorkError, WorkExecutor, WorkOutcome, WorkResult, WorkTask,
 };
 
 use super::cooperative::CooperativeSigrokReader;
@@ -377,10 +377,10 @@ impl Drop for SigrokFileSource {
 mod tests {
     use std::collections::BTreeMap;
 
+    use signal_artifacts::SourceIdentity;
     use signal_processing::capture::{CaptureDataSource, CaptureSource};
     use signal_processing::{
-        CompletedWorkTask, OutputPort, Sender, SourceIdentity, Watchdog, WorkExecutor,
-        WorkExecutorTask, WorkTask,
+        CompletedWorkTask, OutputPort, Sender, Watchdog, WorkExecutor, WorkExecutorTask, WorkTask,
     };
 
     use super::*;

@@ -1,0 +1,16 @@
+[package]
+name = "signal-artifacts"
+version.workspace = true
+edition = "2024"
+authors = ["Rob Caelers <rob.caelers@gmail.com>"]
+description = "Platform-neutral immutable byte regions and artifact repositories"
+repository = "https://github.com/rcaelers/logic-conduit"
+license = "MIT"
+
+[lib]
+name = "signal_artifacts"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }

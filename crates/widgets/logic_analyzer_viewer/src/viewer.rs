@@ -915,7 +915,7 @@ mod tests {
         total_samples: Arc<AtomicU64>,
         generation: Arc<AtomicU64>,
         pending_polls: Arc<AtomicU64>,
-        identity: signal_processing::SourceIdentity,
+        identity: signal_artifacts::SourceIdentity,
     }
 
     #[test]
@@ -944,7 +944,7 @@ mod tests {
             "Growing test".into()
         }
 
-        fn index_identity(&self) -> signal_processing::SourceIdentity {
+        fn index_identity(&self) -> signal_artifacts::SourceIdentity {
             self.identity
         }
 
@@ -1029,7 +1029,7 @@ mod tests {
             total_samples,
             generation,
             pending_polls: Arc::new(AtomicU64::new(0)),
-            identity: signal_processing::SourceIdentity::from_bytes([9; 32]),
+            identity: signal_artifacts::SourceIdentity::from_bytes([9; 32]),
         }
     }
 

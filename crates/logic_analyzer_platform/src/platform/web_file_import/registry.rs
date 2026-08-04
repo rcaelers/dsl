@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use signal_processing::{CaptureMetadata, ChunkedByteSource, PreparedByteSource, SourceIdentity};
+use signal_artifacts::{ChunkedByteSource, PreparedByteSource, SourceIdentity};
+use signal_processing::CaptureMetadata;
 
 use super::worker_source::WorkerCaptureReference;
 

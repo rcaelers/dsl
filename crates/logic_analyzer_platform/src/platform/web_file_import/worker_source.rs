@@ -17,11 +17,13 @@ use logic_analyzer_processing::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
     CaptureSourcePresentation, ProcessNodeConstruction,
 };
+use signal_artifacts::{
+    ArtifactRepository, ByteRange, PreparedByteSource, RandomAccessReader, SourceCapabilities,
+    SourceIdentity, SourceReadError,
+};
 use signal_processing::{
-    ArtifactRepository, ByteRange, CaptureIndexPreparationRequest, CaptureMetadata,
-    CaptureWorkerOperationRegistry, CaptureWorkerPreparedIndex, PreparedByteSource, ProcessNode,
-    RandomAccessReader, SourceCapabilities, SourceIdentity, SourceReadError, WorkExecutor,
-    WorkerOperation,
+    CaptureIndexPreparationRequest, CaptureMetadata, CaptureWorkerOperationRegistry,
+    CaptureWorkerPreparedIndex, ProcessNode, WorkExecutor, WorkerOperation,
 };
 
 const DSL_PREPARATION_OPERATION: &str = "logic-analyzer.dsl-file.prepare/v1";

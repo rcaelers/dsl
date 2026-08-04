@@ -3,10 +3,12 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use super::preparation::CaptureIndexPreparationRequest;
-use crate::{
-    ByteRange, ByteRegion, Error, ImmutableByteRegion, Result, SourceIdentity, WorkExecutor,
+use signal_artifacts::{
+    ArtifactRepository, ByteRange, ByteRegion, ImmutableByteRegion, OwnedByteSource, SourceIdentity,
 };
+
+use super::preparation::CaptureIndexPreparationRequest;
+use crate::{Error, Result, WorkExecutor};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CaptureMetadata {
@@ -273,7 +275,7 @@ impl std::ops::Deref for BlockData {
 
 impl From<Arc<[u8]>> for BlockData {
     fn from(data: Arc<[u8]>) -> Self {
-        let backing: Arc<dyn ImmutableByteRegion> = Arc::new(crate::OwnedByteSource::new(
+        let backing: Arc<dyn ImmutableByteRegion> = Arc::new(OwnedByteSource::new(
             SourceIdentity::from_bytes([0; 32]),
             data,
         ));
@@ -487,7 +489,7 @@ pub trait CaptureIndexFactory: Send + 'static {
     /// - `progress`: Callback that may cancel progressive index construction.
     fn open(
         self: Box<Self>,
-        artifact_repository: Arc<dyn crate::ArtifactRepository>,
+        artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
         progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
     ) -> Result<Box<dyn CaptureIndex + Send>>;
@@ -499,7 +501,7 @@ pub trait CaptureIndexFactory: Send + 'static {
     /// override this to yield at deterministic index boundaries.
     fn open_task(
         self: Box<Self>,
-        artifact_repository: Arc<dyn crate::ArtifactRepository>,
+        artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
     ) -> Result<Box<dyn CaptureIndexOpenTask>> {
         Ok(Box::new(BlockingCaptureIndexOpenTask {
@@ -514,7 +516,7 @@ pub trait CaptureIndexFactory: Send + 'static {
 
 struct BlockingCaptureIndexOpenTask<F: CaptureIndexFactory + ?Sized> {
     factory: Option<Box<F>>,
-    artifact_repository: Arc<dyn crate::ArtifactRepository>,
+    artifact_repository: Arc<dyn ArtifactRepository>,
     work_executor: Arc<dyn WorkExecutor>,
     progress: VecDeque<CaptureIndexBuildProgress>,
     ready: Option<Box<dyn CaptureIndex + Send>>,

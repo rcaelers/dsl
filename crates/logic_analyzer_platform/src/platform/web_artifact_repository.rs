@@ -11,7 +11,7 @@ use web_sys::{
     Blob, BlobPropertyBag, ErrorEvent, MessageEvent, Url, Worker, WorkerOptions, WorkerType,
 };
 
-use signal_processing::{
+use signal_artifacts::{
     ArtifactKey, ArtifactMetadata, ArtifactNamespace, ArtifactRepository, MemoryArtifactRepository,
     ReadArtifact, RepositoryCapabilities, RepositoryError, SourceIdentity, WriteArtifact,
 };

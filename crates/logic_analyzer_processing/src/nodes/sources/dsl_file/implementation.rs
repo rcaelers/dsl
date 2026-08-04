@@ -13,15 +13,16 @@ use std::sync::{Arc, Mutex};
 
 use tracing::{debug, info, warn};
 
+use signal_artifacts::{ArtifactRepository, PreparedByteSource};
 use signal_processing::capture::{
     BlockData, CaptureDataSource, CaptureMetadata, CaptureTransition,
 };
 use signal_processing::waveform_index::IndexSampler;
 use signal_processing::{
-    ArtifactRepository, CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory,
-    CaptureIndexOpenTask, EdgeQuery, Error, InlineWorkExecutor, InputPort, OutputPort,
-    PreparedByteSource, ProcessNode, ProtocolKind, Result, RuntimeExecutionMode, Sample,
-    SampleBlock, SampleKind, Sender, WorkExecutor, WorkOutcome, WorkResult, WorkTask,
+    CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, CaptureIndexOpenTask, EdgeQuery,
+    Error, InlineWorkExecutor, InputPort, OutputPort, ProcessNode, ProtocolKind, Result,
+    RuntimeExecutionMode, Sample, SampleBlock, SampleKind, Sender, WorkExecutor, WorkOutcome,
+    WorkResult, WorkTask,
 };
 
 use super::cooperative::CooperativeDslReader;
@@ -322,7 +323,7 @@ impl DslFileSource {
             threads_spawned: false,
             num_threads: 0,
             work_executor: Arc::new(InlineWorkExecutor),
-            artifact_repository: Arc::new(signal_processing::MemoryArtifactRepository::new()),
+            artifact_repository: Arc::new(signal_artifacts::MemoryArtifactRepository::new()),
             cooperative_reader: None,
             cooperative_complete: false,
             runtime_execution_mode: RuntimeExecutionMode::Independent,
@@ -1033,8 +1034,9 @@ mod tests {
     use std::io::Write;
     use std::path::{Path, PathBuf};
 
+    use signal_artifacts::SourceIdentity;
     use signal_processing::{
-        CompletedWorkTask, OutputPort, ProcessNode, Sender, SourceIdentity, Watchdog, WorkExecutor,
+        CompletedWorkTask, OutputPort, ProcessNode, Sender, Watchdog, WorkExecutor,
         WorkExecutorTask, WorkTask,
     };
 
@@ -1045,7 +1047,7 @@ mod tests {
 
     fn indexed_dsl_source(path: &Path) -> Result<(DslFileSource, DslChunkedCaptureReader)> {
         let repository: Arc<dyn ArtifactRepository> =
-            Arc::new(signal_processing::MemoryArtifactRepository::new());
+            Arc::new(signal_artifacts::MemoryArtifactRepository::new());
         let prepared_source = Arc::new(FileByteSource::open(path)?);
         let data_source =
             DslFileCaptureDataSource::open_source(prepared_source, path.display().to_string())?;
@@ -1197,14 +1199,14 @@ mod tests {
     #[test]
     fn runtime_edge_query_does_not_build_a_missing_waveform_index() {
         let (_directory, path) = dsl_fixture();
-        let repository = Arc::new(signal_processing::MemoryArtifactRepository::new());
+        let repository = Arc::new(signal_artifacts::MemoryArtifactRepository::new());
         let source = DslFileSource::new(&path)
             .expect("generated DSL capture should open")
             .with_artifact_repository(repository.clone());
 
         assert!(source.edge_query(0, &[]).is_none());
         assert!(
-            signal_processing::ArtifactRepository::namespaces(repository.as_ref())
+            signal_artifacts::ArtifactRepository::namespaces(repository.as_ref())
                 .unwrap()
                 .is_empty()
         );
@@ -1304,7 +1306,7 @@ mod tests {
 
     fn dsl_source() -> DslFileSource {
         DslFileSource::from_archive(
-            Arc::new(signal_processing::OwnedByteSource::new(
+            Arc::new(signal_artifacts::OwnedByteSource::new(
                 SourceIdentity::from_bytes([0x77; 32]),
                 Arc::<[u8]>::from([]),
             )),

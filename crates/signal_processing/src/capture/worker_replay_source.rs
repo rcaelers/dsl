@@ -391,9 +391,10 @@ impl Drop for CaptureWorkerReplaySource {
 #[cfg(test)]
 mod worker_replay_source_tests {
     use crossbeam_channel::bounded;
+    use signal_artifacts::SourceIdentity;
 
     use super::*;
-    use crate::{ChannelMessage, SourceIdentity, Watchdog, WorkerOperation};
+    use crate::{ChannelMessage, Watchdog, WorkerOperation};
 
     fn metadata() -> CaptureMetadata {
         CaptureMetadata {

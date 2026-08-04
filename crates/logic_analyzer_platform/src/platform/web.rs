@@ -6,9 +6,10 @@ use logic_analyzer_graph_runtime::{
     SourcePreparationExecutor,
 };
 use logic_analyzer_ui::{AppServices, ApplicationSettings, default_input_bindings};
+use signal_artifacts::MemoryArtifactRepository;
 use signal_processing::{
     CooperativeAppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor,
-    MemoryArtifactRepository, WorkerOperationExecutor, portable_worker_kernels,
+    WorkerOperationExecutor, portable_worker_kernels,
 };
 
 use super::web_artifact_repository::BrowserArtifactRepository;
@@ -51,7 +52,7 @@ pub(crate) async fn standard_services_with_worker_urls(
         Ok(adapter) => Rc::new(adapter),
         Err(reason) => Rc::new(CooperativeWorkerOperationExecutor::new(kernels, reason)),
     };
-    let artifact_repository: Arc<dyn signal_processing::ArtifactRepository> =
+    let artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository> =
         match BrowserArtifactRepository::open().await {
             Ok(repository) => Arc::new(repository),
             Err(error) => {
@@ -76,7 +77,7 @@ pub(crate) async fn standard_services_with_worker_urls(
 
 fn compose_services(
     worker_operations: Rc<dyn WorkerOperationExecutor>,
-    artifact_repository: Arc<dyn signal_processing::ArtifactRepository>,
+    artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository>,
     worker_clients: Option<super::web_capture_worker::BrowserWorkerClients>,
 ) -> PlatformServices {
     let work_executor: Arc<dyn signal_processing::WorkExecutor> = Arc::new(InlineWorkExecutor);

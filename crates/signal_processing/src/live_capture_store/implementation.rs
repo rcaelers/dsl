@@ -6,6 +6,8 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use signal_artifacts::RepositoryError;
+
 use crate::{CaptureChannelId, CaptureChunk, CaptureSessionId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -483,7 +485,7 @@ pub enum CaptureStoreError {
     #[error("capture-store I/O failed: {0}")]
     Io(#[from] std::io::Error),
     #[error("capture artifact repository failed: {0}")]
-    Repository(#[from] crate::RepositoryError),
+    Repository(#[from] RepositoryError),
 }
 
 #[cfg(test)]

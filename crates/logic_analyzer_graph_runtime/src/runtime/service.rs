@@ -5,9 +5,10 @@ use logic_analyzer_graph_plan::{
     DiscoveredCapturePresentation, ProcessingGraph, ProcessingGraphError,
 };
 use node_graph::api::NodeId;
+use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 use signal_processing::{
-    AppManagerFactory, ArtifactRepository, ConfigurationBoundary, CooperativeAppManagerFactory,
-    InlineWorkExecutor, MemoryArtifactRepository, PersistentStoreConfig, WorkExecutor,
+    AppManagerFactory, ConfigurationBoundary, CooperativeAppManagerFactory, InlineWorkExecutor,
+    PersistentStoreConfig, WorkExecutor,
 };
 
 use super::execution::{

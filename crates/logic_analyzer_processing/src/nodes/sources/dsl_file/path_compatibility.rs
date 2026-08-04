@@ -1,7 +1,8 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use signal_processing::{PreparedByteSource, Result};
+use signal_artifacts::PreparedByteSource;
+use signal_processing::Result;
 
 use super::implementation::DslFileSource;
 use crate::support::capture_archive::FileByteSource;

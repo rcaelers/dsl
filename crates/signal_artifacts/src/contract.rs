@@ -217,7 +217,8 @@ impl ByteRegion {
             .expect("a byte region validates its immutable backing at construction")
     }
 
-    pub(crate) fn clone_backing(&self) -> Arc<dyn ImmutableByteRegion> {
+    /// Clones the immutable backing so another validated region can share it.
+    pub fn clone_backing(&self) -> Arc<dyn ImmutableByteRegion> {
         Arc::clone(&self.backing)
     }
 

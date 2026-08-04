@@ -6,6 +6,11 @@ use std::time::Duration;
 use crossbeam_channel::{Receiver, Sender, TryRecvError, bounded};
 use web_time::Instant;
 
+use signal_artifacts::{
+    ArtifactKey, ArtifactRepository, ByteRange, RepositoryError, WriteArtifact,
+    read_artifact_region,
+};
+
 use super::backend::{AnnotationStoreBackend, AnnotationStoreWriterBackend};
 use super::cache::{cache_block, cached_block};
 use super::codec::{
@@ -25,11 +30,8 @@ use super::query::{
     boundary_block_indices, exact_block_indices, nearest_boundary_from_ordered_words,
 };
 use super::state::{LiveStoreMetadata, LiveStoreSnapshot, StoreStatus};
+use crate::WorkExecutor;
 use crate::events::{Annotation, Word};
-use crate::{
-    ArtifactKey, ArtifactRepository, ByteRange, RepositoryError, WorkExecutor, WriteArtifact,
-    read_artifact_region,
-};
 
 const MAX_BLOCK_ENCODERS_PER_STORE: usize = 4;
 const TARGET_SEGMENT_BYTES: u64 = 8 * 1024 * 1024;
@@ -1325,8 +1327,9 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::thread;
 
+    use signal_artifacts::MemoryArtifactRepository;
+
     use super::*;
-    use crate::MemoryArtifactRepository;
     use crate::derived_word_store::BlockCodecConfig;
     use crate::derived_word_store::cache::cache_contains;
     use crate::events::instantaneous_word_end_ns;
@@ -1547,7 +1550,7 @@ mod tests {
     #[test]
     fn persistent_cleanup_removes_unpinned_lru_entries() {
         let repository: Arc<dyn ArtifactRepository> =
-            Arc::new(crate::MemoryArtifactRepository::new());
+            Arc::new(signal_artifacts::MemoryArtifactRepository::new());
         let first_key = [0x11; 32];
         let second_key = [0x22; 32];
         for key in [first_key, second_key] {
@@ -1584,7 +1587,7 @@ mod tests {
     #[test]
     fn clearing_one_persistent_entry_keeps_other_cache_keys() {
         let repository: Arc<dyn ArtifactRepository> =
-            Arc::new(crate::MemoryArtifactRepository::new());
+            Arc::new(signal_artifacts::MemoryArtifactRepository::new());
         let first = PersistentStoreConfig::new([0x31; 32])
             .with_artifact_repository(Arc::clone(&repository));
         let second = PersistentStoreConfig::new([0x32; 32])

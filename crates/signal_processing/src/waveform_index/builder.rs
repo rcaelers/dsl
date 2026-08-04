@@ -3,6 +3,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
+use signal_artifacts::{ArtifactRepository, SourceIdentity};
+
 use super::storage::IndexWriter;
 #[cfg(test)]
 use super::types::bit;
@@ -13,7 +15,7 @@ use crate::capture::{
     BlockCaptureSource, BlockData, CaptureDataSource, CaptureIndexBuildProfile, CaptureMetadata,
 };
 use crate::capture_index_kernel::{CaptureIndexBlockResult, build_capture_index_block_from_packed};
-use crate::{ArtifactRepository, Error, Result, SourceIdentity, WorkExecutor};
+use crate::{Error, Result, WorkExecutor};
 
 const MAX_INDEX_WORKERS: usize = 12;
 

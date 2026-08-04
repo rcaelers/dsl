@@ -25,7 +25,7 @@ use signal_processing::{
     WorkExecutor,
 };
 
-use super::contract::{GraphRun, GraphService};
+use super::contract::{CachedDataLoader, GraphRun, GraphService};
 use crate::live_capture::{CaptureAvailability, CaptureFeatureDiscovery};
 
 /// UI-owned orchestration of document compilation and processing-graph execution.
@@ -50,10 +50,6 @@ impl UiGraphService {
 }
 
 impl GraphRun for LiveRun {
-    fn live_run_mut(&mut self) -> Option<&mut LiveRun> {
-        Some(self)
-    }
-
     fn persistent_cache_configs(&self) -> Vec<PersistentStoreConfig> {
         LiveRun::persistent_cache_configs(self)
     }
@@ -109,11 +105,17 @@ impl GraphRun for LiveRun {
     fn take_node_failures(&mut self) -> Vec<(Option<NodeId>, signal_processing::NodeFailure)> {
         LiveRun::take_node_failures(self)
     }
-}
 
-fn concrete_run(run: &mut dyn GraphRun) -> Result<&mut LiveRun, ApplyError> {
-    run.live_run_mut()
-        .ok_or_else(|| ApplyError::Apply("graph run was not created by GraphRuntime".into()))
+    fn apply_processing_graph(
+        &mut self,
+        graph: logic_analyzer_graph_plan::ProcessingGraph,
+        boundary: Option<ConfigurationBoundary>,
+    ) -> Result<ApplySummary, ApplyError> {
+        match boundary {
+            Some(boundary) => self.apply_configuration_epoch_compiled(graph, boundary),
+            None => self.apply_compiled(graph),
+        }
+    }
 }
 
 struct WorkerGraphRun {
@@ -246,7 +248,7 @@ impl GraphRun for WorkerGraphRun {
     fn synchronize_cached_data(
         &mut self,
         graph: &GraphState,
-        load: &mut dyn FnMut(&GraphState, &mut GraphRunContext) -> Result<bool, Vec<CompileError>>,
+        load: &mut CachedDataLoader<'_>,
     ) -> Result<bool, Vec<CompileError>> {
         if !self.needs_data_sync {
             return Ok(false);
@@ -287,7 +289,7 @@ impl CaptureFeatureDiscovery for UiGraphService {
 impl GraphService for UiGraphService {
     fn set_artifact_repository(
         &mut self,
-        repository: std::sync::Arc<dyn signal_processing::ArtifactRepository>,
+        repository: std::sync::Arc<dyn signal_artifacts::ArtifactRepository>,
     ) {
         self.runtime.set_artifact_repository(repository);
     }
@@ -466,7 +468,7 @@ impl GraphService for UiGraphService {
         graph: &GraphState,
     ) -> Result<ApplySummary, ApplyError> {
         let compiled = self.lowerer().lower(graph).map_err(ApplyError::Compile)?;
-        self.runtime.apply(concrete_run(run)?, compiled)
+        run.apply_processing_graph(compiled, None)
     }
 
     fn apply_configuration_epoch(
@@ -476,8 +478,7 @@ impl GraphService for UiGraphService {
         boundary: ConfigurationBoundary,
     ) -> Result<ApplySummary, ApplyError> {
         let compiled = self.lowerer().lower(graph).map_err(ApplyError::Compile)?;
-        self.runtime
-            .apply_configuration_epoch(concrete_run(run)?, compiled, boundary)
+        run.apply_processing_graph(compiled, Some(boundary))
     }
 
     fn synchronize_run_data(

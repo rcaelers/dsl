@@ -423,7 +423,6 @@ mod sample_kind;
 mod sampling_points;
 mod scheduler;
 mod sender;
-mod storage;
 mod time_source;
 mod type_registry;
 mod watchdog;
@@ -528,14 +527,6 @@ pub use sampling_points::{
 };
 pub use scheduler::{Scheduler, StopHandle};
 pub use sender::{ChannelMessage, OverflowPolicy, Sender, SharedSenders};
-pub use storage::{
-    ArtifactByteSource, ArtifactKey, ArtifactMetadata, ArtifactNamespace, ArtifactReplicationEvent,
-    ArtifactReplicationReceiver, ArtifactRepository, ByteRange, ByteRegion, ChunkedByteSource,
-    ImmutableByteRegion, MemoryArtifactRepository, OwnedByteSource, PreparedByteSource,
-    RandomAccessReader, ReadArtifact, ReplicatingArtifactRepository, RepositoryCapabilities,
-    RepositoryError, SourceCapabilities, SourceIdentity, SourceReadError, WriteArtifact,
-    read_artifact_region,
-};
 pub use time_source::{SystemUnixTimeSource, UnixTimeSource};
 pub(crate) use watchdog::OperationGuard;
 pub use watchdog::{Watchdog, WatchdogHandle};

@@ -2,7 +2,8 @@ use std::io::{Read, Seek, SeekFrom};
 
 use zip::ZipArchive;
 
-use signal_processing::{Error, PreparedByteSource, RandomAccessReader, Result, SourceReadError};
+use signal_artifacts::{PreparedByteSource, RandomAccessReader, SourceReadError};
+use signal_processing::{Error, Result};
 
 pub(crate) trait CaptureArchive: Send {
     fn entry_names(&self) -> Vec<String>;
@@ -123,7 +124,7 @@ mod implementation_tests {
     use zip::ZipWriter;
     use zip::write::SimpleFileOptions;
 
-    use signal_processing::SourceIdentity;
+    use signal_artifacts::SourceIdentity;
 
     use super::*;
 
@@ -136,7 +137,7 @@ mod implementation_tests {
         writer.write_all(b"owned fixture").unwrap();
         let bytes = writer.finish().unwrap().into_inner();
 
-        let source = signal_processing::OwnedByteSource::new(
+        let source = signal_artifacts::OwnedByteSource::new(
             SourceIdentity::from_bytes([0x44; 32]),
             Arc::<[u8]>::from(bytes),
         );

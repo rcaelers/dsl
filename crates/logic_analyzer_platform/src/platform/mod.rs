@@ -2,10 +2,12 @@ std::cfg_select! {
     target_arch = "wasm32" => {
         mod web;
         mod web_artifact_repository;
+        #[allow(unreachable_pub)]
         mod web_capture_worker;
         mod web_document;
         mod web_file_import;
         mod web_output_storage;
+        #[allow(unreachable_pub)]
         mod web_worker;
 
         pub(crate) use web::{standard_services, standard_services_with_worker_urls};

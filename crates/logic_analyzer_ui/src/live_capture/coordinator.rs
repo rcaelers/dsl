@@ -9,17 +9,17 @@ use web_time::{Instant, SystemTime, UNIX_EPOCH};
 
 use logic_analyzer_graph_capabilities::node::CaptureGraphSourceFactory;
 use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
+use signal_artifacts::{ArtifactKey, ArtifactNamespace, ArtifactRepository, SourceIdentity};
 use signal_processing::{
-    AcquisitionContext, ArtifactKey, ArtifactNamespace, ArtifactRepository,
-    CaptureAcquisitionPhase, CaptureCompletion, CaptureDataDelivery, CaptureEvent,
-    CaptureEventPublishError, CaptureEventPublisher, CaptureEventQueueReader, CaptureHealth,
-    CaptureIndex, CaptureMetadata, CaptureProgress, CaptureQueueReceiveError, CaptureRecordingGate,
-    CaptureSampledWindow, CaptureSessionId, CaptureSessionOutcome, CaptureSessionPin,
-    CaptureSessionPlan, CaptureSessionRepository, CaptureSessionRepositoryConfig,
-    CaptureSessionState, CaptureSessionSummary, CaptureStartMode, CaptureStore, CaptureStoreConfig,
-    CaptureStoreDescriptor, CaptureTimelineMetadata, FinalizedCapture, GrowingCaptureIndex,
-    GrowingCaptureIndexWorker, RecordingStart, SourceIdentity, TriggerTimeoutAction, WorkExecutor,
-    bounded_capture_event_queue,
+    AcquisitionContext, CaptureAcquisitionPhase, CaptureCompletion, CaptureDataDelivery,
+    CaptureEvent, CaptureEventPublishError, CaptureEventPublisher, CaptureEventQueueReader,
+    CaptureHealth, CaptureIndex, CaptureMetadata, CaptureProgress, CaptureQueueReceiveError,
+    CaptureRecordingGate, CaptureSampledWindow, CaptureSessionId, CaptureSessionOutcome,
+    CaptureSessionPin, CaptureSessionPlan, CaptureSessionRepository,
+    CaptureSessionRepositoryConfig, CaptureSessionState, CaptureSessionSummary, CaptureStartMode,
+    CaptureStore, CaptureStoreConfig, CaptureStoreDescriptor, CaptureTimelineMetadata,
+    FinalizedCapture, GrowingCaptureIndex, GrowingCaptureIndexWorker, RecordingStart,
+    TriggerTimeoutAction, WorkExecutor, bounded_capture_event_queue,
 };
 
 use super::implementation::{
@@ -146,7 +146,7 @@ impl CaptureIndex for PinnedCaptureIndex {
         self.inner.display_name()
     }
 
-    fn index_identity(&self) -> signal_processing::SourceIdentity {
+    fn index_identity(&self) -> signal_artifacts::SourceIdentity {
         self.inner.index_identity()
     }
 
@@ -316,7 +316,7 @@ impl CaptureCoordinator {
 
     #[cfg(test)]
     fn new_with_scripted_export() -> (Self, ScriptedCaptureExportControl) {
-        let artifacts = Arc::new(signal_processing::MemoryArtifactRepository::new());
+        let artifacts = Arc::new(signal_artifacts::MemoryArtifactRepository::new());
         let repository =
             CaptureSessionRepository::new(CaptureSessionRepositoryConfig::new(artifacts))
                 .expect("temporary capture repository must be available");

@@ -14,6 +14,8 @@ use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TryRecvError, TrySen
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
+use signal_artifacts::ByteRegion;
+
 use crate::advanced_trigger::{
     TriggerEditorSchema, TriggerProgram, TriggerValidationErrors, ValidatedTriggerProgram,
 };
@@ -509,7 +511,7 @@ pub struct CaptureBytes(Arc<CaptureBytesInner>);
 enum CaptureBytesInner {
     Owned(Box<[u8]>),
     Shared(Arc<[u8]>),
-    Region(crate::ByteRegion),
+    Region(ByteRegion),
     Pooled(PooledCaptureBytes),
 }
 
@@ -589,8 +591,8 @@ impl From<Arc<[u8]>> for CaptureBytes {
     }
 }
 
-impl From<crate::ByteRegion> for CaptureBytes {
-    fn from(region: crate::ByteRegion) -> Self {
+impl From<ByteRegion> for CaptureBytes {
+    fn from(region: ByteRegion) -> Self {
         Self(Arc::new(CaptureBytesInner::Region(region)))
     }
 }

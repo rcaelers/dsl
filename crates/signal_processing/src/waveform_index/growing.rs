@@ -2,13 +2,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
+use signal_artifacts::{
+    ArtifactKey, ArtifactNamespace, ArtifactRepository, RepositoryError, SourceIdentity,
+};
+
 use super::exact::exact_window_sample_limit;
 use super::query::{GroupSummary, SummaryGrid, sample_summary_channel};
 use super::resolution::select_summary_resolution;
 use crate::{
-    ArtifactKey, ArtifactNamespace, ArtifactRepository, CaptureCursorItem, CaptureIndex,
-    CaptureMetadata, CaptureRandomReader, CaptureSampledWindow, CaptureStore, CaptureStoreCursor,
-    Error, FinalizedCapture, RepositoryError, Result, SourceIdentity, WorkExecutor,
+    CaptureCursorItem, CaptureIndex, CaptureMetadata, CaptureRandomReader, CaptureSampledWindow,
+    CaptureStore, CaptureStoreCursor, Error, FinalizedCapture, Result, WorkExecutor,
 };
 
 const LEAF_SAMPLES: u64 = 64;
@@ -1127,11 +1130,13 @@ mod tests {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
+    use signal_artifacts::MemoryArtifactRepository;
+
     use super::{FAN_OUT, GrowingCaptureIndex, LEAF_SAMPLES, summary_masks};
     use crate::{
         CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureIndex, CaptureSessionId,
         CaptureStore, CaptureStoreConfig, CaptureStoreDescriptor, CaptureWaveformSegment,
-        CompletedWorkTask, MemoryArtifactRepository, WorkExecutor, WorkExecutorTask, WorkTask,
+        CompletedWorkTask, WorkExecutor, WorkExecutorTask, WorkTask,
     };
 
     struct SpawnWorkExecutor;

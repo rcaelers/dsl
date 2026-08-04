@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 signal-processing = { path = "../signal_processing" }
+signal-artifacts = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 zip = { workspace = true }
