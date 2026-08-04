@@ -218,10 +218,12 @@ independently of whether the corresponding overlay is visible, so attaching an o
 run uses existing data and never requires re-execution. The node either records decisions while
 processing or supplies a lazy `SamplingPointProvider` backed by input indexes and sparse derived
 control queries. Dense captures therefore do not require a second capture-sized vector merely to
-retain sampling markers. The UI controls only which shared stores are presented, converts their
-row identities into the logic-analyzer widget's passive overlay type, and never changes collection
-policy. The compiler does not construct a widget overlay, and the widget does not reinterpret raw
-capture channels.
+retain sampling markers. Persistent producers fill an opaque storage-ready batch owned by the
+neutral sampling contract, allowing queued publication without a producer-owned intermediate
+point vector or a second conversion pass. The UI controls only which shared stores are presented,
+converts their row identities into the logic-analyzer widget's passive overlay type, and never
+changes collection policy. The compiler does not construct a widget overlay, and the widget does
+not reinterpret raw capture channels.
 
 Decoder-table subscriptions are published as collected table lanes with their resolved producer
 metadata. The UI owns the resolved decoder-table source, column, and registry models, resolves

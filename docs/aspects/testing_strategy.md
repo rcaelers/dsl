@@ -118,6 +118,23 @@ cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
   waveform-index-concurrency-profile /path/to/reference.dsl
 ```
 
+Profile derived-cache generation through the checked-in graph with a prebuilt waveform index and
+an isolated native durable repository:
+
+```console
+cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
+  derived-storage-profile /path/to/reference.dsl > derived-storage-profile.json
+```
+
+The report separates legacy derived-block, current derived-segment, final-index, and manifest
+repository operations; inventories artifact counts and bytes; records host work-task time, process
+CPU utilization, output identity, total pipeline wall time, and per-lane index-to-manifest final
+publication latency. Repository and host-work times are cumulative and may exceed or overlap wall
+time. Set `RUST_LOG=parallel_decoder_phase_profile=debug` to add one opt-in Parallel Decoder summary
+covering input/dispatch, ordered-completion wait, merge/assembly, sampling publication, and output
+send time without enabling per-fragment debug logging. The summary also reports output batch and
+word counts, maximum pending batch size, and destination fan-out for bounded-coalescing analysis.
+
 The compiler capture tool contains isolated graph-runtime timing probes and
 full-capture differential validations. It requires an explicit,
 developer-supplied DSL capture path and runs in the release benchmark profile:
@@ -157,9 +174,13 @@ without checking a developer capture or generated data into the repository.
 `live-viewer-runtime` attaches the production logic-analyzer viewer to the running graph and drives
 it through a headless egui update at a 16 ms cadence. Every frame contains pointer input. The probe
 reports snapshot-query and complete input-frame p50/p95/p99 latency, frames exceeding 8 ms and
-16 ms, and per-lane snapshot distributions. It uses the same complete capture but deliberately
-does not enforce the pipeline real-time-factor threshold: foreground responsiveness and processing
-throughput remain separate measurements.
+16 ms, and per-lane snapshot distributions. It prebuilds the waveform index, then runs graph
+processing and segmented derived-cache generation through an isolated native durable repository.
+Its JSON report includes labeled finite and long-running host work, sampled per-node work and thread
+CPU, artifact publication, final index-to-manifest latency, process resources, output identity, and
+the foreground measurements. It uses the same complete capture but deliberately does not enforce
+the pipeline real-time-factor threshold: foreground responsiveness and processing throughput remain
+separate measurements.
 
 ```console
 cargo bench -p logic-analyzer-examples --bench compiler_capture -- \

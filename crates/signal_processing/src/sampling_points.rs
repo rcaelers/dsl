@@ -55,6 +55,34 @@ pub struct PackedSamplingPoint {
     clock_high: bool,
 }
 
+/// Opaque storage-ready batch of packed sampling decisions.
+///
+/// Producers fill this batch directly while assembling their output. The
+/// sampling store retains ownership of the persistent word representation,
+/// avoiding a second intermediate point vector and conversion pass.
+pub struct PackedSamplingPointBatch {
+    words: Vec<Word>,
+}
+
+impl PackedSamplingPointBatch {
+    /// Allocates a batch for at most the expected number of decisions.
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            words: Vec::with_capacity(capacity),
+        }
+    }
+
+    /// Appends one packed decision in the store's canonical representation.
+    pub fn push(&mut self, point: PackedSamplingPoint) {
+        self.words.push(encode_packed_point(point));
+    }
+
+    /// Returns whether the batch contains no decisions.
+    pub fn is_empty(&self) -> bool {
+        self.words.is_empty()
+    }
+}
+
 impl PackedSamplingPoint {
     /// Packs up to 64 sampled logic values for allocation-free processing.
     pub fn new(time_ns: u64, clock_high: bool, values: u64, value_count: usize) -> Self {
@@ -382,6 +410,23 @@ impl SamplingPointStore {
             return persistent.writer.append(words);
         }
         self.record_batch(points.into_iter().map(PackedSamplingPoint::unpack))
+    }
+
+    /// Appends a storage-ready packed batch to a persistent sampling store.
+    ///
+    /// This path preserves the same encoding and queued-writer behavior as
+    /// [`Self::record_packed_batch`] while allowing a producer to avoid an
+    /// intermediate `Vec<PackedSamplingPoint>`.
+    pub fn record_packed_word_batch(&self, batch: PackedSamplingPointBatch) -> StoreResult<()> {
+        if self.inner.provider.read().unwrap().is_some() || batch.is_empty() {
+            return Ok(());
+        }
+        let Some(persistent) = &self.inner.persistent else {
+            return Err(StoreError::Persistent(
+                "storage-ready sampling batches require a persistent store".into(),
+            ));
+        };
+        persistent.writer.append(batch.words)
     }
 
     /// Finalizes queued persistent writes so all points become queryable.
@@ -870,12 +915,15 @@ mod sampling_point_store_tests {
         let store =
             SamplingPointStore::create_persistent(config.clone(), Arc::new(ThreadWorkExecutor))
                 .unwrap();
-        store
-            .record_packed_batch([
-                PackedSamplingPoint::new(10, true, 0b101, 3),
-                PackedSamplingPoint::new(20, false, 0xfeed_beef_dead_cafe, 64),
-            ])
-            .unwrap();
+        let mut batch = PackedSamplingPointBatch::with_capacity(2);
+        batch.push(PackedSamplingPoint::new(10, true, 0b101, 3));
+        batch.push(PackedSamplingPoint::new(
+            20,
+            false,
+            0xfeed_beef_dead_cafe,
+            64,
+        ));
+        store.record_packed_word_batch(batch).unwrap();
         store.finish().unwrap();
         drop(store);
 

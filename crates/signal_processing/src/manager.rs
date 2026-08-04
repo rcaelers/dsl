@@ -634,6 +634,7 @@ impl PipelineManager {
                         }
                     }
                 } else {
+                    let mut idle_rounds = 0_u8;
                     loop {
                         while let Ok(config) = control_rx.try_recv() {
                             if node.apply_config(&config) == ConfigOutcome::NeedsRestart {
@@ -650,8 +651,14 @@ impl PipelineManager {
                                         outcome.produced_items() as u64,
                                         Ordering::Relaxed,
                                     );
+                                }
+                                if outcome.made_progress() {
+                                    idle_rounds = 0;
+                                } else if idle_rounds < 16 {
+                                    idle_rounds += 1;
+                                    task_executor.idle(std::time::Duration::ZERO);
                                 } else {
-                                    task_executor.idle(std::time::Duration::from_millis(2));
+                                    task_executor.idle(std::time::Duration::from_micros(50));
                                 }
                             }
                             Err(WorkError::Shutdown) => {
@@ -1013,13 +1020,14 @@ impl Drop for PipelineManager {
 mod tests {
     use std::collections::VecDeque;
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::thread::JoinHandle;
     use std::time::Duration;
 
     use super::*;
     use crate::errors::WorkResult;
     use crate::events::NumberSample;
-    use crate::node::ConfigValue;
+    use crate::node::{ConfigValue, WorkOutcome};
     use crate::ports::{PortDirection, PortSchema};
     use crate::{WorkExecutor, WorkExecutorTask, WorkTask};
 
@@ -1028,6 +1036,28 @@ mod tests {
     impl WorkExecutor for TestWorkExecutor {
         fn available_parallelism(&self) -> usize {
             2
+        }
+
+        fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+            Ok(Box::new(TestWorkTask {
+                handle: Some(std::thread::spawn(task)),
+            }))
+        }
+    }
+
+    struct IdleRecordingExecutor {
+        idle_calls: Arc<AtomicU64>,
+    }
+
+    impl WorkExecutor for IdleRecordingExecutor {
+        fn available_parallelism(&self) -> usize {
+            2
+        }
+
+        fn idle(&self, duration: Duration) {
+            if duration <= Duration::from_micros(50) {
+                self.idle_calls.fetch_add(1, Ordering::Relaxed);
+            }
         }
 
         fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
@@ -1081,6 +1111,41 @@ mod tests {
     }
 
     struct FailingNode;
+
+    struct ZeroOutputProgressNode {
+        remaining: usize,
+    }
+
+    impl ProcessNode for ZeroOutputProgressNode {
+        fn name(&self) -> &str {
+            "zero_output_progress"
+        }
+
+        fn should_stop(&self) -> bool {
+            self.remaining == 0
+        }
+
+        fn num_inputs(&self) -> usize {
+            0
+        }
+
+        fn num_outputs(&self) -> usize {
+            0
+        }
+
+        fn work(&mut self, _inputs: &[InputPort], _outputs: &[OutputPort]) -> WorkResult<usize> {
+            unreachable!("the test overrides work_outcome")
+        }
+
+        fn work_outcome(
+            &mut self,
+            _inputs: &[InputPort],
+            _outputs: &[OutputPort],
+        ) -> WorkResult<WorkOutcome> {
+            self.remaining = self.remaining.saturating_sub(1);
+            Ok(WorkOutcome::progressed(0))
+        }
+    }
 
     impl ProcessNode for FailingNode {
         fn name(&self) -> &str {
@@ -1335,6 +1400,26 @@ mod tests {
             assert!(start.elapsed() < timeout, "pipeline did not finish in time");
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    #[test]
+    fn zero_output_progress_does_not_enter_idle_backoff() {
+        let idle_calls = Arc::new(AtomicU64::new(0));
+        let mut manager = PipelineManager::new(Arc::new(IdleRecordingExecutor {
+            idle_calls: Arc::clone(&idle_calls),
+        }));
+        manager
+            .add_node(NodeSpec {
+                name: "zero-output-progress".into(),
+                node: Box::new(ZeroOutputProgressNode { remaining: 64 }),
+                inputs: Vec::new(),
+            })
+            .unwrap();
+
+        wait_finished(&manager, Duration::from_secs(1));
+        manager.wait();
+
+        assert_eq!(idle_calls.load(Ordering::Relaxed), 0);
     }
 
     #[test]

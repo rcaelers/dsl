@@ -6,17 +6,18 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use tracing::debug;
+use web_time::Instant;
 
 use signal_processing::capture::CaptureTransition;
 #[cfg(test)]
 use signal_processing::{CompletedWorkTask, WorkTask};
 use signal_processing::{
-    EdgeQuery, InputPort, InputProtocolCandidate, OutputPort, PackedSamplingPoint, ProcessNode,
-    ProtocolKind, Receiver, Sample, SampleBlock, SamplingPointStore, Word, WorkError, WorkExecutor,
-    WorkOutcome, WorkResult,
+    EdgeQuery, InputPort, InputProtocolCandidate, OutputPort, PackedSamplingPoint,
+    PackedSamplingPointBatch, ProcessNode, ProtocolKind, Receiver, Sample, SampleBlock,
+    SamplingPointStore, Word, WorkError, WorkExecutor, WorkOutcome, WorkResult,
 };
 
 use super::sampling_provider::{ParallelSamplingProgress, install_sampling_provider};
@@ -62,6 +63,15 @@ struct ParallelDecoderMetricsInner {
     max_outstanding: AtomicUsize,
     max_reorder: AtomicUsize,
     max_fragment_bytes: AtomicUsize,
+    dispatch_ns: AtomicU64,
+    completion_wait_ns: AtomicU64,
+    merge_ns: AtomicU64,
+    sampling_publish_ns: AtomicU64,
+    output_send_ns: AtomicU64,
+    output_batches: AtomicU64,
+    output_words: AtomicU64,
+    max_pending_output_words: AtomicUsize,
+    max_output_destinations: AtomicUsize,
 }
 
 impl Default for ParallelDecoderMetrics {
@@ -73,6 +83,15 @@ impl Default for ParallelDecoderMetrics {
                 max_outstanding: AtomicUsize::new(0),
                 max_reorder: AtomicUsize::new(0),
                 max_fragment_bytes: AtomicUsize::new(0),
+                dispatch_ns: AtomicU64::new(0),
+                completion_wait_ns: AtomicU64::new(0),
+                merge_ns: AtomicU64::new(0),
+                sampling_publish_ns: AtomicU64::new(0),
+                output_send_ns: AtomicU64::new(0),
+                output_batches: AtomicU64::new(0),
+                output_words: AtomicU64::new(0),
+                max_pending_output_words: AtomicUsize::new(0),
+                max_output_destinations: AtomicUsize::new(0),
             }),
         }
     }
@@ -88,6 +107,15 @@ pub struct ParallelDecoderMetricsSnapshot {
     pub estimated_in_flight_bytes: usize,
     pub estimated_reorder_bytes: usize,
     pub estimated_total_fragment_bytes: usize,
+    pub dispatch_ns: u64,
+    pub completion_wait_ns: u64,
+    pub merge_ns: u64,
+    pub sampling_publish_ns: u64,
+    pub output_send_ns: u64,
+    pub output_batches: u64,
+    pub output_words: u64,
+    pub max_pending_output_words: usize,
+    pub max_output_destinations: usize,
 }
 
 impl ParallelDecoderMetrics {
@@ -106,8 +134,21 @@ impl ParallelDecoderMetrics {
             estimated_in_flight_bytes: max_in_flight.saturating_mul(max_fragment_bytes),
             estimated_reorder_bytes: max_reorder.saturating_mul(max_fragment_bytes),
             estimated_total_fragment_bytes: max_outstanding.saturating_mul(max_fragment_bytes),
+            dispatch_ns: self.inner.dispatch_ns.load(Ordering::Relaxed),
+            completion_wait_ns: self.inner.completion_wait_ns.load(Ordering::Relaxed),
+            merge_ns: self.inner.merge_ns.load(Ordering::Relaxed),
+            sampling_publish_ns: self.inner.sampling_publish_ns.load(Ordering::Relaxed),
+            output_send_ns: self.inner.output_send_ns.load(Ordering::Relaxed),
+            output_batches: self.inner.output_batches.load(Ordering::Relaxed),
+            output_words: self.inner.output_words.load(Ordering::Relaxed),
+            max_pending_output_words: self.inner.max_pending_output_words.load(Ordering::Relaxed),
+            max_output_destinations: self.inner.max_output_destinations.load(Ordering::Relaxed),
         }
     }
+}
+
+fn elapsed_ns(started: Instant) -> u64 {
+    started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64
 }
 
 /// Parallel bus decoder node (block-based)
@@ -161,6 +202,8 @@ pub struct ParallelDecoder {
     parallel_workers: usize,
     work_executor: Arc<dyn WorkExecutor>,
     parallel_metrics: ParallelDecoderMetrics,
+    /// Ordered words retained across fragments until one bounded envelope is ready.
+    pending_output_words: Vec<Word>,
     sampling_points: Option<SamplingPointStore>,
     sampling_progress: ParallelSamplingProgress,
 }
@@ -178,6 +221,8 @@ impl ParallelDecoder {
     pub const MAX_PARALLEL_WORKERS: usize = 32;
     /// Select the host-capacity policy instead of a fixed worker count.
     pub const ADAPTIVE_PARALLEL_WORKERS: usize = 0;
+    /// Keeps one output envelope no larger than one worst-case scan fragment.
+    const OUTPUT_BATCH_TARGET_WORDS: usize = 65_536;
 
     /// Above this estimated fraction of active 64-sample strobe groups after
     /// known gates, packed scans are preferred over indexed point queries in
@@ -273,6 +318,7 @@ impl ParallelDecoder {
             parallel_workers: Self::ADAPTIVE_PARALLEL_WORKERS,
             work_executor: Arc::new(signal_processing::InlineWorkExecutor),
             parallel_metrics: ParallelDecoderMetrics::default(),
+            pending_output_words: Vec::new(),
             sampling_points: None,
             sampling_progress: ParallelSamplingProgress::default(),
         }
@@ -337,6 +383,37 @@ impl ParallelDecoder {
         self.cycles_per_word = cycles;
         self.endianness = endianness;
         self
+    }
+
+    fn flush_pending_output(&mut self, outputs: &[OutputPort]) -> WorkResult<usize> {
+        if self.pending_output_words.is_empty() {
+            return Ok(0);
+        }
+        let Some(output) = outputs.first().and_then(|port| port.get::<Word>()) else {
+            self.pending_output_words.clear();
+            return Ok(0);
+        };
+        let batch = std::mem::take(&mut self.pending_output_words);
+        let words = batch.len();
+        self.parallel_metrics
+            .inner
+            .max_output_destinations
+            .fetch_max(output.num_destinations(), Ordering::Relaxed);
+        let started = Instant::now();
+        output.send_batch(batch)?;
+        self.parallel_metrics
+            .inner
+            .output_send_ns
+            .fetch_add(elapsed_ns(started), Ordering::Relaxed);
+        self.parallel_metrics
+            .inner
+            .output_batches
+            .fetch_add(1, Ordering::Relaxed);
+        self.parallel_metrics
+            .inner
+            .output_words
+            .fetch_add(words as u64, Ordering::Relaxed);
+        Ok(words)
     }
 }
 
@@ -505,6 +582,10 @@ impl ProcessNode for ParallelDecoder {
     ) -> WorkResult<WorkOutcome> {
         match self.work(inputs, outputs) {
             Err(WorkError::Shutdown) => {
+                if !self.pending_output_words.is_empty() {
+                    let flushed = self.flush_pending_output(outputs)?;
+                    return Ok(WorkOutcome::progressed(flushed));
+                }
                 if let Some(points) = &self.sampling_points {
                     points.finish().map_err(|error| {
                         WorkError::NodeError(format!(
@@ -512,6 +593,21 @@ impl ProcessNode for ParallelDecoder {
                         ))
                     })?;
                 }
+                let metrics = self.parallel_metrics.snapshot();
+                debug!(
+                    target: "parallel_decoder_phase_profile",
+                    decoder = %self.name,
+                    dispatch_ns = metrics.dispatch_ns,
+                    completion_wait_ns = metrics.completion_wait_ns,
+                    merge_ns = metrics.merge_ns,
+                    sampling_publish_ns = metrics.sampling_publish_ns,
+                    output_send_ns = metrics.output_send_ns,
+                    output_batches = metrics.output_batches,
+                    output_words = metrics.output_words,
+                    max_pending_output_words = metrics.max_pending_output_words,
+                    max_output_destinations = metrics.max_output_destinations,
+                    "parallel decoder phase profile"
+                );
                 Err(WorkError::Shutdown)
             }
             result => result.map(WorkOutcome::progressed),
@@ -635,6 +731,43 @@ struct DecodeFragment {
     last_strobe_value: bool,
     buffers: DecodeFragmentBuffers,
     reset_after: bool,
+}
+
+enum PendingSamplingBatch {
+    Points(Vec<PackedSamplingPoint>),
+    Words(PackedSamplingPointBatch),
+}
+
+impl PendingSamplingBatch {
+    fn new(store: &SamplingPointStore, capacity: usize) -> Self {
+        if store.is_persistent() {
+            Self::Words(PackedSamplingPointBatch::with_capacity(capacity))
+        } else {
+            Self::Points(Vec::with_capacity(capacity))
+        }
+    }
+
+    fn push(&mut self, point: PackedSamplingPoint) {
+        match self {
+            Self::Points(points) => points.push(point),
+            Self::Words(words) => words.push(point),
+        }
+    }
+}
+
+fn record_sampling_batch(
+    store: &SamplingPointStore,
+    batch: PendingSamplingBatch,
+) -> WorkResult<()> {
+    let result = match batch {
+        PendingSamplingBatch::Points(points) => store.record_packed_batch(points),
+        PendingSamplingBatch::Words(words) => store.record_packed_word_batch(words),
+    };
+    result.map_err(|error| {
+        WorkError::NodeError(format!(
+            "could not cache parallel-decoder sampling points: {error}"
+        ))
+    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -929,14 +1062,15 @@ fn merge_stream_fragment(
     cycles_per_word: usize,
     endianness: Endianness,
     assembly: &mut AssemblyState,
-    word_batch: &mut Option<Vec<Word>>,
-    sampling_points: Option<&mut Vec<PackedSamplingPoint>>,
+    word_batch: Option<&mut Vec<Word>>,
+    sampling_points: Option<&mut PendingSamplingBatch>,
 ) -> WorkResult<u64> {
     let mut words_emitted = 0u64;
     let buffers = &fragment.buffers;
     debug_assert_eq!(buffers.positions.len(), buffers.values.len());
     debug_assert_eq!(buffers.positions.len(), buffers.clock_values.len());
     debug_assert_eq!(buffers.positions.len(), buffers.reset_before.len());
+    let mut word_batch = word_batch;
     let mut sampling_points = sampling_points;
     let mut merge_sample =
         |position: u64, clock_high: bool, value: u64, reset_before: bool| -> WorkResult<()> {
@@ -970,7 +1104,7 @@ fn merge_stream_fragment(
                 return Ok(());
             }
 
-            if let Some(batch) = word_batch {
+            if let Some(batch) = &mut word_batch {
                 batch.push(Word::spanning(
                     assembly.value,
                     assembly.first_ts,
@@ -1414,8 +1548,11 @@ impl ParallelDecoder {
     /// connection that didn't negotiate `EdgeQuery`.
     fn work_streamed(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
         let mut blocks = std::mem::take(&mut self.stream_blocks);
-        let result = work_with_platform_backend(self, inputs, outputs, &mut blocks);
+        let mut result = work_with_platform_backend(self, inputs, outputs, &mut blocks);
         self.stream_blocks = blocks;
+        if matches!(result, Err(WorkError::Shutdown)) && !self.pending_output_words.is_empty() {
+            result = self.flush_pending_output(outputs);
+        }
         result
     }
 
@@ -1552,20 +1689,32 @@ impl ParallelDecoder {
             )));
         }
 
-        let mut word_batch = output
-            .as_ref()
-            .map(|_| Vec::with_capacity(fragment.buffers.positions.len()));
+        if output.is_some()
+            && !self.pending_output_words.is_empty()
+            && self
+                .pending_output_words
+                .len()
+                .saturating_add(fragment.buffers.positions.len())
+                > Self::OUTPUT_BATCH_TARGET_WORDS
+        {
+            self.flush_pending_output(outputs)?;
+        }
+        if output.is_some() && self.pending_output_words.capacity() == 0 {
+            self.pending_output_words
+                .reserve_exact(Self::OUTPUT_BATCH_TARGET_WORDS);
+        }
         let mut assembly = AssemblyState {
             value: self.assembly_value,
             cycles: self.assembly_cycles,
             first_ts: self.assembly_first_ts,
         };
         let mut last_strobe_value = self.last_strobe_value;
-        let mut sampling_point_batch = self
+        let sampling_store = self
             .sampling_points
             .as_ref()
-            .filter(|store| !store.has_provider())
-            .map(|_| Vec::new());
+            .filter(|store| !store.has_provider());
+        let mut sampling_point_batch = sampling_store
+            .map(|store| PendingSamplingBatch::new(store, fragment.buffers.positions.len()));
         let words_emitted = merge_stream_fragment(
             &fragment,
             self.mode,
@@ -1574,15 +1723,11 @@ impl ParallelDecoder {
             self.cycles_per_word,
             self.endianness,
             &mut assembly,
-            &mut word_batch,
+            output.as_ref().map(|_| &mut self.pending_output_words),
             sampling_point_batch.as_mut(),
         )?;
-        if let (Some(store), Some(points)) = (&self.sampling_points, sampling_point_batch) {
-            store.record_packed_batch(points).map_err(|error| {
-                WorkError::NodeError(format!(
-                    "could not cache parallel-decoder sampling points: {error}"
-                ))
-            })?;
+        if let (Some(store), Some(batch)) = (sampling_store, sampling_point_batch) {
+            record_sampling_batch(store, batch)?;
         }
         blocks.next_sequence += 1;
         self.next_stream_merge_sequence += 1;
@@ -1608,10 +1753,12 @@ impl ParallelDecoder {
             blocks.cs = None;
             blocks.offset = 0;
         }
-        if let (Some(output), Some(batch)) = (&output, word_batch)
-            && !batch.is_empty()
-        {
-            output.send_batch(batch)?;
+        self.parallel_metrics
+            .inner
+            .max_pending_output_words
+            .fetch_max(self.pending_output_words.len(), Ordering::Relaxed);
+        if self.pending_output_words.len() >= Self::OUTPUT_BATCH_TARGET_WORDS {
+            self.flush_pending_output(outputs)?;
         }
 
         if self.work_call_count.is_multiple_of(10) || words_emitted > 0 {
@@ -2040,7 +2187,7 @@ mod tests {
                 3,
                 Endianness::Little,
                 &mut assembly,
-                &mut words,
+                words.as_mut(),
                 None,
             )
             .unwrap();

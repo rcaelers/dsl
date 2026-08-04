@@ -121,6 +121,7 @@ fn work_parallel(
     workers: usize,
 ) -> WorkResult<usize> {
     decoder.work_call_count += 1;
+    let dispatch_started = Instant::now();
     let output = outputs.first().and_then(|port| port.get::<Word>());
 
     let mut strobe_buf = VecDeque::new();
@@ -230,7 +231,7 @@ fn work_parallel(
             .clone();
         decoder
             .work_executor
-            .submit(Box::new(move || {
+            .submit_labeled("parallel-decoder.fragment-scan/v1", Box::new(move || {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     scan_stream_fragment(
                         config,
@@ -271,12 +272,28 @@ fn work_parallel(
             blocks.offset = 0;
         }
     }
+    decoder
+        .parallel_metrics
+        .inner
+        .dispatch_ns
+        .fetch_add(elapsed_ns(dispatch_started), Ordering::Relaxed);
 
-    let mut fragment = receive_next_fragment(
+    let completion_started = Instant::now();
+    let fragment_result = receive_next_fragment(
         blocks,
         decoder.next_stream_merge_sequence,
         &decoder.parallel_metrics,
-    )?;
+    );
+    decoder
+        .parallel_metrics
+        .inner
+        .completion_wait_ns
+        .fetch_add(elapsed_ns(completion_started), Ordering::Relaxed);
+    let mut fragment = match fragment_result {
+        Ok(fragment) => fragment,
+        Err(WorkError::Shutdown) => return Err(WorkError::Shutdown),
+        Err(error) => return Err(error),
+    };
     if fragment.sequence != decoder.next_stream_merge_sequence {
         return Err(WorkError::NodeError(format!(
             "Out-of-order decode fragment: expected sequence {}, received {}",
@@ -284,20 +301,34 @@ fn work_parallel(
         )));
     }
 
-    let mut word_batch = output
-        .as_ref()
-        .map(|_| Vec::with_capacity(fragment.buffers.positions.len()));
+    if output.is_some()
+        && !decoder.pending_output_words.is_empty()
+        && decoder
+            .pending_output_words
+            .len()
+            .saturating_add(fragment.buffers.positions.len())
+            > ParallelDecoder::OUTPUT_BATCH_TARGET_WORDS
+    {
+        decoder.flush_pending_output(outputs)?;
+    }
+    if output.is_some() && decoder.pending_output_words.capacity() == 0 {
+        decoder
+            .pending_output_words
+            .reserve_exact(ParallelDecoder::OUTPUT_BATCH_TARGET_WORDS);
+    }
+    let merge_started = Instant::now();
     let mut assembly = AssemblyState {
         value: decoder.assembly_value,
         cycles: decoder.assembly_cycles,
         first_ts: decoder.assembly_first_ts,
     };
     let mut last_strobe_value = decoder.last_strobe_value;
-    let mut sampling_point_batch = decoder
+    let sampling_store = decoder
         .sampling_points
         .as_ref()
-        .filter(|store| !store.has_provider())
-        .map(|_| Vec::new());
+        .filter(|store| !store.has_provider());
+    let mut sampling_point_batch = sampling_store
+        .map(|store| PendingSamplingBatch::new(store, fragment.buffers.positions.len()));
     let words_emitted = merge_stream_fragment(
         &fragment,
         decoder.mode,
@@ -306,16 +337,28 @@ fn work_parallel(
         decoder.cycles_per_word,
         decoder.endianness,
         &mut assembly,
-        &mut word_batch,
+        output.as_ref().map(|_| &mut decoder.pending_output_words),
         sampling_point_batch.as_mut(),
     )?;
-    if let (Some(store), Some(points)) = (&decoder.sampling_points, sampling_point_batch) {
-        store.record_packed_batch(points).map_err(|error| {
-            WorkError::NodeError(format!(
-                "could not cache parallel-decoder sampling points: {error}"
-            ))
-        })?;
+    decoder
+        .parallel_metrics
+        .inner
+        .merge_ns
+        .fetch_add(elapsed_ns(merge_started), Ordering::Relaxed);
+    let sampling_started = Instant::now();
+    if let (Some(store), Some(batch)) = (sampling_store, sampling_point_batch) {
+        record_sampling_batch(store, batch)?;
     }
+    decoder
+        .parallel_metrics
+        .inner
+        .sampling_publish_ns
+        .fetch_add(elapsed_ns(sampling_started), Ordering::Relaxed);
+    decoder
+        .parallel_metrics
+        .inner
+        .max_pending_output_words
+        .fetch_max(decoder.pending_output_words.len(), Ordering::Relaxed);
 
     decoder.next_stream_merge_sequence += 1;
     decoder.last_strobe_value = last_strobe_value;
@@ -329,10 +372,12 @@ fn work_parallel(
         .available_buffers
         .push(std::mem::take(&mut fragment.buffers));
 
-    if let (Some(output), Some(batch)) = (&output, word_batch)
-        && !batch.is_empty()
+    if decoder.pending_output_words.len() >= ParallelDecoder::OUTPUT_BATCH_TARGET_WORDS
+        || (blocks.parallel.input_exhausted
+            && blocks.parallel.in_flight == 0
+            && blocks.parallel.reorder.is_empty())
     {
-        output.send_batch(batch)?;
+        decoder.flush_pending_output(outputs)?;
     }
 
     debug!(
@@ -538,6 +583,12 @@ mod parallel_worker_tests {
         assert_eq!(sequential_metrics.max_outstanding, 1);
         assert_eq!(sequential_metrics.max_reorder, 0);
         assert!(sequential_metrics.max_fragment_bytes > 0);
+        assert_eq!(sequential_metrics.output_words, sequential.len() as u64);
+        assert!(
+            sequential_metrics.max_pending_output_words
+                <= ParallelDecoder::OUTPUT_BATCH_TARGET_WORDS
+        );
+        assert_eq!(sequential_metrics.max_output_destinations, 1);
         for workers in [2, 4, 8, 16, 32] {
             let (parallel, metrics) = run_multi_window_stream(workers);
             assert_eq!(parallel, sequential, "workers={workers}");
@@ -551,6 +602,9 @@ mod parallel_worker_tests {
                 metrics.max_outstanding * metrics.max_fragment_bytes
             );
             assert!(metrics.estimated_reorder_bytes <= metrics.estimated_total_fragment_bytes);
+            assert_eq!(metrics.output_words, parallel.len() as u64);
+            assert!(metrics.max_pending_output_words <= ParallelDecoder::OUTPUT_BATCH_TARGET_WORDS);
+            assert_eq!(metrics.max_output_destinations, 1);
         }
         assert!(sequential.len() > 10_000);
     }

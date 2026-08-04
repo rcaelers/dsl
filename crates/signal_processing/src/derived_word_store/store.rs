@@ -27,10 +27,13 @@ use super::query::{
 use super::state::{LiveStoreMetadata, LiveStoreSnapshot, StoreStatus};
 use crate::events::{Annotation, Word};
 use crate::{
-    ArtifactKey, ArtifactRepository, ByteRange, RepositoryError, WorkExecutor, read_artifact_region,
+    ArtifactKey, ArtifactRepository, ByteRange, RepositoryError, WorkExecutor, WriteArtifact,
+    read_artifact_region,
 };
 
 const MAX_BLOCK_ENCODERS_PER_STORE: usize = 4;
+const TARGET_SEGMENT_BYTES: u64 = 8 * 1024 * 1024;
+const DERIVED_BLOCK_ENCODING_WORK: &str = "signal-processing.derived-block-encoding/v1";
 static NEXT_STORE_ID: AtomicU64 = AtomicU64::new(1);
 
 fn block_encoder_count(available_workers: usize) -> usize {
@@ -82,14 +85,20 @@ struct StoreShared {
     store_id: u64,
     remove_on_drop: AtomicBool,
     persistent_cache: AtomicBool,
+    pending_blocks: RwLock<BTreeMap<u64, Vec<u8>>>,
 }
 
 impl Drop for StoreShared {
     fn drop(&mut self) {
         if self.remove_on_drop.load(Ordering::Relaxed) {
             let directory = self.state.get_mut().unwrap().directory.clone();
+            let mut previous_segment = None;
             for entry in directory {
-                if let Ok(key) = block_key(self.store_identity, entry.sequence) {
+                if previous_segment == Some(entry.segment_sequence) {
+                    continue;
+                }
+                previous_segment = Some(entry.segment_sequence);
+                if let Ok(key) = segment_key(self.store_identity, entry.segment_sequence) {
                     let _ = self.repository.remove(&key);
                 }
             }
@@ -143,6 +152,7 @@ impl IndexedAnnotationStore {
                 store_id: NEXT_STORE_ID.fetch_add(1, Ordering::Relaxed),
                 remove_on_drop: AtomicBool::new(false),
                 persistent_cache: AtomicBool::new(true),
+                pending_blocks: RwLock::new(BTreeMap::new()),
             }),
         }))
     }
@@ -270,17 +280,31 @@ impl IndexedAnnotationStore {
     }
 
     fn read_entry_bytes(&self, entry: BlockDirectoryEntry) -> StoreResult<Vec<u8>> {
-        let key = block_key(self.shared.store_identity, entry.sequence)?;
+        if let Some(bytes) = self
+            .shared
+            .pending_blocks
+            .read()
+            .unwrap()
+            .get(&entry.sequence)
+        {
+            return Ok(bytes.clone());
+        }
+        let key = segment_key(self.shared.store_identity, entry.segment_sequence)?;
         let mut reader = self.shared.repository.open(&key)?.ok_or_else(|| {
             StoreError::Persistent(format!(
-                "committed word block {} is missing",
-                entry.sequence
+                "segment {} for committed word block {} is missing",
+                entry.segment_sequence, entry.sequence
             ))
         })?;
-        if reader.len()? != u64::from(entry.block_len) {
+        let end = entry
+            .segment_offset
+            .checked_add(u64::from(entry.block_len))
+            .ok_or(StoreError::DirectoryMismatch(entry.sequence))?;
+        if reader.len()? < end {
             return Err(StoreError::DirectoryMismatch(entry.sequence));
         }
-        let range = ByteRange::new(0, u64::from(entry.block_len)).map_err(RepositoryError::from)?;
+        let range = ByteRange::new(entry.segment_offset, u64::from(entry.block_len))
+            .map_err(RepositoryError::from)?;
         let region = read_artifact_region(&mut *reader, range)?;
         Ok(region.bytes().to_vec())
     }
@@ -713,6 +737,13 @@ struct BlockCompletion {
     block: Option<PreparedBlock>,
 }
 
+struct ActiveSegment {
+    sequence: u64,
+    writer: Box<dyn WriteArtifact>,
+    length: u64,
+    block_sequences: Vec<u64>,
+}
+
 fn prepare_encoded_block(
     sequence: u64,
     mut builder: WordBlockBuilder,
@@ -757,6 +788,9 @@ pub struct IndexedAnnotationWriter {
     persistence: Option<PersistentStoreConfig>,
     work_executor: Arc<dyn WorkExecutor>,
     created_unix_ns: u64,
+    active_segment: Option<ActiveSegment>,
+    next_segment_sequence: u64,
+    target_segment_bytes: u64,
 }
 
 impl IndexedAnnotationWriter {
@@ -811,6 +845,7 @@ impl IndexedAnnotationWriter {
             store_id,
             remove_on_drop: AtomicBool::new(true),
             persistent_cache: AtomicBool::new(false),
+            pending_blocks: RwLock::new(BTreeMap::new()),
         });
         let store = IndexedAnnotationStore {
             shared: Arc::clone(&shared),
@@ -838,6 +873,9 @@ impl IndexedAnnotationWriter {
                 persistence: config.persistence,
                 work_executor,
                 created_unix_ns,
+                active_segment: None,
+                next_segment_sequence: 0,
+                target_segment_bytes: TARGET_SEGMENT_BYTES,
             },
             store,
         ))
@@ -898,6 +936,7 @@ impl IndexedAnnotationWriter {
         self.ensure_live()?;
         self.builder.clear();
         self.words_since_tail_publish = 0;
+        self.discard_active_segment();
         let mut state = self.shared.state.write().unwrap();
         state.hot_tail = Arc::from([]);
         state.status = StoreStatus::Cancelled;
@@ -960,6 +999,7 @@ impl IndexedAnnotationWriter {
     fn finish_inner(&mut self) -> StoreResult<()> {
         self.dispatch_current_block()?;
         self.flush_dispatched_blocks()?;
+        self.publish_active_segment()?;
         if let Some(persistent) = self.persistence.clone() {
             {
                 let state = self.shared.state.read().unwrap();
@@ -1009,16 +1049,19 @@ impl IndexedAnnotationWriter {
         let sequence = self.next_dispatch_sequence;
         let completion = self.completion_sender.clone();
         self.work_executor
-            .submit(Box::new(move || {
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    prepare_encoded_block(sequence, builder, encoded)
-                }));
-                let message = BlockCompletion {
-                    sequence,
-                    block: result.ok(),
-                };
-                let _ = completion.send(message);
-            }))
+            .submit_labeled(
+                DERIVED_BLOCK_ENCODING_WORK,
+                Box::new(move || {
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        prepare_encoded_block(sequence, builder, encoded)
+                    }));
+                    let message = BlockCompletion {
+                        sequence,
+                        block: result.ok(),
+                    };
+                    let _ = completion.send(message);
+                }),
+            )
             .map_err(StoreError::Persistent)?;
         self.in_flight_blocks += 1;
         self.next_dispatch_sequence += 1;
@@ -1089,25 +1132,36 @@ impl IndexedAnnotationWriter {
         let (metadata, summaries) = block.result?;
         let header = metadata.header;
         debug_assert_eq!(header.sequence, self.next_sequence);
+        self.prepare_active_segment(block.encoded.len())?;
+        let active = self
+            .active_segment
+            .as_mut()
+            .expect("preparing a non-empty block creates an active segment");
+        let segment_sequence = active.sequence;
+        let segment_offset = active.length;
+        active.writer.write_at(segment_offset, &block.encoded)?;
+        active.length = active
+            .length
+            .checked_add(block.encoded.len() as u64)
+            .ok_or_else(|| StoreError::Persistent("derived segment length overflow".into()))?;
+        active.block_sequences.push(header.sequence);
         let entry = BlockDirectoryEntry {
             sequence: header.sequence,
             first_timestamp_ns: header.first_timestamp_ns,
             last_timestamp_ns: header.last_timestamp_ns,
             data_offset: self.next_data_offset,
+            segment_sequence,
+            segment_offset,
             block_len: header.block_len,
             word_count: header.word_count,
             value_bytes: header.value_bytes,
             flags: header.flags as u8,
         };
-        let key = block_key(self.shared.store_identity, entry.sequence)?;
-        let mut writer = self.shared.repository.begin_write(key)?;
-        writer.write_at(0, &block.encoded)?;
-        writer.truncate(block.encoded.len() as u64)?;
-        // A block is not a discoverable persistent generation by itself.
-        // The flushed index and manifest published by `finish_inner` make
-        // the complete set visible; an interrupted run is rebuilt. Avoid a
-        // durability barrier for every block in dense multi-gigabyte lanes.
-        writer.publish()?;
+        self.shared
+            .pending_blocks
+            .write()
+            .unwrap()
+            .insert(entry.sequence, std::mem::take(&mut block.encoded));
         {
             let mut state = self.shared.state.write().unwrap();
             state.directory.push(entry);
@@ -1127,10 +1181,66 @@ impl IndexedAnnotationWriter {
         self.next_sequence += 1;
         self.next_data_offset += u64::from(entry.block_len);
         self.available_builders.push(block.builder);
-        block.encoded.clear();
-        self.available_encoded_blocks.push(block.encoded);
         self.last_tail_publish = Instant::now();
         Ok(())
+    }
+
+    fn prepare_active_segment(&mut self, block_len: usize) -> StoreResult<()> {
+        let block_len = u64::try_from(block_len)
+            .map_err(|_| StoreError::Persistent("derived block length exceeds u64".into()))?;
+        if self.active_segment.as_ref().is_some_and(|segment| {
+            segment.length > 0
+                && segment.length.saturating_add(block_len) > self.target_segment_bytes
+        }) {
+            self.publish_active_segment()?;
+        }
+        if self.active_segment.is_none() {
+            let sequence = self.next_segment_sequence;
+            let writer = self
+                .shared
+                .repository
+                .begin_write(segment_key(self.shared.store_identity, sequence)?)?;
+            self.active_segment = Some(ActiveSegment {
+                sequence,
+                writer,
+                length: 0,
+                block_sequences: Vec::new(),
+            });
+            self.next_segment_sequence = self.next_segment_sequence.saturating_add(1);
+        }
+        Ok(())
+    }
+
+    fn publish_active_segment(&mut self) -> StoreResult<()> {
+        let Some(mut segment) = self.active_segment.take() else {
+            return Ok(());
+        };
+        segment.writer.truncate(segment.length)?;
+        // Segments are reconstructable until the flushed index and manifest
+        // expose the complete generation, so publication omits a per-segment
+        // durability barrier just as the previous block artifacts did.
+        segment.writer.publish()?;
+        let mut pending = self.shared.pending_blocks.write().unwrap();
+        for sequence in segment.block_sequences {
+            if let Some(mut encoded) = pending.remove(&sequence) {
+                encoded.clear();
+                self.available_encoded_blocks.push(encoded);
+            }
+        }
+        Ok(())
+    }
+
+    fn discard_active_segment(&mut self) {
+        let Some(segment) = self.active_segment.take() else {
+            return;
+        };
+        let mut pending = self.shared.pending_blocks.write().unwrap();
+        for sequence in segment.block_sequences {
+            if let Some(mut encoded) = pending.remove(&sequence) {
+                encoded.clear();
+                self.available_encoded_blocks.push(encoded);
+            }
+        }
     }
 
     fn publish_hot_tail_inner(&mut self) {
@@ -1187,6 +1297,7 @@ impl Drop for IndexedAnnotationWriter {
         if self.terminal {
             return;
         }
+        self.discard_active_segment();
         let mut state = self.shared.state.write().unwrap();
         if state.status == StoreStatus::Live {
             state.hot_tail = Arc::from([]);
@@ -1196,8 +1307,8 @@ impl Drop for IndexedAnnotationWriter {
     }
 }
 
-fn block_key(store_identity: [u8; 32], sequence: u64) -> StoreResult<ArtifactKey> {
-    persistent::block_key(store_identity, sequence)
+fn segment_key(store_identity: [u8; 32], sequence: u64) -> StoreResult<ArtifactKey> {
+    persistent::segment_key(store_identity, sequence)
 }
 
 fn ephemeral_store_identity(cache_key_prefix: [u8; 16], store_id: u64) -> [u8; 32] {
@@ -1215,6 +1326,7 @@ mod tests {
     use std::thread;
 
     use super::*;
+    use crate::MemoryArtifactRepository;
     use crate::derived_word_store::BlockCodecConfig;
     use crate::derived_word_store::cache::cache_contains;
     use crate::events::instantaneous_word_end_ns;
@@ -1546,6 +1658,69 @@ mod tests {
     }
 
     #[test]
+    fn active_segment_keeps_committed_blocks_queryable_before_publication() {
+        let mut config = test_config();
+        config.block.max_words = 1;
+        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        writer.target_segment_bytes = 1024;
+        let expected = (0..4)
+            .map(|index| Word::new(index, index * 10))
+            .collect::<Vec<_>>();
+
+        writer.append_batch(&expected).unwrap();
+        writer.publish_hot_tail().unwrap();
+        let segment = segment_key(store.shared.store_identity, 0).unwrap();
+        assert!(store.shared.repository.open(&segment).unwrap().is_none());
+        assert_eq!(
+            store.exact_window(0, 40, 8).unwrap().annotations,
+            direct_annotations(&expected, 0, 40)
+        );
+
+        writer.finish().unwrap();
+        assert!(store.shared.repository.open(&segment).unwrap().is_some());
+    }
+
+    #[test]
+    fn persistent_blocks_span_bounded_segments_and_reopen() {
+        let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+        let persistent = PersistentStoreConfig::new([0x91; 32])
+            .with_artifact_repository(Arc::clone(&repository));
+        let mut config = test_config().with_artifact_repository(Arc::clone(&repository));
+        config.persistence = Some(persistent.clone());
+        config.block.max_words = 1;
+        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        writer.target_segment_bytes = 200;
+        let expected = (0..12)
+            .map(|index| Word::new(index, index * 10))
+            .collect::<Vec<_>>();
+        writer.append_batch(&expected).unwrap();
+        writer.finish().unwrap();
+        let directory = store.directory();
+        let final_segment = directory
+            .last()
+            .expect("the test writes blocks")
+            .segment_sequence;
+        assert!(final_segment > 0);
+        for sequence in 0..=final_segment {
+            assert!(
+                repository
+                    .open(&segment_key(persistent.cache_key, sequence).unwrap())
+                    .unwrap()
+                    .is_some()
+            );
+        }
+        drop(store);
+
+        let reopened = IndexedAnnotationStore::open_persistent(&persistent)
+            .unwrap()
+            .expect("segmented persistent store should reopen");
+        assert_eq!(
+            reopened.exact_window(0, 120, 20).unwrap().annotations,
+            direct_annotations(&expected, 0, 120)
+        );
+    }
+
+    #[test]
     fn completed_blocks_publish_in_sequence_when_encoders_finish_out_of_order() {
         fn prepare(config: BlockCodecConfig, sequence: u64, words: &[Word]) -> PreparedBlock {
             let mut builder = WordBlockBuilder::new(config).unwrap();
@@ -1716,7 +1891,7 @@ mod tests {
         writer.finish().unwrap();
 
         let entry = store.directory()[0];
-        let key = block_key(store.shared.store_identity, entry.sequence).unwrap();
+        let key = segment_key(store.shared.store_identity, entry.segment_sequence).unwrap();
         let mut bytes = store.read_entry_bytes(entry).unwrap();
         bytes[super::super::format::BLOCK_HEADER_SIZE] ^= 0x80;
         let mut replacement = store.shared.repository.begin_write(key).unwrap();
@@ -1734,19 +1909,20 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_is_prompt_and_artifacts_live_until_last_handle_drops() {
+    fn cancellation_discards_the_unpublished_active_segment_promptly() {
         let mut config = test_config();
         config.block.max_words = 1;
         let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
         writer.append(Word::new(1, 0)).unwrap();
-        let key = block_key(store.shared.store_identity, 0).unwrap();
+        let key = segment_key(store.shared.store_identity, 0).unwrap();
 
         let start = Instant::now();
         writer.cancel().unwrap();
         drop(writer);
         assert!(start.elapsed() < Duration::from_millis(100));
         assert_eq!(store.snapshot().metadata.status, StoreStatus::Cancelled);
-        assert!(store.shared.repository.open(&key).unwrap().is_some());
+        assert!(store.shared.repository.open(&key).unwrap().is_none());
+        assert!(store.shared.pending_blocks.read().unwrap().is_empty());
 
         let repository = Arc::clone(&store.shared.repository);
         drop(store);

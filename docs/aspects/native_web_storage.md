@@ -27,7 +27,7 @@ pages. Exact queries cache individual packed raw blocks as artifacts and retain 
 immutable byte backing, so a native mmap and an owned-memory region execute the same query code.
 These opportunistic raw-block cache publications are atomic but omit the native durability barrier;
 they are validated by identity and can always be reconstructed from the authoritative capture.
-Derived cache blocks use the same policy because they are not discoverable without the final index
+Derived cache segments use the same policy because they are not discoverable without the final index
 and manifest. Authoritative capture chunks, waveform-index segments, derived indexes, and manifests
 explicitly flush before publication. No capture, raw cache, waveform index, or replay session must
 fit in one resident allocation.
@@ -44,12 +44,13 @@ Generic compiler, runtime, viewer, graph-node, and UI code contains no target-se
 temporary processing exceptions are the U3Pro16 native device-runtime leaves and isolated DSL and
 Sigrok path-compatibility leaves; archive parsing and prepared-source execution remain portable.
 
-Stores address every encoded block, index, and manifest with typed artifact keys. A block
-is published before its directory entry becomes visible, and a persistent manifest is published
-last. Missing manifests are cache misses; invalid manifests, indexes, or block generations are
-rejected and invalidated as a unit. Unfinished ephemeral artifacts are reclaimed when their last
-store handle is dropped. Compiler cache lookup, graph pruning, preview, invalidation, and cleanup
-apply the same policy to durable native and process-lifetime web repositories.
+Stores address every encoded segment, index, and manifest with typed artifact keys. A segment is
+published before its directory entries become persistently discoverable, and a persistent manifest
+is published last. Missing manifests are cache misses; invalid manifests, indexes, or segment
+generations are rejected and invalidated as a unit. Unfinished ephemeral artifacts are reclaimed
+when their last store handle is dropped. Compiler cache lookup, graph pruning, preview,
+invalidation, and cleanup apply the same policy to durable native and process-lifetime web
+repositories.
 
 `logic_analyzer_platform` currently composes the UI host-service port and selects the artifact
 repository contract. Native and web application bootstraps obtain an opaque `PlatformServices`
@@ -324,7 +325,7 @@ callers do not branch on mmap availability.
 
 ### Artifact repository
 
-Generated raw blocks, indexes, derived blocks, directories, and manifests use a logical artifact
+Generated raw blocks, indexes, derived segments, directories, and manifests use a logical artifact
 repository. Generic code addresses artifacts by typed keys, not paths:
 
 ```rust
@@ -412,9 +413,9 @@ The derived-word block codec, directory format, presence summaries, exact-window
 nearest-boundary queries, decoded-block LRU, and integrity validation are the only implementations.
 They read and write artifacts through the repository and byte-region contracts.
 
-The web memory repository stores the same encoded blocks, indexes, and manifests as the native repository.
-It does not retain a platform-specific `Vec<Word>` as its authoritative representation. Small
-captures naturally use one or a few blocks; they do not select a different query engine.
+The web memory repository stores the same encoded segments, indexes, and manifests as the native
+repository. It does not retain a platform-specific `Vec<Word>` as its authoritative representation.
+Small captures naturally use one or a few blocks; they do not select a different query engine.
 
 ### Cache planning and compiler behavior
 
@@ -717,6 +718,11 @@ runtime supervision and file-source delivery so blocked stream endpoints cannot 
 Host adapters select their transport by platform composition rather than target conditionals in
 shared algorithms. The WASM application build validates the inline worker bootstrap as JavaScript,
 checks the generated browser module, and requires the exported portable-kernel entry point.
+
+Finite and long-running submissions may carry an owner-defined diagnostic label. Profilers use the
+label for attribution, but host adapters never select scheduling, capacity, transport, or fallback
+behavior from it. Threaded runtime nodes report semantic progress independently from produced-item
+counts; after a short host-yield phase, genuinely idle nodes request a 50 us host backoff.
 
 Worker transfers move ownership of large `ArrayBuffer` values where possible. Shared-memory worker
 execution is optional because it requires a suitable browser and deployment isolation policy.

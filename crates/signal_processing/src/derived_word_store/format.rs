@@ -95,6 +95,8 @@ pub(crate) struct BlockDirectoryEntry {
     pub first_timestamp_ns: u64,
     pub last_timestamp_ns: u64,
     pub data_offset: u64,
+    pub segment_sequence: u64,
+    pub segment_offset: u64,
     pub block_len: u32,
     pub word_count: u32,
     pub value_bytes: u8,

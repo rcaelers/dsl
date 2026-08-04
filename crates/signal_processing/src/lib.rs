@@ -292,6 +292,11 @@
 //! lets sources snapshot complete subscriber lists before the first block. The manager also
 //! accumulates per-node progress counters (items returned by `work()`, kept across
 //! restarts-in-place) that the UI draws in node headers.
+//! A threaded node that reports `WorkOutcome::made_progress` runs again immediately even when it
+//! intentionally produced no output. An idle node receives a short sequence of zero-duration host
+//! yields followed by a 50 us host idle request. This adaptive backoff avoids both a tight polling
+//! loop and the multi-millisecond wake-up penalty imposed on high-throughput bounded streams by a
+//! fixed sleep. The injected executor owns the host-specific yield and sleep behavior.
 //!
 //! ### `CooperativeManager` ([cooperative_manager.rs](../../../crates/signal_processing/src/cooperative_manager.rs))
 //!
@@ -499,8 +504,8 @@ pub use live_capture_store::*;
 pub use manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec, PipelineManager};
 pub use node::{
     ConfigOutcome, ConfigValue, ConfigurationBoundary, ConfigurationScheduler,
-    InputProtocolCandidate, NodeCancellation, NodeConfig, ProcessNode, RuntimeExecutionMode,
-    WorkOutcome,
+    InputProtocolCandidate, InputScheduling, NodeCancellation, NodeConfig, ProcessNode,
+    RuntimeExecutionMode, WorkOutcome,
 };
 pub use payload::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
@@ -518,7 +523,8 @@ pub use sample::{Sample, SampleBlock};
 pub use sample_kind::SampleKind;
 pub(crate) use sample_kind::negotiate as negotiate_sample_kind;
 pub use sampling_points::{
-    PackedSamplingPoint, SamplingPoint, SamplingPointProvider, SamplingPointStore,
+    PackedSamplingPoint, PackedSamplingPointBatch, SamplingPoint, SamplingPointProvider,
+    SamplingPointStore,
 };
 pub use scheduler::{Scheduler, StopHandle};
 pub use sender::{ChannelMessage, OverflowPolicy, Sender, SharedSenders};

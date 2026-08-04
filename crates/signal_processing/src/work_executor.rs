@@ -364,12 +364,37 @@ pub trait WorkExecutor: Send + Sync {
     /// Enqueues finite work without exposing worker implementation details.
     fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String>;
 
+    /// Enqueues finite work with an owner-defined diagnostic label.
+    ///
+    /// Hosts must not select execution behavior from this label. Profilers may
+    /// use it to attribute otherwise opaque work while ordinary executors
+    /// preserve the same behavior as [`Self::submit`].
+    fn submit_labeled(
+        &self,
+        _label: &'static str,
+        task: WorkExecutorTask,
+    ) -> Result<Box<dyn WorkTask>, String> {
+        self.submit(task)
+    }
+
     /// Starts long-lived work that may block on runtime stream endpoints.
     ///
     /// Hosts with a bounded finite-work queue override this to keep a slow
     /// reader, processing node, or watchdog from starving indexing work.
     fn submit_long_running(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
         self.submit(task)
+    }
+
+    /// Starts long-lived work with an owner-defined diagnostic label.
+    ///
+    /// As with [`Self::submit_labeled`], hosts must not select behavior from
+    /// the label.
+    fn submit_long_running_labeled(
+        &self,
+        _label: &'static str,
+        task: WorkExecutorTask,
+    ) -> Result<Box<dyn WorkTask>, String> {
+        self.submit_long_running(task)
     }
 }
 

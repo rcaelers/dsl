@@ -12,7 +12,7 @@ use crate::{
 
 const INDEX_MAGIC: &[u8; 8] = b"DWRIDX1\0";
 const MANIFEST_MAGIC: &[u8; 8] = b"DWRMAN1\0";
-const INDEX_VERSION: u32 = 4;
+const INDEX_VERSION: u32 = 5;
 const MANIFEST_VERSION: u32 = 1;
 const INDEX_HEADER_SIZE: usize = 104;
 const INDEX_RECORD_SIZE: usize = 64;
@@ -22,6 +22,7 @@ const MANIFEST_SIZE: usize = 96;
 const INDEX_NAMESPACE: &str = "derived-word-index-v1";
 const MANIFEST_NAMESPACE: &str = "derived-word-manifest-v1";
 const BLOCK_NAMESPACE_PREFIX: &str = "derived-word-blocks-v1-";
+const SEGMENT_NAMESPACE_PREFIX: &str = "derived-word-segments-v1-";
 
 #[derive(Debug)]
 pub(crate) struct PersistentIndex {
@@ -111,9 +112,11 @@ impl PersistentCacheClearTask {
             }
         }
         for namespace in repository.namespaces()? {
-            let Some(encoded) = namespace.as_str().strip_prefix(BLOCK_NAMESPACE_PREFIX) else {
-                continue;
-            };
+            let encoded = namespace
+                .as_str()
+                .strip_prefix(BLOCK_NAMESPACE_PREFIX)
+                .or_else(|| namespace.as_str().strip_prefix(SEGMENT_NAMESPACE_PREFIX));
+            let Some(encoded) = encoded else { continue };
             let Some(cache_key) = parse_hex_key(encoded) else {
                 continue;
             };
@@ -365,11 +368,11 @@ pub(crate) fn invalidate(config: &PersistentStoreConfig) -> StoreResult<()> {
     remove_cache_artifacts(config).map(|_| ())
 }
 
-pub(crate) fn block_key(store_identity: [u8; 32], sequence: u64) -> StoreResult<ArtifactKey> {
+pub(crate) fn segment_key(store_identity: [u8; 32], sequence: u64) -> StoreResult<ArtifactKey> {
     let mut identity = [0_u8; 32];
     identity[..8].copy_from_slice(&sequence.to_le_bytes());
     Ok(ArtifactKey::new(
-        block_namespace(store_identity)?,
+        segment_namespace(store_identity)?,
         SourceIdentity::from_bytes(identity),
     ))
 }
@@ -444,10 +447,14 @@ fn remove_cache_artifacts(config: &PersistentStoreConfig) -> StoreResult<u64> {
         }
         repository.remove(&key)?;
     }
-    let block_namespace = block_namespace(config.cache_key)?;
-    for metadata in repository.entries(&block_namespace)? {
-        removed_bytes = removed_bytes.saturating_add(metadata.length);
-        repository.remove(&metadata.key)?;
+    for namespace in [
+        block_namespace(config.cache_key)?,
+        segment_namespace(config.cache_key)?,
+    ] {
+        for metadata in repository.entries(&namespace)? {
+            removed_bytes = removed_bytes.saturating_add(metadata.length);
+            repository.remove(&metadata.key)?;
+        }
     }
     Ok(removed_bytes)
 }
@@ -463,9 +470,11 @@ fn all_cache_keys(repository: &Arc<dyn ArtifactRepository>) -> StoreResult<BTree
         );
     }
     for namespace in repository.namespaces()? {
-        let Some(encoded) = namespace.as_str().strip_prefix(BLOCK_NAMESPACE_PREFIX) else {
-            continue;
-        };
+        let encoded = namespace
+            .as_str()
+            .strip_prefix(BLOCK_NAMESPACE_PREFIX)
+            .or_else(|| namespace.as_str().strip_prefix(SEGMENT_NAMESPACE_PREFIX));
+        let Some(encoded) = encoded else { continue };
         if let Some(key) = parse_hex_key(encoded) {
             keys.insert(key);
         }
@@ -497,6 +506,11 @@ fn index_namespace() -> StoreResult<ArtifactNamespace> {
 
 fn block_namespace(identity: [u8; 32]) -> StoreResult<ArtifactNamespace> {
     ArtifactNamespace::new(format!("{BLOCK_NAMESPACE_PREFIX}{}", hex_key(&identity)))
+        .map_err(StoreError::from)
+}
+
+fn segment_namespace(identity: [u8; 32]) -> StoreResult<ArtifactNamespace> {
+    ArtifactNamespace::new(format!("{SEGMENT_NAMESPACE_PREFIX}{}", hex_key(&identity)))
         .map_err(StoreError::from)
 }
 
@@ -545,6 +559,8 @@ fn encode_index(
         put_u32(&mut bytes, offset + 36, entry.word_count);
         bytes[offset + 40] = entry.value_bytes;
         bytes[offset + 41] = entry.flags;
+        put_u64(&mut bytes, offset + 48, entry.segment_sequence);
+        put_u64(&mut bytes, offset + 56, entry.segment_offset);
     }
     let summaries_offset = INDEX_HEADER_SIZE + directory_bytes;
     for (index, summary) in summaries.iter().enumerate() {
@@ -611,6 +627,8 @@ fn decode_index(bytes: &[u8], cache_key: [u8; 32]) -> StoreResult<PersistentInde
             word_count: get_u32(bytes, offset + 36)?,
             value_bytes: bytes[offset + 40],
             flags: bytes[offset + 41],
+            segment_sequence: get_u64(bytes, offset + 48)?,
+            segment_offset: get_u64(bytes, offset + 56)?,
         };
         directory.push(entry);
     }
@@ -684,9 +702,22 @@ fn validate_summaries(
 
 fn validate_directory(directory: &[BlockDirectoryEntry], data_len: u64) -> StoreResult<()> {
     let mut expected_offset = 0_u64;
+    let mut expected_segment = 0_u64;
+    let mut expected_segment_offset = 0_u64;
     for (index, entry) in directory.iter().enumerate() {
+        if index == 0 && entry.segment_sequence != 0 {
+            return Err(StoreError::Persistent(
+                "invalid persistent block directory".into(),
+            ));
+        }
+        if entry.segment_sequence == expected_segment.saturating_add(1) {
+            expected_segment = entry.segment_sequence;
+            expected_segment_offset = 0;
+        }
         if entry.sequence != index as u64
             || entry.data_offset != expected_offset
+            || entry.segment_sequence != expected_segment
+            || entry.segment_offset != expected_segment_offset
             || entry.word_count == 0
             || entry.first_timestamp_ns > entry.last_timestamp_ns
         {
@@ -695,6 +726,9 @@ fn validate_directory(directory: &[BlockDirectoryEntry], data_len: u64) -> Store
         expected_offset = expected_offset
             .checked_add(u64::from(entry.block_len))
             .ok_or_else(|| StoreError::Persistent("block directory offset overflow".into()))?;
+        expected_segment_offset = expected_segment_offset
+            .checked_add(u64::from(entry.block_len))
+            .ok_or_else(|| StoreError::Persistent("segment directory offset overflow".into()))?;
     }
     if expected_offset != data_len {
         return Err(StoreError::Persistent(
@@ -904,7 +938,7 @@ mod tests {
         drop(store);
 
         repository
-            .remove(&block_key(cache_key, 0).unwrap())
+            .remove(&segment_key(cache_key, 0).unwrap())
             .unwrap();
 
         let reopened = IndexedAnnotationStore::open_persistent(&persistent)
@@ -917,7 +951,7 @@ mod tests {
     fn cleanup_reclaims_an_interrupted_generation_without_a_manifest() {
         let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
         let cache_key = [0xC2; 32];
-        let key = block_key(cache_key, 0).unwrap();
+        let key = segment_key(cache_key, 0).unwrap();
         publish_bytes(repository.as_ref(), key.clone(), b"orphan").unwrap();
 
         let stats = cleanup_cache(&repository, u64::MAX, &[]).unwrap();
@@ -928,14 +962,33 @@ mod tests {
     }
 
     #[test]
+    fn cleanup_reclaims_the_previous_block_artifact_namespace() {
+        let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+        let cache_key = [0xC5; 32];
+        let mut identity = [0_u8; 32];
+        identity[..8].copy_from_slice(&7_u64.to_le_bytes());
+        let key = ArtifactKey::new(
+            block_namespace(cache_key).unwrap(),
+            SourceIdentity::from_bytes(identity),
+        );
+        publish_bytes(repository.as_ref(), key.clone(), b"old block").unwrap();
+
+        let stats = cleanup_cache(&repository, u64::MAX, &[]).unwrap();
+
+        assert_eq!(stats.removed_entries, 1);
+        assert_eq!(stats.removed_bytes, 9);
+        assert!(repository.open(&key).unwrap().is_none());
+    }
+
+    #[test]
     fn cooperative_clear_respects_its_artifact_budget() {
         let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
         let cache_key = [0xC4; 32];
-        let namespace = block_namespace(cache_key).unwrap();
+        let namespace = segment_namespace(cache_key).unwrap();
         for sequence in 0..3 {
             publish_bytes(
                 repository.as_ref(),
-                block_key(cache_key, sequence).unwrap(),
+                segment_key(cache_key, sequence).unwrap(),
                 &[sequence as u8],
             )
             .unwrap();

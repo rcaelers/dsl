@@ -43,7 +43,7 @@ use signal_processing::{
     CollectedWordLaneQuery, ConfigurationBoundary, DerivedLanes, DisconnectEvent, InputSub,
     NodeConfig, NodeSpec, OpaqueCollectedLane, OpaqueCollectedLaneSnapshot, Pipeline,
     PipelineManager, ProcessNode, ReadArtifact, RepositoryCapabilities, RepositoryError,
-    TriggerLaneSnapshot, WorkExecutor, WorkExecutorTask, WorkTask, WriteArtifact,
+    SourceIdentity, TriggerLaneSnapshot, WorkExecutor, WorkExecutorTask, WorkTask, WriteArtifact,
 };
 
 use integration_tests_support as nodes;
@@ -64,6 +64,271 @@ struct BenchmarkOutputStorage;
 struct BenchmarkArtifactRepository {
     waveform_indexes: Arc<dyn ArtifactRepository>,
     transient: signal_processing::MemoryArtifactRepository,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize)]
+struct ArtifactWriteProfile {
+    artifacts: u64,
+    bytes: u64,
+    begin_write_ns: u64,
+    write_ns: u64,
+    truncate_ns: u64,
+    flush_ns: u64,
+    publish_ns: u64,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize)]
+struct WorkTaskProfile {
+    tasks: u64,
+    cumulative_ns: u64,
+    cpu_ns: u64,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize)]
+struct NodeWorkProfile {
+    calls: u64,
+    produced_items: u64,
+    sampled_calls: u64,
+    sampled_wall_ns: u64,
+    max_sampled_call_ns: u64,
+    thread_cpu_ns: u64,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize)]
+struct ArtifactInventory {
+    artifacts: u64,
+    bytes: u64,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize)]
+struct FinalPublicationProfile {
+    lanes: u64,
+    cumulative_ns: u64,
+    max_lane_ns: u64,
+}
+
+struct DerivedProfileMetrics {
+    artifact_writes: Mutex<BTreeMap<String, ArtifactWriteProfile>>,
+    work_tasks: Mutex<BTreeMap<String, WorkTaskProfile>>,
+    node_work: Mutex<BTreeMap<String, NodeWorkProfile>>,
+    final_begins: Mutex<BTreeMap<SourceIdentity, Instant>>,
+    final_publication: Mutex<FinalPublicationProfile>,
+}
+
+impl DerivedProfileMetrics {
+    fn new() -> Self {
+        Self {
+            artifact_writes: Mutex::new(BTreeMap::new()),
+            work_tasks: Mutex::new(BTreeMap::new()),
+            node_work: Mutex::new(BTreeMap::new()),
+            final_begins: Mutex::new(BTreeMap::new()),
+            final_publication: Mutex::new(FinalPublicationProfile::default()),
+        }
+    }
+
+    fn reset(&self) {
+        self.artifact_writes.lock().unwrap().clear();
+        self.work_tasks.lock().unwrap().clear();
+        self.node_work.lock().unwrap().clear();
+        self.final_begins.lock().unwrap().clear();
+        *self.final_publication.lock().unwrap() = FinalPublicationProfile::default();
+    }
+
+    fn record_artifact(&self, category: &str, update: impl FnOnce(&mut ArtifactWriteProfile)) {
+        let mut profiles = self.artifact_writes.lock().unwrap();
+        update(profiles.entry(category.to_owned()).or_default());
+    }
+
+    fn record_work_task(&self, label: &str, elapsed: Duration, cpu: Option<Duration>) {
+        let mut profiles = self.work_tasks.lock().unwrap();
+        let profile = profiles.entry(label.to_owned()).or_default();
+        profile.tasks = profile.tasks.saturating_add(1);
+        profile.cumulative_ns = profile.cumulative_ns.saturating_add(duration_ns(elapsed));
+        profile.cpu_ns = profile.cpu_ns.saturating_add(cpu.map_or(0, duration_ns));
+    }
+
+    fn record_node_profile(&self, name: &str, profile: NodeWorkProfile) {
+        let mut profiles = self.node_work.lock().unwrap();
+        profiles.insert(name.to_owned(), profile);
+    }
+
+    fn record_final_begin(&self, identity: SourceIdentity, started: Instant) {
+        self.final_begins
+            .lock()
+            .unwrap()
+            .entry(identity)
+            .or_insert(started);
+    }
+
+    fn record_final_publish(&self, identity: SourceIdentity) {
+        let Some(started) = self.final_begins.lock().unwrap().remove(&identity) else {
+            return;
+        };
+        let elapsed_ns = duration_ns(started.elapsed());
+        let mut profile = self.final_publication.lock().unwrap();
+        profile.lanes = profile.lanes.saturating_add(1);
+        profile.cumulative_ns = profile.cumulative_ns.saturating_add(elapsed_ns);
+        profile.max_lane_ns = profile.max_lane_ns.max(elapsed_ns);
+    }
+}
+
+struct ProfiledArtifactRepository {
+    inner: Arc<dyn ArtifactRepository>,
+    metrics: Arc<DerivedProfileMetrics>,
+}
+
+impl ProfiledArtifactRepository {
+    fn new(inner: Arc<dyn ArtifactRepository>, metrics: Arc<DerivedProfileMetrics>) -> Self {
+        Self { inner, metrics }
+    }
+}
+
+impl ArtifactRepository for ProfiledArtifactRepository {
+    fn capabilities(&self) -> RepositoryCapabilities {
+        self.inner.capabilities()
+    }
+
+    fn namespaces(&self) -> Result<Vec<ArtifactNamespace>, RepositoryError> {
+        self.inner.namespaces()
+    }
+
+    fn open(&self, key: &ArtifactKey) -> Result<Option<Box<dyn ReadArtifact>>, RepositoryError> {
+        self.inner.open(key)
+    }
+
+    fn begin_write(&self, key: ArtifactKey) -> Result<Box<dyn WriteArtifact>, RepositoryError> {
+        let category = derived_artifact_category(key.namespace()).to_owned();
+        let identity = key.identity();
+        let started = Instant::now();
+        let writer = self.inner.begin_write(key)?;
+        if category == "derived_index" {
+            self.metrics.record_final_begin(identity, started);
+        }
+        self.metrics.record_artifact(&category, |profile| {
+            profile.begin_write_ns = profile
+                .begin_write_ns
+                .saturating_add(duration_ns(started.elapsed()));
+        });
+        Ok(Box::new(ProfiledArtifactWriter {
+            inner: writer,
+            category,
+            identity,
+            length: 0,
+            metrics: Arc::clone(&self.metrics),
+        }))
+    }
+
+    fn remove(&self, key: &ArtifactKey) -> Result<(), RepositoryError> {
+        self.inner.remove(key)
+    }
+
+    fn entries(
+        &self,
+        namespace: &ArtifactNamespace,
+    ) -> Result<Vec<ArtifactMetadata>, RepositoryError> {
+        self.inner.entries(namespace)
+    }
+}
+
+struct ProfiledArtifactWriter {
+    inner: Box<dyn WriteArtifact>,
+    category: String,
+    identity: SourceIdentity,
+    length: u64,
+    metrics: Arc<DerivedProfileMetrics>,
+}
+
+impl WriteArtifact for ProfiledArtifactWriter {
+    fn key(&self) -> &ArtifactKey {
+        self.inner.key()
+    }
+
+    fn write_at(&mut self, offset: u64, source: &[u8]) -> Result<(), RepositoryError> {
+        let started = Instant::now();
+        let result = self.inner.write_at(offset, source);
+        let elapsed = started.elapsed();
+        if result.is_ok() {
+            self.length = self.length.max(offset.saturating_add(source.len() as u64));
+        }
+        self.metrics.record_artifact(&self.category, |profile| {
+            profile.write_ns = profile.write_ns.saturating_add(duration_ns(elapsed));
+        });
+        result
+    }
+
+    fn truncate(&mut self, len: u64) -> Result<(), RepositoryError> {
+        let started = Instant::now();
+        let result = self.inner.truncate(len);
+        let elapsed = started.elapsed();
+        if result.is_ok() {
+            self.length = len;
+        }
+        self.metrics.record_artifact(&self.category, |profile| {
+            profile.truncate_ns = profile.truncate_ns.saturating_add(duration_ns(elapsed));
+        });
+        result
+    }
+
+    fn flush(&mut self) -> Result<(), RepositoryError> {
+        let started = Instant::now();
+        let result = self.inner.flush();
+        let elapsed = started.elapsed();
+        self.metrics.record_artifact(&self.category, |profile| {
+            profile.flush_ns = profile.flush_ns.saturating_add(duration_ns(elapsed));
+        });
+        result
+    }
+
+    fn publish(self: Box<Self>) -> Result<(), RepositoryError> {
+        let Self {
+            inner,
+            category,
+            identity,
+            length,
+            metrics,
+        } = *self;
+        let started = Instant::now();
+        let result = inner.publish();
+        let elapsed = started.elapsed();
+        metrics.record_artifact(&category, |profile| {
+            profile.publish_ns = profile.publish_ns.saturating_add(duration_ns(elapsed));
+            if result.is_ok() {
+                profile.artifacts = profile.artifacts.saturating_add(1);
+                profile.bytes = profile.bytes.saturating_add(length);
+            }
+        });
+        if result.is_ok() && category == "derived_manifest" {
+            metrics.record_final_publish(identity);
+        }
+        result
+    }
+}
+
+fn derived_artifact_category(namespace: &ArtifactNamespace) -> &'static str {
+    match namespace.as_str() {
+        "derived-word-index-v1" => "derived_index",
+        "derived-word-manifest-v1" => "derived_manifest",
+        namespace if namespace.starts_with("derived-word-blocks-v1-") => "derived_block",
+        namespace if namespace.starts_with("derived-word-segments-v1-") => "derived_segment",
+        "waveform-index-root-v1" => "waveform_root",
+        "waveform-index-segment-v1" => "waveform_segment",
+        _ => "other",
+    }
+}
+
+fn artifact_inventory(
+    repository: &dyn ArtifactRepository,
+) -> Result<BTreeMap<String, ArtifactInventory>, RepositoryError> {
+    let mut inventory = BTreeMap::<String, ArtifactInventory>::new();
+    for namespace in repository.namespaces()? {
+        let category = derived_artifact_category(&namespace).to_owned();
+        for metadata in repository.entries(&namespace)? {
+            let entry = inventory.entry(category.clone()).or_default();
+            entry.artifacts = entry.artifacts.saturating_add(1);
+            entry.bytes = entry.bytes.saturating_add(metadata.length);
+        }
+    }
+    Ok(inventory)
 }
 
 impl BenchmarkArtifactRepository {
@@ -264,6 +529,14 @@ impl WorkExecutor for BenchmarkWorkExecutor {
         1
     }
 
+    fn supports_long_running_tasks(&self) -> bool {
+        true
+    }
+
+    fn idle(&self, duration: Duration) {
+        std::thread::sleep(duration);
+    }
+
     fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
         let handle = std::thread::Builder::new()
             .name("compiler-capture-runtime".into())
@@ -302,24 +575,96 @@ impl WorkExecutor for ProfileWorkExecutor {
     }
 }
 
+struct ProfiledWorkExecutor {
+    inner: Arc<dyn WorkExecutor>,
+    metrics: Arc<DerivedProfileMetrics>,
+}
+
+impl ProfiledWorkExecutor {
+    fn new(inner: Arc<dyn WorkExecutor>, metrics: Arc<DerivedProfileMetrics>) -> Self {
+        Self { inner, metrics }
+    }
+}
+
+impl WorkExecutor for ProfiledWorkExecutor {
+    fn available_parallelism(&self) -> usize {
+        self.inner.available_parallelism()
+    }
+
+    fn supports_long_running_tasks(&self) -> bool {
+        self.inner.supports_long_running_tasks()
+    }
+
+    fn idle(&self, duration: Duration) {
+        self.inner.idle(duration);
+    }
+
+    fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        self.submit_labeled("unlabeled", task)
+    }
+
+    fn submit_labeled(
+        &self,
+        label: &'static str,
+        task: WorkExecutorTask,
+    ) -> Result<Box<dyn WorkTask>, String> {
+        let metrics = Arc::clone(&self.metrics);
+        self.inner.submit_labeled(
+            label,
+            Box::new(move || {
+                let cpu_started = thread_cpu_time();
+                let started = Instant::now();
+                task();
+                let cpu = duration_delta(cpu_started, thread_cpu_time());
+                metrics.record_work_task(label, started.elapsed(), cpu);
+            }),
+        )
+    }
+
+    fn submit_long_running(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        self.submit_long_running_labeled("unlabeled-long-running", task)
+    }
+
+    fn submit_long_running_labeled(
+        &self,
+        label: &'static str,
+        task: WorkExecutorTask,
+    ) -> Result<Box<dyn WorkTask>, String> {
+        let metrics = Arc::clone(&self.metrics);
+        self.inner.submit_long_running_labeled(
+            label,
+            Box::new(move || {
+                let cpu_started = thread_cpu_time();
+                let started = Instant::now();
+                task();
+                let cpu = duration_delta(cpu_started, thread_cpu_time());
+                metrics.record_work_task(label, started.elapsed(), cpu);
+            }),
+        )
+    }
+}
+
 struct BenchmarkWorkTask {
     handle: Option<JoinHandle<()>>,
 }
 
 struct BenchmarkAppManagerFactory {
     work_executor: Arc<dyn WorkExecutor>,
+    metrics: Option<Arc<DerivedProfileMetrics>>,
 }
 
 impl AppManagerFactory for BenchmarkAppManagerFactory {
     fn create(&self) -> AppManager {
         AppManager::with_backend(Box::new(BenchmarkAppManagerBackend {
             manager: PipelineManager::new(Arc::clone(&self.work_executor)),
+            metrics: self.metrics.clone(),
         }))
     }
 }
 
 struct BenchmarkAppManagerBackend {
     manager: PipelineManager,
+    metrics: Option<Arc<DerivedProfileMetrics>>,
 }
 
 impl AppManagerBackend for BenchmarkAppManagerBackend {
@@ -328,11 +673,13 @@ impl AppManagerBackend for BenchmarkAppManagerBackend {
     }
 
     fn add_node(&mut self, spec: NodeSpec) -> Result<(), String> {
-        self.manager.add_node(spec)
+        self.manager
+            .add_node(profile_node_spec(spec, &self.metrics))
     }
 
     fn add_node_deferred(&mut self, spec: NodeSpec) -> Result<(), String> {
-        self.manager.add_node_deferred(spec)
+        self.manager
+            .add_node_deferred(profile_node_spec(spec, &self.metrics))
     }
 
     fn start_all_deferred(&mut self) -> Result<(), String> {
@@ -362,6 +709,17 @@ impl AppManagerBackend for BenchmarkAppManagerBackend {
         node: Box<dyn ProcessNode>,
         inputs: Vec<Option<InputSub>>,
     ) -> Result<(), String> {
+        let node = if let Some(metrics) = &self.metrics {
+            Box::new(TimedProcessNode {
+                name: name.to_owned(),
+                inner: node,
+                metrics: Arc::clone(metrics),
+                profile: NodeWorkProfile::default(),
+                first_cpu: None,
+            }) as Box<dyn ProcessNode>
+        } else {
+            node
+        };
         self.manager.restart_node(name, node, inputs)
     }
 
@@ -386,6 +744,142 @@ impl AppManagerBackend for BenchmarkAppManagerBackend {
     }
 }
 
+fn profile_node_spec(mut spec: NodeSpec, metrics: &Option<Arc<DerivedProfileMetrics>>) -> NodeSpec {
+    if let Some(metrics) = metrics {
+        spec.node = Box::new(TimedProcessNode {
+            name: spec.name.clone(),
+            inner: spec.node,
+            metrics: Arc::clone(metrics),
+            profile: NodeWorkProfile::default(),
+            first_cpu: None,
+        });
+    }
+    spec
+}
+
+struct TimedProcessNode {
+    name: String,
+    inner: Box<dyn ProcessNode>,
+    metrics: Arc<DerivedProfileMetrics>,
+    profile: NodeWorkProfile,
+    first_cpu: Option<Duration>,
+}
+
+impl ProcessNode for TimedProcessNode {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    fn should_stop(&self) -> bool {
+        self.inner.should_stop()
+    }
+
+    fn is_self_threading(&self) -> bool {
+        self.inner.is_self_threading()
+    }
+
+    fn set_runtime_execution_mode(&mut self, mode: signal_processing::RuntimeExecutionMode) {
+        self.inner.set_runtime_execution_mode(mode);
+    }
+
+    fn input_scheduling(&self) -> signal_processing::InputScheduling {
+        self.inner.input_scheduling()
+    }
+
+    fn num_inputs(&self) -> usize {
+        self.inner.num_inputs()
+    }
+
+    fn num_outputs(&self) -> usize {
+        self.inner.num_outputs()
+    }
+
+    fn input_schema(&self) -> Vec<signal_processing::PortSchema> {
+        self.inner.input_schema()
+    }
+
+    fn output_schema(&self) -> Vec<signal_processing::PortSchema> {
+        self.inner.output_schema()
+    }
+
+    fn select_input_protocols(
+        &self,
+        candidates: &[Option<signal_processing::InputProtocolCandidate>],
+    ) -> Vec<Option<signal_processing::ProtocolKind>> {
+        self.inner.select_input_protocols(candidates)
+    }
+
+    fn node_type(&self) -> &str {
+        self.inner.node_type()
+    }
+
+    fn work(
+        &mut self,
+        inputs: &[signal_processing::InputPort],
+        outputs: &[signal_processing::OutputPort],
+    ) -> signal_processing::WorkResult<usize> {
+        self.inner.work(inputs, outputs)
+    }
+
+    fn work_outcome(
+        &mut self,
+        inputs: &[signal_processing::InputPort],
+        outputs: &[signal_processing::OutputPort],
+    ) -> signal_processing::WorkResult<signal_processing::WorkOutcome> {
+        let sample = self.profile.calls == 0 || self.profile.calls.is_multiple_of(1_024);
+        let started = sample.then(Instant::now);
+        let result = self.inner.work_outcome(inputs, outputs);
+        self.profile.calls = self.profile.calls.saturating_add(1);
+        self.profile.produced_items = self.profile.produced_items.saturating_add(
+            result
+                .as_ref()
+                .ok()
+                .map_or(0, |outcome| outcome.produced_items() as u64),
+        );
+        if let Some(started) = started {
+            let elapsed_ns = duration_ns(started.elapsed());
+            self.profile.sampled_calls = self.profile.sampled_calls.saturating_add(1);
+            self.profile.sampled_wall_ns = self.profile.sampled_wall_ns.saturating_add(elapsed_ns);
+            self.profile.max_sampled_call_ns = self.profile.max_sampled_call_ns.max(elapsed_ns);
+            let cpu = thread_cpu_time();
+            let first = *self.first_cpu.get_or_insert(cpu.unwrap_or_default());
+            self.profile.thread_cpu_ns = cpu.map_or(self.profile.thread_cpu_ns, |cpu| {
+                duration_ns(cpu.saturating_sub(first))
+            });
+        }
+        result
+    }
+
+    fn apply_config(&mut self, config: &NodeConfig) -> signal_processing::ConfigOutcome {
+        self.inner.apply_config(config)
+    }
+
+    fn configuration_scheduler(
+        &self,
+    ) -> Option<Arc<dyn signal_processing::ConfigurationScheduler>> {
+        self.inner.configuration_scheduler()
+    }
+
+    fn cancellation(&self) -> Option<Arc<dyn signal_processing::NodeCancellation>> {
+        self.inner.cancellation()
+    }
+
+    fn edge_query(
+        &self,
+        port: usize,
+        input_queries: &[Option<Arc<dyn signal_processing::EdgeQuery>>],
+    ) -> Option<Arc<dyn signal_processing::EdgeQuery>> {
+        self.inner.edge_query(port, input_queries)
+    }
+}
+
+impl Drop for TimedProcessNode {
+    fn drop(&mut self) {
+        self.metrics
+            .record_node_profile(&self.name, self.profile.clone());
+    }
+}
+
 impl WorkTask for BenchmarkWorkTask {
     fn is_finished(&self) -> bool {
         self.handle.as_ref().is_none_or(JoinHandle::is_finished)
@@ -400,6 +894,35 @@ impl WorkTask for BenchmarkWorkTask {
 
 fn runtime_executor() -> Arc<dyn WorkExecutor> {
     Arc::new(BenchmarkWorkExecutor)
+}
+
+fn duration_ns(duration: Duration) -> u64 {
+    u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
+}
+
+#[cfg(unix)]
+fn thread_cpu_time() -> Option<Duration> {
+    let mut value = std::mem::MaybeUninit::<libc::timespec>::zeroed();
+    let status = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, value.as_mut_ptr()) };
+    if status != 0 {
+        return None;
+    }
+    let value = unsafe { value.assume_init() };
+    Some(Duration::new(
+        u64::try_from(value.tv_sec).ok()?,
+        u32::try_from(value.tv_nsec).ok()?,
+    ))
+}
+
+#[cfg(not(unix))]
+fn thread_cpu_time() -> Option<Duration> {
+    None
+}
+
+fn duration_delta(before: Option<Duration>, after: Option<Duration>) -> Option<Duration> {
+    before
+        .zip(after)
+        .map(|(before, after)| after.saturating_sub(before))
 }
 
 #[cfg(unix)]
@@ -508,8 +1031,38 @@ fn configured_platform_compiler(
         Box::new(InlineSourcePreparationExecutor),
         Arc::new(BenchmarkAppManagerFactory {
             work_executor: runtime_executor(),
+            metrics: None,
         }),
         services.work_executor(),
+        vec![
+            logic_analyzer_graph_nodes::binary_file_writer_runtime_builder_override(
+                logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
+                    Arc::new(BenchmarkOutputStorage),
+                ),
+            ),
+            logic_analyzer_graph_nodes::dsl_file_source_runtime_builder_override(Arc::new(
+                BenchmarkDslFileSourceFactory,
+            )),
+        ],
+    );
+    compiler.set_artifact_repository(repository);
+    compiler.set_output_subscriptions(startup_output_subscriptions(widget));
+    compiler
+}
+
+fn configured_profile_compiler(
+    widget: &NodeGraphWidget,
+    repository: Arc<dyn ArtifactRepository>,
+    work_executor: Arc<dyn WorkExecutor>,
+    metrics: Arc<DerivedProfileMetrics>,
+) -> GraphCompiler {
+    let mut compiler = GraphCompiler::with_execution_and_builder_overrides(
+        Box::new(InlineSourcePreparationExecutor),
+        Arc::new(BenchmarkAppManagerFactory {
+            work_executor: runtime_executor(),
+            metrics: Some(metrics),
+        }),
+        work_executor,
         vec![
             logic_analyzer_graph_nodes::binary_file_writer_runtime_builder_override(
                 logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
@@ -1571,6 +2124,85 @@ fn waveform_index_concurrency_profile(capture: &Path) {
     );
 }
 
+fn derived_storage_profile(capture: &Path) {
+    let workspace = temporary_workspace();
+    let output = workspace.path().join("compiled");
+    let services = logic_analyzer_platform::standard_services();
+    let metrics = Arc::new(DerivedProfileMetrics::new());
+    let native_repository = logic_analyzer_platform::isolated_native_artifact_repository(
+        workspace.path().join("artifacts"),
+    );
+    let repository: Arc<dyn ArtifactRepository> = Arc::new(ProfiledArtifactRepository::new(
+        native_repository,
+        Arc::clone(&metrics),
+    ));
+
+    let presentation = DslFileSource::indexed_capture_presentation_from_path(capture)
+        .expect("reference capture should provide an indexed presentation");
+    presentation
+        .factory
+        .open(
+            Arc::clone(&repository),
+            services.work_executor(),
+            &mut |_| true,
+        )
+        .expect("reference capture index should prepare");
+    metrics.reset();
+
+    let work_executor: Arc<dyn WorkExecutor> = Arc::new(ProfiledWorkExecutor::new(
+        services.work_executor(),
+        Arc::clone(&metrics),
+    ));
+    let widget = configured_widget(capture, &output);
+    let compiler = configured_profile_compiler(
+        &widget,
+        Arc::clone(&repository),
+        Arc::clone(&work_executor),
+        Arc::clone(&metrics),
+    );
+    let mut context = compile_context(workspace.path());
+    let resources_before = resource_usage();
+    let started = Instant::now();
+    let mut run = compiler
+        .start_app_run(widget.graph(), &mut context)
+        .unwrap_or_else(|errors| panic!("derived storage profile did not start: {errors:?}"));
+    run.wait();
+    let wall = started.elapsed();
+    let resources = resource_delta(resources_before, resource_usage(), wall);
+    let storage = derived_storage_report(&run);
+    let output_report = output_manifest_report(&output_manifest(&output));
+    let artifact_writes = metrics.artifact_writes.lock().unwrap().clone();
+    let work_tasks = metrics.work_tasks.lock().unwrap().clone();
+    let node_work = metrics.node_work.lock().unwrap().clone();
+    let final_publication = metrics.final_publication.lock().unwrap().clone();
+    let retained_artifacts = artifact_inventory(repository.as_ref())
+        .expect("profile artifact inventory should be readable");
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "schema_version": 2,
+            "artifact_repository": "native-durable-isolated",
+            "capture": {
+                "path": capture,
+                "file_bytes": std::fs::metadata(capture)
+                    .expect("capture metadata should be readable")
+                    .len(),
+            },
+            "pipeline_wall_ns": duration_ns(wall),
+            "resources": resources,
+            "host_work": work_tasks,
+            "node_work": node_work,
+            "artifact_writes": artifact_writes,
+            "final_publication": final_publication,
+            "retained_artifacts": retained_artifacts,
+            "derived_storage": storage,
+            "outputs": output_report,
+        }))
+        .expect("derived storage profile should serialize")
+    );
+}
+
 fn in_memory_compiler_runtime_benchmark(capture: &Path) {
     let workspace = temporary_workspace();
     let output = workspace.path().join("compiled");
@@ -1813,9 +2445,40 @@ fn live_viewer_subscription_benchmark(capture: &Path) {
     let workspace = temporary_workspace();
     let output = workspace.path().join("compiled");
     std::fs::create_dir_all(&output).unwrap();
+    let services = logic_analyzer_platform::standard_services();
+    let metrics = Arc::new(DerivedProfileMetrics::new());
+    let native_repository = logic_analyzer_platform::isolated_native_artifact_repository(
+        workspace.path().join("artifacts"),
+    );
+    let repository: Arc<dyn ArtifactRepository> = Arc::new(ProfiledArtifactRepository::new(
+        native_repository,
+        Arc::clone(&metrics),
+    ));
+    let presentation = DslFileSource::indexed_capture_presentation_from_path(capture)
+        .expect("reference capture should provide an indexed presentation");
+    presentation
+        .factory
+        .open(
+            Arc::clone(&repository),
+            services.work_executor(),
+            &mut |_| true,
+        )
+        .expect("reference capture index should prepare");
+    metrics.reset();
+    let work_executor: Arc<dyn WorkExecutor> = Arc::new(ProfiledWorkExecutor::new(
+        services.work_executor(),
+        Arc::clone(&metrics),
+    ));
     let widget = configured_widget(capture, &output);
-    let compiler = configured_compiler(&widget);
+    let compiler = configured_profile_compiler(
+        &widget,
+        Arc::clone(&repository),
+        work_executor,
+        Arc::clone(&metrics),
+    );
     let mut context = compile_context(workspace.path());
+    let resources_before = resource_usage();
+    let pipeline_started = Instant::now();
     let mut run = compiler
         .start_app_run(widget.graph(), &mut context)
         .unwrap();
@@ -1897,6 +2560,8 @@ fn live_viewer_subscription_benchmark(capture: &Path) {
         std::thread::sleep(FRAME_INTERVAL.saturating_sub(frame_elapsed));
     }
     run.wait();
+    let pipeline_wall = pipeline_started.elapsed();
+    let resources = resource_delta(resources_before, resource_usage(), pipeline_wall);
     let mut lane_query_latencies = BTreeMap::new();
     for (name, timings) in timings {
         lane_query_latencies.insert(name, timings.snapshots.lock().unwrap().clone());
@@ -1946,6 +2611,33 @@ fn live_viewer_subscription_benchmark(capture: &Path) {
             p95.as_secs_f64() * 1_000_000.0,
         );
     }
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "schema_version": 1,
+            "capture": capture,
+            "pipeline_wall_ns": duration_ns(pipeline_wall),
+            "resources": resources,
+            "viewer": {
+                "queries": query_count,
+                "query_p50_ns": duration_ns(query_p50),
+                "query_p95_ns": duration_ns(query_p95),
+                "query_p99_ns": duration_ns(query_p99),
+                "input_frames": frame_latencies.len(),
+                "input_frame_p50_ns": duration_ns(frame_p50),
+                "input_frame_p95_ns": duration_ns(frame_p95),
+                "input_frame_p99_ns": duration_ns(frame_p99),
+                "frames_over_8_ms": frames_over_8_ms,
+                "frames_over_16_ms": frames_over_16_ms,
+            },
+            "host_work": metrics.work_tasks.lock().unwrap().clone(),
+            "node_work": metrics.node_work.lock().unwrap().clone(),
+            "artifact_writes": metrics.artifact_writes.lock().unwrap().clone(),
+            "final_publication": metrics.final_publication.lock().unwrap().clone(),
+            "outputs": output_manifest_report(&output_manifest(&output)),
+        }))
+        .expect("responsive runtime profile should serialize")
+    );
 }
 
 fn compiled_graph_matches_current_reference(capture: &Path) {
@@ -2025,6 +2717,8 @@ fn print_usage() {
                                   profile cold construction with native durable storage\n\
            waveform-index-concurrency-profile\n\
                                   sweep native durable builds across worker counts\n\
+           derived-storage-profile\n\
+                                  profile durable derived-cache generation by artifact class\n\
            compiler-runtime-memory time graph processing with derived artifacts in memory\n\
            protocol-selection     validate and compare indexed and packed parallel decoding\n\
            phase-one-runtime      time the phase-one reference pipeline\n\
@@ -2135,6 +2829,7 @@ fn main() {
         "waveform-index-profile" => waveform_index_profile(&capture),
         "waveform-index-persistent-profile" => persistent_waveform_index_profile(&capture),
         "waveform-index-concurrency-profile" => waveform_index_concurrency_profile(&capture),
+        "derived-storage-profile" => derived_storage_profile(&capture),
         "compiler-runtime-memory" => in_memory_compiler_runtime_benchmark(&capture),
         "protocol-selection" => protocol_selection_benchmark(&capture),
         "phase-one-runtime" => phase_one_reference_runtime_benchmark(&capture),

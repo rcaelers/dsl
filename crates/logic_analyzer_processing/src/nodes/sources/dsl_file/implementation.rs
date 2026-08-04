@@ -892,19 +892,22 @@ impl DslFileSource {
 
             let task = self
                 .work_executor
-                .submit_long_running(Box::new(move || {
-                    Self::channel_reader_thread(ChannelReaderConfig {
-                        archive,
-                        blocks,
-                        channel: channel_idx,
-                        header,
-                        sender,
-                        destination,
-                        max_samples,
-                        shutdown,
-                        completed,
-                    });
-                }))
+                .submit_long_running_labeled(
+                    "dsl-source.edge-reader/v1",
+                    Box::new(move || {
+                        Self::channel_reader_thread(ChannelReaderConfig {
+                            archive,
+                            blocks,
+                            channel: channel_idx,
+                            header,
+                            sender,
+                            destination,
+                            max_samples,
+                            shutdown,
+                            completed,
+                        });
+                    }),
+                )
                 .map_err(WorkError::NodeError)?;
 
             reader_tasks.push(task);
@@ -924,19 +927,22 @@ impl DslFileSource {
 
             let task = self
                 .work_executor
-                .submit_long_running(Box::new(move || {
-                    Self::block_reader_thread(BlockReaderGroupConfig {
-                        archive,
-                        blocks,
-                        indexed_blocks,
-                        destinations,
-                        group_label,
-                        header,
-                        max_samples,
-                        shutdown,
-                        completed,
-                    });
-                }))
+                .submit_long_running_labeled(
+                    "dsl-source.block-reader/v1",
+                    Box::new(move || {
+                        Self::block_reader_thread(BlockReaderGroupConfig {
+                            archive,
+                            blocks,
+                            indexed_blocks,
+                            destinations,
+                            group_label,
+                            header,
+                            max_samples,
+                            shutdown,
+                            completed,
+                        });
+                    }),
+                )
                 .map_err(WorkError::NodeError)?;
 
             reader_tasks.push(task);

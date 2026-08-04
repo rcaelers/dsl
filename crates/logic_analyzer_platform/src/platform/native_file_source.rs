@@ -1,5 +1,8 @@
 use std::fs::File;
+#[cfg(not(unix))]
 use std::io::{Read, Seek, SeekFrom};
+#[cfg(unix)]
+use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -119,10 +122,19 @@ impl RandomAccessReader for NativeFileReader {
                 source_length: self.stamp.length,
             });
         }
-        self.file
-            .seek(SeekFrom::Start(offset))
-            .and_then(|_| self.file.read(destination))
-            .map_err(|error| SourceReadError::Io(error.to_string()))
+        #[cfg(unix)]
+        {
+            self.file
+                .read_at(destination, offset)
+                .map_err(|error| SourceReadError::Io(error.to_string()))
+        }
+        #[cfg(not(unix))]
+        {
+            self.file
+                .seek(SeekFrom::Start(offset))
+                .and_then(|_| self.file.read(destination))
+                .map_err(|error| SourceReadError::Io(error.to_string()))
+        }
     }
 }
 

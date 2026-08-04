@@ -1,5 +1,8 @@
 use std::fs::File;
+#[cfg(not(unix))]
 use std::io::{Read, Seek, SeekFrom};
+#[cfg(unix)]
+use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 
 use signal_processing::{
@@ -76,9 +79,40 @@ impl RandomAccessReader for FileRandomAccessReader {
                 source_length: self.length,
             });
         }
-        self.file
-            .seek(SeekFrom::Start(offset))
-            .and_then(|_| self.file.read(destination))
-            .map_err(|error| SourceReadError::Io(error.to_string()))
+        #[cfg(unix)]
+        {
+            self.file
+                .read_at(destination, offset)
+                .map_err(|error| SourceReadError::Io(error.to_string()))
+        }
+        #[cfg(not(unix))]
+        {
+            self.file
+                .seek(SeekFrom::Start(offset))
+                .and_then(|_| self.file.read(destination))
+                .map_err(|error| SourceReadError::Io(error.to_string()))
+        }
+    }
+}
+
+#[cfg(test)]
+mod file_byte_source_tests {
+    use super::*;
+
+    #[test]
+    fn file_reader_supports_cursor_independent_reads() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("capture.bin");
+        std::fs::write(&path, b"0123456789").unwrap();
+        let source = FileByteSource::open(&path).unwrap();
+        let mut reader = source.open_reader().unwrap();
+        let mut later = [0_u8; 3];
+        let mut earlier = [0_u8; 2];
+
+        reader.read_exact_at(6, &mut later).unwrap();
+        reader.read_exact_at(1, &mut earlier).unwrap();
+
+        assert_eq!(&later, b"678");
+        assert_eq!(&earlier, b"12");
     }
 }

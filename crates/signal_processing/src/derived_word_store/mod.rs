@@ -150,8 +150,8 @@
 //!
 //! ## Block encoding
 //!
-//! Native stores use append-only, versioned blocks. The default block configuration is centralized
-//! in `BlockCodecConfig`:
+//! Stores use append-only, versioned blocks grouped into bounded immutable segment artifacts. The
+//! default block configuration is centralized in `BlockCodecConfig`:
 //!
 //! | Setting | Default |
 //! | --- | ---: |
@@ -216,7 +216,7 @@
 //! 3. dispatches complete builders to the configured executor, where each task encodes one block and
 //!    builds its bounded presence summaries;
 //! 4. accepts prepared blocks in any completion order while retaining them by sequence number;
-//! 5. writes every contiguous prepared block through the sole file owner;
+//! 5. appends every contiguous prepared block to the sole writer's active segment;
 //! 6. publishes directory and presence metadata in sequence order;
 //! 7. increments the store generation and requests a repaint.
 //!
@@ -228,9 +228,13 @@
 //! waits for every outstanding block. This keeps decoder production and block encoding overlapped
 //! without weakening ordered publication or final completeness.
 //!
-//! The active block is exposed through an immutable hot-tail snapshot. Publication is bounded by
-//! `LiveStoreConfig` and defaults to 262,144 words or 50 ms. Dense lanes normally commit a complete
-//! block before either hot-tail threshold, avoiding repeated copies of an ever-growing active block.
+//! A segment is published before another block would take its encoded size beyond 8 MiB; a larger
+//! individual block occupies one segment. Committed blocks in the unpublished segment remain
+//! queryable through a bounded staging map. Publishing the segment releases those staging buffers
+//! for reuse. The active block is exposed through an immutable hot-tail snapshot. Publication is
+//! bounded by `LiveStoreConfig` and defaults to 262,144 words or 50 ms. Dense lanes normally commit
+//! a complete block before either hot-tail threshold, avoiding repeated copies of an ever-growing
+//! active block.
 //! A hot tail is published only when no earlier block is still being prepared, so a live snapshot
 //! never exposes a later range ahead of a missing prefix.
 //! File writes, VLQ encoding, mmap page faults, and block decoding never occur while the
@@ -245,15 +249,15 @@
 //! A persistent cache entry contains:
 //!
 //! ```text
-//! words.dwd     encoded word blocks
-//! words.dwi     block directory and presence index
-//! manifest.dwm  cache identity, sizes, word count, and commit marker
+//! segment-N.dws  ordered encoded word blocks, up to the configured segment target
+//! words.dwi      block-to-segment directory and presence index
+//! manifest.dwm   cache identity, sizes, word count, and commit marker
 //! ```
 //!
 //! The manifest is published last. Discovery validates the manifest, cache key, index size,
-//! directory, and counts without opening every data block on the UI thread. Each block's presence,
-//! length, header, and checksum are validated lazily when a bounded query first reads it. Completed
-//! data is immutable through the repository contract.
+//! directory, and counts without opening every segment on the UI thread. Each block's segment
+//! range, header, and checksum are validated lazily when a bounded query first reads it. Completed
+//! segments are immutable through the repository contract.
 //!
 //! The compiler derives the cache key from source identity and the relevant graph configuration.
 //! When a graph document is opened, valid entries are published as a passive derived-data preview
@@ -298,14 +302,16 @@
 //! ## Correctness invariants
 //!
 //! 1. Directory entries describe complete, checksum-valid blocks only.
-//! 2. Block sequence numbers are contiguous within a store generation.
+//! 2. Block and segment sequence numbers are contiguous within a store generation, and every block
+//!    range is contained by its segment.
 //! 3. Word timestamps are globally nondecreasing.
 //! 4. Concatenating decoded blocks reproduces input order and values exactly.
 //! 5. Explicit durations round-trip exactly.
 //! 6. Presence counts match the committed words represented by the index.
 //! 7. Presence queries do not report an empty bucket that contains a word.
 //! 8. Exact queries return every intersecting word or mark the result incomplete.
-//! 9. Persistent manifests refer only to synchronized data and index files with the same cache key.
+//! 9. Persistent manifests refer only to a complete set of published segments and a synchronized
+//!    index with the same cache key.
 //! 10. Storage failure cannot alter another consumer's word stream.
 //! 11. Derived-lane locks are never held across storage I/O or block decoding.
 //! 12. At most the configured adaptive number of complete blocks are preparing or awaiting ordered
