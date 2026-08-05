@@ -6,10 +6,10 @@ use egui::Pos2;
 
 use node_graph::NodeGraphWidget;
 
-use integration_tests_support::{build_registry, node_builder, node_name};
+use integration_tests_support::{build_registry, node_name, node_semantics};
 
 #[test]
-fn browser_discovers_every_platform_sensitive_node_and_builder() {
+fn browser_discovers_every_platform_sensitive_node_and_semantics() {
     let stable_ids = [
         "org.logicconduit.graph-node.test-live-capture-source/v1",
         "org.logicconduit.graph-node.dsl-file-source/v1",
@@ -28,6 +28,6 @@ fn browser_discovers_every_platform_sensitive_node_and_builder() {
                 .is_some(),
             "missing browser node definition for {name}"
         );
-        let _builder = node_builder(stable_id);
+        let _semantics = node_semantics(stable_id);
     }
 }

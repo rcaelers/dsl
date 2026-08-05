@@ -7,9 +7,9 @@ namespaces. `logic_analyzer_graph_registry` owns graph-node and payload registra
 validated inventory collection, and the immutable registry snapshot consumed without importing a
 node bundle.
 
-`logic_analyzer_graph_nodes` owns the built-in node definitions, builders, migrations, socket
+`logic_analyzer_graph_nodes` owns the built-in node definitions, capabilities, migrations, socket
 types, payload presentations, and inventory submissions. `logic_analyzer_graph_compiler` owns
-document semantics and lowering. Compiler tests inject local runtime builders directly;
+document semantics and lowering. Compiler tests inject local capability overrides directly;
 full built-in-node and compiler composition belongs to the top-level integration-test package.
 `logic_analyzer_capture_export` owns native streaming capture export without depending on a graph
 crate. `logic_analyzer_test_support` owns deterministic capture providers shared by cross-crate
@@ -122,7 +122,7 @@ Node-supplied descriptions and host-resolved results remain distinct:
 | `CapturePresentation` | `DiscoveredCapturePresentation` |
 | `DecoderTableColumnDescriptor` | UI-owned decoder-table source |
 | `LanePresentationDescriptor` | UI-owned viewer lane group |
-| `RuntimeBuilder` | `ProcessingNode` materializer handle |
+| `RuntimeMaterializer` | `ProcessingNode` materializer handle |
 | `LiveCaptureFeature` | `DiscoveredLiveCaptureFeature` |
 
 ### Built-in graph nodes
@@ -276,10 +276,11 @@ at whole implementation-module and linker-composition boundaries.
 
 ## Lowering and materialization
 
-Every executable node feature submits its `GraphNodeRegistration` and feature-local
-`RuntimeBuilder` through `inventory`, using its stable graph-node ID as the host-composition
-identity. `logic_analyzer_graph_registry` validates those submissions and constructs the shared
-immutable registry without importing a built-in node bundle or maintaining a hand-written catalog.
+Every executable node feature submits its `GraphNodeRegistration` with separate semantics,
+materialization, and optional feature capabilities through `inventory`, using its stable graph-node
+ID as the host-composition identity. `logic_analyzer_graph_registry` validates those submissions
+and constructs the shared immutable registry without importing a built-in node bundle or
+maintaining a hand-written catalog.
 
 `PortKind` is an open, `TypeId`-backed payload identity (`PortKind::of::<T: PortValue>()`,
 [port.rs](../../crates/logic_analyzer_graph_capabilities/src/node_support/port.rs)) — the compiler-layer

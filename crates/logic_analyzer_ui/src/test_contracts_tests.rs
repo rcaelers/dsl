@@ -1,12 +1,16 @@
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{
+    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{
-    DefaultLanePresentationDescriptor, LaneBadgeDescriptor, PortKind,
+    DefaultLanePresentationDescriptor, LaneBadgeDescriptor, NodeBuildContext, PortKind,
+    ResolvedInputs,
 };
 use logic_analyzer_graph_registry::{
     GraphNodeRegistration, PayloadRegistration, graph_node_registrations,
 };
 use node_graph::{AnySocket, InputDef, NodeDef, NodeTypeRegistry, OutputDef, Socket};
 use signal_derived::Word;
+use signal_runtime::ProcessNode;
 
 pub(crate) const WORD_PRODUCER_NAME: &str = "UI Test Word Producer";
 
@@ -39,7 +43,7 @@ impl NodeDef for WordProducerDefinition {
 #[derive(Default)]
 struct WordProducerBuilder;
 
-impl RuntimeBuilder for WordProducerBuilder {
+impl GraphNodeSemantics for WordProducerBuilder {
     fn accepted_kinds(&self, _socket: &Socket, _state: &serde_json::Value) -> Vec<PortKind> {
         Vec::new()
     }
@@ -67,6 +71,20 @@ impl RuntimeBuilder for WordProducerBuilder {
         (kind == PortKind::of::<Word>()).then(|| "words".to_owned())
     }
 }
+
+impl RuntimeMaterializer for WordProducerBuilder {
+    fn build(
+        &self,
+        _name: &str,
+        _state: &serde_json::Value,
+        _resolved: &ResolvedInputs,
+        _context: &mut dyn NodeBuildContext,
+    ) -> Result<Box<dyn ProcessNode>, String> {
+        Err("UI test producer is graph-only".to_owned())
+    }
+}
+
+impl GraphNodePresentation for WordProducerBuilder {}
 
 struct LegacyViewerDefinition;
 
@@ -102,9 +120,14 @@ fn word_presentation() -> DefaultLanePresentationDescriptor {
 }
 
 inventory::submit! {
-    GraphNodeRegistration::runnable::<WordProducerDefinition, WordProducerBuilder>(
+    GraphNodeRegistration::capable::<
+        WordProducerDefinition,
+        WordProducerBuilder,
+        WordProducerBuilder,
+    >(
         "org.logicconduit.ui-test.word-producer/v1",
     )
+    .with_presentation::<WordProducerBuilder>()
 }
 
 inventory::submit! {

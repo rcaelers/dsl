@@ -151,6 +151,51 @@ fn compiler_synthesizes_only_application_neutral_collectors() {
 }
 
 #[test]
+fn lowering_consumes_graph_semantics_instead_of_runtime_builders() {
+    let graph = implementation_source(include_str!("graph.rs"));
+    assert!(!graph.contains("RuntimeBuilder"));
+    let lowering = graph
+        .split_once("fn with_output_collectors")
+        .expect("output collector lowering")
+        .1;
+    assert!(lowering.contains("registry.semantics("));
+}
+
+#[test]
+fn capture_discovery_consumes_explicit_capture_capabilities() {
+    let graph = include_str!("graph.rs");
+
+    assert!(graph.contains("builders.capture_source("));
+    assert!(graph.contains("builders.live_capture("));
+    assert!(!graph.contains("builder.capture_presentation("));
+    assert!(!graph.contains("builder.capture_cache_identity("));
+    assert!(!graph.contains("builder.live_capture_feature("));
+    assert!(!graph.contains("builder.trigger_configuration("));
+    assert!(!graph.contains("builder.apply_live_capture_edit("));
+}
+
+#[test]
+fn presentation_and_timeline_consumers_use_their_explicit_capabilities() {
+    let graph = include_str!("graph.rs");
+
+    assert!(graph.contains("registry.presentation("));
+    assert!(graph.contains("builders.timeline("));
+    assert!(!graph.contains("registry.get("));
+    assert!(!graph.contains(".get(node.def_name())"));
+    assert!(!graph.contains("builders.get("));
+    assert!(!graph.contains("builder.timeline_markers("));
+}
+
+#[test]
+fn lowerer_accepts_host_capability_bundles_at_composition() {
+    let lowerer = include_str!("graph_lowerer.rs");
+
+    assert!(lowerer.contains("GraphNodeCapabilityOverride"));
+    assert!(lowerer.contains("with_capability_overrides"));
+    assert!(lowerer.contains("with_capability_overrides_and_infrastructure"));
+}
+
+#[test]
 fn compiler_returns_neutral_sampling_and_table_plans() {
     let implementation = implementation_source(include_str!("graph.rs"));
     assert!(

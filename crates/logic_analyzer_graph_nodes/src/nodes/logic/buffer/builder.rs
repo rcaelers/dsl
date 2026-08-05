@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
@@ -33,7 +33,7 @@ fn selected_kind(state: &Value) -> PortKind {
 #[derive(Default)]
 pub(crate) struct BufferBuilder;
 
-impl RuntimeBuilder for BufferBuilder {
+impl GraphNodeSemantics for BufferBuilder {
     fn accepted_kinds(&self, _socket: &Socket, state: &Value) -> Vec<PortKind> {
         vec![selected_kind(state)]
     }
@@ -51,6 +51,9 @@ impl RuntimeBuilder for BufferBuilder {
             .ok()
             .map(|s| s.capacity.value.max(1) as usize)
     }
+}
+
+impl RuntimeMaterializer for BufferBuilder {
     fn build(
         &self,
         name: &str,

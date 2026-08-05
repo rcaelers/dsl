@@ -2,7 +2,9 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{
+    GraphNodeSemantics, RuntimeMaterializer, TimelineFeature,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, TimelineMarkerDescriptor, TimelineMarkerEdit,
     TimelineMarkerReference, TimelineMarkerReferenceBindingDescriptor,
@@ -28,7 +30,7 @@ pub(crate) fn register_timeline_marker_type() {
 #[derive(Default)]
 pub(crate) struct TimelineMarkerBuilder;
 
-impl RuntimeBuilder for TimelineMarkerBuilder {
+impl GraphNodeSemantics for TimelineMarkerBuilder {
     fn is_source(&self) -> bool {
         true
     }
@@ -52,7 +54,24 @@ impl RuntimeBuilder for TimelineMarkerBuilder {
     fn output_port(&self, _socket: &Socket, _: &Value, _: PortKind) -> Option<String> {
         Some("marker".into())
     }
+}
 
+impl RuntimeMaterializer for TimelineMarkerBuilder {
+    fn build(
+        &self,
+        name: &str,
+        state: &Value,
+        _resolved: &ResolvedInputs,
+        _ctx: &mut dyn NodeBuildContext,
+    ) -> Result<Box<dyn ProcessNode>, String> {
+        let state: super::definition::TimelineMarkerState = parse_state(state)?;
+        Ok(Box::new(
+            TimelineMarkerSource::new(state.timestamp.value_ns).with_name(name),
+        ))
+    }
+}
+
+impl TimelineFeature for TimelineMarkerBuilder {
     fn timeline_markers(&self, state: &Value) -> Result<Vec<TimelineMarkerDescriptor>, String> {
         let state: super::definition::TimelineMarkerState = parse_state(state)?;
         Ok(vec![TimelineMarkerDescriptor::new(
@@ -80,25 +99,12 @@ impl RuntimeBuilder for TimelineMarkerBuilder {
             }
         }
     }
-
-    fn build(
-        &self,
-        name: &str,
-        state: &Value,
-        _resolved: &ResolvedInputs,
-        _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::TimelineMarkerState = parse_state(state)?;
-        Ok(Box::new(
-            TimelineMarkerSource::new(state.timestamp.value_ns).with_name(name),
-        ))
-    }
 }
 
 #[derive(Default)]
 pub(crate) struct CursorMarkerBuilder;
 
-impl RuntimeBuilder for CursorMarkerBuilder {
+impl GraphNodeSemantics for CursorMarkerBuilder {
     fn is_source(&self) -> bool {
         true
     }
@@ -122,7 +128,34 @@ impl RuntimeBuilder for CursorMarkerBuilder {
     fn output_port(&self, _socket: &Socket, _: &Value, _: PortKind) -> Option<String> {
         Some("marker".into())
     }
+}
 
+impl RuntimeMaterializer for CursorMarkerBuilder {
+    fn build(
+        &self,
+        name: &str,
+        state: &Value,
+        _resolved: &ResolvedInputs,
+        ctx: &mut dyn NodeBuildContext,
+    ) -> Result<Box<dyn ProcessNode>, String> {
+        let state: super::definition::CursorMarkerState = parse_state(state)?;
+        let number = state.selected_cursor().ok_or_else(|| {
+            "no cursor is available; add a cursor in the logic analyzer view".to_owned()
+        })?;
+        let marker = ctx
+            .timeline_marker(TimelineMarkerReference::Cursor { number })
+            .ok_or_else(|| {
+                format!(
+                    "cursor {number} is not available; add that cursor in the logic analyzer view"
+                )
+            })?;
+        Ok(Box::new(
+            TimelineMarkerSource::new(marker.timestamp_ns).with_name(name),
+        ))
+    }
+}
+
+impl TimelineFeature for CursorMarkerBuilder {
     fn timeline_marker_reference_bindings(
         &self,
         state: &Value,
@@ -177,35 +210,12 @@ impl RuntimeBuilder for CursorMarkerBuilder {
             .map(Some)
             .map_err(|error| error.to_string())
     }
-
-    fn build(
-        &self,
-        name: &str,
-        state: &Value,
-        _resolved: &ResolvedInputs,
-        ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::CursorMarkerState = parse_state(state)?;
-        let number = state.selected_cursor().ok_or_else(|| {
-            "no cursor is available; add a cursor in the logic analyzer view".to_owned()
-        })?;
-        let marker = ctx
-            .timeline_marker(TimelineMarkerReference::Cursor { number })
-            .ok_or_else(|| {
-                format!(
-                    "cursor {number} is not available; add that cursor in the logic analyzer view"
-                )
-            })?;
-        Ok(Box::new(
-            TimelineMarkerSource::new(marker.timestamp_ns).with_name(name),
-        ))
-    }
 }
 
 #[derive(Default)]
 pub(crate) struct MarkerToTriggerBuilder;
 
-impl RuntimeBuilder for MarkerToTriggerBuilder {
+impl GraphNodeSemantics for MarkerToTriggerBuilder {
     fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
         vec![marker_kind()]
     }
@@ -221,7 +231,9 @@ impl RuntimeBuilder for MarkerToTriggerBuilder {
     fn output_port(&self, _socket: &Socket, _: &Value, _: PortKind) -> Option<String> {
         Some("trigger".into())
     }
+}
 
+impl RuntimeMaterializer for MarkerToTriggerBuilder {
     fn build(
         &self,
         name: &str,
@@ -236,7 +248,7 @@ impl RuntimeBuilder for MarkerToTriggerBuilder {
 #[derive(Default)]
 pub(crate) struct MarkerRelationBuilder;
 
-impl RuntimeBuilder for MarkerRelationBuilder {
+impl GraphNodeSemantics for MarkerRelationBuilder {
     fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
         vec![marker_kind()]
     }
@@ -252,7 +264,9 @@ impl RuntimeBuilder for MarkerRelationBuilder {
     fn output_port(&self, _socket: &Socket, _: &Value, _: PortKind) -> Option<String> {
         Some("signal".into())
     }
+}
 
+impl RuntimeMaterializer for MarkerRelationBuilder {
     fn build(
         &self,
         name: &str,
@@ -274,7 +288,7 @@ impl RuntimeBuilder for MarkerRelationBuilder {
 #[derive(Default)]
 pub(crate) struct MarkerWindowBuilder;
 
-impl RuntimeBuilder for MarkerWindowBuilder {
+impl GraphNodeSemantics for MarkerWindowBuilder {
     fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
         vec![marker_kind()]
     }
@@ -294,7 +308,9 @@ impl RuntimeBuilder for MarkerWindowBuilder {
     fn output_port(&self, _socket: &Socket, _: &Value, _: PortKind) -> Option<String> {
         Some("signal".into())
     }
+}
 
+impl RuntimeMaterializer for MarkerWindowBuilder {
     fn build(
         &self,
         name: &str,
@@ -350,16 +366,16 @@ mod builder_tests {
             "name": { "value": "Start" },
             "timestamp": { "value_ns": 10 }
         });
-        let edited = TimelineMarkerBuilder
-            .apply_timeline_marker_edit(
-                &state,
-                &TimelineMarkerEdit::SetTimestamp {
-                    id: "marker".into(),
-                    timestamp_ns: 25,
-                },
-            )
-            .unwrap()
-            .unwrap();
+        let edited = TimelineFeature::apply_timeline_marker_edit(
+            &TimelineMarkerBuilder,
+            &state,
+            &TimelineMarkerEdit::SetTimestamp {
+                id: "marker".into(),
+                timestamp_ns: 25,
+            },
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(edited["timestamp"]["value_ns"], 25);
         assert_eq!(edited["name"]["value"], "Start");
     }
@@ -405,16 +421,16 @@ mod builder_tests {
             "Cursor 3",
             123,
         )];
-        let edited = CursorMarkerBuilder
-            .apply_timeline_marker_reference_binding_edit(
-                &state,
-                &TimelineMarkerReferenceBindingEdit::Synchronize {
-                    id: "cursor".into(),
-                    choices,
-                },
-            )
-            .unwrap()
-            .unwrap();
+        let edited = TimelineFeature::apply_timeline_marker_reference_binding_edit(
+            &CursorMarkerBuilder,
+            &state,
+            &TimelineMarkerReferenceBindingEdit::Synchronize {
+                id: "cursor".into(),
+                choices,
+            },
+        )
+        .unwrap()
+        .unwrap();
 
         assert_eq!(edited["cursor"]["selected"], 3);
         assert_eq!(edited["cursor"]["timestamp"]["value_ns"], 123);

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
 use logic_analyzer_graph_capabilities::node_support::{NodeBuildContext, PortKind, ResolvedInputs};
 use node_graph::api::Socket;
 use signal_runtime::ProcessNode;
@@ -48,7 +48,7 @@ impl DataCollectorBuilder {
     }
 }
 
-impl RuntimeBuilder for DataCollectorBuilder {
+impl GraphNodeSemantics for DataCollectorBuilder {
     fn is_sink(&self) -> bool {
         true
     }
@@ -94,7 +94,9 @@ impl RuntimeBuilder for DataCollectorBuilder {
     fn input_required(&self, _socket: &Socket, _state: &Value) -> bool {
         false
     }
+}
 
+impl RuntimeMaterializer for DataCollectorBuilder {
     fn build(
         &self,
         _name: &str,

@@ -1,6 +1,7 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
         super::definition::TgckRecorder,
+        super::builder::TgckRecorderBuilder,
         super::builder::TgckRecorderBuilder,
     >("org.logicconduit.graph-node.sinks.tgck-recorder/v1").requiring_payloads(&[
         "org.logicconduit.digital-sample/v1",

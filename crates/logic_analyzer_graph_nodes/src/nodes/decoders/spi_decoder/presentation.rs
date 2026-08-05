@@ -3,13 +3,12 @@
 use std::fmt::Write;
 use std::sync::Arc;
 
-use logic_analyzer_graph_capabilities::node::{
-    ProtocolPacketDisplay, ProtocolPacketPresentationRegistration,
-};
+use logic_analyzer_graph_capabilities::node::ProtocolPacketDisplay;
 use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableCellMode, DecoderTableColumnDescriptor, LaneBadgeDescriptor,
     LanePresentationDescriptor,
 };
+use logic_analyzer_graph_registry::ProtocolPacketPresentationRegistration;
 use logic_analyzer_processing::nodes::decoders::spi_decoder::SPI_TRANSACTION_PROTOCOL_ID;
 use logic_analyzer_viewer::{
     AnnotationVisual, DefaultViewerLaneRenderer, DerivedLaneId, ViewerLaneGroup,

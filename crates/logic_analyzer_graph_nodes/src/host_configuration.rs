@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, RwLock};
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride;
+use logic_analyzer_graph_capabilities::node::GraphNodeCapabilityOverride;
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     SigrokCatalogSnapshot, SigrokDecoderConfig, SigrokDecoderDescriptor,
 };
@@ -97,55 +97,55 @@ fn sigrok_file_source_factory_slot() -> &'static RwLock<Arc<dyn SigrokFileSource
 }
 
 /// Returns the U3Pro16 builder override for one host-selected source factory.
-pub fn u3pro16_runtime_builder_override(
+pub fn u3pro16_capability_override(
     source_factory: Arc<dyn DsLogicU3Pro16SourceFactory>,
-) -> RuntimeBuilderOverride {
-    crate::nodes::sources::dslogic_u3pro16::builder::runtime_builder_override(source_factory)
+) -> GraphNodeCapabilityOverride {
+    crate::nodes::sources::dslogic_u3pro16::builder::capability_override(source_factory)
 }
 
 /// Returns the DSL file-source override for one host acquisition factory.
 ///
 /// # Parameters
 /// - `source_factory`: Input consumed by this operation.
-pub fn dsl_file_source_runtime_builder_override(
+pub fn dsl_file_source_capability_override(
     source_factory: Arc<dyn DslFileSourceFactory>,
-) -> RuntimeBuilderOverride {
-    crate::nodes::sources::file_source::builder::runtime_builder_override(source_factory)
+) -> GraphNodeCapabilityOverride {
+    crate::nodes::sources::file_source::builder::capability_override(source_factory)
 }
 
 /// Returns the Sigrok file-source override for one host acquisition factory.
-pub fn sigrok_file_source_runtime_builder_override(
+pub fn sigrok_file_source_capability_override(
     source_factory: Arc<dyn SigrokFileSourceFactory>,
-) -> RuntimeBuilderOverride {
-    crate::nodes::sources::sigrok_file_source::builder::runtime_builder_override(source_factory)
+) -> GraphNodeCapabilityOverride {
+    crate::nodes::sources::sigrok_file_source::builder::capability_override(source_factory)
 }
 
 /// Returns the binary-file sink override for one host destination factory.
-pub fn binary_file_writer_runtime_builder_override(
+pub fn binary_file_writer_capability_override(
     writer_factory: Arc<dyn BinaryFileWriterFactory>,
-) -> RuntimeBuilderOverride {
-    crate::nodes::sinks::file_writer::builder::runtime_builder_override(writer_factory)
+) -> GraphNodeCapabilityOverride {
+    crate::nodes::sinks::file_writer::builder::capability_override(writer_factory)
 }
 
 /// Returns the CSV sink override for one host destination factory.
-pub fn csv_word_writer_runtime_builder_override(
+pub fn csv_word_writer_capability_override(
     writer_factory: Arc<dyn CsvWordWriterFactory>,
-) -> RuntimeBuilderOverride {
-    crate::nodes::sinks::csv_writer::builder::runtime_builder_override(writer_factory)
+) -> GraphNodeCapabilityOverride {
+    crate::nodes::sinks::csv_writer::builder::capability_override(writer_factory)
 }
 
 /// Returns the text-file sink override for one host destination factory.
-pub fn text_file_writer_runtime_builder_override(
+pub fn text_file_writer_capability_override(
     writer_factory: Arc<dyn TextFileWriterFactory>,
-) -> RuntimeBuilderOverride {
-    crate::nodes::sinks::text_file_writer::builder::runtime_builder_override(writer_factory)
+) -> GraphNodeCapabilityOverride {
+    crate::nodes::sinks::text_file_writer::builder::capability_override(writer_factory)
 }
 
 /// Returns the Sigrok decoder builder override for one host runtime.
-pub fn sigrok_decoder_runtime_builder_override(
+pub fn sigrok_decoder_capability_override(
     runtime: Arc<dyn SigrokDecoderRuntime>,
-) -> RuntimeBuilderOverride {
-    crate::nodes::decoders::sigrok_decoder::builder::runtime_builder_override(runtime)
+) -> GraphNodeCapabilityOverride {
+    crate::nodes::decoders::sigrok_decoder::builder::capability_override(runtime)
 }
 
 /// Builds graph-node templates from portable Sigrok discovery metadata.

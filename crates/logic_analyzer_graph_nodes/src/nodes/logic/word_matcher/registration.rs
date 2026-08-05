@@ -1,6 +1,7 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
         super::definition::WordMatcher,
+        super::builder::WordMatcherBuilder,
         super::builder::WordMatcherBuilder,
     >("org.logicconduit.graph-node.logic.word-matcher/v1").requiring_payloads(&[
         "org.logicconduit.digital-sample/v1",

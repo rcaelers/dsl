@@ -2,7 +2,9 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{
+    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableColumnDescriptor, NodeBuildContext, PortKind, ResolvedInputs,
     RetainedWordSamplingSource, SamplingOverlayDescriptor, parse_state,
@@ -48,49 +50,10 @@ impl ParallelDecoderBuilder {
     }
 }
 
-impl RuntimeBuilder for ParallelDecoderBuilder {
+impl GraphNodeSemantics for ParallelDecoderBuilder {
     fn execution_state(&self, state: &Value) -> Value {
         crate::presentation::without_display_format(state)
     }
-
-    fn decoder_table_column(
-        &self,
-        socket: &Socket,
-        _state: &Value,
-    ) -> Option<DecoderTableColumnDescriptor> {
-        super::presentation::parallel_table_column(socket.def_index)
-    }
-
-    fn sampling_overlay(&self, state: &Value) -> Option<SamplingOverlayDescriptor> {
-        let state = Self::parsed(state).ok()?;
-        match state.sample_on.selected() {
-            "Rising (SDR)" | "Falling (SDR)" | "Both (DDR)" => {}
-            _ => return None,
-        }
-        let retained_word_source = match (state.word_size.value, state.sample_on.selected()) {
-            (1, "Rising (SDR)") => Some(RetainedWordSamplingSource {
-                output: 0,
-                clock_high: true,
-            }),
-            (1, "Falling (SDR)") => Some(RetainedWordSamplingSource {
-                output: 0,
-                clock_high: false,
-            }),
-            _ => None,
-        };
-        Some(SamplingOverlayDescriptor {
-            clock_input: 0,
-            sampled_input_groups: vec![1],
-            retained_word_source,
-        })
-    }
-
-    fn word_display_format(&self, _socket: &Socket, state: &Value) -> Option<String> {
-        Self::parsed(state)
-            .ok()
-            .map(|state| state.display_format.selected().to_owned())
-    }
-
     fn accepted_kinds(&self, socket: &Socket, _state: &Value) -> Vec<PortKind> {
         match socket.def_index {
             3 => vec![PortKind::of::<Sample>()],
@@ -131,7 +94,9 @@ impl RuntimeBuilder for ParallelDecoderBuilder {
             _ => true,
         }
     }
+}
 
+impl RuntimeMaterializer for ParallelDecoderBuilder {
     fn build(
         &self,
         name: &str,
@@ -171,6 +136,46 @@ impl RuntimeBuilder for ParallelDecoderBuilder {
             decoder = decoder.with_sampling_points(points);
         }
         Ok(Box::new(decoder))
+    }
+}
+
+impl GraphNodePresentation for ParallelDecoderBuilder {
+    fn decoder_table_column(
+        &self,
+        socket: &Socket,
+        _state: &Value,
+    ) -> Option<DecoderTableColumnDescriptor> {
+        super::presentation::parallel_table_column(socket.def_index)
+    }
+
+    fn sampling_overlay(&self, state: &Value) -> Option<SamplingOverlayDescriptor> {
+        let state = Self::parsed(state).ok()?;
+        match state.sample_on.selected() {
+            "Rising (SDR)" | "Falling (SDR)" | "Both (DDR)" => {}
+            _ => return None,
+        }
+        let retained_word_source = match (state.word_size.value, state.sample_on.selected()) {
+            (1, "Rising (SDR)") => Some(RetainedWordSamplingSource {
+                output: 0,
+                clock_high: true,
+            }),
+            (1, "Falling (SDR)") => Some(RetainedWordSamplingSource {
+                output: 0,
+                clock_high: false,
+            }),
+            _ => None,
+        };
+        Some(SamplingOverlayDescriptor {
+            clock_input: 0,
+            sampled_input_groups: vec![1],
+            retained_word_source,
+        })
+    }
+
+    fn word_display_format(&self, _socket: &Socket, state: &Value) -> Option<String> {
+        Self::parsed(state)
+            .ok()
+            .map(|state| state.display_format.selected().to_owned())
     }
 }
 

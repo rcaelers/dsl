@@ -1,6 +1,9 @@
 use std::collections::HashSet;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{
+    CaptureSourceFeature, GraphNodePresentation, GraphNodeSemantics, LiveCaptureFeatureProvider,
+    RuntimeMaterializer, TimelineFeature,
+};
 use node_graph::api::{NodeDef, NodeTypeRegistry};
 
 /// Inventory submission describing one graph-node feature.
@@ -11,23 +14,34 @@ pub struct GraphNodeRegistration {
     stable_id: &'static str,
     node_name: fn() -> &'static str,
     register_node: fn(&mut NodeTypeRegistry),
-    create_builder: Option<fn() -> Box<dyn RuntimeBuilder>>,
+    create_semantics: Option<fn() -> Box<dyn GraphNodeSemantics>>,
+    create_materializer: Option<fn() -> Box<dyn RuntimeMaterializer>>,
+    create_capture_source: Option<fn() -> Box<dyn CaptureSourceFeature>>,
+    create_live_capture: Option<fn() -> Box<dyn LiveCaptureFeatureProvider>>,
+    create_presentation: Option<fn() -> Box<dyn GraphNodePresentation>>,
+    create_timeline: Option<fn() -> Box<dyn TimelineFeature>>,
     required_payloads: &'static [&'static str],
     runtime_setup: &'static [fn()],
 }
 
 impl GraphNodeRegistration {
-    /// Registers a node definition with a default runtime builder.
-    pub const fn runnable<N, B>(stable_id: &'static str) -> Self
+    /// Registers a node definition with separate semantic and materialization capabilities.
+    pub const fn capable<N, S, M>(stable_id: &'static str) -> Self
     where
         N: NodeDef,
-        B: RuntimeBuilder + Default + 'static,
+        S: GraphNodeSemantics + Default + 'static,
+        M: RuntimeMaterializer + Default + 'static,
     {
         Self {
             stable_id,
             node_name: node_name::<N>,
             register_node: register_node::<N>,
-            create_builder: Some(create_builder::<B>),
+            create_semantics: Some(create_semantics::<S>),
+            create_materializer: Some(create_materializer::<M>),
+            create_capture_source: None,
+            create_live_capture: None,
+            create_presentation: None,
+            create_timeline: None,
             required_payloads: &[],
             runtime_setup: &[],
         }
@@ -39,7 +53,12 @@ impl GraphNodeRegistration {
             stable_id,
             node_name: node_name::<N>,
             register_node: register_node::<N>,
-            create_builder: None,
+            create_semantics: None,
+            create_materializer: None,
+            create_capture_source: None,
+            create_live_capture: None,
+            create_presentation: None,
+            create_timeline: None,
             required_payloads: &[],
             runtime_setup: &[],
         }
@@ -51,9 +70,45 @@ impl GraphNodeRegistration {
         self
     }
 
-    /// Adds setup functions that run before a runtime builder is created.
+    /// Adds setup functions that run before runtime capabilities are created.
     pub const fn with_runtime_setup(mut self, runtime_setup: &'static [fn()]) -> Self {
         self.runtime_setup = runtime_setup;
+        self
+    }
+
+    /// Adds capture presentation and cache behavior to this registration.
+    pub const fn with_capture_source<C>(mut self) -> Self
+    where
+        C: CaptureSourceFeature + Default + 'static,
+    {
+        self.create_capture_source = Some(create_capture_source::<C>);
+        self
+    }
+
+    /// Adds live-acquisition discovery and editing behavior to this registration.
+    pub const fn with_live_capture<L>(mut self) -> Self
+    where
+        L: LiveCaptureFeatureProvider + Default + 'static,
+    {
+        self.create_live_capture = Some(create_live_capture::<L>);
+        self
+    }
+
+    /// Adds viewer and result-presentation metadata to this registration.
+    pub const fn with_presentation<P>(mut self) -> Self
+    where
+        P: GraphNodePresentation + Default + 'static,
+    {
+        self.create_presentation = Some(create_presentation::<P>);
+        self
+    }
+
+    /// Adds timeline metadata and editing behavior to this registration.
+    pub const fn with_timeline<T>(mut self) -> Self
+    where
+        T: TimelineFeature + Default + 'static,
+    {
+        self.create_timeline = Some(create_timeline::<T>);
         self
     }
 
@@ -84,9 +139,40 @@ impl GraphNodeRegistration {
         (self.register_node)(registry);
     }
 
-    /// Creates the feature's runtime builder, if it has one.
-    pub fn builder(&self) -> Option<Box<dyn RuntimeBuilder>> {
-        self.create_builder.map(|create_builder| create_builder())
+    /// Creates the feature's explicit graph semantics, when registered separately.
+    pub fn semantics(&self) -> Option<Box<dyn GraphNodeSemantics>> {
+        self.create_semantics
+            .map(|create_semantics| create_semantics())
+    }
+
+    /// Creates the feature's explicit runtime materializer, when registered separately.
+    pub fn materializer(&self) -> Option<Box<dyn RuntimeMaterializer>> {
+        self.create_materializer
+            .map(|create_materializer| create_materializer())
+    }
+
+    /// Creates the feature's capture-source capability, when registered.
+    pub fn capture_source(&self) -> Option<Box<dyn CaptureSourceFeature>> {
+        self.create_capture_source
+            .map(|create_capture_source| create_capture_source())
+    }
+
+    /// Creates the feature's live-capture capability, when registered.
+    pub fn live_capture(&self) -> Option<Box<dyn LiveCaptureFeatureProvider>> {
+        self.create_live_capture
+            .map(|create_live_capture| create_live_capture())
+    }
+
+    /// Creates the feature's presentation capability, when registered.
+    pub fn presentation(&self) -> Option<Box<dyn GraphNodePresentation>> {
+        self.create_presentation
+            .map(|create_presentation| create_presentation())
+    }
+
+    /// Creates the feature's timeline capability, when registered.
+    pub fn timeline(&self) -> Option<Box<dyn TimelineFeature>> {
+        self.create_timeline
+            .map(|create_timeline| create_timeline())
     }
 }
 
@@ -98,8 +184,32 @@ fn register_node<N: NodeDef>(registry: &mut NodeTypeRegistry) {
     registry.register::<N>();
 }
 
-fn create_builder<B: RuntimeBuilder + Default + 'static>() -> Box<dyn RuntimeBuilder> {
-    Box::<B>::default()
+fn create_semantics<S: GraphNodeSemantics + Default + 'static>() -> Box<dyn GraphNodeSemantics> {
+    Box::<S>::default()
+}
+
+fn create_materializer<M: RuntimeMaterializer + Default + 'static>() -> Box<dyn RuntimeMaterializer>
+{
+    Box::<M>::default()
+}
+
+fn create_capture_source<C: CaptureSourceFeature + Default + 'static>()
+-> Box<dyn CaptureSourceFeature> {
+    Box::<C>::default()
+}
+
+fn create_live_capture<L: LiveCaptureFeatureProvider + Default + 'static>()
+-> Box<dyn LiveCaptureFeatureProvider> {
+    Box::<L>::default()
+}
+
+fn create_presentation<P: GraphNodePresentation + Default + 'static>()
+-> Box<dyn GraphNodePresentation> {
+    Box::<P>::default()
+}
+
+fn create_timeline<T: TimelineFeature + Default + 'static>() -> Box<dyn TimelineFeature> {
+    Box::<T>::default()
 }
 
 inventory::collect!(GraphNodeRegistration);
@@ -131,6 +241,23 @@ fn validate_graph_node_registrations(registrations: &mut Vec<&GraphNodeRegistrat
             names.insert(registration.name()),
             "duplicate graph-node inventory name '{}'",
             registration.name()
+        );
+        assert!(
+            registration.create_semantics.is_some() == registration.create_materializer.is_some(),
+            "graph-node '{}' must register semantics and materialization together",
+            registration.stable_id()
+        );
+        assert!(
+            registration.create_live_capture.is_none()
+                || registration.create_capture_source.is_some(),
+            "graph-node '{}' registers live capture without capture-source behavior",
+            registration.stable_id()
+        );
+        assert!(
+            registration.create_live_capture.is_none()
+                || registration.create_presentation.is_some(),
+            "graph-node '{}' registers live capture without channel presentation",
+            registration.stable_id()
         );
     }
 }

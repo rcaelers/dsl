@@ -2,12 +2,11 @@
 
 use std::fmt::Write;
 
-use logic_analyzer_graph_capabilities::node::{
-    ProtocolPacketDisplay, ProtocolPacketPresentationRegistration,
-};
+use logic_analyzer_graph_capabilities::node::ProtocolPacketDisplay;
 use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableCellMode, DecoderTableColumnDescriptor,
 };
+use logic_analyzer_graph_registry::ProtocolPacketPresentationRegistration;
 use logic_analyzer_processing::nodes::logic::packet_framer::PACKET_FRAME_PROTOCOL_ID;
 use logic_analyzer_viewer::{DefaultViewerLaneRenderer, ViewerLaneRendererRegistration};
 use signal_derived::{ProtocolPacket, ProtocolValue};
@@ -120,7 +119,7 @@ mod presentation_tests {
         };
 
         assert_eq!(
-            logic_analyzer_graph_capabilities::node::protocol_packet_display(&packet)
+            logic_analyzer_graph_registry::protocol_packet_display(&packet)
                 .unwrap()
                 .label(),
             "[0x12]"

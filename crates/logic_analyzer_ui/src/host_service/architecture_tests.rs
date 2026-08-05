@@ -28,13 +28,14 @@ fn application_orchestration_depends_on_the_ui_owned_host_service() {
 }
 
 #[test]
-fn preferences_use_the_host_directory_capability_on_every_target() {
+fn preferences_use_the_ui_owned_catalog_service_on_every_target() {
     let module = include_str!("../preferences/mod.rs");
     let implementation = include_str!("../preferences/implementation.rs");
 
     assert!(!module.contains("target_arch"));
-    assert!(implementation.contains("&mut dyn HostService"));
-    assert!(implementation.contains("host_service.choose_directory()"));
+    assert!(implementation.contains("&mut dyn NodeCatalogService"));
+    assert!(implementation.contains("catalog.add_directory()"));
+    assert!(!implementation.contains("PathBuf"));
 }
 
 #[test]

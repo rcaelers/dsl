@@ -1,18 +1,24 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
         super::definition::ParallelDecoder,
         super::builder::ParallelDecoderBuilder,
-    >("org.logicconduit.graph-node.decoders.parallel-decoder/v1").requiring_payloads(&[
+        super::builder::ParallelDecoderBuilder,
+    >("org.logicconduit.graph-node.decoders.parallel-decoder/v1")
+    .with_presentation::<super::builder::ParallelDecoderBuilder>()
+    .requiring_payloads(&[
         "org.logicconduit.digital-sample/v1",
         "org.logicconduit.word/v1",
     ])
 }
 
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
         super::compatibility::BinaryDecoder,
         super::builder::ParallelDecoderBuilder,
-    >("org.logicconduit.graph-node.decoders.binary-decoder/v1").requiring_payloads(&[
+        super::builder::ParallelDecoderBuilder,
+    >("org.logicconduit.graph-node.decoders.binary-decoder/v1")
+    .with_presentation::<super::builder::ParallelDecoderBuilder>()
+    .requiring_payloads(&[
         "org.logicconduit.digital-sample/v1",
         "org.logicconduit.word/v1",
     ])

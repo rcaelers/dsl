@@ -2,7 +2,8 @@
 //! input and emits it as a `Pulse` event. A minimal, deliberately small
 //! example exercising every seam an out-of-tree plugin crate touches:
 //! a new runtime payload type ([`PulseWidth`]), a new compiler `PortValue`,
-//! new graph `SocketDef` types, and a matching `RuntimeBuilder`.
+//! new graph `SocketDef` types, and matching graph semantics and runtime
+//! materialization capabilities.
 
 use std::collections::VecDeque;
 
@@ -10,7 +11,7 @@ use egui::Color32;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, PortValue, ResolvedInputs,
 };
@@ -106,7 +107,7 @@ impl NodeDef for PulseMeasure {
 
 #[derive(Default)]
 struct PulseMeasureBuilder;
-impl RuntimeBuilder for PulseMeasureBuilder {
+impl GraphNodeSemantics for PulseMeasureBuilder {
     fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Sample>()]
     }
@@ -119,6 +120,9 @@ impl RuntimeBuilder for PulseMeasureBuilder {
     fn output_port(&self, _: &Socket, _: &Value, _: PortKind) -> Option<String> {
         Some("pulse".into())
     }
+}
+
+impl RuntimeMaterializer for PulseMeasureBuilder {
     fn build(
         &self,
         name: &str,
@@ -135,7 +139,7 @@ fn register_pulse_width_channel() {
 }
 
 inventory::submit! {
-    GraphNodeRegistration::runnable::<PulseMeasure, PulseMeasureBuilder>(
+    GraphNodeRegistration::capable::<PulseMeasure, PulseMeasureBuilder, PulseMeasureBuilder>(
         "org.logicconduit.example.graph-node.pulse-measure/v1",
     )
     .requiring_payloads(&["org.logicconduit.digital-sample/v1"])

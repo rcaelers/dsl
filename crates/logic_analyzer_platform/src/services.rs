@@ -1,8 +1,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use logic_analyzer_graph_capabilities::node::DirectoryNodeCatalog;
-use logic_analyzer_ui::AppServices;
+use logic_analyzer_ui::{AppServices, NodeCatalogService};
 use signal_artifacts::ArtifactRepository;
 use signal_runtime::{WorkExecutor, WorkerExecutionCapability, WorkerOperationExecutor};
 
@@ -13,7 +12,7 @@ use signal_runtime::{WorkExecutor, WorkerExecutionCapability, WorkerOperationExe
 /// through supported owner contracts rather than concrete platform types.
 pub struct PlatformServices {
     ui_services: AppServices,
-    node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
+    node_catalogs: Vec<Box<dyn NodeCatalogService>>,
     artifact_repository: Arc<dyn ArtifactRepository>,
     work_executor: Arc<dyn WorkExecutor>,
     worker_operation_executor: Rc<dyn WorkerOperationExecutor>,
@@ -22,7 +21,7 @@ pub struct PlatformServices {
 impl PlatformServices {
     pub(crate) fn with_ui_services(
         ui_services: AppServices,
-        node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
+        node_catalogs: Vec<Box<dyn NodeCatalogService>>,
         artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
         worker_operation_executor: Rc<dyn WorkerOperationExecutor>,
@@ -45,7 +44,7 @@ impl PlatformServices {
     }
 
     /// Returns the UI services and host-selected dynamic node catalogs.
-    pub fn into_ui_and_node_catalogs(self) -> (AppServices, Vec<Box<dyn DirectoryNodeCatalog>>) {
+    pub fn into_ui_and_node_catalogs(self) -> (AppServices, Vec<Box<dyn NodeCatalogService>>) {
         (self.ui_services, self.node_catalogs)
     }
 

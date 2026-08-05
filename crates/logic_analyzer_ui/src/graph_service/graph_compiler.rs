@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride;
+use logic_analyzer_graph_capabilities::node::GraphNodeCapabilityOverride;
 use logic_analyzer_graph_capabilities::node_support::{
     LiveCaptureEdit, TimelineMarkerEdit, TimelineMarkerReferenceBindingEdit,
 };
@@ -503,7 +503,7 @@ pub(crate) fn graph_service_with_execution(
     runtime_factory: std::sync::Arc<dyn AppManagerFactory>,
     work_executor: std::sync::Arc<dyn WorkExecutor>,
 ) -> Box<dyn GraphService> {
-    graph_service_with_execution_and_builder_overrides(
+    graph_service_with_execution_and_capability_overrides(
         source_preparation_executor,
         runtime_factory,
         work_executor,
@@ -511,14 +511,14 @@ pub(crate) fn graph_service_with_execution(
     )
 }
 
-pub(crate) fn graph_service_with_execution_and_builder_overrides(
+pub(crate) fn graph_service_with_execution_and_capability_overrides(
     source_preparation_executor: Box<dyn SourcePreparationExecutor>,
     runtime_factory: std::sync::Arc<dyn AppManagerFactory>,
     work_executor: std::sync::Arc<dyn WorkExecutor>,
-    builder_overrides: Vec<RuntimeBuilderOverride>,
+    capability_overrides: Vec<GraphNodeCapabilityOverride>,
 ) -> Box<dyn GraphService> {
     Box::new(UiGraphService::new(
-        GraphLowerer::with_builder_overrides(builder_overrides),
+        GraphLowerer::with_capability_overrides(capability_overrides),
         GraphRuntime::with_execution(source_preparation_executor, runtime_factory, work_executor),
     ))
 }

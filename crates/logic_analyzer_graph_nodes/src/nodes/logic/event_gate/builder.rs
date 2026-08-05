@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
@@ -15,7 +15,7 @@ use signal_runtime::ProcessNode;
 #[derive(Default)]
 pub(crate) struct EventGateBuilder;
 
-impl RuntimeBuilder for EventGateBuilder {
+impl GraphNodeSemantics for EventGateBuilder {
     fn accepted_kinds(&self, socket: &Socket, _state: &Value) -> Vec<PortKind> {
         match socket.def_index {
             0 => vec![PortKind::of::<Trigger>()],
@@ -39,7 +39,9 @@ impl RuntimeBuilder for EventGateBuilder {
     fn output_port(&self, _socket: &Socket, _: &Value, _: PortKind) -> Option<String> {
         Some("events".to_owned())
     }
+}
 
+impl RuntimeMaterializer for EventGateBuilder {
     fn build(
         &self,
         name: &str,

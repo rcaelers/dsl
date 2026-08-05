@@ -2,7 +2,9 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{
+    CaptureSourceFeature, GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, CapturePresentationSignal, NodeBuildContext, PortKind, ResolvedInputs,
     parse_state,
@@ -15,7 +17,7 @@ use signal_runtime::ProcessNode;
 #[derive(Default)]
 pub(crate) struct TestCaptureSourceBuilder;
 
-impl RuntimeBuilder for TestCaptureSourceBuilder {
+impl GraphNodeSemantics for TestCaptureSourceBuilder {
     fn is_source(&self) -> bool {
         true
     }
@@ -43,10 +45,12 @@ impl RuntimeBuilder for TestCaptureSourceBuilder {
             .then(|| format!("ch{}", socket.def_index))
     }
 
-    fn viewer_channel_origin(&self, socket: &Socket, _state: &Value) -> Option<usize> {
-        Some(socket.def_index)
+    fn input_required(&self, _socket: &Socket, _state: &Value) -> bool {
+        false
     }
+}
 
+impl CaptureSourceFeature for TestCaptureSourceBuilder {
     fn capture_presentation(&self, _state: &Value) -> Result<Option<CapturePresentation>, String> {
         let channels = SyntheticCaptureSource::preview_channels();
         let signals = (0..=8)
@@ -74,11 +78,15 @@ impl RuntimeBuilder for TestCaptureSourceBuilder {
             duration_us,
         }))
     }
+}
 
-    fn input_required(&self, _socket: &Socket, _state: &Value) -> bool {
-        false
+impl GraphNodePresentation for TestCaptureSourceBuilder {
+    fn viewer_channel_origin(&self, socket: &Socket, _state: &Value) -> Option<usize> {
+        Some(socket.def_index)
     }
+}
 
+impl RuntimeMaterializer for TestCaptureSourceBuilder {
     fn build(
         &self,
         name: &str,

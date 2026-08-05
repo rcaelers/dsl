@@ -7,7 +7,6 @@ use super::contract::{HostService, OpenDialog, SaveDialog};
 struct FakeHostService {
     open_paths: VecDeque<Option<PathBuf>>,
     save_paths: VecDeque<Option<PathBuf>>,
-    directories: VecDeque<Option<PathBuf>>,
     saved_graphs: Vec<(PathBuf, serde_json::Value)>,
 }
 
@@ -18,10 +17,6 @@ impl HostService for FakeHostService {
 
     fn choose_save_file(&mut self, _request: SaveDialog<'_>) -> Option<PathBuf> {
         self.save_paths.pop_front().flatten()
-    }
-
-    fn choose_directory(&mut self) -> Option<PathBuf> {
-        self.directories.pop_front().flatten()
     }
 
     fn load_graph(&mut self, _path: &Path) -> Result<node_graph::GraphState, String> {
@@ -39,7 +34,6 @@ fn fake_host_effects_are_ordered_and_do_not_touch_the_host() {
     let mut host = FakeHostService {
         open_paths: VecDeque::from([Some(PathBuf::from("first.json")), None]),
         save_paths: VecDeque::from([Some(PathBuf::from("saved.json"))]),
-        directories: VecDeque::from([Some(PathBuf::from("decoders"))]),
         ..FakeHostService::default()
     };
 
@@ -53,7 +47,6 @@ fn fake_host_effects_are_ordered_and_do_not_touch_the_host() {
         host.choose_open_file(open),
         Some(PathBuf::from("first.json"))
     );
-    assert_eq!(host.choose_directory(), Some(PathBuf::from("decoders")));
     assert_eq!(
         host.choose_save_file(SaveDialog {
             title: "Save",

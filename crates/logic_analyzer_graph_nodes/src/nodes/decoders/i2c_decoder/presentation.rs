@@ -2,12 +2,11 @@
 
 use std::sync::Arc;
 
-use logic_analyzer_graph_capabilities::node::{
-    ProtocolPacketDisplay, ProtocolPacketPresentationRegistration,
-};
+use logic_analyzer_graph_capabilities::node::ProtocolPacketDisplay;
 use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableCellMode, DecoderTableColumnDescriptor,
 };
+use logic_analyzer_graph_registry::ProtocolPacketPresentationRegistration;
 use logic_analyzer_processing::nodes::decoders::i2c_decoder::I2C_PROTOCOL_ID;
 use logic_analyzer_viewer::{DefaultViewerLaneRenderer, ViewerLaneRendererRegistration};
 use signal_derived::{ProtocolPacket, ProtocolValue};

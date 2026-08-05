@@ -5,7 +5,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use input_bindings::{InputBindings, PointerButtonName, PointerGesture, Trigger};
-use logic_analyzer_graph_capabilities::node::DirectoryNodeCatalog;
 use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentationSignal, LiveCaptureEdit, TimelineMarkerEdit as GraphTimelineMarkerEdit,
     TimelineMarkerReference, TimelineMarkerReferenceBindingDescriptor,
@@ -43,6 +42,7 @@ use crate::memory_panel::{
     CaptureStorageBacking, CaptureStorageSnapshot, DerivedSignalStorageSnapshot, MemoryPanel,
     MemoryPanelSnapshot, MemoryServiceSnapshot,
 };
+use crate::node_catalog_service::NodeCatalogService;
 use crate::output_downloads::OutputDownloadsWindow;
 use crate::panel_presentation::{
     DECODER_PANEL_ICON, LOG_PANEL_ICON, LOGIC_ANALYZER_PANEL_ICON, MEMORY_PANEL_ICON,
@@ -574,7 +574,7 @@ pub struct App {
     pub(crate) about: AboutWindow,
     pub(crate) output_downloads: OutputDownloadsWindow,
     pub(crate) preferences: PreferencesWindow,
-    pub(crate) node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
+    pub(crate) node_catalogs: Vec<Box<dyn NodeCatalogService>>,
     pub(crate) demo_graphs: Vec<DemoGraph>,
     /// Nodes badged with compile errors; cleared on the next Run.
     pub(crate) error_badges: Vec<NodeId>,
@@ -1195,7 +1195,7 @@ impl App {
     pub fn new_with_file_and_catalogs(
         cc: &eframe::CreationContext,
         file: Option<&Path>,
-        node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
+        node_catalogs: Vec<Box<dyn NodeCatalogService>>,
     ) -> Self {
         let mut app = Self::build_with_app_services(
             cc,
@@ -1217,7 +1217,7 @@ impl App {
     pub fn new_with_file_catalogs_and_services(
         cc: &eframe::CreationContext,
         file: Option<&Path>,
-        node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
+        node_catalogs: Vec<Box<dyn NodeCatalogService>>,
         services: crate::AppServices,
     ) -> Self {
         let mut app = Self::build_with_app_services(cc, node_catalogs, services);
@@ -1249,7 +1249,7 @@ impl App {
     pub fn new_with_demo_graphs_catalogs_and_services(
         cc: &eframe::CreationContext,
         demo_graphs: Vec<DemoGraph>,
-        node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
+        node_catalogs: Vec<Box<dyn NodeCatalogService>>,
         services: crate::AppServices,
     ) -> Self {
         let default_graph = demo_graphs.first().map(|demo| demo.graph.clone());
@@ -1263,7 +1263,7 @@ impl App {
 
     fn build_with_app_services(
         cc: &eframe::CreationContext,
-        node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
+        node_catalogs: Vec<Box<dyn NodeCatalogService>>,
         services: crate::AppServices,
     ) -> Self {
         Self::build_with_services(cc, node_catalogs, services.into_parts())
@@ -1271,7 +1271,7 @@ impl App {
 
     fn build_with_services(
         cc: &eframe::CreationContext,
-        node_catalogs: Vec<Box<dyn DirectoryNodeCatalog>>,
+        node_catalogs: Vec<Box<dyn NodeCatalogService>>,
         services: AppServiceParts,
     ) -> Self {
         let AppServiceParts {
@@ -3591,11 +3591,12 @@ impl eframe::App for App {
         self.platform_before_ui(ui);
 
         for catalog in &mut self.node_catalogs {
+            let snapshot = catalog.snapshot();
             if let Some(templates) = catalog.take_templates() {
                 self.node_graph
-                    .replace_node_templates(catalog.namespace(), templates);
+                    .replace_node_templates(&snapshot.namespace, templates);
             }
-            if catalog.status().scanning {
+            if snapshot.scanning {
                 ui.ctx()
                     .request_repaint_after(std::time::Duration::from_millis(100));
             }
@@ -3818,11 +3819,7 @@ impl eframe::App for App {
         self.show_status_bar(&mut status_ui, &status_actions);
 
         self.about.show(ui.ctx());
-        self.preferences.show(
-            ui.ctx(),
-            &mut self.node_catalogs,
-            self.host_service.as_mut(),
-        );
+        self.preferences.show(ui.ctx(), &mut self.node_catalogs);
 
         for error in self
             .output_downloads

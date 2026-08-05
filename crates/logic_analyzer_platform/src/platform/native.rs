@@ -136,52 +136,52 @@ pub(crate) fn standard_services() -> PlatformServices {
         settings_path,
         native_sigrok_decoder_directories(),
         Arc::clone(&work_executor),
-    ))
-        as Box<dyn logic_analyzer_graph_capabilities::node::DirectoryNodeCatalog>];
-    let ui_services = AppServices::with_host_configuration(
-        Box::new(NativeHostService::new()),
-        input_bindings,
-        application_settings,
-        system_symbol_fonts(),
-    )
-    .with_capture_export_service(capture_export_service)
-    .with_node_file_dialog(Box::new(NativeNodeFileDialogService))
-    .with_graph_execution_and_builder_overrides(
-        Box::new(NativeSourcePreparationExecutor::new()),
-        Arc::new(NativeAppManagerFactory {
-            work_executor: Arc::new(NativeRuntimeExecutor),
-        }),
-        Arc::clone(&work_executor),
-        vec![
-            logic_analyzer_graph_nodes::binary_file_writer_runtime_builder_override(
-                logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
-                    native_output_storage(),
+    )) as Box<dyn logic_analyzer_ui::NodeCatalogService>];
+    let ui_services =
+        AppServices::with_host_configuration(
+            Box::new(NativeHostService::new()),
+            input_bindings,
+            application_settings,
+            system_symbol_fonts(),
+        )
+        .with_capture_export_service(capture_export_service)
+        .with_node_file_dialog(Box::new(NativeNodeFileDialogService))
+        .with_graph_execution_and_capability_overrides(
+            Box::new(NativeSourcePreparationExecutor::new()),
+            Arc::new(NativeAppManagerFactory {
+                work_executor: Arc::new(NativeRuntimeExecutor),
+            }),
+            Arc::clone(&work_executor),
+            vec![
+                logic_analyzer_graph_nodes::binary_file_writer_capability_override(
+                    logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
+                        native_output_storage(),
+                    ),
                 ),
-            ),
-            logic_analyzer_graph_nodes::csv_word_writer_runtime_builder_override(
-                logic_analyzer_processing::nodes::sinks::csv_word_writer::writer_factory(
-                    native_output_storage(),
+                logic_analyzer_graph_nodes::csv_word_writer_capability_override(
+                    logic_analyzer_processing::nodes::sinks::csv_word_writer::writer_factory(
+                        native_output_storage(),
+                    ),
                 ),
-            ),
-            logic_analyzer_graph_nodes::text_file_writer_runtime_builder_override(
-                logic_analyzer_processing::nodes::sinks::text_file_writer::writer_factory(
-                    native_output_storage(),
+                logic_analyzer_graph_nodes::text_file_writer_capability_override(
+                    logic_analyzer_processing::nodes::sinks::text_file_writer::writer_factory(
+                        native_output_storage(),
+                    ),
                 ),
-            ),
-            logic_analyzer_graph_nodes::dsl_file_source_runtime_builder_override(
-                dsl_file_source_factory,
-            ),
-            logic_analyzer_graph_nodes::sigrok_file_source_runtime_builder_override(
-                sigrok_file_source_factory,
-            ),
-            logic_analyzer_graph_nodes::sigrok_decoder_runtime_builder_override(
-                native_sigrok_decoder_runtime(),
-            ),
-            logic_analyzer_graph_nodes::u3pro16_runtime_builder_override(
-                native_u3pro16_source_factory(),
-            ),
-        ],
-    );
+                logic_analyzer_graph_nodes::dsl_file_source_capability_override(
+                    dsl_file_source_factory,
+                ),
+                logic_analyzer_graph_nodes::sigrok_file_source_capability_override(
+                    sigrok_file_source_factory,
+                ),
+                logic_analyzer_graph_nodes::sigrok_decoder_capability_override(
+                    native_sigrok_decoder_runtime(),
+                ),
+                logic_analyzer_graph_nodes::u3pro16_capability_override(
+                    native_u3pro16_source_factory(),
+                ),
+            ],
+        );
     PlatformServices::with_ui_services(
         ui_services,
         node_catalogs,
@@ -1549,10 +1549,6 @@ impl HostService for NativeHostService {
             dialog = dialog.set_directory(directory);
         }
         dialog.save_file()
-    }
-
-    fn choose_directory(&mut self) -> Option<PathBuf> {
-        rfd::FileDialog::new().pick_folder()
     }
 
     fn load_graph(&mut self, path: &Path) -> Result<node_graph::GraphState, String> {

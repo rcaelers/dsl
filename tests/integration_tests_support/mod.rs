@@ -5,7 +5,7 @@ mod graphs;
 mod host_factories;
 
 #[allow(unused_imports)]
-pub(crate) use catalog::{build_registry, node_builder, node_name};
+pub(crate) use catalog::{build_registry, node_name, node_semantics};
 #[allow(unused_imports)]
 pub(crate) use graphs::{build_binary_decoder_demo, build_live_binary_test, populate_startup};
 #[allow(unused_imports)]

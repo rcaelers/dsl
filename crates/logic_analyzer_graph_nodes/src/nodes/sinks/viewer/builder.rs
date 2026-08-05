@@ -4,14 +4,17 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
-use logic_analyzer_graph_capabilities::node_support::{PortKind, ResolvedInputs, parse_state};
+use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
+use logic_analyzer_graph_capabilities::node_support::{
+    NodeBuildContext, PortKind, ResolvedInputs, parse_state,
+};
 use node_graph::api::Socket;
+use signal_runtime::ProcessNode;
 
 #[derive(Default)]
 pub(crate) struct ViewerSubscriptionBuilder;
 
-impl RuntimeBuilder for ViewerSubscriptionBuilder {
+impl GraphNodeSemantics for ViewerSubscriptionBuilder {
     fn is_data_subscription(&self) -> bool {
         true
     }
@@ -80,5 +83,17 @@ impl RuntimeBuilder for ViewerSubscriptionBuilder {
     fn input_required(&self, _: &Socket, _: &Value) -> bool {
         // A lane-less viewer is pointless but harmless.
         false
+    }
+}
+
+impl RuntimeMaterializer for ViewerSubscriptionBuilder {
+    fn build(
+        &self,
+        _name: &str,
+        _state: &Value,
+        _resolved: &ResolvedInputs,
+        _ctx: &mut dyn NodeBuildContext,
+    ) -> Result<Box<dyn ProcessNode>, String> {
+        Err("viewer subscriptions must be materialized through the payload registry".to_owned())
     }
 }

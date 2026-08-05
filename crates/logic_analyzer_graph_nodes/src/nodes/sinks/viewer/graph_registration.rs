@@ -1,6 +1,7 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
         super::definition::Viewer,
+        super::builder::ViewerSubscriptionBuilder,
         super::builder::ViewerSubscriptionBuilder,
     >("org.logicconduit.graph-node.sinks.viewer/v1")
 }

@@ -68,7 +68,7 @@ The UI-independent live-capture foundation is also present:
 - `signal_capture_session::live_capture` defines `AcquisitionContext` and the object-safe
   `PreparedAcquisition` lifecycle with Prepare, Start, idempotent Stop, non-blocking completion
   observation, and Join behavior;
-- `RuntimeBuilder` can expose a state-bound `LiveCaptureFeature`; compiler discovery considers
+- an explicit `LiveCaptureFeatureProvider` can expose a state-bound `LiveCaptureFeature`; compiler discovery considers
   only the feature belonging to the source retained by a successfully lowered graph and rejects
   multiple candidates without matching node names;
 - the live feature supplies a reusable graph-source factory that captures its explicit runtime-port
@@ -254,10 +254,9 @@ devices exist; capture does not silently bind whichever enumerates first.
 
 ### Source discovery and presentation contract
 
-`RuntimeBuilder` gains an optional, protocol-neutral `LiveCaptureFeature` contract. A concrete
-builder returns `None` by default. The U3Pro16 builder implements the feature by adapting its
-saved state and concrete processing driver; the application never constructs or identifies that
-driver. The feature has three responsibilities:
+`LiveCaptureFeatureProvider` is an explicit, protocol-neutral optional registration capability.
+The U3Pro16 feature implements it by adapting its saved state and concrete processing driver; the
+application never constructs or identifies that driver. The feature has three responsibilities:
 
 - describe the source and its editable trigger controls;
 - apply a neutral trigger edit to the concrete saved node state; and
@@ -935,7 +934,7 @@ before the runtime change is scheduled and is resolved to applied, deferred, or 
 An unresolved record recovered after interruption is reported as failed. Original source-sample
 coordinates remain stable when bounded retention advances the store's retained prefix.
 
-This first epoch contract accepts only changes classified by the owning runtime builder as hot
+This first epoch contract accepts only changes classified by the owning runtime materializer as hot
 configuration. Node additions/removals, wiring changes, restarts, source changes, and acquisition
 settings are retained in the editable graph but deferred to the next capture/Run with a visible
 reason. Sample rate, channel mask, simple trigger, clock source, and encoding remain immutable for

@@ -1,6 +1,7 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
         super::definition::EventGate,
+        super::builder::EventGateBuilder,
         super::builder::EventGateBuilder,
     >("org.logicconduit.graph-node.logic.event-gate/v1").requiring_payloads(&[
         "org.logicconduit.digital-sample/v1",

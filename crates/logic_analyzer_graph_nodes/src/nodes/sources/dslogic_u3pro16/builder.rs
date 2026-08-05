@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::{LiveCaptureFeature, RuntimeBuilder};
+use logic_analyzer_graph_capabilities::node::{
+    CaptureSourceFeature, GraphNodeCapabilityOverride, GraphNodePresentation, GraphNodeSemantics,
+    LiveCaptureFeature, LiveCaptureFeatureProvider, RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
     TriggerConfigurationFeature, parse_state,
@@ -51,16 +54,29 @@ impl DsLogicU3Pro16Builder {
     }
 }
 
-pub(crate) fn runtime_builder_override(
+pub(crate) fn capability_override(
     source_factory: Arc<dyn DsLogicU3Pro16SourceFactory>,
-) -> logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride {
-    logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride::new(
-        "org.logicconduit.graph-node.sources.dslogic-u3pro16/v1",
-        Box::new(DsLogicU3Pro16Builder::with_source_factory(source_factory)),
-    )
+) -> GraphNodeCapabilityOverride {
+    let stable_id = "org.logicconduit.graph-node.sources.dslogic-u3pro16/v1";
+    GraphNodeCapabilityOverride::capabilities(stable_id)
+        .with_semantics(Box::new(DsLogicU3Pro16Builder::with_source_factory(
+            Arc::clone(&source_factory),
+        )))
+        .with_materializer(Box::new(DsLogicU3Pro16Builder::with_source_factory(
+            Arc::clone(&source_factory),
+        )))
+        .with_capture_source(Box::new(DsLogicU3Pro16Builder::with_source_factory(
+            Arc::clone(&source_factory),
+        )))
+        .with_live_capture(Box::new(DsLogicU3Pro16Builder::with_source_factory(
+            Arc::clone(&source_factory),
+        )))
+        .with_presentation(Box::new(DsLogicU3Pro16Builder::with_source_factory(
+            source_factory,
+        )))
 }
 
-impl RuntimeBuilder for DsLogicU3Pro16Builder {
+impl GraphNodeSemantics for DsLogicU3Pro16Builder {
     fn is_source(&self) -> bool {
         true
     }
@@ -115,7 +131,9 @@ impl RuntimeBuilder for DsLogicU3Pro16Builder {
             .count();
         Some(format!("ch{logical_channel}"))
     }
+}
 
+impl GraphNodePresentation for DsLogicU3Pro16Builder {
     fn viewer_channel_origin(&self, socket: &Socket, state: &Value) -> Option<usize> {
         let state: U3Pro16State = parse_state(state).ok()?;
         if !state
@@ -134,13 +152,17 @@ impl RuntimeBuilder for DsLogicU3Pro16Builder {
                 .count(),
         )
     }
+}
 
+impl CaptureSourceFeature for DsLogicU3Pro16Builder {
     fn capture_presentation(&self, state: &Value) -> Result<Option<CapturePresentation>, String> {
         self.metadata(state)?
             .presentation()
             .map(|presentation| presentation.map(super::super::metadata::presentation))
     }
+}
 
+impl LiveCaptureFeatureProvider for DsLogicU3Pro16Builder {
     fn live_capture_feature(
         &self,
         state: &Value,
@@ -170,7 +192,9 @@ impl RuntimeBuilder for DsLogicU3Pro16Builder {
     ) -> Result<Option<Value>, String> {
         super::live_edit::apply(state, edit).map(Some)
     }
+}
 
+impl RuntimeMaterializer for DsLogicU3Pro16Builder {
     fn build(
         &self,
         name: &str,
@@ -186,17 +210,30 @@ impl RuntimeBuilder for DsLogicU3Pro16Builder {
 }
 
 #[cfg(test)]
-fn platform_parity_builder() -> Box<dyn RuntimeBuilder> {
-    Box::new(DsLogicU3Pro16Builder::with_source_factory(Arc::new(
-        crate::nodes::test_support::TestSourceFactory::live(),
+fn platform_parity_capabilities() -> crate::nodes::test_support::PlatformParityCapabilities {
+    let factory: Arc<dyn DsLogicU3Pro16SourceFactory> =
+        Arc::new(crate::nodes::test_support::TestSourceFactory::live());
+    crate::nodes::test_support::PlatformParityCapabilities::new(
+        Box::new(DsLogicU3Pro16Builder::with_source_factory(Arc::clone(
+            &factory,
+        ))),
+        Box::new(DsLogicU3Pro16Builder::with_source_factory(Arc::clone(
+            &factory,
+        ))),
+    )
+    .with_capture_source(Box::new(DsLogicU3Pro16Builder::with_source_factory(
+        Arc::clone(&factory),
+    )))
+    .with_presentation(Box::new(DsLogicU3Pro16Builder::with_source_factory(
+        factory,
     )))
 }
 
 #[cfg(test)]
 inventory::submit! {
-    crate::nodes::test_support::PlatformParityBuilderRegistration::new(
+    crate::nodes::test_support::PlatformParityCapabilityRegistration::new(
         "org.logicconduit.graph-node.sources.dslogic-u3pro16/v1",
-        platform_parity_builder,
+        platform_parity_capabilities,
     )
 }
 
@@ -317,10 +354,11 @@ mod builder_tests {
 
     #[test]
     fn parity_factory_preserves_enabled_channel_presentation() {
-        let builder = platform_parity_builder();
+        let capabilities = platform_parity_capabilities();
+        let capture_source = capabilities.capture_source.unwrap();
         let state = serde_json::to_value(U3Pro16State::default()).unwrap();
 
-        let presentation = builder.capture_presentation(&state).unwrap();
+        let presentation = capture_source.capture_presentation(&state).unwrap();
         let Some(CapturePresentation::Channels(channels)) = presentation else {
             panic!("expected channel presentation");
         };
@@ -329,12 +367,13 @@ mod builder_tests {
 
     #[test]
     fn registered_parity_factory_preserves_enabled_channel_presentation() {
-        let builder = crate::nodes::test_support::platform_parity_builder(
+        let capabilities = crate::nodes::test_support::platform_parity_capabilities(
             "org.logicconduit.graph-node.sources.dslogic-u3pro16/v1",
         );
+        let capture_source = capabilities.capture_source.unwrap();
         let state = serde_json::to_value(U3Pro16State::default()).unwrap();
 
-        let presentation = builder.capture_presentation(&state).unwrap();
+        let presentation = capture_source.capture_presentation(&state).unwrap();
         assert!(matches!(
             presentation,
             Some(CapturePresentation::Channels(_))

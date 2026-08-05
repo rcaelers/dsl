@@ -112,15 +112,15 @@ fn compose_services(
     )
     .with_capture_export_service(logic_analyzer_ui::unavailable_capture_export_service())
     .with_node_file_dialog(Box::new(BrowserNodeFileDialogService::new(imported_files)))
-    .with_graph_execution_and_builder_overrides(
+    .with_graph_execution_and_capability_overrides(
         source_preparation_executor,
         Arc::new(CooperativeAppManagerFactory),
         Arc::clone(&work_executor),
         vec![
-            logic_analyzer_graph_nodes::dsl_file_source_runtime_builder_override(
+            logic_analyzer_graph_nodes::dsl_file_source_capability_override(
                 dsl_file_source_factory,
             ),
-            logic_analyzer_graph_nodes::sigrok_file_source_runtime_builder_override(
+            logic_analyzer_graph_nodes::sigrok_file_source_capability_override(
                 sigrok_file_source_factory,
             ),
         ],

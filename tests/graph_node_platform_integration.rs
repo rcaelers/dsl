@@ -9,7 +9,7 @@ use node_graph::NodeGraphWidget;
 use signal_capture_session::{CaptureChannelId, CaptureDataDelivery, SimpleTriggerCondition};
 
 use integration_tests_support::{
-    GraphHarness, build_live_binary_test, build_registry, node_builder, node_name,
+    GraphHarness, build_live_binary_test, build_registry, node_name, node_semantics,
 };
 
 const U3PRO16_ID: &str = "org.logicconduit.graph-node.sources.dslogic-u3pro16/v1";
@@ -65,13 +65,13 @@ fn native_hardware_source_registers_and_lowers() {
 
 #[test]
 fn native_file_and_live_sources_declare_artifact_capabilities() {
-    let file = node_builder(DSL_FILE_SOURCE_ID)
+    let file = node_semantics(DSL_FILE_SOURCE_ID)
         .source_data_lifecycle()
         .expect("file source lifecycle");
     assert_eq!(file.kind, SourceDataLifecycleKind::File);
     assert!(file.preload && file.cache && file.index);
 
-    let live = node_builder(U3PRO16_ID)
+    let live = node_semantics(U3PRO16_ID)
         .source_data_lifecycle()
         .expect("live source lifecycle");
     assert_eq!(live.kind, SourceDataLifecycleKind::Live);

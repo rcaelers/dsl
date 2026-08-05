@@ -1,6 +1,7 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
         super::definition::SrFlipFlop,
+        super::builder::SrFlipFlopBuilder,
         super::builder::SrFlipFlopBuilder,
     >("org.logicconduit.graph-node.logic.sr-flip-flop/v1").requiring_payloads(&[
         "org.logicconduit.digital-sample/v1",

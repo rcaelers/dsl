@@ -1,6 +1,8 @@
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{
+    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableColumnDescriptor, NodeBuildContext, PortKind, ResolvedInputs,
 };
@@ -13,15 +15,7 @@ use signal_runtime::ProcessNode;
 #[derive(Default)]
 pub(crate) struct I2cDecoderBuilder;
 
-impl RuntimeBuilder for I2cDecoderBuilder {
-    fn decoder_table_column(
-        &self,
-        socket: &Socket,
-        _state: &Value,
-    ) -> Option<DecoderTableColumnDescriptor> {
-        super::presentation::i2c_table_column(socket.def_index)
-    }
-
+impl GraphNodeSemantics for I2cDecoderBuilder {
     fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<SampleBlock>()]
     }
@@ -68,7 +62,9 @@ impl RuntimeBuilder for I2cDecoderBuilder {
             _ => None,
         }
     }
+}
 
+impl RuntimeMaterializer for I2cDecoderBuilder {
     fn build(
         &self,
         name: &str,
@@ -77,5 +73,15 @@ impl RuntimeBuilder for I2cDecoderBuilder {
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
         Ok(Box::new(I2cDecoder::new().with_name(name)))
+    }
+}
+
+impl GraphNodePresentation for I2cDecoderBuilder {
+    fn decoder_table_column(
+        &self,
+        socket: &Socket,
+        _state: &Value,
+    ) -> Option<DecoderTableColumnDescriptor> {
+        super::presentation::i2c_table_column(socket.def_index)
     }
 }

@@ -5,7 +5,7 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
 use logic_analyzer_graph_capabilities::node_support::{NodeBuildContext, PortKind, ResolvedInputs};
 use logic_analyzer_processing::nodes::sinks::tgck_recorder::TgckRecorder;
 use node_graph::api::Socket;
@@ -16,7 +16,7 @@ use signal_runtime::ProcessNode;
 #[derive(Default)]
 pub(crate) struct TgckRecorderBuilder;
 
-impl RuntimeBuilder for TgckRecorderBuilder {
+impl GraphNodeSemantics for TgckRecorderBuilder {
     fn accepted_kinds(&self, socket: &Socket, _state: &Value) -> Vec<PortKind> {
         match socket.def_index {
             0 => vec![PortKind::of::<Word>()],
@@ -46,6 +46,9 @@ impl RuntimeBuilder for TgckRecorderBuilder {
             _ => None,
         }
     }
+}
+
+impl RuntimeMaterializer for TgckRecorderBuilder {
     fn build(
         &self,
         name: &str,

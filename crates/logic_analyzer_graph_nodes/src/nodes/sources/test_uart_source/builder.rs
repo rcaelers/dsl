@@ -3,7 +3,9 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{
+    CaptureSourceFeature, GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
@@ -15,7 +17,7 @@ use signal_runtime::ProcessNode;
 #[derive(Default)]
 pub(crate) struct TestUartSourceBuilder;
 
-impl RuntimeBuilder for TestUartSourceBuilder {
+impl GraphNodeSemantics for TestUartSourceBuilder {
     fn is_source(&self) -> bool {
         true
     }
@@ -31,15 +33,12 @@ impl RuntimeBuilder for TestUartSourceBuilder {
     fn output_port(&self, _socket: &Socket, _state: &Value, kind: PortKind) -> Option<String> {
         (kind == PortKind::of::<Sample>()).then(|| "rx".into())
     }
-    fn viewer_channel_origin(&self, _socket: &Socket, _state: &Value) -> Option<usize> {
-        Some(0)
-    }
-    fn capture_presentation(&self, _state: &Value) -> Result<Option<CapturePresentation>, String> {
-        Ok(Some(CapturePresentation::Channels(vec![(0, "RX".into())])))
-    }
     fn input_required(&self, _: &Socket, _: &Value) -> bool {
         false
     }
+}
+
+impl RuntimeMaterializer for TestUartSourceBuilder {
     fn build(
         &self,
         name: &str,
@@ -54,5 +53,17 @@ impl RuntimeBuilder for TestUartSourceBuilder {
         )
         .with_name(name);
         Ok(Box::new(source))
+    }
+}
+
+impl CaptureSourceFeature for TestUartSourceBuilder {
+    fn capture_presentation(&self, _state: &Value) -> Result<Option<CapturePresentation>, String> {
+        Ok(Some(CapturePresentation::Channels(vec![(0, "RX".into())])))
+    }
+}
+
+impl GraphNodePresentation for TestUartSourceBuilder {
+    fn viewer_channel_origin(&self, _socket: &Socket, _state: &Value) -> Option<usize> {
+        Some(0)
     }
 }

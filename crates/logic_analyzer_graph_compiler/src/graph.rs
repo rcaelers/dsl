@@ -14,9 +14,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::{
-    CaptureGraphSourceFactory, LiveCaptureFeature, RuntimeBuilder,
-};
+use logic_analyzer_graph_capabilities::node::{CaptureGraphSourceFactory, LiveCaptureFeature};
 use logic_analyzer_graph_capabilities::node_support::{
     LiveCaptureEdit, ResolvedInput, ResolvedInputs, SimpleTriggerChannel, TimelineMarkerDescriptor,
     TimelineMarkerEdit, TimelineMarkerReferenceBindingDescriptor,
@@ -206,16 +204,12 @@ fn capture_channel_selection(
     subscriptions: &OutputSubscriptionPlan,
     node_id: NodeId,
     node: &Node,
-    builder: &dyn RuntimeBuilder,
+    viewer_channel_origin: impl Fn(&Socket) -> Option<usize>,
 ) -> Vec<usize> {
     subscriptions
         .outputs()
         .filter(|(selected_node, _)| *selected_node == node_id)
-        .filter_map(|(_, output)| {
-            node.outputs
-                .get(output)
-                .and_then(|output| builder.viewer_channel_origin(output, &node.state))
-        })
+        .filter_map(|(_, output)| node.outputs.get(output).and_then(&viewer_channel_origin))
         .collect()
 }
 
@@ -229,13 +223,17 @@ pub(crate) fn discover_capture_presentation_with_subscriptions(
         if node.kind != NodeKind::Regular || node.muted {
             continue;
         }
-        let Some(builder) = builders.get(node.def_name()) else {
+        let Some(feature) = builders.capture_source(node.def_name()) else {
             continue;
         };
-        let Some(presentation) = builder.capture_presentation(&node.state)? else {
+        let Some(presentation) = feature.capture_presentation(&node.state)? else {
             continue;
         };
-        let visible_channels = capture_channel_selection(subscriptions, node_id, node, builder);
+        let visible_channels = capture_channel_selection(subscriptions, node_id, node, |output| {
+            builders
+                .presentation(node.def_name())
+                .and_then(|presentation| presentation.viewer_channel_origin(output, &node.state))
+        });
         let identity_state = (&node.state, &visible_channels);
         let state = serde_json::to_vec(&identity_state).map_err(|error| error.to_string())?;
         candidates.push(DiscoveredCapturePresentation {
@@ -273,10 +271,10 @@ pub(crate) fn discover_trigger_configuration(
         .values()
         .filter(|node| node.kind == NodeKind::Regular && !node.muted)
     {
-        let Some(builder) = builders.get(node.def_name()) else {
+        let Some(feature) = builders.live_capture(node.def_name()) else {
             continue;
         };
-        match builder.trigger_configuration(&node.state) {
+        match feature.trigger_configuration(&node.state) {
             Ok(Some(feature)) => candidates.push(DiscoveredTriggerConfiguration {
                 source_node: node.id,
                 source_title: node.title.clone(),
@@ -316,10 +314,10 @@ pub(crate) fn discover_timeline_markers(
         .values()
         .filter(|node| node.kind == NodeKind::Regular && !node.muted)
     {
-        let Some(builder) = builders.get(node.def_name()) else {
+        let Some(timeline) = builders.timeline(node.def_name()) else {
             continue;
         };
-        let markers = builder
+        let markers = timeline
             .timeline_markers(&node.state)
             .map_err(|message| format!("{}: {message}", node.title))?;
         discovered.extend(markers.into_iter().map(|marker| DiscoveredTimelineMarker {
@@ -346,10 +344,10 @@ pub(crate) fn apply_timeline_marker_edit(
         .nodes
         .get(&owner_node)
         .ok_or_else(|| format!("timeline-marker node {owner_node:?} no longer exists"))?;
-    let builder = builders
-        .get(node.def_name())
-        .ok_or_else(|| format!("no runtime builder is registered for {}", node.def_name()))?;
-    builder
+    let timeline = builders
+        .timeline(node.def_name())
+        .ok_or_else(|| format!("no timeline feature is registered for {}", node.def_name()))?;
+    timeline
         .apply_timeline_marker_edit(&node.state, edit)?
         .ok_or_else(|| format!("{} does not support this timeline-marker edit", node.title))
 }
@@ -365,10 +363,10 @@ pub(crate) fn discover_timeline_marker_reference_bindings(
         .values()
         .filter(|node| node.kind == NodeKind::Regular && !node.muted)
     {
-        let Some(builder) = builders.get(node.def_name()) else {
+        let Some(timeline) = builders.timeline(node.def_name()) else {
             continue;
         };
-        let bindings = builder
+        let bindings = timeline
             .timeline_marker_reference_bindings(&node.state)
             .map_err(|message| format!("{}: {message}", node.title))?;
         discovered.extend(bindings.into_iter().map(|binding| {
@@ -397,10 +395,10 @@ pub(crate) fn apply_timeline_marker_reference_binding_edit(
         .nodes
         .get(&owner_node)
         .ok_or_else(|| format!("timeline-reference node {owner_node:?} no longer exists"))?;
-    let builder = builders
-        .get(node.def_name())
-        .ok_or_else(|| format!("no runtime builder is registered for {}", node.def_name()))?;
-    builder
+    let timeline = builders
+        .timeline(node.def_name())
+        .ok_or_else(|| format!("no timeline feature is registered for {}", node.def_name()))?;
+    timeline
         .apply_timeline_marker_reference_binding_edit(&node.state, edit)?
         .ok_or_else(|| {
             format!(
@@ -421,10 +419,13 @@ pub(crate) fn apply_live_capture_edit(
         .nodes
         .get(&source_node)
         .ok_or_else(|| format!("live capture source {source_node:?} no longer exists"))?;
-    let builder = builders
-        .get(node.def_name())
-        .ok_or_else(|| format!("no runtime builder is registered for {}", node.def_name()))?;
-    builder
+    let feature = builders.live_capture(node.def_name()).ok_or_else(|| {
+        format!(
+            "no live-capture feature is registered for {}",
+            node.def_name()
+        )
+    })?;
+    feature
         .apply_live_capture_edit(&node.state, edit)?
         .ok_or_else(|| format!("{} does not support this live capture edit", node.title))
 }
@@ -444,10 +445,10 @@ fn discover_live_capture_feature_from(
         .values()
         .filter(|node| node.kind == NodeKind::Regular && !node.muted && include(node))
     {
-        let Some(builder) = builders.get(node.def_name()) else {
+        let Some(feature_provider) = builders.live_capture(node.def_name()) else {
             continue;
         };
-        match builder.live_capture_feature(&node.state) {
+        match feature_provider.live_capture_feature(&node.state) {
             Ok(Some(feature)) => {
                 let trigger_channels = feature.simple_trigger_channels();
                 let trigger_ids: HashSet<_> = trigger_channels
@@ -507,7 +508,13 @@ fn discover_live_capture_feature_from(
                 candidates.push(DiscoveredLiveCaptureFeature::new_with_visible_channels(
                     node.id,
                     node.title.clone(),
-                    capture_channel_selection(subscriptions, node.id, node, builder),
+                    capture_channel_selection(subscriptions, node.id, node, |output| {
+                        builders
+                            .presentation(node.def_name())
+                            .and_then(|presentation| {
+                                presentation.viewer_channel_origin(output, &node.state)
+                            })
+                    }),
                     feature,
                 ));
             }
@@ -709,7 +716,7 @@ fn with_output_collectors(
                 .iter()
                 .enumerate()
                 .filter(move |(index, output)| {
-                    let Some(builder) = registry.get(node.def_name()) else {
+                    let Some(semantics) = registry.semantics(node.def_name()) else {
                         return false;
                     };
                     let connected = graph.connections.iter().any(|connection| {
@@ -721,20 +728,25 @@ fn with_output_collectors(
                             && graph
                                 .nodes
                                 .get(&connection.to.node)
-                                .and_then(|target| registry.get(target.def_name()))
+                                .and_then(|target| registry.semantics(target.def_name()))
                                 .is_some_and(|target| {
                                     target.is_data_collector() || target.is_data_subscription()
                                 })
                     });
                     (connected || subscriptions.is_retained(id, *index))
                         && !already_collected
-                        && builder.viewer_channel_origin(output, &node.state).is_none()
-                        && builder
+                        && registry
+                            .presentation(node.def_name())
+                            .and_then(|features| {
+                                features.viewer_channel_origin(output, &node.state)
+                            })
+                            .is_none()
+                        && semantics
                             .offered_kinds(output, &node.state)
                             .into_iter()
                             .any(|kind| {
                                 subscribable.contains(&kind)
-                                    && builder.output_port(output, &node.state, kind).is_some()
+                                    && semantics.output_port(output, &node.state, kind).is_some()
                             })
                 })
                 .map(move |(index, output)| {
@@ -758,7 +770,7 @@ fn with_output_collectors(
         .iter()
         .filter(|(_, node)| node.kind == NodeKind::Regular)
         .flat_map(|(&id, node)| {
-            let Some(builder) = registry.get(node.def_name()) else {
+            let Some(semantics) = registry.semantics(node.def_name()) else {
                 return Vec::new().into_iter();
             };
             node.outputs
@@ -774,18 +786,21 @@ fn with_output_collectors(
                             && graph
                                 .nodes
                                 .get(&connection.to.node)
-                                .and_then(|target| registry.get(target.def_name()))
+                                .and_then(|target| registry.semantics(target.def_name()))
                                 .is_some_and(|builder| {
                                     builder.is_data_collector() || builder.is_data_subscription()
                                 })
                     });
                     !retained
                         && !collected_by_explicit_sink
-                        && builder.decoder_table_column(output, &node.state).is_some()
-                        && builder
+                        && registry
+                            .presentation(node.def_name())
+                            .and_then(|features| features.decoder_table_column(output, &node.state))
+                            .is_some()
+                        && semantics
                             .offered_kinds(output, &node.state)
                             .into_iter()
-                            .any(|kind| builder.output_port(output, &node.state, kind).is_some())
+                            .any(|kind| semantics.output_port(output, &node.state, kind).is_some())
                 })
                 .map(move |(index, output)| {
                     (
@@ -931,8 +946,10 @@ pub(crate) fn lower_with_subscriptions(
         .filter(|node| {
             node.kind == NodeKind::Regular
                 && registry
-                    .get(node.def_name())
-                    .is_some_and(|builder| builder.is_sink() || builder.is_data_subscription())
+                    .semantics(node.def_name())
+                    .is_some_and(|semantics| {
+                        semantics.is_sink() || semantics.is_data_subscription()
+                    })
         })
         .map(|node| node.id)
         .collect();
@@ -964,16 +981,16 @@ pub(crate) fn lower_with_subscriptions(
     let mut derived_data_retention = DerivedDataRetention::Unlimited;
     for &id in &kept {
         let node = &graph.nodes[&id];
-        match registry.get(node.def_name()) {
+        match registry.semantics(node.def_name()) {
             None => errors.push(CompileError::on(
                 id,
                 format!("'{}' has no runtime implementation", node.def_name()),
             )),
-            Some(builder) if builder.is_source() => {
+            Some(semantics) if semantics.is_source() => {
                 runtime_source_count += 1;
-                if builder.is_time_domain_source() {
+                if semantics.is_time_domain_source() {
                     time_domain_source_count += 1;
-                    derived_data_retention = builder.derived_data_retention(&node.state);
+                    derived_data_retention = semantics.derived_data_retention(&node.state);
                 }
             }
             Some(_) => {}
@@ -985,8 +1002,8 @@ pub(crate) fn lower_with_subscriptions(
         for &id in &kept {
             let node = &graph.nodes[&id];
             if registry
-                .get(node.def_name())
-                .is_some_and(|builder| builder.is_time_domain_source())
+                .semantics(node.def_name())
+                .is_some_and(|semantics| semantics.is_time_domain_source())
             {
                 errors.push(CompileError::on(
                     id,
@@ -1006,9 +1023,9 @@ pub(crate) fn lower_with_subscriptions(
         }
         let from_node = &graph.nodes[&wire.from.node];
         let to_node = &graph.nodes[&wire.to.node];
-        let (Some(from_builder), Some(to_builder)) = (
-            registry.get(from_node.def_name()),
-            registry.get(to_node.def_name()),
+        let (Some(from_semantics), Some(to_semantics)) = (
+            registry.semantics(from_node.def_name()),
+            registry.semantics(to_node.def_name()),
         ) else {
             continue; // already reported above
         };
@@ -1025,13 +1042,13 @@ pub(crate) fn lower_with_subscriptions(
             .or_default()
             .insert(wire.to.index);
 
-        let offered = from_builder.offered_kinds(from_socket, &from_node.state);
-        let data_subscription = to_builder.is_data_subscription();
-        let registered_collection = data_subscription || to_builder.is_data_collector();
+        let offered = from_semantics.offered_kinds(from_socket, &from_node.state);
+        let data_subscription = to_semantics.is_data_subscription();
+        let registered_collection = data_subscription || to_semantics.is_data_collector();
         let accepted = if registered_collection {
             registry.subscribable_payload_kinds()
         } else {
-            to_builder.accepted_kinds(to_socket, &to_node.state)
+            to_semantics.accepted_kinds(to_socket, &to_node.state)
         };
         let Some(kind) = offered.iter().copied().find(|k| accepted.contains(k)) else {
             let message = if registered_collection {
@@ -1049,9 +1066,9 @@ pub(crate) fn lower_with_subscriptions(
             continue;
         };
         let offered_contracts =
-            from_builder.offered_connection_contracts(from_socket, &from_node.state);
+            from_semantics.offered_connection_contracts(from_socket, &from_node.state);
         let accepted_contracts =
-            to_builder.accepted_connection_contracts(to_socket, &to_node.state);
+            to_semantics.accepted_connection_contracts(to_socket, &to_node.state);
         if !connection_contracts_overlap(&offered_contracts, &accepted_contracts) {
             errors.push(CompileError::on(
                 wire.to.node,
@@ -1066,7 +1083,7 @@ pub(crate) fn lower_with_subscriptions(
             continue;
         }
 
-        let Some(out_port) = from_builder.output_port(from_socket, &from_node.state, kind) else {
+        let Some(out_port) = from_semantics.output_port(from_socket, &from_node.state, kind) else {
             errors.push(CompileError::on(
                 wire.from.node,
                 format!("No runtime port for output '{}'", from_socket.name),
@@ -1074,7 +1091,7 @@ pub(crate) fn lower_with_subscriptions(
             continue;
         };
         let member = member_index(to_node, wire.to.index);
-        let Some(in_port) = to_builder.input_port(to_socket, member, &to_node.state, kind) else {
+        let Some(in_port) = to_semantics.input_port(to_socket, member, &to_node.state, kind) else {
             errors.push(CompileError::on(
                 wire.to.node,
                 format!("No runtime port for input '{}'", to_socket.name),
@@ -1092,23 +1109,31 @@ pub(crate) fn lower_with_subscriptions(
                 source_output: wire.from.index,
                 source_node_title: from_node.title.clone(),
                 source_output_title: from_socket.name.clone(),
-                word_display_format: from_builder
-                    .word_display_format(from_socket, &from_node.state),
-                lane_presentation: from_builder.lane_presentation(from_socket, &from_node.state),
+                word_display_format: registry.presentation(from_node.def_name()).and_then(
+                    |features| features.word_display_format(from_socket, &from_node.state),
+                ),
+                lane_presentation: registry
+                    .presentation(from_node.def_name())
+                    .and_then(|features| features.lane_presentation(from_socket, &from_node.state)),
                 default_lane_presentation: registered_collection
                     .then(|| registry.payload_subscription_presentation(kind))
                     .flatten(),
-                decoder_table_column: from_builder
-                    .decoder_table_column(from_socket, &from_node.state),
-                capture_channel: from_builder.viewer_channel_origin(from_socket, &from_node.state),
+                decoder_table_column: registry.presentation(from_node.def_name()).and_then(
+                    |features| features.decoder_table_column(from_socket, &from_node.state),
+                ),
+                capture_channel: registry
+                    .presentation(from_node.def_name())
+                    .and_then(|features| {
+                        features.viewer_channel_origin(from_socket, &from_node.state)
+                    }),
             },
         );
         edges.push(ProcessingEdge {
             from: (wire.from.node, out_port),
             to: (wire.to.node, in_port),
-            buffer: to_builder
+            buffer: to_semantics
                 .input_buffer_override(to_socket, &to_node.state)
-                .unwrap_or_else(|| kind.buffer_size(from_builder.is_source())),
+                .unwrap_or_else(|| kind.buffer_size(from_semantics.is_source())),
             kind,
         });
     }
@@ -1116,7 +1141,7 @@ pub(crate) fn lower_with_subscriptions(
     // Required inputs.
     for &id in &kept {
         let node = &graph.nodes[&id];
-        let Some(builder) = registry.get(node.def_name()) else {
+        let Some(semantics) = registry.semantics(node.def_name()) else {
             continue;
         };
         let node_connected = connected.get(&id);
@@ -1133,7 +1158,7 @@ pub(crate) fn lower_with_subscriptions(
                     .inputs
                     .iter()
                     .any(|s| s.def_index == socket.def_index && s.is_variadic_member());
-                if !has_member && builder.input_required(socket, &node.state) {
+                if !has_member && semantics.input_required(socket, &node.state) {
                     errors.push(CompileError::on(
                         id,
                         format!("Input '{}' needs at least one connection", socket.name),
@@ -1141,7 +1166,7 @@ pub(crate) fn lower_with_subscriptions(
                 }
             } else if !socket.is_variadic_member()
                 && !node_connected.is_some_and(|set| set.contains(&index))
-                && builder.input_required(socket, &node.state)
+                && semantics.input_required(socket, &node.state)
             {
                 errors.push(CompileError::on(
                     id,
@@ -1165,19 +1190,41 @@ pub(crate) fn lower_with_subscriptions(
         .map(|&id| {
             let node = &graph.nodes[&id];
             let resolved = resolved.remove(&id).unwrap_or_default();
+            let semantics = registry
+                .semantics(node.def_name())
+                .expect("retained node has registered semantics");
             let materializer = registry
-                .builder(node.def_name())
-                .expect("retained node has a registered builder");
-            let builder = materializer.as_ref();
-            let data_collector = builder.is_data_collector() || builder.is_data_subscription();
-            let capture_cache_identity = builder.capture_cache_identity(&node.state, &resolved);
+                .materializer(node.def_name())
+                .expect("retained node has a registered materializer");
+            let data_collector = semantics.is_data_collector() || semantics.is_data_subscription();
+            let collected_lane_names = semantics.collected_lane_names(&node.state, &resolved);
+            let collected_source_labels = collected_lane_names
+                .iter()
+                .filter_map(|(member, _)| {
+                    let input = resolved.get(0, *member)?;
+                    Some((
+                        *member,
+                        semantics.collected_source_label(&node.state, &input.source_node_title),
+                    ))
+                })
+                .collect();
+            let capture_cache_identity = registry.capture_source(node.def_name()).map_or(
+                logic_analyzer_graph_capabilities::node_support::CaptureCacheIdentity::NotCapture,
+                |feature| feature.capture_cache_identity(&node.state, &resolved),
+            );
             ProcessingNode {
                 id,
                 builder: node.def_name().to_owned(),
                 materializer,
                 state: node.state.clone(),
+                execution_state: semantics.execution_state(&node.state),
+                source_data_lifecycle: semantics.source_data_lifecycle(),
+                time_domain_source: semantics.is_time_domain_source(),
+                sink: semantics.is_sink(),
                 runtime_name: runtime_name(node),
                 data_collector,
+                collected_lane_names,
+                collected_source_labels,
                 capture_cache_identity,
                 resolved,
                 derived_word_caches: Vec::new(),
@@ -1187,8 +1234,8 @@ pub(crate) fn lower_with_subscriptions(
     let sampling_overlays = nodes
         .iter()
         .filter_map(|compiled_node| {
-            let builder = compiled_node.materializer.as_ref();
-            let descriptor = builder.sampling_overlay(&compiled_node.state)?;
+            let features = registry.presentation(&compiled_node.builder)?;
+            let descriptor = features.sampling_overlay(&compiled_node.state)?;
             let clock_channel = compiled_node
                 .resolved
                 .get(descriptor.clock_input, 0)?
@@ -1243,8 +1290,7 @@ fn retained_word_sampling_lane_name(
         .iter()
         .filter(|node| node.data_collector)
         .find_map(|node| {
-            let builder = node.materializer.as_ref();
-            let names = builder.collected_lane_names(&node.state, &node.resolved);
+            let names = &node.collected_lane_names;
             node.resolved
                 .members(0)
                 .into_iter()

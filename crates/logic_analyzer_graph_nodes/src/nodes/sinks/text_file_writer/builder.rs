@@ -4,7 +4,9 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{
+    GraphNodeCapabilityOverride, GraphNodeSemantics, RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{NodeBuildContext, PortKind, ResolvedInputs};
 use logic_analyzer_processing::ProcessNodeConstruction;
 use logic_analyzer_processing::nodes::sinks::OutputOrigin;
@@ -33,16 +35,18 @@ impl TextFileWriterBuilder {
     }
 }
 
-pub(crate) fn runtime_builder_override(
+pub(crate) fn capability_override(
     writer_factory: Arc<dyn TextFileWriterFactory>,
-) -> logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride {
-    logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride::new(
+) -> GraphNodeCapabilityOverride {
+    GraphNodeCapabilityOverride::capabilities(
         "org.logicconduit.graph-node.sinks.text-file-writer/v1",
-        Box::new(TextFileWriterBuilder::with_writer_factory(writer_factory)),
     )
+    .with_materializer(Box::new(TextFileWriterBuilder::with_writer_factory(
+        writer_factory,
+    )))
 }
 
-impl RuntimeBuilder for TextFileWriterBuilder {
+impl GraphNodeSemantics for TextFileWriterBuilder {
     fn is_sink(&self) -> bool {
         true
     }
@@ -62,6 +66,9 @@ impl RuntimeBuilder for TextFileWriterBuilder {
     fn output_port(&self, _: &Socket, _: &Value, _: PortKind) -> Option<String> {
         None
     }
+}
+
+impl RuntimeMaterializer for TextFileWriterBuilder {
     fn build(
         &self,
         name: &str,
@@ -85,16 +92,18 @@ impl RuntimeBuilder for TextFileWriterBuilder {
 }
 
 #[cfg(test)]
-fn platform_parity_builder() -> Box<dyn RuntimeBuilder> {
-    Box::new(TextFileWriterBuilder::with_writer_factory(Arc::new(
-        crate::nodes::test_support::TestWriterFactory,
-    )))
+fn platform_parity_capabilities() -> crate::nodes::test_support::PlatformParityCapabilities {
+    let factory = Arc::new(crate::nodes::test_support::TestWriterFactory);
+    crate::nodes::test_support::PlatformParityCapabilities::new(
+        Box::new(TextFileWriterBuilder::default()),
+        Box::new(TextFileWriterBuilder::with_writer_factory(factory)),
+    )
 }
 
 #[cfg(test)]
 inventory::submit! {
-    crate::nodes::test_support::PlatformParityBuilderRegistration::new(
+    crate::nodes::test_support::PlatformParityCapabilityRegistration::new(
         "org.logicconduit.graph-node.sinks.text-file-writer/v1",
-        platform_parity_builder,
+        platform_parity_capabilities,
     )
 }

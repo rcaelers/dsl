@@ -175,11 +175,6 @@ pub trait HostService {
     /// Returns `None` when the picker is unavailable or the user cancels.
     fn choose_save_file(&mut self, request: SaveDialog<'_>) -> Option<PathBuf>;
 
-    /// Opens a host directory picker.
-    ///
-    /// Returns `None` when the picker is unavailable or the user cancels.
-    fn choose_directory(&mut self) -> Option<PathBuf>;
-
     /// Loads and migrates a graph document selected through the host.
     ///
     /// # Parameters

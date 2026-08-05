@@ -13,3 +13,10 @@ fn graph_plan_is_neutral_between_compiler_and_runtime() {
         );
     }
 }
+
+#[test]
+fn processing_nodes_retain_only_runtime_materialization_behavior() {
+    let plan = include_str!("plan/types.rs");
+    assert!(plan.contains("Arc<dyn RuntimeMaterializer>"));
+    assert!(!plan.contains("RuntimeBuilder"));
+}

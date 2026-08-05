@@ -1,6 +1,7 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::runnable::<
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
         super::definition::Counter,
+        super::builder::CounterBuilder,
         super::builder::CounterBuilder,
     >("org.logicconduit.graph-node.logic.counter/v1").requiring_payloads(&[
         "org.logicconduit.number-sample/v1",

@@ -31,26 +31,69 @@ pub trait CaptureGraphSourceFactory: Send + Sync {
     fn create(&self, cursor: Box<dyn CaptureStoreCursor>) -> Result<Box<dyn ProcessNode>, String>;
 }
 
-/// Host-selected replacement for one inventory-provided runtime builder.
+/// Host-selected replacement capabilities for one inventory-provided graph node.
 ///
-/// The stable node identifier keeps host composition independent of graph-node
-/// display names and concrete builder types.
-pub struct RuntimeBuilderOverride {
+/// The stable node identifier keeps host composition independent of display names and concrete
+/// node types. A host can replace one narrow capability without acquiring or replacing unrelated
+/// compiler, runtime, capture, or presentation behavior.
+pub struct GraphNodeCapabilityOverride {
     stable_id: String,
-    builder: Box<dyn RuntimeBuilder>,
+    semantics: Option<Box<dyn GraphNodeSemantics>>,
+    materializer: Option<Box<dyn RuntimeMaterializer>>,
+    capture_source: Option<Box<dyn CaptureSourceFeature>>,
+    live_capture: Option<Box<dyn LiveCaptureFeatureProvider>>,
+    presentation: Option<Box<dyn GraphNodePresentation>>,
+    timeline: Option<Box<dyn TimelineFeature>>,
 }
 
-impl RuntimeBuilderOverride {
-    /// Pairs a persisted node identity with a host-selected runtime builder.
-    ///
-    /// # Parameters
-    /// - `stable_id`: Persisted feature identity to replace.
-    /// - `builder`: Host-provided implementation for that feature.
-    pub fn new(stable_id: impl Into<String>, builder: Box<dyn RuntimeBuilder>) -> Self {
+impl GraphNodeCapabilityOverride {
+    /// Creates an empty narrow-capability override for a persisted node identity.
+    pub fn capabilities(stable_id: impl Into<String>) -> Self {
         Self {
             stable_id: stable_id.into(),
-            builder,
+            semantics: None,
+            materializer: None,
+            capture_source: None,
+            live_capture: None,
+            presentation: None,
+            timeline: None,
         }
+    }
+
+    /// Replaces compiler-facing graph semantics.
+    pub fn with_semantics(mut self, semantics: Box<dyn GraphNodeSemantics>) -> Self {
+        self.semantics = Some(semantics);
+        self
+    }
+
+    /// Replaces runtime materialization behavior.
+    pub fn with_materializer(mut self, materializer: Box<dyn RuntimeMaterializer>) -> Self {
+        self.materializer = Some(materializer);
+        self
+    }
+
+    /// Replaces capture discovery and cache behavior.
+    pub fn with_capture_source(mut self, capture_source: Box<dyn CaptureSourceFeature>) -> Self {
+        self.capture_source = Some(capture_source);
+        self
+    }
+
+    /// Replaces live acquisition and trigger-editing behavior.
+    pub fn with_live_capture(mut self, live_capture: Box<dyn LiveCaptureFeatureProvider>) -> Self {
+        self.live_capture = Some(live_capture);
+        self
+    }
+
+    /// Replaces viewer and result-presentation metadata.
+    pub fn with_presentation(mut self, presentation: Box<dyn GraphNodePresentation>) -> Self {
+        self.presentation = Some(presentation);
+        self
+    }
+
+    /// Replaces timeline metadata and editing behavior.
+    pub fn with_timeline(mut self, timeline: Box<dyn TimelineFeature>) -> Self {
+        self.timeline = Some(timeline);
+        self
     }
 
     /// Returns the persisted feature identity replaced by this override.
@@ -58,9 +101,49 @@ impl RuntimeBuilderOverride {
         &self.stable_id
     }
 
-    /// Consumes the override and returns its host-provided builder.
-    pub fn into_builder(self) -> Box<dyn RuntimeBuilder> {
-        self.builder
+    /// Consumes the override into its validated registry input record.
+    pub fn into_bundle(self) -> GraphNodeCapabilityBundle {
+        GraphNodeCapabilityBundle {
+            semantics: self.semantics,
+            materializer: self.materializer,
+            capture_source: self.capture_source,
+            live_capture: self.live_capture,
+            presentation: self.presentation,
+            timeline: self.timeline,
+        }
+    }
+}
+
+/// Owned capability replacements consumed by graph-registry construction.
+pub struct GraphNodeCapabilityBundle {
+    /// Compiler-facing graph semantics replacement.
+    pub semantics: Option<Box<dyn GraphNodeSemantics>>,
+    /// Runtime materializer replacement.
+    pub materializer: Option<Box<dyn RuntimeMaterializer>>,
+    /// Capture-source replacement.
+    pub capture_source: Option<Box<dyn CaptureSourceFeature>>,
+    /// Live-capture replacement.
+    pub live_capture: Option<Box<dyn LiveCaptureFeatureProvider>>,
+    /// Presentation replacement.
+    pub presentation: Option<Box<dyn GraphNodePresentation>>,
+    /// Timeline replacement.
+    pub timeline: Option<Box<dyn TimelineFeature>>,
+}
+
+impl GraphNodeCapabilityBundle {
+    /// Creates an infrastructure bundle with graph semantics and runtime materialization.
+    pub fn runtime(
+        semantics: Box<dyn GraphNodeSemantics>,
+        materializer: Box<dyn RuntimeMaterializer>,
+    ) -> Self {
+        Self {
+            semantics: Some(semantics),
+            materializer: Some(materializer),
+            capture_source: None,
+            live_capture: None,
+            presentation: None,
+            timeline: None,
+        }
     }
 }
 
@@ -115,15 +198,139 @@ pub trait LiveCaptureFeature: Send {
     }
 }
 
-/// Materializes one concrete graph-node feature into a processing-runtime node.
+/// Supplies capture-source discovery and cache behavior for one graph-node feature.
 ///
-/// Implementations own concrete protocol and node behavior. Generic consumers use
-/// the neutral discovery and build results and never branch on node names or ports.
-pub trait RuntimeBuilder: Send + Sync {
+/// This capability is consumed during compilation and pre-run discovery. It does not expose graph
+/// lowering, runtime materialization, or unrelated presentation behavior.
+pub trait CaptureSourceFeature: Send + Sync {
+    /// Returns capture data or metadata to hand to the waveform viewer.
+    fn capture_presentation(&self, _state: &Value) -> Result<Option<CapturePresentation>, String> {
+        Ok(None)
+    }
+
+    /// Returns the identity used to decide whether a prepared capture can be reused.
+    fn capture_cache_identity(
+        &self,
+        _state: &Value,
+        _resolved: &ResolvedInputs,
+    ) -> CaptureCacheIdentity {
+        CaptureCacheIdentity::NotCapture
+    }
+}
+
+/// Discovers and edits live-acquisition behavior contributed by one graph-node feature.
+///
+/// The returned [`LiveCaptureFeature`] owns one state-specific acquisition session contract.
+pub trait LiveCaptureFeatureProvider: Send + Sync {
+    /// Returns a live-acquisition feature for the current saved state, when available.
+    fn live_capture_feature(
+        &self,
+        state: &Value,
+    ) -> Result<Option<Box<dyn LiveCaptureFeature>>, String>;
+
+    /// Returns validated trigger configuration exposed by this node, when any.
+    fn trigger_configuration(
+        &self,
+        _state: &Value,
+    ) -> Result<Option<TriggerConfigurationFeature>, String> {
+        Ok(None)
+    }
+
+    /// Applies a user edit to live-capture trigger state.
+    fn apply_live_capture_edit(
+        &self,
+        _state: &Value,
+        _edit: &LiveCaptureEdit,
+    ) -> Result<Option<Value>, String> {
+        Ok(None)
+    }
+}
+
+/// Supplies viewer and result-presentation metadata for one graph-node feature.
+pub trait GraphNodePresentation: Send + Sync {
+    /// Returns an optional concrete word-display format for this output.
+    fn word_display_format(&self, _socket: &Socket, _state: &Value) -> Option<String> {
+        None
+    }
+
+    /// Returns explicit compound-lane presentation metadata for this output.
+    fn lane_presentation(
+        &self,
+        _socket: &Socket,
+        _state: &Value,
+    ) -> Option<LanePresentationDescriptor> {
+        None
+    }
+
+    /// Returns result-table column metadata for this decoder output.
+    fn decoder_table_column(
+        &self,
+        _socket: &Socket,
+        _state: &Value,
+    ) -> Option<DecoderTableColumnDescriptor> {
+        None
+    }
+
+    /// Returns the capture-viewer channel from which this output originates.
+    fn viewer_channel_origin(&self, _socket: &Socket, _state: &Value) -> Option<usize> {
+        None
+    }
+
+    /// Returns selection behavior for presenting this output in the viewer.
+    fn viewer_output_control(&self, socket: &Socket, state: &Value) -> Option<ViewerOutputControl> {
+        if self.viewer_channel_origin(socket, state).is_some() {
+            return Some(ViewerOutputControl::new(true, [socket.def_index]));
+        }
+        Some(ViewerOutputControl::new(false, [socket.def_index]))
+    }
+
+    /// Returns sampling-overlay reconstruction metadata when this node samples inputs.
+    fn sampling_overlay(&self, _state: &Value) -> Option<SamplingOverlayDescriptor> {
+        None
+    }
+}
+
+/// Supplies node-owned timeline metadata and editing behavior.
+pub trait TimelineFeature: Send + Sync {
+    /// Returns node-owned markers for the host timeline.
+    fn timeline_markers(&self, _state: &Value) -> Result<Vec<TimelineMarkerDescriptor>, String> {
+        Ok(Vec::new())
+    }
+
+    /// Applies a host edit to one node-owned timeline marker.
+    fn apply_timeline_marker_edit(
+        &self,
+        _state: &Value,
+        _edit: &TimelineMarkerEdit,
+    ) -> Result<Option<Value>, String> {
+        Ok(None)
+    }
+
+    /// Returns controls bound to host-owned timeline marker references.
+    fn timeline_marker_reference_bindings(
+        &self,
+        _state: &Value,
+    ) -> Result<Vec<TimelineMarkerReferenceBindingDescriptor>, String> {
+        Ok(Vec::new())
+    }
+
+    /// Applies new host choices to a timeline-marker reference control.
+    fn apply_timeline_marker_reference_binding_edit(
+        &self,
+        _state: &Value,
+        _edit: &TimelineMarkerReferenceBindingEdit,
+    ) -> Result<Option<Value>, String> {
+        Ok(None)
+    }
+}
+
+/// Supplies the compiler-facing semantics of one graph-node feature.
+///
+/// This contract contains graph classification, payload negotiation, runtime-port projection, and
+/// retained-data policy. It does not materialize processing nodes or expose presentation and
+/// capture-discovery behavior.
+pub trait GraphNodeSemantics: Send + Sync {
     /// Returns the part of saved node state that can affect runtime behavior.
-    ///
-    /// Presentation-only controls override this projection so changing them
-    /// refreshes host views without restarting the processing node.
     fn execution_state(&self, state: &Value) -> Value {
         state.clone()
     }
@@ -131,9 +338,7 @@ pub trait RuntimeBuilder: Send + Sync {
     fn is_source(&self) -> bool {
         false
     }
-    /// Whether this source establishes the graph's capture/data time domain.
-    /// Auxiliary zero-input sources may emit values already expressed in that
-    /// domain without competing with the capture source.
+    /// Returns whether this source establishes the graph's capture/data time domain.
     fn is_time_domain_source(&self) -> bool {
         self.is_source()
     }
@@ -142,11 +347,7 @@ pub trait RuntimeBuilder: Send + Sync {
         None
     }
     /// Returns the retention policy for data derived from this node.
-    ///
-    /// # Parameters
-    /// - `state`: Current persisted node state.
-    fn derived_data_retention(&self, state: &Value) -> DerivedDataRetention {
-        let _ = state;
+    fn derived_data_retention(&self, _state: &Value) -> DerivedDataRetention {
         DerivedDataRetention::Unlimited
     }
     /// Returns whether this feature terminates a graph data flow.
@@ -161,11 +362,7 @@ pub trait RuntimeBuilder: Send + Sync {
     fn is_data_collector(&self) -> bool {
         false
     }
-    /// Names retained lanes contributed by each output member.
-    ///
-    /// # Parameters
-    /// - `state`: Current persisted node state.
-    /// - `resolved`: Negotiated upstream inputs, including variadic members.
+    /// Names retained lanes contributed by each resolved input member.
     fn collected_lane_names(
         &self,
         _state: &Value,
@@ -173,43 +370,23 @@ pub trait RuntimeBuilder: Send + Sync {
     ) -> Vec<(usize, String)> {
         Vec::new()
     }
-    /// Returns the user-facing source label for collected lanes.
-    ///
-    /// # Parameters
-    /// - `state`: Current persisted node state.
-    /// - `source_title`: User-visible title of the upstream source node.
+    /// Returns the user-facing source label for a collected lane.
     fn collected_source_label(&self, _state: &Value, source_title: &str) -> String {
         source_title.to_owned()
     }
-    /// Returns payload kinds this input socket accepts in the given state.
-    ///
-    /// # Parameters
-    /// - `socket`: Input socket being negotiated.
-    /// - `state`: Current persisted node state.
+    /// Returns payload kinds accepted by an input socket in the given state.
     fn accepted_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind>;
-    /// Returns payload kinds this output socket offers in the given state.
-    ///
-    /// # Parameters
-    /// - `socket`: Output socket being negotiated.
-    /// - `state`: Current persisted node state.
+    /// Returns payload kinds offered by an output socket in the given state.
     fn offered_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind>;
-    /// Optional owner-defined semantic contracts carried by an output.
-    /// Empty means the payload type alone defines compatibility.
+    /// Returns semantic contracts carried by an output socket.
     fn offered_connection_contracts(&self, _socket: &Socket, _state: &Value) -> Vec<String> {
         Vec::new()
     }
-    /// Optional owner-defined semantic contracts accepted by an input.
-    /// When both ends declare contracts, at least one identity must match.
+    /// Returns semantic contracts accepted by an input socket.
     fn accepted_connection_contracts(&self, _socket: &Socket, _state: &Value) -> Vec<String> {
         Vec::new()
     }
-    /// Returns the runtime input name for a negotiated socket member.
-    ///
-    /// # Parameters
-    /// - `socket`: Input socket being materialized.
-    /// - `member_index`: Index of a variadic input member.
-    /// - `state`: Current persisted node state.
-    /// - `kind`: Negotiated payload kind.
+    /// Returns the runtime input port for a negotiated socket member.
     fn input_port(
         &self,
         socket: &Socket,
@@ -217,121 +394,23 @@ pub trait RuntimeBuilder: Send + Sync {
         state: &Value,
         kind: PortKind,
     ) -> Option<String>;
-    /// Returns the runtime output name for a negotiated socket.
-    ///
-    /// # Parameters
-    /// - `socket`: Output socket being materialized.
-    /// - `state`: Current persisted node state.
-    /// - `kind`: Negotiated payload kind.
+    /// Returns the runtime output port for a negotiated socket.
     fn output_port(&self, socket: &Socket, state: &Value, kind: PortKind) -> Option<String>;
-    /// Returns an optional concrete word-display format for this output.
-    fn word_display_format(&self, _socket: &Socket, _state: &Value) -> Option<String> {
-        None
-    }
-    /// Returns explicit compound-lane presentation metadata for this output.
-    fn lane_presentation(
-        &self,
-        _socket: &Socket,
-        _state: &Value,
-    ) -> Option<LanePresentationDescriptor> {
-        None
-    }
-    /// Returns result-table column metadata for this decoder output.
-    fn decoder_table_column(
-        &self,
-        _socket: &Socket,
-        _state: &Value,
-    ) -> Option<DecoderTableColumnDescriptor> {
-        None
-    }
-    /// Returns the capture-viewer channel from which this output originates.
-    fn viewer_channel_origin(&self, _socket: &Socket, _state: &Value) -> Option<usize> {
-        None
-    }
-    /// Returns selection behavior for presenting this output in the viewer.
-    fn viewer_output_control(&self, socket: &Socket, state: &Value) -> Option<ViewerOutputControl> {
-        if self.viewer_channel_origin(socket, state).is_some() {
-            return Some(ViewerOutputControl::new(true, [socket.def_index]));
-        }
-        Some(ViewerOutputControl::new(false, [socket.def_index]))
-    }
-    /// Returns capture data or metadata to hand to the waveform viewer.
-    ///
-    /// # Parameters
-    /// - `state`: Current persisted node state.
-    fn capture_presentation(&self, state: &Value) -> Result<Option<CapturePresentation>, String> {
-        let _ = state;
-        Ok(None)
-    }
-    /// Returns the identity used to decide whether a prepared capture can be reused.
-    fn capture_cache_identity(
-        &self,
-        _state: &Value,
-        _resolved: &ResolvedInputs,
-    ) -> CaptureCacheIdentity {
-        CaptureCacheIdentity::NotCapture
-    }
-    /// Returns sampling-overlay reconstruction metadata when this node samples inputs.
-    fn sampling_overlay(&self, _state: &Value) -> Option<SamplingOverlayDescriptor> {
-        None
-    }
-    /// Returns a live-acquisition feature when this node can acquire capture data.
-    fn live_capture_feature(
-        &self,
-        _state: &Value,
-    ) -> Result<Option<Box<dyn LiveCaptureFeature>>, String> {
-        Ok(None)
-    }
-    /// Returns validated trigger configuration exposed by this node, when any.
-    fn trigger_configuration(
-        &self,
-        _state: &Value,
-    ) -> Result<Option<TriggerConfigurationFeature>, String> {
-        Ok(None)
-    }
-    /// Returns node-owned markers for the host timeline.
-    fn timeline_markers(&self, _state: &Value) -> Result<Vec<TimelineMarkerDescriptor>, String> {
-        Ok(Vec::new())
-    }
-    /// Applies a host edit to one node-owned timeline marker.
-    fn apply_timeline_marker_edit(
-        &self,
-        _state: &Value,
-        _edit: &TimelineMarkerEdit,
-    ) -> Result<Option<Value>, String> {
-        Ok(None)
-    }
-    /// Returns controls bound to host-owned timeline marker references.
-    fn timeline_marker_reference_bindings(
-        &self,
-        _state: &Value,
-    ) -> Result<Vec<TimelineMarkerReferenceBindingDescriptor>, String> {
-        Ok(Vec::new())
-    }
-    /// Applies new host choices to a timeline-marker reference control.
-    fn apply_timeline_marker_reference_binding_edit(
-        &self,
-        _state: &Value,
-        _edit: &TimelineMarkerReferenceBindingEdit,
-    ) -> Result<Option<Value>, String> {
-        Ok(None)
-    }
-    /// Applies a user edit to live-capture trigger state.
-    fn apply_live_capture_edit(
-        &self,
-        _state: &Value,
-        _edit: &LiveCaptureEdit,
-    ) -> Result<Option<Value>, String> {
-        Ok(None)
-    }
     /// Returns whether an input socket must be connected in the given state.
     fn input_required(&self, _socket: &Socket, _state: &Value) -> bool {
         true
     }
-    /// Returns a node-specific input buffer capacity, if one is required.
+    /// Returns a node-specific input buffer capacity, when required.
     fn input_buffer_override(&self, _socket: &Socket, _state: &Value) -> Option<usize> {
         None
     }
+}
+
+/// Materializes one compiler-resolved graph node into the processing runtime.
+///
+/// The processing plan retains this narrow capability after lowering. Runtime consumers do not
+/// receive graph semantics, discovery, capture presentation, or editor behavior through it.
+pub trait RuntimeMaterializer: Send + Sync {
     /// Builds the concrete processing node for the negotiated graph instance.
     ///
     /// # Parameters
@@ -341,19 +420,17 @@ pub trait RuntimeBuilder: Send + Sync {
     /// - `ctx`: Run-scoped generic services available to the node.
     fn build(
         &self,
-        _name: &str,
-        _state: &Value,
-        _resolved: &ResolvedInputs,
-        _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        Err("graph-only builder has no runtime node".to_owned())
-    }
+        name: &str,
+        state: &Value,
+        resolved: &ResolvedInputs,
+        ctx: &mut dyn NodeBuildContext,
+    ) -> Result<Box<dyn ProcessNode>, String>;
+
     /// Returns an in-place runtime configuration update, when supported.
     ///
     /// # Parameters
     /// - `state`: Current persisted node state.
-    fn hot_config(&self, state: &Value) -> Option<NodeConfig> {
-        let _ = state;
+    fn hot_config(&self, _state: &Value) -> Option<NodeConfig> {
         None
     }
 }

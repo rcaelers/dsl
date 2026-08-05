@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride;
+use logic_analyzer_graph_capabilities::node::{
+    GraphNodeCapabilityBundle, GraphNodeCapabilityOverride,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     LiveCaptureEdit, TimelineMarkerEdit, TimelineMarkerReferenceBindingEdit,
 };
@@ -36,22 +38,30 @@ pub struct GraphLowerer {
 impl GraphLowerer {
     /// Creates a lowerer from the validated graph registry.
     pub fn new() -> Self {
-        Self::with_builder_overrides(Vec::new())
+        Self::with_capability_overrides(Vec::new())
     }
 
-    /// Creates a lowerer with composition-root runtime-builder overrides.
-    pub fn with_builder_overrides(builder_overrides: Vec<RuntimeBuilderOverride>) -> Self {
+    /// Creates a lowerer with composition-root graph-capability overrides.
+    pub fn with_capability_overrides(
+        capability_overrides: Vec<GraphNodeCapabilityOverride>,
+    ) -> Self {
         Self {
-            registry: Arc::new(GraphRegistry::with_builder_overrides_and_infrastructure(
-                builder_overrides,
+            registry: Arc::new(GraphRegistry::with_capability_overrides_and_infrastructure(
+                capability_overrides,
                 vec![
                     (
                         DATA_COLLECTOR_BUILDER.to_owned(),
-                        std::sync::Arc::new(DataCollectorBuilder::retained_data()),
+                        GraphNodeCapabilityBundle::runtime(
+                            Box::new(DataCollectorBuilder::retained_data()),
+                            Box::new(DataCollectorBuilder::retained_data()),
+                        ),
                     ),
                     (
                         OUTPUT_SUBSCRIPTION_BUILDER_NAME.to_owned(),
-                        std::sync::Arc::new(DataCollectorBuilder::output_subscription()),
+                        GraphNodeCapabilityBundle::runtime(
+                            Box::new(DataCollectorBuilder::output_subscription()),
+                            Box::new(DataCollectorBuilder::output_subscription()),
+                        ),
                     ),
                 ],
             )),

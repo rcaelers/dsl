@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
@@ -15,7 +15,7 @@ use signal_runtime::ProcessNode;
 #[derive(Default)]
 pub(crate) struct SrFlipFlopBuilder;
 
-impl RuntimeBuilder for SrFlipFlopBuilder {
+impl GraphNodeSemantics for SrFlipFlopBuilder {
     fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Trigger>()]
     }
@@ -32,6 +32,9 @@ impl RuntimeBuilder for SrFlipFlopBuilder {
     fn output_port(&self, _socket: &Socket, _state: &Value, _kind: PortKind) -> Option<String> {
         Some("q".into())
     }
+}
+
+impl RuntimeMaterializer for SrFlipFlopBuilder {
     fn build(
         &self,
         name: &str,

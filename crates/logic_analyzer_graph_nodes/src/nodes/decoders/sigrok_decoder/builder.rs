@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::{RuntimeBuilder, RuntimeBuilderOverride};
+use logic_analyzer_graph_capabilities::node::{
+    GraphNodeCapabilityOverride, GraphNodeSemantics, RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
@@ -64,16 +66,16 @@ impl SigrokDecoderBuilder {
     }
 }
 
-pub(crate) fn runtime_builder_override(
+pub(crate) fn capability_override(
     runtime: Arc<dyn SigrokDecoderRuntime>,
-) -> RuntimeBuilderOverride {
-    RuntimeBuilderOverride::new(
+) -> GraphNodeCapabilityOverride {
+    GraphNodeCapabilityOverride::capabilities(
         "org.logicconduit.graph-node.decoders.sigrok-decoder/v1",
-        Box::new(SigrokDecoderBuilder::with_backend(runtime)),
     )
+    .with_materializer(Box::new(SigrokDecoderBuilder::with_backend(runtime)))
 }
 
-impl RuntimeBuilder for SigrokDecoderBuilder {
+impl GraphNodeSemantics for SigrokDecoderBuilder {
     fn accepted_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind> {
         let Ok(state) = Self::parsed(state) else {
             return Vec::new();
@@ -163,7 +165,9 @@ impl RuntimeBuilder for SigrokDecoderBuilder {
             .get(socket.def_index)
             .is_none_or(|channel| channel.required)
     }
+}
 
+impl RuntimeMaterializer for SigrokDecoderBuilder {
     fn build(
         &self,
         name: &str,

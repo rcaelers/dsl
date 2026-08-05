@@ -3,13 +3,15 @@
 ## Responsibility
 
 `logic_analyzer_graph_registry` owns graph-node and payload registration descriptors, inventory
-collection, deterministic validation, host runtime-builder override resolution, and the immutable
-`GraphRegistry` snapshot consumed by the compiler and UI composition.
+collection, deterministic validation, host capability-override resolution, and the immutable
+`GraphRegistry` snapshot consumed by the compiler and UI composition. It also owns protocol-packet
+presentation registration and inventory lookup while graph capabilities retain only the display
+value contract.
 
 ## Facade and dependencies
 
-The crate root exposes `GraphNodeRegistration`, `PayloadRegistration`, their validated inventory
-iterators, and `GraphRegistry`. It depends only on `logic_analyzer_graph_capabilities`, `node_graph`,
+The crate root exposes `GraphNodeRegistration`, `PayloadRegistration`,
+`ProtocolPacketPresentationRegistration`, their inventory lookups, and `GraphRegistry`. It depends only on `logic_analyzer_graph_capabilities`, `node_graph`,
 the capture and derived contract owners, and the generic `inventory` mechanism. Plugins implement graph-API capability
 traits and submit registry-owned descriptors.
 
@@ -17,13 +19,13 @@ traits and submit registry-owned descriptors.
 
 The registry does not own editable graph documents, output-subscription plans, compiler lowering,
 generated collector nodes, runtime lifecycles, concrete graph nodes, UI presentation policy, or
-target selection. A consumer may inject neutral infrastructure builders while constructing a
-snapshot, but those builders and their policy remain owned by that consumer.
+target selection. A consumer may inject neutral infrastructure capability bundles while
+constructing a snapshot, but those capabilities and their policy remain owned by that consumer.
 
 Graph-node registration validation rejects empty or duplicate stable IDs and duplicate definition
 names. Payload registration validation rejects empty or duplicate stable IDs and duplicate runtime
 types. Snapshot construction also validates graph-node payload requirements and rejects unresolved
-host overrides or collisions with consumer-supplied infrastructure builders.
+host overrides or collisions with consumer-supplied infrastructure capabilities.
 
 ## Compatibility
 

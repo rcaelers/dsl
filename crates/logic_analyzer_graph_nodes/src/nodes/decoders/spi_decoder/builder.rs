@@ -2,7 +2,9 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{
+    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableColumnDescriptor, LanePresentationDescriptor, NodeBuildContext, PortKind,
     ResolvedInputs, SamplingOverlayDescriptor, ViewerOutputControl, parse_state,
@@ -32,58 +34,10 @@ impl SpiDecoderBuilder {
     }
 }
 
-impl RuntimeBuilder for SpiDecoderBuilder {
+impl GraphNodeSemantics for SpiDecoderBuilder {
     fn execution_state(&self, state: &Value) -> Value {
         crate::presentation::without_display_format(state)
     }
-
-    fn viewer_output_control(
-        &self,
-        socket: &Socket,
-        _state: &Value,
-    ) -> Option<ViewerOutputControl> {
-        match socket.def_index {
-            2 | 3 => Some(ViewerOutputControl::new(false, [0])),
-            4 | 5 => Some(ViewerOutputControl::new(false, [1])),
-            6 => Some(ViewerOutputControl::new(false, [6])),
-            _ => Some(ViewerOutputControl::Hidden),
-        }
-    }
-
-    fn lane_presentation(
-        &self,
-        socket: &Socket,
-        _state: &Value,
-    ) -> Option<LanePresentationDescriptor> {
-        super::presentation::spi_output_presentation(socket.def_index)
-    }
-
-    fn decoder_table_column(
-        &self,
-        socket: &Socket,
-        _state: &Value,
-    ) -> Option<DecoderTableColumnDescriptor> {
-        super::presentation::spi_table_column(socket.def_index)
-    }
-
-    fn word_display_format(&self, socket: &Socket, state: &Value) -> Option<String> {
-        if !matches!(socket.def_index, 3 | 5) {
-            return None;
-        }
-        Self::parsed(state)
-            .ok()
-            .map(|state| state.display_format.selected().to_string())
-    }
-
-    fn sampling_overlay(&self, state: &Value) -> Option<SamplingOverlayDescriptor> {
-        Self::parsed(state).ok()?;
-        Some(SamplingOverlayDescriptor {
-            clock_input: 0,
-            sampled_input_groups: vec![1, 2],
-            retained_word_source: None,
-        })
-    }
-
     fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Sample>()]
     }
@@ -138,6 +92,9 @@ impl RuntimeBuilder for SpiDecoderBuilder {
             _ => false,
         }
     }
+}
+
+impl RuntimeMaterializer for SpiDecoderBuilder {
     fn build(
         &self,
         name: &str,
@@ -171,6 +128,55 @@ impl RuntimeBuilder for SpiDecoderBuilder {
             decoder = decoder.with_sampling_points(points);
         }
         Ok(Box::new(decoder))
+    }
+}
+
+impl GraphNodePresentation for SpiDecoderBuilder {
+    fn viewer_output_control(
+        &self,
+        socket: &Socket,
+        _state: &Value,
+    ) -> Option<ViewerOutputControl> {
+        match socket.def_index {
+            2 | 3 => Some(ViewerOutputControl::new(false, [0])),
+            4 | 5 => Some(ViewerOutputControl::new(false, [1])),
+            6 => Some(ViewerOutputControl::new(false, [6])),
+            _ => Some(ViewerOutputControl::Hidden),
+        }
+    }
+
+    fn lane_presentation(
+        &self,
+        socket: &Socket,
+        _state: &Value,
+    ) -> Option<LanePresentationDescriptor> {
+        super::presentation::spi_output_presentation(socket.def_index)
+    }
+
+    fn decoder_table_column(
+        &self,
+        socket: &Socket,
+        _state: &Value,
+    ) -> Option<DecoderTableColumnDescriptor> {
+        super::presentation::spi_table_column(socket.def_index)
+    }
+
+    fn word_display_format(&self, socket: &Socket, state: &Value) -> Option<String> {
+        if !matches!(socket.def_index, 3 | 5) {
+            return None;
+        }
+        Self::parsed(state)
+            .ok()
+            .map(|state| state.display_format.selected().to_string())
+    }
+
+    fn sampling_overlay(&self, state: &Value) -> Option<SamplingOverlayDescriptor> {
+        Self::parsed(state).ok()?;
+        Some(SamplingOverlayDescriptor {
+            clock_input: 0,
+            sampled_input_groups: vec![1, 2],
+            retained_word_source: None,
+        })
     }
 }
 

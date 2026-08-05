@@ -212,10 +212,6 @@ impl HostService for BrowserDocumentHostService {
         (!display_name.is_empty()).then(|| self.reserve_document(display_name))
     }
 
-    fn choose_directory(&mut self) -> Option<PathBuf> {
-        None
-    }
-
     fn load_graph(&mut self, path: &Path) -> Result<node_graph::GraphState, String> {
         let key = path.to_string_lossy().into_owned();
         let document = self

@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::RuntimeMaterializer;
 use logic_analyzer_graph_capabilities::node_support::{
     CaptureCacheIdentity, CapturePresentation, NodeBuildContext, PortKind, ResolvedInput,
-    ResolvedInputs,
+    ResolvedInputs, SourceDataLifecycle,
 };
 use node_graph::api::NodeId;
 use signal_derived::{
@@ -96,13 +96,25 @@ pub struct ProcessingNode {
     /// Stable diagnostic name of the resolved builder.
     pub builder: String,
     /// Resolved materializer captured by the compiler.
-    pub materializer: Arc<dyn RuntimeBuilder>,
+    pub materializer: Arc<dyn RuntimeMaterializer>,
+    /// Runtime-relevant state projection used to classify live graph edits.
+    pub execution_state: serde_json::Value,
+    /// Source readiness behavior projected by the compiler.
+    pub source_data_lifecycle: Option<SourceDataLifecycle>,
+    /// Whether this node establishes the graph's capture/data time domain.
+    pub time_domain_source: bool,
+    /// Whether this node terminates a graph data flow.
+    pub sink: bool,
     /// Persisted state used to build the node.
     pub state: serde_json::Value,
     /// Pipeline node name.
     pub runtime_name: String,
     /// Whether the node collects inputs into retained output lanes.
     pub data_collector: bool,
+    /// Retained lane names projected by the compiler for collector input members.
+    pub collected_lane_names: Vec<(usize, String)>,
+    /// User-facing source labels projected for collector input members.
+    pub collected_source_labels: Vec<(usize, String)>,
     /// Negotiated upstream connections by input definition and member.
     pub resolved: ResolvedInputs,
     /// Source cache-reuse identity determined during compilation.
@@ -118,8 +130,14 @@ impl fmt::Debug for ProcessingNode {
             .field("id", &self.id)
             .field("builder", &self.builder)
             .field("state", &self.state)
+            .field("execution_state", &self.execution_state)
+            .field("source_data_lifecycle", &self.source_data_lifecycle)
+            .field("time_domain_source", &self.time_domain_source)
+            .field("sink", &self.sink)
             .field("runtime_name", &self.runtime_name)
             .field("data_collector", &self.data_collector)
+            .field("collected_lane_names", &self.collected_lane_names)
+            .field("collected_source_labels", &self.collected_source_labels)
             .field("resolved", &self.resolved)
             .field("capture_cache_identity", &self.capture_cache_identity)
             .field("derived_word_caches", &self.derived_word_caches)

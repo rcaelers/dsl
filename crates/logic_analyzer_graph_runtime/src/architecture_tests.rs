@@ -97,3 +97,23 @@ fn runtime_never_accepts_editor_documents_or_compiler_services() {
         assert!(!source.contains("GraphRegistry"));
     }
 }
+
+#[test]
+fn runtime_does_not_query_compiler_semantics_through_materializers() {
+    let execution = implementation_source(include_str!("runtime/execution.rs"));
+    for forbidden in [
+        "materializer.is_source",
+        "materializer.is_sink",
+        "materializer.is_data_",
+        "materializer.source_data_lifecycle",
+        "materializer.execution_state",
+        "materializer.collected_lane_names",
+        "materializer.sampling_overlay",
+        "materializer.capture_",
+    ] {
+        assert!(
+            !execution.contains(forbidden),
+            "runtime queries compiler semantics through {forbidden}"
+        );
+    }
+}

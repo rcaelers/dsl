@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{
+    CaptureSourceFeature, GraphNodeCapabilityOverride, GraphNodePresentation, GraphNodeSemantics,
+    RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     CaptureCacheIdentity, CapturePresentation, NodeBuildContext, PortKind, ResolvedInputs,
     parse_state,
@@ -45,16 +48,26 @@ impl FileSourceBuilder {
     }
 }
 
-pub(crate) fn runtime_builder_override(
+pub(crate) fn capability_override(
     source_factory: Arc<dyn DslFileSourceFactory>,
-) -> logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride {
-    logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride::new(
-        "org.logicconduit.graph-node.sources.dsl-file-source/v1",
-        Box::new(FileSourceBuilder::with_source_factory(source_factory)),
-    )
+) -> GraphNodeCapabilityOverride {
+    let stable_id = "org.logicconduit.graph-node.sources.dsl-file-source/v1";
+    GraphNodeCapabilityOverride::capabilities(stable_id)
+        .with_semantics(Box::new(FileSourceBuilder::with_source_factory(
+            Arc::clone(&source_factory),
+        )))
+        .with_materializer(Box::new(FileSourceBuilder::with_source_factory(
+            Arc::clone(&source_factory),
+        )))
+        .with_capture_source(Box::new(FileSourceBuilder::with_source_factory(
+            Arc::clone(&source_factory),
+        )))
+        .with_presentation(Box::new(FileSourceBuilder::with_source_factory(
+            source_factory,
+        )))
 }
 
-impl RuntimeBuilder for FileSourceBuilder {
+impl GraphNodeSemantics for FileSourceBuilder {
     fn is_source(&self) -> bool {
         true
     }
@@ -88,9 +101,12 @@ impl RuntimeBuilder for FileSourceBuilder {
             None
         }
     }
-    fn viewer_channel_origin(&self, socket: &Socket, _state: &Value) -> Option<usize> {
-        Some(socket.def_index)
+    fn input_required(&self, _socket: &Socket, _state: &Value) -> bool {
+        false
     }
+}
+
+impl CaptureSourceFeature for FileSourceBuilder {
     fn capture_presentation(&self, state: &Value) -> Result<Option<CapturePresentation>, String> {
         self.metadata(state)?
             .presentation()
@@ -106,9 +122,15 @@ impl RuntimeBuilder for FileSourceBuilder {
         };
         super::super::metadata::cache_identity(metadata.cache_identity())
     }
-    fn input_required(&self, _socket: &Socket, _state: &Value) -> bool {
-        false
+}
+
+impl GraphNodePresentation for FileSourceBuilder {
+    fn viewer_channel_origin(&self, socket: &Socket, _state: &Value) -> Option<usize> {
+        Some(socket.def_index)
     }
+}
+
+impl RuntimeMaterializer for FileSourceBuilder {
     fn build(
         &self,
         name: &str,
@@ -130,17 +152,24 @@ impl RuntimeBuilder for FileSourceBuilder {
 }
 
 #[cfg(test)]
-fn platform_parity_builder() -> Box<dyn RuntimeBuilder> {
-    Box::new(FileSourceBuilder::with_source_factory(Arc::new(
-        crate::nodes::test_support::TestSourceFactory::file(),
+fn platform_parity_capabilities() -> crate::nodes::test_support::PlatformParityCapabilities {
+    let factory: Arc<dyn DslFileSourceFactory> =
+        Arc::new(crate::nodes::test_support::TestSourceFactory::file());
+    crate::nodes::test_support::PlatformParityCapabilities::new(
+        Box::new(FileSourceBuilder::with_source_factory(Arc::clone(&factory))),
+        Box::new(FileSourceBuilder::with_source_factory(Arc::clone(&factory))),
+    )
+    .with_capture_source(Box::new(FileSourceBuilder::with_source_factory(
+        Arc::clone(&factory),
     )))
+    .with_presentation(Box::new(FileSourceBuilder::with_source_factory(factory)))
 }
 
 #[cfg(test)]
 inventory::submit! {
-    crate::nodes::test_support::PlatformParityBuilderRegistration::new(
+    crate::nodes::test_support::PlatformParityCapabilityRegistration::new(
         "org.logicconduit.graph-node.sources.dsl-file-source/v1",
-        platform_parity_builder,
+        platform_parity_capabilities,
     )
 }
 

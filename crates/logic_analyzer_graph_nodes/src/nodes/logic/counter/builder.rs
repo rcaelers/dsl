@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
@@ -14,7 +14,7 @@ use signal_runtime::ProcessNode;
 #[derive(Default)]
 pub(crate) struct CounterBuilder;
 
-impl RuntimeBuilder for CounterBuilder {
+impl GraphNodeSemantics for CounterBuilder {
     fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Trigger>()]
     }
@@ -27,6 +27,9 @@ impl RuntimeBuilder for CounterBuilder {
     fn output_port(&self, _socket: &Socket, _state: &Value, _kind: PortKind) -> Option<String> {
         Some("count".into())
     }
+}
+
+impl RuntimeMaterializer for CounterBuilder {
     fn build(
         &self,
         name: &str,

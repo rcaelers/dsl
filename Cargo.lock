@@ -2225,7 +2225,6 @@ dependencies = [
 name = "logic-analyzer-graph-capabilities"
 version = "0.1.0"
 dependencies = [
- "inventory",
  "node-graph",
  "serde",
  "serde_json",
@@ -2309,8 +2308,10 @@ dependencies = [
  "inventory",
  "logic-analyzer-graph-capabilities",
  "node-graph",
+ "serde_json",
  "signal-capture",
  "signal-derived",
+ "signal-runtime",
 ]
 
 [[package]]

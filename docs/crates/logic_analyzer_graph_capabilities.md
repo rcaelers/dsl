@@ -16,7 +16,5 @@ graph lowering, processing plan, runtime lifecycle, built-in node, UI state, or 
 Consumers import capability symbols from their owning namespace directly. Registry descriptors,
 processing-plan values, and concrete node implementations remain in their separate owner crates.
 
-## Known boundary exception
-
-`DirectoryNodeCatalog` still carries host-path configuration. It remains an explicitly documented
-migration item until the portable catalog presentation and platform path adapter are separated.
+Host catalog directories, persistence, and scanning are outside this crate. The UI owns the
+portable catalog service contract, and platform adapters supply its implementations.

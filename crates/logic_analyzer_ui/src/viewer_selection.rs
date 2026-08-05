@@ -2,10 +2,11 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
 use logic_analyzer_graph_capabilities::node_support::{PortKind, ViewerOutputControl};
 use logic_analyzer_graph_plan::OutputSubscriptionPlan;
-use logic_analyzer_graph_registry::{graph_node_registrations, payload_registrations};
+use logic_analyzer_graph_registry::{
+    GraphRegistry, graph_node_registrations, payload_registrations,
+};
 use node_graph::{GraphState, NodeId, NodeKind, SocketDirection, SocketId};
 
 const EXTENSION: &str = "logic_analyzer_graph.viewer_selections";
@@ -80,7 +81,7 @@ pub(crate) struct ViewerOutputSelection {
 }
 
 struct SelectionContracts {
-    builders: HashMap<String, Box<dyn RuntimeBuilder>>,
+    registry: GraphRegistry,
     subscribable_kinds: HashSet<PortKind>,
     payload_ids: HashMap<PortKind, String>,
     registered_payload_ids: HashSet<String>,
@@ -95,14 +96,8 @@ impl SelectionContracts {
             .filter(|registration| registration.stable_id() == LEGACY_VIEWER_NODE_ID)
             .map(|registration| registration.name().to_owned())
             .collect();
-        let builders = node_registrations
-            .into_iter()
-            .filter_map(|registration| {
-                registration
-                    .builder()
-                    .map(|builder| (registration.name().to_owned(), builder))
-            })
-            .collect();
+        let registry =
+            GraphRegistry::with_capability_overrides_and_infrastructure(Vec::new(), Vec::new());
         let registrations = payload_registrations();
         let subscribable_kinds = registrations
             .iter()
@@ -117,7 +112,7 @@ impl SelectionContracts {
             .map(|registration| registration.stable_id().to_owned())
             .collect();
         Self {
-            builders,
+            registry,
             subscribable_kinds,
             payload_ids,
             registered_payload_ids,
@@ -146,7 +141,8 @@ pub(crate) fn viewer_output_selections(graph: &GraphState) -> Vec<ViewerOutputSe
         if node.kind != NodeKind::Regular {
             continue;
         }
-        let builder = contracts.builders.get(node.def_name());
+        let presentation = contracts.registry.presentation(node.def_name());
+        let semantics = contracts.registry.semantics(node.def_name());
         for (output_index, output) in node.outputs.iter().enumerate() {
             if !output.visible {
                 continue;
@@ -165,28 +161,31 @@ pub(crate) fn viewer_output_selections(graph: &GraphState) -> Vec<ViewerOutputSe
                 .get("show_in_view")
                 .and_then(serde_json::Value::as_bool);
             let saved_selection = saved.get(&endpoint).copied();
-            let (default_selected, indicator_outputs) = if let Some(builder) = builder {
-                let Some(ViewerOutputControl::Selectable {
-                    default_selected,
-                    indicator_outputs,
-                }) = builder.viewer_output_control(output, &node.state)
-                else {
+            let (default_selected, indicator_outputs) =
+                if let (Some(presentation), Some(semantics)) = (presentation, semantics) {
+                    let Some(ViewerOutputControl::Selectable {
+                        default_selected,
+                        indicator_outputs,
+                    }) = presentation.viewer_output_control(output, &node.state)
+                    else {
+                        continue;
+                    };
+                    let viewable = presentation
+                        .viewer_channel_origin(output, &node.state)
+                        .is_some()
+                        || semantics
+                            .offered_kinds(output, &node.state)
+                            .into_iter()
+                            .any(|kind| contracts.subscribable_kinds.contains(&kind));
+                    if !viewable {
+                        continue;
+                    }
+                    (default_selected, indicator_outputs)
+                } else if saved_selection.or(legacy).is_some() {
+                    (false, vec![output_index])
+                } else {
                     continue;
                 };
-                let viewable = builder.viewer_channel_origin(output, &node.state).is_some()
-                    || builder
-                        .offered_kinds(output, &node.state)
-                        .into_iter()
-                        .any(|kind| contracts.subscribable_kinds.contains(&kind));
-                if !viewable {
-                    continue;
-                }
-                (default_selected, indicator_outputs)
-            } else if saved_selection.or(legacy).is_some() {
-                (false, vec![output_index])
-            } else {
-                continue;
-            };
             selections.push(ViewerOutputSelection {
                 node: node_id,
                 output: output_index,
@@ -511,9 +510,9 @@ fn discover_payload_subscriptions(
             continue;
         };
         if !contracts
-            .builders
-            .get(target.def_name())
-            .is_some_and(|builder| builder.is_data_subscription())
+            .registry
+            .semantics(target.def_name())
+            .is_some_and(|semantics| semantics.is_data_subscription())
         {
             continue;
         }
@@ -553,9 +552,9 @@ fn discover_payload_subscription(
         .get(&source.node)
         .filter(|node| node.kind == NodeKind::Regular)
         .and_then(|node| {
-            let builder = contracts.builders.get(node.def_name())?;
+            let semantics = contracts.registry.semantics(node.def_name())?;
             let output = node.outputs.get(source.index)?;
-            builder
+            semantics
                 .offered_kinds(output, &node.state)
                 .into_iter()
                 .find_map(|kind| contracts.payload_ids.get(&kind).cloned())

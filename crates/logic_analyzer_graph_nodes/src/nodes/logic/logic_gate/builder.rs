@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
@@ -14,7 +14,7 @@ use signal_runtime::ProcessNode;
 #[derive(Default)]
 pub(crate) struct LogicGateBuilder;
 
-impl RuntimeBuilder for LogicGateBuilder {
+impl GraphNodeSemantics for LogicGateBuilder {
     fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Sample>()]
     }
@@ -33,6 +33,9 @@ impl RuntimeBuilder for LogicGateBuilder {
     fn output_port(&self, _socket: &Socket, _state: &Value, _kind: PortKind) -> Option<String> {
         Some("out".into())
     }
+}
+
+impl RuntimeMaterializer for LogicGateBuilder {
     fn build(
         &self,
         name: &str,

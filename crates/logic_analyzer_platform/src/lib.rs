@@ -11,6 +11,9 @@
 mod platform;
 mod services;
 
+#[cfg(test)]
+mod architecture_tests;
+
 pub use services::PlatformServices;
 
 /// Builds the services appropriate for the selected application host.

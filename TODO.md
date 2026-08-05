@@ -88,6 +88,58 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ## Refactorings
 
+### Graph-node capability decomposition
+
+- [x] [graph.capabilities.runtime-builder-split] Replace the broad `RuntimeBuilder` contract with
+  explicit capabilities while preserving stable node IDs, payload IDs, saved state, renderer keys,
+  diagnostics, and user-visible migrations.
+  1. [x] Introduce a runtime-only `RuntimeMaterializer` contract and make `ProcessingGraph` retain
+     only that handle plus compiler-projected execution metadata. The graph runtime must not query
+     compiler, discovery, or presentation behavior through the materializer.
+  2. [x] Introduce `GraphNodeSemantics` for port kinds, connection contracts, required inputs,
+     execution-state projection, source/sink classification, and retained-data policy. Make the
+     compiler consume this contract instead of `RuntimeBuilder`.
+  3. [x] Move capture discovery, cache identity, live acquisition, and trigger editing into explicit
+     `CaptureSourceFeature` and `LiveCaptureFeature` registration fields.
+  4. [x] Move lane, decoder-table, sampling-overlay, viewer-output, and timeline metadata/editing
+     into explicit presentation and timeline capability fields consumed only by their owners.
+  5. [x] Change `GraphNodeRegistration` and host overrides to register capability bundles. Reject
+     invalid combinations during registry construction instead of interpreting default methods.
+  6. [x] Migrate built-in nodes and the example plugin one feature family at a time, adding
+     conformance tests before removing the compatibility adapter and `RuntimeBuilder`.
+     - [x] Migrate the Logic Gate as the first semantics/materialization-only family and verify its
+       registration through the narrow capability contracts.
+     - [x] Migrate the deterministic capture-source family to explicit capture-source and
+       live-capture capability fields.
+     - [x] Register deterministic capture presentation and timeline-marker metadata through their
+       explicit capability fields.
+     - [x] Migrate the example plugin's nodes to separate semantics and materialization contracts,
+       keeping its custom camera payload presentation owned by the payload registry.
+     - [x] Migrate the buffer, edge detector, SR flip-flop, event gate, event control, and counter
+       primitives to separate semantics and materialization contracts.
+     - [x] Migrate formatter, word-field extraction, word matching, and packet framing, registering
+       their optional display and table presentation through explicit presentation capabilities.
+     - [x] Migrate the built-in I2C, UART, SPI, and parallel decoder family, including the saved
+       Binary Decoder alias, with explicit presentation capabilities.
+     - [x] Migrate timeline marker sources and conversions so timeline editing, lowering, and
+       runtime materialization are three distinct registered contracts.
+     - [x] Migrate the viewer subscription, TGCK recorder, and synthetic UART source, including
+       explicit capture and presentation registration for the synthetic source.
+     - [x] Migrate platform-overridable file/device sources and file sinks to narrow host override
+       bundles, and make their native/web parity harness consume the same explicit capabilities.
+     - [x] Migrate the host-overridable Sigrok decoder so saved protocol semantics remain generic
+       while only runtime materialization is replaced by the host backend.
+     - [x] Migrate the compiler-owned retained-data collectors to explicit semantics and
+       materialization bundles, then remove the compatibility adapter and broad contract.
+  7. [x] Tighten manifests and architecture tests so graph plan/runtime no longer acquire compiler
+     or presentation dependencies transitively through graph capabilities.
+- [x] [graph.catalog.portable-service] Move `DirectoryNodeCatalog` and its `PathBuf` configuration
+  out of graph capabilities. The UI owns a portable catalog snapshot/settings service and
+  `logic_analyzer_platform` owns directory selection, persistence, and scanning.
+- [x] [graph.presentation.registry-ownership] Move protocol-packet presentation inventory
+  collection from graph capabilities to graph registry; capability crates define contracts but do
+  not assemble inventories.
+
 ### Capture indexing and caching
 
 - [capture.index.acceleration] Improve finite waveform-index and cache-generation throughput in this

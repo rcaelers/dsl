@@ -14,5 +14,5 @@ pub(crate) use dsl::dsl_source_factory;
 pub(crate) use registry::BrowserFileRegistry;
 pub(crate) use sigrok::sigrok_source_factory;
 pub(crate) use worker_source::{
-    capture_metadata, capture_worker_operations, worker_graph_builder_overrides,
+    capture_metadata, capture_worker_operations, worker_graph_capability_overrides,
 };

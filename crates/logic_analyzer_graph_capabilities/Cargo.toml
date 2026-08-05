@@ -17,4 +17,3 @@ signal-artifacts = { workspace = true }
 node-graph = { path = "../widgets/node_graph" }
 serde = { workspace = true }
 serde_json = { workspace = true }
-inventory = { workspace = true }

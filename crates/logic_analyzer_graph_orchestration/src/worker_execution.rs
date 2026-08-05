@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride;
+use logic_analyzer_graph_capabilities::node::GraphNodeCapabilityOverride;
 use logic_analyzer_graph_compiler::GraphLowerer;
 use logic_analyzer_graph_plan::OutputSubscriptionPlan;
 use logic_analyzer_graph_runtime::{
@@ -102,18 +102,21 @@ impl GraphWorkerRuntime {
     /// Creates a worker runtime backed by in-memory artifact storage.
     ///
     /// # Parameters
-    /// - `builder_overrides`: Host-selected replacements for inventory builders.
-    pub fn new(builder_overrides: Vec<RuntimeBuilderOverride>) -> Self {
-        Self::with_repository(builder_overrides, Arc::new(MemoryArtifactRepository::new()))
+    /// - `capability_overrides`: Host-selected replacements for registered node capabilities.
+    pub fn new(capability_overrides: Vec<GraphNodeCapabilityOverride>) -> Self {
+        Self::with_repository(
+            capability_overrides,
+            Arc::new(MemoryArtifactRepository::new()),
+        )
     }
 
     /// Creates a worker runtime using the supplied artifact repository.
     ///
     /// # Parameters
-    /// - `builder_overrides`: Host-selected replacements for inventory builders.
+    /// - `capability_overrides`: Host-selected replacements for registered node capabilities.
     /// - `artifact_repository`: Durable repository that receives replicated artifacts.
     pub fn with_repository(
-        builder_overrides: Vec<RuntimeBuilderOverride>,
+        capability_overrides: Vec<GraphNodeCapabilityOverride>,
         artifact_repository: Arc<dyn ArtifactRepository>,
     ) -> Self {
         let repository = Arc::new(ReplicatingArtifactRepository::new(artifact_repository));
@@ -124,7 +127,7 @@ impl GraphWorkerRuntime {
         );
         runtime.set_artifact_repository(repository.clone());
         Self {
-            lowerer: GraphLowerer::with_builder_overrides(builder_overrides),
+            lowerer: GraphLowerer::with_capability_overrides(capability_overrides),
             runtime,
             repository,
             active: None,

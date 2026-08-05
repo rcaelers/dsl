@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{
+    CaptureSourceFeature, GraphNodeCapabilityOverride, GraphNodePresentation, GraphNodeSemantics,
+    RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     CaptureCacheIdentity, CapturePresentation, NodeBuildContext, PortKind, ResolvedInputs,
     parse_state,
@@ -48,16 +51,26 @@ impl SigrokFileSourceBuilder {
     }
 }
 
-pub(crate) fn runtime_builder_override(
+pub(crate) fn capability_override(
     source_factory: Arc<dyn SigrokFileSourceFactory>,
-) -> logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride {
-    logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride::new(
-        "org.logicconduit.graph-node.sources.sigrok-file-source/v1",
-        Box::new(SigrokFileSourceBuilder::with_source_factory(source_factory)),
-    )
+) -> GraphNodeCapabilityOverride {
+    let stable_id = "org.logicconduit.graph-node.sources.sigrok-file-source/v1";
+    GraphNodeCapabilityOverride::capabilities(stable_id)
+        .with_semantics(Box::new(SigrokFileSourceBuilder::with_source_factory(
+            Arc::clone(&source_factory),
+        )))
+        .with_materializer(Box::new(SigrokFileSourceBuilder::with_source_factory(
+            Arc::clone(&source_factory),
+        )))
+        .with_capture_source(Box::new(SigrokFileSourceBuilder::with_source_factory(
+            Arc::clone(&source_factory),
+        )))
+        .with_presentation(Box::new(SigrokFileSourceBuilder::with_source_factory(
+            source_factory,
+        )))
 }
 
-impl RuntimeBuilder for SigrokFileSourceBuilder {
+impl GraphNodeSemantics for SigrokFileSourceBuilder {
     fn is_source(&self) -> bool {
         true
     }
@@ -81,9 +94,15 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
         (kind == PortKind::of::<Sample>() || kind == PortKind::of::<SampleBlock>())
             .then(|| format!("ch{}", socket.def_index))
     }
-    fn viewer_channel_origin(&self, socket: &Socket, _state: &Value) -> Option<usize> {
-        Some(socket.def_index)
+    fn input_required(&self, socket: &Socket, state: &Value) -> bool {
+        socket.def_index == 0
+            && parse_state::<super::definition::SigrokFileSourceState>(state)
+                .map(|state| !state.demo_data && state.file.value.trim().is_empty())
+                .unwrap_or(true)
     }
+}
+
+impl CaptureSourceFeature for SigrokFileSourceBuilder {
     fn capture_presentation(&self, state: &Value) -> Result<Option<CapturePresentation>, String> {
         self.metadata(state)?
             .presentation()
@@ -99,12 +118,15 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
         };
         super::super::metadata::cache_identity(metadata.cache_identity())
     }
-    fn input_required(&self, socket: &Socket, state: &Value) -> bool {
-        socket.def_index == 0
-            && parse_state::<super::definition::SigrokFileSourceState>(state)
-                .map(|state| !state.demo_data && state.file.value.trim().is_empty())
-                .unwrap_or(true)
+}
+
+impl GraphNodePresentation for SigrokFileSourceBuilder {
+    fn viewer_channel_origin(&self, socket: &Socket, _state: &Value) -> Option<usize> {
+        Some(socket.def_index)
     }
+}
+
+impl RuntimeMaterializer for SigrokFileSourceBuilder {
     fn build(
         &self,
         name: &str,
@@ -121,17 +143,30 @@ impl RuntimeBuilder for SigrokFileSourceBuilder {
 }
 
 #[cfg(test)]
-fn platform_parity_builder() -> Box<dyn RuntimeBuilder> {
-    Box::new(SigrokFileSourceBuilder::with_source_factory(Arc::new(
-        crate::nodes::test_support::TestSourceFactory::file(),
+fn platform_parity_capabilities() -> crate::nodes::test_support::PlatformParityCapabilities {
+    let factory: Arc<dyn SigrokFileSourceFactory> =
+        Arc::new(crate::nodes::test_support::TestSourceFactory::file());
+    crate::nodes::test_support::PlatformParityCapabilities::new(
+        Box::new(SigrokFileSourceBuilder::with_source_factory(Arc::clone(
+            &factory,
+        ))),
+        Box::new(SigrokFileSourceBuilder::with_source_factory(Arc::clone(
+            &factory,
+        ))),
+    )
+    .with_capture_source(Box::new(SigrokFileSourceBuilder::with_source_factory(
+        Arc::clone(&factory),
+    )))
+    .with_presentation(Box::new(SigrokFileSourceBuilder::with_source_factory(
+        factory,
     )))
 }
 
 #[cfg(test)]
 inventory::submit! {
-    crate::nodes::test_support::PlatformParityBuilderRegistration::new(
+    crate::nodes::test_support::PlatformParityCapabilityRegistration::new(
         "org.logicconduit.graph-node.sources.sigrok-file-source/v1",
-        platform_parity_builder,
+        platform_parity_capabilities,
     )
 }
 

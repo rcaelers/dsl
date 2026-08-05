@@ -2,7 +2,10 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::{LiveCaptureFeature, RuntimeBuilder};
+use logic_analyzer_graph_capabilities::node::{
+    CaptureSourceFeature, GraphNodePresentation, GraphNodeSemantics, LiveCaptureFeature,
+    LiveCaptureFeatureProvider, RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
     SimpleTriggerChannel, TriggerConfigurationFeature,
@@ -66,7 +69,7 @@ fn configuration(
     )
 }
 
-impl RuntimeBuilder for TestLiveCaptureSourceBuilder {
+impl GraphNodeSemantics for TestLiveCaptureSourceBuilder {
     fn is_source(&self) -> bool {
         true
     }
@@ -106,14 +109,24 @@ impl RuntimeBuilder for TestLiveCaptureSourceBuilder {
         TestCaptureSourceBuilder.output_port(socket, state, kind)
     }
 
-    fn viewer_channel_origin(&self, socket: &Socket, state: &Value) -> Option<usize> {
-        TestCaptureSourceBuilder.viewer_channel_origin(socket, state)
+    fn input_required(&self, socket: &Socket, state: &Value) -> bool {
+        TestCaptureSourceBuilder.input_required(socket, state)
     }
+}
 
+impl CaptureSourceFeature for TestLiveCaptureSourceBuilder {
     fn capture_presentation(&self, state: &Value) -> Result<Option<CapturePresentation>, String> {
         TestCaptureSourceBuilder.capture_presentation(state)
     }
+}
 
+impl GraphNodePresentation for TestLiveCaptureSourceBuilder {
+    fn viewer_channel_origin(&self, socket: &Socket, state: &Value) -> Option<usize> {
+        TestCaptureSourceBuilder.viewer_channel_origin(socket, state)
+    }
+}
+
+impl LiveCaptureFeatureProvider for TestLiveCaptureSourceBuilder {
     fn live_capture_feature(
         &self,
         state: &Value,
@@ -138,11 +151,9 @@ impl RuntimeBuilder for TestLiveCaptureSourceBuilder {
     ) -> Result<Option<Value>, String> {
         super::implementation::apply_live_capture_edit(state, edit).map(Some)
     }
+}
 
-    fn input_required(&self, socket: &Socket, state: &Value) -> bool {
-        TestCaptureSourceBuilder.input_required(socket, state)
-    }
-
+impl RuntimeMaterializer for TestLiveCaptureSourceBuilder {
     fn build(
         &self,
         name: &str,

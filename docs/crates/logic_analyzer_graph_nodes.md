@@ -48,8 +48,8 @@ axis provides colorblind robustness because hues that could collide do not share
 ## Built-in node inventory
 
 The `sources`, `decoders`, `logic`, and `sinks` directories mirror processing-node families.
-Each executable feature directory groups a `node_graph::NodeDef` in `definition.rs`, its
-`RuntimeBuilder` in `builder.rs`, and optional presentation metadata. The node body contains the
+Each executable feature directory groups a `node_graph::NodeDef` in `definition.rs`, its separate
+graph semantics and runtime materializer in `builder.rs`, and optional presentation metadata. The node body contains the
 sockets and controls needed to understand the graph; detailed device and formatter settings belong
 in the properties panel. Viewer lane selection and presentation settings belong to the View panel.
 

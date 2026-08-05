@@ -2,7 +2,9 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{
+    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
@@ -14,16 +16,9 @@ use signal_runtime::ProcessNode;
 #[derive(Default)]
 pub(crate) struct WordFieldExtractorBuilder;
 
-impl RuntimeBuilder for WordFieldExtractorBuilder {
+impl GraphNodeSemantics for WordFieldExtractorBuilder {
     fn execution_state(&self, state: &Value) -> Value {
         crate::presentation::without_display_format(state)
-    }
-
-    fn word_display_format(&self, socket: &Socket, state: &Value) -> Option<String> {
-        (socket.def_index == 0)
-            .then(|| parse_state::<super::definition::WordFieldExtractorState>(state).ok())
-            .flatten()
-            .map(|state| state.display_format.selected().to_owned())
     }
 
     fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
@@ -47,7 +42,9 @@ impl RuntimeBuilder for WordFieldExtractorBuilder {
     fn output_port(&self, socket: &Socket, _state: &Value, _kind: PortKind) -> Option<String> {
         (socket.def_index == 0).then(|| "field".to_owned())
     }
+}
 
+impl RuntimeMaterializer for WordFieldExtractorBuilder {
     fn build(
         &self,
         name: &str,
@@ -63,6 +60,15 @@ impl RuntimeBuilder for WordFieldExtractorBuilder {
         Ok(Box::new(
             WordFieldExtractor::new(first_bit, bit_count).with_name(name),
         ))
+    }
+}
+
+impl GraphNodePresentation for WordFieldExtractorBuilder {
+    fn word_display_format(&self, socket: &Socket, state: &Value) -> Option<String> {
+        (socket.def_index == 0)
+            .then(|| parse_state::<super::definition::WordFieldExtractorState>(state).ok())
+            .flatten()
+            .map(|state| state.display_format.selected().to_owned())
     }
 }
 

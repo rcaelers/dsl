@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{
+    CaptureSourceFeature, GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
+};
 use logic_analyzer_processing::nodes::sinks::OutputOrigin;
 use logic_analyzer_processing::nodes::sinks::binary_file_writer::{
     BinaryFileWriterConfig, BinaryFileWriterFactory,
@@ -24,28 +26,65 @@ use signal_capture_session::logic_analyzer::LogicCaptureConfig;
 
 use super::process_node::TestProcessNode;
 
-pub(crate) struct PlatformParityBuilderRegistration {
-    stable_id: &'static str,
-    create: fn() -> Box<dyn RuntimeBuilder>,
+pub(crate) struct PlatformParityCapabilities {
+    pub(crate) semantics: Box<dyn GraphNodeSemantics>,
+    pub(crate) materializer: Box<dyn RuntimeMaterializer>,
+    pub(crate) capture_source: Option<Box<dyn CaptureSourceFeature>>,
+    pub(crate) presentation: Option<Box<dyn GraphNodePresentation>>,
 }
 
-impl PlatformParityBuilderRegistration {
+impl PlatformParityCapabilities {
+    pub(crate) fn new(
+        semantics: Box<dyn GraphNodeSemantics>,
+        materializer: Box<dyn RuntimeMaterializer>,
+    ) -> Self {
+        Self {
+            semantics,
+            materializer,
+            capture_source: None,
+            presentation: None,
+        }
+    }
+
+    pub(crate) fn with_capture_source(
+        mut self,
+        capture_source: Box<dyn CaptureSourceFeature>,
+    ) -> Self {
+        self.capture_source = Some(capture_source);
+        self
+    }
+
+    pub(crate) fn with_presentation(
+        mut self,
+        presentation: Box<dyn GraphNodePresentation>,
+    ) -> Self {
+        self.presentation = Some(presentation);
+        self
+    }
+}
+
+pub(crate) struct PlatformParityCapabilityRegistration {
+    stable_id: &'static str,
+    create: fn() -> PlatformParityCapabilities,
+}
+
+impl PlatformParityCapabilityRegistration {
     pub(crate) const fn new(
         stable_id: &'static str,
-        create: fn() -> Box<dyn RuntimeBuilder>,
+        create: fn() -> PlatformParityCapabilities,
     ) -> Self {
         Self { stable_id, create }
     }
 }
 
-inventory::collect!(PlatformParityBuilderRegistration);
+inventory::collect!(PlatformParityCapabilityRegistration);
 
-pub(crate) fn platform_parity_builder(stable_id: &str) -> Box<dyn RuntimeBuilder> {
-    inventory::iter::<PlatformParityBuilderRegistration>
+pub(crate) fn platform_parity_capabilities(stable_id: &str) -> PlatformParityCapabilities {
+    inventory::iter::<PlatformParityCapabilityRegistration>
         .into_iter()
         .find(|registration| registration.stable_id == stable_id)
         .map(|registration| (registration.create)())
-        .unwrap_or_else(|| panic!("no platform-parity builder for '{stable_id}'"))
+        .unwrap_or_else(|| panic!("no platform-parity capabilities for '{stable_id}'"))
 }
 
 pub(crate) struct TestSourceFactory {

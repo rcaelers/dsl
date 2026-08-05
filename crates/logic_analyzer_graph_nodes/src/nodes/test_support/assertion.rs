@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use logic_analyzer_graph_capabilities::node_support::{PortKind, ResolvedInput, ResolvedInputs};
-use logic_analyzer_graph_registry::graph_node_registrations;
+use logic_analyzer_graph_registry::{GraphRegistry, graph_node_registrations};
 use node_graph::api::{GraphDocumentBuilder, NodeId, NodeTypeRegistry, Socket};
 
 use super::build_context::TestNodeBuildContext;
@@ -51,7 +51,9 @@ fn assert_node_registration_contract_impl(
     }
 
     let state = document.graph().nodes[&target].state.clone();
-    let Some(builder) = registration.builder() else {
+    let registry =
+        GraphRegistry::with_capability_overrides_and_infrastructure(Vec::new(), Vec::new());
+    let Some(semantics) = registry.semantics(registration.name()) else {
         return;
     };
 
@@ -59,10 +61,10 @@ fn assert_node_registration_contract_impl(
     let target_outputs = document.graph().nodes[&target].outputs.clone();
     let mut required_inputs = Vec::new();
     for (index, socket) in target_inputs.iter().enumerate() {
-        if !socket.visible || !builder.input_required(socket, &state) {
+        if !socket.visible || !semantics.input_required(socket, &state) {
             continue;
         }
-        let accepted = builder.accepted_kinds(socket, &state);
+        let accepted = semantics.accepted_kinds(socket, &state);
         assert!(
             !accepted.is_empty(),
             "{}.{} is required but accepts no runtime payload",
@@ -71,7 +73,7 @@ fn assert_node_registration_contract_impl(
         );
         for kind in accepted {
             assert_port_mapping(
-                builder.input_port(socket, 0, &state, kind),
+                semantics.input_port(socket, 0, &state, kind),
                 registration.name(),
                 &socket.name,
                 kind,
@@ -85,7 +87,7 @@ fn assert_node_registration_contract_impl(
         if !socket.visible {
             continue;
         }
-        let offered = builder.offered_kinds(socket, &state);
+        let offered = semantics.offered_kinds(socket, &state);
         assert!(
             !offered.is_empty(),
             "{}.{} is visible but offers no runtime payload",
@@ -94,7 +96,7 @@ fn assert_node_registration_contract_impl(
         );
         for kind in offered {
             assert_port_mapping(
-                builder.output_port(socket, &state, kind),
+                semantics.output_port(socket, &state, kind),
                 registration.name(),
                 &socket.name,
                 kind,
@@ -103,7 +105,7 @@ fn assert_node_registration_contract_impl(
         offered_outputs.push(index);
     }
 
-    if builder.is_data_subscription() && required_inputs.is_empty() {
+    if semantics.is_data_subscription() && required_inputs.is_empty() {
         let input = target_inputs
             .iter()
             .position(|socket| socket.visible)
@@ -111,9 +113,9 @@ fn assert_node_registration_contract_impl(
         required_inputs.push(input);
     }
 
-    let is_source = builder.is_source();
-    let is_sink = builder.is_sink();
-    let is_data_subscription = builder.is_data_subscription();
+    let is_source = semantics.is_source();
+    let is_sink = semantics.is_sink();
+    let is_data_subscription = semantics.is_data_subscription();
 
     if !is_source {
         assert!(
@@ -132,9 +134,12 @@ fn assert_node_registration_contract_impl(
     }
 
     if build_runtime && !is_data_subscription {
-        let resolved = resolved_inputs(&*builder, &target_inputs, &state);
+        let resolved = resolved_inputs(semantics, &target_inputs, &state);
         let mut context = TestNodeBuildContext::default();
-        let runtime = builder
+        let materializer = registry
+            .materializer(registration.name())
+            .unwrap_or_else(|| panic!("{} has semantics but no materializer", registration.name()));
+        let runtime = materializer
             .build(registration.name(), &state, &resolved, &mut context)
             .unwrap_or_else(|error| {
                 panic!(
@@ -146,7 +151,7 @@ fn assert_node_registration_contract_impl(
 
         if state.is_object() {
             let malformed = serde_json::Value::String("malformed fixture state".to_owned());
-            let error = builder
+            let error = materializer
                 .build(registration.name(), &malformed, &resolved, &mut context)
                 .err()
                 .unwrap_or_else(|| {
@@ -165,7 +170,7 @@ fn assert_node_registration_contract_impl(
 }
 
 fn resolved_inputs(
-    builder: &dyn logic_analyzer_graph_capabilities::node::RuntimeBuilder,
+    semantics: &dyn logic_analyzer_graph_capabilities::node::GraphNodeSemantics,
     sockets: &[Socket],
     state: &serde_json::Value,
 ) -> ResolvedInputs {
@@ -173,7 +178,7 @@ fn resolved_inputs(
     let mut members = HashMap::<usize, usize>::new();
 
     for socket in sockets.iter().filter(|socket| socket.visible) {
-        let Some(kind) = builder.accepted_kinds(socket, state).into_iter().next() else {
+        let Some(kind) = semantics.accepted_kinds(socket, state).into_iter().next() else {
             continue;
         };
         let member = members.entry(socket.def_index).or_default();

@@ -2,7 +2,9 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{
+    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableColumnDescriptor, NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
@@ -32,15 +34,7 @@ impl PacketFramerBuilder {
     }
 }
 
-impl RuntimeBuilder for PacketFramerBuilder {
-    fn decoder_table_column(
-        &self,
-        socket: &Socket,
-        _state: &Value,
-    ) -> Option<DecoderTableColumnDescriptor> {
-        super::presentation::packet_table_column(socket.def_index)
-    }
-
+impl GraphNodeSemantics for PacketFramerBuilder {
     fn accepted_kinds(&self, socket: &Socket, _state: &Value) -> Vec<PortKind> {
         match socket.def_index {
             0 => vec![PortKind::of::<Word>()],
@@ -84,7 +78,9 @@ impl RuntimeBuilder for PacketFramerBuilder {
     fn input_required(&self, socket: &Socket, _state: &Value) -> bool {
         socket.def_index == 0
     }
+}
 
+impl RuntimeMaterializer for PacketFramerBuilder {
     fn build(
         &self,
         name: &str,
@@ -119,6 +115,16 @@ impl RuntimeBuilder for PacketFramerBuilder {
                 .with_boundary_input(resolved.kind(1).is_some())
                 .with_gate_input(gate_polarity),
         ))
+    }
+}
+
+impl GraphNodePresentation for PacketFramerBuilder {
+    fn decoder_table_column(
+        &self,
+        socket: &Socket,
+        _state: &Value,
+    ) -> Option<DecoderTableColumnDescriptor> {
+        super::presentation::packet_table_column(socket.def_index)
     }
 }
 

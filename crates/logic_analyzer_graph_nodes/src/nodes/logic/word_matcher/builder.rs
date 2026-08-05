@@ -4,7 +4,7 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
@@ -49,7 +49,7 @@ impl WordMatcherBuilder {
     }
 }
 
-impl RuntimeBuilder for WordMatcherBuilder {
+impl GraphNodeSemantics for WordMatcherBuilder {
     fn accepted_kinds(&self, socket: &Socket, _state: &Value) -> Vec<PortKind> {
         match socket.def_index {
             0 => vec![PortKind::of::<Word>()],
@@ -83,6 +83,9 @@ impl RuntimeBuilder for WordMatcherBuilder {
     fn input_required(&self, socket: &Socket, _state: &Value) -> bool {
         socket.def_index == 0
     }
+}
+
+impl RuntimeMaterializer for WordMatcherBuilder {
     fn build(
         &self,
         name: &str,

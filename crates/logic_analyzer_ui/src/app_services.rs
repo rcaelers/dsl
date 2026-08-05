@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use input_bindings::InputBindings;
-use logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride;
+use logic_analyzer_graph_capabilities::node::GraphNodeCapabilityOverride;
 use logic_analyzer_graph_runtime::SourcePreparationExecutor;
 use node_graph::FileDialogService;
 use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
@@ -16,8 +16,8 @@ use signal_runtime::{
 use crate::application_settings::{ApplicationSettings, default_input_bindings};
 use crate::capture_export_service::{CaptureExportService, unavailable_capture_export_service};
 use crate::graph_service::{
-    GraphService, graph_service_with_execution, graph_service_with_execution_and_builder_overrides,
-    standard_graph_service,
+    GraphService, graph_service_with_execution,
+    graph_service_with_execution_and_capability_overrides, standard_graph_service,
 };
 use crate::host_service::{HostService, OpenDialog, SaveDialog};
 
@@ -162,18 +162,18 @@ impl AppServices {
     }
 
     /// Replaces graph execution with host-selected adapters and node factories.
-    pub fn with_graph_execution_and_builder_overrides(
+    pub fn with_graph_execution_and_capability_overrides(
         mut self,
         source_preparation_executor: Box<dyn SourcePreparationExecutor>,
         runtime_factory: std::sync::Arc<dyn AppManagerFactory>,
         work_executor: Arc<dyn WorkExecutor>,
-        builder_overrides: Vec<RuntimeBuilderOverride>,
+        capability_overrides: Vec<GraphNodeCapabilityOverride>,
     ) -> Self {
-        self.graph_service = graph_service_with_execution_and_builder_overrides(
+        self.graph_service = graph_service_with_execution_and_capability_overrides(
             source_preparation_executor,
             runtime_factory,
             Arc::clone(&work_executor),
-            builder_overrides,
+            capability_overrides,
         );
         self.graph_service
             .set_artifact_repository(Arc::clone(&self.artifact_repository));
@@ -209,10 +209,6 @@ impl HostService for UnavailableHostService {
     }
 
     fn choose_save_file(&mut self, _request: SaveDialog<'_>) -> Option<PathBuf> {
-        None
-    }
-
-    fn choose_directory(&mut self) -> Option<PathBuf> {
         None
     }
 

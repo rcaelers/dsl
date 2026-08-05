@@ -4,8 +4,8 @@ use std::sync::mpsc::{self, Receiver, Sender};
 
 use serde::{Deserialize, Serialize};
 
-use logic_analyzer_graph_capabilities::node::{DirectoryNodeCatalog, NodeCatalogStatus};
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::SigrokCatalogSnapshot;
+use logic_analyzer_ui::{NodeCatalogService, NodeCatalogSnapshot};
 use node_graph::NodeTemplate;
 use signal_runtime::{WorkExecutor, WorkTask};
 
@@ -121,36 +121,44 @@ impl SigrokDirectoryCatalog {
     }
 }
 
-impl DirectoryNodeCatalog for SigrokDirectoryCatalog {
-    fn namespace(&self) -> &str {
-        NAMESPACE
-    }
-
-    fn title(&self) -> &str {
-        "External Sigrok Python decoders"
-    }
-
-    fn directories(&self) -> Vec<PathBuf> {
-        self.directories.clone()
-    }
-
-    fn set_directories(&mut self, directories: Vec<PathBuf>) {
-        self.directories = directories;
-        self.save();
-        self.start_scan();
-    }
-
-    fn rescan(&mut self) {
-        self.start_scan();
-    }
-
-    fn status(&mut self) -> NodeCatalogStatus {
+impl NodeCatalogService for SigrokDirectoryCatalog {
+    fn snapshot(&mut self) -> NodeCatalogSnapshot {
         self.poll();
-        NodeCatalogStatus {
+        NodeCatalogSnapshot {
+            namespace: NAMESPACE.to_owned(),
+            title: "External Sigrok Python decoders".to_owned(),
+            directories: self
+                .directories
+                .iter()
+                .map(|directory| directory.display().to_string())
+                .collect(),
             scanning: self.scanning,
             discovered: self.discovered,
             diagnostics: self.diagnostics.clone(),
         }
+    }
+
+    fn add_directory(&mut self) {
+        let Some(directory) = rfd::FileDialog::new().pick_folder() else {
+            return;
+        };
+        if !self.directories.contains(&directory) {
+            self.directories.push(directory);
+            self.save();
+            self.start_scan();
+        }
+    }
+
+    fn remove_directory(&mut self, index: usize) {
+        if index < self.directories.len() {
+            self.directories.remove(index);
+            self.save();
+            self.start_scan();
+        }
+    }
+
+    fn rescan(&mut self) {
+        self.start_scan();
     }
 
     fn take_templates(&mut self) -> Option<Vec<NodeTemplate>> {

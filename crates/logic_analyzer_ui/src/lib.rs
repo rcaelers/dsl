@@ -19,6 +19,7 @@ mod headless;
 mod host_service;
 mod live_capture;
 mod memory_panel;
+mod node_catalog_service;
 mod node_registry;
 mod output_downloads;
 mod panel_presentation;
@@ -47,6 +48,7 @@ pub use host_service::{
     DecodedBlockCacheSnapshot, DownloadableOutput, HostCommand, HostService, HostUiCapabilities,
     ModifierKeyLabels, OpenDialog, SaveDialog,
 };
+pub use node_catalog_service::{NodeCatalogService, NodeCatalogSnapshot};
 pub use node_registry::build_node_registry;
 pub use panel_presentation::{
     ApplicationPanelIcon, DECODER_PANEL_ICON, LOG_PANEL_ICON, LOGIC_ANALYZER_PANEL_ICON,

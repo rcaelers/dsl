@@ -2,7 +2,6 @@ mod integration_tests_support;
 
 use std::sync::Arc;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
 use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, TimelineMarkerEdit, TimelineMarkerReference, ViewerOutputControl,
 };
@@ -10,7 +9,7 @@ use logic_analyzer_graph_orchestration::{
     GraphWorkerMessage, GraphWorkerRequest, GraphWorkerRuntime,
 };
 use logic_analyzer_graph_plan::{OutputSubscriptionPlan, ProcessingGraph};
-use logic_analyzer_graph_registry::graph_node_registrations;
+use logic_analyzer_graph_registry::GraphRegistry;
 use logic_analyzer_graph_runtime::{
     GraphRunContext, LiveAnalysisSource, SourceArtifactReadiness, SourceDataKind,
     SourceProcessOverrides,
@@ -31,36 +30,32 @@ use signal_derived::{
 use integration_tests_support::{self as nodes, GraphHarness};
 
 fn selected_outputs(graph: &GraphState) -> Vec<(NodeId, usize)> {
-    let builders: std::collections::HashMap<String, Box<dyn RuntimeBuilder>> =
-        graph_node_registrations()
-            .into_iter()
-            .filter_map(|registration| {
-                registration
-                    .builder()
-                    .map(|builder| (registration.name().to_owned(), builder))
-            })
-            .collect();
+    let registry =
+        GraphRegistry::with_capability_overrides_and_infrastructure(Vec::new(), Vec::new());
     graph
         .nodes
         .iter()
         .flat_map(|(&node_id, node)| {
-            let builder = builders.get(node.def_name());
+            let presentation = registry.presentation(node.def_name());
             node.outputs
                 .iter()
                 .enumerate()
                 .filter_map(move |(index, output)| {
-                    let builder = builder?;
-                    let ViewerOutputControl::Selectable {
-                        default_selected, ..
-                    } = builder.viewer_output_control(output, &node.state)?
-                    else {
-                        return None;
-                    };
-                    let selected = output
+                    let saved_selection = output
                         .extensions
                         .get("show_in_view")
-                        .and_then(serde_json::Value::as_bool)
-                        .unwrap_or(default_selected);
+                        .and_then(serde_json::Value::as_bool);
+                    let default_selected = presentation
+                        .and_then(|presentation| {
+                            presentation.viewer_output_control(output, &node.state)
+                        })
+                        .and_then(|control| match control {
+                            ViewerOutputControl::Selectable {
+                                default_selected, ..
+                            } => Some(default_selected),
+                            ViewerOutputControl::Hidden => None,
+                        });
+                    let selected = saved_selection.or(default_selected).unwrap_or(false);
                     selected.then_some((node_id, index))
                 })
         })
@@ -83,14 +78,17 @@ fn is_capture_output(graph: &GraphState, node: NodeId, output: usize) -> bool {
     let Some(node) = graph.nodes.get(&node) else {
         return false;
     };
-    graph_node_registrations().into_iter().any(|registration| {
-        registration.name() == node.def_name()
-            && registration.builder().is_some_and(|builder| {
-                node.outputs.get(output).is_some_and(|socket| {
-                    builder.viewer_channel_origin(socket, &node.state).is_some()
-                })
+    let registry =
+        GraphRegistry::with_capability_overrides_and_infrastructure(Vec::new(), Vec::new());
+    registry
+        .presentation(node.def_name())
+        .is_some_and(|presentation| {
+            node.outputs.get(output).is_some_and(|socket| {
+                presentation
+                    .viewer_channel_origin(socket, &node.state)
+                    .is_some()
             })
-    })
+        })
 }
 
 #[test]

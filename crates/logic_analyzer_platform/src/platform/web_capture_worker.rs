@@ -34,7 +34,7 @@ thread_local! {
         Arc::new(InlineWorkExecutor),
     ));
     static GRAPH_WORKER_RUNTIME: RefCell<GraphWorkerRuntime> = RefCell::new(GraphWorkerRuntime::with_repository(
-        super::web_file_import::worker_graph_builder_overrides(),
+        super::web_file_import::worker_graph_capability_overrides(),
         WORKER_ARTIFACT_REPOSITORY.with(Arc::clone),
     ));
     static CAPTURE_IDENTITY_HASHERS: RefCell<CaptureIdentityHashers> = RefCell::new(CaptureIdentityHashers::default());

@@ -3,15 +3,14 @@
 //! ## Responsibility
 //!
 //! This namespace owns capability traits implemented by graph-node and payload plugins, including
-//! runtime builders and capture feature factories. Graph-node and payload inventory descriptors
+//! runtime capabilities and capture feature factories. Graph-node and payload inventory descriptors
 //! and catalog assembly live in `logic_analyzer_graph_registry`.
 //!
 //! ## Boundaries
 //!
 //! It is an extension contract, not a compiler, node bundle, UI service, or host adapter. Implementers
 //! use `node_support` for all supporting values and do not depend on concrete compiler internals. Its
-//! current `DirectoryNodeCatalog` path configuration is the documented host-path exception scheduled
-//! to move behind UI and platform ownership.
+//! Host catalog paths and scanning remain outside this plugin contract.
 
 //! Contracts implemented by graph nodes and compile-time plugins.
 //!
@@ -19,14 +18,12 @@
 //! namespace intentionally contains no registry assembly, compiler policy, built-in-node behavior,
 //! host paths, or UI operations.
 
-mod catalog;
 mod contracts;
 mod protocol_packet_presentation;
 
-pub use catalog::{DirectoryNodeCatalog, NodeCatalogStatus};
 pub use contracts::{
-    CaptureGraphSourceFactory, LiveCaptureFeature, RuntimeBuilder, RuntimeBuilderOverride,
+    CaptureGraphSourceFactory, CaptureSourceFeature, GraphNodeCapabilityBundle,
+    GraphNodeCapabilityOverride, GraphNodePresentation, GraphNodeSemantics, LiveCaptureFeature,
+    LiveCaptureFeatureProvider, RuntimeMaterializer, TimelineFeature,
 };
-pub use protocol_packet_presentation::{
-    ProtocolPacketDisplay, ProtocolPacketPresentationRegistration, protocol_packet_display,
-};
+pub use protocol_packet_presentation::ProtocolPacketDisplay;

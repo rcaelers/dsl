@@ -2,7 +2,9 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{
+    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableColumnDescriptor, LanePresentationDescriptor, NodeBuildContext, PortKind,
     ResolvedInputs, parse_state,
@@ -19,35 +21,9 @@ use signal_runtime::ProcessNode;
 #[derive(Default)]
 pub(crate) struct UartDecoderBuilder;
 
-impl RuntimeBuilder for UartDecoderBuilder {
+impl GraphNodeSemantics for UartDecoderBuilder {
     fn execution_state(&self, state: &Value) -> Value {
         crate::presentation::without_display_format(state)
-    }
-
-    fn lane_presentation(
-        &self,
-        socket: &Socket,
-        _state: &Value,
-    ) -> Option<LanePresentationDescriptor> {
-        super::presentation::uart_output_presentation(socket.def_index)
-    }
-
-    fn decoder_table_column(
-        &self,
-        socket: &Socket,
-        _state: &Value,
-    ) -> Option<DecoderTableColumnDescriptor> {
-        super::presentation::uart_table_column(socket.def_index)
-    }
-
-    fn word_display_format(&self, socket: &Socket, state: &Value) -> Option<String> {
-        if socket.def_index == 3 {
-            parse_state::<super::definition::UartDecoderState>(state)
-                .ok()
-                .map(|state| state.display_format.selected().to_string())
-        } else {
-            None
-        }
     }
     fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Sample>()]
@@ -74,6 +50,9 @@ impl RuntimeBuilder for UartDecoderBuilder {
     fn input_required(&self, socket: &Socket, _state: &Value) -> bool {
         socket.def_index == 0
     }
+}
+
+impl RuntimeMaterializer for UartDecoderBuilder {
     fn build(
         &self,
         name: &str,
@@ -111,5 +90,33 @@ impl RuntimeBuilder for UartDecoderBuilder {
         .with_invert(state.invert.value)
         .with_name(name);
         Ok(Box::new(decoder))
+    }
+}
+
+impl GraphNodePresentation for UartDecoderBuilder {
+    fn lane_presentation(
+        &self,
+        socket: &Socket,
+        _state: &Value,
+    ) -> Option<LanePresentationDescriptor> {
+        super::presentation::uart_output_presentation(socket.def_index)
+    }
+
+    fn decoder_table_column(
+        &self,
+        socket: &Socket,
+        _state: &Value,
+    ) -> Option<DecoderTableColumnDescriptor> {
+        super::presentation::uart_table_column(socket.def_index)
+    }
+
+    fn word_display_format(&self, socket: &Socket, state: &Value) -> Option<String> {
+        if socket.def_index == 3 {
+            parse_state::<super::definition::UartDecoderState>(state)
+                .ok()
+                .map(|state| state.display_format.selected().to_string())
+        } else {
+            None
+        }
     }
 }

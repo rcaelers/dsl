@@ -1072,13 +1072,13 @@ fn configured_platform_compiler(
         services.artifact_repository(),
     ));
     let mut compiler = BenchmarkGraphExecution::new(
-        GraphLowerer::with_builder_overrides(vec![
-            logic_analyzer_graph_nodes::binary_file_writer_runtime_builder_override(
+        GraphLowerer::with_capability_overrides(vec![
+            logic_analyzer_graph_nodes::binary_file_writer_capability_override(
                 logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
                     Arc::new(BenchmarkOutputStorage),
                 ),
             ),
-            logic_analyzer_graph_nodes::dsl_file_source_runtime_builder_override(Arc::new(
+            logic_analyzer_graph_nodes::dsl_file_source_capability_override(Arc::new(
                 BenchmarkDslFileSourceFactory,
             )),
         ]),
@@ -1103,13 +1103,13 @@ fn configured_profile_compiler(
     metrics: Arc<DerivedProfileMetrics>,
 ) -> BenchmarkGraphExecution {
     let mut compiler = BenchmarkGraphExecution::new(
-        GraphLowerer::with_builder_overrides(vec![
-            logic_analyzer_graph_nodes::binary_file_writer_runtime_builder_override(
+        GraphLowerer::with_capability_overrides(vec![
+            logic_analyzer_graph_nodes::binary_file_writer_capability_override(
                 logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
                     Arc::new(BenchmarkOutputStorage),
                 ),
             ),
-            logic_analyzer_graph_nodes::dsl_file_source_runtime_builder_override(Arc::new(
+            logic_analyzer_graph_nodes::dsl_file_source_capability_override(Arc::new(
                 BenchmarkDslFileSourceFactory,
             )),
         ]),

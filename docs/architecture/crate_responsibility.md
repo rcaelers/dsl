@@ -26,7 +26,7 @@ runtime or in the application UI.
 | `signal_derived` | Generic derived payloads, retained-lane collection, sampling points, indexes, and encoded derived storage | Capture sessions, concrete protocols or nodes, viewers, graph documents, UI, or target selection |
 | `signal_capture_session` | Generic acquisition lifecycle, capture-session storage, capture policy, and trigger-program contracts | Stream execution, immutable capture/index ownership, derived-data ownership, artifact repository ownership, concrete sources, protocols, formats, widgets, graph documents, or target selection |
 | `logic_analyzer_processing` | Concrete UI-independent sources, decoders, processing nodes, formats, devices, and sinks | Graph editor definitions, widget presentation, host selection, or application lifecycle |
-| `logic_analyzer_graph_capabilities` | Graph-node and payload capability contracts | Inventory assembly, built-in nodes, compiler policy, UI state, or platform adapters; its current directory-catalog path contract is a documented exception to remove |
+| `logic_analyzer_graph_capabilities` | Graph-node and payload capability contracts | Inventory assembly, built-in nodes, compiler policy, UI state, or platform adapters |
 | `logic_analyzer_graph_registry` | Graph-node and payload registration descriptors, inventory collection, validation, host overrides, and immutable catalog snapshots | Graph documents, lowering, generated collectors, execution lifetimes, UI state, or target selection |
 | `logic_analyzer_graph_nodes` | Built-in graph-node feature bundle: definitions, migrations, builders, payloads, and presentation metadata | Generic lowering, graph lifecycle, or target selection |
 | `logic_analyzer_graph_plan` | Neutral immutable processing-graph, payload-materialization, subscription, and sampling contracts | Graph documents, lowering, registry access, execution lifetimes, UI state, or target selection |
@@ -123,9 +123,9 @@ composition required by that adapter.
 
 ## Graph plugin contract boundaries
 
-`RuntimeBuilder` currently combines graph semantics, runtime materialization, cache behavior,
-source discovery, live capture, timeline editing, and presentation discovery. Its default methods
-make new unrelated responsibilities cheap to add, so it is a high-risk extension point.
+Graph-node registration separates graph semantics, runtime materialization, cache behavior, source
+discovery, live capture, timeline editing, and presentation discovery. Each consumer receives only
+the capability it owns, and optional features are explicit rather than default aggregate methods.
 
 The graph registry groups graph-API capability contracts into one `GraphNodeRegistration`:
 
@@ -142,10 +142,10 @@ Optional capabilities remain explicit registration fields rather than methods th
 default. The compiler can then depend only on semantics, the runtime only on materialization and
 execution capabilities, and the UI only on presentation capabilities.
 
-`DirectoryNodeCatalog` does not belong in `logic_analyzer_graph_capabilities` in its current form because
-its `PathBuf` configuration exposes a host filesystem concept from the plugin contract. The UI
-owns the portable catalog presentation port and the platform owns directory discovery and
-persistence. The cross-crate value is a catalog snapshot and diagnostic, never a host path.
+`NodeCatalogService` is a UI-owned portable port. Its snapshots contain stable namespaces,
+host-formatted directory labels, scan status, diagnostics, and completed node templates. Platform
+adapters own directory selection, filesystem paths, persistence, and scanning; host paths never
+enter graph capability contracts or UI state.
 
 ## Generic processing decomposition
 
@@ -217,21 +217,6 @@ The documentation set is organized by ownership and by cross-cutting aspect:
 The documentation structure avoids duplicating behavior in several crate documents. An owner
 document links to an aspect design for shared rules and records only how that owner satisfies the
 rule. Proposed work remains in a clearly labeled proposed-future section or in `TODO.md`.
-
-## Proposed-future migration order
-
-The following order preserves behavior and saved-graph compatibility while making each reviewable
-change architectural.
-
-1. Replace the broad `RuntimeBuilder` with submitted capability contracts. Migrate every built-in
-   node and plugin through explicit registrations. Node migration stays beside each concrete node
-   and emits its existing user-visible warnings at the load boundary.
-2. Move graph catalog directory configuration behind a UI-owned portable service and a
-   platform-owned path adapter. Split UI-capable plugins into core and presentation companions.
-No migration changes stable node IDs, payload IDs, serialized graph state, graph extensions, or
-renderer keys. Saved-document compatibility is implemented by the affected concrete graph-node or
-UI document migration and reported to the user; generic compiler and viewer code does not infer
-legacy behavior from names.
 
 ## Architectural acceptance criteria
 

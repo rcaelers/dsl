@@ -189,7 +189,7 @@ fn publish_materialized_source_readiness(
     readiness: &SourceReadinessRegistry,
 ) {
     for node in &compiled.nodes {
-        let Some(lifecycle) = node.materializer.source_data_lifecycle() else {
+        let Some(lifecycle) = node.source_data_lifecycle else {
             continue;
         };
         readiness.publish(SourceReadiness {
@@ -300,17 +300,17 @@ fn materialize_compiled_node(
     graph: &ProcessingGraph,
     ctx: &mut GraphRunContext,
 ) -> Result<Box<dyn ProcessNode>, String> {
-    let builder = node.materializer.as_ref();
-    if builder.is_data_subscription() || builder.is_data_collector() {
+    if node.data_collector {
         return DataCollectorBuilder::build_with_lane_names(
             runtime_name,
             &node.resolved,
-            &builder.collected_lane_names(&node.state, &node.resolved),
+            &node.collected_lane_names,
             graph.payload_catalog.as_ref(),
             ctx,
         );
     }
-    builder.build(runtime_name, &node.state, &node.resolved, ctx)
+    node.materializer
+        .build(runtime_name, &node.state, &node.resolved, ctx)
 }
 
 fn collected_table_subscriptions(compiled: &ProcessingGraph) -> Vec<CollectedTableSubscription> {
@@ -319,10 +319,10 @@ fn collected_table_subscriptions(compiled: &ProcessingGraph) -> Vec<CollectedTab
         .iter()
         .filter(|node| node.data_collector)
         .filter_map(|node| {
-            let builder = node.materializer.as_ref();
-            let lanes = builder
-                .collected_lane_names(&node.state, &node.resolved)
-                .into_iter()
+            let lanes = node
+                .collected_lane_names
+                .iter()
+                .cloned()
                 .filter_map(|(member, lane_name)| {
                     let input = node.resolved.get(0, member)?.clone();
                     input
@@ -349,22 +349,24 @@ fn collected_output_subscriptions(compiled: &ProcessingGraph) -> Vec<CollectedOu
         .nodes
         .iter()
         .filter_map(|node| {
-            let builder = node.materializer.as_ref();
             node.data_collector
                 .then(|| {
-                    let lanes: Vec<CollectedOutputLane> = builder
-                        .collected_lane_names(&node.state, &node.resolved)
-                        .into_iter()
+                    let lanes: Vec<CollectedOutputLane> = node
+                        .collected_lane_names
+                        .iter()
+                        .cloned()
                         .filter_map(|(member, lane_name)| {
                             node.resolved.get(0, member).cloned().and_then(|input| {
                                 compiled
                                     .output_subscriptions
                                     .contains(input.source_node, input.source_output)
                                     .then(|| CollectedOutputLane {
-                                        source_label: builder.collected_source_label(
-                                            &node.state,
-                                            &input.source_node_title,
-                                        ),
+                                        source_label: node
+                                            .collected_source_labels
+                                            .iter()
+                                            .find(|(candidate, _)| *candidate == member)
+                                            .map(|(_, label)| label.clone())
+                                            .unwrap_or_else(|| input.source_node_title.clone()),
                                         member,
                                         lane_name,
                                         input,
@@ -475,11 +477,8 @@ fn wiring_of(compiled: &ProcessingGraph, id: NodeId) -> BTreeSet<(String, u32, S
 fn diff(old: &ProcessingGraph, new: &ProcessingGraph) -> Result<Vec<LiveEdit>, String> {
     let old_ids: HashSet<NodeId> = old.nodes.iter().map(|node| node.id).collect();
     let new_ids: HashSet<NodeId> = new.nodes.iter().map(|node| node.id).collect();
-    let is_source = |compiled: &ProcessingGraph, id: NodeId| {
-        compiled_node(compiled, id)
-            .materializer
-            .is_time_domain_source()
-    };
+    let is_source =
+        |compiled: &ProcessingGraph, id: NodeId| compiled_node(compiled, id).time_domain_source;
 
     let mut edits: Vec<LiveEdit> = Vec::new();
 
@@ -526,9 +525,7 @@ fn diff(old: &ProcessingGraph, new: &ProcessingGraph) -> Result<Vec<LiveEdit>, S
         let old_node = compiled_node(old, id);
         let new_node = compiled_node(new, id);
         let wiring_changed = wiring_of(old, id) != wiring_of(new, id);
-        let builder = new_node.materializer.as_ref();
-        let state_changed =
-            builder.execution_state(&old_node.state) != builder.execution_state(&new_node.state);
+        let state_changed = old_node.execution_state != new_node.execution_state;
         if !wiring_changed && !state_changed {
             continue;
         }
@@ -537,7 +534,7 @@ fn diff(old: &ProcessingGraph, new: &ProcessingGraph) -> Result<Vec<LiveEdit>, S
         }
         if !wiring_changed
             && state_changed
-            && let Some(config) = builder.hot_config(&new_node.state)
+            && let Some(config) = new_node.materializer.hot_config(&new_node.state)
         {
             edits.push(LiveEdit::Configure(id, config));
             continue;
@@ -694,7 +691,7 @@ fn start_live_inner(
                 "source override is not retained by the compiled graph",
             )]);
         };
-        let is_source = node.materializer.is_time_domain_source();
+        let is_source = node.time_domain_source;
         if !is_source {
             return Err(vec![ProcessingGraphError::on(
                 source_node,

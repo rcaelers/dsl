@@ -3,15 +3,17 @@ use std::collections::BTreeSet;
 use serde::Deserialize;
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{CaptureSourceFeature, GraphNodeSemantics};
 use logic_analyzer_graph_capabilities::node_support::{
     CaptureCacheIdentity, CapturePresentation, ResolvedInput, ResolvedInputs,
     SourceDataLifecycleKind,
 };
-use logic_analyzer_graph_registry::{GraphNodeRegistration, graph_node_registrations};
+use logic_analyzer_graph_registry::{
+    GraphNodeRegistration, GraphRegistry, graph_node_registrations,
+};
 use node_graph::api::{GraphDocumentBuilder, NodeId, NodeTypeRegistry, Socket};
 
-use super::test_support::{TestNodeBuildContext, platform_parity_builder};
+use super::test_support::{TestNodeBuildContext, platform_parity_capabilities};
 
 const EXPECTATIONS: &str = r###"
 {
@@ -432,6 +434,8 @@ fn portable_capture_nodes_match_shared_graph_contracts() {
     crate::link();
     let expected = expectations();
     let registrations = graph_node_registrations();
+    let registry =
+        GraphRegistry::with_capability_overrides_and_infrastructure(Vec::new(), Vec::new());
 
     for expectation in &expected.portable_nodes {
         let registration = registration(&registrations, &expectation.stable_id).unwrap();
@@ -449,13 +453,16 @@ fn portable_capture_nodes_match_shared_graph_contracts() {
         merge(&mut schema_state, &expectation.schema_state_patch);
         assert!(document.set_node_state(node_id, schema_state));
         let node = &document.graph().nodes[&node_id];
-        let builder = registration.builder().expect("portable node is runnable");
+        let semantics = registry
+            .semantics(registration.name())
+            .expect("portable node has graph semantics");
+        let capture_source = registry.capture_source(registration.name());
 
-        assert_input_contracts(&*builder, &node.inputs, &node.state, expectation);
-        assert_output_contracts(&*builder, &node.outputs, &node.state, expectation);
-        assert_lifecycle(&*builder, expectation);
-        assert_presentation(&*builder, &node.state, expectation);
-        assert_cache_identity(&*builder, &node.state, expectation);
+        assert_input_contracts(semantics, &node.inputs, &node.state, expectation);
+        assert_output_contracts(semantics, &node.outputs, &node.state, expectation);
+        assert_lifecycle(semantics, expectation);
+        assert_presentation(capture_source, &node.state, expectation);
+        assert_cache_identity(capture_source, &node.state, expectation);
     }
 }
 
@@ -472,11 +479,12 @@ fn portable_capture_nodes_lower_through_the_same_neutral_factory_contracts() {
         merge(&mut state, &expectation.schema_state_patch);
         assert!(document.set_node_state(node_id, state));
         let node = &document.graph().nodes[&node_id];
-        let builder = builder_with_neutral_factory(&expectation.stable_id);
-        let resolved = resolved_inputs(&*builder, &node.inputs, &node.state);
+        let capabilities = platform_parity_capabilities(&expectation.stable_id);
+        let resolved = resolved_inputs(&*capabilities.semantics, &node.inputs, &node.state);
         let mut context = TestNodeBuildContext::default();
 
-        let runtime = builder
+        let runtime = capabilities
+            .materializer
             .build(&expectation.name, &node.state, &resolved, &mut context)
             .unwrap_or_else(|error| {
                 panic!(
@@ -542,7 +550,7 @@ fn assert_enum_options_are_valid(value: &Value, stable_id: &str) {
 }
 
 fn assert_input_contracts(
-    builder: &dyn RuntimeBuilder,
+    semantics: &dyn GraphNodeSemantics,
     sockets: &[Socket],
     state: &Value,
     expectation: &NodeExpectation,
@@ -557,12 +565,12 @@ fn assert_input_contracts(
         assert_eq!(socket.schema_id, expected.schema_id);
         assert_eq!(socket.name, expected.name);
         assert_eq!(socket.type_name, expected.type_name);
-        let actual = builder
+        let actual = semantics
             .accepted_kinds(socket, state)
             .into_iter()
             .map(|kind| PortExpectation {
                 kind: kind.name().to_owned(),
-                port: builder
+                port: semantics
                     .input_port(socket, 0, state, kind)
                     .expect("accepted input kind resolves to a runtime port"),
             })
@@ -572,7 +580,7 @@ fn assert_input_contracts(
 }
 
 fn assert_output_contracts(
-    builder: &dyn RuntimeBuilder,
+    semantics: &dyn GraphNodeSemantics,
     sockets: &[Socket],
     state: &Value,
     expectation: &NodeExpectation,
@@ -596,13 +604,13 @@ fn assert_output_contracts(
             .unwrap_or_else(|| format!("{}{}", expected.name_prefix, index));
         assert_eq!(socket.name, expected_name);
         assert_eq!(socket.type_name, expected.type_name);
-        let actual = builder
+        let actual = semantics
             .offered_kinds(socket, state)
             .into_iter()
             .map(|kind| {
                 (
                     kind.name().to_owned(),
-                    builder
+                    semantics
                         .output_port(socket, state, kind)
                         .expect("offered output kind resolves to a runtime port"),
                 )
@@ -617,8 +625,8 @@ fn assert_output_contracts(
     }
 }
 
-fn assert_lifecycle(builder: &dyn RuntimeBuilder, expectation: &NodeExpectation) {
-    let actual = builder.source_data_lifecycle();
+fn assert_lifecycle(semantics: &dyn GraphNodeSemantics, expectation: &NodeExpectation) {
+    let actual = semantics.source_data_lifecycle();
     let Some(expected) = &expectation.lifecycle else {
         assert!(actual.is_none());
         return;
@@ -635,11 +643,17 @@ fn assert_lifecycle(builder: &dyn RuntimeBuilder, expectation: &NodeExpectation)
     assert_eq!(actual.index, expected.index);
 }
 
-fn assert_presentation(builder: &dyn RuntimeBuilder, state: &Value, node: &NodeExpectation) {
+fn assert_presentation(
+    capture_source: Option<&dyn CaptureSourceFeature>,
+    state: &Value,
+    node: &NodeExpectation,
+) {
     let expected = &node.presentation;
-    let presentation = builder
-        .capture_presentation(state)
-        .unwrap_or_else(|error| panic!("{} presentation failed: {error}", node.stable_id));
+    let presentation = capture_source
+        .map(|feature| feature.capture_presentation(state))
+        .transpose()
+        .unwrap_or_else(|error| panic!("{} presentation failed: {error}", node.stable_id))
+        .flatten();
     match (expected.kind.as_str(), presentation) {
         ("none", None) => {}
         ("channels", Some(CapturePresentation::Channels(channels))) => {
@@ -677,8 +691,14 @@ fn assert_presentation(builder: &dyn RuntimeBuilder, state: &Value, node: &NodeE
     }
 }
 
-fn assert_cache_identity(builder: &dyn RuntimeBuilder, state: &Value, node: &NodeExpectation) {
-    let actual = builder.capture_cache_identity(state, &ResolvedInputs::default());
+fn assert_cache_identity(
+    capture_source: Option<&dyn CaptureSourceFeature>,
+    state: &Value,
+    node: &NodeExpectation,
+) {
+    let actual = capture_source.map_or(CaptureCacheIdentity::NotCapture, |feature| {
+        feature.capture_cache_identity(state, &ResolvedInputs::default())
+    });
     let expected = match node.cache_identity.as_str() {
         "not_capture" => CaptureCacheIdentity::NotCapture,
         "dynamic" => CaptureCacheIdentity::Dynamic,
@@ -703,13 +723,13 @@ fn merge(value: &mut Value, patch: &Value) {
 }
 
 fn resolved_inputs(
-    builder: &dyn RuntimeBuilder,
+    semantics: &dyn GraphNodeSemantics,
     sockets: &[Socket],
     state: &Value,
 ) -> ResolvedInputs {
     let mut resolved = ResolvedInputs::default();
     for socket in sockets {
-        let Some(kind) = builder.accepted_kinds(socket, state).into_iter().next() else {
+        let Some(kind) = semantics.accepted_kinds(socket, state).into_iter().next() else {
             continue;
         };
         resolved.insert(
@@ -731,8 +751,4 @@ fn resolved_inputs(
         );
     }
     resolved
-}
-
-fn builder_with_neutral_factory(stable_id: &str) -> Box<dyn RuntimeBuilder> {
-    platform_parity_builder(stable_id)
 }

@@ -7,7 +7,7 @@ use std::sync::{Arc, RwLock};
 use egui::{Color32, Rect, Stroke, StrokeKind};
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
 use logic_analyzer_graph_capabilities::node_support::{
     DefaultLanePresentationDescriptor, LaneBadgeDescriptor, NodeBuildContext, PortKind, PortValue,
     ResolvedInputs,
@@ -100,7 +100,7 @@ impl NodeDef for CameraFrameSource {
 #[derive(Default)]
 struct CameraFrameSourceBuilder;
 
-impl RuntimeBuilder for CameraFrameSourceBuilder {
+impl GraphNodeSemantics for CameraFrameSourceBuilder {
     fn is_source(&self) -> bool {
         true
     }
@@ -130,7 +130,9 @@ impl RuntimeBuilder for CameraFrameSourceBuilder {
     fn output_port(&self, _socket: &Socket, _state: &Value, _kind: PortKind) -> Option<String> {
         Some("frames".to_owned())
     }
+}
 
+impl RuntimeMaterializer for CameraFrameSourceBuilder {
     fn build(
         &self,
         name: &str,
@@ -534,7 +536,11 @@ inventory::submit! {
 }
 
 inventory::submit! {
-    GraphNodeRegistration::runnable::<CameraFrameSource, CameraFrameSourceBuilder>(
+    GraphNodeRegistration::capable::<
+        CameraFrameSource,
+        CameraFrameSourceBuilder,
+        CameraFrameSourceBuilder,
+    >(
         "org.logicconduit.example.graph-node.camera-frame-source/v1",
     )
     .requiring_payloads(&[PAYLOAD_ID])

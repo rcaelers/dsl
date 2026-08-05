@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
@@ -14,7 +14,7 @@ use signal_runtime::ProcessNode;
 #[derive(Default)]
 pub(crate) struct EventControlBuilder;
 
-impl RuntimeBuilder for EventControlBuilder {
+impl GraphNodeSemantics for EventControlBuilder {
     fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Trigger>()]
     }
@@ -38,7 +38,9 @@ impl RuntimeBuilder for EventControlBuilder {
     fn input_required(&self, socket: &Socket, _state: &Value) -> bool {
         socket.def_index == 0
     }
+}
 
+impl RuntimeMaterializer for EventControlBuilder {
     fn build(
         &self,
         name: &str,

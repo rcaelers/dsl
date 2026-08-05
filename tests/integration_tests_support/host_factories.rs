@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride;
+use logic_analyzer_graph_capabilities::node::GraphNodeCapabilityOverride;
 use logic_analyzer_graph_compiler::GraphLowerer;
 use logic_analyzer_graph_plan::OutputSubscriptionPlan;
 use logic_analyzer_graph_runtime::{GraphRuntime, InlineSourcePreparationExecutor};
@@ -31,12 +31,12 @@ pub(crate) struct GraphHarness {
 
 impl GraphHarness {
     pub(crate) fn new() -> Self {
-        Self::with_builder_overrides(Vec::new())
+        Self::with_capability_overrides(Vec::new())
     }
 
-    fn with_builder_overrides(builder_overrides: Vec<RuntimeBuilderOverride>) -> Self {
+    fn with_capability_overrides(capability_overrides: Vec<GraphNodeCapabilityOverride>) -> Self {
         Self {
-            lowerer: GraphLowerer::with_builder_overrides(builder_overrides),
+            lowerer: GraphLowerer::with_capability_overrides(capability_overrides),
             runtime: GraphRuntime::with_execution(
                 Box::new(InlineSourcePreparationExecutor),
                 Arc::new(CooperativeAppManagerFactory),
@@ -244,11 +244,9 @@ impl DslFileSourceFactory for TestDslSourceFactory {
 }
 
 pub(crate) fn test_platform_compiler() -> GraphHarness {
-    GraphHarness::with_builder_overrides(vec![
-        logic_analyzer_graph_nodes::u3pro16_runtime_builder_override(Arc::new(
-            TestLiveSourceFactory,
-        )),
-        logic_analyzer_graph_nodes::dsl_file_source_runtime_builder_override(Arc::new(
+    GraphHarness::with_capability_overrides(vec![
+        logic_analyzer_graph_nodes::u3pro16_capability_override(Arc::new(TestLiveSourceFactory)),
+        logic_analyzer_graph_nodes::dsl_file_source_capability_override(Arc::new(
             TestDslSourceFactory,
         )),
     ])

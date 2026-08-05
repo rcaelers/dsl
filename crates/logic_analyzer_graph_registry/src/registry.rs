@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use logic_analyzer_graph_capabilities::node::{RuntimeBuilder, RuntimeBuilderOverride};
+use logic_analyzer_graph_capabilities::node::{
+    CaptureSourceFeature, GraphNodeCapabilityBundle, GraphNodeCapabilityOverride,
+    GraphNodePresentation, GraphNodeSemantics, LiveCaptureFeatureProvider, RuntimeMaterializer,
+    TimelineFeature,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     DefaultLanePresentationDescriptor, NodeBuildContext, PortKind, ResolvedInput,
 };
@@ -12,7 +16,12 @@ use super::payload_registration::{PayloadRequestConfigurator, payload_registrati
 
 /// One compiler- or runtime-neutral snapshot of registered graph and payload capabilities.
 pub struct GraphRegistry {
-    builders: HashMap<String, Arc<dyn RuntimeBuilder>>,
+    semantics: HashMap<String, Arc<dyn GraphNodeSemantics>>,
+    materializers: HashMap<String, Arc<dyn RuntimeMaterializer>>,
+    capture_sources: HashMap<String, Arc<dyn CaptureSourceFeature>>,
+    live_captures: HashMap<String, Arc<dyn LiveCaptureFeatureProvider>>,
+    presentations: HashMap<String, Arc<dyn GraphNodePresentation>>,
+    timelines: HashMap<String, Arc<dyn TimelineFeature>>,
     payloads: PayloadRegistry,
     payload_subscriptions: Vec<PayloadSubscription>,
 }
@@ -26,54 +35,173 @@ struct PayloadSubscription {
 }
 
 impl GraphRegistry {
-    /// Builds the validated inventory snapshot with host overrides and neutral infrastructure
-    /// builders supplied by a consumer.
-    pub fn with_builder_overrides_and_infrastructure(
-        overrides: Vec<RuntimeBuilderOverride>,
-        infrastructure_builders: Vec<(String, Arc<dyn RuntimeBuilder>)>,
+    /// Builds the validated inventory snapshot with host capability overrides and neutral
+    /// infrastructure capabilities supplied by a consumer.
+    pub fn with_capability_overrides_and_infrastructure(
+        capability_overrides: Vec<GraphNodeCapabilityOverride>,
+        infrastructure_capabilities: Vec<(String, GraphNodeCapabilityBundle)>,
     ) -> Self {
-        let mut builders = HashMap::new();
-        for (name, builder) in infrastructure_builders {
+        let mut overrides = HashMap::<String, GraphNodeCapabilityBundle>::new();
+        for capability_override in capability_overrides {
+            let stable_id = capability_override.stable_id().to_owned();
             assert!(
-                builders.insert(name.clone(), builder).is_none(),
-                "duplicate infrastructure graph builder '{name}'"
-            );
-        }
-        let mut overrides = overrides
-            .into_iter()
-            .map(|override_builder| {
-                let stable_id = override_builder.stable_id().to_owned();
-                (stable_id, Arc::from(override_builder.into_builder()))
-            })
-            .collect::<HashMap<_, _>>();
-
-        for registration in graph_node_registrations() {
-            registration.apply_runtime_setup();
-            let builder = overrides
-                .remove(registration.stable_id())
-                .or_else(|| registration.builder().map(Arc::from));
-            let Some(builder) = builder else {
-                continue;
-            };
-            assert!(
-                builders
-                    .insert(registration.name().to_owned(), builder)
+                overrides
+                    .insert(stable_id.clone(), capability_override.into_bundle())
                     .is_none(),
-                "graph-node inventory builder '{}' conflicts with an explicit catalog entry",
-                registration.name()
+                "duplicate host graph-capability override '{stable_id}'"
             );
         }
-        assert!(
-            overrides.is_empty(),
-            "host runtime-builder override targets unregistered node(s): {}",
-            overrides.keys().cloned().collect::<Vec<_>>().join(", ")
-        );
 
         let mut registry = Self {
-            builders,
+            semantics: HashMap::new(),
+            materializers: HashMap::new(),
+            capture_sources: HashMap::new(),
+            live_captures: HashMap::new(),
+            presentations: HashMap::new(),
+            timelines: HashMap::new(),
             payloads: PayloadRegistry::new(),
             payload_subscriptions: Vec::new(),
         };
+        for (name, mut capabilities) in infrastructure_capabilities {
+            let semantics = capabilities
+                .semantics
+                .take()
+                .expect("infrastructure graph capability requires semantics");
+            let materializer = capabilities
+                .materializer
+                .take()
+                .expect("infrastructure graph capability requires materialization");
+            assert!(
+                capabilities.capture_source.is_none()
+                    && capabilities.live_capture.is_none()
+                    && capabilities.presentation.is_none()
+                    && capabilities.timeline.is_none(),
+                "infrastructure graph capability '{name}' may contain only semantics and materialization"
+            );
+            assert!(
+                registry
+                    .semantics
+                    .insert(name.clone(), Arc::from(semantics))
+                    .is_none()
+                    && registry
+                        .materializers
+                        .insert(name.clone(), Arc::from(materializer))
+                        .is_none(),
+                "duplicate infrastructure graph capability '{name}'"
+            );
+        }
+        for registration in graph_node_registrations() {
+            registration.apply_runtime_setup();
+            let name = registration.name().to_owned();
+            if let Some(semantics) = registration.semantics() {
+                assert!(
+                    registry
+                        .semantics
+                        .insert(name.clone(), Arc::from(semantics))
+                        .is_none(),
+                    "graph-node '{}' registers duplicate semantics",
+                    registration.stable_id()
+                );
+            }
+            if let Some(materializer) = registration.materializer() {
+                assert!(
+                    registry
+                        .materializers
+                        .insert(name.clone(), Arc::from(materializer))
+                        .is_none(),
+                    "graph-node '{}' registers duplicate materialization",
+                    registration.stable_id()
+                );
+            }
+            if let Some(capture_source) = registration.capture_source() {
+                assert!(
+                    registry
+                        .capture_sources
+                        .insert(name.clone(), Arc::from(capture_source))
+                        .is_none(),
+                    "graph-node '{}' registers duplicate capture-source behavior",
+                    registration.stable_id()
+                );
+            }
+            if let Some(live_capture) = registration.live_capture() {
+                assert!(
+                    registry
+                        .live_captures
+                        .insert(name.clone(), Arc::from(live_capture))
+                        .is_none(),
+                    "graph-node '{}' registers duplicate live-capture behavior",
+                    registration.stable_id()
+                );
+            }
+            if let Some(presentation) = registration.presentation() {
+                assert!(
+                    registry
+                        .presentations
+                        .insert(name.clone(), Arc::from(presentation))
+                        .is_none(),
+                    "graph-node '{}' registers duplicate presentation behavior",
+                    registration.stable_id()
+                );
+            }
+            if let Some(timeline) = registration.timeline() {
+                assert!(
+                    registry
+                        .timelines
+                        .insert(name.clone(), Arc::from(timeline))
+                        .is_none(),
+                    "graph-node '{}' registers duplicate timeline behavior",
+                    registration.stable_id()
+                );
+            }
+            if let Some(mut capability_override) = overrides.remove(registration.stable_id()) {
+                let mut replaced = false;
+                if let Some(semantics) = capability_override.semantics.take() {
+                    registry
+                        .semantics
+                        .insert(name.clone(), Arc::from(semantics));
+                    replaced = true;
+                }
+                if let Some(materializer) = capability_override.materializer.take() {
+                    registry
+                        .materializers
+                        .insert(name.clone(), Arc::from(materializer));
+                    replaced = true;
+                }
+                if let Some(capture_source) = capability_override.capture_source.take() {
+                    registry
+                        .capture_sources
+                        .insert(name.clone(), Arc::from(capture_source));
+                    replaced = true;
+                }
+                if let Some(live_capture) = capability_override.live_capture.take() {
+                    registry
+                        .live_captures
+                        .insert(name.clone(), Arc::from(live_capture));
+                    replaced = true;
+                }
+                if let Some(presentation) = capability_override.presentation.take() {
+                    registry
+                        .presentations
+                        .insert(name.clone(), Arc::from(presentation));
+                    replaced = true;
+                }
+                if let Some(timeline) = capability_override.timeline.take() {
+                    registry.timelines.insert(name, Arc::from(timeline));
+                    replaced = true;
+                }
+                assert!(
+                    replaced,
+                    "host graph-capability override '{}' contains no replacements",
+                    registration.stable_id()
+                );
+            }
+        }
+        assert!(
+            overrides.is_empty(),
+            "host graph-capability override targets unregistered node(s): {}",
+            overrides.keys().cloned().collect::<Vec<_>>().join(", ")
+        );
+        registry.validate_capability_combinations();
         registry.register_payloads();
         registry.validate_payload_requirements();
         registry
@@ -131,16 +259,80 @@ impl GraphRegistry {
         ))
     }
 
-    /// Returns the runtime builder registered for a graph definition name.
-    pub fn get(&self, definition_name: &str) -> Option<&dyn RuntimeBuilder> {
-        self.builders
+    /// Returns compiler-facing graph semantics for a graph definition.
+    pub fn semantics(&self, definition_name: &str) -> Option<&dyn GraphNodeSemantics> {
+        self.semantics
             .get(definition_name)
-            .map(|builder| builder.as_ref())
+            .map(|semantics| semantics.as_ref())
     }
 
-    /// Returns shared ownership of the runtime builder for a graph definition name.
-    pub fn builder(&self, definition_name: &str) -> Option<Arc<dyn RuntimeBuilder>> {
-        self.builders.get(definition_name).cloned()
+    /// Returns the runtime-only materialization capability for a graph definition.
+    pub fn materializer(&self, definition_name: &str) -> Option<Arc<dyn RuntimeMaterializer>> {
+        self.materializers.get(definition_name).cloned()
+    }
+
+    /// Returns capture presentation and cache behavior for a graph definition.
+    pub fn capture_source(&self, definition_name: &str) -> Option<&dyn CaptureSourceFeature> {
+        self.capture_sources
+            .get(definition_name)
+            .map(|feature| feature.as_ref())
+    }
+
+    /// Returns live-acquisition discovery and editing behavior for a graph definition.
+    pub fn live_capture(&self, definition_name: &str) -> Option<&dyn LiveCaptureFeatureProvider> {
+        self.live_captures
+            .get(definition_name)
+            .map(|feature| feature.as_ref())
+    }
+
+    /// Returns viewer and result-presentation metadata for a graph definition.
+    pub fn presentation(&self, definition_name: &str) -> Option<&dyn GraphNodePresentation> {
+        self.presentations
+            .get(definition_name)
+            .map(|feature| feature.as_ref())
+    }
+
+    /// Returns timeline metadata and editing behavior for a graph definition.
+    pub fn timeline(&self, definition_name: &str) -> Option<&dyn TimelineFeature> {
+        self.timelines
+            .get(definition_name)
+            .map(|feature| feature.as_ref())
+    }
+
+    fn validate_capability_combinations(&self) {
+        for registration in graph_node_registrations() {
+            let name = registration.name();
+            let semantics = self.semantics.contains_key(name);
+            let materializer = self.materializers.contains_key(name);
+            assert!(
+                semantics == materializer,
+                "graph-node '{}' must register semantics and materialization together",
+                registration.stable_id()
+            );
+
+            let capture_source = self.capture_sources.contains_key(name);
+            let live_capture = self.live_captures.contains_key(name);
+            let presentation = self.presentations.contains_key(name);
+            assert!(
+                !capture_source
+                    || self
+                        .semantics
+                        .get(name)
+                        .is_some_and(|semantics| semantics.is_source()),
+                "graph-node '{}' registers capture behavior without source semantics",
+                registration.stable_id()
+            );
+            assert!(
+                !live_capture || capture_source,
+                "graph-node '{}' registers live capture without capture-source behavior",
+                registration.stable_id()
+            );
+            assert!(
+                !live_capture || presentation,
+                "graph-node '{}' registers live capture without channel presentation",
+                registration.stable_id()
+            );
+        }
     }
 
     fn register_payloads(&mut self) {

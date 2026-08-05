@@ -267,7 +267,7 @@ pub(crate) fn prepare_execution_with_backend(
     let mut reachable: HashSet<_> = execution
         .nodes
         .iter()
-        .filter(|node| node.data_collector || node.materializer.is_sink())
+        .filter(|node| node.data_collector || node.sink)
         .map(|node| node.id)
         .collect();
     let mut stack: Vec<_> = reachable.iter().copied().collect();
@@ -306,7 +306,7 @@ pub(crate) fn prepare_cached_preview_with_backend(
             .filter_map(|(member, input)| {
                 let config = node.derived_word_caches.get(member)?.as_ref()?;
                 (backend.lookup(config) == DerivedCacheLookup::Hit)
-                    .then(|| (input.clone(), config.clone()))
+                    .then(|| (member, input.clone(), config.clone()))
             })
             .collect::<Vec<_>>();
         if retained.is_empty() {
@@ -314,12 +314,30 @@ pub(crate) fn prepare_cached_preview_with_backend(
         }
         let mut resolved =
             logic_analyzer_graph_capabilities::node_support::ResolvedInputs::default();
+        let mut collected_lane_names = Vec::new();
+        let mut collected_source_labels = Vec::new();
         node.derived_word_caches.clear();
-        for (member, (input, config)) in retained.into_iter().enumerate() {
+        for (member, (original_member, input, config)) in retained.into_iter().enumerate() {
             resolved.insert(0, member, input);
             node.derived_word_caches.push(Some(config));
+            if let Some((_, name)) = node
+                .collected_lane_names
+                .iter()
+                .find(|(candidate, _)| *candidate == original_member)
+            {
+                collected_lane_names.push((member, name.clone()));
+            }
+            if let Some((_, label)) = node
+                .collected_source_labels
+                .iter()
+                .find(|(candidate, _)| *candidate == original_member)
+            {
+                collected_source_labels.push((member, label.clone()));
+            }
         }
         node.resolved = resolved;
+        node.collected_lane_names = collected_lane_names;
+        node.collected_source_labels = collected_source_labels;
         any_hit = true;
         true
     });

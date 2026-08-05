@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
@@ -14,7 +14,7 @@ use signal_runtime::{ConfigValue, NodeConfig, ProcessNode};
 #[derive(Default)]
 pub(crate) struct FormatterBuilder;
 
-impl RuntimeBuilder for FormatterBuilder {
+impl GraphNodeSemantics for FormatterBuilder {
     fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<NumberSample>()]
     }
@@ -38,6 +38,9 @@ impl RuntimeBuilder for FormatterBuilder {
     fn output_port(&self, _socket: &Socket, _state: &Value, _kind: PortKind) -> Option<String> {
         Some("text".into())
     }
+}
+
+impl RuntimeMaterializer for FormatterBuilder {
     fn build(
         &self,
         name: &str,

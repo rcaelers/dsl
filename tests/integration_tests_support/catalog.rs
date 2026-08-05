@@ -1,4 +1,4 @@
-use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
+use logic_analyzer_graph_capabilities::node::GraphNodeSemantics;
 use logic_analyzer_graph_registry::{GraphNodeRegistration, graph_node_registrations};
 use node_graph::NodeTypeRegistry;
 
@@ -19,8 +19,8 @@ pub(crate) fn node_name(stable_id: &str) -> &'static str {
     registration(stable_id).name()
 }
 
-pub(crate) fn node_builder(stable_id: &str) -> Box<dyn RuntimeBuilder> {
+pub(crate) fn node_semantics(stable_id: &str) -> Box<dyn GraphNodeSemantics> {
     registration(stable_id)
-        .builder()
-        .unwrap_or_else(|| panic!("graph node '{stable_id}' has no runtime builder"))
+        .semantics()
+        .unwrap_or_else(|| panic!("graph node '{stable_id}' has no graph semantics"))
 }
