@@ -3,7 +3,7 @@ mod integration_tests_support;
 use logic_analyzer_graph_capabilities::node_support::PortKind;
 use logic_analyzer_graph_runtime::GraphRunContext;
 use node_graph::NodeGraphWidget;
-use signal_processing::CollectedLaneSnapshotRequest;
+use signal_derived::CollectedLaneSnapshotRequest;
 
 use integration_tests_support::{GraphHarness, build_registry};
 

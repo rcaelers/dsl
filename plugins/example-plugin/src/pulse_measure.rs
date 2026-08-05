@@ -16,7 +16,7 @@ use logic_analyzer_graph_capabilities::node_support::{
 };
 use logic_analyzer_graph_registry::GraphNodeRegistration;
 use node_graph::api::{InputDef, NodeDef, OutputDef, Socket, SocketDef, SocketShape};
-use signal_processing::Sample;
+use signal_capture::Sample;
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,
     WorkResult,

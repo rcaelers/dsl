@@ -3,14 +3,15 @@ use std::sync::Arc;
 
 use signal_artifacts::{
     ArtifactByteSource, ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange,
-    PreparedByteSource, RepositoryCapabilities, SourceCapabilities, SourceIdentity,
+    PreparedByteSource, RepositoryCapabilities, SourceCapabilities, SourceIdentity, UnixTimeSource,
 };
-use signal_processing::{
-    Annotation, AnnotationQuery, BlockCodecConfig, CaptureChannelId, CaptureChunk,
-    CaptureChunkWriter, CaptureCursorItem, CaptureSessionId, CaptureStore, CaptureStoreConfig,
-    CaptureStoreCursor, CaptureStoreDescriptor, FinalizedCapture, IndexedAnnotationStore,
-    IndexedAnnotationWriter, LiveStoreConfig, PersistentStoreConfig, UnixTimeSource, Word,
-    WordPresenceBucket,
+use signal_capture_session::{
+    CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureCursorItem, CaptureSessionId,
+    CaptureStore, CaptureStoreConfig, CaptureStoreCursor, CaptureStoreDescriptor, FinalizedCapture,
+};
+use signal_derived::{
+    Annotation, AnnotationQuery, BlockCodecConfig, IndexedAnnotationStore, IndexedAnnotationWriter,
+    LiveStoreConfig, PersistentStoreConfig, Word, WordPresenceBucket,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]

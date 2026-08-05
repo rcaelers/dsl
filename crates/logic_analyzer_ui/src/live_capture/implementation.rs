@@ -1,8 +1,9 @@
 use node_graph::{GraphState, NodeId};
-use signal_processing::{
+use signal_capture::CaptureIndex;
+use signal_capture_session::{
     CaptureAcquisitionPhase, CaptureCommandCapabilities, CaptureCompletion, CaptureHealth,
-    CaptureIndex, CaptureProgress, CaptureProviderCapabilities, CaptureSessionId,
-    CaptureSessionOutcome, CaptureSessionPlan, CaptureSessionState,
+    CaptureProgress, CaptureProviderCapabilities, CaptureSessionId, CaptureSessionOutcome,
+    CaptureSessionPlan, CaptureSessionState,
 };
 use signal_runtime::ProcessNode;
 
@@ -140,7 +141,7 @@ pub(crate) trait CaptureCoordinatorContract {
 
 #[cfg(test)]
 mod tests {
-    use signal_processing::{CaptureChannelId, CaptureDataDelivery};
+    use signal_capture_session::{CaptureChannelId, CaptureDataDelivery};
 
     use super::*;
 

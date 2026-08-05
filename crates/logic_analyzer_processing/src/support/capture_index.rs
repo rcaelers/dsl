@@ -1,5 +1,5 @@
 use signal_artifacts::SourceIdentity;
-use signal_processing::CaptureDataSource;
+use signal_capture::CaptureDataSource;
 
 pub(crate) fn capture_cache_identity<S>(source_identity: SourceIdentity, source: &S) -> [u8; 32]
 where

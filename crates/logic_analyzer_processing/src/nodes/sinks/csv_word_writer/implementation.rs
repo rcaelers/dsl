@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use tracing::{debug, info, warn};
 
-use signal_processing::{TextSample, Word, WordPayload};
+use signal_derived::{TextSample, Word, WordPayload};
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };

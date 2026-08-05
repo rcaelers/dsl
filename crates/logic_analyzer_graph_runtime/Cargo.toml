@@ -14,6 +14,7 @@ logic-analyzer-graph-capabilities = { path = "../logic_analyzer_graph_capabiliti
 logic-analyzer-graph-plan = { path = "../logic_analyzer_graph_plan" }
 node-graph = { path = "../widgets/node_graph" }
 serde_json = { workspace = true }
-signal-processing = { path = "../signal_processing" }
+signal-capture = { workspace = true }
+signal-derived = { workspace = true }
 signal-runtime = { workspace = true }
 signal-artifacts = { workspace = true }

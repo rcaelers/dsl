@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
-use signal_processing::{ProtocolPacket, ProtocolValue, SampleBlock, Word};
+use signal_capture::SampleBlock;
+use signal_derived::{ProtocolPacket, ProtocolValue, Word};
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };

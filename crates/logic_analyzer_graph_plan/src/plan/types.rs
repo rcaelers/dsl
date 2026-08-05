@@ -9,7 +9,7 @@ use logic_analyzer_graph_capabilities::node_support::{
     ResolvedInputs,
 };
 use node_graph::api::NodeId;
-use signal_processing::{
+use signal_derived::{
     CollectedLaneRequest, DerivedDataRetention, DerivedLanes, PayloadRegistry,
     PersistentStoreConfig, SamplingPointStore,
 };

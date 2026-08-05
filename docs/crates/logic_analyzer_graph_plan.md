@@ -8,7 +8,7 @@ capabilities, subscriptions, sampling metadata, retention policy, and concrete r
 
 ## Boundary
 
-The crate depends only on lower-level graph capabilities, node-graph identity, and signal-processing value
+The crate depends only on lower-level graph capabilities, node-graph identity, and signal-contract value
 contracts. It has no compiler, registry, runtime-service, orchestration, UI, platform, concrete
 node, or target dependency. It neither lowers documents nor starts work.
 

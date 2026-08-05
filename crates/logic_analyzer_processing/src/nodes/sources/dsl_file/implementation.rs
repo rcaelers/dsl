@@ -15,14 +15,11 @@ use tracing::{debug, info, warn};
 
 use signal_artifacts::{ArtifactRepository, PreparedByteSource};
 #[cfg(test)]
-use signal_processing::EdgeQueryProcessNodeExt;
-use signal_processing::capture::{
-    BlockData, CaptureDataSource, CaptureMetadata, CaptureTransition,
-};
-use signal_processing::waveform_index::IndexSampler;
-use signal_processing::{
-    CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, CaptureIndexOpenTask, EdgeQuery,
-    Error, Result, Sample, SampleBlock,
+use signal_capture::EdgeQueryProcessNodeExt;
+use signal_capture::{
+    BlockData, CaptureDataSource, CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory,
+    CaptureIndexOpenTask, CaptureMetadata, CaptureTransition, EdgeQuery, Error, IndexSampler,
+    Result, Sample, SampleBlock,
 };
 use signal_runtime::{
     InlineWorkExecutor, InputPort, OutputPort, PortPayload, ProcessNode, ProtocolKind,
@@ -281,9 +278,9 @@ impl DslFileSource {
     pub fn indexed_capture_presentation(
         source: Arc<dyn PreparedByteSource>,
         display_name: impl Into<String>,
-    ) -> signal_processing::IndexedCapturePresentation {
+    ) -> signal_capture::IndexedCapturePresentation {
         let display_name = display_name.into();
-        signal_processing::IndexedCapturePresentation {
+        signal_capture::IndexedCapturePresentation {
             identity: source.identity(),
             factory: Box::new(DslCaptureIndexFactory {
                 source,
@@ -745,7 +742,7 @@ impl ProcessNode for DslFileSource {
                     // prefer that, fall back to streaming for consumers (or
                     // live sources with no index) that don't ask for it.
                     .with_protocols(vec![
-                        signal_processing::edge_query_protocol(),
+                        signal_capture::edge_query_protocol(),
                         ProtocolKind::Stream,
                     ])
                     // Block is a near-zero-cost passthrough of the on-disk
@@ -767,7 +764,7 @@ impl ProcessNode for DslFileSource {
         protocol: ProtocolKind,
         _input_capabilities: &[Vec<signal_runtime::ProtocolCapability>],
     ) -> Option<signal_runtime::ProtocolCapability> {
-        if protocol != signal_processing::edge_query_protocol() {
+        if protocol != signal_capture::edge_query_protocol() {
             return None;
         }
         let channel = port;
@@ -786,7 +783,7 @@ impl ProcessNode for DslFileSource {
             samplerate_hz: self.header.samplerate_hz,
             total_samples,
         }) as Arc<dyn EdgeQuery>;
-        Some(signal_processing::edge_query_capability(query))
+        Some(signal_capture::edge_query_capability(query))
     }
 
     fn work(&mut self, _inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {

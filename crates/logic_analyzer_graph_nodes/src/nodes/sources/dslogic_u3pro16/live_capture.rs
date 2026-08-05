@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{CaptureGraphSourceFactory, LiveCaptureFeature};
 use logic_analyzer_graph_capabilities::node_support::{SimpleTriggerChannel, parse_state};
-use signal_processing::{
+use signal_capture_session::{
     AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureAnalysisChannel,
     CaptureAnalysisSource, CaptureChannelId, CaptureCommandCapabilities, CaptureFraction,
     CapturePolicyCapabilities, CapturePolicyContext, CaptureProviderCapabilities,
@@ -191,11 +191,11 @@ pub(crate) fn feature(
         )
         .map_err(|error| error.to_string())?;
     let effective_before = match policy.effective.trigger_placement {
-        Some(signal_processing::TriggerPlacement::SamplesBefore(samples)) => samples,
-        Some(signal_processing::TriggerPlacement::Fraction(fraction)) => {
+        Some(signal_capture_session::TriggerPlacement::SamplesBefore(samples)) => samples,
+        Some(signal_capture_session::TriggerPlacement::Fraction(fraction)) => {
             fraction.samples_of(actual_samples)
         }
-        Some(signal_processing::TriggerPlacement::DurationBefore(duration)) => u64::try_from(
+        Some(signal_capture_session::TriggerPlacement::DurationBefore(duration)) => u64::try_from(
             duration
                 .as_nanos()
                 .saturating_mul(u128::from(config.sample_rate_hz))
@@ -204,7 +204,7 @@ pub(crate) fn feature(
         .unwrap_or(actual_samples),
         None => 0,
     };
-    policy.effective.completion = signal_processing::CompletionPolicy::SamplesAfterOrigin(
+    policy.effective.completion = signal_capture_session::CompletionPolicy::SamplesAfterOrigin(
         actual_samples.saturating_sub(effective_before).max(1),
     );
     let session_plan = CaptureSessionPlan {
@@ -231,7 +231,7 @@ pub(crate) fn feature(
 mod tests {
     use std::time::Duration;
 
-    use signal_processing::{
+    use signal_capture_session::{
         AcquisitionContext, AcquisitionResult, CaptureCursorItem, CaptureDataDelivery,
         CaptureStartMode, CaptureStoreCursor, CaptureStoreResult, CompletionPolicy,
         ConfiguredAcquisition, PreparedAcquisition, RecordingStart, RetentionPolicy,
@@ -315,7 +315,7 @@ mod tests {
         state.channels.enabled.fill(false);
         state.channels.enabled[0] = true;
         state
-            .set_trigger_condition(0, signal_processing::SimpleTriggerCondition::Rising)
+            .set_trigger_condition(0, signal_capture_session::SimpleTriggerCondition::Rising)
             .unwrap();
         state.trigger_position_percent.value = 37;
         state.retention.select("Recent duration");
@@ -333,7 +333,7 @@ mod tests {
         assert_eq!(
             plan.policy.requested.trigger_placement,
             Some(TriggerPlacement::Fraction(
-                signal_processing::CaptureFraction::from_percent(37).unwrap()
+                signal_capture_session::CaptureFraction::from_percent(37).unwrap()
             ))
         );
         assert_eq!(

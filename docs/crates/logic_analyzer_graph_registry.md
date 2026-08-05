@@ -10,7 +10,7 @@ collection, deterministic validation, host runtime-builder override resolution, 
 
 The crate root exposes `GraphNodeRegistration`, `PayloadRegistration`, their validated inventory
 iterators, and `GraphRegistry`. It depends only on `logic_analyzer_graph_capabilities`, `node_graph`,
-`signal_processing`, and the generic `inventory` mechanism. Plugins implement graph-API capability
+the capture and derived contract owners, and the generic `inventory` mechanism. Plugins implement graph-API capability
 traits and submit registry-owned descriptors.
 
 ## Ownership boundaries

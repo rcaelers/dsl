@@ -21,7 +21,7 @@ derived data.
 
 The UI-independent live-capture foundation is also present:
 
-- `signal_processing::live_capture` defines opaque session and physical-channel identities,
+- `signal_capture_session::live_capture` defines opaque session and physical-channel identities,
   lifecycle state, acquisition phase/progress, structured failures, and a versioned immutable
   packed raw chunk with validated unaligned payload access;
 - the same generic contract describes whether samples arrive during acquisition or during a
@@ -41,7 +41,7 @@ The UI-independent live-capture foundation is also present:
   conditions and publishes an exact raw trigger sample as a generic capture event;
 - `CaptureChunkWriter` and `CaptureEventPublisher` are the generic acquisition boundaries, with
   bounded in-memory chunk and event queues available for contract tests;
-- `signal_processing::live_capture_store` defines the platform-neutral session descriptor,
+- `signal_capture_session::live_capture_store` defines the platform-neutral session descriptor,
   committed-prefix snapshot, cursor, manifest, and error contracts;
 - its common implementation publishes each canonical chunk as a bounded artifact and advances the
   manifest only after that chunk is complete, so live cursors and recovery observe one committed
@@ -65,7 +65,7 @@ The UI-independent live-capture foundation is also present:
   monotonically increasing generation so consumers can follow a growing committed prefix;
 - capture providers can fill a fixed-size reusable buffer pool and transfer immutable payload
   ownership directly to a synchronous store writer;
-- `signal_processing::live_capture` defines `AcquisitionContext` and the object-safe
+- `signal_capture_session::live_capture` defines `AcquisitionContext` and the object-safe
   `PreparedAcquisition` lifecycle with Prepare, Start, idempotent Stop, non-blocking completion
   observation, and Join behavior;
 - `RuntimeBuilder` can expose a state-bound `LiveCaptureFeature`; compiler discovery considers
@@ -203,7 +203,7 @@ pre-trigger data can therefore be retained without pretending it belongs after t
 
 | Crate | Responsibility |
 | --- | --- |
-| `signal_processing` | Generic session IDs/status, provider acquisition lifecycle, append-only live raw store, committed-prefix queries, trigger point metadata, analysis cursor sources, and finalized capture handles. No USB, node names, or UI. |
+| `signal_capture_session` | Generic session IDs/status, provider acquisition lifecycle, append-only live raw store, committed-prefix queries, trigger point metadata, analysis cursor sources, and finalized capture handles. No USB, node names, or UI. |
 | `logic_analyzer_processing` | Concrete capture providers and source-owned U3Pro16 USB behavior. The U3Pro16 processing source feature translates trigger headers and chunks into the generic session contracts. |
 | `logic_analyzer_graph_compiler` | Generic live-source descriptors, trigger-state lowering, and replay override lowering. Concrete U3 state, builder registration, and behavior stay in the corresponding `logic_analyzer_graph_nodes` feature directory. |
 | `logic_analyzer_viewer` | Generic lane trigger icons, hit testing, live capture queries, and neutral trigger-edit events. It does not identify U3Pro16 or construct hardware trigger programs. |

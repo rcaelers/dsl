@@ -2,7 +2,7 @@ use std::sync::Mutex;
 
 use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
 
-use signal_processing::portable_worker_kernels;
+use signal_derived::portable_worker_kernels;
 use signal_runtime::{
     WorkerExecutionCapability, WorkerHostCommand, WorkerKernelRegistry, WorkerMessage,
     WorkerOperationExecutor, WorkerOperationQueue, WorkerRequest,

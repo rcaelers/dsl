@@ -15,7 +15,7 @@ use logic_analyzer_viewer::{
     AnnotationVisual, DefaultViewerLaneRenderer, DerivedLaneId, ViewerLaneGroup,
     ViewerLaneRenderer, ViewerLaneRendererRegistration, ViewerLaneTheme, ViewerLaneTrackId,
 };
-use signal_processing::{ProtocolPacket, ProtocolValue};
+use signal_derived::{ProtocolPacket, ProtocolValue};
 
 use crate::payloads::WordSnapshotRenderer;
 

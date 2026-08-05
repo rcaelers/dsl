@@ -1,6 +1,6 @@
 use egui::{Color32, Pos2, Rect};
 
-use signal_processing::CaptureMetadata;
+use signal_capture::CaptureMetadata;
 
 use crate::lanes::ViewerLaneGroupId;
 

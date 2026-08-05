@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use signal_processing::CaptureSessionId;
+use signal_capture_session::CaptureSessionId;
 
 use super::contract::{
     CaptureExportCompletion, CaptureExportFormat, CaptureExportService, CaptureExportStatus,

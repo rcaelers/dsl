@@ -409,7 +409,7 @@ mod cursor_tests {
 
     use egui::Color32;
 
-    use signal_processing::{CollectedLaneQuery, DerivedLanes, PayloadRegistry, Word};
+    use signal_derived::{CollectedLaneQuery, DerivedLanes, PayloadRegistry, Word};
 
     use super::*;
     use crate::lanes::{

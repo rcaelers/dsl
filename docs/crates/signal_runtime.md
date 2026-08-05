@@ -9,13 +9,13 @@ generic work execution. Its crate root is the supported facade; implementation m
 ## Dependency boundary
 
 The crate depends only on portable concurrency, serialization, timing, error, and tracing
-libraries. It has no dependency on `signal_processing`, `signal_artifacts`, graph crates, concrete
+libraries. It has no dependency on `signal_artifacts`, graph crates, concrete
 nodes, storage, capture sessions, protocols, UI, or platform adapters. Payload negotiation uses
 generic type identity plus explicit stream semantics and buffer metadata. Non-stream transports use
 generic typed protocol capabilities.
 
 Signal domains define their own payload records and capability adapters. In particular,
-`signal_processing` owns `EdgeQuery` and adapts it to `ProtocolCapability`; the runtime does not know
+`signal_capture` owns `EdgeQuery` and adapts it to `ProtocolCapability`; the runtime does not know
 the query's boolean-signal semantics.
 
 ## Errors and tests

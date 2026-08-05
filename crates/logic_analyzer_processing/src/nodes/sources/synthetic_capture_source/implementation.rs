@@ -1,6 +1,6 @@
 //! Small deterministic mixed-protocol capture used by platform stand-ins.
 
-use signal_processing::{Sample, SampleBlock};
+use signal_capture::{Sample, SampleBlock};
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortPayload, PortSchema, ProcessNode, WorkError,
     WorkResult,

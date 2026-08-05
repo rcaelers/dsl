@@ -11,11 +11,8 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use tracing::debug;
 use web_time::Instant;
 
-use signal_processing::capture::CaptureTransition;
-use signal_processing::{
-    EdgeQuery, EdgeQueryInputPortExt, PackedSamplingPoint, PackedSamplingPointBatch, Sample,
-    SampleBlock, SamplingPointStore, Word,
-};
+use signal_capture::{CaptureTransition, EdgeQuery, EdgeQueryInputPortExt, Sample, SampleBlock};
+use signal_derived::{PackedSamplingPoint, PackedSamplingPointBatch, SamplingPointStore, Word};
 #[cfg(test)]
 use signal_runtime::{CompletedWorkTask, WorkTask};
 use signal_runtime::{
@@ -237,7 +234,7 @@ impl ParallelDecoder {
         if activity_ratio >= Self::AUTO_PACKED_ACTIVITY_RATIO {
             ProtocolKind::Stream
         } else {
-            signal_processing::edge_query_protocol()
+            signal_capture::edge_query_protocol()
         }
     }
 
@@ -254,7 +251,7 @@ impl ParallelDecoder {
                     candidate
                         .capabilities
                         .iter()
-                        .find_map(signal_processing::edge_query_from_capability)
+                        .find_map(signal_capture::edge_query_from_capability)
                 })
                 .and_then(|query| query.high_level_ratio_hint())
                 .filter(|ratio| ratio.is_finite())
@@ -267,7 +264,7 @@ impl ParallelDecoder {
                 candidate
                     .capabilities
                     .iter()
-                    .find_map(signal_processing::edge_query_from_capability)
+                    .find_map(signal_capture::edge_query_from_capability)
             })
             .and_then(|query| query.activity_ratio_hint())
             .filter(|ratio| ratio.is_finite())?
@@ -455,13 +452,10 @@ impl ProcessNode for ParallelDecoder {
         } else {
             match self.input_strategy {
                 ParallelInputStrategy::Auto => {
-                    vec![
-                        signal_processing::edge_query_protocol(),
-                        ProtocolKind::Stream,
-                    ]
+                    vec![signal_capture::edge_query_protocol(), ProtocolKind::Stream]
                 }
                 ParallelInputStrategy::PackedStream => vec![ProtocolKind::Stream],
-                ParallelInputStrategy::Indexed => vec![signal_processing::edge_query_protocol()],
+                ParallelInputStrategy::Indexed => vec![signal_capture::edge_query_protocol()],
             }
         };
 
@@ -495,7 +489,7 @@ impl ProcessNode for ParallelDecoder {
                 PortDirection::Input,
             )
             .with_protocols(vec![
-                signal_processing::edge_query_protocol(),
+                signal_capture::edge_query_protocol(),
                 ProtocolKind::Stream,
             ])
             .with_complete_stream(),
@@ -552,7 +546,7 @@ impl ProcessNode for ParallelDecoder {
         };
         let preferred = Self::auto_protocol_for_activity_ratio(work.gated_activity_ratio);
         let alternate = if preferred == ProtocolKind::Stream {
-            signal_processing::edge_query_protocol()
+            signal_capture::edge_query_protocol()
         } else {
             ProtocolKind::Stream
         };
@@ -866,7 +860,7 @@ fn enabled_ranges_for_window(
     let absolute_end = block_start_position + window_end as u64;
 
     if let Some(query) = enable_query {
-        let query_err = |error: signal_processing::Error| WorkError::NodeError(error.to_string());
+        let query_err = |error: signal_capture::Error| WorkError::NodeError(error.to_string());
         let mut current = query.value_at(absolute_start).map_err(query_err)?;
         let previous = if absolute_start == 0 {
             current
@@ -1303,8 +1297,8 @@ impl ParallelDecoder {
         let num_data_bits = self.num_data_bits;
         let timestamp_step = (1_000_000_000.0 / strobe_query.samplerate_hz()) as u64;
         let total_samples = strobe_query.total_samples();
-        // EdgeQuery methods return signal_processing::Result, not WorkResult.
-        let query_err = |e: signal_processing::Error| WorkError::NodeError(e.to_string());
+        // EdgeQuery methods return signal_capture::Result, not WorkResult.
+        let query_err = |e: signal_capture::Error| WorkError::NodeError(e.to_string());
 
         let mut assembly = AssemblyState {
             value: self.assembly_value,
@@ -1813,10 +1807,7 @@ mod tests {
         assert_eq!(decoder.num_inputs(), 11);
         assert_eq!(
             decoder.input_schema()[0].protocols,
-            vec![
-                signal_processing::edge_query_protocol(),
-                ProtocolKind::Stream
-            ]
+            vec![signal_capture::edge_query_protocol(), ProtocolKind::Stream]
         );
     }
 
@@ -1833,15 +1824,12 @@ mod tests {
         for schema in &indexed.input_schema()[..4] {
             assert_eq!(
                 schema.protocols,
-                vec![signal_processing::edge_query_protocol()]
+                vec![signal_capture::edge_query_protocol()]
             );
         }
         assert_eq!(
             packed.input_schema()[4].protocols,
-            vec![
-                signal_processing::edge_query_protocol(),
-                ProtocolKind::Stream
-            ],
+            vec![signal_capture::edge_query_protocol(), ProtocolKind::Stream],
             "the enable level chooses its transport independently"
         );
     }
@@ -1876,14 +1864,14 @@ mod tests {
         fn high_level_ratio_hint(&self) -> Option<f64> {
             self.high_level_ratio
         }
-        fn value_at(&self, _position: u64) -> signal_processing::Result<bool> {
+        fn value_at(&self, _position: u64) -> signal_capture::Result<bool> {
             Ok(false)
         }
         fn next_edge(
             &self,
             _position: u64,
             _limit: u64,
-        ) -> signal_processing::Result<Option<CaptureTransition>> {
+        ) -> signal_capture::Result<Option<CaptureTransition>> {
             Ok(None)
         }
     }
@@ -1896,7 +1884,7 @@ mod tests {
     }
 
     fn query_capabilities(query: Arc<dyn EdgeQuery>) -> Vec<signal_runtime::ProtocolCapability> {
-        vec![signal_processing::edge_query_capability(query)]
+        vec![signal_capture::edge_query_capability(query)]
     }
 
     fn auto_candidates(
@@ -1907,10 +1895,7 @@ mod tests {
         let mut candidates: Vec<_> = (0..5)
             .map(|_| {
                 Some(InputProtocolCandidate {
-                    offered: vec![
-                        signal_processing::edge_query_protocol(),
-                        ProtocolKind::Stream,
-                    ],
+                    offered: vec![signal_capture::edge_query_protocol(), ProtocolKind::Stream],
                     capabilities: query_capabilities(Arc::clone(&query)),
                 })
             })
@@ -1933,7 +1918,7 @@ mod tests {
         assert_eq!(&dense[..4], &[Some(ProtocolKind::Stream); 4]);
         assert_eq!(
             &sparse[..4],
-            &[Some(signal_processing::edge_query_protocol()); 4]
+            &[Some(signal_capture::edge_query_protocol()); 4]
         );
         assert_eq!(dense[4], None, "the fixture leaves enable disconnected");
 
@@ -1943,10 +1928,7 @@ mod tests {
             &[Some(ProtocolKind::Stream); 4],
             "a connected gate must not hide the measured raw-signal density"
         );
-        assert_eq!(
-            gated_dense[4],
-            Some(signal_processing::edge_query_protocol())
-        );
+        assert_eq!(gated_dense[4], Some(signal_capture::edge_query_protocol()));
     }
 
     #[test]
@@ -1982,7 +1964,7 @@ mod tests {
         let cs_selected = cs_decoder.select_input_protocols(&cs_candidates);
         assert_eq!(
             &cs_selected[..4],
-            &[Some(signal_processing::edge_query_protocol()); 4]
+            &[Some(signal_capture::edge_query_protocol()); 4]
         );
 
         let enable_decoder = ParallelDecoder::new(2, StrobeMode::AnyEdge, CsPolarity::Disabled);
@@ -1990,7 +1972,7 @@ mod tests {
             enable_decoder.select_input_protocols(&auto_candidates(0.9, Some(0.1)));
         assert_eq!(
             &enable_selected[..4],
-            &[Some(signal_processing::edge_query_protocol()); 4]
+            &[Some(signal_capture::edge_query_protocol()); 4]
         );
         let reference_selected =
             enable_decoder.select_input_protocols(&auto_candidates(1.0, Some(0.225)));
@@ -2358,7 +2340,7 @@ mod tests {
         let wd = Watchdog::new();
         let sample_count = 2 * ParallelDecoder::STREAM_SAMPLES_PER_CALL + 10;
         let backing: Arc<[u8]> = Arc::from(vec![0u8; sample_count.div_ceil(8)].into_boxed_slice());
-        let shared_backing = signal_processing::capture::BlockData::from(backing);
+        let shared_backing = signal_capture::BlockData::from(backing);
         let strobe = SampleBlock::new(shared_backing.clone(), 0, sample_count, 1);
         let inputs = [
             block_input(&wd, strobe, "strobe"),
@@ -2437,23 +2419,19 @@ mod tests {
         fn total_samples(&self) -> u64 {
             self.bits.len() as u64
         }
-        fn value_at(&self, position: u64) -> signal_processing::Result<bool> {
+        fn value_at(&self, position: u64) -> signal_capture::Result<bool> {
             Ok(self.bits[position as usize])
         }
         fn next_edge(
             &self,
             position: u64,
             limit: u64,
-        ) -> signal_processing::Result<Option<signal_processing::capture::CaptureTransition>>
-        {
+        ) -> signal_capture::Result<Option<signal_capture::CaptureTransition>> {
             let mut current = self.bits[position as usize];
             for p in (position + 1)..limit.min(self.total_samples()) {
                 let value = self.bits[p as usize];
                 if value != current {
-                    return Ok(Some(signal_processing::capture::CaptureTransition {
-                        sample: p,
-                        value,
-                    }));
+                    return Ok(Some(signal_capture::CaptureTransition { sample: p, value }));
                 }
                 current = value;
             }
@@ -2476,7 +2454,7 @@ mod tests {
         fn total_samples(&self) -> u64 {
             self.bits.len() as u64
         }
-        fn value_at(&self, position: u64) -> signal_processing::Result<bool> {
+        fn value_at(&self, position: u64) -> signal_capture::Result<bool> {
             self.reads.fetch_add(1, Ordering::Relaxed);
             Ok(self.bits[position as usize])
         }
@@ -2484,7 +2462,7 @@ mod tests {
             &self,
             _position: u64,
             _limit: u64,
-        ) -> signal_processing::Result<Option<CaptureTransition>> {
+        ) -> signal_capture::Result<Option<CaptureTransition>> {
             unreachable!("data-only test query must not be searched for edges")
         }
     }

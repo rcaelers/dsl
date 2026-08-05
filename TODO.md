@@ -115,8 +115,8 @@ Task IDs start with their ownership category and remain stable when task wording
      leaf artifacts with the same cancellation, bounded-memory, and progress behavior. The current
      20-worker profiles do not justify starting this prototype: summary work is already off the
      critical path, and GPU dispatch would additionally transfer 1.25–2.73 GB of packed input.
-  4. [ ] Preserve platform boundaries: `signal_processing` owns only a portable capability contract
-     and CPU fallback; `logic_analyzer_platform` owns native and WebGPU adapters, capability
+  4. [ ] Preserve platform boundaries: `signal_capture` owns only the portable kernel contract and
+     CPU fallback; `logic_analyzer_platform` owns native and WebGPU adapters, capability
      discovery, batching, and unavailable-GPU handling. Do not add target conditionals or GPU
      dependencies to portable processing, viewer, compiler, or concrete-node crates. Keep
      decompression, source I/O, protocol decoding, and derived-data caching on their current CPU
@@ -538,7 +538,7 @@ concurrent viewer p99 latency. Do not retain a throughput change that harms fore
 - [capture.live.host-capabilities] Add a host capability that inhibits automatic system sleep while
   acquisition is active. Where inhibition is unavailable, observe suspend/resume and report it as
   a capture-integrity event. Keep the existing generic lifecycle, integrity, and storage contracts
-  in `signal_processing`, with no platform conditionals in their consumers.
+  in `signal_capture_session`, with no platform conditionals in their consumers.
 
 ### Node-graph extraction
 

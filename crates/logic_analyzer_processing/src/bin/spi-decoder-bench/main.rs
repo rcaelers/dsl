@@ -16,10 +16,10 @@ mod implementation {
     use logic_analyzer_processing::nodes::sinks::csv_word_writer::{CsvValueFormat, CsvWordWriter};
     use logic_analyzer_processing::nodes::sinks::{OutputFile, OutputStorage};
     use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
-    use signal_processing::{
+    use signal_capture::{EdgeQueryInputPortExt, EdgeQueryProcessNodeExt};
+    use signal_derived::{
         CollectedWordLaneOptions, DerivedDataCollector, DerivedDataRetention, DerivedLanes,
-        EdgeQueryInputPortExt, EdgeQueryProcessNodeExt, LiveStoreConfig, Word,
-        built_in_word_lane_ingestor,
+        LiveStoreConfig, Word, built_in_word_lane_ingestor,
     };
     use signal_runtime::{
         Pipeline, ProcessNode, Watchdog, WorkError, WorkExecutor, WorkExecutorTask, WorkTask,

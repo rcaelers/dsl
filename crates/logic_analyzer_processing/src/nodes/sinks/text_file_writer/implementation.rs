@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use tracing::{debug, info, warn};
 
-use signal_processing::TextSample;
+use signal_derived::TextSample;
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };

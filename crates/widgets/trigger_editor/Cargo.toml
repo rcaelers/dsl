@@ -10,4 +10,4 @@ path = "src/lib.rs"
 
 [dependencies]
 egui = { workspace = true }
-signal-processing = { path = "../../signal_processing" }
+signal-capture-session = { path = "../../signal_capture_session" }

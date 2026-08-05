@@ -29,7 +29,7 @@ fn runtime_has_no_signal_domain_or_storage_dependency() {
     ];
 
     for forbidden in [
-        "signal_processing",
+        "signal_capture_session",
         "signal_artifacts",
         "SampleBlock",
         "NumberSample",

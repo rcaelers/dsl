@@ -3,7 +3,7 @@ use std::io::{Read, Seek, SeekFrom};
 use zip::ZipArchive;
 
 use signal_artifacts::{PreparedByteSource, RandomAccessReader, SourceReadError};
-use signal_processing::{Error, Result};
+use signal_capture::{Error, Result};
 
 pub(crate) trait CaptureArchive: Send {
     fn entry_names(&self) -> Vec<String>;

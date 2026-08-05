@@ -4,19 +4,20 @@
 
 `signal_artifacts` owns platform-neutral immutable byte regions, stable source and artifact
 identities, artifact repository contracts, the portable in-memory repository, prepared byte-source
-contracts, and repository replication events.
+contracts, repository replication events, and shared persistence time and checksum primitives.
 
 ## Public facade
 
 The crate root is the only supported facade. It selectively exposes byte ranges and regions,
 prepared random-access sources, artifact keys and metadata, repository reader and writer contracts,
-the in-memory repository, repository-backed byte sources, and replication contracts. Consumers
-import these symbols from `signal_artifacts`; `signal_processing` does not re-export them.
+the in-memory repository, repository-backed byte sources, replication contracts, clocks, and
+checksums. Consumers import these symbols from `signal_artifacts`; higher-level owners do not
+re-export them.
 
 ## Dependencies and boundary
 
-The crate depends only on serialization and error support. It has no dependency on
-`signal_processing`, capture or derived-data formats, graph crates, UI crates, platform adapters,
+The crate depends only on serialization, timing, and error support. It has no dependency on
+capture or derived-data formats, graph crates, UI crates, platform adapters,
 or compilation targets.
 
 Native mmap/filesystem repositories and browser persistence repositories implement these contracts

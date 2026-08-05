@@ -18,7 +18,7 @@
 //! ## Boundaries
 //!
 //! Each child owns one runtime transformation. Generic scheduling and ports remain in
-//! `signal_processing`; graph-node definitions and UI presentation remain above processing.
+//! `signal_capture_session`; graph-node definitions and UI presentation remain above processing.
 
 //! Control-path logic processing nodes.
 //!

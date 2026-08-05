@@ -110,7 +110,7 @@ The collector owns no protocol, payload, viewer, table, or panel knowledge. It s
 object-safe lane ingestors. Each ingestor is constructed by the adapter registered for one payload
 type.
 
-The `signal_processing::derived_data_collector` private facade reflects those ownership boundaries:
+The `signal_derived::derived_data_collector` private facade reflects those ownership boundaries:
 
 ```text
 derived_data_collector/
@@ -251,14 +251,14 @@ does not repair protocol wiring.
 
 ### Crate ownership
 
-- `signal_processing` owns type-erased ingestion, retained query, snapshot, and storage contracts.
+- `signal_derived` owns type-erased ingestion, retained query, snapshot, and storage contracts.
 - `logic_analyzer_viewer` owns presentation adapters and drawing contracts for those snapshots.
 - `logic_analyzer_graph_compiler` owns compiler negotiation: it accepts only registered collectable payloads
   for a data subscription and reports a targeted error for an unavailable subscription contract
   or adapter.
 - `logic_analyzer_ui` owns panel factories, panel state, and the read-only panel data context.
 - Application composition iterates the independent graph, payload, and panel inventories without
-  making `signal_processing` depend on graph or UI crates. Enabled plugin crates are retained by a
+  making `signal_derived` depend on graph or UI crates. Enabled plugin crates are retained by a
   host symbol anchor; the web platform entry point invokes module constructors once before the
   first inventory iteration.
 

@@ -1,0 +1,25 @@
+[package]
+name = "signal-capture-session"
+version.workspace = true
+edition = "2024"
+authors = ["Rob Caelers <rob.caelers@gmail.com>"]
+description = "UI-independent generic capture-session infrastructure"
+repository = "https://github.com/rcaelers/logic-conduit"
+license = "MIT"
+
+[lib]
+name = "signal_capture_session"
+path = "src/lib.rs"
+
+[dependencies]
+signal-artifacts = { workspace = true }
+signal-capture = { workspace = true }
+signal-derived = { workspace = true }
+signal-runtime = { workspace = true }
+thiserror = { workspace = true }
+crossbeam-channel = { workspace = true }
+tracing = { workspace = true }
+web-time = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+blake3 = { workspace = true }

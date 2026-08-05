@@ -66,7 +66,7 @@ impl App {
                 .get(&node_id)
                 .map(|node| node.title.clone());
             for config in configs {
-                let (_, owners): &mut (signal_processing::PersistentStoreConfig, BTreeSet<String>) =
+                let (_, owners): &mut (signal_derived::PersistentStoreConfig, BTreeSet<String>) =
                     entries
                         .entry(config.cache_key)
                         .or_insert_with(|| (config.clone(), BTreeSet::new()));

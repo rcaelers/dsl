@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use signal_processing::FinalizedCapture;
+use signal_capture_session::FinalizedCapture;
 
 use super::implementation::{
     CaptureExportObserver as RawCaptureExportObserver,

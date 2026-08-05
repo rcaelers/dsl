@@ -1,5 +1,5 @@
 use logic_analyzer_graph_capabilities::node_support::NodeBuildContext;
-use signal_processing::{
+use signal_derived::{
     DerivedDataRetention, DerivedLanes, PersistentStoreConfig, SamplingPointStore,
 };
 

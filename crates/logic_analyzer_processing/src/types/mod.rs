@@ -8,7 +8,7 @@
 //! ## Boundaries
 //!
 //! It does not own generic runtime payload contracts, graph sockets, widget presentation, or concrete
-//! source/decoder behavior. Values with wider generic meaning remain in `signal_processing`.
+//! source/decoder behavior. Values with wider generic meaning remain in `signal_capture_session`.
 
 //! Protocol-neutral value conventions shared by processing nodes.
 //!

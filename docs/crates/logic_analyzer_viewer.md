@@ -10,15 +10,15 @@ Implementation:
 
 - egui widget: [crates/widgets/logic_analyzer_viewer](../../crates/widgets/logic_analyzer_viewer)
   (`viewer.rs`, `channel.rs`, `cursor.rs`, `draw/`, `input.rs`, `sampling.rs`)
-- Index build/query engine: [crates/signal_processing/src/waveform_index/](../../crates/signal_processing/src/waveform_index)
+- Index build/query engine: [crates/signal_capture/src/waveform_index/](../../crates/signal_capture/src/waveform_index)
   (`builder.rs`, `growing.rs`, `query.rs`, `storage.rs`, `reader.rs`, `types.rs`)
-- Authoritative capture store: [crates/signal_processing/src/live_capture_store/](../../crates/signal_processing/src/live_capture_store)
+- Authoritative capture store: [crates/signal_capture_session/src/live_capture_store/](../../crates/signal_capture_session/src/live_capture_store)
 - Capture reader / data source: [crates/logic_analyzer_processing/src/nodes/sources/dsl_file/](../../crates/logic_analyzer_processing/src/nodes/sources/dsl_file)
   (`DslCaptureReader`, `DslFileCaptureDataSource`)
-- Common capture types / traits: [crates/signal_processing/src/capture/mod.rs](../../crates/signal_processing/src/capture/mod.rs)
+- Common capture types / traits: [crates/signal_capture/src/capture/mod.rs](../../crates/signal_capture/src/capture/mod.rs)
 - Derived-lane store and summary index:
-  [crates/signal_processing/src/derived_data_collector/mod.rs](../../crates/signal_processing/src/derived_data_collector/mod.rs),
-  [crates/signal_processing/src/derived_index.rs](../../crates/signal_processing/src/derived_index.rs)
+  [crates/signal_derived/src/derived_data_collector/mod.rs](../../crates/signal_derived/src/derived_data_collector/mod.rs),
+  [crates/signal_derived/src/derived_index.rs](../../crates/signal_derived/src/derived_index.rs)
 
 The widget's public API is documented in
 [Logic Analyzer Viewer API](logic_analyzer_viewer_api.md).
@@ -81,13 +81,13 @@ concrete capture source
   │         ├─ background thread         (opens capture and builds/validates index)
   │         └─ concrete processing reader (DSL, Sigrok, or another registered format)
   │
-  ├─ Waveform index (crates/signal_processing/src/waveform_index)
+  ├─ Finite waveform index (crates/signal_capture/src/waveform_index)
   │    ├─ IndexBuilder              — builds finite root and segment artifacts
   │    ├─ IndexReader               — reads immutable root and segment generations
   │    ├─ IndexSampler              — finite sampled_window() query handle
   │    └─ GrowingCaptureIndex       — growing sampled_window() query handle
   │
-  ├─ Capture store (crates/signal_processing/src/live_capture_store)
+  ├─ Capture store (crates/signal_capture_session/src/live_capture_store)
   │    └─ CaptureStore              — committed packed chunks and finalized replay
   │
   └─ LogicAnalyzerViewer (egui)          — samples the prepared index and paints it
@@ -164,7 +164,7 @@ an otherwise-constant block) so no edge is lost at block boundaries.
 ## Repository Index Format
 
 Magic `CAPIDX07`, built by `IndexWriter` / read by `IndexReader` in
-[storage.rs](../../crates/signal_processing/src/waveform_index/storage.rs):
+[storage.rs](../../crates/signal_capture/src/waveform_index/storage.rs):
 
 ```text
 ┌─────────────────────────────────────────────────────┐
@@ -226,7 +226,7 @@ query first reads that block. This cache is separate from the waveform summaries
 
 ## Index Building
 
-`IndexBuilder::build` ([builder.rs](../../crates/signal_processing/src/waveform_index/builder.rs)) runs
+`IndexBuilder::build` ([builder.rs](../../crates/signal_capture/src/waveform_index/builder.rs)) runs
 through the compiler-injected work executor during source preparation:
 
 1. Enumerate every `(channel, block)` job (`total_probes × total_blocks`).
@@ -348,7 +348,7 @@ tick.
 
 Collected display uses two independent registries:
 
-- `DerivedLanes` in `signal-processing` publishes stable lane keys, payload descriptors, and
+- `DerivedLanes` in `signal_derived` publishes stable lane keys, payload descriptors, and
   type-erased query handles owned by their collection adapters;
 - `WaveformPresentationRegistry` in `logic-analyzer-viewer` maps explicit group and track identities
   to those lanes and supplies protocol-neutral renderer objects. It also maps stable payload

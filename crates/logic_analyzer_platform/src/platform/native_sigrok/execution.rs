@@ -8,7 +8,7 @@ use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     LogicChunk, OutputRegistration, SigrokExecution, SigrokExecutionConfig, SigrokExecutionFactory,
     SigrokExecutionInput, SigrokExecutionOptionValue, SigrokExecutionOutput,
 };
-use signal_processing::{ProtocolPacket, ProtocolValue};
+use signal_derived::{ProtocolPacket, ProtocolValue};
 use signal_runtime::{InlineWorkExecutor, NodeCancellation, WorkExecutor};
 
 use super::{DecoderOutput, DecoderWorker, OptionValue, WorkerConfig, WorkerInputConfig};

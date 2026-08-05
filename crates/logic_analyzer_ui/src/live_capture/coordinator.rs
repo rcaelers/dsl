@@ -10,16 +10,16 @@ use web_time::{Instant, SystemTime, UNIX_EPOCH};
 use logic_analyzer_graph_capabilities::node::CaptureGraphSourceFactory;
 use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
 use signal_artifacts::{ArtifactKey, ArtifactNamespace, ArtifactRepository, SourceIdentity};
-use signal_processing::{
+use signal_capture::{CaptureIndex, CaptureMetadata, CaptureSampledWindow};
+use signal_capture_session::{
     AcquisitionContext, CaptureAcquisitionPhase, CaptureCompletion, CaptureDataDelivery,
     CaptureEvent, CaptureEventPublishError, CaptureEventPublisher, CaptureEventQueueReader,
-    CaptureHealth, CaptureIndex, CaptureMetadata, CaptureProgress, CaptureQueueReceiveError,
-    CaptureRecordingGate, CaptureSampledWindow, CaptureSessionId, CaptureSessionOutcome,
-    CaptureSessionPin, CaptureSessionPlan, CaptureSessionRepository,
-    CaptureSessionRepositoryConfig, CaptureSessionState, CaptureSessionSummary, CaptureStartMode,
-    CaptureStore, CaptureStoreConfig, CaptureStoreDescriptor, CaptureTimelineMetadata,
-    FinalizedCapture, GrowingCaptureIndex, GrowingCaptureIndexWorker, RecordingStart,
-    TriggerTimeoutAction, bounded_capture_event_queue,
+    CaptureHealth, CaptureProgress, CaptureQueueReceiveError, CaptureRecordingGate,
+    CaptureSessionId, CaptureSessionOutcome, CaptureSessionPin, CaptureSessionPlan,
+    CaptureSessionRepository, CaptureSessionRepositoryConfig, CaptureSessionState,
+    CaptureSessionSummary, CaptureStartMode, CaptureStore, CaptureStoreConfig,
+    CaptureStoreDescriptor, CaptureTimelineMetadata, FinalizedCapture, GrowingCaptureIndex,
+    GrowingCaptureIndexWorker, RecordingStart, TriggerTimeoutAction, bounded_capture_event_queue,
 };
 use signal_runtime::WorkExecutor;
 
@@ -177,7 +177,7 @@ impl CaptureIndex for PinnedCaptureIndex {
         start_sample: u64,
         end_sample: u64,
         target_points: usize,
-    ) -> signal_processing::Result<CaptureSampledWindow> {
+    ) -> signal_capture::Result<CaptureSampledWindow> {
         self.inner
             .sampled_window(channels, start_sample, end_sample, target_points)
     }
@@ -795,7 +795,7 @@ impl CaptureCoordinator {
     }
 
     #[cfg(test)]
-    fn completed_manifest(&self) -> Option<signal_processing::CaptureStoreManifest> {
+    fn completed_manifest(&self) -> Option<signal_capture_session::CaptureStoreManifest> {
         self.completed
             .as_ref()
             .map(|completed| completed.capture.manifest())
@@ -811,7 +811,7 @@ impl CaptureCoordinator {
     #[cfg(test)]
     fn completed_trigger_sample(&self) -> Option<u64> {
         self.completed.as_ref().and_then(|completed| {
-            signal_processing::CaptureIndex::current_metadata(&completed.waveform).trigger_sample
+            signal_capture::CaptureIndex::current_metadata(&completed.waveform).trigger_sample
         })
     }
 
@@ -1634,7 +1634,7 @@ mod tests {
     use logic_analyzer_graph_capabilities::node_support::SimpleTriggerChannel;
     use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
     use node_graph::NodeId;
-    use signal_processing::{
+    use signal_capture_session::{
         AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureAnalysisChannel,
         CaptureAnalysisSource, CaptureChannelId, CaptureCommandCapabilities, CaptureDataDelivery,
         CapturePolicy, CaptureProviderCapabilities, CaptureSessionPlan, CaptureSessionState,
@@ -2507,7 +2507,7 @@ mod tests {
         poll_until(&mut stopped, |coordinator| !coordinator.is_active());
         assert_eq!(
             stopped.status().unwrap().completion,
-            Some(signal_processing::CaptureCompletion::CancelledBeforeTrigger)
+            Some(signal_capture_session::CaptureCompletion::CancelledBeforeTrigger)
         );
         assert_eq!(stopped.completed_manifest().unwrap().committed_samples, 0);
 
@@ -2574,7 +2574,7 @@ mod tests {
         assert_eq!(manifest.committed_samples, 3);
         assert_eq!(
             coordinator.status().unwrap().completion,
-            Some(signal_processing::CaptureCompletion::Aborted)
+            Some(signal_capture_session::CaptureCompletion::Aborted)
         );
     }
 
@@ -2614,7 +2614,7 @@ mod tests {
         let (feature, controller) = manual_capture_now_feature();
         assert_eq!(
             feature.session_plan().unwrap().policy.requested.start,
-            signal_processing::RecordingStart::Trigger
+            signal_capture_session::RecordingStart::Trigger
         );
 
         let mut coordinator = CaptureCoordinator::new();
@@ -2629,11 +2629,11 @@ mod tests {
         let plan = coordinator.completed_session_plan().unwrap();
         assert_eq!(
             plan.policy.requested.start,
-            signal_processing::RecordingStart::Trigger
+            signal_capture_session::RecordingStart::Trigger
         );
         assert_eq!(
             plan.policy.effective.start,
-            signal_processing::RecordingStart::Immediate
+            signal_capture_session::RecordingStart::Immediate
         );
         assert_eq!(
             coordinator.completed_persisted_session_plan().as_ref(),

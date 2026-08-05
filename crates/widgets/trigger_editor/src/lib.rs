@@ -9,7 +9,7 @@ mod architecture_tests;
 
 use std::collections::BTreeMap;
 
-use signal_processing::{
+use signal_capture_session::{
     CaptureChannelId, RegisteredTriggerPredicateSchema, SimpleTriggerCondition, TriggerCount,
     TriggerCountMode, TriggerEditorSchema, TriggerIdentifier, TriggerLogicOperator,
     TriggerOperandKind, TriggerOperandValue, TriggerPredicate, TriggerProgram, TriggerStage,
@@ -952,7 +952,7 @@ fn parse_bytes(value: &str) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use signal_processing::{
+    use signal_capture_session::{
         RegisteredTriggerPredicateSchema, TriggerChoice, TriggerCountCapabilities,
         TriggerOperandSchema,
     };

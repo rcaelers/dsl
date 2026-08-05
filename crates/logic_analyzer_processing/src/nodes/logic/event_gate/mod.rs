@@ -7,7 +7,7 @@
 //! ## Boundaries
 //!
 //! It does not own level/event port contracts, viewer presentation, or graph editing; it consumes the
-//! generic runtime contracts supplied by `signal_processing`.
+//! generic runtime contracts supplied by `signal_capture_session`.
 
 //! Signal-controlled trigger-event gate.
 //!

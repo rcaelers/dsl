@@ -12,7 +12,7 @@ use logic_analyzer_processing::nodes::sinks::text_file_writer::{
     TextFileWriterFactory, unavailable_writer_factory,
 };
 use node_graph::api::Socket;
-use signal_processing::TextSample;
+use signal_derived::TextSample;
 use signal_runtime::ProcessNode;
 
 pub(crate) struct TextFileWriterBuilder {

@@ -3,9 +3,8 @@ use std::collections::HashSet;
 
 use egui::{CursorIcon, Pos2, Rect, Response, Ui, vec2};
 
-use signal_processing::{
-    CaptureMetadata, CaptureSampledWindow, CaptureWaveformSegment, CollectedLaneSnapshotRequest,
-};
+use signal_capture::{CaptureMetadata, CaptureSampledWindow, CaptureWaveformSegment};
+use signal_derived::CollectedLaneSnapshotRequest;
 
 use crate::lanes::{
     DerivedLaneId, ViewerLaneGroup, ViewerLaneGroupId, ViewerLaneInteraction,
@@ -798,7 +797,7 @@ mod tests {
 
     use egui::Color32;
 
-    use signal_processing::{
+    use signal_derived::{
         CollectedLaneQuery, CollectedLaneSnapshotRequest, DerivedLanes,
         OpaqueCollectedLaneSnapshot, PayloadRegistry,
     };

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use signal_processing::{ProtocolPacket, ProtocolValue};
+use signal_derived::{ProtocolPacket, ProtocolValue};
 use signal_runtime::NodeCancellation;
 
 /// Initial logic level supplied to the Sigrok execution scheduler for a channel.

@@ -17,13 +17,13 @@
 //! The viewer renders three independently supplied row kinds in one reorderable
 //! list:
 //!
-//! - An **indexed capture** is a host-prepared generic [`signal_processing::CaptureIndex`]
+//! - An **indexed capture** is a host-prepared generic [`signal_capture::CaptureIndex`]
 //!   attached with `set_prepared_capture`. The viewer never opens a file, chooses a
 //!   repository, or builds that index.
 //! - An **in-memory channel** is a [`ChannelSignal`] containing an initial level and
 //!   increasing `(time_us, level)` transitions, attached with `set_channels`.
 //! - A **derived lane** is a runtime-published entry in
-//!   [`signal_processing::DerivedLanes`], attached with `set_derived_lanes`.
+//!   [`signal_derived::DerivedLanes`], attached with `set_derived_lanes`.
 //!
 //! A lane's presentation is explicit. The host builds a
 //! [`WaveformPresentationRegistry`] from stable renderer registrations and neutral
@@ -35,7 +35,7 @@
 //! # Host responsibilities
 //!
 //! Prepare and attach finite or growing captures before showing them. Use a fresh
-//! [`signal_processing::DerivedLanes`] store for each run to clear old derived output
+//! [`signal_derived::DerivedLanes`] store for each run to clear old derived output
 //! atomically, and set the corresponding presentation registry. Concrete sources,
 //! decoders, file formats, cache policy, and target-specific acquisition remain
 //! outside this reusable widget. The same API and source compile on native and wasm;

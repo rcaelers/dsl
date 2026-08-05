@@ -15,7 +15,7 @@ use logic_analyzer_graph_orchestration::{
     decode_graph_worker_request, encode_graph_worker_messages, encode_graph_worker_request,
 };
 use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository, SourceIdentity};
-use signal_processing::{
+use signal_capture::{
     CaptureMetadata, CaptureWorkerClient, CaptureWorkerRequest, CaptureWorkerRuntime,
     decode_capture_worker_messages, encode_capture_worker_messages,
 };
@@ -485,7 +485,7 @@ pub fn take_browser_output_files() -> Result<Vec<u8>, JsValue> {
 
 fn publish_capture_message(
     publish: &Function,
-    message: signal_processing::CaptureWorkerMessage,
+    message: signal_capture::CaptureWorkerMessage,
     failure: &mut Option<JsValue>,
 ) {
     if failure.is_some() {

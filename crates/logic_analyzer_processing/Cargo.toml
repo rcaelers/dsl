@@ -22,7 +22,9 @@ test = false
 bench = false
 
 [dependencies]
-signal-processing = { path = "../signal_processing" }
+signal-capture-session = { path = "../signal_capture_session" }
+signal-capture = { workspace = true }
+signal-derived = { workspace = true }
 signal-runtime = { workspace = true }
 signal-artifacts = { workspace = true }
 zip = { workspace = true }

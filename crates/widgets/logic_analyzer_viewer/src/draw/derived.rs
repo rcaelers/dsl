@@ -1,6 +1,7 @@
 use egui::{Align2, Color32, FontId, Pos2, Rect, Shape, Stroke};
 
-use signal_processing::{Annotation, MAX_ANNOTATION_NS, MipmapRecord, Sample};
+use signal_capture::Sample;
+use signal_derived::{Annotation, MAX_ANNOTATION_NS, MipmapRecord};
 
 use crate::lanes::{AnnotationVisual, OpaqueLaneDrawContext, ViewerLaneTheme};
 

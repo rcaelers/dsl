@@ -1,4 +1,4 @@
-use signal_processing::CollectedLaneStorageSnapshot;
+use signal_derived::CollectedLaneStorageSnapshot;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CaptureStorageBacking {

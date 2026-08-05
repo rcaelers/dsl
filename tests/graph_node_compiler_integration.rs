@@ -17,11 +17,15 @@ use logic_analyzer_graph_runtime::{
 };
 use node_graph::{GraphState, NodeGraphWidget, NodeId};
 use signal_artifacts::{ArtifactReplicationReceiver, ArtifactRepository, MemoryArtifactRepository};
-use signal_processing::{
-    Annotation, CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId, CaptureStore,
-    CaptureStoreConfig, CollectedLaneSnapshotRequest, DerivedLanes, DigitalLaneSnapshot,
-    NumberLaneSnapshot, ProtocolPacketLaneSnapshot, ProtocolValue, Sample, SampleBlock,
-    TextLaneSnapshot, Trigger, TriggerLaneSnapshot, Word,
+use signal_capture::{Sample, SampleBlock};
+use signal_capture_session::{
+    CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId, CaptureStore,
+    CaptureStoreConfig,
+};
+use signal_derived::{
+    Annotation, CollectedLaneSnapshotRequest, DerivedLanes, DigitalLaneSnapshot,
+    NumberLaneSnapshot, ProtocolPacketLaneSnapshot, ProtocolValue, TextLaneSnapshot, Trigger,
+    TriggerLaneSnapshot, Word,
 };
 
 use integration_tests_support::{self as nodes, GraphHarness};
@@ -416,7 +420,7 @@ fn timeline_markers_demo_discovers_moves_and_executes_marker_conversions() {
     let mut context = GraphRunContext::default();
     context.set_timeline_marker(
         TimelineMarkerReference::Cursor { number: 1 },
-        signal_processing::TimelineMarker::new(425_000),
+        signal_derived::TimelineMarker::new(425_000),
     );
     let lanes = context.derived_lanes().clone();
     let mut run = compiler
@@ -503,7 +507,7 @@ fn packet_framer_demo_fixture_loads_and_lowers() {
     );
 }
 
-fn transaction_packets(json: &str, output: usize) -> Vec<signal_processing::ProtocolPacket> {
+fn transaction_packets(json: &str, output: usize) -> Vec<signal_derived::ProtocolPacket> {
     let graph: GraphState = serde_json::from_str(json).expect("demo should deserialize");
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
     widget.set_graph(graph);
@@ -1039,7 +1043,7 @@ fn built_in_live_analysis_matches_finalized_replay_using_source_override() {
     let channels = captured_feature.channels().to_vec();
     let session_id = CaptureSessionId::new(0x4c49_5645);
     let descriptor =
-        signal_processing::CaptureStoreDescriptor::new(session_id, channels.clone()).unwrap();
+        signal_capture_session::CaptureStoreDescriptor::new(session_id, channels.clone()).unwrap();
     let (store, mut writer) = CaptureStore::create(CaptureStoreConfig::new(
         Arc::new(MemoryArtifactRepository::new()),
         descriptor,

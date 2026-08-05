@@ -1,7 +1,8 @@
 use std::any::TypeId;
 use std::fmt;
 
-use signal_processing::{NumberSample, Sample, SampleBlock, TextSample, Trigger, Word};
+use signal_capture::{Sample, SampleBlock};
+use signal_derived::{NumberSample, TextSample, Trigger, Word};
 
 /// Rust value type that may flow through a graph port.
 ///

@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use signal_processing::Result;
+use signal_capture::Result;
 
 use super::implementation::SigrokFileSource;
 use crate::support::capture_archive::FileByteSource;
@@ -13,7 +13,7 @@ impl SigrokFileSource {
     /// - `path`: Input consumed by this operation.
     pub fn indexed_capture_presentation_from_path(
         path: impl AsRef<Path>,
-    ) -> Result<signal_processing::IndexedCapturePresentation> {
+    ) -> Result<signal_capture::IndexedCapturePresentation> {
         let path = path.as_ref();
         let source = Arc::new(FileByteSource::open(path)?);
         Ok(Self::indexed_capture_presentation(

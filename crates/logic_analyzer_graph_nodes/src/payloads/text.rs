@@ -8,7 +8,7 @@ use logic_analyzer_viewer::{
     OpaqueLaneDrawContext, ViewerLaneRenderer, ViewerLaneRendererRegistration, ViewerLaneTrack,
     draw_value_activity, draw_value_snapshot,
 };
-use signal_processing::{OpaqueCollectedLaneSnapshot, TextLaneSnapshot};
+use signal_derived::{OpaqueCollectedLaneSnapshot, TextLaneSnapshot};
 
 const RENDERER: &str = "org.logicconduit.renderer.text/v1";
 
@@ -52,9 +52,9 @@ inventory::submit! {
 }
 
 inventory::submit! {
-    PayloadRegistration::subscribable_with_persistent_cache::<signal_processing::TextSample>(
+    PayloadRegistration::subscribable_with_persistent_cache::<signal_derived::TextSample>(
         "org.logicconduit.text-sample/v1",
-        signal_processing::text_payload_adapter,
+        signal_derived::text_payload_adapter,
         presentation,
     )
 }

@@ -9,7 +9,7 @@ use logic_analyzer_processing::{
     CaptureSourcePresentation, ProcessNodeConstruction,
 };
 use signal_artifacts::ArtifactRepository;
-use signal_processing::{
+use signal_capture::{
     CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, IndexedCapturePresentation,
 };
 use signal_runtime::{ProcessNode, WorkExecutor};
@@ -29,14 +29,14 @@ impl CaptureIndexFactory for BrowserSigrokCaptureIndexFactory {
         self.imported.display_name.clone()
     }
 
-    fn preparation_request(&self) -> Option<signal_processing::CaptureIndexPreparationRequest> {
+    fn preparation_request(&self) -> Option<signal_capture::CaptureIndexPreparationRequest> {
         self.imported
             .worker_reference
             .as_ref()
             .map(sigrok_preparation_request)
     }
 
-    fn metadata(&self) -> signal_processing::Result<signal_processing::CaptureMetadata> {
+    fn metadata(&self) -> signal_capture::Result<signal_capture::CaptureMetadata> {
         if let Some(metadata) = &self.imported.metadata {
             return Ok(metadata.clone());
         }
@@ -58,7 +58,7 @@ impl CaptureIndexFactory for BrowserSigrokCaptureIndexFactory {
         artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
         progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
-    ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
+    ) -> signal_capture::Result<Box<dyn CaptureIndex + Send>> {
         let source = self
             .imported
             .source
@@ -127,7 +127,7 @@ impl CaptureSourceMetadata for BrowserSigrokFileSourceMetadata {
 
 struct BrowserSigrokFileSourceFactory {
     registry: Arc<BrowserFileRegistry>,
-    capture_worker: Option<Arc<signal_processing::CaptureWorkerClient>>,
+    capture_worker: Option<Arc<signal_capture::CaptureWorkerClient>>,
 }
 
 impl SigrokFileSourceFactory for BrowserSigrokFileSourceFactory {
@@ -178,7 +178,7 @@ impl SigrokFileSourceFactory for BrowserSigrokFileSourceFactory {
                 let capture_metadata = imported
                     .metadata
                     .ok_or_else(|| "worker-owned browser capture has no metadata".to_owned())?;
-                Box::new(signal_processing::CaptureWorkerReplaySource::new(
+                Box::new(signal_capture::CaptureWorkerReplaySource::new(
                     name,
                     client,
                     request,
@@ -192,7 +192,7 @@ impl SigrokFileSourceFactory for BrowserSigrokFileSourceFactory {
 
 pub(crate) fn sigrok_source_factory(
     registry: Arc<BrowserFileRegistry>,
-    capture_worker: Option<Arc<signal_processing::CaptureWorkerClient>>,
+    capture_worker: Option<Arc<signal_capture::CaptureWorkerClient>>,
 ) -> Arc<dyn SigrokFileSourceFactory> {
     Arc::new(BrowserSigrokFileSourceFactory {
         registry,

@@ -5,9 +5,9 @@ use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 use egui::{Color32, Painter, Rect, Stroke};
 
-use signal_processing::OpaqueCollectedLaneSnapshot;
+use signal_derived::OpaqueCollectedLaneSnapshot;
 
-/// Explicit identity of one payload in [`signal_processing::DerivedLanes`].
+/// Explicit identity of one payload in [`signal_derived::DerivedLanes`].
 ///
 /// The current runtime store uses its lane name as its stable key. Wrapping
 /// it prevents presentation code from treating that key as display text or

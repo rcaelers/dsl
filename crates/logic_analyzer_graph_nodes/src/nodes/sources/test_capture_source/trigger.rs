@@ -1,6 +1,6 @@
 //! Trigger contract for the deterministic test capture.
 
-use signal_processing::{
+use signal_capture_session::{
     CaptureChannelId, SimpleTriggerCondition, TriggerCountCapabilities, TriggerCountMode,
     TriggerEditorSchema, TriggerIdentifier, TriggerLogicOperator, TriggerProgram,
 };

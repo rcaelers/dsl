@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use signal_processing::CaptureSessionId;
+use signal_capture_session::CaptureSessionId;
 
 use super::contract::{
     CaptureExportCompletion, CaptureExportFormat, CaptureExportService, CaptureExportStatus,

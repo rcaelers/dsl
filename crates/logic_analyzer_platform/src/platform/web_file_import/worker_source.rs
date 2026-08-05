@@ -21,7 +21,7 @@ use signal_artifacts::{
     ArtifactRepository, ByteRange, PreparedByteSource, RandomAccessReader, SourceCapabilities,
     SourceIdentity, SourceReadError,
 };
-use signal_processing::{
+use signal_capture::{
     CaptureIndexPreparationRequest, CaptureMetadata, CaptureWorkerOperationRegistry,
     CaptureWorkerPreparedIndex,
 };

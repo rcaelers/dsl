@@ -15,7 +15,7 @@ use logic_analyzer_graph_runtime::{
 };
 use node_graph::{GraphState, NodeId};
 use signal_artifacts::ArtifactRepository;
-use signal_processing::PersistentStoreConfig;
+use signal_derived::PersistentStoreConfig;
 use signal_runtime::{ConfigurationBoundary, DisconnectEvent};
 
 use super::contract::{GraphRun, GraphService};

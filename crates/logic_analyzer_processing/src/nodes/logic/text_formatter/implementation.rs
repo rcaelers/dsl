@@ -3,7 +3,7 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use signal_processing::{NumberSample, TextSample};
+use signal_derived::{NumberSample, TextSample};
 use signal_runtime::{
     ConfigOutcome, ConfigValue, ConfigurationBoundary, ConfigurationScheduler, InputPort,
     NodeConfig, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,

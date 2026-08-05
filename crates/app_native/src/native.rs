@@ -17,7 +17,7 @@ const APPLICATION_LOG_TARGETS: &[&str] = &[
     "panel_layout",
     "trigger_editor",
     "input_bindings",
-    "signal_processing",
+    "signal_capture_session",
 ];
 
 /// Expands the public `logic_conduit` logging namespace to the workspace's
@@ -294,7 +294,7 @@ mod logging_tests {
         let directives = expand_application_log_directives("logic_conduit=debug");
 
         assert!(directives.contains("logic_analyzer_processing=debug"));
-        assert!(directives.contains("signal_processing=debug"));
+        assert!(directives.contains("signal_capture_session=debug"));
     }
 
     #[test]
@@ -309,7 +309,7 @@ mod logging_tests {
     fn retains_non_application_directives() {
         assert_eq!(
             expand_application_log_directives("warn,eframe=info,logic_conduit=debug"),
-            "warn,eframe=info,logic_conduit=debug,logic_analyzer_ui=debug,logic_analyzer_graph_compiler=debug,logic_analyzer_processing=debug,logic_analyzer_viewer=debug,node_graph=debug,panel_layout=debug,trigger_editor=debug,input_bindings=debug,signal_processing=debug"
+            "warn,eframe=info,logic_conduit=debug,logic_analyzer_ui=debug,logic_analyzer_graph_compiler=debug,logic_analyzer_processing=debug,logic_analyzer_viewer=debug,node_graph=debug,panel_layout=debug,trigger_editor=debug,input_bindings=debug,signal_capture_session=debug"
         );
     }
 }

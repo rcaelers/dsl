@@ -14,3 +14,7 @@ path = "src/lib.rs"
 [dependencies]
 serde = { workspace = true }
 thiserror = { workspace = true }
+web-time = { workspace = true }
+
+[dev-dependencies]
+wasm-bindgen-test = { workspace = true }

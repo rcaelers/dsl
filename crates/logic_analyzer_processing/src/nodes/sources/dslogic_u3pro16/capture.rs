@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use signal_processing::logic_analyzer::{CaptureMode, LogicCaptureConfig};
-use signal_processing::{
+use signal_capture_session::logic_analyzer::{CaptureMode, LogicCaptureConfig};
+use signal_capture_session::{
     AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureChannelId, CaptureDataDelivery,
     CaptureStartMode, ConfiguredAcquisition, PreparedAcquisition,
 };

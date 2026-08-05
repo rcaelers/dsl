@@ -79,7 +79,7 @@ polls one task contract and contains no target-selected source-preparation imple
 The application-runtime facade likewise receives a factory from platform composition. Native runs
 receive the threaded pipeline-manager backend; web runs receive the portable cooperative backend.
 The compiler creates managers through the same factory contract and does not select either backend.
-Portable processing work uses the `signal_processing::WorkExecutor` contract. The platform service
+Portable processing work uses the `signal_runtime::WorkExecutor` contract. The platform service
 bundle supplies bounded finite-work execution and host-owned long-running task execution through
 one capability, passes it through the UI graph-service construction boundary, and the compiler makes
 it available to node builders in their `NodeBuildContext`. Concrete nodes choose whether they need
@@ -163,7 +163,7 @@ names, or a storage implementation name.
 Portable implementations remain in their behavioral owner and compile everywhere. This includes
 the chunked-memory repository, owned byte backing, deterministic fake sources, and cooperative
 executor. `logic_analyzer_platform` selects or constructs them but does not fork their algorithms.
-Persistent metadata receives the root-level `signal_processing::UnixTimeSource` capability. Its
+Persistent metadata receives the root-level `signal_artifacts::UnixTimeSource` capability. Its
 default implementation uses `web-time` on every target, while deterministic conformance fixtures
 inject a fixed clock so complete manifests and encoded generations can be compared byte for byte.
 
@@ -199,7 +199,7 @@ core crate names `PlatformServices` or depends on `logic_analyzer_platform`.
 
 Traits implemented by the adapter crate are supported cross-crate ports re-exported from the crate
 root of their behavioral owner. For example, artifact storage ports belong to `signal_artifacts`,
-processing execution and encoded-store ports belong to `signal_processing`, cache-administration
+processing execution belongs to `signal_runtime`, encoded-store ports belong to `signal_derived`, cache-administration
 ports belong to `logic_analyzer_graph_compiler`, embedded
 node-control dialogs belong to `node_graph`, and application dialogs, host commands,
 cache diagnostics, and capture export belong to `logic_analyzer_ui`.
@@ -628,7 +628,7 @@ The executor contract provides:
 The native executor adapter in `logic_analyzer_platform` uses a bounded worker pool for finite
 work and host-created tasks for long-running readers and runtime supervision. The portable
 cooperative executor compiles on every target and is the explicit fallback when the web host cannot
-provide parallel workers. `signal_processing::WorkerMessage` carries owned operation identifiers,
+provide parallel workers. `signal_runtime::WorkerMessage` carries owned operation identifiers,
 sequence numbers, payloads, progress, cancellation, completion, and failure across a worker
 boundary. A Web Worker adapter in `logic_analyzer_platform` dispatches registered operations with
 those messages and returns owned result chunks. It does not attempt to send Rust closures, trait
@@ -640,7 +640,7 @@ call; independently scheduled runtimes retain their long-running reader tasks. T
 cooperative pump additionally uses a short host-time slice, so a large finite capture cannot
 monopolize the browser event loop.
 
-`signal_processing::portable_worker_kernels` registers the finite derived-word block encoder and
+`signal_derived::portable_worker_kernels` registers the finite derived-word block encoder and
 capture-index leaf builder under stable, versioned operation identifiers. Their compact binary
 payloads use fixed-width coordinates and own all words or packed samples consumed by the operation.
 Derived-word results are the same encoded blocks used by the persistent store; capture-index results
@@ -678,7 +678,7 @@ executing it. A failed worker rejects its active request, remaining workers cont
 queue, and loss of the complete pool rejects all queued requests. Dropping the adapter terminates
 the pool and releases its JavaScript callbacks.
 
-`signal_processing::WorkerOperationQueue` owns this bounded scheduling state independently of the
+`signal_runtime::WorkerOperationQueue` owns this bounded scheduling state independently of the
 host transport. Host readiness and results enter as portable events; runnable and cancellation work
 leaves as `WorkerHostCommand` values. Native and Web Worker adapters translate those commands
 without reimplementing queue policy. The queue's native and wasm conformance suite covers every
@@ -817,7 +817,9 @@ bounded blocks and a repository rather than preloading one contiguous buffer.
 
 - `signal_artifacts` owns prepared-byte-source, artifact-repository, and byte-region contracts plus
   the portable in-memory repository and owned byte backing.
-- `signal_processing` owns execution, capture-store, index, derived-store, cache-format, and query
+- `signal_runtime` owns execution; `signal_capture` owns finite indexes and immutable queries;
+  `signal_derived` owns derived stores and cache formats; `signal_capture_session` owns capture-session
+  stores and remaining session queries
   contracts and their shared algorithms. Its deterministic capture implementations and cooperative
   executor are portable implementations compiled unchanged on every target. It has no target
   selector or host dependency.
@@ -850,9 +852,9 @@ bounded blocks and a repository rather than preloading one contiguous buffer.
 The dependency direction points from adapters to contract owners:
 
 ```text
-signal_artifacts   signal_processing   logic_analyzer_processing   logic_analyzer_ui
-        ^                 ^                      ^                       ^
-        +-----------------+----------------------+-----------------------+
+signal_artifacts   signal_runtime   signal_capture   signal_derived   signal_capture_session
+        ^                 ^               ^                ^                    ^
+        +-----------------+---------------+----------------+--------------------+
                                            |
                              logic_analyzer_platform
                                            ^
@@ -929,7 +931,8 @@ An explicitly documented complete file-I/O or USB leaf adapter in
 only host access; its node state, builder, parser or device protocol, and runtime contract remain
 portable.
 
-`signal_artifacts`, `signal_processing`, `logic_analyzer_graph_compiler`,
+`signal_artifacts`, `signal_runtime`, `signal_capture`, `signal_derived`,
+`signal_capture_session`, `logic_analyzer_graph_compiler`,
 `logic_analyzer_graph_nodes`, `node_graph`,
 `logic_analyzer_viewer`, reusable widgets, and `logic_analyzer_ui` contain no target conditionals,
 target-selected files, or target-specific dependencies. Portable processing code in

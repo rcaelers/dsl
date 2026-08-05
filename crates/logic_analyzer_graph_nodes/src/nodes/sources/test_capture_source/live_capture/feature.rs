@@ -11,7 +11,7 @@ use logic_analyzer_test_support::{
     DeterministicTriggerCount, DeterministicTriggerCountMode, DeterministicTriggerLogic,
     DeterministicTriggerPredicate, DeterministicTriggerStage,
 };
-use signal_processing::{
+use signal_capture_session::{
     AcquisitionContext, AcquisitionResult, CaptureAnalysisChannel, CaptureAnalysisSource,
     CaptureChannelId, CaptureCommandCapabilities, CaptureDataDelivery, CaptureFraction,
     CapturePolicy, CapturePolicyCapabilities, CapturePolicyContext, CaptureProviderCapabilities,
@@ -317,7 +317,7 @@ pub(crate) fn feature(state: &Value) -> Result<Option<Box<dyn LiveCaptureFeature
 
 #[cfg(test)]
 mod tests {
-    use signal_processing::{
+    use signal_capture_session::{
         SimpleTriggerCondition, TriggerCount, TriggerCountMode, TriggerLogicOperator,
         TriggerPredicate, TriggerProgram, TriggerStage,
     };

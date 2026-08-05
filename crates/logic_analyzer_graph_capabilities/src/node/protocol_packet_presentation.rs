@@ -1,6 +1,6 @@
 //! Protocol-owned presentation of generic protocol packets.
 
-use signal_processing::ProtocolPacket;
+use signal_derived::ProtocolPacket;
 
 const MAX_LABEL_CHARS: usize = 256;
 
@@ -124,7 +124,7 @@ inventory::collect!(ProtocolPacketPresentationRegistration);
 
 #[cfg(test)]
 mod protocol_packet_presentation_tests {
-    use signal_processing::ProtocolValue;
+    use signal_derived::ProtocolValue;
 
     use super::*;
 

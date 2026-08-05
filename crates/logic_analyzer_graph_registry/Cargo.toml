@@ -12,4 +12,5 @@ path = "src/lib.rs"
 inventory = { workspace = true }
 logic-analyzer-graph-capabilities = { path = "../logic_analyzer_graph_capabilities" }
 node-graph = { path = "../widgets/node_graph" }
-signal-processing = { path = "../signal_processing" }
+signal-capture = { workspace = true }
+signal-derived = { workspace = true }

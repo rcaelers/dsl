@@ -10,7 +10,8 @@ use logic_analyzer_processing::nodes::logic::packet_framer::{
     GatePolarity, PACKET_FRAME_PROTOCOL_ID, PacketFramer,
 };
 use node_graph::api::Socket;
-use signal_processing::{ProtocolPacket, Sample, Trigger, Word};
+use signal_capture::Sample;
+use signal_derived::{ProtocolPacket, Trigger, Word};
 use signal_runtime::ProcessNode;
 
 #[derive(Default)]

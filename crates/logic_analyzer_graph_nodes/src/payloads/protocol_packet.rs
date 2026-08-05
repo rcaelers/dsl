@@ -10,7 +10,7 @@ use logic_analyzer_viewer::{
     OpaqueLaneDrawContext, ViewerLaneRenderer, ViewerLaneRendererRegistration, ViewerLaneTrack,
     draw_event_snapshot, draw_span_snapshot,
 };
-use signal_processing::{
+use signal_derived::{
     OpaqueCollectedLaneSnapshot, ProtocolPacket, ProtocolPacketLaneSnapshot, ProtocolValue,
     protocol_packet_payload_adapter,
 };

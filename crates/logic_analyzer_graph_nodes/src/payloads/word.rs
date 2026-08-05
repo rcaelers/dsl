@@ -10,7 +10,7 @@ use logic_analyzer_viewer::{
     ViewerLaneTrack, ViewerLaneTrackId, default_annotation_visual, draw_annotation_presence,
     draw_annotation_snapshot,
 };
-use signal_processing::{
+use signal_derived::{
     CollectedLaneRequest, CollectedWordLaneOptions, LiveStoreConfig, OpaqueCollectedLaneSnapshot,
     WordLaneSnapshot, WordPayload,
 };
@@ -145,9 +145,9 @@ inventory::submit! {
 }
 
 inventory::submit! {
-    PayloadRegistration::subscribable_with_request_configurator::<signal_processing::Word>(
+    PayloadRegistration::subscribable_with_request_configurator::<signal_derived::Word>(
         "org.logicconduit.word/v1",
-        signal_processing::word_payload_adapter,
+        signal_derived::word_payload_adapter,
         presentation,
         request,
         true,

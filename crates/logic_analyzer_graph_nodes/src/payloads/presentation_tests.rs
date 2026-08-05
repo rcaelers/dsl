@@ -7,8 +7,9 @@ use logic_analyzer_viewer::{
     AnnotationVisual, DerivedLaneId, ViewerLaneInteraction, ViewerLaneInteractionContext,
     ViewerLaneRenderer, ViewerLaneTheme, ViewerLaneTrack, ViewerLaneTrackId,
 };
-use signal_processing::{
-    DigitalLaneSnapshot, NumberSample, OpaqueCollectedLaneSnapshot, Sample, TextSample, Trigger,
+use signal_capture::Sample;
+use signal_derived::{
+    DigitalLaneSnapshot, NumberSample, OpaqueCollectedLaneSnapshot, TextSample, Trigger,
     TriggerLaneSnapshot, Word,
 };
 

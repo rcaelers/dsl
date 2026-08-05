@@ -7,7 +7,7 @@ use logic_analyzer_graph_runtime::{
 };
 use logic_analyzer_ui::{AppServices, ApplicationSettings, default_input_bindings};
 use signal_artifacts::MemoryArtifactRepository;
-use signal_processing::portable_worker_kernels;
+use signal_derived::portable_worker_kernels;
 use signal_runtime::{
     CooperativeAppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor,
     WorkerOperationExecutor,

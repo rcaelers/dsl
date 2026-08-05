@@ -2,8 +2,7 @@
 
 use std::sync::Arc;
 
-use signal_processing::capture::CaptureTransition;
-use signal_processing::{EdgeQuery, Result};
+use signal_capture::{CaptureTransition, EdgeQuery, Result};
 
 use super::implementation::GateOp;
 
@@ -155,7 +154,7 @@ fn saturating_u64(value: f64, round: impl FnOnce(f64) -> f64) -> u64 {
 
 #[cfg(test)]
 mod edge_query_tests {
-    use signal_processing::RecordedEdgeQuery;
+    use signal_capture::RecordedEdgeQuery;
 
     use super::*;
 

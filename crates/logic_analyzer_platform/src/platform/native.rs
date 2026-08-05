@@ -42,10 +42,10 @@ use logic_analyzer_ui::{
 };
 use node_graph::{FileDialogRequest, FileDialogService};
 use signal_artifacts::{ArtifactRepository, PreparedByteSource, SourceIdentity};
-use signal_processing::logic_analyzer::LogicAnalyzerError;
-use signal_processing::{
+use signal_capture::{
     CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, IndexedCapturePresentation,
 };
+use signal_capture_session::logic_analyzer::LogicAnalyzerError;
 use signal_runtime::{
     AppManager, AppManagerBackend, AppManagerFactory, PipelineManager, ProcessNode, WorkExecutor,
     WorkExecutorTask, WorkTask,
@@ -256,9 +256,9 @@ impl CaptureIndexFactory for NativeDslCaptureIndexFactory {
         self.path.display().to_string()
     }
 
-    fn metadata(&self) -> signal_processing::Result<signal_processing::CaptureMetadata> {
+    fn metadata(&self) -> signal_capture::Result<signal_capture::CaptureMetadata> {
         let source = acquire_native_file(&self.path, &self.identities)
-            .map_err(signal_processing::Error::ParseError)?;
+            .map_err(signal_capture::Error::ParseError)?;
         DslFileSource::indexed_capture_presentation(source, self.path.display().to_string())
             .factory
             .metadata()
@@ -269,9 +269,9 @@ impl CaptureIndexFactory for NativeDslCaptureIndexFactory {
         artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
         progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
-    ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
+    ) -> signal_capture::Result<Box<dyn CaptureIndex + Send>> {
         let source = acquire_native_file(&self.path, &self.identities)
-            .map_err(signal_processing::Error::ParseError)?;
+            .map_err(signal_capture::Error::ParseError)?;
         DslFileSource::indexed_capture_presentation(source, self.path.display().to_string())
             .factory
             .open(artifact_repository, work_executor, progress)
@@ -288,9 +288,9 @@ impl CaptureIndexFactory for NativeSigrokCaptureIndexFactory {
         self.path.display().to_string()
     }
 
-    fn metadata(&self) -> signal_processing::Result<signal_processing::CaptureMetadata> {
+    fn metadata(&self) -> signal_capture::Result<signal_capture::CaptureMetadata> {
         let source = acquire_native_file(&self.path, &self.identities)
-            .map_err(signal_processing::Error::ParseError)?;
+            .map_err(signal_capture::Error::ParseError)?;
         SigrokFileSource::indexed_capture_presentation(source, self.path.display().to_string())
             .factory
             .metadata()
@@ -301,9 +301,9 @@ impl CaptureIndexFactory for NativeSigrokCaptureIndexFactory {
         artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
         progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
-    ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
+    ) -> signal_capture::Result<Box<dyn CaptureIndex + Send>> {
         let source = acquire_native_file(&self.path, &self.identities)
-            .map_err(signal_processing::Error::ParseError)?;
+            .map_err(signal_capture::Error::ParseError)?;
         SigrokFileSource::indexed_capture_presentation(source, self.path.display().to_string())
             .factory
             .open(artifact_repository, work_executor, progress)
@@ -580,7 +580,7 @@ impl DsLogicU3Pro16SourceFactory for NativeU3Pro16SourceFactory {
 
     fn metadata(
         &self,
-        config: signal_processing::logic_analyzer::LogicCaptureConfig,
+        config: signal_capture_session::logic_analyzer::LogicCaptureConfig,
     ) -> Arc<dyn CaptureSourceMetadata> {
         Arc::new(NativeU3Pro16Metadata { config })
     }
@@ -588,7 +588,7 @@ impl DsLogicU3Pro16SourceFactory for NativeU3Pro16SourceFactory {
     fn create(
         &self,
         name: &str,
-        config: signal_processing::logic_analyzer::LogicCaptureConfig,
+        config: signal_capture_session::logic_analyzer::LogicCaptureConfig,
     ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
         let metadata = self.metadata(config.clone());
         native_u3pro16_transport_factory()
@@ -600,7 +600,7 @@ impl DsLogicU3Pro16SourceFactory for NativeU3Pro16SourceFactory {
 }
 
 struct NativeU3Pro16Metadata {
-    config: signal_processing::logic_analyzer::LogicCaptureConfig,
+    config: signal_capture_session::logic_analyzer::LogicCaptureConfig,
 }
 
 impl NativeU3Pro16Metadata {
@@ -643,11 +643,11 @@ impl CaptureSourceMetadata for NativeU3Pro16Metadata {
 
     fn configured_acquisition(
         &self,
-    ) -> Result<Option<Box<dyn signal_processing::ConfiguredAcquisition>>, String> {
+    ) -> Result<Option<Box<dyn signal_capture_session::ConfiguredAcquisition>>, String> {
         let channels = self
             .enabled_channels()
             .map(|channel| {
-                signal_processing::CaptureChannelId::new(format!("u3pro16:input:{channel}"))
+                signal_capture_session::CaptureChannelId::new(format!("u3pro16:input:{channel}"))
             })
             .collect::<Vec<_>>();
         DsLogicU3Pro16Capture::new(
@@ -655,7 +655,9 @@ impl CaptureSourceMetadata for NativeU3Pro16Metadata {
             channels,
             native_u3pro16_transport_factory(),
         )
-        .map(|capture| Some(Box::new(capture) as Box<dyn signal_processing::ConfiguredAcquisition>))
+        .map(|capture| {
+            Some(Box::new(capture) as Box<dyn signal_capture_session::ConfiguredAcquisition>)
+        })
         .map_err(|error| error.to_string())
     }
 }
@@ -672,7 +674,7 @@ struct NativeU3Pro16TransportFactory;
 impl DsLogicU3Pro16TransportFactory for NativeU3Pro16TransportFactory {
     fn open(
         &self,
-    ) -> signal_processing::logic_analyzer::LogicAnalyzerResult<Box<dyn UsbTransport>> {
+    ) -> signal_capture_session::logic_analyzer::LogicAnalyzerResult<Box<dyn UsbTransport>> {
         NativeU3Pro16Transport::open_first().map(|transport| Box::new(transport) as Box<_>)
     }
 }
@@ -718,7 +720,7 @@ extern "system" fn mark_bulk_read_complete(transfer: *mut rusb::ffi::libusb_tran
 }
 
 impl NativeU3Pro16Transport {
-    fn open_first() -> signal_processing::logic_analyzer::LogicAnalyzerResult<Self> {
+    fn open_first() -> signal_capture_session::logic_analyzer::LogicAnalyzerResult<Self> {
         let context = Context::new().map_err(native_rusb_error)?;
         let devices = context.devices().map_err(native_rusb_error)?;
         for device in devices.iter() {
@@ -775,7 +777,7 @@ impl UsbTransport for NativeU3Pro16Transport {
 
     fn fpga_image(
         &self,
-    ) -> signal_processing::logic_analyzer::LogicAnalyzerResult<Option<Vec<u8>>> {
+    ) -> signal_capture_session::logic_analyzer::LogicAnalyzerResult<Option<Vec<u8>>> {
         let mut candidates = vec![
             PathBuf::from("DSLogicU3Pro16.bin"),
             PathBuf::from("firmware/DSLogicU3Pro16.bin"),
@@ -1497,7 +1499,7 @@ impl HostService for NativeHostService {
     }
 
     fn decoded_block_cache_snapshot(&self) -> Option<DecodedBlockCacheSnapshot> {
-        let stats = signal_processing::decoded_block_cache_stats();
+        let stats = signal_derived::decoded_block_cache_stats();
         Some(DecodedBlockCacheSnapshot {
             entries: stats.entries,
             memory_bytes: stats.memory_bytes,
@@ -1579,7 +1581,7 @@ mod native_tests {
     };
     use logic_analyzer_ui::{AppServices, HostCommand, HostService};
     use signal_artifacts::MemoryArtifactRepository;
-    use signal_processing::portable_worker_kernels;
+    use signal_derived::portable_worker_kernels;
     use signal_runtime::{
         AppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor, WorkExecutor,
     };

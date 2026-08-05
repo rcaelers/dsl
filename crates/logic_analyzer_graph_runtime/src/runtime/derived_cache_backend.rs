@@ -1,4 +1,4 @@
-use signal_processing::{IndexedAnnotationStore, PersistentStoreConfig};
+use signal_derived::{IndexedAnnotationStore, PersistentStoreConfig};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DerivedCacheLookup {

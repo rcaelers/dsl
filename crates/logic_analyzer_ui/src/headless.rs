@@ -350,7 +350,7 @@ impl HeadlessGraphRunner {
 
     fn clear_caches<'a>(
         &self,
-        configs: impl Iterator<Item = &'a signal_processing::PersistentStoreConfig>,
+        configs: impl Iterator<Item = &'a signal_derived::PersistentStoreConfig>,
     ) -> Result<(usize, u64), HeadlessRunError> {
         let mut entries = 0;
         let mut bytes = 0_u64;
@@ -399,7 +399,7 @@ impl HeadlessGraphRunner {
     }
 }
 
-type CacheConfigs = BTreeMap<[u8; 32], (NodeId, signal_processing::PersistentStoreConfig)>;
+type CacheConfigs = BTreeMap<[u8; 32], (NodeId, signal_derived::PersistentStoreConfig)>;
 
 fn restore_graph(graph: GraphState) -> GraphState {
     let mut widget = NodeGraphWidget::new(crate::build_node_registry());

@@ -8,7 +8,7 @@ use logic_analyzer_graph_capabilities::node_support::{
     SimpleTriggerChannel, TriggerConfigurationFeature,
 };
 use node_graph::api::Socket;
-use signal_processing::{SimpleTriggerCondition, TriggerPredicate, TriggerProgram};
+use signal_capture_session::{SimpleTriggerCondition, TriggerPredicate, TriggerProgram};
 use signal_runtime::ProcessNode;
 
 use super::builder::TestCaptureSourceBuilder;

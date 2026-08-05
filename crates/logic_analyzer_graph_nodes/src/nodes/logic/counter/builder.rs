@@ -8,7 +8,7 @@ use logic_analyzer_graph_capabilities::node_support::{
 };
 use logic_analyzer_processing::nodes::logic::trigger_counter::TriggerCounter;
 use node_graph::api::Socket;
-use signal_processing::{NumberSample, Trigger};
+use signal_derived::{NumberSample, Trigger};
 use signal_runtime::ProcessNode;
 
 #[derive(Default)]

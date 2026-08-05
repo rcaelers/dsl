@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use signal_processing::{
+use signal_capture_session::{
     CaptureFraction, CapturePolicy, CompletionPolicy, RecordingStart, RetentionPolicy,
     TriggerPlacement, TriggerTimeout, TriggerTimeoutAction,
 };
@@ -77,7 +77,7 @@ mod tests {
     use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::{
         CaptureMode, ClockEdge, ClockSource, LogicEncodingRequest, TriggerCondition,
     };
-    use signal_processing::SimpleTriggerCondition;
+    use signal_capture_session::SimpleTriggerCondition;
 
     use super::super::definition::CaptureDurationValue;
     use super::{U3Pro16State, capture_config};

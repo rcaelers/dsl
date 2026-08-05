@@ -3,7 +3,7 @@ use std::time::Duration;
 use egui::{Color32, RichText};
 use web_time::Instant;
 
-use signal_processing::CollectedLaneStorageBacking;
+use signal_derived::CollectedLaneStorageBacking;
 
 use super::model::{
     CaptureStorageBacking, MemoryPanelSnapshot, MemoryServiceSnapshot, PersistentCacheSnapshot,

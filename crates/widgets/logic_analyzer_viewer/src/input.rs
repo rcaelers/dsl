@@ -163,7 +163,7 @@ impl LogicAnalyzerViewer {
 
 #[cfg(test)]
 mod tests {
-    use signal_processing::CaptureMetadata;
+    use signal_capture::CaptureMetadata;
 
     use super::*;
     use crate::types::CaptureInfo;

@@ -9,7 +9,7 @@ name = "logic_analyzer_capture_export"
 path = "src/lib.rs"
 
 [dependencies]
-signal-processing = { path = "../signal_processing" }
+signal-capture-session = { path = "../signal_capture_session" }
 signal-artifacts = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }

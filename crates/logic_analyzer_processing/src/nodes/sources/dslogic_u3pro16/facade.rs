@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use signal_processing::logic_analyzer::LogicCaptureConfig;
+use signal_capture_session::logic_analyzer::LogicCaptureConfig;
 
 use crate::{CaptureSourceLifecycle, CaptureSourceMetadata, ProcessNodeConstruction};
 

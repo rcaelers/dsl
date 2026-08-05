@@ -4,7 +4,7 @@ use logic_analyzer_test_support::{
     BufferedFakeConfig, BufferedFakeProvider, DeterministicFakeConfig, DeterministicFakeProvider,
 };
 use signal_artifacts::MemoryArtifactRepository;
-use signal_processing::{
+use signal_capture_session::{
     AcquisitionContext, AcquisitionResult, CaptureAcquisitionPhase, CaptureChannelId,
     CaptureCursorItem, CaptureDataDelivery, CaptureEvent, CaptureProviderCapabilities,
     CaptureQueueReceiveError, CaptureSessionId, CaptureSessionState, CaptureStore,

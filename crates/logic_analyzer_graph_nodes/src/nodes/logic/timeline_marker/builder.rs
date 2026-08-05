@@ -13,7 +13,8 @@ use logic_analyzer_processing::nodes::logic::timeline_marker::{
     TimelineMarkerToTrigger, TimelineMarkerWindow,
 };
 use node_graph::api::Socket;
-use signal_processing::{Sample, TimelineMarker, Trigger};
+use signal_capture::Sample;
+use signal_derived::{TimelineMarker, Trigger};
 use signal_runtime::ProcessNode;
 
 fn marker_kind() -> PortKind {
@@ -309,7 +310,7 @@ impl RuntimeBuilder for MarkerWindowBuilder {
 mod builder_tests {
     use std::collections::HashMap;
 
-    use signal_processing::{
+    use signal_derived::{
         DerivedDataRetention, DerivedLanes, PersistentStoreConfig, SamplingPointStore,
     };
 

@@ -9,7 +9,7 @@ use logic_analyzer_graph_capabilities::node_support::{
 };
 use logic_analyzer_processing::nodes::sources::synthetic_uart_source::SyntheticUartSource;
 use node_graph::api::Socket;
-use signal_processing::Sample;
+use signal_capture::Sample;
 use signal_runtime::ProcessNode;
 
 #[derive(Default)]

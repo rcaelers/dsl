@@ -12,7 +12,7 @@ use logic_analyzer_ui::{
     CaptureExportCompletion, CaptureExportFormat, CaptureExportService, CaptureExportStatus,
 };
 use signal_artifacts::ArtifactRepository;
-use signal_processing::{
+use signal_capture_session::{
     CaptureSessionId, CaptureSessionRepository, CaptureSessionRepositoryConfig,
 };
 

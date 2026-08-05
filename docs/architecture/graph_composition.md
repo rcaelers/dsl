@@ -22,19 +22,21 @@ The graph domain is divided into crates whose dependency edges follow the direct
 contracts:
 
 ```text
-graph capabilities ──> node graph, signal processing, signal runtime
+graph capabilities ──> node graph, signal capture, signal processing, signal runtime
 graph registry     ──> graph capabilities, node graph, signal processing
-graph nodes        ──> graph registry, graph capabilities, processing, viewer, signal runtime
+graph nodes        ──> graph registry, graph capabilities, processing, viewer, signal capture,
+                       signal runtime
 graph plan         ──> graph capabilities, node graph, signal processing
 graph compiler     ──> graph plan, graph registry, graph capabilities, node graph, signal processing,
                        signal runtime
-graph runtime      ──> graph plan, graph capabilities, node graph, signal processing, signal runtime
+graph runtime      ──> graph plan, graph capabilities, node graph, signal capture,
+                       signal processing, signal runtime
 orchestration      ──> graph compiler, graph runtime, graph plan
 UI                 ──> orchestration, graph runtime, graph compiler, graph plan, graph registry,
                        graph capabilities, viewer, node graph
 
-capture export  ──> signal processing
-test support    ──> signal processing
+capture export  ──> signal capture, signal processing
+test support    ──> signal capture, signal processing
 ```
 
 `logic_analyzer_graph_compiler` and `logic_analyzer_graph_nodes` both depend on
@@ -140,14 +142,14 @@ built-in or plugin crate before inventory is read on native and wasm.
 ### Capture export
 
 `logic_analyzer_capture_export` owns streaming export of finalized capture storage. It depends on
-`signal_processing` capture contracts and format libraries, not on graph compilation or graph
+`signal_capture` contracts and format libraries, not on graph compilation or graph
 nodes. Native UI services call its explicit exporter interface. Unsupported targets exclude the
 complete exporter implementation at the crate boundary.
 
 ### Test support
 
 `logic_analyzer_test_support` owns deterministic acquisition providers used across crate
-boundaries. It depends only on generic `signal_processing` capture contracts. Processing
+boundaries. It depends only on generic `signal_capture` contracts. Processing
 conformance tests and built-in test nodes consume this owner directly. Compiler and UI tests use
 locally owned fakes at their respective service boundaries. Node-isolation mocks remain private to
 the built-in graph-node crate unless another crate has a documented need for them.
@@ -223,7 +225,7 @@ and produces a completed format-neutral capture index; the UI attaches that inde
 supported file artifacts available in the run registry. The native capture coordinator publishes
 live cache and growing-index availability as each artifact becomes attachable.
 
-Sampling overlays follow the same boundary. `signal_processing::SamplingPointStore` is the
+Sampling overlays follow the same boundary. `signal_derived::SamplingPointStore` is the
 neutral run-owned cache; the compiler resolves only the clock and sampled inputs to capture rows
 and gives the shared store to the concrete runtime node. Every run retains the sampling decisions
 independently of whether the corresponding overlay is visible, so attaching an overlay after the
@@ -281,7 +283,7 @@ immutable registry without importing a built-in node bundle or maintaining a han
 
 `PortKind` is an open, `TypeId`-backed payload identity (`PortKind::of::<T: PortValue>()`,
 [port.rs](../../crates/logic_analyzer_graph_capabilities/src/node_support/port.rs)) — the compiler-layer
-analogue of `node_graph::SocketDef` and `signal_processing::register_type`, so plugin crates add
+analogue of `node_graph::SocketDef` and `signal_runtime::register_type`, so plugin crates add
 payload types without editing compiler code.
 
 Kind negotiation is per edge: `offered(producer) ∩ accepted(consumer)`; empty produces a compile
@@ -298,7 +300,7 @@ carry `NodeId` so the editor can badge their owner.
 Materialization builds each runtime node, configures generated collectors and cache-backed stores,
 and feeds `NodeSpec`s to the host-selected `AppManager`. Native composition supplies its threaded
 backend and web composition supplies its cooperative backend through the same factory contract.
-Direct use of `signal_processing::Pipeline` remains a separate lower-level API for headless and
+Direct use of `signal_runtime::Pipeline` remains a separate lower-level API for headless and
 runtime-specific consumers.
 
 Buffer size comes from the consumer edge's `PortKind` (`PortValue::buffer_size`):
@@ -332,11 +334,11 @@ production capture files. Dropping a pending task detaches its eventual result w
 reset or replaced.
 
 Derived-cache discovery and cleanup use a separate graph-runtime-owned backend contract. The native
-adapter asks `signal_processing` to validate persistent annotation stores and enforce the cache
+adapter asks `signal_derived` to validate persistent annotation stores and enforce the cache
 budget; the runtime sees only hit, miss, or unreadable availability. Only a confirmed hit removes
 the corresponding producer path. Missing or corrupt data remains connected and is regenerated,
 and cleanup failure does not change graph correctness. Persistent-store publication, cancellation,
-corruption recovery, and filesystem cleanup remain owned and tested by `signal_processing`.
+corruption recovery, and filesystem cleanup remain owned and tested by `signal_derived`.
 
 The resulting dependency direction is:
 
@@ -344,7 +346,9 @@ The resulting dependency direction is:
 node_graph document ──> logic_analyzer_graph_compiler ──> logic_analyzer_graph_plan
                                                                       │
                                                                       v
-                                                      logic_analyzer_graph_runtime ──> signal_processing
+                                                      logic_analyzer_graph_runtime ──> signal_runtime
+                                                                                   ├─> signal_capture
+                                                                                   └─> signal_derived
 
 logic_analyzer_graph_nodes ──> logic_analyzer_graph_registry ──> logic_analyzer_graph_capabilities
 logic_analyzer_ui ──> logic_analyzer_graph_compiler, logic_analyzer_graph_runtime,

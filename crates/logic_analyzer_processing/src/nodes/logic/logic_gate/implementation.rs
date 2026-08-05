@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use tracing::{debug, warn};
 
-use signal_processing::{EdgeQuery, EdgeQueryInputPortExt, Sample};
+use signal_capture::{EdgeQuery, EdgeQueryInputPortExt, Sample};
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, ProtocolKind, WorkError,
     WorkOutcome, WorkResult,
@@ -139,10 +139,7 @@ impl ProcessNode for LogicGate {
         // Prefer skip-ahead queries for inputs wired straight to a raw
         // binary channel; anything decode-derived (SR latch, another gate)
         // has no query producer and falls back to streaming.
-        let protocols = vec![
-            signal_processing::edge_query_protocol(),
-            ProtocolKind::Stream,
-        ];
+        let protocols = vec![signal_capture::edge_query_protocol(), ProtocolKind::Stream];
         (0..self.levels.len())
             .map(|i| {
                 PortSchema::state::<Sample>(format!("in{i}"), i, PortDirection::Input)
@@ -155,7 +152,7 @@ impl ProcessNode for LogicGate {
         vec![
             PortSchema::state::<Sample>("out", 0, PortDirection::Output).with_protocols(vec![
                 ProtocolKind::Stream,
-                signal_processing::edge_query_protocol(),
+                signal_capture::edge_query_protocol(),
             ]),
         ]
     }
@@ -166,7 +163,7 @@ impl ProcessNode for LogicGate {
         protocol: ProtocolKind,
         input_capabilities: &[Vec<signal_runtime::ProtocolCapability>],
     ) -> Option<signal_runtime::ProtocolCapability> {
-        if protocol != signal_processing::edge_query_protocol()
+        if protocol != signal_capture::edge_query_protocol()
             || port != 0
             || input_capabilities.len() < self.levels.len()
         {
@@ -177,11 +174,11 @@ impl ProcessNode for LogicGate {
             .map(|capabilities| {
                 capabilities
                     .iter()
-                    .find_map(signal_processing::edge_query_from_capability)
+                    .find_map(signal_capture::edge_query_from_capability)
             })
             .collect::<Option<Vec<_>>>()?;
         let query = LogicGateEdgeQuery::new(self.op, inputs)?;
-        Some(signal_processing::edge_query_capability(Arc::new(query)))
+        Some(signal_capture::edge_query_capability(Arc::new(query)))
     }
 
     fn work_outcome(
@@ -236,7 +233,7 @@ impl ProcessNode for LogicGate {
                 continue;
             }
             if let Some(query) = &queries[index] {
-                let query_err = |e: signal_processing::Error| WorkError::NodeError(e.to_string());
+                let query_err = |e: signal_capture::Error| WorkError::NodeError(e.to_string());
                 // Same expression the streaming file reader uses, so
                 // timestamps stay bit-identical to a streamed run.
                 let timestamp_step = (1_000_000_000.0 / query.samplerate_hz()) as u64;
@@ -498,7 +495,7 @@ mod tests {
         total: u64,
     }
 
-    impl signal_processing::EdgeQuery for FakeChannel {
+    impl signal_capture::EdgeQuery for FakeChannel {
         fn sample_period(&self) -> f64 {
             1e-9
         }
@@ -508,7 +505,7 @@ mod tests {
         fn total_samples(&self) -> u64 {
             self.total
         }
-        fn value_at(&self, position: u64) -> signal_processing::Result<bool> {
+        fn value_at(&self, position: u64) -> signal_capture::Result<bool> {
             Ok(self
                 .edges
                 .iter()
@@ -521,18 +518,12 @@ mod tests {
             &self,
             position: u64,
             limit: u64,
-        ) -> signal_processing::Result<Option<signal_processing::capture::CaptureTransition>>
-        {
+        ) -> signal_capture::Result<Option<signal_capture::CaptureTransition>> {
             Ok(self
                 .edges
                 .iter()
                 .find(|(p, _)| *p > position && *p <= limit)
-                .map(
-                    |&(sample, value)| signal_processing::capture::CaptureTransition {
-                        sample,
-                        value,
-                    },
-                ))
+                .map(|&(sample, value)| signal_capture::CaptureTransition { sample, value }))
         }
     }
 
@@ -543,7 +534,7 @@ mod tests {
     #[test]
     fn query_backed_input_matches_streamed_input() {
         let wd = Watchdog::new();
-        let in0_query: Arc<dyn signal_processing::EdgeQuery> = Arc::new(FakeChannel {
+        let in0_query: Arc<dyn signal_capture::EdgeQuery> = Arc::new(FakeChannel {
             initial: false,
             edges: vec![(100, true), (200, false), (300, true), (400, false)],
             total: 1_000,
@@ -627,7 +618,7 @@ mod tests {
     #[test]
     fn query_backed_input_initial_high_level_is_seen() {
         let wd = Watchdog::new();
-        let query: Arc<dyn signal_processing::EdgeQuery> = Arc::new(FakeChannel {
+        let query: Arc<dyn signal_capture::EdgeQuery> = Arc::new(FakeChannel {
             initial: true,
             edges: vec![(500, false)],
             total: 1_000,

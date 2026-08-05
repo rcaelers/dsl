@@ -4,7 +4,7 @@ use logic_analyzer_graph_plan::{
     CollectedOutputSubscription, CollectedTableSubscription, SamplingOverlayCandidate,
 };
 use node_graph::api::NodeId;
-use signal_processing::DerivedLanes;
+use signal_derived::DerivedLanes;
 
 /// Immutable application-facing snapshot of one processing run's produced data.
 #[derive(Clone)]

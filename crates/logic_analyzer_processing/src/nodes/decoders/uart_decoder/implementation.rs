@@ -9,7 +9,8 @@ use std::collections::VecDeque;
 
 use tracing::{debug, trace};
 
-use signal_processing::{Sample, Trigger, Word};
+use signal_capture::Sample;
+use signal_derived::{Trigger, Word};
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Receiver, WorkError, WorkResult,
 };

@@ -32,11 +32,12 @@ use node_graph::api::{
     Connection, GraphState, Node, NodeId, NodeKind, Socket, SocketDirection, SocketId, SocketShape,
     VariadicInfo,
 };
-use signal_processing::{
+use signal_capture_session::{
     AcquisitionContext, AcquisitionResult, CaptureChannelId, CaptureProviderCapabilities,
-    CaptureSessionPlan, CaptureStartMode, DerivedDataRetention, PreparedAcquisition,
-    SamplingPointStore, SimpleTriggerCondition, TriggerProgram,
+    CaptureSessionPlan, CaptureStartMode, PreparedAcquisition, SimpleTriggerCondition,
+    TriggerProgram,
 };
+use signal_derived::{DerivedDataRetention, SamplingPointStore};
 
 // ── Builder trait & registry ─────────────────────────────────────────────────
 
@@ -486,7 +487,8 @@ fn discover_live_capture_feature_from(
                         .effective
                         .trigger_timeout
                         .is_some_and(|timeout| {
-                            timeout.action == signal_processing::TriggerTimeoutAction::ForceTrigger
+                            timeout.action
+                                == signal_capture_session::TriggerTimeoutAction::ForceTrigger
                                 && !feature.capabilities().commands().force_trigger
                         })
                 }) {

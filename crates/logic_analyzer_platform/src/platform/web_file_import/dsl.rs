@@ -8,7 +8,7 @@ use logic_analyzer_processing::{
     CaptureSourcePresentation, ProcessNodeConstruction,
 };
 use signal_artifacts::ArtifactRepository;
-use signal_processing::{
+use signal_capture::{
     CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, IndexedCapturePresentation,
 };
 use signal_runtime::WorkExecutor;
@@ -28,14 +28,14 @@ impl CaptureIndexFactory for BrowserDslCaptureIndexFactory {
         self.imported.display_name.clone()
     }
 
-    fn preparation_request(&self) -> Option<signal_processing::CaptureIndexPreparationRequest> {
+    fn preparation_request(&self) -> Option<signal_capture::CaptureIndexPreparationRequest> {
         self.imported
             .worker_reference
             .as_ref()
             .map(dsl_preparation_request)
     }
 
-    fn metadata(&self) -> signal_processing::Result<signal_processing::CaptureMetadata> {
+    fn metadata(&self) -> signal_capture::Result<signal_capture::CaptureMetadata> {
         if let Some(metadata) = &self.imported.metadata {
             return Ok(metadata.clone());
         }
@@ -57,7 +57,7 @@ impl CaptureIndexFactory for BrowserDslCaptureIndexFactory {
         artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
         progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
-    ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
+    ) -> signal_capture::Result<Box<dyn CaptureIndex + Send>> {
         let source = self
             .imported
             .source
@@ -116,7 +116,7 @@ impl CaptureSourceMetadata for BrowserDslFileSourceMetadata {
 
 struct BrowserDslFileSourceFactory {
     registry: Arc<BrowserFileRegistry>,
-    capture_worker: Option<Arc<signal_processing::CaptureWorkerClient>>,
+    capture_worker: Option<Arc<signal_capture::CaptureWorkerClient>>,
 }
 
 impl DslFileSourceFactory for BrowserDslFileSourceFactory {
@@ -167,7 +167,7 @@ impl DslFileSourceFactory for BrowserDslFileSourceFactory {
             .metadata
             .ok_or_else(|| "worker-owned browser capture has no metadata".to_owned())?;
         Ok(ProcessNodeConstruction::new(
-            Box::new(signal_processing::CaptureWorkerReplaySource::new(
+            Box::new(signal_capture::CaptureWorkerReplaySource::new(
                 name,
                 client,
                 request,
@@ -180,7 +180,7 @@ impl DslFileSourceFactory for BrowserDslFileSourceFactory {
 
 pub(crate) fn dsl_source_factory(
     registry: Arc<BrowserFileRegistry>,
-    capture_worker: Option<Arc<signal_processing::CaptureWorkerClient>>,
+    capture_worker: Option<Arc<signal_capture::CaptureWorkerClient>>,
 ) -> Arc<dyn DslFileSourceFactory> {
     Arc::new(BrowserDslFileSourceFactory {
         registry,

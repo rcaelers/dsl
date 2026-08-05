@@ -3,7 +3,7 @@
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 
-use signal_processing::{
+use signal_capture_session::{
     AcquisitionContext, AcquisitionError, AcquisitionOutcome, AcquisitionResult,
     CaptureAcquisitionPhase, CaptureBufferPool, CaptureChannelId, CaptureChunk, CaptureCompletion,
     CaptureProgress, CaptureSessionId, CaptureSessionState, PreparedAcquisition,
@@ -765,7 +765,7 @@ mod tests {
     use std::time::Duration;
 
     use signal_artifacts::MemoryArtifactRepository;
-    use signal_processing::{
+    use signal_capture_session::{
         AcquisitionContext, AcquisitionError, CaptureChannelId, CaptureCursorItem, CaptureEvent,
         CaptureQueueLimits, CaptureQueueReceiveError, CaptureSessionId, CaptureSessionState,
         CaptureStore, CaptureStoreConfig, CaptureStoreCursor, CaptureStoreDescriptor,
@@ -795,7 +795,7 @@ mod tests {
 
     fn predicate(
         channel: usize,
-        condition: signal_processing::SimpleTriggerCondition,
+        condition: signal_capture_session::SimpleTriggerCondition,
     ) -> DeterministicTriggerPredicate {
         DeterministicTriggerPredicate { channel, condition }
     }
@@ -971,7 +971,7 @@ mod tests {
 
     #[test]
     fn portable_conditions_publish_the_exact_deterministic_trigger_sample() {
-        use signal_processing::SimpleTriggerCondition::{Either, Falling, High, Low, Rising};
+        use signal_capture_session::SimpleTriggerCondition::{Either, Falling, High, Low, Rising};
 
         for (condition, expected) in [(Low, 2), (High, 0), (Rising, 3), (Falling, 2), (Either, 2)] {
             let config = config()
@@ -1027,7 +1027,7 @@ mod tests {
 
     #[test]
     fn staged_trigger_executes_every_logic_operator_and_inversion() {
-        use signal_processing::SimpleTriggerCondition::High;
+        use signal_capture_session::SimpleTriggerCondition::High;
 
         let predicates = vec![predicate(0, High), predicate(2, High)];
         for (logic, expected) in [
@@ -1061,7 +1061,7 @@ mod tests {
 
     #[test]
     fn staged_trigger_counts_and_stage_progress_cross_chunk_boundaries() {
-        use signal_processing::SimpleTriggerCondition::{Falling, High, Rising};
+        use signal_capture_session::SimpleTriggerCondition::{Falling, High, Rising};
 
         let mut occurrences = stage(DeterministicTriggerLogic::And, vec![predicate(0, High)]);
         occurrences.count = Some(DeterministicTriggerCount {
@@ -1101,7 +1101,7 @@ mod tests {
 
     #[test]
     fn disabled_and_ignore_conditions_do_not_arm_the_fake_provider() {
-        use signal_processing::SimpleTriggerCondition::{High, Ignore};
+        use signal_capture_session::SimpleTriggerCondition::{High, Ignore};
 
         for conditions in [
             vec![None, None, None],

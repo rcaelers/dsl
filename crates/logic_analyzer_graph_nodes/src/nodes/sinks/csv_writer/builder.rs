@@ -14,7 +14,7 @@ use logic_analyzer_processing::nodes::sinks::csv_word_writer::{
     CsvValueFormat, CsvWordWriterConfig, CsvWordWriterFactory, unavailable_writer_factory,
 };
 use node_graph::api::Socket;
-use signal_processing::{TextSample, Word};
+use signal_derived::{TextSample, Word};
 use signal_runtime::ProcessNode;
 
 pub(crate) struct CsvWriterBuilder {

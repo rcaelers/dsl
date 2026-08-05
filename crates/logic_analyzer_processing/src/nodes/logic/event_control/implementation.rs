@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 
-use signal_processing::Trigger;
+use signal_derived::Trigger;
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,
     WorkResult,

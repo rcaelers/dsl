@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use signal_processing::{DerivedLanes, OpaqueCollectedLane};
+use signal_derived::{DerivedLanes, OpaqueCollectedLane};
 
 use super::contract::{PluginPanel, PluginPanelContext, PluginPanelDescriptor, PluginPanelIcon};
 

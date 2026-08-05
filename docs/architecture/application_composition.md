@@ -9,7 +9,7 @@ Companion designs cover [graph composition](graph_composition.md),
 the `signal_runtime` Rustdoc, and
 [the logic-analyzer viewer](../crates/logic_analyzer_viewer.md).
 
-Layering rule: `node_graph` stays UI-generic, `signal_processing` stays generic and UI-free, and
+Layering rule: `node_graph` stays UI-generic, the `signal_*` contract owners stay generic and UI-free, and
 `logic_analyzer_processing` owns concrete UI-independent runtime nodes. The UI consumes the
 graph-service and host-service contracts; it does not define concrete nodes or compiler behavior.
 

@@ -3,7 +3,7 @@
 use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::{
     LogicTrigger, LogicTriggerStage, TriggerCondition, TriggerLogic,
 };
-use signal_processing::{SimpleTriggerCondition, TriggerLogicOperator, TriggerPredicate};
+use signal_capture_session::{SimpleTriggerCondition, TriggerLogicOperator, TriggerPredicate};
 
 use super::definition::U3Pro16State;
 use super::trigger;
@@ -61,7 +61,7 @@ mod tests {
     use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::{
         TriggerCondition, TriggerLogic,
     };
-    use signal_processing::{
+    use signal_capture_session::{
         SimpleTriggerCondition, TriggerCount, TriggerCountMode, TriggerLogicOperator,
         TriggerPredicate, TriggerProgram, TriggerStage,
     };

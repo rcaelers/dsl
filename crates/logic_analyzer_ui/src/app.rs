@@ -238,7 +238,7 @@ impl From<&SavedViewerRowHeightSettings> for ViewerRowHeightSettings {
     }
 }
 
-fn planned_waveform_span_us(plan: &signal_processing::CaptureSessionPlan) -> Option<f64> {
+fn planned_waveform_span_us(plan: &signal_capture_session::CaptureSessionPlan) -> Option<f64> {
     let samples = plan.capture_window_samples?;
     if plan.sample_rate_hz == 0 {
         return None;
@@ -455,9 +455,7 @@ pub(crate) fn supply_saved_timeline_cursors(
             TimelineMarkerReference::Cursor {
                 number: cursor.number,
             },
-            signal_processing::TimelineMarker::new(
-                (cursor.time_us.max(0.0) * 1_000.0).round() as u64
-            ),
+            signal_derived::TimelineMarker::new((cursor.time_us.max(0.0) * 1_000.0).round() as u64),
         );
     }
     Ok(())
@@ -588,7 +586,7 @@ pub struct App {
     pub(crate) decoder_panels: DecoderPanels,
     pub(crate) plugin_panels: PluginPanels,
     pub(crate) memory_panel: MemoryPanel,
-    pub(crate) presented_derived_lanes: signal_processing::DerivedLanes,
+    pub(crate) presented_derived_lanes: signal_derived::DerivedLanes,
     pub(crate) output_presentation_catalog: Vec<plan::CollectedOutputSubscription>,
     pub(crate) table_presentation_catalog: Vec<plan::CollectedTableSubscription>,
     pub(crate) presentation_graph_nodes: HashSet<NodeId>,
@@ -601,7 +599,7 @@ pub struct App {
 
 fn capture_storage_from_index(
     identity: &str,
-    index: &dyn signal_processing::CaptureIndex,
+    index: &dyn signal_capture::CaptureIndex,
     backing: CaptureStorageBacking,
 ) -> CaptureStorageSnapshot {
     let metadata = index.current_metadata();
@@ -751,7 +749,10 @@ impl App {
         self.refresh_trigger_configuration();
     }
 
-    fn apply_trigger_program_edit(&mut self, program: Option<signal_processing::TriggerProgram>) {
+    fn apply_trigger_program_edit(
+        &mut self,
+        program: Option<signal_capture_session::TriggerProgram>,
+    ) {
         let Some(source_node) = self
             .trigger_configuration
             .as_ref()
@@ -913,7 +914,7 @@ impl App {
     pub(crate) fn set_prepared_capture(
         &mut self,
         identity: String,
-        index: Box<dyn signal_processing::CaptureIndex + Send>,
+        index: Box<dyn signal_capture::CaptureIndex + Send>,
     ) {
         self.capture_storage = Some(capture_storage_from_index(
             &identity,
@@ -954,8 +955,8 @@ impl App {
     pub(crate) fn mark_capture_index_building(
         &mut self,
         identity: String,
-        metadata: Option<signal_processing::CaptureMetadata>,
-        progress: Option<signal_processing::CaptureIndexBuildProgress>,
+        metadata: Option<signal_capture::CaptureMetadata>,
+        progress: Option<signal_capture::CaptureIndexBuildProgress>,
     ) {
         let progress_fraction = progress.and_then(|progress| {
             (progress.total > 0).then(|| progress.completed as f32 / progress.total as f32)
@@ -986,7 +987,7 @@ impl App {
         self.logic_analyzer.clear_capture();
     }
 
-    fn set_presented_derived_lanes(&mut self, lanes: signal_processing::DerivedLanes) {
+    fn set_presented_derived_lanes(&mut self, lanes: signal_derived::DerivedLanes) {
         self.presented_derived_lanes = lanes.clone();
         self.logic_analyzer.set_derived_lanes(lanes);
     }
@@ -1364,7 +1365,7 @@ impl App {
             decoder_panels: DecoderPanels::default(),
             plugin_panels: PluginPanels::new(plugin_panel_registry),
             memory_panel: MemoryPanel::default(),
-            presented_derived_lanes: signal_processing::DerivedLanes::new(),
+            presented_derived_lanes: signal_derived::DerivedLanes::new(),
             output_presentation_catalog: Vec::new(),
             table_presentation_catalog: Vec::new(),
             presentation_graph_nodes,
@@ -1618,7 +1619,7 @@ impl App {
                 TimelineMarkerReference::Cursor {
                     number: cursor.number,
                 },
-                signal_processing::TimelineMarker::new(
+                signal_derived::TimelineMarker::new(
                     (cursor.time_us.max(0.0) * 1_000.0).round() as u64
                 ),
             );
@@ -1791,7 +1792,7 @@ impl App {
         self.running_graph_semantics = None;
         self.output_presentation_catalog.clear();
         self.table_presentation_catalog.clear();
-        let lanes = signal_processing::DerivedLanes::new();
+        let lanes = signal_derived::DerivedLanes::new();
         self.set_presented_derived_lanes(lanes.clone());
         self.logic_analyzer
             .set_waveform_presentations(WaveformPresentationRegistry::new());
@@ -2082,7 +2083,7 @@ impl App {
         }
     }
 
-    fn start_capture_command(&mut self, mode: signal_processing::CaptureStartMode) {
+    fn start_capture_command(&mut self, mode: signal_capture_session::CaptureStartMode) {
         if self.capture.is_active()
             || self.is_running()
             || self.is_capture_analysis_active()
@@ -2122,7 +2123,7 @@ impl App {
             .unwrap_or_default();
         self.capture_analysis = None;
         self.capture_analysis_error = None;
-        self.set_presented_derived_lanes(signal_processing::DerivedLanes::new());
+        self.set_presented_derived_lanes(signal_derived::DerivedLanes::new());
         for config in &capture_cache_configs {
             if let Err(error) = self.graph_service.clear_derived_cache_entry(config) {
                 self.capture_graph = None;
@@ -2420,7 +2421,7 @@ impl App {
         const EPOCH_SYNC_INTERVAL_S: f64 = 0.5;
         let now = ctx.input(|input| input.time);
         let recording = self.capture.status().is_some_and(|status| {
-            status.state == signal_processing::CaptureSessionState::Recording
+            status.state == signal_capture_session::CaptureSessionState::Recording
         });
         if !recording
             || self.capture_analysis.as_ref().unwrap().is_finished()
@@ -2503,7 +2504,7 @@ impl App {
             } else if !popup_open
                 && status.as_ref().is_some_and(|status| {
                     status.commands.force_trigger
-                        && status.state == signal_processing::CaptureSessionState::Armed
+                        && status.state == signal_capture_session::CaptureSessionState::Armed
                 })
                 && self.input_bindings.consume_shortcut_once(
                     ui,
@@ -2516,8 +2517,8 @@ impl App {
             if matches!(
                 state,
                 Some(
-                    signal_processing::CaptureSessionState::Stopping
-                        | signal_processing::CaptureSessionState::Error
+                    signal_capture_session::CaptureSessionState::Stopping
+                        | signal_capture_session::CaptureSessionState::Error
                 )
             ) {
                 ui.add_enabled(false, egui::Button::new("⏹ Stop"));
@@ -2545,7 +2546,7 @@ impl App {
                             .input_bindings
                             .shortcut(&["logic_analyzer.capture"], "force_trigger");
                         let response = ui.add_enabled(
-                            status.state == signal_processing::CaptureSessionState::Armed,
+                            status.state == signal_capture_session::CaptureSessionState::Armed,
                             egui::Button::new("Force Trigger").shortcut_text(
                                 shortcut
                                     .map(|shortcut| ui.ctx().format_shortcut(&shortcut))
@@ -2608,7 +2609,7 @@ impl App {
                 }
             }
             if response.clicked() {
-                self.start_capture_command(signal_processing::CaptureStartMode::SavedPolicy);
+                self.start_capture_command(signal_capture_session::CaptureStartMode::SavedPolicy);
                 ui.ctx().request_repaint();
             }
             if let CaptureAvailability::Available {
@@ -2621,7 +2622,9 @@ impl App {
             {
                 ui.menu_button("▾", |ui| {
                     if ui.button("Capture Now").clicked() {
-                        self.start_capture_command(signal_processing::CaptureStartMode::CaptureNow);
+                        self.start_capture_command(
+                            signal_capture_session::CaptureStartMode::CaptureNow,
+                        );
                         ui.close();
                     }
                 });
@@ -2672,7 +2675,7 @@ impl App {
                 ui.label(summary);
             }
 
-            if status.health != signal_processing::CaptureHealth::default() {
+            if status.health != signal_capture_session::CaptureHealth::default() {
                 ui.menu_button("Health", |ui| {
                     if let Some(rate) = status.health.input_bytes_per_second {
                         ui.label(format!("Input: {}/s", format_bytes(rate)));
@@ -3513,30 +3516,30 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
-fn capture_state_name(state: signal_processing::CaptureSessionState) -> &'static str {
+fn capture_state_name(state: signal_capture_session::CaptureSessionState) -> &'static str {
     match state {
-        signal_processing::CaptureSessionState::Preparing => "Preparing",
-        signal_processing::CaptureSessionState::Prepared => "Prepared",
-        signal_processing::CaptureSessionState::Armed => "Armed",
-        signal_processing::CaptureSessionState::Triggered => "Triggered",
-        signal_processing::CaptureSessionState::Recording => "Recording",
-        signal_processing::CaptureSessionState::Stopping => "Stopping…",
-        signal_processing::CaptureSessionState::Complete => "Complete",
-        signal_processing::CaptureSessionState::Error => "Error",
+        signal_capture_session::CaptureSessionState::Preparing => "Preparing",
+        signal_capture_session::CaptureSessionState::Prepared => "Prepared",
+        signal_capture_session::CaptureSessionState::Armed => "Armed",
+        signal_capture_session::CaptureSessionState::Triggered => "Triggered",
+        signal_capture_session::CaptureSessionState::Recording => "Recording",
+        signal_capture_session::CaptureSessionState::Stopping => "Stopping…",
+        signal_capture_session::CaptureSessionState::Complete => "Complete",
+        signal_capture_session::CaptureSessionState::Error => "Error",
     }
 }
 
-fn capture_outcome_name(outcome: signal_processing::CaptureSessionOutcome) -> &'static str {
+fn capture_outcome_name(outcome: signal_capture_session::CaptureSessionOutcome) -> &'static str {
     match outcome {
-        signal_processing::CaptureSessionOutcome::InProgress => "In progress",
-        signal_processing::CaptureSessionOutcome::Complete => "Complete",
-        signal_processing::CaptureSessionOutcome::Stopped => "Stopped",
-        signal_processing::CaptureSessionOutcome::CancelledBeforeTrigger => {
+        signal_capture_session::CaptureSessionOutcome::InProgress => "In progress",
+        signal_capture_session::CaptureSessionOutcome::Complete => "Complete",
+        signal_capture_session::CaptureSessionOutcome::Stopped => "Stopped",
+        signal_capture_session::CaptureSessionOutcome::CancelledBeforeTrigger => {
             "Cancelled before trigger"
         }
-        signal_processing::CaptureSessionOutcome::Incomplete => "Incomplete",
-        signal_processing::CaptureSessionOutcome::Aborted => "Aborted",
-        signal_processing::CaptureSessionOutcome::Corrupt => "Corrupt",
+        signal_capture_session::CaptureSessionOutcome::Incomplete => "Incomplete",
+        signal_capture_session::CaptureSessionOutcome::Aborted => "Aborted",
+        signal_capture_session::CaptureSessionOutcome::Corrupt => "Corrupt",
     }
 }
 
@@ -3845,7 +3848,7 @@ mod font_tests {
         CollectedOutputLane, CollectedOutputSubscription, CollectedTableSubscription,
     };
     use node_graph::{GraphState, Node, NodeId, Socket, SocketIndicatorPresentation, SocketShape};
-    use signal_processing::Word;
+    use signal_derived::Word;
 
     use super::{
         PluginPanelsState, SavedViewerRow, StatusAction, TIMELINE_CURSORS_EXTENSION,

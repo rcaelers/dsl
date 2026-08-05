@@ -10,7 +10,7 @@ use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSourceConfig;
 use logic_analyzer_processing::nodes::sources::sigrok_file::SigrokFileSourceConfig;
 use logic_analyzer_processing::{CaptureSourceCacheIdentity, CaptureSourcePresentation};
 use signal_artifacts::{MemoryArtifactRepository, RandomAccessReader};
-use signal_processing::CaptureWorkerClient;
+use signal_capture::CaptureWorkerClient;
 use signal_runtime::InlineWorkExecutor;
 
 use super::dsl::dsl_source_factory;
@@ -118,12 +118,13 @@ fn worker_backed_file_factories_construct_bounded_replay_sources() {
     assert_eq!(dsl.name(), "worker_dsl");
     assert_eq!(dsl.num_outputs(), 2);
     assert!(dsl.output_schema().iter().all(|port| {
-        port.payloads.iter().any(|payload| {
-            payload.type_id == std::any::TypeId::of::<signal_processing::SampleBlock>()
-        }) && port
-            .payloads
+        port.payloads
             .iter()
-            .any(|payload| payload.type_id == std::any::TypeId::of::<signal_processing::Sample>())
+            .any(|payload| payload.type_id == std::any::TypeId::of::<signal_capture::SampleBlock>())
+            && port
+                .payloads
+                .iter()
+                .any(|payload| payload.type_id == std::any::TypeId::of::<signal_capture::Sample>())
     }));
 
     let (sigrok_registry, sigrok_reference) = worker_backed_sigrok_capture();

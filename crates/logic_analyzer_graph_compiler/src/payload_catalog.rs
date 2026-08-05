@@ -3,7 +3,7 @@ use std::sync::Arc;
 use logic_analyzer_graph_capabilities::node_support::{NodeBuildContext, PortKind, ResolvedInput};
 use logic_analyzer_graph_plan::ProcessingPayloadCatalog;
 use logic_analyzer_graph_registry::GraphRegistry;
-use signal_processing::{CollectedLaneRequest, PayloadRegistry};
+use signal_derived::{CollectedLaneRequest, PayloadRegistry};
 
 pub(crate) struct RegistryPayloadCatalog {
     registry: Arc<GraphRegistry>,

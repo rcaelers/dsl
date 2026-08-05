@@ -11,8 +11,8 @@ use logic_analyzer_graph_plan::{
 };
 use node_graph::api::NodeId;
 use signal_artifacts::ArtifactRepository;
-use signal_processing::PersistentStoreConfig;
-use signal_processing::derived_word_store::PersistentCacheClearTask;
+use signal_derived::PersistentStoreConfig;
+use signal_derived::derived_word_store::PersistentCacheClearTask;
 use signal_runtime::{WorkExecutor, WorkTask};
 
 use super::derived_cache_backend::{
@@ -98,7 +98,7 @@ impl DerivedCacheClearTask {
 pub(crate) fn clear_entry(
     config: &PersistentStoreConfig,
 ) -> Result<DerivedCacheClearStats, String> {
-    signal_processing::derived_word_store::clear_cache_entry(config)
+    signal_derived::derived_word_store::clear_cache_entry(config)
         .map(|stats| DerivedCacheClearStats {
             removed_entries: stats.removed_entries,
             removed_bytes: stats.removed_bytes,
@@ -109,7 +109,7 @@ pub(crate) fn clear_entry(
 pub(crate) fn clear_repository(
     repository: &Arc<dyn ArtifactRepository>,
 ) -> Result<DerivedCacheClearStats, String> {
-    signal_processing::derived_word_store::clear_cache(repository)
+    signal_derived::derived_word_store::clear_cache(repository)
         .map(|stats| DerivedCacheClearStats {
             removed_entries: stats.removed_entries,
             removed_bytes: stats.removed_bytes,
@@ -146,7 +146,7 @@ pub(crate) fn start_clear_repository(
 pub(crate) fn inspect_entry(
     config: &PersistentStoreConfig,
 ) -> Result<Option<DerivedCacheEntrySnapshot>, String> {
-    signal_processing::derived_word_store::inspect_cache_entry(config)
+    signal_derived::derived_word_store::inspect_cache_entry(config)
         .map(|entry| {
             entry.map(|entry| DerivedCacheEntrySnapshot {
                 total_bytes: entry.total_bytes,
@@ -367,7 +367,7 @@ pub(crate) fn schedule_maintenance(
             .filter_map(SamplingOverlayCandidate::cache_key),
     );
     let submitted = work_executor.submit(Box::new(move || {
-        let _ = signal_processing::derived_word_store::cleanup_cache(
+        let _ = signal_derived::derived_word_store::cleanup_cache(
             &repository,
             max_total_bytes,
             &pinned_keys,
@@ -456,7 +456,7 @@ pub(crate) fn cache_configs_by_node(
 pub(crate) fn prepare_sampling_point_stores(
     compiled: &mut ProcessingGraph,
     execution: &ProcessingGraph,
-    lanes: &signal_processing::DerivedLanes,
+    lanes: &signal_derived::DerivedLanes,
     repository: &Arc<dyn ArtifactRepository>,
     work_executor: &Arc<dyn WorkExecutor>,
 ) {
@@ -474,13 +474,10 @@ pub(crate) fn prepare_sampling_point_stores(
             .iter()
             .any(|node| node.id == candidate.node_id());
         let store = if executed {
-            signal_processing::SamplingPointStore::create_persistent(
-                config,
-                Arc::clone(work_executor),
-            )
-            .ok()
+            signal_derived::SamplingPointStore::create_persistent(config, Arc::clone(work_executor))
+                .ok()
         } else {
-            signal_processing::SamplingPointStore::open_persistent(&config)
+            signal_derived::SamplingPointStore::open_persistent(&config)
                 .ok()
                 .flatten()
         };
@@ -492,7 +489,7 @@ pub(crate) fn prepare_sampling_point_stores(
 
 pub(crate) fn open_sampling_point_stores(
     compiled: &mut ProcessingGraph,
-    lanes: &signal_processing::DerivedLanes,
+    lanes: &signal_derived::DerivedLanes,
     repository: &Arc<dyn ArtifactRepository>,
 ) -> bool {
     let mut opened = false;
@@ -506,7 +503,7 @@ pub(crate) fn open_sampling_point_stores(
         };
         let config =
             PersistentStoreConfig::new(cache_key).with_artifact_repository(Arc::clone(repository));
-        if let Ok(Some(store)) = signal_processing::SamplingPointStore::open_persistent(&config) {
+        if let Ok(Some(store)) = signal_derived::SamplingPointStore::open_persistent(&config) {
             candidate.set_points(store);
             opened = true;
         }
@@ -650,9 +647,7 @@ mod cache_policy_tests {
     use std::sync::{Arc, Mutex};
 
     use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
-    use signal_processing::{
-        IndexedAnnotationWriter, LiveStoreConfig, PersistentStoreConfig, Word,
-    };
+    use signal_derived::{IndexedAnnotationWriter, LiveStoreConfig, PersistentStoreConfig, Word};
     use signal_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
 
     use super::{

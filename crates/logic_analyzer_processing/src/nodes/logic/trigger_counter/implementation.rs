@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 
 use tracing::debug;
 
-use signal_processing::{NumberSample, Trigger};
+use signal_derived::{NumberSample, Trigger};
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };

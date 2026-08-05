@@ -6,7 +6,8 @@ use logic_analyzer_graph_capabilities::node_support::{
 };
 use logic_analyzer_processing::nodes::decoders::i2c_decoder::{I2C_PROTOCOL_ID, I2cDecoder};
 use node_graph::api::Socket;
-use signal_processing::{ProtocolPacket, SampleBlock, Word};
+use signal_capture::SampleBlock;
+use signal_derived::{ProtocolPacket, Word};
 use signal_runtime::ProcessNode;
 
 #[derive(Default)]

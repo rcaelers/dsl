@@ -265,7 +265,7 @@ mod source_preparation_tests {
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
 
-    use signal_processing::{
+    use signal_capture::{
         CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory,
         CaptureIndexPreparationRequest, CaptureMetadata, CaptureSampledWindow,
     };
@@ -490,7 +490,7 @@ mod source_preparation_tests {
             start_sample: u64,
             end_sample: u64,
             _target_points: usize,
-        ) -> signal_processing::Result<CaptureSampledWindow> {
+        ) -> signal_capture::Result<CaptureSampledWindow> {
             Ok(CaptureSampledWindow {
                 start_sample,
                 end_sample,
@@ -524,7 +524,7 @@ mod source_preparation_tests {
             "test factory".into()
         }
 
-        fn metadata(&self) -> signal_processing::Result<CaptureMetadata> {
+        fn metadata(&self) -> signal_capture::Result<CaptureMetadata> {
             Ok(test_metadata())
         }
 
@@ -533,7 +533,7 @@ mod source_preparation_tests {
             _artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository>,
             work_executor: Arc<dyn signal_runtime::WorkExecutor>,
             _progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
-        ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
+        ) -> signal_capture::Result<Box<dyn CaptureIndex + Send>> {
             *self.open_count.lock().unwrap() += 1;
             if let Some(observed_parallelism) = &self.observed_parallelism {
                 *observed_parallelism.lock().unwrap() = Some(work_executor.available_parallelism());
@@ -552,7 +552,7 @@ mod source_preparation_tests {
             "failing test factory".into()
         }
 
-        fn metadata(&self) -> signal_processing::Result<CaptureMetadata> {
+        fn metadata(&self) -> signal_capture::Result<CaptureMetadata> {
             Ok(test_metadata())
         }
 
@@ -561,8 +561,8 @@ mod source_preparation_tests {
             _artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository>,
             _work_executor: Arc<dyn signal_runtime::WorkExecutor>,
             _progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
-        ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
-            Err(signal_processing::Error::ParseError(
+        ) -> signal_capture::Result<Box<dyn CaptureIndex + Send>> {
+            Err(signal_capture::Error::ParseError(
                 "controlled index error".into(),
             ))
         }
@@ -575,7 +575,7 @@ mod source_preparation_tests {
             "progress test factory".into()
         }
 
-        fn metadata(&self) -> signal_processing::Result<CaptureMetadata> {
+        fn metadata(&self) -> signal_capture::Result<CaptureMetadata> {
             Ok(test_metadata())
         }
 
@@ -584,7 +584,7 @@ mod source_preparation_tests {
             _artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository>,
             _work_executor: Arc<dyn signal_runtime::WorkExecutor>,
             progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
-        ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
+        ) -> signal_capture::Result<Box<dyn CaptureIndex + Send>> {
             assert!(progress(CaptureIndexBuildProgress {
                 completed: 2,
                 total: 5,
@@ -610,7 +610,7 @@ mod source_preparation_tests {
             ))
         }
 
-        fn metadata(&self) -> signal_processing::Result<CaptureMetadata> {
+        fn metadata(&self) -> signal_capture::Result<CaptureMetadata> {
             panic!("hosted preparation must not inspect metadata on the caller")
         }
 
@@ -619,7 +619,7 @@ mod source_preparation_tests {
             _artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository>,
             _work_executor: Arc<dyn signal_runtime::WorkExecutor>,
             _progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
-        ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
+        ) -> signal_capture::Result<Box<dyn CaptureIndex + Send>> {
             panic!("hosted preparation must not open the index on the caller")
         }
     }

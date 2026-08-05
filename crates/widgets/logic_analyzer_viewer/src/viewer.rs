@@ -6,7 +6,8 @@ use std::sync::Arc;
 use egui::{FontId, Pos2, Rect, Sense, Ui};
 
 use input_bindings::InputBindings;
-use signal_processing::{CaptureIndex, CaptureIndexBuildProgress, CaptureMetadata, DerivedLanes};
+use signal_capture::{CaptureIndex, CaptureIndexBuildProgress, CaptureMetadata};
+use signal_derived::DerivedLanes;
 
 use crate::channel::LogicChannel;
 use crate::derived_snapshot::DerivedSnapshotCache;
@@ -901,10 +902,12 @@ mod tests {
 
     use egui::{Pos2, Rect};
 
-    use signal_processing::{
+    use signal_capture::{
         CaptureIndex, CaptureMetadata, CaptureSampledChannel, CaptureSampledWindow,
-        CaptureSampledWindowPoll, CollectedLaneQuery, DerivedLanes, PayloadRegistry,
-        SamplingPointStore, Word,
+        CaptureSampledWindowPoll,
+    };
+    use signal_derived::{
+        CollectedLaneQuery, DerivedLanes, PayloadRegistry, SamplingPointStore, Word,
     };
 
     use super::{ChannelSignal, LogicAnalyzerViewer, SamplingOverlay};
@@ -976,7 +979,7 @@ mod tests {
             start_sample: u64,
             end_sample: u64,
             _target_points: usize,
-        ) -> signal_processing::Result<CaptureSampledWindow> {
+        ) -> signal_capture::Result<CaptureSampledWindow> {
             Ok(CaptureSampledWindow {
                 start_sample,
                 end_sample,
@@ -1000,7 +1003,7 @@ mod tests {
             start_sample: u64,
             end_sample: u64,
             target_points: usize,
-        ) -> signal_processing::Result<CaptureSampledWindowPoll> {
+        ) -> signal_capture::Result<CaptureSampledWindowPoll> {
             if self.pending_polls.load(Ordering::Relaxed) > 0 {
                 self.pending_polls.fetch_sub(1, Ordering::Relaxed);
                 return Ok(CaptureSampledWindowPoll::Pending);
@@ -1096,7 +1099,7 @@ mod tests {
                 probe_names: vec!["D0".into(), "D1".into()],
                 trigger_sample: None,
             }),
-            Some(signal_processing::CaptureIndexBuildProgress {
+            Some(signal_capture::CaptureIndexBuildProgress {
                 completed: 1,
                 total: 4,
             }),

@@ -7,7 +7,7 @@ use logic_analyzer_graph_capabilities::node::RuntimeBuilderOverride;
 use logic_analyzer_graph_runtime::SourcePreparationExecutor;
 use node_graph::FileDialogService;
 use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
-use signal_processing::portable_worker_kernels;
+use signal_derived::portable_worker_kernels;
 use signal_runtime::{
     AppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor, WorkExecutor,
     WorkerOperationExecutor,

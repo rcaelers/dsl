@@ -1,5 +1,5 @@
 use logic_analyzer_graph_capabilities::node_support::CapturePresentationSignal;
-use signal_processing::{CaptureIndex, CaptureIndexBuildProgress, CaptureMetadata};
+use signal_capture::{CaptureIndex, CaptureIndexBuildProgress, CaptureMetadata};
 
 /// Prepared capture data ready for the host viewer and graph runtime.
 pub struct PreparedCapture {

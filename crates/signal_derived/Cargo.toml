@@ -1,0 +1,31 @@
+[package]
+name = "signal-derived"
+version.workspace = true
+edition = "2024"
+authors = ["Rob Caelers <rob.caelers@gmail.com>"]
+description = "Generic derived-signal payload, collection, indexing, and storage"
+repository = "https://github.com/rcaelers/logic-conduit"
+license = "MIT"
+
+[lib]
+name = "signal_derived"
+path = "src/lib.rs"
+
+[[bin]]
+name = "derived-word-store-bench"
+path = "src/bin/derived-word-store-bench/main.rs"
+test = false
+bench = false
+
+[dependencies]
+blake3 = { workspace = true }
+crossbeam-channel = { workspace = true }
+signal-artifacts = { workspace = true }
+signal-capture = { workspace = true }
+signal-runtime = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+web-time = { workspace = true }
+
+[dev-dependencies]
+wasm-bindgen-test = { workspace = true }

@@ -2,7 +2,8 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use signal_processing::{ProtocolPacket, ProtocolValue, Sample, Trigger, Word, WordPayload};
+use signal_capture::Sample;
+use signal_derived::{ProtocolPacket, ProtocolValue, Trigger, Word, WordPayload};
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,
     WorkResult,

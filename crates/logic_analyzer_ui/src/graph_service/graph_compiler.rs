@@ -20,7 +20,7 @@ use logic_analyzer_graph_runtime::{
     SourceProcessOverrides, SourceReadinessRegistry,
 };
 use node_graph::{GraphState, NodeId};
-use signal_processing::{DerivedLanes, PersistentStoreConfig};
+use signal_derived::{DerivedLanes, PersistentStoreConfig};
 use signal_runtime::{AppManagerFactory, ConfigurationBoundary, DisconnectEvent, WorkExecutor};
 
 use super::contract::{CachedDataLoader, GraphRun, GraphService};

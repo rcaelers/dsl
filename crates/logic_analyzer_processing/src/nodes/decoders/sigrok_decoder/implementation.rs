@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use signal_processing::{ProtocolPacket, ProtocolValue, SampleBlock, Word};
+use signal_capture::SampleBlock;
+use signal_derived::{ProtocolPacket, ProtocolValue, Word};
 use signal_runtime::{
     InputPort, NodeCancellation, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError,
     WorkResult,
@@ -655,7 +656,7 @@ mod implementation_tests {
 
     use crossbeam_channel::{Receiver as ChannelReceiver, bounded};
 
-    use signal_processing::WordPayload;
+    use signal_derived::WordPayload;
     use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
     use super::*;

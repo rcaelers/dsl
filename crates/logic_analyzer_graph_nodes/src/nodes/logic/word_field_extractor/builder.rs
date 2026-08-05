@@ -8,7 +8,7 @@ use logic_analyzer_graph_capabilities::node_support::{
 };
 use logic_analyzer_processing::nodes::logic::word_field_extractor::WordFieldExtractor;
 use node_graph::api::Socket;
-use signal_processing::Word;
+use signal_derived::Word;
 use signal_runtime::ProcessNode;
 
 #[derive(Default)]

@@ -12,7 +12,8 @@ use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     SigrokOptionValue,
 };
 use node_graph::api::Socket;
-use signal_processing::{ProtocolPacket, SampleBlock, Word};
+use signal_capture::SampleBlock;
+use signal_derived::{ProtocolPacket, Word};
 use signal_runtime::ProcessNode;
 
 use super::definition::{SavedOptionControl, SavedOutputKind, SavedScalar, SigrokDecoderState};

@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crossbeam_channel::Receiver;
 
-use signal_processing::logic_analyzer::{LogicAnalyzer, LogicCaptureConfig};
-use signal_processing::{
+use signal_capture_session::logic_analyzer::{LogicAnalyzer, LogicCaptureConfig};
+use signal_capture_session::{
     AcquisitionContext, AcquisitionError, AcquisitionOutcome, AcquisitionResult,
     CaptureAcquisitionPhase, CaptureChannelId, CaptureChunk, CaptureCompletion, CaptureProgress,
     CaptureSessionId, CaptureSessionState, PreparedAcquisition,

@@ -7,11 +7,11 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use signal_artifacts::MemoryArtifactRepository;
-use signal_processing::logic_analyzer::{CaptureMode, LogicCaptureConfig};
-use signal_processing::{
-    AcquisitionContext, CaptureCursorItem, CaptureIndex, CaptureSessionId, CaptureStore,
-    CaptureStoreConfig, CaptureStoreCursor, CaptureStoreDescriptor, GrowingCaptureIndex,
-    bounded_capture_event_queue,
+use signal_capture::CaptureIndex;
+use signal_capture_session::logic_analyzer::{CaptureMode, LogicCaptureConfig};
+use signal_capture_session::{
+    AcquisitionContext, CaptureCursorItem, CaptureSessionId, CaptureStore, CaptureStoreConfig,
+    CaptureStoreCursor, CaptureStoreDescriptor, GrowingCaptureIndex, bounded_capture_event_queue,
 };
 use signal_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
 
@@ -171,7 +171,9 @@ fn run_scenario(channels_count: usize, rate_hz: u64, samples: u64) {
     .unwrap();
     let analyzer = DsLogicU3Pro16::new(GeneratedStreamingTransport::new(data_bytes)).unwrap();
     let channels = (0..channels_count)
-        .map(|channel| signal_processing::CaptureChannelId::new(format!("u3pro16:input:{channel}")))
+        .map(|channel| {
+            signal_capture_session::CaptureChannelId::new(format!("u3pro16:input:{channel}"))
+        })
         .collect::<Vec<_>>();
     let provider = StreamingProvider::new(analyzer, config, channels.clone()).unwrap();
     let session_id = CaptureSessionId::new(0x9000 + channels_count as u128);

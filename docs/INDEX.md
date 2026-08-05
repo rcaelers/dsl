@@ -3,7 +3,7 @@
 ## Workspace structure
 
 - [Crate Responsibility Design](architecture/crate_responsibility.md) defines the responsibility map,
-  dependency direction, graph compiler/runtime boundary, and proposed decomposition of generic
+  dependency direction, graph compiler/runtime boundary, and decomposition of generic
   processing infrastructure.
 - [Responsibility and Visibility Design](aspects/responsibility_visibility.md) defines module
   facades, public API visibility, platform ownership, and enforcement.
@@ -47,15 +47,18 @@ namespace. All other crate contracts are documented in Rustdoc.
 - [Application shells](crates/application_shells.md)
 - [Workspace examples and integration tests](crates/logic_analyzer_examples.md)
 - [signal_artifacts](crates/signal_artifacts.md)
-- [signal_processing](crates/signal_processing.md)
+- [signal_capture](crates/signal_capture.md)
+- [signal_derived](crates/signal_derived.md)
+- [signal_capture_session](crates/signal_capture_session.md)
 - [signal_runtime](crates/signal_runtime.md)
 
 ## Public modules
 
 These supported namespaces are documented at their source facades in Rustdoc:
 
-- `signal_processing`: `capture`, `live_capture`, `live_capture_store`, `logic_analyzer`,
-  `derived_word_store`, and `waveform_index`
+- `signal_capture`: no public modules; its crate root is the immutable capture facade
+- `signal_derived`: `derived_word_store`
+- `signal_capture_session`: `live_capture`, `live_capture_store`, and `logic_analyzer`
 - `signal_runtime`: no public modules; its crate root is the execution-contract facade
 - `logic_analyzer_processing`: `nodes`, `types`, each node family, and each concrete node
 - `logic_analyzer_graph_capabilities`: `node` and `node_support`
@@ -64,11 +67,13 @@ These supported namespaces are documented at their source facades in Rustdoc:
 ## Generic runtime and data plane
 
 - [`signal_artifacts` Design](crates/signal_artifacts.md)
-- [`signal_processing` Design](crates/signal_processing.md)
+- [`signal_capture` Design](crates/signal_capture.md)
+- [`signal_derived` Design](crates/signal_derived.md)
+- [`signal_capture_session` Design](crates/signal_capture_session.md)
 - [`signal_runtime` Design](crates/signal_runtime.md)
 - [`signal_runtime` Rustdoc](../crates/signal_runtime/src/lib.rs)
 - [Unified Native and Web Storage Platform Design](aspects/native_web_storage.md)
-- [`signal_processing::derived_word_store` Rustdoc](../crates/signal_processing/src/derived_word_store/mod.rs)
+- [`signal_derived::derived_word_store` Rustdoc](../crates/signal_derived/src/derived_word_store/mod.rs)
 - [Live Capture and Trigger Control](aspects/live_capture_trigger.md)
 
 ## Reusable widgets and presentation

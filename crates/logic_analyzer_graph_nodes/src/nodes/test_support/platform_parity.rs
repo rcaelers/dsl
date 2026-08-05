@@ -20,7 +20,7 @@ use logic_analyzer_processing::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
     CaptureSourcePresentation, ProcessNodeConstruction,
 };
-use signal_processing::logic_analyzer::LogicCaptureConfig;
+use signal_capture_session::logic_analyzer::LogicCaptureConfig;
 
 use super::process_node::TestProcessNode;
 

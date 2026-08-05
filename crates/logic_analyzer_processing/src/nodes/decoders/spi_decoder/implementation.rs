@@ -22,10 +22,9 @@ use std::sync::Arc;
 
 use tracing::{debug, trace};
 
-use signal_processing::capture::CaptureTransition;
-use signal_processing::{
-    EdgeQuery, EdgeQueryInputPortExt, PackedSamplingPoint, ProtocolPacket, ProtocolValue, Sample,
-    SamplingPointStore, Word,
+use signal_capture::{CaptureTransition, EdgeQuery, EdgeQueryInputPortExt, Sample};
+use signal_derived::{
+    PackedSamplingPoint, ProtocolPacket, ProtocolValue, SamplingPointStore, Word,
 };
 use signal_runtime::{
     InputPort, OutputPort, ProcessNode, ProtocolKind, Receiver, WorkError, WorkOutcome, WorkResult,
@@ -373,10 +372,7 @@ impl ProcessNode for SpiDecoder {
         // Every input this decoder has is a raw binary channel: prefer
         // skip-ahead queries over streaming every dead-time edge, fall back
         // to streaming for live sources with no index.
-        let protocols = vec![
-            signal_processing::edge_query_protocol(),
-            ProtocolKind::Stream,
-        ];
+        let protocols = vec![signal_capture::edge_query_protocol(), ProtocolKind::Stream];
         let mut schemas = vec![
             PortSchema::state::<Sample>("cs", 0, PortDirection::Input)
                 .with_protocols(protocols.clone()),
@@ -583,8 +579,8 @@ impl SpiDecoder {
         let total_samples = cs_query.total_samples();
         let timestamp_step = (1_000_000_000.0 / cs_query.samplerate_hz()) as u64;
         let position_to_ns = |position: u64| position.saturating_mul(timestamp_step);
-        // EdgeQuery methods return signal_processing::Result, not WorkResult.
-        let query_err = |e: signal_processing::Error| WorkError::NodeError(e.to_string());
+        // EdgeQuery methods return signal_capture::Result, not WorkResult.
+        let query_err = |e: signal_capture::Error| WorkError::NodeError(e.to_string());
 
         let mut words_emitted: usize = 0;
         let mut mosi_batch = Vec::new();
@@ -1288,7 +1284,7 @@ mod tests {
             self.bits.len() as u64
         }
 
-        fn value_at(&self, position: u64) -> signal_processing::Result<bool> {
+        fn value_at(&self, position: u64) -> signal_capture::Result<bool> {
             self.calls.value_at.fetch_add(1, Ordering::Relaxed);
             Ok(self.bits[position as usize])
         }
@@ -1297,7 +1293,7 @@ mod tests {
             &self,
             position: u64,
             limit: u64,
-        ) -> signal_processing::Result<Option<CaptureTransition>> {
+        ) -> signal_capture::Result<Option<CaptureTransition>> {
             self.calls.next_edge.fetch_add(1, Ordering::Relaxed);
             Ok(self.transition_after(position, limit))
         }
@@ -1308,7 +1304,7 @@ mod tests {
             limit: u64,
             max_edges: usize,
             output: &mut Vec<CaptureTransition>,
-        ) -> signal_processing::Result<()> {
+        ) -> signal_capture::Result<()> {
             self.calls.next_edges.fetch_add(1, Ordering::Relaxed);
             output.clear();
             let mut cursor = position;
@@ -1326,7 +1322,7 @@ mod tests {
             &self,
             positions: &[u64],
             output: &mut Vec<bool>,
-        ) -> signal_processing::Result<()> {
+        ) -> signal_capture::Result<()> {
             self.calls.values_at.fetch_add(1, Ordering::Relaxed);
             output.clear();
             output.extend(

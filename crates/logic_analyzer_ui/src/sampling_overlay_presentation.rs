@@ -11,7 +11,7 @@ pub(crate) fn sampling_overlay_presentation(resolved: &ResolvedSamplingOverlay) 
 
 #[cfg(test)]
 mod sampling_overlay_presentation_tests {
-    use signal_processing::{SamplingPoint, SamplingPointStore};
+    use signal_derived::{SamplingPoint, SamplingPointStore};
 
     use super::*;
 

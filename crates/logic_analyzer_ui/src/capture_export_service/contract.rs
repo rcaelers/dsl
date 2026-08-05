@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use signal_processing::CaptureSessionId;
+use signal_capture_session::CaptureSessionId;
 
 /// Progress reported while a capture export is running.
 #[derive(Clone, Debug, PartialEq, Eq)]

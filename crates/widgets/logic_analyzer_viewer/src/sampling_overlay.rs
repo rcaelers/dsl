@@ -1,4 +1,4 @@
-use signal_processing::SamplingPointStore;
+use signal_derived::SamplingPointStore;
 
 /// Protocol-neutral presentation of sampling decisions already produced by
 /// a processing node. Channel numbers identify the raw rows on which the

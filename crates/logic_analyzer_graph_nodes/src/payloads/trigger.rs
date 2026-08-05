@@ -8,7 +8,7 @@ use logic_analyzer_viewer::{
     OpaqueLaneDrawContext, ViewerLaneInteraction, ViewerLaneInteractionContext, ViewerLaneRenderer,
     ViewerLaneRendererRegistration, ViewerLaneTrack, draw_trigger_activity, draw_trigger_snapshot,
 };
-use signal_processing::{OpaqueCollectedLaneSnapshot, TriggerLaneSnapshot};
+use signal_derived::{OpaqueCollectedLaneSnapshot, TriggerLaneSnapshot};
 
 const RENDERER: &str = "org.logicconduit.renderer.trigger/v1";
 
@@ -74,9 +74,9 @@ inventory::submit! {
 }
 
 inventory::submit! {
-    PayloadRegistration::subscribable_with_persistent_cache::<signal_processing::Trigger>(
+    PayloadRegistration::subscribable_with_persistent_cache::<signal_derived::Trigger>(
         "org.logicconduit.trigger/v1",
-        signal_processing::trigger_payload_adapter,
+        signal_derived::trigger_payload_adapter,
         presentation,
     )
 }

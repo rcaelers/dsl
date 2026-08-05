@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use signal_artifacts::{ArtifactRepository, PreparedByteSource};
-use signal_processing::{
+use signal_capture::{
     CaptureDataSource, CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory,
     CaptureIndexOpenTask, CaptureMetadata, Result, Sample, SampleBlock,
 };
@@ -134,7 +134,7 @@ impl CaptureIndexFactory for SigrokCaptureIndexFactory {
         progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
     ) -> Result<Box<dyn CaptureIndex + Send>> {
         let source = SigrokFileCaptureDataSource::open_source(self.source, self.display_name)?;
-        signal_processing::IndexSampler::open_data_source_with_executor_and_progress(
+        signal_capture::IndexSampler::open_data_source_with_executor_and_progress(
             source,
             artifact_repository,
             work_executor,
@@ -154,7 +154,7 @@ impl CaptureIndexFactory for SigrokCaptureIndexFactory {
         _work_executor: Arc<dyn WorkExecutor>,
     ) -> Result<Box<dyn CaptureIndexOpenTask>> {
         let source = SigrokFileCaptureDataSource::open_source(self.source, self.display_name)?;
-        signal_processing::IndexSampler::begin_open_data_source(source, artifact_repository)
+        signal_capture::IndexSampler::begin_open_data_source(source, artifact_repository)
     }
 }
 
@@ -167,9 +167,9 @@ impl SigrokFileSource {
     pub fn indexed_capture_presentation(
         source: Arc<dyn PreparedByteSource>,
         display_name: impl Into<String>,
-    ) -> signal_processing::IndexedCapturePresentation {
+    ) -> signal_capture::IndexedCapturePresentation {
         let display_name = display_name.into();
-        signal_processing::IndexedCapturePresentation {
+        signal_capture::IndexedCapturePresentation {
             identity: source.identity(),
             factory: Box::new(SigrokCaptureIndexFactory {
                 source,
@@ -215,7 +215,7 @@ impl SigrokFileSource {
     }
 
     /// Returns parsed session metadata from the prepared source.
-    pub fn header(&self) -> &signal_processing::CaptureMetadata {
+    pub fn header(&self) -> &signal_capture::CaptureMetadata {
         self.capture.metadata()
     }
 }
@@ -383,7 +383,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use signal_artifacts::SourceIdentity;
-    use signal_processing::capture::{CaptureDataSource, CaptureSource};
+    use signal_capture::{CaptureDataSource, CaptureSource};
     use signal_runtime::{
         CompletedWorkTask, OutputPort, Sender, Watchdog, WorkExecutor, WorkExecutorTask, WorkTask,
     };

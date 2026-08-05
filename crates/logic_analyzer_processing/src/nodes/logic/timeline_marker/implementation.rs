@@ -2,7 +2,8 @@
 
 use std::collections::VecDeque;
 
-use signal_processing::{Sample, TimelineMarker, Trigger};
+use signal_capture::Sample;
+use signal_derived::{TimelineMarker, Trigger};
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,
     WorkResult,

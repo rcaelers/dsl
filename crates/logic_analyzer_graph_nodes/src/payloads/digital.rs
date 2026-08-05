@@ -8,7 +8,7 @@ use logic_analyzer_viewer::{
     OpaqueLaneDrawContext, ViewerLaneInteraction, ViewerLaneInteractionContext, ViewerLaneRenderer,
     ViewerLaneRendererRegistration, ViewerLaneTrack, draw_digital_activity, draw_digital_snapshot,
 };
-use signal_processing::{DigitalLaneSnapshot, OpaqueCollectedLaneSnapshot};
+use signal_derived::{DigitalLaneSnapshot, OpaqueCollectedLaneSnapshot};
 
 const RENDERER: &str = "org.logicconduit.renderer.digital/v1";
 
@@ -67,7 +67,7 @@ impl ViewerLaneRenderer for DigitalSnapshotRenderer {
     }
 }
 
-fn activity_transitions(records: &[signal_processing::MipmapRecord]) -> Vec<(u64, bool)> {
+fn activity_transitions(records: &[signal_derived::MipmapRecord]) -> Vec<(u64, bool)> {
     let mut transitions = Vec::with_capacity(records.len().saturating_mul(2));
     for record in records {
         let Some((first, last)) = record.level_hint else {
@@ -90,9 +90,9 @@ inventory::submit! {
 }
 
 inventory::submit! {
-    PayloadRegistration::subscribable_with_persistent_cache::<signal_processing::Sample>(
+    PayloadRegistration::subscribable_with_persistent_cache::<signal_capture::Sample>(
         "org.logicconduit.digital-sample/v1",
-        signal_processing::digital_payload_adapter,
+        signal_derived::digital_payload_adapter,
         presentation,
     )
 }

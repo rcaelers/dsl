@@ -14,9 +14,8 @@ use logic_analyzer_processing::nodes::sources::dsl_file::{
     DslFileSourceConfig, DslFileSourceFactory, unavailable_source_factory,
 };
 use node_graph::api::Socket;
-use signal_processing::{
-    DEFAULT_DERIVED_DATA_MAX_ENTRIES, DerivedDataRetention, Sample, SampleBlock,
-};
+use signal_capture::{Sample, SampleBlock};
+use signal_derived::{DEFAULT_DERIVED_DATA_MAX_ENTRIES, DerivedDataRetention};
 use signal_runtime::ProcessNode;
 
 pub(crate) struct FileSourceBuilder {
@@ -155,7 +154,7 @@ mod builder_tests {
         CaptureSourcePresentation, ProcessNodeConstruction,
     };
     use node_graph::NodeDef;
-    use signal_processing::IndexedCapturePresentation;
+    use signal_capture::IndexedCapturePresentation;
 
     use super::super::definition::DslFileSource;
     use super::*;

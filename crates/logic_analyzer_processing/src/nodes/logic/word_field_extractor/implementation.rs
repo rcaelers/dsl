@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 
-use signal_processing::{Word, WordPayload};
+use signal_derived::{Word, WordPayload};
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };

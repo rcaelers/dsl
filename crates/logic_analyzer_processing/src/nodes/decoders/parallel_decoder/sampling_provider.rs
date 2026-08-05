@@ -4,9 +4,8 @@ use std::sync::{Arc, Mutex};
 
 use tracing::warn;
 
-use signal_processing::{
-    EdgeQuery, EdgeQueryInputPortExt, SamplingPoint, SamplingPointProvider, SamplingPointStore,
-};
+use signal_capture::{EdgeQuery, EdgeQueryInputPortExt};
+use signal_derived::{SamplingPoint, SamplingPointProvider, SamplingPointStore};
 use signal_runtime::InputPort;
 
 use super::types::StrobeMode;
@@ -125,7 +124,7 @@ impl ParallelSamplingProvider {
         start_ns: u64,
         end_ns: u64,
         minimum_spacing_ns: u64,
-    ) -> signal_processing::Result<Option<Vec<SamplingPoint>>> {
+    ) -> signal_capture::Result<Option<Vec<SamplingPoint>>> {
         if start_ns > end_ns || self.progress.watermark() == 0 {
             return Ok(Some(Vec::new()));
         }
@@ -277,7 +276,7 @@ fn query_level_ranges(
     active: bool,
     start: u64,
     end: u64,
-) -> signal_processing::Result<Vec<SampleRange>> {
+) -> signal_capture::Result<Vec<SampleRange>> {
     let mut value = query.value_at(start)?;
     let mut cursor = start;
     let mut ranges = Vec::new();
@@ -343,7 +342,7 @@ mod sampling_provider_tests {
             self.bits.len() as u64
         }
 
-        fn value_at(&self, position: u64) -> signal_processing::Result<bool> {
+        fn value_at(&self, position: u64) -> signal_capture::Result<bool> {
             Ok(self.bits[position as usize])
         }
 
@@ -351,13 +350,12 @@ mod sampling_provider_tests {
             &self,
             position: u64,
             limit: u64,
-        ) -> signal_processing::Result<Option<signal_processing::capture::CaptureTransition>>
-        {
+        ) -> signal_capture::Result<Option<signal_capture::CaptureTransition>> {
             let mut value = self.bits[position as usize];
             for sample in position.saturating_add(1)..limit.min(self.total_samples()) {
                 let next = self.bits[sample as usize];
                 if next != value {
-                    return Ok(Some(signal_processing::capture::CaptureTransition {
+                    return Ok(Some(signal_capture::CaptureTransition {
                         sample,
                         value: next,
                     }));

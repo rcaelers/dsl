@@ -18,7 +18,7 @@ use logic_analyzer_viewer::{
     OpaqueLaneDrawContext, ViewerLaneRenderer, ViewerLaneRendererRegistration, ViewerLaneTrack,
 };
 use node_graph::api::{InputDef, NodeDef, OutputDef, Socket, SocketDef, SocketShape};
-use signal_processing::{
+use signal_derived::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
     DerivedDataRetention, OpaqueCollectedLaneSnapshot, PayloadAdapter,
 };
@@ -549,7 +549,7 @@ inventory::submit! {
 #[cfg(test)]
 mod camera_frame_tests {
     use crossbeam_channel::bounded;
-    use signal_processing::{DerivedLanes, PayloadRegistry};
+    use signal_derived::{DerivedLanes, PayloadRegistry};
     use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
     use super::*;

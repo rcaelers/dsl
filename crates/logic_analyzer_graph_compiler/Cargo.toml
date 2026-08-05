@@ -9,7 +9,8 @@ name = "logic_analyzer_graph_compiler"
 path = "src/lib.rs"
 
 [dependencies]
-signal-processing = { path = "../signal_processing" }
+signal-capture-session = { path = "../signal_capture_session" }
+signal-derived = { workspace = true }
 signal-runtime = { workspace = true }
 logic-analyzer-graph-capabilities = { path = "../logic_analyzer_graph_capabilities" }
 logic-analyzer-graph-registry = { path = "../logic_analyzer_graph_registry" }

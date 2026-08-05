@@ -21,10 +21,11 @@ mod implementation {
     use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
     use logic_analyzer_processing::types::CsPolarity;
     use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
-    use signal_processing::{
+    use signal_capture::EdgeQueryProcessNodeExt;
+    use signal_derived::{
         CollectedWordLaneOptions, CollectedWordLaneQuery, DecodedBlockCacheStats,
         DerivedDataCollector, DerivedDataCollectorMetrics, DerivedDataRetention, DerivedLanes,
-        EdgeQueryProcessNodeExt, LiveStoreConfig, PersistentStoreConfig, SamplingPointStore, Word,
+        LiveStoreConfig, PersistentStoreConfig, SamplingPointStore, Word,
         built_in_word_lane_ingestor, configure_decoded_block_cache, decoded_block_cache_stats,
         reset_decoded_block_cache_stats,
     };
@@ -412,7 +413,7 @@ mod implementation {
             self.count += words.len() as u64;
         }
 
-        fn extend_table_rows(&mut self, rows: &[signal_processing::CollectedLaneTableRow]) {
+        fn extend_table_rows(&mut self, rows: &[signal_derived::CollectedLaneTableRow]) {
             for row in rows {
                 self.fingerprint = fingerprint_u64(self.fingerprint, row.value);
                 self.fingerprint = fingerprint_u64(self.fingerprint, row.start_time_ns);
@@ -609,7 +610,7 @@ mod implementation {
     }
 
     fn benchmark_indexed_store(
-        lane: &signal_processing::IndexedAnnotationLane,
+        lane: &signal_derived::IndexedAnnotationLane,
         query_samples: usize,
     ) -> Result<(OutputStats, IndexedStoreMetrics), Box<dyn std::error::Error>> {
         let storage = lane.storage_metadata();

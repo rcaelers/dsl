@@ -9,7 +9,8 @@ use logic_analyzer_graph_capabilities::node_support::{
 };
 use logic_analyzer_processing::nodes::logic::buffer::BufferNode;
 use node_graph::api::Socket;
-use signal_processing::{NumberSample, Sample, SampleBlock, TextSample, Trigger, Word};
+use signal_capture::{Sample, SampleBlock};
+use signal_derived::{NumberSample, TextSample, Trigger, Word};
 use signal_runtime::ProcessNode;
 
 /// Maps a `BufferState.kind` selection to

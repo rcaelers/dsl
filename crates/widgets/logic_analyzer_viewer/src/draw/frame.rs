@@ -1,6 +1,6 @@
 use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, vec2};
 
-use signal_processing::CollectedLaneSnapshotRequest;
+use signal_derived::CollectedLaneSnapshotRequest;
 
 use crate::cursor::{cursor_color, cursor_flag_geometry, cursor_flag_label};
 use crate::format::{badge_text_color, format_time, nice_step};
@@ -529,8 +529,9 @@ impl LogicAnalyzerViewer {
 mod frame_tests {
     use std::sync::{Arc, Mutex};
 
-    use signal_processing::{
-        CaptureMetadata, CollectedLaneQuery, CollectedLaneSnapshotRequest, DerivedLanes,
+    use signal_capture::CaptureMetadata;
+    use signal_derived::{
+        CollectedLaneQuery, CollectedLaneSnapshotRequest, DerivedLanes,
         OpaqueCollectedLaneSnapshot, PayloadRegistry,
     };
 

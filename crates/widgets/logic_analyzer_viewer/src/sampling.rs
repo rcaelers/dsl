@@ -1,6 +1,6 @@
 use egui::Pos2;
 
-use signal_processing::{CaptureSampledWindowPoll, CaptureWaveformSegment};
+use signal_capture::{CaptureSampledWindowPoll, CaptureWaveformSegment};
 
 use crate::channel::channels_from_window;
 use crate::types::{
@@ -515,7 +515,7 @@ fn sampled_query_range(
 
 #[cfg(test)]
 mod tests {
-    use signal_processing::CaptureMetadata;
+    use signal_capture::CaptureMetadata;
 
     use super::*;
 

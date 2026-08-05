@@ -20,9 +20,11 @@ runtime or in the application UI.
 
 | Crate | Primary responsibility | Must not own |
 | --- | --- | --- |
-| `signal_artifacts` | Platform-neutral immutable byte regions, artifact identities, repository contracts, in-memory storage, and replication | Capture formats, derived encodings, stream execution, host adapters, or target selection |
+| `signal_artifacts` | Platform-neutral immutable byte regions, artifact identities, repository contracts, in-memory storage, replication, and shared persistence time/integrity primitives | Capture formats, derived encodings, stream execution, host adapters, or target selection |
 | `signal_runtime` | Generic typed-stream execution, scheduling, process-node lifecycle, and work dispatch | Signal payload definitions, capture/index contracts, storage, sessions, concrete nodes, graph documents, or target selection |
-| `signal_processing` | Generic signal payloads plus capture, indexing, derived-data, and acquisition contracts | Stream execution, artifact repository ownership, concrete sources, protocols, formats, widgets, graph documents, or target selection |
+| `signal_capture` | Generic immutable capture payloads, source/index/query contracts, random-access signal capabilities, and finite waveform indexing | Acquisition sessions, derived data, concrete formats or devices, graph documents, UI, or target selection |
+| `signal_derived` | Generic derived payloads, retained-lane collection, sampling points, indexes, and encoded derived storage | Capture sessions, concrete protocols or nodes, viewers, graph documents, UI, or target selection |
+| `signal_capture_session` | Generic acquisition lifecycle, capture-session storage, capture policy, and trigger-program contracts | Stream execution, immutable capture/index ownership, derived-data ownership, artifact repository ownership, concrete sources, protocols, formats, widgets, graph documents, or target selection |
 | `logic_analyzer_processing` | Concrete UI-independent sources, decoders, processing nodes, formats, devices, and sinks | Graph editor definitions, widget presentation, host selection, or application lifecycle |
 | `logic_analyzer_graph_capabilities` | Graph-node and payload capability contracts | Inventory assembly, built-in nodes, compiler policy, UI state, or platform adapters; its current directory-catalog path contract is a documented exception to remove |
 | `logic_analyzer_graph_registry` | Graph-node and payload registration descriptors, inventory collection, validation, host overrides, and immutable catalog snapshots | Graph documents, lowering, generated collectors, execution lifetimes, UI state, or target selection |
@@ -54,13 +56,15 @@ applications ──> platform ──> UI ──> graph compiler ──> graph re
                     │              ├──────────────> graph runtime ──> graph plan ─┤
                     │              └────────> graph orchestration ──> compiler + runtime
                     │                                                       │
-                    └──> built-in graph nodes ──> processing ───────────────┴──> signal processing
+                    └──> built-in graph nodes ──> processing ───────────────┴──> signal capture session
+                    │                                      ├──────────────────> signal capture
+                    │                                      ├──────────────────> signal derived
                     │                                      └──────────────────> signal runtime
                     │
-                    └──> built-in graph nodes ──> processing ──> signal processing
+                    └──> built-in graph nodes ──> processing ──> signal capture session
                                              ├──> graph registry ──> graph capabilities
                                              ├──> node graph
-                                             └──> viewer ──> signal processing
+                                             └──> viewer ──> signal capture + signal derived
 ```
 
 `logic_analyzer_graph_compiler` and `logic_analyzer_graph_runtime` both depend on the neutral
@@ -145,14 +149,13 @@ persistence. The cross-crate value is a catalog snapshot and diagnostic, never a
 
 ## Generic processing decomposition
 
-`signal_artifacts` owns the extracted platform-neutral artifact and byte-source boundary. Consumers
-import its contracts directly; `signal_processing` does not re-export them. The remaining
-`signal_runtime` owns the extracted stream-execution domain. `signal_processing` contains the
-remaining independently changing capture data/indexing, derived-data storage, and capture-session
-control domains.
+The generic data plane is divided into explicit owners. `signal_artifacts` owns platform-neutral
+artifacts and byte sources, `signal_runtime` owns stream execution, `signal_capture` owns immutable
+capture and finite indexing, `signal_derived` owns retained derived data, and
+`signal_capture_session` owns capture-session control. Consumers import each contract from its
+owner; there is no umbrella facade.
 
-The proposed-future endpoint is a small set of lower-level crates with an umbrella facade only if
-it preserves a clear import path:
+Their dependency direction is:
 
 ```text
 signal_artifacts
@@ -165,22 +168,9 @@ signal_runtime
     └── signal_capture_session
 ```
 
-| Proposed owner | Responsibility | Current material |
-| --- | --- | --- |
-| `signal_artifacts` | Platform-neutral immutable byte regions, artifact identities, repository contracts, in-memory implementation, and replication | `crates/signal_artifacts` |
-| `signal_runtime` | Typed ports and channels, `ProcessNode`, pipeline construction, schedulers, managers, generic work execution, and runtime errors | `crates/signal_runtime` |
-| `signal_capture` | Generic capture source/index/query contracts and finite waveform indexing | `capture`, `waveform_index`, sample/edge query types |
-| `signal_derived` | Generic payload registration, collected-lane contracts, sampling points, derived indexes, and encoded derived stores | `payload`, `derived_data_collector`, `derived_word_store`, `sampling_points`, `derived_index` |
-| `signal_capture_session` | Driver-neutral acquisition lifecycle, session storage, capture policy, and trigger-program contracts | `live_capture`, `live_capture_store`, `capture_policy`, `advanced_trigger`, current `logic_analyzer` contracts |
-
-The remaining capture, derived-data, and capture-session decomposition is proposed future
-structure, not a mandate to create three more crates immediately. Runtime payload negotiation uses
-generic type, stream-semantics, capacity, and capability contracts; architecture tests exclude
-signal payload, storage, indexing, session, and artifact dependencies from `signal_runtime`.
-Further extraction occurs only after the dependency direction is mechanically verified.
-
-`signal_processing` is not an umbrella for runtime contracts. Consumers import execution contracts
-directly from `signal_runtime` and signal-domain contracts directly from `signal_processing`.
+Runtime payload negotiation uses generic type, stream-semantics, capacity, and capability
+contracts. Architecture tests enforce the one-way dependencies and prevent any owner from
+redirecting another owner's symbols through its crate root.
 
 ## Module rules
 
@@ -238,9 +228,6 @@ change architectural.
    and emits its existing user-visible warnings at the load boundary.
 2. Move graph catalog directory configuration behind a UI-owned portable service and a
    platform-owned path adapter. Split UI-capable plugins into core and presentation companions.
-3. Establish capture, derived-data, and capture-session owner facades. Extract one only when its
-   dependency tests pass and consumers need an independent compilation boundary.
-
 No migration changes stable node IDs, payload IDs, serialized graph state, graph extensions, or
 renderer keys. Saved-document compatibility is implemented by the affected concrete graph-node or
 UI document migration and reported to the user; generic compiler and viewer code does not infer

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use logic_analyzer_graph_capabilities::node_support::{
     SimpleTriggerChannel, TriggerConfigurationFeature,
 };
-use signal_processing::{
+use signal_capture_session::{
     CaptureChannelId, SimpleTriggerCondition, TriggerCountCapabilities, TriggerCountMode,
     TriggerEditorSchema, TriggerIdentifier, TriggerLogicOperator, TriggerPredicate, TriggerProgram,
 };
@@ -189,7 +189,7 @@ pub(crate) fn configuration(state: &U3Pro16State) -> Result<TriggerConfiguration
 
 #[cfg(test)]
 mod tests {
-    use signal_processing::{
+    use signal_capture_session::{
         TriggerCount, TriggerCountMode, TriggerLogicOperator, TriggerPredicate, TriggerProgram,
         TriggerStage,
     };

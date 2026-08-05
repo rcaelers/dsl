@@ -210,7 +210,7 @@ contains several complete blocks, so the command exercises bounded parallel prep
 out-of-order completion handling, and ordered publication rather than measuring only the codec:
 
 ```console
-cargo run --release -p signal-processing --bin derived-word-store-bench
+cargo run --release -p signal-derived --bin derived-word-store-bench
 ```
 
 It is a non-test binary so ordinary and ignored test runs neither discover nor

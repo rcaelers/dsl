@@ -7,13 +7,11 @@ use tracing::debug;
 
 use signal_artifacts::{PreparedByteSource, SourceIdentity};
 #[cfg(test)]
-use signal_processing::capture::CaptureSampledWindow;
-use signal_processing::capture::{
+use signal_capture::CaptureSampledWindow;
+use signal_capture::{
     BlockCaptureSource, BlockData, CaptureDataSource, CaptureFingerprint, CaptureMetadata,
-    CaptureSource,
+    CaptureSource, Error, IndexSampler, Result,
 };
-use signal_processing::waveform_index::IndexSampler;
-use signal_processing::{Error, Result};
 
 use crate::support::capture_archive::{CaptureArchive, ZipCaptureArchive};
 use crate::support::capture_format::{get_packed_bit, parse_sample_rate};

@@ -5,7 +5,8 @@ use std::sync::{Arc, Mutex};
 
 use tracing::debug;
 
-use signal_processing::{Sample, Trigger, Word};
+use signal_capture::Sample;
+use signal_derived::{Trigger, Word};
 use signal_runtime::{
     ConfigOutcome, ConfigValue, ConfigurationBoundary, ConfigurationScheduler, InputPort,
     NodeConfig, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,

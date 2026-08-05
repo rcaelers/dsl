@@ -13,11 +13,14 @@ use logic_analyzer_processing::{
     CaptureSourcePresentation, CaptureSourceRuntimeCapabilities, ProcessNodeConstruction,
 };
 use signal_artifacts::{ArtifactRepository, SourceIdentity};
-use signal_processing::logic_analyzer::{CaptureMode, LogicCaptureConfig};
-use signal_processing::{
-    AcquisitionContext, AcquisitionResult, CaptureDataDelivery, CaptureIndex,
-    CaptureIndexBuildProgress, CaptureIndexFactory, CaptureMetadata, CaptureStartMode,
-    ConfiguredAcquisition, IndexedCapturePresentation, PreparedAcquisition,
+use signal_capture::{
+    CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, CaptureMetadata,
+    IndexedCapturePresentation,
+};
+use signal_capture_session::logic_analyzer::{CaptureMode, LogicCaptureConfig};
+use signal_capture_session::{
+    AcquisitionContext, AcquisitionResult, CaptureDataDelivery, CaptureStartMode,
+    ConfiguredAcquisition, PreparedAcquisition,
 };
 use signal_runtime::{CooperativeAppManagerFactory, InlineWorkExecutor, WorkExecutor};
 
@@ -168,8 +171,8 @@ impl CaptureIndexFactory for UnopenedCaptureIndexFactory {
         "test capture".into()
     }
 
-    fn metadata(&self) -> signal_processing::Result<CaptureMetadata> {
-        Err(signal_processing::Error::ParseError(
+    fn metadata(&self) -> signal_capture::Result<CaptureMetadata> {
+        Err(signal_capture::Error::ParseError(
             "test presentation does not open a capture".into(),
         ))
     }
@@ -179,8 +182,8 @@ impl CaptureIndexFactory for UnopenedCaptureIndexFactory {
         _artifact_repository: Arc<dyn ArtifactRepository>,
         _work_executor: Arc<dyn WorkExecutor>,
         _progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
-    ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
-        Err(signal_processing::Error::ParseError(
+    ) -> signal_capture::Result<Box<dyn CaptureIndex + Send>> {
+        Err(signal_capture::Error::ParseError(
             "test presentation does not open a capture".into(),
         ))
     }

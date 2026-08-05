@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use signal_processing::{
+use signal_capture::{
     CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, CaptureMetadata,
 };
 
@@ -19,7 +19,7 @@ impl CaptureIndexFactory for TestCaptureIndexFactory {
         self.path.display().to_string()
     }
 
-    fn metadata(&self) -> signal_processing::Result<CaptureMetadata> {
+    fn metadata(&self) -> signal_capture::Result<CaptureMetadata> {
         Ok(CaptureMetadata {
             total_probes: 1,
             samplerate: "1 MHz".into(),
@@ -38,7 +38,7 @@ impl CaptureIndexFactory for TestCaptureIndexFactory {
         _artifact_repository: std::sync::Arc<dyn signal_artifacts::ArtifactRepository>,
         _work_executor: std::sync::Arc<dyn signal_runtime::WorkExecutor>,
         _progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
-    ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
+    ) -> signal_capture::Result<Box<dyn CaptureIndex + Send>> {
         panic!("a builder contract must not open its deferred viewer index")
     }
 }

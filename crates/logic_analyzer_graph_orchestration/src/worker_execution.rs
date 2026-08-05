@@ -243,7 +243,7 @@ impl GraphWorkerRuntime {
                 logic_analyzer_graph_capabilities::node_support::TimelineMarkerReference::Cursor {
                     number,
                 },
-                signal_processing::TimelineMarker::new(timestamp_ns),
+                signal_derived::TimelineMarker::new(timestamp_ns),
             );
         }
         let compiled = match self.lowerer.lower(&graph) {

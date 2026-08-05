@@ -10,8 +10,9 @@ use logic_analyzer_graph_plan::{
 };
 use node_graph::api::NodeId;
 use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
-use signal_processing::{
-    DerivedDataRetention, DerivedLanes, PersistentStoreConfig, SampleBlock, SamplingPointStore,
+use signal_capture::SampleBlock;
+use signal_derived::{
+    DerivedDataRetention, DerivedLanes, PersistentStoreConfig, SamplingPointStore,
 };
 use signal_runtime::{
     AppManager, ConfigurationBoundary, DisconnectEvent, InlineWorkExecutor, InputSub, NodeConfig,
@@ -31,7 +32,7 @@ pub struct GraphRunContext {
     /// bounded rolling window.
     derived_data_retention: DerivedDataRetention,
     derived_word_caches: Vec<Option<PersistentStoreConfig>>,
-    timeline_markers: HashMap<TimelineMarkerReference, signal_processing::TimelineMarker>,
+    timeline_markers: HashMap<TimelineMarkerReference, signal_derived::TimelineMarker>,
     /// Clocked-node sampling overlays resolved during lowering. The host
     /// application independently chooses which candidates to display.
     sampling_overlays: Vec<SamplingOverlayCandidate>,
@@ -135,7 +136,7 @@ impl GraphRunContext {
     pub fn set_timeline_marker(
         &mut self,
         reference: TimelineMarkerReference,
-        marker: signal_processing::TimelineMarker,
+        marker: signal_derived::TimelineMarker,
     ) {
         self.timeline_markers.insert(reference, marker);
     }
@@ -143,7 +144,7 @@ impl GraphRunContext {
     /// Iterates over host-owned timeline positions supplied for this run.
     pub fn timeline_markers(
         &self,
-    ) -> impl Iterator<Item = (&TimelineMarkerReference, &signal_processing::TimelineMarker)> {
+    ) -> impl Iterator<Item = (&TimelineMarkerReference, &signal_derived::TimelineMarker)> {
         self.timeline_markers.iter()
     }
 }
@@ -178,7 +179,7 @@ impl NodeBuildContext for GraphRunContext {
     fn timeline_marker(
         &self,
         reference: TimelineMarkerReference,
-    ) -> Option<signal_processing::TimelineMarker> {
+    ) -> Option<signal_derived::TimelineMarker> {
         self.timeline_markers.get(&reference).copied()
     }
 }
@@ -580,7 +581,7 @@ pub struct LiveRun {
     /// threads may still be finishing their current `work()` call.
     stop_requested: bool,
     cache_pruned: bool,
-    timeline_markers: HashMap<TimelineMarkerReference, signal_processing::TimelineMarker>,
+    timeline_markers: HashMap<TimelineMarkerReference, signal_derived::TimelineMarker>,
     work_executor: Arc<dyn WorkExecutor>,
     artifact_repository: Arc<dyn ArtifactRepository>,
 }

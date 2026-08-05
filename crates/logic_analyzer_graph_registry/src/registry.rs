@@ -5,7 +5,7 @@ use logic_analyzer_graph_capabilities::node::{RuntimeBuilder, RuntimeBuilderOver
 use logic_analyzer_graph_capabilities::node_support::{
     DefaultLanePresentationDescriptor, NodeBuildContext, PortKind, ResolvedInput,
 };
-use signal_processing::{CollectedLaneRequest, PayloadRegistry};
+use signal_derived::{CollectedLaneRequest, PayloadRegistry};
 
 use super::graph_registration::graph_node_registrations;
 use super::payload_registration::{PayloadRequestConfigurator, payload_registrations};

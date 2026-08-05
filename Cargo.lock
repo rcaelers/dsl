@@ -1254,7 +1254,8 @@ dependencies = [
  "node-graph",
  "serde",
  "serde_json",
- "signal-processing",
+ "signal-capture",
+ "signal-derived",
  "signal-runtime",
 ]
 
@@ -2180,7 +2181,7 @@ name = "logic-analyzer-capture-export"
 version = "0.1.0"
 dependencies = [
  "signal-artifacts",
- "signal-processing",
+ "signal-capture-session",
  "tempfile",
  "thiserror 2.0.19",
  "zip",
@@ -2212,7 +2213,9 @@ dependencies = [
  "serde",
  "serde_json",
  "signal-artifacts",
- "signal-processing",
+ "signal-capture",
+ "signal-capture-session",
+ "signal-derived",
  "signal-runtime",
  "tempfile",
  "tracing-subscriber",
@@ -2227,7 +2230,9 @@ dependencies = [
  "serde",
  "serde_json",
  "signal-artifacts",
- "signal-processing",
+ "signal-capture",
+ "signal-capture-session",
+ "signal-derived",
  "signal-runtime",
 ]
 
@@ -2242,7 +2247,8 @@ dependencies = [
  "node-graph",
  "serde",
  "serde_json",
- "signal-processing",
+ "signal-capture-session",
+ "signal-derived",
  "signal-runtime",
 ]
 
@@ -2261,7 +2267,9 @@ dependencies = [
  "serde",
  "serde_json",
  "signal-artifacts",
- "signal-processing",
+ "signal-capture",
+ "signal-capture-session",
+ "signal-derived",
  "signal-runtime",
  "tempfile",
  "wasm-bindgen-test",
@@ -2279,7 +2287,7 @@ dependencies = [
  "serde",
  "serde_json",
  "signal-artifacts",
- "signal-processing",
+ "signal-derived",
  "signal-runtime",
 ]
 
@@ -2291,7 +2299,7 @@ dependencies = [
  "node-graph",
  "serde",
  "serde_json",
- "signal-processing",
+ "signal-derived",
 ]
 
 [[package]]
@@ -2301,7 +2309,8 @@ dependencies = [
  "inventory",
  "logic-analyzer-graph-capabilities",
  "node-graph",
- "signal-processing",
+ "signal-capture",
+ "signal-derived",
 ]
 
 [[package]]
@@ -2314,7 +2323,8 @@ dependencies = [
  "node-graph",
  "serde_json",
  "signal-artifacts",
- "signal-processing",
+ "signal-capture",
+ "signal-derived",
  "signal-runtime",
 ]
 
@@ -2346,7 +2356,9 @@ dependencies = [
  "serde",
  "serde_json",
  "signal-artifacts",
- "signal-processing",
+ "signal-capture",
+ "signal-capture-session",
+ "signal-derived",
  "signal-runtime",
  "tempfile",
  "thiserror 2.0.19",
@@ -2369,7 +2381,9 @@ dependencies = [
  "serde",
  "serde_json",
  "signal-artifacts",
- "signal-processing",
+ "signal-capture",
+ "signal-capture-session",
+ "signal-derived",
  "signal-runtime",
  "tempfile",
  "thiserror 2.0.19",
@@ -2384,7 +2398,8 @@ name = "logic-analyzer-test-support"
 version = "0.1.0"
 dependencies = [
  "signal-artifacts",
- "signal-processing",
+ "signal-capture-session",
+ "signal-derived",
  "tempfile",
 ]
 
@@ -2409,7 +2424,9 @@ dependencies = [
  "serde",
  "serde_json",
  "signal-artifacts",
- "signal-processing",
+ "signal-capture",
+ "signal-capture-session",
+ "signal-derived",
  "signal-runtime",
  "tempfile",
  "trigger-editor",
@@ -2424,7 +2441,9 @@ dependencies = [
  "input-bindings",
  "inventory",
  "signal-artifacts",
- "signal-processing",
+ "signal-capture",
+ "signal-capture-session",
+ "signal-derived",
  "web-time",
 ]
 
@@ -3781,6 +3800,53 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "thiserror 2.0.19",
+ "wasm-bindgen-test",
+ "web-time",
+]
+
+[[package]]
+name = "signal-capture"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "crossbeam-channel",
+ "serde",
+ "serde_json",
+ "signal-artifacts",
+ "signal-runtime",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "signal-capture-session"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "crossbeam-channel",
+ "serde",
+ "serde_json",
+ "signal-artifacts",
+ "signal-capture",
+ "signal-derived",
+ "signal-runtime",
+ "thiserror 2.0.19",
+ "tracing",
+ "web-time",
+]
+
+[[package]]
+name = "signal-derived"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "crossbeam-channel",
+ "signal-artifacts",
+ "signal-capture",
+ "signal-runtime",
+ "thiserror 2.0.19",
+ "tracing",
+ "wasm-bindgen-test",
+ "web-time",
 ]
 
 [[package]]
@@ -3791,23 +3857,6 @@ checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
 dependencies = [
  "errno",
  "libc",
-]
-
-[[package]]
-name = "signal-processing"
-version = "0.1.0"
-dependencies = [
- "blake3",
- "crossbeam-channel",
- "lazy_static",
- "serde",
- "serde_json",
- "signal-artifacts",
- "signal-runtime",
- "thiserror 2.0.19",
- "tracing",
- "wasm-bindgen-test",
- "web-time",
 ]
 
 [[package]]
@@ -4247,7 +4296,7 @@ name = "trigger-editor"
 version = "0.1.0"
 dependencies = [
  "egui",
- "signal-processing",
+ "signal-capture-session",
 ]
 
 [[package]]

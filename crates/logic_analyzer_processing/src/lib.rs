@@ -2,7 +2,7 @@
 //!
 //! This crate owns capture formats and devices, protocol decoders, processing
 //! nodes, and sinks. It translates its format and transport failures at the
-//! [`signal_processing`] boundary; it does not own graph definitions, saved-node
+//! [`signal_capture_session`] boundary; it does not own graph definitions, saved-node
 //! migration, socket presentation, UI controls, or host selection.
 //!
 //! The root contains shared capture-source metadata and process-node construction.

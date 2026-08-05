@@ -103,7 +103,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Check deterministic benchmark commands
         run: |
-          cargo check -p signal-processing --bin derived-word-store-bench
+          cargo check -p signal-derived --bin derived-word-store-bench
           cargo check -p logic-analyzer-processing --features developer-tools --bin u3pro16-streaming-bench
           cargo check -p logic-analyzer-examples --bench compiler_capture
       - name: Check manual validation commands
@@ -132,10 +132,12 @@ jobs:
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
         run: cargo test -p logic-analyzer-graph-nodes --target wasm32-unknown-unknown --lib platform_parity_tests
-      - name: Test encoded derived-word storage in wasm
+      - name: Test portable storage in wasm
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
-        run: cargo test -p signal-processing --target wasm32-unknown-unknown --lib wasm_store_tests
+        run: |
+          cargo test -p signal-artifacts --target wasm32-unknown-unknown --lib wasm_store_tests
+          cargo test -p signal-derived --target wasm32-unknown-unknown --lib wasm_store_tests
       - name: Test browser artifact persistence in OPFS
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
@@ -152,8 +154,8 @@ jobs:
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
         run: |
-          cargo test -p signal-processing --target wasm32-unknown-unknown --lib worker_operation_queue_tests
-          cargo test -p signal-processing --target wasm32-unknown-unknown --lib worker_messages_round_trip_as_owned_data
+          cargo test -p signal-runtime --target wasm32-unknown-unknown --lib worker_operation_queue_tests
+          cargo test -p signal-runtime --target wasm32-unknown-unknown --lib worker_messages_round_trip_as_owned_data
       - name: Build wasm UI with compile-time plugin constructors
         env:
           RUSTFLAGS: -D unreachable-pub

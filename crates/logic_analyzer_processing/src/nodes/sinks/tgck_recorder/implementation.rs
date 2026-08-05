@@ -22,7 +22,7 @@ use std::path::PathBuf;
 
 use tracing::{debug, warn};
 
-use signal_processing::{TextSample, Word};
+use signal_derived::{TextSample, Word};
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };
@@ -141,7 +141,7 @@ pub struct TgckRecorder {
     /// when end-of-stream force-closes the final window.
     last_position: u64,
     words_buffer: VecDeque<Word>,
-    tgck_buffer: VecDeque<signal_processing::Sample>,
+    tgck_buffer: VecDeque<signal_capture::Sample>,
     name_buffer: VecDeque<TextSample>,
 }
 
@@ -216,7 +216,7 @@ impl ProcessNode for TgckRecorder {
     fn input_schema(&self) -> Vec<PortSchema> {
         vec![
             PortSchema::new::<Word>("words", 0, PortDirection::Input),
-            PortSchema::new::<signal_processing::Sample>("tgck", 1, PortDirection::Input),
+            PortSchema::new::<signal_capture::Sample>("tgck", 1, PortDirection::Input),
             PortSchema::state::<TextSample>("filename", 2, PortDirection::Input),
         ]
     }
@@ -289,7 +289,7 @@ impl ProcessNode for TgckRecorder {
         if !self.tgck_closed {
             let mut tgck = inputs
                 .get(1)
-                .and_then(|port| port.get::<signal_processing::Sample>(&mut self.tgck_buffer))
+                .and_then(|port| port.get::<signal_capture::Sample>(&mut self.tgck_buffer))
                 .ok_or_else(|| WorkError::NodeError("Missing tgck input".to_string()))?;
             loop {
                 match tgck.peek() {
@@ -345,7 +345,7 @@ impl ProcessNode for TgckRecorder {
 #[cfg(test)]
 mod tests {
     use crossbeam_channel::bounded;
-    use signal_processing::Sample;
+    use signal_capture::Sample;
     use signal_runtime::{ChannelMessage, Watchdog};
 
     use super::*;

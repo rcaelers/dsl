@@ -1,6 +1,6 @@
 //! Deterministic UART waveform generator used by tests.
 
-use signal_processing::Sample;
+use signal_capture::Sample;
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };

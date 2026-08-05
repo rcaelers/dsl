@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use web_time::Instant;
 
-use signal_processing::{
+use signal_derived::{
     CollectedLaneSnapshotRequest, OpaqueCollectedLane, OpaqueCollectedLaneSnapshot,
 };
 
@@ -109,7 +109,7 @@ mod derived_snapshot_tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-    use signal_processing::{
+    use signal_derived::{
         CollectedLaneQuery, DerivedLanes, OpaqueCollectedLaneSnapshot, PayloadRegistry,
     };
 

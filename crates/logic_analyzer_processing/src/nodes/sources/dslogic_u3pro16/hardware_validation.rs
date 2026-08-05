@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use signal_processing::logic_analyzer::{LogicAnalyzer, LogicCaptureConfig};
+use signal_capture_session::logic_analyzer::{LogicAnalyzer, LogicCaptureConfig};
 
 use super::implementation::DsLogicU3Pro16;
 use super::transport::DsLogicU3Pro16TransportFactory;

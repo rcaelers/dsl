@@ -16,7 +16,9 @@ made explicit at its load or migration boundary.
 The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol level:
 
 - `signal_runtime` owns generic typed-stream execution, scheduling, and work dispatch.
-- `signal_processing` owns generic signal, capture, storage, indexing, and derived-data
+- `signal_capture` owns immutable generic capture, query, and finite indexing contracts.
+- `signal_derived` owns generic derived-data payload, collection, indexing, and storage contracts.
+- `signal_capture_session` owns generic capture-session
   contracts. It consumes fixed-width byte ranges, stable source identities, prepared
   random-access sources, immutable byte regions, and portable memory sources directly from
   `signal_artifacts` without re-exporting them. Host paths, files, mappings, and browser handles
@@ -144,7 +146,9 @@ nearest owning facade. The allowlist names canonical public namespaces.
 | Crate | Public modules | Rationale |
 | --- | --- | --- |
 | `signal_runtime` | none | Its crate root is the curated generic execution facade; ports, channels, schedulers, managers, and workers remain private implementation modules. |
-| `signal_processing` | `capture`, `live_capture`, `live_capture_store`, `logic_analyzer`, `derived_word_store`, `waveform_index` | These are substantial, independent generic capture and storage domains. `live_capture` owns the provider-neutral configured and prepared acquisition contracts. `logic_analyzer` owns the driver-neutral capture, trigger, and processing-source contracts consumed by concrete device nodes. Runtime contracts are imported directly from `signal_runtime` and are not re-exported. |
+| `signal_capture` | none | Its crate root exposes immutable capture, query, edge-capability, and finite-index contracts; implementation modules remain private. |
+| `signal_derived` | `derived_word_store` | The public module owns the independently usable encoded annotation-store contract; other payload, lane, sampling, and index contracts are exposed through the crate facade. |
+| `signal_capture_session` | `live_capture`, `live_capture_store`, `logic_analyzer` | These are substantial generic capture-session domains. `live_capture` owns the provider-neutral configured and prepared acquisition contracts. `logic_analyzer` owns the driver-neutral capture, trigger, and processing-source contracts consumed by concrete device nodes. Lower-level runtime, capture, and derived contracts are imported directly from their owning crates and are not re-exported. |
 | `logic_analyzer_processing` | `nodes`, `nodes::decoders`, `nodes::logic`, `nodes::sinks`, `nodes::sources`, each node module under its family, `types` | Each concrete node owns a directory-backed public facade, so its configuration, factory, and discovery contracts have an unambiguous owner such as `nodes::decoders::parallel_decoder::StrobeMode` or `nodes::decoders::sigrok_decoder::SigrokDecoderDescriptor`. The crate root exposes the shared `ProcessNodeConstruction` factory result and lazy capture-source metadata contracts. Shared implementation support is crate-private. Protocol-neutral processing value conventions are exposed through `types`. Node implementation, transport, and format details remain private behind their owning node facade. |
 | `logic_analyzer_graph_capabilities` | `node`, `node_support` | `node` owns capability traits implemented by graph-node plugins. `node_support` owns open port identity, protocol-neutral presentation descriptions, capture descriptions, decoder-table contracts, and the restricted node build context. It contains no graph-node or payload inventory assembly, compiler, host, built-in-node, UI, or export operations. |
 | `logic_analyzer_graph_registry` | none | Its crate root exposes graph-node and payload registration descriptors, validated inventory access, and the immutable `GraphRegistry`. Implementation modules remain private. |
@@ -229,7 +233,9 @@ services.
 target-specific dependencies. It is an adapter layer above the contract owners:
 
 - `signal_artifacts` owns artifact-repository, prepared-source, and byte-region capability ports;
-- `signal_processing` owns execution, capture-store, index, and derived-store capability ports;
+- `signal_runtime` owns execution, `signal_capture` owns finite-index capability ports, and
+  `signal_capture_session` owns capture-session capability ports, and `signal_derived` owns
+  derived-store capability ports;
 - `logic_analyzer_processing` owns concrete format and device behavior and the transport ports that
   behavior consumes;
 - `logic_analyzer_graph_compiler` owns cache-administration and source-preparation ports;

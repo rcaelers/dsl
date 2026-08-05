@@ -14,7 +14,8 @@ DECLARATIVE_SELECTION_FACADES = %w[
 ].freeze
 
 PUBLIC_MODULES = {
-  "crates/signal_processing/src/lib.rs" => %w[capture derived_word_store live_capture live_capture_store logic_analyzer waveform_index],
+  "crates/signal_derived/src/lib.rs" => %w[derived_word_store],
+  "crates/signal_capture_session/src/lib.rs" => %w[live_capture live_capture_store logic_analyzer],
   "crates/logic_analyzer_processing/src/lib.rs" => %w[nodes support types],
   "crates/logic_analyzer_processing/src/support/mod.rs" => %w[logic_analyzer],
   "crates/logic_analyzer_processing/src/nodes/mod.rs" => %w[decoders logic sinks sources],
@@ -295,7 +296,7 @@ files.each do |path|
       implementation.to_enum(:scan, /\b(?:load_from_path|save_to_path)\s*\(/).each do
         errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: application graph persistence belongs behind the UI-owned HostService"
       end
-      implementation.to_enum(:scan, /\bsignal_processing::clear_cache(?:_entry)?\s*\(/).each do
+      implementation.to_enum(:scan, /\bsignal_derived::clear_cache(?:_entry)?\s*\(/).each do
         errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: cache commands belong behind the UI-owned HostService"
       end
     end

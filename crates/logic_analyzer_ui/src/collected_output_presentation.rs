@@ -125,7 +125,7 @@ mod collected_output_presentation_tests {
     use logic_analyzer_graph_plan::CollectedOutputLane;
     use logic_analyzer_viewer::{DefaultViewerLaneRenderer, ViewerLaneRendererRegistration};
     use node_graph::NodeId;
-    use signal_processing::Word;
+    use signal_derived::Word;
 
     use super::*;
 

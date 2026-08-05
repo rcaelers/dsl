@@ -19,7 +19,7 @@ mod facade;
 mod transport;
 
 pub use facade::{DsLogicU3Pro16SourceFactory, unavailable_source_factory};
-pub use signal_processing::logic_analyzer::{
+pub use signal_capture_session::logic_analyzer::{
     CaptureMode, ClockEdge, ClockSource, LogicCaptureConfig, LogicEncodingRequest, LogicTrigger,
     LogicTriggerStage, TriggerCondition, TriggerLogic,
 };

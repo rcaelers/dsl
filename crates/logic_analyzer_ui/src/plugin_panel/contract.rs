@@ -1,6 +1,6 @@
 //! Public contracts implemented by compile-time plugin panels.
 
-use signal_processing::OpaqueCollectedLane;
+use signal_derived::OpaqueCollectedLane;
 
 /// Read-only application data exposed while a plugin panel is drawn.
 pub struct PluginPanelContext<'a> {

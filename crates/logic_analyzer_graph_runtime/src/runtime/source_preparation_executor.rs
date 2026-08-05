@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use signal_processing::{
+use signal_capture::{
     CaptureIndexBuildProgress, CaptureIndexPreparationRequest, CaptureIndexProxy, CaptureMetadata,
     CaptureWorkerClient, CaptureWorkerIndexQueryExecutor, CaptureWorkerMessage,
 };
@@ -290,7 +290,7 @@ impl SourcePreparationTask for InlineSourcePreparationTask {
 #[cfg(test)]
 mod source_preparation_executor_tests {
     use signal_artifacts::SourceIdentity;
-    use signal_processing::{
+    use signal_capture::{
         CaptureIndexPreparationRequest, CaptureSampledWindow, CaptureSampledWindowPoll,
         CaptureWorkerRequest,
     };

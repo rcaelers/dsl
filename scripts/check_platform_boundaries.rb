@@ -37,7 +37,7 @@ class PlatformBoundaryCheck
     logic-analyzer-graph-compiler
     logic-analyzer-processing
     logic-analyzer-viewer
-    signal-processing
+    signal-capture-session
   ].freeze
   TARGET_PREDICATE = /\b(?:target_(?:abi|arch|endian|env|family|feature|os|pointer_width|vendor)|unix|windows)\b/
   TARGET_ATTRIBUTE = /#\s*\[\s*cfg(?:_attr)?\s*\(.*?\)\s*\]/m

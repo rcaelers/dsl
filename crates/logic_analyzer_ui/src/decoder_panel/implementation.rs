@@ -4,7 +4,7 @@ use egui::{Color32, PopupCloseBehavior, Stroke};
 
 use logic_analyzer_graph_capabilities::node_support::DecoderTableCellMode;
 use logic_analyzer_viewer::{AnnotationVisual, ViewerLaneTheme};
-use signal_processing::{CollectedLaneTableRow, DerivedLanes};
+use signal_derived::{CollectedLaneTableRow, DerivedLanes};
 
 use super::model::{DecoderTableColumn, DecoderTableRegistry, DecoderTableSource};
 
@@ -760,12 +760,12 @@ fn format_cell_value(
         .override_name()
         .or(loaded.lane_format.as_deref());
     let label = match &row.payload {
-        Some(signal_processing::WordPayload::Bytes(bytes)) => bytes
+        Some(signal_derived::WordPayload::Bytes(bytes)) => bytes
             .iter()
             .map(|byte| format!("{byte:02X}"))
             .collect::<Vec<_>>()
             .join(" "),
-        Some(signal_processing::WordPayload::Text(text)) => text.to_string(),
+        Some(signal_derived::WordPayload::Text(text)) => text.to_string(),
         None => format_value(row.value, format),
     };
     let default = AnnotationVisual {
@@ -818,7 +818,7 @@ mod tests {
     use std::sync::Arc;
 
     use logic_analyzer_viewer::{DefaultViewerLaneRenderer, DerivedLaneId, ViewerLaneTrackId};
-    use signal_processing::{
+    use signal_derived::{
         CollectedLaneQuery, CollectedLaneTableMetadata, CollectedLaneTableRow,
         CollectedLaneTableSnapshot, PayloadRegistry, Word,
     };

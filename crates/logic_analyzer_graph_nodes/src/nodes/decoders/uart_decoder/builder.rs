@@ -12,7 +12,8 @@ use logic_analyzer_processing::nodes::decoders::uart_decoder::{
 };
 use logic_analyzer_processing::types::BitOrder;
 use node_graph::api::Socket;
-use signal_processing::{Sample, Trigger, Word};
+use signal_capture::Sample;
+use signal_derived::{Trigger, Word};
 use signal_runtime::ProcessNode;
 
 #[derive(Default)]

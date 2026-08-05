@@ -4,7 +4,7 @@ use std::sync::Arc;
 use logic_analyzer_graph_capabilities::node_support::{
     DefaultLanePresentationDescriptor, NodeBuildContext, PortKind, PortValue, ResolvedInput,
 };
-use signal_processing::{CollectedLaneRequest, PayloadAdapter};
+use signal_derived::{CollectedLaneRequest, PayloadAdapter};
 
 /// Customizes one generated collected-lane request for a node output.
 pub type PayloadRequestConfigurator =
@@ -161,7 +161,7 @@ fn validate_payload_registrations(registrations: &mut Vec<&PayloadRegistration>)
 
 #[cfg(test)]
 mod payload_registration_tests {
-    use signal_processing::Sample;
+    use signal_capture::Sample;
 
     use super::*;
 
@@ -189,7 +189,7 @@ mod payload_registration_tests {
     fn duplicate_registration_is_rejected() {
         let registration = PayloadRegistration::subscribable::<Sample>(
             "org.logicconduit.registry-test.payload/v1",
-            signal_processing::digital_payload_adapter,
+            signal_derived::digital_payload_adapter,
             test_presentation,
         );
         let mut registrations = vec![&registration, &registration];

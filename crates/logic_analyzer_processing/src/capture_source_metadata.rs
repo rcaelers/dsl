@@ -1,4 +1,5 @@
-use signal_processing::{ConfiguredAcquisition, IndexedCapturePresentation};
+use signal_capture::IndexedCapturePresentation;
+use signal_capture_session::ConfiguredAcquisition;
 
 /// Distinguishes an imported capture from a source that acquires data live.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -169,7 +169,9 @@ browser. For a compile-only check matching CI, run:
 cargo check -p logic-analyzer-app-web --target wasm32-unknown-unknown
 ```
 
-The repository is a Cargo workspace: `crates/signal_processing` (generic streaming runtime),
+The repository is a Cargo workspace: `crates/signal_runtime` (generic streaming runtime),
+`crates/signal_capture`, `crates/signal_derived`, and `crates/signal_capture_session`
+(generic signal data-plane contracts),
 `crates/logic_analyzer_processing` (concrete decoders, processing nodes, and file/USB sources),
 `crates/logic_analyzer_graph_nodes` (node catalog) and
 `crates/logic_analyzer_graph_compiler` (graph compiler),
@@ -218,7 +220,7 @@ for inspecting captured CCD image data rather than a processing pipeline.
 | [docs/crates/logic_analyzer_viewer.md](docs/crates/logic_analyzer_viewer.md) | Waveform viewer: index format, sampling, rendering |
 | `logic_analyzer_viewer` Rustdoc | Embedding the viewer widget (`cargo doc --workspace --no-deps --lib --open`) |
 | [docs/aspects/live_capture_trigger.md](docs/aspects/live_capture_trigger.md) | Live-capture foundation and staged plan for hardware triggering, capture, and replay |
-| `signal_processing` Rustdoc | Streaming engine: nodes, channels, backpressure, live supervision (`cargo doc --workspace --no-deps --lib --open`) |
+| `signal_runtime` Rustdoc | Streaming engine: nodes, channels, backpressure, live supervision (`cargo doc --workspace --no-deps --lib --open`) |
 | [docs/integrations/dslogic_u3pro16_protocol.md](docs/integrations/dslogic_u3pro16_protocol.md) | DSLogic U3Pro16 USB protocol (hardware reference) |
 | [docs/references/ccd_afe_registers.md](docs/references/ccd_afe_registers.md) | Hardware register reference |
 

@@ -9,7 +9,7 @@ use thiserror::Error;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
-use signal_processing::{
+use signal_capture_session::{
     CaptureChunk, CaptureChunkPayload, CaptureCursorItem, CaptureStoreCursor, CaptureStoreError,
     FinalizedCapture,
 };
@@ -154,7 +154,7 @@ pub(crate) fn export_finalized_capture(
 
 fn write_sigrok_v2(
     capture: &FinalizedCapture,
-    metadata: &signal_processing::CaptureTimelineMetadata,
+    metadata: &signal_capture_session::CaptureTimelineMetadata,
     archive: &mut ZipWriter<&mut std::fs::File>,
     observer: &mut dyn CaptureExportObserver,
 ) -> Result<(), CaptureExportError> {
@@ -311,7 +311,7 @@ mod tests {
     use zip::ZipArchive;
 
     use signal_artifacts::MemoryArtifactRepository;
-    use signal_processing::{
+    use signal_capture_session::{
         CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId,
         CaptureSessionOutcome, CaptureStore, CaptureStoreConfig, CaptureStoreDescriptor,
         CaptureTimelineMetadata, FinalizedCapture,

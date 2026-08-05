@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use tracing::{debug, warn};
 
-use signal_processing::{EdgeQuery, RecordedEdgeQuery, Sample, Trigger};
+use signal_capture::{EdgeQuery, RecordedEdgeQuery, Sample};
+use signal_derived::Trigger;
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, ProtocolKind, WorkError,
     WorkOutcome, WorkResult,
@@ -83,7 +84,7 @@ impl ProcessNode for SrLatch {
         vec![
             PortSchema::state::<Sample>("q", 0, PortDirection::Output).with_protocols(vec![
                 ProtocolKind::Stream,
-                signal_processing::edge_query_protocol(),
+                signal_capture::edge_query_protocol(),
             ]),
         ]
     }
@@ -94,8 +95,8 @@ impl ProcessNode for SrLatch {
         protocol: ProtocolKind,
         _input_capabilities: &[Vec<signal_runtime::ProtocolCapability>],
     ) -> Option<signal_runtime::ProtocolCapability> {
-        (port == 0 && protocol == signal_processing::edge_query_protocol()).then(|| {
-            signal_processing::edge_query_capability(
+        (port == 0 && protocol == signal_capture::edge_query_protocol()).then(|| {
+            signal_capture::edge_query_capability(
                 Arc::new(self.edge_query.clone()) as Arc<dyn EdgeQuery>
             )
         })

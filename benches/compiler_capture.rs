@@ -44,7 +44,7 @@ use signal_artifacts::{
     ArtifactKey, ArtifactMetadata, ArtifactNamespace, ArtifactRepository, MemoryArtifactRepository,
     ReadArtifact, RepositoryCapabilities, RepositoryError, SourceIdentity, WriteArtifact,
 };
-use signal_processing::{
+use signal_derived::{
     CollectedLaneQuery, CollectedLaneSnapshotRequest, CollectedWordLaneQuery, DerivedLanes,
     OpaqueCollectedLane, OpaqueCollectedLaneSnapshot, TriggerLaneSnapshot,
 };
@@ -1601,7 +1601,7 @@ fn derived_storage_report(run: &logic_analyzer_graph_runtime::LiveRun) -> serde_
         .into_iter()
         .filter(|config| seen.insert(config.cache_key))
         .map(|config| {
-            let inspected = signal_processing::derived_word_store::inspect_cache_entry(&config)
+            let inspected = signal_derived::derived_word_store::inspect_cache_entry(&config)
                 .unwrap_or_else(|error| panic!("could not inspect derived cache: {error}"));
             if let Some(snapshot) = inspected {
                 persistent_data_bytes = persistent_data_bytes.saturating_add(snapshot.data_bytes);

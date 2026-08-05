@@ -6,7 +6,7 @@ use logic_analyzer_graph_registry::{
     GraphNodeRegistration, PayloadRegistration, graph_node_registrations,
 };
 use node_graph::{AnySocket, InputDef, NodeDef, NodeTypeRegistry, OutputDef, Socket};
-use signal_processing::Word;
+use signal_derived::Word;
 
 pub(crate) const WORD_PRODUCER_NAME: &str = "UI Test Word Producer";
 
@@ -116,7 +116,7 @@ inventory::submit! {
 inventory::submit! {
     PayloadRegistration::subscribable::<Word>(
         "org.logicconduit.word/v1",
-        signal_processing::word_payload_adapter,
+        signal_derived::word_payload_adapter,
         word_presentation,
     )
 }

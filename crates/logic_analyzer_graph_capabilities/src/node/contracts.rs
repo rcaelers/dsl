@@ -3,11 +3,12 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use node_graph::api::Socket;
-use signal_processing::{
+use signal_capture_session::{
     AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureChannelId,
     CaptureProviderCapabilities, CaptureSessionPlan, CaptureStartMode, CaptureStoreCursor,
-    DerivedDataRetention, PreparedAcquisition, TriggerProgram,
+    PreparedAcquisition, TriggerProgram,
 };
+use signal_derived::DerivedDataRetention;
 use signal_runtime::{NodeConfig, ProcessNode};
 
 use crate::node_support::{

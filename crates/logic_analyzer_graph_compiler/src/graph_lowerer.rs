@@ -10,7 +10,7 @@ use logic_analyzer_graph_plan::{
 };
 use logic_analyzer_graph_registry::GraphRegistry;
 use node_graph::api::{GraphState, NodeId};
-use signal_processing::PayloadRegistry;
+use signal_derived::PayloadRegistry;
 
 use super::data_collector::{
     BUILDER_NAME as DATA_COLLECTOR_BUILDER, DataCollectorBuilder, OUTPUT_SUBSCRIPTION_BUILDER_NAME,

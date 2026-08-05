@@ -14,7 +14,8 @@ use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::{
 };
 use logic_analyzer_processing::{CaptureSourceMetadata, ProcessNodeConstruction};
 use node_graph::api::Socket;
-use signal_processing::{DerivedDataRetention, Sample, SampleBlock};
+use signal_capture::{Sample, SampleBlock};
+use signal_derived::DerivedDataRetention;
 use signal_runtime::ProcessNode;
 
 use super::definition::U3Pro16State;
@@ -40,7 +41,7 @@ impl DsLogicU3Pro16Builder {
 
     fn config(
         state: &Value,
-    ) -> Result<signal_processing::logic_analyzer::LogicCaptureConfig, String> {
+    ) -> Result<signal_capture_session::logic_analyzer::LogicCaptureConfig, String> {
         let state: U3Pro16State = parse_state(state)?;
         super::capture_configuration::capture_config(&state)
     }
@@ -207,7 +208,7 @@ mod builder_tests {
         CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle,
         CaptureSourcePresentation,
     };
-    use signal_processing::logic_analyzer::LogicCaptureConfig;
+    use signal_capture_session::logic_analyzer::LogicCaptureConfig;
     use signal_runtime::{InputPort, OutputPort, WorkResult};
 
     use super::*;

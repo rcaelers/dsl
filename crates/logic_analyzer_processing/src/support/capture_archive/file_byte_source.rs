@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use signal_artifacts::{
     PreparedByteSource, RandomAccessReader, SourceCapabilities, SourceIdentity, SourceReadError,
 };
-use signal_processing::Result;
+use signal_capture::Result;
 
 /// Temporary path adapter retained inside the allowlisted file-I/O leaf.
 /// Application composition uses the equivalent host adapter from
