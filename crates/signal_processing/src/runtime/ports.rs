@@ -7,10 +7,10 @@ use std::any::TypeId;
 
 use super::protocol::ProtocolKind;
 use super::receiver::Receiver;
-use super::sample_kind::SampleKind;
 use super::sender::Sender;
 pub use super::type_registry::register_type;
 use super::watchdog::{Watchdog, WatchdogHandle};
+use crate::sample_kind::SampleKind;
 
 /// Direction of a port relative to its processing node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,7 +47,7 @@ pub struct PortSchema {
     /// Protocols this port can speak, most preferred first. Default:
     /// `[Stream]`, the guaranteed fallback every port supports — override
     /// via [`Self::with_protocols`] for a port that can also answer
-    /// [`super::edge_query::EdgeQuery`] (see
+    /// [`crate::EdgeQuery`] (see
     /// [`super::node::ProcessNode::edge_query`]).
     pub protocols: Vec<ProtocolKind>,
     /// Payload kinds (`Sample` vs `SampleBlock`) this *output* port can
@@ -118,8 +118,8 @@ use std::sync::atomic::AtomicBool;
 
 use crossbeam_channel::Receiver as CrossbeamReceiver;
 
-use super::edge_query::EdgeQuery;
 use super::sender::ChannelMessage;
+use crate::edge_query::EdgeQuery;
 
 /// Type-erased input port wrapping a `Receiver<T>`.
 pub struct InputPort {
@@ -250,7 +250,7 @@ impl InputPort {
 /// Type-erased output port wrapping one or more `Sender<T>`s.
 ///
 /// Usually exactly one concrete `T` (as many ports as exist today). A port
-/// backed by a node that negotiated [`super::sample_kind::SampleKind`]
+/// backed by a node that negotiated [`crate::SampleKind`]
 /// with more than one destination can hold *both* a `Sender<Sample>` and a
 /// `Sender<SampleBlock>` at once — `SampleKind` is a closed two-variant
 /// enum, so a `Vec` scanned linearly is simpler and cheaper here than a

@@ -3,10 +3,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use web_time::Instant;
 
-use crate::errors::{WorkError, WorkResult};
-use crate::node::ProcessNode;
 use crate::payload::CollectedLaneIngestor;
-use crate::ports::{InputPort, OutputPort, PortSchema};
+use crate::runtime::{
+    InputPort, InputScheduling, OutputPort, PortSchema, ProcessNode, WorkError, WorkResult,
+};
 
 #[derive(Clone, Default)]
 pub struct DerivedDataCollectorMetrics {
@@ -178,8 +178,8 @@ impl ProcessNode for DerivedDataCollector {
         !self.lanes.is_empty() && self.lanes.iter().all(|lane| lane.is_finished())
     }
 
-    fn input_scheduling(&self) -> crate::node::InputScheduling {
-        crate::node::InputScheduling::Any
+    fn input_scheduling(&self) -> InputScheduling {
+        InputScheduling::Any
     }
 
     fn num_inputs(&self) -> usize {

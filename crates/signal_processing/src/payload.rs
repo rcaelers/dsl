@@ -11,9 +11,8 @@ use std::sync::Arc;
 
 use crate::derived_data_collector::{DerivedDataRetention, DerivedLanes};
 use crate::derived_word_store::LiveStoreConfig;
-use crate::errors::WorkResult;
 use crate::events::WordPayload;
-use crate::ports::{InputPort, PortSchema};
+use crate::runtime::{InputPort, PortSchema, WorkResult};
 
 /// One type-erased collector input owned by a registered payload adapter.
 ///

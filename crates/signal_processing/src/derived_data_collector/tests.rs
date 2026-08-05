@@ -13,18 +13,17 @@ use super::word::{InMemoryWordLaneStorage, append_words_to_in_memory_storage};
 use super::*;
 use crate::derived_index::ChunkedMipmap;
 use crate::derived_word_store::{IndexedAnnotationWriter, LiveStoreConfig, StoreStatus};
-use crate::errors::{WorkError, WorkResult};
 use crate::events::{Annotation, NumberSample, TextSample, Trigger, Word};
-use crate::node::ProcessNode;
 use crate::payload::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
     CollectedLaneStorageBacking, CollectedLaneStorageSnapshot, CollectedLaneTableMetadata,
     CollectedLaneTableRow, CollectedLaneTableSnapshot, PayloadRegistry,
 };
-use crate::ports::{InputPort, OutputPort as OutPort, PortDirection, PortSchema};
+use crate::runtime::{
+    ChannelMessage, InputPort, OutputPort as OutPort, PortDirection, PortSchema, ProcessNode,
+    Watchdog, WorkError, WorkResult,
+};
 use crate::sample::Sample;
-use crate::sender::ChannelMessage;
-use crate::watchdog::Watchdog;
 
 fn register_test_payload_adapters(registry: &mut PayloadRegistry) {
     registry

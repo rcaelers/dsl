@@ -9,15 +9,15 @@ fn implementation_source(source: &'static str) -> &'static str {
 fn generic_runtime_contains_no_concrete_source_or_protocol_contracts() {
     let sources = [
         ("samples", include_str!("sample.rs")),
-        ("scheduler", include_str!("scheduler.rs")),
+        ("scheduler", include_str!("runtime/scheduler.rs")),
         ("edge queries", include_str!("edge_query.rs")),
-        ("senders", include_str!("sender.rs")),
-        ("ports", include_str!("ports.rs")),
+        ("senders", include_str!("runtime/sender.rs")),
+        ("ports", include_str!("runtime/ports.rs")),
         (
             "cooperative manager",
-            include_str!("cooperative_manager.rs"),
+            include_str!("runtime/cooperative_manager.rs"),
         ),
-        ("threaded manager", include_str!("manager.rs")),
+        ("threaded manager", include_str!("runtime/manager.rs")),
         ("events", include_str!("events.rs")),
         (
             "derived-data catalog",
@@ -140,6 +140,86 @@ fn artifact_contracts_are_not_redirected_through_signal_processing() {
 }
 
 #[test]
+fn stream_execution_has_one_private_owner_facade() {
+    let library = include_str!("lib.rs");
+    let facade = include_str!("runtime/mod.rs");
+
+    assert!(library.contains("mod runtime;"));
+    for former_root_leaf in [
+        "app_manager",
+        "cooperative_manager",
+        "errors",
+        "graph",
+        "manager",
+        "node",
+        "pipeline",
+        "ports",
+        "protocol",
+        "receiver",
+        "scheduler",
+        "sender",
+        "type_registry",
+        "watchdog",
+        "work_executor",
+        "worker_operation_queue",
+    ] {
+        assert!(
+            facade.contains(&format!("mod {former_root_leaf};")),
+            "runtime owner does not declare {former_root_leaf}"
+        );
+        assert!(
+            !library.contains(&format!("mod {former_root_leaf};")),
+            "runtime leaf {former_root_leaf} escaped back to the crate root"
+        );
+    }
+}
+
+#[test]
+fn stream_execution_does_not_depend_on_storage_or_session_owners() {
+    let runtime_sources = [
+        include_str!("runtime/app_manager/contract.rs"),
+        include_str!("runtime/app_manager/cooperative.rs"),
+        include_str!("runtime/app_manager/implementation.rs"),
+        include_str!("runtime/cooperative_manager.rs"),
+        include_str!("runtime/errors.rs"),
+        include_str!("runtime/graph.rs"),
+        include_str!("runtime/manager.rs"),
+        include_str!("runtime/node.rs"),
+        include_str!("runtime/pipeline.rs"),
+        include_str!("runtime/ports.rs"),
+        include_str!("runtime/protocol.rs"),
+        include_str!("runtime/receiver.rs"),
+        include_str!("runtime/scheduler.rs"),
+        include_str!("runtime/sender.rs"),
+        include_str!("runtime/type_registry.rs"),
+        include_str!("runtime/watchdog.rs"),
+        include_str!("runtime/work_executor.rs"),
+        include_str!("runtime/worker_operation_queue.rs"),
+    ];
+
+    for forbidden_owner in [
+        "crate::advanced_trigger",
+        "crate::capture_policy",
+        "crate::derived_data_collector",
+        "crate::derived_word_store",
+        "crate::live_capture",
+        "crate::live_capture_store",
+        "crate::logic_analyzer",
+        "crate::payload",
+        "crate::sampling_points",
+        "crate::waveform_index",
+        "signal_artifacts",
+    ] {
+        assert!(
+            runtime_sources
+                .iter()
+                .all(|source| !implementation_source(source).contains(forbidden_owner)),
+            "stream execution depends on unrelated owner {forbidden_owner}"
+        );
+    }
+}
+
+#[test]
 fn derived_word_core_is_shared_between_targets() {
     let module = include_str!("derived_word_store/mod.rs");
     let codec = include_str!("derived_word_store/codec.rs");
@@ -195,7 +275,7 @@ fn derived_store_has_one_repository_backed_implementation() {
 fn application_manager_is_a_facade_instead_of_a_target_dependent_alias() {
     let library = include_str!("lib.rs");
     assert!(!library.contains("type AppManager"));
-    let facade = include_str!("app_manager/mod.rs");
+    let facade = include_str!("runtime/app_manager/mod.rs");
     assert!(!facade.contains("target_arch"));
     assert!(facade.contains("mod contract;"));
     assert!(facade.contains("mod cooperative;"));

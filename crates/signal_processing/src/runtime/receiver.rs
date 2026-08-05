@@ -15,7 +15,7 @@ use crossbeam_channel::Receiver as CrossbeamReceiver;
 
 use super::errors::{WorkError, WorkResult};
 use super::sender::ChannelMessage;
-use crate::{OperationGuard, WatchdogHandle};
+use super::watchdog::{OperationGuard, WatchdogHandle};
 
 // ────────────────────────────────────────────────────────────────────────────
 // Receiver — single-channel wrapper
@@ -579,8 +579,8 @@ mod tests {
     use super::*;
 
     // Helper to create a test watchdog
-    fn test_watchdog() -> crate::watchdog::Watchdog {
-        crate::watchdog::Watchdog::new()
+    fn test_watchdog() -> super::super::watchdog::Watchdog {
+        super::super::watchdog::Watchdog::new()
     }
 
     // ── Receiver tests ───────────────────────────────────────────

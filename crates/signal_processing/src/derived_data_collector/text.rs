@@ -5,13 +5,12 @@ use super::collector::{DRAIN_BATCH_SIZE, DerivedDataRetention};
 use super::indexed::{IndexedLaneQuery, IndexedLaneSnapshot, IndexedLaneWriter, indexed_lane};
 use super::storage::in_memory_storage_snapshot;
 use crate::derived_index::{AppendOnlyMipmap, LaneFold, MipmapRecord};
-use crate::errors::WorkResult;
 use crate::events::TextSample;
 use crate::payload::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
     CollectedLaneStorageSnapshot, OpaqueCollectedLaneSnapshot, PayloadAdapter,
 };
-use crate::ports::{InputPort, PortDirection, PortSchema};
+use crate::runtime::{InputPort, PortDirection, PortSchema, WorkResult};
 use crate::{Word, WordPayload};
 
 /// Immutable bounded result of a built-in text-level lane query.

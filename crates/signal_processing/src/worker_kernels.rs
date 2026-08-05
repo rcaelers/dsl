@@ -7,7 +7,7 @@ use super::capture_index_kernel::{
 };
 use super::derived_word_store::{EncodeWordBlockRequest, encode_owned_word_block};
 use super::events::{Word, WordPayload};
-use super::work_executor::WorkerKernelRegistry;
+use crate::runtime::WorkerKernelRegistry;
 
 const ENCODE_WORD_BLOCK_OPERATION: &str = "signal-processing.encode-word-block/v1";
 const BUILD_CAPTURE_INDEX_BLOCK_OPERATION: &str = "signal-processing.build-capture-index-block/v1";

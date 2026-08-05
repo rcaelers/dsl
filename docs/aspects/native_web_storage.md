@@ -198,8 +198,9 @@ accepted by the compiler, runtime, processing factories, dynamic node catalogs, 
 core crate names `PlatformServices` or depends on `logic_analyzer_platform`.
 
 Traits implemented by the adapter crate are supported cross-crate ports re-exported from the crate
-root of their behavioral owner. For example, storage and execution ports belong to
-`signal_processing`, cache-administration ports belong to `logic_analyzer_graph_compiler`, embedded
+root of their behavioral owner. For example, artifact storage ports belong to `signal_artifacts`,
+processing execution and encoded-store ports belong to `signal_processing`, cache-administration
+ports belong to `logic_analyzer_graph_compiler`, embedded
 node-control dialogs belong to `node_graph`, and application dialogs, host commands,
 cache diagnostics, and capture export belong to `logic_analyzer_ui`.
 Making those ports implementable does not expose their concrete native or web dependencies. The
@@ -369,7 +370,7 @@ semantics:
 
 The native repository adapter is an isolated leaf in `logic_analyzer_platform`; it implements
 publication with files and atomic filesystem operations. The platform-independent memory repository
-in `signal_processing` keeps published artifacts in bounded, chunked process-lifetime memory and
+in `signal_artifacts` keeps published artifacts in bounded process-lifetime memory and
 can be selected on any target. Both implementations satisfy the same lifecycle and prepared-source
 conformance fixture. The browser composition adds a platform-owned OPFS mirror without changing
 store, compiler, or viewer behavior.
@@ -382,7 +383,7 @@ and eviction policy, but it cannot produce a hit after the page is reloaded.
 
 Codecs and queries consume `ByteRegion`, which owns a range of an immutable backing and exposes a
 borrowed byte slice for the duration of an operation. The backing is private to
-`signal_processing`.
+`signal_artifacts`.
 
 ```rust
 struct ByteRegion {
@@ -402,7 +403,7 @@ repositories supply `Arc<[u8]>`-backed regions for ranges within one chunk. A re
 cannot expose a stable region for a requested range returns `None`, and the common reader fills an
 owned region through `read_at`. Mmap therefore
 remains an optimization supplied by `logic_analyzer_platform`, not a different storage or indexing
-model inside `signal_processing`.
+model inside `signal_artifacts`.
 
 Large artifacts are chunked. Neither native nor web code requires one artifact, one capture, or one
 index to fit in a single allocation or `usize` range.
@@ -814,11 +815,12 @@ bounded blocks and a repository rather than preloading one contiguous buffer.
 
 ### Ownership
 
-- `signal_processing` owns the prepared-byte-source, artifact-repository, byte-region, execution,
-  capture-store, index, derived-store, cache-format, and query contracts and their shared
-  algorithms. Its chunked-memory repository, owned byte backing, deterministic fakes, and
-  cooperative executor are portable implementations compiled unchanged on every target. It has no
-  target selector or host dependency.
+- `signal_artifacts` owns prepared-byte-source, artifact-repository, and byte-region contracts plus
+  the portable in-memory repository and owned byte backing.
+- `signal_processing` owns execution, capture-store, index, derived-store, cache-format, and query
+  contracts and their shared algorithms. Its deterministic capture implementations and cooperative
+  executor are portable implementations compiled unchanged on every target. It has no target
+  selector or host dependency.
 - `logic_analyzer_processing` owns concrete capture parsers, processing nodes, sinks, the U3Pro16
   device protocol, and portable format behavior. Parsers consume prepared byte sources; the
   U3Pro16 protocol consumes its injected USB transport contract. A complete file-I/O adapter leaf
@@ -848,14 +850,14 @@ bounded blocks and a repository rather than preloading one contiguous buffer.
 The dependency direction points from adapters to contract owners:
 
 ```text
-signal_processing       logic_analyzer_processing       logic_analyzer_ui
-        ^                         ^                            ^
-        +-------------------------+----------------------------+
-                                  |
-                    logic_analyzer_platform
-                                  ^
-                                  |
-                       app_native / app_web
+signal_artifacts   signal_processing   logic_analyzer_processing   logic_analyzer_ui
+        ^                 ^                      ^                       ^
+        +-----------------+----------------------+-----------------------+
+                                           |
+                             logic_analyzer_platform
+                                           ^
+                                           |
+                                app_native / app_web
 ```
 
 Core crates never depend on `logic_analyzer_platform`; doing so would reverse the injection
@@ -927,7 +929,8 @@ An explicitly documented complete file-I/O or USB leaf adapter in
 only host access; its node state, builder, parser or device protocol, and runtime contract remain
 portable.
 
-`signal_processing`, `logic_analyzer_graph_compiler`, `logic_analyzer_graph_nodes`, `node_graph`,
+`signal_artifacts`, `signal_processing`, `logic_analyzer_graph_compiler`,
+`logic_analyzer_graph_nodes`, `node_graph`,
 `logic_analyzer_viewer`, reusable widgets, and `logic_analyzer_ui` contain no target conditionals,
 target-selected files, or target-specific dependencies. Portable processing code in
 `logic_analyzer_processing` follows the same rule. Shared codecs, indexes, cache policy, source

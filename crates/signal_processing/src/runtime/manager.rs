@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex};
 
 use tracing::{debug, error, info};
 
-use super::edge_query::EdgeQuery;
+use super::errors::WorkError;
 use super::node::{
     ConfigOutcome, ConfigurationBoundary, ConfigurationScheduler, InputProtocolCandidate,
     NodeConfig, ProcessNode,
@@ -37,8 +37,9 @@ use super::protocol::ProtocolKind;
 use super::sender::OverflowPolicy;
 use super::type_registry::{ErasedSharedSenders, TYPE_REGISTRY};
 use super::watchdog::Watchdog;
-use crate::errors::WorkError;
-use crate::{SampleKind, WorkExecutor, WorkTask};
+use super::work_executor::{WorkExecutor, WorkTask};
+use crate::SampleKind;
+use crate::edge_query::EdgeQuery;
 
 /// One input wire of a node being added: which producer list to join.
 #[derive(Debug, Clone)]
@@ -332,7 +333,7 @@ struct RunningNode {
 
 /// Supervisor for a live, threaded graph that may be edited while running.
 ///
-/// Unlike [`crate::Pipeline`], this manager owns shared subscriber lists so
+/// Unlike [`Pipeline`](super::pipeline::Pipeline), this manager owns shared subscriber lists so
 /// adding, removing, or restarting a node changes only the affected branch.
 pub struct PipelineManager {
     nodes: HashMap<String, RunningNode>,
@@ -1024,12 +1025,12 @@ mod tests {
     use std::thread::JoinHandle;
     use std::time::Duration;
 
+    use super::super::errors::WorkResult;
+    use super::super::node::{ConfigValue, WorkOutcome};
+    use super::super::ports::{PortDirection, PortSchema};
+    use super::super::work_executor::{WorkExecutor, WorkExecutorTask, WorkTask};
     use super::*;
-    use crate::errors::WorkResult;
     use crate::events::NumberSample;
-    use crate::node::{ConfigValue, WorkOutcome};
-    use crate::ports::{PortDirection, PortSchema};
-    use crate::{WorkExecutor, WorkExecutorTask, WorkTask};
 
     struct TestWorkExecutor;
 
@@ -1099,7 +1100,7 @@ mod tests {
         sender: crossbeam_channel::Sender<()>,
     }
 
-    impl crate::node::NodeCancellation for BlockingCancellation {
+    impl super::super::node::NodeCancellation for BlockingCancellation {
         fn request_cancel(&self) {
             let _ = self.sender.try_send(());
         }
@@ -1178,7 +1179,7 @@ mod tests {
             0
         }
 
-        fn cancellation(&self) -> Option<Arc<dyn crate::node::NodeCancellation>> {
+        fn cancellation(&self) -> Option<Arc<dyn super::super::node::NodeCancellation>> {
             Some(self.cancellation.clone())
         }
 
@@ -1855,14 +1856,14 @@ mod tests {
         fn total_samples(&self) -> u64 {
             100
         }
-        fn value_at(&self, _position: u64) -> crate::Result<bool> {
+        fn value_at(&self, _position: u64) -> super::super::errors::Result<bool> {
             Ok(true)
         }
         fn next_edge(
             &self,
             _position: u64,
             _limit: u64,
-        ) -> crate::Result<Option<CaptureTransition>> {
+        ) -> super::super::errors::Result<Option<CaptureTransition>> {
             Ok(None)
         }
     }

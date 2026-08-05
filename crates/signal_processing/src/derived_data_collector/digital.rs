@@ -6,12 +6,11 @@ use super::indexed::{IndexedLaneQuery, IndexedLaneSnapshot, IndexedLaneWriter, i
 use super::storage::in_memory_storage_snapshot;
 use crate::Word;
 use crate::derived_index::{AppendOnlyMipmap, LaneFold, MipmapRecord};
-use crate::errors::WorkResult;
 use crate::payload::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
     CollectedLaneStorageSnapshot, OpaqueCollectedLaneSnapshot, PayloadAdapter,
 };
-use crate::ports::{InputPort, PortDirection, PortSchema};
+use crate::runtime::{InputPort, PortDirection, PortSchema, WorkResult};
 use crate::sample::Sample;
 
 /// Immutable bounded result of a built-in digital-lane query.

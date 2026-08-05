@@ -24,7 +24,7 @@ use tracing::{debug, error, info};
 use super::node::ProcessNode;
 use super::ports::{InputPort, OutputPort};
 use super::watchdog::Watchdog;
-use crate::{WorkExecutor, WorkTask};
+use super::work_executor::{WorkExecutor, WorkTask};
 
 /// Threaded runtime owner for a statically built streaming graph.
 ///
@@ -220,11 +220,11 @@ mod tests {
 
     use crossbeam_channel::bounded;
 
+    use super::super::errors::{WorkError, WorkResult};
+    use super::super::node::ProcessNode;
+    use super::super::sender::ChannelMessage;
+    use super::super::work_executor::{WorkExecutor, WorkExecutorTask, WorkTask};
     use super::*;
-    use crate::errors::{WorkError, WorkResult};
-    use crate::node::ProcessNode;
-    use crate::sender::ChannelMessage;
-    use crate::{WorkExecutor, WorkExecutorTask, WorkTask};
 
     struct TestWorkExecutor;
 
@@ -346,11 +346,11 @@ mod tests {
         };
 
         // Create test watchdog
-        let watchdog = crate::watchdog::Watchdog::new();
+        let watchdog = super::super::watchdog::Watchdog::new();
 
         // Source has 0 inputs, 1 output
         let source_outputs = vec![OutputPort::new_with_watchdog(
-            crate::sender::Sender::new(vec![tx]),
+            super::super::sender::Sender::new(vec![tx]),
             &watchdog,
             "test_source",
             "output",

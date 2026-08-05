@@ -317,11 +317,11 @@ fn terminal_sequence(message: &WorkerMessage) -> u64 {
 
 #[cfg(test)]
 mod worker_operation_queue_tests {
-    use super::{WorkerHostCommand, WorkerOperationQueue};
-    use crate::{
+    use super::super::work_executor::{
         CooperativeWorkerOperationExecutor, WorkerKernelRegistry, WorkerMessage, WorkerOperation,
         WorkerOperationExecutor, WorkerRequest,
     };
+    use super::{WorkerHostCommand, WorkerOperationQueue};
 
     fn operation() -> WorkerOperation {
         WorkerOperation::new("org.example.operation/v1").unwrap()

@@ -165,14 +165,16 @@ signal_runtime
 | Proposed owner | Responsibility | Current material |
 | --- | --- | --- |
 | `signal_artifacts` | Platform-neutral immutable byte regions, artifact identities, repository contracts, in-memory implementation, and replication | `crates/signal_artifacts` |
-| `signal_runtime` | Typed ports and channels, `ProcessNode`, pipeline construction, schedulers, managers, generic work execution, and runtime errors | `node`, `ports`, `sender`, `receiver`, `pipeline`, `scheduler`, `manager`, `cooperative_manager`, `work_executor` |
+| `signal_runtime` | Typed ports and channels, `ProcessNode`, pipeline construction, schedulers, managers, generic work execution, and runtime errors | private `signal_processing::runtime` owner |
 | `signal_capture` | Generic capture source/index/query contracts and finite waveform indexing | `capture`, `waveform_index`, sample/edge query types |
 | `signal_derived` | Generic payload registration, collected-lane contracts, sampling points, derived indexes, and encoded derived stores | `payload`, `derived_data_collector`, `derived_word_store`, `sampling_points`, `derived_index` |
 | `signal_capture_session` | Driver-neutral acquisition lifecycle, session storage, capture policy, and trigger-program contracts | `live_capture`, `live_capture_store`, `capture_policy`, `advanced_trigger`, current `logic_analyzer` contracts |
 
 The remaining decomposition is proposed future structure, not a mandate to create four more crates
-immediately. The next safe change is to establish the remaining private owner facades inside
-`signal_processing`, eliminate cross-domain leaf imports, and give each facade a design document.
+immediately. Stream execution is grouped behind the private `signal_processing::runtime` owner
+facade, with tests excluding storage, indexing, session, payload, and artifact dependencies. The
+next safe changes establish equivalent capture, derived-data, and capture-session facades and
+replace the runtime's remaining capture-specific negotiation dependencies with generic contracts.
 Further extraction occurs only after the dependency direction is mechanically verified.
 
 The umbrella name `signal_processing` remains suitable only if it exposes a curated compatibility

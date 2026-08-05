@@ -6,14 +6,15 @@ use std::sync::Arc;
 
 use tracing::{debug, info};
 
-use super::edge_query::EdgeQuery;
 use super::errors::ConnectionError;
 use super::node::{InputProtocolCandidate, ProcessNode};
 use super::ports::{InputPort, OutputPort, PortSchema};
 use super::protocol::ProtocolKind;
-use super::sample::SampleBlock;
 use super::scheduler::Scheduler;
 use super::type_registry::{LabeledSenderBox, TYPE_REGISTRY};
+use super::work_executor::WorkExecutor;
+use crate::edge_query::EdgeQuery;
+use crate::sample::SampleBlock;
 
 const DEFAULT_SAMPLE_BLOCK_BUFFER_SIZE: usize = 2;
 const DEFAULT_WORD_BUFFER_SIZE: usize = 8;
@@ -357,10 +358,7 @@ impl Pipeline {
     /// # Parameters
     ///
     /// - `work_executor`: Host capability that runs node and watchdog tasks.
-    pub fn build(
-        mut self,
-        work_executor: Arc<dyn crate::WorkExecutor>,
-    ) -> Result<Scheduler, String> {
+    pub fn build(mut self, work_executor: Arc<dyn WorkExecutor>) -> Result<Scheduler, String> {
         info!(
             "Building pipeline with {} nodes and {} connections",
             self.nodes.len(),
@@ -630,13 +628,14 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread::JoinHandle;
 
+    use super::super::node::ProcessNode;
+    use super::super::ports::PortSchema;
+    use super::super::work_executor::{WorkExecutor, WorkExecutorTask, WorkTask};
     use super::*;
+    use crate::SampleKind;
     use crate::capture::CaptureTransition;
     use crate::edge_query::EdgeQuery;
-    use crate::node::ProcessNode;
-    use crate::ports::PortSchema;
     use crate::sample::Sample;
-    use crate::{SampleKind, WorkExecutor, WorkExecutorTask, WorkTask};
 
     struct TestWorkExecutor;
 
@@ -687,7 +686,7 @@ mod tests {
             1
         }
 
-        fn value_at(&self, _position: u64) -> crate::Result<bool> {
+        fn value_at(&self, _position: u64) -> super::super::errors::Result<bool> {
             Ok(false)
         }
 
@@ -695,7 +694,7 @@ mod tests {
             &self,
             _position: u64,
             _limit: u64,
-        ) -> crate::Result<Option<CaptureTransition>> {
+        ) -> super::super::errors::Result<Option<CaptureTransition>> {
             Ok(None)
         }
     }
@@ -717,7 +716,7 @@ mod tests {
 
         fn output_schema(&self) -> Vec<PortSchema> {
             vec![
-                PortSchema::new::<Sample>("out", 0, crate::ports::PortDirection::Output)
+                PortSchema::new::<Sample>("out", 0, super::super::ports::PortDirection::Output)
                     .with_protocols(vec![ProtocolKind::Stream, ProtocolKind::EdgeQuery]),
             ]
         }
@@ -726,8 +725,8 @@ mod tests {
             &mut self,
             _inputs: &[InputPort],
             _outputs: &[OutputPort],
-        ) -> crate::errors::WorkResult<usize> {
-            Err(crate::errors::WorkError::Shutdown)
+        ) -> super::super::errors::WorkResult<usize> {
+            Err(super::super::errors::WorkError::Shutdown)
         }
 
         fn edge_query(
@@ -760,13 +759,13 @@ mod tests {
             vec![PortSchema::new::<Sample>(
                 "in",
                 0,
-                crate::ports::PortDirection::Input,
+                super::super::ports::PortDirection::Input,
             )]
         }
 
         fn output_schema(&self) -> Vec<PortSchema> {
             vec![
-                PortSchema::new::<Sample>("out", 0, crate::ports::PortDirection::Output)
+                PortSchema::new::<Sample>("out", 0, super::super::ports::PortDirection::Output)
                     .with_protocols(vec![ProtocolKind::EdgeQuery, ProtocolKind::Stream]),
             ]
         }
@@ -775,8 +774,8 @@ mod tests {
             &mut self,
             _inputs: &[InputPort],
             _outputs: &[OutputPort],
-        ) -> crate::errors::WorkResult<usize> {
-            Err(crate::errors::WorkError::Shutdown)
+        ) -> super::super::errors::WorkResult<usize> {
+            Err(super::super::errors::WorkError::Shutdown)
         }
 
         fn edge_query(
@@ -811,14 +810,14 @@ mod tests {
             vec![PortSchema::new::<Sample>(
                 "out",
                 0,
-                crate::ports::PortDirection::Output,
+                super::super::ports::PortDirection::Output,
             )]
         }
         fn work(
             &mut self,
-            _inputs: &[crate::ports::InputPort],
-            _outputs: &[crate::ports::OutputPort],
-        ) -> crate::errors::WorkResult<usize> {
+            _inputs: &[super::super::ports::InputPort],
+            _outputs: &[super::super::ports::OutputPort],
+        ) -> super::super::errors::WorkResult<usize> {
             Ok(0)
         }
     }
@@ -838,7 +837,7 @@ mod tests {
             vec![PortSchema::new::<Sample>(
                 "in",
                 0,
-                crate::ports::PortDirection::Input,
+                super::super::ports::PortDirection::Input,
             )]
         }
         fn output_schema(&self) -> Vec<PortSchema> {
@@ -846,9 +845,9 @@ mod tests {
         }
         fn work(
             &mut self,
-            _inputs: &[crate::ports::InputPort],
-            _outputs: &[crate::ports::OutputPort],
-        ) -> crate::errors::WorkResult<usize> {
+            _inputs: &[super::super::ports::InputPort],
+            _outputs: &[super::super::ports::OutputPort],
+        ) -> super::super::errors::WorkResult<usize> {
             Ok(0)
         }
     }
@@ -868,21 +867,21 @@ mod tests {
             vec![PortSchema::new::<Sample>(
                 "in",
                 0,
-                crate::ports::PortDirection::Input,
+                super::super::ports::PortDirection::Input,
             )]
         }
         fn output_schema(&self) -> Vec<PortSchema> {
             vec![PortSchema::new::<Sample>(
                 "out",
                 0,
-                crate::ports::PortDirection::Output,
+                super::super::ports::PortDirection::Output,
             )]
         }
         fn work(
             &mut self,
-            _inputs: &[crate::ports::InputPort],
-            _outputs: &[crate::ports::OutputPort],
-        ) -> crate::errors::WorkResult<usize> {
+            _inputs: &[super::super::ports::InputPort],
+            _outputs: &[super::super::ports::OutputPort],
+        ) -> super::super::errors::WorkResult<usize> {
             Ok(0)
         }
     }
@@ -1057,7 +1056,7 @@ mod tests {
         }
         fn output_schema(&self) -> Vec<PortSchema> {
             vec![
-                PortSchema::new::<Sample>("out", 0, crate::ports::PortDirection::Output)
+                PortSchema::new::<Sample>("out", 0, super::super::ports::PortDirection::Output)
                     .with_sample_kinds(vec![SampleKind::Block, SampleKind::Edge]),
             ]
         }
@@ -1065,9 +1064,9 @@ mod tests {
             &mut self,
             _inputs: &[InputPort],
             outputs: &[OutputPort],
-        ) -> crate::errors::WorkResult<usize> {
+        ) -> super::super::errors::WorkResult<usize> {
             if self.sent {
-                return Err(crate::errors::WorkError::Shutdown);
+                return Err(super::super::errors::WorkError::Shutdown);
             }
             self.sent = true;
             if let Some(sender) = outputs[0].get::<Sample>() {
@@ -1097,14 +1096,14 @@ mod tests {
             vec![PortSchema::new::<Sample>(
                 "in",
                 0,
-                crate::ports::PortDirection::Input,
+                super::super::ports::PortDirection::Input,
             )]
         }
         fn work(
             &mut self,
             inputs: &[InputPort],
             _outputs: &[OutputPort],
-        ) -> crate::errors::WorkResult<usize> {
+        ) -> super::super::errors::WorkResult<usize> {
             let mut buf = std::collections::VecDeque::new();
             let mut recv = inputs[0].get::<Sample>(&mut buf).unwrap();
             let item = recv.recv()?;
@@ -1130,14 +1129,14 @@ mod tests {
             vec![PortSchema::new::<SampleBlock>(
                 "in",
                 0,
-                crate::ports::PortDirection::Input,
+                super::super::ports::PortDirection::Input,
             )]
         }
         fn work(
             &mut self,
             inputs: &[InputPort],
             _outputs: &[OutputPort],
-        ) -> crate::errors::WorkResult<usize> {
+        ) -> super::super::errors::WorkResult<usize> {
             let mut buf = std::collections::VecDeque::new();
             let mut recv = inputs[0].get::<SampleBlock>(&mut buf).unwrap();
             let item = recv.recv()?;
@@ -1202,7 +1201,7 @@ mod tests {
         }
         fn output_schema(&self) -> Vec<PortSchema> {
             vec![
-                PortSchema::new::<Sample>("out", 0, crate::ports::PortDirection::Output)
+                PortSchema::new::<Sample>("out", 0, super::super::ports::PortDirection::Output)
                     .with_sample_kinds(vec![SampleKind::Edge]),
             ]
         }
@@ -1210,8 +1209,8 @@ mod tests {
             &mut self,
             _inputs: &[InputPort],
             _outputs: &[OutputPort],
-        ) -> crate::errors::WorkResult<usize> {
-            Err(crate::errors::WorkError::Shutdown)
+        ) -> super::super::errors::WorkResult<usize> {
+            Err(super::super::errors::WorkError::Shutdown)
         }
     }
 
@@ -1233,15 +1232,15 @@ mod tests {
             vec![PortSchema::new::<SampleBlock>(
                 "in",
                 0,
-                crate::ports::PortDirection::Input,
+                super::super::ports::PortDirection::Input,
             )]
         }
         fn work(
             &mut self,
             _inputs: &[InputPort],
             _outputs: &[OutputPort],
-        ) -> crate::errors::WorkResult<usize> {
-            Err(crate::errors::WorkError::Shutdown)
+        ) -> super::super::errors::WorkResult<usize> {
+            Err(super::super::errors::WorkError::Shutdown)
         }
     }
 

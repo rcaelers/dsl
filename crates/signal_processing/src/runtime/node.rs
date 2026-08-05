@@ -5,10 +5,10 @@
 
 use std::sync::Arc;
 
-use super::edge_query::EdgeQuery;
 use super::errors::WorkResult;
-use super::ports::{InputPort, OutputPort};
+use super::ports::{InputPort, OutputPort, PortSchema};
 use super::protocol::ProtocolKind;
+use crate::edge_query::EdgeQuery;
 
 /// Producer capabilities considered while a consumer selects an input transport.
 #[derive(Clone)]
@@ -215,13 +215,13 @@ pub trait ProcessNode: Send {
 
     /// Get schema for all input ports (name + type + index)
     /// Default implementation returns empty list for backward compatibility
-    fn input_schema(&self) -> Vec<crate::ports::PortSchema> {
+    fn input_schema(&self) -> Vec<PortSchema> {
         Vec::new()
     }
 
     /// Get schema for all output ports (name + type + index)
     /// Default implementation returns empty list for backward compatibility
-    fn output_schema(&self) -> Vec<crate::ports::PortSchema> {
+    fn output_schema(&self) -> Vec<PortSchema> {
         Vec::new()
     }
 
@@ -354,10 +354,10 @@ impl ProcessNode for Box<dyn ProcessNode> {
     fn num_outputs(&self) -> usize {
         (**self).num_outputs()
     }
-    fn input_schema(&self) -> Vec<crate::ports::PortSchema> {
+    fn input_schema(&self) -> Vec<PortSchema> {
         (**self).input_schema()
     }
-    fn output_schema(&self) -> Vec<crate::ports::PortSchema> {
+    fn output_schema(&self) -> Vec<PortSchema> {
         (**self).output_schema()
     }
     fn cancellation(&self) -> Option<Arc<dyn NodeCancellation>> {
@@ -399,8 +399,8 @@ impl ProcessNode for Box<dyn ProcessNode> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::ports::{PortDirection, PortSchema};
     use super::*;
-    use crate::ports::{PortDirection, PortSchema};
 
     struct StreamSelectingNode;
 

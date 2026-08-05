@@ -16,9 +16,10 @@ made explicit at its load or migration boundary.
 The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol level:
 
 - `signal_processing` owns generic runtime, capture, storage, indexing, and derived-data
-  contracts. Its root exposes fixed-width byte ranges, stable source identities, prepared
-  random-access sources, immutable byte regions, and portable contiguous or chunked-memory sources. Host paths,
-  files, mappings, and browser handles are absent from those contracts. Its public capture
+  contracts. It consumes fixed-width byte ranges, stable source identities, prepared
+  random-access sources, immutable byte regions, and portable memory sources directly from
+  `signal_artifacts` without re-exporting them. Host paths, files, mappings, and browser handles
+  are absent from those contracts. Its public capture
   vocabulary is `Capture*`; it does not expose DSL, Sigrok, USB, decoder, graph-node, or UI
   terminology.
 - `logic_analyzer_processing` owns concrete capture formats, devices, protocol decoders,
@@ -225,7 +226,8 @@ services.
 `logic_analyzer_platform` is the only reusable crate with general target selection and
 target-specific dependencies. It is an adapter layer above the contract owners:
 
-- `signal_processing` owns storage, byte-region, execution, and capture capability ports;
+- `signal_artifacts` owns artifact-repository, prepared-source, and byte-region capability ports;
+- `signal_processing` owns execution, capture-store, index, and derived-store capability ports;
 - `logic_analyzer_processing` owns concrete format and device behavior and the transport ports that
   behavior consumes;
 - `logic_analyzer_graph_compiler` owns cache-administration and source-preparation ports;

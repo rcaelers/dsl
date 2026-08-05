@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use crossbeam_channel::{SendError, Sender as CrossbeamSender, TrySendError, bounded};
 
-use crate::{OperationGuard, WatchdogHandle};
+use super::watchdog::{OperationGuard, WatchdogHandle};
 
 /// Channel message wrapper for end-of-stream signaling
 ///
@@ -540,7 +540,7 @@ impl<T: Clone + Send> Sender<T> {
         Ok(())
     }
 
-    /// Sends an ordered batch in one channel operation. [`crate::Receiver`]
+    /// Sends an ordered batch in one channel operation. [`Receiver`](super::receiver::Receiver)
     /// transparently flattens the envelope for scalar consumers.
     ///
     /// # Parameters

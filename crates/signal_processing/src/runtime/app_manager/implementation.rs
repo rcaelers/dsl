@@ -1,9 +1,9 @@
 use std::time::Duration;
 
+use super::super::manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec};
+use super::super::node::{ConfigurationBoundary, NodeConfig, ProcessNode};
 use super::contract::AppManagerBackend;
 use super::cooperative::CooperativeAppManagerBackend;
-use crate::manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec};
-use crate::node::{ConfigurationBoundary, NodeConfig, ProcessNode};
 
 /// Platform-neutral facade for owning one graph run.
 ///

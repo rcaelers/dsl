@@ -10,7 +10,6 @@ use crate::derived_word_store::{
     IndexedAnnotationStore, IndexedAnnotationWriter, LiveStoreConfig, LiveStoreMetadata,
     StoreStatus, WordPresenceBucket,
 };
-use crate::errors::WorkResult;
 use crate::events::{Annotation, Word};
 use crate::payload::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
@@ -18,7 +17,7 @@ use crate::payload::{
     CollectedLaneTableRow, CollectedLaneTableSnapshot, OpaqueCollectedLaneSnapshot, PayloadAdapter,
     PayloadRegistry,
 };
-use crate::ports::{InputPort, PortDirection, PortSchema};
+use crate::runtime::{InputPort, PortDirection, PortSchema, WorkResult};
 
 const WORD_DRAIN_BATCH_SIZE: usize = DRAIN_BATCH_SIZE * 2;
 

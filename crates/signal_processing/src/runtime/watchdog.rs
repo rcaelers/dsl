@@ -14,7 +14,7 @@ use tracing::{info, warn};
 // browser and transparently re-exports `std::time` elsewhere.
 use web_time::{SystemTime, UNIX_EPOCH};
 
-use crate::{WorkExecutor, WorkTask};
+use super::work_executor::{WorkExecutor, WorkTask};
 
 /// Timestamp in milliseconds since UNIX_EPOCH
 #[inline(always)]

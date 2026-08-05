@@ -4,10 +4,10 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use super::implementation::{CaptureChannelId, CaptureChunk};
-use crate::errors::{WorkError, WorkResult};
 use crate::live_capture_store::{CaptureCursorItem, CaptureStoreCursor};
-use crate::node::ProcessNode;
-use crate::ports::{InputPort, OutputPort, PortDirection, PortSchema};
+use crate::runtime::{
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
+};
 use crate::sample::{Sample, SampleBlock};
 use crate::sample_kind::SampleKind;
 
@@ -352,8 +352,7 @@ mod tests {
     use super::super::implementation::{CaptureChunk, CaptureSessionId};
     use super::*;
     use crate::live_capture_store::{CaptureCursorItem, CaptureStoreCursor, CaptureStoreResult};
-    use crate::sender::{ChannelMessage, Sender};
-    use crate::watchdog::Watchdog;
+    use crate::runtime::{ChannelMessage, Sender, Watchdog};
 
     struct OffsetCursor {
         next: Option<CaptureChunk>,

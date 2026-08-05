@@ -52,17 +52,17 @@ use std::time::Duration;
 use web_time::Instant;
 
 use super::errors::WorkError;
-use super::events::{NumberSample, TextSample};
 use super::manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec};
 use super::node::{
     ConfigOutcome, ConfigurationBoundary, InputScheduling, NodeConfig, ProcessNode,
     RuntimeExecutionMode,
 };
 use super::ports::{InputPort, OutputPort, PortSchema, StreamReadiness};
-use super::sample::Sample;
 use super::type_registry::{ErasedReceiverReadiness, ErasedSharedSenders, TYPE_REGISTRY};
 use super::watchdog::Watchdog;
 use crate::SampleKind;
+use crate::events::{NumberSample, TextSample};
+use crate::sample::Sample;
 
 /// Level streams get sticky lists; kept in sync with
 /// [`manager::is_level_type`](super::manager) by hand — both are tiny and
@@ -751,11 +751,11 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::Mutex;
 
+    use super::super::errors::WorkResult;
+    use super::super::node::{ConfigValue, WorkOutcome};
+    use super::super::ports::{PortDirection, PortSchema};
     use super::*;
-    use crate::errors::WorkResult;
     use crate::events::NumberSample;
-    use crate::node::{ConfigValue, WorkOutcome};
-    use crate::ports::{PortDirection, PortSchema};
 
     /// Emits `NumberSample { value: i, start_time_ns: i }` for i in 0..max, one
     /// per `work()` call — no pacing needed since the cooperative pump loop
@@ -955,7 +955,7 @@ mod tests {
         scheduled: Arc<Mutex<VecDeque<(ConfigurationBoundary, i64)>>>,
     }
 
-    impl crate::node::ConfigurationScheduler for OffsetConfigurationScheduler {
+    impl super::super::node::ConfigurationScheduler for OffsetConfigurationScheduler {
         fn schedule_config(
             &self,
             config: &NodeConfig,
@@ -1004,7 +1004,9 @@ mod tests {
                 ConfigOutcome::NeedsRestart
             }
         }
-        fn configuration_scheduler(&self) -> Option<Arc<dyn crate::node::ConfigurationScheduler>> {
+        fn configuration_scheduler(
+            &self,
+        ) -> Option<Arc<dyn super::super::node::ConfigurationScheduler>> {
             Some(Arc::new(OffsetConfigurationScheduler {
                 scheduled: Arc::clone(&self.scheduled),
             }))

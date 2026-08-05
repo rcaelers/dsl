@@ -1,10 +1,10 @@
 use std::time::Duration;
 
+use super::super::cooperative_manager::CooperativeManager;
+use super::super::manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec};
+use super::super::node::{ConfigurationBoundary, NodeConfig, ProcessNode};
 use super::contract::{AppManagerBackend, AppManagerFactory};
 use super::implementation::AppManager;
-use crate::cooperative_manager::CooperativeManager;
-use crate::manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec};
-use crate::node::{ConfigurationBoundary, NodeConfig, ProcessNode};
 
 /// Portable [`AppManagerBackend`] that runs graph work on the caller's thread.
 pub struct CooperativeAppManagerBackend {
