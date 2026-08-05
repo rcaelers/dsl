@@ -23,10 +23,10 @@ bench = false
 
 [dependencies]
 signal-capture-session = { path = "../signal_capture_session" }
-signal-capture = { workspace = true }
-signal-derived = { workspace = true }
-signal-runtime = { workspace = true }
-signal-artifacts = { workspace = true }
+signal-capture = { path = "../signal_capture" }
+signal-derived = { path = "../signal_derived" }
+signal-runtime = { path = "../signal_runtime" }
+signal-artifacts = { path = "../signal_artifacts" }
 zip = { workspace = true }
 clap = { workspace = true }
 crossbeam-channel = { workspace = true }

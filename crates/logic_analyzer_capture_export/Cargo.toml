@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 signal-capture-session = { path = "../signal_capture_session" }
-signal-artifacts = { workspace = true }
+signal-artifacts = { path = "../signal_artifacts" }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 zip = { workspace = true }

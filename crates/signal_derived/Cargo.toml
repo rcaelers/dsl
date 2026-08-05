@@ -20,9 +20,9 @@ bench = false
 [dependencies]
 blake3 = { workspace = true }
 crossbeam-channel = { workspace = true }
-signal-artifacts = { workspace = true }
-signal-capture = { workspace = true }
-signal-runtime = { workspace = true }
+signal-artifacts = { path = "../signal_artifacts" }
+signal-capture = { path = "../signal_capture" }
+signal-runtime = { path = "../signal_runtime" }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 web-time = { workspace = true }

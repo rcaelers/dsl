@@ -11,8 +11,8 @@ path = "src/lib.rs"
 
 [dependencies]
 signal-capture-session = { path = "../signal_capture_session" }
-signal-derived = { workspace = true }
-signal-artifacts = { workspace = true }
+signal-derived = { path = "../signal_derived" }
+signal-artifacts = { path = "../signal_artifacts" }
 
 [dev-dependencies]
 tempfile = { workspace = true }

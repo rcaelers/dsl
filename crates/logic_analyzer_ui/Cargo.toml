@@ -11,10 +11,10 @@ path = "src/lib.rs"
 [dependencies]
 input-bindings = { path = "../input_bindings" }
 signal-capture-session = { path = "../signal_capture_session" }
-signal-capture = { workspace = true }
-signal-derived = { workspace = true }
-signal-runtime = { workspace = true }
-signal-artifacts = { workspace = true }
+signal-capture = { path = "../signal_capture" }
+signal-derived = { path = "../signal_derived" }
+signal-runtime = { path = "../signal_runtime" }
+signal-artifacts = { path = "../signal_artifacts" }
 logic-analyzer-graph-compiler = { path = "../logic_analyzer_graph_compiler" }
 logic-analyzer-graph-orchestration = { path = "../logic_analyzer_graph_orchestration" }
 logic-analyzer-graph-plan = { path = "../logic_analyzer_graph_plan" }

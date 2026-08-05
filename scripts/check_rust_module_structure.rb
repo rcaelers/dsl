@@ -94,6 +94,25 @@ end
 
 files = SOURCE_GLOBS.flat_map { |glob| Dir.glob(File.join(ROOT, glob)) }.sort
 
+manifest_paths = [File.join(ROOT, "Cargo.toml")] +
+                 Dir.glob(File.join(ROOT, "{crates,plugins}/**/Cargo.toml")).sort
+manifest_paths.each do |manifest_path|
+  File.read(manifest_path).each_line.with_index(1) do |line, line_number|
+    next unless line.match?(/^signal-[A-Za-z0-9_-]+\s*=\s*\{[^}]*\bworkspace\s*=\s*true/)
+
+    errors << "#{relative(manifest_path)}:#{line_number}: internal signal crates use explicit path dependencies"
+  end
+end
+
+workspace_dependencies = File.read(File.join(ROOT, "Cargo.toml"))
+                             .split(/^\[package\]\s*$/, 2)
+                             .first
+workspace_dependencies.each_line.with_index(1) do |line, line_number|
+  next unless line.match?(/^signal-[A-Za-z0-9_-]+\s*=/)
+
+  errors << "Cargo.toml:#{line_number}: internal signal crates do not belong in workspace dependencies"
+end
+
 ui_compiler_free_functions = %w[
   apply_live_capture_edit
   derived_cache_configs_by_node

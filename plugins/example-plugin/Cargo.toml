@@ -8,9 +8,9 @@ name = "example_plugin"
 path = "src/lib.rs"
 
 [dependencies]
-signal-capture = { workspace = true }
-signal-derived = { workspace = true }
-signal-runtime = { workspace = true }
+signal-capture = { path = "../../crates/signal_capture" }
+signal-derived = { path = "../../crates/signal_derived" }
+signal-runtime = { path = "../../crates/signal_runtime" }
 logic-analyzer-graph-capabilities = { path = "../../crates/logic_analyzer_graph_capabilities" }
 logic-analyzer-graph-registry = { path = "../../crates/logic_analyzer_graph_registry" }
 logic-analyzer-ui = { path = "../../crates/logic_analyzer_ui" }

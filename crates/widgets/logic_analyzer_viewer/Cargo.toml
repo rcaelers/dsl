@@ -11,9 +11,9 @@ path = "src/lib.rs"
 [dependencies]
 input-bindings = { path = "../../input_bindings" }
 signal-capture-session = { path = "../../signal_capture_session" }
-signal-capture = { workspace = true }
-signal-derived = { workspace = true }
-signal-artifacts = { workspace = true }
+signal-capture = { path = "../../signal_capture" }
+signal-derived = { path = "../../signal_derived" }
+signal-artifacts = { path = "../../signal_artifacts" }
 egui = { workspace = true }
 web-time = { workspace = true }
 inventory = { workspace = true }

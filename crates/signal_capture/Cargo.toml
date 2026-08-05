@@ -16,6 +16,6 @@ blake3 = { workspace = true }
 crossbeam-channel = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-signal-artifacts = { workspace = true }
-signal-runtime = { workspace = true }
+signal-artifacts = { path = "../signal_artifacts" }
+signal-runtime = { path = "../signal_runtime" }
 thiserror = { workspace = true }

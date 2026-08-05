@@ -16,6 +16,6 @@ logic-analyzer-graph-runtime = { path = "../logic_analyzer_graph_runtime" }
 node-graph = { path = "../widgets/node_graph" }
 serde = { workspace = true }
 serde_json = { workspace = true }
-signal-derived = { workspace = true }
-signal-runtime = { workspace = true }
-signal-artifacts = { workspace = true }
+signal-derived = { path = "../signal_derived" }
+signal-runtime = { path = "../signal_runtime" }
+signal-artifacts = { path = "../signal_artifacts" }

@@ -12,10 +12,10 @@ name = "signal_capture_session"
 path = "src/lib.rs"
 
 [dependencies]
-signal-artifacts = { workspace = true }
-signal-capture = { workspace = true }
-signal-derived = { workspace = true }
-signal-runtime = { workspace = true }
+signal-artifacts = { path = "../signal_artifacts" }
+signal-capture = { path = "../signal_capture" }
+signal-derived = { path = "../signal_derived" }
+signal-runtime = { path = "../signal_runtime" }
 thiserror = { workspace = true }
 crossbeam-channel = { workspace = true }
 tracing = { workspace = true }

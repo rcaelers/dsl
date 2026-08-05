@@ -35,10 +35,6 @@ web-time = "1.1.0"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 inventory = "0.3.24"
 pyo3 = "0.29.0"
-signal-artifacts = { path = "crates/signal_artifacts" }
-signal-capture = { path = "crates/signal_capture" }
-signal-derived = { path = "crates/signal_derived" }
-signal-runtime = { path = "crates/signal_runtime" }
 
 [package]
 name = "logic-analyzer-examples"
@@ -81,10 +77,10 @@ logic-analyzer-ui = { path = "crates/logic_analyzer_ui" }
 logic-analyzer-viewer = { path = "crates/widgets/logic_analyzer_viewer" }
 node-graph = { path = "crates/widgets/node_graph" }
 signal-capture-session = { path = "crates/signal_capture_session" }
-signal-capture = { workspace = true }
-signal-derived = { workspace = true }
-signal-runtime = { workspace = true }
-signal-artifacts = { workspace = true }
+signal-capture = { path = "crates/signal_capture" }
+signal-derived = { path = "crates/signal_derived" }
+signal-runtime = { path = "crates/signal_runtime" }
+signal-artifacts = { path = "crates/signal_artifacts" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
