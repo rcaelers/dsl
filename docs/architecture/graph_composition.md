@@ -92,6 +92,25 @@ builder interface:
 | `GraphNodePresentation` | Protocol-neutral lane, table, sampling-overlay, and source-channel metadata resolved during lowering |
 | `TimelineFeature` | Timeline-marker discovery, references, and node-owned edits |
 
+Capabilities are separate contracts rather than one object serving every consumer, so a node that
+participates in editing, lowering, and execution registers each role independently. A timeline
+marker source, for example, registers timeline editing, document semantics, and runtime
+materialization as three distinct contracts, and each consumer sees only the one it owns.
+
+### Host capability overrides
+
+A host override replaces individual capability fields of the registration with a matching stable
+ID; it does not replace the registration. `GraphNodeCapabilityOverride` carries an optional value
+per capability, and snapshot construction rejects an override whose stable ID matches no
+registration.
+
+Host backends override only `RuntimeMaterializer`. Document semantics, port kinds, presentation,
+serialized state, and migrations stay with the generic registration, so a saved graph carries no
+host-specific meaning: the same document opens on native and web, and only its execution differs.
+The Sigrok decoder is the reference case — the native host supplies a materializer backed by the
+Python decoder host, while an unavailable backend leaves the same node definition intact and
+reports a runtime error rather than changing what the document means.
+
 `PayloadRegistration` associates a stable payload identity and runtime `PortKind` with a type-erased
 ingestion adapter, default lane presentation, request customization, and persistent-cache support.
 `ProtocolPacketPresentationRegistration` associates protocol packet identities with display
@@ -148,6 +167,12 @@ the UI projection.
 Stable graph-node IDs, payload IDs, definition names, serialized node state, and namespaced graph
 extensions are persisted contracts. Each concrete node owns decoding and migration of its state
 and reports user-visible warnings when a saved form is transformed or cannot be restored.
+
+A renamed node keeps its former definition name as a saved alias owned by the node itself, so
+documents written before the rename still resolve. `Parallel Decoder` retains the `Binary Decoder`
+alias this way, and the alias reports a user-visible warning naming its replacement. Generic
+registry, compiler, and viewer code performs no name-based inference; only the owning node knows
+its own history.
 
 At the UI document boundary, persisted Viewer nodes and socket-level `show_in_view` state are
 accepted as compatibility inputs and converted to `logic_analyzer_graph.viewer_selections`.

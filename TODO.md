@@ -88,380 +88,56 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ## Refactorings
 
-### Graph-node capability decomposition
+Open items carry a priority and severity tag. Priority: P1 = fix first — active structural
+inversions; P2 = structural corrections queued behind the P1 items; P3 = planned, often alongside
+related work; P4 = later hygiene, or deferred until new evidence promotes it; P5 = blocked on
+another item. Severity: high = structural defect that compounds as code is added, medium =
+localized boundary violation, low = hygiene or cosmetic. Ordering constraints between items are
+noted inline on the dependent item.
 
-- [x] [graph.capabilities.runtime-builder-split] Replace the broad `RuntimeBuilder` contract with
-  explicit capabilities while preserving stable node IDs, payload IDs, saved state, renderer keys,
-  diagnostics, and user-visible migrations.
-  1. [x] Introduce a runtime-only `RuntimeMaterializer` contract and make `ProcessingGraph` retain
-     only that handle plus compiler-projected execution metadata. The graph runtime must not query
-     compiler, discovery, or presentation behavior through the materializer.
-  2. [x] Introduce `GraphNodeSemantics` for port kinds, connection contracts, required inputs,
-     execution-state projection, source/sink classification, and retained-data policy. Make the
-     compiler consume this contract instead of `RuntimeBuilder`.
-  3. [x] Move capture discovery, cache identity, live acquisition, and trigger editing into explicit
-     `CaptureSourceFeature` and `LiveCaptureFeature` registration fields.
-  4. [x] Move lane, decoder-table, sampling-overlay, viewer-output, and timeline metadata/editing
-     into explicit presentation and timeline capability fields consumed only by their owners.
-  5. [x] Change `GraphNodeRegistration` and host overrides to register capability bundles. Reject
-     invalid combinations during registry construction instead of interpreting default methods.
-  6. [x] Migrate built-in nodes and the example plugin one feature family at a time, adding
-     conformance tests before removing the compatibility adapter and `RuntimeBuilder`.
-     - [x] Migrate the Logic Gate as the first semantics/materialization-only family and verify its
-       registration through the narrow capability contracts.
-     - [x] Migrate the deterministic capture-source family to explicit capture-source and
-       live-capture capability fields.
-     - [x] Register deterministic capture presentation and timeline-marker metadata through their
-       explicit capability fields.
-     - [x] Migrate the example plugin's nodes to separate semantics and materialization contracts,
-       keeping its custom camera payload presentation owned by the payload registry.
-     - [x] Migrate the buffer, edge detector, SR flip-flop, event gate, event control, and counter
-       primitives to separate semantics and materialization contracts.
-     - [x] Migrate formatter, word-field extraction, word matching, and packet framing, registering
-       their optional display and table presentation through explicit presentation capabilities.
-     - [x] Migrate the built-in I2C, UART, SPI, and parallel decoder family, including the saved
-       Binary Decoder alias, with explicit presentation capabilities.
-     - [x] Migrate timeline marker sources and conversions so timeline editing, lowering, and
-       runtime materialization are three distinct registered contracts.
-     - [x] Migrate the viewer subscription, TGCK recorder, and synthetic UART source, including
-       explicit capture and presentation registration for the synthetic source.
-     - [x] Migrate platform-overridable file/device sources and file sinks to narrow host override
-       bundles, and make their native/web parity harness consume the same explicit capabilities.
-     - [x] Migrate the host-overridable Sigrok decoder so saved protocol semantics remain generic
-       while only runtime materialization is replaced by the host backend.
-     - [x] Migrate the compiler-owned retained-data collectors to explicit semantics and
-       materialization bundles, then remove the compatibility adapter and broad contract.
-  7. [x] Tighten manifests and architecture tests so graph plan/runtime no longer acquire compiler
-     or presentation dependencies transitively through graph capabilities.
-- [x] [graph.catalog.portable-service] Move `DirectoryNodeCatalog` and its `PathBuf` configuration
-  out of graph capabilities. The UI owns a portable catalog snapshot/settings service and
-  `logic_analyzer_platform` owns directory selection, persistence, and scanning.
-- [x] [graph.presentation.registry-ownership] Move protocol-packet presentation inventory
-  collection from graph capabilities to graph registry; capability crates define contracts but do
-  not assemble inventories.
+This file holds only open work. A completed item is removed once its outcome is documented: the
+resulting architecture belongs in `docs/architecture/` or `docs/aspects/`, and performance
+evidence, including rejected approaches, belongs in
+[Performance Design and Measurement Record](docs/aspects/performance.md).
+
+Every P1–P3 item has design and implementation direction — current wiring, target shape,
+ordered steps, and acceptance checks — in
+[P1/P2 Refactoring Directions](docs/plans/refactoring_p1_p2.md) and
+[P3 Refactoring Directions](docs/plans/refactoring_p3.md). Read the item's section, and the
+ground rules at the top of the P1/P2 document, before starting one of these items.
+The dependency graph is consistent with the priority ordering: the two P1 composition items plus
+[tests.architecture-structural] and the [signal.tier-naming] decision unblock almost everything
+else, and no P3 item gates a P2.
 
 ### Capture indexing and caching
 
-- [capture.index.acceleration] Improve finite waveform-index and cache-generation throughput in this
-  order:
-  1. [x] Profile representative captures, reporting separate read/decompression, packed-block
-     handoff/copy, summary-kernel, and artifact-publication timings. The initial `scan.dsl` cold
-     build attributes 1.61 s of its 1.66 s wall time to source reading/decompression; summary work
-     consumes 0.38 cumulative CPU-seconds, while copying and in-memory artifact publication consume
-     about 22 ms and 15 ms respectively. After CPU optimization, a second 2.73 GB packed-input
-     profile completes in 1.71 s with 7.66 cumulative worker-seconds in reads and 0.73 in summaries,
-     confirming source reading/decompression remains the critical path.
-  2. [x] Optimize the CPU path first: remove avoidable packed-block copies and keep bounded source
-     read, CPU summary, and artifact-write work pipelined through the existing host executor. Local
-     workers retain shared `BlockData` backing, each bounded worker owns one source reader, and the
-     coordinator publishes completed leaves in per-channel order. Five post-change `scan.dsl` runs
-     have a 0.76 s median, versus 1.66–1.69 s before the change, for an approximately 2.2× median
-     speedup with zero handoff-copy time. Isolated native-durable profiles identify the next
-     bottleneck: publishing 605 leaf files takes about 3.4 s of a 3.44–4.04 s parallel build, and
-     publishing 1,309 leaf files takes about 7.56 s of a 7.59–8.49 s parallel build. Two and four
-     workers perform equivalently within about 1% on both captures, while 20 workers are 11–17%
-     slower and consume more CPU. Do not impose that native result as a generic executor cap;
-     remove the per-leaf publication overhead instead.
-  3. [ ] Prototype a batched GPU implementation only for the regular packed digital waveform-summary
+- [capture.index.acceleration] (P4 · low) Improve finite waveform-index and cache-generation
+  throughput. Profiling and CPU-path optimization are complete; source reading and decompression
+  are the critical path and the summary kernel is not. See
+  [Performance Design and Measurement Record](docs/aspects/performance.md), "Waveform index
+  generation". Remaining steps:
+  1. [ ] Prototype a batched GPU implementation only for the regular packed digital waveform-summary
      kernel, retaining it only when it beats the optimized CPU baseline while producing bit-exact
      leaf artifacts with the same cancellation, bounded-memory, and progress behavior. The current
      20-worker profiles do not justify starting this prototype: summary work is already off the
      critical path, and GPU dispatch would additionally transfer 1.25–2.73 GB of packed input.
-  4. [ ] Preserve platform boundaries: `signal_capture` owns only the portable kernel contract and
+  2. [ ] Preserve platform boundaries: `signal_capture` owns only the portable kernel contract and
      CPU fallback; `logic_analyzer_platform` owns native and WebGPU adapters, capability
      discovery, batching, and unavailable-GPU handling. Do not add target conditionals or GPU
      dependencies to portable processing, viewer, compiler, or concrete-node crates. Keep
      decompression, source I/O, protocol decoding, and derived-data caching on their current CPU
      paths unless measurements identify a separate regular, transfer-efficient kernel.
 
-- [x] [capture.index.segmented-artifacts] Replace one-file-per-waveform-leaf publication with
-  bounded immutable segment artifacts and record each leaf's segment offset and length in the root.
-  The format groups 64 channel-major leaves per segment, retains a four-segment immutable-region
-  cache, publishes the root last, and rejects pre-segment format versions for automatic rebuild.
-  `scan.dsl` now publishes 10 segments instead of 605 leaves; durable publication falls from about
-  3.4 s to 0.10 s and the best sweep wall time falls from 3.44 s to 0.34 s. The 1,309-leaf capture
-  publishes 21 segments; publication falls from about 7.56 s to 0.18 s and best wall time falls from
-  7.59 s to 0.60 s. Both post-change sweeps peak at 12 workers and regress at 16–20, so finite index
-  builds cap their bounded worker pool at 12 to preserve host capacity and responsiveness.
-
-### Derived-data storage
-
-- [x] [derived.storage.profile] Profile graph-level derived cache generation with a prebuilt
-  waveform index and an isolated native durable repository. `scan.dsl` publishes 2,753 immutable
-  block files containing 591 MB and spends 2.61 cumulative seconds in block create/write/truncate/
-  rename calls during a 3.04 s pipeline; its 14 final index/manifest pairs consume about 0.37
-  cumulative seconds including durability barriers. The larger capture publishes 3,237 block files
-  containing 741 MB and spends 3.02 cumulative seconds in those calls during a 4.02 s pipeline;
-  final index/manifest publication consumes about 0.33 cumulative seconds. Repository call times
-  can overlap, but the artifact counts, system CPU, and scaling consistently identify per-block
-  filesystem publication as the storage bottleneck and justify segmentation.
-- [x] [derived.storage.segmented-artifacts] Replace one-file-per-derived-block publication with a
-  bounded number of large immutable segment artifacts. Encode blocks concurrently, append their
-  ordered bytes into segment-sized writable mappings or buffered regions, and publish only complete
-  segments plus the final index/manifest generation. Native mappings rely on ordinary OS page-cache
-  writeback rather than a durability barrier per block; web storage uses the same segment/index
-  model over its injected repository. Preserve atomic generation visibility, cancellation cleanup,
-  exact range queries, cache portability, and corruption validation. Use `logic-conduit run
-  graphs/spi_controlled_decode.json --json` as the end-to-end acceptance benchmark and keep artifact
-  count, bytes, execution time, CPU utilization, and final-publication latency visible in its report.
-  1. [x] Introduce versioned segment keys and extend each persistent directory record with its
-     segment sequence, byte offset, and length; reject the block-per-file index version for rebuild.
-  2. [x] Keep concurrent block encoding, restore sequence order at commit, and append encoded bytes
-     into a bounded active segment without a durability barrier per block; profile the bound across
-     concurrent lanes rather than treating one lane's target as the process-wide memory cost.
-  3. [x] Preserve live queries through a bounded in-memory view of blocks in the unpublished active
-     segment; publish complete segments atomically and release their staging buffers.
-  4. [x] Read exact block ranges from immutable segment regions and retain existing checksum,
-     directory, presence-index, missing-artifact, and corruption validation.
-  5. [x] Migrate cleanup, cancellation, cache inspection, LRU accounting, native/web repository
-     conformance tests, and automatic rebuilding from the prior block namespace.
-  6. [x] Re-run `derived-storage-profile` on both reference captures and accept the format only if
-     it materially reduces artifact count, wall time, and system CPU without regressing output
-     fingerprints, exact queries, or final-publication latency.
-     An 8 MiB per-lane target retains the filesystem gain without the 32 MiB prototype's higher
-     aggregate staging footprint. Across repeated `scan.dsl` runs it publishes 82 segments instead
-     of 2,753 blocks, has a 2.92 s median wall time versus 3.04 s, and has a 2.40 s median system-CPU
-     time versus 3.67 s. The larger capture publishes 99 segments instead of 3,237 blocks, completes
-     in 3.58–3.72 s versus 4.02 s, and consumes 2.79–3.05 s system CPU versus 5.10 s. Stored bytes,
-     word counts, and both output fingerprints are unchanged. The profiler now records each lane's
-     actual index-to-manifest publication span separately from overlapping cumulative repository-call
-     time; the slowest lane is 78 ms for `scan.dsl` and 44 ms for the larger capture.
-
-### Graph execution
-
-- [x] [runtime.performance.post-segmentation] Re-profile and optimize the runtime after derived and
-  waveform artifact segmentation changed the critical path.
-  1. [x] Attribute post-segmentation execution to concrete processing-node work, derived-block
-     encoding, graph scheduling/backpressure, segment publication, and final metadata publication.
-     Report both critical-path wall time and overlapping cumulative CPU/work time.
-  2. [x] Exercise the production viewer while the same durable-cache workload runs, reporting lane
-     query latency, pointer-input frame p50/p95/p99, frames beyond 8/16 ms, CPU utilization, and peak
-     resident memory so throughput changes cannot consume foreground responsiveness.
-  3. [x] Optimize the measured CPU stage on the critical path, preferring bounded batching,
-     allocation reuse, or scheduling/backpressure improvements; preserve output fingerprints,
-     cancellation, exact queries, memory bounds, and native/web behavior.
-  4. [x] Reassess the GPU prototype only after the new CPU baseline. Keep it deferred unless a
-     regular, batchable, transfer-efficient kernel remains on the critical path and an accelerated
-     implementation beats the CPU path without weakening portability or responsiveness.
-     Diagnostic-only executor labels now separate DSL block reading, parallel fragment scans, and
-     derived-block encoding; sampled node metrics expose work-call count, wall latency, and thread
-     CPU without changing execution policy. This found a benchmark/production discrepancy: the old
-     no-backoff probe completes `scan.dsl` in 2.86 s but consumes 21.73 CPU-seconds, while the native
-     runtime's fixed 2 ms idle delay consumes 16.69 CPU-seconds but stretches the same run to 24.62 s.
-     The threaded manager now honors `WorkOutcome::made_progress`, briefly yields through the
-     injected executor, and then uses a 50 us idle backoff. It completes `scan.dsl` in 2.70 s using
-     15.32 CPU-seconds and the larger capture in 3.56 s using 19.92 CPU-seconds, with unchanged output
-     fingerprints. During the durable `scan.dsl` workload, pointer-input frames have 0.50/1.01/1.05
-     ms p50/p95/p99 latency, lane queries have 0.41/0.54/0.67 ms latency, and no frame exceeds 8 ms.
-     Remaining CPU is distributed across source reading, fragment scanning, ordered decoder work,
-     variable-length derived encoding, and sinks rather than one regular transfer-efficient kernel;
-     the GPU prototype therefore remains unjustified.
-
-- [runtime.performance.parallel-merge] Optimize the serialized Parallel Decoder path after fragment
-  scanning.
-  1. [x] Measure input/dispatch, ordered-completion wait, merge/word assembly, sampling-point
-     publication, and output-batch send time separately on both reference captures.
-  2. [x] Reduce the dominant serialized phase with bounded producer-owned batches, fragment
-     coalescing, or allocation reuse while retaining ordered completion and backpressure.
-  3. [x] Verify identical output and derived-lane fingerprints, bounded in-flight/reorder memory,
-     cancellation latency, durable-cache throughput, and concurrent viewer frame/query latency.
-  4. [x] Record whether another CPU optimization remains worthwhile before reconsidering GPU work.
-     Opt-in phase counters showed that completion waiting is negligible and that merge plus durable
-     sampling publication was the largest serialized section. The persistent sampling store now
-     owns an opaque, storage-ready word batch, so the decoder encodes directly into the queued
-     writer's representation instead of first retaining a second `Vec<PackedSamplingPoint>` and
-     converting it during publication. On `scan.dsl`, sampling publication falls from 709 ms to
-     49 ms, merge plus publication from 2.05 s to 1.60 s, and pipeline wall time from 2.70 s to
-     2.43 s. On the larger reference capture, those measurements fall from 845 ms to 52 ms,
-     2.46 s to 1.91 s, and 3.56 s to 3.05 s respectively. Output fingerprints, derived word counts,
-     and stored bytes are unchanged. The existing 65,536-sample fragment bound is retained; the
-     `scan.dsl` peak is 468 MB, while doubling the fragment size had previously raised it to 536 MB
-     for only a small wall-time gain. Cancellation remains bounded by the fragment window. During
-     the durable live-viewer workload, pointer-input frames have 0.50/1.02/1.18 ms p50/p95/p99
-     latency, lane queries have 0.39/0.55/0.68 ms latency, and no frame exceeds 8 ms. Remaining time
-     is split among merge/assembly, fragment scans, source reads, derived encoding, output sends,
-     and sinks; there is still no single transfer-efficient kernel that justifies GPU acceleration.
-
-- [runtime.performance.parallel-output-coalescing] Reduce remaining Parallel Decoder merge/output
-  allocation and envelope overhead.
-  1. [x] Measure output batch count, words per batch, bounded pending capacity, destination fan-out,
-     and the relationship between output-send time and downstream collector calls.
-  2. [x] Reuse one decoder-owned merge batch and coalesce adjacent ordered fragments up to a fixed
-     word bound, flushing the tail before end-of-stream without weakening channel backpressure.
-  3. [x] Compare both reference captures against the 2.43 s and 3.05 s durable baselines; retain the
-     change only with identical output/derived fingerprints and a justified peak-memory tradeoff.
-  4. [x] Re-run cancellation, concurrent viewer latency, native/wasm tests, and lint, then record the
-     next evidence-backed optimization or stop point.
-     The decoder now merges directly into one ordered pending batch bounded at 65,536 words, the
-     maximum output of one existing fragment, and flushes a partial tail through the shared streamed
-     lifecycle before end-of-stream. On `scan.dsl`, 13,830 fragment scans become 2,179 output
-     batches, output-send time falls from 327 ms to 230–242 ms, retained-collector calls fall from
-     129,834 to 41,154, and file-writer calls fall from 8,425 to 2,108. Repeated durable runs complete
-     in 2.25–2.27 s after one 2.45 s cold outlier, versus the 2.43 s prior baseline. On the larger
-     capture, 30,286 fragment scans become 2,728 batches, output-send time falls from 378 ms to 260 ms,
-     retained-collector calls fall from 158,439 to 57,462, and file-writer calls fall from 10,634 to
-     2,635. Repeated runs complete in 2.96–3.00 s versus 3.05 s. Fingerprints, derived word counts,
-     and stored bytes remain identical. The largest observed pending batch is 64,900 words; peak RSS
-     is 436–458 MB on `scan.dsl` and 456–478 MB on the larger capture, below the rejected 536 MB
-     double-fragment experiment. A 32,768-word probe increased send counts without improving wall
-     time or observed peak memory. The concurrent viewer reports 1.41 ms p99 pointer-input frames,
-     0.91 ms p99 queries, and no frame over 8 ms. Further output coalescing is not justified; the
-     next speed investigation should sample the merge loop and derived encoder at function level
-     rather than increase batch or fragment bounds.
-
-- [runtime.performance.merge-encoder-functions] Profile and optimize the remaining merge-loop and
-  derived-word encoder CPU at function level.
-  1. [x] Capture sampled call stacks and per-function attribution for both reference workloads,
-     separating coordinator merge work from queued derived encoding.
-  2. [x] Optimize only the hottest bounded operation while preserving generic storage contracts,
-     concrete-node ownership, ordered output, cancellation, and portable native/wasm source.
-  3. [x] Re-run durable wall/CPU/memory and exact fingerprint comparisons on both captures; revert
-     any change that merely shifts time between overlapping workers or regresses responsiveness.
-  4. [x] Validate the concurrent viewer, cancellation, native/wasm tests, and lint, then record the
-     next evidence-backed target or stop point.
-     Sampled stacks on both captures place packed fragment scanning and generic derived-word block
-     construction ahead of the coordinator merge closure. On the larger capture, representative
-     top-of-stack samples attribute 954 samples to ordered block extension, 791 to block encoding,
-     776 to packed block access, 676 to fragment scanning, 557 to presence summaries, and 516 to
-     the merge closure. Three bounded probes were rejected: fusing encoder eligibility checks and
-     an optimistic constant-cadence encoder path did not improve wall time, while hoisting packed
-     block access out of the per-trigger scan reduced process CPU by about 16% but increased the
-     `scan.dsl` wall time from 2.23 s to 2.51–2.61 s as average parallel utilization fell from about
-     6.5 to 5 cores. All probes retained exact output fingerprints and were reverted. The accepted
-     coalesced-output baseline remains the faster interactive result and retains its previously
-     validated cancellation, viewer-latency, native/wasm, and lint results. There is no justified
-     local merge/encoder micro-optimization to retain. A further investigation would need to treat
-     ownership transfer into generic derived-store builders and worker scheduling as a coordinated
-     critical-path change, rather than optimize another isolated loop.
-
-- [runtime.performance.derived-builder-ownership] Remove avoidable decoded-word copying at the
-  collector-to-derived-store handoff without increasing scheduling latency.
-  1. [x] Measure batch ownership, builder occupancy, allocation reuse, encoder dispatch, and the
-     overlap between collection, encoding, persistence, and the decoder's critical path.
-  2. [x] Add a generic owned-batch writer contract and let an empty block builder adopt a complete
-     ordered input allocation when it fits, retaining the borrowed path for shared callers.
-  3. [x] Compare both reference captures with the coalesced-output baseline, including exact
-     fingerprints, elapsed/CPU time, peak memory, adopted-batch rate, and encoder utilization.
-  4. [x] Retain the change only if end-to-end or interactive latency improves; validate bounded
-     cancellation, concurrent viewer queries, native/wasm tests, and lint, then record a stop point.
-     The collector owns its channel batches, but the approximately 64.9K-word decoder batches and
-     131,072-word derived blocks remain out of phase after the first append. A natural owned-batch
-     adoption therefore removes only the first allocation copy: warmed `scan.dsl` runs complete in
-     2.23–2.24 s and the larger capture in 2.95–2.99 s, indistinguishable from the retained
-     2.25–2.27 s and 2.96–3.00 s ranges. Forcing large owned batches to begin new blocks makes the
-     transfer effective and lowers retained-collector CPU from about 1.26 s to 1.06 s, but doubles
-     the large lane's block count from 1,063 to 2,205, increases total durable derived storage from
-     188.8 MB to 200.7 MB, and slows `scan.dsl` to 2.26–2.33 s. Output fingerprints and word counts
-     remain exact in both probes. Both implementations were reverted; the accepted baseline keeps
-     its existing bounded cancellation and concurrent-viewer results, and the final native/wasm
-     tests and lint pass. Ownership transfer is not useful while the codec requires each encoded
-     block to be one contiguous `Vec<Word>`. Revisit only as part of a segmented-input codec design
-     that can encode owned chunks directly without changing block boundaries or flattening first.
-
-- [runtime.performance.segmented-codec-input] Let derived-word encoding retain owned input chunks
-  while preserving codec block boundaries and durable format identity.
-  1. [x] Replace contiguous builder storage assumptions with a generic segmented word view used by
-     block sizing, presence summaries, hot-tail publication, and encoding.
-  2. [x] Transfer collector-owned batches into the builder, splitting only boundary fragments and
-     preserving the borrowed append contract for shared and incremental callers.
-  3. [x] Compare both reference captures against the retained baseline with identical output and
-     derived fingerprints, block counts, stored bytes, elapsed/CPU time, and peak memory.
-  4. [x] Retain only an end-to-end or interactive improvement; validate cancellation, concurrent
-     viewer queries, native/wasm tests, lint, architecture boundaries, and document the stop point.
-     Two exact-format segmented prototypes retained collector-owned `Vec<Word>` allocations behind
-     shared ranges, including batches split across asynchronous block encoders. Both preserve the
-     `scan.dsl` fingerprint, 136,939,197 derived words, 1,063 Parallel Decoder blocks, and 188.8 MB
-     durable footprint; the larger capture likewise preserves its fingerprint, 171,356,637 words,
-     1,321 blocks, and 235.8 MB footprint. Materializing one reference table per block lowers
-     retained-collector CPU from about 1.26 s to 1.03 s, but raises total CPU from about 14.6 s to
-     15.1 s and produces unstable larger-capture wall times up to 3.25 s. Encoding directly through
-     segmented iterators avoids that table but raises encoder CPU to 5.1 s on `scan.dsl` and
-     6.4–6.5 s on the larger capture; wall time remains 2.23–2.34 s and 2.98–3.06 s, no reliable
-     improvement over the retained 2.25–2.27 s and 2.96–3.00 s baselines. Both implementations
-     were reverted. The final baseline retains its already validated cancellation and concurrent
-     viewer behavior, and native/wasm tests and lint pass. Further decoded-word ownership work is
-     not justified without changing the producer/storage representation end to end so encoding
-     does not pay either a full-word copy, a reference-table pass, or segmented-iterator overhead.
-
-- [runtime.performance.shared-decoded-batches] Evaluate an end-to-end shared decoded-batch
-  representation across producer fan-out and storage consumers.
-  1. [x] Attribute allocation and cloning across decoder merge output, generic port fan-out,
-     retained collection, derived encoding, and file-writer consumption on both references.
-  2. [x] Introduce the smallest protocol-neutral immutable batch contract that lets independent
-     consumers share decoded values while preserving typed payload APIs and backpressure.
-  3. [x] Compare exact output and derived identities, wall/CPU time, peak memory, fan-out copies,
-     cancellation, and concurrent viewer latency against the retained baseline.
-  4. [x] Retain only a measurable end-to-end or interactive improvement; validate native/wasm
-     tests, lint, architecture boundaries, and record the next target or stop point.
-
-  The measured fan-out copy is the decoder's `Vec<Word>` clone for each additional destination;
-  the retained collector then traverses those values again while building its contiguous encoded
-  block. A protocol-neutral `Arc<Vec<T>>` message prototype shared the decoder allocation across
-  the file writer and retained collector, with legacy receivers retaining their existing owned
-  batch behavior. Exact file-output fingerprints, derived word counts, block counts, and durable
-  byte totals stayed unchanged on both references. End-to-end performance regressed, however:
-  `scan.dsl` rose from the retained 2.25–2.27 s range to about 2.98–3.75 s, while the larger capture
-  rose from 2.96–3.00 s to 3.79–3.92 s; total CPU also increased. The prototype was reverted. The
-  result closes shared transport envelopes as a useful next step: eliminating one shallow fan-out
-  clone does not offset shared-ownership and downstream materialization costs, so further work
-  needs a materially different producer/encoding algorithm backed by a new profile, not another
-  ownership wrapper.
-
-- [runtime.performance.native-positional-reads] Reduce native capture and index source I/O overhead
-  without changing the portable random-access contract.
-  1. [x] Sample the retained workload again and separate native file reads/seeks, ZIP inflation,
-     packed summary construction, and downstream runtime work.
-  2. [x] Replace cursor-mutating native reads with positional reads in the platform adapter and the
-     explicitly allowlisted processing file adapter, retaining independent-reader and bounds/error
-     semantics with a non-Unix fallback where required.
-  3. [x] Compare isolated waveform-index generation and both durable runtime references against the
-     retained baseline, including exact artifact/output identities, CPU, wall time, and peak memory.
-  4. [x] Retain only a repeatable improvement; validate native/wasm tests, lint, architecture
-     boundaries, cancellation, and concurrent viewer responsiveness, or revert and record why.
-
-  The refreshed native sample places source reads and ZIP inflation ahead of packed-summary work;
-  seek calls are visible but not themselves dominant. Unix readers in both the platform adapter and
-  the explicitly allowlisted processing adapter now use positional file reads, while non-Unix hosts
-  retain the cursor fallback. Alternating exact-build A/B runs show a small but repeatable effect on
-  the larger reference: warm waveform-index read work falls by about 2–4%, and durable runtime wall
-  time moves from 2.98–3.00 s to 2.91–2.96 s. The smaller capture remains within run-to-run noise at
-  about 2.22–2.30 s after the cold run, so no broader claim is warranted. Both captures preserve
-  their exact output fingerprints, derived word counts, block counts, and durable byte totals; the
-  index profiles preserve 605/1,309 blocks and 1.246/2.729 GB of packed input. Native tests pass
-  (205 processing and 44 platform), wasm checks and lint pass, and the concurrent viewer reports
-  1.22 ms p99 input frames, 0.69 ms p99 queries, and no frame above 8 ms. The improvement comes from
-  a host I/O primitive, not a GPU-suitable kernel; ZIP inflation remains the next measurable index
-  cost, but requires a separate algorithm/backend comparison before changing dependencies or format.
-
-- [capture.index.inflate-backend] Compare portable ZIP/DEFLATE implementations on cold waveform
-  index generation before changing the capture archive stack.
-  1. [x] Identify the active decoder and feature unification: `zip` currently selects `flate2` with
-     the pure-Rust `zlib-rs` backend; unrelated image dependencies also enable `miniz_oxide`.
-  2. [x] Build an otherwise identical `miniz_oxide` candidate and alternate cold and warm index
-     profiles for both captures, preserving ZIP compatibility and exact index dimensions.
-  3. [x] Check whether any faster native-only backend has enough measured headroom to justify an
-     injected platform capability; do not introduce target selection into processing or core code.
-  4. [x] Retain only a portable, repeatable end-to-end improvement; otherwise restore `zlib-rs`,
-     validate the retained native/wasm build, and record the next target or stop point.
-
-  Alternating exact-build profiles reject both alternatives. On `scan.dsl`, warmed `zlib-rs`
-  builds complete in 0.30–0.34 s with 1.84–1.91 cumulative read/decompression CPU-seconds;
-  `miniz_oxide` needs 0.40–0.41 s and 2.82–2.89 CPU-seconds. On the larger capture, warmed
-  `zlib-rs` completes in 0.53–0.56 s with 2.60–2.82 read CPU-seconds, versus 0.70 s and 4.19
-  CPU-seconds for `miniz_oxide`. A native `zlib-ng` upper-bound probe also provides no useful
-  headroom: small-capture warm wall and CPU are slightly worse, while larger-capture wall overlaps
-  and read CPU rises from 2.60 to about 2.80 s. Every backend preserves 605/1,309 blocks and
-  1.246/2.729 GB of packed input. Both prototypes and their dependency changes were reverted;
-  `zlib-rs` remains the portable backend. No injected native decompression capability is justified.
-  Further index acceleration should target archive-level work scheduling or reuse, and must begin
-  with evidence of duplicate decompression on a real critical path rather than another codec swap.
-
 ### Optimization backlog (future, priority order)
 
-The completed investigations above define the retained baseline and the rejected approaches. Apply
-the same acceptance rule to every item below: compare both reference captures, exact output and
-artifact identities, wall and CPU time, peak memory, cancellation bounds, native/wasm behavior, and
-concurrent viewer p99 latency. Do not retain a throughput change that harms foreground response.
+[Performance Design and Measurement Record](docs/aspects/performance.md) holds the retained
+baseline, the reference workloads, and the rejected approaches. Apply the acceptance rule stated
+there to every item below: compare both reference captures, exact output and artifact identities,
+wall and CPU time, peak memory, cancellation bounds, native/wasm behavior, and concurrent viewer
+p99 latency. Do not retain a throughput change that harms foreground response.
+Every unchecked item in this section is P4 until new profiling evidence promotes it; the numbered
+order below is the internal priority. Build [performance.regression-harness] before promoting any
+item here, so acceptance comparisons stop being ad-hoc.
 
 1. **Avoid repeated work across cache and graph generations.** This has the highest likely payoff
    because it can remove complete reads, decompressions, decodes, or encodes instead of making an
@@ -563,38 +239,224 @@ concurrent viewer p99 latency. Do not retain a throughput change that harms fore
      `logic_analyzer_platform`, inject them at composition roots, and expose availability/fallback
      diagnostics. Never make cache identity depend on the selected device.
 
-- [performance.regression-harness] Turn the existing capture benchmarks into an opt-in reproducible
+- [performance.regression-harness] (P3 · medium) Turn the existing capture benchmarks into an opt-in reproducible
   comparison report with warmup policy, alternating A/B order, median and spread, exact identity
   checks, peak RSS, CPU, viewer percentiles, and retained baseline metadata. Keep large captures out
   of ordinary unit tests, but make it difficult to accept noisy or microbenchmark-only improvements.
-- [performance.telemetry-overhead] Measure profiling counters disabled and enabled; sample or aggregate
+  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#performance-regression-harness).
+- [performance.telemetry-overhead] (P4 · low) Measure profiling counters disabled and enabled; sample or aggregate
   hot-path metrics so observability cannot become the bottleneck it is intended to diagnose.
-- [performance.web-baselines] Establish equivalent browser-worker baselines for waveform generation,
+- [performance.web-baselines] (P4 · medium) Establish equivalent browser-worker baselines for waveform generation,
   derived caching, graph edits, and viewer input latency using the same artifact identities and
   bounded-memory rules. Native improvements are not assumed to help wasm without measurements.
 
-- [graph.execution.debounced-live-sync] Replace fixed-interval semantic graph polling with an
+- [graph.execution.debounced-live-sync] (P3 · medium) Replace fixed-interval semantic graph polling with an
   event-driven dirty revision and a true debounce: reset the quiet-period timer after every
   processing-relevant edit, lower only the latest immutable graph revision after the quiet period,
   and discard stale results when a newer revision exists. Perform lowering and edit-plan
   preparation away from the UI thread, keep runtime application ordered through its control
   boundary, and leave periodic progress reporting independent from graph synchronization.
+  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#graph-execution-debounced-live-sync).
 
 ### Capture provider and host architecture
 
-- [capture.live.provider-unification] Represent file and live sources through one generic capture
+- [capture.live.provider-unification] (P3 · medium) Represent file and live sources through one generic capture
   data-provider contract for presentation, readiness, cache/index availability, and data access.
   Providers advertise optional acquisition commands and capabilities, so file sources do not
   pretend to support live acquisition and the application does not branch on file-versus-live
   source kinds to publish artifacts or attach viewer data.
-- [capture.live.host-capabilities] Add a host capability that inhibits automatic system sleep while
+  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#capture-live-provider-unification).
+- [capture.live.host-capabilities] (P4 · low) Add a host capability that inhibits automatic system sleep while
   acquisition is active. Where inhibition is unavailable, observe suspend/resume and report it as
   a capture-integrity event. Keep the existing generic lifecycle, integrity, and storage contracts
   in `signal_capture_session`, with no platform conditionals in their consumers.
 
 ### Node-graph extraction
 
-- [graph.extraction.standalone-crate] Prepare `node-graph` for an eventual separate repository: replace workspace-inherited
+- [graph.document-model-extraction] (P2 · medium) Extract the graph document model out of the
+  `node-graph` widget crate. `logic_analyzer_graph_plan`, `logic_analyzer_graph_runtime`, and
+  `logic_analyzer_graph_capabilities` import only `node_graph::api::NodeId` and `Socket`, yet the
+  manifest edge pulls the entire egui widget crate into the plan/runtime/orchestration compile
+  graph and into web workers, contradicting the documented acceptance criterion that the graph
+  runtime has no widget dependency. Move the document identity and state types (`NodeId`,
+  `Socket`, `GraphState`, and their model neighbors) into a small document crate consumed by both
+  the widget and the graph tier, and assert the manifest boundary in an architecture check.
+  Direction, including why the first slice is identities only:
+  [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#graph-document-model-extraction).
+- [graph.extraction.standalone-crate] (P5 · low — blocked by [graph.document-model-extraction])
+  Prepare `node-graph` for an eventual separate repository: replace workspace-inherited
   package/dependency metadata when extraction is scheduled, move its documentation and
   examples with the crate, add standalone CI, and make native file-dialog integration an
   optional feature or host capability.
+
+### Error contracts
+
+- [errors.typed-boundaries] (P3 · medium) Replace `Result<_, String>` on cross-crate contracts with owned error
+  types so failures carry a responsibility and callers can classify them. Roughly 360 signatures
+  use a string error today; `logic_analyzer_platform`, `logic_analyzer_ui`, and `signal_runtime`
+  hold most of them. Work outward from the lowest owner so downstream crates inherit typed
+  failures instead of re-wrapping strings. Sequence step 2 after
+  [composition.host-factory-injection], which relocates the host-override contracts it types.
+  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#errors-typed-boundaries).
+  1. [ ] Give `signal_runtime` a complete error surface next to `ConnectionError`, `PortError`,
+     and `WorkError`, covering manager, executor, and worker-message failures.
+  2. [ ] Type the graph capability and host-override contracts, including
+     `SigrokCatalogScanner`, `SigrokDecoderRuntime::discover`, and `SigrokDecoderRuntime::create`,
+     so a host adapter reports discovery, transport, and configuration failures distinctly.
+  3. [ ] Type source preparation and run diagnostics so `SourcePreparationUpdate::Failed` and the
+     UI's run-message path stop matching on message text.
+  4. [ ] Keep display strings at the presentation boundary only; generic crates map a concrete
+     format or transport failure into their own variant rather than formatting it early.
+
+### Composition and host wiring
+
+- [composition.application-roots] (P1 · high) Make the application crates the composition roots
+  the design describes. `logic_analyzer_platform::standard_services` currently assembles the whole
+  application, so `platform/native.rs` imports `DsLogicU3Pro16SourceFactory`, `SigrokDecoder`,
+  `DslFileSource`, and the file-sink factories by name and applies a hand-maintained list of
+  `*_capability_override` calls. Move node selection and override assembly to `app_native` and
+  `app_web`, leaving the platform crate owning target-selected adapters for contracts defined
+  elsewhere. Adding a device or format must not require editing the platform crate.
+  The manifest edges are themselves the defect: `logic_analyzer_platform` depends on
+  `logic-analyzer-ui`, `logic-analyzer-graph-nodes`, and `logic-analyzer-processing`, placing the
+  adapter crate above the application it should serve. This item removes the `graph-nodes` and
+  `processing` edges by moving node selection and override assembly to the app crates; the UI edge
+  has a different cause and is owned by [composition.platform-ui-inversion]. When both are fixed,
+  an architecture check asserts the platform manifest depends only on contract-defining crates.
+  Direction: [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#composition-application-roots).
+- [composition.platform-ui-inversion] (P1 · high) Remove the `logic_analyzer_platform` →
+  `logic-analyzer-ui` dependency. Platform adapters implement port traits the UI crate defines —
+  `HostService`, `NodeCatalogService`, `CaptureExportService` — and consume UI-owned value types
+  such as `ApplicationSettings`, `HostCommand`, `OpenDialog`, and `APPLICATION_ID`, so the edge
+  survives [composition.application-roots] on its own. Either move those port contracts and value
+  types into a crate below both consumers, or make `app_native`/`app_web` own the adaptation from
+  platform primitives to UI ports. The docs already state the rule this violates: platform
+  implements "capability contracts defined by core crates".
+  Direction: [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#composition-platform-ui-inversion).
+- [composition.host-factory-injection] (P2 · high) Remove the process-global host factory slots in
+  `logic_analyzer_graph_nodes::host_configuration`. The `OnceLock`/`RwLock` slots behind
+  `install_sigrok_catalog_scanner` and `install_file_source_factories` make initialization order
+  significant, prevent two application instances in one process, and prevent tests with different
+  hosts from running concurrently. Carry the factories through the injected service bundle to the
+  capability overrides that need them. Do this together with [composition.application-roots]:
+  moving assembly to the app crates while the global slots remain only relocates the install calls.
+  Direction: [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#composition-host-factory-injection).
+- [derived.cache.global-state] (P3 · medium) Give the decoded-block cache an owned handle instead of the
+  process-global `configure_decoded_block_cache`, `decoded_block_cache_stats`, and `clear_cache`
+  entry points in `signal_derived`. The memory panel and cache commands then act on a service the
+  application owns rather than on ambient state.
+  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#derived-cache-global-state).
+
+### Application state decomposition
+
+- [ui.app.decomposition] (P3 · high) Split `logic_analyzer_ui::App`. One struct with about fifty fields across
+  4,390 lines owns run lifecycle, capture lifecycle, trigger configuration, timeline markers,
+  presentation catalogs, panel state, and notifications, so no field's invariants are stated
+  anywhere. Extract owned types for the graph-run lifecycle, the capture-analysis lifecycle, the
+  presentation catalogs, and the timeline-marker bindings, each holding its own invariants and
+  exposing methods rather than fields. `App` retains composition and frame dispatch. Resolve
+  [ui.graph-service.port-shape] first so the graph-run lifecycle is extracted against the port's
+  final shape, and state the [ui.boundaries.module-ownership] rules before or alongside so the
+  decomposition follows written rules rather than defining them implicitly.
+  Direction, including the field-to-owner grouping:
+  [refactoring_p3.md](docs/plans/refactoring_p3.md#ui-app-decomposition).
+- [ui.capture.coordinator-decomposition] (P3 · high) Split `live_capture/coordinator.rs` along the same lines.
+  Its 2,867 lines mix acquisition commands, event polling, storage publication, and status
+  presentation; the acquisition state machine and the presentation projection are separate owners.
+  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#ui-capture-coordinator-decomposition).
+- [ui.boundaries.module-ownership] (P3 · medium) Extend the owner-boundary rules in
+  `docs/aspects/responsibility_visibility.md` to substantial modules inside a crate. Crate-level
+  ownership statements currently stop at the crate wall, which is why the largest single-owner
+  violations are invisible to the architecture documentation.
+  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#ui-boundaries-module-ownership).
+
+### Crate boundary corrections
+
+- [processing.domain-split] (P2 · high) Split `logic_analyzer_processing`. Its stated responsibility is the
+  negation "concrete", and its 28,000 lines hold a USB device driver, two capture-format parsers,
+  five protocol decoders, a Python decoder host, eleven logic primitives, six sinks, and five
+  benchmark binaries; `clap` and `tracing-subscriber` are library dependencies. Separate the
+  capture formats, the device transports, and the protocol decoders into crates that state a
+  positive responsibility, and move the benchmark and validation binaries out of the library.
+  Decide [signal.tier-naming] first so the split does not re-pose the tier question crate by
+  crate, and do it before the `capture.web.usb-*` backlog adds more transport code to the crate.
+  Direction, including the target crate map and PR ordering:
+  [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#processing-domain-split).
+- [session.domain-relocation] (P3 · medium — after the [signal.tier-naming] decision) Move logic-analyzer vocabulary out of the generic session tier.
+  `signal_capture_session` publishes 129 items and a public `logic_analyzer` module, and the
+  trigger program, trigger schema, and `SimpleTriggerCondition` types it owns are domain concepts
+  that generic acquisition does not need. Decide one boundary and apply it to the whole crate.
+  The trigger vocabulary is the highest-leverage cluster: `logic_analyzer_viewer`
+  (`simple_trigger.rs`) and `logic_analyzer_graph_compiler` also import it from the session
+  crate, so three consumers currently reach into the generic tier for domain types.
+  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#session-domain-relocation).
+- [session.facade-glob] (P4 · low) Replace `pub use live_capture_store::*` in `signal_capture_session` with an
+  explicit re-export list, as the facade rule requires.
+- [derived.payload.builtin-registration] (P3 · medium — after the [signal.tier-naming] decision) Register the built-in derived payload kinds through
+  `PayloadRegistry` like every other payload. `signal_derived` currently has both an open registry
+  and a closed built-in set (`digital_payload_adapter`, `word_payload_adapter`,
+  `trigger_payload_adapter`, `TriggerLaneSnapshot`, `ProtocolPacket`), so the built-ins are the
+  seam where the generic tier erodes. The tier decision determines whether these built-ins become
+  ordinary domain registrations or the open registry closes over a domain vocabulary.
+  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#derived-payload-builtin-registration).
+- [ui.graph-service.port-shape] (P3 · medium) Resolve the `GraphService` port. Its contract is typed in
+  `ProcessingGraph`, `GraphRunContext`, `ApplySummary`, `SourceReadinessRegistry`, and
+  `ProcessingGraphError`, so the UI manifest still depends on the compiler, runtime, plan,
+  orchestration, registry, and capability crates. Either narrow the port to UI-shaped types and
+  drop those dependencies, or remove the indirection and document that the UI owns graph
+  execution. The present shape costs a trait and its adapters without reducing coupling.
+  Review recommendation: remove the trait and document that the UI owns graph execution.
+  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#ui-graph-service-port-shape).
+- [node-graph.category-ordering] (P4 · low) Replace the `category.label == "External Sigrok"` sort key in
+  `node_graph`'s add-menu construction with an ordering value supplied by the category metadata.
+  It is the one place a generic widget branches on a protocol name.
+- [node-graph.single-import-path] (P4 · low — after [graph.document-model-extraction], which reshapes the same crate root) Stop re-exporting the whole `api` namespace from the `node_graph`
+  crate root. Both `node_graph::NodeDef` and `node_graph::api::NodeDef` resolve today, so the
+  documented split between the compiler-facing namespace and the editor facade is unenforced.
+  The crate root additionally re-exports `model::{GraphState, NodeId, …}` and `runtime::{…}`
+  directly, so the same types resolve through three paths, not two.
+
+### Layering vocabulary
+
+- [signal.tier-naming] (P2 decision · high) Settle what the `signal_*` tier promises. The names read as a domain-neutral
+  framework, but the crates own `DigitalLaneSnapshot`, `TriggerLaneSnapshot`, `ProtocolPacket`,
+  `SimpleTriggerCondition`, and a `logic_analyzer` module, and no second domain consumes them.
+  Either rename the tier for this application and let it use domain vocabulary directly, or keep
+  the names and complete the separation. Until one is chosen, no rule decides which side a new
+  type belongs on. Review recommendation: rename the tier for this application and use domain
+  vocabulary directly — no second domain consumes it and the domain types already live there.
+  Make the decision before [processing.domain-split]; executing the rename can follow later.
+  Direction for recording the decision:
+  [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#signal-tier-naming).
+
+### Enforcement and documentation
+
+- [tests.architecture-structural] (P2 · medium) Replace the source-text architecture tests with structural
+  checks. About 1,700 lines across the workspace `include_str!` a sibling file and assert on
+  `.contains("…")`, so they break on a rename or a reformat, pass when the string appears in a
+  comment, and prove nothing about the compiled contract. Enforce dependency direction from the
+  manifests and enforce capability rules by constructing a registry and asserting on the resulting
+  descriptors. Manifest-based checks would have caught the `logic_analyzer_platform` →
+  `logic-analyzer-ui` edge and the widget dependency in the graph execution tier; the string
+  tests did not. Land the manifest checks together with the P1 composition items so the restored
+  boundaries are locked in as they are established.
+  Direction, including the forbidden-edge list:
+  [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#tests-architecture-structural).
+- [docs.drift-correction] (P3 · medium) Correct the design statements the code no longer satisfies: `AGENTS.md`
+  still describes a `signal_processing` crate that no longer exists, and both `AGENTS.md` and
+  `docs/architecture/crate_responsibility.md` describe the application crates as the composition
+  roots and host factories as injected. Normative documents are load-bearing, so each correction
+  either updates the document or is paired with the item above that restores the stated behavior.
+  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#docs-drift-correction).
+- [docs.ownership-statements] (P4 · low) State crate ownership positively. Large parts of
+  `crate_responsibility.md` define a crate by what it excludes; one sentence naming what it owns
+  and the type it hands to the next layer carries more. Keep an exclusion only where the boundary
+  is genuinely surprising.
+- [docs.index-deduplication] (P4 · low) Reduce `docs/INDEX.md` to one entry per document. Most crates appear
+  in three lists, so the index has become a table of contents for itself.
+- [naming.implementation-files] (P3 · low) Rename the repeated `implementation.rs` leaves after the behavior
+  they hold. The name carries no information, collides in editor tabs and search results, and
+  appears 46 times across the node crates. The capability decomposition made this more urgent:
+  `logic_analyzer_graph_nodes` averages about 100 lines per file, so file names now do the
+  navigation work that file contents used to.
+  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#naming-implementation-files).

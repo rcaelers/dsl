@@ -21,6 +21,9 @@
 - [Unified Native and Web Storage Platform Design](aspects/native_web_storage.md)
 - [Live Capture and Trigger Control](aspects/live_capture_trigger.md)
 - [Plugin-Extensible Payload and Presentation Design](aspects/plugin_extensible_payload.md)
+- [Performance Design and Measurement Record](aspects/performance.md) defines the reference
+  workloads, the acceptance rule, the retained baseline, and the experiments performed, including
+  the approaches that were measured and rejected.
 - [Testing Strategy](aspects/testing_strategy.md)
 
 ## Public API documentation
@@ -94,6 +97,7 @@ These supported namespaces are documented at their source facades in Rustdoc:
 ## Quality and supporting references
 
 - [Testing Strategy](aspects/testing_strategy.md)
+- [Performance Design and Measurement Record](aspects/performance.md)
 - [Project backlog](../TODO.md)
 - [CCD AFE register map](references/ccd_afe_registers.md)
 
