@@ -1,10 +1,9 @@
 # `logic_analyzer_viewer` Design
 
-Design of the waveform viewer for large DSLogic `.dsl` captures (multi-GB files) and live
-pipeline output. The goal: zooming and panning stay realtime regardless of capture size,
-indexing runs in the background, the UI thread never blocks on file I/O, ZIP decompression,
-or raw sample scanning — and **every pixel is truthful at any timescale** (the renderer
-never invents edge positions it doesn't know).
+Design of the generic waveform viewer for large finite captures, growing live captures, and
+derived pipeline output. Zooming and panning remain bounded by the visible range, indexing runs
+outside the UI thread, and the renderer never invents an edge position that the query contract
+does not provide.
 
 Implementation:
 
@@ -20,8 +19,7 @@ Implementation:
   [crates/signal_derived/src/derived_data_collector/mod.rs](../../crates/signal_derived/src/derived_data_collector/mod.rs),
   [crates/signal_derived/src/derived_index.rs](../../crates/signal_derived/src/derived_index.rs)
 
-The widget's public API is documented in
-[Logic Analyzer Viewer API](logic_analyzer_viewer_api.md).
+The widget's supported API is documented at the `logic_analyzer_viewer` crate-root facade.
 
 ---
 
@@ -30,13 +28,13 @@ The widget's public API is documented in
 The viewer renders three independent kinds of rows:
 
 1. **Capture channels** — sampled on demand from a host-prepared generic `CaptureIndex`. Concrete
-   graph-source builders own format-specific construction, the compiler owns preparation, and the
+   graph-source builders own format-specific construction, the graph runtime owns preparation, and the
    widget never depends on a file format.
 2. **In-memory channels** — raw `(time, level)` transition lists handed in wholesale
    (`set_channels`), used for host-provided data.
 3. **Derived lanes** — a shared `DerivedLanes` catalog of stable payload descriptors and
-   adapter-owned query handles that running pipeline `Viewer` nodes publish through
-   (`set_derived_lanes`); rendered live beneath the channels through registered presentations.
+   adapter-owned query handles published by compiler-generated collectors and supplied by the UI
+   through `RunData`; rendered through registered presentations.
 
 A single `row_order: Vec<RowKey>` is the only source of truth for display order across all
 row kinds, reconciled every frame (stale rows dropped, new ones appended) before any
@@ -45,9 +43,9 @@ dragging their labels and renamed via double-click (rename maps live in the view
 channel index / lane name — the underlying data is untouched). Two color profiles (DSView
 Tango-based, Classic muted) are selectable from the header bar.
 
-On wasm the compiler uses the same preparation and index contracts with the injected memory
-repository. Host file acquisition remains unavailable until a browser adapter supplies prepared
-bytes, but embedded and owned capture sources use the same indexed presentation as native sources.
+On wasm the graph runtime uses the same preparation and index contracts with the injected browser
+repository. Browser file import produces the same prepared-byte-source contract as native files;
+embedded and imported captures use the same indexed presentation.
 
 ---
 
@@ -65,9 +63,9 @@ Samples are divided into fixed-size **blocks** (`samples_per_block`, commonly `2
 one channel.
 
 Concrete DSL and Sigrok parsers access container entries through the processing-owned
-`CaptureArchive` contract. The native adapter opens ZIP files, while parser and replay-source tests
-inject in-memory archives. ZIP-specific validation remains confined to the adapter and complete
-indexed-reader integration tests.
+`CaptureArchive` contract. The portable `ZipCaptureArchive` opens a prepared byte source acquired
+by the native or browser platform adapter, while parser tests inject in-memory archives.
+ZIP-specific validation remains in the processing format owner.
 
 ---
 
@@ -76,9 +74,9 @@ indexed-reader integration tests.
 ```text
 concrete capture source
   │
-  ├─ graph-owned CaptureIndexFactory     (opaque identity and deferred open)
-  │    └─ compiler source preparation    (preload, cache, and index)
-  │         ├─ background thread         (opens capture and builds/validates index)
+  ├─ graph capability CaptureIndexFactory (opaque identity and deferred open)
+  │    └─ graph-runtime source preparation (preload, cache, and index)
+  │         ├─ host work executor         (opens capture and builds/validates index)
   │         └─ concrete processing reader (DSL, Sigrok, or another registered format)
   │
   ├─ Finite waveform index (crates/signal_capture/src/waveform_index)
@@ -227,7 +225,7 @@ query first reads that block. This cache is separate from the waveform summaries
 ## Index Building
 
 `IndexBuilder::build` ([builder.rs](../../crates/signal_capture/src/waveform_index/builder.rs)) runs
-through the compiler-injected work executor during source preparation:
+through the graph-runtime-injected work executor during source preparation:
 
 1. Enumerate every `(channel, block)` job (`total_probes × total_blocks`).
 2. Submit up to 12 bounded workers through the injected executor, capped by its advertised

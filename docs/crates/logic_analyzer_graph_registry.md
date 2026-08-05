@@ -27,11 +27,12 @@ names. Payload registration validation rejects empty or duplicate stable IDs and
 types. Snapshot construction also validates graph-node payload requirements and rejects unresolved
 host overrides or collisions with consumer-supplied infrastructure capabilities.
 
-## Compatibility
+## Stable identities and deterministic lookup
 
-Moving registration ownership does not change inventory linkage, stable graph-node IDs, payload
-IDs, builder names, serialized graph state, or graph extensions. Enabled built-in and plugin crates
-retain their existing linker anchors.
+Stable graph-node IDs and payload IDs are persisted feature identities. Definition names select
+node behavior in graph documents, while renderer and protocol-presentation keys select registered
+presentation behavior. Enabled built-in and plug-in crates expose linker anchors so every intended
+inventory submission is retained before deterministic collection.
 
 ## Test boundary
 

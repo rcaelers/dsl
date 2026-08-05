@@ -34,8 +34,8 @@ hardware, or network access.
   the default `logic-analyzer-ui` test dependency graph. End-to-end UI,
   compiler, and built-in-node composition belongs to the top-level integration
   package.
-- Compiler source-preparation tests use immediate or manually controlled task
-  executors, and compiler cache-pruning tests inject cache availability and
+- Graph-runtime source-preparation tests use immediate or manually controlled task
+  executors, and graph-runtime cache-pruning tests inject cache availability and
   cleanup outcomes by key. Native worker and persistent-store conformance is
   tested by the component that owns each adapter.
 - Compiler tests construct saved graph documents through the headless
@@ -126,7 +126,7 @@ cargo bench -p logic-analyzer-examples --bench compiler_capture -- \
   derived-storage-profile /path/to/reference.dsl > derived-storage-profile.json
 ```
 
-The report separates legacy derived-block, current derived-segment, final-index, and manifest
+The report separates derived data-block, data-segment, final-index, and manifest
 repository operations; inventories artifact counts and bytes; records host work-task time, process
 CPU utilization, output identity, total pipeline wall time, and per-lane index-to-manifest final
 publication latency. Repository and host-work times are cumulative and may exceed or overlap wall

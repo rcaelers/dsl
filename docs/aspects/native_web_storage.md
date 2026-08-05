@@ -3,16 +3,16 @@
 ## Architecture
 
 Raw-capture storage, finite and growing waveform indexes, finalized replay, decoded-word storage,
-viewer lanes, compiler data models, concrete graph-node definitions, and source/sink factory
+viewer lanes, graph-plan data models, concrete graph-node definitions, and source/sink factory
 contracts are platform-neutral. These facilities use repository-backed stores on every target and
 contain no filesystem operations or target-selected source.
 
 The injected artifact repository selects only the byte backing. Native composition supplies a
-durable adapter whose immutable reads are mmap-backed. Web composition supplies the portable
-process-lifetime memory repository, which stores artifacts in configurable chunks under a
-configurable byte budget. Ranges within one memory chunk are borrowed directly; cross-chunk ranges
-use the same owned-region fallback as any other repository without stable contiguous storage.
-Both adapters publish immutable generations atomically.
+durable adapter whose immutable reads are mmap-backed. Web composition opens an OPFS-backed browser
+repository whose synchronous bounded-memory mirror is the hot path; when OPFS initialization
+fails, it injects the process-lifetime memory repository. Ranges without stable contiguous storage
+use an owned immutable-region fallback. Every repository publishes immutable generations
+atomically through the same contract.
 
 The authoritative capture store publishes one bounded packed-sample artifact per committed chunk,
 followed by a manifest generation that makes the chunk visible. Live cursors observe only the
@@ -37,32 +37,32 @@ Native composition injects DSL and Sigrok path adapters, filesystem-backed write
 U3Pro16 USB transport and FPGA-image provider, and repository-backed capture export. Web composition
 injects browser DSL and Sigrok import adapters plus explicit unavailable writer, USB, and export
 capabilities. The portable Sigrok source supports explicitly configured demo data; web composition
-does not silently substitute it for a file. Browser download destinations remain a future adapter.
+does not silently substitute it for a file. Browser graph-document Save and Save As use JSON
+downloads, while general processing-node output and capture export are unavailable capabilities.
 
 Platform selection occurs at complete implementation-file boundaries in `logic_analyzer_platform`.
 Generic compiler, runtime, viewer, graph-node, and UI code contains no target-selected source. The
-temporary processing exceptions are the U3Pro16 native device-runtime leaves and isolated DSL and
+allowlisted processing exceptions are the U3Pro16 native device-runtime leaves and isolated DSL and
 Sigrok path-compatibility leaves; archive parsing and prepared-source execution remain portable.
 
 Stores address every encoded segment, index, and manifest with typed artifact keys. A segment is
 published before its directory entries become persistently discoverable, and a persistent manifest
 is published last. Missing manifests are cache misses; invalid manifests, indexes, or segment
 generations are rejected and invalidated as a unit. Unfinished ephemeral artifacts are reclaimed
-when their last store handle is dropped. Compiler cache lookup, graph pruning, preview,
-invalidation, and cleanup apply the same policy to durable native and process-lifetime web
-repositories.
+when their last store handle is dropped. Graph-runtime cache lookup, graph pruning, preview,
+invalidation, and cleanup apply the same policy to native and web repositories.
 
-`logic_analyzer_platform` currently composes the UI host-service port and selects the artifact
+`logic_analyzer_platform` composes the UI host-service port and selects the artifact
 repository contract. Native and web application bootstraps obtain an opaque `PlatformServices`
 bundle from that crate and inject its UI services when constructing the application. That service
-boundary passes the selected repository through the graph service to every compiler run and
-`NodeBuildContext`; concrete derived-lane configuration therefore receives a capability rather than
+boundary passes the selected repository through the graph service to every graph-runtime operation
+and `NodeBuildContext`; concrete derived-lane configuration therefore receives a capability rather than
 selecting a target backend. The native adapter provides a durable repository whose same-directory
 publication is atomic and whose immutable reads use mmap-backed byte regions. The web adapter
-selects the portable process-lifetime memory repository. The native adapter also owns file dialogs,
-graph document I/O, and allocation of the application directory backing its repository. Cache
-administration is common
-compiler policy over the injected repository, so ephemeral web caches use the same identity,
+selects the OPFS-backed browser repository and falls back explicitly to the portable
+process-lifetime memory repository when initialization fails. The native adapter also owns file
+dialogs, graph document I/O, and allocation of the application directory backing its repository.
+Cache administration is graph-runtime policy over the injected repository, so web caches use the same identity,
 preview, pruning, invalidation, inspection, and cleanup paths. The native adapter also owns native
 configuration-file discovery and I/O. It then passes decoded portable settings and bindings
 to the UI. It supplies
@@ -71,17 +71,18 @@ algorithm. The web adapter supplies embedded settings, opens graph documents thr
 asynchronous browser picker, retains selected and saved graph bytes in a process-lifetime document
 registry, and implements Save and Save As as browser JSON downloads. Its opaque document
 references never enter the saved graph. Capture-file selection remains a separate asynchronous
-node file-dialog capability. General output-file operations remain unavailable until their owning
-service has a browser destination adapter.
+node file-dialog capability. General output-file operations are explicit unavailable capabilities.
 Finite-source preparation uses the graph-runtime-owned execution contract: the native platform adapter
-uses a bounded worker, while the web adapter selects the portable inline executor. The compiler
-polls one task contract and contains no target-selected source-preparation implementation.
+uses a bounded worker, while the web adapter selects a browser capture worker with an inline
+fallback. The compiler
+discovers the source-preparation factory; the graph runtime polls one task contract and contains no
+target-selected source-preparation implementation.
 The application-runtime facade likewise receives a factory from platform composition. Native runs
 receive the threaded pipeline-manager backend; web runs receive the portable cooperative backend.
-The compiler creates managers through the same factory contract and does not select either backend.
+The graph runtime creates managers through the same factory contract and does not select either backend.
 Portable processing work uses the `signal_runtime::WorkExecutor` contract. The platform service
 bundle supplies bounded finite-work execution and host-owned long-running task execution through
-one capability, passes it through the UI graph-service construction boundary, and the compiler makes
+one capability, passes it through the UI graph-service construction boundary, and the graph runtime makes
 it available to node builders in their `NodeBuildContext`. Concrete nodes choose whether they need
 finite or long-running work without selecting a target or a platform implementation.
 The platform service bundle also supplies the UI-owned `CaptureExportService`; its native adapter
@@ -101,37 +102,36 @@ result, and service contract and does not select an implementation.
 Native and web builds use the same capture buffering, block encoding, indexing, cache planning,
 cache lookup, query, and eviction algorithms. Platform implementations provide only the host
 capabilities required to acquire resources, retain bytes, execute work, and communicate with
-devices. The absence of a durable browser repository or USB transport changes advertised
-capabilities, not the processing data model.
+devices. Failure to open browser persistence, and the absence of browser USB or export adapters,
+changes advertised capabilities rather than the processing data model.
 
-The design applies to:
+The shared data plane covers:
 
 - packed raw-capture blocks and their waveform indexes;
 - finalized and growing live-capture repositories;
 - indexed derived payload stores;
 - decoded-block and raw-block memory caches;
-- compiler cache discovery, validation, pruning, and publication;
+- graph-runtime cache discovery, validation, pruning, and publication;
 - finite-source preparation and viewer attachment.
 
-Browser file export and WebUSB remain optional host adapters. Browser file import, OPFS persistence,
-and Web Workers are installed capabilities whose absence or failure does not change the shared data
-plane.
+Browser capture export and WebUSB are not installed capabilities. Browser file import, OPFS
+persistence, graph-document downloads, and Web Workers are installed capabilities whose absence or
+failure does not change the shared data plane.
 
-### Goals
+### Invariants
 
-- Execute one codec, index builder, query implementation, and cache policy on every target.
-- Compile the same source files in every reusable core crate on native and web targets.
-- Make mmap and owned heap memory interchangeable byte backings.
-- Keep persistent and ephemeral storage behavior behind one artifact-repository contract.
-- Keep browser promises, permission prompts, JavaScript handles, and native paths outside parsers,
-  indexes, graph nodes, the compiler data model, and the viewer.
-- Permit cooperative execution today and native or browser parallel execution without duplicating
-  algorithms.
-- Keep persisted offsets, lengths, sample counts, and timestamps ready for 64-bit address spaces.
-- Make unavailable capabilities explicit and testable rather than replacing production behavior
+- One codec, index builder, query implementation, and cache policy executes on every target.
+- Every reusable core crate compiles the same source files on native and web targets.
+- Mmap and owned heap memory are interchangeable byte backings.
+- Persistent and ephemeral storage behavior stays behind one artifact-repository contract.
+- Browser promises, permission prompts, JavaScript handles, and native paths stay outside parsers,
+  indexes, graph nodes, graph-plan data, and the viewer.
+- Cooperative, native-threaded, and browser-worker execution reuse the same algorithms.
+- Persisted offsets, lengths, sample counts, and timestamps use fixed-width types.
+- Unavailable capabilities are explicit and testable rather than replacing production behavior
   with platform-specific application semantics.
 
-### Non-goals
+### Excluded responsibilities
 
 - Emulating a native hierarchical filesystem in generic code.
 - Requiring persistent browser storage before the common in-memory backend is usable.
@@ -148,13 +148,14 @@ Platform support is expressed through orthogonal capabilities rather than one ta
 Reusable host implementations and target selection belong to `logic_analyzer_platform`. A host can
 provide any useful combination.
 
-| Capability | Native implementation | Initial web implementation | Optional web implementation |
-| --- | --- | --- | --- |
-| Prepared random-access input | file reader or mmap | embedded or owned chunked bytes | user-selected `File`/`Blob` materialized or accessed by a worker |
-| Artifact repository | directory, files, locks, atomic rename | process-lifetime memory repository | Origin Private File System (OPFS) |
-| Immutable byte region | mmap-backed range | `Arc<[u8]>`-backed range | transferred worker-owned `ArrayBuffer` chunks |
-| Work execution | bounded native worker pool | cooperative application pump | dedicated Web Worker or worker pool |
-| USB transport | native USB backend | unavailable capability | WebUSB backend where supported and permitted |
+| Capability | Native implementation | Web implementation |
+| --- | --- | --- |
+| Prepared random-access input | file reader or mmap | embedded bytes or a user-selected `File` imported through the browser worker/registry |
+| Artifact repository | directory, locks, atomic publication, mmap reads | OPFS-backed bounded-memory mirror, with explicit process-lifetime memory fallback |
+| Immutable byte region | mmap-backed range | owned `Arc<[u8]>` range |
+| Work execution | bounded native workers and threaded manager | Web Workers where installed, with cooperative/inline fallback |
+| USB transport | native USB backend | unavailable capability |
+| Capture export and processing output | native file destination | unavailable capability; graph-document saves use a separate JSON download service |
 
 Consumers query capability properties such as durability, writable capacity, concurrent-reader
 support, and available parallelism. They do not branch on `wasm32`, browser names, operating-system
@@ -200,15 +201,15 @@ core crate names `PlatformServices` or depends on `logic_analyzer_platform`.
 Traits implemented by the adapter crate are supported cross-crate ports re-exported from the crate
 root of their behavioral owner. For example, artifact storage ports belong to `signal_artifacts`,
 processing execution belongs to `signal_runtime`, encoded-store ports belong to `signal_derived`, cache-administration
-ports belong to `logic_analyzer_graph_compiler`, embedded
+ports belong to `logic_analyzer_graph_runtime`, embedded
 node-control dialogs belong to `node_graph`, and application dialogs, host commands,
 cache diagnostics, and capture export belong to `logic_analyzer_ui`.
 Making those ports implementable does not expose their concrete native or web dependencies. The
 capture-export port has one target-neutral contract, and its repository-backed adapter is selected
-in `logic_analyzer_platform`. The storage-contract work replaces the remaining native session
-repository behind that adapter without changing the UI contract.
+in `logic_analyzer_platform`. Repository-backed session storage is accessed through the same UI
+contract.
 
-The Sigrok decoder node follows the same split. `logic_analyzer_processing` owns the portable
+The Sigrok decoder node follows the same ownership boundaries. `logic_analyzer_processing` owns the portable
 decoder configuration, state machine, output contracts, and `SigrokExecutionFactory` port.
 `logic_analyzer_graph_nodes` owns the portable graph-node schema and turns portable discovery
 snapshots into node templates. `logic_analyzer_platform::platform::native_sigrok` owns Python
@@ -218,14 +219,14 @@ scanner; a host without an embedded runtime injects no implementation and the po
 reports that the capability is unavailable.
 
 The memory repository, owned backing, fake source, cooperative executor, and other host-independent
-implementations remain in their existing owner crates and can be selected on native, web, or in
+implementations live in their behavioral owner crates and can be selected on native, web, or in
 tests. `logic_analyzer_platform` contains only code whose implementation actually calls a host API
 or establishes target-specific execution.
 
 Target-specific dependencies such as `memmap2`, native dialog libraries, native USB libraries,
 embedded-runtime libraries, `wasm-bindgen`, and `web-sys` are declared only by
 `logic_analyzer_platform` or a bootstrap crate. An explicitly allowlisted processing adapter may
-temporarily retain a concrete format or device dependency, but generic core crates do not acquire
+retain a concrete format or device dependency, but generic core crates do not acquire
 that dependency transitively.
 
 ### Source-code parity
@@ -279,7 +280,7 @@ user gesture / application configuration
       platform-neutral query handles
                  |
                  v
-         compiler and viewer
+     graph runtime and viewer
 ```
 
 Browser acquisition is asynchronous because it may require a user gesture or a Promise. Shared
@@ -307,8 +308,8 @@ trait PreparedByteSource {
 
 `SourceIdentity` is an opaque stable fingerprint used by cache keys. It is not a display name or a
 filesystem path. Native files can derive it from validated metadata and content fingerprints.
-Owned web bytes can derive it from their length and content. A future browser file adapter can add
-host-provided identity hints, but validation remains content-safe.
+Browser-imported bytes derive it from their length and content. Host-provided display names do not
+participate in identity, and validation remains content-safe.
 
 `RandomAccessReader` is deliberately a reader session rather than a globally shareable handle.
 Native parallel indexing can open a reader per worker. A browser worker can own a JavaScript or OPFS
@@ -355,8 +356,7 @@ trait WriteArtifact {
 }
 ```
 
-The actual Rust API may split administrative and hot-path handles further, but it preserves these
-semantics:
+The repository interfaces preserve these semantics:
 
 - a writer creates an unpublished artifact;
 - authoritative data, indexes, and manifests are flushed before publication; explicitly
@@ -373,7 +373,7 @@ publication with files and atomic filesystem operations. The platform-independen
 in `signal_artifacts` keeps published artifacts in bounded process-lifetime memory and
 can be selected on any target. Both implementations satisfy the same lifecycle and prepared-source
 conformance fixture. The browser composition adds a platform-owned OPFS mirror without changing
-store, compiler, or viewer behavior.
+store, graph-runtime, or viewer behavior.
 
 Durability is a repository capability. A cache requested on an ephemeral repository is still a
 real cache for the current application lifetime: it uses the same keys, validation, graph pruning,
@@ -418,23 +418,24 @@ The web memory repository stores the same encoded segments, indexes, and manifes
 repository. It does not retain a platform-specific `Vec<Word>` as its authoritative representation.
 Small captures naturally use one or a few blocks; they do not select a different query engine.
 
-### Cache planning and compiler behavior
+### Cache planning and graph-runtime behavior
 
-The compiler owns target-independent cache planning:
+The graph runtime owns target-independent cache planning:
 
 - derive cache keys from graph, node state, payload identity, source identity, and schema versions;
 - ask the repository which validated generations are available;
 - prune producer branches satisfied by cache hits;
 - attach cached preview lanes;
-- invalidate selected outputs when Run requests fresh execution;
-- publish completed generations;
 - apply size and age policy while respecting pinned active generations.
+
+The UI invalidates the selected graph's entries when ordinary Run requests fresh execution.
+Payload stores publish completed generations through the repository configured by the runtime.
 
 A platform adapter supplies repository discovery and cleanup operations. It does not replace the
 planning algorithm with no-ops. When browser persistence is unavailable, the ephemeral web
 repository still satisfies repeated runs or graph changes during one application session.
 
-Compiler IR and saved documents contain storage intent and stable identities, not native paths,
+Processing plans and saved documents contain storage intent and stable identities, not native paths,
 mmap flags, browser handles, or target-specific variants. Saved-graph migrations remain explicit
 and user-visible when the portable schema changes.
 
@@ -515,7 +516,7 @@ A capture-index factory whose backing cannot be opened in the caller exposes an 
 `CaptureIndexPreparationRequest` containing a registered operation identifier and owned payload.
 The graph runtime forwards it through `SourcePreparationExecutor::submit_request`; it does not
 call that factory's local metadata or open methods and does not interpret the operation. Local
-factories continue through the existing closure submission. Both paths report metadata, progress,
+factories use closure submission. Both paths report metadata, progress,
 cancellation, failure, and the ready index through the same preparation generation and task
 contracts.
 
@@ -580,8 +581,8 @@ while preserving the prepared raw capture and index.
 `GraphWorkerClient` is the target-neutral main-side queue. It transfers an owned graph document,
 output-subscription plan, and timeline-marker snapshot, routes progress and terminal messages by
 sequence, and applies replicated artifact mutations before reporting completion. The UI's graph-run
-adapter only polls this client. Once the final cache manifests are present, the ordinary compiler
-cache-preview path publishes query adapters into the same shared `DerivedLanes` catalog already
+adapter only polls this client. Once the final cache manifests are present, the ordinary graph-runtime
+cache-preview path publishes query adapters into the same shared `DerivedLanes` catalog
 bound to the viewer and panels. Native composition does not install this adapter and continues to
 use its threaded runtime unchanged.
 
@@ -774,8 +775,10 @@ graph that is reopened in a new browser session reports that the capture must be
 The installed capture worker owns selected `File` objects independently of UI WebAssembly memory;
 resident fallback imports retain their explicit per-file and per-session limits.
 
-Browser export is a separate destination adapter. Cache publication never triggers a download, and
-download/export destinations are not used as internal artifact repositories.
+Browser capture export and processing-node output destinations are explicit unavailable
+capabilities. Graph-document Save and Save As use a separate JSON download service. Cache
+publication never triggers a download, and download destinations are not internal artifact
+repositories.
 
 These features do not block the shared memory repository, codec, index, cache-policy, or query
 work.
@@ -790,13 +793,9 @@ the `rusb` dependency, and asynchronous libusb receive requests. The protocol, f
 FPGA configuration, acquisition planning, and packet state machines remain in
 `logic_analyzer_processing` and depend only on the contract.
 
-A future WebUSB adapter implements this same contract in `logic_analyzer_platform` and translates
-browser permission and promise state into explicit capability and transport errors. A host without
-such an adapter injects the unavailable U3Pro16 source factory rather than a synthetic live source.
-
-WebUSB is an optional lower-priority adapter because browser support is not universal and device
-interface access must be verified with the real hardware. Its absence does not produce a synthetic
-hardware source pretending to provide live acquisition.
+Web composition has no USB adapter and injects the unavailable U3Pro16 source factory rather than a
+synthetic live source. Browser permission objects and JavaScript transport types therefore do not
+enter the portable USB contract.
 
 ### Wasm32 and wasm64 data model
 
@@ -809,8 +808,8 @@ All persistent and cross-boundary quantities use fixed-width types:
 - block directories and cache accounting do not assume one allocation can address an artifact;
 - messages between browser workers use fixed-width serialized fields.
 
-This keeps the formats portable to 64-bit WebAssembly without requiring wasm64 to be available now.
-Wasm32 remains constrained by its address space and browser memory policy, so large captures require
+The formats do not encode the active WebAssembly pointer width. Wasm32 remains constrained by its
+address space and browser memory policy, so large captures require
 bounded blocks and a repository rather than preloading one contiguous buffer.
 
 ### Ownership
@@ -826,16 +825,17 @@ bounded blocks and a repository rather than preloading one contiguous buffer.
 - `logic_analyzer_processing` owns concrete capture parsers, processing nodes, sinks, the U3Pro16
   device protocol, and portable format behavior. Parsers consume prepared byte sources; the
   U3Pro16 protocol consumes its injected USB transport contract. A complete file-I/O adapter leaf
-  may remain here temporarily only when it is explicitly allowlisted and separating it would move
+  may remain here only when it is explicitly allowlisted and separating it would move
   concrete format behavior into the platform crate. Node state, factories, and protocol logic are
   not target-selected.
 - `logic_analyzer_graph_nodes` owns concrete node state and builders. It passes platform-neutral
   source, destination, and device requests to processing facades and compiles the same node catalog
   code on every target.
-- `logic_analyzer_graph_compiler` owns source-preparation orchestration, generic cache planning,
-  execution lifecycle, collected outputs, and saved-document synchronization. It depends on
-  injected capabilities rather than physical storage implementations and has no target-selected
-  implementation modules.
+- `logic_analyzer_graph_compiler` owns document discovery, semantic validation, capability
+  negotiation, and lowering to a storage-neutral `ProcessingGraph`.
+- `logic_analyzer_graph_runtime` owns source-preparation orchestration, cache planning,
+  materialization, execution lifecycle, and collected run data. It depends on injected repository,
+  manager, and work-execution capabilities rather than physical storage implementations.
 - `logic_analyzer_ui` owns application-facing commands and status. Native and web application
   crates provide only thin bootstraps that install host capability adapters.
 - `logic_analyzer_viewer` consumes capture and derived query handles. It has no repository,
@@ -921,19 +921,21 @@ Reusable target selection is confined to one private selection module in
 - native file and mmap repository adapters;
 - OPFS repository adapters;
 - native and browser-worker executors;
-- native dialogs and browser acquisition/export adapters;
-- native USB and WebUSB transports;
+- native dialogs, browser file acquisition, and browser graph-document downloads;
+- native USB transport and the explicit unavailable web hardware capability;
 - application host integration.
 
 The native and web application crates retain only their required entry points and bootstrap APIs.
 An explicitly documented complete file-I/O or USB leaf adapter in
-`logic_analyzer_processing` is the sole temporary reusable-crate exception. Such an adapter contains
+`logic_analyzer_processing` is the sole allowlisted reusable-crate exception. Such an adapter contains
 only host access; its node state, builder, parser or device protocol, and runtime contract remain
 portable.
 
 `signal_artifacts`, `signal_runtime`, `signal_capture`, `signal_derived`,
-`signal_capture_session`, `logic_analyzer_graph_compiler`,
-`logic_analyzer_graph_nodes`, `node_graph`,
+`signal_capture_session`, `logic_analyzer_graph_capabilities`,
+`logic_analyzer_graph_registry`, `logic_analyzer_graph_plan`,
+`logic_analyzer_graph_compiler`, `logic_analyzer_graph_runtime`,
+`logic_analyzer_graph_orchestration`, `logic_analyzer_graph_nodes`, `node_graph`,
 `logic_analyzer_viewer`, reusable widgets, and `logic_analyzer_ui` contain no target conditionals,
 target-selected files, or target-specific dependencies. Portable processing code in
 `logic_analyzer_processing` follows the same rule. Shared codecs, indexes, cache policy, source
@@ -942,7 +944,7 @@ same source files. Runtime capability values describe what the injected host can
 `scripts/check_platform_boundaries.rb`, whose explicit source and dependency allowlists implement
 this boundary and whose fixture suite verifies that representative violations are rejected.
 
-### Browser constraints informing the proposal
+### Browser host constraints
 
 - Rust's `wasm32-unknown-unknown` target supplies `core` and `alloc`, while `std::fs` operations
   fail and `std::thread::spawn` panics:
@@ -953,11 +955,7 @@ this boundary and whose fixture suite verifies that representative violations ar
 - Worker messages normally clone data; transferable `ArrayBuffer` ownership avoids copying but
   detaches the sender's buffer:
   <https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects>.
-- WebUSB is restricted to secure contexts, has limited browser availability, and is available from
-  Web Workers on supporting browsers:
-  <https://developer.mozilla.org/en-US/docs/Web/API/WebUSB_API>.
-
-### Proposed-future invariants
+### System invariants
 
 - One encoded representation and one query implementation serve native and web repositories.
 - Reusable core crates compile the same module tree and Rust source on native and web targets.
@@ -969,7 +967,7 @@ this boundary and whose fixture suite verifies that representative violations ar
 - The in-memory repository is a first-class backend, not an alternate derived-data model.
 - Persistence is a repository capability, not a compiler or lane-shape difference.
 - Mmap is a byte-backing optimization, not a public storage contract.
-- Paths and browser handles do not cross into graph state, compiler IR, indexes, or viewers.
+- Paths and browser handles do not cross into graph state, processing plans, indexes, or viewers.
 - Browser acquisition and permissions finish before synchronous shared processing begins.
 - The UI thread does not perform unbounded parsing, encoding, indexing, or cache cleanup.
 - Parallel completion order never changes published payload order or artifact bytes.

@@ -1,16 +1,15 @@
 //! Incremental multi-resolution summary index for derived lanes.
-//! (`docs/LOGIC_ANALYZER_VIEWER_DESIGN.md`), so the viewer never has to rescan
-//! millions of raw entries per frame just to render (or measure) a
-//! zoomed-out window.
 //!
-//! This mirrors the *idea* behind [`super::waveform_index`] — a
-//! multi-resolution index on top of complete raw data, never a replacement
-//! for it — but not its format: that index is boolean-per-sample, built in
-//! one batch from a fully-known, randomly-readable capture, and lives in an
-//! mmap'd file (desktop-only). Derived lanes arrive one entry at a time from
-//! a running node, at irregular timestamps (not a fixed sample rate), and
-//! must be indexable on wasm too (derived lanes are wasm's only viewer
-//! content, since raw capture files are native-only). [`AppendOnlyMipmap`]
+//! The viewer uses this index (see `docs/crates/logic_analyzer_viewer.md`) so
+//! it never has to rescan millions of raw entries per frame just to render
+//! or measure a zoomed-out window.
+//!
+//! This follows the same principle as `signal_capture`'s waveform index: a
+//! multi-resolution index sits on top of complete raw data and never replaces
+//! it. The formats differ because finite capture indexes summarize fixed-rate
+//! boolean samples, while derived lanes arrive one entry at a time from a
+//! running node at irregular timestamps. Both use portable artifact backing
+//! and are queryable on wasm. [`AppendOnlyMipmap`]
 //! is a plain in-memory structure built for that: append one entry at a
 //! time, query a coarse summary of any `[start_ns, end_ns]` window without
 //! ever rescanning the raw entries.

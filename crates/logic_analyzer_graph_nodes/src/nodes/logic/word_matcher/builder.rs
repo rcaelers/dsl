@@ -1,6 +1,6 @@
 //! Runtime builder for `Word Matcher` — fires a trigger when a decoded word matches a
 //! pattern/mask. Works on any decoder's `Word` output, no decoder-specific
-//! knowledge needed (kind negotiation, `docs/APP_DESIGN.md`).
+//! knowledge needed (kind negotiation, `docs/architecture/processing_workflows.md`).
 
 use serde_json::Value;
 

@@ -2759,7 +2759,7 @@ impl App {
     }
 
     /// Drives the run forward and, periodically, diffs the edited graph
-    /// against it and applies what can be applied live (`docs/APP_DESIGN.md`,
+    /// against it and applies what can be applied live (`docs/architecture/processing_workflows.md`,
     /// live editing): taps, branch
     /// removals, hot prop changes, in-place restarts. Edits that need a full
     /// restart leave the run untouched and say so.

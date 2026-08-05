@@ -28,7 +28,7 @@
 //! `made_progress` loop comes back around. This is what makes it safe for
 //! [`crate::DerivedDataCollector`] (or any node) to actually let a
 //! `Block`-policy channel fill and genuinely stall its producer's `send()`
-//! (`docs/PIPELINE_DESIGN.md`, flow control) instead of that call permanently
+//! (see `docs/architecture/processing_workflows.md`) instead of that call permanently
 //! wedging the one cooperative thread. **This check is a per-cycle
 //! snapshot, not a hold on the channel** — `self.nodes` is a `HashMap`
 //! with unspecified iteration order, so a producer can still be visited
@@ -37,10 +37,10 @@
 //! output. The safety net therefore depends on a systemic invariant: **no
 //! `ProcessNode::work()` implementation may send more than once per output
 //! per call while running under the cooperative backend.** Every node in
-//! this codebase already satisfies that (one item in, one item out, per
+//! this codebase satisfies that (one item in, one item out, per
 //! call) except `DerivedDataCollector`'s batched drain, which sends nothing itself
-//! (it has no outputs) and so is exempt by construction. A future node
-//! that fans out many sends from one `work()` call would reopen the
+//! (it has no outputs) and so is exempt by construction. A node
+//! that fans out many sends from one `work()` call reopens the
 //! deadlock this check exists to close.
 
 use std::collections::HashMap;

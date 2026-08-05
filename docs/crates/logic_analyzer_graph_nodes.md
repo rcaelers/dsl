@@ -9,8 +9,8 @@ submission, and feature-local tests.
 ## Facade and dependencies
 
 The crate root exposes the linker-retention anchor and narrowly scoped host-configuration helpers.
-Internals depend on graph capabilities capabilities, graph registry descriptors, concrete processing,
-generic processing, node graph, and viewer registration contracts. Compiler, runtime, and UI read
+Internals depend on graph capabilities, graph registry descriptors, concrete processing, the
+generic signal owners, node graph, and viewer registration contracts. Compiler, runtime, and UI read
 registrations through the graph registry and never depend on this bundle.
 
 ## Ownership boundaries
@@ -53,12 +53,13 @@ graph semantics and runtime materializer in `builder.rs`, and optional presentat
 sockets and controls needed to understand the graph; detailed device and formatter settings belong
 in the properties panel. Viewer lane selection and presentation settings belong to the View panel.
 
-Sources are DSL File Source, DSLogic U3Pro16, and UART Demo Source. Capture-source outputs opt out
-of the View-panel lane selector because their capture presentation owns those channels. Decoders
-are SPI, UART, Parallel Decoder, and an editable but non-runnable I2C placeholder. Logic features
-are Packet Framer, Word Field Extractor, Word Matcher, Edge Detector, Event Gate, Event Control,
-SR Flip-Flop, Logic Gate, Buffer, Counter, and String Formatter. Sinks are File Writer, Text File
-Writer, TGCK Recorder, and the variadic Viewer input node.
+Source features cover DSL and Sigrok files and DSLogic U3Pro16 acquisition. Capture-source outputs
+opt out of the View-panel lane selector because their capture presentation owns those channels.
+Decoder features cover SPI, UART, I2C, parallel words, and catalog-derived Sigrok decoders. Logic
+features cover framing, field extraction, matching, edge and event control, state, formatting, and
+timeline markers. Output features cover binary, text, CSV, and TGCK recording. The Viewer
+registration remains a saved-document compatibility input; current viewing uses UI-owned output
+subscriptions and compiler-generated collectors.
 
 The DSLogic feature owns its capture and signal property-panel sections, including the aligned
 16-channel enable grid. Invalid channel/rate combinations remain editable for correction, appear

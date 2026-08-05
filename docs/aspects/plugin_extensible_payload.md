@@ -15,9 +15,9 @@ openable panel.
 ## Architecture
 
 `PortKind` is an open runtime payload identity. A compile-time plugin implements `PortValue` for a
-Rust payload type it owns. A split processing/graph plugin whose lower-level runtime crate owns the
-type instead constructs the same identity with `PortKind::of_named`; this avoids making processing
-depend on graph contracts merely to satisfy trait coherence. A graph-node inventory submission
+Rust payload type it owns. When a plug-in uses a lower-level processing crate that owns the type,
+its graph crate constructs the same identity with `PortKind::of_named`; this avoids making
+processing depend on graph contracts merely to satisfy trait coherence. A graph-node inventory submission
 carries any idempotent runtime channel setup needed for a non-collected custom payload; collected
 payload capability registration performs the same typed channel setup as part of its atomic
 submission.
@@ -148,7 +148,8 @@ Graph documents store viewer choices in the versioned
 `logic_analyzer_graph.payload_subscriptions` entry for every explicit Viewer input and selected
 output. Each payload entry identifies its endpoint and the payload owner's stable identifier.
 The generic graph model preserves both namespaced extensions without interpreting them. On
-load, legacy built-in lanes are assigned their registered stable identities without changing
+load, persisted built-in lanes without a stable payload identity receive their registered
+identity without changing
 their connections, selection state, ordering, grouping, badge, or renderer. The application shows
 a persistent compatibility warning when a saved payload, ingestion subscription, or presentation
 registration is unavailable and retains the unresolved identity on subsequent saves. The owner
@@ -262,5 +263,5 @@ does not repair protocol wiring.
   host symbol anchor; the web platform entry point invokes module constructors once before the
   first inventory iteration.
 
-Compile-time Rust plugins are the initial extension mechanism. Runtime-loaded native plugins need
-an additional ABI-stable boundary and are outside this design phase.
+Plug-ins are linked Rust crates retained by an application-owned symbol anchor. Inventory is read
+only after every enabled plug-in anchor has been invoked.

@@ -5,6 +5,7 @@ Design of application-facing orchestration in `logic-analyzer-ui`
 graph-service port, and host services into one portable application. The native and web binaries
 are documented separately in [Application Shells Design](../crates/application_shells.md).
 Companion designs cover [graph composition](graph_composition.md),
+[processing graph workflows](processing_workflows.md),
 [the node-graph widget](../crates/node_graph.md),
 the `signal_runtime` Rustdoc, and
 [the logic-analyzer viewer](../crates/logic_analyzer_viewer.md).
@@ -100,7 +101,6 @@ independently of its current visibility. Viewer lane selection only rebinds pres
 to those cached lanes. The same metadata-only path applies while processing is active and after it
 has completed; a View panel change never restarts or reruns the processing graph.
 
-The correctness gate for the whole compile path is the golden test: the compiled startup
-graph must produce byte-identical output to the hand-written pipeline example on a real
-capture (`cargo test -p logic-analyzer-graph-compiler --release -- --ignored golden`), run through the live
-machinery.
+The lowerer/runtime handoff, worker path, cache behavior, and live-apply classifications are tested
+at their owning crate boundaries and by the top-level integration package. UI tests replace the
+private graph-service port with deterministic implementations.

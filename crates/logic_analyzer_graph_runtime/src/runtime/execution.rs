@@ -472,7 +472,7 @@ fn wiring_of(compiled: &ProcessingGraph, id: NodeId) -> BTreeSet<(String, u32, S
 }
 
 /// Classifies the difference between the running IR and the edited one
-/// (the edit classes of `docs/APP_DESIGN.md`). Returns the edit list, or
+/// (the edit classes of `docs/architecture/processing_workflows.md`). Returns the edit list, or
 /// the reason a full restart is needed.
 fn diff(old: &ProcessingGraph, new: &ProcessingGraph) -> Result<Vec<LiveEdit>, String> {
     let old_ids: HashSet<NodeId> = old.nodes.iter().map(|node| node.id).collect();

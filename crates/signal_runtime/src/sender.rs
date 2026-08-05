@@ -1,6 +1,6 @@
 //! Broadcast sender with watchdog monitoring for deadlock detection.
 //!
-//! Two broadcast flavors coexist (`docs/PIPELINE_DESIGN.md`):
+//! Two broadcast flavors coexist (see `docs/architecture/processing_workflows.md`):
 //!
 //! - **Static destinations** (`Sender::new`): the offline `Pipeline::build`
 //!   path. Endpoints move into node threads; teardown is the crossbeam

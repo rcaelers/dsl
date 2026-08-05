@@ -19,7 +19,7 @@ pub struct InputProtocolCandidate {
 }
 
 /// A configuration value delivered to a running node (live reconfiguration,
-/// `docs/APP_DESIGN.md`). Deliberately a tiny bespoke type: the runtime crate stays
+/// `docs/architecture/processing_workflows.md`). Deliberately a tiny bespoke type: the runtime crate stays
 /// serde-free and nodes match on plain fields.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConfigValue {

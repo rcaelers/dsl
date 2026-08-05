@@ -3,7 +3,7 @@
 ## Responsibility
 
 `logic_analyzer_graph_orchestration` owns application-neutral workflows that necessarily compose
-graph compilation and runtime execution. Its current public surface is the bounded graph-worker
+graph compilation and runtime execution. Its public surface is the bounded graph-worker
 request/message protocol, codec, client, and worker runtime.
 
 ## Boundary

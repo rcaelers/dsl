@@ -1,5 +1,5 @@
 //! Runtime builder for `Buffer` — see the sibling definition and
-//! the buffer policy in `docs/APP_DESIGN.md`.
+//! the buffer policy in `docs/architecture/processing_workflows.md`.
 
 use serde_json::Value;
 

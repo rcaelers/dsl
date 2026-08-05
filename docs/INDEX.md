@@ -2,13 +2,16 @@
 
 ## Workspace structure
 
-- [Crate Responsibility Design](architecture/crate_responsibility.md) defines the responsibility map,
-  dependency direction, graph compiler/runtime boundary, and decomposition of generic
-  processing infrastructure.
+- [Vocabulary and Concepts](architecture/vocabulary_and_concepts.md) defines the shared terms and
+  identities used by graph, runtime, capture, storage, and presentation designs.
+- [Crate Responsibilities](architecture/crate_responsibility.md) describes every workspace crate,
+  its relevant public modules, its ownership boundary, and dependency direction.
 - [Responsibility and Visibility Design](aspects/responsibility_visibility.md) defines module
   facades, public API visibility, platform ownership, and enforcement.
 - [Graph Composition Design](architecture/graph_composition.md) defines graph capabilities, registry,
   built-in-node, compiler, UI, and compatibility ownership.
+- [Processing Graph Workflows](architecture/processing_workflows.md) explains lowering, capability
+  negotiation, Run, retained derived data, cache reuse, sampling points, and live reconciliation.
 - [Application Composition Design](architecture/application_composition.md) defines application
   composition and graph interaction.
 
@@ -99,6 +102,5 @@ These supported namespaces are documented at their source facades in Rustdoc:
 Each non-trivial public crate and allowlisted public module documents its supported contract at its
 source facade through Rustdoc. A crate-owner or module narrative in `docs/` remains only when it
 explains cross-owner rationale, a substantial internal domain, or a relationship that cannot belong
-to one API namespace. Those documents describe the architecture in present tense and link back to
-the aspect designs above; proposed-future architecture is clearly labeled and actionable work
-remains in `TODO.md`.
+to one API namespace. Those documents describe only implemented architecture in present tense and
+link back to the aspect designs above. Actionable work belongs in `TODO.md`.

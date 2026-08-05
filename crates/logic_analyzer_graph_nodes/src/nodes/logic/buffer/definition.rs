@@ -1,4 +1,4 @@
-//! `Buffer` graph-node definition (`docs/PIPELINE_DESIGN.md`, flow control) — an explicit,
+//! `Buffer` graph-node definition (`docs/architecture/processing_workflows.md`, flow control) — an explicit,
 //! user-placed decoupling point. Its input and output expose the payload kind
 //! selected in its state, matching the concrete runtime selected by the
 //! sibling builder.

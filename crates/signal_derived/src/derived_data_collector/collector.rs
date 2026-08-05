@@ -103,7 +103,7 @@ impl DerivedDataRetention {
 /// stall a busy one — but each lane's channel is drained in bounded batches
 /// (`DRAIN_BATCH_SIZE`), not to exhaustion, so a channel that a producer is
 /// filling faster than this sink drains it stays full and the producer's
-/// own send genuinely blocks (`docs/PIPELINE_DESIGN.md`, flow control) — real
+/// own send genuinely blocks (`docs/architecture/processing_workflows.md`, flow control) — real
 /// backpressure, not a silent drop once storage fills up.
 pub struct DerivedDataCollector {
     name: String,

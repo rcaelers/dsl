@@ -1,4 +1,4 @@
-//! Live pipeline supervisor (`docs/PIPELINE_DESIGN.md`, live supervision).
+//! Live pipeline supervisor (see `docs/architecture/processing_workflows.md`).
 //!
 //! Unlike [`Pipeline::build`](super::pipeline::Pipeline::build), which moves
 //! every channel endpoint into node threads and forgets them, the

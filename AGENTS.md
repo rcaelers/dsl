@@ -13,7 +13,7 @@
   handling with user-visible warnings; do not hide compatibility work in
   generic viewer/compiler code.
 
-See `docs/PLUGIN_EXTENSIBLE_PAYLOAD_DESIGN.md` for the detailed payload and viewer-lane decision.
+See `docs/aspects/plugin_extensible_payload.md` for the detailed payload and viewer-lane decision.
 
 # Crate boundaries
 
@@ -42,7 +42,7 @@ See `docs/PLUGIN_EXTENSIBLE_PAYLOAD_DESIGN.md` for the detailed payload and view
 - Reusable widgets live below `crates/widgets` and must remain independent of
   concrete nodes and protocols.
 
-See `docs/RESPONSIBILITY_AND_VISIBILITY_DESIGN.md` for symbol ownership,
+See `docs/aspects/responsibility_visibility.md` for symbol ownership,
 visibility, error-boundary, and enforcement rules.
 
 # Module layout and facades
@@ -58,7 +58,7 @@ The owner-facade layout below is mandatory throughout the Rust workspace.
    `super::presentation::render` or `super::definition::State`). They do not consume symbols
    re-exported by their own `mod.rs`; those re-exports exist only for consumers outside the module.
 4. Public modules are limited API namespaces. The public-module allowlist is maintained in
-   `docs/RESPONSIBILITY_AND_VISIBILITY_DESIGN.md`; every module absent from it is private. Adding
+   `docs/aspects/responsibility_visibility.md`; every module absent from it is private. Adding
    a public module requires an explicit design update and API review.
 5. Every public module is directory-backed and has a `mod.rs`. Do not create a public module
    backed directly by a sibling `.rs` file.
@@ -76,7 +76,7 @@ The owner-facade layout below is mandatory throughout the Rust workspace.
    and `pub` data fields in one struct.
 
 See the module layout and public-module allowlist in
-`docs/RESPONSIBILITY_AND_VISIBILITY_DESIGN.md`.
+`docs/aspects/responsibility_visibility.md`.
 
 # Platform boundaries
 
@@ -91,7 +91,7 @@ See the module layout and public-module allowlist in
 - Complete file-I/O or USB adapter leaf modules in `logic_analyzer_processing` are the only
   permitted reusable-crate exception when the capability cannot yet be injected without moving
   concrete format or device behavior to the platform crate. Every exception is explicitly
-  allowlisted in `docs/RESPONSIBILITY_AND_VISIBILITY_DESIGN.md`. Node state, schemas, builders,
+  allowlisted in `docs/aspects/responsibility_visibility.md`. Node state, schemas, builders,
   protocol state machines, and portable processing behavior remain identical on every target.
 - Synthetic sources, discard sinks, in-memory repositories, and cooperative executors are explicit
   portable implementations selected through configuration or injection. They are not implicit
@@ -100,7 +100,7 @@ See the module layout and public-module allowlist in
   an explicitly allowlisted processing adapter is prohibited. Existing splits are migration work
   tracked in `TODO.md`, not precedent for adding another split.
 
-See `docs/WASM_STORAGE_PLATFORM_DESIGN.md` for the unified native/web data-plane,
+See `docs/aspects/native_web_storage.md` for the unified native/web data-plane,
 host-adapter, source-parity, and exception design.
 
 # Design documentation

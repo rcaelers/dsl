@@ -15,6 +15,8 @@ made explicit at its load or migration boundary.
 
 The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol level:
 
+- `signal_artifacts` owns immutable byte regions, prepared sources, artifact identities,
+  repository contracts, replication, and shared persistence primitives.
 - `signal_runtime` owns generic typed-stream execution, scheduling, and work dispatch.
 - `signal_capture` owns immutable generic capture, query, and finite indexing contracts.
 - `signal_derived` owns generic derived-data payload, collection, indexing, and storage contracts.
@@ -33,9 +35,16 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
   and immutable catalog assembly.
 - `logic_analyzer_graph_nodes` owns built-in concrete node definitions, builders, migrations,
   registrations, and presentation metadata.
-- `logic_analyzer_graph_compiler` owns generic graph lowering, discovery, execution, and host services.
+- `logic_analyzer_graph_compiler` owns generic graph lowering, document discovery, and semantic
+  diagnostics.
   Definition defaults and lowering helpers remain crate-private unless plugin authors or another
   crate implement against a documented contract.
+- `logic_analyzer_graph_plan` owns the immutable processing-plan contract exchanged between plan
+  producers and consumers.
+- `logic_analyzer_graph_runtime` owns materialization, source preparation, cache planning,
+  execution lifecycle, collected run data, and live reconciliation.
+- `logic_analyzer_graph_orchestration` owns the graph-worker protocol and worker-side composition
+  above a separate compiler and runtime.
 - `node_graph::api` owns the compiler-facing graph document and node-definition contracts.
   Compiler and graph-node code depend on this namespace; widget and editor operations remain at
   the `node_graph` crate root for UI composition. File controls depend on its portable
@@ -145,6 +154,7 @@ nearest owning facade. The allowlist names canonical public namespaces.
 
 | Crate | Public modules | Rationale |
 | --- | --- | --- |
+| `signal_artifacts` | none | Its crate root exposes immutable byte, source, repository, replication, clock, and integrity contracts; implementation modules remain private. |
 | `signal_runtime` | none | Its crate root is the curated generic execution facade; ports, channels, schedulers, managers, and workers remain private implementation modules. |
 | `signal_capture` | none | Its crate root exposes immutable capture, query, edge-capability, and finite-index contracts; implementation modules remain private. |
 | `signal_derived` | `derived_word_store` | The public module owns the independently usable encoded annotation-store contract; other payload, lane, sampling, and index contracts are exposed through the crate facade. |
@@ -152,8 +162,10 @@ nearest owning facade. The allowlist names canonical public namespaces.
 | `logic_analyzer_processing` | `nodes`, `nodes::decoders`, `nodes::logic`, `nodes::sinks`, `nodes::sources`, each node module under its family, `types` | Each concrete node owns a directory-backed public facade, so its configuration, factory, and discovery contracts have an unambiguous owner such as `nodes::decoders::parallel_decoder::StrobeMode` or `nodes::decoders::sigrok_decoder::SigrokDecoderDescriptor`. The crate root exposes the shared `ProcessNodeConstruction` factory result and lazy capture-source metadata contracts. Shared implementation support is crate-private. Protocol-neutral processing value conventions are exposed through `types`. Node implementation, transport, and format details remain private behind their owning node facade. |
 | `logic_analyzer_graph_capabilities` | `node`, `node_support` | `node` owns capability traits implemented by graph-node plugins. `node_support` owns open port identity, protocol-neutral presentation descriptions, capture descriptions, decoder-table contracts, and the restricted node build context. It contains no graph-node or payload inventory assembly, compiler, host, built-in-node, UI, or export operations. |
 | `logic_analyzer_graph_registry` | none | Its crate root exposes graph-node, payload, and protocol-presentation registration descriptors, validated inventory access, and the immutable `GraphRegistry`. Implementation modules remain private. |
-| `logic_analyzer_graph_compiler` | none | Its crate root exposes `GraphLowerer`, immutable plan and diagnostic types, and discovery results. Capability contracts are imported from `logic_analyzer_graph_capabilities` and registry contracts from `logic_analyzer_graph_registry`; the compiler crate does not forward them. |
-| `logic_analyzer_graph_runtime` | none | Its crate root exposes `GraphRuntime`, `LiveRun`, run-data and source-preparation results, cache operations, and worker protocol types. Execution implementation modules remain private. |
+| `logic_analyzer_graph_plan` | none | Its crate root exposes the immutable `ProcessingGraph`, processing-node/edge, payload-materialization, subscription, sampling, and diagnostic contracts exchanged between compiler and runtime. |
+| `logic_analyzer_graph_compiler` | none | Its crate root exposes `GraphLowerer` and document-discovery results. Processing-plan values are imported from `logic_analyzer_graph_plan`, capability contracts from `logic_analyzer_graph_capabilities`, and registry contracts from `logic_analyzer_graph_registry`; the compiler crate does not forward them. |
+| `logic_analyzer_graph_runtime` | none | Its crate root exposes `GraphRuntime`, `LiveRun`, run-data and source-preparation results, cache operations, and source-preparation execution contracts. Execution implementation modules remain private. |
+| `logic_analyzer_graph_orchestration` | none | Its crate root exposes graph-worker request, message, codec, client, and worker-runtime contracts. Lowering and execution behavior remain in their owning crates. |
 | `logic_analyzer_graph_nodes` | none | The crate root exposes the linker anchor plus host-injection and portable-template helpers for concrete node contracts. Built-in graph-node definitions, socket types, migrations, presentations, inventory submissions, and crate-local test fixtures remain private. Cross-component fixtures belong to the top-level integration-test package. |
 | `logic_analyzer_capture_export` | none | The cohesive native exporter exposes its curated format, progress, observer, report, and export operation through the crate root. Encoder and archive implementation modules remain private. |
 | `logic_analyzer_platform` | none | The crate root exposes its opaque composition bundle and constructors. Private target-selected modules implement host capabilities owned by the core contract crates. |
@@ -161,7 +173,7 @@ nearest owning facade. The allowlist names canonical public namespaces.
 | `node_graph` | `api` | `api` exposes graph documents, identifiers, sockets, and node-definition contracts to compilers and graph-node implementations. The crate root exposes the widget/editor composition surface used by UI hosts. |
 | `logic_analyzer_viewer` | none | The reusable viewer exposes one curated crate-root API; drawing, sampling, input, cursor, lane, worker, and indexing modules remain private. |
 | `logic_analyzer_ui` | none | The application-composition crate exposes only its host-facing crate-root facade, including portable host service contracts such as `NodeCatalogService`. |
-| `input_bindings`, `panel_layout`, `trigger_editor`, `widget_support` | none | Each crate already represents one cohesive public component and does not need a second namespace level. |
+| `input_bindings`, `panel_layout`, `trigger_editor`, `widget_support` | none | Each crate represents one cohesive public component and does not need a second namespace level. |
 | Native/web application crates and example plugins | none | Binary integration and plugin linker anchors are crate-root entry points; inventory submissions and other implementation modules remain private. |
 
 Changing this allowlist is an API-design decision. A new public module requires a documented
@@ -180,7 +192,7 @@ The source-structure check in CI rejects module declarations outside the
 allowed root files, non-test exceptions, test module names without `tests`, public file modules,
 implementation items in `mod.rs`, public modules outside the allowlist, and occurrences of
 `pub(super)` or `pub(in ...)`. It also rejects symbol re-exports from concrete graph-node facades.
-The existing `-D unreachable-pub` check remains enabled.
+The workspace enables `-D unreachable-pub`.
 
 ## Error boundaries
 
@@ -199,22 +211,23 @@ complete contract; consumers do not depend on an unnameable backend type or a ta
 collection of incidental helpers.
 
 `AppManager` owns one portable facade over an injected `AppManagerBackend`. Platform composition
-selects a threaded or cooperative backend through `AppManagerFactory`; compiler and processing
+selects a threaded or cooperative backend through `AppManagerFactory`; graph-runtime and processing
 code do not inspect the target.
 
-`logic_analyzer_platform` composes the UI `HostService` port today. It selects complete native and
+`logic_analyzer_platform` composes the UI `HostService` port. It selects complete native and
 web adapter modules and returns an opaque service bundle to the application bootstrap. The native
 adapter owns dialogs, graph-document file I/O, and allocation of the application directory backing
 its injected artifact repository. Cache identity, inspection, invalidation, cleanup, preview, and
-producer-pruning policy remain in the compiler and operate identically on the web process-lifetime
-memory repository. The native adapter also owns native configuration-file discovery and I/O; the UI
+producer-pruning policy remain in the graph runtime and operate identically on the web OPFS-backed
+repository and its memory fallback. The native adapter also owns native configuration-file discovery and I/O; the UI
 owns the portable configuration model. It supplies optional system symbol fonts while
 the UI owns bundled fallback fonts and portable installation. Native shell integrations, such as the
 macOS application menu, publish portable commands and receive recent-document state through the same
 host-service contract. Runtime decoded-block diagnostics also cross that contract, while persistent
-cache diagnostics use the compiler graph-service facade and one portable Memory-panel path. The
+cache diagnostics use the UI graph-service facade and one portable Memory-panel path. The
 platform adapter owns command transport and repaint wake-ups. The web adapter reports unavailable
-direct graph-document and output-file capabilities, supplies embedded configuration, and acquires
+processing-output and capture-export capabilities, supplies embedded configuration, opens and
+saves graph documents through browser picker/download services, and acquires
 bounded capture files through asynchronous picker and drop requests from the portable node file
 control. The UI does not select either implementation. Platform composition also installs file-source factories, file-writer output
 storage, the U3Pro16 USB transport and FPGA-image provider, and capture-export services through
@@ -226,7 +239,7 @@ authored demo-source choice.
 
 Reusable core crates compile the same Rust source and module tree on native and web targets.
 Matching public APIs backed by separate target-selected implementations inside a core crate are not
-the final boundary. The existing platform adapter boundary expands to cover the remaining host
+the final boundary. The platform adapter boundary covers host
 services.
 
 `logic_analyzer_platform` is the only reusable crate with general target selection and
@@ -238,7 +251,7 @@ target-specific dependencies. It is an adapter layer above the contract owners:
   derived-store capability ports;
 - `logic_analyzer_processing` owns concrete format and device behavior and the transport ports that
   behavior consumes;
-- `logic_analyzer_graph_compiler` owns cache-administration and source-preparation ports;
+- `logic_analyzer_graph_runtime` owns cache-administration and source-preparation ports;
 - `logic_analyzer_ui` owns dialog, host-command, and export-orchestration ports;
 - `logic_analyzer_platform` depends on those crates and implements their ports with files, mmap,
   native workers, browser handles, OPFS, native dialogs, export destinations, and USB transports;
@@ -255,14 +268,14 @@ sources, discard sinks, and cooperative execution—remain in their behavioral o
 every target. Composition selects them explicitly. A web build does not obtain a synthetic source
 or discard sink merely because a native capability is absent.
 
-The only temporary reusable-crate exceptions are complete file-I/O compatibility constructors or
+The only allowlisted reusable-crate exceptions are complete file-I/O compatibility constructors or
 device-runtime leaves in `logic_analyzer_processing` that still require native execution. Format
 parsers and index factories consume prepared random-access sources; native application composition
 acquires those sources in `logic_analyzer_platform`. Host factory selection, dialogs, output
 destinations, USB transport, and firmware acquisition are not exceptions and live in
 `logic_analyzer_platform`. Node state, schemas, and builders remain portable.
 
-The temporary processing-adapter allowlist is restricted to:
+The processing-adapter allowlist is restricted to:
 
 - `support::capture_archive::file_byte_source` and the DSL/Sigrok
   `path_compatibility` leaves that expose compatibility path constructors;

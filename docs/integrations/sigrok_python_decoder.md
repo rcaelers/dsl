@@ -11,38 +11,36 @@ The compatibility boundary is the public Python API used by decoder scripts. The
 upstream C source as a behavioral reference and as a differential-test oracle, but it does not
 ship or invoke that library at runtime.
 
-Actionable delivery work is tracked in the **Sigrok Python protocol decoders** section of
-[`TODO.md`](../../TODO.md).
+## Supported behavior
 
-## Goals
-
-- Load unmodified Sigrok API-version-3 Python decoder packages from configured search paths.
-- Discover decoder identity, channels, options, protocol inputs and outputs, annotations, binary
+- The native host loads unmodified Sigrok API-version-3 Python decoder packages from configured
+  search paths.
+- Discovery reports decoder identity, channels, options, protocol inputs and outputs, annotations, binary
   classes, logic outputs, tags, descriptions, and license information.
-- Run raw-logic decoders with compatible `wait()` behavior over finite and growing captures.
-- Route owned protocol packets between independent decoder nodes for graph-defined stacking.
-- Publish annotations and other supported outputs through registered, protocol-independent
+- Raw-logic decoders use compatible `wait()` behavior over finite and growing captures.
+- Owned protocol packets flow between independent decoder nodes for graph-defined stacking.
+- Annotations and other supported outputs use registered, protocol-independent
   payload contracts.
-- Derive graph controls, viewer lanes, and decoder-table columns from explicit decoder metadata.
-- Keep generic runtime, compiler, viewer, table, and node-graph code independent of Sigrok and of
+- Graph controls, viewer lanes, and decoder-table columns derive from explicit decoder metadata.
+- Generic runtime, compiler, viewer, table, and node-graph code remains independent of Sigrok and of
   individual protocols.
-- Report unavailable decoders and Python failures as structured node-owned diagnostics.
+- Unavailable decoders and Python failures are structured node-owned diagnostics.
 
-## Non-goals
+## Excluded behavior
 
 - Reimplement or bind the `libsigrokdecode` C API.
 - Translate individual decoder scripts to Rust.
 - Infer presentation or port behavior from decoder names or annotation text.
 - Guarantee support for scripts that execute external programs, import unavailable native Python
   extensions, or depend on undocumented DSView modifications.
-- Execute embedded CPython in the wasm application. A web implementation requires a separate
-  platform backend.
+- Embedded CPython does not execute in the wasm application; web composition advertises the
+  capability as unavailable.
 - Treat untrusted decoder scripts as safe. They execute arbitrary Python code with the native
   application's authority.
 
 ## Compatibility profile
 
-The first profile targets the standard Sigrok API-version-3 contract exposed to Python:
+The supported profile is the standard Sigrok API-version-3 contract exposed to Python:
 
 ```python
 class Decoder:
@@ -66,33 +64,24 @@ profile capabilities. They are not hidden in the standard profile or generic pre
 
 ## Ownership and crate boundaries
 
-The implementation follows the existing graph/runtime split:
+The implementation follows the graph planning and execution boundaries:
 
-```text
-logic_analyzer_processing
-  support/sigrokdecode/
-    discovery          decoder-package loading and metadata validation
-    python_module      PyO3 implementation of the sigrokdecode module
-    conditions         parsed wait-condition model and matching rules
-    scheduler          sample cursor, worker coordination, EOF and cancellation
-    outputs            Python-to-Rust output validation and conversion
-    platform           native implementation and target selection
-  nodes/decoders/sigrok_decoder/
-    implementation     ProcessNode facade for one configured decoder instance
-
-logic_analyzer_graph_nodes
-  nodes/decoders/sigrok_decoder/
-    definition         saved state and graph controls
-    builder            processing-node construction and port lowering
-    registration       compile-time registration of the generic node feature
+```mermaid
+flowchart LR
+    Platform[logic_analyzer_platform native_sigrok] --> Contract[logic_analyzer_processing SigrokDecoderRuntime]
+    Contract --> Node[logic_analyzer_processing Sigrok ProcessNode]
+    GraphNode[logic_analyzer_graph_nodes Sigrok definition and capabilities] --> Contract
+    GraphNode --> Registry[logic_analyzer_graph_registry]
+    Node --> Runtime[signal_runtime]
 ```
 
-`logic_analyzer_processing` owns the concrete decoder runtime because Python protocol decoding is
-UI-independent processing behavior. `logic_analyzer_graph_nodes` owns graph state, controls,
-migration, lowering, and presentation metadata. PyO3 types do not cross either crate's public
-facade.
+`logic_analyzer_processing` owns the portable decoder descriptors, execution contract, configured
+processing node, and output payloads. `logic_analyzer_graph_nodes` owns graph state, controls,
+migration, capabilities, and presentation metadata. `logic_analyzer_platform` owns CPython,
+package discovery, `wait()` scheduling, Python/Rust conversion, and the native execution-contract
+implementation. PyO3 types do not cross the platform adapter boundary.
 
-Generic components see only existing graph contracts, typed ports, and registered collected
+Generic components see only graph contracts, typed ports, and registered collected
 payloads. They do not branch on Sigrok decoder IDs, channel labels, annotation classes, or protocol
 packet contents.
 
@@ -281,10 +270,8 @@ Embedded CPython and native threads are selected as a complete native implementa
 Sigrok support platform module. No PyO3 type or `cfg(target_arch = "wasm32")` conditional leaks into
 generic processing, graph, compiler, viewer, or UI code.
 
-The wasm target either omits the native runtime registration or supplies a separate complete
-backend with the same platform-neutral catalog and node contract. A future web backend may use
-Pyodide in a Web Worker, but its asynchronous transport and interpreter lifecycle are independent
-of the native PyO3 implementation.
+The wasm target omits the native runtime registration and CPython host. Its platform composition
+does not advertise Sigrok Python decoder execution.
 
 ## Errors, trust, and distribution
 
@@ -295,14 +282,14 @@ other decoder instances.
 
 Decoder scripts are trusted executable plugins. Configured directories are visible to the user,
 and the application does not automatically execute decoders found in arbitrary capture or graph
-directories. Strong isolation requires a future helper-process backend with an explicit IPC data
-contract.
+directories. Decoder code runs with the native application's permissions; there is no
+helper-process isolation boundary.
 
 The application distinguishes support for external decoder directories from bundling decoder
 files. Packaging work inventories decoder licenses, Python dependencies, native extensions, data
 files, and subprocess use before any decoder collection is redistributed.
 
-The current native distribution policy and review boundary are defined in
+The native distribution policy and review boundary are defined in
 [`Sigrok Decoder Distribution`](sigrok_decoder_distribution.md).
 
 ## Verification strategy

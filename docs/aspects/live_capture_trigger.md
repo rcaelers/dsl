@@ -1,1096 +1,280 @@
 # Live Capture and Trigger Control
 
-This design adds interactive triggering, live waveform display, lossless host upload, live graph
-processing, and post-capture re-analysis for hardware logic-analyzer sources such as the DSLogic
-U3Pro16. It deliberately separates capture control from graph replay so the first implementation
-can keep the graph fixed during acquisition without creating an architectural dead end.
+Live capture separates hardware acquisition from graph processing. Acquisition writes a canonical,
+authoritative raw session as quickly as the provider supplies data. The viewer, growing waveform
+index, and live analysis consume independent cursors over the committed prefix, so decoder
+backpressure cannot stall the device reader or retain acquisition buffers.
 
-## Baseline
+The DSLogic U3Pro16 has native buffered and host-streamed profiles. Generic capture, graph, UI, and
+viewer code uses opaque source capabilities and never branches on that device name, transport,
+channel label, or mode label.
 
-The U3Pro16 graph node owns device settings and lowers to the UI-independent
-`LogicAnalyzerSource<DsLogicU3Pro16>` for an ordinary direct graph run. Both buffered and streamed
-modes register native live-capture profiles that use the authoritative capture-store path. The
-driver, transfer adaptation, and acquisition profiles are one processing source feature under
-`logic_analyzer_processing::nodes::sources`; generic live-capture infrastructure contains no
-U3Pro16 modules. The portable `LogicCaptureConfig` and U3Pro16 packet builder represent the
-hardware trigger stage.
+## Responsibilities
 
-The existing live graph manager already supplies one important future invariant: hot changes and
-branch restarts take effect from the current stream position and do not rewrite previously emitted
-derived data.
-
-The UI-independent live-capture foundation is also present:
-
-- `signal_capture_session::live_capture` defines opaque session and physical-channel identities,
-  lifecycle state, acquisition phase/progress, structured failures, and a versioned immutable
-  packed raw chunk with validated unaligned payload access;
-- the same generic contract describes whether samples arrive during acquisition or during a
-  buffered upload, advertises explicit channel/rate setting combinations, and capability-gates
-  Stop, Abort, Force Trigger, and Capture Now without naming a provider or transport;
-- generic capture-policy contracts validate immediate or triggered start, finite or manual
-  completion, trigger placement and timeout action, requested retention, and provider-advertised
-  combinations before acquisition begins;
-- a capture session plan carries the finite capture window directly in samples when the source
-  knows it, so acquisition and presentation share one exact timeline extent without deriving it
-  from a storage estimate;
-- within the active capture, a pin-aware retention tracker computes a monotonic safe-reclamation
-  boundary for pre-trigger, post-trigger, recent-duration, and recent-byte policies and rejects
-  any attempted reclamation beyond a required consumer position; it does not retain prior
-  captures;
-- the same contract defines the portable Ignore, Low, High, Rising, Falling, and Either simple
-  conditions and publishes an exact raw trigger sample as a generic capture event;
-- `CaptureChunkWriter` and `CaptureEventPublisher` are the generic acquisition boundaries, with
-  bounded in-memory chunk and event queues available for contract tests;
-- `signal_capture_session::live_capture_store` defines the platform-neutral session descriptor,
-  committed-prefix snapshot, cursor, manifest, and error contracts;
-- its common implementation publishes each canonical chunk as a bounded artifact and advances the
-  manifest only after that chunk is complete, so live cursors and recovery observe one committed
-  prefix;
-- finalization seals the same artifact generation for replay without copying the capture into a
-  target-specific representation;
-- the store atomically persists an optional generic session plan containing both requested and
-  negotiated effective policy and capacity metadata, while malformed metadata is reported as
-  corruption;
-- live and finalized cursors read immutable artifact generations, report Pending or End explicitly,
-  and retain no acquisition-sized in-memory commit index when paused;
-- a shared recording-origin gate keeps analysis pending while armed, clips the one chunk crossing
-  the trigger, and presents both live analysis and finalized replay as a zero-based post-origin
-  stream while leaving the authoritative raw prefix intact; the cursor also exposes its generic
-  capture-timeline offset so timestamped graph output aligns with the raw trigger position;
-- the native store provides exact random readers that binary-search durable or written-prefix
-  records and read only authoritative raw chunks intersecting the requested sample window;
-- the waveform-index subsystem's growing worker follows written-prefix chunks, incrementally publishes
-  per-channel multiresolution summaries, and never participates in acquisition backpressure;
-- the platform-neutral capture-query contract publishes current metadata, completion state, and a
-  monotonically increasing generation so consumers can follow a growing committed prefix;
-- capture providers can fill a fixed-size reusable buffer pool and transfer immutable payload
-  ownership directly to a synchronous store writer;
-- `signal_capture_session::live_capture` defines `AcquisitionContext` and the object-safe
-  `PreparedAcquisition` lifecycle with Prepare, Start, idempotent Stop, non-blocking completion
-  observation, and Join behavior;
-- an explicit `LiveCaptureFeatureProvider` can expose a state-bound `LiveCaptureFeature`; compiler discovery considers
-  only the feature belonging to the source retained by a successfully lowered graph and rejects
-  multiple candidates without matching node names;
-- the live feature supplies a reusable graph-source factory that captures its explicit runtime-port
-  layout and timebase before provider ownership is consumed; the same factory creates independent
-  live and finalized-session cursor sources, and generic code does not infer ports from node names,
-  channel labels, or protocols;
-- crate-local test capture sources expose the deterministic provider through the same contracts
-  under `cfg(test)` without contributing node definitions or builders to production catalogs;
-- the native application capture coordinator prepares, starts, supervises, stops, aborts,
-  force-triggers, applies finite completion and trigger-timeout actions, and finalizes capture off
-  the UI thread, retaining the previous completed temporary session until a new session completes
-  successfully;
-- the coordinator attaches the growing query to the viewer before acquisition completes and keeps
-  the finalized query available after completion;
-- the coordinator also opens an independent committed-prefix cursor and attaches its concrete
-  source process to a separately supervised, fixed compiled graph; decoder backpressure advances
-  only that cursor's lag and cannot retain acquisition chunks or delay the store writer;
-- after finalization, the coordinator retains the immutable store, its source `NodeId`, and the
-  captured graph-source factory; each Run opens a fresh finalized cursor and substitutes that
-  source by explicit node ID without rediscovering, opening, or operating the provider;
-- the Logic Analyzer title bar presents the combined Start/Stop control and lifecycle/sample
-  status, capability-gated Capture Now, Force Trigger, and Abort actions, capacity and health
-  popovers, Follow Newest, Pause/Resume Display, and Go Live controls, while Run and capture
-  exclude one another;
-- generic per-lane trigger icons open a condition menu through the configured input-binding
-  action; the viewer emits only a neutral lane/condition edit, and the application routes it by
-  opaque channel identity to the concrete source builder;
-- the viewer renders exact data from the authoritative store at detailed zoom levels and uses the
-  incremental summaries for wider windows; pausing display freezes its published generation while
-  acquisition and summary construction continue;
-- a trigger event advances the UI through Armed and observable Triggered state, records the
-  recording origin, and adds an exact red trigger marker to the raw waveform timeline;
-- the application publishes analysis progress and sample lag when the graph has an analysis path,
-  enables graph editing only in Recording, routes hot-configurable changes through durable
-  future-only epochs, keeps acquisition controls immutable, and preserves live derived lanes while
-  the analysis cursor catches up;
-- Run on a live-source graph requires its associated finalized session, creates fresh derived lane
-  stores without persistent-cache reuse, and atomically replaces the live-derived presentation;
-- `NodeGraphWidget` has a generic host-controlled editing mode: selection, inspection, copy, pan,
-  zoom, and box selection remain available while inline controls, wiring, movement, menus, and
-  other mutations are disabled; entering read-only mode cancels and restores an in-progress edit;
-- the native streaming fake generates known packed samples across deliberately unaligned chunk
-  boundaries, evaluates the portable simple-trigger program, supports manual pacing, and exercises
-  a nineteen-channel bank-qualified identity table;
-- the second native fake captures into device-owned storage, publishes no chunks until its upload
-  phase, advertises a different channel/rate matrix with non-contiguous bank-qualified identities,
-  and deliberately lacks Force Trigger; and
-- both fake providers pass the same lifecycle, store, trigger, coordinator, growing-view,
-  live-analysis, and replay contracts; registration uses the ordinary feature registry, while an
-  architecture test guards the application, compiler core, viewer, coordinator, and store against
-  provider/model-specific contracts;
-- the native U3Pro16 buffered feature persists one simple condition per physical input through an
-  explicit saved-state schema migration, lowers enabled non-contiguous physical inputs to opaque
-  capture identities and their original graph output ports, and validates the active finite
-  channel/rate/depth tuple before opening hardware;
-- concrete U3Pro16 state also persists recording start, trigger-position percentage, retention
-  target, and trigger-timeout controls through an explicit schema migration; its feature lowers
-  them to generic policy, aligns effective placement to the negotiated capture window, and records
-  both requested and effective values in the session plan;
-- U3Pro16 preparation freezes one validated device plan before Start performs the final arm
-  command; the provider publishes Armed, trigger, on-device capture, upload, progress, and terminal
-  events through the same generic acquisition contract as the fakes;
-- the U3 trigger header supplies the exact trigger sample and delivered sample extent before any
-  raw data is committed, while the upload adapter preserves a sub-sample carry across arbitrary
-  USB transfer boundaries and writes only complete canonical samples; and
-- U3 hardware RLE is an on-device memory-retention mode: the FPGA expands its upload to ordinary
-  interleaved sample bits, so the canonical store records that expanded, driver-independent stream
-  without a device-specific decoder;
-- the host-streaming profile validates its immutable plan against the connected High-Speed or
-  SuperSpeed link, publishes canonical chunks during acquisition, stops at the configured host
-  sample limit or a cooperative manual Stop, and reports hardware overflow and bit-sequence gaps as
-  explicit integrity failures;
-- aligned U3 transfers share their immutable payload with the canonical chunk without repacking,
-  while narrow transfers use one byte-wise transformation with a sub-sample carry; and
-- growing waveform summaries store one-byte first/last/activity records with implicit positions in
-  sequential per-channel tier files. RAM retains only incomplete fold groups and active tails,
-  packed-word summary building processes at most 64 channels without creating per-sample objects,
-  and the tiers feed the same bounded per-pixel query algorithm as finite waveform-index summaries;
-- growing queries clone only tier paths, counts, and bounded fold tails while holding the index read
-  lock, then release it before file I/O and per-pixel sampling, so painting cannot block publication
-  of newly summarized chunks.
-
-The native fakes, U3Pro16 buffered and streaming providers, and application coordinator are
-selected as whole platform modules. Feature-gated test sources and both fakes are used by
-conformance composition. Native capture sessions
-use checksummed commit records, interruption-safe bounded reclamation, explicit pinning, and a
-single replaceable working repository. Finalized captures expose pinned, cancellable background
-save without routing format logic through the UI. The existing `LogicAnalyzerSource` direct graph-
-run path remains available.
-
-## Live-capture design
-
-### Supported scope
-
-The live-capture workflow supports exactly one live capture source and keeps the node graph
-fixed from Start until the capture and any downstream analysis drain finish. It provides:
-
-- trigger controls beside each enabled physical input lane;
-- one combined Start/Stop control in the Logic Analyzer panel title bar;
-- one simple hardware trigger stage, AND-combining every non-ignored lane condition;
-- composable immediate/triggered start, bounded retention, and manual/fixed completion policies;
-- explicit Idle, Preparing, Armed, Triggered, Recording, Stopping, Complete, and Error states;
-- bounded, sequential host upload of every data chunk returned by the device;
-- live raw waveform queries while upload continues;
-- live graph processing from an independent cursor over the uploaded stream; and
-- Run-based re-analysis of the finalized capture with fresh derived-data stores.
-
-Multiple live sources, repeated frames, advanced trigger stages, and extended workflows use the
-same contracts rather than replacing this workflow.
-
-### Terminology
-
-| Term | Meaning |
+| Owner | Responsibility |
 | --- | --- |
-| Capture session | One Start-to-Stop device acquisition, identified by a unique session ID. |
-| Acquisition | Reading bytes from the hardware and uploading them to the host. |
-| Armed | Hardware configuration is active and the device is waiting for its trigger. |
-| Trigger point | Exact hardware sample position reported by the trigger header. |
-| Recording origin | Sample treated as time zero for the logged capture; initially the trigger point. |
-| Live capture store | Append-only raw staging store plus incremental waveform summaries. |
-| Analysis cursor | Independent ordered reader that follows committed raw chunks and feeds the graph. |
-| Captured session | Finalized immutable raw capture, metadata, trigger point, and graph revision. |
-| Analysis run | Processing a live or finalized capture through the node graph. |
-| Configuration epoch | Future timestamped graph configuration that applies only from one sample onward. |
+| `signal_capture_session` | Driver-neutral lifecycle, capture policy, trigger program, canonical session store, committed-prefix cursors, retention, and growing index contracts |
+| `logic_analyzer_processing` | Concrete acquisition providers, device protocol, source factories, packet conversion, and processing nodes |
+| `logic_analyzer_graph_nodes` | Concrete live-source graph definition, saved state, migration, capabilities, and presentation metadata |
+| `logic_analyzer_graph_compiler` | Discovery of the one retained live source and lowering of its graph semantics |
+| `logic_analyzer_graph_runtime` | Materialization of the compiled analysis/replay graph and explicit source-process substitution |
+| `logic_analyzer_ui` | Capture coordinator, user commands, graph-service orchestration, run exclusion, and presentation binding |
+| `logic_analyzer_viewer` | Generic growing-query rendering, navigation, trigger marker, and neutral per-lane trigger edit events |
+| `logic_analyzer_platform` | Native USB, work execution, artifact repository, export destination, and whole-adapter target selection |
 
-“Upload” and “log” are intentionally different. Every chunk made available by the provider is
-committed immediately to the live capture store; a device-buffered provider may not make chunks
-available until its later upload phase. Logging begins at the recording origin. Device-provided
-pre-trigger data can therefore be retained without pretending it belongs after the trigger.
-
-### Architectural boundaries
-
-| Crate | Responsibility |
-| --- | --- |
-| `signal_capture_session` | Generic session IDs/status, provider acquisition lifecycle, append-only live raw store, committed-prefix queries, trigger point metadata, analysis cursor sources, and finalized capture handles. No USB, node names, or UI. |
-| `logic_analyzer_processing` | Concrete capture providers and source-owned U3Pro16 USB behavior. The U3Pro16 processing source feature translates trigger headers and chunks into the generic session contracts. |
-| `logic_analyzer_graph_compiler` | Generic live-source descriptors, trigger-state lowering, and replay override lowering. Concrete U3 state, builder registration, and behavior stay in the corresponding `logic_analyzer_graph_nodes` feature directory. |
-| `logic_analyzer_viewer` | Generic lane trigger icons, hit testing, live capture queries, and neutral trigger-edit events. It does not identify U3Pro16 or construct hardware trigger programs. |
-| `logic_analyzer_ui` | Capture-session coordinator, Start/Stop state machine, recording-time epoch orchestration, title-bar controls, status/toasts, and routing neutral edits between descriptors and widgets. It does not branch on node names. |
-| `node_graph` | Generic read-only/edit-enabled mode during capture. It has no capture or trigger concepts. |
-
-The U3Pro16 remains native-only as a complete registry/module boundary. Generic session, graph,
-compiler, and viewer data models have no inline target conditionals.
-
-### Driver-neutral invariants
-
-U3Pro16 is the first implementation, not the definition of a logic analyzer. These invariants apply
-to every generic contract in this design:
-
-- the application, viewer, compiler core, session coordinator, and capture store never match a
-  driver/model name or concrete node type;
-- channel IDs are opaque and channel counts, banks, ordering, and masks are supplied explicitly;
-- device discovery and capability negotiation occur per instance, after which one immutable typed
-  plan controls the session;
-- connection transport is opaque; USB, network, serial, local bridge, and future remote providers
-  publish the same lifecycle/events;
-- acquisition profiles describe observable semantics such as when data becomes available, who owns
-  buffering, supported stop operations, and valid setting tuples instead of relying on universal
-  `Streaming`/`Finite` assumptions;
-- trigger controls expose a small common simple-trigger vocabulary, while richer trigger engines
-  advertise their supported expression/schema capabilities and are lowered by the concrete feature;
-- captured data uses a versioned canonical digital representation, so replay and export do not
-  require the original hardware driver; and
-- unsupported or unknown capabilities remain unavailable and produce structured diagnostics; no
-  generic fallback guesses hardware behavior.
-
-New analyzers integrate by registering a concrete graph feature and UI-independent processing
-provider that implement these contracts. A source may use a dedicated graph node or a plugin-owned
-node definition. Neither path requires editing generic crates.
-
-The existing `LogicAnalyzerInfo`/`LogicCaptureConfig` boundary evolves accordingly. Generic launch
-requests carry explicit channel IDs and typed standard settings, not a `u64` channel mask or fixed
-sixteen-channel trigger planes. A processing provider discovers devices, opens a stable device
-identity, reports instance capabilities, and prepares acquisition. Its concrete adapter lowers the
-generic request into any fixed masks, register planes, transfer sizes, or vendor commands required
-by that device. The graph feature delegates to this provider; those representations never reach the
-application or reusable widgets.
-
-Device selection is saved as a provider-owned selector plus an optional preferred stable identity,
-not an operating-system path interpreted by the application. Resolution can report missing,
-ambiguous, busy, incompatible, or available devices. The user must choose when several matching
-devices exist; capture does not silently bind whichever enumerates first.
-
-### Source discovery and presentation contract
-
-`LiveCaptureFeatureProvider` is an explicit, protocol-neutral optional registration capability.
-The U3Pro16 feature implements it by adapting its saved state and concrete processing driver; the
-application never constructs or identifies that driver. The feature has three responsibilities:
-
-- describe the source and its editable trigger controls;
-- apply a neutral trigger edit to the concrete saved node state; and
-- prepare an acquisition against a generic raw-store writer and status publisher.
-
-Preparation returns an object-safe `PreparedAcquisition` handle with `start`, `request_stop`, and
-`join` operations. Opening/configuring the device happens during preparation, while `start`
-performs the final non-blocking arm operation. The handle publishes only generic
-`CaptureEvent` values and writes raw chunks through the supplied store contract. Its concrete
-type remains inside the U3Pro16 graph/processing feature.
-
-The presentation half of the feature returns a descriptor derived explicitly from node state:
-
-```rust
-pub struct LiveCaptureDescriptor {
-    pub node_id: NodeId,
-    pub title: String,
-    pub device: DeviceBindingDescriptor,
-    pub channels: Vec<LiveCaptureChannel>,
-    pub simple_trigger: SimpleTrigger,
-    pub capabilities: LiveCaptureCapabilities,
-}
-
-pub struct LiveCaptureChannel {
-    pub id: CaptureChannelId,
-    pub viewer_lane: ViewerLaneId,
-    pub physical_label: String,
-    pub name: String,
-    pub simple_trigger: Option<SimpleTriggerChannelState>,
-}
-
-pub struct LiveCaptureCapabilities {
-    pub transport_profiles: Vec<CaptureTransportProfile>,
-    pub trigger_engine: TriggerEngineCapabilities,
-    pub clock_sources: Vec<ClockSourceCapability>,
-    pub commands: CaptureCommandCapabilities,
-    pub trigger_io: TriggerIoCapabilities,
-}
+```mermaid
+flowchart LR
+    Provider[Concrete capture provider] --> Session[signal_capture_session]
+    Session --> Repo[ArtifactRepository]
+    Session --> Query[Growing capture query]
+    Session --> Cursor[Committed-prefix cursor]
+    Query --> Viewer[logic_analyzer_viewer]
+    Cursor --> Runtime[logic_analyzer_graph_runtime]
+    Runtime --> Derived[signal_derived]
+    Derived --> UI[logic_analyzer_ui]
+    UI --> Viewer
 ```
 
-`CaptureChannelId` is an opaque, stable, serializable identifier owned by the source feature. It is
-not an array index and need not be numeric or contiguous; a driver may use bank/pod-qualified IDs.
-The concrete feature maps it to hardware inputs and graph outputs. The viewer lane, physical label,
-and user-visible name are separate explicit fields. Generic code never derives identity from a
-socket label, display name, or row order. The descriptor also lets the application create empty
-lane headers as soon as a live node is added, before a device is opened.
+## Source discovery and capabilities
 
-The feature contract accepts a neutral edit such as
-`SetSimpleTrigger { channel_id, condition }`. The concrete builder validates and rewrites
-its own serialized state. The application and viewer do not deserialize `U3Pro16State`.
+A concrete graph node registers a `LiveCaptureFeatureProvider`. Discovery first lowers the graph,
+then considers only live features belonging to retained nodes. Start requires exactly one retained
+live source. Zero or multiple candidates produce capability errors; generic code never chooses a
+source by node name.
 
-For live processing, compilation receives a source override for the same `NodeId` that follows an
-analysis cursor over the live store. The hardware acquisition is therefore outside the graph's
-backpressure domain, while the graph still sees the source node's normal output schema. The same
-override mechanism later accepts an immutable finalized-session cursor for Run. This avoids two
-independent ways of lowering a live source and keeps source substitution explicit.
+The state-bound `LiveCaptureFeature` describes:
 
-Phase one rejects Start when zero or more than one live-source descriptor is present. This is a
-clear capability error rather than silently picking the first source.
+- opaque session and physical `CaptureChannelId` identities;
+- enabled channel identities, graph outputs, stable user labels, and presentation rows;
+- device-buffered or host-streamed acquisition profiles;
+- valid channel-count, sample-rate, depth, clock, encoding, and trigger combinations;
+- whether partial buffered upload, Stop, Abort, Force Trigger, and Capture Now are supported;
+- requested and effective capture policy and capacity; and
+- a reusable graph-source factory with explicit runtime ports and timebase.
 
-Transport profiles describe device-buffered and host-streamed acquisition separately. Each profile
-declares its channel-count/sample-rate combinations, sample-depth limits, supported trigger kinds,
-trigger-placement range, hardware encoding options, partial-upload behavior, and whether samples
-become available during acquisition or only during a later upload phase. These are explicit
-capabilities supplied by the concrete source feature, not rules inferred from a mode label.
+Capabilities are queried for the discovered device instance. Connection type, firmware, channel
+banks, and selected profile may change the accepted combinations. The provider returns typed
+capability values; the coordinator does not consume untyped property maps or infer behavior from
+display strings.
 
-Capabilities are queried for a particular discovered device instance. Static node defaults may
-offer a useful initial configuration, but connection type, firmware revision, installed options,
-channel banks, and current profile can change the valid choices. The feature exposes typed standard
-capabilities to the coordinator and keeps additional device-specific properties in its concrete node
-panel. Generic code does not consume integer option keys, untyped property bags, driver names, or
-model-name conditionals.
+`CaptureChannelId` is not an array index and need not be numeric or contiguous. The concrete
+feature maps it to physical hardware and graph outputs. Viewer row order and labels are separate
+presentation values.
 
-### Saved simple-trigger state
+## Trigger and capture policy
 
-`U3Pro16State` gains one trigger condition per physical input with a serde default of `Ignore`.
-Old graph files therefore migrate explicitly to free-running capture without changing their
-meaning. Trigger conditions belong to the hardware source node because they affect acquisition,
-not merely presentation.
+`TriggerProgram` is a neutral, serializable program owned by `signal_capture_session`. The standard
+simple digital predicates are Ignore, Low, High, Rising, Falling, and Either. The U3Pro16 feature
+maps enabled physical inputs to its hardware trigger stage and AND-combines non-ignored simple
+conditions. Unsupported programs and impossible channel/rate/depth combinations fail validation
+before the device is armed.
 
-The first concrete source maps the common simple program to one of its current
-`LogicTriggerStage` values:
+The generic `TriggerEditorSchema` describes predicates, operands, stages, limits, defaults, and
+validation messages through stable registered IDs. The Triggers panel emits neutral edit
+operations; the concrete node validates and rewrites its serialized state. Neither the panel nor
+the viewer deserializes device state.
 
-- every enabled, non-ignored physical input contributes its selected condition;
-- conditions are combined with `TriggerLogic::And`;
-- plane 1 is unused;
-- inversion is false, count is zero, and serial mode is false; and
-- no configured conditions means immediate/free-running capture.
+Capture policy composes:
 
-Its fixed-width channel planes are a concrete processing-adapter detail and do not cross the
-`LiveCaptureFeature` boundary. Another analyzer may lower the same common simple conditions to a
-different width or program representation.
+- immediate or triggered start;
+- finite completion or manual Stop;
+- pre/post-trigger placement;
+- trigger timeout with continue-waiting, clean Stop, or Force Trigger action; and
+- retain-all, recent-duration, or recent-byte storage policy.
 
-The supported lane conditions are Ignore, Low, High, Rising, Falling, and Either. A primary click
-opens a small condition menu; it does not rely only on cycling through icons. The icon and tooltip
-show the actual selected condition. Input bindings and status-bar hints come from the existing
-binding configuration rather than hardcoded shortcuts.
+Capture Now starts one immediate session without modifying the saved trigger program. Force
+Trigger is available only while Armed and only when the provider advertises it. Stop requests an
+orderly drain and finalization. For buffered devices it requests partial upload when the negotiated
+plan supports that operation; otherwise the UI reports before arming that Stop cannot retain data.
+Abort is the immediate escape path and never labels a partial session Complete.
 
-The Triggers panel supplies advanced multi-stage programs through the same portable trigger
-model. When an advanced program is active, lane icons summarize the digital predicates in its
-first stage rather than maintaining a second, conflicting trigger program; the panel remains the
-complete representation.
+The negotiated `CaptureSessionPlan` records requested and effective settings, capacity, retention,
+capture window, trigger placement, and hardware encoding. Acquisition and presentation therefore
+share one exact timeline extent.
 
-### Advanced-trigger contract
+## Session lifecycle
 
-`CaptureProviderCapabilities` optionally carries a `TriggerEditorSchema` for the discovered
-device/profile. The schema has a stable registered ID and revision, structural limits, supported
-stage logic, inversion and counting capabilities, common digital conditions, and registered
-predicate schemas. Registered predicates are declarative data with stable IDs, labels, and typed
-operands; they cannot contain provider callbacks. Operand kinds cover booleans, bounded signed and
-unsigned integers, durations, choices, physical-channel identities, and bounded byte strings.
+Preparation freezes one validated provider plan before Start issues the final arm command.
+Provider events publish lifecycle, acquisition phase, progress, health, negotiated plan, exact
+trigger sample, and structured failure independently from data chunks.
 
-The serializable neutral `TriggerProgram` identifies the schema revision and contains an ordered
-sequence of stages. Each stage contains common per-channel digital predicates or registered
-predicates, one supported logic operation, optional inversion, and an optional count qualifier. An
-absent program means free run. The contract converts a simple trigger to one AND stage containing
-its non-Ignore digital predicates, so the lane controls and advanced editor do not need competing
-program models.
-
-Before a concrete feature may persist or lower a program, the schema validates it against the
-source's currently enabled opaque `CaptureChannelId` table. Validation checks schema identity and
-revision, every structural limit and capability, channel membership, registered predicate and
-operand identity, exact operand type, numeric steps/ranges, choice membership, and byte-length
-bounds, and uniqueness of a digital channel within each stage. It returns either a
-`ValidatedTriggerProgram` or structured path/code/message diagnostics.
-Generic code cannot construct the validated wrapper directly.
-
-`LiveCaptureEdit::SetTriggerProgram` routes an optional neutral program to the concrete source
-builder that owns the selected feature. The builder owns saved-state migration and translation from
-the validated program to its processing/provider representation. Generic compiler, application,
-viewer, and capture runtime code neither inspect registered IDs nor branch on a device, protocol,
-port label, or predicate name. A schema revision mismatch is handled by an explicit owning-node
-migration or a user-visible reset warning.
-
-Trigger configuration discovery is a pure graph-builder feature separate from acquisition feature
-discovery. It remains available when a native device/backend is absent and on wasm, and exposes
-only the schema, active opaque channel table, saved program, and common lane projection. The
-generic `trigger-editor` widget consumes that contract and emits neutral whole-program edits. It
-supports schema-declared stages, logic, inversion, counts, digital conditions, registered
-predicates, and typed operands without provider callbacks or built-in layouts.
-
-Lane controls and the Triggers panel edit the same saved program. Lane controls may update free-run
-or the common one-stage digital form; they refuse to replace a staged, counted, inverted, or
-registered-predicate program implicitly. Built-in source schemas advertise only programs their
-concrete execution paths can lower.
-
-The deterministic demo source supports up to four ordered digital stages, every neutral stage
-logic operator, inversion, and occurrence or consecutive-sample counts. Its provider-owned
-evaluator combines a stage's predicates at each sample, applies inversion, and advances to the next
-stage only after the current stage qualifies. An occurrence count advances on false-to-true stage
-matches; a consecutive count resets when the stage does not match. Evaluator state crosses capture
-chunk boundaries, so chunking cannot change the trigger sample.
-
-The U3Pro16 source advertises its hardware subset: up to sixteen ordered stages, up to sixteen
-digital channel predicates per stage, AND/OR combination, inversion, and occurrence or contiguous
-counting. Its graph feature validates opaque enabled channel identities and lowers directly to the
-processing driver's fixed hardware planes. The driver owns the AND/OR, inversion, contiguous, and
-count wire encoding. Unsupported neutral logic or registered predicates never enter the saved
-program because they are absent from this source's schema.
-
-### Capture policy
-
-Capture behavior is an explicit, generic policy rather than an implicit consequence of the Start
-button. Orthogonal settings describe it without creating a separate implementation for each named
-mode:
-
-```rust
-pub struct CapturePolicy {
-    pub start: RecordingStart,
-    pub trigger_placement: Option<TriggerPlacement>,
-    pub retention_before_origin: RetentionPolicy,
-    pub retention_after_origin: RetentionPolicy,
-    pub completion: CompletionPolicy,
-    pub trigger_timeout: Option<TriggerTimeout>,
-}
-
-pub enum RecordingStart {
-    Immediate,
-    Trigger,
-}
-
-pub enum TriggerPlacement {
-    Fraction(CaptureFraction),
-    SamplesBefore(u64),
-    DurationBefore(Duration),
-}
-
-pub enum RetentionPolicy {
-    Everything,
-    RecentDuration(Duration),
-    RecentBytes(u64),
-    DeviceManaged,
-}
-
-pub enum CompletionPolicy {
-    UntilStopped,
-    DurationAfterOrigin(Duration),
-    SamplesAfterOrigin(u64),
-}
-
-pub struct TriggerTimeout {
-    pub after: Duration,
-    pub action: TriggerTimeoutAction,
-}
-
-pub enum TriggerTimeoutAction {
-    ContinueWaiting,
-    Stop,
-    ForceTrigger,
-}
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Preparing: Start or Capture Now
+    Preparing --> Armed: triggered plan prepared
+    Preparing --> Recording: immediate plan prepared
+    Armed --> Triggered: hardware trigger or Force Trigger
+    Triggered --> Recording: recording origin established
+    Recording --> Stopping: Stop or finite completion
+    Armed --> Stopping: Stop before trigger
+    Preparing --> Stopping: cancel
+    Stopping --> Complete: clean drain and finalization
+    Stopping --> Incomplete: retained partial prefix
+    Preparing --> Error: preparation failure
+    Armed --> Error: device or integrity failure
+    Recording --> Error: device, storage, or integrity failure
+    Error --> Idle: acknowledge / replace session
+    Complete --> Idle: replace session
+    Incomplete --> Idle: replace session
 ```
 
-These settings compose into continuous, fixed-length, rolling-window, and triggered captures. A
-triggered capture can retain a bounded window before the trigger and everything after it, while a
-rolling capture can bound retention after its immediate origin as well. `DeviceManaged` is valid
-only where the source controls the available history. The source descriptor reports which
-combinations the hardware supports, and the application rejects unsupported combinations before
-opening the device.
+The application exposes Idle, Preparing, Armed, Triggered, Recording, Stopping, Complete, and Error
+as user-facing states. Device-buffered profiles additionally report on-device capture and upload
+phases; host-streamed profiles report the growing committed duration. Stop is idempotent. Trigger
+waiting and preparation are cancellable.
 
-Trigger placement specifies how much of a finite capture window precedes the trigger; it is not
-merely a viewer marker. The concrete feature converts percentage, sample, or duration input to the
-device's aligned sample position and reports the effective value. A source may expose a freely
-selectable placement for device-buffered acquisition and a fixed placement for host streaming.
-The UI displays the effective pre/post-trigger split and does not imply that an unsupported value
-was honored.
+## Authoritative store and independent consumers
 
-Every incoming chunk is transported and committed before it is made visible to consumers.
-`Everything` keeps the complete committed prefix. A bounded retention policy permits reclamation
-only after the trigger detector and every integrity check have processed that prefix. Reclamation
-is recorded in the commit log, never presented as packet loss, and cannot remove pinned data.
-`DeviceManaged` records the actual pre-trigger range delivered by hardware instead of promising a
-host-side duration the device cannot supply.
+Providers commit versioned canonical chunks through `CaptureChunkWriter` and publish control events
+through `CaptureEventPublisher`. Canonical chunks carry the physical-channel table, logical sample
+range, initial levels, and packed samples or transition runs. They make no assumption about a
+sixteen-channel maximum, contiguous numbering, byte-aligned transfers, or device interleave.
 
-Before Start, a capacity estimator shows the requested sample rate, enabled channels, estimated
-uncompressed input rate, configured memory/disk budget, expected retained duration, and currently
-available disk space. Compression estimates are labeled estimates and do not replace the
-worst-case integrity check. A policy that cannot be sustained is rejected or requires an explicit
-reduced-rate/channel choice; capture never silently changes settings.
+The U3Pro16 FPGA uses run-length encoding internally for capture memory and expands USB upload to
+ordinary interleaved samples. The provider therefore stores the expanded canonical stream. Narrow
+transfers retain a sub-sample carry across USB packets so incomplete samples are never committed.
 
-### Negotiated acquisition plan
+Each chunk is published as a bounded artifact before the manifest advances. Readers observe only
+the committed prefix. Finalization seals the same generation for replay; it does not copy the raw
+capture into another representation.
 
-Device-buffered and host-streamed acquisition have different observable behavior and remain
-distinct in the generic contract:
+```mermaid
+sequenceDiagram
+    participant Provider as Concrete provider
+    participant Writer as CaptureChunkWriter
+    participant Store as LiveCaptureStore
+    participant Repo as ArtifactRepository
+    participant Index as Growing waveform index
+    participant Viewer as Logic Analyzer viewer
+    participant Analysis as Live analysis cursor
+    participant Runtime as GraphRuntime
 
-- **Device buffered:** sampling first accumulates in analyzer memory. Waveform bytes may be
-  unavailable until the trigger, requested depth, or manual Stop completes, after which an Upload
-  phase transfers them to the authoritative store. The device-enforced acquisition plan determines
-  the finite extent; host completion policy never truncates an upload containing data already
-  captured by the device. This path can support higher sample rates but has a hardware-depth limit.
-- **Host streamed:** chunks are transferred and committed while sampling. This path enables a
-  growing live waveform and longer captures, and the host enforces the negotiated post-origin
-  completion point. Its sustainable sample rate depends on link speed, enabled channel count,
-  encoding, and host throughput.
-
-Opening the device performs a capability handshake and produces an immutable `CapturePlan` before
-arming. The plan records device identity, relevant firmware/logic revisions, transport/link class,
-enabled physical channels, clock source, requested and effective sample rate, requested and aligned
-sample depth, requested and effective trigger placement, encoding, expected raw rate, and supported
-stop behavior. It is saved in session metadata and passed unchanged to the driver and store.
-
-The plan is validated as a tuple. A sample rate that is legal for three channels may be illegal for
-sixteen; an encoding may be available only with device buffering; advanced triggers may be limited
-to one transport profile. If connection speed or device revision changes what is possible, Prepare
-returns a structured incompatibility with suggested valid tuples. It never silently clamps one
-field and leaves the graph showing the requested value.
-
-For external-clock capture, the timebase is explicit. If the external frequency is known, metadata
-contains that declared rate and timestamps can be expressed in time. If it is unknown, the capture
-uses sample ordinals and the ruler displays samples; generic code does not reuse the internal-clock
-rate as a guess.
-
-The first concrete hardware feature advertises two profiles from its existing validated rate/depth
-tables: high-rate device buffering and long-duration host streaming. Selectable trigger placement,
-hardware run-length encoding, advanced staged triggers, and stop-with-partial-upload are associated
-with the buffered profile only where supported. Streaming exposes its channel-count/link-speed rate
-matrix and its fixed trigger placement. Physical clock or trigger pins become capabilities only
-after their driver behavior is implemented and verified; connector presence alone is not enough.
-
-Capture-policy edits are routed through the same neutral feature contract as lane trigger edits and
-stored in the concrete source node state. Requested settings therefore survive graph save/load.
-Negotiated effective settings belong to the captured session, because they describe one particular
-device connection. Capture Now is a transient session override and is never serialized over the
-saved recording-start policy.
-
-### Capture-session state machine
-
-```text
-                    Start
- Idle / Complete ─────────► Preparing ─────► Armed
-       ▲                       │                │
-       │                       │ error          │ hardware trigger
-       │                       ▼                ▼
-       └────── Complete ◄── Stopping ◄── Recording
-                    ▲            ▲
-                    │            │ Stop
-                    └────────────┘
-
- Any active state ── unrecoverable error/overflow ──► Error
+    Provider->>Writer: canonical chunk with sequence and sample range
+    Writer->>Store: append validated chunk
+    Store->>Repo: publish immutable chunk artifact
+    Store->>Repo: publish next manifest generation
+    par Waveform path
+        Index->>Store: follow committed chunks
+        Index->>Repo: publish multiresolution summaries
+        Viewer->>Index: query visible sample/time window
+    and Analysis path
+        Analysis->>Store: read next committed-prefix chunk
+        Analysis->>Runtime: source payloads for compiled graph
+    end
+    Note over Provider,Runtime: Analysis lag never blocks Writer or Provider
 ```
 
-`Triggered` is an observable event between Armed and Recording even if both occur in one UI
-frame. A shared `CaptureSessionStatus` snapshot contains session ID, source node ID, state,
-committed sample count, trigger sample, recording origin, graph revision, overflow state, and an
-optional structured error. It also exposes raw input throughput, staging occupancy, staging write
-rate, free storage, raw committed duration, summary-covered duration, graph-processed duration,
-decoder lag, and compression ratio. Unknown metrics remain absent rather than being reported as
-zero.
+A recording-origin gate keeps analysis pending while Armed. When the trigger is known, it clips the
+chunk crossing the origin and presents live analysis and finalized replay as a zero-based stream.
+The authoritative pre-trigger prefix remains intact, and the cursor exposes its capture-timeline
+offset so derived timestamps align with the raw trigger marker.
 
-The lifecycle state is accompanied by a more precise acquisition phase: WaitingForTrigger,
-CapturingOnDevice, ReceivingLiveData, UploadingBufferedData, DrainingPipeline, or Finalizing. This
-distinction matters because Recording does not imply that bytes are already available to the host.
-Progress contains independently optional captured samples and transferred bytes, so a source never
-fabricates capture progress that its hardware cannot report.
+The growing waveform index follows committed chunks and publishes bounded multiresolution summary
+pages. Detailed views query exact raw data; wider views query summaries. Pause Display freezes the
+viewer's observed generation while acquisition, indexing, and analysis continue. Follow Newest and
+Go Live move only the viewport.
 
-Start performs these operations in order:
+Retention uses explicit consumer pins and a monotonic safe-reclamation boundary. The store never
+reclaims a chunk required by the device-independent replay cursor, analysis cursor, index worker,
+viewer query, or save operation. A slow analysis cursor reports lag but does not apply acquisition
+backpressure.
 
-1. Synchronize all inline node controls and snapshot the graph revision.
-2. Resolve exactly one live-capture descriptor and validate its acquisition settings independently
-   of downstream graph connectivity.
-3. Create a fresh raw store and a gated analysis cursor whose origin is not yet fixed.
-4. Ask the source feature to open the analyzer, negotiate an immutable effective plan, and configure
-   it against the raw-store writer, including its trigger program.
-5. When the source is retained by a valid sink-reachable graph, create fresh derived stores and
-   materialize that graph with a live analysis-cursor override and every downstream subscription
-   ready; later accepted hot configuration is scheduled through explicit epochs. Otherwise, raw
-   waveform capture proceeds without graph analysis.
-6. Start/arm the prepared acquisition and enter Armed or immediate Recording. A `Triggered` event
-   fixes the recording origin and releases the analysis cursor; free-running capture uses its first
-   committed sample.
-7. Follow session status and committed extents without blocking the UI thread.
+## Live analysis and replay Run
 
-Stop first requests device stop, continues servicing transport completion/drain requirements, finalizes
-the raw store, closes the analysis cursor at the final committed sample, and lets the graph drain.
-Only then does the UI enter Complete. “Stopping…” therefore means data is still being safely
-drained, not that the application ignored the button.
+After acquisition starts, the coordinator opens an independent store cursor and supplies it as a
+`LiveAnalysisSource` for the discovered source `NodeId`. The graph service lowers the current
+document, and `GraphRuntime::start_live_analysis` replaces only that source process. All downstream
+nodes use the same processing plan and port mapping as an ordinary Run.
 
-Stop, Abort, and Force Trigger are distinct operations:
+```mermaid
+sequenceDiagram
+    participant UI as Capture coordinator
+    participant Lowerer as GraphLowerer
+    participant Runtime as GraphRuntime
+    participant Store as Capture session
+    participant Run as LiveRun
 
-- **Stop** requests an orderly device stop, drains all committed data, and finalizes it. Stopping
-  while Armed produces a clean `CancelledBeforeTrigger` outcome rather than inventing a trigger.
-- **Abort** is reserved for an immediate escape when orderly stop cannot finish. It retains any
-  valid committed prefix as an explicitly incomplete session and never labels it Complete.
-- **Force Trigger** asks a capable source to use the current sample as the trigger point. It is
-  available only while Armed and only when advertised by source capabilities.
-
-Capture Now is a fourth, pre-start action rather than a synonym for Force Trigger. It creates one
-session with an immediate recording start while leaving the saved trigger program untouched. This
-is useful for inspecting current signals when a complex trigger does not fire. A later ordinary
-Start uses the saved trigger program again; the one-shot override never edits graph state.
-
-A trigger timeout is part of capture policy. On timeout, the configured action is to continue
-waiting, stop cleanly, or request Force Trigger when supported. The default is to continue waiting.
-All three commands are generic capability operations; the UI does not emulate a hardware trigger
-by guessing a timestamp.
-
-Closing the application, deleting the source through a future editing mode, source disconnect, and
-pipeline failure all use the same stop/finalize path. A forced abort is separately labeled and
-never presents a partial file as a clean capture.
-
-For a device-buffered run, orderly Stop requests partial upload when the negotiated plan supports
-it, then finalizes the returned prefix. If partial upload is unsupported, the UI explains before
-arming that Stop can only cancel without data. Abort always chooses the immediate discard path.
-For a host-streamed run, Stop drains the already transferred prefix in the normal way.
-
-### Driver event contract
-
-The portable analyzer boundary exposes acquisition events rather than hiding trigger information
-inside `next_chunk`:
-
-```rust
-pub enum CaptureEvent {
-    Status(CaptureStatus),
-    Progress { session_id: CaptureSessionId, progress: CaptureProgress },
-    Health { session_id: CaptureSessionId, health: CaptureHealth },
-    Plan { session_id: CaptureSessionId, plan: CaptureSessionPlan },
-    Triggered { session_id: CaptureSessionId, sample: u64 },
-    Failed(CaptureFailure),
-}
+    UI->>Store: open committed-prefix analysis cursor
+    UI->>Lowerer: lower(current GraphState)
+    Lowerer-->>UI: ProcessingGraph
+    UI->>Runtime: start_live_analysis(plan, source NodeId + cursor process)
+    Runtime-->>UI: LiveRun and RunData
+    loop Capture is active
+        Store-->>Run: newly committed raw chunks
+        Run-->>UI: derived lanes, progress, lag, diagnostics
+    end
+    UI->>Store: finalize authoritative generation
+    UI->>Store: open fresh finalized replay cursor
+    UI->>Lowerer: lower(current GraphState)
+    UI->>Runtime: start(plan, source override by NodeId)
 ```
 
-For U3Pro16, the 1024-byte trigger header produces `Triggered` using its trigger-position field.
-The current remaining-count validation remains in the driver. No-trigger capture publishes an
-immediate trigger at the first recorded sample. Data chunks preserve monotonic sequence and sample
-ranges; the driver must not discard or reinterpret an unaligned narrow-mode tail.
-
-The U3 protocol places the trigger header before its data stream. Consequently the UI can show
-Armed status immediately, but cannot claim to display pre-trigger samples before the device
-delivers them. Once delivery begins, every returned chunk is uploaded. A later analyzer capable of
-continuous pre-trigger delivery can use the same event/store contract.
-
-Hardware run-length encoding is preserved as a requested/effective setting in the negotiated plan
-and future durable session metadata. On U3Pro16 it compresses capture memory internally, after
-which the FPGA expands the USB upload to ordinary interleaved samples. The provider therefore
-commits versioned canonical packed samples and carries incomplete narrow-mode samples across USB
-transfers. A device whose transport really returns encoded runs requires an explicit canonical run
-representation or concrete decoding before commit. Optional original-device packets may be
-retained as a provenance attachment, but they are never the only replayable copy. Reported progress
-distinguishes transport bytes from logical samples. Final replay therefore depends on neither the
-current graph setting nor the original hardware driver.
-
-Canonical chunks carry their explicit `CaptureChannelId` table, logical sample range, initial
-levels, and either arbitrary-width packed samples or transition runs. They do not assume a maximum
-channel count, contiguous hardware numbering, byte-aligned device transfers, or a particular
-interleave order. The concrete provider performs those mappings before publication.
-
-### Authoritative live capture store
-
-The uploaded raw stream is the authority for both display and analysis:
-
-```text
- Prepared acquisition events
-          │
-          ▼
-  append shared raw chunk ─────► sequential native staging file
-          │                              │
-          │                              ├─ incremental waveform summaries
-          │                              ├─ viewer viewport queries
-          │                              └─ finalized capture / pinned background export
-          ▼
-  advance committed cursor
-          │
-          └────────► graph analysis cursor ─► demux ─► decoders/sinks/viewer lanes
-```
-
-The same append path accepts chunks transferred continuously during host streaming and chunks
-uploaded after device-buffered sampling. In the buffered case the viewer shows phase/progress but
-does not draw samples before the first `Data` event. Once upload begins, waveform summaries and the
-graph advance incrementally instead of waiting for the complete device buffer.
-
-The device reader never waits for decoder or renderer work. It waits only for the mandatory
-sequential store append. Analysis can fall behind and catch up from the committed staging file.
-Raw chunk bytes are shared/adopted rather than copied before the append. If the staging device
-cannot sustain acquisition or the hardware reports overflow, capture stops with an explicit
-loss-of-integrity error; data is never silently dropped.
-
-Before the trigger, committed raw chunks remain available to the session store but the gated graph
-cursor emits nothing. On `Triggered`, the store records the exact origin and the cursor begins at
-that sample. Thus hardware capture/upload can be active while Armed, whereas graph logging and
-derived output begin only when the trigger activates. Processing remains zero-based after the
-origin, but the analysis source adds the cursor's timeline offset to emitted timestamps so derived
-lanes overlay the corresponding raw samples rather than appearing at the start of the retained
-pre-trigger window. A later pre-trigger-display option can query the retained raw prefix without
-changing analysis semantics.
-
-The native store supplies:
-
-- a sequential raw file, checksummed fixed-size commit log, and finalized manifest;
-- metadata with physical-channel mapping, sample rate, trigger position, recording origin, durable
-  outcome, keep state, and retained start;
-- an incremental per-channel waveform summary built from committed chunks; and
-- explicit temporary-session ownership, pinning, recovery, and bounded reclamation.
-
-The store uses the platform application-cache directory, not the graph directory. Save Capture
-streams a pinned finalized session through a temporary destination file and installs the completed
-archive only after the writer succeeds. Temporary sessions have explicit cleanup and pinning rules
-so an open viewer, replay cursor, background waveform rebuild, or exporter cannot be deleted.
-
-Waveform summaries may lag raw commit, but their covered extent is explicit. The viewer shows raw
-session progress and never invents waveform data beyond the summary's committed extent. Summary
-building is independent of graph decoding and can use background workers.
-
-### Memory and throughput posture
-
-High-rate capture makes bounded resource use an architectural requirement, not a later
-micro-optimization. At 500 MS/s, the ideal bit-packed payload alone is 375 MB/s for six enabled
-channels, 500 MB/s for eight, and 1 GB/s for sixteen. A queue sized in hundreds of megabytes
-therefore represents less than a second of buffering at some valid settings. Capture duration must
-not determine resident memory usage.
-
-The first implementation consequently establishes these invariants:
-
-- acquisition holds only the current relatively large transport chunk and its canonical form; an
-  aligned U3 transfer is adopted directly, while an unaligned transfer is transformed once;
-- the synchronous staging append is the sole mandatory downstream operation; summaries, graph
-  analysis, viewers, and other optional consumers follow independent committed-store cursors;
-- the staging file remains authoritative once a chunk is committed; a lagging graph or viewer
-  releases hot chunks and catches up from the committed store instead of retaining acquisition
-  memory;
-- a provider adopts a received buffer directly when it already has a canonical encoding, or
-  performs at most one canonical transformation before publication;
-- the hot path keeps samples bit-packed or run-encoded and does not allocate per-sample objects or
-  eagerly demultiplex the entire capture into per-channel arrays; and
-- writer throughput, summary lag, graph lag, and raw input rate are reported by the sustained-ingest
-  benchmark so a bottleneck produces a useful measurement or integrity error.
-
-The release benchmark exercises the production provider adapter, canonicalization, staging store,
-file-backed waveform summary, and an intentionally slow independent consumer for representative
-3-input/1 GHz and 16-input/125 MHz profiles:
-
-```bash
-cargo test --release -p logic-analyzer-processing \
-  benchmark_streaming_ingest_store_summary_and_consumer_lag --lib -- \
-  --ignored --nocapture
-```
-
-The initial vertical slice remains replayable and retains raw data according to `RetentionPolicy`.
-It does not require an optimal compression format, a zero-copy path for every provider, or a fully
-parallel decoder scheduler before basic live capture works. Those are optimized only after
-end-to-end profiles identify the limiting stage. The canonical chunk/store contracts nevertheless
-permit later packed layouts, transition indexes, hardware run representations, direct-I/O-sized
-writes, and parallel summary construction without changing the coordinator, viewer, or graph
-contracts.
-
-A later explicit monitor-only policy may discard raw chunks after all required online consumers
-have processed them. That policy cannot provide full Run replay, capture export, or recovery for
-discarded ranges, and decoder lag must be reported as data loss rather than hidden. It is therefore
-not a transparent optimization and is outside the first vertical slice. Lossless full retention is
-the default; bounded rolling retention remains an explicit user choice.
-
-### Common capture-query boundary
-
-The existing finite `CaptureDataSource`/`CaptureIndex` contract evolves into a platform-neutral
-capture timeline query whose snapshot can grow:
-
-```rust
-pub struct CaptureSnapshot {
-    pub metadata: CaptureMetadata,
-    pub generation: u64,
-    pub committed_samples: u64,
-    pub finalized: bool,
-    pub trigger_sample: Option<u64>,
-}
-
-pub trait CaptureTimeline: Send + Sync {
-    fn snapshot(&self) -> CaptureSnapshot;
-    fn sampled_window(&self, request: CaptureWindowRequest)
-        -> Result<CaptureSampledWindow>;
-}
-```
-
-File-backed indexes and the live store both implement this query. Filesystem paths and mmap details
-stay inside native implementations; the viewer sees only a query handle and generation changes.
-This removes the application's current file-source/demo-source branching and keeps the widget
-independent of U3Pro16, DSL, and third-party capture formats.
-
-New generations request repaint and extend the scrollbar/fit range. Trigger position renders as a
-ruler marker distinct from ordinary cursors. A growing query derives its summary resolution and
-pixel-bucket boundaries from the requested viewport, including its planned future extent, rather
-than from the currently written prefix. Completed pixels therefore remain visually stable while
-new samples extend only the frontier; completing a capture does not re-bucket the existing
-waveform.
-
-For triggered buffered acquisition, the growing waveform index follows uploaded chunks privately
-while the trigger prefix is incomplete. The application publishes the waveform to the viewer only
-after the trigger is known and the index includes that sample. The first visible triggered frame
-therefore contains the complete available pre-trigger prefix and its trigger marker together;
-subsequent post-trigger samples extend the visible frontier normally.
-
-### Live-view navigation
-
-View navigation is independent of acquisition and analysis. Each viewer panel has one local mode:
-
-- **Follow newest** keeps the latest committed sample at the right edge;
-- **Fit growing capture** continually fits the retained extent;
-- **Fixed viewport** leaves pan and zoom unchanged while data arrives.
-
-Manual pan or zoom changes an automatic mode to Fixed viewport. A visible Go Live action returns
-to Follow newest, and Jump to Trigger centers the exact trigger marker without changing capture
-state. An optional preference may jump to the trigger automatically when it arrives.
-
-Pause Display freezes waveform and derived-lane repaint at one generation while acquisition,
-staging, summaries, and graph processing continue normally. Resuming jumps to the newest available
-generation according to the selected navigation mode. Pause Display is deliberately not another
-name for Stop and must never apply backpressure to acquisition.
-
-### Viewer trigger controls
-
-Trigger controls are optional row-label decorations supplied through a generic model:
-
-```rust
-pub struct RowTriggerControl {
-    pub row: usize,
-    pub channel_id: CaptureChannelId,
-    pub condition: TriggerCondition,
-    pub supported_conditions: Vec<TriggerCondition>,
-    pub enabled: bool,
-}
-
-pub struct TriggerEdit {
-    pub channel_id: CaptureChannelId,
-    pub condition: TriggerCondition,
-}
-```
-
-The viewer paints and hit-tests the icons and exposes `take_trigger_edit`; it does not mutate graph
-state or call a driver. Trigger controls appear only on raw channels belonging to the active live
-source, never on derived lanes. Disabled inputs and channels without a simple-trigger capability
-are absent rather than drawn as usable trigger controls. Different channels may advertise different
-condition sets.
-
-The label layout reserves a stable icon column, so names and channel badges do not jump when one
-condition changes. Icons remain readable at display scaling and have text tooltips for color- and
-shape-independent meaning.
-
-### Logic Analyzer title-bar control
-
-The existing immediate Start/Stop control extends to the complete state and capability model:
-
-| Session state | Control | Action |
-| --- | --- | --- |
-| Idle, Complete, Error | Start icon | Validate graph and begin a new session. |
-| Preparing, Armed, Recording | Stop icon | Request orderly stop and drain. |
-| Stopping | Disabled stop/progress icon | Wait for hardware, store, and graph drain. |
-| No live source / multiple sources | Disabled Start | Tooltip explains the capability error. |
-
-Status beside it shows at least Armed, Triggered/Recording, received duration, and an overflow or
-error indicator. A compact health popover exposes buffer occupancy, input and write rates, free
-storage, retained duration, summary lag, and graph/decoder lag. Warnings appear before a hard
-limit is reached. The existing Node Graph Run control remains separate:
-
-- **Capture Start/Stop** controls hardware acquisition and its optional live analysis.
-- **Run** re-analyzes the current finalized capture with the current graph.
-
-Run is disabled while capture is active. Start is disabled while a replay run is active. If a live
-source has no finalized session, Run explains that the user must capture first instead of opening
-the hardware implicitly. While Armed, Force Trigger appears as a capability-gated secondary action;
-Abort remains available from the capture control's context menu and from the configured binding.
-Capture Now is available in the capture control's secondary menu as a one-shot action when a
-trigger program is configured. During device-buffered capture, status distinguishes capture
-progress from upload progress; during host streaming, it reports the growing committed duration.
-
-### Fixed graph and immutable run boundary
-
-Trigger icons are also disabled once Preparing starts because they affect acquisition. This is
-different from viewer pan/zoom and cursors, which remain interactive.
-
-### Re-analysis with Run
-
-The finalized session is associated with the live source's `NodeId` in application document state.
-The capture coordinator supplies a fresh process for that source through one of two explicit
-attachments:
-
-```rust
-pub struct CaptureAnalysisAttachment {
-    pub source_node: NodeId,
-    pub process: Box<dyn ProcessNode>,
-}
-
-pub struct CaptureReplayAttachment {
-    pub source_node: NodeId,
-    pub process: Box<dyn ProcessNode>,
-}
-```
-
-Live analysis passes `CaptureAnalysisAttachment` as `LiveAnalysisSource`. Re-analysis passes
-`CaptureReplayAttachment` through `SourceProcessOverrides`, a map from source `NodeId` to its
-replacement `ProcessNode`. Graph materialization uses that explicit mapping instead of invoking
-the source builder for the replaced node. It validates the graph identity and never checks a node
-name or opens a hardware device implicitly. The live and replay processes expose the same enabled
-physical-channel mapping and sample timestamps as the captured source, so all downstream nodes
-are unchanged.
-
-Run selects the replay attachment and creates fresh derived stores. Capture Start separately arms
-the prepared hardware acquisition, then starts live analysis from its capture-owned process. The
-source builder therefore remains responsible for ordinary source materialization, while the capture
-coordinator owns the session-backed replacement processes.
-
-Re-analysis always starts from the recording origin and processes the immutable capture with the
-current graph. It uses a fresh `DerivedLanes` generation, so old live-derived results are replaced
-atomically rather than appended to or patched. Re-analysis never changes raw capture data.
-
-### Configuration epochs
-
-Ordinary hot-configurable processor parameters may change while Recording. Each attempted graph
-revision receives a monotonically increasing epoch ID and a boundary at the current durable raw
-sample frontier. The boundary records both the original source-sample coordinate and the
-recording-relative sample/timestamp consumed by the analysis graph. A processor schedules the
-validated configuration and switches immediately before its first input event at or after that
-timestamp. Queued older events therefore retain the previous configuration. Already emitted words,
-markers, files, and viewer lanes remain untouched.
-
-The capture application metadata durably records the complete attempted graph revision, epoch ID,
-both effective sample coordinates, effective timestamp, and outcome. A pending record is installed
-before the runtime change is scheduled and is resolved to applied, deferred, or failed afterward.
-An unresolved record recovered after interruption is reported as failed. Original source-sample
-coordinates remain stable when bounded retention advances the store's retained prefix.
-
-This first epoch contract accepts only changes classified by the owning runtime materializer as hot
-configuration. Node additions/removals, wiring changes, restarts, source changes, and acquisition
-settings are retained in the editable graph but deferred to the next capture/Run with a visible
-reason. Sample rate, channel mask, simple trigger, clock source, and encoding remain immutable for
-the active hardware session. A future provider capability may explicitly permit a subset at a safe
-device boundary.
-
-Re-analysis normally ignores live epochs and runs the current graph from the start. Reproducing the
-original live analysis from its epoch log is a separate explicit mode.
-
-### Session ownership, replacement, and recovery
-
-The application owns exactly one temporary capture. Starting another capture releases its viewer,
-analysis, replay, derived-cache, waveform-index, and raw-store handles, waits for the prior index
-worker, and removes the prior capture repository before acquisition preparation begins. Capture
-data therefore has no keep/reopen/history UI and is not application-document state.
-
-The internal capture has a durable identity and one explicit outcome: InProgress, Complete,
-Stopped, CancelledBeforeTrigger, Incomplete, Aborted, or Corrupt. The identity coordinates the
-provider, store, index, analysis, and background save; it is not a user-visible session. A clean
-completion does not imply persistence at a user-selected location. Abandoned working repositories
-are not restored as sessions and are removed before the next acquisition. Users preserve a
-finalized capture explicitly with **Save Capture Data** before starting another acquisition.
-
-The append-only commit log and manifest still provide integrity during acquisition. Metadata and
-commit records are flushed at bounded intervals, with the interval chosen so it does not stall the
-device reader. Replacement waits for capture-owned pins and workers before deleting the directory,
-so no store or index is removed while a consumer can still access it.
-
-### Proposed-future capabilities
-
-The contracts reserve capability operations for these later additions without requiring them in
-the first vertical slice:
-
-- repeated or segmented acquisition that re-arms after each trigger and records immutable frames
-  within one session, with a configurable re-arm delay and frame limit;
-- concrete execution for advanced trigger stages including pulse width, holdoff, debounce/glitch
-  qualification, channel patterns, and conditions derived from decoded events. Capability metadata
-  describes maximum sequential stages, condition planes, logical operations, equality/inversion,
-  event counters, contiguous-count qualification, and registered fields rather than assuming every
-  source has the same trigger engine;
-- live search and incremental measurements over raw or derived lanes, with explicit covered extent
-  and processing lag;
-- configurable system notifications for trigger, completion, disconnect, overflow, and low
-  storage;
-- an automation service for configuring, arming, monitoring, stopping, saving, and exporting
-  sessions without driving UI widgets;
-- external trigger input/output, shared sample clocks, and timestamp alignment for synchronized
-  sources; and
-- a host capability that inhibits automatic system sleep during active acquisition and reports
-  suspend/resume as an integrity event when inhibition is unavailable.
-
-Repeated acquisition uses `CaptureFrameId` and per-frame trigger/origin metadata from the start;
-it does not concatenate frames into a falsely continuous sample range. Search and measurements use
-the same committed-prefix query boundary as the viewer. Automation invokes the same coordinator
-commands as the UI, so it cannot bypass validation, active-session setting immutability, epoch
-boundaries, or finalization.
-
-The Triggers panel consumes a generic `TriggerEditorSchema` and emits neutral edit operations. The
-schema describes supported predicates, typed operands, stage/sequence structure, limits, defaults,
-and validation messages using stable registered IDs. Concrete graph features serialize the
-resulting program. The panel contains no built-in driver layouts, model checks, port-label
-inference, or arbitrary device callbacks.
-
-### Persistence and export
-
-The graph file stores capture and trigger *configuration*, not temporary raw bytes. Each concrete
-source state stores an optional neutral `TriggerProgram`; legacy per-channel condition arrays
-migrate into its common digital form with a visible node warning. Application documents do not
-retain a reference to temporary capture data.
-
-The internal capture record stores its opaque physical-channel table, exact sample rate, channel
-names, actual trigger sample, recording origin, retained start, logical sample count, encoded byte
-count, and outcome. The negotiated effective capture plan is stored alongside it. The application
-metadata artifact stores the graph snapshot and source identity needed for immediate replay; saving
-does not depend on that application-specific artifact.
-
-The finalized internal capture is the lossless source for **Save Capture Data**. The command writes
-a compressed sigrok v2 `.sr` file containing the raw physical channels, channel names, and sample
-rate. It preserves the trigger in an optional compatible metadata key and reports a warning because
-v2 has no standard trigger-position field. Derived lanes are not represented by this raw format and
-are not silently presented as saved. The concrete encoder and its application-facing contract live
-in `logic_analyzer_capture_export`, while the file dialog and overwrite confirmation remain in the
-native application service.
-
-### Failure and integrity rules
-
-- Device/link overflow, sequence gaps, short writes, and staging-write failures are fatal integrity
-  errors.
-- No component substitutes a partial session for a clean Complete session.
-- Device stop is idempotent; repeated Stop requests do not issue conflicting control transfers.
-- Trigger wait is cancellable without waiting for a trigger to occur.
-- Force Trigger is issued only through an advertised source capability and records the device's
-  acknowledged sample position.
-- The UI thread performs no device/link, staging-file, summary-build, or capture-query I/O.
-- A slow graph can lag acquisition because it reads the store independently; lag is visible.
-- Pausing display updates does not pause acquisition or consume additional unbounded queue space.
-- Low-storage and buffer-pressure warnings are raised before exhaustion; exhaustion still produces
-  an explicit integrity outcome rather than silently shortening retention.
-- Capture replacement first releases viewer and analysis handles and cannot proceed during save;
-  store cleanup therefore never removes data pinned by a consumer.
-- Hardware and graph errors retain the successfully committed raw prefix for explicit recovery or
-  discard, with its incomplete status visible.
-- Abrupt termination leaves a recoverable commit-log prefix; recovery never guesses that an
-  uncommitted tail is valid.
-
-### Future work
-
-Actionable live-capture work is tracked in [TODO.md](../../TODO.md). New capabilities receive a
-design amendment with explicit contracts and focused acceptance criteria before implementation.
-
-### Verification strategy
-
-Most tests use deterministic fake providers; USB hardware is not required for correctness
-coverage.
-
-At least two deliberately different fake providers are mandatory. One uses more than sixteen
-bank-qualified, non-contiguous channel IDs and a continuously available non-USB transport. The
-other buffers on-device, exposes data only during upload, lacks Force Trigger, and supports a
-different setting matrix. Both must pass the same coordinator/store/viewer suite without generic
-source changes. This is the architectural proof that the first hardware implementation did not
-become the contract.
-
-- Trigger lowering tests cover every condition, physical/logical channel mapping, disabled inputs,
-  no-trigger free run, trigger placement/alignment, one-shot trigger bypass without saved-state
-  mutation, and old saved graphs.
-- Session state tests cover Start, trigger, Stop-before-trigger, orderly drain, repeated Stop,
-  Capture Now, Force Trigger, Abort, timeout actions, buffered partial upload/discard, disconnect,
-  overflow, and staging failures.
-- Store contract tests compare live queries and finalized replay against the original packed input,
-  including unaligned 3/6/12-channel chunk boundaries and block boundaries. Retention tests cover
-  everything, recent-duration, recent-byte, pinning, reclamation, and recovery after every commit
-  boundary.
-- Concurrency tests pause graph analysis while acquisition continues, then verify exact catch-up
-  without a sequence gap.
-- Viewer tests cover icon layout, scaling, hit testing, tooltips, row reorder/rename interaction,
-  absence on derived/file lanes, navigation-mode transitions, Pause Display isolation, Go Live,
-  and Jump to Trigger.
-- Capacity and health tests cover worst-case input estimates, low storage, buffer pressure,
-  independently lagging summaries/graph processing, and absent metrics.
-- Plan-negotiation tests cover every supported channel/rate/transport tuple, link-speed changes,
-  hardware-depth limits, encoding restrictions, fixed versus selectable trigger placement, unknown
-  external-clock rates, and rejection without silent clamping.
-- Compiler tests reject multiple live sources, preserve node-ID mapping, and prove replay overrides
-  never open hardware.
-- Registration tests add the second fake provider through the public feature registry and verify
-  that application, compiler-core, viewer, and store source files contain no driver/model-name
-  branches.
-- Golden tests compare live-derived and replay-derived outputs byte-for-byte for one finalized mock
-  session.
-- Native integration tests exercise U3Pro16 packet/header translation behind an ignored hardware
-  test, including distinct buffered and streamed event orders, progress, actual trigger position,
-  partial upload, and encoded logical-sample counts. Native and wasm compilation verifies complete
-  platform-module exclusion without scattered target conditionals.
-- Throughput tests report USB ingest, staging throughput, summary lag, graph lag, and resident
-  memory at each supported channel-width/rate class. Long-duration tests verify that resident
-  memory reaches a bound independent of capture duration, and instrumentation verifies that each
-  input chunk undergoes no more than one canonical transformation.
-- Recovery tests terminate after each durable write step and prove the application either restores
-  exactly the committed prefix or reports a structured corruption error.
+Run and hardware capture exclude one another. A live-source graph requires its associated finalized
+session for Run; Run does not reopen hardware. Each replay opens a fresh cursor, uses fresh derived
+lane stores, and replaces live-derived presentation atomically. Raw capture data remains unchanged.
+
+## Graph edits and configuration epochs
+
+Acquisition settings are immutable from Preparing through finalization. The node editor remains
+read-only during Preparing and Armed. During Recording it accepts document edits, but the active
+analysis run applies only changes classified by the owning `RuntimeMaterializer` as hot
+configuration.
+
+Each attempted hot revision receives a monotonically increasing epoch ID and a boundary at the
+durable raw sample frontier. The coordinator records the complete attempted graph, source and
+recording-relative sample coordinates, effective timestamp, and a Pending outcome before the
+runtime change is scheduled. The outcome becomes Applied, Deferred, or Failed. An unresolved
+record recovered after interruption is Failed.
+
+The processing node changes configuration immediately before its first event at or after the
+boundary. Queued older events use the preceding configuration, and emitted words, markers, files,
+and viewer lanes are not rewritten. Node additions/removals, wiring changes, restarts, source
+changes, and acquisition changes stay in the editable graph and are reported as deferred to the
+next capture or Run.
+
+Re-analysis uses the current graph from the recording origin; it does not replay the live epoch
+log.
+
+## Session ownership, persistence, and export
+
+The application owns one replaceable capture session. Starting another capture releases viewer,
+analysis, replay, derived, index, and store handles and waits for capture-owned workers before
+removing the preceding working repository. Raw session bytes are not graph-document state and
+there is no session-history UI.
+
+The graph document stores source and trigger configuration. It contains no temporary capture
+reference. The internal session stores its opaque channel table, sample rate, names, actual trigger
+sample, recording origin, retained start, logical sample count, encoded byte count, negotiated
+plan, graph snapshot for immediate replay, configuration epochs, and outcome.
+
+Save Capture Data pins a finalized session and streams it through
+`logic_analyzer_capture_export` to a sigrok v2 `.sr` file. The export contains raw physical
+channels, channel names, and sample rate. Trigger position uses an optional compatible metadata key
+and produces a warning because sigrok v2 has no standard trigger-position field. Derived lanes are
+not represented as raw capture data. Native platform services own destination selection and the
+export worker; the web platform advertises capture export as unavailable.
+
+## Integrity and failure rules
+
+- Sequence gaps, short writes, device/link overflow, and store failures are integrity errors.
+- Only fully published chunks belong to the committed prefix; recovery never accepts an
+  uncommitted tail.
+- Partial sessions retain an explicit Incomplete, Aborted, CancelledBeforeTrigger, or Corrupt
+  outcome and are never presented as Complete.
+- Force Trigger records the provider-acknowledged sample and is issued only through an advertised
+  capability.
+- The UI thread performs no USB, capture-store, index-build, or export I/O.
+- Pausing the viewer does not pause acquisition or grow an unbounded UI queue.
+- Capture replacement and cleanup wait for pins and background workers.
+- Hardware and graph failures retain the valid committed prefix for explicit save or discard.
+
+## Verification
+
+Deterministic providers exercise the same contracts as U3Pro16 without USB hardware. One streams
+non-contiguous bank-qualified channels; another buffers on-device, publishes only during upload,
+uses a different setting matrix, and has no Force Trigger. Contract tests cover policy validation,
+trigger placement, unaligned chunk boundaries, lifecycle commands, partial upload, retention,
+recovery, index/query equivalence, analysis lag, configuration epochs, replay substitution, and
+save pinning. Hardware protocol and throughput tests remain explicitly ignored unless the device
+is attached.

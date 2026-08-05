@@ -16,12 +16,9 @@ ID wins, and later duplicates are reported.
 
 The native package contains the PyO3 host and CPython integration, but no `libsigrokdecode` C
 library and no third-party decoder collection. Packaging therefore does not combine LogicConduit's
-MIT-licensed Rust code with decoder-package licenses. A future bundled collection requires an
-inventory of every included package's declared license, Python dependencies, data files, native
-extensions, subprocess use, and corresponding notices before the bundle is released.
+MIT-licensed Rust code with decoder-package licenses.
 
-The wasm application does not register the native Sigrok decoder node or CPython host. A future web
-backend is a separate complete implementation boundary.
+The wasm application does not register the native Sigrok decoder node or CPython host.
 
 ## Validation
 

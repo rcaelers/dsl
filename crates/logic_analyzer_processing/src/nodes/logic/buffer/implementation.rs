@@ -1,4 +1,4 @@
-//! Explicit user-placed decoupling point (`docs/PIPELINE_DESIGN.md`, flow
+//! Explicit user-placed decoupling point (`docs/architecture/processing_workflows.md`, flow
 //! control): a plain relay whose whole purpose is the *channel* feeding its
 //! input, not anything this node itself does. Backpressure from a slow
 //! consumer should genuinely propagate to its producer by default — but

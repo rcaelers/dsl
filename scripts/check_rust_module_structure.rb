@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Enforces docs/RESPONSIBILITY_AND_VISIBILITY_DESIGN.md. This deliberately
+# Enforces docs/aspects/responsibility_visibility.md. This deliberately
 # checks source structure rather than formatting; rustc remains authoritative
 # for name resolution and `unreachable_pub`.
 

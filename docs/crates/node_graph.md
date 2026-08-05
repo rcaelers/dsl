@@ -5,8 +5,8 @@ Blender-style node editor widget for egui. The crate is UI-generic — it knows 
 logic analyzers or pipelines; the application (see [Application Composition Design](../architecture/application_composition.md)) defines the
 node types and compiles the drawn graph into something executable.
 
-For the widget's public API and how to define node types, see
-[Node Graph Widget API](node_graph_api.md).
+The widget's public API and node-definition contracts are documented at the `node_graph` crate
+root and its `node_graph::api` facade.
 
 ---
 
@@ -25,7 +25,7 @@ crates/widgets/node_graph/src
 The dependency direction is strict: `model` depends on nothing, `api` produces `model`
 sockets, `runtime` erases `api` defs into instances, `widget` orchestrates all three.
 
-### Model vs. runtime split
+### Document model and editor instances
 
 `GraphState` is the *document*: plain serde-serializable data (nodes, sockets, connections,
 frames) with no trait objects. Everything needed for rendering and compatibility checking

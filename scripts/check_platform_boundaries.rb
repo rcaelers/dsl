@@ -2,7 +2,7 @@
 # frozen_string_literal: true
 
 # Enforces the native/web ownership rules documented in
-# docs/RESPONSIBILITY_AND_VISIBILITY_DESIGN.md. Rust compilation proves that
+# docs/aspects/responsibility_visibility.md. Rust compilation proves that
 # each selected target is valid; this check proves that reusable crates do not
 # select different source or dependency trees in the first place.
 
