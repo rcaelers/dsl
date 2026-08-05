@@ -5,9 +5,10 @@ use std::sync::Arc;
 
 use tracing::{debug, warn};
 
-use signal_processing::{
-    EdgeQuery, InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, ProtocolKind, Sample,
-    WorkError, WorkOutcome, WorkResult,
+use signal_processing::{EdgeQuery, EdgeQueryInputPortExt, Sample};
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, ProtocolKind, WorkError,
+    WorkOutcome, WorkResult,
 };
 
 use super::edge_query::LogicGateEdgeQuery;
@@ -138,10 +139,13 @@ impl ProcessNode for LogicGate {
         // Prefer skip-ahead queries for inputs wired straight to a raw
         // binary channel; anything decode-derived (SR latch, another gate)
         // has no query producer and falls back to streaming.
-        let protocols = vec![ProtocolKind::EdgeQuery, ProtocolKind::Stream];
+        let protocols = vec![
+            signal_processing::edge_query_protocol(),
+            ProtocolKind::Stream,
+        ];
         (0..self.levels.len())
             .map(|i| {
-                PortSchema::new::<Sample>(format!("in{i}"), i, PortDirection::Input)
+                PortSchema::state::<Sample>(format!("in{i}"), i, PortDirection::Input)
                     .with_protocols(protocols.clone())
             })
             .collect()
@@ -149,24 +153,35 @@ impl ProcessNode for LogicGate {
 
     fn output_schema(&self) -> Vec<PortSchema> {
         vec![
-            PortSchema::new::<Sample>("out", 0, PortDirection::Output)
-                .with_protocols(vec![ProtocolKind::Stream, ProtocolKind::EdgeQuery]),
+            PortSchema::state::<Sample>("out", 0, PortDirection::Output).with_protocols(vec![
+                ProtocolKind::Stream,
+                signal_processing::edge_query_protocol(),
+            ]),
         ]
     }
 
-    fn edge_query(
+    fn protocol_capability(
         &self,
         port: usize,
-        input_queries: &[Option<Arc<dyn EdgeQuery>>],
-    ) -> Option<Arc<dyn EdgeQuery>> {
-        if port != 0 || input_queries.len() < self.levels.len() {
+        protocol: ProtocolKind,
+        input_capabilities: &[Vec<signal_runtime::ProtocolCapability>],
+    ) -> Option<signal_runtime::ProtocolCapability> {
+        if protocol != signal_processing::edge_query_protocol()
+            || port != 0
+            || input_capabilities.len() < self.levels.len()
+        {
             return None;
         }
-        let inputs = input_queries[..self.levels.len()]
+        let inputs = input_capabilities[..self.levels.len()]
             .iter()
-            .cloned()
+            .map(|capabilities| {
+                capabilities
+                    .iter()
+                    .find_map(signal_processing::edge_query_from_capability)
+            })
             .collect::<Option<Vec<_>>>()?;
-        LogicGateEdgeQuery::new(self.op, inputs).map(|query| Arc::new(query) as Arc<dyn EdgeQuery>)
+        let query = LogicGateEdgeQuery::new(self.op, inputs)?;
+        Some(signal_processing::edge_query_capability(Arc::new(query)))
     }
 
     fn work_outcome(
@@ -286,7 +301,7 @@ impl ProcessNode for LogicGate {
 #[cfg(test)]
 mod tests {
     use crossbeam_channel::bounded;
-    use signal_processing::{ChannelMessage, Sender, Watchdog};
+    use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
     use super::*;
 

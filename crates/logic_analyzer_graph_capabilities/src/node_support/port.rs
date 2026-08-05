@@ -57,7 +57,7 @@ impl PortKind {
             type_id: TypeId::of::<T>(),
             name: T::kind_name(),
             buffer_size_fn: T::buffer_size,
-            register_type_fn: signal_processing::register_type::<T>,
+            register_type_fn: signal_runtime::register_type::<T>,
         }
     }
 
@@ -68,7 +68,7 @@ impl PortKind {
             type_id: TypeId::of::<T>(),
             name,
             buffer_size_fn: default_buffer_size,
-            register_type_fn: signal_processing::register_type::<T>,
+            register_type_fn: signal_runtime::register_type::<T>,
         }
     }
 

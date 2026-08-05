@@ -108,7 +108,7 @@ impl std::error::Error for HeadlessRunError {}
 pub struct HeadlessGraphRunner {
     graph_service: Box<dyn GraphService>,
     host_service: Box<dyn crate::HostService>,
-    work_executor: std::sync::Arc<dyn signal_processing::WorkExecutor>,
+    work_executor: std::sync::Arc<dyn signal_runtime::WorkExecutor>,
 }
 
 impl HeadlessGraphRunner {

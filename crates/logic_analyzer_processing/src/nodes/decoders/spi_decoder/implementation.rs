@@ -24,9 +24,11 @@ use tracing::{debug, trace};
 
 use signal_processing::capture::CaptureTransition;
 use signal_processing::{
-    EdgeQuery, InputPort, OutputPort, PackedSamplingPoint, ProcessNode, ProtocolKind,
-    ProtocolPacket, ProtocolValue, Receiver, Sample, SamplingPointStore, Word, WorkError,
-    WorkOutcome, WorkResult,
+    EdgeQuery, EdgeQueryInputPortExt, PackedSamplingPoint, ProtocolPacket, ProtocolValue, Sample,
+    SamplingPointStore, Word,
+};
+use signal_runtime::{
+    InputPort, OutputPort, ProcessNode, ProtocolKind, Receiver, WorkError, WorkOutcome, WorkResult,
 };
 
 use crate::types::{BitOrder, CsPolarity};
@@ -365,37 +367,40 @@ impl ProcessNode for SpiDecoder {
         7
     }
 
-    fn input_schema(&self) -> Vec<signal_processing::PortSchema> {
-        use signal_processing::{PortDirection, PortSchema};
+    fn input_schema(&self) -> Vec<signal_runtime::PortSchema> {
+        use signal_runtime::{PortDirection, PortSchema};
 
         // Every input this decoder has is a raw binary channel: prefer
         // skip-ahead queries over streaming every dead-time edge, fall back
         // to streaming for live sources with no index.
-        let protocols = vec![ProtocolKind::EdgeQuery, ProtocolKind::Stream];
+        let protocols = vec![
+            signal_processing::edge_query_protocol(),
+            ProtocolKind::Stream,
+        ];
         let mut schemas = vec![
-            PortSchema::new::<Sample>("cs", 0, PortDirection::Input)
+            PortSchema::state::<Sample>("cs", 0, PortDirection::Input)
                 .with_protocols(protocols.clone()),
-            PortSchema::new::<Sample>("clk", 1, PortDirection::Input)
+            PortSchema::state::<Sample>("clk", 1, PortDirection::Input)
                 .with_protocols(protocols.clone()),
         ];
         if self.has_mosi {
             schemas.push(
-                PortSchema::new::<Sample>("mosi", 2, PortDirection::Input)
+                PortSchema::state::<Sample>("mosi", 2, PortDirection::Input)
                     .with_protocols(protocols.clone()),
             );
         }
         if self.has_miso {
             let idx = 2 + usize::from(self.has_mosi);
             schemas.push(
-                PortSchema::new::<Sample>("miso", idx, PortDirection::Input)
+                PortSchema::state::<Sample>("miso", idx, PortDirection::Input)
                     .with_protocols(protocols.clone()),
             );
         }
         schemas
     }
 
-    fn output_schema(&self) -> Vec<signal_processing::PortSchema> {
-        use signal_processing::{PortDirection, PortSchema};
+    fn output_schema(&self) -> Vec<signal_runtime::PortSchema> {
+        use signal_runtime::{PortDirection, PortSchema};
 
         // The graph node declares every direction as a stable socket, even
         // when its optional input is disconnected. Keep the runtime port
@@ -411,7 +416,10 @@ impl ProcessNode for SpiDecoder {
         ]
         .into_iter()
         .enumerate()
-        .map(|(index, name)| PortSchema::new::<Word>(name, index, PortDirection::Output))
+        .map(|(index, name)| {
+            PortSchema::new::<Word>(name, index, PortDirection::Output)
+                .with_default_buffer_capacity(8)
+        })
         .collect::<Vec<_>>();
         schemas.push(PortSchema::new::<ProtocolPacket>(
             "transactions",
@@ -1331,7 +1339,7 @@ mod tests {
     }
 
     fn query_input(
-        watchdog: &signal_processing::Watchdog,
+        watchdog: &signal_runtime::Watchdog,
         bits: Vec<bool>,
         calls: Arc<QueryCalls>,
         port: &str,
@@ -1426,7 +1434,7 @@ mod tests {
     #[test]
     fn work_indexed_batches_clock_edges_and_data_values() {
         use crossbeam_channel::bounded;
-        use signal_processing::{ChannelMessage, Sender, Watchdog};
+        use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
         let samples = 100usize;
         let cs_bits = (0..samples)
@@ -1522,7 +1530,7 @@ mod tests {
     #[test]
     fn work_streamed_emits_independent_mosi_and_miso_word_streams() {
         use crossbeam_channel::bounded;
-        use signal_processing::{ChannelMessage, Sender, Watchdog};
+        use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
         let wd = Watchdog::new();
 
@@ -1667,7 +1675,7 @@ mod tests {
     #[test]
     fn work_streamed_flushes_final_active_cs_window_at_capture_end() {
         use crossbeam_channel::bounded;
-        use signal_processing::{ChannelMessage, Sender, Watchdog};
+        use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
         let watchdog = Watchdog::new();
         let make_input = |samples: &[Sample], port: &str| {

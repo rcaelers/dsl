@@ -17,7 +17,7 @@ use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::DsLogicU3Pro16So
 use logic_analyzer_processing::nodes::sources::sigrok_file::{
     SigrokFileSourceFactory, portable_source_factory as portable_sigrok_file_source_factory,
 };
-use signal_processing::{ProcessNode, WorkExecutor};
+use signal_runtime::{ProcessNode, WorkExecutor};
 
 /// Host-provided discovery and execution for Sigrok decoder packages.
 pub trait SigrokDecoderRuntime: Send + Sync {

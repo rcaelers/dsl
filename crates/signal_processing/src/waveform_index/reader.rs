@@ -5,6 +5,7 @@ use signal_artifacts::{
     ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion,
     MemoryArtifactRepository, RepositoryError, SourceIdentity, read_artifact_region,
 };
+use signal_runtime::{InlineWorkExecutor, WorkExecutor};
 
 use super::builder::IndexBuilder;
 use super::exact::exact_window_sample_limit;
@@ -19,7 +20,7 @@ use crate::capture::{
     CaptureIndexBuildProgress, CaptureIndexOpenStep, CaptureIndexOpenTask, CaptureMetadata,
     CaptureSampledChannel, CaptureSampledWindow, CaptureTransition, packed_bit,
 };
-use crate::{Error, InlineWorkExecutor, Result, WorkExecutor};
+use crate::{Error, Result};
 
 const RAW_BLOCK_CACHE_CAPACITY: usize = 16;
 
@@ -1429,9 +1430,10 @@ mod reader_tests {
     use std::sync::Arc;
     use std::thread::JoinHandle;
 
+    use signal_runtime::{WorkExecutorTask, WorkTask};
+
     use super::*;
     use crate::capture::{CaptureFingerprint, CaptureSource};
-    use crate::{WorkExecutorTask, WorkTask};
 
     struct SpawnExecutor;
 

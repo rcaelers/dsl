@@ -20,8 +20,10 @@ use logic_analyzer_viewer::{
 use node_graph::api::{InputDef, NodeDef, OutputDef, Socket, SocketDef, SocketShape};
 use signal_processing::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
-    DerivedDataRetention, InputPort, OpaqueCollectedLaneSnapshot, OutputPort, PayloadAdapter,
-    PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
+    DerivedDataRetention, OpaqueCollectedLaneSnapshot, PayloadAdapter,
+};
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };
 
 const PAYLOAD_ID: &str = "org.logicconduit.example.camera-frame/v1";
@@ -547,7 +549,8 @@ inventory::submit! {
 #[cfg(test)]
 mod camera_frame_tests {
     use crossbeam_channel::bounded;
-    use signal_processing::{ChannelMessage, DerivedLanes, PayloadRegistry, Sender, Watchdog};
+    use signal_processing::{DerivedLanes, PayloadRegistry};
+    use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
     use super::*;
 

@@ -11,8 +11,9 @@ use signal_processing::logic_analyzer::{CaptureMode, LogicCaptureConfig};
 use signal_processing::{
     AcquisitionContext, CaptureCursorItem, CaptureIndex, CaptureSessionId, CaptureStore,
     CaptureStoreConfig, CaptureStoreCursor, CaptureStoreDescriptor, GrowingCaptureIndex,
-    WorkExecutor, WorkExecutorTask, WorkTask, bounded_capture_event_queue,
+    bounded_capture_event_queue,
 };
+use signal_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
 
 use super::implementation::DsLogicU3Pro16;
 use super::streaming::StreamingProvider;

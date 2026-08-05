@@ -8,23 +8,19 @@ use tracing::{debug, info};
 
 use super::errors::ConnectionError;
 use super::node::{InputProtocolCandidate, ProcessNode};
+use super::payload_negotiation;
 use super::ports::{InputPort, OutputPort, PortSchema};
-use super::protocol::ProtocolKind;
+use super::protocol::{ProtocolCapability, ProtocolKind};
 use super::scheduler::Scheduler;
 use super::type_registry::{LabeledSenderBox, TYPE_REGISTRY};
 use super::work_executor::WorkExecutor;
-use crate::edge_query::EdgeQuery;
-use crate::sample::SampleBlock;
-
-const DEFAULT_SAMPLE_BLOCK_BUFFER_SIZE: usize = 2;
-const DEFAULT_WORD_BUFFER_SIZE: usize = 8;
 
 /// Cached per-node schema data, computed once in `add_process` while the
 /// node is still locally owned. Each `PortSchema` carries its own
-/// `protocols`/`sample_kinds` now, so `connect()` and `build()`'s protocol
+/// protocols and payload alternatives, so `connect()` and `build()`'s protocol
 /// negotiation phase both resolve fully from this cache alone — the only
-/// trait method that still needs a live node reference is `edge_query`
-/// (stateful, so it stays deferred to `build()`'s Phase 0.5).
+/// trait method that still needs a live node reference is capability materialization,
+/// which stays deferred to `build()`.
 struct NodeSchemas {
     inputs: Vec<PortSchema>,
     outputs: Vec<PortSchema>,
@@ -202,26 +198,19 @@ impl Pipeline {
                 })
             })?;
 
-        // Negotiate the connection's concrete payload type: an exact
-        // type_id match if neither side declared a SampleKind list (every
-        // node except a handful of raw-channel sources), otherwise the
-        // producer-preferred kind both sides agree on.
-        let negotiated_type = crate::negotiate_sample_kind(
-            &from_schema.sample_kinds,
-            from_schema.type_id,
-            &to_schema.sample_kinds,
-            to_schema.type_id,
-        )
-        .ok_or_else(|| {
-            Box::new(ConnectionError::TypeMismatch {
-                from_node: from_node.to_string(),
-                from_port: from_port.to_string(),
-                from_type: from_schema.type_id,
-                to_node: to_node.to_string(),
-                to_port: to_port.to_string(),
-                to_type: to_schema.type_id,
-            })
-        })?;
+        let negotiated_payload =
+            payload_negotiation::negotiate(&from_schema.payloads, &to_schema.payloads).ok_or_else(
+                || {
+                    Box::new(ConnectionError::TypeMismatch {
+                        from_node: from_node.to_string(),
+                        from_port: from_port.to_string(),
+                        from_type: from_schema.type_id,
+                        to_node: to_node.to_string(),
+                        to_port: to_port.to_string(),
+                        to_type: to_schema.type_id,
+                    })
+                },
+            )?;
 
         // Check for duplicate connection to same input port
         if self
@@ -235,32 +224,20 @@ impl Pipeline {
             ))));
         }
 
-        // Packed blocks are commonly multi-megabyte allocations. A default
-        // queue of 1,000 is appropriate for small events but would retain an
-        // entire capture per channel here. Explicit buffer sizes remain
-        // authoritative for callers with a specific flow-control design.
         let buffer_size = buffer_size.unwrap_or_else(|| {
-            if negotiated_type == TypeId::of::<SampleBlock>() {
-                self.default_buffer_size
-                    .min(DEFAULT_SAMPLE_BLOCK_BUFFER_SIZE)
-            } else if negotiated_type == TypeId::of::<crate::events::Word>() {
-                self.default_buffer_size.min(DEFAULT_WORD_BUFFER_SIZE)
-            } else {
-                self.default_buffer_size
-            }
+            negotiated_payload
+                .default_buffer_capacity
+                .map_or(self.default_buffer_size, |limit| {
+                    self.default_buffer_size.min(limit)
+                })
         });
-        let buffer_size = if negotiated_type == TypeId::of::<SampleBlock>() {
-            buffer_size.max(1)
-        } else {
-            buffer_size
-        };
 
         self.connections.push(PendingConnection {
             from_node: from_id,
             from_port: from_schema.index,
             to_node: to_id,
             to_port: to_schema.index,
-            type_id: negotiated_type,
+            type_id: negotiated_payload.type_id,
             buffer_size,
         });
 
@@ -366,7 +343,6 @@ impl Pipeline {
         );
 
         let mut scheduler = Scheduler::new(work_executor);
-        let registry = TYPE_REGISTRY.lock().unwrap();
 
         type PortKey = (usize, usize);
         let node_by_id: HashMap<usize, &Box<dyn ProcessNode>> =
@@ -377,37 +353,53 @@ impl Pipeline {
             .map(|(name, id)| (*id, name.clone()))
             .collect();
 
-        // Phase 0: materialize source and composed query capabilities before
+        // Phase 0: materialize source and composed capabilities before
         // protocol negotiation. A derived node receives every connected
         // producer query in input-schema order, even when that connection
         // will ultimately stream; this lets sparse control nodes expose a
         // lazy output query without changing their transport semantics.
-        let mut edge_queries: HashMap<PortKey, Arc<dyn EdgeQuery>> = HashMap::new();
+        type CapabilityKey = (usize, usize, ProtocolKind);
+        let mut capabilities: HashMap<CapabilityKey, ProtocolCapability> = HashMap::new();
         loop {
-            let previous_count = edge_queries.len();
+            let previous_count = capabilities.len();
             for (&node_id, node) in &node_by_id {
                 let schemas = &self.node_schemas[&node_id];
-                let mut input_queries = vec![None; schemas.inputs.len()];
+                let mut input_capabilities = vec![Vec::new(); schemas.inputs.len()];
                 for connection in self
                     .connections
                     .iter()
                     .filter(|connection| connection.to_node == node_id)
                 {
-                    input_queries[connection.to_port] = edge_queries
-                        .get(&(connection.from_node, connection.from_port))
-                        .cloned();
+                    input_capabilities[connection.to_port] = capabilities
+                        .iter()
+                        .filter(|((node, port, _), _)| {
+                            *node == connection.from_node && *port == connection.from_port
+                        })
+                        .map(|(_, capability)| capability.clone())
+                        .collect();
                 }
                 for output in &schemas.outputs {
-                    let key = (node_id, output.index);
-                    if output.protocols.contains(&ProtocolKind::EdgeQuery)
-                        && !edge_queries.contains_key(&key)
-                        && let Some(handle) = node.edge_query(output.index, &input_queries)
+                    for protocol in output
+                        .protocols
+                        .iter()
+                        .copied()
+                        .filter(|protocol| *protocol != ProtocolKind::Stream)
                     {
-                        edge_queries.insert(key, handle);
+                        let key = (node_id, output.index, protocol);
+                        if !capabilities.contains_key(&key)
+                            && let Some(capability) = node.protocol_capability(
+                                output.index,
+                                protocol,
+                                &input_capabilities,
+                            )
+                            && capability.protocol() == protocol
+                        {
+                            capabilities.insert(key, capability);
+                        }
                     }
                 }
             }
-            if edge_queries.len() == previous_count {
+            if capabilities.len() == previous_count {
                 break;
             }
         }
@@ -424,14 +416,21 @@ impl Pipeline {
             let mut offered = self.node_schemas[&conn.from_node].outputs[conn.from_port]
                 .protocols
                 .clone();
-            let edge_query = edge_queries.get(&(conn.from_node, conn.from_port)).cloned();
-            if edge_query.is_none() {
-                offered.retain(|protocol| *protocol != ProtocolKind::EdgeQuery);
-            }
+            let offered_capabilities = capabilities
+                .iter()
+                .filter(|((node, port, _), _)| *node == conn.from_node && *port == conn.from_port)
+                .map(|(_, capability)| capability.clone())
+                .collect::<Vec<_>>();
+            offered.retain(|protocol| {
+                *protocol == ProtocolKind::Stream
+                    || offered_capabilities
+                        .iter()
+                        .any(|capability| capability.protocol() == *protocol)
+            });
             candidates_by_node.get_mut(&conn.to_node).unwrap()[conn.to_port] =
                 Some(InputProtocolCandidate {
                     offered,
-                    edge_query,
+                    capabilities: offered_capabilities,
                 });
         }
 
@@ -471,13 +470,8 @@ impl Pipeline {
             .map(|conn| selected_by_input[&(conn.to_node, conn.to_port)])
             .collect();
 
-        // Phase 1: Create channels for Stream-negotiated connections only,
-        // accumulating receivers and senders; collect the EdgeQuery handle
-        // for each EdgeQuery-negotiated destination input. A connection
-        // negotiated as EdgeQuery never gets a channel, so a producer that
-        // only has EdgeQuery destinations for a given port sees it as
-        // unconnected in Phase 2 below (e.g. a self-threading source's
-        // per-destination thread simply doesn't spawn for it).
+        // Phase 1: create channels for streamed connections and attach
+        // selected or auxiliary capabilities to destination inputs.
         let mut receivers: HashMap<PortKey, Box<dyn Any + Send>> = HashMap::new();
         // Per (node, port): one (TypeId, senders) group per negotiated
         // TypeId — a port whose destinations negotiated different
@@ -485,17 +479,22 @@ impl Pipeline {
         // one group, and Phase 2 folds each into the same OutputPort.
         type SenderGroup = (TypeId, Vec<Box<dyn Any + Send>>);
         let mut senders: HashMap<PortKey, Vec<SenderGroup>> = HashMap::new();
-        let mut input_edge_queries: HashMap<PortKey, Arc<dyn EdgeQuery>> = HashMap::new();
-        let mut input_edge_query_capabilities: HashMap<PortKey, Arc<dyn EdgeQuery>> =
+        let mut selected_input_capabilities: HashMap<PortKey, ProtocolCapability> = HashMap::new();
+        let mut available_input_capabilities: HashMap<PortKey, Vec<ProtocolCapability>> =
             HashMap::new();
 
         for (conn, &protocol) in self.connections.iter().zip(&protocols) {
-            if let Some(handle) = edge_queries.get(&(conn.from_node, conn.from_port)) {
-                input_edge_query_capabilities.insert((conn.to_node, conn.to_port), handle.clone());
-            }
+            let offered_capabilities = capabilities
+                .iter()
+                .filter(|((node, port, _), _)| *node == conn.from_node && *port == conn.from_port)
+                .map(|(_, capability)| capability.clone())
+                .collect::<Vec<_>>();
+            available_input_capabilities.insert((conn.to_node, conn.to_port), offered_capabilities);
             match protocol {
                 ProtocolKind::Stream => {
-                    let (tx, rx) = registry
+                    let (tx, rx) = TYPE_REGISTRY
+                        .lock()
+                        .unwrap()
                         .create_channel(conn.type_id, conn.buffer_size)
                         .ok_or_else(|| format!("Type {:?} not registered. Call register_type::<T>() before building pipeline.", conn.type_id))?;
 
@@ -532,9 +531,10 @@ impl Pipeline {
                         )),
                     }
                 }
-                ProtocolKind::EdgeQuery => {
-                    let handle = edge_queries[&(conn.from_node, conn.from_port)].clone();
-                    input_edge_queries.insert((conn.to_node, conn.to_port), handle);
+                ProtocolKind::Capability(_) => {
+                    let capability =
+                        capabilities[&(conn.from_node, conn.from_port, protocol)].clone();
+                    selected_input_capabilities.insert((conn.to_node, conn.to_port), capability);
                 }
             }
         }
@@ -561,9 +561,11 @@ impl Pipeline {
                             // Unconnected input: use dummy port
                             InputPort::from_type_erased(Box::new(()) as Box<dyn Any + Send>)
                         })
-                        .with_edge_query(input_edge_queries.remove(&(node_id, i)))
-                        .with_edge_query_capability(
-                            input_edge_query_capabilities.remove(&(node_id, i)),
+                        .with_protocol_capability(selected_input_capabilities.remove(&(node_id, i)))
+                        .with_available_protocol_capabilities(
+                            available_input_capabilities
+                                .remove(&(node_id, i))
+                                .unwrap_or_default(),
                         );
 
                     // Inject watchdog context
@@ -581,7 +583,10 @@ impl Pipeline {
                     let groups = senders.remove(&(node_id, i)).unwrap_or_default();
                     let mut port: Option<OutputPort> = None;
                     for (type_id, sender_list) in groups {
-                        let boxed = registry.wrap_output(type_id, sender_list)?;
+                        let boxed = TYPE_REGISTRY
+                            .lock()
+                            .unwrap()
+                            .wrap_output(type_id, sender_list)?;
                         port = Some(match port {
                             None => OutputPort::from_type_erased(type_id, boxed),
                             Some(p) => p.extend_type_erased(type_id, boxed),
@@ -608,7 +613,6 @@ impl Pipeline {
             scheduler.start_process(node, input_ports, output_ports);
         }
 
-        drop(registry);
         info!(
             "Pipeline built successfully with {} threads",
             scheduler.num_threads()
@@ -629,13 +633,40 @@ mod tests {
     use std::thread::JoinHandle;
 
     use super::super::node::ProcessNode;
-    use super::super::ports::PortSchema;
+    use super::super::ports::{PortPayload, PortSchema};
     use super::super::work_executor::{WorkExecutor, WorkExecutorTask, WorkTask};
     use super::*;
-    use crate::SampleKind;
-    use crate::capture::CaptureTransition;
-    use crate::edge_query::EdgeQuery;
-    use crate::sample::Sample;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct TestValue {
+        value: bool,
+        timestamp: u64,
+    }
+
+    impl TestValue {
+        fn new(value: bool, timestamp: u64) -> Self {
+            Self { value, timestamp }
+        }
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct TestBlock {
+        data: Arc<[u8]>,
+        start: u64,
+        len: usize,
+        step: u64,
+    }
+
+    impl TestBlock {
+        fn new(data: Arc<[u8]>, start: u64, len: usize, step: u64) -> Self {
+            Self {
+                data,
+                start,
+                len,
+                step,
+            }
+        }
+    }
 
     struct TestWorkExecutor;
 
@@ -671,32 +702,14 @@ mod tests {
         Arc::new(TestWorkExecutor)
     }
 
-    struct ConstEdgeQuery;
+    trait TestQuery: Send + Sync {}
 
-    impl EdgeQuery for ConstEdgeQuery {
-        fn sample_period(&self) -> f64 {
-            1.0
-        }
+    struct ConstQuery;
 
-        fn samplerate_hz(&self) -> f64 {
-            1.0
-        }
+    impl TestQuery for ConstQuery {}
 
-        fn total_samples(&self) -> u64 {
-            1
-        }
-
-        fn value_at(&self, _position: u64) -> super::super::errors::Result<bool> {
-            Ok(false)
-        }
-
-        fn next_edge(
-            &self,
-            _position: u64,
-            _limit: u64,
-        ) -> super::super::errors::Result<Option<CaptureTransition>> {
-            Ok(None)
-        }
+    fn test_query_protocol() -> ProtocolKind {
+        ProtocolKind::capability::<dyn TestQuery>()
     }
 
     struct QuerySource;
@@ -716,8 +729,12 @@ mod tests {
 
         fn output_schema(&self) -> Vec<PortSchema> {
             vec![
-                PortSchema::new::<Sample>("out", 0, super::super::ports::PortDirection::Output)
-                    .with_protocols(vec![ProtocolKind::Stream, ProtocolKind::EdgeQuery]),
+                PortSchema::state::<TestValue>(
+                    "out",
+                    0,
+                    super::super::ports::PortDirection::Output,
+                )
+                .with_protocols(vec![ProtocolKind::Stream, test_query_protocol()]),
             ]
         }
 
@@ -729,12 +746,14 @@ mod tests {
             Err(super::super::errors::WorkError::Shutdown)
         }
 
-        fn edge_query(
+        fn protocol_capability(
             &self,
             port: usize,
-            _input_queries: &[Option<Arc<dyn EdgeQuery>>],
-        ) -> Option<Arc<dyn EdgeQuery>> {
-            (port == 0).then(|| Arc::new(ConstEdgeQuery) as Arc<dyn EdgeQuery>)
+            protocol: ProtocolKind,
+            _input_capabilities: &[Vec<ProtocolCapability>],
+        ) -> Option<ProtocolCapability> {
+            (port == 0 && protocol == test_query_protocol())
+                .then(|| ProtocolCapability::new(Arc::new(ConstQuery) as Arc<dyn TestQuery>))
         }
     }
 
@@ -756,7 +775,7 @@ mod tests {
         }
 
         fn input_schema(&self) -> Vec<PortSchema> {
-            vec![PortSchema::new::<Sample>(
+            vec![PortSchema::state::<TestValue>(
                 "in",
                 0,
                 super::super::ports::PortDirection::Input,
@@ -765,8 +784,12 @@ mod tests {
 
         fn output_schema(&self) -> Vec<PortSchema> {
             vec![
-                PortSchema::new::<Sample>("out", 0, super::super::ports::PortDirection::Output)
-                    .with_protocols(vec![ProtocolKind::EdgeQuery, ProtocolKind::Stream]),
+                PortSchema::state::<TestValue>(
+                    "out",
+                    0,
+                    super::super::ports::PortDirection::Output,
+                )
+                .with_protocols(vec![test_query_protocol(), ProtocolKind::Stream]),
             ]
         }
 
@@ -778,16 +801,23 @@ mod tests {
             Err(super::super::errors::WorkError::Shutdown)
         }
 
-        fn edge_query(
+        fn protocol_capability(
             &self,
             _port: usize,
-            input_queries: &[Option<Arc<dyn EdgeQuery>>],
-        ) -> Option<Arc<dyn EdgeQuery>> {
+            protocol: ProtocolKind,
+            input_capabilities: &[Vec<ProtocolCapability>],
+        ) -> Option<ProtocolCapability> {
             self.got_input_query.store(
-                input_queries.first().is_some_and(Option::is_some),
+                input_capabilities
+                    .first()
+                    .is_some_and(|capabilities| !capabilities.is_empty()),
                 Ordering::Relaxed,
             );
-            input_queries.first()?.clone()
+            input_capabilities
+                .first()?
+                .iter()
+                .find(|capability| capability.protocol() == protocol)
+                .cloned()
         }
     }
 
@@ -807,7 +837,7 @@ mod tests {
             vec![]
         }
         fn output_schema(&self) -> Vec<PortSchema> {
-            vec![PortSchema::new::<Sample>(
+            vec![PortSchema::state::<TestValue>(
                 "out",
                 0,
                 super::super::ports::PortDirection::Output,
@@ -834,7 +864,7 @@ mod tests {
             0
         }
         fn input_schema(&self) -> Vec<PortSchema> {
-            vec![PortSchema::new::<Sample>(
+            vec![PortSchema::state::<TestValue>(
                 "in",
                 0,
                 super::super::ports::PortDirection::Input,
@@ -864,14 +894,14 @@ mod tests {
             1
         }
         fn input_schema(&self) -> Vec<PortSchema> {
-            vec![PortSchema::new::<Sample>(
+            vec![PortSchema::state::<TestValue>(
                 "in",
                 0,
                 super::super::ports::PortDirection::Input,
             )]
         }
         fn output_schema(&self) -> Vec<PortSchema> {
-            vec![PortSchema::new::<Sample>(
+            vec![PortSchema::state::<TestValue>(
                 "out",
                 0,
                 super::super::ports::PortDirection::Output,
@@ -1032,13 +1062,11 @@ mod tests {
         assert!(nodes.contains(&"sink"));
     }
 
-    // ── SampleKind negotiation ──────────────────────────────────────────
+    // ── Payload negotiation ─────────────────────────────────────────────
 
     use std::sync::Mutex;
 
-    use crate::sample::SampleBlock;
-
-    /// One output port that can serve `Sample` and `SampleBlock`
+    /// One output port that can serve `TestValue` and `TestBlock`
     /// destinations simultaneously — sends exactly one of each, then
     /// signals completion.
     struct MultiKindSource {
@@ -1056,8 +1084,15 @@ mod tests {
         }
         fn output_schema(&self) -> Vec<PortSchema> {
             vec![
-                PortSchema::new::<Sample>("out", 0, super::super::ports::PortDirection::Output)
-                    .with_sample_kinds(vec![SampleKind::Block, SampleKind::Edge]),
+                PortSchema::state::<TestValue>(
+                    "out",
+                    0,
+                    super::super::ports::PortDirection::Output,
+                )
+                .with_payloads(vec![
+                    PortPayload::new::<TestBlock>().with_default_buffer_capacity(2),
+                    PortPayload::new::<TestValue>().state(),
+                ]),
             ]
         }
         fn work(
@@ -1069,18 +1104,18 @@ mod tests {
                 return Err(super::super::errors::WorkError::Shutdown);
             }
             self.sent = true;
-            if let Some(sender) = outputs[0].get::<Sample>() {
-                let _ = sender.send(Sample::new(true, 0));
+            if let Some(sender) = outputs[0].get::<TestValue>() {
+                let _ = sender.send(TestValue::new(true, 0));
             }
-            if let Some(sender) = outputs[0].get::<SampleBlock>() {
-                let _ = sender.send(SampleBlock::new(Arc::from([0u8].as_slice()), 0, 1, 1));
+            if let Some(sender) = outputs[0].get::<TestBlock>() {
+                let _ = sender.send(TestBlock::new(Arc::from([0u8].as_slice()), 0, 1, 1));
             }
             Ok(1)
         }
     }
 
     struct SampleSink {
-        got: Arc<Mutex<Vec<Sample>>>,
+        got: Arc<Mutex<Vec<TestValue>>>,
     }
     impl ProcessNode for SampleSink {
         fn name(&self) -> &str {
@@ -1093,7 +1128,7 @@ mod tests {
             0
         }
         fn input_schema(&self) -> Vec<PortSchema> {
-            vec![PortSchema::new::<Sample>(
+            vec![PortSchema::state::<TestValue>(
                 "in",
                 0,
                 super::super::ports::PortDirection::Input,
@@ -1105,7 +1140,7 @@ mod tests {
             _outputs: &[OutputPort],
         ) -> super::super::errors::WorkResult<usize> {
             let mut buf = std::collections::VecDeque::new();
-            let mut recv = inputs[0].get::<Sample>(&mut buf).unwrap();
+            let mut recv = inputs[0].get::<TestValue>(&mut buf).unwrap();
             let item = recv.recv()?;
             self.got.lock().unwrap().push(item);
             Ok(1)
@@ -1113,7 +1148,7 @@ mod tests {
     }
 
     struct BlockSink {
-        got: Arc<Mutex<Vec<SampleBlock>>>,
+        got: Arc<Mutex<Vec<TestBlock>>>,
     }
     impl ProcessNode for BlockSink {
         fn name(&self) -> &str {
@@ -1126,7 +1161,7 @@ mod tests {
             0
         }
         fn input_schema(&self) -> Vec<PortSchema> {
-            vec![PortSchema::new::<SampleBlock>(
+            vec![PortSchema::new::<TestBlock>(
                 "in",
                 0,
                 super::super::ports::PortDirection::Input,
@@ -1138,7 +1173,7 @@ mod tests {
             _outputs: &[OutputPort],
         ) -> super::super::errors::WorkResult<usize> {
             let mut buf = std::collections::VecDeque::new();
-            let mut recv = inputs[0].get::<SampleBlock>(&mut buf).unwrap();
+            let mut recv = inputs[0].get::<TestBlock>(&mut buf).unwrap();
             let item = recv.recv()?;
             self.got.lock().unwrap().push(item);
             Ok(1)
@@ -1201,8 +1236,12 @@ mod tests {
         }
         fn output_schema(&self) -> Vec<PortSchema> {
             vec![
-                PortSchema::new::<Sample>("out", 0, super::super::ports::PortDirection::Output)
-                    .with_sample_kinds(vec![SampleKind::Edge]),
+                PortSchema::state::<TestValue>(
+                    "out",
+                    0,
+                    super::super::ports::PortDirection::Output,
+                )
+                .with_payloads(vec![PortPayload::new::<TestValue>().state()]),
             ]
         }
         fn work(
@@ -1215,7 +1254,7 @@ mod tests {
     }
 
     /// Deliberately declares no `sample_kinds` — an input's accepted kind
-    /// is always its own fixed `type_id` (`SampleBlock` here), so there's
+    /// is always its own fixed `type_id` (`TestBlock` here), so there's
     /// nothing to negotiate on this side.
     struct BlockOnlySink;
     impl ProcessNode for BlockOnlySink {
@@ -1229,7 +1268,7 @@ mod tests {
             0
         }
         fn input_schema(&self) -> Vec<PortSchema> {
-            vec![PortSchema::new::<SampleBlock>(
+            vec![PortSchema::new::<TestBlock>(
                 "in",
                 0,
                 super::super::ports::PortDirection::Input,

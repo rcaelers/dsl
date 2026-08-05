@@ -14,7 +14,8 @@ use logic_analyzer_processing::nodes::sources::sigrok_file::{
     SigrokFileSourceConfig, SigrokFileSourceFactory, portable_source_factory,
 };
 use node_graph::api::Socket;
-use signal_processing::{ProcessNode, Sample, SampleBlock};
+use signal_processing::{Sample, SampleBlock};
+use signal_runtime::ProcessNode;
 
 pub(crate) struct SigrokFileSourceBuilder {
     source_factory: Arc<dyn SigrokFileSourceFactory>,
@@ -224,7 +225,7 @@ mod builder_tests {
             &self,
             name: &str,
             config: SigrokFileSourceConfig,
-            _work_executor: Arc<dyn signal_processing::WorkExecutor>,
+            _work_executor: Arc<dyn signal_runtime::WorkExecutor>,
         ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
             self.opened
                 .lock()

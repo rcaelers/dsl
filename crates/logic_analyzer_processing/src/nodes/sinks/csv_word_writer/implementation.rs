@@ -20,9 +20,9 @@ use std::sync::Arc;
 
 use tracing::{debug, info, warn};
 
-use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, TextSample, Word, WordPayload,
-    WorkError, WorkResult,
+use signal_processing::{TextSample, Word, WordPayload};
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };
 
 use super::super::output_storage::{
@@ -298,7 +298,7 @@ impl ProcessNode for CsvWordWriter {
     fn input_schema(&self) -> Vec<PortSchema> {
         vec![
             PortSchema::new::<Word>("data", 0, PortDirection::Input),
-            PortSchema::new::<TextSample>("filename", 1, PortDirection::Input),
+            PortSchema::state::<TextSample>("filename", 1, PortDirection::Input),
         ]
     }
 
@@ -388,7 +388,7 @@ mod tests {
 
     use crossbeam_channel::bounded;
 
-    use signal_processing::{ChannelMessage, Watchdog};
+    use signal_runtime::{ChannelMessage, Watchdog};
 
     use super::*;
     use crate::nodes::sinks::output_storage::TestOutputStorage;

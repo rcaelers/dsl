@@ -6,7 +6,7 @@ graph-service port, and host services into one portable application. The native 
 are documented separately in [Application Shells Design](../crates/application_shells.md).
 Companion designs cover [graph composition](graph_composition.md),
 [the node-graph widget](../crates/node_graph.md),
-the `signal_processing` runtime Rustdoc, and
+the `signal_runtime` Rustdoc, and
 [the logic-analyzer viewer](../crates/logic_analyzer_viewer.md).
 
 Layering rule: `node_graph` stays UI-generic, `signal_processing` stays generic and UI-free, and

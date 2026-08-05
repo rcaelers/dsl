@@ -17,9 +17,9 @@ use signal_processing::logic_analyzer::{CaptureMode, LogicCaptureConfig};
 use signal_processing::{
     AcquisitionContext, AcquisitionResult, CaptureDataDelivery, CaptureIndex,
     CaptureIndexBuildProgress, CaptureIndexFactory, CaptureMetadata, CaptureStartMode,
-    ConfiguredAcquisition, CooperativeAppManagerFactory, IndexedCapturePresentation,
-    InlineWorkExecutor, PreparedAcquisition, WorkExecutor,
+    ConfiguredAcquisition, IndexedCapturePresentation, PreparedAcquisition,
 };
+use signal_runtime::{CooperativeAppManagerFactory, InlineWorkExecutor, WorkExecutor};
 
 pub(crate) struct GraphHarness {
     lowerer: GraphLowerer,

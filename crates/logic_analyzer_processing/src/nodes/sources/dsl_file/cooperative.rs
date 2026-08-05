@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
-use signal_processing::{OutputPort, Sample, SampleBlock, Sender, WorkError, WorkOutcome};
+use signal_processing::{Sample, SampleBlock};
+use signal_runtime::{OutputPort, Sender, WorkError, WorkOutcome};
 
 use crate::support::dsl_file::DslChunkedCaptureReader;
 

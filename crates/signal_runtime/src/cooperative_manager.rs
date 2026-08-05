@@ -43,7 +43,6 @@
 //! that fans out many sends from one `work()` call would reopen the
 //! deadlock this check exists to close.
 
-use std::any::TypeId;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -57,22 +56,12 @@ use super::node::{
     ConfigOutcome, ConfigurationBoundary, InputScheduling, NodeConfig, ProcessNode,
     RuntimeExecutionMode,
 };
-use super::ports::{InputPort, OutputPort, PortSchema, StreamReadiness};
+use super::payload_negotiation;
+use super::ports::{
+    InputPort, OutputPort, PortPayload, PortSchema, StreamReadiness, StreamSemantics,
+};
 use super::type_registry::{ErasedReceiverReadiness, ErasedSharedSenders, TYPE_REGISTRY};
 use super::watchdog::Watchdog;
-use crate::SampleKind;
-use crate::events::{NumberSample, TextSample};
-use crate::sample::Sample;
-
-/// Level streams get sticky lists; kept in sync with
-/// [`manager::is_level_type`](super::manager) by hand — both are tiny and
-/// change together only if a new level type is ever registered.
-///
-fn is_level_type(type_id: TypeId) -> bool {
-    type_id == TypeId::of::<Sample>()
-        || type_id == TypeId::of::<NumberSample>()
-        || type_id == TypeId::of::<TextSample>()
-}
 
 /// Per-input readiness check supplied by the registered channel type.
 enum Probe {
@@ -104,9 +93,8 @@ impl Probe {
 }
 
 struct OutputList {
-    type_id: TypeId,
-    sample_kinds: Vec<SampleKind>,
-    lists: Vec<(TypeId, Arc<dyn ErasedSharedSenders>)>,
+    payloads: Vec<PortPayload>,
+    lists: Vec<(std::any::TypeId, Arc<dyn ErasedSharedSenders>)>,
     /// Flipped once this node stops producing (finished, removed, or
     /// stopped). Shared with every current and future subscriber's probe so
     /// a drained-and-finished input stays permanently ready — see the
@@ -120,29 +108,23 @@ fn build_output_lists(
     let mut outputs = HashMap::new();
     let registry = TYPE_REGISTRY.lock().unwrap();
     for schema in output_schemas {
-        let sample_kinds = schema.sample_kinds.clone();
-        let type_ids = if sample_kinds.is_empty() {
-            vec![schema.type_id]
-        } else {
-            sample_kinds
-                .iter()
-                .map(|kind| kind.payload_type())
-                .collect()
-        };
-        let lists = type_ids
-            .into_iter()
-            .map(|type_id| {
+        let payloads = schema.payloads.clone();
+        let lists = payloads
+            .iter()
+            .map(|payload| {
                 registry
-                    .create_shared(type_id, is_level_type(type_id))
-                    .map(|list| (type_id, list))
+                    .create_shared(
+                        payload.type_id,
+                        payload.stream_semantics == StreamSemantics::State,
+                    )
+                    .map(|list| (payload.type_id, list))
                     .ok_or_else(|| format!("type of port '{}' not registered", schema.name))
             })
             .collect::<Result<Vec<_>, _>>()?;
         outputs.insert(
             schema.name.clone(),
             OutputList {
-                type_id: schema.type_id,
-                sample_kinds,
+                payloads,
                 lists,
                 closed: Arc::new(AtomicBool::new(false)),
             },
@@ -153,11 +135,9 @@ fn build_output_lists(
 
 fn negotiated_list<'a>(
     output: &'a OutputList,
-    accepted: &[SampleKind],
-    input_type: TypeId,
+    accepted: &[PortPayload],
 ) -> Option<&'a Arc<dyn ErasedSharedSenders>> {
-    let negotiated_type =
-        crate::negotiate_sample_kind(&output.sample_kinds, output.type_id, accepted, input_type)?;
+    let negotiated_type = payload_negotiation::negotiate(&output.payloads, accepted)?.type_id;
     output
         .lists
         .iter()
@@ -287,17 +267,14 @@ impl CooperativeManager {
                             sub.from_node, sub.from_port
                         )
                     })?;
-                    let list = negotiated_list(
-                        output,
-                        &input_schemas[index].sample_kinds,
-                        input_schemas[index].type_id,
-                    )
-                    .ok_or_else(|| {
-                        format!(
-                            "type mismatch: {}.{} -> {}.{}",
-                            sub.from_node, sub.from_port, name, input_schemas[index].name
-                        )
-                    })?;
+                    let list = negotiated_list(output, &input_schemas[index].payloads).ok_or_else(
+                        || {
+                            format!(
+                                "type mismatch: {}.{} -> {}.{}",
+                                sub.from_node, sub.from_port, name, input_schemas[index].name
+                            )
+                        },
+                    )?;
                     let closed = Arc::clone(&output.closed);
                     let label = Some(format!("{}.{}", name, input_schemas[index].name));
                     let subscription = list.subscribe_with_label(sub.buffer, sub.policy, label);
@@ -482,17 +459,14 @@ impl CooperativeManager {
                             sub.from_node, sub.from_port
                         )
                     })?;
-                    let list = negotiated_list(
-                        output,
-                        &input_schemas[index].sample_kinds,
-                        input_schemas[index].type_id,
-                    )
-                    .ok_or_else(|| {
-                        format!(
-                            "type mismatch: {}.{} -> {}.{}",
-                            sub.from_node, sub.from_port, name, input_schemas[index].name
-                        )
-                    })?;
+                    let list = negotiated_list(output, &input_schemas[index].payloads).ok_or_else(
+                        || {
+                            format!(
+                                "type mismatch: {}.{} -> {}.{}",
+                                sub.from_node, sub.from_port, name, input_schemas[index].name
+                            )
+                        },
+                    )?;
                     let closed = Arc::clone(&output.closed);
                     let label = Some(format!("{}.{}", name, input_schemas[index].name));
                     let subscription = list.subscribe_with_label(sub.buffer, sub.policy, label);
@@ -755,9 +729,14 @@ mod tests {
     use super::super::node::{ConfigValue, WorkOutcome};
     use super::super::ports::{PortDirection, PortSchema};
     use super::*;
-    use crate::events::NumberSample;
 
-    /// Emits `NumberSample { value: i, start_time_ns: i }` for i in 0..max, one
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct TestLevel {
+        value: i64,
+        start_time_ns: u64,
+    }
+
+    /// Emits `TestLevel { value: i, start_time_ns: i }` for i in 0..max, one
     /// per `work()` call — no pacing needed since the cooperative pump loop
     /// is driven synchronously by the test, not by wall-clock time.
     struct CountingSource {
@@ -819,7 +798,7 @@ mod tests {
             1
         }
         fn output_schema(&self) -> Vec<PortSchema> {
-            vec![PortSchema::new::<NumberSample>(
+            vec![PortSchema::state::<TestLevel>(
                 "out",
                 0,
                 PortDirection::Output,
@@ -830,9 +809,9 @@ mod tests {
                 return Err(WorkError::Shutdown);
             }
             let output = outputs[0]
-                .get::<NumberSample>()
+                .get::<TestLevel>()
                 .ok_or_else(|| WorkError::NodeError("missing output".into()))?;
-            output.send(NumberSample {
+            output.send(TestLevel {
                 value: self.next,
                 start_time_ns: self.next as u64,
             })?;
@@ -860,7 +839,7 @@ mod tests {
         }
 
         fn output_schema(&self) -> Vec<PortSchema> {
-            vec![PortSchema::new::<NumberSample>(
+            vec![PortSchema::state::<TestLevel>(
                 "out",
                 0,
                 PortDirection::Output,
@@ -872,10 +851,10 @@ mod tests {
                 return Err(WorkError::Shutdown);
             }
             let output = outputs[0]
-                .get::<NumberSample>()
+                .get::<TestLevel>()
                 .ok_or_else(|| WorkError::NodeError("missing output".into()))?;
             let samples = (0..self.max)
-                .map(|value| NumberSample {
+                .map(|value| TestLevel {
                     value,
                     start_time_ns: value as u64,
                 })
@@ -888,7 +867,7 @@ mod tests {
 
     struct SparseFilter {
         match_value: i64,
-        buffer: VecDeque<NumberSample>,
+        buffer: VecDeque<TestLevel>,
     }
 
     impl ProcessNode for SparseFilter {
@@ -905,7 +884,7 @@ mod tests {
         }
 
         fn input_schema(&self) -> Vec<PortSchema> {
-            vec![PortSchema::new::<NumberSample>(
+            vec![PortSchema::state::<TestLevel>(
                 "in",
                 0,
                 PortDirection::Input,
@@ -913,7 +892,7 @@ mod tests {
         }
 
         fn output_schema(&self) -> Vec<PortSchema> {
-            vec![PortSchema::new::<NumberSample>(
+            vec![PortSchema::state::<TestLevel>(
                 "out",
                 0,
                 PortDirection::Output,
@@ -930,14 +909,14 @@ mod tests {
 
         fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
             let mut input = inputs[0]
-                .get::<NumberSample>(&mut self.buffer)
+                .get::<TestLevel>(&mut self.buffer)
                 .ok_or_else(|| WorkError::NodeError("missing input".into()))?;
             let sample = input.recv()?;
             if sample.value != self.match_value {
                 return Ok(0);
             }
             let output = outputs[0]
-                .get::<NumberSample>()
+                .get::<TestLevel>()
                 .ok_or_else(|| WorkError::NodeError("missing output".into()))?;
             output.send(sample)?;
             Ok(1)
@@ -947,7 +926,7 @@ mod tests {
     /// Adds a configurable offset; hot-appliable.
     struct AddOffset {
         offset: i64,
-        buffer: VecDeque<NumberSample>,
+        buffer: VecDeque<TestLevel>,
         scheduled: Arc<Mutex<VecDeque<(ConfigurationBoundary, i64)>>>,
     }
 
@@ -983,14 +962,14 @@ mod tests {
             1
         }
         fn input_schema(&self) -> Vec<PortSchema> {
-            vec![PortSchema::new::<NumberSample>(
+            vec![PortSchema::state::<TestLevel>(
                 "in",
                 0,
                 PortDirection::Input,
             )]
         }
         fn output_schema(&self) -> Vec<PortSchema> {
-            vec![PortSchema::new::<NumberSample>(
+            vec![PortSchema::state::<TestLevel>(
                 "out",
                 0,
                 PortDirection::Output,
@@ -1013,7 +992,7 @@ mod tests {
         }
         fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
             let mut input = inputs[0]
-                .get::<NumberSample>(&mut self.buffer)
+                .get::<TestLevel>(&mut self.buffer)
                 .ok_or_else(|| WorkError::NodeError("missing input".into()))?;
             let sample = input.recv()?;
             let mut scheduled = self.scheduled.lock().unwrap();
@@ -1025,9 +1004,9 @@ mod tests {
             }
             drop(scheduled);
             let output = outputs[0]
-                .get::<NumberSample>()
+                .get::<TestLevel>()
                 .ok_or_else(|| WorkError::NodeError("missing output".into()))?;
-            output.send(NumberSample {
+            output.send(TestLevel {
                 value: sample.value + self.offset,
                 start_time_ns: sample.start_time_ns,
             })?;
@@ -1037,7 +1016,7 @@ mod tests {
 
     struct Collect {
         store: Arc<Mutex<Vec<i64>>>,
-        buffer: VecDeque<NumberSample>,
+        buffer: VecDeque<TestLevel>,
     }
 
     impl ProcessNode for Collect {
@@ -1051,7 +1030,7 @@ mod tests {
             0
         }
         fn input_schema(&self) -> Vec<PortSchema> {
-            vec![PortSchema::new::<NumberSample>(
+            vec![PortSchema::state::<TestLevel>(
                 "in",
                 0,
                 PortDirection::Input,
@@ -1059,7 +1038,7 @@ mod tests {
         }
         fn work(&mut self, inputs: &[InputPort], _outputs: &[OutputPort]) -> WorkResult<usize> {
             let mut input = inputs[0]
-                .get::<NumberSample>(&mut self.buffer)
+                .get::<TestLevel>(&mut self.buffer)
                 .ok_or_else(|| WorkError::NodeError("missing input".into()))?;
             let sample = input.recv()?;
             self.store.lock().unwrap().push(sample.value);
@@ -1072,7 +1051,7 @@ mod tests {
     /// control instead of a timing-dependent stall.
     struct GatedSink {
         store: Arc<Mutex<Vec<i64>>>,
-        buffer: VecDeque<NumberSample>,
+        buffer: VecDeque<TestLevel>,
         open: Arc<AtomicBool>,
     }
 
@@ -1164,7 +1143,7 @@ mod tests {
             0
         }
         fn input_schema(&self) -> Vec<PortSchema> {
-            vec![PortSchema::new::<NumberSample>(
+            vec![PortSchema::state::<TestLevel>(
                 "in",
                 0,
                 PortDirection::Input,
@@ -1175,7 +1154,7 @@ mod tests {
                 return Ok(0);
             }
             let mut input = inputs[0]
-                .get::<NumberSample>(&mut self.buffer)
+                .get::<TestLevel>(&mut self.buffer)
                 .ok_or_else(|| WorkError::NodeError("missing input".into()))?;
             let sample = input.recv()?;
             self.store.lock().unwrap().push(sample.value);

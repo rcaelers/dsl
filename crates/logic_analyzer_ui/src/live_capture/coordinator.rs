@@ -19,8 +19,9 @@ use signal_processing::{
     CaptureSessionRepositoryConfig, CaptureSessionState, CaptureSessionSummary, CaptureStartMode,
     CaptureStore, CaptureStoreConfig, CaptureStoreDescriptor, CaptureTimelineMetadata,
     FinalizedCapture, GrowingCaptureIndex, GrowingCaptureIndexWorker, RecordingStart,
-    TriggerTimeoutAction, WorkExecutor, bounded_capture_event_queue,
+    TriggerTimeoutAction, bounded_capture_event_queue,
 };
+use signal_runtime::WorkExecutor;
 
 use super::implementation::{
     CaptureAnalysisAttachment, CaptureCoordinatorContract, CaptureReplayAttachment,
@@ -56,10 +57,10 @@ impl WorkExecutor for TestWorkExecutor {
 
     fn submit(
         &self,
-        task: signal_processing::WorkExecutorTask,
-    ) -> Result<Box<dyn signal_processing::WorkTask>, String> {
+        task: signal_runtime::WorkExecutorTask,
+    ) -> Result<Box<dyn signal_runtime::WorkTask>, String> {
         std::thread::spawn(task);
-        Ok(Box::new(signal_processing::CompletedWorkTask))
+        Ok(Box::new(signal_runtime::CompletedWorkTask))
     }
 }
 
@@ -105,7 +106,7 @@ enum PersistedConfigurationEpochOutcome {
 struct WorkerPreparedConfigurationEpoch {
     epoch_id: u64,
     source_sample: u64,
-    boundary: signal_processing::ConfigurationBoundary,
+    boundary: signal_runtime::ConfigurationBoundary,
 }
 
 enum CaptureCommand {
@@ -267,7 +268,7 @@ struct ActiveCapture {
     waveforms: Receiver<GrowingCaptureIndex>,
     analyses: Receiver<CaptureAnalysisAttachment>,
     events: CaptureEventQueueReader,
-    worker: Option<Box<dyn signal_processing::WorkTask>>,
+    worker: Option<Box<dyn signal_runtime::WorkTask>>,
     stop_requested: bool,
     abort_requested: bool,
 }
@@ -1582,7 +1583,7 @@ fn prepare_configuration_epoch(
     Ok(WorkerPreparedConfigurationEpoch {
         epoch_id,
         source_sample,
-        boundary: signal_processing::ConfigurationBoundary::new(source_sample, timestamp_ns),
+        boundary: signal_runtime::ConfigurationBoundary::new(source_sample, timestamp_ns),
     })
 }
 
@@ -1638,9 +1639,10 @@ mod tests {
         CaptureAnalysisSource, CaptureChannelId, CaptureCommandCapabilities, CaptureDataDelivery,
         CapturePolicy, CaptureProviderCapabilities, CaptureSessionPlan, CaptureSessionState,
         CaptureStartMode, CaptureStoreCursor, CompletionPolicy, EffectiveCapturePolicy,
-        PreparedAcquisition, ProcessNode, RecordingStart, RetentionPolicy, SimpleTriggerCondition,
+        PreparedAcquisition, RecordingStart, RetentionPolicy, SimpleTriggerCondition,
         TriggerTimeout, TriggerTimeoutAction,
     };
+    use signal_runtime::ProcessNode;
 
     use super::super::test_acquisition_tests::{
         BufferedFakeConfig, BufferedFakeController, BufferedFakeProvider, DeterministicFakeConfig,
@@ -2159,7 +2161,7 @@ mod tests {
             .process
             .output_schema()
             .into_iter()
-            .map(|port| (port.name, port.type_id, port.index, port.sample_kinds))
+            .map(|port| (port.name, port.type_id, port.index, port.payloads))
             .collect::<Vec<_>>();
         assert_eq!(analysis_schema.len(), channels.len());
 
@@ -2177,7 +2179,7 @@ mod tests {
             process
                 .output_schema()
                 .into_iter()
-                .map(|port| (port.name, port.type_id, port.index, port.sample_kinds))
+                .map(|port| (port.name, port.type_id, port.index, port.payloads))
                 .collect::<Vec<_>>()
         };
         assert_eq!(
@@ -2853,7 +2855,7 @@ mod tests {
             process
                 .output_schema()
                 .into_iter()
-                .map(|port| (port.name, port.type_id, port.index, port.sample_kinds))
+                .map(|port| (port.name, port.type_id, port.index, port.payloads))
                 .collect::<Vec<_>>()
         };
         assert_eq!(

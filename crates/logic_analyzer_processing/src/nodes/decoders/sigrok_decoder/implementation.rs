@@ -3,9 +3,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use signal_processing::{
-    InputPort, NodeCancellation, OutputPort, PortDirection, PortSchema, ProcessNode,
-    ProtocolPacket, ProtocolValue, SampleBlock, Word, WorkError, WorkResult,
+use signal_processing::{ProtocolPacket, ProtocolValue, SampleBlock, Word};
+use signal_runtime::{
+    InputPort, NodeCancellation, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError,
+    WorkResult,
 };
 
 use super::contracts::{
@@ -377,10 +378,14 @@ impl ProcessNode for SigrokDecoder {
 
     fn output_schema(&self) -> Vec<PortSchema> {
         vec![
-            PortSchema::new::<Word>("annotations", 0, PortDirection::Output),
-            PortSchema::new::<Word>("binary", 1, PortDirection::Output),
-            PortSchema::new::<SampleBlock>("logic", 2, PortDirection::Output),
-            PortSchema::new::<Word>("metadata", 3, PortDirection::Output),
+            PortSchema::new::<Word>("annotations", 0, PortDirection::Output)
+                .with_default_buffer_capacity(8),
+            PortSchema::new::<Word>("binary", 1, PortDirection::Output)
+                .with_default_buffer_capacity(8),
+            PortSchema::new::<SampleBlock>("logic", 2, PortDirection::Output)
+                .with_default_buffer_capacity(2),
+            PortSchema::new::<Word>("metadata", 3, PortDirection::Output)
+                .with_default_buffer_capacity(8),
             PortSchema::new::<ProtocolPacket>("packets", 4, PortDirection::Output),
         ]
     }
@@ -650,7 +655,8 @@ mod implementation_tests {
 
     use crossbeam_channel::{Receiver as ChannelReceiver, bounded};
 
-    use signal_processing::{ChannelMessage, Sender, Watchdog, WordPayload};
+    use signal_processing::WordPayload;
+    use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
     use super::*;
     use crate::nodes::decoders::sigrok_decoder::MetadataRegistration;

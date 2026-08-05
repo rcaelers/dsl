@@ -44,8 +44,10 @@ use node_graph::{FileDialogRequest, FileDialogService};
 use signal_artifacts::{ArtifactRepository, PreparedByteSource, SourceIdentity};
 use signal_processing::logic_analyzer::LogicAnalyzerError;
 use signal_processing::{
-    AppManager, AppManagerBackend, AppManagerFactory, CaptureIndex, CaptureIndexBuildProgress,
-    CaptureIndexFactory, IndexedCapturePresentation, PipelineManager, ProcessNode, WorkExecutor,
+    CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, IndexedCapturePresentation,
+};
+use signal_runtime::{
+    AppManager, AppManagerBackend, AppManagerFactory, PipelineManager, ProcessNode, WorkExecutor,
     WorkExecutorTask, WorkTask,
 };
 
@@ -1160,11 +1162,11 @@ impl AppManagerBackend for NativeAppManagerBackend {
         self.manager.is_finished()
     }
 
-    fn add_node(&mut self, spec: signal_processing::NodeSpec) -> Result<(), String> {
+    fn add_node(&mut self, spec: signal_runtime::NodeSpec) -> Result<(), String> {
         self.manager.add_node(spec)
     }
 
-    fn add_node_deferred(&mut self, spec: signal_processing::NodeSpec) -> Result<(), String> {
+    fn add_node_deferred(&mut self, spec: signal_runtime::NodeSpec) -> Result<(), String> {
         self.manager.add_node_deferred(spec)
     }
 
@@ -1179,7 +1181,7 @@ impl AppManagerBackend for NativeAppManagerBackend {
     fn reconfigure(
         &mut self,
         name: &str,
-        config: signal_processing::NodeConfig,
+        config: signal_runtime::NodeConfig,
     ) -> Result<(), String> {
         self.manager.reconfigure(name, config)
     }
@@ -1187,8 +1189,8 @@ impl AppManagerBackend for NativeAppManagerBackend {
     fn reconfigure_at(
         &mut self,
         name: &str,
-        config: signal_processing::NodeConfig,
-        boundary: signal_processing::ConfigurationBoundary,
+        config: signal_runtime::NodeConfig,
+        boundary: signal_runtime::ConfigurationBoundary,
     ) -> Result<(), String> {
         self.manager.reconfigure_at(name, config, boundary)
     }
@@ -1196,8 +1198,8 @@ impl AppManagerBackend for NativeAppManagerBackend {
     fn restart_node(
         &mut self,
         name: &str,
-        node: Box<dyn signal_processing::ProcessNode>,
-        inputs: Vec<Option<signal_processing::InputSub>>,
+        node: Box<dyn signal_runtime::ProcessNode>,
+        inputs: Vec<Option<signal_runtime::InputSub>>,
     ) -> Result<(), String> {
         self.manager.restart_node(name, node, inputs)
     }
@@ -1206,11 +1208,11 @@ impl AppManagerBackend for NativeAppManagerBackend {
         self.manager.progress()
     }
 
-    fn take_disconnected(&self) -> Vec<signal_processing::DisconnectEvent> {
+    fn take_disconnected(&self) -> Vec<signal_runtime::DisconnectEvent> {
         self.manager.take_disconnected()
     }
 
-    fn take_failures(&mut self) -> Vec<signal_processing::NodeFailure> {
+    fn take_failures(&mut self) -> Vec<signal_runtime::NodeFailure> {
         self.manager.take_failures()
     }
 
@@ -1577,9 +1579,9 @@ mod native_tests {
     };
     use logic_analyzer_ui::{AppServices, HostCommand, HostService};
     use signal_artifacts::MemoryArtifactRepository;
-    use signal_processing::{
+    use signal_processing::portable_worker_kernels;
+    use signal_runtime::{
         AppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor, WorkExecutor,
-        portable_worker_kernels,
     };
 
     use super::{

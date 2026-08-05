@@ -1,4 +1,4 @@
-use signal_processing::ProcessNode;
+use signal_runtime::ProcessNode;
 
 /// A runtime process together with platform-neutral construction metadata.
 ///
@@ -38,7 +38,7 @@ impl<M> ProcessNodeConstruction<M> {
 
 #[cfg(test)]
 mod process_node_construction_tests {
-    use signal_processing::{InputPort, OutputPort, WorkResult};
+    use signal_runtime::{InputPort, OutputPort, WorkResult};
 
     use super::*;
 

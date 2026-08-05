@@ -22,9 +22,9 @@ use std::path::PathBuf;
 
 use tracing::{debug, warn};
 
-use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, TextSample, Word, WorkError,
-    WorkResult,
+use signal_processing::{TextSample, Word};
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };
 
 /// One complete TGCK cycle, positioned within the current capture window.
@@ -217,14 +217,14 @@ impl ProcessNode for TgckRecorder {
         vec![
             PortSchema::new::<Word>("words", 0, PortDirection::Input),
             PortSchema::new::<signal_processing::Sample>("tgck", 1, PortDirection::Input),
-            PortSchema::new::<TextSample>("filename", 2, PortDirection::Input),
+            PortSchema::state::<TextSample>("filename", 2, PortDirection::Input),
         ]
     }
 
     fn output_schema(&self) -> Vec<PortSchema> {
         vec![
-            PortSchema::new::<TextSample>("rows", 0, PortDirection::Output),
-            PortSchema::new::<TextSample>("filename", 1, PortDirection::Output),
+            PortSchema::state::<TextSample>("rows", 0, PortDirection::Output),
+            PortSchema::state::<TextSample>("filename", 1, PortDirection::Output),
         ]
     }
 
@@ -345,7 +345,8 @@ impl ProcessNode for TgckRecorder {
 #[cfg(test)]
 mod tests {
     use crossbeam_channel::bounded;
-    use signal_processing::{ChannelMessage, Sample, Watchdog};
+    use signal_processing::Sample;
+    use signal_runtime::{ChannelMessage, Watchdog};
 
     use super::*;
 
@@ -399,13 +400,13 @@ mod tests {
             ],
             outputs: vec![
                 OutputPort::new_with_watchdog(
-                    signal_processing::Sender::new(vec![rows_tx]),
+                    signal_runtime::Sender::new(vec![rows_tx]),
                     &wd,
                     "tgck",
                     "rows",
                 ),
                 OutputPort::new_with_watchdog(
-                    signal_processing::Sender::new(vec![filename_tx]),
+                    signal_runtime::Sender::new(vec![filename_tx]),
                     &wd,
                     "tgck",
                     "filename",
@@ -480,13 +481,13 @@ mod tests {
         ];
         let outputs = vec![
             OutputPort::new_with_watchdog(
-                signal_processing::Sender::new(vec![rows_tx]),
+                signal_runtime::Sender::new(vec![rows_tx]),
                 &wd,
                 "tgck",
                 "rows",
             ),
             OutputPort::new_with_watchdog(
-                signal_processing::Sender::new(vec![filename_tx]),
+                signal_runtime::Sender::new(vec![filename_tx]),
                 &wd,
                 "tgck",
                 "filename",

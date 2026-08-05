@@ -4,6 +4,11 @@ use std::sync::{Arc, RwLock};
 
 use crossbeam_channel::bounded;
 
+use signal_runtime::{
+    ChannelMessage, InputPort, OutputPort as OutPort, PortDirection, PortSchema, ProcessNode,
+    Watchdog, WorkError, WorkResult,
+};
+
 use super::collector::DRAIN_BATCH_SIZE;
 use super::digital::{DigitalLaneQuery, DigitalLaneStorage};
 use super::number::{NumberLaneQuery, NumberLaneStorage};
@@ -18,10 +23,6 @@ use crate::payload::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
     CollectedLaneStorageBacking, CollectedLaneStorageSnapshot, CollectedLaneTableMetadata,
     CollectedLaneTableRow, CollectedLaneTableSnapshot, PayloadRegistry,
-};
-use crate::runtime::{
-    ChannelMessage, InputPort, OutputPort as OutPort, PortDirection, PortSchema, ProcessNode,
-    Watchdog, WorkError, WorkResult,
 };
 use crate::sample::Sample;
 

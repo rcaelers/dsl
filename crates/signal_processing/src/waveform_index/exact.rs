@@ -24,13 +24,14 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository, SourceIdentity};
+    use signal_runtime::InlineWorkExecutor;
 
     use super::super::reader::IndexSampler;
     use crate::capture::{
         BlockCaptureSource, BlockData, CaptureDataSource, CaptureFingerprint, CaptureMetadata,
         CaptureSource, CaptureWaveformSegment, packed_bit,
     };
-    use crate::{Error, InlineWorkExecutor, Result};
+    use crate::{Error, Result};
 
     static NEXT_TEST_SOURCE_ID: AtomicU64 = AtomicU64::new(1);
 

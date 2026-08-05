@@ -11,11 +11,13 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use thiserror::Error;
 
-use super::trigger::LogicTrigger;
-use crate::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Sample, SampleBlock, SampleKind,
-    Sender, WorkError, WorkExecutor, WorkResult, WorkTask,
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortPayload, PortSchema, ProcessNode, Sender, WorkError,
+    WorkExecutor, WorkResult, WorkTask,
 };
+
+use super::trigger::LogicTrigger;
+use crate::{Sample, SampleBlock};
 
 /// Static capabilities exposed by a logic-analyzer driver.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -247,7 +249,7 @@ impl<A: LogicAnalyzer> LogicAnalyzerSource<A> {
     /// - `analyzer`: Driver that owns the physical device.
     /// - `config`: Validated portable capture request.
     pub fn new(analyzer: A, config: LogicCaptureConfig) -> LogicAnalyzerResult<Self> {
-        crate::register_type::<LogicChunk>();
+        signal_runtime::register_type::<LogicChunk>();
         let channels = config.input_mask.count_ones() as u8;
         if channels == 0
             || channels > analyzer.info().channels
@@ -266,7 +268,7 @@ impl<A: LogicAnalyzer> LogicAnalyzerSource<A> {
             shutdown: Arc::new(AtomicBool::new(false)),
             completed: Arc::new(AtomicUsize::new(0)),
             task: None,
-            work_executor: Arc::new(crate::InlineWorkExecutor),
+            work_executor: Arc::new(signal_runtime::InlineWorkExecutor),
             started: false,
         })
     }
@@ -371,13 +373,16 @@ impl<A: LogicAnalyzer> ProcessNode for LogicAnalyzerSource<A> {
         let mut schema = Vec::with_capacity(n + 1);
         for i in 0..n {
             schema.push(
-                PortSchema::new::<Sample>(format!("ch{i}"), i, PortDirection::Output)
+                PortSchema::state::<Sample>(format!("ch{i}"), i, PortDirection::Output)
                     // Block is a near-zero-cost passthrough of the
                     // packed-bit chunk already captured; Edge costs a real
                     // bit-walk to derive RLE edges (see `Demux::push`) —
                     // prefer Block, but a consumer that only wants Edge
                     // still gets it.
-                    .with_sample_kinds(vec![SampleKind::Block, SampleKind::Edge]),
+                    .with_payloads(vec![
+                        PortPayload::new::<SampleBlock>().with_default_buffer_capacity(2),
+                        PortPayload::new::<Sample>().state(),
+                    ]),
             );
         }
         schema.push(PortSchema::new::<LogicChunk>(
@@ -576,9 +581,9 @@ impl fmt::Display for LogicChunk {
 #[cfg(test)]
 mod tests {
     use crossbeam_channel::bounded;
+    use signal_runtime::ChannelMessage;
 
     use super::*;
-    use crate::ChannelMessage;
 
     #[test]
     fn demux_emits_aligned_owned_channel_blocks() {

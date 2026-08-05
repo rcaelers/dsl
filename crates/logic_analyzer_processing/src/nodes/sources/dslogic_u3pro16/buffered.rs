@@ -9,8 +9,9 @@ use signal_processing::logic_analyzer::{LogicAnalyzer, LogicCaptureConfig};
 use signal_processing::{
     AcquisitionContext, AcquisitionError, AcquisitionOutcome, AcquisitionResult,
     CaptureAcquisitionPhase, CaptureChannelId, CaptureChunk, CaptureCompletion, CaptureProgress,
-    CaptureSessionId, CaptureSessionState, PreparedAcquisition, WorkExecutor, WorkTask,
+    CaptureSessionId, CaptureSessionState, PreparedAcquisition,
 };
+use signal_runtime::{WorkExecutor, WorkTask};
 
 use super::common::{CanonicalTransferAssembler, map_analyzer_error};
 use super::implementation::{DsLogicCapturePlan, DsLogicU3Pro16};

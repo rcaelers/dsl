@@ -20,10 +20,8 @@ use logic_analyzer_graph_runtime::{
     SourceProcessOverrides, SourceReadinessRegistry,
 };
 use node_graph::{GraphState, NodeId};
-use signal_processing::{
-    AppManagerFactory, ConfigurationBoundary, DerivedLanes, DisconnectEvent, PersistentStoreConfig,
-    WorkExecutor,
-};
+use signal_processing::{DerivedLanes, PersistentStoreConfig};
+use signal_runtime::{AppManagerFactory, ConfigurationBoundary, DisconnectEvent, WorkExecutor};
 
 use super::contract::{CachedDataLoader, GraphRun, GraphService};
 use crate::live_capture::{CaptureAvailability, CaptureFeatureDiscovery};
@@ -102,7 +100,7 @@ impl GraphRun for LiveRun {
         LiveRun::take_disconnected(self)
     }
 
-    fn take_node_failures(&mut self) -> Vec<(Option<NodeId>, signal_processing::NodeFailure)> {
+    fn take_node_failures(&mut self) -> Vec<(Option<NodeId>, signal_runtime::NodeFailure)> {
         LiveRun::take_node_failures(self)
     }
 

@@ -18,8 +18,11 @@ mod implementation {
     use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
     use signal_processing::{
         CollectedWordLaneOptions, DerivedDataCollector, DerivedDataRetention, DerivedLanes,
-        LiveStoreConfig, Pipeline, ProcessNode, Watchdog, Word, WorkError, WorkExecutor,
-        WorkExecutorTask, WorkTask, built_in_word_lane_ingestor,
+        EdgeQueryInputPortExt, EdgeQueryProcessNodeExt, LiveStoreConfig, Word,
+        built_in_word_lane_ingestor,
+    };
+    use signal_runtime::{
+        Pipeline, ProcessNode, Watchdog, WorkError, WorkExecutor, WorkExecutorTask, WorkTask,
     };
 
     struct BenchmarkWorkExecutor;
@@ -141,7 +144,7 @@ mod implementation {
         if matches!(args.sink, SinkKind::Discard) {
             let watchdog = Watchdog::new();
             let input = |query, name: &str| {
-                signal_processing::InputPort::disconnected()
+                signal_runtime::InputPort::disconnected()
                     .with_edge_query(Some(query))
                     .with_watchdog(watchdog.clone(), "decoder".to_string(), name.to_string())
             };
@@ -150,8 +153,8 @@ mod implementation {
                 input(source.edge_query(args.clk, &[]).unwrap(), "clk"),
                 input(source.edge_query(args.mosi, &[]).unwrap(), "mosi"),
             ];
-            let outputs = [signal_processing::OutputPort::new_with_watchdog(
-                signal_processing::Sender::<Word>::new(vec![]),
+            let outputs = [signal_runtime::OutputPort::new_with_watchdog(
+                signal_runtime::Sender::<Word>::new(vec![]),
                 &watchdog,
                 "decoder",
                 "mosi_words",

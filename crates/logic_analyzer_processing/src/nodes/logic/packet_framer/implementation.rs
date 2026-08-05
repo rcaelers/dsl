@@ -2,9 +2,10 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, ProtocolPacket, ProtocolValue,
-    Sample, Trigger, Word, WordPayload, WorkError, WorkOutcome, WorkResult,
+use signal_processing::{ProtocolPacket, ProtocolValue, Sample, Trigger, Word, WordPayload};
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,
+    WorkResult,
 };
 
 pub const PACKET_FRAME_PROTOCOL_ID: &str = "org.logicconduit.packet-frame/v1";
@@ -289,7 +290,7 @@ impl ProcessNode for PacketFramer {
         vec![
             PortSchema::new::<Word>("words", 0, PortDirection::Input),
             PortSchema::new::<Trigger>("boundary", 1, PortDirection::Input),
-            PortSchema::new::<Sample>("gate", 2, PortDirection::Input),
+            PortSchema::state::<Sample>("gate", 2, PortDirection::Input),
         ]
     }
 
@@ -368,7 +369,7 @@ fn word_value(word: Word) -> ProtocolValue {
 #[cfg(test)]
 mod implementation_tests {
     use crossbeam_channel::{Receiver, Sender as ChannelSender, bounded};
-    use signal_processing::{ChannelMessage, Sender, Watchdog};
+    use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
     use super::*;
 

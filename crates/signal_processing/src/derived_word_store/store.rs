@@ -10,6 +10,7 @@ use signal_artifacts::{
     ArtifactKey, ArtifactRepository, ByteRange, RepositoryError, WriteArtifact,
     read_artifact_region,
 };
+use signal_runtime::WorkExecutor;
 
 use super::backend::{AnnotationStoreBackend, AnnotationStoreWriterBackend};
 use super::cache::{cache_block, cached_block};
@@ -30,7 +31,6 @@ use super::query::{
     boundary_block_indices, exact_block_indices, nearest_boundary_from_ordered_words,
 };
 use super::state::{LiveStoreMetadata, LiveStoreSnapshot, StoreStatus};
-use crate::WorkExecutor;
 use crate::events::{Annotation, Word};
 
 const MAX_BLOCK_ENCODERS_PER_STORE: usize = 4;
@@ -1340,7 +1340,7 @@ mod tests {
     }
 
     struct QueuedWorkExecutor {
-        tasks: Mutex<Vec<crate::WorkExecutorTask>>,
+        tasks: Mutex<Vec<signal_runtime::WorkExecutorTask>>,
     }
 
     impl QueuedWorkExecutor {
@@ -1363,10 +1363,10 @@ mod tests {
 
         fn submit(
             &self,
-            task: crate::WorkExecutorTask,
-        ) -> Result<Box<dyn crate::WorkTask>, String> {
+            task: signal_runtime::WorkExecutorTask,
+        ) -> Result<Box<dyn signal_runtime::WorkTask>, String> {
             self.tasks.lock().unwrap().push(task);
-            Ok(Box::new(crate::CompletedWorkTask))
+            Ok(Box::new(signal_runtime::CompletedWorkTask))
         }
     }
 
@@ -1386,11 +1386,11 @@ mod tests {
 
         fn submit(
             &self,
-            task: crate::WorkExecutorTask,
-        ) -> Result<Box<dyn crate::WorkTask>, String> {
+            task: signal_runtime::WorkExecutorTask,
+        ) -> Result<Box<dyn signal_runtime::WorkTask>, String> {
             self.submissions.fetch_add(1, Ordering::Relaxed);
             task();
-            Ok(Box::new(crate::CompletedWorkTask))
+            Ok(Box::new(signal_runtime::CompletedWorkTask))
         }
     }
 

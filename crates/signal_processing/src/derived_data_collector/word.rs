@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
+use signal_runtime::{InputPort, PortDirection, PortSchema, WorkResult};
+
 use super::catalog::DerivedLanes;
 use super::collector::{DRAIN_BATCH_SIZE, DerivedDataRetention};
 use super::storage::in_memory_storage_snapshot;
@@ -17,7 +19,6 @@ use crate::payload::{
     CollectedLaneTableRow, CollectedLaneTableSnapshot, OpaqueCollectedLaneSnapshot, PayloadAdapter,
     PayloadRegistry,
 };
-use crate::runtime::{InputPort, PortDirection, PortSchema, WorkResult};
 
 const WORD_DRAIN_BATCH_SIZE: usize = DRAIN_BATCH_SIZE * 2;
 

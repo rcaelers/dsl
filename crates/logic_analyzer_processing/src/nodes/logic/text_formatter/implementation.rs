@@ -3,10 +3,11 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use signal_processing::{
+use signal_processing::{NumberSample, TextSample};
+use signal_runtime::{
     ConfigOutcome, ConfigValue, ConfigurationBoundary, ConfigurationScheduler, InputPort,
-    NodeConfig, NumberSample, OutputPort, PortDirection, PortSchema, ProcessNode, TextSample,
-    WorkError, WorkOutcome, WorkResult,
+    NodeConfig, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,
+    WorkResult,
 };
 
 /// Substitutes value placeholders in `template`:
@@ -220,13 +221,17 @@ impl ProcessNode for TextFormatter {
     fn input_schema(&self) -> Vec<PortSchema> {
         (0..self.values.len())
             .map(|index| {
-                PortSchema::new::<NumberSample>(Self::port_name(index), index, PortDirection::Input)
+                PortSchema::state::<NumberSample>(
+                    Self::port_name(index),
+                    index,
+                    PortDirection::Input,
+                )
             })
             .collect()
     }
 
     fn output_schema(&self) -> Vec<PortSchema> {
-        vec![PortSchema::new::<TextSample>(
+        vec![PortSchema::state::<TextSample>(
             "text",
             0,
             PortDirection::Output,
@@ -303,7 +308,7 @@ impl ProcessNode for TextFormatter {
 #[cfg(test)]
 mod tests {
     use crossbeam_channel::bounded;
-    use signal_processing::{ChannelMessage, Sender, Watchdog};
+    use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
     use super::*;
 

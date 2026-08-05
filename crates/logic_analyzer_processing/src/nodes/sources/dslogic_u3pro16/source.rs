@@ -3,7 +3,7 @@
 use signal_processing::logic_analyzer::{
     LogicAnalyzerResult, LogicAnalyzerSource, LogicCaptureConfig,
 };
-use signal_processing::{InputPort, OutputPort, ProcessNode, WorkResult};
+use signal_runtime::{InputPort, OutputPort, ProcessNode, WorkResult};
 
 use super::implementation::DsLogicU3Pro16;
 use super::transport::UsbTransport;
@@ -56,7 +56,7 @@ impl ProcessNode for DsLogicU3Pro16Source {
         self.inner.num_outputs()
     }
 
-    fn output_schema(&self) -> Vec<signal_processing::PortSchema> {
+    fn output_schema(&self) -> Vec<signal_runtime::PortSchema> {
         self.inner.output_schema()
     }
 

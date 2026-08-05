@@ -24,10 +24,13 @@ mod implementation {
     use signal_processing::{
         CollectedWordLaneOptions, CollectedWordLaneQuery, DecodedBlockCacheStats,
         DerivedDataCollector, DerivedDataCollectorMetrics, DerivedDataRetention, DerivedLanes,
-        InputPort, LiveStoreConfig, OutputPort, PersistentStoreConfig, Pipeline, PortSchema,
-        ProcessNode, ProtocolKind, SamplingPointStore, Word, WorkError, WorkExecutor,
-        WorkExecutorTask, WorkResult, WorkTask, built_in_word_lane_ingestor,
-        configure_decoded_block_cache, decoded_block_cache_stats, reset_decoded_block_cache_stats,
+        EdgeQueryProcessNodeExt, LiveStoreConfig, PersistentStoreConfig, SamplingPointStore, Word,
+        built_in_word_lane_ingestor, configure_decoded_block_cache, decoded_block_cache_stats,
+        reset_decoded_block_cache_stats,
+    };
+    use signal_runtime::{
+        InputPort, OutputPort, Pipeline, PortSchema, ProcessNode, ProtocolKind, WorkError,
+        WorkExecutor, WorkExecutorTask, WorkResult, WorkTask,
     };
 
     const DEFAULT_MAX_WORDS_PER_BLOCK: usize = 32_768;
@@ -300,7 +303,7 @@ mod implementation {
         }
 
         fn input_schema(&self) -> Vec<PortSchema> {
-            use signal_processing::PortDirection;
+            use signal_runtime::PortDirection;
             vec![PortSchema::new::<Word>("words", 0, PortDirection::Input)]
         }
 
@@ -351,7 +354,7 @@ mod implementation {
         }
 
         fn input_schema(&self) -> Vec<PortSchema> {
-            use signal_processing::PortDirection;
+            use signal_runtime::PortDirection;
             vec![PortSchema::new::<Word>("words", 0, PortDirection::Input)]
         }
 
@@ -781,7 +784,7 @@ mod implementation {
             SamplingCacheKind::None => decoder,
             SamplingCacheKind::Direct | SamplingCacheKind::Queued => {
                 let persistence_executor: Arc<dyn WorkExecutor> = match args.sampling_cache {
-                    SamplingCacheKind::Direct => Arc::new(signal_processing::InlineWorkExecutor),
+                    SamplingCacheKind::Direct => Arc::new(signal_runtime::InlineWorkExecutor),
                     SamplingCacheKind::Queued => Arc::clone(&work_executor),
                     SamplingCacheKind::None => unreachable!(),
                 };
@@ -808,9 +811,12 @@ mod implementation {
             BenchMode::Stream => BenchMode::Stream.protocol_name(),
             BenchMode::Auto => strobe_activity_ratio
                 .map(ParallelDecoder::auto_protocol_for_activity_ratio)
-                .map(|protocol| match protocol {
-                    ProtocolKind::Stream => "packed-stream",
-                    ProtocolKind::EdgeQuery => "edge-query",
+                .map(|protocol| {
+                    if protocol == ProtocolKind::Stream {
+                        "packed-stream"
+                    } else {
+                        "edge-query"
+                    }
                 })
                 .unwrap_or("auto-fallback"),
             BenchMode::Both => unreachable!("Both is expanded by main"),

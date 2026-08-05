@@ -2,8 +2,9 @@
 
 use std::collections::VecDeque;
 
-use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Trigger, WorkError, WorkOutcome,
+use signal_processing::Trigger;
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,
     WorkResult,
 };
 
@@ -156,7 +157,7 @@ impl ProcessNode for EventControl {
 #[cfg(test)]
 mod implementation_tests {
     use crossbeam_channel::{Receiver, Sender as ChannelSender, bounded};
-    use signal_processing::{ChannelMessage, Sender, Watchdog};
+    use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
     use super::*;
 

@@ -2,9 +2,10 @@
 
 use std::collections::VecDeque;
 
-use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Sample, TimelineMarker, Trigger,
-    WorkError, WorkOutcome, WorkResult,
+use signal_processing::{Sample, TimelineMarker, Trigger};
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,
+    WorkResult,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,7 +220,7 @@ impl ProcessNode for TimelineMarkerRelation {
     }
 
     fn output_schema(&self) -> Vec<PortSchema> {
-        vec![PortSchema::new::<Sample>(
+        vec![PortSchema::state::<Sample>(
             "signal",
             0,
             PortDirection::Output,
@@ -315,7 +316,7 @@ impl ProcessNode for TimelineMarkerWindow {
     }
 
     fn output_schema(&self) -> Vec<PortSchema> {
-        vec![PortSchema::new::<Sample>(
+        vec![PortSchema::state::<Sample>(
             "signal",
             0,
             PortDirection::Output,

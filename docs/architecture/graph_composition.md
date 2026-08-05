@@ -22,12 +22,13 @@ The graph domain is divided into crates whose dependency edges follow the direct
 contracts:
 
 ```text
-graph capabilities ──> node graph, signal processing
+graph capabilities ──> node graph, signal processing, signal runtime
 graph registry     ──> graph capabilities, node graph, signal processing
-graph nodes        ──> graph registry, graph capabilities, processing, viewer
+graph nodes        ──> graph registry, graph capabilities, processing, viewer, signal runtime
 graph plan         ──> graph capabilities, node graph, signal processing
-graph compiler     ──> graph plan, graph registry, graph capabilities, node graph, signal processing
-graph runtime      ──> graph plan, graph capabilities, node graph, signal processing
+graph compiler     ──> graph plan, graph registry, graph capabilities, node graph, signal processing,
+                       signal runtime
+graph runtime      ──> graph plan, graph capabilities, node graph, signal processing, signal runtime
 orchestration      ──> graph compiler, graph runtime, graph plan
 UI                 ──> orchestration, graph runtime, graph compiler, graph plan, graph registry,
                        graph capabilities, viewer, node graph
@@ -311,7 +312,7 @@ Buffer size comes from the consumer edge's `PortKind` (`PortValue::buffer_size`)
 
 Sizes reflect item characteristics rather than inter-branch skew. The explicit `Buffer` node owns
 intentional decoupling and supplies its own input-capacity override. The runtime flow-control rule
-is defined by the `signal_processing` runtime Rustdoc.
+is defined by the `signal_runtime` Rustdoc.
 
 ## Source-readiness orchestration
 

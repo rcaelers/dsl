@@ -8,7 +8,8 @@ use logic_analyzer_graph_capabilities::node_support::{
 };
 use logic_analyzer_processing::nodes::logic::event_gate::{EventGate, GatePolarity};
 use node_graph::api::Socket;
-use signal_processing::{ProcessNode, Sample, Trigger};
+use signal_processing::{Sample, Trigger};
+use signal_runtime::ProcessNode;
 
 #[derive(Default)]
 pub(crate) struct EventGateBuilder;

@@ -10,8 +10,8 @@ use logic_analyzer_processing::{
 use signal_artifacts::ArtifactRepository;
 use signal_processing::{
     CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, IndexedCapturePresentation,
-    WorkExecutor,
 };
+use signal_runtime::WorkExecutor;
 
 use super::registry::{BrowserFileRegistry, ImportedFile};
 use super::worker_source::dsl_preparation_request;

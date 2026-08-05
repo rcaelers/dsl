@@ -5,12 +5,11 @@
 
 use std::any::TypeId;
 
-use super::protocol::ProtocolKind;
+use super::protocol::{ProtocolCapability, ProtocolKind};
 use super::receiver::Receiver;
 use super::sender::Sender;
 pub use super::type_registry::register_type;
 use super::watchdog::{Watchdog, WatchdogHandle};
-use crate::sample_kind::SampleKind;
 
 /// Direction of a port relative to its processing node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +32,51 @@ pub enum StreamReadiness {
     Complete,
 }
 
+/// Whether a streamed payload represents retained state or an occurrence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StreamSemantics {
+    /// Values are independent occurrences and are not replayed to late subscribers.
+    #[default]
+    Event,
+    /// The latest value remains current and primes subscribers attached during a run.
+    State,
+}
+
+/// One concrete payload representation supported by a logical port.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PortPayload {
+    /// Concrete Rust payload type identity.
+    pub type_id: TypeId,
+    /// Replay behavior for subscribers attached to a running output.
+    pub stream_semantics: StreamSemantics,
+    /// Optional upper bound applied to the pipeline's default queue capacity.
+    pub default_buffer_capacity: Option<usize>,
+}
+
+impl PortPayload {
+    /// Describes and registers one event payload type.
+    pub fn new<T: Clone + Send + Sync + 'static>() -> Self {
+        register_type::<T>();
+        Self {
+            type_id: TypeId::of::<T>(),
+            stream_semantics: StreamSemantics::Event,
+            default_buffer_capacity: None,
+        }
+    }
+
+    /// Marks this representation as retained state.
+    pub fn state(mut self) -> Self {
+        self.stream_semantics = StreamSemantics::State;
+        self
+    }
+
+    /// Bounds the default queue capacity for this representation.
+    pub fn with_default_buffer_capacity(mut self, capacity: usize) -> Self {
+        self.default_buffer_capacity = Some(capacity.max(1));
+        self
+    }
+}
+
 /// Schema describing a runtime port's identity, capabilities, and scheduling needs.
 #[derive(Debug, Clone)]
 pub struct PortSchema {
@@ -46,19 +90,12 @@ pub struct PortSchema {
     pub direction: PortDirection,
     /// Protocols this port can speak, most preferred first. Default:
     /// `[Stream]`, the guaranteed fallback every port supports — override
-    /// via [`Self::with_protocols`] for a port that can also answer
-    /// [`crate::EdgeQuery`] (see
-    /// [`super::node::ProcessNode::edge_query`]).
+    /// via [`Self::with_protocols`] for a port that can also expose a
+    /// type-erased capability through [`super::node::ProcessNode::protocol_capability`].
     pub protocols: Vec<ProtocolKind>,
-    /// Payload kinds (`Sample` vs `SampleBlock`) this *output* port can
-    /// produce, most preferred first. The runtime negotiates a compatible kind.
-    /// Default empty, meaning "not polymorphic — `type_id` is the only
-    /// option," true of every port except polymorphic raw-channel sources.
-    /// Input ports leave this
-    /// empty too: negotiation always resolves an input to its own declared
-    /// `type_id`, so there's no separate "accepted kinds" concept to
-    /// declare on the consuming side.
-    pub sample_kinds: Vec<SampleKind>,
+    /// Concrete representations accepted or offered by this logical port, in
+    /// preference order. A fixed-type port contains one entry.
+    pub payloads: Vec<PortPayload>,
     /// Cooperative scheduling requirement for this input. Threaded runners
     /// can block independently and therefore do not need to consult it.
     pub stream_readiness: StreamReadiness,
@@ -71,7 +108,7 @@ impl PortSchema {
     /// - `name`: Stable runtime name within the owning node.
     /// - `index`: Definition index on the owning node.
     /// - `direction`: Whether the port receives or produces values.
-    pub fn new<T: 'static>(
+    pub fn new<T: Clone + Send + Sync + 'static>(
         name: impl Into<String>,
         index: usize,
         direction: PortDirection,
@@ -82,9 +119,18 @@ impl PortSchema {
             index,
             direction,
             protocols: vec![ProtocolKind::Stream],
-            sample_kinds: Vec::new(),
+            payloads: vec![PortPayload::new::<T>()],
             stream_readiness: StreamReadiness::Item,
         }
+    }
+
+    /// Creates a fixed-type port whose latest value remains current.
+    pub fn state<T: Clone + Send + Sync + 'static>(
+        name: impl Into<String>,
+        index: usize,
+        direction: PortDirection,
+    ) -> Self {
+        Self::new::<T>(name, index, direction).with_state_semantics()
     }
 
     /// Declares which protocols this port can speak, most preferred first.
@@ -93,10 +139,29 @@ impl PortSchema {
         self
     }
 
-    /// Declares which payload kinds this output port can produce, most
-    /// preferred first.
-    pub fn with_sample_kinds(mut self, sample_kinds: Vec<SampleKind>) -> Self {
-        self.sample_kinds = sample_kinds;
+    /// Replaces the concrete representations this port accepts or offers.
+    pub fn with_payloads(mut self, payloads: Vec<PortPayload>) -> Self {
+        assert!(
+            !payloads.is_empty(),
+            "a port must support at least one payload"
+        );
+        self.payloads = payloads;
+        self
+    }
+
+    /// Marks every currently declared representation as retained state.
+    pub fn with_state_semantics(mut self) -> Self {
+        for payload in &mut self.payloads {
+            payload.stream_semantics = StreamSemantics::State;
+        }
+        self
+    }
+
+    /// Bounds every currently declared representation's default queue capacity.
+    pub fn with_default_buffer_capacity(mut self, capacity: usize) -> Self {
+        for payload in &mut self.payloads {
+            payload.default_buffer_capacity = Some(capacity.max(1));
+        }
         self
     }
 
@@ -119,19 +184,16 @@ use std::sync::atomic::AtomicBool;
 use crossbeam_channel::Receiver as CrossbeamReceiver;
 
 use super::sender::ChannelMessage;
-use crate::edge_query::EdgeQuery;
 
 /// Type-erased input port wrapping a `Receiver<T>`.
 pub struct InputPort {
     channel: Box<dyn std::any::Any + Send>,
     watchdog_handle: Option<WatchdogHandle>,
     eos_received: AtomicBool,
-    /// Set when this connection negotiated [`super::protocol::ProtocolKind::EdgeQuery`]
-    /// — see [`Self::edge_query`].
-    edge_query: Option<Arc<dyn EdgeQuery>>,
-    /// Random-access capability offered by the producer even when this
-    /// connection selected the streamed transport.
-    edge_query_capability: Option<Arc<dyn EdgeQuery>>,
+    /// Capability selected as this connection's transport.
+    protocol_capability: Option<ProtocolCapability>,
+    /// Capability offered by the producer even when this connection streams.
+    available_protocol_capabilities: Vec<ProtocolCapability>,
 }
 
 impl InputPort {
@@ -142,8 +204,8 @@ impl InputPort {
             channel,
             watchdog_handle: None,
             eos_received: AtomicBool::new(false),
-            edge_query: None,
-            edge_query_capability: None,
+            protocol_capability: None,
+            available_protocol_capabilities: Vec::new(),
         }
     }
 
@@ -170,8 +232,8 @@ impl InputPort {
             channel: Box::new(receiver),
             watchdog_handle: Some(watchdog.register_port(node_name, "recv", port_name)),
             eos_received: AtomicBool::new(false),
-            edge_query: None,
-            edge_query_capability: None,
+            protocol_capability: None,
+            available_protocol_capabilities: Vec::new(),
         }
     }
 
@@ -186,40 +248,44 @@ impl InputPort {
         self
     }
 
-    /// Attaches the negotiated `EdgeQuery` handle for this connection.
-    pub fn with_edge_query(mut self, edge_query: Option<Arc<dyn EdgeQuery>>) -> Self {
-        self.edge_query_capability.clone_from(&edge_query);
-        self.edge_query = edge_query;
-        self
-    }
-
-    /// Retains a producer's random-access capability as an auxiliary service
-    /// without changing the transport selected for this input.
-    pub fn with_edge_query_capability(mut self, edge_query: Option<Arc<dyn EdgeQuery>>) -> Self {
-        if edge_query.is_some() {
-            self.edge_query_capability = edge_query;
+    /// Attaches the capability selected as this connection's transport.
+    pub fn with_protocol_capability(mut self, capability: Option<ProtocolCapability>) -> Self {
+        if let Some(capability) = &capability {
+            self.available_protocol_capabilities
+                .push(capability.clone());
         }
+        self.protocol_capability = capability;
         self
     }
 
-    /// The negotiated random-access query handle for this connection, if
-    /// it settled on [`super::protocol::ProtocolKind::EdgeQuery`] rather
-    /// than the streamed-channel protocol. Nodes that can use it should
-    /// prefer it over `get()`; a `None` here means this connection (or an
-    /// unconnected port) only supports streaming.
-    pub fn edge_query(&self) -> Option<Arc<dyn EdgeQuery>> {
-        self.edge_query.clone()
+    /// Retains a producer capability without changing the selected transport.
+    pub fn with_available_protocol_capabilities(
+        mut self,
+        capabilities: Vec<ProtocolCapability>,
+    ) -> Self {
+        self.available_protocol_capabilities = capabilities;
+        self
     }
 
-    /// Returns the producer's random-access capability independently of the
-    /// connection's selected transport.
-    pub fn edge_query_capability(&self) -> Option<Arc<dyn EdgeQuery>> {
-        self.edge_query_capability.clone()
+    /// Recovers the typed capability selected for this connection.
+    pub fn protocol_capability<T: ?Sized + Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        self.protocol_capability.as_ref()?.get::<T>()
+    }
+
+    /// Recovers an offered capability independently of the selected transport.
+    pub fn available_protocol_capability<T: ?Sized + Send + Sync + 'static>(
+        &self,
+    ) -> Option<Arc<T>> {
+        let protocol = ProtocolKind::capability::<T>();
+        self.available_protocol_capabilities
+            .iter()
+            .find(|capability| capability.protocol() == protocol)?
+            .get::<T>()
     }
 
     /// Whether this input has either a streamed channel or a negotiated query.
     pub fn is_connected(&self) -> bool {
-        !self.channel.is::<()>() || self.edge_query.is_some()
+        !self.channel.is::<()>() || self.protocol_capability.is_some()
     }
 
     /// Get a Receiver with automatic watchdog monitoring.
@@ -249,13 +315,9 @@ impl InputPort {
 
 /// Type-erased output port wrapping one or more `Sender<T>`s.
 ///
-/// Usually exactly one concrete `T` (as many ports as exist today). A port
-/// backed by a node that negotiated [`crate::SampleKind`]
-/// with more than one destination can hold *both* a `Sender<Sample>` and a
-/// `Sender<SampleBlock>` at once — `SampleKind` is a closed two-variant
-/// enum, so a `Vec` scanned linearly is simpler and cheaper here than a
-/// `HashMap` would be, and this is only ever looked up at node-startup
-/// time, not per-sample.
+/// Usually exactly one concrete `T`. A port offering several [`PortPayload`]
+/// representations can hold multiple concretely typed senders at once. A short
+/// vector is used because lookup occurs only during node startup, never per value.
 pub struct OutputPort {
     channels: Vec<(TypeId, Box<dyn std::any::Any + Send>)>,
     watchdog_handle: Option<WatchdogHandle>,

@@ -3,8 +3,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+use signal_runtime::{InlineWorkExecutor, WorkExecutor};
 
-use crate::{InlineWorkExecutor, SystemUnixTimeSource, UnixTimeSource, WorkExecutor};
+use crate::{SystemUnixTimeSource, UnixTimeSource};
 
 pub(crate) const DEFAULT_MAX_WORDS_PER_BLOCK: usize = 131_072;
 

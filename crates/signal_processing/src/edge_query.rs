@@ -1,6 +1,6 @@
 //! Random-access edge and value queries for a binary channel.
 //!
-//! [`EdgeQuery`] is the payload of the [`super::protocol::ProtocolKind::EdgeQuery`]
+//! [`EdgeQuery`] is the payload of the [`super::protocol::crate::edge_query_protocol()`]
 //! connection protocol: a channel-scoped, object-safe query surface a
 //! consuming node can hold instead of a streamed [`super::sample::Sample`]
 //! channel. One instance answers queries for exactly one channel, so a
@@ -9,8 +9,84 @@
 //! combining them — `next_edge`/`value_at` are enough to do that lazily,
 //! without ever streaming. The contract is platform-neutral; implementations
 //! that require a native index are selected at their implementation boundary.
+use std::sync::Arc;
+
+use signal_runtime::{ProtocolCapability, ProtocolKind};
+
 use crate::Result;
 use crate::capture::CaptureTransition;
+
+/// Runtime protocol identity for the random-access binary query capability.
+pub fn edge_query_protocol() -> ProtocolKind {
+    ProtocolKind::capability::<dyn EdgeQuery>()
+}
+
+/// Erases a binary query for transport through the generic runtime.
+pub fn edge_query_capability(query: Arc<dyn EdgeQuery>) -> ProtocolCapability {
+    ProtocolCapability::new(query)
+}
+
+/// Recovers a binary query from a generic runtime capability.
+pub fn edge_query_from_capability(capability: &ProtocolCapability) -> Option<Arc<dyn EdgeQuery>> {
+    capability.get::<dyn EdgeQuery>()
+}
+
+/// Binary-query convenience methods layered over generic runtime ports.
+pub trait EdgeQueryInputPortExt: Sized {
+    /// Returns the selected binary-query transport.
+    fn edge_query(&self) -> Option<Arc<dyn EdgeQuery>>;
+    /// Returns the producer's binary-query capability independently of transport.
+    fn edge_query_capability(&self) -> Option<Arc<dyn EdgeQuery>>;
+    /// Attaches a selected binary-query transport.
+    fn with_edge_query(self, query: Option<Arc<dyn EdgeQuery>>) -> Self;
+    /// Attaches an auxiliary binary-query capability.
+    fn with_edge_query_capability(self, query: Option<Arc<dyn EdgeQuery>>) -> Self;
+}
+
+impl EdgeQueryInputPortExt for signal_runtime::InputPort {
+    fn edge_query(&self) -> Option<Arc<dyn EdgeQuery>> {
+        self.protocol_capability::<dyn EdgeQuery>()
+    }
+
+    fn edge_query_capability(&self) -> Option<Arc<dyn EdgeQuery>> {
+        self.available_protocol_capability::<dyn EdgeQuery>()
+    }
+
+    fn with_edge_query(self, query: Option<Arc<dyn EdgeQuery>>) -> Self {
+        self.with_protocol_capability(query.map(ProtocolCapability::new))
+    }
+
+    fn with_edge_query_capability(self, query: Option<Arc<dyn EdgeQuery>>) -> Self {
+        self.with_available_protocol_capabilities(
+            query.map(ProtocolCapability::new).into_iter().collect(),
+        )
+    }
+}
+
+/// Binary-query convenience method for direct node inspection and tests.
+pub trait EdgeQueryProcessNodeExt: signal_runtime::ProcessNode {
+    /// Requests this node's binary-query output capability.
+    fn edge_query(
+        &self,
+        port: usize,
+        input_queries: &[Option<Arc<dyn EdgeQuery>>],
+    ) -> Option<Arc<dyn EdgeQuery>> {
+        let input_capabilities = input_queries
+            .iter()
+            .map(|query| {
+                query
+                    .clone()
+                    .map(ProtocolCapability::new)
+                    .into_iter()
+                    .collect()
+            })
+            .collect::<Vec<_>>();
+        self.protocol_capability(port, edge_query_protocol(), &input_capabilities)?
+            .get::<dyn EdgeQuery>()
+    }
+}
+
+impl<T: signal_runtime::ProcessNode + ?Sized> EdgeQueryProcessNodeExt for T {}
 
 /// Random-access query surface for one binary/edge-valued channel.
 pub trait EdgeQuery: Send + Sync {

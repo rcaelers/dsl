@@ -4,9 +4,9 @@ use std::collections::VecDeque;
 
 use tracing::debug;
 
-use signal_processing::{
-    InputPort, NumberSample, OutputPort, PortDirection, PortSchema, ProcessNode, Trigger,
-    WorkError, WorkResult,
+use signal_processing::{NumberSample, Trigger};
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };
 
 /// Counts triggers into a [`NumberSample`] level: `start` at t=0, then
@@ -69,7 +69,7 @@ impl ProcessNode for TriggerCounter {
     }
 
     fn output_schema(&self) -> Vec<PortSchema> {
-        vec![PortSchema::new::<NumberSample>(
+        vec![PortSchema::state::<NumberSample>(
             "count",
             0,
             PortDirection::Output,
@@ -106,7 +106,7 @@ impl ProcessNode for TriggerCounter {
 #[cfg(test)]
 mod tests {
     use crossbeam_channel::bounded;
-    use signal_processing::{ChannelMessage, Sender, Watchdog};
+    use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
     use super::*;
 

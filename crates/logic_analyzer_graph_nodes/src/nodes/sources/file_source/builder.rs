@@ -15,8 +15,9 @@ use logic_analyzer_processing::nodes::sources::dsl_file::{
 };
 use node_graph::api::Socket;
 use signal_processing::{
-    DEFAULT_DERIVED_DATA_MAX_ENTRIES, DerivedDataRetention, ProcessNode, Sample, SampleBlock,
+    DEFAULT_DERIVED_DATA_MAX_ENTRIES, DerivedDataRetention, Sample, SampleBlock,
 };
+use signal_runtime::ProcessNode;
 
 pub(crate) struct FileSourceBuilder {
     source_factory: Arc<dyn DslFileSourceFactory>,
@@ -221,7 +222,7 @@ mod builder_tests {
             name: &str,
             config: DslFileSourceConfig,
             _artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository>,
-            _work_executor: Arc<dyn signal_processing::WorkExecutor>,
+            _work_executor: Arc<dyn signal_runtime::WorkExecutor>,
         ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
             self.opened
                 .lock()

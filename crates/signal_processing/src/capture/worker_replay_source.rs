@@ -1,17 +1,18 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortPayload, PortSchema, ProcessNode, ProtocolKind,
+    RuntimeExecutionMode, Sender, WorkError, WorkOutcome, WorkResult,
+};
+
 use super::host_protocol::{
     CaptureWorkerMessage, CaptureWorkerReplayBlock, CaptureWorkerReplayRequest,
 };
 use super::implementation::{BlockData, CaptureMetadata, packed_bit};
 use super::preparation::CaptureIndexPreparationRequest;
 use super::worker_client::CaptureWorkerClient;
-use crate::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, ProtocolKind,
-    RuntimeExecutionMode, Sample, SampleBlock, SampleKind, Sender, WorkError, WorkOutcome,
-    WorkResult,
-};
+use crate::{Sample, SampleBlock};
 
 const MAX_REPLAY_PAYLOAD_BYTES: u64 = 32 * 1024 * 1024;
 const EDGE_SCAN_SAMPLES_PER_STEP: usize = 64 * 1024;
@@ -354,9 +355,12 @@ impl ProcessNode for CaptureWorkerReplaySource {
     fn output_schema(&self) -> Vec<PortSchema> {
         (0..self.metadata.total_probes)
             .map(|channel| {
-                PortSchema::new::<Sample>(format!("ch{channel}"), channel, PortDirection::Output)
+                PortSchema::state::<Sample>(format!("ch{channel}"), channel, PortDirection::Output)
                     .with_protocols(vec![ProtocolKind::Stream])
-                    .with_sample_kinds(vec![SampleKind::Block, SampleKind::Edge])
+                    .with_payloads(vec![
+                        PortPayload::new::<SampleBlock>().with_default_buffer_capacity(2),
+                        PortPayload::new::<Sample>().state(),
+                    ])
             })
             .collect()
     }
@@ -392,9 +396,9 @@ impl Drop for CaptureWorkerReplaySource {
 mod worker_replay_source_tests {
     use crossbeam_channel::bounded;
     use signal_artifacts::SourceIdentity;
+    use signal_runtime::{ChannelMessage, Watchdog, WorkerOperation};
 
     use super::*;
-    use crate::{ChannelMessage, Watchdog, WorkerOperation};
 
     fn metadata() -> CaptureMetadata {
         CaptureMetadata {

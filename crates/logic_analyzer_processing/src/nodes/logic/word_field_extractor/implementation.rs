@@ -2,9 +2,9 @@
 
 use std::collections::VecDeque;
 
-use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Word, WordPayload, WorkError,
-    WorkResult,
+use signal_processing::{Word, WordPayload};
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };
 
 /// Extracts `bit_count` bits beginning at `first_bit`, where bit zero is the
@@ -114,7 +114,10 @@ impl ProcessNode for WordFieldExtractor {
     }
 
     fn output_schema(&self) -> Vec<PortSchema> {
-        vec![PortSchema::new::<Word>("field", 0, PortDirection::Output)]
+        vec![
+            PortSchema::new::<Word>("field", 0, PortDirection::Output)
+                .with_default_buffer_capacity(8),
+        ]
     }
 
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
@@ -137,7 +140,7 @@ impl ProcessNode for WordFieldExtractor {
 #[cfg(test)]
 mod implementation_tests {
     use crossbeam_channel::bounded;
-    use signal_processing::{ChannelMessage, Sender, Watchdog};
+    use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
     use super::*;
 

@@ -11,9 +11,11 @@ use logic_analyzer_graph_plan::{
 use node_graph::api::NodeId;
 use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 use signal_processing::{
-    AppManager, ConfigurationBoundary, DerivedDataRetention, DerivedLanes, DisconnectEvent,
-    InlineWorkExecutor, InputSub, NodeConfig, NodeFailure, OverflowPolicy, PersistentStoreConfig,
-    ProcessNode, SampleBlock, SamplingPointStore, WorkExecutor,
+    DerivedDataRetention, DerivedLanes, PersistentStoreConfig, SampleBlock, SamplingPointStore,
+};
+use signal_runtime::{
+    AppManager, ConfigurationBoundary, DisconnectEvent, InlineWorkExecutor, InputSub, NodeConfig,
+    NodeFailure, OverflowPolicy, ProcessNode, WorkExecutor,
 };
 
 use super::data_collector::DataCollectorBuilder;
@@ -651,7 +653,7 @@ pub(crate) fn start_live_analysis_with_subscriptions(
     compiled: ProcessingGraph,
     ctx: &mut GraphRunContext,
     source: LiveAnalysisSource,
-    runtime_factory: &dyn signal_processing::AppManagerFactory,
+    runtime_factory: &dyn signal_runtime::AppManagerFactory,
 ) -> Result<LiveRun, Vec<ProcessingGraphError>> {
     let mut overrides = SourceProcessOverrides::new();
     overrides.insert(source.source_node, source.process);
@@ -662,7 +664,7 @@ fn start_live_inner(
     mut compiled: ProcessingGraph,
     ctx: &mut GraphRunContext,
     mut source_overrides: SourceProcessOverrides,
-    runtime_factory: &dyn signal_processing::AppManagerFactory,
+    runtime_factory: &dyn signal_runtime::AppManagerFactory,
 ) -> Result<LiveRun, Vec<ProcessingGraphError>> {
     cache_policy::assign_derived_word_caches(&mut compiled);
     cache_policy::assign_sampling_point_caches(&mut compiled);
@@ -713,7 +715,7 @@ fn start_live_inner(
         let inputs = input_subs(&execution, id, process.as_ref(), &names)
             .map_err(|message| vec![ProcessingGraphError::on(id, message)])?;
         manager
-            .add_node_deferred(signal_processing::NodeSpec {
+            .add_node_deferred(signal_runtime::NodeSpec {
                 name: node.runtime_name.clone(),
                 node: process,
                 inputs,
@@ -853,7 +855,7 @@ impl LiveRun {
                     let inputs = input_subs(&new, id, process.as_ref(), &self.names)
                         .map_err(ApplyError::Apply)?;
                     self.manager
-                        .add_node(signal_processing::NodeSpec {
+                        .add_node(signal_runtime::NodeSpec {
                             name: node.runtime_name.clone(),
                             node: process,
                             inputs,
@@ -1062,7 +1064,7 @@ pub(crate) fn start_app_run_with_source_overrides_and_subscriptions(
     compiled: ProcessingGraph,
     ctx: &mut GraphRunContext,
     overrides: SourceProcessOverrides,
-    runtime_factory: &dyn signal_processing::AppManagerFactory,
+    runtime_factory: &dyn signal_runtime::AppManagerFactory,
 ) -> Result<LiveRun, Vec<ProcessingGraphError>> {
     start_live_inner(compiled, ctx, overrides, runtime_factory)
 }

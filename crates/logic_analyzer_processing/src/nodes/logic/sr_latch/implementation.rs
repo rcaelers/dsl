@@ -5,9 +5,10 @@ use std::sync::Arc;
 
 use tracing::{debug, warn};
 
-use signal_processing::{
-    EdgeQuery, InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, ProtocolKind,
-    RecordedEdgeQuery, Sample, Trigger, WorkError, WorkOutcome, WorkResult,
+use signal_processing::{EdgeQuery, RecordedEdgeQuery, Sample, Trigger};
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, ProtocolKind, WorkError,
+    WorkOutcome, WorkResult,
 };
 
 /// Set/reset latch over [`Trigger`] streams.
@@ -80,17 +81,24 @@ impl ProcessNode for SrLatch {
 
     fn output_schema(&self) -> Vec<PortSchema> {
         vec![
-            PortSchema::new::<Sample>("q", 0, PortDirection::Output)
-                .with_protocols(vec![ProtocolKind::Stream, ProtocolKind::EdgeQuery]),
+            PortSchema::state::<Sample>("q", 0, PortDirection::Output).with_protocols(vec![
+                ProtocolKind::Stream,
+                signal_processing::edge_query_protocol(),
+            ]),
         ]
     }
 
-    fn edge_query(
+    fn protocol_capability(
         &self,
         port: usize,
-        _input_queries: &[Option<Arc<dyn EdgeQuery>>],
-    ) -> Option<Arc<dyn EdgeQuery>> {
-        (port == 0).then(|| Arc::new(self.edge_query.clone()) as Arc<dyn EdgeQuery>)
+        protocol: ProtocolKind,
+        _input_capabilities: &[Vec<signal_runtime::ProtocolCapability>],
+    ) -> Option<signal_runtime::ProtocolCapability> {
+        (port == 0 && protocol == signal_processing::edge_query_protocol()).then(|| {
+            signal_processing::edge_query_capability(
+                Arc::new(self.edge_query.clone()) as Arc<dyn EdgeQuery>
+            )
+        })
     }
 
     fn work_outcome(
@@ -177,7 +185,7 @@ impl ProcessNode for SrLatch {
 #[cfg(test)]
 mod tests {
     use crossbeam_channel::bounded;
-    use signal_processing::{ChannelMessage, Sender, Watchdog};
+    use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
     use super::*;
 

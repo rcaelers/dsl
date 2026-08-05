@@ -9,15 +9,16 @@ use web_sys::{
     Blob, BlobPropertyBag, ErrorEvent, MessageEvent, Url, Worker, WorkerOptions, WorkerType,
 };
 
-use signal_processing::{
+use signal_processing::portable_worker_kernels;
+use signal_runtime::{
     WorkerExecutionCapability, WorkerHostCommand, WorkerMessage, WorkerOperation,
-    WorkerOperationExecutor, WorkerOperationQueue, WorkerRequest, portable_worker_kernels,
+    WorkerOperationExecutor, WorkerOperationQueue, WorkerRequest,
 };
 
 const WORKER_BOOTSTRAP: &str = include_str!("web_worker_bootstrap.js");
 
 thread_local! {
-    static PORTABLE_KERNELS: signal_processing::WorkerKernelRegistry = portable_worker_kernels();
+    static PORTABLE_KERNELS: signal_runtime::WorkerKernelRegistry = portable_worker_kernels();
 }
 
 struct AdapterState {

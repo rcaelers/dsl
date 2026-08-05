@@ -12,7 +12,8 @@ use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     SigrokOptionValue,
 };
 use node_graph::api::Socket;
-use signal_processing::{ProcessNode, ProtocolPacket, SampleBlock, Word};
+use signal_processing::{ProtocolPacket, SampleBlock, Word};
+use signal_runtime::ProcessNode;
 
 use super::definition::{SavedOptionControl, SavedOutputKind, SavedScalar, SigrokDecoderState};
 use crate::host_configuration::SigrokDecoderRuntime;
@@ -33,7 +34,7 @@ impl SigrokDecoderRuntime for UnavailableSigrokDecoderRuntime {
         &self,
         name: &str,
         config: SigrokDecoderConfig,
-        work_executor: Arc<dyn signal_processing::WorkExecutor>,
+        work_executor: Arc<dyn signal_runtime::WorkExecutor>,
     ) -> Result<Box<dyn ProcessNode>, String> {
         let _ = (name, config, work_executor);
         Err("Sigrok Python decoder runtime is unavailable on this host".into())
@@ -376,7 +377,7 @@ mod builder_tests {
             &self,
             name: &str,
             config: SigrokDecoderConfig,
-            _work_executor: Arc<dyn signal_processing::WorkExecutor>,
+            _work_executor: Arc<dyn signal_runtime::WorkExecutor>,
         ) -> Result<Box<dyn ProcessNode>, String> {
             *self.creation.lock().unwrap() = Some((name.to_owned(), config));
             if let Some(error) = &self.create_error {

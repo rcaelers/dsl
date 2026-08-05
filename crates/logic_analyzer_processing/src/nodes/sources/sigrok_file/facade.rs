@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use signal_processing::WorkExecutor;
+use signal_runtime::WorkExecutor;
 
 use super::configuration::SigrokFileSourceConfig;
 use crate::nodes::sources::synthetic_capture_source::{

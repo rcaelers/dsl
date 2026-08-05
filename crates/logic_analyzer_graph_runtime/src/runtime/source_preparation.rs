@@ -4,8 +4,8 @@ use logic_analyzer_graph_capabilities::node_support::CapturePresentation;
 use logic_analyzer_graph_plan::DiscoveredCapturePresentation;
 use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 #[cfg(test)]
-use signal_processing::InlineWorkExecutor;
-use signal_processing::WorkExecutor;
+use signal_runtime::InlineWorkExecutor;
+use signal_runtime::WorkExecutor;
 
 #[cfg(test)]
 use super::source_preparation_executor::InlineSourcePreparationExecutor;
@@ -267,8 +267,9 @@ mod source_preparation_tests {
 
     use signal_processing::{
         CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory,
-        CaptureIndexPreparationRequest, CaptureMetadata, CaptureSampledWindow, WorkerOperation,
+        CaptureIndexPreparationRequest, CaptureMetadata, CaptureSampledWindow,
     };
+    use signal_runtime::WorkerOperation;
 
     use super::super::source_preparation_executor::{
         SourcePreparationResult, SourcePreparationWork,
@@ -530,7 +531,7 @@ mod source_preparation_tests {
         fn open(
             self: Box<Self>,
             _artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository>,
-            work_executor: Arc<dyn signal_processing::WorkExecutor>,
+            work_executor: Arc<dyn signal_runtime::WorkExecutor>,
             _progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
         ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
             *self.open_count.lock().unwrap() += 1;
@@ -558,7 +559,7 @@ mod source_preparation_tests {
         fn open(
             self: Box<Self>,
             _artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository>,
-            _work_executor: Arc<dyn signal_processing::WorkExecutor>,
+            _work_executor: Arc<dyn signal_runtime::WorkExecutor>,
             _progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
         ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
             Err(signal_processing::Error::ParseError(
@@ -581,7 +582,7 @@ mod source_preparation_tests {
         fn open(
             self: Box<Self>,
             _artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository>,
-            _work_executor: Arc<dyn signal_processing::WorkExecutor>,
+            _work_executor: Arc<dyn signal_runtime::WorkExecutor>,
             progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
         ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
             assert!(progress(CaptureIndexBuildProgress {
@@ -616,7 +617,7 @@ mod source_preparation_tests {
         fn open(
             self: Box<Self>,
             _artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository>,
-            _work_executor: Arc<dyn signal_processing::WorkExecutor>,
+            _work_executor: Arc<dyn signal_runtime::WorkExecutor>,
             _progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
         ) -> signal_processing::Result<Box<dyn CaptureIndex + Send>> {
             panic!("hosted preparation must not open the index on the caller")
@@ -652,17 +653,17 @@ mod source_preparation_tests {
         parallelism: usize,
     }
 
-    impl signal_processing::WorkExecutor for FixedWorkExecutor {
+    impl signal_runtime::WorkExecutor for FixedWorkExecutor {
         fn available_parallelism(&self) -> usize {
             self.parallelism
         }
 
         fn submit(
             &self,
-            task: signal_processing::WorkExecutorTask,
-        ) -> std::result::Result<Box<dyn signal_processing::WorkTask>, String> {
+            task: signal_runtime::WorkExecutorTask,
+        ) -> std::result::Result<Box<dyn signal_runtime::WorkTask>, String> {
             task();
-            Ok(Box::new(signal_processing::CompletedWorkTask))
+            Ok(Box::new(signal_runtime::CompletedWorkTask))
         }
     }
 

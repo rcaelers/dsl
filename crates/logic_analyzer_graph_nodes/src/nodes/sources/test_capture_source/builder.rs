@@ -9,7 +9,8 @@ use logic_analyzer_graph_capabilities::node_support::{
 };
 use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
 use node_graph::api::Socket;
-use signal_processing::{ProcessNode, Sample, SampleBlock};
+use signal_processing::{Sample, SampleBlock};
+use signal_runtime::ProcessNode;
 
 #[derive(Default)]
 pub(crate) struct TestCaptureSourceBuilder;

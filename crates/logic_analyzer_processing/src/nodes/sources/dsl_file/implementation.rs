@@ -14,15 +14,19 @@ use std::sync::{Arc, Mutex};
 use tracing::{debug, info, warn};
 
 use signal_artifacts::{ArtifactRepository, PreparedByteSource};
+#[cfg(test)]
+use signal_processing::EdgeQueryProcessNodeExt;
 use signal_processing::capture::{
     BlockData, CaptureDataSource, CaptureMetadata, CaptureTransition,
 };
 use signal_processing::waveform_index::IndexSampler;
 use signal_processing::{
     CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, CaptureIndexOpenTask, EdgeQuery,
-    Error, InlineWorkExecutor, InputPort, OutputPort, ProcessNode, ProtocolKind, Result,
-    RuntimeExecutionMode, Sample, SampleBlock, SampleKind, Sender, WorkExecutor, WorkOutcome,
-    WorkResult, WorkTask,
+    Error, Result, Sample, SampleBlock,
+};
+use signal_runtime::{
+    InlineWorkExecutor, InputPort, OutputPort, PortPayload, ProcessNode, ProtocolKind,
+    RuntimeExecutionMode, Sender, WorkExecutor, WorkOutcome, WorkResult, WorkTask,
 };
 
 use super::cooperative::CooperativeDslReader;
@@ -730,32 +734,42 @@ impl ProcessNode for DslFileSource {
         self.num_channels
     }
 
-    fn output_schema(&self) -> Vec<signal_processing::PortSchema> {
-        use signal_processing::{PortDirection, PortSchema};
+    fn output_schema(&self) -> Vec<signal_runtime::PortSchema> {
+        use signal_runtime::{PortDirection, PortSchema};
 
         (0..self.num_channels)
             .map(|i| {
-                PortSchema::new::<Sample>(format!("ch{}", i), i, PortDirection::Output)
+                PortSchema::state::<Sample>(format!("ch{}", i), i, PortDirection::Output)
                     // Every channel port aliases a raw file channel, so
                     // every port can be answered from the waveform index —
                     // prefer that, fall back to streaming for consumers (or
                     // live sources with no index) that don't ask for it.
-                    .with_protocols(vec![ProtocolKind::EdgeQuery, ProtocolKind::Stream])
+                    .with_protocols(vec![
+                        signal_processing::edge_query_protocol(),
+                        ProtocolKind::Stream,
+                    ])
                     // Block is a near-zero-cost passthrough of the on-disk
                     // block; Edge costs a real bit-walk to derive RLE edges
                     // (see `block_reader_thread`/`channel_reader_thread`
                     // below) — prefer Block, but a consumer that only wants
                     // Edge still gets it.
-                    .with_sample_kinds(vec![SampleKind::Block, SampleKind::Edge])
+                    .with_payloads(vec![
+                        PortPayload::new::<SampleBlock>().with_default_buffer_capacity(2),
+                        PortPayload::new::<Sample>().state(),
+                    ])
             })
             .collect()
     }
 
-    fn edge_query(
+    fn protocol_capability(
         &self,
         port: usize,
-        _input_queries: &[Option<Arc<dyn EdgeQuery>>],
-    ) -> Option<Arc<dyn EdgeQuery>> {
+        protocol: ProtocolKind,
+        _input_capabilities: &[Vec<signal_runtime::ProtocolCapability>],
+    ) -> Option<signal_runtime::ProtocolCapability> {
+        if protocol != signal_processing::edge_query_protocol() {
+            return None;
+        }
         let channel = port;
         let sampler = self.edge_index_handle()?;
         // Honor `with_max_samples` the same way the streaming reader
@@ -765,18 +779,19 @@ impl ProcessNode for DslFileSource {
             .max_samples
             .unwrap_or(self.header.total_samples)
             .min(self.header.total_samples);
-        Some(Arc::new(DslChannelEdgeIndex {
+        let query = Arc::new(DslChannelEdgeIndex {
             sampler,
             channel,
             sample_period: self.header.sample_period,
             samplerate_hz: self.header.samplerate_hz,
             total_samples,
-        }))
+        }) as Arc<dyn EdgeQuery>;
+        Some(signal_processing::edge_query_capability(query))
     }
 
     fn work(&mut self, _inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
         self.work_once(outputs)
-            .map(signal_processing::WorkOutcome::produced_items)
+            .map(signal_runtime::WorkOutcome::produced_items)
     }
 
     fn work_outcome(
@@ -800,7 +815,7 @@ impl DslFileSource {
     fn work_cooperatively(&mut self, outputs: &[OutputPort]) -> WorkResult<WorkOutcome> {
         if self.cooperative_reader.is_none() {
             let sampler = self.edge_index_handle().ok_or_else(|| {
-                signal_processing::WorkError::NodeError(
+                signal_runtime::WorkError::NodeError(
                     "cooperative file replay requires the prepared waveform index".to_owned(),
                 )
             })?;
@@ -825,7 +840,7 @@ impl DslFileSource {
     }
 
     fn start_reader_tasks(&mut self, outputs: &[OutputPort]) -> WorkResult<usize> {
-        use signal_processing::WorkError;
+        use signal_runtime::WorkError;
 
         if self.threads_spawned {
             // Already started - this shouldn't be called again for self-threading nodes
@@ -1035,7 +1050,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use signal_artifacts::SourceIdentity;
-    use signal_processing::{
+    use signal_runtime::{
         CompletedWorkTask, OutputPort, ProcessNode, Sender, Watchdog, WorkExecutor,
         WorkExecutorTask, WorkTask,
     };

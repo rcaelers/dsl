@@ -22,9 +22,9 @@ use std::sync::Arc;
 
 use tracing::{debug, info, warn};
 
-use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, TextSample, WorkError,
-    WorkResult,
+use signal_processing::TextSample;
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };
 
 use super::super::output_storage::{
@@ -187,8 +187,8 @@ impl ProcessNode for TextFileWriter {
 
     fn input_schema(&self) -> Vec<PortSchema> {
         vec![
-            PortSchema::new::<TextSample>("lines", 0, PortDirection::Input),
-            PortSchema::new::<TextSample>("filename", 1, PortDirection::Input),
+            PortSchema::state::<TextSample>("lines", 0, PortDirection::Input),
+            PortSchema::state::<TextSample>("filename", 1, PortDirection::Input),
         ]
     }
 
@@ -258,7 +258,7 @@ mod tests {
 
     use crossbeam_channel::bounded;
 
-    use signal_processing::{ChannelMessage, Watchdog};
+    use signal_runtime::{ChannelMessage, Watchdog};
 
     use super::*;
     use crate::nodes::sinks::output_storage::TestOutputStorage;

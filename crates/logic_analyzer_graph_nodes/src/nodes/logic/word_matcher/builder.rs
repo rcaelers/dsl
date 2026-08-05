@@ -12,7 +12,8 @@ use logic_analyzer_processing::nodes::logic::word_matcher::{
     MatchOp, PredicateMode, TriggerAt, WordMatcher,
 };
 use node_graph::api::Socket;
-use signal_processing::{ConfigValue, NodeConfig, ProcessNode, Sample, Trigger, Word};
+use signal_processing::{Sample, Trigger, Word};
+use signal_runtime::{ConfigValue, NodeConfig, ProcessNode};
 
 #[derive(Default)]
 pub(crate) struct WordMatcherBuilder;

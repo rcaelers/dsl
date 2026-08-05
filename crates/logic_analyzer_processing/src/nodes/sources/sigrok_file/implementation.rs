@@ -6,9 +6,11 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use signal_artifacts::{ArtifactRepository, PreparedByteSource};
 use signal_processing::{
     CaptureDataSource, CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory,
-    CaptureIndexOpenTask, CaptureMetadata, InlineWorkExecutor, InputPort, OutputPort,
-    PortDirection, PortSchema, ProcessNode, Result, RuntimeExecutionMode, Sample, SampleBlock,
-    SampleKind, Sender, WorkError, WorkExecutor, WorkOutcome, WorkResult, WorkTask,
+    CaptureIndexOpenTask, CaptureMetadata, Result, Sample, SampleBlock,
+};
+use signal_runtime::{
+    InlineWorkExecutor, InputPort, OutputPort, PortDirection, PortPayload, PortSchema, ProcessNode,
+    RuntimeExecutionMode, Sender, WorkError, WorkExecutor, WorkOutcome, WorkResult, WorkTask,
 };
 
 use super::cooperative::CooperativeSigrokReader;
@@ -244,8 +246,11 @@ impl ProcessNode for SigrokFileSource {
     fn output_schema(&self) -> Vec<PortSchema> {
         (0..self.num_channels)
             .map(|channel| {
-                PortSchema::new::<Sample>(format!("ch{channel}"), channel, PortDirection::Output)
-                    .with_sample_kinds(vec![SampleKind::Block, SampleKind::Edge])
+                PortSchema::state::<Sample>(format!("ch{channel}"), channel, PortDirection::Output)
+                    .with_payloads(vec![
+                        PortPayload::new::<SampleBlock>().with_default_buffer_capacity(2),
+                        PortPayload::new::<Sample>().state(),
+                    ])
             })
             .collect()
     }
@@ -379,7 +384,7 @@ mod tests {
 
     use signal_artifacts::SourceIdentity;
     use signal_processing::capture::{CaptureDataSource, CaptureSource};
-    use signal_processing::{
+    use signal_runtime::{
         CompletedWorkTask, OutputPort, Sender, Watchdog, WorkExecutor, WorkExecutorTask, WorkTask,
     };
 
@@ -460,12 +465,12 @@ mod tests {
         let source = SigrokFileSource::from_capture(capture.clone());
         assert_eq!(source.header().total_probes, 8);
         assert_eq!(source.header().total_samples, 8);
-        assert!(
-            source
-                .output_schema()
-                .iter()
-                .all(|port| { port.sample_kinds == [SampleKind::Block, SampleKind::Edge] })
-        );
+        assert!(source.output_schema().iter().all(|port| {
+            port.payloads.iter().map(|payload| payload.type_id).eq([
+                std::any::TypeId::of::<SampleBlock>(),
+                std::any::TypeId::of::<Sample>(),
+            ])
+        }));
 
         let data_source = SigrokFileCaptureDataSource::from_capture(
             SourceIdentity::from_bytes([0x11; 32]),

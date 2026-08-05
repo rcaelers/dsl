@@ -3,12 +3,13 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
+use signal_runtime::{InputPort, PortDirection, PortSchema, WorkResult};
+
 use crate::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
     CollectedLaneStorageBacking, CollectedLaneStorageSnapshot, CollectedLaneTableMetadata,
-    CollectedLaneTableRow, CollectedLaneTableSnapshot, DerivedDataRetention, InputPort,
-    OpaqueCollectedLaneSnapshot, PayloadAdapter, PortDirection, PortSchema, ProtocolPacket,
-    ProtocolValue, WorkResult,
+    CollectedLaneTableRow, CollectedLaneTableSnapshot, DerivedDataRetention,
+    OpaqueCollectedLaneSnapshot, PayloadAdapter, ProtocolPacket, ProtocolValue,
 };
 
 const DRAIN_BATCH_SIZE: usize = 1_024;

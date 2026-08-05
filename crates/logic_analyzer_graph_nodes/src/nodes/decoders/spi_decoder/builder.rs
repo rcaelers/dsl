@@ -12,7 +12,8 @@ use logic_analyzer_processing::nodes::decoders::spi_decoder::{
 };
 use logic_analyzer_processing::types::{BitOrder, CsPolarity};
 use node_graph::api::Socket;
-use signal_processing::{ProcessNode, ProtocolPacket, Sample, Word};
+use signal_processing::{ProtocolPacket, Sample, Word};
+use signal_runtime::ProcessNode;
 
 #[derive(Default)]
 pub(crate) struct SpiDecoderBuilder;

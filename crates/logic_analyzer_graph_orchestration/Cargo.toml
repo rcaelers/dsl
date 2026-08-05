@@ -17,4 +17,5 @@ node-graph = { path = "../widgets/node_graph" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 signal-processing = { path = "../signal_processing" }
+signal-runtime = { workspace = true }
 signal-artifacts = { workspace = true }

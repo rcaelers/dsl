@@ -9,10 +9,11 @@ use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use signal_runtime::{InputPort, PortSchema, WorkResult};
+
 use crate::derived_data_collector::{DerivedDataRetention, DerivedLanes};
 use crate::derived_word_store::LiveStoreConfig;
 use crate::events::WordPayload;
-use crate::runtime::{InputPort, PortSchema, WorkResult};
 
 /// One type-erased collector input owned by a registered payload adapter.
 ///

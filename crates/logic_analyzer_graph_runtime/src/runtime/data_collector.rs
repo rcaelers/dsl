@@ -2,7 +2,8 @@
 
 use logic_analyzer_graph_capabilities::node_support::{NodeBuildContext, ResolvedInputs};
 use logic_analyzer_graph_plan::ProcessingPayloadCatalog;
-use signal_processing::{CollectedLaneRequest, DerivedDataCollector, LiveStoreConfig, ProcessNode};
+use signal_processing::{CollectedLaneRequest, DerivedDataCollector, LiveStoreConfig};
+use signal_runtime::ProcessNode;
 
 pub(crate) struct DataCollectorBuilder;
 

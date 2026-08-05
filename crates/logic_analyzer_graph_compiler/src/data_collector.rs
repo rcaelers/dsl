@@ -7,7 +7,7 @@ use serde_json::Value;
 use logic_analyzer_graph_capabilities::node::RuntimeBuilder;
 use logic_analyzer_graph_capabilities::node_support::{NodeBuildContext, PortKind, ResolvedInputs};
 use node_graph::api::Socket;
-use signal_processing::ProcessNode;
+use signal_runtime::ProcessNode;
 
 pub(crate) const BUILDER_NAME: &str = "Derived Data Collector";
 pub(crate) const OUTPUT_SUBSCRIPTION_BUILDER_NAME: &str = "Output Subscription Collector";

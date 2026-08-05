@@ -35,6 +35,7 @@ serde_json = { workspace = true }
 serde = { workspace = true }
 blake3 = { workspace = true }
 signal-processing = { path = "../signal_processing" }
+signal-runtime = { workspace = true }
 signal-artifacts = { workspace = true }
 tracing = { workspace = true }
 

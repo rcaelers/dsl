@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use signal_processing::{OutputPort, Sample, SampleBlock, Sender, WorkError, WorkOutcome};
+use signal_processing::{Sample, SampleBlock};
+use signal_runtime::{OutputPort, Sender, WorkError, WorkOutcome};
 
 const SAMPLES_PER_STEP: usize = 64 * 1024;
 

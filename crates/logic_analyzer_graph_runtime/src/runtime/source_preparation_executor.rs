@@ -292,8 +292,9 @@ mod source_preparation_executor_tests {
     use signal_artifacts::SourceIdentity;
     use signal_processing::{
         CaptureIndexPreparationRequest, CaptureSampledWindow, CaptureSampledWindowPoll,
-        CaptureWorkerRequest, WorkerOperation,
+        CaptureWorkerRequest,
     };
+    use signal_runtime::WorkerOperation;
 
     use super::*;
 

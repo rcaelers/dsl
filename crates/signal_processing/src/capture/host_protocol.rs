@@ -316,8 +316,10 @@ impl<'a> MessageReader<'a> {
 
 #[cfg(test)]
 mod host_protocol_tests {
+    use signal_runtime::WorkerOperation;
+
     use super::*;
-    use crate::{CaptureSampledChannel, WorkerOperation};
+    use crate::CaptureSampledChannel;
 
     fn metadata() -> CaptureMetadata {
         CaptureMetadata {

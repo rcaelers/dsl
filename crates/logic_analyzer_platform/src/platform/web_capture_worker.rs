@@ -17,8 +17,9 @@ use logic_analyzer_graph_orchestration::{
 use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository, SourceIdentity};
 use signal_processing::{
     CaptureMetadata, CaptureWorkerClient, CaptureWorkerRequest, CaptureWorkerRuntime,
-    InlineWorkExecutor, decode_capture_worker_messages, encode_capture_worker_messages,
+    decode_capture_worker_messages, encode_capture_worker_messages,
 };
+use signal_runtime::InlineWorkExecutor;
 
 const WORKER_BOOTSTRAP: &str = include_str!("web_worker_bootstrap.js");
 const PUMP_INTERVAL_MS: i32 = 4;

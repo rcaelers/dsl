@@ -14,7 +14,7 @@ use signal_artifacts::{
     ArtifactReplicationEvent, ArtifactRepository, MemoryArtifactRepository,
     ReplicatingArtifactRepository,
 };
-use signal_processing::{CooperativeAppManagerFactory, InlineWorkExecutor};
+use signal_runtime::{CooperativeAppManagerFactory, InlineWorkExecutor};
 
 const GRAPH_PUMP_BUDGET: usize = 256;
 const GRAPH_PUMP_DURATION: Duration = Duration::from_millis(4);

@@ -2,9 +2,9 @@
 
 use std::collections::VecDeque;
 
-use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, TextSample, Word, WorkError,
-    WorkResult,
+use signal_processing::{TextSample, Word};
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };
 
 pub struct DiscardWordWriter {
@@ -43,7 +43,7 @@ impl ProcessNode for DiscardWordWriter {
     fn input_schema(&self) -> Vec<PortSchema> {
         vec![
             PortSchema::new::<Word>("data", 0, PortDirection::Input),
-            PortSchema::new::<TextSample>("filename", 1, PortDirection::Input),
+            PortSchema::state::<TextSample>("filename", 1, PortDirection::Input),
         ]
     }
 
@@ -95,8 +95,8 @@ impl ProcessNode for DiscardTextWriter {
 
     fn input_schema(&self) -> Vec<PortSchema> {
         vec![
-            PortSchema::new::<TextSample>("lines", 0, PortDirection::Input),
-            PortSchema::new::<TextSample>("filename", 1, PortDirection::Input),
+            PortSchema::state::<TextSample>("lines", 0, PortDirection::Input),
+            PortSchema::state::<TextSample>("filename", 1, PortDirection::Input),
         ]
     }
 
@@ -119,7 +119,7 @@ impl ProcessNode for DiscardTextWriter {
 #[cfg(test)]
 mod implementation_tests {
     use crossbeam_channel::bounded;
-    use signal_processing::{ChannelMessage, Watchdog};
+    use signal_runtime::{ChannelMessage, Watchdog};
 
     use super::*;
 

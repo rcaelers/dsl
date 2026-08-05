@@ -12,12 +12,15 @@ use tracing::debug;
 use web_time::Instant;
 
 use signal_processing::capture::CaptureTransition;
-#[cfg(test)]
-use signal_processing::{CompletedWorkTask, WorkTask};
 use signal_processing::{
-    EdgeQuery, InputPort, InputProtocolCandidate, OutputPort, PackedSamplingPoint,
-    PackedSamplingPointBatch, ProcessNode, ProtocolKind, Receiver, Sample, SampleBlock,
-    SamplingPointStore, Word, WorkError, WorkExecutor, WorkOutcome, WorkResult,
+    EdgeQuery, EdgeQueryInputPortExt, PackedSamplingPoint, PackedSamplingPointBatch, Sample,
+    SampleBlock, SamplingPointStore, Word,
+};
+#[cfg(test)]
+use signal_runtime::{CompletedWorkTask, WorkTask};
+use signal_runtime::{
+    InputPort, InputProtocolCandidate, OutputPort, ProcessNode, ProtocolKind, Receiver, WorkError,
+    WorkExecutor, WorkOutcome, WorkResult,
 };
 
 use super::sampling_provider::{ParallelSamplingProgress, install_sampling_provider};
@@ -42,10 +45,7 @@ impl WorkExecutor for SpawnWorkExecutor {
         self.workers
     }
 
-    fn submit(
-        &self,
-        task: signal_processing::WorkExecutorTask,
-    ) -> Result<Box<dyn WorkTask>, String> {
+    fn submit(&self, task: signal_runtime::WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
         std::thread::spawn(task);
         Ok(Box::new(CompletedWorkTask))
     }
@@ -237,7 +237,7 @@ impl ParallelDecoder {
         if activity_ratio >= Self::AUTO_PACKED_ACTIVITY_RATIO {
             ProtocolKind::Stream
         } else {
-            ProtocolKind::EdgeQuery
+            signal_processing::edge_query_protocol()
         }
     }
 
@@ -250,7 +250,12 @@ impl ParallelDecoder {
             candidates
                 .get(index)
                 .and_then(Option::as_ref)
-                .and_then(|candidate| candidate.edge_query.as_ref())
+                .and_then(|candidate| {
+                    candidate
+                        .capabilities
+                        .iter()
+                        .find_map(signal_processing::edge_query_from_capability)
+                })
                 .and_then(|query| query.high_level_ratio_hint())
                 .filter(|ratio| ratio.is_finite())
                 .map(|ratio| ratio.clamp(0.0, 1.0))
@@ -258,7 +263,12 @@ impl ParallelDecoder {
         let strobe_activity_ratio = candidates
             .first()
             .and_then(Option::as_ref)
-            .and_then(|candidate| candidate.edge_query.as_ref())
+            .and_then(|candidate| {
+                candidate
+                    .capabilities
+                    .iter()
+                    .find_map(signal_processing::edge_query_from_capability)
+            })
             .and_then(|query| query.activity_ratio_hint())
             .filter(|ratio| ratio.is_finite())?
             .clamp(0.0, 1.0);
@@ -316,7 +326,7 @@ impl ParallelDecoder {
             stream_blocks: StreamBlockState::default(),
             next_stream_merge_sequence: 0,
             parallel_workers: Self::ADAPTIVE_PARALLEL_WORKERS,
-            work_executor: Arc::new(signal_processing::InlineWorkExecutor),
+            work_executor: Arc::new(signal_runtime::InlineWorkExecutor),
             parallel_metrics: ParallelDecoderMetrics::default(),
             pending_output_words: Vec::new(),
             sampling_points: None,
@@ -434,8 +444,8 @@ impl ProcessNode for ParallelDecoder {
         1 // Word output
     }
 
-    fn input_schema(&self) -> Vec<signal_processing::PortSchema> {
-        use signal_processing::{PortDirection, PortSchema};
+    fn input_schema(&self) -> Vec<signal_runtime::PortSchema> {
+        use signal_runtime::{PortDirection, PortSchema};
 
         // A level trigger must inspect every sample and therefore always
         // streams. Edge-triggered modes honor the explicit strategy; Auto
@@ -445,10 +455,13 @@ impl ProcessNode for ParallelDecoder {
         } else {
             match self.input_strategy {
                 ParallelInputStrategy::Auto => {
-                    vec![ProtocolKind::EdgeQuery, ProtocolKind::Stream]
+                    vec![
+                        signal_processing::edge_query_protocol(),
+                        ProtocolKind::Stream,
+                    ]
                 }
                 ParallelInputStrategy::PackedStream => vec![ProtocolKind::Stream],
-                ParallelInputStrategy::Indexed => vec![ProtocolKind::EdgeQuery],
+                ParallelInputStrategy::Indexed => vec![signal_processing::edge_query_protocol()],
             }
         };
 
@@ -476,22 +489,28 @@ impl ProcessNode for ParallelDecoder {
         // Enable is a low-rate level input with its own transport choice;
         // it is not constrained by how the raw packed channels arrive.
         schemas.push(
-            PortSchema::new::<Sample>(
+            PortSchema::state::<Sample>(
                 "enable_signal",
                 1 + self.num_data_bits + 1,
                 PortDirection::Input,
             )
-            .with_protocols(vec![ProtocolKind::EdgeQuery, ProtocolKind::Stream])
+            .with_protocols(vec![
+                signal_processing::edge_query_protocol(),
+                ProtocolKind::Stream,
+            ])
             .with_complete_stream(),
         );
 
         schemas
     }
 
-    fn output_schema(&self) -> Vec<signal_processing::PortSchema> {
-        use signal_processing::{PortDirection, PortSchema};
+    fn output_schema(&self) -> Vec<signal_runtime::PortSchema> {
+        use signal_runtime::{PortDirection, PortSchema};
 
-        vec![PortSchema::new::<Word>("words", 0, PortDirection::Output)]
+        vec![
+            PortSchema::new::<Word>("words", 0, PortDirection::Output)
+                .with_default_buffer_capacity(8),
+        ]
     }
 
     fn select_input_protocols(
@@ -533,7 +552,7 @@ impl ProcessNode for ParallelDecoder {
         };
         let preferred = Self::auto_protocol_for_activity_ratio(work.gated_activity_ratio);
         let alternate = if preferred == ProtocolKind::Stream {
-            ProtocolKind::EdgeQuery
+            signal_processing::edge_query_protocol()
         } else {
             ProtocolKind::Stream
         };
@@ -1781,7 +1800,7 @@ mod tests {
 
     use crossbeam_channel::bounded;
 
-    use signal_processing::{ChannelMessage, ProcessNode, Sender, Watchdog};
+    use signal_runtime::{ChannelMessage, ProcessNode, Sender, Watchdog};
 
     use super::*;
 
@@ -1794,7 +1813,10 @@ mod tests {
         assert_eq!(decoder.num_inputs(), 11);
         assert_eq!(
             decoder.input_schema()[0].protocols,
-            vec![ProtocolKind::EdgeQuery, ProtocolKind::Stream]
+            vec![
+                signal_processing::edge_query_protocol(),
+                ProtocolKind::Stream
+            ]
         );
     }
 
@@ -1809,11 +1831,17 @@ mod tests {
             assert_eq!(schema.protocols, vec![ProtocolKind::Stream]);
         }
         for schema in &indexed.input_schema()[..4] {
-            assert_eq!(schema.protocols, vec![ProtocolKind::EdgeQuery]);
+            assert_eq!(
+                schema.protocols,
+                vec![signal_processing::edge_query_protocol()]
+            );
         }
         assert_eq!(
             packed.input_schema()[4].protocols,
-            vec![ProtocolKind::EdgeQuery, ProtocolKind::Stream],
+            vec![
+                signal_processing::edge_query_protocol(),
+                ProtocolKind::Stream
+            ],
             "the enable level chooses its transport independently"
         );
     }
@@ -1867,6 +1895,10 @@ mod tests {
         })
     }
 
+    fn query_capabilities(query: Arc<dyn EdgeQuery>) -> Vec<signal_runtime::ProtocolCapability> {
+        vec![signal_processing::edge_query_capability(query)]
+    }
+
     fn auto_candidates(
         activity: f64,
         enable_high_ratio: Option<f64>,
@@ -1875,14 +1907,17 @@ mod tests {
         let mut candidates: Vec<_> = (0..5)
             .map(|_| {
                 Some(InputProtocolCandidate {
-                    offered: vec![ProtocolKind::EdgeQuery, ProtocolKind::Stream],
-                    edge_query: Some(Arc::clone(&query)),
+                    offered: vec![
+                        signal_processing::edge_query_protocol(),
+                        ProtocolKind::Stream,
+                    ],
+                    capabilities: query_capabilities(Arc::clone(&query)),
                 })
             })
             .collect();
         if let Some(high_level_ratio) = enable_high_ratio {
-            candidates[4].as_mut().unwrap().edge_query =
-                Some(density_query(0.0, Some(high_level_ratio)));
+            candidates[4].as_mut().unwrap().capabilities =
+                query_capabilities(density_query(0.0, Some(high_level_ratio)));
         } else {
             candidates[4] = None;
         }
@@ -1896,7 +1931,10 @@ mod tests {
         let sparse = decoder.select_input_protocols(&auto_candidates(0.01, None));
 
         assert_eq!(&dense[..4], &[Some(ProtocolKind::Stream); 4]);
-        assert_eq!(&sparse[..4], &[Some(ProtocolKind::EdgeQuery); 4]);
+        assert_eq!(
+            &sparse[..4],
+            &[Some(signal_processing::edge_query_protocol()); 4]
+        );
         assert_eq!(dense[4], None, "the fixture leaves enable disconnected");
 
         let gated_dense = decoder.select_input_protocols(&auto_candidates(0.9, Some(1.0)));
@@ -1905,7 +1943,10 @@ mod tests {
             &[Some(ProtocolKind::Stream); 4],
             "a connected gate must not hide the measured raw-signal density"
         );
-        assert_eq!(gated_dense[4], Some(ProtocolKind::EdgeQuery));
+        assert_eq!(
+            gated_dense[4],
+            Some(signal_processing::edge_query_protocol())
+        );
     }
 
     #[test]
@@ -1914,7 +1955,7 @@ mod tests {
         let mut candidates = auto_candidates(0.9, Some(1.0));
         let enable = candidates[4].as_mut().unwrap();
         enable.offered = vec![ProtocolKind::Stream];
-        enable.edge_query = None;
+        enable.capabilities.clear();
 
         let selected = decoder.select_input_protocols(&candidates);
 
@@ -1936,14 +1977,21 @@ mod tests {
     fn auto_strategy_estimates_work_after_known_cs_and_enable_gates() {
         let cs_decoder = ParallelDecoder::new(2, StrobeMode::AnyEdge, CsPolarity::ActiveLow);
         let mut cs_candidates = auto_candidates(0.9, None);
-        cs_candidates[3].as_mut().unwrap().edge_query = Some(density_query(0.0, Some(0.9)));
+        cs_candidates[3].as_mut().unwrap().capabilities =
+            query_capabilities(density_query(0.0, Some(0.9)));
         let cs_selected = cs_decoder.select_input_protocols(&cs_candidates);
-        assert_eq!(&cs_selected[..4], &[Some(ProtocolKind::EdgeQuery); 4]);
+        assert_eq!(
+            &cs_selected[..4],
+            &[Some(signal_processing::edge_query_protocol()); 4]
+        );
 
         let enable_decoder = ParallelDecoder::new(2, StrobeMode::AnyEdge, CsPolarity::Disabled);
         let enable_selected =
             enable_decoder.select_input_protocols(&auto_candidates(0.9, Some(0.1)));
-        assert_eq!(&enable_selected[..4], &[Some(ProtocolKind::EdgeQuery); 4]);
+        assert_eq!(
+            &enable_selected[..4],
+            &[Some(signal_processing::edge_query_protocol()); 4]
+        );
         let reference_selected =
             enable_decoder.select_input_protocols(&auto_candidates(1.0, Some(0.225)));
         assert_eq!(
@@ -1955,7 +2003,8 @@ mod tests {
         let correlated_decoder =
             ParallelDecoder::new(2, StrobeMode::AnyEdge, CsPolarity::ActiveLow);
         let mut correlated_candidates = auto_candidates(1.0, Some(0.2));
-        correlated_candidates[3].as_mut().unwrap().edge_query = Some(density_query(0.0, Some(0.8)));
+        correlated_candidates[3].as_mut().unwrap().capabilities =
+            query_capabilities(density_query(0.0, Some(0.8)));
         let correlated_selected = correlated_decoder.select_input_protocols(&correlated_candidates);
         assert_eq!(
             &correlated_selected[..4],
@@ -1968,7 +2017,7 @@ mod tests {
     fn auto_strategy_does_not_treat_unknown_growing_enable_as_closed() {
         let decoder = ParallelDecoder::new(2, StrobeMode::AnyEdge, CsPolarity::Disabled);
         let mut candidates = auto_candidates(0.9, Some(1.0));
-        candidates[4].as_mut().unwrap().edge_query = Some(density_query(0.0, None));
+        candidates[4].as_mut().unwrap().capabilities = query_capabilities(density_query(0.0, None));
 
         let selected = decoder.select_input_protocols(&candidates);
 

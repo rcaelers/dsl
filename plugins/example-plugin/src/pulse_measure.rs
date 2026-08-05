@@ -16,8 +16,9 @@ use logic_analyzer_graph_capabilities::node_support::{
 };
 use logic_analyzer_graph_registry::GraphNodeRegistration;
 use node_graph::api::{InputDef, NodeDef, OutputDef, Socket, SocketDef, SocketShape};
-use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Sample, WorkError, WorkOutcome,
+use signal_processing::Sample;
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,
     WorkResult,
 };
 
@@ -130,7 +131,7 @@ impl RuntimeBuilder for PulseMeasureBuilder {
 }
 
 fn register_pulse_width_channel() {
-    signal_processing::register_type::<PulseWidth>();
+    signal_runtime::register_type::<PulseWidth>();
 }
 
 inventory::submit! {
@@ -217,7 +218,7 @@ impl ProcessNode for PulseMeasureNode {
 #[cfg(test)]
 mod tests {
     use crossbeam_channel::bounded;
-    use signal_processing::{ChannelMessage, Sender, Watchdog};
+    use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
     use super::*;
 

@@ -13,14 +13,15 @@ use logic_analyzer_processing::nodes::logic::timeline_marker::{
     TimelineMarkerToTrigger, TimelineMarkerWindow,
 };
 use node_graph::api::Socket;
-use signal_processing::{ProcessNode, Sample, TimelineMarker, Trigger};
+use signal_processing::{Sample, TimelineMarker, Trigger};
+use signal_runtime::ProcessNode;
 
 fn marker_kind() -> PortKind {
     PortKind::of_named::<TimelineMarker>("Timeline Marker")
 }
 
 pub(crate) fn register_timeline_marker_type() {
-    signal_processing::register_type::<TimelineMarker>();
+    signal_runtime::register_type::<TimelineMarker>();
 }
 
 #[derive(Default)]

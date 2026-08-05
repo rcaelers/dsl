@@ -16,10 +16,11 @@ use signal_processing::{
     CaptureChannelId, CaptureCommandCapabilities, CaptureDataDelivery, CaptureFraction,
     CapturePolicy, CapturePolicyCapabilities, CapturePolicyContext, CaptureProviderCapabilities,
     CaptureSessionPlan, CaptureSettingCombination, CaptureStartMode, CaptureStoreCursor,
-    CompletionPolicy, CompletionPolicyKind, PreparedAcquisition, ProcessNode, RecordingStart,
-    RetentionPolicy, RetentionPolicyKind, TriggerCountMode, TriggerLogicOperator, TriggerPlacement,
+    CompletionPolicy, CompletionPolicyKind, PreparedAcquisition, RecordingStart, RetentionPolicy,
+    RetentionPolicyKind, TriggerCountMode, TriggerLogicOperator, TriggerPlacement,
     TriggerPlacementCapability, TriggerPredicate, TriggerProgram, TriggerTimeoutAction,
 };
+use signal_runtime::ProcessNode;
 
 use super::super::definition::TestCaptureSourceState;
 

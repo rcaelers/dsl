@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/app_native", "crates/app_web", "crates/input_bindings", "crates/logic_analyzer_capture_export", "crates/logic_analyzer_graph_capabilities", "crates/logic_analyzer_graph_compiler", "crates/logic_analyzer_graph_nodes", "crates/logic_analyzer_graph_orchestration", "crates/logic_analyzer_graph_plan", "crates/logic_analyzer_graph_registry", "crates/logic_analyzer_graph_runtime", "crates/logic_analyzer_platform", "crates/logic_analyzer_processing", "crates/logic_analyzer_test_support", "crates/logic_analyzer_ui", "crates/signal_artifacts", "crates/signal_processing", "crates/widgets/logic_analyzer_viewer", "crates/widgets/node_graph", "crates/widgets/panel_layout", "crates/widgets/trigger_editor", "crates/widgets/widget_support", "plugins/example-plugin"]
+members = [".", "crates/app_native", "crates/app_web", "crates/input_bindings", "crates/logic_analyzer_capture_export", "crates/logic_analyzer_graph_capabilities", "crates/logic_analyzer_graph_compiler", "crates/logic_analyzer_graph_nodes", "crates/logic_analyzer_graph_orchestration", "crates/logic_analyzer_graph_plan", "crates/logic_analyzer_graph_registry", "crates/logic_analyzer_graph_runtime", "crates/logic_analyzer_platform", "crates/logic_analyzer_processing", "crates/logic_analyzer_test_support", "crates/logic_analyzer_ui", "crates/signal_artifacts", "crates/signal_processing", "crates/signal_runtime", "crates/widgets/logic_analyzer_viewer", "crates/widgets/node_graph", "crates/widgets/panel_layout", "crates/widgets/trigger_editor", "crates/widgets/widget_support", "plugins/example-plugin"]
 default-members = ["crates/app_native"]
 resolver = "2"
 
@@ -36,6 +36,7 @@ zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 inventory = "0.3.24"
 pyo3 = "0.29.0"
 signal-artifacts = { path = "crates/signal_artifacts" }
+signal-runtime = { path = "crates/signal_runtime" }
 
 [package]
 name = "logic-analyzer-examples"
@@ -78,6 +79,7 @@ logic-analyzer-ui = { path = "crates/logic_analyzer_ui" }
 logic-analyzer-viewer = { path = "crates/widgets/logic_analyzer_viewer" }
 node-graph = { path = "crates/widgets/node_graph" }
 signal-processing = { path = "crates/signal_processing" }
+signal-runtime = { workspace = true }
 signal-artifacts = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -1,4 +1,4 @@
-use signal_processing::{InputPort, OutputPort, ProcessNode, WorkResult};
+use signal_runtime::{InputPort, OutputPort, ProcessNode, WorkResult};
 
 pub(crate) struct TestProcessNode {
     name: String,

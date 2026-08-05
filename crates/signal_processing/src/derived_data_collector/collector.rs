@@ -3,10 +3,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use web_time::Instant;
 
-use crate::payload::CollectedLaneIngestor;
-use crate::runtime::{
+use signal_runtime::{
     InputPort, InputScheduling, OutputPort, PortSchema, ProcessNode, WorkError, WorkResult,
 };
+
+use crate::payload::CollectedLaneIngestor;
 
 #[derive(Clone, Default)]
 pub struct DerivedDataCollectorMetrics {

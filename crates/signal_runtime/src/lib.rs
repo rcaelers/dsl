@@ -5,12 +5,16 @@
 //! adjacent capture and derived-data owners, but it does not own their storage,
 //! indexing, acquisition, or presentation behavior.
 
+#[cfg(test)]
+mod architecture_tests;
+
 mod app_manager;
 mod cooperative_manager;
 mod errors;
 mod graph;
 mod manager;
 mod node;
+mod payload_negotiation;
 mod pipeline;
 mod ports;
 mod protocol;
@@ -27,7 +31,7 @@ pub use app_manager::{
     CooperativeAppManagerFactory,
 };
 pub use cooperative_manager::CooperativeManager;
-pub use errors::{ConnectionError, Error, PortError, Result, WorkError, WorkResult};
+pub use errors::{ConnectionError, PortError, WorkError, WorkResult};
 pub use graph::{Connection, GraphBuilder, NodeId};
 pub use manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec, PipelineManager};
 pub use node::{
@@ -36,8 +40,10 @@ pub use node::{
     RuntimeExecutionMode, WorkOutcome,
 };
 pub use pipeline::Pipeline;
-pub use ports::{InputPort, OutputPort, PortDirection, PortSchema, register_type};
-pub use protocol::ProtocolKind;
+pub use ports::{
+    InputPort, OutputPort, PortDirection, PortPayload, PortSchema, StreamSemantics, register_type,
+};
+pub use protocol::{ProtocolCapability, ProtocolKind};
 pub use receiver::{Receiver, ReceiverSelector};
 pub use scheduler::{Scheduler, StopHandle};
 pub use sender::{ChannelMessage, OverflowPolicy, Sender, SharedSenders};

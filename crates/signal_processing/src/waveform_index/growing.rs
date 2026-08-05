@@ -5,13 +5,14 @@ use std::time::Duration;
 use signal_artifacts::{
     ArtifactKey, ArtifactNamespace, ArtifactRepository, RepositoryError, SourceIdentity,
 };
+use signal_runtime::WorkExecutor;
 
 use super::exact::exact_window_sample_limit;
 use super::query::{GroupSummary, SummaryGrid, sample_summary_channel};
 use super::resolution::select_summary_resolution;
 use crate::{
     CaptureCursorItem, CaptureIndex, CaptureMetadata, CaptureRandomReader, CaptureSampledWindow,
-    CaptureStore, CaptureStoreCursor, Error, FinalizedCapture, Result, WorkExecutor,
+    CaptureStore, CaptureStoreCursor, Error, FinalizedCapture, Result,
 };
 
 const LEAF_SAMPLES: u64 = 64;
@@ -1131,12 +1132,12 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use signal_artifacts::MemoryArtifactRepository;
+    use signal_runtime::{CompletedWorkTask, WorkExecutor, WorkExecutorTask, WorkTask};
 
     use super::{FAN_OUT, GrowingCaptureIndex, LEAF_SAMPLES, summary_masks};
     use crate::{
         CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureIndex, CaptureSessionId,
         CaptureStore, CaptureStoreConfig, CaptureStoreDescriptor, CaptureWaveformSegment,
-        CompletedWorkTask, WorkExecutor, WorkExecutorTask, WorkTask,
     };
 
     struct SpawnWorkExecutor;

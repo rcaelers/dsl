@@ -2,11 +2,13 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use crossbeam_channel::{Receiver, Sender};
 
+use signal_runtime::{WorkExecutor, WorkTask};
+
 use crate::derived_word_store::{
     AnnotationQuery, IndexedAnnotationStore, IndexedAnnotationWriter, LiveStoreConfig,
     PersistentStoreConfig, StoreError, StoreResult,
 };
-use crate::{CollectedWordLaneQuery, DerivedLanes, Word, WordPayload, WorkExecutor, WorkTask};
+use crate::{CollectedWordLaneQuery, DerivedLanes, Word, WordPayload};
 
 const INLINE_VALUE_BITS: usize = 57;
 const INLINE_VALUE_SHIFT: usize = 7;
@@ -713,9 +715,9 @@ mod sampling_point_store_tests {
     use std::sync::Arc;
 
     use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+    use signal_runtime::{InlineWorkExecutor, WorkExecutorTask};
 
     use super::*;
-    use crate::{InlineWorkExecutor, WorkExecutorTask};
 
     struct ThreadWorkExecutor;
 

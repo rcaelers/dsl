@@ -22,9 +22,8 @@ use logic_analyzer_graph_runtime::{
 };
 use node_graph::{GraphState, NodeId};
 use signal_artifacts::ArtifactRepository;
-use signal_processing::{
-    ConfigurationBoundary, DisconnectEvent, NodeFailure, PersistentStoreConfig,
-};
+use signal_processing::PersistentStoreConfig;
+use signal_runtime::{ConfigurationBoundary, DisconnectEvent, NodeFailure};
 
 use crate::live_capture::CaptureFeatureDiscovery;
 

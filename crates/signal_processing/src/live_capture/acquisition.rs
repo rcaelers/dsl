@@ -2,6 +2,8 @@
 
 use thiserror::Error;
 
+use signal_runtime::{InlineWorkExecutor, WorkExecutor};
+
 use super::implementation::{
     CaptureAcquisitionPhase, CaptureChunk, CaptureChunkWriter, CaptureCompletion,
     CaptureDataDelivery, CaptureEvent, CaptureEventPublishError, CaptureEventPublisher,
@@ -9,7 +11,6 @@ use super::implementation::{
     CaptureSessionState, CaptureStatus, CaptureWriteError,
 };
 use crate::capture_policy::{CaptureSessionPlan, CaptureStartMode};
-use crate::{InlineWorkExecutor, WorkExecutor};
 
 /// Result alias for provider preparation and acquisition execution.
 pub type AcquisitionResult<T> = Result<T, AcquisitionError>;

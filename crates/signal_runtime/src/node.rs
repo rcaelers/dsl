@@ -7,16 +7,15 @@ use std::sync::Arc;
 
 use super::errors::WorkResult;
 use super::ports::{InputPort, OutputPort, PortSchema};
-use super::protocol::ProtocolKind;
-use crate::edge_query::EdgeQuery;
+use super::protocol::{ProtocolCapability, ProtocolKind};
 
 /// Producer capabilities considered while a consumer selects an input transport.
 #[derive(Clone)]
 pub struct InputProtocolCandidate {
     /// Protocols offered by the upstream producer in preference order.
     pub offered: Vec<ProtocolKind>,
-    /// Optional random-access capability supplied by the producer.
-    pub edge_query: Option<Arc<dyn EdgeQuery>>,
+    /// Capability values supplied for non-stream protocols.
+    pub capabilities: Vec<ProtocolCapability>,
 }
 
 /// A configuration value delivered to a running node (live reconfiguration,
@@ -306,26 +305,20 @@ pub trait ProcessNode: Send {
         None
     }
 
-    /// Random-access query handle for output port `port`, if this node
-    /// can answer it without streaming. Only called by `Pipeline::build`
-    /// for connections that negotiated
-    /// [`ProtocolKind::EdgeQuery`](super::protocol::ProtocolKind::EdgeQuery)
-    /// (see [`PortSchema::protocols`](super::ports::PortSchema::protocols)).
-    /// `input_queries` carries this node's own inputs' negotiated query
-    /// handles (in `input_schema()` order, `None` where a given input
-    /// didn't negotiate `EdgeQuery`) — empty today since only zero-input
-    /// source nodes implement this, but a future pass-through node
-    /// (e.g. a logic gate) would compose its output's answer from these.
-    /// Default: unsupported.
+    /// Returns a type-erased capability for an output protocol. Input
+    /// capabilities are ordered like [`Self::input_schema`] and are supplied
+    /// even when their connection ultimately selects stream transport.
     ///
     /// # Parameters
-    /// - `_port`: Output port index for which a query is requested.
-    /// - `_input_queries`: Negotiated query capabilities of this node's inputs.
-    fn edge_query(
+    /// - `_port`: Output port index for which a capability is requested.
+    /// - `_protocol`: Capability protocol requested by the runtime.
+    /// - `_input_capabilities`: Capabilities available on this node's inputs.
+    fn protocol_capability(
         &self,
         _port: usize,
-        _input_queries: &[Option<Arc<dyn EdgeQuery>>],
-    ) -> Option<Arc<dyn EdgeQuery>> {
+        _protocol: ProtocolKind,
+        _input_capabilities: &[Vec<ProtocolCapability>],
+    ) -> Option<ProtocolCapability> {
         None
     }
 }
@@ -388,12 +381,13 @@ impl ProcessNode for Box<dyn ProcessNode> {
     fn configuration_scheduler(&self) -> Option<Arc<dyn ConfigurationScheduler>> {
         (**self).configuration_scheduler()
     }
-    fn edge_query(
+    fn protocol_capability(
         &self,
         port: usize,
-        input_queries: &[Option<Arc<dyn EdgeQuery>>],
-    ) -> Option<Arc<dyn EdgeQuery>> {
-        (**self).edge_query(port, input_queries)
+        protocol: ProtocolKind,
+        input_capabilities: &[Vec<ProtocolCapability>],
+    ) -> Option<ProtocolCapability> {
+        (**self).protocol_capability(port, protocol, input_capabilities)
     }
 }
 
@@ -419,8 +413,10 @@ mod tests {
 
         fn input_schema(&self) -> Vec<PortSchema> {
             vec![
-                PortSchema::new::<u8>("input", 0, PortDirection::Input)
-                    .with_protocols(vec![ProtocolKind::EdgeQuery, ProtocolKind::Stream]),
+                PortSchema::new::<u8>("input", 0, PortDirection::Input).with_protocols(vec![
+                    ProtocolKind::capability::<u16>(),
+                    ProtocolKind::Stream,
+                ]),
             ]
         }
 
@@ -451,8 +447,8 @@ mod tests {
     fn boxed_process_node_forwards_overridden_contracts() {
         let mut node: Box<dyn ProcessNode> = Box::new(StreamSelectingNode);
         let selected = node.select_input_protocols(&[Some(InputProtocolCandidate {
-            offered: vec![ProtocolKind::EdgeQuery, ProtocolKind::Stream],
-            edge_query: None,
+            offered: vec![ProtocolKind::capability::<u16>(), ProtocolKind::Stream],
+            capabilities: Vec::new(),
         })]);
         let outcome = node.work_outcome(&[], &[]).unwrap();
 

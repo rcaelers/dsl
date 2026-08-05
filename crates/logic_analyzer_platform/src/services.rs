@@ -4,7 +4,7 @@ use std::sync::Arc;
 use logic_analyzer_graph_capabilities::node::DirectoryNodeCatalog;
 use logic_analyzer_ui::AppServices;
 use signal_artifacts::ArtifactRepository;
-use signal_processing::{WorkExecutor, WorkerExecutionCapability, WorkerOperationExecutor};
+use signal_runtime::{WorkExecutor, WorkerExecutionCapability, WorkerOperationExecutor};
 
 /// Opaque host services assembled for one application instance.
 ///

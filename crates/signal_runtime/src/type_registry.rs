@@ -205,20 +205,7 @@ impl TypeRegistry {
 // Global type registry
 lazy_static::lazy_static! {
     pub(crate) static ref TYPE_REGISTRY: Arc<Mutex<TypeRegistry>> = {
-        let mut registry = TypeRegistry::new();
-
-        // Register common types
-        use crate::Sample;
-        use crate::sample::SampleBlock;
-        use crate::events::{NumberSample, TextSample, Trigger, Word};
-        registry.register::<Sample>();
-        registry.register::<SampleBlock>();
-        registry.register::<Word>();
-        registry.register::<Trigger>();
-        registry.register::<NumberSample>();
-        registry.register::<TextSample>();
-
-        Arc::new(Mutex::new(registry))
+        Arc::new(Mutex::new(TypeRegistry::new()))
     };
 }
 

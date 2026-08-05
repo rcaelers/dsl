@@ -11,8 +11,8 @@ use logic_analyzer_processing::{
 use signal_artifacts::ArtifactRepository;
 use signal_processing::{
     CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, IndexedCapturePresentation,
-    ProcessNode, WorkExecutor,
 };
+use signal_runtime::{ProcessNode, WorkExecutor};
 
 use super::registry::{BrowserFileRegistry, ImportedFile};
 use super::worker_source::sigrok_preparation_request;

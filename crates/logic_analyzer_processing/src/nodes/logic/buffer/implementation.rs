@@ -8,7 +8,7 @@
 
 use std::collections::VecDeque;
 
-use signal_processing::{
+use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };
 
@@ -80,7 +80,7 @@ impl<T: Send + Sync + Clone + 'static> ProcessNode for BufferNode<T> {
 #[cfg(test)]
 mod tests {
     use crossbeam_channel::bounded;
-    use signal_processing::{ChannelMessage, Sender, Watchdog};
+    use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
     use super::*;
 

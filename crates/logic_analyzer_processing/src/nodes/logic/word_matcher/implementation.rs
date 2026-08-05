@@ -5,10 +5,11 @@ use std::sync::{Arc, Mutex};
 
 use tracing::debug;
 
-use signal_processing::{
+use signal_processing::{Sample, Trigger, Word};
+use signal_runtime::{
     ConfigOutcome, ConfigValue, ConfigurationBoundary, ConfigurationScheduler, InputPort,
-    NodeConfig, OutputPort, PortDirection, PortSchema, ProcessNode, Sample, Trigger, Word,
-    WorkError, WorkOutcome, WorkResult,
+    NodeConfig, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,
+    WorkResult,
 };
 
 /// Comparison applied between the masked word and the masked pattern.
@@ -452,8 +453,9 @@ impl ProcessNode for WordMatcher {
     fn output_schema(&self) -> Vec<PortSchema> {
         vec![
             PortSchema::new::<Trigger>("trigger", 0, PortDirection::Output),
-            PortSchema::new::<Sample>("matched", 1, PortDirection::Output),
-            PortSchema::new::<Word>("matching_words", 2, PortDirection::Output),
+            PortSchema::state::<Sample>("matched", 1, PortDirection::Output),
+            PortSchema::new::<Word>("matching_words", 2, PortDirection::Output)
+                .with_default_buffer_capacity(8),
         ]
     }
 
@@ -549,7 +551,7 @@ impl ProcessNode for WordMatcher {
 #[cfg(test)]
 mod tests {
     use crossbeam_channel::bounded;
-    use signal_processing::{ChannelMessage, Sender, Watchdog};
+    use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
     use super::*;
 

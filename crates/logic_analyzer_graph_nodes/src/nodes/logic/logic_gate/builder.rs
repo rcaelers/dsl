@@ -8,7 +8,8 @@ use logic_analyzer_graph_capabilities::node_support::{
 };
 use logic_analyzer_processing::nodes::logic::logic_gate::{GateOp, LogicGate};
 use node_graph::api::Socket;
-use signal_processing::{ProcessNode, Sample};
+use signal_processing::Sample;
+use signal_runtime::ProcessNode;
 
 #[derive(Default)]
 pub(crate) struct LogicGateBuilder;

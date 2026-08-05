@@ -4,10 +4,11 @@ use std::sync::Arc;
 use node_graph::api::NodeId;
 use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository, SourceIdentity};
 use signal_processing::{
-    CaptureChannelId, CaptureIndexFactory, DerivedDataRetention, DerivedLanes, InlineWorkExecutor,
+    CaptureChannelId, CaptureIndexFactory, DerivedDataRetention, DerivedLanes,
     PersistentStoreConfig, SamplingPointStore, SimpleTriggerCondition, TimelineMarker,
-    TriggerEditorSchema, TriggerProgram, WorkExecutor,
+    TriggerEditorSchema, TriggerProgram,
 };
+use signal_runtime::{InlineWorkExecutor, WorkExecutor};
 
 use super::port::PortKind;
 

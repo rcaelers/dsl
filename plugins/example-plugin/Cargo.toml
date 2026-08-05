@@ -9,6 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 signal-processing = { path = "../../crates/signal_processing" }
+signal-runtime = { workspace = true }
 logic-analyzer-graph-capabilities = { path = "../../crates/logic_analyzer_graph_capabilities" }
 logic-analyzer-graph-registry = { path = "../../crates/logic_analyzer_graph_registry" }
 logic-analyzer-ui = { path = "../../crates/logic_analyzer_ui" }

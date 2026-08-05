@@ -1414,9 +1414,10 @@ mod tests {
     use signal_processing::{
         AcquisitionContext, CaptureAcquisitionPhase, CaptureCursorItem, CaptureEvent,
         CaptureFailureKind, CaptureQueueReceiveError, CaptureSessionId, CaptureStore,
-        CaptureStoreConfig, CaptureStoreCursor, CaptureStoreDescriptor, WorkExecutor,
-        WorkExecutorTask, WorkTask, bounded_capture_event_queue,
+        CaptureStoreConfig, CaptureStoreCursor, CaptureStoreDescriptor,
+        bounded_capture_event_queue,
     };
+    use signal_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
 
     use super::super::buffered::BufferedProvider;
     use super::super::streaming::StreamingProvider;

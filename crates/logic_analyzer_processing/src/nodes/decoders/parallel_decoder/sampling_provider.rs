@@ -5,8 +5,9 @@ use std::sync::{Arc, Mutex};
 use tracing::warn;
 
 use signal_processing::{
-    EdgeQuery, InputPort, SamplingPoint, SamplingPointProvider, SamplingPointStore,
+    EdgeQuery, EdgeQueryInputPortExt, SamplingPoint, SamplingPointProvider, SamplingPointStore,
 };
+use signal_runtime::InputPort;
 
 use super::types::StrobeMode;
 use crate::types::CsPolarity;

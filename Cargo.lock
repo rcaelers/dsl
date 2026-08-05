@@ -1255,6 +1255,7 @@ dependencies = [
  "serde",
  "serde_json",
  "signal-processing",
+ "signal-runtime",
 ]
 
 [[package]]
@@ -2212,6 +2213,7 @@ dependencies = [
  "serde_json",
  "signal-artifacts",
  "signal-processing",
+ "signal-runtime",
  "tempfile",
  "tracing-subscriber",
 ]
@@ -2226,6 +2228,7 @@ dependencies = [
  "serde_json",
  "signal-artifacts",
  "signal-processing",
+ "signal-runtime",
 ]
 
 [[package]]
@@ -2240,6 +2243,7 @@ dependencies = [
  "serde",
  "serde_json",
  "signal-processing",
+ "signal-runtime",
 ]
 
 [[package]]
@@ -2258,6 +2262,7 @@ dependencies = [
  "serde_json",
  "signal-artifacts",
  "signal-processing",
+ "signal-runtime",
  "tempfile",
  "wasm-bindgen-test",
 ]
@@ -2275,6 +2280,7 @@ dependencies = [
  "serde_json",
  "signal-artifacts",
  "signal-processing",
+ "signal-runtime",
 ]
 
 [[package]]
@@ -2309,6 +2315,7 @@ dependencies = [
  "serde_json",
  "signal-artifacts",
  "signal-processing",
+ "signal-runtime",
 ]
 
 [[package]]
@@ -2340,6 +2347,7 @@ dependencies = [
  "serde_json",
  "signal-artifacts",
  "signal-processing",
+ "signal-runtime",
  "tempfile",
  "thiserror 2.0.19",
  "tracing",
@@ -2362,6 +2370,7 @@ dependencies = [
  "serde_json",
  "signal-artifacts",
  "signal-processing",
+ "signal-runtime",
  "tempfile",
  "thiserror 2.0.19",
  "tracing",
@@ -2401,6 +2410,7 @@ dependencies = [
  "serde_json",
  "signal-artifacts",
  "signal-processing",
+ "signal-runtime",
  "tempfile",
  "trigger-editor",
  "web-time",
@@ -3793,6 +3803,21 @@ dependencies = [
  "serde",
  "serde_json",
  "signal-artifacts",
+ "signal-runtime",
+ "thiserror 2.0.19",
+ "tracing",
+ "wasm-bindgen-test",
+ "web-time",
+]
+
+[[package]]
+name = "signal-runtime"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "lazy_static",
+ "serde",
+ "serde_json",
  "thiserror 2.0.19",
  "tracing",
  "wasm-bindgen-test",

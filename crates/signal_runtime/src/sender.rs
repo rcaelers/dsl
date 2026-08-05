@@ -101,7 +101,7 @@ impl<T: Clone + Send> SharedSenders<T> {
     /// Creates a shared subscriber list.
     ///
     /// `sticky` enables last-value priming — use it for level streams
-    /// (`Sample`, `NumberSample`, `TextSample`), never for events.
+    /// (state-valued payloads), never for events.
     ///
     /// # Parameters
     /// - `sticky`: Whether a later subscriber immediately receives the most
@@ -667,9 +667,20 @@ impl<T: Clone> Clone for Sender<T> {
 #[cfg(test)]
 mod shared_tests {
     use super::*;
-    use crate::sample::Sample;
 
-    fn drain(rx: &crossbeam_channel::Receiver<ChannelMessage<Sample>>) -> Vec<Sample> {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct TestValue {
+        value: bool,
+        timestamp: u64,
+    }
+
+    impl TestValue {
+        fn new(value: bool, timestamp: u64) -> Self {
+            Self { value, timestamp }
+        }
+    }
+
+    fn drain(rx: &crossbeam_channel::Receiver<ChannelMessage<TestValue>>) -> Vec<TestValue> {
         rx.try_iter()
             .filter_map(|message| match message {
                 ChannelMessage::Sample(sample) => Some(sample),
@@ -681,28 +692,28 @@ mod shared_tests {
 
     #[test]
     fn late_subscriber_is_primed_with_last_level() {
-        let shared = SharedSenders::<Sample>::new(true);
+        let shared = SharedSenders::<TestValue>::new(true);
         let sender = Sender::from_shared(shared.clone());
         let (_, early) = shared.subscribe(8, OverflowPolicy::Block);
 
-        sender.send(Sample::new(true, 100)).unwrap();
-        sender.send(Sample::new(false, 200)).unwrap();
+        sender.send(TestValue::new(true, 100)).unwrap();
+        sender.send(TestValue::new(false, 200)).unwrap();
 
         let (_, late) = shared.subscribe(8, OverflowPolicy::Block);
-        sender.send(Sample::new(true, 300)).unwrap();
+        sender.send(TestValue::new(true, 300)).unwrap();
 
         assert_eq!(
             drain(&early),
             vec![
-                Sample::new(true, 100),
-                Sample::new(false, 200),
-                Sample::new(true, 300)
+                TestValue::new(true, 100),
+                TestValue::new(false, 200),
+                TestValue::new(true, 300)
             ]
         );
         // Primed with the level current at join time, then live traffic.
         assert_eq!(
             drain(&late),
-            vec![Sample::new(false, 200), Sample::new(true, 300)]
+            vec![TestValue::new(false, 200), TestValue::new(true, 300)]
         );
     }
 
@@ -740,26 +751,26 @@ mod shared_tests {
 
     #[test]
     fn unsubscribe_disconnects_only_that_channel() {
-        let shared = SharedSenders::<Sample>::new(false);
+        let shared = SharedSenders::<TestValue>::new(false);
         let sender = Sender::from_shared(shared.clone());
         let (id_a, rx_a) = shared.subscribe(8, OverflowPolicy::Block);
         let (_, rx_b) = shared.subscribe(8, OverflowPolicy::Block);
 
-        sender.send(Sample::new(true, 1)).unwrap();
+        sender.send(TestValue::new(true, 1)).unwrap();
         shared.unsubscribe(id_a);
-        sender.send(Sample::new(false, 2)).unwrap();
+        sender.send(TestValue::new(false, 2)).unwrap();
 
-        assert_eq!(drain(&rx_a), vec![Sample::new(true, 1)]);
+        assert_eq!(drain(&rx_a), vec![TestValue::new(true, 1)]);
         assert!(rx_a.recv().is_err(), "unsubscribed channel disconnects");
         assert_eq!(
             drain(&rx_b),
-            vec![Sample::new(true, 1), Sample::new(false, 2)]
+            vec![TestValue::new(true, 1), TestValue::new(false, 2)]
         );
     }
 
     #[test]
     fn close_sends_eos_and_rejects_late_joiners() {
-        let shared = SharedSenders::<Sample>::new(false);
+        let shared = SharedSenders::<TestValue>::new(false);
         let (_, rx) = shared.subscribe(8, OverflowPolicy::Block);
         shared.close();
         assert!(matches!(rx.recv(), Ok(ChannelMessage::EndOfStream)));
@@ -770,10 +781,10 @@ mod shared_tests {
 
     #[test]
     fn close_does_not_block_when_subscriber_is_full() {
-        let shared = SharedSenders::<Sample>::new(false);
+        let shared = SharedSenders::<TestValue>::new(false);
         let sender = Sender::from_shared(shared.clone());
         let (_, rx) = shared.subscribe(1, OverflowPolicy::Block);
-        let sample = Sample::new(true, 42);
+        let sample = TestValue::new(true, 42);
 
         sender.send(sample).unwrap();
         shared.close();
@@ -784,54 +795,54 @@ mod shared_tests {
 
     #[test]
     fn lossy_subscriber_coalesces_to_latest() {
-        let shared = SharedSenders::<Sample>::new(true);
+        let shared = SharedSenders::<TestValue>::new(true);
         let sender = Sender::from_shared(shared.clone());
         let (_, rx) = shared.subscribe(1, OverflowPolicy::Lossy);
 
-        sender.send(Sample::new(true, 1)).unwrap(); // fills the buffer
-        sender.send(Sample::new(false, 2)).unwrap(); // pending
-        sender.send(Sample::new(true, 3)).unwrap(); // supersedes pending
+        sender.send(TestValue::new(true, 1)).unwrap(); // fills the buffer
+        sender.send(TestValue::new(false, 2)).unwrap(); // pending
+        sender.send(TestValue::new(true, 3)).unwrap(); // supersedes pending
 
-        assert_eq!(drain(&rx), vec![Sample::new(true, 1)]);
+        assert_eq!(drain(&rx), vec![TestValue::new(true, 1)]);
         // Consumer drained; the next send first delivers the pending latest.
-        sender.send(Sample::new(false, 4)).unwrap();
+        sender.send(TestValue::new(false, 4)).unwrap();
         assert_eq!(
             drain(&rx),
-            vec![Sample::new(true, 3)] // 2 was superseded; 4 pending now
+            vec![TestValue::new(true, 3)] // 2 was superseded; 4 pending now
         );
     }
 
     #[test]
     fn disconnect_policy_drops_the_laggard_and_reports_it() {
-        let shared = SharedSenders::<Sample>::new(false);
+        let shared = SharedSenders::<TestValue>::new(false);
         let sender = Sender::from_shared(shared.clone());
         let (id, rx) = shared.subscribe(1, OverflowPolicy::Disconnect(Duration::from_millis(20)));
         let (_, healthy) = shared.subscribe(8, OverflowPolicy::Block);
 
-        sender.send(Sample::new(true, 1)).unwrap(); // fills laggard buffer
-        sender.send(Sample::new(false, 2)).unwrap(); // times out → disconnect
+        sender.send(TestValue::new(true, 1)).unwrap(); // fills laggard buffer
+        sender.send(TestValue::new(false, 2)).unwrap(); // times out → disconnect
 
         assert_eq!(shared.take_disconnected(), vec![id]);
         assert_eq!(shared.subscriber_count(), 1);
         // Laggard got the first value, then its channel disconnected.
-        assert_eq!(drain(&rx), vec![Sample::new(true, 1)]);
+        assert_eq!(drain(&rx), vec![TestValue::new(true, 1)]);
         assert!(rx.recv().is_err());
         assert_eq!(
             drain(&healthy),
-            vec![Sample::new(true, 1), Sample::new(false, 2)]
+            vec![TestValue::new(true, 1), TestValue::new(false, 2)]
         );
     }
 
     #[test]
     fn would_block_reflects_subscriber_fullness() {
-        let shared = SharedSenders::<Sample>::new(false);
+        let shared = SharedSenders::<TestValue>::new(false);
         let sender = Sender::from_shared(shared.clone());
         let (_, rx) = shared.subscribe(2, OverflowPolicy::Block);
 
         assert!(!shared.would_block(), "empty channel never blocks");
-        sender.send(Sample::new(true, 100)).unwrap();
+        sender.send(TestValue::new(true, 100)).unwrap();
         assert!(!shared.would_block(), "channel not yet full");
-        sender.send(Sample::new(false, 200)).unwrap();
+        sender.send(TestValue::new(false, 200)).unwrap();
         assert!(shared.would_block(), "channel now full");
 
         // Draining frees room again.
@@ -841,12 +852,12 @@ mod shared_tests {
 
     #[test]
     fn would_block_ignores_lossy_subscribers() {
-        let shared = SharedSenders::<Sample>::new(false);
+        let shared = SharedSenders::<TestValue>::new(false);
         let sender = Sender::from_shared(shared.clone());
         let (_, _rx) = shared.subscribe(1, OverflowPolicy::Lossy);
 
-        sender.send(Sample::new(true, 100)).unwrap();
-        sender.send(Sample::new(false, 200)).unwrap(); // would overflow a Block subscriber
+        sender.send(TestValue::new(true, 100)).unwrap();
+        sender.send(TestValue::new(false, 200)).unwrap(); // would overflow a Block subscriber
         assert!(
             !shared.would_block(),
             "a Lossy subscriber never makes the sender block"

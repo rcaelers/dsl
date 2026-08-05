@@ -45,11 +45,13 @@ use signal_artifacts::{
     ReadArtifact, RepositoryCapabilities, RepositoryError, SourceIdentity, WriteArtifact,
 };
 use signal_processing::{
-    AppManager, AppManagerBackend, AppManagerFactory, CollectedLaneQuery,
-    CollectedLaneSnapshotRequest, CollectedWordLaneQuery, ConfigurationBoundary, DerivedLanes,
-    DisconnectEvent, InputSub, NodeConfig, NodeSpec, OpaqueCollectedLane,
-    OpaqueCollectedLaneSnapshot, Pipeline, PipelineManager, ProcessNode, TriggerLaneSnapshot,
-    WorkExecutor, WorkExecutorTask, WorkTask,
+    CollectedLaneQuery, CollectedLaneSnapshotRequest, CollectedWordLaneQuery, DerivedLanes,
+    OpaqueCollectedLane, OpaqueCollectedLaneSnapshot, TriggerLaneSnapshot,
+};
+use signal_runtime::{
+    AppManager, AppManagerBackend, AppManagerFactory, ConfigurationBoundary, DisconnectEvent,
+    InputSub, NodeConfig, NodeSpec, Pipeline, PipelineManager, ProcessNode, WorkExecutor,
+    WorkExecutorTask, WorkTask,
 };
 
 use integration_tests_support as nodes;
@@ -820,11 +822,11 @@ impl ProcessNode for TimedProcessNode {
         self.inner.is_self_threading()
     }
 
-    fn set_runtime_execution_mode(&mut self, mode: signal_processing::RuntimeExecutionMode) {
+    fn set_runtime_execution_mode(&mut self, mode: signal_runtime::RuntimeExecutionMode) {
         self.inner.set_runtime_execution_mode(mode);
     }
 
-    fn input_scheduling(&self) -> signal_processing::InputScheduling {
+    fn input_scheduling(&self) -> signal_runtime::InputScheduling {
         self.inner.input_scheduling()
     }
 
@@ -836,18 +838,18 @@ impl ProcessNode for TimedProcessNode {
         self.inner.num_outputs()
     }
 
-    fn input_schema(&self) -> Vec<signal_processing::PortSchema> {
+    fn input_schema(&self) -> Vec<signal_runtime::PortSchema> {
         self.inner.input_schema()
     }
 
-    fn output_schema(&self) -> Vec<signal_processing::PortSchema> {
+    fn output_schema(&self) -> Vec<signal_runtime::PortSchema> {
         self.inner.output_schema()
     }
 
     fn select_input_protocols(
         &self,
-        candidates: &[Option<signal_processing::InputProtocolCandidate>],
-    ) -> Vec<Option<signal_processing::ProtocolKind>> {
+        candidates: &[Option<signal_runtime::InputProtocolCandidate>],
+    ) -> Vec<Option<signal_runtime::ProtocolKind>> {
         self.inner.select_input_protocols(candidates)
     }
 
@@ -857,17 +859,17 @@ impl ProcessNode for TimedProcessNode {
 
     fn work(
         &mut self,
-        inputs: &[signal_processing::InputPort],
-        outputs: &[signal_processing::OutputPort],
-    ) -> signal_processing::WorkResult<usize> {
+        inputs: &[signal_runtime::InputPort],
+        outputs: &[signal_runtime::OutputPort],
+    ) -> signal_runtime::WorkResult<usize> {
         self.inner.work(inputs, outputs)
     }
 
     fn work_outcome(
         &mut self,
-        inputs: &[signal_processing::InputPort],
-        outputs: &[signal_processing::OutputPort],
-    ) -> signal_processing::WorkResult<signal_processing::WorkOutcome> {
+        inputs: &[signal_runtime::InputPort],
+        outputs: &[signal_runtime::OutputPort],
+    ) -> signal_runtime::WorkResult<signal_runtime::WorkOutcome> {
         let sample = self.profile.calls == 0 || self.profile.calls.is_multiple_of(1_024);
         let started = sample.then(Instant::now);
         let result = self.inner.work_outcome(inputs, outputs);
@@ -892,26 +894,26 @@ impl ProcessNode for TimedProcessNode {
         result
     }
 
-    fn apply_config(&mut self, config: &NodeConfig) -> signal_processing::ConfigOutcome {
+    fn apply_config(&mut self, config: &NodeConfig) -> signal_runtime::ConfigOutcome {
         self.inner.apply_config(config)
     }
 
-    fn configuration_scheduler(
-        &self,
-    ) -> Option<Arc<dyn signal_processing::ConfigurationScheduler>> {
+    fn configuration_scheduler(&self) -> Option<Arc<dyn signal_runtime::ConfigurationScheduler>> {
         self.inner.configuration_scheduler()
     }
 
-    fn cancellation(&self) -> Option<Arc<dyn signal_processing::NodeCancellation>> {
+    fn cancellation(&self) -> Option<Arc<dyn signal_runtime::NodeCancellation>> {
         self.inner.cancellation()
     }
 
-    fn edge_query(
+    fn protocol_capability(
         &self,
         port: usize,
-        input_queries: &[Option<Arc<dyn signal_processing::EdgeQuery>>],
-    ) -> Option<Arc<dyn signal_processing::EdgeQuery>> {
-        self.inner.edge_query(port, input_queries)
+        protocol: signal_runtime::ProtocolKind,
+        input_capabilities: &[Vec<signal_runtime::ProtocolCapability>],
+    ) -> Option<signal_runtime::ProtocolCapability> {
+        self.inner
+            .protocol_capability(port, protocol, input_capabilities)
     }
 }
 

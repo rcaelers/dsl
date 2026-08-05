@@ -6,8 +6,9 @@ use node_graph::api::Socket;
 use signal_processing::{
     AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureChannelId,
     CaptureProviderCapabilities, CaptureSessionPlan, CaptureStartMode, CaptureStoreCursor,
-    DerivedDataRetention, NodeConfig, PreparedAcquisition, ProcessNode, TriggerProgram,
+    DerivedDataRetention, PreparedAcquisition, TriggerProgram,
 };
+use signal_runtime::{NodeConfig, ProcessNode};
 
 use crate::node_support::{
     CaptureCacheIdentity, CapturePresentation, DecoderTableColumnDescriptor,

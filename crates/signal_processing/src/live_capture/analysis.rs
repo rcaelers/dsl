@@ -3,13 +3,14 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortPayload, PortSchema, ProcessNode, WorkError,
+    WorkResult,
+};
+
 use super::implementation::{CaptureChannelId, CaptureChunk};
 use crate::live_capture_store::{CaptureCursorItem, CaptureStoreCursor};
-use crate::runtime::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
-};
 use crate::sample::{Sample, SampleBlock};
-use crate::sample_kind::SampleKind;
 
 const CURSOR_WAIT: Duration = Duration::from_millis(10);
 
@@ -139,12 +140,15 @@ impl CaptureAnalysisSource {
                     ));
                 }
                 output_schema.push(
-                    PortSchema::new::<Sample>(
+                    PortSchema::state::<Sample>(
                         channel.edge_port.clone(),
                         edge_output,
                         PortDirection::Output,
                     )
-                    .with_sample_kinds(vec![SampleKind::Block, SampleKind::Edge]),
+                    .with_payloads(vec![
+                        PortPayload::new::<SampleBlock>().with_default_buffer_capacity(2),
+                        PortPayload::new::<Sample>().state(),
+                    ]),
                 );
                 block_output = edge_output;
             } else {
@@ -154,7 +158,7 @@ impl CaptureAnalysisSource {
                         channel.edge_port
                     ));
                 }
-                output_schema.push(PortSchema::new::<Sample>(
+                output_schema.push(PortSchema::state::<Sample>(
                     channel.edge_port,
                     edge_output,
                     PortDirection::Output,
@@ -166,11 +170,14 @@ impl CaptureAnalysisSource {
                         channel.block_port
                     ));
                 }
-                output_schema.push(PortSchema::new::<SampleBlock>(
-                    channel.block_port,
-                    block_output,
-                    PortDirection::Output,
-                ));
+                output_schema.push(
+                    PortSchema::new::<SampleBlock>(
+                        channel.block_port,
+                        block_output,
+                        PortDirection::Output,
+                    )
+                    .with_default_buffer_capacity(2),
+                );
             }
             channel_ports.push(ChannelPorts {
                 channel: channel.channel,
@@ -349,10 +356,11 @@ mod tests {
 
     use crossbeam_channel::bounded;
 
+    use signal_runtime::{ChannelMessage, Sender, Watchdog};
+
     use super::super::implementation::{CaptureChunk, CaptureSessionId};
     use super::*;
     use crate::live_capture_store::{CaptureCursorItem, CaptureStoreCursor, CaptureStoreResult};
-    use crate::runtime::{ChannelMessage, Sender, Watchdog};
 
     struct OffsetCursor {
         next: Option<CaptureChunk>,

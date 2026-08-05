@@ -9,9 +9,10 @@ use signal_processing::{
     CaptureAnalysisSource, CaptureChannelId, CaptureCommandCapabilities, CaptureFraction,
     CapturePolicyCapabilities, CapturePolicyContext, CaptureProviderCapabilities,
     CaptureSessionPlan, CaptureStartMode, CaptureStoreCursor, CompletionPolicyKind,
-    ConfiguredAcquisition, PreparedAcquisition, ProcessNode, RecordingStart, RetentionPolicyKind,
+    ConfiguredAcquisition, PreparedAcquisition, RecordingStart, RetentionPolicyKind,
     TriggerPlacementCapability, TriggerProgram, TriggerTimeoutAction,
 };
+use signal_runtime::ProcessNode;
 
 use super::capture_configuration::capture_config;
 use super::definition::U3Pro16State;
@@ -233,9 +234,10 @@ mod tests {
     use signal_processing::{
         AcquisitionContext, AcquisitionResult, CaptureCursorItem, CaptureDataDelivery,
         CaptureStartMode, CaptureStoreCursor, CaptureStoreResult, CompletionPolicy,
-        ConfiguredAcquisition, PreparedAcquisition, ProcessNode, RecordingStart, RetentionPolicy,
+        ConfiguredAcquisition, PreparedAcquisition, RecordingStart, RetentionPolicy,
         TriggerPlacement,
     };
+    use signal_runtime::ProcessNode;
 
     use super::super::definition::CaptureDurationValue;
     use super::{U3Pro16State, feature};

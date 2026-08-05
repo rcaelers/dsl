@@ -7,9 +7,10 @@ use logic_analyzer_graph_runtime::{
 };
 use logic_analyzer_ui::{AppServices, ApplicationSettings, default_input_bindings};
 use signal_artifacts::MemoryArtifactRepository;
-use signal_processing::{
+use signal_processing::portable_worker_kernels;
+use signal_runtime::{
     CooperativeAppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor,
-    WorkerOperationExecutor, portable_worker_kernels,
+    WorkerOperationExecutor,
 };
 
 use super::web_artifact_repository::BrowserArtifactRepository;
@@ -80,7 +81,7 @@ fn compose_services(
     artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository>,
     worker_clients: Option<super::web_capture_worker::BrowserWorkerClients>,
 ) -> PlatformServices {
-    let work_executor: Arc<dyn signal_processing::WorkExecutor> = Arc::new(InlineWorkExecutor);
+    let work_executor: Arc<dyn signal_runtime::WorkExecutor> = Arc::new(InlineWorkExecutor);
     let imported_files = Arc::new(BrowserFileRegistry::default());
     let capture_worker = worker_clients
         .as_ref()
@@ -144,7 +145,7 @@ fn browser_parallelism() -> usize {
 
 #[cfg(test)]
 mod web_tests {
-    use signal_processing::WorkerExecutionMode;
+    use signal_runtime::WorkerExecutionMode;
 
     use super::standard_services;
 

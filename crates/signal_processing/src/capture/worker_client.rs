@@ -366,10 +366,10 @@ fn message_kind(message: &CaptureWorkerMessage) -> &'static str {
 
 #[cfg(test)]
 mod worker_client_tests {
+    use signal_runtime::WorkerOperation;
+
     use super::*;
-    use crate::{
-        CaptureIndexBuildProgress, CaptureMetadata, CaptureSampledWindow, WorkerOperation,
-    };
+    use crate::{CaptureIndexBuildProgress, CaptureMetadata, CaptureSampledWindow};
 
     fn preparation() -> CaptureIndexPreparationRequest {
         CaptureIndexPreparationRequest::new(

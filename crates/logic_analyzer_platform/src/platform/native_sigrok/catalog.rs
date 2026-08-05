@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use logic_analyzer_graph_capabilities::node::{DirectoryNodeCatalog, NodeCatalogStatus};
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::SigrokCatalogSnapshot;
 use node_graph::NodeTemplate;
-use signal_processing::{WorkExecutor, WorkTask};
+use signal_runtime::{WorkExecutor, WorkTask};
 
 use super::discovery::scan_catalog;
 
@@ -186,7 +186,7 @@ mod catalog_tests {
         let mut catalog = SigrokDirectoryCatalog::with_work_executor(
             settings_path,
             Vec::new(),
-            Arc::new(signal_processing::InlineWorkExecutor),
+            Arc::new(signal_runtime::InlineWorkExecutor),
         );
         let deadline = Instant::now() + Duration::from_secs(5);
 

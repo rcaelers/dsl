@@ -1,8 +1,9 @@
 //! Small deterministic mixed-protocol capture used by platform stand-ins.
 
-use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Sample, SampleBlock, SampleKind,
-    WorkError, WorkResult,
+use signal_processing::{Sample, SampleBlock};
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortPayload, PortSchema, ProcessNode, WorkError,
+    WorkResult,
 };
 
 const DEFAULT_CHANNEL_COUNT: usize = 11;
@@ -99,8 +100,11 @@ impl ProcessNode for SyntheticCaptureSource {
     fn output_schema(&self) -> Vec<PortSchema> {
         (0..self.channel_count)
             .map(|channel| {
-                PortSchema::new::<Sample>(format!("ch{channel}"), channel, PortDirection::Output)
-                    .with_sample_kinds(vec![SampleKind::Block, SampleKind::Edge])
+                PortSchema::state::<Sample>(format!("ch{channel}"), channel, PortDirection::Output)
+                    .with_payloads(vec![
+                        PortPayload::new::<SampleBlock>().with_default_buffer_capacity(2),
+                        PortPayload::new::<Sample>().state(),
+                    ])
             })
             .collect()
     }
@@ -325,11 +329,12 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["ch0", "ch1", "ch2"]
         );
-        assert!(
-            schema
-                .iter()
-                .all(|port| { port.sample_kinds == [SampleKind::Block, SampleKind::Edge] })
-        );
+        assert!(schema.iter().all(|port| {
+            port.payloads.iter().map(|payload| payload.type_id).eq([
+                std::any::TypeId::of::<SampleBlock>(),
+                std::any::TypeId::of::<Sample>(),
+            ])
+        }));
     }
 
     #[test]

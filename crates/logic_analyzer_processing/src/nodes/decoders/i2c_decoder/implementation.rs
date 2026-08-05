@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 
-use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, ProtocolPacket, ProtocolValue,
-    SampleBlock, Word, WorkError, WorkResult,
+use signal_processing::{ProtocolPacket, ProtocolValue, SampleBlock, Word};
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };
 
 pub const I2C_PROTOCOL_ID: &str = "i2c";
@@ -294,7 +294,8 @@ impl ProcessNode for I2cDecoder {
 
     fn output_schema(&self) -> Vec<PortSchema> {
         vec![
-            PortSchema::new::<Word>("words", 0, PortDirection::Output),
+            PortSchema::new::<Word>("words", 0, PortDirection::Output)
+                .with_default_buffer_capacity(8),
             PortSchema::new::<ProtocolPacket>("packets", 1, PortDirection::Output),
         ]
     }

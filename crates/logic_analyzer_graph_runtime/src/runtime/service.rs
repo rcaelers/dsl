@@ -6,9 +6,10 @@ use logic_analyzer_graph_plan::{
 };
 use node_graph::api::NodeId;
 use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
-use signal_processing::{
+use signal_processing::PersistentStoreConfig;
+use signal_runtime::{
     AppManagerFactory, ConfigurationBoundary, CooperativeAppManagerFactory, InlineWorkExecutor,
-    PersistentStoreConfig, WorkExecutor,
+    WorkExecutor,
 };
 
 use super::execution::{

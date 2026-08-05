@@ -2,9 +2,10 @@
 
 use std::collections::VecDeque;
 
-use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Sample, Trigger, WorkError,
-    WorkOutcome, WorkResult,
+use signal_processing::{Sample, Trigger};
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,
+    WorkResult,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,7 +72,11 @@ impl ProcessNode for EdgeDetector {
     }
 
     fn input_schema(&self) -> Vec<PortSchema> {
-        vec![PortSchema::new::<Sample>("signal", 0, PortDirection::Input)]
+        vec![PortSchema::state::<Sample>(
+            "signal",
+            0,
+            PortDirection::Input,
+        )]
     }
 
     fn output_schema(&self) -> Vec<PortSchema> {
@@ -129,7 +134,7 @@ impl ProcessNode for EdgeDetector {
 #[cfg(test)]
 mod implementation_tests {
     use crossbeam_channel::bounded;
-    use signal_processing::{ChannelMessage, Sender, Watchdog};
+    use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
     use super::*;
 

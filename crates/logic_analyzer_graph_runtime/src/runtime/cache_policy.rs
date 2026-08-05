@@ -11,8 +11,9 @@ use logic_analyzer_graph_plan::{
 };
 use node_graph::api::NodeId;
 use signal_artifacts::ArtifactRepository;
+use signal_processing::PersistentStoreConfig;
 use signal_processing::derived_word_store::PersistentCacheClearTask;
-use signal_processing::{PersistentStoreConfig, WorkExecutor, WorkTask};
+use signal_runtime::{WorkExecutor, WorkTask};
 
 use super::derived_cache_backend::{
     DerivedCacheBackend, DerivedCacheLookup, RepositoryDerivedCacheBackend,
@@ -650,9 +651,9 @@ mod cache_policy_tests {
 
     use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
     use signal_processing::{
-        IndexedAnnotationWriter, LiveStoreConfig, PersistentStoreConfig, Word, WorkExecutor,
-        WorkExecutorTask, WorkTask,
+        IndexedAnnotationWriter, LiveStoreConfig, PersistentStoreConfig, Word,
     };
+    use signal_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
 
     use super::{
         DerivedCacheClearStats, clear_entry, clear_repository, inspect_entry,

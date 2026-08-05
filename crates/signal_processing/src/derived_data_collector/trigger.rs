@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
+use signal_runtime::{InputPort, PortDirection, PortSchema, WorkResult};
+
 use super::collector::{DRAIN_BATCH_SIZE, DerivedDataRetention};
 use super::indexed::{IndexedLaneQuery, IndexedLaneSnapshot, IndexedLaneWriter, indexed_lane};
 use super::storage::in_memory_storage_snapshot;
@@ -11,7 +13,6 @@ use crate::payload::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
     CollectedLaneStorageSnapshot, OpaqueCollectedLaneSnapshot, PayloadAdapter,
 };
-use crate::runtime::{InputPort, PortDirection, PortSchema, WorkResult};
 
 /// Immutable bounded result of a built-in trigger-marker lane query.
 #[derive(Clone, Debug)]

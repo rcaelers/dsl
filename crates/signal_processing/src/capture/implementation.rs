@@ -6,9 +6,10 @@ use serde::{Deserialize, Serialize};
 use signal_artifacts::{
     ArtifactRepository, ByteRange, ByteRegion, ImmutableByteRegion, OwnedByteSource, SourceIdentity,
 };
+use signal_runtime::WorkExecutor;
 
 use super::preparation::CaptureIndexPreparationRequest;
-use crate::{Error, Result, WorkExecutor};
+use crate::{Error, Result};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CaptureMetadata {

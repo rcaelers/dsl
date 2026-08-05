@@ -21,7 +21,8 @@ runtime or in the application UI.
 | Crate | Primary responsibility | Must not own |
 | --- | --- | --- |
 | `signal_artifacts` | Platform-neutral immutable byte regions, artifact identities, repository contracts, in-memory storage, and replication | Capture formats, derived encodings, stream execution, host adapters, or target selection |
-| `signal_processing` | Generic processing runtime and generic capture, indexing, derived-data, and acquisition contracts | Artifact repository ownership, concrete sources, protocols, formats, widgets, graph documents, or target selection |
+| `signal_runtime` | Generic typed-stream execution, scheduling, process-node lifecycle, and work dispatch | Signal payload definitions, capture/index contracts, storage, sessions, concrete nodes, graph documents, or target selection |
+| `signal_processing` | Generic signal payloads plus capture, indexing, derived-data, and acquisition contracts | Stream execution, artifact repository ownership, concrete sources, protocols, formats, widgets, graph documents, or target selection |
 | `logic_analyzer_processing` | Concrete UI-independent sources, decoders, processing nodes, formats, devices, and sinks | Graph editor definitions, widget presentation, host selection, or application lifecycle |
 | `logic_analyzer_graph_capabilities` | Graph-node and payload capability contracts | Inventory assembly, built-in nodes, compiler policy, UI state, or platform adapters; its current directory-catalog path contract is a documented exception to remove |
 | `logic_analyzer_graph_registry` | Graph-node and payload registration descriptors, inventory collection, validation, host overrides, and immutable catalog snapshots | Graph documents, lowering, generated collectors, execution lifetimes, UI state, or target selection |
@@ -54,6 +55,7 @@ applications ──> platform ──> UI ──> graph compiler ──> graph re
                     │              └────────> graph orchestration ──> compiler + runtime
                     │                                                       │
                     └──> built-in graph nodes ──> processing ───────────────┴──> signal processing
+                    │                                      └──────────────────> signal runtime
                     │
                     └──> built-in graph nodes ──> processing ──> signal processing
                                              ├──> graph registry ──> graph capabilities
@@ -104,7 +106,7 @@ source-preparation generation. `GraphLowerer` is the stateless facade over an im
 
 It receives `AppManagerFactory`, `WorkExecutor`, and `ArtifactRepository` from composition. It does
 not inspect a target or directly create native threads, web workers,
-paths, dialogs, USB transports, or browser objects. `signal_processing::AppManager` remains the
+paths, dialogs, USB transports, or browser objects. `signal_runtime::AppManager` remains the
 generic process-node executor; graph runtime only translates one compiled graph into its node and
 connection specifications.
 
@@ -145,8 +147,9 @@ persistence. The cross-crate value is a catalog snapshot and diagnostic, never a
 
 `signal_artifacts` owns the extracted platform-neutral artifact and byte-source boundary. Consumers
 import its contracts directly; `signal_processing` does not re-export them. The remaining
-`signal_processing` implementation contains four independently changing domains: stream execution,
-capture data/indexing, derived-data storage, and capture-session control.
+`signal_runtime` owns the extracted stream-execution domain. `signal_processing` contains the
+remaining independently changing capture data/indexing, derived-data storage, and capture-session
+control domains.
 
 The proposed-future endpoint is a small set of lower-level crates with an umbrella facade only if
 it preserves a clear import path:
@@ -165,21 +168,19 @@ signal_runtime
 | Proposed owner | Responsibility | Current material |
 | --- | --- | --- |
 | `signal_artifacts` | Platform-neutral immutable byte regions, artifact identities, repository contracts, in-memory implementation, and replication | `crates/signal_artifacts` |
-| `signal_runtime` | Typed ports and channels, `ProcessNode`, pipeline construction, schedulers, managers, generic work execution, and runtime errors | private `signal_processing::runtime` owner |
+| `signal_runtime` | Typed ports and channels, `ProcessNode`, pipeline construction, schedulers, managers, generic work execution, and runtime errors | `crates/signal_runtime` |
 | `signal_capture` | Generic capture source/index/query contracts and finite waveform indexing | `capture`, `waveform_index`, sample/edge query types |
 | `signal_derived` | Generic payload registration, collected-lane contracts, sampling points, derived indexes, and encoded derived stores | `payload`, `derived_data_collector`, `derived_word_store`, `sampling_points`, `derived_index` |
 | `signal_capture_session` | Driver-neutral acquisition lifecycle, session storage, capture policy, and trigger-program contracts | `live_capture`, `live_capture_store`, `capture_policy`, `advanced_trigger`, current `logic_analyzer` contracts |
 
-The remaining decomposition is proposed future structure, not a mandate to create four more crates
-immediately. Stream execution is grouped behind the private `signal_processing::runtime` owner
-facade, with tests excluding storage, indexing, session, payload, and artifact dependencies. The
-next safe changes establish equivalent capture, derived-data, and capture-session facades and
-replace the runtime's remaining capture-specific negotiation dependencies with generic contracts.
+The remaining capture, derived-data, and capture-session decomposition is proposed future
+structure, not a mandate to create three more crates immediately. Runtime payload negotiation uses
+generic type, stream-semantics, capacity, and capability contracts; architecture tests exclude
+signal payload, storage, indexing, session, and artifact dependencies from `signal_runtime`.
 Further extraction occurs only after the dependency direction is mechanically verified.
 
-The umbrella name `signal_processing` remains suitable only if it exposes a curated compatibility
-facade. New cross-crate imports use the owning domain path rather than a flat root re-export.
-Compatibility re-exports are explicitly temporary and are removed through a versioned migration.
+`signal_processing` is not an umbrella for runtime contracts. Consumers import execution contracts
+directly from `signal_runtime` and signal-domain contracts directly from `signal_processing`.
 
 ## Module rules
 
@@ -237,9 +238,8 @@ change architectural.
    and emits its existing user-visible warnings at the load boundary.
 2. Move graph catalog directory configuration behind a UI-owned portable service and a
    platform-owned path adapter. Split UI-capable plugins into core and presentation companions.
-3. Establish private `signal_processing` owner facades, then extract `signal_runtime` after its
-   dependency tests pass. Extract capture and derived domains only when consumers need independent
-   release or compilation boundaries.
+3. Establish capture, derived-data, and capture-session owner facades. Extract one only when its
+   dependency tests pass and consumers need an independent compilation boundary.
 
 No migration changes stable node IDs, payload IDs, serialized graph state, graph extensions, or
 renderer keys. Saved-document compatibility is implemented by the affected concrete graph-node or

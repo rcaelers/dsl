@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use signal_runtime::WorkerKernelRegistry;
+
 #[cfg(test)]
 use super::capture_index_kernel::CaptureIndexBlockLevels;
 use super::capture_index_kernel::{
@@ -7,7 +9,6 @@ use super::capture_index_kernel::{
 };
 use super::derived_word_store::{EncodeWordBlockRequest, encode_owned_word_block};
 use super::events::{Word, WordPayload};
-use crate::runtime::WorkerKernelRegistry;
 
 const ENCODE_WORD_BLOCK_OPERATION: &str = "signal-processing.encode-word-block/v1";
 const BUILD_CAPTURE_INDEX_BLOCK_OPERATION: &str = "signal-processing.build-capture-index-block/v1";
@@ -278,8 +279,9 @@ impl<'a> PayloadReader<'a> {
 
 #[cfg(test)]
 mod worker_kernel_tests {
+    use signal_runtime::{WorkerMessage, WorkerOperation, WorkerRequest};
+
     use super::*;
-    use crate::{WorkerMessage, WorkerOperation, WorkerRequest};
 
     #[test]
     fn derived_word_kernel_round_trips_binary_and_text_payloads() {

@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
+use signal_runtime::{InputPort, PortDirection, PortSchema, WorkResult};
+
 use super::collector::{DRAIN_BATCH_SIZE, DerivedDataRetention};
 use super::indexed::{IndexedLaneQuery, IndexedLaneSnapshot, IndexedLaneWriter, indexed_lane};
 use super::storage::in_memory_storage_snapshot;
@@ -10,7 +12,6 @@ use crate::payload::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
     CollectedLaneStorageSnapshot, OpaqueCollectedLaneSnapshot, PayloadAdapter,
 };
-use crate::runtime::{InputPort, PortDirection, PortSchema, WorkResult};
 use crate::{Word, WordPayload};
 
 /// Immutable bounded result of a built-in text-level lane query.
@@ -232,7 +233,7 @@ impl TextLane {
 
 impl CollectedLaneIngestor for TextLane {
     fn input_schema(&self, index: usize) -> PortSchema {
-        PortSchema::new::<TextSample>(format!("in{index}"), index, PortDirection::Input)
+        PortSchema::state::<TextSample>(format!("in{index}"), index, PortDirection::Input)
     }
 
     fn drain(&mut self, input: &InputPort, _retention: DerivedDataRetention) -> WorkResult<usize> {

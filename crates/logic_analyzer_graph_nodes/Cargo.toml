@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 signal-processing = { path = "../signal_processing" }
+signal-runtime = { workspace = true }
 signal-artifacts = { workspace = true }
 logic-analyzer-graph-capabilities = { path = "../logic_analyzer_graph_capabilities" }
 logic-analyzer-graph-registry = { path = "../logic_analyzer_graph_registry" }

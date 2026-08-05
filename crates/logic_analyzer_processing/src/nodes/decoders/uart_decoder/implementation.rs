@@ -9,9 +9,9 @@ use std::collections::VecDeque;
 
 use tracing::{debug, trace};
 
-use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Receiver, Sample, Trigger, Word,
-    WorkError, WorkResult,
+use signal_processing::{Sample, Trigger, Word};
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Receiver, WorkError, WorkResult,
 };
 
 use crate::types::BitOrder;
@@ -189,15 +189,18 @@ impl ProcessNode for UartDecoder {
     }
 
     fn input_schema(&self) -> Vec<PortSchema> {
-        vec![PortSchema::new::<Sample>("rx", 0, PortDirection::Input)]
+        vec![PortSchema::state::<Sample>("rx", 0, PortDirection::Input)]
     }
 
     fn output_schema(&self) -> Vec<PortSchema> {
         vec![
-            PortSchema::new::<Word>("words", 0, PortDirection::Output),
+            PortSchema::new::<Word>("words", 0, PortDirection::Output)
+                .with_default_buffer_capacity(8),
             PortSchema::new::<Trigger>("error", 1, PortDirection::Output),
-            PortSchema::new::<Word>("bits", 2, PortDirection::Output),
-            PortSchema::new::<Word>("frame", 3, PortDirection::Output),
+            PortSchema::new::<Word>("bits", 2, PortDirection::Output)
+                .with_default_buffer_capacity(8),
+            PortSchema::new::<Word>("frame", 3, PortDirection::Output)
+                .with_default_buffer_capacity(8),
         ]
     }
 
@@ -372,7 +375,7 @@ impl ProcessNode for UartDecoder {
 #[cfg(test)]
 mod tests {
     use crossbeam_channel::bounded;
-    use signal_processing::{ChannelMessage, Sender, Watchdog};
+    use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
     use super::*;
 

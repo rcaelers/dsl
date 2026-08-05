@@ -8,9 +8,8 @@ use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     LogicChunk, OutputRegistration, SigrokExecution, SigrokExecutionConfig, SigrokExecutionFactory,
     SigrokExecutionInput, SigrokExecutionOptionValue, SigrokExecutionOutput,
 };
-use signal_processing::{
-    InlineWorkExecutor, NodeCancellation, ProtocolPacket, ProtocolValue, WorkExecutor,
-};
+use signal_processing::{ProtocolPacket, ProtocolValue};
+use signal_runtime::{InlineWorkExecutor, NodeCancellation, WorkExecutor};
 
 use super::{DecoderOutput, DecoderWorker, OptionValue, WorkerConfig, WorkerInputConfig};
 
@@ -250,15 +249,15 @@ mod execution_tests {
 
         fn submit(
             &self,
-            task: signal_processing::WorkExecutorTask,
-        ) -> Result<Box<dyn signal_processing::WorkTask>, String> {
+            task: signal_runtime::WorkExecutorTask,
+        ) -> Result<Box<dyn signal_runtime::WorkTask>, String> {
             self.submit_long_running(task)
         }
 
         fn submit_long_running(
             &self,
-            task: signal_processing::WorkExecutorTask,
-        ) -> Result<Box<dyn signal_processing::WorkTask>, String> {
+            task: signal_runtime::WorkExecutorTask,
+        ) -> Result<Box<dyn signal_runtime::WorkTask>, String> {
             Ok(Box::new(TestWorkTask {
                 handle: Some(std::thread::spawn(task)),
             }))
@@ -269,7 +268,7 @@ mod execution_tests {
         handle: Option<JoinHandle<()>>,
     }
 
-    impl signal_processing::WorkTask for TestWorkTask {
+    impl signal_runtime::WorkTask for TestWorkTask {
         fn is_finished(&self) -> bool {
             self.handle.as_ref().is_none_or(JoinHandle::is_finished)
         }

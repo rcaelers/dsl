@@ -23,8 +23,9 @@ use signal_artifacts::{
 };
 use signal_processing::{
     CaptureIndexPreparationRequest, CaptureMetadata, CaptureWorkerOperationRegistry,
-    CaptureWorkerPreparedIndex, ProcessNode, WorkExecutor, WorkerOperation,
+    CaptureWorkerPreparedIndex,
 };
+use signal_runtime::{ProcessNode, WorkExecutor, WorkerOperation};
 
 const DSL_PREPARATION_OPERATION: &str = "logic-analyzer.dsl-file.prepare/v1";
 const SIGROK_PREPARATION_OPERATION: &str = "logic-analyzer.sigrok-file.prepare/v1";

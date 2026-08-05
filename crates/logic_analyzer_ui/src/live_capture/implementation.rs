@@ -2,8 +2,9 @@ use node_graph::{GraphState, NodeId};
 use signal_processing::{
     CaptureAcquisitionPhase, CaptureCommandCapabilities, CaptureCompletion, CaptureHealth,
     CaptureIndex, CaptureProgress, CaptureProviderCapabilities, CaptureSessionId,
-    CaptureSessionOutcome, CaptureSessionPlan, CaptureSessionState, ProcessNode,
+    CaptureSessionOutcome, CaptureSessionPlan, CaptureSessionState,
 };
+use signal_runtime::ProcessNode;
 
 /// Outer `Option` on the coordinator method means "no update"; this inner
 /// option carries either a new growing index or an explicit detach.
@@ -85,7 +86,7 @@ pub(crate) struct CaptureSessionStatus {
 pub(crate) struct PreparedConfigurationEpoch {
     pub(crate) epoch_id: u64,
     pub(crate) source_sample: u64,
-    pub(crate) boundary: signal_processing::ConfigurationBoundary,
+    pub(crate) boundary: signal_runtime::ConfigurationBoundary,
     pub(crate) graph: node_graph::GraphState,
 }
 

@@ -1,7 +1,8 @@
 //! Deterministic UART waveform generator used by tests.
 
-use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Sample, WorkError, WorkResult,
+use signal_processing::Sample;
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };
 
 /// In-memory UART source for demos and tests.
@@ -88,7 +89,7 @@ impl ProcessNode for SyntheticUartSource {
     }
 
     fn output_schema(&self) -> Vec<PortSchema> {
-        vec![PortSchema::new::<Sample>("rx", 0, PortDirection::Output)]
+        vec![PortSchema::state::<Sample>("rx", 0, PortDirection::Output)]
     }
 
     fn work(&mut self, _inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {

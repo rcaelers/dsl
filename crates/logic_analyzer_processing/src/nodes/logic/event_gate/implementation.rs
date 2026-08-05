@@ -2,9 +2,10 @@
 
 use std::collections::VecDeque;
 
-use signal_processing::{
-    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Sample, Trigger, WorkError,
-    WorkOutcome, WorkResult,
+use signal_processing::{Sample, Trigger};
+use signal_runtime::{
+    InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,
+    WorkResult,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,7 +101,7 @@ impl ProcessNode for EventGate {
     fn input_schema(&self) -> Vec<PortSchema> {
         vec![
             PortSchema::new::<Trigger>("events", 0, PortDirection::Input),
-            PortSchema::new::<Sample>("gate", 1, PortDirection::Input),
+            PortSchema::state::<Sample>("gate", 1, PortDirection::Input),
         ]
     }
 
@@ -151,7 +152,7 @@ impl ProcessNode for EventGate {
 #[cfg(test)]
 mod implementation_tests {
     use crossbeam_channel::bounded;
-    use signal_processing::{ChannelMessage, Sender, Watchdog};
+    use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
     use super::*;
 

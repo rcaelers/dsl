@@ -596,7 +596,7 @@ pub struct App {
     pub(crate) timeline_marker_owners: HashMap<String, (NodeId, String)>,
     pub(crate) timeline_marker_error: Option<String>,
     pub(crate) timeline_marker_reference_error: Option<String>,
-    pub(crate) _worker_operation_executor: Rc<dyn signal_processing::WorkerOperationExecutor>,
+    pub(crate) _worker_operation_executor: Rc<dyn signal_runtime::WorkerOperationExecutor>,
 }
 
 fn capture_storage_from_index(
