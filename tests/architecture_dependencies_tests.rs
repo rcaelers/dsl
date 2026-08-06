@@ -316,6 +316,25 @@ fn node_graph_depends_only_on_portable_widget_and_document_contracts() {
 }
 
 #[test]
+fn capture_formats_depend_only_on_portable_capture_and_host_contracts() {
+    let dependencies =
+        local_resolved_non_dev_dependencies(workspace_metadata(), "logic-analyzer-capture-formats");
+
+    assert_eq!(
+        dependencies,
+        BTreeSet::from([
+            "platform-artifacts".to_owned(),
+            "platform-runtime".to_owned(),
+            "signal-capture".to_owned(),
+            "signal-capture-session".to_owned(),
+            "signal-generators".to_owned(),
+            "signal-runtime".to_owned(),
+        ]),
+        "capture-format processing may depend only on portable storage, capture, source-generation, and execution contracts"
+    );
+}
+
+#[test]
 fn headless_graph_tier_depends_on_the_document_model_not_the_node_editor() {
     let metadata = workspace_metadata();
 

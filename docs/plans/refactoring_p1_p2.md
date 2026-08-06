@@ -27,7 +27,7 @@ the named function/type over the number when they disagree.
 
 ## tests.architecture-structural (P2) {#tests-architecture-structural}
 
-**Problem.** ~589 lines of `architecture_tests.rs` remain across the workspace that `include_str!`
+**Problem.** ~558 lines of `architecture_tests.rs` remain across the workspace that `include_str!`
 sibling files and assert `.contains("…")` (largest: `logic_analyzer_viewer` 66 lines, followed by
 `signal_runtime` at 59 and the signal capture-session suite at 52). They break on
 renames, pass when the string appears in a comment, and prove nothing about the compiled contract.
@@ -57,17 +57,21 @@ resolved non-dev dependency graph. Its forbidden-edge contract is:
      contracts within the workspace.
    - `node-graph` depends only on portable input-binding, document-model, and widget-support
      contracts within the workspace.
+   - `logic-analyzer-capture-formats` depends only on portable artifact, execution, capture-session,
+     capture, source-generation, and typed-stream contracts within the workspace.
    Target-specific edges participate in the resolved graph; dev-dependencies are allowed except for
    the explicit UI composition rule above.
 2. The real built-in and example-plugin inventories construct a `GraphRegistry` snapshot in a
    cross-crate test. Registration descriptors must match the snapshot, override stable IDs resolve,
    and duplicate overrides are rejected.
+3. A cross-crate factory probe locks the DSL and Sigrok source factories to `Send + Sync`, neutral
+   host inputs, lazy metadata, and metadata-bearing process-node construction.
 
 **Direction.**
 
 1. Go through each remaining `architecture_tests.rs` rule by rule: delete rules now covered structurally;
    keep a string test only where no structural probe exists (e.g. "no `std::env` access in
    tests"), and add a one-line comment saying why it stays textual.
-2. Prioritize the `logic_analyzer_capture_formats` suite. Do not replace an implementation-text
-   check with another filename-sensitive source scan; prefer a dependency edge, public API probe,
-   registry construction, or behavior test.
+2. Prioritize the UI `capture_export_service` suite. Do not replace an implementation-text check
+   with another filename-sensitive source scan; prefer a dependency edge, public API probe, registry
+   construction, or behavior test.
