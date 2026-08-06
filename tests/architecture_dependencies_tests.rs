@@ -223,6 +223,17 @@ fn derived_data_depends_only_on_generic_lower_level_contracts() {
 }
 
 #[test]
+fn signal_runtime_depends_only_on_the_host_scheduling_contract() {
+    let dependencies = local_resolved_non_dev_dependencies(workspace_metadata(), "signal-runtime");
+
+    assert_eq!(
+        dependencies,
+        BTreeSet::from(["platform-runtime".to_owned()]),
+        "generic typed-stream execution may depend only on the neutral host scheduling contract"
+    );
+}
+
+#[test]
 fn headless_graph_tier_depends_on_the_document_model_not_the_node_editor() {
     let metadata = workspace_metadata();
 

@@ -27,9 +27,9 @@ the named function/type over the number when they disagree.
 
 ## tests.architecture-structural (P2) {#tests-architecture-structural}
 
-**Problem.** ~686 lines of `architecture_tests.rs` remain across the workspace that `include_str!`
-sibling files and assert `.contains("…")` (largest: `logic_analyzer_viewer` 66 lines,
-`signal_runtime` 60, and the UI live-capture suite 59). They break on renames, pass when the string
+**Problem.** ~685 lines of `architecture_tests.rs` remain across the workspace that `include_str!`
+sibling files and assert `.contains("…")` (largest: `logic_analyzer_viewer` 66 lines, followed by
+`signal_runtime` and the UI live-capture suite at 59 each). They break on renames, pass when the string
 appears in a comment, and prove nothing about the compiled contract.
 
 The top-level integration package parses `cargo metadata --format-version 1` and asserts the
@@ -48,6 +48,7 @@ resolved non-dev dependency graph. Its forbidden-edge contract is:
      derived-data contracts within the workspace.
    - `signal-derived` depends only on generic artifact, execution, and capture contracts within the
      workspace.
+   - `signal-runtime` depends only on the neutral host-scheduling contract within the workspace.
    Target-specific edges participate in the resolved graph; dev-dependencies are allowed.
 2. The real built-in and example-plugin inventories construct a `GraphRegistry` snapshot in a
    cross-crate test. Registration descriptors must match the snapshot, override stable IDs resolve,
@@ -58,6 +59,6 @@ resolved non-dev dependency graph. Its forbidden-edge contract is:
 1. Go through each remaining `architecture_tests.rs` rule by rule: delete rules now covered structurally;
    keep a string test only where no structural probe exists (e.g. "no `std::env` access in
    tests"), and add a one-line comment saying why it stays textual.
-2. Prioritize `signal_runtime` and the UI service suites. Do not replace an implementation-text
-   check with another filename-sensitive source scan; prefer a dependency edge, public API probe,
-   registry construction, or behavior test.
+2. Prioritize the UI service suites. Do not replace an implementation-text check with another
+   filename-sensitive source scan; prefer a dependency edge, public API probe, registry construction,
+   or behavior test.

@@ -6,55 +6,54 @@ fn implementation_source(source: &'static str) -> &'static str {
 }
 
 #[test]
-fn runtime_has_no_signal_domain_or_storage_dependency() {
+fn runtime_has_no_concrete_signal_domain_special_cases() {
+    // Cargo metadata proves that concrete signal owners are not dependencies, but it cannot detect
+    // dispatch on their type names, so this remains an intentional source-level assertion.
     let sources = [
-        include_str!("app_manager/contract.rs"),
-        include_str!("app_manager/cooperative.rs"),
-        include_str!("app_manager/implementation.rs"),
-        include_str!("cooperative_manager.rs"),
-        include_str!("errors.rs"),
-        include_str!("graph.rs"),
-        include_str!("manager.rs"),
-        include_str!("node.rs"),
-        include_str!("pipeline.rs"),
-        include_str!("ports.rs"),
-        include_str!("protocol.rs"),
-        include_str!("receiver.rs"),
-        include_str!("scheduler.rs"),
-        include_str!("sender.rs"),
-        include_str!("type_registry.rs"),
-        include_str!("watchdog.rs"),
+        (
+            "application-manager contract",
+            include_str!("app_manager/contract.rs"),
+        ),
+        (
+            "cooperative application manager",
+            include_str!("app_manager/cooperative.rs"),
+        ),
+        (
+            "application manager",
+            include_str!("app_manager/implementation.rs"),
+        ),
+        (
+            "cooperative manager",
+            include_str!("cooperative_manager.rs"),
+        ),
+        ("errors", include_str!("errors.rs")),
+        ("graph", include_str!("graph.rs")),
+        ("manager", include_str!("manager.rs")),
+        ("node", include_str!("node.rs")),
+        ("pipeline", include_str!("pipeline.rs")),
+        ("ports", include_str!("ports.rs")),
+        ("protocol", include_str!("protocol.rs")),
+        ("receiver", include_str!("receiver.rs")),
+        ("scheduler", include_str!("scheduler.rs")),
+        ("sender", include_str!("sender.rs")),
+        ("type registry", include_str!("type_registry.rs")),
+        ("watchdog", include_str!("watchdog.rs")),
     ];
 
-    for forbidden in [
-        "signal_capture_session",
-        "platform_artifacts",
-        "SampleBlock",
-        "NumberSample",
-        "TextSample",
-        "EdgeQuery",
-        "CaptureSession",
-        "DerivedLanes",
-    ] {
-        assert!(
-            sources
-                .iter()
-                .all(|source| !implementation_source(source).contains(forbidden)),
-            "generic runtime contains domain/storage token {forbidden:?}"
-        );
+    for (component, source) in sources {
+        let source = implementation_source(source);
+        for forbidden in [
+            "CaptureSession",
+            "DerivedLanes",
+            "EdgeQuery",
+            "NumberSample",
+            "SampleBlock",
+            "TextSample",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "generic runtime component {component} contains domain token {forbidden:?}"
+            );
+        }
     }
-}
-
-#[test]
-fn application_manager_is_a_portable_facade() {
-    let library = include_str!("lib.rs");
-    let facade = include_str!("app_manager/mod.rs");
-    assert!(!library.contains("type AppManager"));
-    assert!(!facade.contains("target_arch"));
-    assert!(facade.contains("mod contract;"));
-    assert!(facade.contains("mod cooperative;"));
-    assert!(facade.contains("mod implementation;"));
-    assert!(facade.contains("mod pipeline;"));
-    assert!(facade.contains("AppManagerBackend"));
-    assert!(facade.contains("AppManagerFactory"));
 }
