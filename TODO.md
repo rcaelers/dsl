@@ -46,18 +46,20 @@ Task IDs start with their ownership category and remain stable when task wording
   unsupported browsers, insecure contexts, denied permission, and unavailable devices as source capabilities and
   user-facing diagnostics.
 - [capture.web.usb-worker-session] Establish a worker-owned browser USB session after window permission is granted.
-  Resolve the permitted U3Pro16 by VID/PID, validate its runtime identity, select configuration 1, claim interface 0,
-  handle reconnect/disconnect, and conservatively select High-Speed acquisition limits unless the effective link
-  speed can be established from hardware-validated descriptors.
+  Platform transfers and owns a generic permitted WebUSB handle and reports neutral transport events. The injected
+  U3Pro16 device layer resolves VID/PID, validates runtime identity, selects configuration 1, claims interface 0,
+  handles device policy for reconnect/disconnect, and conservatively selects High-Speed acquisition limits unless
+  the effective link speed can be established from hardware-validated descriptors.
 - [capture.web.usb-fpga-image] Define and implement a lawful browser FPGA-image acquisition policy. The application
   website does not bundle or redistribute `DSLogicU3Pro16.bin`, and users must not have to install DSView merely to
   obtain it. Already-configured devices proceed without an upload. An unconfigured or incompatible device requires
   an independently downloadable vendor-authorized image or an image explicitly selected by the user; if neither is
   available, report that capture cannot configure the FPGA. Persist a user-supplied image only with explicit consent.
-- [capture.web.usb-adapter] Implement the WebUSB U3Pro16 transport and source-factory override in
-  `logic_analyzer_platform`. Translate WebUSB promises, endpoint numbers, control-request fields, transfer statuses,
-  short transfers, stalls, timeouts, cancellation, and disconnects into the portable transport contract. Preserve the
-  existing protocol and capture behavior; never substitute a synthetic live source.
+- [capture.web.usb-adapter] Implement a device-neutral WebUSB capability in `logic_analyzer_platform`. Translate
+  promises, endpoint numbers, control-request fields, transfer statuses, short transfers, stalls, timeouts,
+  cancellation, and disconnects into a neutral USB transport contract. Implement the U3Pro16 transport adaptation
+  in its device crate and assemble its source-factory override in `app_web`; platform must not import the U3Pro16
+  protocol or graph node. Preserve the existing protocol and capture behavior; never substitute a synthetic source.
 - [capture.web.usb-validation] Validate WebUSB with a real U3Pro16 in supported desktop Chromium: first permission,
   permission propagation to the capture worker, interface contention, already-configured and image-required startup,
   finite and streaming capture, trigger headers, sustained throughput, stop/abort, disconnect, reconnect, and browser
@@ -121,9 +123,10 @@ else, and no P3 item gates a P2.
      leaf artifacts with the same cancellation, bounded-memory, and progress behavior. The current
      20-worker profiles do not justify starting this prototype: summary work is already off the
      critical path, and GPU dispatch would additionally transfer 1.25–2.73 GB of packed input.
-  2. [ ] Preserve platform boundaries: `signal_capture` owns only the portable kernel contract and
-     CPU fallback; `logic_analyzer_platform` owns native and WebGPU adapters, capability
-     discovery, batching, and unavailable-GPU handling. Do not add target conditionals or GPU
+  2. [ ] Preserve platform boundaries: `signal_capture` owns the portable summary kernel, CPU
+     fallback, and any adapter from neutral compute operations to capture summaries;
+     `logic_analyzer_platform` owns only device-neutral native/WebGPU access, capability discovery,
+     submission, and unavailable-GPU handling. Do not add target conditionals or GPU
      dependencies to portable processing, viewer, compiler, or concrete-node crates. Keep
      decompression, source I/O, protocol decoding, and derived-data caching on their current CPU
      paths unless measurements identify a separate regular, transfer-efficient kernel.
@@ -234,10 +237,11 @@ item here, so acceptance comparisons stop being ad-hoc.
      regular scan kernel dominating wall time and its inputs can remain GPU-resident across several
      operations. Include transfer, synchronization, cancellation, and result-ordering costs; do not
      add GPU branches to generic runtime/compiler infrastructure.
-   - [ ] [platform.gpu-capability] If any GPU prototype wins, define the capability and portable CPU
-     fallback in the owning core crate, implement native/WebGPU adapters only in
-     `logic_analyzer_platform`, inject them at composition roots, and expose availability/fallback
-     diagnostics. Never make cache identity depend on the selected device.
+   - [ ] [platform.gpu-capability] If any GPU prototype wins, define a device-neutral compute
+     capability below its consumers and implement native/WebGPU access in
+     `logic_analyzer_platform`. Keep kernel/domain adaptation and portable CPU fallbacks in their
+     owning core crates, inject the neutral capability at composition roots, and expose
+     availability/fallback diagnostics. Never make cache identity depend on the selected device.
 
 - [performance.regression-harness] (P3 · medium) Turn the existing capture benchmarks into an opt-in reproducible
   comparison report with warmup policy, alternating A/B order, median and spread, exact identity
@@ -274,14 +278,19 @@ item here, so acceptance comparisons stop being ad-hoc.
 ### Node-graph extraction
 
 - [graph.document-model-extraction] (P2 · medium) Extract the graph document model out of the
-  `node-graph` widget crate. `logic_analyzer_graph_plan`, `logic_analyzer_graph_runtime`, and
-  `logic_analyzer_graph_capabilities` import only `node_graph::api::NodeId` and `Socket`, yet the
-  manifest edge pulls the entire egui widget crate into the plan/runtime/orchestration compile
-  graph and into web workers, contradicting the documented acceptance criterion that the graph
-  runtime has no widget dependency. Move the document identity and state types (`NodeId`,
-  `Socket`, `GraphState`, and their model neighbors) into a small document crate consumed by both
-  the widget and the graph tier, and assert the manifest boundary in an architecture check.
-  Direction, including why the first slice is identities only:
+  `node-graph` widget crate. `Socket` currently combines semantic identity with editor
+  presentation (`egui::Color32`, labels, shape, visibility, and controls), while graph capability
+  contracts accept the complete type. That makes presentation state visible to compiler-facing
+  semantics and prevents a genuinely headless graph tier. Introduce a neutral semantic socket
+  reference containing only stable schema/member identity and direction, and move the persisted
+  document records (`GraphState`, nodes, sockets, connections, frames, neutral positions and
+  presentation values) into a small document crate consumed by both the widget and graph tier.
+  The widget maps those neutral records to egui types. Remove `node-graph` from plan, runtime,
+  capabilities, orchestration, and web-worker execution; then remove it from compiler and registry
+  once editor registration is separated from runtime capability registration. Preserve serde
+  shape and saved-graph migrations explicitly, and assert every resulting manifest boundary.
+  The current direction's identities-only slice is insufficient because capabilities consume the
+  full UI-bearing `Socket`; revise it before implementation:
   [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#graph-document-model-extraction).
 - [graph.extraction.standalone-crate] (P5 · low — blocked by [graph.document-model-extraction])
   Prepare `node-graph` for an eventual separate repository: replace workspace-inherited
@@ -302,7 +311,9 @@ item here, so acceptance comparisons stop being ad-hoc.
      and `WorkError`, covering manager, executor, and worker-message failures.
   2. [ ] Type the graph capability and host-override contracts, including
      `SigrokCatalogScanner`, `SigrokDecoderRuntime::discover`, and `SigrokDecoderRuntime::create`,
-     so a host adapter reports discovery, transport, and configuration failures distinctly.
+     so the domain adapter reports discovery, transport, and configuration failures distinctly;
+     neutral platform capabilities expose their own mechanism-level errors without importing
+     these domain contracts.
   3. [ ] Type source preparation and run diagnostics so `SourcePreparationUpdate::Failed` and the
      UI's run-message path stop matching on message text.
   4. [ ] Keep display strings at the presentation boundary only; generic crates map a concrete
@@ -314,37 +325,52 @@ item here, so acceptance comparisons stop being ad-hoc.
   the design describes. `logic_analyzer_platform::standard_services` currently assembles the whole
   application, so `platform/native.rs` imports `DsLogicU3Pro16SourceFactory`, `SigrokDecoder`,
   `DslFileSource`, and the file-sink factories by name and applies a hand-maintained list of
-  `*_capability_override` calls. Move node selection and override assembly to `app_native` and
-  `app_web`, leaving the platform crate owning target-selected adapters for contracts defined
-  elsewhere. Adding a device or format must not require editing the platform crate.
+  `*_capability_override` calls. Move node selection, override assembly, `AppServices`
+  construction, and the equivalent web-worker graph construction to `app_native` and `app_web`.
+  Adding a node, device, decoder, source, sink, format, or application workflow must not require
+  editing the platform crate.
   The manifest edges are themselves the defect: `logic_analyzer_platform` depends on
   `logic-analyzer-ui`, `logic-analyzer-graph-nodes`, and `logic-analyzer-processing`, placing the
-  adapter crate above the application it should serve. This item removes the `graph-nodes` and
-  `processing` edges by moving node selection and override assembly to the app crates; the UI edge
-  has a different cause and is owned by [composition.platform-ui-inversion]. When both are fixed,
-  an architecture check asserts the platform manifest depends only on contract-defining crates.
+  adapter crate above the application it should serve. This item removes graph and application
+  assembly; [composition.platform-ui-inversion] completes the stricter domain-neutral platform
+  boundary. The web worker must receive an app-built runtime or app-provided factory rather than
+  recreating the concrete override list inside platform. When both items are fixed, an architecture
+  check asserts that platform depends only on neutral host contracts and generic infrastructure.
   Direction: [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#composition-application-roots).
-- [composition.platform-ui-inversion] (P1 · high) Remove the `logic_analyzer_platform` →
-  `logic-analyzer-ui` dependency. Platform adapters implement port traits the UI crate defines —
-  `HostService`, `NodeCatalogService`, `CaptureExportService` — and consume UI-owned value types
-  such as `ApplicationSettings`, `HostCommand`, `OpenDialog`, and `APPLICATION_ID`, so the edge
-  survives [composition.application-roots] on its own. Either move those port contracts and value
-  types into a crate below both consumers, or make `app_native`/`app_web` own the adaptation from
-  platform primitives to UI ports. The docs already state the rule this violates: platform
-  implements "capability contracts defined by core crates".
+- [composition.platform-ui-inversion] (P1 · high) Make `logic_analyzer_platform` a reusable,
+  domain-neutral host-mechanism crate, not merely a crate without a UI dependency. It owns native
+  and web implementations of low-level capabilities such as file and directory access, file
+  dialogs, memory-mapped buffers, web storage, generic USB transport, process/task execution,
+  clocks, and other host mechanisms. It must not know about Logic Conduit application settings,
+  commands, graphs, node catalogs, capture formats, protocol decoders, concrete devices, export
+  workflows, or node names. In particular, remove its dependencies on `logic_analyzer_ui`, graph
+  crates, `logic_analyzer_processing`, and other domain crates.
+  Define narrowly scoped neutral host contracts below both consumers and implement them in
+  platform. Keep domain-aware adaptation above platform: `app_native`/`app_web` compose platform
+  primitives with UI and domain services, while format/device/decoder crates turn injected file,
+  USB, process, or storage capabilities into domain behavior. Do not create one omnibus
+  `logic-analyzer-host-ports` crate containing application constants and UI value types; that
+  would relocate the leak rather than remove platform's domain knowledge. Revisit the crate name
+  once it is reusable outside Logic Conduit.
   Direction: [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#composition-platform-ui-inversion).
 - [composition.host-factory-injection] (P2 · high) Remove the process-global host factory slots in
   `logic_analyzer_graph_nodes::host_configuration`. The `OnceLock`/`RwLock` slots behind
   `install_sigrok_catalog_scanner` and `install_file_source_factories` make initialization order
   significant, prevent two application instances in one process, and prevent tests with different
   hosts from running concurrently. Carry the factories through the injected service bundle to the
-  capability overrides that need them. Do this together with [composition.application-roots]:
-  moving assembly to the app crates while the global slots remain only relocates the install calls.
+  capability overrides that need them. Static `NodeDef::on_update` paths currently read host
+  metadata, so this is not only constructor plumbing: make definition updates pure or inject an
+  instance/context into definition registration, and let an app/domain service discover metadata
+  and write explicit state or schema snapshots. Sigrok-specific runtime and scanner contracts stay
+  with the decoder domain and consume neutral platform primitives; platform must not implement or
+  import Sigrok contracts. Do this together with [composition.application-roots]: moving assembly
+  to the app crates while the global slots remain only relocates the install calls.
   Direction: [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#composition-host-factory-injection).
-- [derived.cache.global-state] (P3 · medium) Give the decoded-block cache an owned handle instead of the
+- [derived.cache.global-state] (P2 · high) Give the decoded-block cache an owned handle instead of the
   process-global `configure_decoded_block_cache`, `decoded_block_cache_stats`, and `clear_cache`
   entry points in `signal_derived`. The memory panel and cache commands then act on a service the
-  application owns rather than on ambient state.
+  application owns rather than on ambient state, allowing multiple application instances and
+  isolated concurrent tests.
   Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#derived-cache-global-state).
 
 ### Application state decomposition
@@ -369,15 +395,28 @@ item here, so acceptance comparisons stop being ad-hoc.
   ownership statements currently stop at the crate wall, which is why the largest single-owner
   violations are invisible to the architecture documentation.
   Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#ui-boundaries-module-ownership).
+- [readability.large-module-decomposition] (P3 · medium) Decompose oversized implementation leaves
+  whose crate responsibility is sound but whose internal ownership is difficult to read.
+  `widgets/panel_layout/src/lib.rs` combines persisted state, geometry, layout algorithms, action
+  reduction, rendering, pointer interaction, and tests in more than 3,500 lines;
+  `node_graph`'s graph interaction leaf and the trigger editor have similar navigation costs.
+  Extract cohesive private leaf modules behind the existing owner facade before considering new
+  crates. Keep behavior and public paths stable, and use the module-ownership rules above to name
+  each leaf by the behavior it owns.
 
 ### Crate boundary corrections
 
 - [processing.domain-split] (P2 · high) Split `logic_analyzer_processing`. Its stated responsibility is the
   negation "concrete", and its 28,000 lines hold a USB device driver, two capture-format parsers,
-  five protocol decoders, a Python decoder host, eleven logic primitives, six sinks, and five
-  benchmark binaries; `clap` and `tracing-subscriber` are library dependencies. Separate the
+  five protocol decoders, a Python decoder host, eleven logic primitives, six sinks, synthetic
+  sources, and three benchmark binaries (with two validation binaries already under platform);
+  `clap` and `tracing-subscriber` are library dependencies. Separate the
   capture formats, the device transports, and the protocol decoders into crates that state a
-  positive responsibility, and move the benchmark and validation binaries out of the library.
+  positive responsibility, and move the benchmark and validation binaries out of reusable
+  libraries. Do not leave primitives, sinks, synthetic/demo sources, and shared types in one
+  residual crate: give output sinks/formats, synthetic sources, and generic logic transforms their
+  own positive owners. Device and decoder crates consume injected neutral file, USB, process, and
+  storage capabilities; they do not move domain behavior into platform.
   Decide [signal.tier-naming] first so the split does not re-pose the tier question crate by
   crate, and do it before the `capture.web.usb-*` backlog adds more transport code to the crate.
   Direction, including the target crate map and PR ordering:
@@ -390,8 +429,11 @@ item here, so acceptance comparisons stop being ad-hoc.
   (`simple_trigger.rs`) and `logic_analyzer_graph_compiler` also import it from the session
   crate, so three consumers currently reach into the generic tier for domain types.
   Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#session-domain-relocation).
-- [session.facade-glob] (P4 · low) Replace `pub use live_capture_store::*` in `signal_capture_session` with an
-  explicit re-export list, as the facade rule requires.
+- [session.facade-glob] (P4 · low) Replace wildcard facade exports with explicit supported
+  lists, as the facade rule requires. Current crate-root examples are
+  `signal_capture_session::live_capture_store::*`, `logic_analyzer_graph_plan::plan::*`, and
+  `logic_analyzer_graph_runtime::runtime::*`. Treat the lists as API contracts and remove duplicate
+  public paths while doing [node-graph.single-import-path].
 - [derived.payload.builtin-registration] (P3 · medium — after the [signal.tier-naming] decision) Register the built-in derived payload kinds through
   `PayloadRegistry` like every other payload. `signal_derived` currently has both an open registry
   and a closed built-in set (`digital_payload_adapter`, `word_payload_adapter`,
@@ -420,11 +462,16 @@ item here, so acceptance comparisons stop being ad-hoc.
 
 - [signal.tier-naming] (P2 decision · high) Settle what the `signal_*` tier promises. The names read as a domain-neutral
   framework, but the crates own `DigitalLaneSnapshot`, `TriggerLaneSnapshot`, `ProtocolPacket`,
-  `SimpleTriggerCondition`, and a `logic_analyzer` module, and no second domain consumes them.
+  `SimpleTriggerCondition`, and a `logic_analyzer` module. The example plugin's custom
+  `CameraFrame` payload already consumes `signal_runtime` and `signal_derived`, demonstrating that
+  the generic extension seam has a second use outside the built-in logic-analyzer payloads.
   Either rename the tier for this application and let it use domain vocabulary directly, or keep
   the names and complete the separation. Until one is chosen, no rule decides which side a new
-  type belongs on. Review recommendation: rename the tier for this application and use domain
-  vocabulary directly — no second domain consumes it and the domain types already live there.
+  type belongs on. Review recommendation: keep `signal_artifacts`, `signal_runtime`,
+  `signal_capture`, and `signal_derived` domain-neutral; move built-in protocol/presentation
+  payloads outward and move trigger/control vocabulary into a small logic-analyzer trigger domain
+  rather than into immutable capture storage. `signal_capture_session` retains only generic
+  acquisition lifecycle, integrity, and storage coordination.
   Make the decision before [processing.domain-split]; executing the rename can follow later.
   Direction for recording the decision:
   [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#signal-tier-naming).
@@ -436,18 +483,34 @@ item here, so acceptance comparisons stop being ad-hoc.
   `.contains("…")`, so they break on a rename or a reformat, pass when the string appears in a
   comment, and prove nothing about the compiled contract. Enforce dependency direction from the
   manifests and enforce capability rules by constructing a registry and asserting on the resulting
-  descriptors. Manifest-based checks would have caught the `logic_analyzer_platform` →
-  `logic-analyzer-ui` edge and the widget dependency in the graph execution tier; the string
-  tests did not. Land the manifest checks together with the P1 composition items so the restored
-  boundaries are locked in as they are established.
+  descriptors. Manifest-based checks would have caught platform's UI, graph, and processing edges
+  and the widget dependency in the graph execution tier; the string tests did not. Assert that
+  platform depends only on neutral host contracts and generic infrastructure, and that compiler
+  and registry also lose the widget dependency after editor registration is separated. Do not
+  mark future boundary assertions ignored: the repository forbids ignored tests. Use an explicit
+  temporary violation allowlist keyed by TODO ID, fail on every unlisted edge, and delete each
+  exception in the refactoring that removes it. Land the manifest checks together with the P1
+  composition items so restored boundaries are locked in as they are established.
   Direction, including the forbidden-edge list:
   [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#tests-architecture-structural).
 - [docs.drift-correction] (P3 · medium) Correct the design statements the code no longer satisfies: `AGENTS.md`
   still describes a `signal_processing` crate that no longer exists, and both `AGENTS.md` and
   `docs/architecture/crate_responsibility.md` describe the application crates as the composition
-  roots and host factories as injected. Normative documents are load-bearing, so each correction
-  either updates the document or is paired with the item above that restores the stated behavior.
+  roots and host factories as injected. `AGENTS.md` also assigns execution and saved-document
+  synchronization too broadly to the compiler; `responsibility_visibility.md` both permits and
+  forbids `pub(super)`; its UI-owned-port statement must be reconciled with the chosen
+  domain-neutral platform boundary. The P1/P2 direction currently contradicts this TODO by keeping
+  platform→processing, proposing an omnibus host-ports crate, limiting graph extraction to
+  identities, recommending domain vocabulary in `signal_*`, counting five processing binaries,
+  and suggesting ignored architecture tests. Revise that direction before implementation.
+  Normative documents are load-bearing, so each correction either describes current behavior or
+  is paired with the item that restores the stated behavior; target architecture belongs in plans,
+  not in present-tense design documents.
   Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#docs-drift-correction).
+- [docs.owner-local-detail] (P4 · low) Keep design detail with its owning crate. The viewer document
+  currently describes capture file formats, indexes, and mipmaps owned by capture/processing and
+  contains stale source paths. Move authoritative format and indexing descriptions to their owners
+  and leave the viewer document describing only how it consumes those contracts.
 - [docs.ownership-statements] (P4 · low) State crate ownership positively. Large parts of
   `crate_responsibility.md` define a crate by what it excludes; one sentence naming what it owns
   and the type it hands to the next layer carries more. Keep an exclusion only where the boundary
