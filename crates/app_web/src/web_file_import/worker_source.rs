@@ -16,15 +16,16 @@ use logic_analyzer_processing::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
     CaptureSourcePresentation, ProcessNodeConstruction,
 };
-use signal_artifacts::{
+use platform_artifacts::{
     ArtifactRepository, ByteRange, PreparedByteSource, RandomAccessReader, SourceCapabilities,
     SourceIdentity, SourceReadError,
 };
+use platform_runtime::{WorkExecutor, WorkerOperation};
 use signal_capture::{
     CaptureIndexPreparationRequest, CaptureMetadata, CaptureWorkerOperationRegistry,
     CaptureWorkerPreparedIndex,
 };
-use signal_runtime::{ProcessNode, WorkExecutor, WorkerOperation};
+use signal_runtime::ProcessNode;
 
 const DSL_PREPARATION_OPERATION: &str = "logic-analyzer.dsl-file.prepare/v1";
 const SIGROK_PREPARATION_OPERATION: &str = "logic-analyzer.sigrok-file.prepare/v1";

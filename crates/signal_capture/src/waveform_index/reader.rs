@@ -1,11 +1,11 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-use signal_artifacts::{
+use platform_artifacts::{
     ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion,
     MemoryArtifactRepository, RepositoryError, SourceIdentity, read_artifact_region,
 };
-use signal_runtime::{InlineWorkExecutor, WorkExecutor};
+use platform_runtime::{InlineWorkExecutor, WorkExecutor};
 
 use super::builder::IndexBuilder;
 use super::exact::exact_window_sample_limit;
@@ -1430,7 +1430,7 @@ mod reader_tests {
     use std::sync::Arc;
     use std::thread::JoinHandle;
 
-    use signal_runtime::{WorkExecutorTask, WorkTask};
+    use platform_runtime::{WorkExecutorTask, WorkTask};
 
     use super::*;
     use crate::capture::{CaptureFingerprint, CaptureSource};

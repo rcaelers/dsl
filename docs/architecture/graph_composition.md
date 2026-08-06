@@ -61,7 +61,7 @@ flowchart LR
     Session --> Capture
     Session --> Derived
     Session --> Stream
-    Capture --> Artifacts[signal_artifacts]
+    Capture --> Artifacts[platform_artifacts]
     Derived --> Artifacts
     Derived --> Capture
     Derived --> Stream

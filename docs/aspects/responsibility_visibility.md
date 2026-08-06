@@ -15,15 +15,17 @@ made explicit at its load or migration boundary.
 
 The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol level:
 
-- `signal_artifacts` owns immutable byte regions, prepared sources, artifact identities,
+- `platform_artifacts` owns immutable byte regions, prepared sources, artifact identities,
   repository contracts, replication, and shared persistence primitives.
-- `signal_runtime` owns generic typed-stream execution, scheduling, and work dispatch.
+- `platform_runtime` owns generic host work scheduling, worker-operation messages, kernel
+  registration, and portable worker-queue policy.
+- `signal_runtime` owns generic typed-stream execution, scheduling, and pipeline supervision.
 - `signal_capture` owns immutable generic capture, query, and finite indexing contracts.
 - `signal_derived` owns generic derived-data payload, collection, indexing, and storage contracts.
 - `signal_capture_session` owns generic capture-session
   contracts. It consumes fixed-width byte ranges, stable source identities, prepared
   random-access sources, immutable byte regions, and portable memory sources directly from
-  `signal_artifacts` without re-exporting them. Host paths, files, mappings, and browser handles
+  `platform_artifacts` without re-exporting them. Host paths, files, mappings, and browser handles
   are absent from those contracts. Its public capture
   vocabulary is `Capture*`; it does not expose DSL, Sigrok, USB, decoder, graph-node, or UI
   terminology.
@@ -154,8 +156,9 @@ nearest owning facade. The allowlist names canonical public namespaces.
 
 | Crate | Public modules | Rationale |
 | --- | --- | --- |
-| `signal_artifacts` | none | Its crate root exposes immutable byte, source, repository, replication, clock, and integrity contracts; implementation modules remain private. |
-| `signal_runtime` | none | Its crate root is the curated generic execution facade; ports, channels, schedulers, managers, and workers remain private implementation modules. |
+| `platform_artifacts` | none | Its crate root exposes immutable byte, source, repository, replication, clock, and integrity contracts; implementation modules remain private. |
+| `platform_runtime` | none | Its crate root exposes host work, worker-operation, kernel, capability, and queue contracts; implementation modules remain private. |
+| `signal_runtime` | none | Its crate root is the curated stream-execution facade; ports, channels, schedulers, and managers remain private implementation modules. |
 | `signal_capture` | none | Its crate root exposes immutable capture, query, edge-capability, and finite-index contracts; implementation modules remain private. |
 | `signal_derived` | `derived_word_store` | The public module owns the independently usable encoded annotation-store contract; other payload, lane, sampling, and index contracts are exposed through the crate facade. |
 | `signal_capture_session` | `live_capture`, `live_capture_store`, `logic_analyzer` | These are substantial generic capture-session domains. `live_capture` owns the provider-neutral configured and prepared acquisition contracts. `logic_analyzer` owns the driver-neutral capture, trigger, and processing-source contracts consumed by concrete device nodes. Lower-level runtime, capture, and derived contracts are imported directly from their owning crates and are not re-exported. |
@@ -211,8 +214,8 @@ complete contract; consumers do not depend on an unnameable backend type or a ta
 collection of incidental helpers.
 
 `AppManager` owns one portable facade over an injected `AppManagerBackend`. The native application
-requests a platform-backed threaded `AppManagerFactory`; the web application selects the portable
-cooperative factory. Graph-runtime and processing code do not inspect the target.
+combines `PipelineAppManagerFactory` with the platform work executor; the web application selects
+the portable cooperative factory. Graph-runtime and processing code do not inspect the target.
 
 Native and web application roots compose the UI `HostService` port. The browser adapter delegates
 byte-oriented document selection, storage, and downloads to `logic_analyzer_platform`; the native
@@ -244,8 +247,9 @@ services.
 `logic_analyzer_platform` is the only reusable crate with general target selection and
 target-specific dependencies. It is an adapter layer above the contract owners:
 
-- `signal_artifacts` owns artifact-repository, prepared-source, and byte-region capability ports;
-- `signal_runtime` owns execution, `signal_capture` owns finite-index capability ports, and
+- `platform_artifacts` owns artifact-repository, prepared-source, and byte-region capability ports;
+- `platform_runtime` owns host work and worker-operation capability ports and portable queue policy;
+- `signal_runtime` owns stream execution, `signal_capture` owns finite-index capability ports, and
   `signal_capture_session` owns capture-session capability ports, and `signal_derived` owns
   derived-store capability ports;
 - `logic_analyzer_processing` owns concrete format and device behavior and the transport ports that

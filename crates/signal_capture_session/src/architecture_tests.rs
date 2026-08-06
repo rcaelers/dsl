@@ -37,7 +37,8 @@ fn generic_storage_does_not_choose_an_application_cache_namespace() {
 fn lower_level_contracts_are_not_redirected_through_signal_capture_session() {
     let library = include_str!("lib.rs");
     for forbidden in [
-        "pub use signal_artifacts",
+        "pub use platform_artifacts",
+        "pub use platform_runtime",
         "pub use signal_capture",
         "pub use signal_derived",
         "pub use signal_runtime",

@@ -14,12 +14,12 @@ use logic_analyzer_graph_orchestration::{
     GraphWorkerClient, GraphWorkerRequest, GraphWorkerRuntime, decode_graph_worker_messages,
     decode_graph_worker_request, encode_graph_worker_messages, encode_graph_worker_request,
 };
-use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository, SourceIdentity};
+use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository, SourceIdentity};
+use platform_runtime::InlineWorkExecutor;
 use signal_capture::{
     CaptureMetadata, CaptureWorkerClient, CaptureWorkerRequest, CaptureWorkerRuntime,
     decode_capture_worker_messages, encode_capture_worker_messages,
 };
-use signal_runtime::InlineWorkExecutor;
 
 const WORKER_BOOTSTRAP: &str = include_str!("capture_worker_bootstrap.js");
 const PUMP_INTERVAL_MS: i32 = 4;

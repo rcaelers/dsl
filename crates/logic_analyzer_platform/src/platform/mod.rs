@@ -22,8 +22,7 @@ std::cfg_select! {
         mod native_worker;
 
         pub use native::{
-            native_app_manager_factory, native_artifact_repository, native_work_executor,
-            native_worker_operation_executor,
+            native_artifact_repository, native_work_executor, native_worker_operation_executor,
         };
         #[cfg(feature = "developer-tools")]
         pub use native_artifact_repository::isolated_native_artifact_repository;

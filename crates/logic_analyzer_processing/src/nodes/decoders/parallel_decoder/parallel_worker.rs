@@ -399,7 +399,8 @@ mod parallel_worker_tests {
 
     use crossbeam_channel::bounded;
 
-    use signal_runtime::{ChannelMessage, ProcessNode, Scheduler, Sender, Watchdog, WorkExecutor, WorkExecutorTask, WorkTask};
+    use platform_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
+use signal_runtime::{ChannelMessage, ProcessNode, Scheduler, Sender, Watchdog};
 
     use super::*;
 

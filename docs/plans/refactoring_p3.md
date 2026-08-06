@@ -13,7 +13,7 @@ P3 items are planned work, often alongside related changes. Ordering that matter
 UI decompositions; the `signal.tier-naming` decision (a P2 item) before
 [session.domain-relocation](#session-domain-relocation) and
 [derived.payload.builtin-registration](#derived-payload-builtin-registration);
-`composition.host-factory-injection` (P2) before step 2 of
+`composition.host-factory-injection` (P2) before step 3 of
 [errors.typed-boundaries](#errors-typed-boundaries).
 
 ## ui.graph-service.port-shape (P3 · medium) {#ui-graph-service-port-shape}
@@ -32,7 +32,7 @@ graph-crate dependencies regardless.
 1. Check what `FakeGraphService` actually fakes in the UI component tests. The testing strategy
    already says UI tests use local implementations — the question is at what level. The cleaner
    seam is *below* the service: construct the real `UiGraphService` over the in-memory
-   `ArtifactRepository` (`signal_artifacts` provides one) and controlled executors, which the
+   `ArtifactRepository` (`platform_artifacts` provides one) and controlled executors, which the
    graph-runtime tests already do. If a handful of tests genuinely need to stub whole-service
    behavior, keep a minimal `#[cfg(test)]` trait for those tests only — not a production
    abstraction.
@@ -130,11 +130,10 @@ existing modules that survive. Keep the threshold advisory, not a hard lint.
 
 ## errors.typed-boundaries (P3 · medium) {#errors-typed-boundaries}
 
-**Current counts** (`Result<_, String>` occurrences): platform 99, UI 71, `signal_runtime` 47,
-`graph_nodes` 31, `processing` 30, `signal_capture` 29, orchestration 16, session 14.
-`signal_runtime` already owns `PortError`, `ConnectionError`, `WorkError`
-(`src/errors.rs`) and `WorkerMessageError` (`src/work_executor.rs`) — extend that surface, do
-not replace it.
+The remaining string-error surfaces are concentrated in platform, UI, graph nodes, processing,
+`platform_runtime`, and `signal_runtime`. `platform_runtime` already owns `WorkerMessageError`;
+`signal_runtime` owns `PortError`, `ConnectionError`, and `WorkError`. Extend those owner-specific
+surfaces rather than replacing them with an umbrella error.
 
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
@@ -147,12 +146,14 @@ not replace it.
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. `signal_runtime`: manager, executor, and worker-message paths that still return `String`.
+1. `platform_runtime`: executor, task, worker-message, kernel-registration, and queue paths that
+   still return `String`.
+2. `signal_runtime`: manager and pipeline-supervision paths that still return `String`.
    Downstream crates then hold typed sources to wrap.
-2. Host-override contracts — `SigrokDecoderRuntime::{discover,create}`,
+3. Host-override contracts — `SigrokDecoderRuntime::{discover,create}`,
    `SigrokCatalogScanner` — *after* `composition.host-factory-injection` has moved them into
    `logic_analyzer_processing`, so the error types are defined once, in their final home.
-3. `graph_runtime` source preparation: give `SourcePreparationUpdate::Failed` a typed cause and
+4. `graph_runtime` source preparation: give `SourcePreparationUpdate::Failed` a typed cause and
    find the UI code that currently distinguishes failures by message text (search `app.rs` and
    the run-message path for string matching on error content) — each such site becomes a match
    on a variant.

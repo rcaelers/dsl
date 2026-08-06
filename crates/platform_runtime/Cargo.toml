@@ -1,24 +1,20 @@
 [package]
-name = "signal-runtime"
+name = "platform-runtime"
 version.workspace = true
 edition = "2024"
 authors = ["Rob Caelers <rob.caelers@gmail.com>"]
-description = "Generic typed-stream graph execution and scheduling"
+description = "Platform-neutral work scheduling and worker-operation contracts"
 repository = "https://github.com/rcaelers/logic-conduit"
 license = "MIT"
 
 [lib]
-name = "signal_runtime"
+name = "platform_runtime"
 path = "src/lib.rs"
 
 [dependencies]
-crossbeam-channel = { workspace = true }
-lazy_static = { workspace = true }
-platform-runtime = { path = "../platform_runtime" }
 serde = { workspace = true }
 thiserror = { workspace = true }
-tracing = { workspace = true }
-web-time = { workspace = true }
 
 [dev-dependencies]
+serde_json = { workspace = true }
 wasm-bindgen-test = { workspace = true }

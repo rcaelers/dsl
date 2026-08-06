@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use memmap2::MmapOptions;
 
-use signal_artifacts::{
+use platform_artifacts::{
     ArtifactKey, ArtifactMetadata, ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion,
     ImmutableByteRegion, ReadArtifact, RepositoryCapabilities, RepositoryError, SourceIdentity,
     WriteArtifact,
@@ -374,7 +374,7 @@ fn hex_value(value: u8) -> Option<u8> {
 #[cfg(test)]
 mod native_artifact_repository_tests {
     use logic_analyzer_test_support::repository_conformance;
-    use signal_artifacts::MemoryArtifactRepository;
+    use platform_artifacts::MemoryArtifactRepository;
 
     use super::*;
 

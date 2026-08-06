@@ -6,6 +6,8 @@ use std::sync::Arc;
 
 use tracing::{debug, info};
 
+use platform_runtime::WorkExecutor;
+
 use super::errors::ConnectionError;
 use super::node::{InputProtocolCandidate, ProcessNode};
 use super::payload_negotiation;
@@ -13,7 +15,6 @@ use super::ports::{InputPort, OutputPort, PortSchema};
 use super::protocol::{ProtocolCapability, ProtocolKind};
 use super::scheduler::Scheduler;
 use super::type_registry::{LabeledSenderBox, TYPE_REGISTRY};
-use super::work_executor::WorkExecutor;
 
 /// Cached per-node schema data, computed once in `add_process` while the
 /// node is still locally owned. Each `PortSchema` carries its own
@@ -632,9 +633,10 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread::JoinHandle;
 
+    use platform_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
+
     use super::super::node::ProcessNode;
     use super::super::ports::{PortPayload, PortSchema};
-    use super::super::work_executor::{WorkExecutor, WorkExecutorTask, WorkTask};
     use super::*;
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -14,7 +14,7 @@ use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TryRecvError, TrySen
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
-use signal_artifacts::ByteRegion;
+use platform_artifacts::ByteRegion;
 
 use crate::advanced_trigger::{
     TriggerEditorSchema, TriggerProgram, TriggerValidationErrors, ValidatedTriggerProgram,

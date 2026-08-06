@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use signal_artifacts::SourceIdentity;
+use platform_artifacts::SourceIdentity;
 
 use super::implementation::{CaptureIndexBuildProgress, CaptureMetadata, CaptureSampledWindow};
 use super::preparation::CaptureIndexPreparationRequest;
@@ -316,7 +316,7 @@ impl<'a> MessageReader<'a> {
 
 #[cfg(test)]
 mod host_protocol_tests {
-    use signal_runtime::WorkerOperation;
+    use platform_runtime::WorkerOperation;
 
     use super::*;
     use crate::CaptureSampledChannel;

@@ -366,7 +366,7 @@ fn message_kind(message: &CaptureWorkerMessage) -> &'static str {
 
 #[cfg(test)]
 mod worker_client_tests {
-    use signal_runtime::WorkerOperation;
+    use platform_runtime::WorkerOperation;
 
     use super::*;
     use crate::{CaptureIndexBuildProgress, CaptureMetadata, CaptureSampledWindow};
@@ -547,8 +547,8 @@ mod worker_client_tests {
                 sequence,
                 session_id: 42,
                 display_name: "cancelled.dsl".to_owned(),
-                source_identity: signal_artifacts::SourceIdentity::from_bytes([2; 32]),
-                index_identity: signal_artifacts::SourceIdentity::from_bytes([3; 32]),
+                source_identity: platform_artifacts::SourceIdentity::from_bytes([2; 32]),
+                index_identity: platform_artifacts::SourceIdentity::from_bytes([3; 32]),
                 metadata: metadata(),
             })
             .unwrap();

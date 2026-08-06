@@ -21,7 +21,7 @@ use logic_analyzer_graph_runtime::{
     SourceReadinessRegistry,
 };
 use node_graph::{GraphState, NodeId};
-use signal_artifacts::ArtifactRepository;
+use platform_artifacts::ArtifactRepository;
 use signal_derived::PersistentStoreConfig;
 use signal_runtime::{ConfigurationBoundary, DisconnectEvent, NodeFailure};
 

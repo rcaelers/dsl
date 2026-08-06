@@ -41,6 +41,7 @@ signal-capture = { path = "../signal_capture" }
 signal-derived = { path = "../signal_derived" }
 signal-capture-session = { path = "../signal_capture_session" }
 signal-runtime = { path = "../signal_runtime" }
+platform-runtime = { path = "../platform_runtime" }
 tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

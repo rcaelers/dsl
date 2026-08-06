@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use signal_artifacts::{
+use platform_artifacts::{
     ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion, RepositoryError,
     SourceIdentity, SystemUnixTimeSource, UnixTimeSource, read_artifact_region,
 };
@@ -1019,7 +1019,7 @@ fn encode_chunk(chunk: &CaptureChunk) -> CaptureStoreResult<Vec<u8>> {
     output.extend_from_slice(&payload_len.to_le_bytes());
     output.extend_from_slice(&channel_bytes);
     output.extend_from_slice(bytes.as_slice());
-    let checksum = signal_artifacts::checksum_parts(&[&output]);
+    let checksum = platform_artifacts::checksum_parts(&[&output]);
     output.extend_from_slice(&checksum.to_le_bytes());
     Ok(output)
 }
@@ -1044,7 +1044,7 @@ fn read_chunk(
         )));
     }
     let stored_checksum = get_u32(bytes, bytes.len() - 4)?;
-    if signal_artifacts::checksum_parts(&[&bytes[..bytes.len() - 4]]) != stored_checksum {
+    if platform_artifacts::checksum_parts(&[&bytes[..bytes.len() - 4]]) != stored_checksum {
         return Err(CaptureStoreError::Corrupt(format!(
             "capture chunk {sequence} checksum mismatch"
         )));
@@ -1227,7 +1227,7 @@ fn get_u128(bytes: &[u8], offset: usize) -> CaptureStoreResult<u128> {
 mod artifact_store_tests {
     use std::sync::Arc;
 
-    use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+    use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 
     use super::{CaptureStore, CaptureStoreConfig, FinalizedCapture, PersistedManifest, chunk_key};
     use crate::{

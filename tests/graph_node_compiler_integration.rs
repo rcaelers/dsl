@@ -15,7 +15,9 @@ use logic_analyzer_graph_runtime::{
     SourceProcessOverrides,
 };
 use node_graph::{GraphState, NodeGraphWidget, NodeId};
-use signal_artifacts::{ArtifactReplicationReceiver, ArtifactRepository, MemoryArtifactRepository};
+use platform_artifacts::{
+    ArtifactReplicationReceiver, ArtifactRepository, MemoryArtifactRepository,
+};
 use signal_capture::{Sample, SampleBlock};
 use signal_capture_session::{
     CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId, CaptureStore,
@@ -331,11 +333,11 @@ fn worker_hosted_large_timeline_returns_bounded_artifacts_and_loadable_cached_la
                     events
                         .iter()
                         .map(|event| match event {
-                            signal_artifacts::ArtifactReplicationEvent::PublishedChunk {
+                            platform_artifacts::ArtifactReplicationEvent::PublishedChunk {
                                 data,
                                 ..
                             } => data.len(),
-                            signal_artifacts::ArtifactReplicationEvent::Removed { .. } => 0,
+                            platform_artifacts::ArtifactReplicationEvent::Removed { .. } => 0,
                         })
                         .sum::<usize>()
                         <= 4 * 1024 * 1024

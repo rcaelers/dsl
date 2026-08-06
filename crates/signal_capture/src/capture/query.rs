@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use signal_artifacts::SourceIdentity;
+use platform_artifacts::SourceIdentity;
 
 use crate::{
     CaptureIndex, CaptureMetadata, CaptureSampledWindow, CaptureSampledWindowPoll, Error, Result,

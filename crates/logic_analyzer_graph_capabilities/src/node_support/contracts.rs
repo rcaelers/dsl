@@ -2,7 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use node_graph::api::NodeId;
-use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository, SourceIdentity};
+use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository, SourceIdentity};
+use platform_runtime::{InlineWorkExecutor, WorkExecutor};
 use signal_capture::CaptureIndexFactory;
 use signal_capture_session::{
     CaptureChannelId, SimpleTriggerCondition, TriggerEditorSchema, TriggerProgram,
@@ -10,7 +11,6 @@ use signal_capture_session::{
 use signal_derived::{
     DerivedDataRetention, DerivedLanes, PersistentStoreConfig, SamplingPointStore, TimelineMarker,
 };
-use signal_runtime::{InlineWorkExecutor, WorkExecutor};
 
 use super::port::PortKind;
 

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
+use platform_runtime::WorkerKernelRegistry;
 use signal_capture::register_capture_worker_kernel;
-use signal_runtime::WorkerKernelRegistry;
 
 use super::derived_word_store::{EncodeWordBlockRequest, encode_owned_word_block};
 use super::events::{Word, WordPayload};
@@ -161,7 +161,7 @@ impl<'a> PayloadReader<'a> {
 
 #[cfg(test)]
 mod worker_kernel_tests {
-    use signal_runtime::{WorkerMessage, WorkerOperation, WorkerRequest};
+    use platform_runtime::{WorkerMessage, WorkerOperation, WorkerRequest};
 
     use super::*;
 

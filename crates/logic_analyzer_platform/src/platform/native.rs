@@ -4,10 +4,9 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use signal_artifacts::ArtifactRepository;
-use signal_runtime::{
-    AppManager, AppManagerBackend, AppManagerFactory, PipelineManager, WorkExecutor,
-    WorkExecutorTask, WorkTask, WorkerKernelRegistry, WorkerOperationExecutor,
+use platform_artifacts::ArtifactRepository;
+use platform_runtime::{
+    WorkExecutor, WorkExecutorTask, WorkTask, WorkerKernelRegistry, WorkerOperationExecutor,
 };
 
 use super::native_artifact_repository::NativeArtifactRepository;
@@ -23,13 +22,6 @@ pub fn native_artifact_repository(application_id: &str) -> Arc<dyn ArtifactRepos
 /// Creates the native bounded executor for finite processing work.
 pub fn native_work_executor() -> Arc<dyn WorkExecutor> {
     Arc::new(NativeWorkExecutor::new())
-}
-
-/// Creates the native threaded application-runtime factory.
-pub fn native_app_manager_factory() -> Arc<dyn AppManagerFactory> {
-    Arc::new(NativeAppManagerFactory {
-        work_executor: Arc::new(NativeRuntimeExecutor),
-    })
 }
 
 /// Creates the native worker-operation executor.
@@ -113,30 +105,6 @@ struct NativeWorkTask {
     completion_receiver: crossbeam_channel::Receiver<()>,
 }
 
-/// Host runtime executor for long-lived node and watchdog supervision.
-///
-/// Runtime tasks may block on stream endpoints, so they deliberately do not
-/// share the bounded worker queue used for finite decoding and indexing work.
-struct NativeRuntimeExecutor;
-
-impl WorkExecutor for NativeRuntimeExecutor {
-    fn available_parallelism(&self) -> usize {
-        1
-    }
-
-    fn supports_long_running_tasks(&self) -> bool {
-        true
-    }
-
-    fn idle(&self, duration: Duration) {
-        std::thread::sleep(duration);
-    }
-
-    fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
-        spawn_runtime_task(task)
-    }
-}
-
 fn spawn_runtime_task(task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
     let completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let task_completed = Arc::clone(&completed);
@@ -168,94 +136,6 @@ impl WorkTask for NativeWorkTask {
 fn run_work_executor_worker(receiver: crossbeam_channel::Receiver<WorkExecutorTask>) {
     while let Ok(task) = receiver.recv() {
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(task));
-    }
-}
-
-struct NativeAppManagerFactory {
-    work_executor: Arc<dyn WorkExecutor>,
-}
-
-impl AppManagerFactory for NativeAppManagerFactory {
-    fn create(&self) -> AppManager {
-        AppManager::with_backend(Box::new(NativeAppManagerBackend {
-            manager: PipelineManager::new(Arc::clone(&self.work_executor)),
-        }))
-    }
-}
-
-struct NativeAppManagerBackend {
-    manager: PipelineManager,
-}
-
-impl AppManagerBackend for NativeAppManagerBackend {
-    fn is_finished(&self) -> bool {
-        self.manager.is_finished()
-    }
-
-    fn add_node(&mut self, spec: signal_runtime::NodeSpec) -> Result<(), String> {
-        self.manager.add_node(spec)
-    }
-
-    fn add_node_deferred(&mut self, spec: signal_runtime::NodeSpec) -> Result<(), String> {
-        self.manager.add_node_deferred(spec)
-    }
-
-    fn start_all_deferred(&mut self) -> Result<(), String> {
-        self.manager.start_all_deferred()
-    }
-
-    fn remove_node(&mut self, name: &str) -> Result<(), String> {
-        self.manager.remove_node(name)
-    }
-
-    fn reconfigure(
-        &mut self,
-        name: &str,
-        config: signal_runtime::NodeConfig,
-    ) -> Result<(), String> {
-        self.manager.reconfigure(name, config)
-    }
-
-    fn reconfigure_at(
-        &mut self,
-        name: &str,
-        config: signal_runtime::NodeConfig,
-        boundary: signal_runtime::ConfigurationBoundary,
-    ) -> Result<(), String> {
-        self.manager.reconfigure_at(name, config, boundary)
-    }
-
-    fn restart_node(
-        &mut self,
-        name: &str,
-        node: Box<dyn signal_runtime::ProcessNode>,
-        inputs: Vec<Option<signal_runtime::InputSub>>,
-    ) -> Result<(), String> {
-        self.manager.restart_node(name, node, inputs)
-    }
-
-    fn progress(&self) -> Vec<(String, u64)> {
-        self.manager.progress()
-    }
-
-    fn take_disconnected(&self) -> Vec<signal_runtime::DisconnectEvent> {
-        self.manager.take_disconnected()
-    }
-
-    fn take_failures(&mut self) -> Vec<signal_runtime::NodeFailure> {
-        self.manager.take_failures()
-    }
-
-    fn request_stop(&mut self) {
-        self.manager.request_stop();
-    }
-
-    fn wait(&mut self) {
-        self.manager.wait();
-    }
-
-    fn pump(&mut self, budget: usize) {
-        self.manager.pump(budget);
     }
 }
 
@@ -291,24 +171,9 @@ fn application_directory(parent: PathBuf, application_id: &str) -> PathBuf {
 
 #[cfg(test)]
 mod native_tests {
-    use std::sync::Arc;
+    use platform_runtime::WorkExecutor;
 
-    use signal_runtime::{AppManagerFactory, WorkExecutor};
-
-    use super::{
-        NativeAppManagerFactory, NativeRuntimeExecutor, NativeWorkExecutor, application_directory,
-    };
-
-    #[test]
-    fn native_runtime_factory_selects_the_threaded_backend() {
-        let factory = NativeAppManagerFactory {
-            work_executor: Arc::new(NativeRuntimeExecutor),
-        };
-        let mut manager = factory.create();
-
-        manager.pump(1);
-        assert!(manager.is_finished());
-    }
+    use super::{NativeWorkExecutor, application_directory};
 
     #[test]
     fn native_work_executor_runs_submitted_work() {

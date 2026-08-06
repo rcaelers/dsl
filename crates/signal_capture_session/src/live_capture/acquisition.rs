@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 
-use signal_runtime::{InlineWorkExecutor, WorkExecutor};
+use platform_runtime::{InlineWorkExecutor, WorkExecutor};
 
 use super::implementation::{
     CaptureAcquisitionPhase, CaptureChunk, CaptureChunkWriter, CaptureCompletion,

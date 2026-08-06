@@ -3,7 +3,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use signal_runtime::{ProcessNode, WorkExecutor};
+use platform_runtime::WorkExecutor;
+use signal_runtime::ProcessNode;
 
 use super::contracts::{SigrokCatalogSnapshot, SigrokDecoderDescriptor};
 use super::implementation::SigrokDecoderConfig;

@@ -27,6 +27,8 @@ use std::sync::{Arc, Mutex};
 
 use tracing::{debug, error, info};
 
+use platform_runtime::{WorkExecutor, WorkTask};
+
 use super::errors::WorkError;
 use super::node::{
     ConfigOutcome, ConfigurationBoundary, ConfigurationScheduler, InputProtocolCandidate,
@@ -38,7 +40,6 @@ use super::protocol::{ProtocolCapability, ProtocolKind};
 use super::sender::OverflowPolicy;
 use super::type_registry::{ErasedSharedSenders, TYPE_REGISTRY};
 use super::watchdog::Watchdog;
-use super::work_executor::{WorkExecutor, WorkTask};
 
 /// One input wire of a node being added: which producer list to join.
 #[derive(Debug, Clone)]
@@ -989,10 +990,11 @@ mod tests {
     use std::thread::JoinHandle;
     use std::time::Duration;
 
+    use platform_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
+
     use super::super::errors::WorkResult;
     use super::super::node::{ConfigValue, WorkOutcome};
     use super::super::ports::{PortDirection, PortSchema};
-    use super::super::work_executor::{WorkExecutor, WorkExecutorTask, WorkTask};
     use super::*;
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -182,7 +182,6 @@ fn application_services() -> (
     logic_analyzer_ui::AppServices,
     Vec<Box<dyn logic_analyzer_ui::NodeCatalogService>>,
 ) {
-    let app_manager_factory = logic_analyzer_platform::native_app_manager_factory();
     let artifact_repository = logic_analyzer_platform::native_artifact_repository(APPLICATION_ID);
     let dsl_file_source_factory =
         logic_analyzer_processing::nodes::sources::dsl_file::prepared_file_source_factory(
@@ -198,6 +197,9 @@ fn application_services() -> (
         );
     let u3pro16_source_factory = crate::u3pro16_host::source_factory();
     let work_executor = logic_analyzer_platform::native_work_executor();
+    let app_manager_factory: Arc<dyn signal_runtime::AppManagerFactory> = Arc::new(
+        signal_runtime::PipelineAppManagerFactory::new(Arc::clone(&work_executor)),
+    );
     let worker_operation_executor = logic_analyzer_platform::native_worker_operation_executor(
         signal_derived::portable_worker_kernels(),
     )

@@ -10,10 +10,10 @@ use logic_analyzer_graph_plan::{
     ProcessingEdge, ProcessingGraph, ProcessingNode, SamplingOverlayCandidate,
 };
 use node_graph::api::NodeId;
-use signal_artifacts::ArtifactRepository;
+use platform_artifacts::ArtifactRepository;
+use platform_runtime::{WorkExecutor, WorkTask};
 use signal_derived::PersistentStoreConfig;
 use signal_derived::derived_word_store::PersistentCacheClearTask;
-use signal_runtime::{WorkExecutor, WorkTask};
 
 use super::derived_cache_backend::{
     DerivedCacheBackend, DerivedCacheLookup, RepositoryDerivedCacheBackend,
@@ -664,9 +664,9 @@ mod cache_policy_tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
 
-    use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+    use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+    use platform_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
     use signal_derived::{IndexedAnnotationWriter, LiveStoreConfig, PersistentStoreConfig, Word};
-    use signal_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
 
     use super::{
         DerivedCacheClearStats, clear_entry, clear_repository, inspect_entry,

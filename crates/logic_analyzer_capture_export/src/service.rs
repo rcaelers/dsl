@@ -7,7 +7,7 @@ use std::thread::JoinHandle;
 
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
 
-use signal_artifacts::ArtifactRepository;
+use platform_artifacts::ArtifactRepository;
 use signal_capture_session::{
     CaptureSessionId, CaptureSessionRepository, CaptureSessionRepositoryConfig,
 };

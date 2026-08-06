@@ -3,14 +3,15 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use signal_artifacts::{ArtifactRepository, PreparedByteSource};
+use platform_artifacts::{ArtifactRepository, PreparedByteSource};
+use platform_runtime::{InlineWorkExecutor, WorkExecutor, WorkTask};
 use signal_capture::{
     CaptureDataSource, CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory,
     CaptureIndexOpenTask, CaptureMetadata, Result, Sample, SampleBlock,
 };
 use signal_runtime::{
-    InlineWorkExecutor, InputPort, OutputPort, PortDirection, PortPayload, PortSchema, ProcessNode,
-    RuntimeExecutionMode, Sender, WorkError, WorkExecutor, WorkOutcome, WorkResult, WorkTask,
+    InputPort, OutputPort, PortDirection, PortPayload, PortSchema, ProcessNode,
+    RuntimeExecutionMode, Sender, WorkError, WorkOutcome, WorkResult,
 };
 
 use super::cooperative::CooperativeSigrokReader;
@@ -382,11 +383,10 @@ impl Drop for SigrokFileSource {
 mod tests {
     use std::collections::BTreeMap;
 
-    use signal_artifacts::SourceIdentity;
+    use platform_artifacts::SourceIdentity;
+    use platform_runtime::{CompletedWorkTask, WorkExecutor, WorkExecutorTask, WorkTask};
     use signal_capture::{CaptureDataSource, CaptureSource};
-    use signal_runtime::{
-        CompletedWorkTask, OutputPort, Sender, Watchdog, WorkExecutor, WorkExecutorTask, WorkTask,
-    };
+    use signal_runtime::{OutputPort, Sender, Watchdog};
 
     use super::*;
     use crate::support::capture_archive::CaptureArchive;

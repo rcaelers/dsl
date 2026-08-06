@@ -5,15 +5,16 @@
 `signal_capture_session` owns the portable generic capture-session domain: acquisition lifecycle,
 append-only live storage, capture policy, trigger programs, and driver-neutral capture control. It
 consumes immutable capture from `signal_capture`, retained outputs from `signal_derived`, artifact
-contracts from `signal_artifacts`, and execution from `signal_runtime`.
+contracts from `platform_artifacts`, and execution from `signal_runtime`.
+Host work scheduling comes from `platform_runtime`.
 It owns no concrete device, capture format, protocol decoder, graph node, UI, host adapter, or
 target selection.
 
 ## Runtime boundary
 
 `signal_runtime` owns typed ports and channels, `ProcessNode`, pipeline construction, schedulers,
-managers, watchdogs, runtime errors, and generic worker execution. This crate imports those
-contracts directly and does not re-export them. `signal_capture` owns the `EdgeQuery` adapter to
+managers, watchdogs, and process-node errors. `platform_runtime` owns host work execution. This
+crate imports those contracts directly and does not re-export them. `signal_capture` owns the `EdgeQuery` adapter to
 the runtime's generic typed capability protocol.
 
 ## Session owners
@@ -24,7 +25,8 @@ they consume mutable session storage; finite index algorithms are supplied by `s
 
 ## Dependencies and platform boundary
 
-The crate depends on `signal_artifacts`, `signal_capture`, `signal_derived`, `signal_runtime`, and portable third-party libraries. Native and browser host
+The crate depends on `platform_artifacts`, `platform_runtime`, `signal_capture`, `signal_derived`,
+`signal_runtime`, and portable third-party libraries. Native and browser host
 implementations live in `logic_analyzer_platform` and are injected through capability contracts.
 The same source modules and public contracts compile for native and wasm targets.
 

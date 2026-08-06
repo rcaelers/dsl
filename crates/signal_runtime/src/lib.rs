@@ -1,9 +1,10 @@
-//! Generic typed-stream execution, scheduling, and work dispatch.
+//! Generic typed-stream graph execution and scheduling.
 //!
 //! This owner maintains runtime graph wiring, channel lifecycle, node execution,
-//! and worker dispatch. It may consume generic signal contracts supplied by the
-//! adjacent capture and derived-data owners, but it does not own their storage,
-//! indexing, acquisition, or presentation behavior.
+//! and pipeline supervision. Host work scheduling and worker-operation contracts
+//! belong to `platform_runtime`; this crate consumes those capabilities but does
+//! not own their adapters. It does not own capture storage, indexing, acquisition,
+//! or presentation behavior.
 
 #[cfg(test)]
 mod architecture_tests;
@@ -23,12 +24,10 @@ mod scheduler;
 mod sender;
 mod type_registry;
 mod watchdog;
-mod work_executor;
-mod worker_operation_queue;
 
 pub use app_manager::{
     AppManager, AppManagerBackend, AppManagerFactory, CooperativeAppManagerBackend,
-    CooperativeAppManagerFactory,
+    CooperativeAppManagerFactory, PipelineAppManagerFactory,
 };
 pub use cooperative_manager::CooperativeManager;
 pub use errors::{ConnectionError, PortError, WorkError, WorkResult};
@@ -48,10 +47,3 @@ pub use receiver::{Receiver, ReceiverSelector};
 pub use scheduler::{Scheduler, StopHandle};
 pub use sender::{ChannelMessage, OverflowPolicy, Sender, SharedSenders};
 pub use watchdog::{Watchdog, WatchdogHandle};
-pub use work_executor::{
-    CompletedWorkTask, CooperativeWorkerOperationExecutor, InlineWorkExecutor, WorkExecutor,
-    WorkExecutorTask, WorkTask, WorkerExecutionCapability, WorkerExecutionMode,
-    WorkerKernelRegistry, WorkerMessage, WorkerMessageError, WorkerOperation,
-    WorkerOperationExecutor, WorkerRequest,
-};
-pub use worker_operation_queue::{WorkerHostCommand, WorkerOperationQueue};

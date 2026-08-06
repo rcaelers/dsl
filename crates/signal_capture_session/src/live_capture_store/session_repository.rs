@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use signal_artifacts::ArtifactRepository;
+use platform_artifacts::ArtifactRepository;
 
 use super::artifact_store::{FinalizedCapture, discover_sessions, remove_session_artifacts};
 use super::implementation::{

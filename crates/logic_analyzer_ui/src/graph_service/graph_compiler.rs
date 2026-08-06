@@ -20,8 +20,9 @@ use logic_analyzer_graph_runtime::{
     SourceProcessOverrides, SourceReadinessRegistry,
 };
 use node_graph::{GraphState, NodeId};
+use platform_runtime::WorkExecutor;
 use signal_derived::{DerivedLanes, PersistentStoreConfig};
-use signal_runtime::{AppManagerFactory, ConfigurationBoundary, DisconnectEvent, WorkExecutor};
+use signal_runtime::{AppManagerFactory, ConfigurationBoundary, DisconnectEvent};
 
 use super::contract::{CachedDataLoader, GraphRun, GraphService};
 use crate::live_capture::{CaptureAvailability, CaptureFeatureDiscovery};
@@ -287,7 +288,7 @@ impl CaptureFeatureDiscovery for UiGraphService {
 impl GraphService for UiGraphService {
     fn set_artifact_repository(
         &mut self,
-        repository: std::sync::Arc<dyn signal_artifacts::ArtifactRepository>,
+        repository: std::sync::Arc<dyn platform_artifacts::ArtifactRepository>,
     ) {
         self.runtime.set_artifact_repository(repository);
     }

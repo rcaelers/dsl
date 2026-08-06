@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 
 use super::{
     AnnotationQuery, IndexedAnnotationStore, IndexedAnnotationWriter, LiveStoreConfig,

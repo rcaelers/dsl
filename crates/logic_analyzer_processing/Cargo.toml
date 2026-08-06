@@ -26,7 +26,8 @@ signal-capture-session = { path = "../signal_capture_session" }
 signal-capture = { path = "../signal_capture" }
 signal-derived = { path = "../signal_derived" }
 signal-runtime = { path = "../signal_runtime" }
-signal-artifacts = { path = "../signal_artifacts" }
+platform-artifacts = { path = "../platform_artifacts" }
+platform-runtime = { path = "../platform_runtime" }
 zip = { workspace = true }
 clap = { workspace = true }
 crossbeam-channel = { workspace = true }

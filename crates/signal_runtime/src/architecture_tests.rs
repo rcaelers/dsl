@@ -24,13 +24,11 @@ fn runtime_has_no_signal_domain_or_storage_dependency() {
         include_str!("sender.rs"),
         include_str!("type_registry.rs"),
         include_str!("watchdog.rs"),
-        include_str!("work_executor.rs"),
-        include_str!("worker_operation_queue.rs"),
     ];
 
     for forbidden in [
         "signal_capture_session",
-        "signal_artifacts",
+        "platform_artifacts",
         "SampleBlock",
         "NumberSample",
         "TextSample",
@@ -56,6 +54,7 @@ fn application_manager_is_a_portable_facade() {
     assert!(facade.contains("mod contract;"));
     assert!(facade.contains("mod cooperative;"));
     assert!(facade.contains("mod implementation;"));
+    assert!(facade.contains("mod pipeline;"));
     assert!(facade.contains("AppManagerBackend"));
     assert!(facade.contains("AppManagerFactory"));
 }

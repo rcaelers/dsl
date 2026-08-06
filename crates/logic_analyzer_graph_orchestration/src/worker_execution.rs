@@ -10,11 +10,12 @@ use logic_analyzer_graph_runtime::{
     GraphRunContext, GraphRuntime, InlineSourcePreparationExecutor, LiveRun,
 };
 use node_graph::api::{GraphState, NodeId};
-use signal_artifacts::{
+use platform_artifacts::{
     ArtifactReplicationEvent, ArtifactRepository, MemoryArtifactRepository,
     ReplicatingArtifactRepository,
 };
-use signal_runtime::{CooperativeAppManagerFactory, InlineWorkExecutor};
+use platform_runtime::InlineWorkExecutor;
+use signal_runtime::CooperativeAppManagerFactory;
 
 const GRAPH_PUMP_BUDGET: usize = 256;
 const GRAPH_PUMP_DURATION: Duration = Duration::from_millis(4);

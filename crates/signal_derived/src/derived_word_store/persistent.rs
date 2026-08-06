@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
-use signal_artifacts::{
+use platform_artifacts::{
     ArtifactKey, ArtifactMetadata, ArtifactNamespace, ArtifactRepository, ByteRange,
     RepositoryError, SourceIdentity, read_artifact_region,
 };
@@ -572,7 +572,7 @@ fn encode_index(
         put_u64(&mut bytes, offset + 24, summary.first_block);
         put_u32(&mut bytes, offset + 32, summary.block_count);
     }
-    let checksum = signal_artifacts::block_checksum(&bytes, 96);
+    let checksum = platform_artifacts::block_checksum(&bytes, 96);
     put_u32(&mut bytes, 96, checksum);
     Ok(bytes)
 }
@@ -592,7 +592,7 @@ fn decode_index(bytes: &[u8], cache_key: [u8; 32]) -> StoreResult<PersistentInde
         return Err(StoreError::Persistent("index cache key mismatch".into()));
     }
     let expected_checksum = get_u32(bytes, 96)?;
-    if signal_artifacts::block_checksum(bytes, 96) != expected_checksum {
+    if platform_artifacts::block_checksum(bytes, 96) != expected_checksum {
         return Err(StoreError::Persistent(
             "persistent index checksum mismatch".into(),
         ));
@@ -750,7 +750,7 @@ fn encode_manifest(manifest: Manifest) -> [u8; MANIFEST_SIZE] {
     put_u64(&mut bytes, 64, manifest.word_count);
     put_u64(&mut bytes, 72, manifest.created_unix_ns);
     put_u64(&mut bytes, 80, manifest.accessed_unix_ns);
-    let checksum = signal_artifacts::block_checksum(&bytes, 88);
+    let checksum = platform_artifacts::block_checksum(&bytes, 88);
     put_u32(&mut bytes, 88, checksum);
     bytes
 }
@@ -765,7 +765,7 @@ fn decode_manifest(bytes: &[u8]) -> StoreResult<Manifest> {
         ));
     }
     let expected_checksum = get_u32(bytes, 88)?;
-    if signal_artifacts::block_checksum(bytes, 88) != expected_checksum {
+    if platform_artifacts::block_checksum(bytes, 88) != expected_checksum {
         return Err(StoreError::Persistent(
             "persistent manifest checksum mismatch".into(),
         ));
@@ -856,7 +856,7 @@ fn get_optional_u64(bytes: &[u8], offset: usize) -> StoreResult<Option<u64>> {
 mod tests {
     use std::sync::Arc;
 
-    use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+    use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 
     use super::*;
     use crate::derived_word_store::{

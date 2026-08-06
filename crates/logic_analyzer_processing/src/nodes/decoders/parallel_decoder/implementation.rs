@@ -11,13 +11,14 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use tracing::debug;
 use web_time::Instant;
 
+use platform_runtime::WorkExecutor;
+#[cfg(test)]
+use platform_runtime::{CompletedWorkTask, WorkTask};
 use signal_capture::{CaptureTransition, EdgeQuery, EdgeQueryInputPortExt, Sample, SampleBlock};
 use signal_derived::{PackedSamplingPoint, PackedSamplingPointBatch, SamplingPointStore, Word};
-#[cfg(test)]
-use signal_runtime::{CompletedWorkTask, WorkTask};
 use signal_runtime::{
     InputPort, InputProtocolCandidate, OutputPort, ProcessNode, ProtocolKind, Receiver, WorkError,
-    WorkExecutor, WorkOutcome, WorkResult,
+    WorkOutcome, WorkResult,
 };
 
 use super::sampling_provider::{ParallelSamplingProgress, install_sampling_provider};
@@ -42,7 +43,10 @@ impl WorkExecutor for SpawnWorkExecutor {
         self.workers
     }
 
-    fn submit(&self, task: signal_runtime::WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+    fn submit(
+        &self,
+        task: platform_runtime::WorkExecutorTask,
+    ) -> Result<Box<dyn WorkTask>, String> {
         std::thread::spawn(task);
         Ok(Box::new(CompletedWorkTask))
     }
@@ -323,7 +327,7 @@ impl ParallelDecoder {
             stream_blocks: StreamBlockState::default(),
             next_stream_merge_sequence: 0,
             parallel_workers: Self::ADAPTIVE_PARALLEL_WORKERS,
-            work_executor: Arc::new(signal_runtime::InlineWorkExecutor),
+            work_executor: Arc::new(platform_runtime::InlineWorkExecutor),
             parallel_metrics: ParallelDecoderMetrics::default(),
             pending_output_words: Vec::new(),
             sampling_points: None,

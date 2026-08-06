@@ -2,7 +2,7 @@ use std::sync::Mutex;
 
 use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
 
-use signal_runtime::{
+use platform_runtime::{
     WorkerExecutionCapability, WorkerHostCommand, WorkerKernelRegistry, WorkerMessage,
     WorkerOperationExecutor, WorkerOperationQueue, WorkerRequest,
 };
@@ -220,7 +220,7 @@ mod native_worker_tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::{Duration, Instant};
 
-    use signal_runtime::{
+    use platform_runtime::{
         WorkerExecutionMode, WorkerKernelRegistry, WorkerMessage, WorkerOperation,
         WorkerOperationExecutor, WorkerRequest,
     };

@@ -11,10 +11,11 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use thiserror::Error;
 
+use platform_runtime::{WorkExecutor, WorkTask};
 use signal_capture::{Sample, SampleBlock};
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortPayload, PortSchema, ProcessNode, Sender, WorkError,
-    WorkExecutor, WorkResult, WorkTask,
+    WorkResult,
 };
 
 use super::trigger::LogicTrigger;
@@ -268,7 +269,7 @@ impl<A: LogicAnalyzer> LogicAnalyzerSource<A> {
             shutdown: Arc::new(AtomicBool::new(false)),
             completed: Arc::new(AtomicUsize::new(0)),
             task: None,
-            work_executor: Arc::new(signal_runtime::InlineWorkExecutor),
+            work_executor: Arc::new(platform_runtime::InlineWorkExecutor),
             started: false,
         })
     }

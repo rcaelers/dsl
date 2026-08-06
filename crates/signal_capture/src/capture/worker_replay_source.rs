@@ -395,8 +395,9 @@ impl Drop for CaptureWorkerReplaySource {
 #[cfg(test)]
 mod worker_replay_source_tests {
     use crossbeam_channel::bounded;
-    use signal_artifacts::SourceIdentity;
-    use signal_runtime::{ChannelMessage, Watchdog, WorkerOperation};
+    use platform_artifacts::SourceIdentity;
+    use platform_runtime::WorkerOperation;
+    use signal_runtime::{ChannelMessage, Watchdog};
 
     use super::*;
 

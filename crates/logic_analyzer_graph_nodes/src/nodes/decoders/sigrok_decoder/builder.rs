@@ -37,7 +37,7 @@ impl SigrokDecoderRuntime for UnavailableSigrokDecoderRuntime {
         &self,
         name: &str,
         config: SigrokDecoderConfig,
-        work_executor: Arc<dyn signal_runtime::WorkExecutor>,
+        work_executor: Arc<dyn platform_runtime::WorkExecutor>,
     ) -> Result<Box<dyn ProcessNode>, String> {
         let _ = (name, config, work_executor);
         Err("Sigrok Python decoder runtime is unavailable on this host".into())
@@ -382,7 +382,7 @@ mod builder_tests {
             &self,
             name: &str,
             config: SigrokDecoderConfig,
-            _work_executor: Arc<dyn signal_runtime::WorkExecutor>,
+            _work_executor: Arc<dyn platform_runtime::WorkExecutor>,
         ) -> Result<Box<dyn ProcessNode>, String> {
             *self.creation.lock().unwrap() = Some((name.to_owned(), config));
             if let Some(error) = &self.create_error {

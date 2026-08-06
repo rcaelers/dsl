@@ -6,12 +6,12 @@ use input_bindings::InputBindings;
 use logic_analyzer_graph_capabilities::node::GraphNodeCapabilityOverride;
 use logic_analyzer_graph_runtime::SourcePreparationExecutor;
 use node_graph::FileDialogService;
-use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
-use signal_derived::portable_worker_kernels;
-use signal_runtime::{
-    AppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor, WorkExecutor,
-    WorkerOperationExecutor,
+use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+use platform_runtime::{
+    CooperativeWorkerOperationExecutor, InlineWorkExecutor, WorkExecutor, WorkerOperationExecutor,
 };
+use signal_derived::portable_worker_kernels;
+use signal_runtime::AppManagerFactory;
 
 use crate::application_settings::{ApplicationSettings, default_input_bindings};
 use crate::capture_export_service::{CaptureExportService, unavailable_capture_export_service};
@@ -134,7 +134,7 @@ impl AppServices {
     }
 
     /// Reports the finite-operation capability retained by the application.
-    pub fn worker_execution_capability(&self) -> signal_runtime::WorkerExecutionCapability {
+    pub fn worker_execution_capability(&self) -> platform_runtime::WorkerExecutionCapability {
         self.worker_operation_executor.capability()
     }
 

@@ -23,8 +23,8 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository, SourceIdentity};
-    use signal_runtime::InlineWorkExecutor;
+    use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository, SourceIdentity};
+    use platform_runtime::InlineWorkExecutor;
 
     use super::super::reader::IndexSampler;
     use crate::capture::{

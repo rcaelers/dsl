@@ -436,7 +436,7 @@ mod work_executor_tests {
         let messages = [
             WorkerMessage::Run(WorkerRequest {
                 sequence: u64::MAX,
-                operation: WorkerOperation::new("signal-processing.encode-word-block/v1").unwrap(),
+                operation: WorkerOperation::new("org.example.encode-block/v1").unwrap(),
                 payload: vec![0, 1, 2, 255],
             }),
             WorkerMessage::Cancel { sequence: 2 },

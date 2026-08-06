@@ -7,11 +7,11 @@ use logic_analyzer_processing::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
     CaptureSourcePresentation, ProcessNodeConstruction,
 };
-use signal_artifacts::ArtifactRepository;
+use platform_artifacts::ArtifactRepository;
+use platform_runtime::WorkExecutor;
 use signal_capture::{
     CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, IndexedCapturePresentation,
 };
-use signal_runtime::WorkExecutor;
 
 use super::registry::{BrowserFileRegistry, ImportedFile};
 use super::worker_source::dsl_preparation_request;

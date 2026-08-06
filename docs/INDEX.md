@@ -52,7 +52,8 @@ namespace. All other crate contracts are documented in Rustdoc.
 - [logic_analyzer_viewer](crates/logic_analyzer_viewer.md)
 - [Application shells](crates/application_shells.md)
 - [Workspace examples and integration tests](crates/logic_analyzer_examples.md)
-- [signal_artifacts](crates/signal_artifacts.md)
+- [platform_artifacts](crates/platform_artifacts.md)
+- [platform_runtime](crates/platform_runtime.md)
 - [signal_capture](crates/signal_capture.md)
 - [signal_derived](crates/signal_derived.md)
 - [signal_capture_session](crates/signal_capture_session.md)
@@ -62,6 +63,8 @@ namespace. All other crate contracts are documented in Rustdoc.
 
 These supported namespaces are documented at their source facades in Rustdoc:
 
+- `platform_artifacts`: no public modules; its crate root is the artifact-contract facade
+- `platform_runtime`: no public modules; its crate root is the host-execution-contract facade
 - `signal_capture`: no public modules; its crate root is the immutable capture facade
 - `signal_derived`: `derived_word_store`
 - `signal_capture_session`: `live_capture`, `live_capture_store`, and `logic_analyzer`
@@ -72,7 +75,8 @@ These supported namespaces are documented at their source facades in Rustdoc:
 
 ## Generic runtime and data plane
 
-- [`signal_artifacts` Design](crates/signal_artifacts.md)
+- [`platform_artifacts` Design](crates/platform_artifacts.md)
+- [`platform_runtime` Design](crates/platform_runtime.md)
 - [`signal_capture` Design](crates/signal_capture.md)
 - [`signal_derived` Design](crates/signal_derived.md)
 - [`signal_capture_session` Design](crates/signal_capture_session.md)

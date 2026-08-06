@@ -1,8 +1,8 @@
-# `signal_artifacts` Design
+# `platform_artifacts` Design
 
 ## Responsibility
 
-`signal_artifacts` owns platform-neutral immutable byte regions, stable source and artifact
+`platform_artifacts` owns platform-neutral immutable byte regions, stable source and artifact
 identities, artifact repository contracts, the portable in-memory repository, prepared byte-source
 contracts, repository replication events, and shared persistence time and checksum primitives.
 
@@ -11,7 +11,7 @@ contracts, repository replication events, and shared persistence time and checks
 The crate root is the only supported facade. It selectively exposes byte ranges and regions,
 prepared random-access sources, artifact keys and metadata, repository reader and writer contracts,
 the in-memory repository, repository-backed byte sources, replication contracts, clocks, and
-checksums. Consumers import these symbols from `signal_artifacts`; higher-level owners do not
+checksums. Consumers import these symbols from `platform_artifacts`; higher-level owners do not
 re-export them.
 
 ## Dependencies and boundary
@@ -22,7 +22,7 @@ or compilation targets.
 
 Native mmap/filesystem repositories and browser persistence repositories implement these contracts
 in `logic_analyzer_platform`. Capture and derived-data owners choose their namespaces and encodings;
-`signal_artifacts` does not assign application cache policy or interpret stored bytes.
+`platform_artifacts` does not assign application cache policy or interpret stored bytes.
 
 ## Invariants and errors
 

@@ -5,7 +5,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 
-use signal_artifacts::{
+use platform_artifacts::{
     PreparedByteSource, RandomAccessReader, SourceCapabilities, SourceIdentity, SourceReadError,
 };
 use signal_capture::Result;

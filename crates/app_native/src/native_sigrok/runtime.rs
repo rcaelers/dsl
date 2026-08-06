@@ -5,7 +5,8 @@ use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     SigrokCatalogScanner, SigrokCatalogSnapshot, SigrokDecoder, SigrokDecoderConfig,
     SigrokDecoderDescriptor, SigrokDecoderRuntime,
 };
-use signal_runtime::{ProcessNode, WorkExecutor};
+use platform_runtime::WorkExecutor;
+use signal_runtime::ProcessNode;
 
 use super::{PythonSigrokExecutionFactory, discover_sigrok_decoder, scan_catalog};
 

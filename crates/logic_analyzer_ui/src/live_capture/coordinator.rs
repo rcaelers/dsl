@@ -9,7 +9,8 @@ use web_time::{Instant, SystemTime, UNIX_EPOCH};
 
 use logic_analyzer_graph_capabilities::node::CaptureGraphSourceFactory;
 use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
-use signal_artifacts::{ArtifactKey, ArtifactNamespace, ArtifactRepository, SourceIdentity};
+use platform_artifacts::{ArtifactKey, ArtifactNamespace, ArtifactRepository, SourceIdentity};
+use platform_runtime::WorkExecutor;
 use signal_capture::{CaptureIndex, CaptureMetadata, CaptureSampledWindow};
 use signal_capture_session::{
     AcquisitionContext, CaptureAcquisitionPhase, CaptureCompletion, CaptureDataDelivery,
@@ -21,7 +22,6 @@ use signal_capture_session::{
     CaptureStoreDescriptor, CaptureTimelineMetadata, FinalizedCapture, GrowingCaptureIndex,
     GrowingCaptureIndexWorker, RecordingStart, TriggerTimeoutAction, bounded_capture_event_queue,
 };
-use signal_runtime::WorkExecutor;
 
 use super::implementation::{
     CaptureAnalysisAttachment, CaptureCoordinatorContract, CaptureReplayAttachment,
@@ -57,10 +57,10 @@ impl WorkExecutor for TestWorkExecutor {
 
     fn submit(
         &self,
-        task: signal_runtime::WorkExecutorTask,
-    ) -> Result<Box<dyn signal_runtime::WorkTask>, String> {
+        task: platform_runtime::WorkExecutorTask,
+    ) -> Result<Box<dyn platform_runtime::WorkTask>, String> {
         std::thread::spawn(task);
-        Ok(Box::new(signal_runtime::CompletedWorkTask))
+        Ok(Box::new(platform_runtime::CompletedWorkTask))
     }
 }
 
@@ -147,7 +147,7 @@ impl CaptureIndex for PinnedCaptureIndex {
         self.inner.display_name()
     }
 
-    fn index_identity(&self) -> signal_artifacts::SourceIdentity {
+    fn index_identity(&self) -> platform_artifacts::SourceIdentity {
         self.inner.index_identity()
     }
 
@@ -268,7 +268,7 @@ struct ActiveCapture {
     waveforms: Receiver<GrowingCaptureIndex>,
     analyses: Receiver<CaptureAnalysisAttachment>,
     events: CaptureEventQueueReader,
-    worker: Option<Box<dyn signal_runtime::WorkTask>>,
+    worker: Option<Box<dyn platform_runtime::WorkTask>>,
     stop_requested: bool,
     abort_requested: bool,
 }
@@ -317,7 +317,7 @@ impl CaptureCoordinator {
 
     #[cfg(test)]
     fn new_with_scripted_export() -> (Self, ScriptedCaptureExportControl) {
-        let artifacts = Arc::new(signal_artifacts::MemoryArtifactRepository::new());
+        let artifacts = Arc::new(platform_artifacts::MemoryArtifactRepository::new());
         let repository =
             CaptureSessionRepository::new(CaptureSessionRepositoryConfig::new(artifacts))
                 .expect("temporary capture repository must be available");

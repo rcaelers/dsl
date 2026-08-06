@@ -12,7 +12,8 @@ use logic_analyzer_processing::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
     CaptureSourcePresentation, CaptureSourceRuntimeCapabilities, ProcessNodeConstruction,
 };
-use signal_artifacts::{ArtifactRepository, SourceIdentity};
+use platform_artifacts::{ArtifactRepository, SourceIdentity};
+use platform_runtime::{InlineWorkExecutor, WorkExecutor};
 use signal_capture::{
     CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, CaptureMetadata,
     IndexedCapturePresentation,
@@ -22,7 +23,7 @@ use signal_capture_session::{
     AcquisitionContext, AcquisitionResult, CaptureDataDelivery, CaptureStartMode,
     ConfiguredAcquisition, PreparedAcquisition,
 };
-use signal_runtime::{CooperativeAppManagerFactory, InlineWorkExecutor, WorkExecutor};
+use signal_runtime::CooperativeAppManagerFactory;
 
 pub(crate) struct GraphHarness {
     lowerer: GraphLowerer,

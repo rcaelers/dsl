@@ -36,8 +36,9 @@ hardware, or network access.
   package.
 - Graph-runtime source-preparation tests use immediate or manually controlled task
   executors, and graph-runtime cache-pruning tests inject cache availability and
-  cleanup outcomes by key. Native worker and persistent-store conformance is
-  tested by the component that owns each adapter.
+  cleanup outcomes by key. `platform_runtime` tests portable executor and worker-queue policy;
+  native/browser worker and persistent-store conformance is tested by the component that owns each
+  adapter.
 - Compiler tests construct saved graph documents through the headless
   `node_graph::api::GraphDocumentBuilder`. Node-definition migrations and
   state-dependent socket schemas therefore remain active without constructing

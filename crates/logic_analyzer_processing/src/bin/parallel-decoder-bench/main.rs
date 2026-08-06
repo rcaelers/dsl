@@ -20,7 +20,8 @@ mod implementation {
     use logic_analyzer_processing::nodes::sinks::{OutputFile, OutputStorage};
     use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSource;
     use logic_analyzer_processing::types::CsPolarity;
-    use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+    use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+    use platform_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
     use signal_capture::EdgeQueryProcessNodeExt;
     use signal_derived::{
         CollectedWordLaneOptions, CollectedWordLaneQuery, DecodedBlockCacheStats,
@@ -31,7 +32,7 @@ mod implementation {
     };
     use signal_runtime::{
         InputPort, OutputPort, Pipeline, PortSchema, ProcessNode, ProtocolKind, WorkError,
-        WorkExecutor, WorkExecutorTask, WorkResult, WorkTask,
+        WorkResult,
     };
 
     const DEFAULT_MAX_WORDS_PER_BLOCK: usize = 32_768;
@@ -785,7 +786,7 @@ mod implementation {
             SamplingCacheKind::None => decoder,
             SamplingCacheKind::Direct | SamplingCacheKind::Queued => {
                 let persistence_executor: Arc<dyn WorkExecutor> = match args.sampling_cache {
-                    SamplingCacheKind::Direct => Arc::new(signal_runtime::InlineWorkExecutor),
+                    SamplingCacheKind::Direct => Arc::new(platform_runtime::InlineWorkExecutor),
                     SamplingCacheKind::Queued => Arc::clone(&work_executor),
                     SamplingCacheKind::None => unreachable!(),
                 };

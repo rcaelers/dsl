@@ -302,21 +302,23 @@ item here, so acceptance comparisons stop being ad-hoc.
 
 - [errors.typed-boundaries] (P3 · medium) Replace `Result<_, String>` on cross-crate contracts with owned error
   types so failures carry a responsibility and callers can classify them. Roughly 360 signatures
-  use a string error today; `logic_analyzer_platform`, `logic_analyzer_ui`, and `signal_runtime`
-  hold most of them. Work outward from the lowest owner so downstream crates inherit typed
-  failures instead of re-wrapping strings. Sequence step 2 after
+  use a string error today; `logic_analyzer_platform`, `logic_analyzer_ui`, `platform_runtime`,
+  and `signal_runtime` hold many of them. Work outward from the lowest owner so downstream crates
+  inherit typed failures instead of re-wrapping strings. Sequence step 3 after
   [composition.host-factory-injection], which relocates the host-override contracts it types.
   Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#errors-typed-boundaries).
-  1. [ ] Give `signal_runtime` a complete error surface next to `ConnectionError`, `PortError`,
-     and `WorkError`, covering manager, executor, and worker-message failures.
-  2. [ ] Type the graph capability and host-override contracts, including
+  1. [ ] Give `platform_runtime` typed executor, task, worker-message, kernel-registration, and
+     queue errors next to `WorkerMessageError`.
+  2. [ ] Complete the `signal_runtime` error surface next to `ConnectionError`, `PortError`, and
+     `WorkError`, covering manager and pipeline-supervision failures.
+  3. [ ] Type the graph capability and host-override contracts, including
      `SigrokCatalogScanner`, `SigrokDecoderRuntime::discover`, and `SigrokDecoderRuntime::create`,
      so the domain adapter reports discovery, transport, and configuration failures distinctly;
      neutral platform capabilities expose their own mechanism-level errors without importing
      these domain contracts.
-  3. [ ] Type source preparation and run diagnostics so `SourcePreparationUpdate::Failed` and the
+  4. [ ] Type source preparation and run diagnostics so `SourcePreparationUpdate::Failed` and the
      UI's run-message path stop matching on message text.
-  4. [ ] Keep display strings at the presentation boundary only; generic crates map a concrete
+  5. [ ] Keep display strings at the presentation boundary only; generic crates map a concrete
      format or transport failure into their own variant rather than formatting it early.
 
 ### Composition and host wiring
@@ -435,9 +437,10 @@ item here, so acceptance comparisons stop being ad-hoc.
   the generic extension seam has a second use outside the built-in logic-analyzer payloads.
   Either rename the tier for this application and let it use domain vocabulary directly, or keep
   the names and complete the separation. Until one is chosen, no rule decides which side a new
-  type belongs on. Review recommendation: keep `signal_artifacts`, `signal_runtime`,
-  `signal_capture`, and `signal_derived` domain-neutral; move built-in protocol/presentation
-  payloads outward and move trigger/control vocabulary into a small logic-analyzer trigger domain
+  type belongs on. Review recommendation: keep `platform_artifacts`, `platform_runtime`,
+  `signal_runtime`, `signal_capture`, and `signal_derived` domain-neutral; move built-in
+  protocol/presentation payloads outward and move trigger/control vocabulary into a small
+  logic-analyzer trigger domain
   rather than into immutable capture storage. `signal_capture_session` retains only generic
   acquisition lifecycle, integrity, and storage coordination.
   Make the decision before [processing.domain-split]; executing the rename can follow later.

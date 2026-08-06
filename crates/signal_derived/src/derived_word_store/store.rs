@@ -6,11 +6,11 @@ use std::time::Duration;
 use crossbeam_channel::{Receiver, Sender, TryRecvError, bounded};
 use web_time::Instant;
 
-use signal_artifacts::{
+use platform_artifacts::{
     ArtifactKey, ArtifactRepository, ByteRange, RepositoryError, WriteArtifact,
     read_artifact_region,
 };
-use signal_runtime::WorkExecutor;
+use platform_runtime::WorkExecutor;
 
 use super::backend::{AnnotationStoreBackend, AnnotationStoreWriterBackend};
 use super::cache::{cache_block, cached_block};
@@ -1327,7 +1327,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::thread;
 
-    use signal_artifacts::MemoryArtifactRepository;
+    use platform_artifacts::MemoryArtifactRepository;
 
     use super::*;
     use crate::derived_word_store::BlockCodecConfig;
@@ -1340,7 +1340,7 @@ mod tests {
     }
 
     struct QueuedWorkExecutor {
-        tasks: Mutex<Vec<signal_runtime::WorkExecutorTask>>,
+        tasks: Mutex<Vec<platform_runtime::WorkExecutorTask>>,
     }
 
     impl QueuedWorkExecutor {
@@ -1363,10 +1363,10 @@ mod tests {
 
         fn submit(
             &self,
-            task: signal_runtime::WorkExecutorTask,
-        ) -> Result<Box<dyn signal_runtime::WorkTask>, String> {
+            task: platform_runtime::WorkExecutorTask,
+        ) -> Result<Box<dyn platform_runtime::WorkTask>, String> {
             self.tasks.lock().unwrap().push(task);
-            Ok(Box::new(signal_runtime::CompletedWorkTask))
+            Ok(Box::new(platform_runtime::CompletedWorkTask))
         }
     }
 
@@ -1386,11 +1386,11 @@ mod tests {
 
         fn submit(
             &self,
-            task: signal_runtime::WorkExecutorTask,
-        ) -> Result<Box<dyn signal_runtime::WorkTask>, String> {
+            task: platform_runtime::WorkExecutorTask,
+        ) -> Result<Box<dyn platform_runtime::WorkTask>, String> {
             self.submissions.fetch_add(1, Ordering::Relaxed);
             task();
-            Ok(Box::new(signal_runtime::CompletedWorkTask))
+            Ok(Box::new(platform_runtime::CompletedWorkTask))
         }
     }
 
@@ -1550,7 +1550,7 @@ mod tests {
     #[test]
     fn persistent_cleanup_removes_unpinned_lru_entries() {
         let repository: Arc<dyn ArtifactRepository> =
-            Arc::new(signal_artifacts::MemoryArtifactRepository::new());
+            Arc::new(platform_artifacts::MemoryArtifactRepository::new());
         let first_key = [0x11; 32];
         let second_key = [0x22; 32];
         for key in [first_key, second_key] {
@@ -1587,7 +1587,7 @@ mod tests {
     #[test]
     fn clearing_one_persistent_entry_keeps_other_cache_keys() {
         let repository: Arc<dyn ArtifactRepository> =
-            Arc::new(signal_artifacts::MemoryArtifactRepository::new());
+            Arc::new(platform_artifacts::MemoryArtifactRepository::new());
         let first = PersistentStoreConfig::new([0x31; 32])
             .with_artifact_repository(Arc::clone(&repository));
         let second = PersistentStoreConfig::new([0x32; 32])

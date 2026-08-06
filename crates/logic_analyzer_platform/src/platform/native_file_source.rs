@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use signal_artifacts::{
+use platform_artifacts::{
     PreparedByteSource, RandomAccessReader, SourceCapabilities, SourceIdentity, SourceReadError,
 };
 

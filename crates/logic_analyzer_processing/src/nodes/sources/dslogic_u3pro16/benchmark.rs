@@ -6,14 +6,14 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use signal_artifacts::MemoryArtifactRepository;
+use platform_artifacts::MemoryArtifactRepository;
+use platform_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
 use signal_capture::CaptureIndex;
 use signal_capture_session::logic_analyzer::{CaptureMode, LogicCaptureConfig};
 use signal_capture_session::{
     AcquisitionContext, CaptureCursorItem, CaptureSessionId, CaptureStore, CaptureStoreConfig,
     CaptureStoreCursor, CaptureStoreDescriptor, GrowingCaptureIndex, bounded_capture_event_queue,
 };
-use signal_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
 
 use super::implementation::DsLogicU3Pro16;
 use super::streaming::StreamingProvider;

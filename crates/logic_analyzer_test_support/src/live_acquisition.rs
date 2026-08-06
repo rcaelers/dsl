@@ -764,7 +764,7 @@ impl Drop for PreparedFakeAcquisition {
 mod tests {
     use std::time::Duration;
 
-    use signal_artifacts::MemoryArtifactRepository;
+    use platform_artifacts::MemoryArtifactRepository;
     use signal_capture_session::{
         AcquisitionContext, AcquisitionError, CaptureChannelId, CaptureCursorItem, CaptureEvent,
         CaptureQueueLimits, CaptureQueueReceiveError, CaptureSessionId, CaptureSessionState,

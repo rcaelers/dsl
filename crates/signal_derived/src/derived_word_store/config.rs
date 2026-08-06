@@ -2,10 +2,10 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use signal_artifacts::{
+use platform_artifacts::{
     ArtifactRepository, MemoryArtifactRepository, SystemUnixTimeSource, UnixTimeSource,
 };
-use signal_runtime::{InlineWorkExecutor, WorkExecutor};
+use platform_runtime::{InlineWorkExecutor, WorkExecutor};
 
 pub(crate) const DEFAULT_MAX_WORDS_PER_BLOCK: usize = 131_072;
 

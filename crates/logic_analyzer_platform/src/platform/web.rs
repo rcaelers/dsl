@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use signal_artifacts::ArtifactRepository;
+use platform_artifacts::ArtifactRepository;
 
 use super::web_artifact_repository::BrowserArtifactRepository;
 

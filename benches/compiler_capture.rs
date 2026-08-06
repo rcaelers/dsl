@@ -40,18 +40,18 @@ use logic_analyzer_viewer::{
     LogicAnalyzerViewer, ViewerLaneBadge, WaveformPresentationRegistry, viewer_lane_renderer,
 };
 use node_graph::{NodeGraphWidget, NodeId, SocketDirection, SocketId};
-use signal_artifacts::{
+use platform_artifacts::{
     ArtifactKey, ArtifactMetadata, ArtifactNamespace, ArtifactRepository, MemoryArtifactRepository,
     ReadArtifact, RepositoryCapabilities, RepositoryError, SourceIdentity, WriteArtifact,
 };
+use platform_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
 use signal_derived::{
     CollectedLaneQuery, CollectedLaneSnapshotRequest, CollectedWordLaneQuery, DerivedLanes,
     OpaqueCollectedLane, OpaqueCollectedLaneSnapshot, TriggerLaneSnapshot,
 };
 use signal_runtime::{
     AppManager, AppManagerBackend, AppManagerFactory, ConfigurationBoundary, DisconnectEvent,
-    InputSub, NodeConfig, NodeSpec, Pipeline, PipelineManager, ProcessNode, WorkExecutor,
-    WorkExecutorTask, WorkTask,
+    InputSub, NodeConfig, NodeSpec, Pipeline, PipelineManager, ProcessNode,
 };
 
 use integration_tests_support as nodes;

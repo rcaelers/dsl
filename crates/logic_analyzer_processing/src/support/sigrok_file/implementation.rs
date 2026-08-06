@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use signal_artifacts::{PreparedByteSource, SourceIdentity};
+use platform_artifacts::{PreparedByteSource, SourceIdentity};
 use signal_capture::{
     BlockCaptureSource, BlockData, CaptureDataSource, CaptureFingerprint, CaptureMetadata,
     CaptureSource, Error, Result,

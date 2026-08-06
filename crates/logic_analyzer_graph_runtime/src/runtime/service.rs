@@ -5,12 +5,10 @@ use logic_analyzer_graph_plan::{
     DiscoveredCapturePresentation, ProcessingGraph, ProcessingGraphError,
 };
 use node_graph::api::NodeId;
-use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+use platform_runtime::{InlineWorkExecutor, WorkExecutor};
 use signal_derived::PersistentStoreConfig;
-use signal_runtime::{
-    AppManagerFactory, ConfigurationBoundary, CooperativeAppManagerFactory, InlineWorkExecutor,
-    WorkExecutor,
-};
+use signal_runtime::{AppManagerFactory, ConfigurationBoundary, CooperativeAppManagerFactory};
 
 use super::execution::{
     self, ApplySummary, GraphRunContext, LiveAnalysisSource, LiveRun, SourceProcessOverrides,

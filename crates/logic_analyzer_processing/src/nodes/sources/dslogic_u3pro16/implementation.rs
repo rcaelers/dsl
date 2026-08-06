@@ -1410,14 +1410,14 @@ mod tests {
 
     use serde::Deserialize;
 
-    use signal_artifacts::MemoryArtifactRepository;
+    use platform_artifacts::MemoryArtifactRepository;
+    use platform_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
     use signal_capture_session::{
         AcquisitionContext, CaptureAcquisitionPhase, CaptureCursorItem, CaptureEvent,
         CaptureFailureKind, CaptureQueueReceiveError, CaptureSessionId, CaptureStore,
         CaptureStoreConfig, CaptureStoreCursor, CaptureStoreDescriptor,
         bounded_capture_event_queue,
     };
-    use signal_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
 
     use super::super::buffered::BufferedProvider;
     use super::super::streaming::StreamingProvider;

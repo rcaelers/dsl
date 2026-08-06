@@ -27,10 +27,9 @@ std::cfg_select! {
         pub use platform::isolated_native_artifact_repository;
         pub use platform::{
             NativeDocumentHost, NativeUsbDevice, NativeUsbDeviceSelector, UsbLinkSpeed,
-            UsbTransferError, native_app_manager_factory, native_append_file,
-            native_artifact_repository, native_create_file, native_create_parent_directories,
-            native_file_byte_source, native_path_exists, native_work_executor,
-            native_worker_operation_executor,
+            UsbTransferError, native_append_file, native_artifact_repository, native_create_file,
+            native_create_parent_directories, native_file_byte_source, native_path_exists,
+            native_work_executor, native_worker_operation_executor,
         };
     }
 }

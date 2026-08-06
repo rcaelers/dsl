@@ -9,7 +9,7 @@ use pyo3::Python;
 use pyo3::types::{PyAnyMethods, PyStringMethods};
 
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{InitialPin, LogicChunk};
-use signal_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
+use platform_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
 
 use super::python_host::{OUTPUT_ANN, OUTPUT_PYTHON};
 use super::worker::{DecoderWorker, WorkerConfig, WorkerError, WorkerInputConfig};

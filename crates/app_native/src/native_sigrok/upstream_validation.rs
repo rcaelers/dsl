@@ -11,11 +11,11 @@ use crossbeam_channel::{Receiver as ChannelReceiver, bounded};
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     SigrokChannel, SigrokDecoder, SigrokDecoderConfig, SigrokInitialPin, SigrokOptionValue,
 };
+use platform_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
 use signal_capture::SampleBlock;
 use signal_derived::{ProtocolPacket, ProtocolValue, Word, WordPayload};
 use signal_runtime::{
-    ChannelMessage, InputPort, OutputPort, ProcessNode, Sender, Watchdog, WorkError, WorkExecutor,
-    WorkExecutorTask, WorkTask,
+    ChannelMessage, InputPort, OutputPort, ProcessNode, Sender, Watchdog, WorkError,
 };
 
 use super::execution::PythonSigrokExecutionFactory;

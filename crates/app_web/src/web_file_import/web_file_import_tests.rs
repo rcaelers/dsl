@@ -9,9 +9,9 @@ use zip::write::SimpleFileOptions;
 use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSourceConfig;
 use logic_analyzer_processing::nodes::sources::sigrok_file::SigrokFileSourceConfig;
 use logic_analyzer_processing::{CaptureSourceCacheIdentity, CaptureSourcePresentation};
-use signal_artifacts::{MemoryArtifactRepository, RandomAccessReader};
+use platform_artifacts::{MemoryArtifactRepository, RandomAccessReader};
+use platform_runtime::InlineWorkExecutor;
 use signal_capture::CaptureWorkerClient;
-use signal_runtime::InlineWorkExecutor;
 
 use super::dsl::dsl_source_factory;
 use super::registry::{BrowserFileRegistry, IMPORT_CHUNK_BYTES};

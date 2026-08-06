@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use signal_artifacts::RepositoryError;
+use platform_artifacts::RepositoryError;
 
 use crate::{CaptureChannelId, CaptureChunk, CaptureSessionId};
 

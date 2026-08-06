@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use signal_artifacts::{
+use platform_artifacts::{
     ArtifactByteSource, ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange,
     PreparedByteSource, RepositoryCapabilities, SourceCapabilities, SourceIdentity, UnixTimeSource,
 };
@@ -358,7 +358,7 @@ fn repository_snapshot(repository: &dyn ArtifactRepository) -> RepositoryConform
 
 #[cfg(test)]
 mod repository_tests {
-    use signal_artifacts::{MemoryArtifactRepository, RepositoryCapabilities, RepositoryError};
+    use platform_artifacts::{MemoryArtifactRepository, RepositoryCapabilities, RepositoryError};
 
     use super::*;
 

@@ -1,20 +1,6 @@
 use std::collections::BTreeSet;
 use std::process::Command;
 
-const PLATFORM_DOMAIN_CRATES: &[&str] = &[
-    "logic-analyzer-capture-export",
-    "logic-analyzer-graph-capabilities",
-    "logic-analyzer-graph-nodes",
-    "logic-analyzer-graph-orchestration",
-    "logic-analyzer-graph-runtime",
-    "logic-analyzer-processing",
-    "logic-analyzer-ui",
-    "node-graph",
-    "signal-capture",
-    "signal-capture-session",
-    "signal-derived",
-];
-
 fn workspace_metadata() -> serde_json::Value {
     let output = Command::new(env!("CARGO"))
         .args(["metadata", "--format-version", "1", "--no-deps"])
@@ -26,6 +12,19 @@ fn workspace_metadata() -> serde_json::Value {
         String::from_utf8_lossy(&output.stderr)
     );
     serde_json::from_slice(&output.stdout).expect("cargo metadata must be JSON")
+}
+
+#[test]
+fn platform_contract_crates_have_no_product_dependencies() {
+    let metadata = workspace_metadata();
+
+    for owner in ["platform-artifacts", "platform-runtime"] {
+        let dependencies = local_non_dev_dependencies(package(&metadata, owner));
+        assert!(
+            dependencies.is_empty(),
+            "{owner} must remain independent of every workspace crate: {dependencies:?}"
+        );
+    }
 }
 
 fn package<'a>(metadata: &'a serde_json::Value, name: &str) -> &'a serde_json::Value {
@@ -47,17 +46,26 @@ fn non_dev_dependencies(package: &serde_json::Value) -> BTreeSet<&str> {
         .collect()
 }
 
-#[test]
-fn platform_has_no_domain_dependencies() {
-    let metadata = workspace_metadata();
-    let dependencies = non_dev_dependencies(package(&metadata, "logic-analyzer-platform"))
-        .into_iter()
-        .filter(|name| PLATFORM_DOMAIN_CRATES.contains(name))
-        .collect::<BTreeSet<_>>();
+fn local_non_dev_dependencies(package: &serde_json::Value) -> BTreeSet<&str> {
+    package["dependencies"]
+        .as_array()
+        .expect("package dependencies must be an array")
+        .iter()
+        .filter(|dependency| dependency["kind"] != "dev")
+        .filter(|dependency| !dependency["path"].is_null())
+        .filter_map(|dependency| dependency["name"].as_str())
+        .collect()
+}
 
-    assert!(
-        dependencies.is_empty(),
-        "platform must remain independent of Logic Conduit domain crates: {dependencies:?}"
+#[test]
+fn platform_depends_only_on_neutral_contract_owners() {
+    let metadata = workspace_metadata();
+    let dependencies = local_non_dev_dependencies(package(&metadata, "logic-analyzer-platform"));
+
+    assert_eq!(
+        dependencies,
+        BTreeSet::from(["platform-artifacts", "platform-runtime"]),
+        "platform may depend only on its neutral contract owners"
     );
 }
 

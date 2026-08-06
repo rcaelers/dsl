@@ -3,12 +3,13 @@ use std::sync::Arc;
 
 use wasm_bindgen::prelude::*;
 
-use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
-use signal_derived::portable_worker_kernels;
-use signal_runtime::{
-    CooperativeAppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor,
-    WorkExecutor, WorkerMessage, WorkerOperation, WorkerOperationExecutor, WorkerRequest,
+use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+use platform_runtime::{
+    CooperativeWorkerOperationExecutor, InlineWorkExecutor, WorkExecutor, WorkerMessage,
+    WorkerOperation, WorkerOperationExecutor, WorkerRequest,
 };
+use signal_derived::portable_worker_kernels;
+use signal_runtime::CooperativeAppManagerFactory;
 
 use crate::demo_graphs::embedded_demo_graphs;
 
@@ -17,7 +18,7 @@ unsafe extern "C" {
 }
 
 thread_local! {
-    static PORTABLE_KERNELS: signal_runtime::WorkerKernelRegistry = portable_worker_kernels();
+    static PORTABLE_KERNELS: platform_runtime::WorkerKernelRegistry = portable_worker_kernels();
 }
 
 #[wasm_bindgen(js_name = executePortableWorkerOperation)]

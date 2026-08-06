@@ -12,7 +12,7 @@ use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
 };
 use logic_analyzer_ui::{NodeCatalogService, NodeCatalogSnapshot};
 use node_graph::NodeTemplate;
-use signal_runtime::{WorkExecutor, WorkTask};
+use platform_runtime::{WorkExecutor, WorkTask};
 
 const NAMESPACE: &str = "logic_conduit.sigrok_python";
 

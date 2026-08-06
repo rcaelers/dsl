@@ -1,4 +1,4 @@
-use signal_runtime::WorkerKernelRegistry;
+use platform_runtime::WorkerKernelRegistry;
 
 const LEVEL_POWER: usize = 6;
 const L1_WORDS: usize = 1 << (LEVEL_POWER * 2);

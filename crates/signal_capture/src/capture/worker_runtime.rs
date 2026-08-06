@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use signal_artifacts::{ArtifactRepository, SourceIdentity};
-use signal_runtime::{WorkExecutor, WorkerOperation};
+use platform_artifacts::{ArtifactRepository, SourceIdentity};
+use platform_runtime::{WorkExecutor, WorkerOperation};
 
 use super::host_protocol::{
     CaptureWorkerMessage, CaptureWorkerReplayBlock, CaptureWorkerReplayRequest,
@@ -530,8 +530,8 @@ impl CaptureWorkerRuntime {
 
 #[cfg(test)]
 mod worker_runtime_tests {
-    use signal_artifacts::MemoryArtifactRepository;
-    use signal_runtime::InlineWorkExecutor;
+    use platform_artifacts::MemoryArtifactRepository;
+    use platform_runtime::InlineWorkExecutor;
 
     use super::*;
     use crate::{

@@ -2,16 +2,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
-use signal_artifacts::{
+use platform_artifacts::{
     ArtifactKey, ArtifactNamespace, ArtifactRepository, RepositoryError, SourceIdentity,
 };
+use platform_runtime::WorkExecutor;
 use signal_capture::{
     CaptureIndex, CaptureMetadata, CaptureSampledWindow, Error, Result,
     WaveformSummary as GroupSummary, WaveformSummaryGrid as SummaryGrid, exact_window_sample_limit,
     sample_waveform_summary_channel as sample_summary_channel,
     select_waveform_summary_resolution as select_summary_resolution,
 };
-use signal_runtime::WorkExecutor;
 
 use crate::{
     CaptureCursorItem, CaptureRandomReader, CaptureStore, CaptureStoreCursor, FinalizedCapture,
@@ -1133,9 +1133,9 @@ mod tests {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    use signal_artifacts::MemoryArtifactRepository;
+    use platform_artifacts::MemoryArtifactRepository;
+    use platform_runtime::{CompletedWorkTask, WorkExecutor, WorkExecutorTask, WorkTask};
     use signal_capture::{CaptureIndex, CaptureWaveformSegment};
-    use signal_runtime::{CompletedWorkTask, WorkExecutor, WorkExecutorTask, WorkTask};
 
     use super::{FAN_OUT, GrowingCaptureIndex, LEAF_SAMPLES, summary_masks};
     use crate::{

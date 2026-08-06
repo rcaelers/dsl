@@ -1,4 +1,4 @@
-use signal_artifacts::block_checksum;
+use platform_artifacts::block_checksum;
 
 use super::config::BlockCodecConfig;
 #[cfg(test)]

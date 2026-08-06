@@ -8,13 +8,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
+use platform_runtime::{WorkExecutor, WorkTask};
 use tracing::{info, warn};
 // `std::time::SystemTime::now()` panics on `wasm32-unknown-unknown` (no clock
 // syscall); `web_time` provides the same API backed by `Date.now()` in the
 // browser and transparently re-exports `std::time` elsewhere.
 use web_time::{SystemTime, UNIX_EPOCH};
-
-use super::work_executor::{WorkExecutor, WorkTask};
 
 /// Timestamp in milliseconds since UNIX_EPOCH
 #[inline(always)]

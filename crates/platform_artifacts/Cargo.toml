@@ -1,5 +1,5 @@
 [package]
-name = "signal-artifacts"
+name = "platform-artifacts"
 version.workspace = true
 edition = "2024"
 authors = ["Rob Caelers <rob.caelers@gmail.com>"]
@@ -8,7 +8,7 @@ repository = "https://github.com/rcaelers/logic-conduit"
 license = "MIT"
 
 [lib]
-name = "signal_artifacts"
+name = "platform_artifacts"
 path = "src/lib.rs"
 
 [dependencies]

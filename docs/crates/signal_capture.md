@@ -8,8 +8,9 @@ waveform indexes. Its crate root is the supported facade; implementation modules
 
 ## Dependency boundary
 
-The crate depends only on `signal_artifacts`, `signal_runtime`, and portable serialization,
-hashing, error, and channel libraries. It has no dependency on acquisition
+The crate depends only on `platform_artifacts`, `platform_runtime`, `signal_runtime`, and portable
+serialization, hashing, error, and channel libraries. It uses `platform_runtime` for finite work
+and worker-operation contracts and `signal_runtime` for typed streams. It has no dependency on acquisition
 sessions, derived-data stores, graph crates, concrete formats or devices, UI, or platform adapters.
 
 Growing live indexes remain with the capture-session owner because they consume mutable session

@@ -11,7 +11,7 @@ path = "src/lib.rs"
 [dependencies]
 crossbeam-channel = { workspace = true }
 signal-capture-session = { path = "../signal_capture_session" }
-signal-artifacts = { path = "../signal_artifacts" }
+platform-artifacts = { path = "../platform_artifacts" }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 zip = { workspace = true }

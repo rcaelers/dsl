@@ -3,8 +3,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
-use signal_artifacts::{ArtifactRepository, SourceIdentity};
-use signal_runtime::WorkExecutor;
+use platform_artifacts::{ArtifactRepository, SourceIdentity};
+use platform_runtime::WorkExecutor;
 
 use super::storage::IndexWriter;
 #[cfg(test)]

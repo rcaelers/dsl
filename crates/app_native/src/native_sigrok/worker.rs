@@ -11,7 +11,8 @@ use thiserror::Error;
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     InitialPin, LogicChunk, OutputRegistration,
 };
-use signal_runtime::{NodeCancellation, WorkExecutor, WorkTask};
+use platform_runtime::{WorkExecutor, WorkTask};
+use signal_runtime::NodeCancellation;
 
 use super::bridge::{BridgeError, DecoderBridge, DecoderOutput};
 use super::python_error::format_python_error;

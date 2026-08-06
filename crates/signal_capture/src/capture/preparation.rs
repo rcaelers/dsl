@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use signal_runtime::WorkerOperation;
+use platform_runtime::WorkerOperation;
 
 /// Opaque request for preparing a capture index in a host-owned execution context.
 ///

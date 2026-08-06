@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use signal_artifacts::{
+use platform_artifacts::{
     ArtifactRepository, ByteRange, ByteRegion, ImmutableByteRegion, OwnedByteSource, SourceIdentity,
 };
-use signal_runtime::WorkExecutor;
+use platform_runtime::WorkExecutor;
 
 use super::preparation::CaptureIndexPreparationRequest;
 use crate::{Error, Result};

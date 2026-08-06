@@ -3,7 +3,7 @@ use serde::ser::Error as _;
 
 use logic_analyzer_graph_plan::OutputSubscriptionPlan;
 use node_graph::api::{GraphState, Socket};
-use signal_artifacts::{ArtifactReplicationEvent, SourceIdentity};
+use platform_artifacts::{ArtifactReplicationEvent, SourceIdentity};
 
 use crate::{GraphWorkerMessage, GraphWorkerRequest};
 

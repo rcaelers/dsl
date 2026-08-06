@@ -9,7 +9,7 @@ use web_sys::{
     Blob, BlobPropertyBag, ErrorEvent, MessageEvent, Url, Worker, WorkerOptions, WorkerType,
 };
 
-use signal_runtime::{
+use platform_runtime::{
     WorkerExecutionCapability, WorkerHostCommand, WorkerMessage, WorkerOperation,
     WorkerOperationExecutor, WorkerOperationQueue, WorkerRequest,
 };

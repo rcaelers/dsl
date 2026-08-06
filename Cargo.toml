@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/app_native", "crates/app_web", "crates/input_bindings", "crates/logic_analyzer_capture_export", "crates/logic_analyzer_graph_capabilities", "crates/logic_analyzer_graph_compiler", "crates/logic_analyzer_graph_nodes", "crates/logic_analyzer_graph_orchestration", "crates/logic_analyzer_graph_plan", "crates/logic_analyzer_graph_registry", "crates/logic_analyzer_graph_runtime", "crates/logic_analyzer_platform", "crates/logic_analyzer_processing", "crates/logic_analyzer_test_support", "crates/logic_analyzer_ui", "crates/signal_artifacts", "crates/signal_capture", "crates/signal_derived", "crates/signal_capture_session", "crates/signal_runtime", "crates/widgets/logic_analyzer_viewer", "crates/widgets/node_graph", "crates/widgets/panel_layout", "crates/widgets/trigger_editor", "crates/widgets/widget_support", "plugins/example-plugin"]
+members = [".", "crates/app_native", "crates/app_web", "crates/input_bindings", "crates/logic_analyzer_capture_export", "crates/logic_analyzer_graph_capabilities", "crates/logic_analyzer_graph_compiler", "crates/logic_analyzer_graph_nodes", "crates/logic_analyzer_graph_orchestration", "crates/logic_analyzer_graph_plan", "crates/logic_analyzer_graph_registry", "crates/logic_analyzer_graph_runtime", "crates/logic_analyzer_platform", "crates/logic_analyzer_processing", "crates/logic_analyzer_test_support", "crates/logic_analyzer_ui", "crates/platform_artifacts", "crates/platform_runtime", "crates/signal_capture", "crates/signal_derived", "crates/signal_capture_session", "crates/signal_runtime", "crates/widgets/logic_analyzer_viewer", "crates/widgets/node_graph", "crates/widgets/panel_layout", "crates/widgets/trigger_editor", "crates/widgets/widget_support", "plugins/example-plugin"]
 default-members = ["crates/app_native"]
 resolver = "2"
 
@@ -80,7 +80,8 @@ signal-capture-session = { path = "crates/signal_capture_session" }
 signal-capture = { path = "crates/signal_capture" }
 signal-derived = { path = "crates/signal_derived" }
 signal-runtime = { path = "crates/signal_runtime" }
-signal-artifacts = { path = "crates/signal_artifacts" }
+platform-artifacts = { path = "crates/platform_artifacts" }
+platform-runtime = { path = "crates/platform_runtime" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }

@@ -12,7 +12,8 @@ name = "signal_capture_session"
 path = "src/lib.rs"
 
 [dependencies]
-signal-artifacts = { path = "../signal_artifacts" }
+platform-artifacts = { path = "../platform_artifacts" }
+platform-runtime = { path = "../platform_runtime" }
 signal-capture = { path = "../signal_capture" }
 signal-derived = { path = "../signal_derived" }
 signal-runtime = { path = "../signal_runtime" }

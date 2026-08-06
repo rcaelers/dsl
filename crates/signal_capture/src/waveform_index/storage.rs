@@ -12,7 +12,7 @@ use std::collections::{HashMap, VecDeque};
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::sync::{Arc, Mutex};
 
-use signal_artifacts::{
+use platform_artifacts::{
     ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion, ImmutableByteRegion,
     OwnedByteSource, RepositoryError, SourceIdentity,
 };
@@ -819,7 +819,7 @@ mod tests {
     #[test]
     fn reader_reuses_decoded_leaf_views() -> Result<()> {
         let repository: Arc<dyn ArtifactRepository> =
-            Arc::new(signal_artifacts::MemoryArtifactRepository::new());
+            Arc::new(platform_artifacts::MemoryArtifactRepository::new());
         let identity = SourceIdentity::from_bytes([7; 32]);
         let metadata = CaptureMetadata {
             total_probes: 1,
@@ -859,7 +859,7 @@ mod tests {
     #[test]
     fn writer_groups_channel_major_leaves_into_bounded_segments() -> Result<()> {
         let repository: Arc<dyn ArtifactRepository> =
-            Arc::new(signal_artifacts::MemoryArtifactRepository::new());
+            Arc::new(platform_artifacts::MemoryArtifactRepository::new());
         let identity = SourceIdentity::from_bytes([8; 32]);
         let metadata = CaptureMetadata {
             total_probes: 1,
@@ -903,7 +903,7 @@ mod tests {
     #[test]
     fn previous_root_format_is_rejected_for_rebuild() -> Result<()> {
         let repository: Arc<dyn ArtifactRepository> =
-            Arc::new(signal_artifacts::MemoryArtifactRepository::new());
+            Arc::new(platform_artifacts::MemoryArtifactRepository::new());
         let identity = SourceIdentity::from_bytes([9; 32]);
         let metadata = CaptureMetadata {
             total_probes: 0,

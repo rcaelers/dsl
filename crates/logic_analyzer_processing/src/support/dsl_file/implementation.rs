@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use tracing::debug;
 
-use signal_artifacts::{PreparedByteSource, SourceIdentity};
+use platform_artifacts::{PreparedByteSource, SourceIdentity};
 #[cfg(test)]
 use signal_capture::CaptureSampledWindow;
 use signal_capture::{

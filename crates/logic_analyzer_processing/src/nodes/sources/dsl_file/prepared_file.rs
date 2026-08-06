@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use signal_artifacts::{ArtifactRepository, PreparedByteSourceOpener};
+use platform_artifacts::{ArtifactRepository, PreparedByteSourceOpener};
+use platform_runtime::WorkExecutor;
 use signal_capture::{
     CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, IndexedCapturePresentation,
 };
-use signal_runtime::WorkExecutor;
 
 use super::{DslFileSource, DslFileSourceConfig, DslFileSourceFactory};
 use crate::{

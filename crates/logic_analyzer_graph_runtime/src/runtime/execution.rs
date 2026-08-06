@@ -9,14 +9,15 @@ use logic_analyzer_graph_plan::{
     ProcessingGraphError, ProcessingNode, SamplingOverlayCandidate,
 };
 use node_graph::api::NodeId;
-use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+use platform_runtime::{InlineWorkExecutor, WorkExecutor};
 use signal_capture::SampleBlock;
 use signal_derived::{
     DerivedDataRetention, DerivedLanes, PersistentStoreConfig, SamplingPointStore,
 };
 use signal_runtime::{
-    AppManager, ConfigurationBoundary, DisconnectEvent, InlineWorkExecutor, InputSub, NodeConfig,
-    NodeFailure, OverflowPolicy, ProcessNode, WorkExecutor,
+    AppManager, ConfigurationBoundary, DisconnectEvent, InputSub, NodeConfig, NodeFailure,
+    OverflowPolicy, ProcessNode,
 };
 
 use super::data_collector::DataCollectorBuilder;

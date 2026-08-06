@@ -7,7 +7,7 @@ use wasm_bindgen_futures::JsFuture;
 use logic_analyzer_platform::{
     DroppedFileData, FilePickerProgress, FilePickerRequest, FilePickerService, FileReference,
 };
-use signal_artifacts::SourceIdentity;
+use platform_artifacts::SourceIdentity;
 
 use super::super::web_capture_worker::{attach_capture_file, cancel_capture_file_attachment};
 use super::registry::{

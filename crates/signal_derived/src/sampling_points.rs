@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use crossbeam_channel::{Receiver, Sender};
 
-use signal_runtime::{WorkExecutor, WorkTask};
+use platform_runtime::{WorkExecutor, WorkTask};
 
 use crate::derived_word_store::{
     AnnotationQuery, IndexedAnnotationStore, IndexedAnnotationWriter, LiveStoreConfig,
@@ -714,8 +714,8 @@ fn persistent_points_in_range(
 mod sampling_point_store_tests {
     use std::sync::Arc;
 
-    use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
-    use signal_runtime::{InlineWorkExecutor, WorkExecutorTask};
+    use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+    use platform_runtime::{InlineWorkExecutor, WorkExecutorTask};
 
     use super::*;
 

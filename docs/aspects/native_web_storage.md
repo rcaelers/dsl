@@ -84,7 +84,7 @@ Native runs request the threaded pipeline-manager backend; web runs construct th
 cooperative backend.
 The graph runtime creates managers through the same factory contract and does not select either
 backend.
-Portable processing work uses the `signal_runtime::WorkExecutor` contract. The native application
+Portable processing work uses the `platform_runtime::WorkExecutor` contract. The native application
 root requests bounded finite-work execution and host-owned long-running task execution through one
 capability and passes it through the UI graph-service construction boundary; the graph runtime makes
 it available to node builders in their `NodeBuildContext`. Concrete nodes choose whether they need
@@ -169,7 +169,7 @@ Portable implementations remain in their behavioral owner and compile everywhere
 the chunked-memory repository, owned byte backing, deterministic fake sources, and cooperative
 executor. Application composition selects them explicitly; `logic_analyzer_platform` does not
 fork their algorithms.
-Persistent metadata receives the root-level `signal_artifacts::UnixTimeSource` capability. Its
+Persistent metadata receives the root-level `platform_artifacts::UnixTimeSource` capability. Its
 default implementation uses `web-time` on every target, while deterministic conformance fixtures
 inject a fixed clock so complete manifests and encoded generations can be compared byte for byte.
 
@@ -206,8 +206,9 @@ runtimes, and UI services, and inject them. No reusable core crate depends on
 `logic_analyzer_platform`.
 
 Traits implemented by the adapter crate are supported cross-crate ports re-exported from the crate
-root of their behavioral owner. For example, artifact storage ports belong to `signal_artifacts`,
-processing execution belongs to `signal_runtime`, encoded-store ports belong to `signal_derived`,
+root of their behavioral owner. For example, artifact storage ports belong to `platform_artifacts`,
+host work and worker-operation ports belong to `platform_runtime`, typed-stream execution belongs
+to `signal_runtime`, encoded-store ports belong to `signal_derived`,
 cache-administration and source-preparation ports belong to `logic_analyzer_graph_runtime`, embedded
 node-control dialogs belong to `node_graph`, application dialogs and host commands belong to
 `logic_analyzer_ui`, and capture export belongs to `logic_analyzer_capture_export`. Application
@@ -376,7 +377,7 @@ The repository interfaces preserve these semantics:
 
 The native repository adapter is an isolated leaf in `logic_analyzer_platform`; it implements
 publication with files and atomic filesystem operations. The platform-independent memory repository
-in `signal_artifacts` keeps published artifacts in bounded process-lifetime memory and
+in `platform_artifacts` keeps published artifacts in bounded process-lifetime memory and
 can be selected on any target. Both implementations satisfy the same lifecycle and prepared-source
 conformance fixture. The browser composition adds a platform-owned OPFS mirror without changing
 store, graph-runtime, or viewer behavior.
@@ -389,7 +390,7 @@ and eviction policy, but it cannot produce a hit after the page is reloaded.
 
 Codecs and queries consume `ByteRegion`, which owns a range of an immutable backing and exposes a
 borrowed byte slice for the duration of an operation. The backing is private to
-`signal_artifacts`.
+`platform_artifacts`.
 
 ```rust
 struct ByteRegion {
@@ -409,7 +410,7 @@ repositories supply `Arc<[u8]>`-backed regions for ranges within one chunk. A re
 cannot expose a stable region for a requested range returns `None`, and the common reader fills an
 owned region through `read_at`. Mmap therefore
 remains an optimization supplied by `logic_analyzer_platform`, not a different storage or indexing
-model inside `signal_artifacts`.
+model inside `platform_artifacts`.
 
 Large artifacts are chunked. Neither native nor web code requires one artifact, one capture, or one
 index to fit in a single allocation or `usize` range.
@@ -621,8 +622,9 @@ portable processing crates.
 ### Execution
 
 Execution is a separate platform capability because native blocking threads are not available to
-`wasm32-unknown-unknown`. Shared algorithms submit finite work units and long-running stream tasks
-through one platform executor. The platform decides when and where those units run.
+`wasm32-unknown-unknown`. `platform_runtime` owns the portable contracts and queue policy. Shared
+algorithms submit finite work units and long-running stream tasks through one injected executor;
+the target-selected adapter decides when and where those units run.
 
 The executor contract provides:
 
@@ -634,8 +636,9 @@ The executor contract provides:
 
 The native executor adapter in `logic_analyzer_platform` uses a bounded worker pool for finite
 work and host-created tasks for long-running readers and runtime supervision. The portable
-cooperative executor compiles on every target and is the explicit fallback when the web host cannot
-provide parallel workers. `signal_runtime::WorkerMessage` carries owned operation identifiers,
+cooperative executor belongs to `platform_runtime`, compiles on every target, and is the explicit
+fallback when the web host cannot provide parallel workers. `platform_runtime::WorkerMessage`
+carries owned operation identifiers,
 sequence numbers, payloads, progress, cancellation, completion, and failure across a worker
 boundary. A Web Worker adapter in `logic_analyzer_platform` dispatches registered operations with
 those messages and returns owned result chunks. It does not attempt to send Rust closures, trait
@@ -685,7 +688,7 @@ executing it. A failed worker rejects its active request, remaining workers cont
 queue, and loss of the complete pool rejects all queued requests. Dropping the adapter terminates
 the pool and releases its JavaScript callbacks.
 
-`signal_runtime::WorkerOperationQueue` owns this bounded scheduling state independently of the
+`platform_runtime::WorkerOperationQueue` owns this bounded scheduling state independently of the
 host transport. Host readiness and results enter as portable events; runnable and cancellation work
 leaves as `WorkerHostCommand` values. Native and Web Worker adapters translate those commands
 without reimplementing queue policy. The queue's native and wasm conformance suite covers every
@@ -820,14 +823,16 @@ bounded blocks and a repository rather than preloading one contiguous buffer.
 
 ### Ownership
 
-- `signal_artifacts` owns prepared-byte-source, artifact-repository, and byte-region contracts plus
+- `platform_artifacts` owns prepared-byte-source, artifact-repository, and byte-region contracts plus
   the portable in-memory repository and owned byte backing.
-- `signal_runtime` owns execution; `signal_capture` owns finite indexes and immutable queries;
+- `platform_runtime` owns host work, finite worker-operation contracts, portable fallbacks, and
+  target-independent worker-queue policy.
+- `signal_runtime` owns typed-stream graphs, node scheduling, and pipeline supervision;
+  `signal_capture` owns finite indexes and immutable queries;
   `signal_derived` owns derived stores and cache formats; `signal_capture_session` owns capture-session
   stores and remaining session queries
-  contracts and their shared algorithms. Its deterministic capture implementations and cooperative
-  executor are portable implementations compiled unchanged on every target. It has no target
-  selector or host dependency.
+  contracts and their shared algorithms. These portable owners have no target selector or host
+  dependency.
 - `logic_analyzer_processing` owns concrete capture parsers, processing nodes, sinks, the U3Pro16
   device protocol, and portable format behavior. Parsers consume prepared byte sources; the
   U3Pro16 protocol consumes its injected USB transport contract. A complete file-I/O adapter leaf
@@ -849,26 +854,26 @@ bounded blocks and a repository rather than preloading one contiguous buffer.
   target-selected worker implementation.
 - `logic_analyzer_platform` is an adapter/integration crate above the contract owners. It contains
   reusable native and web implementations for files, mmap, worker execution, browser handles,
-  OPFS, dialogs, and USB access. Some individually scoped constructors still expose concrete
-  processing, graph-worker, capture/session, and derived-kernel contracts; the structural allowlist
-  prevents that surface from growing while the P1 inversion removes it.
+  OPFS, dialogs, and USB access. Its production dependencies are limited to the neutral
+  `platform_artifacts` and `platform_runtime` contracts plus host libraries.
 - `app_native` and `app_web` are unavoidable target-specific composition roots. They initialize
   their host, obtain `logic_analyzer_platform` mechanisms, adapt domain/UI ports, select concrete
   node overrides, and construct application and worker services. They contain no reusable storage,
   processing, or scheduling implementation.
 
-The current dependency direction points from app composition through platform to generic contracts,
-with the platform's five temporary domain edges checked separately:
+The dependency direction keeps the reusable adapter below application composition and dependent
+only on neutral platform contracts:
 
-```text
-signal_artifacts   signal_runtime   signal_capture   signal_derived   signal_capture_session
-        ^                 ^               ^                ^                    ^
-        +-----------------+---------------+----------------+--------------------+
-                                           |
-                             logic_analyzer_platform
-                                           ^
-                                           |
-        UI / graph nodes / domain services <- app_native / app_web
+```mermaid
+flowchart BT
+    Platform[logic_analyzer_platform] --> Artifacts[platform_artifacts]
+    Platform --> HostRuntime[platform_runtime]
+    SignalRuntime[signal_runtime] --> HostRuntime
+    Domains[signal and graph domains] --> Artifacts
+    Domains --> HostRuntime
+    Apps[app_native / app_web] --> Platform
+    Apps --> SignalRuntime
+    Apps --> Domains
 ```
 
 Core crates never depend on `logic_analyzer_platform`; doing so would reverse the injection
@@ -940,7 +945,7 @@ An explicitly documented complete file-I/O or USB leaf adapter in
 only host access; its node state, builder, parser or device protocol, and runtime contract remain
 portable.
 
-`signal_artifacts`, `signal_runtime`, `signal_capture`, `signal_derived`,
+`platform_artifacts`, `platform_runtime`, `signal_runtime`, `signal_capture`, `signal_derived`,
 `signal_capture_session`, `logic_analyzer_graph_capabilities`,
 `logic_analyzer_graph_registry`, `logic_analyzer_graph_plan`,
 `logic_analyzer_graph_compiler`, `logic_analyzer_graph_runtime`,

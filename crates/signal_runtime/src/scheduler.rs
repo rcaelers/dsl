@@ -21,10 +21,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tracing::{debug, error, info};
 
+use platform_runtime::{WorkExecutor, WorkTask};
+
 use super::node::ProcessNode;
 use super::ports::{InputPort, OutputPort};
 use super::watchdog::Watchdog;
-use super::work_executor::{WorkExecutor, WorkTask};
 
 /// Threaded runtime owner for a statically built streaming graph.
 ///
@@ -220,10 +221,11 @@ mod tests {
 
     use crossbeam_channel::bounded;
 
+    use platform_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
+
     use super::super::errors::{WorkError, WorkResult};
     use super::super::node::ProcessNode;
     use super::super::sender::ChannelMessage;
-    use super::super::work_executor::{WorkExecutor, WorkExecutorTask, WorkTask};
     use super::*;
 
     struct TestWorkExecutor;

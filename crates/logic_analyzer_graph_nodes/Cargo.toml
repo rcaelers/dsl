@@ -13,7 +13,8 @@ signal-capture-session = { path = "../signal_capture_session" }
 signal-capture = { path = "../signal_capture" }
 signal-derived = { path = "../signal_derived" }
 signal-runtime = { path = "../signal_runtime" }
-signal-artifacts = { path = "../signal_artifacts" }
+platform-artifacts = { path = "../platform_artifacts" }
+platform-runtime = { path = "../platform_runtime" }
 logic-analyzer-graph-capabilities = { path = "../logic_analyzer_graph_capabilities" }
 logic-analyzer-graph-registry = { path = "../logic_analyzer_graph_registry" }
 logic-analyzer-processing = { path = "../logic_analyzer_processing" }

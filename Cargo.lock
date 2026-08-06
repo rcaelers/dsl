@@ -2128,6 +2128,7 @@ dependencies = [
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
+ "platform-runtime",
  "pyo3",
  "serde",
  "serde_json",
@@ -2158,10 +2159,11 @@ dependencies = [
  "logic-analyzer-processing",
  "logic-analyzer-ui",
  "node-graph",
+ "platform-artifacts",
+ "platform-runtime",
  "rfd",
  "serde",
  "serde_json",
- "signal-artifacts",
  "signal-capture",
  "signal-derived",
  "signal-runtime",
@@ -2178,7 +2180,7 @@ name = "logic-analyzer-capture-export"
 version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
- "signal-artifacts",
+ "platform-artifacts",
  "signal-capture-session",
  "tempfile",
  "thiserror 2.0.19",
@@ -2208,9 +2210,10 @@ dependencies = [
  "memmap2",
  "minifb",
  "node-graph",
+ "platform-artifacts",
+ "platform-runtime",
  "serde",
  "serde_json",
- "signal-artifacts",
  "signal-capture",
  "signal-capture-session",
  "signal-derived",
@@ -2224,9 +2227,10 @@ name = "logic-analyzer-graph-capabilities"
 version = "0.1.0"
 dependencies = [
  "node-graph",
+ "platform-artifacts",
+ "platform-runtime",
  "serde",
  "serde_json",
- "signal-artifacts",
  "signal-capture",
  "signal-capture-session",
  "signal-derived",
@@ -2261,9 +2265,10 @@ dependencies = [
  "logic-analyzer-test-support",
  "logic-analyzer-viewer",
  "node-graph",
+ "platform-artifacts",
+ "platform-runtime",
  "serde",
  "serde_json",
- "signal-artifacts",
  "signal-capture",
  "signal-capture-session",
  "signal-derived",
@@ -2281,9 +2286,10 @@ dependencies = [
  "logic-analyzer-graph-plan",
  "logic-analyzer-graph-runtime",
  "node-graph",
+ "platform-artifacts",
+ "platform-runtime",
  "serde",
  "serde_json",
- "signal-artifacts",
  "signal-derived",
  "signal-runtime",
 ]
@@ -2320,8 +2326,9 @@ dependencies = [
  "logic-analyzer-graph-capabilities",
  "logic-analyzer-graph-plan",
  "node-graph",
+ "platform-artifacts",
+ "platform-runtime",
  "serde_json",
- "signal-artifacts",
  "signal-capture",
  "signal-derived",
  "signal-runtime",
@@ -2336,10 +2343,10 @@ dependencies = [
  "js-sys",
  "logic-analyzer-test-support",
  "memmap2",
+ "platform-artifacts",
+ "platform-runtime",
  "rfd",
  "rusb",
- "signal-artifacts",
- "signal-runtime",
  "tempfile",
  "tracing",
  "wasm-bindgen",
@@ -2357,9 +2364,10 @@ dependencies = [
  "clap",
  "crossbeam-channel",
  "logic-analyzer-test-support",
+ "platform-artifacts",
+ "platform-runtime",
  "serde",
  "serde_json",
- "signal-artifacts",
  "signal-capture",
  "signal-capture-session",
  "signal-derived",
@@ -2376,7 +2384,7 @@ dependencies = [
 name = "logic-analyzer-test-support"
 version = "0.1.0"
 dependencies = [
- "signal-artifacts",
+ "platform-artifacts",
  "signal-capture-session",
  "signal-derived",
  "tempfile",
@@ -2401,9 +2409,10 @@ dependencies = [
  "logic-analyzer-viewer",
  "node-graph",
  "panel-layout",
+ "platform-artifacts",
+ "platform-runtime",
  "serde",
  "serde_json",
- "signal-artifacts",
  "signal-capture",
  "signal-capture-session",
  "signal-derived",
@@ -2420,7 +2429,7 @@ dependencies = [
  "egui",
  "input-bindings",
  "inventory",
- "signal-artifacts",
+ "platform-artifacts",
  "signal-capture",
  "signal-capture-session",
  "signal-derived",
@@ -3232,6 +3241,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
+name = "platform-artifacts"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.19",
+ "wasm-bindgen-test",
+ "web-time",
+]
+
+[[package]]
+name = "platform-runtime"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "wasm-bindgen-test",
+]
+
+[[package]]
 name = "png"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3758,24 +3787,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
-name = "signal-artifacts"
-version = "0.1.0"
-dependencies = [
- "serde",
- "thiserror 2.0.19",
- "wasm-bindgen-test",
- "web-time",
-]
-
-[[package]]
 name = "signal-capture"
 version = "0.1.0"
 dependencies = [
  "blake3",
  "crossbeam-channel",
+ "platform-artifacts",
+ "platform-runtime",
  "serde",
  "serde_json",
- "signal-artifacts",
  "signal-runtime",
  "thiserror 2.0.19",
 ]
@@ -3786,9 +3806,10 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "crossbeam-channel",
+ "platform-artifacts",
+ "platform-runtime",
  "serde",
  "serde_json",
- "signal-artifacts",
  "signal-capture",
  "signal-derived",
  "signal-runtime",
@@ -3803,7 +3824,8 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "crossbeam-channel",
- "signal-artifacts",
+ "platform-artifacts",
+ "platform-runtime",
  "signal-capture",
  "signal-runtime",
  "thiserror 2.0.19",
@@ -3828,8 +3850,8 @@ version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
  "lazy_static",
+ "platform-runtime",
  "serde",
- "serde_json",
  "thiserror 2.0.19",
  "tracing",
  "wasm-bindgen-test",

@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use logic_analyzer_test_support::{
     BufferedFakeConfig, BufferedFakeProvider, DeterministicFakeConfig, DeterministicFakeProvider,
 };
-use signal_artifacts::MemoryArtifactRepository;
+use platform_artifacts::MemoryArtifactRepository;
 use signal_capture_session::{
     AcquisitionContext, AcquisitionResult, CaptureAcquisitionPhase, CaptureChannelId,
     CaptureCursorItem, CaptureDataDelivery, CaptureEvent, CaptureProviderCapabilities,

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use signal_artifacts::ArtifactRepository;
-use signal_runtime::WorkExecutor;
+use platform_artifacts::ArtifactRepository;
+use platform_runtime::WorkExecutor;
 
 use super::configuration::DslFileSourceConfig;
 use crate::{

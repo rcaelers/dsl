@@ -14,21 +14,29 @@ in [Processing Graph Workflows](processing_workflows.md).
 
 ## Crate guide
 
-### Generic signal and data-plane crates
+### Generic platform, signal, and data-plane crates
 
-#### `signal-artifacts`
+#### `platform-artifacts`
 
 Owns platform-neutral immutable byte regions, artifact and source identities, repository contracts,
 in-memory repository behavior, replication, checksums, and persistence time primitives. Physical
 filesystem or browser storage is supplied through the repository contract. Capture formats,
 derived encodings, execution, and host selection remain outside this crate.
 
+#### `platform-runtime`
+
+Owns platform-neutral work execution and worker-operation contracts, serializable request and
+result envelopes, registered finite-operation kernels, explicit inline/cooperative fallbacks, and
+the target-independent bounded worker queue. It does not own stream graphs, process nodes,
+application policy, or native/browser transports.
+
 #### `signal-runtime`
 
 Owns generic typed-stream execution: process-node lifecycle, named ports, channels, pipeline
-wiring, scheduling, threaded and cooperative managers, and work dispatch. Its crate root is the
-supported execution facade. It does not define capture or derived payload storage, acquisition
-sessions, concrete nodes, graph documents, or presentation.
+wiring, scheduling, and threaded and cooperative managers. Its crate root is the supported
+execution facade. It consumes injected `platform-runtime` work capabilities and does not define
+their host adapters, capture or derived payload storage, acquisition sessions, concrete nodes,
+graph documents, or presentation.
 
 #### `signal-capture`
 
@@ -234,12 +242,15 @@ a built-in node bundle.
 ```mermaid
 flowchart LR
     Apps[Application roots] --> Platform[logic_analyzer_platform]
+    Apps --> HostRuntime[platform_runtime]
     Apps --> UI[logic_analyzer_ui]
     Apps --> Nodes[logic_analyzer_graph_nodes]
-    Platform --> UI
+    Platform --> Artifacts[platform_artifacts]
+    Platform --> HostRuntime
     UI --> Compiler[logic_analyzer_graph_compiler]
     UI --> Runtime[logic_analyzer_graph_runtime]
     UI --> Orchestration[logic_analyzer_graph_orchestration]
+    UI --> HostRuntime
     Orchestration --> Compiler
     Orchestration --> Runtime
     Compiler --> Registry[logic_analyzer_graph_registry]
@@ -249,15 +260,20 @@ flowchart LR
     Plan --> Capabilities
     Nodes --> Registry
     Nodes --> Processing[logic_analyzer_processing]
+    Processing --> HostRuntime
     Processing --> Session[signal_capture_session]
     Processing --> Capture[signal_capture]
     Processing --> Derived[signal_derived]
     Processing --> Stream[signal_runtime]
+    Stream --> HostRuntime
     Session --> Capture
     Session --> Derived
     Session --> Stream
-    Capture --> Artifacts[signal_artifacts]
+    Session --> HostRuntime
+    Capture --> Artifacts
+    Capture --> HostRuntime
     Derived --> Artifacts
+    Derived --> HostRuntime
 ```
 
 `logic-analyzer-graph-compiler` and `logic-analyzer-graph-runtime` are peer consumers of the
@@ -299,7 +315,8 @@ The graph runtime owns operations with a preparation or execution lifetime:
 - owning `GraphRun`, run data, progress, diagnostics, stop, wait, and live reconciliation; and
 - substituting source processes for replay and live analysis.
 
-The runtime receives `AppManagerFactory`, `WorkExecutor`, and `ArtifactRepository` from composition.
+The runtime receives `signal_runtime::AppManagerFactory`, `platform_runtime::WorkExecutor`, and
+`platform_artifacts::ArtifactRepository` from composition.
 It does not inspect the compilation target or directly create host paths, dialogs, USB transports,
 browser objects, native threads, or web workers. `signal_runtime::AppManager` remains the generic
 process-node executor.
@@ -340,15 +357,19 @@ The generic data-plane crates have one-way dependencies and no umbrella facade:
 
 ```mermaid
 flowchart LR
-    Capture[signal_capture] --> Artifacts[signal_artifacts]
+    Capture[signal_capture] --> Artifacts[platform_artifacts]
     Capture --> Runtime[signal_runtime]
+    Capture --> HostRuntime[platform_runtime]
     Derived[signal_derived] --> Artifacts
     Derived --> Capture
     Derived --> Runtime
+    Derived --> HostRuntime
     Session[signal_capture_session] --> Artifacts
     Session --> Capture
     Session --> Derived
     Session --> Runtime
+    Session --> HostRuntime
+    Runtime --> HostRuntime
 ```
 
 Runtime payload negotiation uses generic type, stream-semantics, capacity, and capability
