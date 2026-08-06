@@ -1,58 +1,42 @@
-#[test]
-fn application_orchestration_depends_on_the_ui_owned_host_service() {
-    let application = include_str!("../app.rs");
-    assert!(application.contains("Box<dyn HostService>"));
-    assert!(application.contains("AppServices"));
+use super::contract::HostService;
+use crate::app_services::AppServices;
+use crate::node_catalog_service::NodeCatalogService;
+use crate::preferences::PreferencesWindow;
 
-    for (name, source) in [
-        (
-            "application hooks",
-            include_str!("../app_platform/hooks.rs"),
-        ),
-        (
-            "preferences",
-            include_str!("../preferences/implementation.rs"),
-        ),
-    ] {
-        for direct_effect in ["rfd::", "load_from_path", "save_to_path"] {
-            assert!(
-                !source.contains(direct_effect),
-                "{name} must use HostService rather than {direct_effect}"
-            );
-        }
+#[test]
+fn application_components_accept_ui_owned_host_ports() {
+    let _: fn(Box<dyn HostService>) -> AppServices = AppServices::with_host_service;
+    let _: fn(&mut PreferencesWindow, &egui::Context, &mut [Box<dyn NodeCatalogService>]) =
+        PreferencesWindow::show;
+}
+
+#[test]
+fn ui_host_ports_have_no_cache_path_or_command_transport_details() {
+    // Cargo metadata and workspace scripts enforce crate and target boundaries, but cannot detect
+    // unrelated type vocabulary or intra-crate transport state, so these remain source assertions.
+    let contract = include_str!("contract.rs");
+    for detail in ["DecodedBlockCache", "clear_cache", "inspect_cache_entry"] {
+        assert!(
+            !contract.contains(detail),
+            "the host-service contract contains cache detail {detail:?}"
+        );
     }
 
-    let contract = include_str!("contract.rs");
-    assert!(!contract.contains("DecodedBlockCache"));
-    assert!(!contract.contains("clear_cache"));
-    assert!(!contract.contains("inspect_cache_entry"));
-}
+    let preferences = include_str!("../preferences/implementation.rs");
+    assert!(
+        !preferences.contains("PathBuf"),
+        "preferences must delegate directory ownership to NodeCatalogService"
+    );
 
-#[test]
-fn preferences_use_the_ui_owned_catalog_service_on_every_target() {
-    let module = include_str!("../preferences/mod.rs");
-    let implementation = include_str!("../preferences/implementation.rs");
-
-    assert!(!module.contains("target_arch"));
-    assert!(implementation.contains("&mut dyn NodeCatalogService"));
-    assert!(implementation.contains("catalog.add_directory()"));
-    assert!(!implementation.contains("PathBuf"));
-}
-
-#[test]
-fn host_command_transport_is_not_stored_in_ui_state() {
     let state = include_str!("../app_platform/state.rs");
-    let hooks = include_str!("../app_platform/hooks.rs");
-
-    for transport_detail in [
+    for detail in [
         "crossbeam_channel",
         "NATIVE_MENU_BRIDGE",
         "native_menu_commands",
     ] {
         assert!(
-            !state.contains(transport_detail),
-            "UI application state must not own host command transport detail {transport_detail:?}"
+            !state.contains(detail),
+            "UI application state contains host command transport detail {detail:?}"
         );
     }
-    assert!(hooks.contains("host_service.take_commands()"));
 }

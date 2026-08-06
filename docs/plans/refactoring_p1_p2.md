@@ -27,10 +27,10 @@ the named function/type over the number when they disagree.
 
 ## tests.architecture-structural (P2) {#tests-architecture-structural}
 
-**Problem.** ~671 lines of `architecture_tests.rs` remain across the workspace that `include_str!`
+**Problem.** ~655 lines of `architecture_tests.rs` remain across the workspace that `include_str!`
 sibling files and assert `.contains("…")` (largest: `logic_analyzer_viewer` 66 lines, followed by
-`signal_runtime` at 59 and the UI host-service suite at 58). They break on renames, pass when the string
-appears in a comment, and prove nothing about the compiled contract.
+`signal_runtime` at 59 and the signal capture and session suites at 56 each). They break on
+renames, pass when the string appears in a comment, and prove nothing about the compiled contract.
 
 The top-level integration package parses `cargo metadata --format-version 1` and asserts the
 resolved non-dev dependency graph. Its forbidden-edge contract is:
@@ -45,7 +45,7 @@ resolved non-dev dependency graph. Its forbidden-edge contract is:
    - `logic-analyzer-ui` ↛ `logic-analyzer-{capture-formats,device-dslogic,protocol-decoders}`,
      ↛ `signal-{generators,sinks,transforms}`, ↛ `logic-analyzer-graph-nodes`.
    - `logic-analyzer-ui` has no direct dependency of any kind, including a dev-dependency, on
-     `logic-analyzer-graph-nodes` or `logic-analyzer-test-support`.
+     `platform`, `rfd`, `logic-analyzer-graph-nodes`, or `logic-analyzer-test-support`.
    - `logic-analyzer-viewer` depends only on generic input, artifact, capture, session, and
      derived-data contracts within the workspace.
    - `signal-derived` depends only on generic artifact, execution, and capture contracts within the
@@ -62,6 +62,6 @@ resolved non-dev dependency graph. Its forbidden-edge contract is:
 1. Go through each remaining `architecture_tests.rs` rule by rule: delete rules now covered structurally;
    keep a string test only where no structural probe exists (e.g. "no `std::env` access in
    tests"), and add a one-line comment saying why it stays textual.
-2. Prioritize the UI host- and graph-service suites. Do not replace an implementation-text check with
-   another filename-sensitive source scan; prefer a dependency edge, public API probe, registry
-   construction, or behavior test.
+2. Prioritize the UI graph-service suite. Do not replace an implementation-text check with another
+   filename-sensitive source scan; prefer a dependency edge, public API probe, registry construction,
+   or behavior test.

@@ -203,11 +203,13 @@ fn capture_export_owner_does_not_depend_on_ui_or_platform() {
 }
 
 #[test]
-fn ui_has_no_concrete_node_or_shared_test_composition_dependencies() {
+fn ui_has_no_host_adapter_concrete_node_or_shared_test_dependencies() {
     let dependencies = direct_dependencies(workspace_metadata(), "logic-analyzer-ui");
     let forbidden = BTreeSet::from([
         "logic-analyzer-graph-nodes".to_owned(),
         "logic-analyzer-test-support".to_owned(),
+        "platform".to_owned(),
+        "rfd".to_owned(),
     ]);
     let violations = dependencies
         .intersection(&forbidden)
@@ -216,7 +218,7 @@ fn ui_has_no_concrete_node_or_shared_test_composition_dependencies() {
 
     assert!(
         violations.is_empty(),
-        "UI tests must use UI-owned service, catalog, and acquisition fakes; composition dependencies belong outside the UI crate: {violations:?}"
+        "UI code must use injected ports and UI-owned test fakes; host adapters and composition dependencies belong outside the UI crate: {violations:?}"
     );
 }
 
