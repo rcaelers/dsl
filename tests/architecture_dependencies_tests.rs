@@ -301,6 +301,21 @@ fn capture_sessions_depend_only_on_generic_capture_and_storage_contracts() {
 }
 
 #[test]
+fn node_graph_depends_only_on_portable_widget_and_document_contracts() {
+    let dependencies = local_resolved_non_dev_dependencies(workspace_metadata(), "node-graph");
+
+    assert_eq!(
+        dependencies,
+        BTreeSet::from([
+            "input-bindings".to_owned(),
+            "node-graph-document".to_owned(),
+            "widget-support".to_owned(),
+        ]),
+        "the generic node editor may depend only on portable input, document, and widget contracts"
+    );
+}
+
+#[test]
 fn headless_graph_tier_depends_on_the_document_model_not_the_node_editor() {
     let metadata = workspace_metadata();
 

@@ -55,6 +55,8 @@ resolved non-dev dependency graph. Its forbidden-edge contract is:
      the workspace.
    - `signal-capture-session` depends only on generic artifact, capture, derived-data, and execution
      contracts within the workspace.
+   - `node-graph` depends only on portable input-binding, document-model, and widget-support
+     contracts within the workspace.
    Target-specific edges participate in the resolved graph; dev-dependencies are allowed except for
    the explicit UI composition rule above.
 2. The real built-in and example-plugin inventories construct a `GraphRegistry` snapshot in a
@@ -66,6 +68,6 @@ resolved non-dev dependency graph. Its forbidden-edge contract is:
 1. Go through each remaining `architecture_tests.rs` rule by rule: delete rules now covered structurally;
    keep a string test only where no structural probe exists (e.g. "no `std::env` access in
    tests"), and add a one-line comment saying why it stays textual.
-2. Prioritize the `node_graph` suite. Do not replace an implementation-text check with
-   another filename-sensitive source scan; prefer a dependency edge, public API probe, registry
-   construction, or behavior test.
+2. Prioritize the `logic_analyzer_capture_formats` suite. Do not replace an implementation-text
+   check with another filename-sensitive source scan; prefer a dependency edge, public API probe,
+   registry construction, or behavior test.

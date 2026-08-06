@@ -822,10 +822,15 @@ impl NodeGraphWidget {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use egui::{Painter, Pos2, Rect, Vec2};
 
     use super::{GraphUiPrefs, NodeGraphWidget, graph_pointer};
-    use crate::api::{PanelTabDef, SocketIndicatorPresentation};
+    use crate::api::{
+        FileDialogRequest, FileDialogService, PanelTabDef, SocketIndicatorPresentation,
+    };
     use crate::model::{NodeId, SocketDirection, SocketId};
     use crate::runtime::NodeTypeRegistry;
     use crate::support::graph_position;
@@ -840,6 +845,33 @@ mod tests {
         }
 
         fn draw(&self, _painter: &Painter, _rect: Rect, _zoom: f32) {}
+    }
+
+    struct TestFileDialog {
+        availability_checks: Arc<AtomicUsize>,
+    }
+
+    impl FileDialogService for TestFileDialog {
+        fn available(&self, _save: bool) -> bool {
+            self.availability_checks.fetch_add(1, Ordering::Relaxed);
+            true
+        }
+
+        fn pick(&mut self, _request: FileDialogRequest<'_>) -> Option<String> {
+            None
+        }
+    }
+
+    #[test]
+    fn file_dialog_setter_installs_the_host_service() {
+        let availability_checks = Arc::new(AtomicUsize::new(0));
+        let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+        widget.set_file_dialog_service(Box::new(TestFileDialog {
+            availability_checks: Arc::clone(&availability_checks),
+        }));
+
+        assert!(widget.file_dialog_service.available(false));
+        assert_eq!(availability_checks.load(Ordering::Relaxed), 1);
     }
 
     #[test]

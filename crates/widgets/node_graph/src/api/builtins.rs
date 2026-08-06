@@ -727,3 +727,50 @@ fn paint_number_btn(
         text_color,
     );
 }
+
+#[cfg(test)]
+mod builtins_tests {
+    use egui::Context;
+
+    use super::super::control::{
+        FileDialogRequest, FileDialogService, InlineControl, InlineControlContext,
+    };
+    use super::FileValue;
+
+    struct CompletingFileDialog {
+        completion: Option<Result<String, String>>,
+    }
+
+    impl FileDialogService for CompletingFileDialog {
+        fn available(&self, _save: bool) -> bool {
+            true
+        }
+
+        fn pick(&mut self, _request: FileDialogRequest<'_>) -> Option<String> {
+            None
+        }
+
+        fn take_picked(&mut self, _request_id: u64) -> Option<Result<String, String>> {
+            self.completion.take()
+        }
+    }
+
+    #[test]
+    fn file_control_consumes_a_selection_from_the_injected_dialog() {
+        let context = Context::default();
+        let mut dialog = CompletingFileDialog {
+            completion: Some(Ok("capture.dsl".to_owned())),
+        };
+        let mut value = FileValue::new("");
+        let mut changed = false;
+
+        let _ = context.run_ui(Default::default(), |ui| {
+            let rect = ui.available_rect_before_wrap();
+            let mut control_context = InlineControlContext::new(&mut dialog);
+            changed = value.draw_widget(ui, "Capture", rect, 1.0, rect, &mut control_context);
+        });
+
+        assert!(changed);
+        assert_eq!(value.value, "capture.dsl");
+    }
+}

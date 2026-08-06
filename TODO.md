@@ -399,18 +399,18 @@ item here, so acceptance comparisons stop being ad-hoc.
   The workspace test now asserts the complete forbidden-edge list on Cargo's resolved non-dev
   dependency graph and constructs a capability snapshot from the real built-in and example-plugin
   inventories. The graph capability, plan, registry, runtime, orchestration, and UI graph-service
-  source-text suites have been removed; graph nodes, compiler, viewer, derived data, signal runtime,
-  signal capture, capture session, UI live capture, and the UI host service retain only nine
-  explicitly documented checks for constraints that compiled structure cannot detect. The viewer,
-  derived-data, signal-runtime, signal-capture, and capture-session workspace dependency surfaces are
-  now asserted structurally, as is the UI prohibition on host-adapter, concrete-node, and shared-test
-  composition dependencies. UI
+  source-text suites have been removed; graph nodes, compiler, viewer, node graph, derived data,
+  signal runtime, signal capture, capture session, UI live capture, and the UI host service retain
+  only ten explicitly documented checks for constraints that compiled structure cannot detect. The
+  viewer, node-graph, derived-data, signal-runtime, signal-capture, and capture-session workspace
+  dependency surfaces are now asserted structurally, as is the UI prohibition on host-adapter,
+  concrete-node, and shared-test composition dependencies. UI
   host and catalog injection are compile-time contract probes. Graph-service substitutability is
   verified with a complete local fake, while the workspace module check confines concrete graph
   lowering and runtime types to the service adapter. Independent decoded-cache handles and
-  live-capture artifact-repository injection are verified behaviorally, and the portable
-  application-manager facade is covered by the workspace platform-boundary and module-layout checks.
-  Continue with the `node_graph` source-text suite.
+  live-capture artifact-repository and node-graph file-dialog injection are verified behaviorally,
+  and the portable application-manager facade is covered by the workspace platform-boundary and
+  module-layout checks. Continue with the capture-formats source-text suite.
   Direction, including the forbidden-edge list:
   [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#tests-architecture-structural).
 - [docs.drift-correction] (P3 · medium) Correct the design statements the code no longer satisfies: `AGENTS.md`
