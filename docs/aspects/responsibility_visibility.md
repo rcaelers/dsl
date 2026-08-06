@@ -51,9 +51,11 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
   execution lifecycle, collected run data, and live reconciliation.
 - `logic_analyzer_graph_orchestration` owns the graph-worker protocol and worker-side composition
   above a separate compiler and runtime.
-- `node_graph::api` owns the compiler-facing graph document and node-definition contracts.
-  Compiler and graph-node code depend on this namespace; widget and editor operations remain at
-  the `node_graph` crate root for UI composition. File controls depend on its portable
+- `node_graph_document` owns graph records, identities, neutral presentation values, serialization,
+  and document-local invariants. Headless graph crates depend on this owner directly.
+- `node_graph::api` owns node-definition and editor integration contracts. Graph-node definition
+  code depends on this namespace; widget and editor operations remain at the `node_graph` crate
+  root for UI composition. File controls depend on its portable
   `FileDialogService`; the widget defaults to an unavailable implementation and the application
   composition injects the host adapter.
 - `logic_analyzer_capture_export` owns native streaming export of finalized generic capture
@@ -173,6 +175,7 @@ nearest owning facade. The allowlist names canonical public namespaces.
 | `signal_sinks` | `binary_file_writer`, `csv_word_writer`, `discard_writer`, `text_file_writer`, `tgck_recorder` | Each namespace owns one sink; the shared destination contract is exposed through the crate root. |
 | `signal_generators` | `synthetic_capture_source`, `synthetic_uart_source` | Each namespace owns one explicit deterministic source family. |
 | `logic_analyzer_graph_capabilities` | `node`, `node_support` | `node` owns capability traits implemented by graph-node plugins. `node_support` owns open port identity, protocol-neutral presentation descriptions, capture descriptions, decoder-table contracts, and the restricted node build context. It contains no graph-node or payload inventory assembly, compiler, host, built-in-node, UI, or export operations. |
+| `logic_analyzer_graph_editor_registry` | none | Its crate root exposes stable-ID-keyed node-editor registration, validated editor inventory access, and instance-bound editor overrides. Implementation modules remain private. |
 | `logic_analyzer_graph_registry` | none | Its crate root exposes graph-node, payload, and protocol-presentation registration descriptors, validated inventory access, and the immutable `GraphRegistry`. Implementation modules remain private. |
 | `logic_analyzer_graph_plan` | none | Its crate root exposes the immutable `ProcessingGraph`, processing-node/edge, payload-materialization, subscription, sampling, and diagnostic contracts exchanged between compiler and runtime. |
 | `logic_analyzer_graph_compiler` | none | Its crate root exposes `GraphLowerer` and document-discovery results. Processing-plan values are imported from `logic_analyzer_graph_plan`, capability contracts from `logic_analyzer_graph_capabilities`, and registry contracts from `logic_analyzer_graph_registry`; the compiler crate does not forward them. |
@@ -182,7 +185,8 @@ nearest owning facade. The allowlist names canonical public namespaces.
 | `logic_analyzer_capture_export` | none | The cohesive exporter exposes its curated format, progress, observer, report, stateful service contract, and native asynchronous implementation through the crate root. Encoder, archive, and service implementation modules remain private. |
 | `platform` | none | The crate root exposes individually scoped target-selected host constructors. Private native and web modules contain the single reusable target-selection point. |
 | `logic_analyzer_test_support` | none | Shared deterministic acquisition providers and data-plane conformance fixtures are exposed through the crate root. Their synchronization, repository observation, and fixture implementations remain private. |
-| `node_graph` | `api` | `api` exposes graph documents, identifiers, sockets, and node-definition contracts to compilers and graph-node implementations. The crate root exposes the widget/editor composition surface used by UI hosts. |
+| `node_graph_document` | none | Its crate root exposes portable graph records, identities, neutral presentation values, serialization, and semantic socket references. Implementation modules remain private. |
+| `node_graph` | `api` | `api` exposes node-definition contracts and compatibility re-exports of document records to graph-node implementations. The crate root exposes the widget/editor composition surface used by UI hosts. |
 | `logic_analyzer_viewer` | none | The reusable viewer exposes one curated crate-root API; drawing, sampling, input, cursor, lane, worker, and indexing modules remain private. |
 | `logic_analyzer_ui` | none | The application-composition crate exposes only its host-facing crate-root facade, including portable host service contracts such as `NodeCatalogService`. |
 | `input_bindings`, `panel_layout`, `trigger_editor`, `widget_support` | none | Each crate represents one cohesive public component and does not need a second namespace level. |

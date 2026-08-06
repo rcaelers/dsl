@@ -8,7 +8,7 @@ use logic_analyzer_graph_capabilities::node::{
 use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableColumnDescriptor, NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_capture::Sample;
 use signal_derived::{ProtocolPacket, Trigger, Word};
 use signal_runtime::ProcessNode;
@@ -33,8 +33,8 @@ impl PacketFramerBuilder {
 }
 
 impl GraphNodeSemantics for PacketFramerBuilder {
-    fn accepted_kinds(&self, socket: &Socket, _state: &Value) -> Vec<PortKind> {
-        match socket.def_index {
+    fn accepted_kinds(&self, socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
+        match socket.definition_index() {
             0 => vec![PortKind::of::<Word>()],
             1 => vec![PortKind::of::<Trigger>()],
             2 => vec![PortKind::of::<Sample>()],
@@ -42,12 +42,16 @@ impl GraphNodeSemantics for PacketFramerBuilder {
         }
     }
 
-    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of_named::<ProtocolPacket>("Protocol Packet")]
     }
 
-    fn offered_connection_contracts(&self, socket: &Socket, _state: &Value) -> Vec<String> {
-        (socket.def_index == 0)
+    fn offered_connection_contracts(
+        &self,
+        socket: SocketReference<'_>,
+        _state: &Value,
+    ) -> Vec<String> {
+        (socket.definition_index() == 0)
             .then(|| PACKET_FRAME_PROTOCOL_ID.to_owned())
             .into_iter()
             .collect()
@@ -55,12 +59,11 @@ impl GraphNodeSemantics for PacketFramerBuilder {
 
     fn input_port(
         &self,
-        socket: &Socket,
-        _member_index: usize,
+        socket: SocketReference<'_>,
         _state: &Value,
         kind: PortKind,
     ) -> Option<String> {
-        match socket.def_index {
+        match socket.definition_index() {
             0 if kind == PortKind::of::<Word>() => Some("words".to_owned()),
             1 if kind == PortKind::of::<Trigger>() => Some("boundary".to_owned()),
             2 if kind == PortKind::of::<Sample>() => Some("gate".to_owned()),
@@ -68,13 +71,19 @@ impl GraphNodeSemantics for PacketFramerBuilder {
         }
     }
 
-    fn output_port(&self, socket: &Socket, _state: &Value, kind: PortKind) -> Option<String> {
-        (socket.def_index == 0 && kind == PortKind::of_named::<ProtocolPacket>("Protocol Packet"))
-            .then(|| "packets".to_owned())
+    fn output_port(
+        &self,
+        socket: SocketReference<'_>,
+        _state: &Value,
+        kind: PortKind,
+    ) -> Option<String> {
+        (socket.definition_index() == 0
+            && kind == PortKind::of_named::<ProtocolPacket>("Protocol Packet"))
+        .then(|| "packets".to_owned())
     }
 
-    fn input_required(&self, socket: &Socket, _state: &Value) -> bool {
-        socket.def_index == 0
+    fn input_required(&self, socket: SocketReference<'_>, _state: &Value) -> bool {
+        socket.definition_index() == 0
     }
 }
 
@@ -119,16 +128,17 @@ impl RuntimeMaterializer for PacketFramerBuilder {
 impl GraphNodePresentation for PacketFramerBuilder {
     fn decoder_table_column(
         &self,
-        socket: &Socket,
+        socket: SocketReference<'_>,
         _state: &Value,
     ) -> Option<DecoderTableColumnDescriptor> {
-        super::presentation::packet_table_column(socket.def_index)
+        super::presentation::packet_table_column(socket.definition_index())
     }
 }
 
 #[cfg(test)]
 mod builder_tests {
     use node_graph::NodeDef;
+    use node_graph_document::SocketDirection;
 
     use super::super::definition::PacketFramer;
     use super::*;
@@ -142,9 +152,18 @@ mod builder_tests {
             .unwrap();
         let node = &widget.graph().nodes[&node];
 
-        assert!(builder.input_required(&node.inputs[0], &node.state));
-        assert!(!builder.input_required(&node.inputs[1], &node.state));
-        assert!(!builder.input_required(&node.inputs[2], &node.state));
+        assert!(builder.input_required(
+            node.inputs[0].reference(SocketDirection::Input, 0),
+            &node.state
+        ));
+        assert!(!builder.input_required(
+            node.inputs[1].reference(SocketDirection::Input, 0),
+            &node.state
+        ));
+        assert!(!builder.input_required(
+            node.inputs[2].reference(SocketDirection::Input, 0),
+            &node.state
+        ));
         assert_eq!(
             node.inputs
                 .iter()
@@ -153,7 +172,13 @@ mod builder_tests {
                     PortKind::of::<Trigger>(),
                     PortKind::of::<Sample>()
                 ])
-                .map(|(socket, kind)| builder.input_port(socket, 0, &node.state, kind))
+                .map(|(socket, kind)| {
+                    builder.input_port(
+                        socket.reference(SocketDirection::Input, 0),
+                        &node.state,
+                        kind,
+                    )
+                })
                 .collect::<Vec<_>>(),
             [
                 Some("words".to_owned()),
@@ -173,7 +198,10 @@ mod builder_tests {
         let node = &widget.graph().nodes[&node];
 
         assert_eq!(
-            builder.offered_connection_contracts(&node.outputs[0], &node.state),
+            builder.offered_connection_contracts(
+                node.outputs[0].reference(SocketDirection::Output, 0),
+                &node.state
+            ),
             [PACKET_FRAME_PROTOCOL_ID]
         );
     }

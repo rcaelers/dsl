@@ -8,10 +8,11 @@ use logic_analyzer_graph_capabilities::node_support::{
     CaptureCacheIdentity, CapturePresentation, ResolvedInput, ResolvedInputs,
     SourceDataLifecycleKind,
 };
+use logic_analyzer_graph_editor_registry::graph_node_editor_registrations;
 use logic_analyzer_graph_registry::{
     GraphNodeRegistration, GraphRegistry, graph_node_registrations,
 };
-use node_graph::api::{GraphDocumentBuilder, NodeId, NodeTypeRegistry, Socket};
+use node_graph::api::{GraphDocumentBuilder, NodeId, NodeTypeRegistry, Socket, SocketDirection};
 
 use super::test_support::{TestNodeBuildContext, platform_parity_capabilities};
 
@@ -512,7 +513,11 @@ fn registration<'a>(
 
 fn instantiate(registration: &GraphNodeRegistration) -> (GraphDocumentBuilder, NodeId, String) {
     let mut registry = NodeTypeRegistry::new();
-    registration.apply_node(&mut registry);
+    graph_node_editor_registrations()
+        .into_iter()
+        .find(|editor| editor.stable_id() == registration.stable_id())
+        .expect("headless feature has an editor registration")
+        .apply_node(&mut registry);
     let category = registry
         .category_of(registration.name())
         .expect("registered node has a category")
@@ -562,16 +567,17 @@ fn assert_input_contracts(
         expectation.stable_id
     );
     for (socket, expected) in sockets.iter().zip(&expectation.inputs) {
+        let socket_reference = socket.reference(SocketDirection::Input, 0);
         assert_eq!(socket.schema_id, expected.schema_id);
         assert_eq!(socket.name, expected.name);
         assert_eq!(socket.type_name, expected.type_name);
         let actual = semantics
-            .accepted_kinds(socket, state)
+            .accepted_kinds(socket_reference, state)
             .into_iter()
             .map(|kind| PortExpectation {
                 kind: kind.name().to_owned(),
                 port: semantics
-                    .input_port(socket, 0, state, kind)
+                    .input_port(socket_reference, state, kind)
                     .expect("accepted input kind resolves to a runtime port"),
             })
             .collect::<Vec<_>>();
@@ -593,6 +599,7 @@ fn assert_output_contracts(
         expectation.stable_id
     );
     for (index, socket) in sockets.iter().enumerate() {
+        let socket_reference = socket.reference(SocketDirection::Output, 0);
         assert_eq!(
             socket.schema_id,
             format!("{}{}", expected.schema_id_prefix, index)
@@ -605,13 +612,13 @@ fn assert_output_contracts(
         assert_eq!(socket.name, expected_name);
         assert_eq!(socket.type_name, expected.type_name);
         let actual = semantics
-            .offered_kinds(socket, state)
+            .offered_kinds(socket_reference, state)
             .into_iter()
             .map(|kind| {
                 (
                     kind.name().to_owned(),
                     semantics
-                        .output_port(socket, state, kind)
+                        .output_port(socket_reference, state, kind)
                         .expect("offered output kind resolves to a runtime port"),
                 )
             })
@@ -729,7 +736,12 @@ fn resolved_inputs(
 ) -> ResolvedInputs {
     let mut resolved = ResolvedInputs::default();
     for socket in sockets {
-        let Some(kind) = semantics.accepted_kinds(socket, state).into_iter().next() else {
+        let socket_reference = socket.reference(SocketDirection::Input, 0);
+        let Some(kind) = semantics
+            .accepted_kinds(socket_reference, state)
+            .into_iter()
+            .next()
+        else {
             continue;
         };
         resolved.insert(

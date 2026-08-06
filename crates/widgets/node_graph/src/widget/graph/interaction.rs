@@ -10,7 +10,9 @@ use super::menu::{ContextMenuState, build_context_entries};
 use super::minimap;
 use super::widget::NodeGraphWidget;
 use crate::model::{Connection, FrameId, NodeId, SocketDirection, SocketId};
-use crate::support::{bezier_wire_distance, bezier_wire_intersects_rect, wire_intersects_knife};
+use crate::support::{
+    bezier_wire_distance, bezier_wire_intersects_rect, egui_position, wire_intersects_knife,
+};
 use crate::widget::menu::dispatch_menu_shortcut;
 use crate::widget::node::NodeWidget;
 
@@ -638,7 +640,7 @@ impl NodeGraphWidget {
                 && let Some(node) = self.graph.nodes.get(&id)
             {
                 let start_pos = node.pos;
-                let node_pos = start_pos.to_vec2();
+                let node_pos = egui_position(start_pos).to_vec2();
                 if !node.selected || ctrl {
                     self.select_node(id, ctrl);
                 }
@@ -805,7 +807,7 @@ impl NodeGraphWidget {
                 .graph
                 .nodes
                 .get(&node_id)
-                .map_or(Pos2::ZERO, |node| node.pos);
+                .map_or(Pos2::ZERO, |node| egui_position(node.pos));
             let next_constraint = toggle_drag_axis(constraint, requested_axis, position);
             if constraint.is_some()
                 && next_constraint.is_none()
@@ -833,11 +835,11 @@ impl NodeGraphWidget {
                 .graph
                 .nodes
                 .get(&node_id)
-                .map(|n| new_pos - n.pos)
+                .map(|n| new_pos - egui_position(n.pos))
                 .unwrap_or(Vec2::ZERO);
             for n in self.graph.nodes.values_mut() {
                 if n.selected {
-                    n.pos += delta;
+                    n.pos.translate(delta.x, delta.y);
                 }
             }
         }
@@ -948,7 +950,7 @@ impl NodeGraphWidget {
         if delta != Vec2::ZERO {
             for n in self.graph.nodes.values_mut() {
                 if n.selected {
-                    n.pos += delta;
+                    n.pos.translate(delta.x, delta.y);
                 }
             }
         }
@@ -1362,7 +1364,7 @@ impl NodeGraphWidget {
                 if moved.insert(node_id)
                     && let Some(node) = self.graph.nodes.get_mut(&node_id)
                 {
-                    node.pos += delta;
+                    node.pos.translate(delta.x, delta.y);
                 }
             }
         }
@@ -2079,6 +2081,7 @@ fn node_has_any_connection(connections: &[Connection], node_id: NodeId) -> bool 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::support::{graph_color, graph_position};
 
     fn modal_drag_bindings() -> std::sync::Arc<input_bindings::InputBindings> {
         std::sync::Arc::new(
@@ -2402,7 +2405,7 @@ mod tests {
             &mut widget,
             vec![egui::Event::PointerMoved(dragged_further)],
         );
-        assert_ne!(widget.graph.nodes[&node_id].pos, original);
+        assert_ne!(widget.graph.nodes[&node_id].pos, graph_position(original));
 
         let mut raw_input = egui::RawInput {
             events: vec![egui::Event::PointerButton {
@@ -2417,7 +2420,7 @@ mod tests {
         assert!(raw_input.events.is_empty());
 
         assert!(matches!(widget.interaction_state, InteractionState::Idle));
-        assert_eq!(widget.graph.nodes[&node_id].pos, original);
+        assert_eq!(widget.graph.nodes[&node_id].pos, graph_position(original));
     }
 
     #[test]
@@ -2575,7 +2578,7 @@ mod tests {
             .keys()
             .find(|&&id| id != a && id != b)
             .expect("a third node should have been inserted");
-        assert_eq!(widget.graph.nodes[&new_id].pos, click);
+        assert_eq!(widget.graph.nodes[&new_id].pos, graph_position(click));
         assert!(
             widget
                 .graph
@@ -2629,9 +2632,9 @@ mod tests {
             .expect("reroute should always be creatable");
         widget
             .graph
-            .add_frame("F".to_owned(), egui::Color32::WHITE, vec![a]);
+            .add_frame("F".to_owned(), graph_color(egui::Color32::WHITE), vec![a]);
 
-        widget.graph.nodes.get_mut(&a).unwrap().pos = Pos2::new(5000.0, 5000.0);
+        widget.graph.nodes.get_mut(&a).unwrap().pos = graph_position(Pos2::new(5000.0, 5000.0));
         let layout = widget.build_layout(Pos2::ZERO);
         widget.resolve_frame_membership_on_drop(&[a], &layout);
 
@@ -2650,17 +2653,18 @@ mod tests {
         let a = widget
             .add_node_at("Reroute", Pos2::new(0.0, 0.0))
             .expect("reroute should always be creatable");
-        let frame_a = widget
-            .graph
-            .add_frame("A".to_owned(), egui::Color32::WHITE, vec![a]);
+        let frame_a =
+            widget
+                .graph
+                .add_frame("A".to_owned(), graph_color(egui::Color32::WHITE), vec![a]);
         let b = widget
             .add_node_at("Reroute", Pos2::new(5000.0, 5000.0))
             .expect("reroute should always be creatable");
         widget
             .graph
-            .add_frame("B".to_owned(), egui::Color32::WHITE, vec![b]);
+            .add_frame("B".to_owned(), graph_color(egui::Color32::WHITE), vec![b]);
 
-        widget.graph.nodes.get_mut(&a).unwrap().pos = Pos2::new(5000.0, 5000.0);
+        widget.graph.nodes.get_mut(&a).unwrap().pos = graph_position(Pos2::new(5000.0, 5000.0));
         let layout = widget.build_layout(Pos2::ZERO);
         widget.resolve_frame_membership_on_drop(&[a], &layout);
 
@@ -2681,14 +2685,16 @@ mod tests {
         let anchor = widget
             .add_node_at("Reroute", Pos2::new(0.0, 0.0))
             .expect("reroute should always be creatable");
-        let frame_id = widget
-            .graph
-            .add_frame("F".to_owned(), egui::Color32::WHITE, vec![anchor]);
+        let frame_id = widget.graph.add_frame(
+            "F".to_owned(),
+            graph_color(egui::Color32::WHITE),
+            vec![anchor],
+        );
         let mover = widget
             .add_node_at("Reroute", Pos2::new(5000.0, 5000.0))
             .expect("reroute should always be creatable");
 
-        widget.graph.nodes.get_mut(&mover).unwrap().pos = Pos2::new(0.0, 0.0);
+        widget.graph.nodes.get_mut(&mover).unwrap().pos = graph_position(Pos2::new(0.0, 0.0));
         let layout = widget.build_layout(Pos2::ZERO);
         widget.resolve_frame_membership_on_drop(&[mover], &layout);
 
@@ -2710,9 +2716,11 @@ mod tests {
         let anchor = widget
             .add_node_at("Reroute", Pos2::new(0.0, 0.0))
             .expect("reroute should always be creatable");
-        widget
-            .graph
-            .add_frame("F".to_owned(), egui::Color32::WHITE, vec![anchor]);
+        widget.graph.add_frame(
+            "F".to_owned(),
+            graph_color(egui::Color32::WHITE),
+            vec![anchor],
+        );
         let mover = widget
             .add_node_at("Reroute", Pos2::new(5000.0, 5000.0))
             .expect("reroute should always be creatable");

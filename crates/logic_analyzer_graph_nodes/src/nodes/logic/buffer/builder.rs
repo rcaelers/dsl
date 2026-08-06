@@ -7,7 +7,7 @@ use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMateria
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_capture::{Sample, SampleBlock};
 use signal_derived::{NumberSample, TextSample, Trigger, Word};
 use signal_runtime::ProcessNode;
@@ -34,19 +34,19 @@ fn selected_kind(state: &Value) -> PortKind {
 pub(crate) struct BufferBuilder;
 
 impl GraphNodeSemantics for BufferBuilder {
-    fn accepted_kinds(&self, _socket: &Socket, state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, state: &Value) -> Vec<PortKind> {
         vec![selected_kind(state)]
     }
-    fn offered_kinds(&self, _socket: &Socket, state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, _socket: SocketReference<'_>, state: &Value) -> Vec<PortKind> {
         vec![selected_kind(state)]
     }
-    fn input_port(&self, _: &Socket, _: usize, _: &Value, _: PortKind) -> Option<String> {
+    fn input_port(&self, _: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
         Some("in".into())
     }
-    fn output_port(&self, _: &Socket, _: &Value, _: PortKind) -> Option<String> {
+    fn output_port(&self, _: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
         Some("out".into())
     }
-    fn input_buffer_override(&self, _socket: &Socket, state: &Value) -> Option<usize> {
+    fn input_buffer_override(&self, _socket: SocketReference<'_>, state: &Value) -> Option<usize> {
         parse_state::<super::definition::BufferState>(state)
             .ok()
             .map(|s| s.capacity.value.max(1) as usize)

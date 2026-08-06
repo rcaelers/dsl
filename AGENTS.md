@@ -33,6 +33,9 @@ See `docs/aspects/plugin_extensible_payload.md` for the detailed payload and vie
 - `signal_transforms`, `signal_sinks`, and `signal_generators` own portable transforms, terminal
   consumers, and deterministic sources respectively.
 - `logic_analyzer_graph_nodes` owns concrete graph nodes and their builders.
+- `node_graph_document` owns portable persisted graph records and semantic socket identities.
+- `logic_analyzer_graph_editor_registry` owns the product integration between stable graph-feature
+  IDs and `node_graph` editor definitions; headless graph crates do not depend on it.
 - `logic_analyzer_graph_compiler` owns generic graph lowering, discovery, execution, and
   saved-document synchronization.
 - `platform` owns reusable native and web host adapters. It implements capability

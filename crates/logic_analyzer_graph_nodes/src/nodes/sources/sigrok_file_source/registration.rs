@@ -1,9 +1,12 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
-        super::definition::SigrokFileSource,
-        super::builder::SigrokFileSourceBuilder,
-        super::builder::SigrokFileSourceBuilder,
-    >("org.logicconduit.graph-node.sources.sigrok-file-source/v1")
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<super::definition::SigrokFileSource>("org.logicconduit.graph-node.sources.sigrok-file-source/v1")
+}
+
+inventory::submit! {
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<super::builder::SigrokFileSourceBuilder, super::builder::SigrokFileSourceBuilder>(
+        "org.logicconduit.graph-node.sources.sigrok-file-source/v1",
+        logic_analyzer_graph_editor_registry::node_name::<super::definition::SigrokFileSource>,
+    )
     .with_capture_source::<super::builder::SigrokFileSourceBuilder>()
     .with_presentation::<super::builder::SigrokFileSourceBuilder>()
     .requiring_payloads(&["org.logicconduit.digital-sample/v1"])

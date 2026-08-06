@@ -7,7 +7,7 @@ use super::widget::NodeGraphWidget;
 use crate::model::{NodeId, Socket, SocketDirection, SocketId};
 use crate::support::{
     SOCKET_RADIUS, WireEmphasis, draw_box_select, draw_connections, draw_frames, draw_grid,
-    draw_knife_line, draw_wire, to_screen_rect,
+    draw_knife_line, draw_wire, egui_color, to_screen_rect,
 };
 use crate::widget::node::{NodeControlContext, NodeDrawContext};
 
@@ -145,9 +145,9 @@ impl NodeGraphWidget {
                 .get(&from.node)
                 .and_then(|n| {
                     if from.direction == SocketDirection::Output {
-                        n.outputs.get(from.index).map(|s| s.color)
+                        n.outputs.get(from.index).map(|s| egui_color(s.color))
                     } else {
-                        n.inputs.get(from.index).map(|s| s.color)
+                        n.inputs.get(from.index).map(|s| egui_color(s.color))
                     }
                 })
                 .unwrap_or(Color32::from_rgb(160, 160, 160));
@@ -186,9 +186,9 @@ impl NodeGraphWidget {
                         self.registry
                             .socket_type_style(&ft)
                             .map(|style| style.color)
-                            .unwrap_or(socket.color)
+                            .unwrap_or_else(|| egui_color(socket.color))
                     }
-                    (Some(socket), _) => socket.color,
+                    (Some(socket), _) => egui_color(socket.color),
                     (None, _) => color,
                 };
                 socket_highlights.push((target_canvas, highlight));

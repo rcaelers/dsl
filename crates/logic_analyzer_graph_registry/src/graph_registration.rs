@@ -4,16 +4,14 @@ use logic_analyzer_graph_capabilities::node::{
     CaptureSourceFeature, GraphNodePresentation, GraphNodeSemantics, LiveCaptureFeatureProvider,
     RuntimeMaterializer, TimelineFeature,
 };
-use node_graph::api::{NodeDef, NodeTypeRegistry};
 
 /// Inventory submission describing one graph-node feature.
 ///
 /// `stable_id` is the persisted feature identity; it is intentionally separate from the editable
-/// display name supplied by [`NodeDef`].
+/// display name supplied by the editor integration.
 pub struct GraphNodeRegistration {
     stable_id: &'static str,
     node_name: fn() -> &'static str,
-    register_node: fn(&mut NodeTypeRegistry),
     create_semantics: Option<fn() -> Box<dyn GraphNodeSemantics>>,
     create_materializer: Option<fn() -> Box<dyn RuntimeMaterializer>>,
     create_capture_source: Option<fn() -> Box<dyn CaptureSourceFeature>>,
@@ -26,16 +24,14 @@ pub struct GraphNodeRegistration {
 
 impl GraphNodeRegistration {
     /// Registers a node definition with separate semantic and materialization capabilities.
-    pub const fn capable<N, S, M>(stable_id: &'static str) -> Self
+    pub const fn capable<S, M>(stable_id: &'static str, node_name: fn() -> &'static str) -> Self
     where
-        N: NodeDef,
         S: GraphNodeSemantics + Default + 'static,
         M: RuntimeMaterializer + Default + 'static,
     {
         Self {
             stable_id,
-            node_name: node_name::<N>,
-            register_node: register_node::<N>,
+            node_name,
             create_semantics: Some(create_semantics::<S>),
             create_materializer: Some(create_materializer::<M>),
             create_capture_source: None,
@@ -48,11 +44,10 @@ impl GraphNodeRegistration {
     }
 
     /// Registers a definition-only node that cannot materialize a runtime node.
-    pub const fn definition<N: NodeDef>(stable_id: &'static str) -> Self {
+    pub const fn definition(stable_id: &'static str, node_name: fn() -> &'static str) -> Self {
         Self {
             stable_id,
-            node_name: node_name::<N>,
-            register_node: register_node::<N>,
+            node_name,
             create_semantics: None,
             create_materializer: None,
             create_capture_source: None,
@@ -134,11 +129,6 @@ impl GraphNodeRegistration {
         }
     }
 
-    /// Registers the feature's node definition with an editor registry.
-    pub fn apply_node(&self, registry: &mut NodeTypeRegistry) {
-        (self.register_node)(registry);
-    }
-
     /// Creates the feature's explicit graph semantics, when registered separately.
     pub fn semantics(&self) -> Option<Box<dyn GraphNodeSemantics>> {
         self.create_semantics
@@ -174,14 +164,6 @@ impl GraphNodeRegistration {
         self.create_timeline
             .map(|create_timeline| create_timeline())
     }
-}
-
-fn node_name<N: NodeDef>() -> &'static str {
-    N::name()
-}
-
-fn register_node<N: NodeDef>(registry: &mut NodeTypeRegistry) {
-    registry.register::<N>();
 }
 
 fn create_semantics<S: GraphNodeSemantics + Default + 'static>() -> Box<dyn GraphNodeSemantics> {
@@ -266,58 +248,18 @@ fn validate_graph_node_registrations(registrations: &mut Vec<&GraphNodeRegistrat
 mod graph_registration_tests {
     use super::*;
 
-    struct FirstNode;
-
-    impl NodeDef for FirstNode {
-        type State = ();
-
-        fn name() -> &'static str {
-            "First"
-        }
-
-        fn category() -> &'static str {
-            "Tests"
-        }
-
-        fn inputs() -> Vec<node_graph::api::InputDef<Self::State>> {
-            Vec::new()
-        }
-
-        fn outputs() -> Vec<node_graph::api::OutputDef<Self::State>> {
-            Vec::new()
-        }
-
-        fn state() -> Self::State {}
+    fn first_name() -> &'static str {
+        "First"
     }
 
-    struct SecondNode;
-
-    impl NodeDef for SecondNode {
-        type State = ();
-
-        fn name() -> &'static str {
-            "Second"
-        }
-
-        fn category() -> &'static str {
-            "Tests"
-        }
-
-        fn inputs() -> Vec<node_graph::api::InputDef<Self::State>> {
-            Vec::new()
-        }
-
-        fn outputs() -> Vec<node_graph::api::OutputDef<Self::State>> {
-            Vec::new()
-        }
-
-        fn state() -> Self::State {}
+    fn second_name() -> &'static str {
+        "Second"
     }
 
     #[test]
     fn validation_sorts_registrations_by_stable_id() {
-        let first = GraphNodeRegistration::definition::<FirstNode>("a");
-        let second = GraphNodeRegistration::definition::<SecondNode>("b");
+        let first = GraphNodeRegistration::definition("a", first_name);
+        let second = GraphNodeRegistration::definition("b", second_name);
         let mut registrations = vec![&second, &first];
 
         validate_graph_node_registrations(&mut registrations);
@@ -328,7 +270,7 @@ mod graph_registration_tests {
 
     #[test]
     fn duplicate_registration_is_rejected() {
-        let registration = GraphNodeRegistration::definition::<FirstNode>("duplicate");
+        let registration = GraphNodeRegistration::definition("duplicate", first_name);
         let mut registrations = vec![&registration, &registration];
         assert!(
             std::panic::catch_unwind(move || {

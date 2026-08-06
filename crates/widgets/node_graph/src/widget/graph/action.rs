@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::widget::{FrameRenameState, NodeGraphWidget, NodeRenameState};
 use crate::model::{Connection, FrameId, Node, NodeId, SocketDirection, SocketId};
+use crate::support::graph_color;
 
 static FRAME_COLORS: [Color32; 5] = [
     Color32::from_rgb(50, 90, 160),
@@ -629,7 +630,7 @@ impl NodeGraphWidget {
             let new_id = self.graph.next_id();
             id_map.insert(old_id, new_id);
             node.id = new_id;
-            node.pos += offset;
+            node.pos.translate(offset.x, offset.y);
             node.selected = true;
             if let Some(instance) = self.registry.restore_node(&mut node) {
                 self.runtime.insert(node.id, instance);
@@ -672,7 +673,8 @@ impl NodeGraphWidget {
             return;
         }
         let color = FRAME_COLORS[self.graph.frames.len() % FRAME_COLORS.len()];
-        self.graph.add_frame("Frame".to_string(), color, targets);
+        self.graph
+            .add_frame("Frame".to_string(), graph_color(color), targets);
     }
 
     fn set_frame_color(&mut self, target: Option<FrameId>, color: Color32) {
@@ -683,13 +685,13 @@ impl NodeGraphWidget {
                 .iter_mut()
                 .find(|frame| frame.id == frame_id)
             {
-                frame.color = color;
+                frame.color = graph_color(color);
             }
             return;
         }
         for frame in &mut self.graph.frames {
             if frame.selected {
-                frame.color = color;
+                frame.color = graph_color(color);
             }
         }
     }
@@ -878,6 +880,7 @@ mod action_tests {
     use crate::api::{FloatSocket, InputDef, NodeDef, OutputDef};
     use crate::model::SocketDirection;
     use crate::runtime::NodeTypeRegistry;
+    use crate::support::graph_position;
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     struct SourceState;
@@ -971,11 +974,14 @@ mod action_tests {
             .add_node_at("Source", Pos2::new(10.0, 20.0))
             .expect("source node should be created");
         widget.push_undo_snapshot();
-        widget.graph.nodes.get_mut(&node_id).unwrap().pos = Pos2::new(80.0, 90.0);
+        widget.graph.nodes.get_mut(&node_id).unwrap().pos = graph_position(Pos2::new(80.0, 90.0));
 
         widget.cancel_undo_snapshot();
 
-        assert_eq!(widget.graph.nodes[&node_id].pos, Pos2::new(10.0, 20.0));
+        assert_eq!(
+            widget.graph.nodes[&node_id].pos,
+            graph_position(Pos2::new(10.0, 20.0))
+        );
         assert!(widget.undo_stack.is_empty());
         assert!(widget.redo_stack.is_empty());
     }
@@ -1102,7 +1108,7 @@ mod action_tests {
             .values()
             .find(|n| n.def_name() == "Source")
             .expect("source node should exist");
-        assert_eq!(node.pos, pointer);
+        assert_eq!(node.pos, graph_position(pointer));
     }
 
     #[test]
@@ -1158,7 +1164,7 @@ mod action_tests {
             .values()
             .find(|n| n.def_name() == "Source")
             .expect("source node should exist");
-        assert_eq!(node.pos, pos);
+        assert_eq!(node.pos, graph_position(pos));
     }
 
     #[test]
@@ -1210,7 +1216,7 @@ mod action_tests {
         let b = widget.add_node_at("Sink", Pos2::new(0.0, 0.0)).unwrap();
         widget
             .graph
-            .add_frame("F".to_owned(), Color32::WHITE, vec![a]);
+            .add_frame("F".to_owned(), graph_color(Color32::WHITE), vec![a]);
 
         widget.execute_action(GraphAction::SelectAll, &egui::Context::default(), None);
 
@@ -1226,7 +1232,7 @@ mod action_tests {
         widget.graph.nodes.get_mut(&a).unwrap().selected = true;
         let frame_id = widget
             .graph
-            .add_frame("F".to_owned(), Color32::WHITE, vec![a]);
+            .add_frame("F".to_owned(), graph_color(Color32::WHITE), vec![a]);
         widget
             .graph
             .frames

@@ -6,7 +6,7 @@ use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMateria
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_capture::Sample;
 use signal_runtime::ProcessNode;
 use signal_transforms::logic_gate::{GateOp, LogicGate};
@@ -15,22 +15,26 @@ use signal_transforms::logic_gate::{GateOp, LogicGate};
 pub(crate) struct LogicGateBuilder;
 
 impl GraphNodeSemantics for LogicGateBuilder {
-    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Sample>()]
     }
-    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Sample>()]
     }
     fn input_port(
         &self,
-        _socket: &Socket,
-        member_index: usize,
+        socket: SocketReference<'_>,
         _state: &Value,
         _kind: PortKind,
     ) -> Option<String> {
-        Some(format!("in{member_index}"))
+        Some(format!("in{}", socket.member_index()))
     }
-    fn output_port(&self, _socket: &Socket, _state: &Value, _kind: PortKind) -> Option<String> {
+    fn output_port(
+        &self,
+        _socket: SocketReference<'_>,
+        _state: &Value,
+        _kind: PortKind,
+    ) -> Option<String> {
         Some("out".into())
     }
 }

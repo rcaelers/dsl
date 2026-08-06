@@ -1,9 +1,12 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
-        super::definition::TestCaptureSource,
-        super::builder::TestCaptureSourceBuilder,
-        super::builder::TestCaptureSourceBuilder,
-    >("org.logicconduit.graph-node.sources.test-capture-source/v1")
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<super::definition::TestCaptureSource>("org.logicconduit.graph-node.sources.test-capture-source/v1")
+}
+
+inventory::submit! {
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<super::builder::TestCaptureSourceBuilder, super::builder::TestCaptureSourceBuilder>(
+        "org.logicconduit.graph-node.sources.test-capture-source/v1",
+        logic_analyzer_graph_editor_registry::node_name::<super::definition::TestCaptureSource>,
+    )
     .with_capture_source::<super::builder::TestCaptureSourceBuilder>()
     .with_presentation::<super::builder::TestCaptureSourceBuilder>()
     .requiring_payloads(&["org.logicconduit.digital-sample/v1"])
@@ -50,11 +53,14 @@ mod registration_tests {
 }
 
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
-        super::definition::TestLiveCaptureSource,
-        super::live_builder::TestLiveCaptureSourceBuilder,
-        super::live_builder::TestLiveCaptureSourceBuilder,
-    >("org.logicconduit.graph-node.sources.test-live-capture-source/v1")
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<super::definition::TestLiveCaptureSource>("org.logicconduit.graph-node.sources.test-live-capture-source/v1")
+}
+
+inventory::submit! {
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<super::live_builder::TestLiveCaptureSourceBuilder, super::live_builder::TestLiveCaptureSourceBuilder>(
+        "org.logicconduit.graph-node.sources.test-live-capture-source/v1",
+        logic_analyzer_graph_editor_registry::node_name::<super::definition::TestLiveCaptureSource>,
+    )
     .with_capture_source::<super::live_builder::TestLiveCaptureSourceBuilder>()
     .with_live_capture::<super::live_builder::TestLiveCaptureSourceBuilder>()
     .with_presentation::<super::live_builder::TestLiveCaptureSourceBuilder>()

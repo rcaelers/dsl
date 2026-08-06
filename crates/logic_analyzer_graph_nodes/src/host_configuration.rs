@@ -6,7 +6,7 @@ use logic_analyzer_capture_formats::dsl_file::DslFileSourceFactory;
 use logic_analyzer_capture_formats::sigrok_file::SigrokFileSourceFactory;
 use logic_analyzer_device_dslogic::DsLogicU3Pro16SourceFactory;
 use logic_analyzer_graph_capabilities::node::GraphNodeCapabilityOverride;
-use logic_analyzer_graph_registry::GraphNodeEditorOverride;
+use logic_analyzer_graph_editor_registry::GraphNodeEditorOverride;
 use logic_analyzer_protocol_decoders::sigrok_decoder::{
     SigrokCatalogScanner, SigrokCatalogSnapshot, SigrokDecoderRuntime,
 };

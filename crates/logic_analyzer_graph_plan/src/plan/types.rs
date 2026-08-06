@@ -8,7 +8,7 @@ use logic_analyzer_graph_capabilities::node_support::{
     CaptureCacheIdentity, CapturePresentation, NodeBuildContext, PortKind, ResolvedInput,
     ResolvedInputs, SourceDataLifecycle,
 };
-use node_graph::api::NodeId;
+use node_graph_document::NodeId;
 use signal_derived::{
     CollectedLaneRequest, DerivedDataRetention, DerivedLanes, PayloadRegistry,
     PersistentStoreConfig, SamplingPointStore,

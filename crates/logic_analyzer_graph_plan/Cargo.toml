@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 logic-analyzer-graph-capabilities = { path = "../logic_analyzer_graph_capabilities" }
-node-graph = { path = "../widgets/node_graph" }
+node-graph-document = { path = "../node_graph_document" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 signal-derived = { path = "../signal_derived" }

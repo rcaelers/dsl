@@ -7,7 +7,7 @@ use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableColumnDescriptor, NodeBuildContext, PortKind, ResolvedInputs,
 };
 use logic_analyzer_protocol_decoders::i2c_decoder::{I2C_PROTOCOL_ID, I2cDecoder};
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_capture::SampleBlock;
 use signal_derived::{ProtocolPacket, Word};
 use signal_runtime::ProcessNode;
@@ -16,20 +16,24 @@ use signal_runtime::ProcessNode;
 pub(crate) struct I2cDecoderBuilder;
 
 impl GraphNodeSemantics for I2cDecoderBuilder {
-    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<SampleBlock>()]
     }
 
-    fn offered_kinds(&self, socket: &Socket, _state: &Value) -> Vec<PortKind> {
-        match socket.def_index {
+    fn offered_kinds(&self, socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
+        match socket.definition_index() {
             0 => vec![PortKind::of::<Word>()],
             1 => vec![PortKind::of_named::<ProtocolPacket>("Protocol Packet")],
             _ => Vec::new(),
         }
     }
 
-    fn offered_connection_contracts(&self, socket: &Socket, _state: &Value) -> Vec<String> {
-        if socket.def_index == 1 {
+    fn offered_connection_contracts(
+        &self,
+        socket: SocketReference<'_>,
+        _state: &Value,
+    ) -> Vec<String> {
+        if socket.definition_index() == 1 {
             vec![I2C_PROTOCOL_ID.to_owned()]
         } else {
             Vec::new()
@@ -38,23 +42,27 @@ impl GraphNodeSemantics for I2cDecoderBuilder {
 
     fn input_port(
         &self,
-        socket: &Socket,
-        _member_index: usize,
+        socket: SocketReference<'_>,
         _state: &Value,
         kind: PortKind,
     ) -> Option<String> {
         if kind != PortKind::of::<SampleBlock>() {
             return None;
         }
-        match socket.def_index {
+        match socket.definition_index() {
             0 => Some("scl".into()),
             1 => Some("sda".into()),
             _ => None,
         }
     }
 
-    fn output_port(&self, socket: &Socket, _state: &Value, kind: PortKind) -> Option<String> {
-        match socket.def_index {
+    fn output_port(
+        &self,
+        socket: SocketReference<'_>,
+        _state: &Value,
+        kind: PortKind,
+    ) -> Option<String> {
+        match socket.definition_index() {
             0 if kind == PortKind::of::<Word>() => Some("words".into()),
             1 if kind == PortKind::of_named::<ProtocolPacket>("Protocol Packet") => {
                 Some("packets".into())
@@ -79,9 +87,9 @@ impl RuntimeMaterializer for I2cDecoderBuilder {
 impl GraphNodePresentation for I2cDecoderBuilder {
     fn decoder_table_column(
         &self,
-        socket: &Socket,
+        socket: SocketReference<'_>,
         _state: &Value,
     ) -> Option<DecoderTableColumnDescriptor> {
-        super::presentation::i2c_table_column(socket.def_index)
+        super::presentation::i2c_table_column(socket.definition_index())
     }
 }

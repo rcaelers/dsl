@@ -1,9 +1,12 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
-        super::definition::I2cDecoder,
-        super::builder::I2cDecoderBuilder,
-        super::builder::I2cDecoderBuilder,
-    >("org.logicconduit.graph-node.decoders.i2c-decoder/v1")
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<super::definition::I2cDecoder>("org.logicconduit.graph-node.decoders.i2c-decoder/v1")
+}
+
+inventory::submit! {
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<super::builder::I2cDecoderBuilder, super::builder::I2cDecoderBuilder>(
+        "org.logicconduit.graph-node.decoders.i2c-decoder/v1",
+        logic_analyzer_graph_editor_registry::node_name::<super::definition::I2cDecoder>,
+    )
     .with_presentation::<super::builder::I2cDecoderBuilder>()
     .requiring_payloads(&[
         "org.logicconduit.digital-sample/v1",

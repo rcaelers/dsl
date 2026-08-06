@@ -1,9 +1,12 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
-        super::definition::SpiDecoder,
-        super::builder::SpiDecoderBuilder,
-        super::builder::SpiDecoderBuilder,
-    >("org.logicconduit.graph-node.decoders.spi-decoder/v1")
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<super::definition::SpiDecoder>("org.logicconduit.graph-node.decoders.spi-decoder/v1")
+}
+
+inventory::submit! {
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<super::builder::SpiDecoderBuilder, super::builder::SpiDecoderBuilder>(
+        "org.logicconduit.graph-node.decoders.spi-decoder/v1",
+        logic_analyzer_graph_editor_registry::node_name::<super::definition::SpiDecoder>,
+    )
     .with_presentation::<super::builder::SpiDecoderBuilder>()
     .requiring_payloads(&[
         "org.logicconduit.digital-sample/v1",

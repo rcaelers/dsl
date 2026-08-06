@@ -8,7 +8,7 @@ use logic_analyzer_graph_capabilities::node::{
     GraphNodeCapabilityOverride, GraphNodeSemantics, RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{NodeBuildContext, PortKind, ResolvedInputs};
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_derived::TextSample;
 use signal_runtime::{ProcessNode, ProcessNodeConstruction};
 use signal_sinks::OutputOrigin;
@@ -47,20 +47,20 @@ impl GraphNodeSemantics for TextFileWriterBuilder {
     fn is_sink(&self) -> bool {
         true
     }
-    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<TextSample>()]
     }
-    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![]
     }
-    fn input_port(&self, socket: &Socket, _: usize, _: &Value, _: PortKind) -> Option<String> {
-        match socket.def_index {
+    fn input_port(&self, socket: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
+        match socket.definition_index() {
             0 => Some("lines".into()),
             1 => Some("filename".into()),
             _ => None,
         }
     }
-    fn output_port(&self, _: &Socket, _: &Value, _: PortKind) -> Option<String> {
+    fn output_port(&self, _: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
         None
     }
 }

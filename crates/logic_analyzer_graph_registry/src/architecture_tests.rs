@@ -6,6 +6,7 @@ fn registry_depends_only_on_contract_and_lower_level_crates() {
         "logic-analyzer-graph-runtime",
         "logic-analyzer-graph-nodes",
         "logic-analyzer-ui",
+        "node-graph =",
         "platform",
         "egui",
     ] {

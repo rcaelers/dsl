@@ -15,7 +15,7 @@ use logic_analyzer_graph_capabilities::node_support::{
     CaptureCacheIdentity, CapturePresentation, NodeBuildContext, PortKind, ResolvedInputs,
     parse_state,
 };
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_capture::{Sample, SampleBlock};
 use signal_capture_session::CaptureSourceMetadata;
 use signal_derived::{DEFAULT_DERIVED_DATA_MAX_ENTRIES, DerivedDataRetention};
@@ -81,17 +81,22 @@ impl GraphNodeSemantics for FileSourceBuilder {
     fn derived_data_retention(&self, _state: &Value) -> DerivedDataRetention {
         DerivedDataRetention::MaxEntries(DEFAULT_DERIVED_DATA_MAX_ENTRIES)
     }
-    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![]
     }
-    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Sample>(), PortKind::of::<SampleBlock>()]
     }
-    fn input_port(&self, _socket: &Socket, _: usize, _: &Value, _: PortKind) -> Option<String> {
+    fn input_port(&self, _socket: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
         None
     }
-    fn output_port(&self, socket: &Socket, _state: &Value, kind: PortKind) -> Option<String> {
-        let channel = socket.def_index;
+    fn output_port(
+        &self,
+        socket: SocketReference<'_>,
+        _state: &Value,
+        kind: PortKind,
+    ) -> Option<String> {
+        let channel = socket.definition_index();
         // The runtime negotiates Sample vs SampleBlock per connection on a
         // single `ch{channel}` port now — both kinds resolve to the same
         // port name here.
@@ -101,7 +106,7 @@ impl GraphNodeSemantics for FileSourceBuilder {
             None
         }
     }
-    fn input_required(&self, _socket: &Socket, _state: &Value) -> bool {
+    fn input_required(&self, _socket: SocketReference<'_>, _state: &Value) -> bool {
         false
     }
 }
@@ -125,8 +130,8 @@ impl CaptureSourceFeature for FileSourceBuilder {
 }
 
 impl GraphNodePresentation for FileSourceBuilder {
-    fn viewer_channel_origin(&self, socket: &Socket, _state: &Value) -> Option<usize> {
-        Some(socket.def_index)
+    fn viewer_channel_origin(&self, socket: SocketReference<'_>, _state: &Value) -> Option<usize> {
+        Some(socket.definition_index())
     }
 }
 

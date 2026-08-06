@@ -14,7 +14,7 @@ use logic_analyzer_graph_runtime::{
     GraphRunContext, LiveAnalysisSource, SourceArtifactReadiness, SourceDataKind,
     SourceProcessOverrides,
 };
-use node_graph::{GraphState, NodeGraphWidget, NodeId};
+use node_graph::{GraphState, NodeGraphWidget, NodeId, SocketDirection};
 use platform_artifacts::{
     ArtifactReplicationReceiver, ArtifactRepository, MemoryArtifactRepository,
 };
@@ -43,13 +43,16 @@ fn selected_outputs(graph: &GraphState) -> Vec<(NodeId, usize)> {
                 .iter()
                 .enumerate()
                 .filter_map(move |(index, output)| {
+                    let output_reference = node
+                        .socket_reference(SocketDirection::Output, index)
+                        .expect("enumerated output has a semantic reference");
                     let saved_selection = output
                         .extensions
                         .get("show_in_view")
                         .and_then(serde_json::Value::as_bool);
                     let default_selected = presentation
                         .and_then(|presentation| {
-                            presentation.viewer_output_control(output, &node.state)
+                            presentation.viewer_output_control(output_reference, &node.state)
                         })
                         .and_then(|control| match control {
                             ViewerOutputControl::Selectable {
@@ -85,11 +88,12 @@ fn is_capture_output(graph: &GraphState, node: NodeId, output: usize) -> bool {
     registry
         .presentation(node.def_name())
         .is_some_and(|presentation| {
-            node.outputs.get(output).is_some_and(|socket| {
-                presentation
-                    .viewer_channel_origin(socket, &node.state)
-                    .is_some()
-            })
+            node.socket_reference(SocketDirection::Output, output)
+                .is_some_and(|socket| {
+                    presentation
+                        .viewer_channel_origin(socket, &node.state)
+                        .is_some()
+                })
         })
 }
 

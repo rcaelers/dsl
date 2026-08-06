@@ -13,7 +13,7 @@ use logic_analyzer_protocol_decoders::sigrok_decoder::{
     SigrokChannel, SigrokDecoderConfig, SigrokDecoderDescriptor, SigrokDecoderRuntime,
     SigrokInitialPin, SigrokOptionValue,
 };
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_capture::SampleBlock;
 use signal_derived::{ProtocolPacket, Word};
 use signal_runtime::ProcessNode;
@@ -75,37 +75,41 @@ pub(crate) fn capability_override(
 }
 
 impl GraphNodeSemantics for SigrokDecoderBuilder {
-    fn accepted_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, socket: SocketReference<'_>, state: &Value) -> Vec<PortKind> {
         let Ok(state) = Self::parsed(state) else {
             return Vec::new();
         };
-        if socket.def_index == state.channels.len() && !state.protocol_inputs.is_empty() {
+        if socket.definition_index() == state.channels.len() && !state.protocol_inputs.is_empty() {
             vec![PortKind::of_named::<ProtocolPacket>("Protocol Packet")]
         } else {
             vec![PortKind::of::<SampleBlock>()]
         }
     }
 
-    fn offered_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, socket: SocketReference<'_>, state: &Value) -> Vec<PortKind> {
         let Ok(state) = Self::parsed(state) else {
             return Vec::new();
         };
         state
             .outputs
-            .get(socket.def_index)
+            .get(socket.definition_index())
             .copied()
             .map(output_kind)
             .into_iter()
             .collect()
     }
 
-    fn offered_connection_contracts(&self, socket: &Socket, state: &Value) -> Vec<String> {
+    fn offered_connection_contracts(
+        &self,
+        socket: SocketReference<'_>,
+        state: &Value,
+    ) -> Vec<String> {
         let Ok(state) = Self::parsed(state) else {
             return Vec::new();
         };
         if state
             .outputs
-            .get(socket.def_index)
+            .get(socket.definition_index())
             .is_some_and(|output| *output == SavedOutputKind::ProtocolPacket)
         {
             state.protocol_outputs
@@ -114,11 +118,15 @@ impl GraphNodeSemantics for SigrokDecoderBuilder {
         }
     }
 
-    fn accepted_connection_contracts(&self, socket: &Socket, state: &Value) -> Vec<String> {
+    fn accepted_connection_contracts(
+        &self,
+        socket: SocketReference<'_>,
+        state: &Value,
+    ) -> Vec<String> {
         let Ok(state) = Self::parsed(state) else {
             return Vec::new();
         };
-        if socket.def_index == state.channels.len() && !state.protocol_inputs.is_empty() {
+        if socket.definition_index() == state.channels.len() && !state.protocol_inputs.is_empty() {
             state.protocol_inputs
         } else {
             Vec::new()
@@ -127,13 +135,12 @@ impl GraphNodeSemantics for SigrokDecoderBuilder {
 
     fn input_port(
         &self,
-        socket: &Socket,
-        _member_index: usize,
+        socket: SocketReference<'_>,
         state: &Value,
         kind: PortKind,
     ) -> Option<String> {
         let state = Self::parsed(state).ok()?;
-        if socket.def_index == state.channels.len() && !state.protocol_inputs.is_empty() {
+        if socket.definition_index() == state.channels.len() && !state.protocol_inputs.is_empty() {
             return (kind == PortKind::of_named::<ProtocolPacket>("Protocol Packet"))
                 .then(|| "packets".to_owned());
         }
@@ -142,26 +149,31 @@ impl GraphNodeSemantics for SigrokDecoderBuilder {
         }
         state
             .channels
-            .get(socket.def_index)
+            .get(socket.definition_index())
             .map(|channel| channel.id.clone())
     }
 
-    fn output_port(&self, socket: &Socket, state: &Value, kind: PortKind) -> Option<String> {
+    fn output_port(
+        &self,
+        socket: SocketReference<'_>,
+        state: &Value,
+        kind: PortKind,
+    ) -> Option<String> {
         let state = Self::parsed(state).ok()?;
-        let output = *state.outputs.get(socket.def_index)?;
+        let output = *state.outputs.get(socket.definition_index())?;
         (kind == output_kind(output)).then(|| output.port_name().to_owned())
     }
 
-    fn input_required(&self, socket: &Socket, state: &Value) -> bool {
+    fn input_required(&self, socket: SocketReference<'_>, state: &Value) -> bool {
         let Ok(state) = Self::parsed(state) else {
             return true;
         };
-        if socket.def_index == state.channels.len() && !state.protocol_inputs.is_empty() {
+        if socket.definition_index() == state.channels.len() && !state.protocol_inputs.is_empty() {
             return true;
         }
         state
             .channels
-            .get(socket.def_index)
+            .get(socket.definition_index())
             .is_none_or(|channel| channel.required)
     }
 }

@@ -21,10 +21,12 @@ logic-analyzer-graph-orchestration = { path = "../logic_analyzer_graph_orchestra
 logic-analyzer-graph-plan = { path = "../logic_analyzer_graph_plan" }
 logic-analyzer-graph-runtime = { path = "../logic_analyzer_graph_runtime" }
 logic-analyzer-graph-capabilities = { path = "../logic_analyzer_graph_capabilities" }
+logic-analyzer-graph-editor-registry = { path = "../logic_analyzer_graph_editor_registry" }
 logic-analyzer-graph-registry = { path = "../logic_analyzer_graph_registry" }
 logic-analyzer-capture-export = { path = "../logic_analyzer_capture_export" }
 logic-analyzer-viewer = { path = "../widgets/logic_analyzer_viewer" }
 node-graph = { path = "../widgets/node_graph" }
+node-graph-document = { path = "../node_graph_document" }
 panel-layout = { path = "../widgets/panel_layout" }
 trigger-editor = { path = "../widgets/trigger_editor" }
 eframe = { workspace = true }

@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use egui::Color32;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -8,6 +7,7 @@ use super::connection::Connection;
 use super::frame::{Frame, FrameId};
 use super::ids::{NodeId, SocketDirection, SocketId};
 use super::node::{Node, NodeKind};
+use super::presentation::GraphColor;
 use super::socket::{Socket, VariadicInfo};
 
 #[derive(Serialize)]
@@ -288,7 +288,8 @@ impl GraphState {
     /// a one-time correction after loading a graph that may have been saved
     /// before reroute outputs propagated their resolved type at all (they
     /// used to just render flat gray, wire included).
-    pub(crate) fn fixup_reroute_outputs(&mut self) {
+    /// Recomputes reroute output types after loading an older saved graph.
+    pub fn reconcile_reroute_outputs(&mut self) {
         let reroutes: Vec<NodeId> = self
             .nodes
             .iter()
@@ -463,7 +464,7 @@ impl GraphState {
                 self.collapse_variadic_member(SocketId {
                     node: id,
                     index,
-                    direction: crate::model::SocketDirection::Input,
+                    direction: SocketDirection::Input,
                 });
             }
 
@@ -517,7 +518,12 @@ impl GraphState {
     /// - `label`: User-facing frame title.
     /// - `color`: Frame accent color.
     /// - `node_ids`: Initial nodes grouped by the frame.
-    pub fn add_frame(&mut self, label: String, color: Color32, node_ids: Vec<NodeId>) -> FrameId {
+    pub fn add_frame(
+        &mut self,
+        label: String,
+        color: GraphColor,
+        node_ids: Vec<NodeId>,
+    ) -> FrameId {
         let id = FrameId(self.metadata.next_frame_id);
         self.metadata.next_frame_id += 1;
         self.frames.push(Frame {
@@ -542,17 +548,16 @@ impl GraphState {
 
 #[cfg(test)]
 mod tests {
-    use egui::{Color32, Pos2};
 
     use super::*;
-    use crate::model::{NodeKind, Socket, SocketDirection, SocketShape};
+    use crate::{GraphColor, GraphPosition, NodeKind, Socket, SocketDirection, SocketShape};
 
     fn socket(type_name: &str, allowed: &[&str]) -> Socket {
         Socket {
             schema_id: String::new(),
             name: String::new(),
             type_name: type_name.to_owned(),
-            color: Color32::GRAY,
+            color: GraphColor::GRAY,
             shape: SocketShape::Circle,
             allowed: allowed.iter().map(|s| s.to_string()).collect(),
             resolved_type: None,
@@ -567,7 +572,7 @@ mod tests {
     }
 
     fn node_with_sockets(id: NodeId, inputs: Vec<Socket>, outputs: Vec<Socket>) -> Node {
-        let mut node = Node::new_reroute(id, Pos2::ZERO);
+        let mut node = Node::new_reroute(id, GraphPosition::ZERO);
         node.kind = NodeKind::Regular;
         node.inputs = inputs;
         node.outputs = outputs;
@@ -627,7 +632,7 @@ mod tests {
         let src = graph.next_id();
         let reroute_id = graph.next_id();
         graph.add_node(node_with_sockets(src, vec![], vec![socket("Float", &[])]));
-        graph.add_node(Node::new_reroute(reroute_id, Pos2::ZERO));
+        graph.add_node(Node::new_reroute(reroute_id, GraphPosition::ZERO));
 
         graph.add_connection(
             sid(src, 0, SocketDirection::Output),
@@ -657,8 +662,8 @@ mod tests {
         let reroute_a = graph.next_id();
         let reroute_b = graph.next_id();
         graph.add_node(node_with_sockets(src, vec![], vec![socket("Words", &[])]));
-        graph.add_node(Node::new_reroute(reroute_a, Pos2::ZERO));
-        graph.add_node(Node::new_reroute(reroute_b, Pos2::ZERO));
+        graph.add_node(Node::new_reroute(reroute_a, GraphPosition::ZERO));
+        graph.add_node(Node::new_reroute(reroute_b, GraphPosition::ZERO));
 
         graph.add_connection(
             sid(src, 0, SocketDirection::Output),
@@ -683,7 +688,7 @@ mod tests {
     }
 
     #[test]
-    fn fixup_reroute_outputs_corrects_a_stale_load() {
+    fn reconcile_reroute_outputs_corrects_a_stale_load() {
         // Simulates a graph saved before reroute outputs propagated at all:
         // the connection and the input's resolution are both present and
         // correct, but the output was never updated to match.
@@ -691,7 +696,7 @@ mod tests {
         let src = graph.next_id();
         let reroute_id = graph.next_id();
         graph.add_node(node_with_sockets(src, vec![], vec![socket("Trigger", &[])]));
-        graph.add_node(Node::new_reroute(reroute_id, Pos2::ZERO));
+        graph.add_node(Node::new_reroute(reroute_id, GraphPosition::ZERO));
         graph.add_connection(
             sid(src, 0, SocketDirection::Output),
             sid(reroute_id, 0, SocketDirection::Input),
@@ -700,7 +705,7 @@ mod tests {
         graph.nodes.get_mut(&reroute_id).unwrap().outputs[0].resolved_type = None;
         assert_eq!(graph.nodes[&reroute_id].outputs[0].effective_type(), "Any");
 
-        graph.fixup_reroute_outputs();
+        graph.reconcile_reroute_outputs();
 
         assert_eq!(
             graph.nodes[&reroute_id].outputs[0].effective_type(),
@@ -967,7 +972,7 @@ mod tests {
     fn graph_round_trips_node_data() {
         let mut graph = GraphState::default();
         let id = graph.next_id();
-        graph.add_node(Node::new_reroute(id, Pos2::ZERO));
+        graph.add_node(Node::new_reroute(id, GraphPosition::ZERO));
 
         let json = serde_json::to_string(&graph).expect("graph state should serialize");
         let loaded: GraphState =
@@ -980,16 +985,16 @@ mod tests {
     fn semantic_snapshot_ignores_editor_layout_but_tracks_processing_state() {
         let mut graph = GraphState::default();
         let id = graph.next_id();
-        graph.add_node(Node::blank(id, "Test Node", Pos2::ZERO));
+        graph.add_node(Node::blank(id, "Test Node", GraphPosition::ZERO));
         let original = graph.semantic_snapshot();
 
         let node = graph.nodes.get_mut(&id).unwrap();
-        node.pos = Pos2::new(100.0, 200.0);
+        node.pos = GraphPosition::new(100.0, 200.0);
         node.selected = true;
         node.collapsed = true;
         node.title = "Renamed".into();
-        node.header_color = Color32::RED;
-        graph.add_frame("Group".into(), Color32::BLUE, vec![id]);
+        node.header_color = GraphColor::RED;
+        graph.add_frame("Group".into(), GraphColor::BLUE, vec![id]);
         assert_eq!(graph.semantic_snapshot(), original);
 
         graph.nodes.get_mut(&id).unwrap().state = serde_json::json!({"threshold": 7});
@@ -1015,7 +1020,7 @@ mod tests {
             .set_extension("example.selection", &document_value)
             .unwrap();
         let id = graph.next_id();
-        let mut reroute = Node::new_reroute(id, Pos2::ZERO);
+        let mut reroute = Node::new_reroute(id, GraphPosition::ZERO);
         reroute.inputs[0].extensions.insert(
             "example.socket-presentation".to_owned(),
             serde_json::json!({"version": 9, "local_style": "compact"}),

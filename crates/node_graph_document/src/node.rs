@@ -1,9 +1,9 @@
-use egui::{Color32, Pos2};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::ids::NodeId;
-use super::socket::{Socket, SocketShape};
+use super::ids::{NodeId, SocketDirection};
+use super::presentation::{GraphColor, GraphPosition};
+use super::socket::{Socket, SocketReference, SocketShape};
 
 /// Structural role of a node in the graph editor.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -79,9 +79,9 @@ pub struct Node {
     #[serde(default)]
     pub type_name: String,
     /// Definition-provided header color.
-    pub header_color: Color32,
+    pub header_color: GraphColor,
     /// Position in graph-canvas coordinates.
-    pub pos: Pos2,
+    pub pos: GraphPosition,
     /// Materialized input sockets.
     pub inputs: Vec<Socket>,
     /// Materialized output sockets.
@@ -116,7 +116,11 @@ pub struct NodeMetadata {
 }
 
 impl NodeMetadata {
-    pub(crate) fn with_property_count(property_count: usize) -> Self {
+    /// Creates transient node metadata for a materialized editor definition.
+    ///
+    /// This value is excluded from saved documents and semantic snapshots.
+    #[doc(hidden)]
+    pub fn with_property_count(property_count: usize) -> Self {
         Self { property_count }
     }
 }
@@ -143,11 +147,15 @@ impl Clone for Node {
 }
 
 impl Node {
-    pub(crate) fn property_count(&self) -> usize {
+    /// Returns the transient property-row count supplied by the editor definition.
+    #[doc(hidden)]
+    pub fn property_count(&self) -> usize {
         self.metadata.property_count
     }
 
-    pub(crate) fn set_property_count(&mut self, property_count: usize) {
+    /// Replaces the transient property-row count after definition reconciliation.
+    #[doc(hidden)]
+    pub fn set_property_count(&mut self, property_count: usize) {
         self.metadata.property_count = property_count;
     }
 
@@ -158,6 +166,31 @@ impl Node {
         } else {
             &self.type_name
         }
+    }
+
+    /// Returns the semantic identity of one materialized input or output.
+    ///
+    /// Variadic member positions are derived from the materialized sockets so callers do not
+    /// need to reproduce document indexing rules.
+    pub fn socket_reference(
+        &self,
+        direction: SocketDirection,
+        socket_index: usize,
+    ) -> Option<SocketReference<'_>> {
+        let sockets = match direction {
+            SocketDirection::Input => &self.inputs,
+            SocketDirection::Output => &self.outputs,
+        };
+        let socket = sockets.get(socket_index)?;
+        let member_index = if socket.is_variadic_member() {
+            sockets[..socket_index]
+                .iter()
+                .filter(|other| other.def_index == socket.def_index && other.is_variadic_member())
+                .count()
+        } else {
+            0
+        };
+        Some(socket.reference(direction, member_index))
     }
 
     /// The input↔output pairing a muted node bypasses through: for each
@@ -193,12 +226,12 @@ impl Node {
     /// # Parameters
     /// - `id`: Stable document identity assigned by the graph.
     /// - `pos`: Initial graph-canvas position.
-    pub fn new_reroute(id: NodeId, pos: Pos2) -> Self {
+    pub fn new_reroute(id: NodeId, pos: GraphPosition) -> Self {
         let input = Socket {
             schema_id: String::new(),
             name: String::new(),
             type_name: "Any".to_string(),
-            color: Color32::from_rgb(150, 150, 150),
+            color: GraphColor::from_rgb(150, 150, 150),
             shape: SocketShape::Circle,
             allowed: Vec::new(),
             resolved_type: None,
@@ -216,7 +249,7 @@ impl Node {
             kind: NodeKind::Reroute,
             title: String::new(),
             type_name: String::new(),
-            header_color: Color32::from_rgb(80, 80, 80),
+            header_color: GraphColor::from_rgb(80, 80, 80),
             pos,
             inputs: vec![input],
             outputs: vec![output],
@@ -231,16 +264,16 @@ impl Node {
 
     /// A regular node with no properties panel, its sockets and state left
     /// for the caller to fill in. For building a `Node` directly outside the
-    /// widget/registry path — e.g. the compiler's synthetic auto-view sink,
+    /// widget/registry path — e.g. a compiler-generated collector,
     /// which is never rendered and so has no properties panel to size.
-    pub fn blank(id: NodeId, type_name: impl Into<String>, pos: Pos2) -> Self {
+    pub fn blank(id: NodeId, type_name: impl Into<String>, pos: GraphPosition) -> Self {
         let type_name = type_name.into();
         Self {
             id,
             kind: NodeKind::Regular,
             title: type_name.clone(),
             type_name,
-            header_color: Color32::from_rgb(80, 80, 80),
+            header_color: GraphColor::from_rgb(80, 80, 80),
             pos,
             inputs: Vec::new(),
             outputs: Vec::new(),

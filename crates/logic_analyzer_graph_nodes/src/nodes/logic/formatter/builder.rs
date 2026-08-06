@@ -6,7 +6,7 @@ use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMateria
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_derived::{NumberSample, TextSample};
 use signal_runtime::{ConfigValue, NodeConfig, ProcessNode};
 use signal_transforms::text_formatter::TextFormatter;
@@ -15,27 +15,26 @@ use signal_transforms::text_formatter::TextFormatter;
 pub(crate) struct FormatterBuilder;
 
 impl GraphNodeSemantics for FormatterBuilder {
-    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<NumberSample>()]
     }
-    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<TextSample>()]
     }
-    fn input_port(
-        &self,
-        _socket: &Socket,
-        member_index: usize,
-        _: &Value,
-        _: PortKind,
-    ) -> Option<String> {
+    fn input_port(&self, socket: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
         // First value keeps the historic port name.
-        Some(if member_index == 0 {
+        Some(if socket.member_index() == 0 {
             "value".into()
         } else {
-            format!("value{member_index}")
+            format!("value{}", socket.member_index())
         })
     }
-    fn output_port(&self, _socket: &Socket, _state: &Value, _kind: PortKind) -> Option<String> {
+    fn output_port(
+        &self,
+        _socket: SocketReference<'_>,
+        _state: &Value,
+        _kind: PortKind,
+    ) -> Option<String> {
         Some("text".into())
     }
 }

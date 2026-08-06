@@ -5,8 +5,8 @@ use node_graph::api::NodeTypeRegistry;
 /// Instance-owned replacement for one inventory node's editor registration.
 ///
 /// Application composition uses an override when a concrete definition needs a host-supplied
-/// metadata service. The generic registry identifies the definition only by its stable feature ID
-/// and remains unaware of the concrete node or host capability.
+/// metadata service. The registry identifies the definition only by its stable feature ID and
+/// remains unaware of the concrete node or host capability.
 #[derive(Clone)]
 pub struct GraphNodeEditorOverride {
     stable_id: String,

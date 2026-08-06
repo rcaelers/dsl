@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_capture_session::{
     AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureChannelId,
     CaptureProviderCapabilities, CaptureSessionPlan, CaptureStartMode, CaptureStoreCursor,
@@ -249,14 +249,14 @@ pub trait LiveCaptureFeatureProvider: Send + Sync {
 /// Supplies viewer and result-presentation metadata for one graph-node feature.
 pub trait GraphNodePresentation: Send + Sync {
     /// Returns an optional concrete word-display format for this output.
-    fn word_display_format(&self, _socket: &Socket, _state: &Value) -> Option<String> {
+    fn word_display_format(&self, _socket: SocketReference<'_>, _state: &Value) -> Option<String> {
         None
     }
 
     /// Returns explicit compound-lane presentation metadata for this output.
     fn lane_presentation(
         &self,
-        _socket: &Socket,
+        _socket: SocketReference<'_>,
         _state: &Value,
     ) -> Option<LanePresentationDescriptor> {
         None
@@ -265,23 +265,27 @@ pub trait GraphNodePresentation: Send + Sync {
     /// Returns result-table column metadata for this decoder output.
     fn decoder_table_column(
         &self,
-        _socket: &Socket,
+        _socket: SocketReference<'_>,
         _state: &Value,
     ) -> Option<DecoderTableColumnDescriptor> {
         None
     }
 
     /// Returns the capture-viewer channel from which this output originates.
-    fn viewer_channel_origin(&self, _socket: &Socket, _state: &Value) -> Option<usize> {
+    fn viewer_channel_origin(&self, _socket: SocketReference<'_>, _state: &Value) -> Option<usize> {
         None
     }
 
     /// Returns selection behavior for presenting this output in the viewer.
-    fn viewer_output_control(&self, socket: &Socket, state: &Value) -> Option<ViewerOutputControl> {
+    fn viewer_output_control(
+        &self,
+        socket: SocketReference<'_>,
+        state: &Value,
+    ) -> Option<ViewerOutputControl> {
         if self.viewer_channel_origin(socket, state).is_some() {
-            return Some(ViewerOutputControl::new(true, [socket.def_index]));
+            return Some(ViewerOutputControl::new(true, [socket.definition_index()]));
         }
-        Some(ViewerOutputControl::new(false, [socket.def_index]))
+        Some(ViewerOutputControl::new(false, [socket.definition_index()]))
     }
 
     /// Returns sampling-overlay reconstruction metadata when this node samples inputs.
@@ -375,33 +379,45 @@ pub trait GraphNodeSemantics: Send + Sync {
         source_title.to_owned()
     }
     /// Returns payload kinds accepted by an input socket in the given state.
-    fn accepted_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind>;
+    fn accepted_kinds(&self, socket: SocketReference<'_>, state: &Value) -> Vec<PortKind>;
     /// Returns payload kinds offered by an output socket in the given state.
-    fn offered_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind>;
+    fn offered_kinds(&self, socket: SocketReference<'_>, state: &Value) -> Vec<PortKind>;
     /// Returns semantic contracts carried by an output socket.
-    fn offered_connection_contracts(&self, _socket: &Socket, _state: &Value) -> Vec<String> {
+    fn offered_connection_contracts(
+        &self,
+        _socket: SocketReference<'_>,
+        _state: &Value,
+    ) -> Vec<String> {
         Vec::new()
     }
     /// Returns semantic contracts accepted by an input socket.
-    fn accepted_connection_contracts(&self, _socket: &Socket, _state: &Value) -> Vec<String> {
+    fn accepted_connection_contracts(
+        &self,
+        _socket: SocketReference<'_>,
+        _state: &Value,
+    ) -> Vec<String> {
         Vec::new()
     }
     /// Returns the runtime input port for a negotiated socket member.
     fn input_port(
         &self,
-        socket: &Socket,
-        member_index: usize,
+        socket: SocketReference<'_>,
         state: &Value,
         kind: PortKind,
     ) -> Option<String>;
     /// Returns the runtime output port for a negotiated socket.
-    fn output_port(&self, socket: &Socket, state: &Value, kind: PortKind) -> Option<String>;
+    fn output_port(
+        &self,
+        socket: SocketReference<'_>,
+        state: &Value,
+        kind: PortKind,
+    ) -> Option<String>;
     /// Returns whether an input socket must be connected in the given state.
-    fn input_required(&self, _socket: &Socket, _state: &Value) -> bool {
+    fn input_required(&self, _socket: SocketReference<'_>, _state: &Value) -> bool {
         true
     }
     /// Returns a node-specific input buffer capacity, when required.
-    fn input_buffer_override(&self, _socket: &Socket, _state: &Value) -> Option<usize> {
+    fn input_buffer_override(&self, _socket: SocketReference<'_>, _state: &Value) -> Option<usize> {
         None
     }
 }

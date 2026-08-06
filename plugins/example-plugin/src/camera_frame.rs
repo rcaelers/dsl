@@ -17,7 +17,8 @@ use logic_analyzer_ui::{PluginPanel, PluginPanelContext, PluginPanelIcon, UiPane
 use logic_analyzer_viewer::{
     OpaqueLaneDrawContext, ViewerLaneRenderer, ViewerLaneRendererRegistration, ViewerLaneTrack,
 };
-use node_graph::api::{InputDef, NodeDef, OutputDef, Socket, SocketDef, SocketShape};
+use node_graph::api::{InputDef, NodeDef, OutputDef, SocketDef, SocketShape};
+use node_graph_document::SocketReference;
 use signal_derived::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
     DerivedDataRetention, OpaqueCollectedLaneSnapshot, PayloadAdapter,
@@ -109,25 +110,29 @@ impl GraphNodeSemantics for CameraFrameSourceBuilder {
         DerivedDataRetention::MaxEntries(9)
     }
 
-    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         Vec::new()
     }
 
-    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<CameraFrame>()]
     }
 
     fn input_port(
         &self,
-        _socket: &Socket,
-        _member_index: usize,
+        _socket: SocketReference<'_>,
         _state: &Value,
         _kind: PortKind,
     ) -> Option<String> {
         None
     }
 
-    fn output_port(&self, _socket: &Socket, _state: &Value, _kind: PortKind) -> Option<String> {
+    fn output_port(
+        &self,
+        _socket: SocketReference<'_>,
+        _state: &Value,
+        _kind: PortKind,
+    ) -> Option<String> {
         Some("frames".to_owned())
     }
 }
@@ -536,12 +541,13 @@ inventory::submit! {
 }
 
 inventory::submit! {
-    GraphNodeRegistration::capable::<
-        CameraFrameSource,
-        CameraFrameSourceBuilder,
-        CameraFrameSourceBuilder,
-    >(
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<CameraFrameSource>("org.logicconduit.example.graph-node.camera-frame-source/v1")
+}
+
+inventory::submit! {
+    GraphNodeRegistration::capable::<CameraFrameSourceBuilder, CameraFrameSourceBuilder>(
         "org.logicconduit.example.graph-node.camera-frame-source/v1",
+        logic_analyzer_graph_editor_registry::node_name::<CameraFrameSource>,
     )
     .requiring_payloads(&[PAYLOAD_ID])
 }

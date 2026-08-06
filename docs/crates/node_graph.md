@@ -6,15 +6,19 @@ logic analyzers or pipelines; the application (see [Application Composition Desi
 node types and compiles the drawn graph into something executable.
 
 The widget's public API and node-definition contracts are documented at the `node_graph` crate
-root and its `node_graph::api` facade.
+root and its `node_graph::api` facade. Portable document records are owned by
+[`node_graph_document`](node_graph_document.md) and re-exported here for widget consumers.
 
 ---
 
 ## Layering
 
 ```text
+crates/node_graph_document/src
+└──            Serializable document: GraphState, Node, Socket, Connection, Frame
+
 crates/widgets/node_graph/src
-├── model/     Serializable document: GraphState, Node, Socket, Connection, Frame
+├── model/     Compatibility facade over node_graph_document
 ├── api/       Node-type definition API: NodeDef, InputDef/OutputDef, PropDef,
 │              SocketDef, InlineControl, builtin socket/value types
 ├── runtime/   NodeTypeRegistry + type-erased per-node instances (TypedNode)
@@ -22,14 +26,16 @@ crates/widgets/node_graph/src
 └── support/   View transform (pan/zoom), paint helpers
 ```
 
-The dependency direction is strict: `model` depends on nothing, `api` produces `model`
-sockets, `runtime` erases `api` defs into instances, `widget` orchestrates all three.
+The dependency direction is strict: the document crate depends on no workspace crate, `api`
+materializes document sockets, `runtime` erases `api` definitions into instances, and `widget`
+orchestrates the editor layers while mapping neutral colors and positions to egui.
 
 ### Document model and editor instances
 
 `GraphState` is the *document*: plain serde-serializable data (nodes, sockets, connections,
-frames) with no trait objects. Everything needed for rendering and compatibility checking
-lives in the model, so a saved file round-trips without consulting any registry.
+frames) with no trait objects or egui values. The persisted generic presentation values needed by
+the editor live in the document crate, so a saved file round-trips without consulting any registry.
+The widget converts `GraphColor` and `GraphPosition` at its egui boundary.
 
 Each node additionally has a **runtime instance** (`Box<dyn NodeInstance>`, kept in a side
 map on the widget): the typed node state plus its def's behavior (`on_update`, controls,
@@ -83,7 +89,7 @@ All data lives in the serialized `Socket`:
 pub struct Socket {
     pub name: String,
     pub type_name: String,             // native type
-    pub color: Color32,                // idle look (def-controlled)
+    pub color: GraphColor,             // neutral idle look (def-controlled)
     pub shape: SocketShape,            // idle look
     pub allowed: Vec<String>,          // extra accepted type names
     pub resolved_type: Option<String>, // set while connected to a non-native type

@@ -8,7 +8,7 @@ use logic_analyzer_graph_capabilities::node::{
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_derived::Word;
 use signal_runtime::ProcessNode;
 use signal_transforms::word_field_extractor::WordFieldExtractor;
@@ -21,26 +21,30 @@ impl GraphNodeSemantics for WordFieldExtractorBuilder {
         crate::presentation::without_display_format(state)
     }
 
-    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Word>()]
     }
 
-    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Word>()]
     }
 
     fn input_port(
         &self,
-        socket: &Socket,
-        _member_index: usize,
+        socket: SocketReference<'_>,
         _state: &Value,
         _kind: PortKind,
     ) -> Option<String> {
-        (socket.def_index == 0).then(|| "words".to_owned())
+        (socket.definition_index() == 0).then(|| "words".to_owned())
     }
 
-    fn output_port(&self, socket: &Socket, _state: &Value, _kind: PortKind) -> Option<String> {
-        (socket.def_index == 0).then(|| "field".to_owned())
+    fn output_port(
+        &self,
+        socket: SocketReference<'_>,
+        _state: &Value,
+        _kind: PortKind,
+    ) -> Option<String> {
+        (socket.definition_index() == 0).then(|| "field".to_owned())
     }
 }
 
@@ -64,8 +68,8 @@ impl RuntimeMaterializer for WordFieldExtractorBuilder {
 }
 
 impl GraphNodePresentation for WordFieldExtractorBuilder {
-    fn word_display_format(&self, socket: &Socket, state: &Value) -> Option<String> {
-        (socket.def_index == 0)
+    fn word_display_format(&self, socket: SocketReference<'_>, state: &Value) -> Option<String> {
+        (socket.definition_index() == 0)
             .then(|| parse_state::<super::definition::WordFieldExtractorState>(state).ok())
             .flatten()
             .map(|state| state.display_format.selected().to_owned())
@@ -75,6 +79,7 @@ impl GraphNodePresentation for WordFieldExtractorBuilder {
 #[cfg(test)]
 mod builder_tests {
     use node_graph::NodeDef;
+    use node_graph_document::SocketDirection;
 
     use super::super::definition::WordFieldExtractor as WordFieldExtractorDef;
     use super::*;
@@ -92,7 +97,9 @@ mod builder_tests {
         let output = &widget.graph().nodes[&node].outputs[0];
 
         assert_eq!(
-            builder.word_display_format(output, &state).as_deref(),
+            builder
+                .word_display_format(output.reference(SocketDirection::Output, 0), &state)
+                .as_deref(),
             Some("Binary")
         );
     }

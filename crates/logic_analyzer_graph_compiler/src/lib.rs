@@ -1,6 +1,6 @@
 //! Deterministic logic-analyzer graph-document semantic analysis and lowering.
 //!
-//! This crate lowers a generic [`node_graph::api`] document through a validated
+//! This crate lowers a generic [`node_graph_document::GraphState`] through a validated
 //! `logic_analyzer_graph_registry::GraphRegistry` into an immutable execution plan. Concrete graph nodes and their
 //! presentations live in `logic-analyzer-graph-nodes`; application composition and window
 //! integration belong in `logic-analyzer-ui`.

@@ -1,8 +1,10 @@
-use logic_analyzer_graph_registry::{GraphNodeRegistration, graph_node_registrations};
+use logic_analyzer_graph_editor_registry::{
+    GraphNodeEditorRegistration, graph_node_editor_registrations,
+};
 use node_graph::NodeTypeRegistry;
 
-fn registrations() -> impl Iterator<Item = &'static GraphNodeRegistration> {
-    graph_node_registrations().into_iter()
+fn registrations() -> impl Iterator<Item = &'static GraphNodeEditorRegistration> {
+    graph_node_editor_registrations().into_iter()
 }
 
 pub(crate) fn build_registry() -> NodeTypeRegistry {

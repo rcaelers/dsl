@@ -1,9 +1,12 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
-        super::definition::UartDecoder,
-        super::builder::UartDecoderBuilder,
-        super::builder::UartDecoderBuilder,
-    >("org.logicconduit.graph-node.decoders.uart-decoder/v1")
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<super::definition::UartDecoder>("org.logicconduit.graph-node.decoders.uart-decoder/v1")
+}
+
+inventory::submit! {
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<super::builder::UartDecoderBuilder, super::builder::UartDecoderBuilder>(
+        "org.logicconduit.graph-node.decoders.uart-decoder/v1",
+        logic_analyzer_graph_editor_registry::node_name::<super::definition::UartDecoder>,
+    )
     .with_presentation::<super::builder::UartDecoderBuilder>()
     .requiring_payloads(&[
         "org.logicconduit.digital-sample/v1",

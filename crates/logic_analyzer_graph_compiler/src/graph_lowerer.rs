@@ -11,7 +11,7 @@ use logic_analyzer_graph_plan::{
     ProcessingGraphError as CompileError, SamplingOverlayCandidate,
 };
 use logic_analyzer_graph_registry::GraphRegistry;
-use node_graph::api::{GraphState, NodeId};
+use node_graph_document::{GraphState, NodeId};
 use signal_derived::PayloadRegistry;
 
 use super::data_collector::{

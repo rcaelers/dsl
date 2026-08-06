@@ -26,9 +26,9 @@ use logic_analyzer_graph_plan::{
     ResolvedSamplingOverlay, SamplingOverlayCandidate,
 };
 use logic_analyzer_graph_registry::GraphRegistry;
-use node_graph::api::{
-    Connection, GraphState, Node, NodeId, NodeKind, Socket, SocketDirection, SocketId, SocketShape,
-    VariadicInfo,
+use node_graph_document::{
+    Connection, GraphState, Node, NodeId, NodeKind, Socket, SocketDirection, SocketId,
+    SocketReference, SocketShape, VariadicInfo,
 };
 use signal_capture_session::{
     AcquisitionContext, AcquisitionResult, CaptureChannelId, CaptureProviderCapabilities,
@@ -204,12 +204,16 @@ fn capture_channel_selection(
     subscriptions: &OutputSubscriptionPlan,
     node_id: NodeId,
     node: &Node,
-    viewer_channel_origin: impl Fn(&Socket) -> Option<usize>,
+    viewer_channel_origin: impl Fn(SocketReference<'_>) -> Option<usize>,
 ) -> Vec<usize> {
     subscriptions
         .outputs()
         .filter(|(selected_node, _)| *selected_node == node_id)
-        .filter_map(|(_, output)| node.outputs.get(output).and_then(&viewer_channel_origin))
+        .filter_map(|(_, output)| {
+            node.outputs.get(output).and_then(|socket| {
+                viewer_channel_origin(socket.reference(SocketDirection::Output, 0))
+            })
+        })
         .collect()
 }
 
@@ -666,21 +670,6 @@ fn resolve_reroute_edges(graph: &GraphState) -> (Vec<Wire>, Vec<CompileError>) {
     (wires, errors)
 }
 
-/// Position of a variadic member within its group (0-based); 0 for plain
-/// sockets.
-fn member_index(node: &Node, socket_index: usize) -> usize {
-    let Some(socket) = node.inputs.get(socket_index) else {
-        return 0;
-    };
-    if !socket.is_variadic_member() {
-        return 0;
-    }
-    node.inputs[..socket_index]
-        .iter()
-        .filter(|other| other.def_index == socket.def_index && other.is_variadic_member())
-        .count()
-}
-
 /// Compiler-synthesized collector identities are stable across repeated
 /// lowering. Table data shares one collector; retained outputs use one
 /// collector per producer so adding another producer never restarts an
@@ -733,6 +722,7 @@ fn with_output_collectors(
                                     target.is_data_collector() || target.is_data_subscription()
                                 })
                     });
+                    let output = output.reference(SocketDirection::Output, 0);
                     (connected || subscriptions.is_retained(id, *index))
                         && !already_collected
                         && registry
@@ -791,6 +781,7 @@ fn with_output_collectors(
                                     builder.is_data_collector() || builder.is_data_subscription()
                                 })
                     });
+                    let output = output.reference(SocketDirection::Output, 0);
                     !retained
                         && !collected_by_explicit_sink
                         && registry
@@ -1042,13 +1033,20 @@ pub(crate) fn lower_with_subscriptions(
             .or_default()
             .insert(wire.to.index);
 
-        let offered = from_semantics.offered_kinds(from_socket, &from_node.state);
+        let from_reference = from_node
+            .socket_reference(SocketDirection::Output, wire.from.index)
+            .expect("validated source socket has a semantic reference");
+        let to_reference = to_node
+            .socket_reference(SocketDirection::Input, wire.to.index)
+            .expect("validated destination socket has a semantic reference");
+        let member = to_reference.member_index();
+        let offered = from_semantics.offered_kinds(from_reference, &from_node.state);
         let data_subscription = to_semantics.is_data_subscription();
         let registered_collection = data_subscription || to_semantics.is_data_collector();
         let accepted = if registered_collection {
             registry.subscribable_payload_kinds()
         } else {
-            to_semantics.accepted_kinds(to_socket, &to_node.state)
+            to_semantics.accepted_kinds(to_reference, &to_node.state)
         };
         let Some(kind) = offered.iter().copied().find(|k| accepted.contains(k)) else {
             let message = if registered_collection {
@@ -1066,9 +1064,9 @@ pub(crate) fn lower_with_subscriptions(
             continue;
         };
         let offered_contracts =
-            from_semantics.offered_connection_contracts(from_socket, &from_node.state);
+            from_semantics.offered_connection_contracts(from_reference, &from_node.state);
         let accepted_contracts =
-            to_semantics.accepted_connection_contracts(to_socket, &to_node.state);
+            to_semantics.accepted_connection_contracts(to_reference, &to_node.state);
         if !connection_contracts_overlap(&offered_contracts, &accepted_contracts) {
             errors.push(CompileError::on(
                 wire.to.node,
@@ -1083,15 +1081,15 @@ pub(crate) fn lower_with_subscriptions(
             continue;
         }
 
-        let Some(out_port) = from_semantics.output_port(from_socket, &from_node.state, kind) else {
+        let Some(out_port) = from_semantics.output_port(from_reference, &from_node.state, kind)
+        else {
             errors.push(CompileError::on(
                 wire.from.node,
                 format!("No runtime port for output '{}'", from_socket.name),
             ));
             continue;
         };
-        let member = member_index(to_node, wire.to.index);
-        let Some(in_port) = to_semantics.input_port(to_socket, member, &to_node.state, kind) else {
+        let Some(in_port) = to_semantics.input_port(to_reference, &to_node.state, kind) else {
             errors.push(CompileError::on(
                 wire.to.node,
                 format!("No runtime port for input '{}'", to_socket.name),
@@ -1110,21 +1108,21 @@ pub(crate) fn lower_with_subscriptions(
                 source_node_title: from_node.title.clone(),
                 source_output_title: from_socket.name.clone(),
                 word_display_format: registry.presentation(from_node.def_name()).and_then(
-                    |features| features.word_display_format(from_socket, &from_node.state),
+                    |features| features.word_display_format(from_reference, &from_node.state),
                 ),
-                lane_presentation: registry
-                    .presentation(from_node.def_name())
-                    .and_then(|features| features.lane_presentation(from_socket, &from_node.state)),
+                lane_presentation: registry.presentation(from_node.def_name()).and_then(
+                    |features| features.lane_presentation(from_reference, &from_node.state),
+                ),
                 default_lane_presentation: registered_collection
                     .then(|| registry.payload_subscription_presentation(kind))
                     .flatten(),
                 decoder_table_column: registry.presentation(from_node.def_name()).and_then(
-                    |features| features.decoder_table_column(from_socket, &from_node.state),
+                    |features| features.decoder_table_column(from_reference, &from_node.state),
                 ),
                 capture_channel: registry
                     .presentation(from_node.def_name())
                     .and_then(|features| {
-                        features.viewer_channel_origin(from_socket, &from_node.state)
+                        features.viewer_channel_origin(from_reference, &from_node.state)
                     }),
             },
         );
@@ -1132,7 +1130,7 @@ pub(crate) fn lower_with_subscriptions(
             from: (wire.from.node, out_port),
             to: (wire.to.node, in_port),
             buffer: to_semantics
-                .input_buffer_override(to_socket, &to_node.state)
+                .input_buffer_override(to_reference, &to_node.state)
                 .unwrap_or_else(|| kind.buffer_size(from_semantics.is_source())),
             kind,
         });
@@ -1146,6 +1144,9 @@ pub(crate) fn lower_with_subscriptions(
         };
         let node_connected = connected.get(&id);
         for (index, socket) in node.inputs.iter().enumerate() {
+            let reference = node
+                .socket_reference(SocketDirection::Input, index)
+                .expect("enumerated input has a semantic reference");
             // Control-bearing sockets go through `input_required` like any
             // other: most are self-supplying config (their builders return
             // false), but one can be conditionally required — the writer's
@@ -1158,7 +1159,7 @@ pub(crate) fn lower_with_subscriptions(
                     .inputs
                     .iter()
                     .any(|s| s.def_index == socket.def_index && s.is_variadic_member());
-                if !has_member && semantics.input_required(socket, &node.state) {
+                if !has_member && semantics.input_required(reference, &node.state) {
                     errors.push(CompileError::on(
                         id,
                         format!("Input '{}' needs at least one connection", socket.name),
@@ -1166,7 +1167,7 @@ pub(crate) fn lower_with_subscriptions(
                 }
             } else if !socket.is_variadic_member()
                 && !node_connected.is_some_and(|set| set.contains(&index))
-                && semantics.input_required(socket, &node.state)
+                && semantics.input_required(reference, &node.state)
             {
                 errors.push(CompileError::on(
                     id,

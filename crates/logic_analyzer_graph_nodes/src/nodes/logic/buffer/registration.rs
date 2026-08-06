@@ -1,9 +1,12 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
-        super::definition::Buffer,
-        super::builder::BufferBuilder,
-        super::builder::BufferBuilder,
-    >("org.logicconduit.graph-node.logic.buffer/v1").requiring_payloads(&[
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<super::definition::Buffer>("org.logicconduit.graph-node.logic.buffer/v1")
+}
+
+inventory::submit! {
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<super::builder::BufferBuilder, super::builder::BufferBuilder>(
+        "org.logicconduit.graph-node.logic.buffer/v1",
+        logic_analyzer_graph_editor_registry::node_name::<super::definition::Buffer>,
+    ).requiring_payloads(&[
         "org.logicconduit.digital-sample/v1",
         "org.logicconduit.number-sample/v1",
         "org.logicconduit.text-sample/v1",

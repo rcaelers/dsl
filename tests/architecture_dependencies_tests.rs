@@ -79,3 +79,44 @@ fn capture_export_owner_does_not_depend_on_ui_or_platform() {
         "the capture-export service contract and implementation must remain independent of UI and platform"
     );
 }
+
+#[test]
+fn headless_graph_tier_depends_on_the_document_model_not_the_node_editor() {
+    let metadata = workspace_metadata();
+
+    for owner in [
+        "logic-analyzer-graph-capabilities",
+        "logic-analyzer-graph-compiler",
+        "logic-analyzer-graph-orchestration",
+        "logic-analyzer-graph-plan",
+        "logic-analyzer-graph-registry",
+        "logic-analyzer-graph-runtime",
+    ] {
+        let dependencies = non_dev_dependencies(package(&metadata, owner));
+        assert!(
+            !dependencies.contains("node-graph"),
+            "{owner} must remain independent of the node editor"
+        );
+    }
+
+    for owner in [
+        "logic-analyzer-graph-capabilities",
+        "logic-analyzer-graph-compiler",
+        "logic-analyzer-graph-orchestration",
+        "logic-analyzer-graph-plan",
+        "logic-analyzer-graph-runtime",
+    ] {
+        let dependencies = non_dev_dependencies(package(&metadata, owner));
+        assert!(
+            dependencies.contains("node-graph-document"),
+            "{owner} must consume the neutral graph document contract"
+        );
+    }
+
+    let document_dependencies =
+        local_non_dev_dependencies(package(&metadata, "node-graph-document"));
+    assert!(
+        document_dependencies.is_empty(),
+        "the graph document model must have no workspace dependencies: {document_dependencies:?}"
+    );
+}

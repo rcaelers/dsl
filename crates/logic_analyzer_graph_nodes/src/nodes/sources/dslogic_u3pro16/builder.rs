@@ -13,7 +13,7 @@ use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
     TriggerConfigurationFeature, parse_state,
 };
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_capture::{Sample, SampleBlock};
 use signal_capture_session::CaptureSourceMetadata;
 use signal_derived::DerivedDataRetention;
@@ -91,25 +91,29 @@ impl GraphNodeSemantics for DsLogicU3Pro16Builder {
         DerivedDataRetention::Unlimited
     }
 
-    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         Vec::new()
     }
 
-    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<SampleBlock>(), PortKind::of::<Sample>()]
     }
 
     fn input_port(
         &self,
-        _socket: &Socket,
-        _member: usize,
+        _socket: SocketReference<'_>,
         _state: &Value,
         _kind: PortKind,
     ) -> Option<String> {
         None
     }
 
-    fn output_port(&self, socket: &Socket, state: &Value, kind: PortKind) -> Option<String> {
+    fn output_port(
+        &self,
+        socket: SocketReference<'_>,
+        state: &Value,
+        kind: PortKind,
+    ) -> Option<String> {
         if kind != PortKind::of::<Sample>() && kind != PortKind::of::<SampleBlock>() {
             return None;
         }
@@ -117,13 +121,13 @@ impl GraphNodeSemantics for DsLogicU3Pro16Builder {
         if !state
             .channels
             .enabled
-            .get(socket.def_index)
+            .get(socket.definition_index())
             .copied()
             .unwrap_or(false)
         {
             return None;
         }
-        let logical_channel = state.channels.enabled[..socket.def_index]
+        let logical_channel = state.channels.enabled[..socket.definition_index()]
             .iter()
             .filter(|enabled| **enabled)
             .count();
@@ -132,19 +136,19 @@ impl GraphNodeSemantics for DsLogicU3Pro16Builder {
 }
 
 impl GraphNodePresentation for DsLogicU3Pro16Builder {
-    fn viewer_channel_origin(&self, socket: &Socket, state: &Value) -> Option<usize> {
+    fn viewer_channel_origin(&self, socket: SocketReference<'_>, state: &Value) -> Option<usize> {
         let state: U3Pro16State = parse_state(state).ok()?;
         if !state
             .channels
             .enabled
-            .get(socket.def_index)
+            .get(socket.definition_index())
             .copied()
             .unwrap_or(false)
         {
             return None;
         }
         Some(
-            state.channels.enabled[..socket.def_index]
+            state.channels.enabled[..socket.definition_index()]
                 .iter()
                 .filter(|enabled| **enabled)
                 .count(),

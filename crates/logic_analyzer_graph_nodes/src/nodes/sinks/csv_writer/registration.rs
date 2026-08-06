@@ -1,9 +1,12 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
-        super::definition::CsvWriter,
-        super::builder::CsvWriterBuilder,
-        super::builder::CsvWriterBuilder,
-    >("org.logicconduit.graph-node.sinks.csv-writer/v1").requiring_payloads(&[
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<super::definition::CsvWriter>("org.logicconduit.graph-node.sinks.csv-writer/v1")
+}
+
+inventory::submit! {
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<super::builder::CsvWriterBuilder, super::builder::CsvWriterBuilder>(
+        "org.logicconduit.graph-node.sinks.csv-writer/v1",
+        logic_analyzer_graph_editor_registry::node_name::<super::definition::CsvWriter>,
+    ).requiring_payloads(&[
         "org.logicconduit.text-sample/v1",
         "org.logicconduit.word/v1",
     ])

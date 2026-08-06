@@ -10,7 +10,7 @@ use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
     SimpleTriggerChannel, TriggerConfigurationFeature,
 };
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_capture_session::{SimpleTriggerCondition, TriggerPredicate, TriggerProgram};
 use signal_runtime::ProcessNode;
 
@@ -87,29 +87,33 @@ impl GraphNodeSemantics for TestLiveCaptureSourceBuilder {
         )
     }
 
-    fn accepted_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, socket: SocketReference<'_>, state: &Value) -> Vec<PortKind> {
         TestCaptureSourceBuilder.accepted_kinds(socket, state)
     }
 
-    fn offered_kinds(&self, socket: &Socket, state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, socket: SocketReference<'_>, state: &Value) -> Vec<PortKind> {
         TestCaptureSourceBuilder.offered_kinds(socket, state)
     }
 
     fn input_port(
         &self,
-        socket: &Socket,
-        member_index: usize,
+        socket: SocketReference<'_>,
         state: &Value,
         kind: PortKind,
     ) -> Option<String> {
-        TestCaptureSourceBuilder.input_port(socket, member_index, state, kind)
+        TestCaptureSourceBuilder.input_port(socket, state, kind)
     }
 
-    fn output_port(&self, socket: &Socket, state: &Value, kind: PortKind) -> Option<String> {
+    fn output_port(
+        &self,
+        socket: SocketReference<'_>,
+        state: &Value,
+        kind: PortKind,
+    ) -> Option<String> {
         TestCaptureSourceBuilder.output_port(socket, state, kind)
     }
 
-    fn input_required(&self, socket: &Socket, state: &Value) -> bool {
+    fn input_required(&self, socket: SocketReference<'_>, state: &Value) -> bool {
         TestCaptureSourceBuilder.input_required(socket, state)
     }
 }
@@ -121,7 +125,7 @@ impl CaptureSourceFeature for TestLiveCaptureSourceBuilder {
 }
 
 impl GraphNodePresentation for TestLiveCaptureSourceBuilder {
-    fn viewer_channel_origin(&self, socket: &Socket, state: &Value) -> Option<usize> {
+    fn viewer_channel_origin(&self, socket: SocketReference<'_>, state: &Value) -> Option<usize> {
         TestCaptureSourceBuilder.viewer_channel_origin(socket, state)
     }
 }

@@ -9,7 +9,7 @@ use logic_analyzer_graph_plan::OutputSubscriptionPlan;
 use logic_analyzer_graph_runtime::{
     GraphRunContext, GraphRuntime, InlineSourcePreparationExecutor, LiveRun,
 };
-use node_graph::api::{GraphState, NodeId};
+use node_graph_document::{GraphState, NodeId};
 use platform_artifacts::{
     ArtifactReplicationEvent, ArtifactRepository, MemoryArtifactRepository,
     ReplicatingArtifactRepository,

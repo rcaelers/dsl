@@ -163,18 +163,21 @@ pub(crate) fn viewer_output_selections(graph: &GraphState) -> Vec<ViewerOutputSe
             let saved_selection = saved.get(&endpoint).copied();
             let (default_selected, indicator_outputs) =
                 if let (Some(presentation), Some(semantics)) = (presentation, semantics) {
+                    let output_reference = node
+                        .socket_reference(SocketDirection::Output, output_index)
+                        .expect("enumerated output has a semantic reference");
                     let Some(ViewerOutputControl::Selectable {
                         default_selected,
                         indicator_outputs,
-                    }) = presentation.viewer_output_control(output, &node.state)
+                    }) = presentation.viewer_output_control(output_reference, &node.state)
                     else {
                         continue;
                     };
                     let viewable = presentation
-                        .viewer_channel_origin(output, &node.state)
+                        .viewer_channel_origin(output_reference, &node.state)
                         .is_some()
                         || semantics
-                            .offered_kinds(output, &node.state)
+                            .offered_kinds(output_reference, &node.state)
                             .into_iter()
                             .any(|kind| contracts.subscribable_kinds.contains(&kind));
                     if !viewable {
@@ -553,7 +556,7 @@ fn discover_payload_subscription(
         .filter(|node| node.kind == NodeKind::Regular)
         .and_then(|node| {
             let semantics = contracts.registry.semantics(node.def_name())?;
-            let output = node.outputs.get(source.index)?;
+            let output = node.socket_reference(SocketDirection::Output, source.index)?;
             semantics
                 .offered_kinds(output, &node.state)
                 .into_iter()

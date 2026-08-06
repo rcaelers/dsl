@@ -19,12 +19,14 @@ signal-transforms = { path = "../signal_transforms" }
 platform-artifacts = { path = "../platform_artifacts" }
 platform-runtime = { path = "../platform_runtime" }
 logic-analyzer-graph-capabilities = { path = "../logic_analyzer_graph_capabilities" }
+logic-analyzer-graph-editor-registry = { path = "../logic_analyzer_graph_editor_registry" }
 logic-analyzer-graph-registry = { path = "../logic_analyzer_graph_registry" }
 logic-analyzer-capture-formats = { path = "../logic_analyzer_capture_formats" }
 logic-analyzer-device-dslogic = { path = "../logic_analyzer_device_dslogic" }
 logic-analyzer-protocol-decoders = { path = "../logic_analyzer_protocol_decoders" }
 logic-analyzer-viewer = { path = "../widgets/logic_analyzer_viewer" }
 node-graph = { path = "../widgets/node_graph" }
+node-graph-document = { path = "../node_graph_document" }
 egui = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

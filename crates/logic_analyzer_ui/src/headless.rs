@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
+use logic_analyzer_graph_editor_registry::GraphNodeEditorOverride;
 use logic_analyzer_graph_plan::ProcessingGraphError as CompileError;
-use logic_analyzer_graph_registry::GraphNodeEditorOverride;
 use logic_analyzer_graph_runtime::{
     GraphRunContext, PreparedCapture, PreparedCaptureData, SourcePreparationStatus,
     SourcePreparationUpdate, SourceProcessOverrides,

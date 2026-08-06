@@ -8,7 +8,7 @@ use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMateria
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_capture::Sample;
 use signal_derived::{Trigger, Word};
 use signal_runtime::{ConfigValue, NodeConfig, ProcessNode};
@@ -48,38 +48,43 @@ impl WordMatcherBuilder {
 }
 
 impl GraphNodeSemantics for WordMatcherBuilder {
-    fn accepted_kinds(&self, socket: &Socket, _state: &Value) -> Vec<PortKind> {
-        match socket.def_index {
+    fn accepted_kinds(&self, socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
+        match socket.definition_index() {
             0 => vec![PortKind::of::<Word>()],
             1 => vec![PortKind::of::<Trigger>()],
             _ => vec![],
         }
     }
-    fn offered_kinds(&self, socket: &Socket, _state: &Value) -> Vec<PortKind> {
-        match socket.def_index {
+    fn offered_kinds(&self, socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
+        match socket.definition_index() {
             0 => vec![PortKind::of::<Trigger>()],
             1 => vec![PortKind::of::<Sample>()],
             2 => vec![PortKind::of::<Word>()],
             _ => vec![],
         }
     }
-    fn input_port(&self, socket: &Socket, _: usize, _: &Value, _: PortKind) -> Option<String> {
-        match socket.def_index {
+    fn input_port(&self, socket: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
+        match socket.definition_index() {
             0 => Some("words".into()),
             1 => Some("rearm".into()),
             _ => None,
         }
     }
-    fn output_port(&self, socket: &Socket, _state: &Value, _kind: PortKind) -> Option<String> {
-        match socket.def_index {
+    fn output_port(
+        &self,
+        socket: SocketReference<'_>,
+        _state: &Value,
+        _kind: PortKind,
+    ) -> Option<String> {
+        match socket.definition_index() {
             0 => Some("trigger".into()),
             1 => Some("matched".into()),
             2 => Some("matching_words".into()),
             _ => None,
         }
     }
-    fn input_required(&self, socket: &Socket, _state: &Value) -> bool {
-        socket.def_index == 0
+    fn input_required(&self, socket: SocketReference<'_>, _state: &Value) -> bool {
+        socket.definition_index() == 0
     }
 }
 
@@ -188,6 +193,7 @@ impl RuntimeMaterializer for WordMatcherBuilder {
 #[cfg(test)]
 mod builder_tests {
     use node_graph::NodeDef;
+    use node_graph_document::SocketDirection;
 
     use super::super::definition::WordMatcher;
     use super::*;
@@ -201,10 +207,19 @@ mod builder_tests {
             .unwrap();
         let node = &widget.graph().nodes[&node_id];
 
-        assert!(builder.input_required(&node.inputs[0], &node.state));
-        assert!(!builder.input_required(&node.inputs[1], &node.state));
+        assert!(builder.input_required(
+            node.inputs[0].reference(SocketDirection::Input, 0),
+            &node.state
+        ));
+        assert!(!builder.input_required(
+            node.inputs[1].reference(SocketDirection::Input, 0),
+            &node.state
+        ));
         assert_eq!(
-            builder.offered_kinds(&node.outputs[2], &node.state),
+            builder.offered_kinds(
+                node.outputs[2].reference(SocketDirection::Output, 0),
+                &node.state
+            ),
             [PortKind::of::<Word>()]
         );
     }

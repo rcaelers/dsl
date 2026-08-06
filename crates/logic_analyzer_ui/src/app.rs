@@ -3891,7 +3891,7 @@ mod font_tests {
             schema_id: "out".to_owned(),
             name: "Out".to_owned(),
             type_name: "Word".to_owned(),
-            color: egui::Color32::WHITE,
+            color: node_graph::GraphColor::from_rgb(255, 255, 255),
             shape: SocketShape::Circle,
             allowed: Vec::new(),
             resolved_type: None,
@@ -4051,7 +4051,7 @@ mod font_tests {
     fn derived_lane_visibility_follows_node_delete_and_undo_without_losing_catalog_data() {
         let mut graph = GraphState::default();
         let node_id = graph.next_id();
-        let mut node = Node::blank(node_id, "Test Decoder", egui::Pos2::ZERO);
+        let mut node = Node::blank(node_id, "Test Decoder", node_graph::GraphPosition::ZERO);
         node.outputs.push(output_socket());
         graph.add_node(node.clone());
         let mut catalog = vec![output_subscription(node_id)];

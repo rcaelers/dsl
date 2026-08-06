@@ -15,8 +15,10 @@ Shared architectural terms and identities are defined in
 
 | Owner | Responsibility |
 | --- | --- |
-| `node_graph` | Editable graph document, stable node/socket identities, persistence reconciliation, and the generic editor |
+| `node_graph_document` | Portable persisted graph records, identities, neutral presentation values, and document invariants |
+| `node_graph` | Node definitions, definition reconciliation, and the generic editor widget |
 | `logic_analyzer_graph_capabilities` | Traits and neutral values implemented by graph-node and payload features |
+| `logic_analyzer_graph_editor_registry` | Stable-ID-keyed editor definitions and editor-registration overrides |
 | `logic_analyzer_graph_registry` | Registration descriptors, inventory collection, validation, host overrides, and immutable capability snapshots |
 | `logic_analyzer_graph_nodes` | Built-in node definitions, state, migrations, capabilities, payloads, and presentation registrations |
 | `logic_analyzer_graph_compiler` | Document discovery, validation, capability negotiation, and lowering |
@@ -40,15 +42,19 @@ flowchart LR
     UI --> Runtime
     UI --> Orchestration[logic_analyzer_graph_orchestration]
     UI --> Registry[logic_analyzer_graph_registry]
+    UI --> EditorRegistry[logic_analyzer_graph_editor_registry]
     UI --> Plan[logic_analyzer_graph_plan]
+    UI --> Editor[Node graph editor]
 
     Orchestration --> Compiler
     Orchestration --> Runtime
     Compiler --> Registry
+    Compiler --> Document[node_graph_document]
     Compiler --> Plan
     Runtime --> Plan
 
     Nodes --> Registry
+    Nodes --> EditorRegistry
     Nodes --> Capabilities[logic_analyzer_graph_capabilities]
     Nodes --> Formats[logic_analyzer_capture_formats]
     Nodes --> Device[logic_analyzer_device_dslogic]
@@ -57,6 +63,8 @@ flowchart LR
     Nodes --> Sinks[signal_sinks]
     Nodes --> Generators[signal_generators]
     Registry --> Capabilities
+    EditorRegistry --> Editor
+    Editor --> Document
     Plan --> Capabilities
 
     Formats --> Session[signal_capture_session]
@@ -136,7 +144,8 @@ functions. The registry owns both inventories; capability crates contain only th
 values carried by them.
 
 The compiler owns an immutable `GraphRegistry` snapshot. The UI constructs the editor's
-`NodeTypeRegistry` from the same validated registration inventory, but it does not ask the
+`NodeTypeRegistry` from the parallel validated editor inventory, joins it to headless feature
+registrations by stable ID, and rejects missing or differently named pairs. It does not ask the
 compiler to build the editor catalog. Built-in nodes and plug-ins do not depend on the compiler.
 Plug-ins that contribute viewer renderers or application panels use the explicit viewer and UI
 extension facades.

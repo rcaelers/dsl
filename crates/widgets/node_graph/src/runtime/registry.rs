@@ -6,6 +6,7 @@ use egui::{Color32, Pos2};
 use super::instance::{NodeInstance, NodeRuntime, NodeStateUpdate, TypedNode};
 use crate::api::{InputDef, NodeDef, OutputDef};
 use crate::model::{Node, NodeId, NodeKind, Socket, SocketDirection, SocketShape, VariadicInfo};
+use crate::support::{egui_color, graph_color, graph_position};
 
 // ── Low-level node construction ───────────────────────────────────────────────
 
@@ -14,7 +15,7 @@ fn input_socket<S>(def_index: usize, input: &InputDef<S>) -> Socket {
         schema_id: input.stable_id.clone(),
         name: input.label.clone(),
         type_name: input.type_name.to_owned(),
-        color: input.color,
+        color: graph_color(input.color),
         shape: input.shape,
         allowed: input
             .accepted
@@ -41,7 +42,7 @@ fn output_socket<S>(def_index: usize, output: &OutputDef<S>) -> Socket {
         schema_id: output.stable_id.clone(),
         name: output.label.clone(),
         type_name: output.type_name.to_owned(),
-        color: output.color,
+        color: graph_color(output.color),
         shape: output.shape,
         allowed: Vec::new(),
         resolved_type: None,
@@ -228,7 +229,7 @@ pub(crate) fn reconcile_input_sockets<S>(sockets: &mut Vec<Socket>, defs: &[Inpu
         let definition = &defs[socket.def_index];
         socket.schema_id = definition.stable_id.clone();
         socket.type_name = definition.type_name.to_owned();
-        socket.color = definition.color;
+        socket.color = graph_color(definition.color);
         socket.shape = definition.shape;
         socket.has_control = definition.control.is_some() && definition.variadic_max.is_none();
         socket.allowed = definition
@@ -317,8 +318,8 @@ fn build_node_with_state_update<T: NodeDef>(
         kind: NodeKind::Regular,
         title: T::name().to_owned(),
         type_name: T::name().to_owned(),
-        header_color: T::color(),
-        pos,
+        header_color: graph_color(T::color()),
+        pos: graph_position(pos),
         inputs: input_sockets,
         outputs: output_sockets,
         collapsed: false,
@@ -583,7 +584,7 @@ impl NodeTypeRegistry {
             .as_deref()
             .and_then(|resolved| self.socket_type_style(resolved))
             .map(|style| (style.color, style.shape))
-            .unwrap_or((socket.color, socket.shape))
+            .unwrap_or((egui_color(socket.color), socket.shape))
     }
 
     pub(crate) fn all(&self) -> &[RegisteredNodeType] {
@@ -1111,7 +1112,7 @@ mod tests {
             schema_id: String::new(),
             name: String::new(),
             type_name: "Float".to_owned(),
-            color: Color32::WHITE,
+            color: graph_color(Color32::WHITE),
             shape: SocketShape::Circle,
             allowed: Vec::new(),
             resolved_type: None,
@@ -1135,7 +1136,7 @@ mod tests {
             schema_id: String::new(),
             name: String::new(),
             type_name: "Any".to_owned(),
-            color: Color32::WHITE,
+            color: graph_color(Color32::WHITE),
             shape: SocketShape::Circle,
             allowed: Vec::new(),
             resolved_type: None,

@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
 use logic_analyzer_graph_capabilities::node_support::{NodeBuildContext, PortKind, ResolvedInputs};
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_runtime::ProcessNode;
 
 pub(crate) const BUILDER_NAME: &str = "Derived Data Collector";
@@ -69,29 +69,33 @@ impl GraphNodeSemantics for DataCollectorBuilder {
         Self::default_lane_names(resolved)
     }
 
-    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         Vec::new()
     }
 
-    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         Vec::new()
     }
 
     fn input_port(
         &self,
-        _socket: &Socket,
-        member_index: usize,
+        socket: SocketReference<'_>,
         _state: &Value,
         _kind: PortKind,
     ) -> Option<String> {
-        Some(format!("in{member_index}"))
+        Some(format!("in{}", socket.member_index()))
     }
 
-    fn output_port(&self, _socket: &Socket, _state: &Value, _kind: PortKind) -> Option<String> {
+    fn output_port(
+        &self,
+        _socket: SocketReference<'_>,
+        _state: &Value,
+        _kind: PortKind,
+    ) -> Option<String> {
         None
     }
 
-    fn input_required(&self, _socket: &Socket, _state: &Value) -> bool {
+    fn input_required(&self, _socket: SocketReference<'_>, _state: &Value) -> bool {
         false
     }
 }

@@ -5,17 +5,17 @@
 `logic_analyzer_graph_registry` owns graph-node and payload registration descriptors, inventory
 collection, deterministic validation, host capability-override resolution, and the immutable
 `GraphRegistry` snapshot consumed by the compiler and UI composition. It also owns protocol-packet
-presentation registration and inventory lookup. `GraphNodeEditorOverride` provides the parallel
-stable-ID-keyed contract for replacing one inventory definition with an instance-bound editor
-registration, while graph capabilities retain only runtime and presentation contracts.
+presentation registration and inventory lookup. Editor definitions and editor overrides belong to
+`logic_analyzer_graph_editor_registry`; the two inventories share stable IDs but neither registry
+reaches through the other.
 
 ## Facade and dependencies
 
 The crate root exposes `GraphNodeRegistration`, `PayloadRegistration`,
-`ProtocolPacketPresentationRegistration`, `GraphNodeEditorOverride`, their inventory lookups, and
-`GraphRegistry`. It depends only on `logic_analyzer_graph_capabilities`, `node_graph`, the capture
-and derived contract owners, and the generic `inventory` mechanism. Plugins implement graph-API
-capability traits and submit registry-owned descriptors.
+`ProtocolPacketPresentationRegistration`, their inventory lookups, and `GraphRegistry`. It depends
+only on `logic_analyzer_graph_capabilities`, the capture and derived contract owners, and the
+generic `inventory` mechanism. It has no node-editor dependency. Plugins implement capability
+traits and submit registry-owned descriptors.
 
 ## Ownership boundaries
 

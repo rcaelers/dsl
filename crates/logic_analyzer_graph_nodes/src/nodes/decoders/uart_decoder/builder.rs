@@ -11,7 +11,7 @@ use logic_analyzer_graph_capabilities::node_support::{
 };
 use logic_analyzer_protocol_decoders::types::BitOrder;
 use logic_analyzer_protocol_decoders::uart_decoder::{UartDecoder, UartParity, UartStopBits};
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_capture::Sample;
 use signal_derived::{Trigger, Word};
 use signal_runtime::ProcessNode;
@@ -23,21 +23,26 @@ impl GraphNodeSemantics for UartDecoderBuilder {
     fn execution_state(&self, state: &Value) -> Value {
         crate::presentation::without_display_format(state)
     }
-    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Sample>()]
     }
-    fn offered_kinds(&self, socket: &Socket, _state: &Value) -> Vec<PortKind> {
-        match socket.def_index {
+    fn offered_kinds(&self, socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
+        match socket.definition_index() {
             0 | 2 | 3 => vec![PortKind::of::<Word>()],
             1 => vec![PortKind::of::<Trigger>()],
             _ => vec![],
         }
     }
-    fn input_port(&self, socket: &Socket, _: usize, _: &Value, _: PortKind) -> Option<String> {
-        (socket.def_index == 0).then(|| "rx".into())
+    fn input_port(&self, socket: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
+        (socket.definition_index() == 0).then(|| "rx".into())
     }
-    fn output_port(&self, socket: &Socket, _state: &Value, _kind: PortKind) -> Option<String> {
-        match socket.def_index {
+    fn output_port(
+        &self,
+        socket: SocketReference<'_>,
+        _state: &Value,
+        _kind: PortKind,
+    ) -> Option<String> {
+        match socket.definition_index() {
             0 => Some("words".into()),
             1 => Some("error".into()),
             2 => Some("bits".into()),
@@ -45,8 +50,8 @@ impl GraphNodeSemantics for UartDecoderBuilder {
             _ => None,
         }
     }
-    fn input_required(&self, socket: &Socket, _state: &Value) -> bool {
-        socket.def_index == 0
+    fn input_required(&self, socket: SocketReference<'_>, _state: &Value) -> bool {
+        socket.definition_index() == 0
     }
 }
 
@@ -94,22 +99,22 @@ impl RuntimeMaterializer for UartDecoderBuilder {
 impl GraphNodePresentation for UartDecoderBuilder {
     fn lane_presentation(
         &self,
-        socket: &Socket,
+        socket: SocketReference<'_>,
         _state: &Value,
     ) -> Option<LanePresentationDescriptor> {
-        super::presentation::uart_output_presentation(socket.def_index)
+        super::presentation::uart_output_presentation(socket.definition_index())
     }
 
     fn decoder_table_column(
         &self,
-        socket: &Socket,
+        socket: SocketReference<'_>,
         _state: &Value,
     ) -> Option<DecoderTableColumnDescriptor> {
-        super::presentation::uart_table_column(socket.def_index)
+        super::presentation::uart_table_column(socket.definition_index())
     }
 
-    fn word_display_format(&self, socket: &Socket, state: &Value) -> Option<String> {
-        if socket.def_index == 3 {
+    fn word_display_format(&self, socket: SocketReference<'_>, state: &Value) -> Option<String> {
+        if socket.definition_index() == 3 {
             parse_state::<super::definition::UartDecoderState>(state)
                 .ok()
                 .map(|state| state.display_format.selected().to_string())

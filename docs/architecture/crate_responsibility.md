@@ -161,13 +161,25 @@ respective crates.
 
 ### Reusable document, widget, and application crates
 
+#### `node-graph-document`
+
+Owns portable graph records, stable graph identities, neutral presentation values, saved-document
+serialization, semantic snapshots, and document-local invariants. It has no widget, compiler,
+runtime, application, or host dependency.
+
 #### `node-graph`
 
-Owns the generic graph document model, definition registry, persistence reconciliation, editor
-interaction, and egui graph widget. Its public `api` module is the compiler- and plug-in-facing
-namespace for graph state, node and socket definitions, controls, panel actions, and the portable
-file-dialog contract. The crate-root facade owns editor composition. Concrete node semantics,
-compiler policy, and host adapters remain outside this crate.
+Owns the generic node-definition registry, definition reconciliation, editor interaction, and egui
+graph widget. Its public `api` module exposes node and socket definitions, controls, panel actions,
+and the portable file-dialog contract. Portable records come from `node-graph-document` and are
+re-exported for widget consumers. The crate-root facade owns editor composition. Concrete node
+semantics, compiler policy, and host adapters remain outside this crate.
+
+#### `logic-analyzer-graph-editor-registry`
+
+Owns stable-ID-keyed node-editor definition inventory and instance-bound editor overrides. It is
+the Logic Conduit integration seam around the reusable widget and remains outside the headless
+graph tier.
 
 #### `logic-analyzer-viewer`
 
@@ -273,15 +285,21 @@ flowchart LR
     UI --> Compiler[logic_analyzer_graph_compiler]
     UI --> Runtime[logic_analyzer_graph_runtime]
     UI --> Orchestration[logic_analyzer_graph_orchestration]
+    UI --> EditorRegistry[logic_analyzer_graph_editor_registry]
+    UI --> Editor[node_graph]
     UI --> HostRuntime
     Orchestration --> Compiler
     Orchestration --> Runtime
     Compiler --> Registry[logic_analyzer_graph_registry]
+    Compiler --> Document[node_graph_document]
     Compiler --> Plan[logic_analyzer_graph_plan]
     Runtime --> Plan
     Registry --> Capabilities[logic_analyzer_graph_capabilities]
     Plan --> Capabilities
     Nodes --> Registry
+    Nodes --> EditorRegistry
+    EditorRegistry --> Editor
+    Editor --> Document
     Nodes --> Formats[logic_analyzer_capture_formats]
     Nodes --> Device[logic_analyzer_device_dslogic]
     Nodes --> Decoders[logic_analyzer_protocol_decoders]
@@ -335,7 +353,7 @@ contract.
 
 ### Document analysis and plan production
 
-The compiler transforms a `node_graph::api::GraphState` and an explicit output-subscription plan
+The compiler transforms a `node_graph_document::GraphState` and an explicit output-subscription plan
 into a deterministic neutral `ProcessingGraph` or semantic diagnostics. It owns:
 
 - read-only access to graph and payload capabilities through a registry snapshot;

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use input_bindings::InputBindings;
 use logic_analyzer_graph_capabilities::node::GraphNodeCapabilityOverride;
-use logic_analyzer_graph_registry::GraphNodeEditorOverride;
+use logic_analyzer_graph_editor_registry::GraphNodeEditorOverride;
 use logic_analyzer_graph_runtime::SourcePreparationExecutor;
 use node_graph::FileDialogService;
 use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};

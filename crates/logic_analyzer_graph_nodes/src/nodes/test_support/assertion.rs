@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use logic_analyzer_graph_capabilities::node_support::{PortKind, ResolvedInput, ResolvedInputs};
+use logic_analyzer_graph_editor_registry::graph_node_editor_registrations;
 use logic_analyzer_graph_registry::{GraphRegistry, graph_node_registrations};
-use node_graph::api::{GraphDocumentBuilder, NodeId, NodeTypeRegistry, Socket};
+use node_graph::api::{GraphDocumentBuilder, NodeId, NodeTypeRegistry, Socket, SocketDirection};
 
 use super::build_context::TestNodeBuildContext;
 
@@ -39,7 +40,11 @@ fn assert_node_registration_contract_impl(
         .unwrap_or_else(|| panic!("missing graph-node registration '{stable_id}'"));
 
     let mut node_types = NodeTypeRegistry::new();
-    registration.apply_node(&mut node_types);
+    graph_node_editor_registrations()
+        .into_iter()
+        .find(|editor| editor.stable_id() == stable_id)
+        .unwrap_or_else(|| panic!("missing graph-node editor registration '{stable_id}'"))
+        .apply_node(&mut node_types);
 
     let mut document = GraphDocumentBuilder::new(node_types);
     let target = document
@@ -61,10 +66,11 @@ fn assert_node_registration_contract_impl(
     let target_outputs = document.graph().nodes[&target].outputs.clone();
     let mut required_inputs = Vec::new();
     for (index, socket) in target_inputs.iter().enumerate() {
-        if !socket.visible || !semantics.input_required(socket, &state) {
+        let socket_reference = socket.reference(SocketDirection::Input, 0);
+        if !socket.visible || !semantics.input_required(socket_reference, &state) {
             continue;
         }
-        let accepted = semantics.accepted_kinds(socket, &state);
+        let accepted = semantics.accepted_kinds(socket_reference, &state);
         assert!(
             !accepted.is_empty(),
             "{}.{} is required but accepts no runtime payload",
@@ -73,7 +79,7 @@ fn assert_node_registration_contract_impl(
         );
         for kind in accepted {
             assert_port_mapping(
-                semantics.input_port(socket, 0, &state, kind),
+                semantics.input_port(socket_reference, &state, kind),
                 registration.name(),
                 &socket.name,
                 kind,
@@ -84,10 +90,11 @@ fn assert_node_registration_contract_impl(
 
     let mut offered_outputs = Vec::new();
     for (index, socket) in target_outputs.iter().enumerate() {
+        let socket_reference = socket.reference(SocketDirection::Output, 0);
         if !socket.visible {
             continue;
         }
-        let offered = semantics.offered_kinds(socket, &state);
+        let offered = semantics.offered_kinds(socket_reference, &state);
         assert!(
             !offered.is_empty(),
             "{}.{} is visible but offers no runtime payload",
@@ -96,7 +103,7 @@ fn assert_node_registration_contract_impl(
         );
         for kind in offered {
             assert_port_mapping(
-                semantics.output_port(socket, &state, kind),
+                semantics.output_port(socket_reference, &state, kind),
                 registration.name(),
                 &socket.name,
                 kind,
@@ -178,10 +185,15 @@ fn resolved_inputs(
     let mut members = HashMap::<usize, usize>::new();
 
     for socket in sockets.iter().filter(|socket| socket.visible) {
-        let Some(kind) = semantics.accepted_kinds(socket, state).into_iter().next() else {
+        let member = members.entry(socket.def_index).or_default();
+        let socket_reference = socket.reference(SocketDirection::Input, *member);
+        let Some(kind) = semantics
+            .accepted_kinds(socket_reference, state)
+            .into_iter()
+            .next()
+        else {
             continue;
         };
-        let member = members.entry(socket.def_index).or_default();
         resolved.insert(
             socket.def_index,
             *member,

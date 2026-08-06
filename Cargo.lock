@@ -1227,10 +1227,12 @@ dependencies = [
  "egui",
  "inventory",
  "logic-analyzer-graph-capabilities",
+ "logic-analyzer-graph-editor-registry",
  "logic-analyzer-graph-registry",
  "logic-analyzer-ui",
  "logic-analyzer-viewer",
  "node-graph",
+ "node-graph-document",
  "serde",
  "serde_json",
  "signal-capture",
@@ -2250,6 +2252,7 @@ dependencies = [
  "memmap2",
  "minifb",
  "node-graph",
+ "node-graph-document",
  "platform",
  "platform-artifacts",
  "platform-runtime",
@@ -2270,7 +2273,7 @@ dependencies = [
 name = "logic-analyzer-graph-capabilities"
 version = "0.1.0"
 dependencies = [
- "node-graph",
+ "node-graph-document",
  "platform-artifacts",
  "platform-runtime",
  "serde",
@@ -2289,12 +2292,20 @@ dependencies = [
  "logic-analyzer-graph-capabilities",
  "logic-analyzer-graph-plan",
  "logic-analyzer-graph-registry",
- "node-graph",
+ "node-graph-document",
  "serde",
  "serde_json",
  "signal-capture-session",
  "signal-derived",
  "signal-runtime",
+]
+
+[[package]]
+name = "logic-analyzer-graph-editor-registry"
+version = "0.1.0"
+dependencies = [
+ "inventory",
+ "node-graph",
 ]
 
 [[package]]
@@ -2306,11 +2317,13 @@ dependencies = [
  "logic-analyzer-capture-formats",
  "logic-analyzer-device-dslogic",
  "logic-analyzer-graph-capabilities",
+ "logic-analyzer-graph-editor-registry",
  "logic-analyzer-graph-registry",
  "logic-analyzer-protocol-decoders",
  "logic-analyzer-test-support",
  "logic-analyzer-viewer",
  "node-graph",
+ "node-graph-document",
  "platform-artifacts",
  "platform-runtime",
  "serde",
@@ -2334,7 +2347,7 @@ dependencies = [
  "logic-analyzer-graph-compiler",
  "logic-analyzer-graph-plan",
  "logic-analyzer-graph-runtime",
- "node-graph",
+ "node-graph-document",
  "platform-artifacts",
  "platform-runtime",
  "serde",
@@ -2348,7 +2361,7 @@ name = "logic-analyzer-graph-plan"
 version = "0.1.0"
 dependencies = [
  "logic-analyzer-graph-capabilities",
- "node-graph",
+ "node-graph-document",
  "serde",
  "serde_json",
  "signal-derived",
@@ -2360,7 +2373,6 @@ version = "0.1.0"
 dependencies = [
  "inventory",
  "logic-analyzer-graph-capabilities",
- "node-graph",
  "serde_json",
  "signal-capture",
  "signal-derived",
@@ -2374,7 +2386,7 @@ dependencies = [
  "blake3",
  "logic-analyzer-graph-capabilities",
  "logic-analyzer-graph-plan",
- "node-graph",
+ "node-graph-document",
  "platform-artifacts",
  "platform-runtime",
  "serde_json",
@@ -2418,12 +2430,14 @@ dependencies = [
  "logic-analyzer-capture-export",
  "logic-analyzer-graph-capabilities",
  "logic-analyzer-graph-compiler",
+ "logic-analyzer-graph-editor-registry",
  "logic-analyzer-graph-orchestration",
  "logic-analyzer-graph-plan",
  "logic-analyzer-graph-registry",
  "logic-analyzer-graph-runtime",
  "logic-analyzer-viewer",
  "node-graph",
+ "node-graph-document",
  "panel-layout",
  "platform-artifacts",
  "platform-runtime",
@@ -2627,9 +2641,18 @@ version = "0.1.0"
 dependencies = [
  "egui",
  "input-bindings",
+ "node-graph-document",
  "serde",
  "serde_json",
  "widget-support",
+]
+
+[[package]]
+name = "node-graph-document"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

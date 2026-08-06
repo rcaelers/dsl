@@ -35,7 +35,8 @@ decoded-block LRU usage, and the current graph's persistent derived-cache entrie
 Presentation widgets do not define or aggregate memory diagnostics. Generic UI code displays
 payload IDs and storage contracts; it does not infer protocols or concrete nodes from their names.
 
-- `App::build` creates the editor node-type registry from graph-node inventory, composes the
+- `App::build` creates the editor node-type registry from the editor inventory after matching it
+  to headless graph features by stable ID, composes the
   UI-owned graph and host service ports, and installs host-supplied symbol fonts used by menu
   glyphs. The graph service's lowerer owns a validated
   `logic_analyzer_graph_registry::GraphRegistry` snapshot; its separate runtime has no registry or

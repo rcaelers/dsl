@@ -1,7 +1,7 @@
-use egui::Color32;
 use serde::{Deserialize, Serialize};
 
 use super::ids::NodeId;
+use super::presentation::GraphColor;
 
 /// Stable identity of a visual graph frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -15,7 +15,7 @@ pub struct Frame {
     /// User-editable frame label.
     pub label: String,
     /// Display color used for the frame.
-    pub color: Color32,
+    pub color: GraphColor,
     /// Nodes visually enclosed by the frame.
     pub node_ids: Vec<NodeId>,
     #[serde(default)]

@@ -9,7 +9,7 @@ use logic_analyzer_graph_capabilities::node_support::CaptureCacheIdentity;
 use logic_analyzer_graph_plan::{
     ProcessingEdge, ProcessingGraph, ProcessingNode, SamplingOverlayCandidate,
 };
-use node_graph::api::NodeId;
+use node_graph_document::NodeId;
 use platform_artifacts::ArtifactRepository;
 use platform_runtime::{WorkExecutor, WorkTask};
 use signal_derived::derived_word_store::PersistentCacheClearTask;

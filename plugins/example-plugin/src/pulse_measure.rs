@@ -16,7 +16,8 @@ use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, PortValue, ResolvedInputs,
 };
 use logic_analyzer_graph_registry::GraphNodeRegistration;
-use node_graph::api::{InputDef, NodeDef, OutputDef, Socket, SocketDef, SocketShape};
+use node_graph::api::{InputDef, NodeDef, OutputDef, SocketDef, SocketShape};
+use node_graph_document::SocketReference;
 use signal_capture::Sample;
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,
@@ -108,16 +109,16 @@ impl NodeDef for PulseMeasure {
 #[derive(Default)]
 struct PulseMeasureBuilder;
 impl GraphNodeSemantics for PulseMeasureBuilder {
-    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Sample>()]
     }
-    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<PulseWidth>()]
     }
-    fn input_port(&self, _: &Socket, _: usize, _: &Value, _: PortKind) -> Option<String> {
+    fn input_port(&self, _: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
         Some("signal".into())
     }
-    fn output_port(&self, _: &Socket, _: &Value, _: PortKind) -> Option<String> {
+    fn output_port(&self, _: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
         Some("pulse".into())
     }
 }
@@ -139,8 +140,13 @@ fn register_pulse_width_channel() {
 }
 
 inventory::submit! {
-    GraphNodeRegistration::capable::<PulseMeasure, PulseMeasureBuilder, PulseMeasureBuilder>(
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<PulseMeasure>("org.logicconduit.example.graph-node.pulse-measure/v1")
+}
+
+inventory::submit! {
+    GraphNodeRegistration::capable::<PulseMeasureBuilder, PulseMeasureBuilder>(
         "org.logicconduit.example.graph-node.pulse-measure/v1",
+        logic_analyzer_graph_editor_registry::node_name::<PulseMeasure>,
     )
     .requiring_payloads(&["org.logicconduit.digital-sample/v1"])
     .with_runtime_setup(&[register_pulse_width_channel])

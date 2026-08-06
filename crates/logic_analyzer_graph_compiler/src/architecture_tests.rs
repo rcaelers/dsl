@@ -259,29 +259,21 @@ fn compiler_facade_contains_only_compilation_owners() {
 }
 
 #[test]
-fn compiler_uses_only_the_node_graph_api_namespace() {
+fn compiler_uses_only_the_neutral_document_contract() {
     let sources = [
         ("data collector", include_str!("data_collector.rs")),
         ("compiler facade", include_str!("graph_lowerer.rs")),
     ];
 
     for (component, source) in sources {
-        for line in implementation_source(source)
-            .lines()
-            .filter(|line| line.contains("node_graph::"))
-        {
-            assert!(
-                line.contains("node_graph::api::"),
-                "compiler {component} bypasses node_graph::api: {line}"
-            );
-        }
+        let source = implementation_source(source);
+        assert!(
+            !source.contains("node_graph::"),
+            "compiler {component} depends on the node editor"
+        );
     }
 
     let graph = include_str!("graph.rs");
-    for line in graph.lines().filter(|line| line.contains("node_graph::")) {
-        assert!(
-            line.contains("node_graph::api::"),
-            "compiler graph lowering bypasses node_graph::api: {line}"
-        );
-    }
+    assert!(graph.contains("node_graph_document::"));
+    assert!(!graph.contains("node_graph::"));
 }

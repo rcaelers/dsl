@@ -6,7 +6,7 @@ use crate::model::{
     SocketShape,
 };
 use crate::runtime::{NodeInstance, NodeTypeRegistry};
-use crate::support::{ViewState, draw_wire_dashed, to_screen_rect};
+use crate::support::{ViewState, draw_wire_dashed, egui_color, egui_position, to_screen_rect};
 use crate::widget::graph::SocketIndicatorRegistry;
 
 // ── Layout constants ──────────────────────────────────────────────────────────
@@ -93,7 +93,7 @@ fn compute_node_layout(
 ) -> NodeLayout {
     if node.kind == NodeKind::Reroute {
         let cy = node.pos.y + REROUTE_SIZE / 2.0;
-        let node_rect = Rect::from_min_size(node.pos, Vec2::splat(REROUTE_SIZE));
+        let node_rect = Rect::from_min_size(egui_position(node.pos), Vec2::splat(REROUTE_SIZE));
         return NodeLayout {
             node_rect,
             header_rect: node_rect,
@@ -144,7 +144,7 @@ fn compute_node_layout(
         let socket_rows = visible_inputs.max(visible_outputs).max(1);
         let height = (NODE_HEADER_HEIGHT * 1.8)
             .max(socket_rows as f32 * COLLAPSED_SOCKET_SPACING + NODE_PADDING * 2.0);
-        let node_rect = Rect::from_min_size(node.pos, Vec2::new(node_width, height));
+        let node_rect = Rect::from_min_size(egui_position(node.pos), Vec2::new(node_width, height));
         let header_rect = node_rect;
         let collapse_toggle_rect = Rect::from_center_size(
             Pos2::new(node.pos.x + 18.0, node.pos.y + height * 0.5),
@@ -290,9 +290,14 @@ fn compute_node_layout(
     let input_h = vis_inputs as f32 * SOCKET_ROW_HEIGHT;
 
     let body_h = NODE_PADDING + output_h + prop_h + input_h + NODE_PADDING;
-    let node_rect =
-        Rect::from_min_size(node.pos, Vec2::new(node_width, NODE_HEADER_HEIGHT + body_h));
-    let header_rect = Rect::from_min_size(node.pos, Vec2::new(node_width, NODE_HEADER_HEIGHT));
+    let node_rect = Rect::from_min_size(
+        egui_position(node.pos),
+        Vec2::new(node_width, NODE_HEADER_HEIGHT + body_h),
+    );
+    let header_rect = Rect::from_min_size(
+        egui_position(node.pos),
+        Vec2::new(node_width, NODE_HEADER_HEIGHT),
+    );
     let collapse_toggle_rect = Rect::from_center_size(
         Pos2::new(
             node.pos.x + NODE_PADDING + COLLAPSE_TOGGLE_SIZE * 0.5,
@@ -434,10 +439,10 @@ impl NodeWidget {
             Color32::from_rgb(48, 48, 48)
         };
         if node.collapsed {
-            painter.rect_filled(node_s, rounding, node.header_color);
+            painter.rect_filled(node_s, rounding, egui_color(node.header_color));
         } else {
             painter.rect_filled(node_s, rounding, body_fill);
-            painter.rect_filled(header_s, header_rounding, node.header_color);
+            painter.rect_filled(header_s, header_rounding, egui_color(node.header_color));
         }
 
         let (bw, bc) = if node.selected {

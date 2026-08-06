@@ -120,9 +120,9 @@ pub(crate) fn draw_minimap(
             continue;
         }
         let col = Color32::from_rgba_unmultiplied(
-            node.header_color.r(),
-            node.header_color.g(),
-            node.header_color.b(),
+            node.header_color.red(),
+            node.header_color.green(),
+            node.header_color.blue(),
             200,
         );
         painter.rect_filled(clamped, CornerRadius::same(1), col);

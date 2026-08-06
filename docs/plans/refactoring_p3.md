@@ -223,9 +223,7 @@ configuration, and sampling-overlay candidates. A parallel 0.5 s epoch poll exis
 
 1. Add a monotonically increasing *semantic revision* to the graph document, bumped only by
    processing-relevant edits (node/connection/state changes — not node positions or panel
-   state). Home: the document model — coordinate with `graph.document-model-extraction` (P2) so
-   the revision lands in the extracted crate if that has happened first; otherwise in
-   `node_graph::model` with the same semantics.
+   state). Home: `node_graph_document`, which owns document-local semantic state.
 2. Replace the interval comparison with a true debounce: on each frame, if
    `document_revision != last_lowered_revision` and `now - last_edit_time >= quiet_period`
    (start at 250 ms), take one immutable snapshot and submit it for lowering; reset the timer on

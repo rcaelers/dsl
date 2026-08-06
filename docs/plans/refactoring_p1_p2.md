@@ -25,42 +25,6 @@ the named function/type over the number when they disagree.
   now has a structural check from the [tests item](#tests-architecture-structural), delete the
   string test in the same PR.
 
-## graph.document-model-extraction (P2) {#graph-document-model-extraction}
-
-**Problem.** `logic_analyzer_graph_plan`, `graph_runtime`, and `graph_capabilities` import only
-`node_graph::api::{NodeId, Socket}` (e.g. `graph_plan/src/plan/types.rs:11`,
-`graph_capabilities/src/node/contracts.rs:5`), yet the manifest edge pulls the whole egui widget
-crate into the execution tier and web workers.
-
-**Constraint discovered in code.** The `model` leaf files use egui types: `model/node.rs` uses
-`egui::{Color32, Pos2}`, `model/socket.rs` and `model/graph.rs` use `Color32`. So the *full*
-document model cannot move without an egui decision. Do not make that decision here.
-
-**Scope: minimal first slice only.** Extract the identity types the execution tier needs —
-`NodeId`, `SocketId`, `Socket`, `SocketDirection` (all in `node_graph/src/model/ids.rs` and
-`model/socket.rs`) — into a new crate, working name `node-graph-document`
-(`crates/widgets/node_graph_document`).
-
-1. Check whether `Socket` itself carries a `Color32` field. If it does not (color is likely on
-   socket *definitions*, not the identity), move it as-is. If it does, move only the identity
-   types and introduce nothing new — instead check whether `graph_capabilities` can take the
-   fields it actually reads; flag for review rather than inventing a parallel `SocketRef` type.
-2. Serialization is a persisted contract: `NodeId`/`SocketId` appear in saved graphs. The move
-   must be serde-transparent. Add a round-trip test that deserializes one of the checked-in
-   `graphs/*.json` examples before and after and compares.
-3. `node_graph` depends on the new crate and re-exports the moved types from both its crate root
-   and `api`, exactly where they are exported today (`node_graph/src/api/mod.rs:109` re-exports
-   `crate::model::{…}`). Widget-crate consumers compile unchanged.
-4. Switch imports in `graph_plan`, `graph_runtime`, `graph_capabilities`, `graph_orchestration`;
-   remove `node-graph` from those four manifests. `graph_compiler` still needs `GraphState` and
-   keeps its `node-graph` dependency for now — shrinking that is part of the P5 standalone-crate
-   item, not this one.
-5. The new crate's manifest: `serde` only. No egui, no widget-support, no input-bindings.
-
-**Acceptance.** `grep node-graph crates/logic_analyzer_graph_{plan,runtime,capabilities,
-orchestration}/Cargo.toml` finds nothing; saved-graph round-trip test passes; a structural
-manifest check (next item) locks the edge.
-
 ## tests.architecture-structural (P2) {#tests-architecture-structural}
 
 **Problem.** ~1,670 lines of `architecture_tests.rs` across the workspace `include_str!` sibling

@@ -12,10 +12,12 @@ signal-capture = { path = "../../crates/signal_capture" }
 signal-derived = { path = "../../crates/signal_derived" }
 signal-runtime = { path = "../../crates/signal_runtime" }
 logic-analyzer-graph-capabilities = { path = "../../crates/logic_analyzer_graph_capabilities" }
+logic-analyzer-graph-editor-registry = { path = "../../crates/logic_analyzer_graph_editor_registry" }
 logic-analyzer-graph-registry = { path = "../../crates/logic_analyzer_graph_registry" }
 logic-analyzer-ui = { path = "../../crates/logic_analyzer_ui" }
 logic-analyzer-viewer = { path = "../../crates/widgets/logic_analyzer_viewer" }
 node-graph = { path = "../../crates/widgets/node_graph" }
+node-graph-document = { path = "../../crates/node_graph_document" }
 egui = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

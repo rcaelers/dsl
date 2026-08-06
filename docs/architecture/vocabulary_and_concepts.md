@@ -50,7 +50,7 @@ are tracked by `session.domain-relocation` and `derived.payload.builtin-registra
 
 ### Graph document
 
-A graph document is the editable, serializable `node_graph::api::GraphState`. It contains graph-node
+A graph document is the editable, serializable `node_graph_document::GraphState`. It contains graph-node
 instances, their state, connections, frames, and namespaced extensions. It does not contain runtime
 threads, repositories, prepared sources, or active processing nodes.
 

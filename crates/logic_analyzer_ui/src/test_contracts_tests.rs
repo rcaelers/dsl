@@ -5,10 +5,9 @@ use logic_analyzer_graph_capabilities::node_support::{
     DefaultLanePresentationDescriptor, LaneBadgeDescriptor, NodeBuildContext, PortKind,
     ResolvedInputs,
 };
-use logic_analyzer_graph_registry::{
-    GraphNodeRegistration, PayloadRegistration, graph_node_registrations,
-};
-use node_graph::{AnySocket, InputDef, NodeDef, NodeTypeRegistry, OutputDef, Socket};
+use logic_analyzer_graph_registry::{GraphNodeRegistration, PayloadRegistration};
+use node_graph::{AnySocket, InputDef, NodeDef, NodeTypeRegistry, OutputDef};
+use node_graph_document::SocketReference;
 use signal_derived::Word;
 use signal_runtime::ProcessNode;
 
@@ -44,18 +43,25 @@ impl NodeDef for WordProducerDefinition {
 struct WordProducerBuilder;
 
 impl GraphNodeSemantics for WordProducerBuilder {
-    fn accepted_kinds(&self, _socket: &Socket, _state: &serde_json::Value) -> Vec<PortKind> {
+    fn accepted_kinds(
+        &self,
+        _socket: SocketReference<'_>,
+        _state: &serde_json::Value,
+    ) -> Vec<PortKind> {
         Vec::new()
     }
 
-    fn offered_kinds(&self, _socket: &Socket, _state: &serde_json::Value) -> Vec<PortKind> {
+    fn offered_kinds(
+        &self,
+        _socket: SocketReference<'_>,
+        _state: &serde_json::Value,
+    ) -> Vec<PortKind> {
         vec![PortKind::of::<Word>()]
     }
 
     fn input_port(
         &self,
-        _socket: &Socket,
-        _member_index: usize,
+        _socket: SocketReference<'_>,
         _state: &serde_json::Value,
         _kind: PortKind,
     ) -> Option<String> {
@@ -64,7 +70,7 @@ impl GraphNodeSemantics for WordProducerBuilder {
 
     fn output_port(
         &self,
-        _socket: &Socket,
+        _socket: SocketReference<'_>,
         _state: &serde_json::Value,
         kind: PortKind,
     ) -> Option<String> {
@@ -120,19 +126,29 @@ fn word_presentation() -> DefaultLanePresentationDescriptor {
 }
 
 inventory::submit! {
-    GraphNodeRegistration::capable::<
-        WordProducerDefinition,
-        WordProducerBuilder,
-        WordProducerBuilder,
-    >(
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<WordProducerDefinition>(
         "org.logicconduit.ui-test.word-producer/v1",
+    )
+}
+
+inventory::submit! {
+    GraphNodeRegistration::capable::<WordProducerBuilder, WordProducerBuilder>(
+        "org.logicconduit.ui-test.word-producer/v1",
+        logic_analyzer_graph_editor_registry::node_name::<WordProducerDefinition>,
     )
     .with_presentation::<WordProducerBuilder>()
 }
 
 inventory::submit! {
-    GraphNodeRegistration::definition::<LegacyViewerDefinition>(
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<LegacyViewerDefinition>(
         crate::viewer_selection::LEGACY_VIEWER_NODE_ID,
+    )
+}
+
+inventory::submit! {
+    GraphNodeRegistration::definition(
+        crate::viewer_selection::LEGACY_VIEWER_NODE_ID,
+        logic_analyzer_graph_editor_registry::node_name::<LegacyViewerDefinition>,
     )
 }
 
@@ -146,7 +162,7 @@ inventory::submit! {
 
 pub(crate) fn build_test_node_registry() -> NodeTypeRegistry {
     let mut registry = NodeTypeRegistry::new();
-    for registration in graph_node_registrations() {
+    for registration in logic_analyzer_graph_editor_registry::graph_node_editor_registrations() {
         registration.apply_node(&mut registry);
     }
     registry

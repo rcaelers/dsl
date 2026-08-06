@@ -1,9 +1,12 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
-        super::definition::EdgeDetector,
-        super::builder::EdgeDetectorBuilder,
-        super::builder::EdgeDetectorBuilder,
-    >("org.logicconduit.graph-node.logic.edge-detector/v1").requiring_payloads(&[
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<super::definition::EdgeDetector>("org.logicconduit.graph-node.logic.edge-detector/v1")
+}
+
+inventory::submit! {
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<super::builder::EdgeDetectorBuilder, super::builder::EdgeDetectorBuilder>(
+        "org.logicconduit.graph-node.logic.edge-detector/v1",
+        logic_analyzer_graph_editor_registry::node_name::<super::definition::EdgeDetector>,
+    ).requiring_payloads(&[
         "org.logicconduit.digital-sample/v1",
         "org.logicconduit.trigger/v1",
     ])

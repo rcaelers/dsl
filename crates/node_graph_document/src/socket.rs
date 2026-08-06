@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
-use egui::Color32;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::ids::SocketDirection;
+use super::presentation::GraphColor;
 
 /// Visual shape used to distinguish socket families.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -50,7 +50,7 @@ pub struct Socket {
     /// Idle look, owned by the node definition (`idle_style` / `on_update`).
     /// The resolved look is derived from the type identity table at render time.
     #[serde(default = "default_socket_color", skip_serializing)]
-    pub color: Color32,
+    pub color: GraphColor,
     #[serde(default, skip_serializing)]
     /// Definition-provided visual shape for the socket family.
     pub shape: SocketShape,
@@ -97,12 +97,68 @@ pub struct Socket {
     pub extensions: BTreeMap<String, serde_json::Value>,
 }
 
+/// Narrow semantic identity of one materialized socket member.
+///
+/// Compiler capability contracts receive this reference instead of the complete document socket,
+/// preventing labels, colors, visibility, controls, and other editor presentation from becoming
+/// execution inputs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SocketReference<'a> {
+    schema_id: &'a str,
+    definition_index: usize,
+    member_index: usize,
+    direction: SocketDirection,
+}
+
+impl<'a> SocketReference<'a> {
+    /// Creates a semantic reference for one materialized socket member.
+    ///
+    /// # Parameters
+    /// - `schema_id`: Stable owner-defined identity in the node schema.
+    /// - `definition_index`: Definition slot that materialized the socket.
+    /// - `member_index`: Member position within that definition slot.
+    /// - `direction`: Whether the socket is an input or output.
+    pub const fn new(
+        schema_id: &'a str,
+        definition_index: usize,
+        member_index: usize,
+        direction: SocketDirection,
+    ) -> Self {
+        Self {
+            schema_id,
+            definition_index,
+            member_index,
+            direction,
+        }
+    }
+
+    /// Returns the stable owner-defined schema identity.
+    pub const fn schema_id(self) -> &'a str {
+        self.schema_id
+    }
+
+    /// Returns the definition slot that materialized this socket.
+    pub const fn definition_index(self) -> usize {
+        self.definition_index
+    }
+
+    /// Returns this socket's member position within its definition slot.
+    pub const fn member_index(self) -> usize {
+        self.member_index
+    }
+
+    /// Returns the socket direction.
+    pub const fn direction(self) -> SocketDirection {
+        self.direction
+    }
+}
+
 fn default_socket_type_name() -> String {
     "Any".to_owned()
 }
 
-fn default_socket_color() -> Color32 {
-    Color32::from_rgb(150, 150, 150)
+fn default_socket_color() -> GraphColor {
+    GraphColor::from_rgb(150, 150, 150)
 }
 
 fn default_true() -> bool {
@@ -145,6 +201,19 @@ where
 }
 
 impl Socket {
+    /// Projects this complete document record to its compiler-facing semantic identity.
+    ///
+    /// # Parameters
+    /// - `direction`: Whether this record is materialized as an input or output.
+    /// - `member_index`: Member position within the definition slot.
+    pub fn reference(
+        &self,
+        direction: SocketDirection,
+        member_index: usize,
+    ) -> SocketReference<'_> {
+        SocketReference::new(&self.schema_id, self.def_index, member_index, direction)
+    }
+
     /// The type this socket currently carries: the connected type while
     /// resolved, the native type otherwise.
     pub fn effective_type(&self) -> &str {
@@ -206,7 +275,7 @@ mod tests {
             schema_id: String::new(),
             name: String::new(),
             type_name: type_name.to_owned(),
-            color: Color32::WHITE,
+            color: GraphColor::WHITE,
             shape: SocketShape::Circle,
             allowed: Vec::new(),
             resolved_type: None,
@@ -296,7 +365,7 @@ mod tests {
         let restored: Socket = serde_json::from_value(value).unwrap();
         assert_eq!(restored.name, "Input");
         assert_eq!(restored.type_name, "Float");
-        assert_eq!(restored.color, Color32::from_rgb(1, 2, 3));
+        assert_eq!(restored.color, GraphColor::from_rgb(1, 2, 3));
         assert_eq!(restored.shape, SocketShape::Diamond);
         assert_eq!(
             restored.extensions.get("host.selection"),

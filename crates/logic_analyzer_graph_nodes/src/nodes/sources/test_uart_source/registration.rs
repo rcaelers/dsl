@@ -1,9 +1,12 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
-        super::definition::TestUartSource,
-        super::builder::TestUartSourceBuilder,
-        super::builder::TestUartSourceBuilder,
-    >("org.logicconduit.graph-node.sources.test-uart-source/v1")
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<super::definition::TestUartSource>("org.logicconduit.graph-node.sources.test-uart-source/v1")
+}
+
+inventory::submit! {
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<super::builder::TestUartSourceBuilder, super::builder::TestUartSourceBuilder>(
+        "org.logicconduit.graph-node.sources.test-uart-source/v1",
+        logic_analyzer_graph_editor_registry::node_name::<super::definition::TestUartSource>,
+    )
     .with_capture_source::<super::builder::TestUartSourceBuilder>()
     .with_presentation::<super::builder::TestUartSourceBuilder>()
     .requiring_payloads(&["org.logicconduit.digital-sample/v1"])

@@ -1,9 +1,12 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
-        super::definition::SigrokDecoderDefinition,
-        super::builder::SigrokDecoderBuilder,
-        super::builder::SigrokDecoderBuilder,
-    >("org.logicconduit.graph-node.decoders.sigrok-decoder/v1").requiring_payloads(&[
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<super::definition::SigrokDecoderDefinition>("org.logicconduit.graph-node.decoders.sigrok-decoder/v1")
+}
+
+inventory::submit! {
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<super::builder::SigrokDecoderBuilder, super::builder::SigrokDecoderBuilder>(
+        "org.logicconduit.graph-node.decoders.sigrok-decoder/v1",
+        logic_analyzer_graph_editor_registry::node_name::<super::definition::SigrokDecoderDefinition>,
+    ).requiring_payloads(&[
         "org.logicconduit.digital-sample/v1",
         "org.logicconduit.word/v1",
         "org.logicconduit.protocol-packet/v1",
@@ -14,7 +17,7 @@ inventory::submit! {
 mod registration_tests {
     use logic_analyzer_graph_capabilities::node::GraphNodeSemantics;
     use node_graph::NodeDef;
-    use node_graph::api::{GraphDocumentBuilder, NodeTypeRegistry};
+    use node_graph::api::{GraphDocumentBuilder, NodeTypeRegistry, SocketDirection};
 
     use super::super::builder::SigrokDecoderBuilder;
     use super::super::definition::{SigrokDecoderDefinition, SigrokDecoderState};
@@ -77,8 +80,14 @@ mod registration_tests {
             .find(|socket| socket.schema_id == "protocol_packets")
             .unwrap();
         let builder = SigrokDecoderBuilder::default();
-        let offered = builder.offered_connection_contracts(output, &producer_node.state);
-        let accepted = builder.accepted_connection_contracts(input, &consumer_node.state);
+        let offered = builder.offered_connection_contracts(
+            output.reference(SocketDirection::Output, 0),
+            &producer_node.state,
+        );
+        let accepted = builder.accepted_connection_contracts(
+            input.reference(SocketDirection::Input, 0),
+            &consumer_node.state,
+        );
         assert_eq!(offered, ["test_logic"]);
         assert_eq!(accepted, ["test_logic"]);
         assert!(offered.iter().any(|contract| accepted.contains(contract)));

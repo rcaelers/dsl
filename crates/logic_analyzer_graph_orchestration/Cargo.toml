@@ -13,7 +13,7 @@ logic-analyzer-graph-capabilities = { path = "../logic_analyzer_graph_capabiliti
 logic-analyzer-graph-compiler = { path = "../logic_analyzer_graph_compiler" }
 logic-analyzer-graph-plan = { path = "../logic_analyzer_graph_plan" }
 logic-analyzer-graph-runtime = { path = "../logic_analyzer_graph_runtime" }
-node-graph = { path = "../widgets/node_graph" }
+node-graph-document = { path = "../node_graph_document" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 signal-derived = { path = "../signal_derived" }

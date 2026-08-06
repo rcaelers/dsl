@@ -1,9 +1,12 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
-        super::definition::EventControl,
-        super::builder::EventControlBuilder,
-        super::builder::EventControlBuilder,
-    >("org.logicconduit.graph-node.logic.event-control/v1").requiring_payloads(&[
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<super::definition::EventControl>("org.logicconduit.graph-node.logic.event-control/v1")
+}
+
+inventory::submit! {
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<super::builder::EventControlBuilder, super::builder::EventControlBuilder>(
+        "org.logicconduit.graph-node.logic.event-control/v1",
+        logic_analyzer_graph_editor_registry::node_name::<super::definition::EventControl>,
+    ).requiring_payloads(&[
         "org.logicconduit.trigger/v1",
     ])
 }

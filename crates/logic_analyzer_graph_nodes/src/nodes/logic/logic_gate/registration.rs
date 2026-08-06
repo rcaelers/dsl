@@ -1,9 +1,12 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
-        super::definition::LogicGate,
-        super::builder::LogicGateBuilder,
-        super::builder::LogicGateBuilder,
-    >("org.logicconduit.graph-node.logic.logic-gate/v1")
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<super::definition::LogicGate>("org.logicconduit.graph-node.logic.logic-gate/v1")
+}
+
+inventory::submit! {
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<super::builder::LogicGateBuilder, super::builder::LogicGateBuilder>(
+        "org.logicconduit.graph-node.logic.logic-gate/v1",
+        logic_analyzer_graph_editor_registry::node_name::<super::definition::LogicGate>,
+    )
     .requiring_payloads(&["org.logicconduit.digital-sample/v1"])
 }
 

@@ -1,9 +1,12 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
-        super::definition::StringFormatter,
-        super::builder::FormatterBuilder,
-        super::builder::FormatterBuilder,
-    >("org.logicconduit.graph-node.logic.string-formatter/v1").requiring_payloads(&[
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<super::definition::StringFormatter>("org.logicconduit.graph-node.logic.string-formatter/v1")
+}
+
+inventory::submit! {
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<super::builder::FormatterBuilder, super::builder::FormatterBuilder>(
+        "org.logicconduit.graph-node.logic.string-formatter/v1",
+        logic_analyzer_graph_editor_registry::node_name::<super::definition::StringFormatter>,
+    ).requiring_payloads(&[
         "org.logicconduit.number-sample/v1",
         "org.logicconduit.text-sample/v1",
     ])

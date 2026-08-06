@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use logic_analyzer_graph_capabilities::node_support::TimelineMarkerReference;
 use logic_analyzer_graph_plan::OutputSubscriptionPlan;
 use logic_analyzer_graph_runtime::GraphRunContext;
-use node_graph::api::GraphState;
+use node_graph_document::GraphState;
 use platform_artifacts::{ArtifactReplicationReceiver, ArtifactRepository};
 
 use crate::{GraphWorkerMessage, GraphWorkerRequest};

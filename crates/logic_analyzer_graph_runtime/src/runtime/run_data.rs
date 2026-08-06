@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 use logic_analyzer_graph_plan::{
     CollectedOutputSubscription, CollectedTableSubscription, SamplingOverlayCandidate,
 };
-use node_graph::api::NodeId;
+use node_graph_document::NodeId;
 use signal_derived::DerivedLanes;
 
 /// Immutable application-facing snapshot of one processing run's produced data.

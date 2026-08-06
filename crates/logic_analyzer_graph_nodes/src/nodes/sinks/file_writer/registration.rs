@@ -1,9 +1,12 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
-        super::definition::FileWriter,
-        super::builder::FileWriterBuilder,
-        super::builder::FileWriterBuilder,
-    >("org.logicconduit.graph-node.sinks.file-writer/v1").requiring_payloads(&[
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<super::definition::FileWriter>("org.logicconduit.graph-node.sinks.file-writer/v1")
+}
+
+inventory::submit! {
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<super::builder::FileWriterBuilder, super::builder::FileWriterBuilder>(
+        "org.logicconduit.graph-node.sinks.file-writer/v1",
+        logic_analyzer_graph_editor_registry::node_name::<super::definition::FileWriter>,
+    ).requiring_payloads(&[
         "org.logicconduit.text-sample/v1",
         "org.logicconduit.word/v1",
     ])

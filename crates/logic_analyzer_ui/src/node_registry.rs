@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 
-use logic_analyzer_graph_registry::{GraphNodeEditorOverride, graph_node_registrations};
+use logic_analyzer_graph_editor_registry::{
+    GraphNodeEditorOverride, graph_node_editor_registrations,
+};
+use logic_analyzer_graph_registry::graph_node_registrations;
 use node_graph::NodeTypeRegistry;
 
 use crate::viewer_selection::LEGACY_VIEWER_NODE_ID;
@@ -27,7 +30,25 @@ pub(crate) fn build_node_registry_with_editor_overrides(
         );
     }
     let mut registry = NodeTypeRegistry::new();
-    for registration in graph_node_registrations() {
+    let mut feature_names = graph_node_registrations()
+        .into_iter()
+        .map(|registration| (registration.stable_id(), registration.name()))
+        .collect::<BTreeMap<_, _>>();
+    for registration in graph_node_editor_registrations() {
+        let feature_name = feature_names
+            .remove(registration.stable_id())
+            .unwrap_or_else(|| {
+                panic!(
+                    "graph-node editor '{}' has no matching headless feature registration",
+                    registration.stable_id()
+                )
+            });
+        assert_eq!(
+            registration.name(),
+            feature_name,
+            "graph-node editor and headless feature names differ for '{}'",
+            registration.stable_id()
+        );
         if registration.stable_id() == LEGACY_VIEWER_NODE_ID {
             continue;
         }
@@ -46,6 +67,11 @@ pub(crate) fn build_node_registry_with_editor_overrides(
         overrides_by_id.is_empty(),
         "editor overrides reference unregistered graph-node features: {:?}",
         overrides_by_id.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        feature_names.is_empty(),
+        "headless graph-node features have no editor registration: {:?}",
+        feature_names.keys().collect::<Vec<_>>()
     );
     registry
 }

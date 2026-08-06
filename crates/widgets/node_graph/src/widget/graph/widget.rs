@@ -16,7 +16,7 @@ use crate::api::{
 };
 use crate::model::{FrameId, GraphState, Node, NodeBadge, NodeId, SocketId};
 use crate::runtime::{NodeInstance, NodeRuntime, NodeTemplate, NodeTypeRegistry};
-use crate::support::ViewState;
+use crate::support::{ViewState, graph_position};
 
 // ── Main widget ───────────────────────────────────────────────────────────────
 
@@ -453,7 +453,7 @@ impl NodeGraphWidget {
     pub fn add_node_at(&mut self, name: &str, pos: Pos2) -> Option<NodeId> {
         let id = self.graph.next_id();
         if name == "Reroute" {
-            let n = Node::new_reroute(id, pos);
+            let n = Node::new_reroute(id, graph_position(pos));
             let nid = n.id;
             self.graph.add_node(n);
             return Some(nid);
@@ -600,7 +600,7 @@ impl NodeGraphWidget {
     /// `on_update` re-run, badges recomputed.
     pub fn set_graph(&mut self, graph: GraphState) {
         self.graph = graph;
-        self.graph.fixup_reroute_outputs();
+        self.graph.reconcile_reroute_outputs();
         self.contributed_panel_state_changed = false;
         self.external_badges.clear();
         self.node_statuses.clear();
@@ -828,6 +828,7 @@ mod tests {
     use crate::api::{PanelTabDef, SocketIndicatorPresentation};
     use crate::model::{NodeId, SocketDirection, SocketId};
     use crate::runtime::NodeTypeRegistry;
+    use crate::support::graph_position;
     use crate::widget::graph::action::GraphAction;
     use crate::widget::graph::interaction::InteractionState;
 
@@ -985,7 +986,7 @@ mod tests {
             .add_node_at("Reroute", Pos2::new(10.0, 20.0))
             .unwrap();
         widget.push_undo_snapshot();
-        widget.graph.nodes.get_mut(&node).unwrap().pos = Pos2::new(80.0, 90.0);
+        widget.graph.nodes.get_mut(&node).unwrap().pos = graph_position(Pos2::new(80.0, 90.0));
         widget.interaction_state = InteractionState::DraggingNode {
             node_id: node,
             offset: Vec2::ZERO,
@@ -995,7 +996,10 @@ mod tests {
         widget.set_editing_enabled(false);
 
         assert!(!widget.editing_enabled());
-        assert_eq!(widget.graph().nodes[&node].pos, Pos2::new(10.0, 20.0));
+        assert_eq!(
+            widget.graph().nodes[&node].pos,
+            graph_position(Pos2::new(10.0, 20.0))
+        );
         assert!(matches!(widget.interaction_state, InteractionState::Idle));
     }
 }

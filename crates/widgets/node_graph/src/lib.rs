@@ -24,8 +24,9 @@ pub use api::{
     SocketWithControlDef, StrSocket, StringValue,
 };
 pub use model::{
-    BadgeSeverity, Connection, Frame, FrameId, GraphMetadata, GraphState, Node, NodeBadge, NodeId,
-    NodeKind, NodeMetadata, Socket, SocketDirection, SocketId, SocketShape, VariadicInfo,
+    BadgeSeverity, Connection, Frame, FrameId, GraphColor, GraphMetadata, GraphPosition,
+    GraphState, Node, NodeBadge, NodeId, NodeKind, NodeMetadata, Socket, SocketDirection, SocketId,
+    SocketReference, SocketShape, VariadicInfo,
 };
 pub use runtime::{NodeTemplate, NodeTypeRegistry, SocketTypeStyle};
 pub use widget::{GraphUiPrefs, NodeContextAction, NodeGraphWidget};

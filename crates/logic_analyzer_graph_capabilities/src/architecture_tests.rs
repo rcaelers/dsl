@@ -21,21 +21,21 @@ fn graph_capabilities_have_no_viewer_or_ui_dependency() {
 }
 
 #[test]
-fn graph_capabilities_use_the_supported_node_graph_namespace() {
+fn graph_capabilities_use_the_neutral_document_contract() {
     let sources = [
         include_str!("node/contracts.rs"),
         include_str!("node_support/contracts.rs"),
     ];
-    for line in sources
-        .into_iter()
-        .flat_map(str::lines)
-        .filter(|line| line.contains("node_graph::"))
-    {
-        assert!(
-            line.contains("node_graph::api::"),
-            "graph capabilities bypasses node_graph::api: {line}"
-        );
-    }
+    assert!(
+        sources
+            .iter()
+            .any(|source| source.contains("node_graph_document::"))
+    );
+    assert!(
+        sources
+            .iter()
+            .all(|source| !source.contains("node_graph::"))
+    );
 }
 
 #[test]

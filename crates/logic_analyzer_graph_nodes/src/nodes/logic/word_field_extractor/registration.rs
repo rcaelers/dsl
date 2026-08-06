@@ -1,9 +1,12 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
-        super::definition::WordFieldExtractor,
-        super::builder::WordFieldExtractorBuilder,
-        super::builder::WordFieldExtractorBuilder,
-    >("org.logicconduit.graph-node.logic.word-field-extractor/v1")
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<super::definition::WordFieldExtractor>("org.logicconduit.graph-node.logic.word-field-extractor/v1")
+}
+
+inventory::submit! {
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<super::builder::WordFieldExtractorBuilder, super::builder::WordFieldExtractorBuilder>(
+        "org.logicconduit.graph-node.logic.word-field-extractor/v1",
+        logic_analyzer_graph_editor_registry::node_name::<super::definition::WordFieldExtractor>,
+    )
     .with_presentation::<super::builder::WordFieldExtractorBuilder>()
     .requiring_payloads(&["org.logicconduit.word/v1"])
 }

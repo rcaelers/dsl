@@ -9,7 +9,7 @@ use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, CapturePresentationSignal, NodeBuildContext, PortKind, ResolvedInputs,
     parse_state,
 };
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_capture::{Sample, SampleBlock};
 use signal_generators::synthetic_capture_source::SyntheticCaptureSource;
 use signal_runtime::ProcessNode;
@@ -22,30 +22,34 @@ impl GraphNodeSemantics for TestCaptureSourceBuilder {
         true
     }
 
-    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![]
     }
 
-    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<SampleBlock>(), PortKind::of::<Sample>()]
     }
 
     fn input_port(
         &self,
-        _socket: &Socket,
-        _member_index: usize,
+        _socket: SocketReference<'_>,
         _state: &Value,
         _kind: PortKind,
     ) -> Option<String> {
         None
     }
 
-    fn output_port(&self, socket: &Socket, _state: &Value, kind: PortKind) -> Option<String> {
+    fn output_port(
+        &self,
+        socket: SocketReference<'_>,
+        _state: &Value,
+        kind: PortKind,
+    ) -> Option<String> {
         (kind == PortKind::of::<SampleBlock>() || kind == PortKind::of::<Sample>())
-            .then(|| format!("ch{}", socket.def_index))
+            .then(|| format!("ch{}", socket.definition_index()))
     }
 
-    fn input_required(&self, _socket: &Socket, _state: &Value) -> bool {
+    fn input_required(&self, _socket: SocketReference<'_>, _state: &Value) -> bool {
         false
     }
 }
@@ -81,8 +85,8 @@ impl CaptureSourceFeature for TestCaptureSourceBuilder {
 }
 
 impl GraphNodePresentation for TestCaptureSourceBuilder {
-    fn viewer_channel_origin(&self, socket: &Socket, _state: &Value) -> Option<usize> {
-        Some(socket.def_index)
+    fn viewer_channel_origin(&self, socket: SocketReference<'_>, _state: &Value) -> Option<usize> {
+        Some(socket.definition_index())
     }
 }
 

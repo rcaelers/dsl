@@ -10,7 +10,7 @@ use logic_analyzer_graph_capabilities::node_support::{
     TimelineMarkerReference, TimelineMarkerReferenceBindingDescriptor,
     TimelineMarkerReferenceBindingEdit, TimelineMarkerReferenceChoice, parse_state,
 };
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_capture::Sample;
 use signal_derived::{TimelineMarker, Trigger};
 use signal_runtime::ProcessNode;
@@ -39,19 +39,19 @@ impl GraphNodeSemantics for TimelineMarkerBuilder {
         false
     }
 
-    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         Vec::new()
     }
 
-    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![marker_kind()]
     }
 
-    fn input_port(&self, _: &Socket, _: usize, _: &Value, _: PortKind) -> Option<String> {
+    fn input_port(&self, _: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
         None
     }
 
-    fn output_port(&self, _socket: &Socket, _: &Value, _: PortKind) -> Option<String> {
+    fn output_port(&self, _socket: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
         Some("marker".into())
     }
 }
@@ -113,19 +113,19 @@ impl GraphNodeSemantics for CursorMarkerBuilder {
         false
     }
 
-    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         Vec::new()
     }
 
-    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![marker_kind()]
     }
 
-    fn input_port(&self, _: &Socket, _: usize, _: &Value, _: PortKind) -> Option<String> {
+    fn input_port(&self, _: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
         None
     }
 
-    fn output_port(&self, _socket: &Socket, _: &Value, _: PortKind) -> Option<String> {
+    fn output_port(&self, _socket: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
         Some("marker".into())
     }
 }
@@ -216,19 +216,19 @@ impl TimelineFeature for CursorMarkerBuilder {
 pub(crate) struct MarkerToTriggerBuilder;
 
 impl GraphNodeSemantics for MarkerToTriggerBuilder {
-    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![marker_kind()]
     }
 
-    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Trigger>()]
     }
 
-    fn input_port(&self, _socket: &Socket, _: usize, _: &Value, _: PortKind) -> Option<String> {
+    fn input_port(&self, _socket: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
         Some("marker".into())
     }
 
-    fn output_port(&self, _socket: &Socket, _: &Value, _: PortKind) -> Option<String> {
+    fn output_port(&self, _socket: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
         Some("trigger".into())
     }
 }
@@ -249,19 +249,19 @@ impl RuntimeMaterializer for MarkerToTriggerBuilder {
 pub(crate) struct MarkerRelationBuilder;
 
 impl GraphNodeSemantics for MarkerRelationBuilder {
-    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![marker_kind()]
     }
 
-    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Sample>()]
     }
 
-    fn input_port(&self, _socket: &Socket, _: usize, _: &Value, _: PortKind) -> Option<String> {
+    fn input_port(&self, _socket: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
         Some("marker".into())
     }
 
-    fn output_port(&self, _socket: &Socket, _: &Value, _: PortKind) -> Option<String> {
+    fn output_port(&self, _socket: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
         Some("signal".into())
     }
 }
@@ -289,23 +289,23 @@ impl RuntimeMaterializer for MarkerRelationBuilder {
 pub(crate) struct MarkerWindowBuilder;
 
 impl GraphNodeSemantics for MarkerWindowBuilder {
-    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![marker_kind()]
     }
 
-    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Sample>()]
     }
 
-    fn input_port(&self, socket: &Socket, _: usize, _: &Value, _: PortKind) -> Option<String> {
-        match socket.def_index {
+    fn input_port(&self, socket: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
+        match socket.definition_index() {
             0 => Some("start".into()),
             1 => Some("end".into()),
             _ => None,
         }
     }
 
-    fn output_port(&self, _socket: &Socket, _: &Value, _: PortKind) -> Option<String> {
+    fn output_port(&self, _socket: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
         Some("signal".into())
     }
 }

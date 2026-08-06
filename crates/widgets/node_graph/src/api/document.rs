@@ -4,6 +4,7 @@ use egui::Pos2;
 
 use crate::model::{GraphState, Node, NodeId};
 use crate::runtime::NodeTypeRegistry;
+use crate::support::graph_position;
 
 /// Builds and updates a graph document without constructing the graph widget.
 ///
@@ -47,7 +48,7 @@ impl GraphDocumentBuilder {
     pub fn add_node(&mut self, type_name: &str) -> Option<NodeId> {
         let id = self.graph.next_id();
         let node = if type_name == "Reroute" {
-            Node::new_reroute(id, Pos2::ZERO)
+            Node::new_reroute(id, graph_position(Pos2::ZERO))
         } else {
             self.node_types.instantiate(type_name, id, Pos2::ZERO)?.node
         };

@@ -1,9 +1,12 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
-        super::definition::Viewer,
-        super::builder::ViewerSubscriptionBuilder,
-        super::builder::ViewerSubscriptionBuilder,
-    >("org.logicconduit.graph-node.sinks.viewer/v1")
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<super::definition::Viewer>("org.logicconduit.graph-node.sinks.viewer/v1")
+}
+
+inventory::submit! {
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<super::builder::ViewerSubscriptionBuilder, super::builder::ViewerSubscriptionBuilder>(
+        "org.logicconduit.graph-node.sinks.viewer/v1",
+        logic_analyzer_graph_editor_registry::node_name::<super::definition::Viewer>,
+    )
 }
 
 #[cfg(test)]

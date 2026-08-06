@@ -10,7 +10,7 @@ use logic_analyzer_graph_capabilities::node::{
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_derived::{TextSample, Word};
 use signal_runtime::{ProcessNode, ProcessNodeConstruction};
 use signal_sinks::OutputOrigin;
@@ -49,28 +49,28 @@ impl GraphNodeSemantics for CsvWriterBuilder {
     fn is_sink(&self) -> bool {
         true
     }
-    fn accepted_kinds(&self, socket: &Socket, _state: &Value) -> Vec<PortKind> {
-        match socket.def_index {
+    fn accepted_kinds(&self, socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
+        match socket.definition_index() {
             0 => vec![PortKind::of::<Word>()],
             1 => vec![PortKind::of::<TextSample>()],
             _ => vec![],
         }
     }
-    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![]
     }
-    fn input_port(&self, socket: &Socket, _: usize, _: &Value, _: PortKind) -> Option<String> {
-        match socket.def_index {
+    fn input_port(&self, socket: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
+        match socket.definition_index() {
             0 => Some("data".into()),
             1 => Some("filename".into()),
             _ => None,
         }
     }
-    fn output_port(&self, _: &Socket, _: &Value, _: PortKind) -> Option<String> {
+    fn output_port(&self, _: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
         None
     }
-    fn input_required(&self, socket: &Socket, state: &Value) -> bool {
-        match socket.def_index {
+    fn input_required(&self, socket: SocketReference<'_>, state: &Value) -> bool {
+        match socket.definition_index() {
             // The Filename input can stay unconnected when the node's own
             // static filename (save-dialog prop) is set.
             1 => parse_state::<super::definition::CsvWriterState>(state)

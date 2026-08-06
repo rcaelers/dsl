@@ -10,7 +10,9 @@ protocol-neutral presentation descriptors.
 ## Facade and dependencies
 
 The crate exposes the directory-backed `node` and `node_support` namespaces. It depends only on
-`node_graph`, the specific signal contract owners, and serialization support. It owns no inventory collection,
+`node_graph_document`, the specific signal contract owners, and serialization support. Capability
+methods receive the narrow `SocketReference` semantic identity rather than complete editor socket
+records. It owns no inventory collection,
 graph lowering, processing plan, runtime lifecycle, built-in node, UI state, or target selection.
 
 Consumers import capability symbols from their owning namespace directly. Registry descriptors,

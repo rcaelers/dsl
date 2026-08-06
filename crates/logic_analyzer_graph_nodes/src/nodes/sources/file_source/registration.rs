@@ -1,9 +1,12 @@
 inventory::submit! {
-    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<
-        super::definition::DslFileSource,
-        super::builder::FileSourceBuilder,
-        super::builder::FileSourceBuilder,
-    >("org.logicconduit.graph-node.sources.dsl-file-source/v1")
+    logic_analyzer_graph_editor_registry::GraphNodeEditorRegistration::definition::<super::definition::DslFileSource>("org.logicconduit.graph-node.sources.dsl-file-source/v1")
+}
+
+inventory::submit! {
+    logic_analyzer_graph_registry::GraphNodeRegistration::capable::<super::builder::FileSourceBuilder, super::builder::FileSourceBuilder>(
+        "org.logicconduit.graph-node.sources.dsl-file-source/v1",
+        logic_analyzer_graph_editor_registry::node_name::<super::definition::DslFileSource>,
+    )
         .with_capture_source::<super::builder::FileSourceBuilder>()
         .with_presentation::<super::builder::FileSourceBuilder>()
         .requiring_payloads(&["org.logicconduit.digital-sample/v1"])

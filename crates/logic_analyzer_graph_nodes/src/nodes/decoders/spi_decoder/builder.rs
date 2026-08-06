@@ -13,7 +13,7 @@ use logic_analyzer_protocol_decoders::spi_decoder::{
     SPI_TRANSACTION_PROTOCOL_ID, SpiDecoder, SpiMode,
 };
 use logic_analyzer_protocol_decoders::types::{BitOrder, CsPolarity};
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_capture::Sample;
 use signal_derived::{ProtocolPacket, Word};
 use signal_runtime::ProcessNode;
@@ -38,24 +38,28 @@ impl GraphNodeSemantics for SpiDecoderBuilder {
     fn execution_state(&self, state: &Value) -> Value {
         crate::presentation::without_display_format(state)
     }
-    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Sample>()]
     }
-    fn offered_kinds(&self, socket: &Socket, _state: &Value) -> Vec<PortKind> {
-        if socket.def_index == 6 {
+    fn offered_kinds(&self, socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
+        if socket.definition_index() == 6 {
             vec![PortKind::of_named::<ProtocolPacket>("Protocol Packet")]
         } else {
             vec![PortKind::of::<Word>()]
         }
     }
-    fn offered_connection_contracts(&self, socket: &Socket, _state: &Value) -> Vec<String> {
-        (socket.def_index == 6)
+    fn offered_connection_contracts(
+        &self,
+        socket: SocketReference<'_>,
+        _state: &Value,
+    ) -> Vec<String> {
+        (socket.definition_index() == 6)
             .then(|| SPI_TRANSACTION_PROTOCOL_ID.to_owned())
             .into_iter()
             .collect()
     }
-    fn input_port(&self, socket: &Socket, _: usize, _: &Value, _: PortKind) -> Option<String> {
-        match socket.def_index {
+    fn input_port(&self, socket: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
+        match socket.definition_index() {
             0 => Some("clk".into()),
             1 => Some("mosi".into()),
             2 => Some("miso".into()),
@@ -63,13 +67,19 @@ impl GraphNodeSemantics for SpiDecoderBuilder {
             _ => None,
         }
     }
-    fn output_port(&self, socket: &Socket, _state: &Value, kind: PortKind) -> Option<String> {
-        if socket.def_index == 6 && kind == PortKind::of_named::<ProtocolPacket>("Protocol Packet")
+    fn output_port(
+        &self,
+        socket: SocketReference<'_>,
+        _state: &Value,
+        kind: PortKind,
+    ) -> Option<String> {
+        if socket.definition_index() == 6
+            && kind == PortKind::of_named::<ProtocolPacket>("Protocol Packet")
         {
             return Some("transactions".to_owned());
         }
         if kind == PortKind::of::<Word>() {
-            return match socket.def_index {
+            return match socket.definition_index() {
                 0 => Some("mosi_words".into()),
                 1 => Some("miso_words".into()),
                 2 => Some("mosi_bits".into()),
@@ -81,11 +91,11 @@ impl GraphNodeSemantics for SpiDecoderBuilder {
         }
         None
     }
-    fn input_required(&self, socket: &Socket, state: &Value) -> bool {
+    fn input_required(&self, socket: SocketReference<'_>, state: &Value) -> bool {
         let Ok(state) = Self::parsed(state) else {
             return true;
         };
-        match socket.def_index {
+        match socket.definition_index() {
             0 | 1 => true,
             2 => false,
             3 => Self::cs_polarity(&state) != CsPolarity::Disabled,
@@ -134,10 +144,10 @@ impl RuntimeMaterializer for SpiDecoderBuilder {
 impl GraphNodePresentation for SpiDecoderBuilder {
     fn viewer_output_control(
         &self,
-        socket: &Socket,
+        socket: SocketReference<'_>,
         _state: &Value,
     ) -> Option<ViewerOutputControl> {
-        match socket.def_index {
+        match socket.definition_index() {
             2 | 3 => Some(ViewerOutputControl::new(false, [0])),
             4 | 5 => Some(ViewerOutputControl::new(false, [1])),
             6 => Some(ViewerOutputControl::new(false, [6])),
@@ -147,22 +157,22 @@ impl GraphNodePresentation for SpiDecoderBuilder {
 
     fn lane_presentation(
         &self,
-        socket: &Socket,
+        socket: SocketReference<'_>,
         _state: &Value,
     ) -> Option<LanePresentationDescriptor> {
-        super::presentation::spi_output_presentation(socket.def_index)
+        super::presentation::spi_output_presentation(socket.definition_index())
     }
 
     fn decoder_table_column(
         &self,
-        socket: &Socket,
+        socket: SocketReference<'_>,
         _state: &Value,
     ) -> Option<DecoderTableColumnDescriptor> {
-        super::presentation::spi_table_column(socket.def_index)
+        super::presentation::spi_table_column(socket.definition_index())
     }
 
-    fn word_display_format(&self, socket: &Socket, state: &Value) -> Option<String> {
-        if !matches!(socket.def_index, 3 | 5) {
+    fn word_display_format(&self, socket: SocketReference<'_>, state: &Value) -> Option<String> {
+        if !matches!(socket.definition_index(), 3 | 5) {
             return None;
         }
         Self::parsed(state)
@@ -183,6 +193,7 @@ impl GraphNodePresentation for SpiDecoderBuilder {
 #[cfg(test)]
 mod tests {
     use node_graph::NodeDef;
+    use node_graph_document::SocketDirection;
 
     use super::super::definition::SpiDecoder;
     use super::*;
@@ -214,9 +225,15 @@ mod tests {
 
         assert!(node.inputs[2].visible);
         assert!(node.outputs[1].visible);
-        assert!(!builder.input_required(&node.inputs[2], &state));
+        assert!(
+            !builder.input_required(node.inputs[2].reference(SocketDirection::Input, 0), &state)
+        );
         assert_eq!(
-            builder.output_port(&node.outputs[1], &state, PortKind::of::<Word>()),
+            builder.output_port(
+                node.outputs[1].reference(SocketDirection::Output, 0),
+                &state,
+                PortKind::of::<Word>()
+            ),
             Some("miso_words".to_owned())
         );
     }

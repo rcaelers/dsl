@@ -105,14 +105,14 @@ pub(crate) fn draw_frames(
         painter.rect_filled(
             screen,
             r,
-            Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 28),
+            Color32::from_rgba_premultiplied(c.red(), c.green(), c.blue(), 28),
         );
         painter.rect_stroke(
             screen,
             r,
             Stroke::new(
                 1.5_f32,
-                Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 170),
+                Color32::from_rgba_premultiplied(c.red(), c.green(), c.blue(), 170),
             ),
             egui::StrokeKind::Middle,
         );

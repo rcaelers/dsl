@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/app_native", "crates/app_web", "crates/input_bindings", "crates/logic_analyzer_capture_export", "crates/logic_analyzer_capture_formats", "crates/logic_analyzer_device_dslogic", "crates/logic_analyzer_graph_capabilities", "crates/logic_analyzer_graph_compiler", "crates/logic_analyzer_graph_nodes", "crates/logic_analyzer_graph_orchestration", "crates/logic_analyzer_graph_plan", "crates/logic_analyzer_graph_registry", "crates/logic_analyzer_graph_runtime", "crates/logic_analyzer_protocol_decoders", "crates/platform", "crates/logic_analyzer_test_support", "crates/logic_analyzer_ui", "crates/platform_artifacts", "crates/platform_runtime", "crates/signal_capture", "crates/signal_derived", "crates/signal_capture_session", "crates/signal_generators", "crates/signal_runtime", "crates/signal_sinks", "crates/signal_transforms", "crates/widgets/logic_analyzer_viewer", "crates/widgets/node_graph", "crates/widgets/panel_layout", "crates/widgets/trigger_editor", "crates/widgets/widget_support", "plugins/example-plugin"]
+members = [".", "crates/app_native", "crates/app_web", "crates/input_bindings", "crates/logic_analyzer_capture_export", "crates/logic_analyzer_capture_formats", "crates/logic_analyzer_device_dslogic", "crates/logic_analyzer_graph_capabilities", "crates/logic_analyzer_graph_compiler", "crates/logic_analyzer_graph_editor_registry", "crates/logic_analyzer_graph_nodes", "crates/logic_analyzer_graph_orchestration", "crates/logic_analyzer_graph_plan", "crates/logic_analyzer_graph_registry", "crates/logic_analyzer_graph_runtime", "crates/logic_analyzer_protocol_decoders", "crates/node_graph_document", "crates/platform", "crates/logic_analyzer_test_support", "crates/logic_analyzer_ui", "crates/platform_artifacts", "crates/platform_runtime", "crates/signal_capture", "crates/signal_derived", "crates/signal_capture_session", "crates/signal_generators", "crates/signal_runtime", "crates/signal_sinks", "crates/signal_transforms", "crates/widgets/logic_analyzer_viewer", "crates/widgets/node_graph", "crates/widgets/panel_layout", "crates/widgets/trigger_editor", "crates/widgets/widget_support", "plugins/example-plugin"]
 default-members = ["crates/app_native"]
 resolver = "2"
 
@@ -109,6 +109,7 @@ platform = { path = "crates/platform", features = ["developer-tools"] }
 logic-analyzer-ui = { path = "crates/logic_analyzer_ui" }
 logic-analyzer-viewer = { path = "crates/widgets/logic_analyzer_viewer" }
 node-graph = { path = "crates/widgets/node_graph" }
+node-graph-document = { path = "crates/node_graph_document" }
 signal-capture-session = { path = "crates/signal_capture_session" }
 signal-generators = { path = "crates/signal_generators" }
 signal-transforms = { path = "crates/signal_transforms" }

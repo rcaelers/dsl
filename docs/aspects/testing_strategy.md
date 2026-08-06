@@ -39,11 +39,10 @@ hardware, or network access.
   cleanup outcomes by key. `platform_runtime` tests portable executor and worker-queue policy;
   native/browser worker and persistent-store conformance is tested by the component that owns each
   adapter.
-- Compiler tests construct saved graph documents through the headless
-  `node_graph::api::GraphDocumentBuilder`. Node-definition migrations and
-  state-dependent socket schemas therefore remain active without constructing
-  `NodeGraphWidget` or importing `egui` in the compiler crate.
-- Concrete-node registration contract tests use that same headless builder;
+- Compiler tests construct neutral `node_graph_document::GraphState` values and remain independent
+  of the node editor and egui. Node-definition migrations and state-dependent socket schemas are
+  covered at the editor/application load boundary.
+- Concrete-node registration contract tests use the editor's document builder;
   only tests of editor interaction or presentation construct the graph widget.
 - Capture-file parsers and replay sources consume the processing-owned
   `CaptureArchive` contract. Their unit tests inject in-memory entries; a

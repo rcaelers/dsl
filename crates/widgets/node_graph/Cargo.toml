@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 input-bindings = { path = "../../input_bindings" }
+node-graph-document = { path = "../../node_graph_document" }
 widget-support = { path = "../widget_support" }
 egui = { workspace = true, features = ["serde"] }
 serde = { workspace = true }

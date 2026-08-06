@@ -8,7 +8,7 @@ use logic_analyzer_graph_plan::{
     CollectedOutputLane, CollectedOutputSubscription, CollectedTableSubscription, ProcessingGraph,
     ProcessingGraphError, ProcessingNode, SamplingOverlayCandidate,
 };
-use node_graph::api::NodeId;
+use node_graph_document::NodeId;
 use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 use platform_runtime::{InlineWorkExecutor, WorkExecutor};
 use signal_capture::SampleBlock;

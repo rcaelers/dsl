@@ -107,7 +107,7 @@ pub use panel::{
 pub use socket::{SocketDef, SocketWithControlDef};
 
 pub use crate::model::{
-    Connection, GraphMetadata, GraphState, Node, NodeId, NodeKind, Socket, SocketDirection,
-    SocketId, SocketShape, VariadicInfo,
+    Connection, GraphColor, GraphMetadata, GraphPosition, GraphState, Node, NodeId, NodeKind,
+    Socket, SocketDirection, SocketId, SocketReference, SocketShape, VariadicInfo,
 };
 pub use crate::runtime::{NodeTemplate, NodeTypeRegistry, SocketTypeStyle};

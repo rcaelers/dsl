@@ -4,7 +4,7 @@ use std::sync::Arc;
 use logic_analyzer_graph_plan::{
     DiscoveredCapturePresentation, ProcessingGraph, ProcessingGraphError,
 };
-use node_graph::api::NodeId;
+use node_graph_document::NodeId;
 use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 use platform_runtime::{InlineWorkExecutor, WorkExecutor};
 use signal_derived::{DecodedBlockCacheHandle, PersistentStoreConfig};

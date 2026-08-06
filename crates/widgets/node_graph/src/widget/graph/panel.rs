@@ -13,6 +13,7 @@ use egui::{
 use super::widget::NodeGraphWidget;
 use crate::api::{PanelAction, PanelContext, PanelDataProvider};
 use crate::model::{NodeId, NodeKind};
+use crate::support::{egui_color, graph_color};
 
 const PANEL_MIN_WIDTH: f32 = 220.0;
 const PANEL_MAX_WIDTH: f32 = 520.0;
@@ -384,7 +385,10 @@ impl NodeGraphWidget {
                                         });
                                         ui.horizontal(|ui| {
                                             ui.label(RichText::new("Color").size(11.0));
-                                            ui.color_edit_button_srgba(&mut node.header_color);
+                                            let mut color = egui_color(node.header_color);
+                                            if ui.color_edit_button_srgba(&mut color).changed() {
+                                                node.header_color = graph_color(color);
+                                            }
                                         });
                                     });
                                 });

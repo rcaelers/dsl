@@ -276,22 +276,7 @@ item here, so acceptance comparisons stop being ad-hoc.
 
 ### Node-graph extraction
 
-- [graph.document-model-extraction] (P2 · medium) Extract the graph document model out of the
-  `node-graph` widget crate. `Socket` currently combines semantic identity with editor
-  presentation (`egui::Color32`, labels, shape, visibility, and controls), while graph capability
-  contracts accept the complete type. That makes presentation state visible to compiler-facing
-  semantics and prevents a genuinely headless graph tier. Introduce a neutral semantic socket
-  reference containing only stable schema/member identity and direction, and move the persisted
-  document records (`GraphState`, nodes, sockets, connections, frames, neutral positions and
-  presentation values) into a small document crate consumed by both the widget and graph tier.
-  The widget maps those neutral records to egui types. Remove `node-graph` from plan, runtime,
-  capabilities, orchestration, and web-worker execution; then remove it from compiler and registry
-  once editor registration is separated from runtime capability registration. Preserve serde
-  shape and saved-graph migrations explicitly, and assert every resulting manifest boundary.
-  The current direction's identities-only slice is insufficient because capabilities consume the
-  full UI-bearing `Socket`; revise it before implementation:
-  [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#graph-document-model-extraction).
-- [graph.extraction.standalone-crate] (P5 · low — blocked by [graph.document-model-extraction])
+- [graph.extraction.standalone-crate] (P5 · low)
   Prepare `node-graph` for an eventual separate repository: replace workspace-inherited
   package/dependency metadata when extraction is scheduled, move its documentation and
   examples with the crate, add standalone CI, and make native file-dialog integration an
@@ -390,7 +375,7 @@ item here, so acceptance comparisons stop being ad-hoc.
 - [node-graph.category-ordering] (P4 · low) Replace the `category.label == "External Sigrok"` sort key in
   `node_graph`'s add-menu construction with an ordering value supplied by the category metadata.
   It is the one place a generic widget branches on a protocol name.
-- [node-graph.single-import-path] (P4 · low — after [graph.document-model-extraction], which reshapes the same crate root) Stop re-exporting the whole `api` namespace from the `node_graph`
+- [node-graph.single-import-path] (P4 · low) Stop re-exporting the whole `api` namespace from the `node_graph`
   crate root. Both `node_graph::NodeDef` and `node_graph::api::NodeDef` resolve today, so the
   documented split between the compiler-facing namespace and the editor facade is unenforced.
   The crate root additionally re-exports `model::{GraphState, NodeId, …}` and `runtime::{…}`

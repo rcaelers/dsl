@@ -8,7 +8,7 @@ use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMateria
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
-use node_graph::api::Socket;
+use node_graph_document::SocketReference;
 use signal_runtime::ProcessNode;
 
 #[derive(Default)]
@@ -59,28 +59,27 @@ impl GraphNodeSemantics for ViewerSubscriptionBuilder {
             format!("{prefix}: {source_title}")
         }
     }
-    fn accepted_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         // `lower()` supplies the registry's subscribed payload kinds for a
         // data subscription. Keeping this empty prevents a second, fixed
         // built-in list from becoming the source of truth.
         Vec::new()
     }
-    fn offered_kinds(&self, _socket: &Socket, _state: &Value) -> Vec<PortKind> {
+    fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![]
     }
     fn input_port(
         &self,
-        _socket: &Socket,
-        member_index: usize,
+        socket: SocketReference<'_>,
         _state: &Value,
         _kind: PortKind,
     ) -> Option<String> {
-        Some(format!("in{member_index}"))
+        Some(format!("in{}", socket.member_index()))
     }
-    fn output_port(&self, _: &Socket, _: &Value, _: PortKind) -> Option<String> {
+    fn output_port(&self, _: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
         None
     }
-    fn input_required(&self, _: &Socket, _: &Value) -> bool {
+    fn input_required(&self, _: SocketReference<'_>, _: &Value) -> bool {
         // A lane-less viewer is pointless but harmless.
         false
     }

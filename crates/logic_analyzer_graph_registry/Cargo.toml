@@ -11,7 +11,6 @@ path = "src/lib.rs"
 [dependencies]
 inventory = { workspace = true }
 logic-analyzer-graph-capabilities = { path = "../logic_analyzer_graph_capabilities" }
-node-graph = { path = "../widgets/node_graph" }
 serde_json = { workspace = true }
 signal-capture = { path = "../signal_capture" }
 signal-derived = { path = "../signal_derived" }

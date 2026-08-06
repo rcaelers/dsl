@@ -2,7 +2,7 @@ use serde::Serialize;
 use serde::ser::Error as _;
 
 use logic_analyzer_graph_plan::OutputSubscriptionPlan;
-use node_graph::api::{GraphState, Socket};
+use node_graph_document::{GraphState, Socket};
 use platform_artifacts::{ArtifactReplicationEvent, SourceIdentity};
 
 use crate::{GraphWorkerMessage, GraphWorkerRequest};
@@ -407,13 +407,13 @@ impl<'a> Reader<'a> {
 
 #[cfg(test)]
 mod worker_execution_codec_tests {
-    use node_graph::api::NodeId;
+    use node_graph_document::NodeId;
 
     use super::*;
 
     #[test]
     fn requests_round_trip_nonempty_saved_graphs() {
-        let graph: node_graph::GraphState = serde_json::from_str(
+        let graph: node_graph_document::GraphState = serde_json::from_str(
             r#"{
                 "nodes": {
                     "0": {
