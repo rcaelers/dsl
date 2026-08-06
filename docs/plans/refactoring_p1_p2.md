@@ -27,7 +27,7 @@ the named function/type over the number when they disagree.
 
 ## tests.architecture-structural (P2) {#tests-architecture-structural}
 
-**Problem.** ~655 lines of `architecture_tests.rs` remain across the workspace that `include_str!`
+**Problem.** ~610 lines of `architecture_tests.rs` remain across the workspace that `include_str!`
 sibling files and assert `.contains("…")` (largest: `logic_analyzer_viewer` 66 lines, followed by
 `signal_runtime` at 59 and the signal capture and session suites at 56 each). They break on
 renames, pass when the string appears in a comment, and prove nothing about the compiled contract.
@@ -62,6 +62,6 @@ resolved non-dev dependency graph. Its forbidden-edge contract is:
 1. Go through each remaining `architecture_tests.rs` rule by rule: delete rules now covered structurally;
    keep a string test only where no structural probe exists (e.g. "no `std::env` access in
    tests"), and add a one-line comment saying why it stays textual.
-2. Prioritize the UI graph-service suite. Do not replace an implementation-text check with another
-   filename-sensitive source scan; prefer a dependency edge, public API probe, registry construction,
-   or behavior test.
+2. Prioritize the `signal_capture` and `signal_capture_session` suites. Do not replace an
+   implementation-text check with another filename-sensitive source scan; prefer a dependency edge,
+   public API probe, registry construction, or behavior test.

@@ -1,7 +1,5 @@
 //! UI-owned graph discovery, execution, and source-preparation service.
 
-#[cfg(test)]
-mod architecture_tests;
 mod contract;
 mod graph_compiler;
 #[cfg(test)]
