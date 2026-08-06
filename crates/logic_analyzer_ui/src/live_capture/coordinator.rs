@@ -1634,6 +1634,7 @@ mod tests {
     use logic_analyzer_graph_capabilities::node_support::SimpleTriggerChannel;
     use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
     use node_graph::NodeId;
+    use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
     use signal_capture_session::{
         AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureAnalysisChannel,
         CaptureAnalysisSource, CaptureChannelId, CaptureCommandCapabilities, CaptureDataDelivery,
@@ -1652,6 +1653,7 @@ mod tests {
         ActiveCapture, CaptureCoordinator, CaptureCoordinatorContract, CaptureRawExportFormat,
         WorkerCompletion, bounded_capture_event_queue, waveform_ready_for_publication,
     };
+    use crate::capture_export_service::unavailable_capture_export_service;
 
     impl CaptureCoordinator {
         fn start(
@@ -1661,6 +1663,23 @@ mod tests {
         ) -> Result<(), String> {
             self.start_session(feature, None, mode)
         }
+    }
+
+    #[test]
+    fn configured_coordinator_retains_the_injected_artifact_repository() {
+        let artifacts: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+        let coordinator = CaptureCoordinator::configured(
+            10,
+            20 * 1024 * 1024 * 1024,
+            Arc::clone(&artifacts),
+            super::test_work_executor(),
+            unavailable_capture_export_service(),
+        );
+
+        assert!(Arc::ptr_eq(
+            &artifacts,
+            &coordinator.repository.artifact_repository()
+        ));
     }
 
     #[test]

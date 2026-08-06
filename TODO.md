@@ -384,7 +384,7 @@ item here, so acceptance comparisons stop being ad-hoc.
 ### Enforcement and documentation
 
 - [tests.architecture-structural] (P2 · medium) Replace the source-text architecture tests with structural
-  checks. About 685 lines remain across the workspace that `include_str!` a sibling file and assert on
+  checks. About 671 lines remain across the workspace that `include_str!` a sibling file and assert on
   `.contains("…")`, so they break on a rename or a reformat, pass when the string appears in a
   comment, and prove nothing about the compiled contract. Enforce dependency direction from the
   manifests and enforce capability rules by constructing a registry and asserting on the resulting
@@ -399,12 +399,14 @@ item here, so acceptance comparisons stop being ad-hoc.
   The workspace test now asserts the complete forbidden-edge list on Cargo's resolved non-dev
   dependency graph and constructs a capability snapshot from the real built-in and example-plugin
   inventories. The graph capability, plan, registry, runtime, and orchestration source-text suites
-  have been removed; graph nodes, compiler, viewer, derived data, and signal runtime retain only five
-  explicitly documented checks for constraints that compiled structure cannot detect. The viewer,
-  derived-data, and signal-runtime workspace dependency surfaces are now asserted structurally,
-  independent decoded-cache handles are verified behaviorally, and the portable application-manager
-  facade is covered by the workspace platform-boundary and module-layout checks. Continue with the UI
-  service source-text suites.
+  have been removed; graph nodes, compiler, viewer, derived data, signal runtime, and UI live capture
+  retain only six explicitly documented checks for constraints that compiled structure cannot detect.
+  The viewer, derived-data, and signal-runtime workspace dependency surfaces are now asserted
+  structurally, as is the UI prohibition on concrete-node and shared-test composition dependencies.
+  Independent decoded-cache handles and live-capture artifact-repository injection are verified
+  behaviorally, and the portable application-manager facade is covered by the workspace
+  platform-boundary and module-layout checks. Continue with the UI host- and graph-service source-text
+  suites.
   Direction, including the forbidden-edge list:
   [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#tests-architecture-structural).
 - [docs.drift-correction] (P3 · medium) Correct the design statements the code no longer satisfies: `AGENTS.md`

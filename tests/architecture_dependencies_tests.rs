@@ -122,6 +122,20 @@ fn local_resolved_non_dev_dependencies(metadata: &Value, owner: &str) -> BTreeSe
         .collect()
 }
 
+fn direct_dependencies(metadata: &Value, owner: &str) -> BTreeSet<String> {
+    package(metadata, owner)["dependencies"]
+        .as_array()
+        .expect("package dependencies must be an array")
+        .iter()
+        .map(|dependency| {
+            dependency["name"]
+                .as_str()
+                .expect("dependency name must be a string")
+                .to_owned()
+        })
+        .collect()
+}
+
 fn assert_forbidden_edges(metadata: &Value, owner: &str, forbidden: &[&str]) {
     let dependencies = resolved_non_dev_dependencies(metadata, owner);
     let forbidden = forbidden
@@ -185,6 +199,24 @@ fn capture_export_owner_does_not_depend_on_ui_or_platform() {
         workspace_metadata(),
         "logic-analyzer-capture-export",
         &["logic-analyzer-ui", "platform"],
+    );
+}
+
+#[test]
+fn ui_has_no_concrete_node_or_shared_test_composition_dependencies() {
+    let dependencies = direct_dependencies(workspace_metadata(), "logic-analyzer-ui");
+    let forbidden = BTreeSet::from([
+        "logic-analyzer-graph-nodes".to_owned(),
+        "logic-analyzer-test-support".to_owned(),
+    ]);
+    let violations = dependencies
+        .intersection(&forbidden)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+
+    assert!(
+        violations.is_empty(),
+        "UI tests must use UI-owned service, catalog, and acquisition fakes; composition dependencies belong outside the UI crate: {violations:?}"
     );
 }
 
