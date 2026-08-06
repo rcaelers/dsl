@@ -1,7 +1,5 @@
 //! UI-owned asynchronous capture-export boundary.
 
-#[cfg(test)]
-mod architecture_tests;
 mod implementation;
 #[cfg(test)]
 mod test_implementation_tests;

@@ -2237,6 +2237,7 @@ dependencies = [
  "egui",
  "example-plugin",
  "libc",
+ "logic-analyzer-capture-export",
  "logic-analyzer-capture-formats",
  "logic-analyzer-device-dslogic",
  "logic-analyzer-graph-capabilities",

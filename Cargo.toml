@@ -98,6 +98,7 @@ tracing-subscriber = { workspace = true }
 blake3 = { workspace = true }
 egui = { workspace = true }
 example-plugin = { path = "plugins/example-plugin" }
+logic-analyzer-capture-export = { path = "crates/logic_analyzer_capture_export" }
 logic-analyzer-graph-capabilities = { path = "crates/logic_analyzer_graph_capabilities" }
 logic-analyzer-graph-compiler = { path = "crates/logic_analyzer_graph_compiler" }
 logic-analyzer-graph-orchestration = { path = "crates/logic_analyzer_graph_orchestration" }

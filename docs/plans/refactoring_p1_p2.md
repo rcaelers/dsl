@@ -27,7 +27,7 @@ the named function/type over the number when they disagree.
 
 ## tests.architecture-structural (P2) {#tests-architecture-structural}
 
-**Problem.** ~558 lines of `architecture_tests.rs` remain across the workspace that `include_str!`
+**Problem.** ~531 lines of `architecture_tests.rs` remain across the workspace that `include_str!`
 sibling files and assert `.contains("…")` (largest: `logic_analyzer_viewer` 66 lines, followed by
 `signal_runtime` at 59 and the signal capture-session suite at 52). They break on
 renames, pass when the string appears in a comment, and prove nothing about the compiled contract.
@@ -66,12 +66,14 @@ resolved non-dev dependency graph. Its forbidden-edge contract is:
    and duplicate overrides are rejected.
 3. A cross-crate factory probe locks the DSL and Sigrok source factories to `Send + Sync`, neutral
    host inputs, lazy metadata, and metadata-bearing process-node construction.
+4. A cross-crate type-identity probe locks the UI capture-export port to the capture-export owner's
+   contract; a behavior test proves the coordinator routes a finalized session through that port.
 
 **Direction.**
 
 1. Go through each remaining `architecture_tests.rs` rule by rule: delete rules now covered structurally;
    keep a string test only where no structural probe exists (e.g. "no `std::env` access in
    tests"), and add a one-line comment saying why it stays textual.
-2. Prioritize the UI `capture_export_service` suite. Do not replace an implementation-text check
-   with another filename-sensitive source scan; prefer a dependency edge, public API probe, registry
-   construction, or behavior test.
+2. Prioritize the `signal_sinks` suite. Do not replace an implementation-text check with another
+   filename-sensitive source scan; prefer a dependency edge, public API probe, registry construction,
+   or behavior test.

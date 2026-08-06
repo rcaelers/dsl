@@ -384,7 +384,7 @@ item here, so acceptance comparisons stop being ad-hoc.
 ### Enforcement and documentation
 
 - [tests.architecture-structural] (P2 · medium) Replace the source-text architecture tests with structural
-  checks. About 558 lines remain across the workspace that `include_str!` a sibling file and assert on
+  checks. About 531 lines remain across the workspace that `include_str!` a sibling file and assert on
   `.contains("…")`, so they break on a rename or a reformat, pass when the string appears in a
   comment, and prove nothing about the compiled contract. Enforce dependency direction from the
   manifests and enforce capability rules by constructing a registry and asserting on the resulting
@@ -398,20 +398,22 @@ item here, so acceptance comparisons stop being ad-hoc.
   composition items so restored boundaries are locked in as they are established.
   The workspace test now asserts the complete forbidden-edge list on Cargo's resolved non-dev
   dependency graph and constructs a capability snapshot from the real built-in and example-plugin
-  inventories. The graph capability, plan, registry, runtime, orchestration, UI graph-service, and
-  capture-format source-text suites have been removed; graph nodes, compiler, viewer, node graph,
-  derived data, signal runtime, signal capture, capture session, UI live capture, and the UI host
-  service retain only ten explicitly documented checks for constraints that compiled structure
-  cannot detect. The viewer, node-graph, capture-format, derived-data, signal-runtime,
-  signal-capture, and capture-session workspace dependency surfaces are now asserted structurally,
-  as is the UI prohibition on host-adapter, concrete-node, and shared-test composition dependencies.
-  UI host and catalog injection and capture-format factory contracts are compile-time probes.
-  Graph-service substitutability is
-  verified with a complete local fake, while the workspace module check confines concrete graph
-  lowering and runtime types to the service adapter. Independent decoded-cache handles and
-  live-capture artifact-repository and node-graph file-dialog injection are verified behaviorally,
-  and the portable application-manager facade is covered by the workspace platform-boundary and
-  module-layout checks. Continue with the UI capture-export-service source-text suite.
+  inventories. The graph capability, plan, registry, runtime, orchestration, UI graph-service,
+  capture-format, and UI capture-export-service source-text suites have been removed; graph nodes,
+  compiler, viewer, node graph, derived data, signal runtime, signal capture, capture session, UI
+  live capture, and the UI host service retain only ten explicitly documented checks for constraints
+  that compiled structure cannot detect. The viewer, node-graph, capture-format, derived-data,
+  signal-runtime, signal-capture, and capture-session workspace dependency surfaces are now asserted
+  structurally, as is the UI prohibition on host-adapter, concrete-node, and shared-test composition
+  dependencies.
+  UI host and catalog injection, capture-format factory contracts, and UI capture-export contract
+  identity are compile-time probes. Graph-service substitutability is verified with a complete local
+  fake, while the workspace module check confines concrete graph lowering and runtime types to the
+  service adapter. Independent decoded-cache handles and
+  live-capture artifact-repository, capture-export service routing, and node-graph file-dialog
+  injection are verified behaviorally, and the portable application-manager facade is covered by
+  the workspace platform-boundary and module-layout checks. Continue with the `signal_sinks`
+  source-text suite.
   Direction, including the forbidden-edge list:
   [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#tests-architecture-structural).
 - [docs.drift-correction] (P3 · medium) Correct the design statements the code no longer satisfies: `AGENTS.md`

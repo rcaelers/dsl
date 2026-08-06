@@ -313,6 +313,8 @@ files.each do |path|
     implementation = implementation_source(source)
     host_service_adapter = rel == "crates/logic_analyzer_ui/src/host_service/native.rs"
     graph_service_adapter = rel == "crates/logic_analyzer_ui/src/graph_service/graph_compiler.rs"
+    capture_export_service_adapter =
+      rel.start_with?("crates/logic_analyzer_ui/src/capture_export_service/")
     unless File.basename(path).include?("tests") || graph_service_adapter
       implementation.to_enum(:scan, /\b(?:GraphCompiler|GraphLowerer|GraphRuntime|LiveRun)\b/).each do
         errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: UI orchestration depends on the UI-owned GraphService and GraphRun; concrete lowering and runtime knowledge belongs in its adapter"
@@ -338,6 +340,11 @@ files.each do |path|
       end
     end
     unless File.basename(path).include?("tests")
+      unless capture_export_service_adapter
+        implementation.to_enum(:scan, /\blogic_analyzer_capture_export\b/).each do
+          errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: capture export owner details belong behind the UI CaptureExportService adapter"
+        end
+      end
       implementation.to_enum(:scan, /\b(?:export_finalized_capture|CaptureExportObserver|CaptureExportProgress|CaptureExportReport|ActiveExport)\b/).each do
         errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: capture export worker details belong behind CaptureExportService"
       end
