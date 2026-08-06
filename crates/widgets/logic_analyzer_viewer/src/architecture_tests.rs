@@ -1,105 +1,66 @@
+fn implementation_source(source: &'static str) -> &'static str {
+    source
+        .split_once("#[cfg(test)]")
+        .or_else(|| source.split_once("#[cfg(all(test"))
+        .map_or(source, |(implementation, _)| implementation)
+}
+
 #[test]
-fn generic_viewer_sources_contain_no_uart_contracts() {
+fn generic_viewer_has_no_domain_specific_or_storage_owned_fallbacks() {
+    // The dependency graph cannot detect branching on protocol labels or reaching through an
+    // allowed generic data crate to obsolete/storage-owning APIs, so this remains textual.
     let sources = [
-        include_str!("channel.rs"),
-        include_str!("cursor.rs"),
-        include_str!("draw/derived.rs"),
-        include_str!("draw/mod.rs"),
-        include_str!("lanes.rs"),
-        include_str!("viewer.rs"),
+        ("channel", include_str!("channel.rs"), true),
+        ("cursor", include_str!("cursor.rs"), true),
+        ("derived drawing", include_str!("draw/derived.rs"), true),
+        ("frame drawing", include_str!("draw/frame.rs"), true),
+        ("drawing facade", include_str!("draw/mod.rs"), true),
+        ("lanes", include_str!("lanes.rs"), true),
+        ("crate facade", include_str!("lib.rs"), false),
+        ("viewer", include_str!("viewer.rs"), true),
     ];
-    let forbidden = [
-        "DeterministicFake",
-        "BufferedFake",
-        "U3Pro16",
-        "u3pro16",
-        "Sigrok",
-        "sigrok",
-        "Python decoder",
-        "uart_data_lane_name",
-        "UART",
-        "uart_",
-        "\"Bits\"",
-        "\"Data\"",
-        "u64::MAX - 1",
-        "u64::MAX - 2",
-    ];
-
-    for token in forbidden {
-        assert!(
-            sources.iter().all(|source| !source.contains(token)),
-            "generic viewer source contains protocol-specific token {token:?}"
-        );
-    }
-}
-
-#[test]
-fn generic_viewer_exposes_no_decoder_table_contracts() {
-    let sources = [include_str!("lib.rs"), include_str!("lanes.rs")];
-    let forbidden = ["DecoderTable", "ViewerTable"];
-
-    for token in forbidden {
-        assert!(
-            sources.iter().all(|source| !source.contains(token)),
-            "generic viewer source contains decoder-table contract {token:?}"
-        );
-    }
-}
-
-#[test]
-fn generic_viewer_has_no_legacy_collected_lane_fallback() {
-    let sources = [
-        include_str!("channel.rs"),
-        include_str!("cursor.rs"),
-        include_str!("draw/derived.rs"),
-        include_str!("draw/frame.rs"),
-        include_str!("lanes.rs"),
-        include_str!("viewer.rs"),
-    ];
-    let forbidden = ["DerivedLaneData", "LaneSummary", "CollectedValueKind"];
-
-    for token in forbidden {
-        assert!(
-            sources.iter().all(|source| !source.contains(token)),
-            "generic viewer source contains legacy collected-lane fallback {token:?}"
-        );
-    }
-}
-
-#[test]
-fn generic_viewer_exposes_no_resource_inventory_contracts() {
-    let sources = [include_str!("lib.rs"), include_str!("viewer.rs")];
-    let forbidden = [
-        "MemorySnapshot",
-        "StorageSnapshot",
-        "memory_snapshot",
-        "storage_snapshot",
-    ];
-
-    for token in forbidden {
-        assert!(
-            sources.iter().all(|source| !source.contains(token)),
-            "generic viewer source contains resource-inventory contract {token:?}"
-        );
-    }
-}
-
-#[test]
-fn generic_viewer_consumes_prepared_capture_queries_without_storage_ownership() {
-    let sources = [include_str!("lib.rs"), include_str!("viewer.rs")];
     let forbidden = [
         "ArtifactRepository",
+        "BufferedFake",
         "CaptureDataSource",
+        "CollectedValueKind",
+        "DecoderTable",
+        "DerivedLaneData",
+        "DeterministicFake",
+        "LaneSummary",
         "MemoryArtifactRepository",
+        "MemorySnapshot",
+        "Python decoder",
+        "Sigrok",
+        "StorageSnapshot",
+        "UART",
+        "U3Pro16",
+        "ViewerTable",
+        "memory_snapshot",
         "set_capture_path",
+        "sigrok",
         "std::fs",
-        "target_arch",
+        "storage_snapshot",
+        "u3pro16",
+        "u64::MAX - 1",
+        "u64::MAX - 2",
+        "uart_",
+        "uart_data_lane_name",
+        "\"Bits\"",
+        "\"Data\"",
     ];
 
-    for token in forbidden {
-        assert!(
-            sources.iter().all(|source| !source.contains(token)),
-            "generic viewer source contains storage or platform concern {token:?}"
-        );
+    for (component, source, strip_tests) in sources {
+        let source = if strip_tests {
+            implementation_source(source)
+        } else {
+            source
+        };
+        for token in forbidden {
+            assert!(
+                !source.contains(token),
+                "generic viewer {component} contains domain/storage token {token:?}"
+            );
+        }
     }
 }

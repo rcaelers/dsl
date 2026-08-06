@@ -189,6 +189,24 @@ fn capture_export_owner_does_not_depend_on_ui_or_platform() {
 }
 
 #[test]
+fn viewer_depends_only_on_generic_widget_and_data_contracts() {
+    let dependencies =
+        local_resolved_non_dev_dependencies(workspace_metadata(), "logic-analyzer-viewer");
+
+    assert_eq!(
+        dependencies,
+        BTreeSet::from([
+            "input-bindings".to_owned(),
+            "platform-artifacts".to_owned(),
+            "signal-capture".to_owned(),
+            "signal-capture-session".to_owned(),
+            "signal-derived".to_owned(),
+        ]),
+        "the reusable viewer may depend only on generic interaction, artifact, capture, and derived-data contracts"
+    );
+}
+
+#[test]
 fn headless_graph_tier_depends_on_the_document_model_not_the_node_editor() {
     let metadata = workspace_metadata();
 
