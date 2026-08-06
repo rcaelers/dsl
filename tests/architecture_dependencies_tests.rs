@@ -207,6 +207,22 @@ fn viewer_depends_only_on_generic_widget_and_data_contracts() {
 }
 
 #[test]
+fn derived_data_depends_only_on_generic_lower_level_contracts() {
+    let dependencies = local_resolved_non_dev_dependencies(workspace_metadata(), "signal-derived");
+
+    assert_eq!(
+        dependencies,
+        BTreeSet::from([
+            "platform-artifacts".to_owned(),
+            "platform-runtime".to_owned(),
+            "signal-capture".to_owned(),
+            "signal-runtime".to_owned(),
+        ]),
+        "generic derived-data infrastructure may depend only on artifact, execution, and capture contracts"
+    );
+}
+
+#[test]
 fn headless_graph_tier_depends_on_the_document_model_not_the_node_editor() {
     let metadata = workspace_metadata();
 
