@@ -1,0 +1,19 @@
+[package]
+name = "signal-transforms"
+version.workspace = true
+edition = "2024"
+authors = ["Rob Caelers <rob.caelers@gmail.com>"]
+description = "Portable signal stream transformations"
+repository = "https://github.com/rcaelers/logic-conduit"
+license = "MIT"
+
+[lib]
+name = "signal_transforms"
+path = "src/lib.rs"
+
+[dependencies]
+signal-capture = { path = "../signal_capture" }
+signal-derived = { path = "../signal_derived" }
+signal-runtime = { path = "../signal_runtime" }
+crossbeam-channel = { workspace = true }
+tracing = { workspace = true }

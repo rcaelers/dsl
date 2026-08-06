@@ -10,14 +10,13 @@ use logic_analyzer_graph_capabilities::node::{
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
-use logic_analyzer_processing::ProcessNodeConstruction;
-use logic_analyzer_processing::nodes::sinks::OutputOrigin;
-use logic_analyzer_processing::nodes::sinks::binary_file_writer::{
-    BinaryFileWriterConfig, BinaryFileWriterFactory, WriteWidth, unavailable_writer_factory,
-};
 use node_graph::api::Socket;
 use signal_derived::{TextSample, Word};
-use signal_runtime::ProcessNode;
+use signal_runtime::{ProcessNode, ProcessNodeConstruction};
+use signal_sinks::OutputOrigin;
+use signal_sinks::binary_file_writer::{
+    BinaryFileWriterConfig, BinaryFileWriterFactory, WriteWidth, unavailable_writer_factory,
+};
 
 pub(crate) struct FileWriterBuilder {
     writer_factory: Arc<dyn BinaryFileWriterFactory>,

@@ -216,7 +216,7 @@ roots perform domain/UI adaptation and select these implementations; in particul
 bridges the platform file-picker mechanism to the node-control dialog port. Making a port
 implementable does not expose its concrete native or web dependencies.
 
-The Sigrok decoder node follows the same ownership boundaries. `logic_analyzer_processing` owns the
+The Sigrok decoder node follows the same ownership boundaries. `logic_analyzer_protocol_decoders` owns the
 portable decoder configuration, state machine, output contracts, and `SigrokExecutionFactory` port.
 `logic_analyzer_graph_nodes` owns the portable graph-node schema and turns portable discovery
 snapshots into node templates. The native application adapter owns Python interpreter
@@ -801,7 +801,7 @@ transfers, optional queued bulk reads, cancellation, close, and negotiated link 
 adapter in `platform` owns discovery, runtime-device validation, interface claiming,
 the `rusb` dependency, and asynchronous libusb receive requests. The protocol, firmware upload,
 FPGA configuration, acquisition planning, and packet state machines remain in
-`logic_analyzer_processing` and depend only on the contract.
+`logic_analyzer_device_dslogic` and depend only on the contract.
 
 Web composition has no USB adapter and injects the unavailable U3Pro16 source factory rather than a
 synthetic live source. Browser permission objects and JavaScript transport types therefore do not
@@ -834,12 +834,12 @@ bounded blocks and a repository rather than preloading one contiguous buffer.
   stores and remaining session queries
   contracts and their shared algorithms. These portable owners have no target selector or host
   dependency.
-- `logic_analyzer_processing` owns concrete capture parsers, processing nodes, sinks, the U3Pro16
-  device protocol, and portable format behavior. Parsers consume prepared byte sources; the
-  U3Pro16 protocol consumes its injected USB transport contract. A complete file-I/O adapter leaf
-  may remain here only when it is explicitly allowlisted and separating it would move
-  concrete format behavior into the platform crate. Node state, factories, and protocol logic are
-  not target-selected.
+- `logic_analyzer_capture_formats` owns DSL and Sigrok parsers, indexes, and replay sources;
+  `logic_analyzer_device_dslogic` owns the U3Pro16 protocol;
+  `logic_analyzer_protocol_decoders` owns decoded-protocol behavior; and `signal_transforms`,
+  `signal_sinks`, and `signal_generators` own their portable processing families. Parsers consume
+  prepared byte sources and the U3Pro16 protocol consumes its injected USB transport contract.
+  Only explicitly allowlisted complete file-I/O and device-runtime leaves select by target.
 - `logic_analyzer_graph_nodes` owns concrete node state and builders. It passes platform-neutral
   source, destination, and device requests to processing facades and compiles the same node catalog
   code on every target.
@@ -941,8 +941,9 @@ Reusable target selection is confined to one private selection module in
 - application host integration.
 
 The native and web application crates retain only their required entry points and bootstrap APIs.
-An explicitly documented complete file-I/O or USB leaf adapter in
-`logic_analyzer_processing` is the sole allowlisted reusable-crate exception. Such an adapter contains
+Explicitly documented complete file-I/O leaves in `logic_analyzer_capture_formats` and USB
+device-runtime leaves in `logic_analyzer_device_dslogic` are the only allowlisted reusable-crate
+exceptions. Such an adapter contains
 only host access; its node state, builder, parser or device protocol, and runtime contract remain
 portable.
 
@@ -950,10 +951,11 @@ portable.
 `signal_capture_session`, `logic_analyzer_graph_capabilities`,
 `logic_analyzer_graph_registry`, `logic_analyzer_graph_plan`,
 `logic_analyzer_graph_compiler`, `logic_analyzer_graph_runtime`,
-`logic_analyzer_graph_orchestration`, `logic_analyzer_graph_nodes`, `node_graph`,
+`logic_analyzer_graph_orchestration`, `logic_analyzer_graph_nodes`,
+`logic_analyzer_protocol_decoders`, `signal_transforms`, `signal_sinks`, `signal_generators`, `node_graph`,
 `logic_analyzer_viewer`, reusable widgets, and `logic_analyzer_ui` contain no target conditionals,
-target-selected files, or target-specific dependencies. Portable processing code in
-`logic_analyzer_processing` follows the same rule. Shared codecs, indexes, cache policy, source
+target-selected files, or target-specific dependencies. Portable capture-format and DSLogic
+modules outside their explicit compatibility leaves follow the same rule. Shared codecs, indexes, cache policy, source
 preparation, graph lowering, viewer queries, and node contracts therefore compile from exactly the
 same source files. Runtime capability values describe what the injected host can do. CI executes
 `scripts/check_platform_boundaries.rb`, whose explicit source and dependency allowlists implement

@@ -224,7 +224,7 @@ Finite capture indexes answer waveform queries without owning acquisition.
 
 A **capture session** owns acquisition lifecycle, bounded delivery, recording, committed-prefix
 visibility, finalization, and replay. Concrete devices and file formats implement or consume these
-generic contracts in `logic_analyzer_processing`.
+generic contracts in their positive-responsibility domain crates.
 
 ### Derived cache identity and cache entry
 

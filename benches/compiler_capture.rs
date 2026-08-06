@@ -11,31 +11,20 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use egui::{Color32, Event, Id, Pos2, Rect, UiBuilder};
 
+use logic_analyzer_capture_formats::dsl_file::{
+    DslFileSource, DslFileSourceConfig, DslFileSourceFactory,
+};
 use logic_analyzer_graph_compiler::GraphLowerer;
 use logic_analyzer_graph_plan::{OutputSubscriptionPlan, ProcessingGraph, ProcessingGraphError};
 use logic_analyzer_graph_runtime::{
     ApplyError, ApplySummary, GraphRunContext, GraphRuntime, InlineSourcePreparationExecutor,
     LiveRun, SourceProcessOverrides,
 };
-use logic_analyzer_processing::nodes::decoders::parallel_decoder::{
+use logic_analyzer_protocol_decoders::parallel_decoder::{
     ParallelDecoder, ParallelInputStrategy, StrobeMode,
 };
-use logic_analyzer_processing::nodes::decoders::spi_decoder::{SpiDecoder, SpiMode};
-use logic_analyzer_processing::nodes::logic::logic_gate::{GateOp, LogicGate};
-use logic_analyzer_processing::nodes::logic::sr_latch::SrLatch;
-use logic_analyzer_processing::nodes::logic::text_formatter::TextFormatter;
-use logic_analyzer_processing::nodes::logic::trigger_counter::TriggerCounter;
-use logic_analyzer_processing::nodes::logic::word_matcher::WordMatcher;
-use logic_analyzer_processing::nodes::sinks::binary_file_writer::BinaryFileWriter;
-use logic_analyzer_processing::nodes::sinks::{OutputFile, OutputStorage};
-use logic_analyzer_processing::nodes::sources::dsl_file::{
-    DslFileSource, DslFileSourceConfig, DslFileSourceFactory,
-};
-use logic_analyzer_processing::types::CsPolarity;
-use logic_analyzer_processing::{
-    CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
-    CaptureSourcePresentation, ProcessNodeConstruction,
-};
+use logic_analyzer_protocol_decoders::spi_decoder::{SpiDecoder, SpiMode};
+use logic_analyzer_protocol_decoders::types::CsPolarity;
 use logic_analyzer_viewer::{
     LogicAnalyzerViewer, ViewerLaneBadge, WaveformPresentationRegistry, viewer_lane_renderer,
 };
@@ -45,6 +34,10 @@ use platform_artifacts::{
     ReadArtifact, RepositoryCapabilities, RepositoryError, SourceIdentity, WriteArtifact,
 };
 use platform_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
+use signal_capture_session::{
+    CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
+    CaptureSourcePresentation,
+};
 use signal_derived::{
     CollectedLaneQuery, CollectedLaneSnapshotRequest, CollectedWordLaneQuery, DerivedLanes,
     OpaqueCollectedLane, OpaqueCollectedLaneSnapshot, TriggerLaneSnapshot,
@@ -52,7 +45,15 @@ use signal_derived::{
 use signal_runtime::{
     AppManager, AppManagerBackend, AppManagerFactory, ConfigurationBoundary, DisconnectEvent,
     InputSub, NodeConfig, NodeSpec, Pipeline, PipelineManager, ProcessNode,
+    ProcessNodeConstruction,
 };
+use signal_sinks::binary_file_writer::BinaryFileWriter;
+use signal_sinks::{OutputFile, OutputStorage};
+use signal_transforms::logic_gate::{GateOp, LogicGate};
+use signal_transforms::sr_latch::SrLatch;
+use signal_transforms::text_formatter::TextFormatter;
+use signal_transforms::trigger_counter::TriggerCounter;
+use signal_transforms::word_matcher::WordMatcher;
 
 use integration_tests_support as nodes;
 
@@ -1074,9 +1075,7 @@ fn configured_platform_compiler(
     let mut compiler = BenchmarkGraphExecution::new(
         GraphLowerer::with_capability_overrides(vec![
             logic_analyzer_graph_nodes::binary_file_writer_capability_override(
-                logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
-                    Arc::new(BenchmarkOutputStorage),
-                ),
+                signal_sinks::binary_file_writer::writer_factory(Arc::new(BenchmarkOutputStorage)),
             ),
             logic_analyzer_graph_nodes::dsl_file_source_capability_override(Arc::new(
                 BenchmarkDslFileSourceFactory,
@@ -1105,9 +1104,7 @@ fn configured_profile_compiler(
     let mut compiler = BenchmarkGraphExecution::new(
         GraphLowerer::with_capability_overrides(vec![
             logic_analyzer_graph_nodes::binary_file_writer_capability_override(
-                logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
-                    Arc::new(BenchmarkOutputStorage),
-                ),
+                signal_sinks::binary_file_writer::writer_factory(Arc::new(BenchmarkOutputStorage)),
             ),
             logic_analyzer_graph_nodes::dsl_file_source_capability_override(Arc::new(
                 BenchmarkDslFileSourceFactory,

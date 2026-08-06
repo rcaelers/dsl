@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use egui::{Color32, Rect, Ui};
 use serde::{Deserialize, Serialize};
 
-use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+use logic_analyzer_protocol_decoders::sigrok_decoder::{
     SigrokCatalogEntry, SigrokCatalogScanner, SigrokCatalogSnapshot, SigrokDecoderDescriptor,
     SigrokOutputKind, SigrokScalarValue,
 };

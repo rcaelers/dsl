@@ -13,11 +13,12 @@ class PlatformBoundaryCheck
     crates/platform
   ].freeze
   PROCESSING_ADAPTER_ALLOWLIST = %w[
-    crates/logic_analyzer_processing/src/support/capture_archive/file_byte_source.rs
-    crates/logic_analyzer_processing/src/nodes/sources/dsl_file/path_compatibility.rs
-    crates/logic_analyzer_processing/src/nodes/sources/sigrok_file/path_compatibility.rs
-    crates/logic_analyzer_processing/src/nodes/sources/dslogic_u3pro16/mod.rs
-    crates/logic_analyzer_processing/src/bin/u3pro16-streaming-bench/main.rs
+    crates/logic_analyzer_capture_formats/src/support/capture_archive/file_byte_source.rs
+    crates/logic_analyzer_capture_formats/src/dsl_file/path_compatibility.rs
+    crates/logic_analyzer_capture_formats/src/sigrok_file/path_compatibility.rs
+    crates/logic_analyzer_device_dslogic/src/lib.rs
+    crates/logic_analyzer_device_dslogic/src/device/mod.rs
+    crates/logic_analyzer_device_dslogic/src/device/dslogic_u3pro16/mod.rs
   ].freeze
   TARGET_DEPENDENCIES = %w[
     js-sys

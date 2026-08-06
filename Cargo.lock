@@ -2119,9 +2119,11 @@ dependencies = [
  "example-plugin",
  "input-bindings",
  "logic-analyzer-capture-export",
+ "logic-analyzer-capture-formats",
+ "logic-analyzer-device-dslogic",
  "logic-analyzer-graph-nodes",
  "logic-analyzer-graph-runtime",
- "logic-analyzer-processing",
+ "logic-analyzer-protocol-decoders",
  "logic-analyzer-ui",
  "node-graph",
  "objc2 0.6.4",
@@ -2136,6 +2138,7 @@ dependencies = [
  "signal-capture-session",
  "signal-derived",
  "signal-runtime",
+ "signal-sinks",
  "tempfile",
  "thiserror 2.0.19",
  "tracing",
@@ -2152,10 +2155,10 @@ dependencies = [
  "example-plugin",
  "js-sys",
  "log",
+ "logic-analyzer-capture-formats",
  "logic-analyzer-graph-nodes",
  "logic-analyzer-graph-orchestration",
  "logic-analyzer-graph-runtime",
- "logic-analyzer-processing",
  "logic-analyzer-ui",
  "node-graph",
  "platform",
@@ -2165,8 +2168,11 @@ dependencies = [
  "serde",
  "serde_json",
  "signal-capture",
+ "signal-capture-session",
  "signal-derived",
+ "signal-generators",
  "signal-runtime",
+ "signal-sinks",
  "tracing",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -2188,14 +2194,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "logic-analyzer-capture-formats"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "crossbeam-channel",
+ "platform-artifacts",
+ "platform-runtime",
+ "signal-capture",
+ "signal-capture-session",
+ "signal-generators",
+ "signal-runtime",
+ "tempfile",
+ "tracing",
+ "zip",
+]
+
+[[package]]
+name = "logic-analyzer-device-dslogic"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "platform-artifacts",
+ "platform-runtime",
+ "serde",
+ "serde_json",
+ "signal-capture",
+ "signal-capture-session",
+ "signal-runtime",
+ "tracing",
+]
+
+[[package]]
 name = "logic-analyzer-examples"
 version = "0.1.0"
 dependencies = [
  "blake3",
  "clap",
+ "crossbeam-channel",
  "egui",
  "example-plugin",
  "libc",
+ "logic-analyzer-capture-formats",
+ "logic-analyzer-device-dslogic",
  "logic-analyzer-graph-capabilities",
  "logic-analyzer-graph-compiler",
  "logic-analyzer-graph-nodes",
@@ -2203,7 +2244,7 @@ dependencies = [
  "logic-analyzer-graph-plan",
  "logic-analyzer-graph-registry",
  "logic-analyzer-graph-runtime",
- "logic-analyzer-processing",
+ "logic-analyzer-protocol-decoders",
  "logic-analyzer-ui",
  "logic-analyzer-viewer",
  "memmap2",
@@ -2217,7 +2258,10 @@ dependencies = [
  "signal-capture",
  "signal-capture-session",
  "signal-derived",
+ "signal-generators",
  "signal-runtime",
+ "signal-sinks",
+ "signal-transforms",
  "tempfile",
  "tracing-subscriber",
 ]
@@ -2259,9 +2303,11 @@ version = "0.1.0"
 dependencies = [
  "egui",
  "inventory",
+ "logic-analyzer-capture-formats",
+ "logic-analyzer-device-dslogic",
  "logic-analyzer-graph-capabilities",
  "logic-analyzer-graph-registry",
- "logic-analyzer-processing",
+ "logic-analyzer-protocol-decoders",
  "logic-analyzer-test-support",
  "logic-analyzer-viewer",
  "node-graph",
@@ -2272,7 +2318,10 @@ dependencies = [
  "signal-capture",
  "signal-capture-session",
  "signal-derived",
+ "signal-generators",
  "signal-runtime",
+ "signal-sinks",
+ "signal-transforms",
  "tempfile",
  "wasm-bindgen-test",
 ]
@@ -2335,27 +2384,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "logic-analyzer-processing"
+name = "logic-analyzer-protocol-decoders"
 version = "0.1.0"
 dependencies = [
- "blake3",
- "clap",
  "crossbeam-channel",
- "logic-analyzer-test-support",
- "platform-artifacts",
  "platform-runtime",
- "serde",
- "serde_json",
  "signal-capture",
- "signal-capture-session",
  "signal-derived",
  "signal-runtime",
- "tempfile",
- "thiserror 2.0.19",
  "tracing",
- "tracing-subscriber",
  "web-time",
- "zip",
 ]
 
 [[package]]
@@ -3835,6 +3873,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "signal-generators"
+version = "0.1.0"
+dependencies = [
+ "signal-capture",
+ "signal-capture-session",
+ "signal-runtime",
+]
+
+[[package]]
 name = "signal-hook-registry"
 version = "1.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3856,6 +3903,28 @@ dependencies = [
  "tracing",
  "wasm-bindgen-test",
  "web-time",
+]
+
+[[package]]
+name = "signal-sinks"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "signal-capture",
+ "signal-derived",
+ "signal-runtime",
+ "tracing",
+]
+
+[[package]]
+name = "signal-transforms"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "signal-capture",
+ "signal-derived",
+ "signal-runtime",
+ "tracing",
 ]
 
 [[package]]

@@ -11,8 +11,9 @@ the `signal_runtime` Rustdoc, and
 [the logic-analyzer viewer](../crates/logic_analyzer_viewer.md).
 
 Layering rule: `node_graph` stays UI-generic, the `platform_*` foundations and `signal_*` contract
-owners stay generic and UI-free, and `logic_analyzer_processing` owns concrete UI-independent runtime nodes. The UI consumes the
-graph-service and host-service contracts; it does not define concrete nodes or compiler behavior.
+owners stay generic and UI-free, and the capture-format, device, protocol-decoder, transform, sink,
+and generator crates own UI-independent runtime behavior. The UI consumes graph-service and
+host-service contracts; it does not define concrete nodes or compiler behavior.
 
 ## Application services
 

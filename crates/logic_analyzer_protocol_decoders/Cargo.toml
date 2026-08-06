@@ -1,0 +1,21 @@
+[package]
+name = "logic-analyzer-protocol-decoders"
+version.workspace = true
+edition = "2024"
+authors = ["Rob Caelers <rob.caelers@gmail.com>"]
+description = "UI-independent logic-analyzer protocol decoders"
+repository = "https://github.com/rcaelers/logic-conduit"
+license = "MIT"
+
+[lib]
+name = "logic_analyzer_protocol_decoders"
+path = "src/lib.rs"
+
+[dependencies]
+platform-runtime = { path = "../platform_runtime" }
+signal-capture = { path = "../signal_capture" }
+signal-derived = { path = "../signal_derived" }
+signal-runtime = { path = "../signal_runtime" }
+crossbeam-channel = { workspace = true }
+tracing = { workspace = true }
+web-time = { workspace = true }

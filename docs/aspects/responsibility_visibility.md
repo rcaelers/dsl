@@ -20,18 +20,21 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
 - `platform_runtime` owns generic host work scheduling, worker-operation messages, kernel
   registration, and portable worker-queue policy.
 - `signal_runtime` owns generic typed-stream execution, scheduling, and pipeline supervision.
+  Its root also owns the generic `ProcessNodeConstruction<M>` result contract.
 - `signal_capture` owns immutable generic capture, query, and finite indexing contracts.
 - `signal_derived` owns generic derived-data payload, collection, indexing, and storage contracts.
 - `signal_capture_session` owns generic capture-session
-  contracts. It consumes fixed-width byte ranges, stable source identities, prepared
+  contracts and lazy capture-source metadata/lifecycle contracts. It consumes fixed-width byte ranges, stable source identities, prepared
   random-access sources, immutable byte regions, and portable memory sources directly from
   `platform_artifacts` without re-exporting them. Host paths, files, mappings, and browser handles
   are absent from those contracts. Its public capture
   vocabulary is `Capture*`; it does not expose DSL, Sigrok, USB, decoder, graph-node, or UI
   terminology.
-- `logic_analyzer_processing` owns concrete capture formats, devices, protocol decoders,
-  processing nodes, and sinks. Format parsing and device-transport errors originate here and are
-  mapped to generic runtime errors only where a generic trait requires it.
+- `logic_analyzer_capture_formats` owns DSL and Sigrok parsing, indexing, and replay sources.
+- `logic_analyzer_device_dslogic` owns DSLogic acquisition and its injected transport contract.
+- `logic_analyzer_protocol_decoders` owns concrete protocol decoding and decoder host contracts.
+- `signal_transforms`, `signal_sinks`, and `signal_generators` own portable stream transforms,
+  terminal consumers, and deterministic configured sources respectively.
 - `logic_analyzer_graph_capabilities` owns graph-node and payload capability contracts.
 - `logic_analyzer_graph_registry` owns graph-node and payload registration, inventory validation,
   and immutable catalog assembly.
@@ -162,7 +165,12 @@ nearest owning facade. The allowlist names canonical public namespaces.
 | `signal_capture` | none | Its crate root exposes immutable capture, query, edge-capability, and finite-index contracts; implementation modules remain private. |
 | `signal_derived` | `derived_word_store` | The public module owns the independently usable encoded annotation-store contract; other payload, lane, sampling, and index contracts are exposed through the crate facade. |
 | `signal_capture_session` | `live_capture`, `live_capture_store`, `logic_analyzer` | These are substantial generic capture-session domains. `live_capture` owns the provider-neutral configured and prepared acquisition contracts. `logic_analyzer` owns the driver-neutral capture, trigger, and processing-source contracts consumed by concrete device nodes. Lower-level runtime, capture, and derived contracts are imported directly from their owning crates and are not re-exported. |
-| `logic_analyzer_processing` | `nodes`, `nodes::decoders`, `nodes::logic`, `nodes::sinks`, `nodes::sources`, each node module under its family, `types` | Each concrete node owns a directory-backed public facade, so its configuration, factory, and discovery contracts have an unambiguous owner such as `nodes::decoders::parallel_decoder::StrobeMode` or `nodes::decoders::sigrok_decoder::SigrokDecoderDescriptor`. The crate root exposes the shared `ProcessNodeConstruction` factory result and lazy capture-source metadata contracts. Shared implementation support is crate-private. Protocol-neutral processing value conventions are exposed through `types`. Node implementation, transport, and format details remain private behind their owning node facade. |
+| `logic_analyzer_capture_formats` | `dsl_file`, `sigrok_file` | Each format facade owns its configuration, factory, parser, index, and replay contracts; archive helpers remain private. |
+| `logic_analyzer_device_dslogic` | none | Its crate root exposes the DSLogic source and transport contracts; protocol implementation modules remain private. |
+| `logic_analyzer_protocol_decoders` | `i2c_decoder`, `parallel_decoder`, `sigrok_decoder`, `spi_decoder`, `types`, `uart_decoder` | Each decoder has one directory-backed public facade; shared decoder conventions live under `types`. |
+| `signal_transforms` | `buffer`, `edge_detector`, `event_control`, `event_gate`, `logic_gate`, `packet_framer`, `sr_latch`, `text_formatter`, `timeline_marker`, `trigger_counter`, `word_field_extractor`, `word_matcher` | Each namespace owns one portable transform contract and implementation. |
+| `signal_sinks` | `binary_file_writer`, `csv_word_writer`, `discard_writer`, `text_file_writer`, `tgck_recorder` | Each namespace owns one sink; the shared destination contract is exposed through the crate root. |
+| `signal_generators` | `synthetic_capture_source`, `synthetic_uart_source` | Each namespace owns one explicit deterministic source family. |
 | `logic_analyzer_graph_capabilities` | `node`, `node_support` | `node` owns capability traits implemented by graph-node plugins. `node_support` owns open port identity, protocol-neutral presentation descriptions, capture descriptions, decoder-table contracts, and the restricted node build context. It contains no graph-node or payload inventory assembly, compiler, host, built-in-node, UI, or export operations. |
 | `logic_analyzer_graph_registry` | none | Its crate root exposes graph-node, payload, and protocol-presentation registration descriptors, validated inventory access, and the immutable `GraphRegistry`. Implementation modules remain private. |
 | `logic_analyzer_graph_plan` | none | Its crate root exposes the immutable `ProcessingGraph`, processing-node/edge, payload-materialization, subscription, sampling, and diagnostic contracts exchanged between compiler and runtime. |
@@ -255,8 +263,10 @@ target-specific dependencies. It is an adapter layer above the contract owners:
 - `signal_runtime` owns stream execution, `signal_capture` owns finite-index capability ports, and
   `signal_capture_session` owns capture-session capability ports, and `signal_derived` owns
   derived-store capability ports;
-- `logic_analyzer_processing` owns concrete format and device behavior and the transport ports that
-  behavior consumes;
+- `logic_analyzer_capture_formats` owns concrete format behavior;
+- `logic_analyzer_device_dslogic` owns DSLogic behavior and the transport port it consumes;
+- `logic_analyzer_protocol_decoders`, `signal_transforms`, `signal_sinks`, and `signal_generators`
+  own their respective portable processing behavior;
 - `logic_analyzer_graph_runtime` owns cache-administration and source-preparation ports, including
   inline, capture-worker, and threaded source-preparation executors;
 - `logic_analyzer_capture_export` owns export behavior and its application-facing service contract;
@@ -277,16 +287,17 @@ every target. Composition selects them explicitly. A web build does not obtain a
 or discard sink merely because a native capability is absent.
 
 The only allowlisted reusable-crate exceptions are complete file-I/O compatibility constructors or
-device-runtime leaves in `logic_analyzer_processing` that still require native execution. Format
+device-runtime leaves in `logic_analyzer_device_dslogic` that still require native execution, or
+file-I/O compatibility leaves in `logic_analyzer_capture_formats`. Format
 parsers and index factories consume prepared random-access sources; native application composition
 acquires those sources through target-selected mechanisms. Node state, schemas, and builders remain
 portable.
 
 The processing-adapter allowlist is restricted to:
 
-- `support::capture_archive::file_byte_source` and the DSL/Sigrok
+- `logic_analyzer_capture_formats::support::capture_archive::file_byte_source` and the DSL/Sigrok
   `path_compatibility` leaves that expose compatibility path constructors;
-- the native U3Pro16 device-runtime leaves under `nodes::sources::dslogic_u3pro16`, including its
+- the native U3Pro16 device-runtime leaves in `logic_analyzer_device_dslogic`, including its
   developer benchmark entry point.
 
 DSL and Sigrok archive parsing, index construction, streaming, and prepared-source execution are

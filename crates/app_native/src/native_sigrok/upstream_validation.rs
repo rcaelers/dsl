@@ -8,7 +8,7 @@ use std::thread::JoinHandle;
 
 use crossbeam_channel::{Receiver as ChannelReceiver, bounded};
 
-use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+use logic_analyzer_protocol_decoders::sigrok_decoder::{
     SigrokChannel, SigrokDecoder, SigrokDecoderConfig, SigrokInitialPin, SigrokOptionValue,
 };
 use platform_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
@@ -66,7 +66,7 @@ impl WorkTask for ValidationWorkTask {
 ///
 /// # Parameters
 /// - `decoder_root`: Input consumed by this operation.
-pub fn validate_spi_chunk_boundaries(decoder_root: &Path) -> Result<(), String> {
+pub(crate) fn validate_spi_chunk_boundaries(decoder_root: &Path) -> Result<(), String> {
     validate_decoder_root(decoder_root)?;
     let signals = spi_signals(0xa5);
     let reference = run_spi(decoder_root, &signals, &[signals[0].len()])?;
@@ -116,7 +116,7 @@ pub fn validate_spi_chunk_boundaries(decoder_root: &Path) -> Result<(), String> 
 }
 
 /// Compares the hosted SPI decoder output with an installed libsigrokdecode oracle.
-pub fn validate_spi_oracle(
+pub(crate) fn validate_spi_oracle(
     decoder_root: &Path,
     pkg_config_name: &str,
     c_compiler: &str,

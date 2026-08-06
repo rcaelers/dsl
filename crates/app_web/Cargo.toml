@@ -15,11 +15,11 @@ console_error_panic_hook = "0.1.7"
 eframe = { workspace = true }
 js-sys = { workspace = true }
 log = { workspace = true }
+logic-analyzer-capture-formats = { path = "../logic_analyzer_capture_formats" }
 logic-analyzer-ui = { path = "../logic_analyzer_ui" }
 logic-analyzer-graph-nodes = { path = "../logic_analyzer_graph_nodes" }
 logic-analyzer-graph-orchestration = { path = "../logic_analyzer_graph_orchestration" }
 logic-analyzer-graph-runtime = { path = "../logic_analyzer_graph_runtime" }
-logic-analyzer-processing = { path = "../logic_analyzer_processing" }
 platform = { path = "../platform" }
 node-graph = { path = "../widgets/node_graph" }
 rfd = { workspace = true, features = ["file-handle-inner"] }
@@ -28,8 +28,11 @@ serde_json = { workspace = true }
 platform-artifacts = { path = "../platform_artifacts" }
 platform-runtime = { path = "../platform_runtime" }
 signal-capture = { path = "../signal_capture" }
+signal-capture-session = { path = "../signal_capture_session" }
 signal-derived = { path = "../signal_derived" }
+signal-generators = { path = "../signal_generators" }
 signal-runtime = { path = "../signal_runtime" }
+signal-sinks = { path = "../signal_sinks" }
 tracing = { workspace = true }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }

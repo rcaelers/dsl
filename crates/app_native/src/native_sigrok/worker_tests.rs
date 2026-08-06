@@ -8,7 +8,7 @@ use std::time::Duration;
 use pyo3::Python;
 use pyo3::types::{PyAnyMethods, PyStringMethods};
 
-use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{InitialPin, LogicChunk};
+use logic_analyzer_protocol_decoders::sigrok_decoder::{InitialPin, LogicChunk};
 use platform_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
 
 use super::python_host::{OUTPUT_ANN, OUTPUT_PYTHON};

@@ -9,10 +9,8 @@ use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableColumnDescriptor, LanePresentationDescriptor, NodeBuildContext, PortKind,
     ResolvedInputs, parse_state,
 };
-use logic_analyzer_processing::nodes::decoders::uart_decoder::{
-    UartDecoder, UartParity, UartStopBits,
-};
-use logic_analyzer_processing::types::BitOrder;
+use logic_analyzer_protocol_decoders::types::BitOrder;
+use logic_analyzer_protocol_decoders::uart_decoder::{UartDecoder, UartParity, UartStopBits};
 use node_graph::api::Socket;
 use signal_capture::Sample;
 use signal_derived::{Trigger, Word};

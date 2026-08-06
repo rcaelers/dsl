@@ -30,10 +30,12 @@ eframe = { workspace = true }
 egui = { workspace = true }
 input-bindings = { path = "../input_bindings" }
 logic-analyzer-capture-export = { path = "../logic_analyzer_capture_export" }
+logic-analyzer-capture-formats = { path = "../logic_analyzer_capture_formats" }
+logic-analyzer-device-dslogic = { path = "../logic_analyzer_device_dslogic" }
+logic-analyzer-protocol-decoders = { path = "../logic_analyzer_protocol_decoders" }
 logic-analyzer-ui = { path = "../logic_analyzer_ui" }
 logic-analyzer-graph-nodes = { path = "../logic_analyzer_graph_nodes" }
 logic-analyzer-graph-runtime = { path = "../logic_analyzer_graph_runtime" }
-logic-analyzer-processing = { path = "../logic_analyzer_processing" }
 platform = { path = "../platform" }
 node-graph = { path = "../widgets/node_graph" }
 pyo3 = { workspace = true }
@@ -41,6 +43,7 @@ signal-capture = { path = "../signal_capture" }
 signal-derived = { path = "../signal_derived" }
 signal-capture-session = { path = "../signal_capture_session" }
 signal-runtime = { path = "../signal_runtime" }
+signal-sinks = { path = "../signal_sinks" }
 platform-runtime = { path = "../platform_runtime" }
 tracing = { workspace = true }
 serde = { workspace = true }
@@ -51,7 +54,7 @@ tracing-subscriber = { workspace = true }
 example-plugin = { path = "../../plugins/example-plugin", optional = true }
 
 [features]
-developer-tools = ["logic-analyzer-processing/developer-tools"]
+developer-tools = ["logic-analyzer-device-dslogic/developer-tools"]
 example-plugin = ["dep:example-plugin"]
 
 

@@ -4,6 +4,9 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
+use logic_analyzer_capture_formats::sigrok_file::{
+    SigrokFileSourceConfig, SigrokFileSourceFactory, portable_source_factory,
+};
 use logic_analyzer_graph_capabilities::node::{
     CaptureSourceFeature, GraphNodeCapabilityOverride, GraphNodePresentation, GraphNodeSemantics,
     RuntimeMaterializer,
@@ -12,12 +15,9 @@ use logic_analyzer_graph_capabilities::node_support::{
     CaptureCacheIdentity, CapturePresentation, NodeBuildContext, PortKind, ResolvedInputs,
     parse_state,
 };
-use logic_analyzer_processing::CaptureSourceMetadata;
-use logic_analyzer_processing::nodes::sources::sigrok_file::{
-    SigrokFileSourceConfig, SigrokFileSourceFactory, portable_source_factory,
-};
 use node_graph::api::Socket;
 use signal_capture::{Sample, SampleBlock};
+use signal_capture_session::CaptureSourceMetadata;
 use signal_runtime::ProcessNode;
 
 pub(crate) struct SigrokFileSourceBuilder {
@@ -137,7 +137,7 @@ impl RuntimeMaterializer for SigrokFileSourceBuilder {
         let state: super::definition::SigrokFileSourceState = parse_state(state)?;
         self.source_factory
             .create(name, Self::config(&state), ctx.work_executor())
-            .map(logic_analyzer_processing::ProcessNodeConstruction::into_process)
+            .map(signal_runtime::ProcessNodeConstruction::into_process)
             .map_err(|error| format!("cannot open '{}': {error}", state.file.value))
     }
 }
@@ -175,12 +175,13 @@ mod builder_tests {
     use std::path::Path;
     use std::sync::Mutex;
 
-    use logic_analyzer_processing::{
-        CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle,
-        CaptureSourcePresentation, ProcessNodeConstruction,
-    };
     use node_graph::NodeDef;
     use signal_capture::IndexedCapturePresentation;
+    use signal_capture_session::{
+        CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle,
+        CaptureSourcePresentation,
+    };
+    use signal_runtime::ProcessNodeConstruction;
 
     use super::super::definition::SigrokFileSource;
     use super::*;

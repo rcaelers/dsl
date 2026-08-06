@@ -1,4 +1,4 @@
-use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::{
+use signal_capture_session::logic_analyzer::{
     CaptureMode, ClockEdge, ClockSource, LogicCaptureConfig, LogicEncodingRequest, LogicTrigger,
 };
 

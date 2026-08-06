@@ -5,7 +5,7 @@ use pyo3::Py;
 use pyo3::types::PyAny;
 use thiserror::Error;
 
-use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+use logic_analyzer_protocol_decoders::sigrok_decoder::{
     InitialPin, LogicChunk, OutputRegistration,
 };
 
@@ -201,7 +201,7 @@ pub(crate) fn matched_parts(result: WaitMatch) -> (u64, Vec<u8>, Option<Vec<bool
 
 #[cfg(test)]
 mod bridge_tests {
-    use logic_analyzer_processing::nodes::decoders::sigrok_decoder::InitialPin;
+    use logic_analyzer_protocol_decoders::sigrok_decoder::InitialPin;
     use pyo3::Python;
 
     use super::*;

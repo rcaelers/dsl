@@ -8,7 +8,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyDictMethods, PyList, PyModule};
 use thiserror::Error;
 
-use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+use logic_analyzer_protocol_decoders::sigrok_decoder::{
     InitialPin, LogicChunk, OutputRegistration,
 };
 use platform_runtime::{WorkExecutor, WorkTask};

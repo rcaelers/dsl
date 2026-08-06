@@ -1,0 +1,42 @@
+use signal_capture_session::{CaptureSourcePresentation, CaptureSourceSignal};
+
+use super::implementation::SyntheticCaptureSource;
+
+/// Creates presentation metadata for deterministic synthetic channels.
+///
+/// # Parameters
+/// - `channel_names`: Names assigned to the generated channels.
+/// - `excluded_channels`: Channel indices omitted from the presentation.
+pub fn synthetic_presentation(
+    channel_names: impl IntoIterator<Item = String>,
+    excluded_channels: &[usize],
+) -> CaptureSourcePresentation {
+    let channel_names = channel_names.into_iter().collect::<Vec<_>>();
+    let channels = SyntheticCaptureSource::preview_channels_with_count(channel_names.len());
+    let signals = channel_names
+        .into_iter()
+        .enumerate()
+        .filter(|(index, _)| !excluded_channels.contains(index))
+        .map(|(index, name)| {
+            let samples = &channels[index];
+            CaptureSourceSignal::new(
+                index,
+                name,
+                samples.first().is_some_and(|sample| sample.value),
+                samples
+                    .iter()
+                    .skip(1)
+                    .map(|sample| (sample.start_time_ns as f64 / 1_000.0, sample.value))
+                    .collect(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let duration_us = signals
+        .iter()
+        .filter_map(|signal| signal.transitions().last().map(|(time, _)| *time))
+        .fold(1.0_f64, f64::max);
+    CaptureSourcePresentation::InMemory {
+        signals,
+        duration_us,
+    }
+}

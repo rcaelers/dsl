@@ -120,7 +120,7 @@ cargo run --release --bin logic-conduit -- run <graph.json> --json
 
 # Logging via RUST_LOG (per-module filtering)
 RUST_LOG=info cargo run --release --bin logic-conduit
-RUST_LOG=info,logic_analyzer_processing::nodes::decoders::spi_decoder=debug cargo run --release --bin logic-conduit
+RUST_LOG=info,logic_analyzer_protocol_decoders::spi_decoder=debug cargo run --release --bin logic-conduit
 ```
 
 Headless execution performs a fresh run just like the UI: it removes that
@@ -174,7 +174,7 @@ contracts), `crates/platform_runtime` (generic host work and worker contracts),
 `crates/signal_runtime` (generic streaming runtime),
 `crates/signal_capture`, `crates/signal_derived`, and `crates/signal_capture_session`
 (generic signal data-plane contracts),
-`crates/logic_analyzer_processing` (concrete decoders, processing nodes, and file/USB sources),
+the positive-responsibility capture-format, device, decoder, transform, sink, and generator crates,
 `crates/logic_analyzer_graph_nodes` (node catalog) and
 `crates/logic_analyzer_graph_compiler` (graph compiler),
 `crates/widgets/node_graph` (reusable node editor widget),

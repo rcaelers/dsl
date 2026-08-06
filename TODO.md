@@ -38,7 +38,7 @@ Task IDs start with their ownership category and remain stable when task wording
   permissions without changing processing-node behavior.
 - [capture.web.usb-async-transport] Replace the U3Pro16 transport's blocking open, control-transfer, bulk-transfer,
   timeout, and queued-read boundary with a portable asynchronous or explicitly pollable contract. Keep the device
-  protocol and acquisition state machine in `logic_analyzer_processing` and execute that identical implementation on
+  protocol and acquisition state machine in `logic_analyzer_device_dslogic` and execute that identical implementation on
   a native background executor or browser worker. Model cancellation without pretending that WebUSB can abort one
   transfer independently; closing a web device may be required to abort its outstanding operations.
 - [capture.web.usb-access-preflight] Add a generic asynchronous capture-source access preflight started directly by a
@@ -152,7 +152,7 @@ item here, so acceptance comparisons stop being ad-hoc.
      source-generation-keyed cache for immutable expanded capture blocks. Coalesce concurrent misses,
      preserve channel/block identity and cancellation, and size it from measured reuse distance rather
      than retaining a whole capture. Keep the cache policy generic and concrete DSL archive behavior
-     in `logic_analyzer_processing`.
+     in `logic_analyzer_capture_formats`.
    - [ ] [capture.index.ordered-prefetch] If reads stall the critical path without useful reuse,
      compare bounded block-major lookahead and batched archive entry lookup against the current
      per-worker readers. Do not increase the 12-worker cap or duplicate decompression to hide I/O.
@@ -365,23 +365,6 @@ item here, so acceptance comparisons stop being ad-hoc.
 
 ### Crate boundary corrections
 
-- [processing.domain-split] (P2 · high) Split `logic_analyzer_processing`. Its stated responsibility is the
-  negation "concrete", and its 28,000 lines hold a USB device driver, two capture-format parsers,
-  five protocol decoders, a Python decoder host, eleven logic primitives, six sinks, synthetic
-  sources, and three benchmark binaries (with two validation binaries already under platform);
-  `clap` and `tracing-subscriber` are library dependencies. Separate the
-  capture formats, the device transports, and the protocol decoders into crates that state a
-  positive responsibility, and move the benchmark and validation binaries out of reusable
-  libraries. Do not leave primitives, sinks, synthetic/demo sources, and shared types in one
-  residual crate: give output sinks/formats, synthetic sources, and generic logic transforms their
-  own positive owners. Device and decoder crates consume injected neutral file, USB, process, and
-  storage capabilities; they do not move domain behavior into platform.
-  Follow the recorded signal-tier vocabulary: reusable signal transforms, sinks, and generators
-  remain in narrowly owned `signal_*` crates, while concrete formats, devices, and decoded
-  protocols live in `logic_analyzer_*` crates. Do the split before the `capture.web.usb-*` backlog
-  adds more transport code to the crate.
-  Direction, including the target crate map and PR ordering:
-  [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#processing-domain-split).
 - [session.domain-relocation] (P3 · medium) Purge logic-analyzer vocabulary from the generic session tier.
   `signal_capture_session` publishes 129 items and a public `logic_analyzer` module, and the
   trigger program, trigger schema, and `SimpleTriggerCondition` types it owns are domain concepts

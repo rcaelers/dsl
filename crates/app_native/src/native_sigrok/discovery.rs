@@ -8,7 +8,7 @@ use pyo3::types::{
     PyAny, PyBool, PyDict, PyDictMethods, PyFloat, PyInt, PyList, PyModule, PyString,
 };
 
-use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+use logic_analyzer_protocol_decoders::sigrok_decoder::{
     InitialPin, SigrokAnnotationClassDescriptor, SigrokAnnotationRowDescriptor,
     SigrokCatalogDiagnostic, SigrokCatalogDiagnosticKind, SigrokCatalogEntry,
     SigrokCatalogSnapshot, SigrokDecoderChannelDescriptor, SigrokDecoderDescriptor,

@@ -7,11 +7,11 @@ use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMateria
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
-use logic_analyzer_processing::nodes::logic::buffer::BufferNode;
 use node_graph::api::Socket;
 use signal_capture::{Sample, SampleBlock};
 use signal_derived::{NumberSample, TextSample, Trigger, Word};
 use signal_runtime::ProcessNode;
+use signal_transforms::buffer::BufferNode;
 
 /// Maps a `BufferState.kind` selection to
 /// the concrete `PortKind` it names. Falls back to `Signal` for state that

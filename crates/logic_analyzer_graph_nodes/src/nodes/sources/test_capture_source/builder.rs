@@ -9,9 +9,9 @@ use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, CapturePresentationSignal, NodeBuildContext, PortKind, ResolvedInputs,
     parse_state,
 };
-use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
 use node_graph::api::Socket;
 use signal_capture::{Sample, SampleBlock};
+use signal_generators::synthetic_capture_source::SyntheticCaptureSource;
 use signal_runtime::ProcessNode;
 
 #[derive(Default)]

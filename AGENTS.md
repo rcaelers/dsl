@@ -4,8 +4,8 @@
   infrastructure independent of concrete nodes and protocols. They must not
   branch on node names, port labels, or protocol-specific values (for example
   UART, `Bits`, `Data`, start/stop markers, SPI, or Binary Decoder).
-- Concrete behavior belongs in the corresponding `logic_analyzer_graph_nodes` node
-  feature and its `logic_analyzer_processing` runtime node.
+- Concrete behavior belongs in the corresponding `logic_analyzer_graph_nodes` node feature and
+  its capture-format, device, protocol-decoder, transform, sink, or generator runtime owner.
 - Pass protocol-specific presentation needs to generic infrastructure through
   explicit, generic metadata/contracts. Do not infer behavior from display
   names or use name-based special cases.
@@ -26,8 +26,12 @@ See `docs/aspects/plugin_extensible_payload.md` for the detailed payload and vie
   re-exports, and module visibility as architectural contracts, not convenience access.
 - `signal_processing` is UI-independent generic runtime, capture, and derived-data
   infrastructure.
-- `logic_analyzer_processing` owns UI-independent concrete capture sources,
-  protocol decoders, processing nodes, and sinks.
+- `logic_analyzer_capture_formats` owns UI-independent DSL and Sigrok capture readers, indexes,
+  and replay sources.
+- `logic_analyzer_device_dslogic` owns DSLogic acquisition behavior and its neutral transport port.
+- `logic_analyzer_protocol_decoders` owns UI-independent concrete protocol decoders.
+- `signal_transforms`, `signal_sinks`, and `signal_generators` own portable transforms, terminal
+  consumers, and deterministic sources respectively.
 - `logic_analyzer_graph_nodes` owns concrete graph nodes and their builders.
 - `logic_analyzer_graph_compiler` owns generic graph lowering, discovery, execution, and
   saved-document synchronization.
@@ -88,7 +92,8 @@ See the module layout and public-module allowlist in
   composition boundary. It contains the single reusable target-selection point.
 - Native and web application crates may contain only the target-specific entry and bootstrap code
   required to create the host and install `platform` services.
-- Complete file-I/O or USB adapter leaf modules in `logic_analyzer_processing` are the only
+- Complete file-I/O leaves in `logic_analyzer_capture_formats` and USB adapter leaves in
+  `logic_analyzer_device_dslogic` are the only
   permitted reusable-crate exception when the capability cannot yet be injected without moving
   concrete format or device behavior to the platform crate. Every exception is explicitly
   allowlisted in `docs/aspects/responsibility_visibility.md`. Node state, schemas, builders,

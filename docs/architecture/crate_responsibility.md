@@ -34,7 +34,8 @@ application policy, or native/browser transports.
 
 Owns generic typed-stream execution: process-node lifecycle, named ports, channels, pipeline
 wiring, scheduling, and threaded and cooperative managers. Its crate root is the supported
-execution facade. It consumes injected `platform-runtime` work capabilities and does not define
+execution facade. `ProcessNodeConstruction` couples a constructed process with owner-defined
+metadata without introducing an umbrella processing crate. It consumes injected `platform-runtime` work capabilities and does not define
 their host adapters, capture or derived payload storage, acquisition sessions, concrete nodes,
 graph documents, or presentation.
 
@@ -57,7 +58,8 @@ outside that module.
 
 #### `signal-capture-session`
 
-Owns generic acquisition and recording lifecycles. Its public modules are domain facades:
+Owns generic acquisition and recording lifecycles plus lazy capture-source metadata, lifecycle,
+presentation, and cache-identity contracts. Its public modules are domain facades:
 
 - `live_capture` defines provider-neutral acquisition configuration, commands, events, progress,
   bounded delivery, and terminal outcomes;
@@ -68,18 +70,38 @@ Owns generic acquisition and recording lifecycles. Its public modules are domain
 
 Concrete device transports, formats, graph-node state, and UI workflow remain outside this crate.
 
-#### `logic-analyzer-processing`
+#### `signal-transforms`
 
-Owns concrete UI-independent processing behavior: capture formats and devices, processing sources,
-protocol decoders, logic processors, and sinks. It implements the lower-level signal contracts and
-translates format and transport failures at those boundaries.
+Owns portable UI-independent stream transformations and control primitives. Each public module is
+one transform family. Runtime scheduling, graph definitions, and presentation remain outside it.
 
-The public `nodes` module groups supported executable components by role. Its `sources`, `decoders`,
-`logic`, and `sinks` namespaces expose the configuration and factory contracts for each concrete
-node family; their child modules own individual behaviors. The public `types` module contains
-protocol-neutral conventions shared by those nodes, currently bit order, chip-select polarity, and
-endianness. Graph definitions, saved-node migration, socket presentation, and host selection remain
-outside this crate.
+#### `signal-sinks`
+
+Owns portable terminal stream consumers and output encodings. File-producing sinks consume the
+injected `OutputStorage` destination contract; physical file access and dialogs remain outside it.
+
+#### `signal-generators`
+
+Owns explicit deterministic capture and UART-like signal generation for authored demonstrations,
+tests, and scenarios. Generators are selected through configuration and are not host fallbacks.
+
+#### `logic-analyzer-capture-formats`
+
+Owns DSL and Sigrok archive parsing, capture indexing, and finite replay sources. It consumes
+prepared byte sources and artifact/work capabilities; host file selection and graph definitions
+remain outside it.
+
+#### `logic-analyzer-device-dslogic`
+
+Owns the DSLogic U3Pro16 protocol, acquisition planning, packet conversion, and processing source.
+It consumes an injected USB transport and FPGA-image contract. Platform owns the native transport;
+graph configuration and UI remain outside this crate.
+
+#### `logic-analyzer-protocol-decoders`
+
+Owns UI-independent I²C, parallel, Sigrok, SPI, and UART decoding state machines plus their runtime
+configuration and host contracts. Graph sockets, saved state, and renderer metadata remain with
+the corresponding graph features.
 
 ### Graph crates
 
@@ -260,12 +282,32 @@ flowchart LR
     Registry --> Capabilities[logic_analyzer_graph_capabilities]
     Plan --> Capabilities
     Nodes --> Registry
-    Nodes --> Processing[logic_analyzer_processing]
-    Processing --> HostRuntime
-    Processing --> Session[signal_capture_session]
-    Processing --> Capture[signal_capture]
-    Processing --> Derived[signal_derived]
-    Processing --> Stream[signal_runtime]
+    Nodes --> Formats[logic_analyzer_capture_formats]
+    Nodes --> Device[logic_analyzer_device_dslogic]
+    Nodes --> Decoders[logic_analyzer_protocol_decoders]
+    Nodes --> Transforms[signal_transforms]
+    Nodes --> Sinks[signal_sinks]
+    Nodes --> Generators[signal_generators]
+    Formats --> HostRuntime
+    Formats --> Session[signal_capture_session]
+    Formats --> Capture[signal_capture]
+    Device --> HostRuntime
+    Device --> Session
+    Decoders --> HostRuntime
+    Decoders --> Capture
+    Decoders --> Derived[signal_derived]
+    Transforms --> Capture
+    Transforms --> Derived
+    Sinks --> Capture
+    Sinks --> Derived
+    Generators --> Capture
+    Generators --> Session
+    Formats --> Stream[signal_runtime]
+    Device --> Stream
+    Decoders --> Stream
+    Transforms --> Stream
+    Sinks --> Stream
+    Generators --> Stream
     Stream --> HostRuntime
     Session --> Capture
     Session --> Derived
@@ -370,6 +412,15 @@ flowchart LR
     Session --> Derived
     Session --> Runtime
     Session --> HostRuntime
+    Transforms[signal_transforms] --> Capture
+    Transforms --> Derived
+    Transforms --> Runtime
+    Sinks[signal_sinks] --> Capture
+    Sinks --> Derived
+    Sinks --> Runtime
+    Generators[signal_generators] --> Capture
+    Generators --> Session
+    Generators --> Runtime
     Runtime --> HostRuntime
 ```
 

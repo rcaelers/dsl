@@ -1,0 +1,17 @@
+[package]
+name = "signal-generators"
+version.workspace = true
+edition = "2024"
+authors = ["Rob Caelers <rob.caelers@gmail.com>"]
+description = "Deterministic portable signal generators"
+repository = "https://github.com/rcaelers/logic-conduit"
+license = "MIT"
+
+[lib]
+name = "signal_generators"
+path = "src/lib.rs"
+
+[dependencies]
+signal-capture-session = { path = "../signal_capture_session" }
+signal-capture = { path = "../signal_capture" }
+signal-runtime = { path = "../signal_runtime" }

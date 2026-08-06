@@ -6,10 +6,10 @@ use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMateria
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
-use logic_analyzer_processing::nodes::logic::trigger_counter::TriggerCounter;
 use node_graph::api::Socket;
 use signal_derived::{NumberSample, Trigger};
 use signal_runtime::ProcessNode;
+use signal_transforms::trigger_counter::TriggerCounter;
 
 #[derive(Default)]
 pub(crate) struct CounterBuilder;

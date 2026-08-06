@@ -3,9 +3,7 @@
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
-use logic_analyzer_processing::nodes::sources::dsl_file::{
-    DslFileSourceConfig, DslFileSourceFactory,
-};
+use logic_analyzer_capture_formats::dsl_file::{DslFileSourceConfig, DslFileSourceFactory};
 use node_graph::{
     FileValue, InputDef, IntValue, NodeBadge, NodeDef, NodeInstanceSchema, OutputDef, Socket,
 };

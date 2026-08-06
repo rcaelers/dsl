@@ -225,7 +225,7 @@ throughput, and fragment/reorder memory bounds. Use `count` to require identical
 worker count and `discard` to isolate scan throughput from downstream word transport:
 
 ```console
-cargo run --release -p logic-analyzer-processing --bin parallel-decoder-bench -- \
+cargo run --release -p logic-analyzer-examples --bin parallel-decoder-bench -- \
   /path/to/reference.dsl --mode stream --sink count --worker-sweep
 ```
 
@@ -234,8 +234,8 @@ exercising the concrete streaming driver, capture store, growing index, viewer
 queries, and a lagging consumer:
 
 ```console
-cargo run --release -p logic-analyzer-processing \
-  --features developer-tools --bin u3pro16-streaming-bench
+cargo run --release -p logic-analyzer-examples --features developer-tools \
+  --bin u3pro16-streaming-bench
 ```
 
 The feature exposes only the benchmark entry point. Its generated USB

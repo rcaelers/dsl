@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{InitialPin, LogicChunk};
+use logic_analyzer_protocol_decoders::sigrok_decoder::{InitialPin, LogicChunk};
 
 use super::conditions::{PinCondition, WaitCondition, WaitRequest, WaitTerm};
 

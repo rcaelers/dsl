@@ -10,35 +10,34 @@ use logic_analyzer_ui::{
 
 const APPLICATION_LOG_TARGETS: &[&str] = &[
     "logic_conduit",
+    "logic_analyzer_capture_formats",
+    "logic_analyzer_device_dslogic",
     "logic_analyzer_ui",
     "logic_analyzer_graph_compiler",
-    "logic_analyzer_processing",
+    "logic_analyzer_protocol_decoders",
     "logic_analyzer_viewer",
     "node_graph",
     "panel_layout",
     "trigger_editor",
     "input_bindings",
     "signal_capture_session",
+    "signal_generators",
+    "signal_sinks",
+    "signal_transforms",
 ];
 
 struct NativeOutputStorage;
 
-impl logic_analyzer_processing::nodes::sinks::OutputStorage for NativeOutputStorage {
+impl signal_sinks::OutputStorage for NativeOutputStorage {
     fn create_parent_dirs(&self, path: &Path) -> std::io::Result<()> {
         platform::native_create_parent_directories(path)
     }
 
-    fn create(
-        &self,
-        path: &Path,
-    ) -> std::io::Result<Box<dyn logic_analyzer_processing::nodes::sinks::OutputFile>> {
+    fn create(&self, path: &Path) -> std::io::Result<Box<dyn signal_sinks::OutputFile>> {
         platform::native_create_file(path).map(|file| Box::new(file) as Box<_>)
     }
 
-    fn append(
-        &self,
-        path: &Path,
-    ) -> std::io::Result<Box<dyn logic_analyzer_processing::nodes::sinks::OutputFile>> {
+    fn append(&self, path: &Path) -> std::io::Result<Box<dyn signal_sinks::OutputFile>> {
         platform::native_append_file(path).map(|file| Box::new(file) as Box<_>)
     }
 
@@ -184,17 +183,16 @@ fn application_services() -> (
 ) {
     let artifact_repository = platform::native_artifact_repository(APPLICATION_ID);
     let dsl_file_source_factory =
-        logic_analyzer_processing::nodes::sources::dsl_file::prepared_file_source_factory(
-            Arc::new(platform::native_file_byte_source),
-        );
-    let output_storage: Arc<dyn logic_analyzer_processing::nodes::sinks::OutputStorage> =
-        Arc::new(NativeOutputStorage);
+        logic_analyzer_capture_formats::dsl_file::prepared_file_source_factory(Arc::new(
+            platform::native_file_byte_source,
+        ));
+    let output_storage: Arc<dyn signal_sinks::OutputStorage> = Arc::new(NativeOutputStorage);
     let sigrok_catalog_scanner = crate::native_sigrok::catalog_scanner();
     let sigrok_decoder_runtime = crate::native_sigrok::decoder_runtime();
     let sigrok_file_source_factory =
-        logic_analyzer_processing::nodes::sources::sigrok_file::prepared_file_source_factory(
-            Arc::new(platform::native_file_byte_source),
-        );
+        logic_analyzer_capture_formats::sigrok_file::prepared_file_source_factory(Arc::new(
+            platform::native_file_byte_source,
+        ));
     let u3pro16_source_factory = crate::u3pro16_host::source_factory();
     let work_executor = platform::native_work_executor();
     let app_manager_factory: Arc<dyn signal_runtime::AppManagerFactory> = Arc::new(
@@ -222,19 +220,13 @@ fn application_services() -> (
 
     let capability_overrides = vec![
         logic_analyzer_graph_nodes::binary_file_writer_capability_override(
-            logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
-                Arc::clone(&output_storage),
-            ),
+            signal_sinks::binary_file_writer::writer_factory(Arc::clone(&output_storage)),
         ),
         logic_analyzer_graph_nodes::csv_word_writer_capability_override(
-            logic_analyzer_processing::nodes::sinks::csv_word_writer::writer_factory(Arc::clone(
-                &output_storage,
-            )),
+            signal_sinks::csv_word_writer::writer_factory(Arc::clone(&output_storage)),
         ),
         logic_analyzer_graph_nodes::text_file_writer_capability_override(
-            logic_analyzer_processing::nodes::sinks::text_file_writer::writer_factory(
-                output_storage,
-            ),
+            signal_sinks::text_file_writer::writer_factory(output_storage),
         ),
         logic_analyzer_graph_nodes::dsl_file_source_capability_override(dsl_file_source_factory),
         logic_analyzer_graph_nodes::sigrok_file_source_capability_override(
@@ -412,15 +404,17 @@ mod logging_tests {
     fn expands_the_application_root_filter_to_workspace_targets() {
         let directives = expand_application_log_directives("logic_conduit=debug");
 
-        assert!(directives.contains("logic_analyzer_processing=debug"));
+        assert!(directives.contains("logic_analyzer_protocol_decoders=debug"));
         assert!(directives.contains("signal_capture_session=debug"));
     }
 
     #[test]
     fn expands_an_application_subsystem_filter_to_its_local_target() {
         assert_eq!(
-            expand_application_log_directives("logic_conduit.logic_analyzer_processing=debug"),
-            "logic_analyzer_processing=debug"
+            expand_application_log_directives(
+                "logic_conduit.logic_analyzer_protocol_decoders=debug"
+            ),
+            "logic_analyzer_protocol_decoders=debug"
         );
     }
 
@@ -428,7 +422,7 @@ mod logging_tests {
     fn retains_non_application_directives() {
         assert_eq!(
             expand_application_log_directives("warn,eframe=info,logic_conduit=debug"),
-            "warn,eframe=info,logic_conduit=debug,logic_analyzer_ui=debug,logic_analyzer_graph_compiler=debug,logic_analyzer_processing=debug,logic_analyzer_viewer=debug,node_graph=debug,panel_layout=debug,trigger_editor=debug,input_bindings=debug,signal_capture_session=debug"
+            "warn,eframe=info,logic_conduit=debug,logic_analyzer_capture_formats=debug,logic_analyzer_device_dslogic=debug,logic_analyzer_ui=debug,logic_analyzer_graph_compiler=debug,logic_analyzer_protocol_decoders=debug,logic_analyzer_viewer=debug,node_graph=debug,panel_layout=debug,trigger_editor=debug,input_bindings=debug,signal_capture_session=debug,signal_generators=debug,signal_sinks=debug,signal_transforms=debug"
         );
     }
 }

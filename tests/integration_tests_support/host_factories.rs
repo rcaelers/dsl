@@ -1,17 +1,11 @@
 use std::sync::Arc;
 
+use logic_analyzer_capture_formats::dsl_file::{DslFileSourceConfig, DslFileSourceFactory};
+use logic_analyzer_device_dslogic::DsLogicU3Pro16SourceFactory;
 use logic_analyzer_graph_capabilities::node::GraphNodeCapabilityOverride;
 use logic_analyzer_graph_compiler::GraphLowerer;
 use logic_analyzer_graph_plan::OutputSubscriptionPlan;
 use logic_analyzer_graph_runtime::{GraphRuntime, InlineSourcePreparationExecutor};
-use logic_analyzer_processing::nodes::sources::dsl_file::{
-    DslFileSourceConfig, DslFileSourceFactory,
-};
-use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::DsLogicU3Pro16SourceFactory;
-use logic_analyzer_processing::{
-    CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
-    CaptureSourcePresentation, CaptureSourceRuntimeCapabilities, ProcessNodeConstruction,
-};
 use platform_artifacts::{ArtifactRepository, SourceIdentity};
 use platform_runtime::{InlineWorkExecutor, WorkExecutor};
 use signal_capture::{
@@ -20,10 +14,11 @@ use signal_capture::{
 };
 use signal_capture_session::logic_analyzer::{CaptureMode, LogicCaptureConfig};
 use signal_capture_session::{
-    AcquisitionContext, AcquisitionResult, CaptureDataDelivery, CaptureStartMode,
-    ConfiguredAcquisition, PreparedAcquisition,
+    AcquisitionContext, AcquisitionResult, CaptureDataDelivery, CaptureSourceCacheIdentity,
+    CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata, CaptureSourcePresentation,
+    CaptureSourceRuntimeCapabilities, CaptureStartMode, ConfiguredAcquisition, PreparedAcquisition,
 };
-use signal_runtime::CooperativeAppManagerFactory;
+use signal_runtime::{CooperativeAppManagerFactory, ProcessNodeConstruction};
 
 pub(crate) struct GraphHarness {
     lowerer: GraphLowerer,

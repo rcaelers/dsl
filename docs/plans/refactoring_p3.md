@@ -147,7 +147,7 @@ surfaces rather than replacing them with an umbrella error.
 2. `signal_runtime`: manager and pipeline-supervision paths that still return `String`.
    Downstream crates then hold typed sources to wrap.
 3. Host-override contracts — `SigrokDecoderRuntime::{discover,create}` and
-   `SigrokCatalogScanner` — in their `logic_analyzer_processing` owner, so the error types are
+   `SigrokCatalogScanner` — in their `logic_analyzer_protocol_decoders` owner, so the error types are
    defined once in their final home.
 4. `graph_runtime` source preparation: give `SourcePreparationUpdate::Failed` a typed cause and
    find the UI code that currently distinguishes failures by message text (search `app.rs` and
@@ -289,10 +289,10 @@ and attach viewer data through different code paths.
 
 ## performance.regression-harness (P3 · medium) {#performance-regression-harness}
 
-**Current state.** One Criterion-style bench (`benches/compiler_capture.rs` in the top-level
-package), ad-hoc `logic-conduit run … --json` comparisons, and the acceptance rule documented in
-[`docs/aspects/performance.md`](../aspects/performance.md). The five bench binaries under
-`logic_analyzer_processing/src/bin` move to the top-level package as domain-split step 1.
+**Current state.** One Criterion-style bench (`benches/compiler_capture.rs`) and three focused
+benchmark binaries live in the top-level package alongside ad-hoc `logic-conduit run … --json`
+comparisons. The acceptance rule is documented in
+[`docs/aspects/performance.md`](../aspects/performance.md).
 
 **Direction.** A comparison *runner*, not more benchmarks — a bin target in
 `logic-analyzer-examples`:

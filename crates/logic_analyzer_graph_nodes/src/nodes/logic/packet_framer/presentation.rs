@@ -7,9 +7,9 @@ use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableCellMode, DecoderTableColumnDescriptor,
 };
 use logic_analyzer_graph_registry::ProtocolPacketPresentationRegistration;
-use logic_analyzer_processing::nodes::logic::packet_framer::PACKET_FRAME_PROTOCOL_ID;
 use logic_analyzer_viewer::{DefaultViewerLaneRenderer, ViewerLaneRendererRegistration};
 use signal_derived::{ProtocolPacket, ProtocolValue};
+use signal_transforms::packet_framer::PACKET_FRAME_PROTOCOL_ID;
 
 const PACKET_TABLE_RENDERER: &str = "org.logicconduit.renderer.packet-frame-table/v1";
 const MAX_LABEL_WORDS: usize = 8;

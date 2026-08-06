@@ -68,14 +68,14 @@ The implementation follows the graph planning and execution boundaries:
 
 ```mermaid
 flowchart LR
-    NativeApp[app_native native_sigrok adapter] --> Contract[logic_analyzer_processing SigrokDecoderRuntime]
-    Contract --> Node[logic_analyzer_processing Sigrok ProcessNode]
+    NativeApp[app_native native_sigrok adapter] --> Contract[logic_analyzer_protocol_decoders SigrokDecoderRuntime]
+    Contract --> Node[logic_analyzer_protocol_decoders Sigrok ProcessNode]
     GraphNode[logic_analyzer_graph_nodes Sigrok definition and capabilities] --> Contract
     GraphNode --> Registry[logic_analyzer_graph_registry]
     Node --> Runtime[signal_runtime]
 ```
 
-`logic_analyzer_processing` owns the portable decoder descriptors, execution contract, configured
+`logic_analyzer_protocol_decoders` owns the portable decoder descriptors, execution contract, configured
 processing node, and output payloads. `logic_analyzer_graph_nodes` owns graph state, controls,
 migration, capabilities, and presentation metadata. The native application adapter owns CPython,
 package discovery, `wait()` scheduling, Python/Rust conversion, and the native execution-contract

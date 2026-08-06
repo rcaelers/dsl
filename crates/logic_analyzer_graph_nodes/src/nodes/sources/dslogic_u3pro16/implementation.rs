@@ -74,10 +74,10 @@ pub(crate) fn requested_capture_policy(state: &U3Pro16State) -> Result<CapturePo
 
 #[cfg(test)]
 mod tests {
-    use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::{
+    use signal_capture_session::SimpleTriggerCondition;
+    use signal_capture_session::logic_analyzer::{
         CaptureMode, ClockEdge, ClockSource, LogicEncodingRequest, TriggerCondition,
     };
-    use signal_capture_session::SimpleTriggerCondition;
 
     use super::super::definition::CaptureDurationValue;
     use super::{U3Pro16State, capture_config};

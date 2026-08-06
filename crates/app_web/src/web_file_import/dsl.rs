@@ -1,17 +1,18 @@
 use std::sync::Arc;
 
-use logic_analyzer_processing::nodes::sources::dsl_file::{
+use logic_analyzer_capture_formats::dsl_file::{
     DslFileSource, DslFileSourceConfig, DslFileSourceFactory,
-};
-use logic_analyzer_processing::{
-    CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
-    CaptureSourcePresentation, ProcessNodeConstruction,
 };
 use platform_artifacts::ArtifactRepository;
 use platform_runtime::WorkExecutor;
 use signal_capture::{
     CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, IndexedCapturePresentation,
 };
+use signal_capture_session::{
+    CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
+    CaptureSourcePresentation,
+};
+use signal_runtime::ProcessNodeConstruction;
 
 use super::registry::{BrowserFileRegistry, ImportedFile};
 use super::worker_source::dsl_preparation_request;

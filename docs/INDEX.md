@@ -58,6 +58,7 @@ namespace. All other crate contracts are documented in Rustdoc.
 - [signal_derived](crates/signal_derived.md)
 - [signal_capture_session](crates/signal_capture_session.md)
 - [signal_runtime](crates/signal_runtime.md)
+- [Processing domain crates](crates/processing_domains.md)
 
 ## Public modules
 
@@ -69,7 +70,13 @@ These supported namespaces are documented at their source facades in Rustdoc:
 - `signal_derived`: `derived_word_store`
 - `signal_capture_session`: `live_capture`, `live_capture_store`, and `logic_analyzer`
 - `signal_runtime`: no public modules; its crate root is the execution-contract facade
-- `logic_analyzer_processing`: `nodes`, `types`, each node family, and each concrete node
+- `logic_analyzer_capture_formats`: `dsl_file` and `sigrok_file`
+- `logic_analyzer_device_dslogic`: no public modules; its crate root is the device facade
+- `logic_analyzer_protocol_decoders`: `i2c_decoder`, `parallel_decoder`, `sigrok_decoder`,
+  `spi_decoder`, `types`, and `uart_decoder`
+- `signal_transforms`: one public module per transform
+- `signal_sinks`: one public module per sink
+- `signal_generators`: `synthetic_capture_source` and `synthetic_uart_source`
 - `logic_analyzer_graph_capabilities`: `node` and `node_support`
 - `node_graph`: `api`
 

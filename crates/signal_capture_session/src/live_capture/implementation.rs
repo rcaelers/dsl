@@ -1,6 +1,6 @@
 //! Generic, UI-independent contracts for bounded live-capture ingestion.
 //!
-//! Concrete devices and acquisition lifecycles live in `logic-analyzer-processing`. This module
+//! Concrete devices and acquisition lifecycles live in their logic-analyzer device owners. This module
 //! owns only the canonical data, status, and writer boundaries shared by capture providers,
 //! stores, graph cursors, and viewers.
 

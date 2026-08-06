@@ -8,13 +8,11 @@ use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMateria
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
-use logic_analyzer_processing::nodes::logic::word_matcher::{
-    MatchOp, PredicateMode, TriggerAt, WordMatcher,
-};
 use node_graph::api::Socket;
 use signal_capture::Sample;
 use signal_derived::{Trigger, Word};
 use signal_runtime::{ConfigValue, NodeConfig, ProcessNode};
+use signal_transforms::word_matcher::{MatchOp, PredicateMode, TriggerAt, WordMatcher};
 
 #[derive(Default)]
 pub(crate) struct WordMatcherBuilder;

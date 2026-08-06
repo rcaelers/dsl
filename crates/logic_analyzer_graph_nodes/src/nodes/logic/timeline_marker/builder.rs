@@ -10,14 +10,14 @@ use logic_analyzer_graph_capabilities::node_support::{
     TimelineMarkerReference, TimelineMarkerReferenceBindingDescriptor,
     TimelineMarkerReferenceBindingEdit, TimelineMarkerReferenceChoice, parse_state,
 };
-use logic_analyzer_processing::nodes::logic::timeline_marker::{
-    MarkerRelation as RuntimeMarkerRelation, TimelineMarkerRelation, TimelineMarkerSource,
-    TimelineMarkerToTrigger, TimelineMarkerWindow,
-};
 use node_graph::api::Socket;
 use signal_capture::Sample;
 use signal_derived::{TimelineMarker, Trigger};
 use signal_runtime::ProcessNode;
+use signal_transforms::timeline_marker::{
+    MarkerRelation as RuntimeMarkerRelation, TimelineMarkerRelation, TimelineMarkerSource,
+    TimelineMarkerToTrigger, TimelineMarkerWindow,
+};
 
 fn marker_kind() -> PortKind {
     PortKind::of_named::<TimelineMarker>("Timeline Marker")

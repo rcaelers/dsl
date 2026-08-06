@@ -4,6 +4,9 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
+use logic_analyzer_capture_formats::dsl_file::{
+    DslFileSourceConfig, DslFileSourceFactory, unavailable_source_factory,
+};
 use logic_analyzer_graph_capabilities::node::{
     CaptureSourceFeature, GraphNodeCapabilityOverride, GraphNodePresentation, GraphNodeSemantics,
     RuntimeMaterializer,
@@ -12,12 +15,9 @@ use logic_analyzer_graph_capabilities::node_support::{
     CaptureCacheIdentity, CapturePresentation, NodeBuildContext, PortKind, ResolvedInputs,
     parse_state,
 };
-use logic_analyzer_processing::CaptureSourceMetadata;
-use logic_analyzer_processing::nodes::sources::dsl_file::{
-    DslFileSourceConfig, DslFileSourceFactory, unavailable_source_factory,
-};
 use node_graph::api::Socket;
 use signal_capture::{Sample, SampleBlock};
+use signal_capture_session::CaptureSourceMetadata;
 use signal_derived::{DEFAULT_DERIVED_DATA_MAX_ENTRIES, DerivedDataRetention};
 use signal_runtime::ProcessNode;
 
@@ -146,7 +146,7 @@ impl RuntimeMaterializer for FileSourceBuilder {
                 ctx.artifact_repository(),
                 ctx.work_executor(),
             )
-            .map(logic_analyzer_processing::ProcessNodeConstruction::into_process)
+            .map(signal_runtime::ProcessNodeConstruction::into_process)
             .map_err(|error| format!("cannot open '{}': {error}", state.file.value))
     }
 }
@@ -178,12 +178,13 @@ mod builder_tests {
     use std::path::PathBuf;
     use std::sync::Mutex;
 
-    use logic_analyzer_processing::{
-        CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle,
-        CaptureSourcePresentation, ProcessNodeConstruction,
-    };
     use node_graph::NodeDef;
     use signal_capture::IndexedCapturePresentation;
+    use signal_capture_session::{
+        CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle,
+        CaptureSourcePresentation,
+    };
+    use signal_runtime::ProcessNodeConstruction;
 
     use super::super::definition::DslFileSource;
     use super::*;
@@ -237,7 +238,7 @@ mod builder_tests {
     }
 
     impl DslFileSourceFactory for FakeSourceFactory {
-        fn lifecycle(&self) -> logic_analyzer_processing::CaptureSourceLifecycle {
+        fn lifecycle(&self) -> signal_capture_session::CaptureSourceLifecycle {
             self.metadata.lifecycle()
         }
 

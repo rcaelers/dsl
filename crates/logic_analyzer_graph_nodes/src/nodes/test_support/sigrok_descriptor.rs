@@ -1,4 +1,4 @@
-use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+use logic_analyzer_protocol_decoders::sigrok_decoder::{
     SigrokAnnotationClassDescriptor, SigrokAnnotationRowDescriptor, SigrokDecoderChannelDescriptor,
     SigrokDecoderDescriptor, SigrokOutputKind,
 };

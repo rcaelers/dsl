@@ -3,12 +3,13 @@
 //! Immutable capture and finite indexing are owned by `signal_capture`, retained derived outputs by
 //! `signal_derived`, and typed-stream execution by `signal_runtime`. This crate consumes those
 //! contracts directly and does not re-export them. Concrete devices, formats, decoders, nodes, and
-//! sinks live in `logic_analyzer_processing`.
+//! sinks live in positive-responsibility domain crates above this generic owner.
 
 mod advanced_trigger;
 #[cfg(test)]
 mod architecture_tests;
 mod capture_policy;
+mod capture_source_metadata;
 mod growing_capture_index;
 pub mod live_capture;
 pub mod live_capture_store;
@@ -28,6 +29,10 @@ pub use capture_policy::{
     CaptureStartMode, CompletionPolicy, CompletionPolicyKind, EffectiveCapturePolicy,
     RecordingStart, RetentionPolicy, RetentionPolicyKind, TriggerPlacement,
     TriggerPlacementCapability, TriggerTimeout, TriggerTimeoutAction,
+};
+pub use capture_source_metadata::{
+    CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
+    CaptureSourcePresentation, CaptureSourceRuntimeCapabilities, CaptureSourceSignal,
 };
 pub use growing_capture_index::{GrowingCaptureIndex, GrowingCaptureIndexWorker};
 pub use live_capture::{

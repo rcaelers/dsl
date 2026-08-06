@@ -50,14 +50,32 @@ flowchart LR
 
     Nodes --> Registry
     Nodes --> Capabilities[logic_analyzer_graph_capabilities]
-    Nodes --> Processing[logic_analyzer_processing]
+    Nodes --> Formats[logic_analyzer_capture_formats]
+    Nodes --> Device[logic_analyzer_device_dslogic]
+    Nodes --> Decoders[logic_analyzer_protocol_decoders]
+    Nodes --> Transforms[signal_transforms]
+    Nodes --> Sinks[signal_sinks]
+    Nodes --> Generators[signal_generators]
     Registry --> Capabilities
     Plan --> Capabilities
 
-    Processing --> Session[signal_capture_session]
-    Processing --> Capture[signal_capture]
-    Processing --> Derived[signal_derived]
-    Processing --> Stream[signal_runtime]
+    Formats --> Session[signal_capture_session]
+    Formats --> Capture[signal_capture]
+    Formats --> Stream[signal_runtime]
+    Device --> Session
+    Device --> Stream
+    Decoders --> Capture
+    Decoders --> Derived[signal_derived]
+    Decoders --> Stream
+    Transforms --> Capture
+    Transforms --> Derived
+    Transforms --> Stream
+    Sinks --> Capture
+    Sinks --> Derived
+    Sinks --> Stream
+    Generators --> Capture
+    Generators --> Session
+    Generators --> Stream
     Session --> Capture
     Session --> Derived
     Session --> Stream

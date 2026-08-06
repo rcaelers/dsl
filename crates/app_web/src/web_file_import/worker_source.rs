@@ -6,15 +6,11 @@ use js_sys::Uint8Array;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use logic_analyzer_processing::nodes::sources::dsl_file::{
+use logic_analyzer_capture_formats::dsl_file::{
     DslFileSource, DslFileSourceConfig, DslFileSourceFactory,
 };
-use logic_analyzer_processing::nodes::sources::sigrok_file::{
+use logic_analyzer_capture_formats::sigrok_file::{
     SigrokFileSource, SigrokFileSourceConfig, SigrokFileSourceFactory, portable_source_factory,
-};
-use logic_analyzer_processing::{
-    CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
-    CaptureSourcePresentation, ProcessNodeConstruction,
 };
 use platform_artifacts::{
     ArtifactRepository, ByteRange, PreparedByteSource, RandomAccessReader, SourceCapabilities,
@@ -25,7 +21,11 @@ use signal_capture::{
     CaptureIndexPreparationRequest, CaptureMetadata, CaptureWorkerOperationRegistry,
     CaptureWorkerPreparedIndex,
 };
-use signal_runtime::ProcessNode;
+use signal_capture_session::{
+    CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
+    CaptureSourcePresentation,
+};
+use signal_runtime::{ProcessNode, ProcessNodeConstruction};
 
 const DSL_PREPARATION_OPERATION: &str = "logic-analyzer.dsl-file.prepare/v1";
 const SIGROK_PREPARATION_OPERATION: &str = "logic-analyzer.sigrok-file.prepare/v1";

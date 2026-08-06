@@ -6,11 +6,11 @@ use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMateria
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
-use logic_analyzer_processing::nodes::logic::event_gate::{EventGate, GatePolarity};
 use node_graph::api::Socket;
 use signal_capture::Sample;
 use signal_derived::Trigger;
 use signal_runtime::ProcessNode;
+use signal_transforms::event_gate::{EventGate, GatePolarity};
 
 #[derive(Default)]
 pub(crate) struct EventGateBuilder;

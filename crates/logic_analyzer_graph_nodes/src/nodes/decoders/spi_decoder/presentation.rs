@@ -9,7 +9,7 @@ use logic_analyzer_graph_capabilities::node_support::{
     LanePresentationDescriptor,
 };
 use logic_analyzer_graph_registry::ProtocolPacketPresentationRegistration;
-use logic_analyzer_processing::nodes::decoders::spi_decoder::SPI_TRANSACTION_PROTOCOL_ID;
+use logic_analyzer_protocol_decoders::spi_decoder::SPI_TRANSACTION_PROTOCOL_ID;
 use logic_analyzer_viewer::{
     AnnotationVisual, DefaultViewerLaneRenderer, DerivedLaneId, ViewerLaneGroup,
     ViewerLaneRenderer, ViewerLaneRendererRegistration, ViewerLaneTheme, ViewerLaneTrackId,

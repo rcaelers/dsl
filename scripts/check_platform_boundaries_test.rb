@@ -51,7 +51,7 @@ class PlatformBoundaryCheckTest < Minitest::Test
       TOML
       write(
         root,
-        "crates/logic_analyzer_processing/src/nodes/sources/dslogic_u3pro16/mod.rs",
+        "crates/logic_analyzer_device_dslogic/src/device/dslogic_u3pro16/mod.rs",
         "std::cfg_select! { target_arch = \"wasm32\" => {} _ => { mod implementation; } }\n"
       )
 
@@ -67,12 +67,12 @@ class PlatformBoundaryCheckTest < Minitest::Test
       TOML
       write(root, "crates/app_web/Cargo.toml", <<~TOML)
         [dependencies]
-        logic-analyzer-processing = { path = "../logic_analyzer_processing" }
+        logic-analyzer-device-dslogic = { path = "../logic_analyzer_device_dslogic" }
       TOML
 
       errors = PlatformBoundaryCheck.new(root).errors
       assert(errors.any? { |error| error.include?("core crates must not depend") })
-      refute(errors.any? { |error| error.include?("logic-analyzer-processing") })
+      refute(errors.any? { |error| error.include?("logic-analyzer-device-dslogic") })
     end
   end
 

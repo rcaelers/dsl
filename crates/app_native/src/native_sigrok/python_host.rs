@@ -4,7 +4,7 @@ use pyo3::exceptions::{PyEOFError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyDictMethods, PyFloat, PyInt, PyModule, PyTuple};
 
-use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+use logic_analyzer_protocol_decoders::sigrok_decoder::{
     MetadataRegistration, MetadataType, OutputRegistration,
 };
 

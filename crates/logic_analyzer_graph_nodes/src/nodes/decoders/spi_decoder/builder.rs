@@ -9,10 +9,10 @@ use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableColumnDescriptor, LanePresentationDescriptor, NodeBuildContext, PortKind,
     ResolvedInputs, SamplingOverlayDescriptor, ViewerOutputControl, parse_state,
 };
-use logic_analyzer_processing::nodes::decoders::spi_decoder::{
+use logic_analyzer_protocol_decoders::spi_decoder::{
     SPI_TRANSACTION_PROTOCOL_ID, SpiDecoder, SpiMode,
 };
-use logic_analyzer_processing::types::{BitOrder, CsPolarity};
+use logic_analyzer_protocol_decoders::types::{BitOrder, CsPolarity};
 use node_graph::api::Socket;
 use signal_capture::Sample;
 use signal_derived::{ProtocolPacket, Word};

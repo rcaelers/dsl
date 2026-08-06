@@ -1,28 +1,23 @@
 use std::sync::Arc;
 
+use logic_analyzer_capture_formats::dsl_file::{DslFileSourceConfig, DslFileSourceFactory};
+use logic_analyzer_capture_formats::sigrok_file::{
+    SigrokFileSourceConfig, SigrokFileSourceFactory,
+};
+use logic_analyzer_device_dslogic::DsLogicU3Pro16SourceFactory;
 use logic_analyzer_graph_capabilities::node::{
     CaptureSourceFeature, GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
 };
-use logic_analyzer_processing::nodes::sinks::OutputOrigin;
-use logic_analyzer_processing::nodes::sinks::binary_file_writer::{
-    BinaryFileWriterConfig, BinaryFileWriterFactory,
-};
-use logic_analyzer_processing::nodes::sinks::csv_word_writer::{
-    CsvWordWriterConfig, CsvWordWriterFactory,
-};
-use logic_analyzer_processing::nodes::sinks::text_file_writer::TextFileWriterFactory;
-use logic_analyzer_processing::nodes::sources::dsl_file::{
-    DslFileSourceConfig, DslFileSourceFactory,
-};
-use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::DsLogicU3Pro16SourceFactory;
-use logic_analyzer_processing::nodes::sources::sigrok_file::{
-    SigrokFileSourceConfig, SigrokFileSourceFactory,
-};
-use logic_analyzer_processing::{
-    CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
-    CaptureSourcePresentation, ProcessNodeConstruction,
-};
 use signal_capture_session::logic_analyzer::LogicCaptureConfig;
+use signal_capture_session::{
+    CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
+    CaptureSourcePresentation,
+};
+use signal_runtime::ProcessNodeConstruction;
+use signal_sinks::OutputOrigin;
+use signal_sinks::binary_file_writer::{BinaryFileWriterConfig, BinaryFileWriterFactory};
+use signal_sinks::csv_word_writer::{CsvWordWriterConfig, CsvWordWriterFactory};
+use signal_sinks::text_file_writer::TextFileWriterFactory;
 
 use super::process_node::TestProcessNode;
 

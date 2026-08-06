@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use logic_analyzer_processing::nodes::sinks::{OutputFile, OutputOrigin, OutputStorage};
+use signal_sinks::{OutputFile, OutputOrigin, OutputStorage};
 
 thread_local! {
     static OUTPUTS: RefCell<Arc<Mutex<BrowserOutputs>>> = RefCell::new(Arc::new(Mutex::new(BrowserOutputs::default())));

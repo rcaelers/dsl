@@ -4,9 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::{
-    validate_capture_hardware, validate_fpga_hardware,
-};
+use logic_analyzer_device_dslogic::{validate_capture_hardware, validate_fpga_hardware};
 
 #[allow(dead_code)]
 #[path = "../../u3pro16_host.rs"]

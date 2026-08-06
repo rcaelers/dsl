@@ -8,13 +8,11 @@ use logic_analyzer_graph_capabilities::node::{
 use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableColumnDescriptor, NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
-use logic_analyzer_processing::nodes::logic::packet_framer::{
-    GatePolarity, PACKET_FRAME_PROTOCOL_ID, PacketFramer,
-};
 use node_graph::api::Socket;
 use signal_capture::Sample;
 use signal_derived::{ProtocolPacket, Trigger, Word};
 use signal_runtime::ProcessNode;
+use signal_transforms::packet_framer::{GatePolarity, PACKET_FRAME_PROTOCOL_ID, PacketFramer};
 
 #[derive(Default)]
 pub(crate) struct PacketFramerBuilder;

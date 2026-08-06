@@ -18,3 +18,5 @@ pub use live_acquisition::{
     DeterministicTrigger, DeterministicTriggerCount, DeterministicTriggerCountMode,
     DeterministicTriggerLogic, DeterministicTriggerPredicate, DeterministicTriggerStage,
 };
+#[cfg(test)]
+mod conformance_tests;

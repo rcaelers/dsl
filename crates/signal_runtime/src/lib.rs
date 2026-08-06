@@ -18,6 +18,7 @@ mod node;
 mod payload_negotiation;
 mod pipeline;
 mod ports;
+mod process_node_construction;
 mod protocol;
 mod receiver;
 mod scheduler;
@@ -42,6 +43,7 @@ pub use pipeline::Pipeline;
 pub use ports::{
     InputPort, OutputPort, PortDirection, PortPayload, PortSchema, StreamSemantics, register_type,
 };
+pub use process_node_construction::ProcessNodeConstruction;
 pub use protocol::{ProtocolCapability, ProtocolKind};
 pub use receiver::{Receiver, ReceiverSelector};
 pub use scheduler::{Scheduler, StopHandle};

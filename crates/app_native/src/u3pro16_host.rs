@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::{
+use logic_analyzer_device_dslogic::{
     DsLogicU3Pro16SourceFactory, DsLogicU3Pro16TransportFactory, LinkSpeed, UsbError, UsbTransport,
 };
 use signal_capture_session::logic_analyzer::{LogicAnalyzerError, LogicAnalyzerResult};
@@ -141,7 +141,7 @@ pub(crate) fn transport_factory() -> Arc<dyn DsLogicU3Pro16TransportFactory> {
 }
 
 pub(crate) fn source_factory() -> Arc<dyn DsLogicU3Pro16SourceFactory> {
-    logic_analyzer_processing::nodes::sources::dslogic_u3pro16::source_factory(transport_factory())
+    logic_analyzer_device_dslogic::source_factory(transport_factory())
 }
 
 fn map_usb_error(error: platform::UsbTransferError) -> UsbError {

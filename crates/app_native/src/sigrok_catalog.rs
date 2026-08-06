@@ -6,7 +6,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 
 use serde::{Deserialize, Serialize};
 
-use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+use logic_analyzer_protocol_decoders::sigrok_decoder::{
     SigrokCatalogScanner, SigrokCatalogSnapshot,
 };
 use logic_analyzer_ui::{NodeCatalogService, NodeCatalogSnapshot};

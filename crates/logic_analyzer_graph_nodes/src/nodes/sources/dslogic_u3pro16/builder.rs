@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
+use logic_analyzer_device_dslogic::{DsLogicU3Pro16SourceFactory, unavailable_source_factory};
 use logic_analyzer_graph_capabilities::node::{
     CaptureSourceFeature, GraphNodeCapabilityOverride, GraphNodePresentation, GraphNodeSemantics,
     LiveCaptureFeature, LiveCaptureFeatureProvider, RuntimeMaterializer,
@@ -12,14 +13,11 @@ use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
     TriggerConfigurationFeature, parse_state,
 };
-use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::{
-    DsLogicU3Pro16SourceFactory, unavailable_source_factory,
-};
-use logic_analyzer_processing::{CaptureSourceMetadata, ProcessNodeConstruction};
 use node_graph::api::Socket;
 use signal_capture::{Sample, SampleBlock};
+use signal_capture_session::CaptureSourceMetadata;
 use signal_derived::DerivedDataRetention;
-use signal_runtime::ProcessNode;
+use signal_runtime::{ProcessNode, ProcessNodeConstruction};
 
 use super::definition::U3Pro16State;
 
@@ -241,11 +239,11 @@ inventory::submit! {
 mod builder_tests {
     use std::sync::Mutex;
 
-    use logic_analyzer_processing::{
+    use signal_capture_session::logic_analyzer::LogicCaptureConfig;
+    use signal_capture_session::{
         CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle,
         CaptureSourcePresentation,
     };
-    use signal_capture_session::logic_analyzer::LogicCaptureConfig;
     use signal_runtime::{InputPort, OutputPort, WorkResult};
 
     use super::*;

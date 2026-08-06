@@ -9,10 +9,10 @@ use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableColumnDescriptor, NodeBuildContext, PortKind, ResolvedInputs,
     RetainedWordSamplingSource, SamplingOverlayDescriptor, parse_state,
 };
-use logic_analyzer_processing::nodes::decoders::parallel_decoder::{
+use logic_analyzer_protocol_decoders::parallel_decoder::{
     ParallelDecoder as ProcessingParallelDecoder, ParallelInputStrategy, StrobeMode,
 };
-use logic_analyzer_processing::types::{CsPolarity, Endianness};
+use logic_analyzer_protocol_decoders::types::{CsPolarity, Endianness};
 use node_graph::api::Socket;
 use signal_capture::{Sample, SampleBlock};
 use signal_derived::Word;

@@ -8,10 +8,10 @@ use logic_analyzer_graph_capabilities::node::{
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
-use logic_analyzer_processing::nodes::logic::word_field_extractor::WordFieldExtractor;
 use node_graph::api::Socket;
 use signal_derived::Word;
 use signal_runtime::ProcessNode;
+use signal_transforms::word_field_extractor::WordFieldExtractor;
 
 #[derive(Default)]
 pub(crate) struct WordFieldExtractorBuilder;

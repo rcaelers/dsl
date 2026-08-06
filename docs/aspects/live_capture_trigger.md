@@ -14,7 +14,7 @@ channel label, or mode label.
 | Owner | Responsibility |
 | --- | --- |
 | `signal_capture_session` | Driver-neutral lifecycle, capture policy, trigger program, canonical session store, committed-prefix cursors, retention, and growing index contracts |
-| `logic_analyzer_processing` | Concrete acquisition providers, device protocol, source factories, packet conversion, and processing nodes |
+| `logic_analyzer_device_dslogic` | DSLogic acquisition provider, device protocol, source factory, and packet conversion |
 | `logic_analyzer_graph_nodes` | Concrete live-source graph definition, saved state, migration, capabilities, and presentation metadata |
 | `logic_analyzer_graph_compiler` | Discovery of the one retained live source and lowering of its graph semantics |
 | `logic_analyzer_graph_runtime` | Materialization of the compiled analysis/replay graph and explicit source-process substitution |

@@ -71,19 +71,13 @@ pub fn initialize_worker_host() {
     let sigrok_file_source_factory = crate::web_file_import::worker_sigrok_file_source_factory();
     let capability_overrides = vec![
         logic_analyzer_graph_nodes::binary_file_writer_capability_override(
-            logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
-                Arc::clone(&output_storage),
-            ),
+            signal_sinks::binary_file_writer::writer_factory(Arc::clone(&output_storage)),
         ),
         logic_analyzer_graph_nodes::csv_word_writer_capability_override(
-            logic_analyzer_processing::nodes::sinks::csv_word_writer::writer_factory(Arc::clone(
-                &output_storage,
-            )),
+            signal_sinks::csv_word_writer::writer_factory(Arc::clone(&output_storage)),
         ),
         logic_analyzer_graph_nodes::text_file_writer_capability_override(
-            logic_analyzer_processing::nodes::sinks::text_file_writer::writer_factory(
-                output_storage,
-            ),
+            signal_sinks::text_file_writer::writer_factory(output_storage),
         ),
         logic_analyzer_graph_nodes::dsl_file_source_capability_override(dsl_file_source_factory),
         logic_analyzer_graph_nodes::sigrok_file_source_capability_override(

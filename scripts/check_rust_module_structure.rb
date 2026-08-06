@@ -10,26 +10,25 @@ SOURCE_GLOBS = ["crates/**/*.rs", "plugins/**/*.rs", "tests/**/*.rs", "benches/*
 ROOT_FILES = %w[lib.rs main.rs mod.rs].freeze
 DECLARATIVE_SELECTION_FACADES = %w[
   crates/platform/src/host/mod.rs
-  crates/logic_analyzer_processing/src/nodes/sources/dslogic_u3pro16/mod.rs
+  crates/logic_analyzer_device_dslogic/src/device/mod.rs
+  crates/logic_analyzer_device_dslogic/src/device/dslogic_u3pro16/mod.rs
 ].freeze
 
 PUBLIC_MODULES = {
   "crates/signal_derived/src/lib.rs" => %w[derived_word_store],
   "crates/signal_capture_session/src/lib.rs" => %w[live_capture live_capture_store logic_analyzer],
-  "crates/logic_analyzer_processing/src/lib.rs" => %w[nodes support types],
-  "crates/logic_analyzer_processing/src/support/mod.rs" => %w[logic_analyzer],
-  "crates/logic_analyzer_processing/src/nodes/mod.rs" => %w[decoders logic sinks sources],
-  "crates/logic_analyzer_processing/src/nodes/decoders/mod.rs" => %w[i2c_decoder parallel_decoder sigrok_decoder spi_decoder uart_decoder],
-  "crates/logic_analyzer_processing/src/nodes/logic/mod.rs" => %w[
+  "crates/logic_analyzer_capture_formats/src/lib.rs" => %w[dsl_file sigrok_file],
+  "crates/logic_analyzer_protocol_decoders/src/lib.rs" => %w[
+    i2c_decoder parallel_decoder sigrok_decoder spi_decoder types uart_decoder
+  ],
+  "crates/signal_transforms/src/lib.rs" => %w[
     buffer edge_detector event_control event_gate logic_gate packet_framer sr_latch text_formatter
     timeline_marker trigger_counter word_field_extractor word_matcher
   ],
-  "crates/logic_analyzer_processing/src/nodes/sinks/mod.rs" => %w[
+  "crates/signal_sinks/src/lib.rs" => %w[
     binary_file_writer csv_word_writer discard_writer text_file_writer tgck_recorder
   ],
-  "crates/logic_analyzer_processing/src/nodes/sources/mod.rs" => %w[
-    dsl_file dslogic_u3pro16 sigrok_file synthetic_capture_source synthetic_uart_source
-  ],
+  "crates/signal_generators/src/lib.rs" => %w[synthetic_capture_source synthetic_uart_source],
   "crates/logic_analyzer_graph_capabilities/src/lib.rs" => %w[node node_support],
   "crates/widgets/node_graph/src/lib.rs" => %w[api]
 }.freeze
@@ -128,7 +127,11 @@ ui_compiler_free_functions = %w[
 ].freeze
 
 graph_api_manifest = File.read(File.join(ROOT, "crates/logic_analyzer_graph_capabilities/Cargo.toml"))
-%w[logic-analyzer-capture-export logic-analyzer-graph logic-analyzer-processing logic-analyzer-ui].each do |dependency|
+%w[
+  logic-analyzer-capture-export logic-analyzer-capture-formats logic-analyzer-device-dslogic
+  logic-analyzer-graph logic-analyzer-protocol-decoders logic-analyzer-ui signal-generators
+  signal-sinks signal-transforms
+].each do |dependency|
   if graph_api_manifest.match?(/^#{Regexp.escape(dependency)}\s*=/)
     errors << "crates/logic_analyzer_graph_capabilities/Cargo.toml: graph API must not depend on #{dependency}"
   end
@@ -137,8 +140,9 @@ end
 compiler_manifest = File.read(File.join(ROOT, "crates/logic_analyzer_graph_compiler/Cargo.toml"))
 compiler_production_manifest = compiler_manifest.split(/^\[dev-dependencies\]\s*$/, 2).first
 %w[
-  logic-analyzer-capture-export logic-analyzer-graph-nodes logic-analyzer-processing
-  logic-analyzer-test-support logic-analyzer-ui tempfile thiserror zip
+  logic-analyzer-capture-export logic-analyzer-capture-formats logic-analyzer-device-dslogic
+  logic-analyzer-graph-nodes logic-analyzer-protocol-decoders logic-analyzer-test-support
+  logic-analyzer-ui signal-generators signal-sinks signal-transforms tempfile thiserror zip
 ].each do |dependency|
   if compiler_production_manifest.match?(/^#{Regexp.escape(dependency)}\s*=/)
     errors << "crates/logic_analyzer_graph_compiler/Cargo.toml: compiler production code must not depend on #{dependency}"
@@ -152,21 +156,34 @@ compiler_root = File.read(File.join(ROOT, "crates/logic_analyzer_graph_compiler/
   end
 end
 
-processing_manifest = File.read(File.join(ROOT, "crates/logic_analyzer_processing/Cargo.toml"))
-processing_production_manifest = processing_manifest.split(/^\[dev-dependencies\]\s*$/, 2).first
-if processing_production_manifest.match?(/^logic-analyzer-test-support\s*=/)
-  errors << "crates/logic_analyzer_processing/Cargo.toml: production processing code must not depend on test support"
+%w[
+  logic_analyzer_capture_formats logic_analyzer_device_dslogic logic_analyzer_protocol_decoders
+  signal_generators signal_sinks signal_transforms
+].each do |crate|
+  manifest_path = File.join(ROOT, "crates/#{crate}/Cargo.toml")
+  production_manifest = File.read(manifest_path).split(/^\[dev-dependencies\]\s*$/, 2).first
+  if production_manifest.match?(/^logic-analyzer-test-support\s*=/)
+    errors << "crates/#{crate}/Cargo.toml: production code must not depend on test support"
+  end
 end
 
 test_support_manifest = File.read(File.join(ROOT, "crates/logic_analyzer_test_support/Cargo.toml"))
-%w[logic-analyzer-capture-export logic-analyzer-graph-capabilities logic-analyzer-graph-compiler logic-analyzer-graph-nodes logic-analyzer-processing logic-analyzer-ui].each do |dependency|
+%w[
+  logic-analyzer-capture-export logic-analyzer-capture-formats logic-analyzer-device-dslogic
+  logic-analyzer-graph-capabilities logic-analyzer-graph-compiler logic-analyzer-graph-nodes
+  logic-analyzer-protocol-decoders logic-analyzer-ui signal-generators signal-sinks signal-transforms
+].each do |dependency|
   if test_support_manifest.match?(/^#{Regexp.escape(dependency)}\s*=/)
     errors << "crates/logic_analyzer_test_support/Cargo.toml: shared test support must not depend on #{dependency}"
   end
 end
 
 capture_export_manifest = File.read(File.join(ROOT, "crates/logic_analyzer_capture_export/Cargo.toml"))
-%w[logic-analyzer-graph-capabilities logic-analyzer-graph-compiler logic-analyzer-graph-nodes logic-analyzer-processing logic-analyzer-ui].each do |dependency|
+%w[
+  logic-analyzer-capture-formats logic-analyzer-device-dslogic logic-analyzer-graph-capabilities
+  logic-analyzer-graph-compiler logic-analyzer-graph-nodes logic-analyzer-protocol-decoders
+  logic-analyzer-ui signal-generators signal-sinks signal-transforms
+].each do |dependency|
   if capture_export_manifest.match?(/^#{Regexp.escape(dependency)}\s*=/)
     errors << "crates/logic_analyzer_capture_export/Cargo.toml: capture export must not depend on #{dependency}"
   end
@@ -180,6 +197,14 @@ end
 ui_manifest = File.read(File.join(ROOT, "crates/logic_analyzer_ui/Cargo.toml"))
 if ui_manifest.match?(/^rfd\s*=/)
   errors << "crates/logic_analyzer_ui/Cargo.toml: native dialogs belong to platform"
+end
+%w[
+  logic-analyzer-capture-formats logic-analyzer-device-dslogic
+  logic-analyzer-protocol-decoders signal-generators signal-sinks signal-transforms
+].each do |dependency|
+  if ui_manifest.match?(/^#{Regexp.escape(dependency)}\s*=/)
+    errors << "crates/logic_analyzer_ui/Cargo.toml: UI composition must not depend on concrete processing owner #{dependency}"
+  end
 end
 node_graph_manifest = File.read(File.join(ROOT, "crates/widgets/node_graph/Cargo.toml"))
 if node_graph_manifest.match?(/^rfd\s*=/) || node_graph_manifest.match?(/^native-file-dialog\s*=/)

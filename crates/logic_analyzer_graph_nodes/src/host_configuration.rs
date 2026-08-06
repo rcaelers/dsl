@@ -2,17 +2,17 @@
 
 use std::sync::Arc;
 
+use logic_analyzer_capture_formats::dsl_file::DslFileSourceFactory;
+use logic_analyzer_capture_formats::sigrok_file::SigrokFileSourceFactory;
+use logic_analyzer_device_dslogic::DsLogicU3Pro16SourceFactory;
 use logic_analyzer_graph_capabilities::node::GraphNodeCapabilityOverride;
 use logic_analyzer_graph_registry::GraphNodeEditorOverride;
-use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+use logic_analyzer_protocol_decoders::sigrok_decoder::{
     SigrokCatalogScanner, SigrokCatalogSnapshot, SigrokDecoderRuntime,
 };
-use logic_analyzer_processing::nodes::sinks::binary_file_writer::BinaryFileWriterFactory;
-use logic_analyzer_processing::nodes::sinks::csv_word_writer::CsvWordWriterFactory;
-use logic_analyzer_processing::nodes::sinks::text_file_writer::TextFileWriterFactory;
-use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSourceFactory;
-use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::DsLogicU3Pro16SourceFactory;
-use logic_analyzer_processing::nodes::sources::sigrok_file::SigrokFileSourceFactory;
+use signal_sinks::binary_file_writer::BinaryFileWriterFactory;
+use signal_sinks::csv_word_writer::CsvWordWriterFactory;
+use signal_sinks::text_file_writer::TextFileWriterFactory;
 
 const DSL_FILE_SOURCE_ID: &str = "org.logicconduit.graph-node.sources.dsl-file-source/v1";
 const SIGROK_FILE_SOURCE_ID: &str = "org.logicconduit.graph-node.sources.sigrok-file-source/v1";
@@ -136,16 +136,15 @@ pub fn sigrok_node_templates(snapshot: &SigrokCatalogSnapshot) -> Vec<node_graph
 mod host_configuration_tests {
     use std::sync::Arc;
 
-    use logic_analyzer_processing::nodes::sources::dsl_file::{
-        DslFileSourceConfig, DslFileSourceFactory,
-    };
-    use logic_analyzer_processing::{
-        CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle,
-        CaptureSourceMetadata, CaptureSourcePresentation, ProcessNodeConstruction,
-    };
+    use logic_analyzer_capture_formats::dsl_file::{DslFileSourceConfig, DslFileSourceFactory};
     use node_graph::api::{GraphDocumentBuilder, NodeDef, NodeTypeRegistry};
     use platform_artifacts::ArtifactRepository;
     use platform_runtime::WorkExecutor;
+    use signal_capture_session::{
+        CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle,
+        CaptureSourceMetadata, CaptureSourcePresentation,
+    };
+    use signal_runtime::ProcessNodeConstruction;
 
     use super::dsl_file_source_editor_override;
     use crate::nodes::sources::file_source::definition::DslFileSource;

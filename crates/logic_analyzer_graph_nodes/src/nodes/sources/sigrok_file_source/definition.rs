@@ -3,13 +3,13 @@
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
-use logic_analyzer_processing::nodes::sources::sigrok_file::{
+use logic_analyzer_capture_formats::sigrok_file::{
     SigrokFileSourceConfig, SigrokFileSourceFactory,
 };
-use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
 use node_graph::{
     FileValue, InputDef, IntValue, NodeBadge, NodeDef, NodeInstanceSchema, OutputDef, Socket,
 };
+use signal_generators::synthetic_capture_source::SyntheticCaptureSource;
 
 use crate::sockets::{COLOR_SOURCES, Signal, TextPath};
 

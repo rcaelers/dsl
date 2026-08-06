@@ -1,19 +1,19 @@
 use std::sync::Arc;
 
-use logic_analyzer_processing::nodes::sources::sigrok_file::{
+use logic_analyzer_capture_formats::sigrok_file::{
     SigrokFileSource, SigrokFileSourceConfig, SigrokFileSourceFactory, portable_source_factory,
-};
-use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
-use logic_analyzer_processing::{
-    CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
-    CaptureSourcePresentation, ProcessNodeConstruction,
 };
 use platform_artifacts::ArtifactRepository;
 use platform_runtime::WorkExecutor;
 use signal_capture::{
     CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, IndexedCapturePresentation,
 };
-use signal_runtime::ProcessNode;
+use signal_capture_session::{
+    CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
+    CaptureSourcePresentation,
+};
+use signal_generators::synthetic_capture_source::SyntheticCaptureSource;
+use signal_runtime::{ProcessNode, ProcessNodeConstruction};
 
 use super::registry::{BrowserFileRegistry, ImportedFile};
 use super::worker_source::sigrok_preparation_request;

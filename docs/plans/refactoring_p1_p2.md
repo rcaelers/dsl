@@ -82,7 +82,8 @@ nothing about the compiled contract.
    - `logic-analyzer-graph-compiler` ↔ `logic-analyzer-graph-runtime`: neither depends on the
      other; runtime also ↛ registry;
    - `logic-analyzer-graph-nodes` and `example-plugin` ↛ compiler;
-   - `logic-analyzer-ui` ↛ `logic-analyzer-processing`, ↛ `logic-analyzer-graph-nodes`.
+   - `logic-analyzer-ui` ↛ `logic-analyzer-{capture-formats,device-dslogic,protocol-decoders}`,
+     ↛ `signal-{generators,sinks,transforms}`, ↛ `logic-analyzer-graph-nodes`.
    Assert on the dependency *graph* (resolve `id`/`dependencies` from metadata), not on raw
    `Cargo.toml` text, so target-specific and dev-dependencies are handled deliberately: dev-deps
    are allowed unless the rule says otherwise.
@@ -98,45 +99,3 @@ nothing about the compiled contract.
 4. Do not chase 100% conversion in one PR. Priority order: the manifest-edge test (it guards the
    other P1/P2 items), then `graph_nodes`/`graph_compiler` (the two largest files), then the
    rest opportunistically.
-
-## processing.domain-split (P2) {#processing-domain-split}
-
-**Problem.** `logic_analyzer_processing` is 28k lines defined by a negation ("concrete"). Current
-contents: capture formats and archive support (`src/support/{capture_archive,capture_format,
-dsl_file,sigrok_file,capture_index.rs}`), a USB device (`nodes/sources/dslogic_u3pro16`), five
-decoders (`nodes/decoders/{i2c,spi,uart,parallel,sigrok}_decoder` plus `support/sigrokdecode`),
-twelve logic primitives (`nodes/logic/*`), sinks (`nodes/sinks/*`), synthetic sources, and five
-binaries under `src/bin/` with `clap`/`tracing-subscriber` as *library* dependencies.
-
-**Target crates.** Names follow the domain-neutral signal-tier vocabulary recorded in
-[`vocabulary_and_concepts.md`](../architecture/vocabulary_and_concepts.md#tier-vocabulary):
-
-| New crate | Takes | Positive responsibility |
-| --- | --- | --- |
-| `logic-analyzer-capture-formats` | `support/capture_archive`, `capture_format`, `dsl_file`, `sigrok_file`, `capture_index.rs`, plus `nodes/sources/{dsl_file,sigrok_file}` | Reading and indexing DSL and Sigrok capture files |
-| `logic-analyzer-device-dslogic` | `nodes/sources/dslogic_u3pro16` and its protocol/transport support | DSLogic U3Pro16 acquisition |
-| `logic-analyzer-protocol-decoders` | `nodes/decoders/*`, `support/sigrokdecode`, and decoder-specific conventions from `types` | Protocol decoding, including the Sigrok decoder host contract |
-| `signal-transforms` | `nodes/logic/*` and genuinely protocol-neutral conventions from `types` | Portable signal transforms |
-| `signal-sinks` | `nodes/sinks/*` | Portable terminal signal consumers and output encodings |
-| `signal-generators` | synthetic and demo sources | Deterministic portable signal generation |
-
-**Steps, in PR-sized units.**
-
-1. Move the five `src/bin/` binaries into the top-level `logic-analyzer-examples` package (which
-   already owns benches and workspace tooling); drop `clap` and `tracing-subscriber` from the
-   library manifest. Cheapest step, no consumer impact — do it first.
-2. Extract `logic-analyzer-capture-formats`. It is the lowest layer (device and decoders may
-   depend on archive/format contracts, never the reverse).
-3. Extract `logic-analyzer-device-dslogic`, then `logic-analyzer-protocol-decoders`.
-4. Update consumers per step — `logic_analyzer_graph_nodes` is the main importer
-   (`logic_analyzer_processing::nodes::…` paths), plus platform's factory implementations and
-   the test-support crate. Do **not** leave long-lived re-export shims in the residual crate;
-   update the imports in the same PR so the split is real in the manifests.
-5. Per the testing strategy, each moved module's `test_data/` moves with it; fixtures stay with
-   the owning crate.
-
-**Invariants.** Node stable IDs, saved state, definition names, output fingerprints, and the
-public trait contracts (`DslFileSourceFactory`, `DsLogicU3Pro16SourceFactory`,
-`SigrokDecoderRuntime` after the injection item moves it here) are relocations only. Rustdoc
-facade docs move with their modules. `docs/architecture/crate_responsibility.md` and the
-dependency diagrams gain the new crates in the same PR that creates each one.

@@ -9,7 +9,7 @@ use logic_analyzer_graph_capabilities::node::{
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
-use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+use logic_analyzer_protocol_decoders::sigrok_decoder::{
     SigrokChannel, SigrokDecoderConfig, SigrokDecoderDescriptor, SigrokDecoderRuntime,
     SigrokInitialPin, SigrokOptionValue,
 };

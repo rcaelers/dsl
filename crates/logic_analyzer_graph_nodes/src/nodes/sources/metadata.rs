@@ -2,7 +2,7 @@ use logic_analyzer_graph_capabilities::node_support::{
     CaptureCacheIdentity, CapturePresentation, CapturePresentationSignal, SourceDataLifecycle,
     SourceDataLifecycleKind,
 };
-use logic_analyzer_processing::{
+use signal_capture_session::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle,
     CaptureSourcePresentation,
 };
