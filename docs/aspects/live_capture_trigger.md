@@ -20,7 +20,7 @@ channel label, or mode label.
 | `logic_analyzer_graph_runtime` | Materialization of the compiled analysis/replay graph and explicit source-process substitution |
 | `logic_analyzer_ui` | Capture coordinator, user commands, graph-service orchestration, run exclusion, and presentation binding |
 | `logic_analyzer_viewer` | Generic growing-query rendering, navigation, trigger marker, and neutral per-lane trigger edit events |
-| `logic_analyzer_platform` | Native USB, work execution, artifact repository, export destination, and whole-adapter target selection |
+| `platform` | Native USB, work execution, artifact repository, export destination, and whole-adapter target selection |
 
 ```mermaid
 flowchart LR

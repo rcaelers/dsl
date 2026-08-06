@@ -2121,13 +2121,13 @@ dependencies = [
  "logic-analyzer-capture-export",
  "logic-analyzer-graph-nodes",
  "logic-analyzer-graph-runtime",
- "logic-analyzer-platform",
  "logic-analyzer-processing",
  "logic-analyzer-ui",
  "node-graph",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
+ "platform",
  "platform-runtime",
  "pyo3",
  "serde",
@@ -2155,10 +2155,10 @@ dependencies = [
  "logic-analyzer-graph-nodes",
  "logic-analyzer-graph-orchestration",
  "logic-analyzer-graph-runtime",
- "logic-analyzer-platform",
  "logic-analyzer-processing",
  "logic-analyzer-ui",
  "node-graph",
+ "platform",
  "platform-artifacts",
  "platform-runtime",
  "rfd",
@@ -2203,13 +2203,13 @@ dependencies = [
  "logic-analyzer-graph-plan",
  "logic-analyzer-graph-registry",
  "logic-analyzer-graph-runtime",
- "logic-analyzer-platform",
  "logic-analyzer-processing",
  "logic-analyzer-ui",
  "logic-analyzer-viewer",
  "memmap2",
  "minifb",
  "node-graph",
+ "platform",
  "platform-artifacts",
  "platform-runtime",
  "serde",
@@ -2332,28 +2332,6 @@ dependencies = [
  "signal-capture",
  "signal-derived",
  "signal-runtime",
-]
-
-[[package]]
-name = "logic-analyzer-platform"
-version = "0.1.0"
-dependencies = [
- "blake3",
- "crossbeam-channel",
- "js-sys",
- "logic-analyzer-test-support",
- "memmap2",
- "platform-artifacts",
- "platform-runtime",
- "rfd",
- "rusb",
- "tempfile",
- "tracing",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-bindgen-test",
- "web-sys",
- "zip",
 ]
 
 [[package]]
@@ -3239,6 +3217,28 @@ name = "pkg-config"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
+
+[[package]]
+name = "platform"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "crossbeam-channel",
+ "js-sys",
+ "logic-analyzer-test-support",
+ "memmap2",
+ "platform-artifacts",
+ "platform-runtime",
+ "rfd",
+ "rusb",
+ "tempfile",
+ "tracing",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
+ "zip",
+]
 
 [[package]]
 name = "platform-artifacts"

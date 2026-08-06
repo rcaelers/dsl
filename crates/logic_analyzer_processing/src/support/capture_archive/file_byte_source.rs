@@ -12,7 +12,7 @@ use signal_capture::Result;
 
 /// Temporary path adapter retained inside the allowlisted file-I/O leaf.
 /// Application composition uses the equivalent host adapter from
-/// `logic_analyzer_platform` instead.
+/// `platform` instead.
 pub(crate) struct FileByteSource {
     path: PathBuf,
     identity: SourceIdentity,

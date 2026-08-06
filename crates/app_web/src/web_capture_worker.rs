@@ -319,14 +319,14 @@ fn handle_worker_message(
                 .map(|files| {
                     files
                         .into_iter()
-                        .map(|file| logic_analyzer_platform::BrowserDownloadFile {
+                        .map(|file| platform::BrowserDownloadFile {
                             name: file.name,
                             bytes: file.bytes,
                             annotations: vec![file.producer_node, file.producer_socket],
                         })
                         .collect::<Vec<_>>()
                 })
-                .map(logic_analyzer_platform::queue_browser_downloads);
+                .map(platform::queue_browser_downloads);
             if let Err(error) = result {
                 tracing::warn!(%error, "browser graph output download failed");
             }

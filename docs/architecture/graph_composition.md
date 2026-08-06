@@ -30,7 +30,7 @@ a Rust dependency from a generic consumer to the built-in node bundle.
 
 ```mermaid
 flowchart LR
-    Apps[Native and web applications] --> Platform[logic_analyzer_platform]
+    Apps[Native and web applications] --> Platform[platform]
     Apps --> UI[logic_analyzer_ui]
     Apps --> Nodes[logic_analyzer_graph_nodes]
     Platform --> UI
@@ -192,4 +192,4 @@ Architecture checks enforce these boundaries:
 - the runtime owns no compiler, registry, editable graph document, widget, or concrete protocol;
 - built-in nodes and plug-ins do not depend on the compiler;
 - the UI does not import concrete processing nodes; and
-- native/web selection is confined to application bootstrap and `logic_analyzer_platform`.
+- native/web selection is confined to application bootstrap and `platform`.

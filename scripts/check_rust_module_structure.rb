@@ -9,7 +9,7 @@ ROOT = File.expand_path("..", __dir__)
 SOURCE_GLOBS = ["crates/**/*.rs", "plugins/**/*.rs", "tests/**/*.rs", "benches/**/*.rs"].freeze
 ROOT_FILES = %w[lib.rs main.rs mod.rs].freeze
 DECLARATIVE_SELECTION_FACADES = %w[
-  crates/logic_analyzer_platform/src/platform/mod.rs
+  crates/platform/src/host/mod.rs
   crates/logic_analyzer_processing/src/nodes/sources/dslogic_u3pro16/mod.rs
 ].freeze
 
@@ -179,7 +179,7 @@ end
 
 ui_manifest = File.read(File.join(ROOT, "crates/logic_analyzer_ui/Cargo.toml"))
 if ui_manifest.match?(/^rfd\s*=/)
-  errors << "crates/logic_analyzer_ui/Cargo.toml: native dialogs belong to logic-analyzer-platform"
+  errors << "crates/logic_analyzer_ui/Cargo.toml: native dialogs belong to platform"
 end
 node_graph_manifest = File.read(File.join(ROOT, "crates/widgets/node_graph/Cargo.toml"))
 if node_graph_manifest.match?(/^rfd\s*=/) || node_graph_manifest.match?(/^native-file-dialog\s*=/)
@@ -188,7 +188,7 @@ end
 
 native_app_manifest = File.read(File.join(ROOT, "crates/app_native/Cargo.toml"))
 if native_app_manifest.match?(/^logic-analyzer-ui\s*=\s*\{[^}]*features\s*=/)
-  errors << "crates/app_native/Cargo.toml: native UI behavior must be supplied by logic-analyzer-platform, not UI features"
+  errors << "crates/app_native/Cargo.toml: native UI behavior must be supplied by platform, not UI features"
 end
 
 Dir.glob(File.join(ROOT, "plugins/*/Cargo.toml")).sort.each do |manifest_path|

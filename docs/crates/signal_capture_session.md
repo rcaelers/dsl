@@ -27,7 +27,7 @@ they consume mutable session storage; finite index algorithms are supplied by `s
 
 The crate depends on `platform_artifacts`, `platform_runtime`, `signal_capture`, `signal_derived`,
 `signal_runtime`, and portable third-party libraries. Native and browser host
-implementations live in `logic_analyzer_platform` and are injected through capability contracts.
+implementations live in `platform` and are injected through capability contracts.
 The same source modules and public contracts compile for native and wasm targets.
 
 ## Errors and tests

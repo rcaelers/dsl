@@ -31,13 +31,13 @@ See `docs/aspects/plugin_extensible_payload.md` for the detailed payload and vie
 - `logic_analyzer_graph_nodes` owns concrete graph nodes and their builders.
 - `logic_analyzer_graph_compiler` owns generic graph lowering, discovery, execution, and
   saved-document synchronization.
-- `logic_analyzer_platform` owns reusable native and web host adapters. It implements capability
+- `platform` owns reusable native and web host adapters. It implements capability
   contracts owned by the core crates and is the only reusable crate that selects code or
   dependencies by compilation target.
 - `logic_analyzer_ui` composes the widgets and application services; it must not
   contain concrete node definitions or runtime builders.
 - Native and web application crates are thin composition roots. They bootstrap their host and
-  inject `logic_analyzer_platform` services; they do not own storage, indexing, caching,
+  inject `platform` services; they do not own storage, indexing, caching,
   processing, or execution policy.
 - Reusable widgets live below `crates/widgets` and must remain independent of
   concrete nodes and protocols.
@@ -83,11 +83,11 @@ See the module layout and public-module allowlist in
 - All reusable runtime, compiler, viewer, graph, widget, UI, and portable processing crates compile
   the same Rust source on native and wasm. They do not contain target-selected modules, target
   conditionals, target-dependent public surfaces, or target-specific dependencies.
-- Core crates own platform-neutral capability traits and algorithms. `logic_analyzer_platform`
+- Core crates own platform-neutral capability traits and algorithms. `platform`
   implements native and web host adapters for those traits and injects them at the application
   composition boundary. It contains the single reusable target-selection point.
 - Native and web application crates may contain only the target-specific entry and bootstrap code
-  required to create the host and install `logic_analyzer_platform` services.
+  required to create the host and install `platform` services.
 - Complete file-I/O or USB adapter leaf modules in `logic_analyzer_processing` are the only
   permitted reusable-crate exception when the capability cannot yet be injected without moving
   concrete format or device behavior to the platform crate. Every exception is explicitly
@@ -96,7 +96,7 @@ See the module layout and public-module allowlist in
 - Synthetic sources, discard sinks, in-memory repositories, and cooperative executors are explicit
   portable implementations selected through configuration or injection. They are not implicit
   wasm substitutes for native behavior.
-- New target-specific code outside `logic_analyzer_platform`, the application bootstrap crates, or
+- New target-specific code outside `platform`, the application bootstrap crates, or
   an explicitly allowlisted processing adapter is prohibited. Existing splits are migration work
   tracked in `TODO.md`, not precedent for adding another split.
 

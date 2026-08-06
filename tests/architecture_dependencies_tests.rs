@@ -60,7 +60,7 @@ fn local_non_dev_dependencies(package: &serde_json::Value) -> BTreeSet<&str> {
 #[test]
 fn platform_depends_only_on_neutral_contract_owners() {
     let metadata = workspace_metadata();
-    let dependencies = local_non_dev_dependencies(package(&metadata, "logic-analyzer-platform"));
+    let dependencies = local_non_dev_dependencies(package(&metadata, "platform"));
 
     assert_eq!(
         dependencies,
@@ -75,10 +75,7 @@ fn capture_export_owner_does_not_depend_on_ui_or_platform() {
     let dependencies = non_dev_dependencies(package(&metadata, "logic-analyzer-capture-export"));
 
     assert!(
-        dependencies.is_disjoint(&BTreeSet::from([
-            "logic-analyzer-platform",
-            "logic-analyzer-ui",
-        ])),
+        dependencies.is_disjoint(&BTreeSet::from(["platform", "logic-analyzer-ui",])),
         "the capture-export service contract and implementation must remain independent of UI and platform"
     );
 }

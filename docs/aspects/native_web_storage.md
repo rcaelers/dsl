@@ -33,7 +33,7 @@ explicitly flush before publication. No capture, raw cache, waveform index, or r
 fit in one resident allocation.
 
 Host source acquisition and output-destination adapters are selected by
-`logic_analyzer_platform`, then installed as concrete node capabilities by the application roots.
+`platform`, then installed as concrete node capabilities by the application roots.
 Native composition injects DSL and Sigrok path adapters, filesystem-backed writer storage, the
 U3Pro16 USB transport and FPGA-image provider, and the capture-export-owned repository-backed
 service. Web composition injects browser DSL and Sigrok import adapters plus explicit unavailable
@@ -42,7 +42,7 @@ demo data; web composition does not silently substitute it for a file. Browser g
 and Save As adapt the platform's byte download mechanism to JSON, while general processing-node
 output and capture export are unavailable capabilities.
 
-Platform selection occurs at complete implementation-file boundaries in `logic_analyzer_platform`.
+Platform selection occurs at complete implementation-file boundaries in `platform`.
 Generic compiler, runtime, viewer, graph-node, and UI code contains no target-selected source. The
 allowlisted processing exceptions are the U3Pro16 native device-runtime leaves and isolated DSL and
 Sigrok path-compatibility leaves; archive parsing and prepared-source execution remain portable.
@@ -54,7 +54,7 @@ generations are rejected and invalidated as a unit. Unfinished ephemeral artifac
 when their last store handle is dropped. Graph-runtime cache lookup, graph pruning, preview,
 invalidation, and cleanup apply the same policy to native and web repositories.
 
-`logic_analyzer_platform` exposes target-scoped constructors for artifact repositories and host
+`platform` exposes target-scoped constructors for artifact repositories and host
 mechanisms. Native and web application roots call the constructors they need, adapt mechanisms to
 the UI host-service port and domain contracts, select fallbacks, and construct `AppServices`. That
 composition boundary passes the selected repository through the graph service to every
@@ -149,7 +149,7 @@ failure does not change the shared data plane.
 
 Platform support is expressed through orthogonal capabilities rather than one target-shaped
 `Platform` interface. Capability contracts belong to the core crate that owns the behavior.
-Reusable host implementations and target selection belong to `logic_analyzer_platform`. A host can
+Reusable host implementations and target selection belong to `platform`. A host can
 provide any useful combination.
 
 | Capability | Native implementation | Web implementation |
@@ -167,7 +167,7 @@ names, or a storage implementation name.
 
 Portable implementations remain in their behavioral owner and compile everywhere. This includes
 the chunked-memory repository, owned byte backing, deterministic fake sources, and cooperative
-executor. Application composition selects them explicitly; `logic_analyzer_platform` does not
+executor. Application composition selects them explicitly; `platform` does not
 fork their algorithms.
 Persistent metadata receives the root-level `platform_artifacts::UnixTimeSource` capability. Its
 default implementation uses `web-time` on every target, while deterministic conformance fixtures
@@ -175,7 +175,7 @@ inject a fixed clock so complete manifests and encoded generations can be compar
 
 ### Platform adapter crate
 
-`logic_analyzer_platform` is a top-level adapter crate, not a lower-level dependency of the core.
+`platform` is a top-level adapter crate, not a lower-level dependency of the core.
 It returns target-selected mechanisms and adapter parts to the application composition root and
 does not define parallel copies of consumer data models. Core crates never depend on it. Its
 manifest depends only on generic runtime and artifact contracts, not Logic Conduit domain crates.
@@ -183,7 +183,7 @@ manifest depends only on generic runtime and artifact contracts, not Logic Condu
 Its private layout has one target-selection point:
 
 ```text
-logic_analyzer_platform/
+platform/
   src/
     lib.rs                    curated crate-root construction API
     file_dialog.rs            target-neutral file-picker contracts and opaque references
@@ -203,7 +203,7 @@ The crate root exposes individually scoped, target-selected constructors rather 
 `native` and `web` namespaces or an application-wide service bundle. Application roots request
 only the adapters they use, construct concrete node overrides, catalog services, graph-worker
 runtimes, and UI services, and inject them. No reusable core crate depends on
-`logic_analyzer_platform`.
+`platform`.
 
 Traits implemented by the adapter crate are supported cross-crate ports re-exported from the crate
 root of their behavioral owner. For example, artifact storage ports belong to `platform_artifacts`,
@@ -227,12 +227,12 @@ reports that the capability is unavailable. Platform has no Sigrok-specific modu
 
 The memory repository, owned backing, fake source, cooperative executor, and other host-independent
 implementations live in their behavioral owner crates and can be selected on native, web, or in
-tests. `logic_analyzer_platform` contains only code whose implementation actually calls a host API
+tests. `platform` contains only code whose implementation actually calls a host API
 or establishes target-specific execution.
 
 Target-specific dependencies such as `memmap2`, native dialog libraries, native USB libraries,
 embedded-runtime libraries, `wasm-bindgen`, and `web-sys` are declared only by
-`logic_analyzer_platform` or a bootstrap crate. An explicitly allowlisted processing adapter may
+`platform` or a bootstrap crate. An explicitly allowlisted processing adapter may
 retain a concrete format or device dependency, but generic core crates do not acquire
 that dependency transitively.
 
@@ -272,7 +272,7 @@ user gesture / application configuration
         path, File, Blob, USB permission
                  |
                  v
-    logic_analyzer_platform adapter
+    platform adapter
        implements owner contracts
                  |
                  v
@@ -375,7 +375,7 @@ The repository interfaces preserve these semantics:
 - repository errors distinguish unavailable, exhausted quota, permission loss, I/O failure,
   corruption, and unsupported optional behavior.
 
-The native repository adapter is an isolated leaf in `logic_analyzer_platform`; it implements
+The native repository adapter is an isolated leaf in `platform`; it implements
 publication with files and atomic filesystem operations. The platform-independent memory repository
 in `platform_artifacts` keeps published artifacts in bounded process-lifetime memory and
 can be selected on any target. Both implementations satisfy the same lifecycle and prepared-source
@@ -409,7 +409,7 @@ The native repository adapter supplies mmap-backed regions when possible. Portab
 repositories supply `Arc<[u8]>`-backed regions for ranges within one chunk. A repository that
 cannot expose a stable region for a requested range returns `None`, and the common reader fills an
 owned region through `read_at`. Mmap therefore
-remains an optimization supplied by `logic_analyzer_platform`, not a different storage or indexing
+remains an optimization supplied by `platform`, not a different storage or indexing
 model inside `platform_artifacts`.
 
 Large artifacts are chunked. Neither native nor web code requires one artifact, one capture, or one
@@ -608,7 +608,7 @@ large-timeline integration fixture executes concrete nodes over 60 million sourc
 that execution yields across host turns, enforces the result bounds, and reloads all derived lanes
 from the replicated cache.
 
-For browser-selected files, `logic_analyzer_platform` attaches the `File` object to the dedicated
+For browser-selected files, `platform` attaches the `File` object to the dedicated
 capture worker through structured clone. The worker reads bounded asynchronous chunks to compute
 the same BLAKE3 content identity used by native sources, reports cancellable import progress, and
 inspects capture metadata before completing selection. The UI registry retains only that metadata
@@ -634,13 +634,13 @@ The executor contract provides:
 - completion polling and waiting;
 - deterministic output ordering independent of completion order.
 
-The native executor adapter in `logic_analyzer_platform` uses a bounded worker pool for finite
+The native executor adapter in `platform` uses a bounded worker pool for finite
 work and host-created tasks for long-running readers and runtime supervision. The portable
 cooperative executor belongs to `platform_runtime`, compiles on every target, and is the explicit
 fallback when the web host cannot provide parallel workers. `platform_runtime::WorkerMessage`
 carries owned operation identifiers,
 sequence numbers, payloads, progress, cancellation, completion, and failure across a worker
-boundary. A Web Worker adapter in `logic_analyzer_platform` dispatches registered operations with
+boundary. A Web Worker adapter in `platform` dispatches registered operations with
 those messages and returns owned result chunks. It does not attempt to send Rust closures, trait
 objects, mmap handles, or borrowed slices between workers.
 
@@ -665,7 +665,7 @@ results, and the cooperative and parallel paths execute the same kernels. Index 
 manifests are published only after all ordered results succeed; cancellation or failure leaves no
 partially published generation for a later reader to accept.
 
-`logic_analyzer_platform::WebWorkerAdapter` owns a bounded pool of browser workers and is constructed
+`platform::WebWorkerAdapter` owns a bounded pool of browser workers and is constructed
 with the absolute URLs of the generated JavaScript module and WASM binary. Worker construction
 validates that the browser accepts the host mechanism, while module import and initialization remain
 lazy until the first accepted operation. Each worker then initializes the same generated module and
@@ -696,7 +696,7 @@ portable message variant, operation validation, backpressure, out-of-order compl
 active cancellation, mismatched results, partial and complete worker-pool failure, and observable
 parity with `CooperativeWorkerOperationExecutor`.
 
-The native finite-operation adapter in `logic_analyzer_platform` runs those commands in a bounded
+The native finite-operation adapter in `platform` runs those commands in a bounded
 worker pool. Each slot owns one request channel and executes at most one operation at a time; the
 shared queue bounds accepted work to four requests per advertised worker. The adapter converts a
 kernel panic or transport loss into an ordered failure. Cancellation publishes an ordered failure
@@ -746,7 +746,7 @@ application origin. It remains quota-managed browser data:
 the browser or user can evict it, clearing site data removes it, and it is not a user-visible file
 tree.
 
-The OPFS adapter in `logic_analyzer_platform` hydrates a bounded synchronous memory repository before
+The OPFS adapter in `platform` hydrates a bounded synchronous memory repository before
 the UI is constructed, then mirrors publications and removals through a dedicated worker. The
 session mirror remains the hot path required by the synchronous core repository contract. The
 worker serializes immutable generation writes, publishes a small pointer only after its data file
@@ -765,7 +765,7 @@ as durable application cache entries.
 
 ### Browser file import and export
 
-Browser file import is a `logic_analyzer_platform` acquisition adapter. A node file-control picker
+Browser file import is a `platform` acquisition adapter. A node file-control picker
 or a file dropped on that control produces bytes under a user gesture. The adapter enforces the
 resident import limits of 256 MiB per file and 512 MiB per browser session, content-addresses the
 bytes, partitions them into immutable bounded chunks, and retains an opaque process-lifetime
@@ -797,7 +797,7 @@ work.
 The U3Pro16 device protocol owns a `UsbTransport` capability contract for control transfers, bulk
 transfers, optional queued bulk reads, cancellation, close, and negotiated link speed. Its
 `DsLogicU3Pro16TransportFactory` opens an opaque transport for the device protocol. The native
-adapter in `logic_analyzer_platform` owns discovery, runtime-device validation, interface claiming,
+adapter in `platform` owns discovery, runtime-device validation, interface claiming,
 the `rusb` dependency, and asynchronous libusb receive requests. The protocol, firmware upload,
 FPGA configuration, acquisition planning, and packet state machines remain in
 `logic_analyzer_processing` and depend only on the contract.
@@ -852,12 +852,12 @@ bounded blocks and a repository rather than preloading one contiguous buffer.
 - `logic_analyzer_viewer` consumes capture and derived query handles. It has no repository,
   mmap, path, browser handle, cache administration, memory-management responsibility, or
   target-selected worker implementation.
-- `logic_analyzer_platform` is an adapter/integration crate above the contract owners. It contains
+- `platform` is an adapter/integration crate above the contract owners. It contains
   reusable native and web implementations for files, mmap, worker execution, browser handles,
   OPFS, dialogs, and USB access. Its production dependencies are limited to the neutral
   `platform_artifacts` and `platform_runtime` contracts plus host libraries.
 - `app_native` and `app_web` are unavoidable target-specific composition roots. They initialize
-  their host, obtain `logic_analyzer_platform` mechanisms, adapt domain/UI ports, select concrete
+  their host, obtain `platform` mechanisms, adapt domain/UI ports, select concrete
   node overrides, and construct application and worker services. They contain no reusable storage,
   processing, or scheduling implementation.
 
@@ -866,7 +866,7 @@ only on neutral platform contracts:
 
 ```mermaid
 flowchart BT
-    Platform[logic_analyzer_platform] --> Artifacts[platform_artifacts]
+    Platform[platform] --> Artifacts[platform_artifacts]
     Platform --> HostRuntime[platform_runtime]
     SignalRuntime[signal_runtime] --> HostRuntime
     Domains[signal and graph domains] --> Artifacts
@@ -876,7 +876,7 @@ flowchart BT
     Apps --> Domains
 ```
 
-Core crates never depend on `logic_analyzer_platform`; doing so would reverse the injection
+Core crates never depend on `platform`; doing so would reverse the injection
 boundary and reintroduce target selection into the shared data plane.
 
 ### Errors and diagnostics
@@ -930,7 +930,7 @@ Every storage and execution implementation is tested through shared conformance 
 ### Platform selection
 
 Reusable target selection is confined to one private selection module in
-`logic_analyzer_platform`. That crate owns complete adapter implementations for:
+`platform`. That crate owns complete adapter implementations for:
 
 - native file and mmap repository adapters;
 - OPFS repository adapters;
@@ -973,7 +973,7 @@ this boundary and whose fixture suite verifies that representative violations ar
 
 - One encoded representation and one query implementation serve native and web repositories.
 - Reusable core crates compile the same module tree and Rust source on native and web targets.
-- `logic_analyzer_platform` is the only reusable crate with general target selection or
+- `platform` is the only reusable crate with general target selection or
   target-specific dependencies.
 - Native and web application crates contain bootstrap and injection only.
 - Processing exceptions are complete, explicitly allowlisted file-I/O or USB adapter leaves; they

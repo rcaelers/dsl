@@ -171,7 +171,7 @@ nearest owning facade. The allowlist names canonical public namespaces.
 | `logic_analyzer_graph_orchestration` | none | Its crate root exposes graph-worker request, message, codec, client, and worker-runtime contracts. Lowering and execution behavior remain in their owning crates. |
 | `logic_analyzer_graph_nodes` | none | The crate root exposes the linker anchor plus host-injection and portable-template helpers for concrete node contracts. Built-in graph-node definitions, socket types, migrations, presentations, inventory submissions, and crate-local test fixtures remain private. Cross-component fixtures belong to the top-level integration-test package. |
 | `logic_analyzer_capture_export` | none | The cohesive exporter exposes its curated format, progress, observer, report, stateful service contract, and native asynchronous implementation through the crate root. Encoder, archive, and service implementation modules remain private. |
-| `logic_analyzer_platform` | none | The crate root exposes individually scoped target-selected host constructors. Private native and web modules contain the single reusable target-selection point. |
+| `platform` | none | The crate root exposes individually scoped target-selected host constructors. Private native and web modules contain the single reusable target-selection point. |
 | `logic_analyzer_test_support` | none | Shared deterministic acquisition providers and data-plane conformance fixtures are exposed through the crate root. Their synchronization, repository observation, and fixture implementations remain private. |
 | `node_graph` | `api` | `api` exposes graph documents, identifiers, sockets, and node-definition contracts to compilers and graph-node implementations. The crate root exposes the widget/editor composition surface used by UI hosts. |
 | `logic_analyzer_viewer` | none | The reusable viewer exposes one curated crate-root API; drawing, sampling, input, cursor, lane, worker, and indexing modules remain private. |
@@ -209,7 +209,7 @@ generic crate.
 
 Native and wasm reusable crates share the platform-neutral data model and compile the same source
 tree. Native-only filesystem, USB, mmap, worker, export, and host-integration capabilities are
-selected as complete adapter modules in `logic_analyzer_platform`. A platform facade exposes a
+selected as complete adapter modules in `platform`. A platform facade exposes a
 complete contract; consumers do not depend on an unnameable backend type or a target-dependent
 collection of incidental helpers.
 
@@ -218,7 +218,7 @@ combines `PipelineAppManagerFactory` with the platform work executor; the web ap
 the portable cooperative factory. Graph-runtime and processing code do not inspect the target.
 
 Native and web application roots compose the UI `HostService` port. The browser adapter delegates
-byte-oriented document selection, storage, and downloads to `logic_analyzer_platform`; the native
+byte-oriented document selection, storage, and downloads to `platform`; the native
 adapter delegates file access, configuration paths, and file/directory dialogs to
 `NativeDocumentHost` while retaining product parsing and shell commands. Platform exposes the
 repository mechanisms and allocates the application directory backing its native implementation;
@@ -244,7 +244,7 @@ Matching public APIs backed by separate target-selected implementations inside a
 the final boundary. The platform adapter boundary covers host
 services.
 
-`logic_analyzer_platform` is the only reusable crate with general target selection and
+`platform` is the only reusable crate with general target selection and
 target-specific dependencies. It is an adapter layer above the contract owners:
 
 - `platform_artifacts` owns artifact-repository, prepared-source, and byte-region capability ports;
@@ -258,12 +258,12 @@ target-specific dependencies. It is an adapter layer above the contract owners:
   inline, capture-worker, and threaded source-preparation executors;
 - `logic_analyzer_capture_export` owns export behavior and its application-facing service contract;
 - `logic_analyzer_ui` owns dialog, host-command, cache-diagnostic, and document ports;
-- `logic_analyzer_platform` supplies target-selected files, mmap, worker execution, browser
+- `platform` supplies target-selected files, mmap, worker execution, browser
   handles, OPFS, downloads, and other host mechanisms;
 - native and web application crates adapt and combine those mechanisms with domain services and
   inject the resulting application contracts.
 
-The dependency never points from a core crate to `logic_analyzer_platform`. A capability port that
+The dependency never points from a core crate to `platform`. A capability port that
 must be implemented by the adapter crate is a deliberate supported crate-root contract in its
 behavioral owner. The owner exposes only platform-neutral request, result, capability, and error
 types; implementation dependencies remain private to the adapter crate.
@@ -295,7 +295,7 @@ export, cache administration, and viewer workers are also not processing excepti
 domain adaptation remain in the owning domain crate or application composition root.
 
 Architecture enforcement rejects target conditionals, target-selected module paths, target
-inspection through `cfg!`, and target-specific dependencies outside `logic_analyzer_platform`, the
+inspection through `cfg!`, and target-specific dependencies outside `platform`, the
 native/web bootstrap crates, and the explicit processing-adapter allowlist. It also verifies that
 portable graph-node catalogs use one module tree on both targets and that core crates do not depend
 on the adapter crate. `scripts/check_platform_boundaries.rb` is the machine-readable owner of this

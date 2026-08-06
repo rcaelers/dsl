@@ -19,7 +19,7 @@ from `platform_runtime`; `signal_runtime` and other higher-level crates do not r
 
 The crate depends only on portable serialization and error support. It has no dependency on signal,
 graph, processing, UI, application, or adapter crates and contains no target selection.
-`logic_analyzer_platform` implements its contracts with native threads and browser workers.
+`platform` implements its contracts with native threads and browser workers.
 Application roots inject those implementations into `signal_runtime` and the other consumers that
 schedule work.
 

@@ -1,5 +1,5 @@
 [package]
-name = "logic-analyzer-platform"
+name = "platform"
 version.workspace = true
 edition = "2024"
 authors = ["Rob Caelers <rob.caelers@gmail.com>"]

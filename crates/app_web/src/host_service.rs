@@ -2,12 +2,10 @@
 
 use std::path::{Path, PathBuf};
 
-use logic_analyzer_platform::{
-    BrowserDocumentHost, FileDialogFilter, FileOpenDialog, FileSaveDialog,
-};
 use logic_analyzer_ui::{
     DownloadableOutput, HostCommand, HostService, HostUiCapabilities, OpenDialog, SaveDialog,
 };
+use platform::{BrowserDocumentHost, FileDialogFilter, FileOpenDialog, FileSaveDialog};
 
 pub(crate) struct BrowserHostService {
     documents: BrowserDocumentHost,

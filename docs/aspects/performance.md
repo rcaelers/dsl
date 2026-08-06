@@ -133,7 +133,7 @@ result the acceptance rule exists to protect.
 
 Performance work does not relocate ownership:
 
-- `signal_capture` owns the portable kernel contract and CPU fallback; `logic_analyzer_platform`
+- `signal_capture` owns the portable kernel contract and CPU fallback; `platform`
   owns native and web adapters, capability discovery, and unavailable-hardware handling.
 - No target conditionals or GPU dependencies enter portable processing, viewer, compiler, or
   concrete-node crates.

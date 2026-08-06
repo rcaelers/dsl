@@ -11,5 +11,5 @@ request/message protocol, codec, client, and worker runtime.
 The worker runtime lowers the request's editable graph with `GraphLowerer`, then passes the
 resulting `ProcessingGraph` to a separate `GraphRuntime`. This above-layer composition does not
 place a dependency between compiler and runtime. Target-selected worker creation and transport
-remain in `logic_analyzer_platform`; ordinary Run orchestration remains in the UI's private graph
+remain in `platform`; ordinary Run orchestration remains in the UI's private graph
 service.

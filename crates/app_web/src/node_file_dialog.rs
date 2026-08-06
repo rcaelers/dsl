@@ -1,9 +1,9 @@
 //! Adaptation of the browser file-picker mechanism to the node widget port.
 
-use logic_analyzer_platform::{
+use node_graph::{DroppedFile, FileDialogProgress, FileDialogRequest, FileDialogService};
+use platform::{
     DroppedFileData, FileDialogFilter as HostFileDialogFilter, FilePickerRequest, FilePickerService,
 };
-use node_graph::{DroppedFile, FileDialogProgress, FileDialogRequest, FileDialogService};
 
 pub(crate) struct BrowserNodeFileDialog {
     picker: Box<dyn FilePickerService>,
@@ -78,10 +78,10 @@ mod node_file_dialog_tests {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
-    use logic_analyzer_platform::{
+    use node_graph::{DroppedFile, FileDialogFilter, FileDialogRequest, FileDialogService};
+    use platform::{
         DroppedFileData, FilePickerProgress, FilePickerRequest, FilePickerService, FileReference,
     };
-    use node_graph::{DroppedFile, FileDialogFilter, FileDialogRequest, FileDialogService};
 
     use super::BrowserNodeFileDialog;
 

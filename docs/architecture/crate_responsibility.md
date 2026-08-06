@@ -186,7 +186,7 @@ selection remain outside this crate.
 
 ### Host, application, and support crates
 
-#### `logic-analyzer-platform`
+#### `platform`
 
 Owns reusable native and web host mechanisms and the workspace's single reusable target-selection
 point. Its crate-root facade provides individually scoped storage, worker, random-access file,
@@ -241,7 +241,7 @@ a built-in node bundle.
 
 ```mermaid
 flowchart LR
-    Apps[Application roots] --> Platform[logic_analyzer_platform]
+    Apps[Application roots] --> Platform[platform]
     Apps --> HostRuntime[platform_runtime]
     Apps --> UI[logic_analyzer_ui]
     Apps --> Nodes[logic_analyzer_graph_nodes]

@@ -15,14 +15,14 @@ const RUNTIME_MANUFACTURER: &str = "DreamSourceLab";
 const RUNTIME_PRODUCT: &str = "USB-based DSL Instrument v2";
 
 struct NativeU3Pro16Transport {
-    device: logic_analyzer_platform::NativeUsbDevice,
+    device: platform::NativeUsbDevice,
 }
 
 impl UsbTransport for NativeU3Pro16Transport {
     fn link_speed(&self) -> LinkSpeed {
         match self.device.link_speed() {
-            logic_analyzer_platform::UsbLinkSpeed::High => LinkSpeed::High,
-            logic_analyzer_platform::UsbLinkSpeed::Super => LinkSpeed::Super,
+            platform::UsbLinkSpeed::High => LinkSpeed::High,
+            platform::UsbLinkSpeed::Super => LinkSpeed::Super,
         }
     }
 
@@ -127,10 +127,10 @@ struct NativeU3Pro16TransportFactory;
 
 impl DsLogicU3Pro16TransportFactory for NativeU3Pro16TransportFactory {
     fn open(&self) -> LogicAnalyzerResult<Box<dyn UsbTransport>> {
-        let selector = logic_analyzer_platform::NativeUsbDeviceSelector::new(VENDOR_ID, PRODUCT_ID)
+        let selector = platform::NativeUsbDeviceSelector::new(VENDOR_ID, PRODUCT_ID)
             .with_identity_prefixes(RUNTIME_MANUFACTURER, RUNTIME_PRODUCT)
             .with_configuration_interface(1, 0);
-        logic_analyzer_platform::NativeUsbDevice::open(&selector)
+        platform::NativeUsbDevice::open(&selector)
             .map(|device| Box::new(NativeU3Pro16Transport { device }) as Box<dyn UsbTransport>)
             .map_err(LogicAnalyzerError::Transport)
     }
@@ -144,10 +144,10 @@ pub(crate) fn source_factory() -> Arc<dyn DsLogicU3Pro16SourceFactory> {
     logic_analyzer_processing::nodes::sources::dslogic_u3pro16::source_factory(transport_factory())
 }
 
-fn map_usb_error(error: logic_analyzer_platform::UsbTransferError) -> UsbError {
+fn map_usb_error(error: platform::UsbTransferError) -> UsbError {
     match error {
-        logic_analyzer_platform::UsbTransferError::Timeout => UsbError::Timeout,
-        logic_analyzer_platform::UsbTransferError::Other => UsbError::Other,
+        platform::UsbTransferError::Timeout => UsbError::Timeout,
+        platform::UsbTransferError::Other => UsbError::Other,
     }
 }
 

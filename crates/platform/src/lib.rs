@@ -9,7 +9,7 @@
 //! remain outside this crate.
 
 mod file_dialog;
-mod platform;
+mod host;
 
 pub use file_dialog::{
     DroppedFileData, FileDialogFilter, FileOpenDialog, FilePickerProgress, FilePickerRequest,
@@ -17,15 +17,15 @@ pub use file_dialog::{
 };
 std::cfg_select! {
     target_arch = "wasm32" => {
-        pub use platform::{
+        pub use host::{
             BrowserDocumentHost, BrowserDownload, BrowserDownloadFile, WebWorkerAdapter,
             browser_worker_parallelism, open_browser_artifact_repository, queue_browser_downloads,
         };
     }
     _ => {
         #[cfg(feature = "developer-tools")]
-        pub use platform::isolated_native_artifact_repository;
-        pub use platform::{
+        pub use host::isolated_native_artifact_repository;
+        pub use host::{
             NativeDocumentHost, NativeUsbDevice, NativeUsbDeviceSelector, UsbLinkSpeed,
             UsbTransferError, native_append_file, native_artifact_repository, native_create_file,
             native_create_parent_directories, native_file_byte_source, native_path_exists,

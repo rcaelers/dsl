@@ -21,7 +21,7 @@ capture or derived-data formats, graph crates, UI crates, platform adapters,
 or compilation targets.
 
 Native mmap/filesystem repositories and browser persistence repositories implement these contracts
-in `logic_analyzer_platform`. Capture and derived-data owners choose their namespaces and encodings;
+in `platform`. Capture and derived-data owners choose their namespaces and encodings;
 `platform_artifacts` does not assign application cache policy or interpret stored bytes.
 
 ## Invariants and errors

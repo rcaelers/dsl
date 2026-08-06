@@ -55,7 +55,7 @@ Task IDs start with their ownership category and remain stable when task wording
   obtain it. Already-configured devices proceed without an upload. An unconfigured or incompatible device requires
   an independently downloadable vendor-authorized image or an image explicitly selected by the user; if neither is
   available, report that capture cannot configure the FPGA. Persist a user-supplied image only with explicit consent.
-- [capture.web.usb-adapter] Implement a device-neutral WebUSB capability in `logic_analyzer_platform`. Translate
+- [capture.web.usb-adapter] Implement a device-neutral WebUSB capability in `platform`. Translate
   promises, endpoint numbers, control-request fields, transfer statuses, short transfers, stalls, timeouts,
   cancellation, and disconnects into a neutral USB transport contract. Implement the U3Pro16 transport adaptation
   in its device crate and assemble its source-factory override in `app_web`; platform must not import the U3Pro16
@@ -125,7 +125,7 @@ else, and no P3 item gates a P2.
      critical path, and GPU dispatch would additionally transfer 1.25–2.73 GB of packed input.
   2. [ ] Preserve platform boundaries: `signal_capture` owns the portable summary kernel, CPU
      fallback, and any adapter from neutral compute operations to capture summaries;
-     `logic_analyzer_platform` owns only device-neutral native/WebGPU access, capability discovery,
+     `platform` owns only device-neutral native/WebGPU access, capability discovery,
      submission, and unavailable-GPU handling. Do not add target conditionals or GPU
      dependencies to portable processing, viewer, compiler, or concrete-node crates. Keep
      decompression, source I/O, protocol decoding, and derived-data caching on their current CPU
@@ -239,7 +239,7 @@ item here, so acceptance comparisons stop being ad-hoc.
      add GPU branches to generic runtime/compiler infrastructure.
    - [ ] [platform.gpu-capability] If any GPU prototype wins, define a device-neutral compute
      capability below its consumers and implement native/WebGPU access in
-     `logic_analyzer_platform`. Keep kernel/domain adaptation and portable CPU fallbacks in their
+     `platform`. Keep kernel/domain adaptation and portable CPU fallbacks in their
      owning core crates, inject the neutral capability at composition roots, and expose
      availability/fallback diagnostics. Never make cache identity depend on the selected device.
 
@@ -302,7 +302,7 @@ item here, so acceptance comparisons stop being ad-hoc.
 
 - [errors.typed-boundaries] (P3 · medium) Replace `Result<_, String>` on cross-crate contracts with owned error
   types so failures carry a responsibility and callers can classify them. Roughly 360 signatures
-  use a string error today; `logic_analyzer_platform`, `logic_analyzer_ui`, `platform_runtime`,
+  use a string error today; `platform`, `logic_analyzer_ui`, `platform_runtime`,
   and `signal_runtime` hold many of them. Work outward from the lowest owner so downstream crates
   inherit typed failures instead of re-wrapping strings. Sequence step 3 after
   [composition.host-factory-injection], which relocates the host-override contracts it types.
@@ -373,6 +373,10 @@ item here, so acceptance comparisons stop being ad-hoc.
   Extract cohesive private leaf modules behind the existing owner facade before considering new
   crates. Keep behavior and public paths stable, and use the module-ownership rules above to name
   each leaf by the behavior it owns.
+- [panel-layout.extraction.standalone-crate] (P5 · low — blocked by [readability.large-module-decomposition])
+  Prepare `panel-layout` for independent publication: replace workspace-inherited package and
+  dependency metadata, move its documentation and examples with the crate, add standalone CI, and
+  verify that its persisted layout, area, panel, and view contracts remain application-neutral.
 
 ### Crate boundary corrections
 

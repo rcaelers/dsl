@@ -6,12 +6,12 @@ use std::sync::mpsc::{self, Receiver, Sender};
 
 use serde::{Deserialize, Serialize};
 
-use logic_analyzer_platform::NativeDocumentHost;
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
     SigrokCatalogScanner, SigrokCatalogSnapshot,
 };
 use logic_analyzer_ui::{NodeCatalogService, NodeCatalogSnapshot};
 use node_graph::NodeTemplate;
+use platform::NativeDocumentHost;
 use platform_runtime::{WorkExecutor, WorkTask};
 
 const NAMESPACE: &str = "logic_conduit.sigrok_python";

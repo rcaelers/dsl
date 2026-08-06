@@ -11,7 +11,7 @@ node capabilities, and construct the portable UI application and worker runtime.
 They own entry/bootstrap code and application-specific adaptation of host mechanisms. They do not
 own generic storage, source preparation, graph lowering, processing execution, capture policy, or
 reusable widgets. Their target-specific dependencies are permitted because they are application
-roots; reusable low-level host mechanisms remain in `logic_analyzer_platform`.
+roots; reusable low-level host mechanisms remain in `platform`.
 
 ## Host bootstrap and documents
 
@@ -21,7 +21,7 @@ window, restores the graph, prepares its source, applies its saved output-retent
 contracts, executes the run, and reports preparation, cache removal, execution, and total time.
 
 `logic-analyzer-app-web` exports the wasm-bindgen `WebHandle`. The browser shell supplies the
-generated JavaScript-module and WASM URLs used by `logic_analyzer_platform` to provide worker
+generated JavaScript-module and WASM URLs used by `platform` to provide worker
 transport or its cooperative fallback. The web app constructs the worker graph runtime and adapts
 platform byte-oriented document handles and downloads to UI graph-document operations. Native
 composition provides filesystem paths and dialogs. Opaque selected document references last for

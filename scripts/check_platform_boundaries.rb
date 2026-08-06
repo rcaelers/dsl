@@ -10,7 +10,7 @@ class PlatformBoundaryCheck
   GENERAL_TARGET_ROOTS = %w[
     crates/app_native
     crates/app_web
-    crates/logic_analyzer_platform
+    crates/platform
   ].freeze
   PROCESSING_ADAPTER_ALLOWLIST = %w[
     crates/logic_analyzer_processing/src/support/capture_archive/file_byte_source.rs
@@ -73,10 +73,10 @@ class PlatformBoundaryCheck
           errors << "#{relative}:#{line}: target-selection macros belong in an approved platform facade"
         end
         each_match(source, TARGET_MODULE) do |_match, line, _match_end|
-          errors << "#{relative}:#{line}: target-specific modules belong in logic_analyzer_platform"
+          errors << "#{relative}:#{line}: target-specific modules belong in platform"
         end
         each_match(source, TARGET_PATH) do |_match, line, _match_end|
-          errors << "#{relative}:#{line}: target-selected module paths belong in logic_analyzer_platform"
+          errors << "#{relative}:#{line}: target-selected module paths belong in platform"
         end
       end
 
@@ -106,14 +106,14 @@ class PlatformBoundaryCheck
           end
           dependency = line.match(/^\s*([A-Za-z0-9_-]+)\s*=/)&.[](1)
           if dependency && TARGET_DEPENDENCIES.include?(dependency)
-            errors << "#{relative}:#{number}: target-specific dependency #{dependency} belongs in logic_analyzer_platform"
+            errors << "#{relative}:#{number}: target-specific dependency #{dependency} belongs in platform"
           end
         end
       end
 
       if !%w[crates/app_native crates/app_web].include?(crate_root) &&
-          source.match?(/^\s*logic-analyzer-platform\s*=/)
-        errors << "#{relative}: reusable core crates must not depend on logic-analyzer-platform"
+          source.match?(/^\s*platform\s*=/)
+        errors << "#{relative}: reusable core crates must not depend on platform"
       end
 
       errors

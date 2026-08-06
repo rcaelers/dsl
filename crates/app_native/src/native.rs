@@ -25,25 +25,25 @@ struct NativeOutputStorage;
 
 impl logic_analyzer_processing::nodes::sinks::OutputStorage for NativeOutputStorage {
     fn create_parent_dirs(&self, path: &Path) -> std::io::Result<()> {
-        logic_analyzer_platform::native_create_parent_directories(path)
+        platform::native_create_parent_directories(path)
     }
 
     fn create(
         &self,
         path: &Path,
     ) -> std::io::Result<Box<dyn logic_analyzer_processing::nodes::sinks::OutputFile>> {
-        logic_analyzer_platform::native_create_file(path).map(|file| Box::new(file) as Box<_>)
+        platform::native_create_file(path).map(|file| Box::new(file) as Box<_>)
     }
 
     fn append(
         &self,
         path: &Path,
     ) -> std::io::Result<Box<dyn logic_analyzer_processing::nodes::sinks::OutputFile>> {
-        logic_analyzer_platform::native_append_file(path).map(|file| Box::new(file) as Box<_>)
+        platform::native_append_file(path).map(|file| Box::new(file) as Box<_>)
     }
 
     fn exists(&self, path: &Path) -> bool {
-        logic_analyzer_platform::native_path_exists(path)
+        platform::native_path_exists(path)
     }
 }
 
@@ -182,10 +182,10 @@ fn application_services() -> (
     logic_analyzer_ui::AppServices,
     Vec<Box<dyn logic_analyzer_ui::NodeCatalogService>>,
 ) {
-    let artifact_repository = logic_analyzer_platform::native_artifact_repository(APPLICATION_ID);
+    let artifact_repository = platform::native_artifact_repository(APPLICATION_ID);
     let dsl_file_source_factory =
         logic_analyzer_processing::nodes::sources::dsl_file::prepared_file_source_factory(
-            Arc::new(logic_analyzer_platform::native_file_byte_source),
+            Arc::new(platform::native_file_byte_source),
         );
     let output_storage: Arc<dyn logic_analyzer_processing::nodes::sinks::OutputStorage> =
         Arc::new(NativeOutputStorage);
@@ -193,17 +193,16 @@ fn application_services() -> (
     let sigrok_decoder_runtime = crate::native_sigrok::decoder_runtime();
     let sigrok_file_source_factory =
         logic_analyzer_processing::nodes::sources::sigrok_file::prepared_file_source_factory(
-            Arc::new(logic_analyzer_platform::native_file_byte_source),
+            Arc::new(platform::native_file_byte_source),
         );
     let u3pro16_source_factory = crate::u3pro16_host::source_factory();
-    let work_executor = logic_analyzer_platform::native_work_executor();
+    let work_executor = platform::native_work_executor();
     let app_manager_factory: Arc<dyn signal_runtime::AppManagerFactory> = Arc::new(
         signal_runtime::PipelineAppManagerFactory::new(Arc::clone(&work_executor)),
     );
-    let worker_operation_executor = logic_analyzer_platform::native_worker_operation_executor(
-        signal_derived::portable_worker_kernels(),
-    )
-    .expect("native worker-operation pool configuration is valid");
+    let worker_operation_executor =
+        platform::native_worker_operation_executor(signal_derived::portable_worker_kernels())
+            .expect("native worker-operation pool configuration is valid");
 
     logic_analyzer_graph_nodes::install_file_source_factories(
         Arc::clone(&dsl_file_source_factory),

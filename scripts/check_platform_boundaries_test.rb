@@ -41,11 +41,11 @@ class PlatformBoundaryCheckTest < Minitest::Test
 
   def test_allows_platform_bootstrap_and_documented_processing_adapter_selection
     with_workspace do |root|
-      write(root, "crates/logic_analyzer_platform/src/lib.rs", <<~RUST)
+      write(root, "crates/platform/src/lib.rs", <<~RUST)
         #[cfg(target_arch = "wasm32")]
         mod web;
       RUST
-      write(root, "crates/logic_analyzer_platform/Cargo.toml", <<~TOML)
+      write(root, "crates/platform/Cargo.toml", <<~TOML)
         [target.'cfg(target_arch = "wasm32")'.dependencies]
         web-sys = "1"
       TOML
@@ -63,7 +63,7 @@ class PlatformBoundaryCheckTest < Minitest::Test
     with_workspace do |root|
       write(root, "crates/core/Cargo.toml", <<~TOML)
         [dependencies]
-        logic-analyzer-platform = { path = "../logic_analyzer_platform" }
+        platform = { path = "../platform" }
       TOML
       write(root, "crates/app_web/Cargo.toml", <<~TOML)
         [dependencies]

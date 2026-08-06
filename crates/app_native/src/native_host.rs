@@ -3,14 +3,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use logic_analyzer_platform::{
-    FileDialogFilter, FileOpenDialog, FileSaveDialog, NativeDocumentHost,
-};
 use logic_analyzer_ui::{
     APPLICATION_ID, ApplicationSettings, DecodedBlockCacheSnapshot, HostCommand, HostService,
     HostUiCapabilities, ModifierKeyLabels, OpenDialog, SaveDialog, default_input_bindings,
 };
 use node_graph::{FileDialogRequest, FileDialogService};
+use platform::{FileDialogFilter, FileOpenDialog, FileSaveDialog, NativeDocumentHost};
 
 #[cfg(target_os = "macos")]
 type RecentFilesListener = Box<dyn Fn(&[PathBuf]) + Send + Sync>;

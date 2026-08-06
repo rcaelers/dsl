@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use js_sys::Uint8Array;
 use wasm_bindgen_futures::JsFuture;
 
-use logic_analyzer_platform::{
+use platform::{
     DroppedFileData, FilePickerProgress, FilePickerRequest, FilePickerService, FileReference,
 };
 use platform_artifacts::SourceIdentity;
@@ -319,7 +319,7 @@ mod dialog_tests {
 
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    use logic_analyzer_platform::{FilePickerProgress, FilePickerService, FileReference};
+    use platform::{FilePickerProgress, FilePickerService, FileReference};
 
     use super::{BrowserFilePickerService, BrowserFileRegistry, finish_request};
 

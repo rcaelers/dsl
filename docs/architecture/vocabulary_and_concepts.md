@@ -228,7 +228,7 @@ registered renderer. The viewer and UI do not select rendering behavior from pro
 ### Platform adapter and composition root
 
 A **platform adapter** implements portable host capabilities with native or browser APIs.
-`logic_analyzer_platform` is the reusable target-selection boundary.
+`platform` is the reusable target-selection boundary.
 
 A **composition root** is a native or web application package that selects an enabled plug-in
 inventory, obtains low-level platform mechanisms, adapts domain and UI ports, selects concrete node

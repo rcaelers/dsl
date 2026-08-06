@@ -20,7 +20,7 @@ logic-analyzer-graph-nodes = { path = "../logic_analyzer_graph_nodes" }
 logic-analyzer-graph-orchestration = { path = "../logic_analyzer_graph_orchestration" }
 logic-analyzer-graph-runtime = { path = "../logic_analyzer_graph_runtime" }
 logic-analyzer-processing = { path = "../logic_analyzer_processing" }
-logic-analyzer-platform = { path = "../logic_analyzer_platform" }
+platform = { path = "../platform" }
 node-graph = { path = "../widgets/node_graph" }
 rfd = { workspace = true, features = ["file-handle-inner"] }
 serde = { workspace = true }

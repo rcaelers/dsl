@@ -2063,20 +2063,19 @@ fn waveform_index_profile(capture: &Path) {
     print_waveform_index_profile(
         capture,
         Arc::new(MemoryArtifactRepository::new()),
-        logic_analyzer_platform::native_work_executor(),
+        platform::native_work_executor(),
         "memory",
     );
 }
 
 fn persistent_waveform_index_profile(capture: &Path) {
     let workspace = temporary_workspace();
-    let repository = logic_analyzer_platform::isolated_native_artifact_repository(
-        workspace.path().join("artifacts"),
-    );
+    let repository =
+        platform::isolated_native_artifact_repository(workspace.path().join("artifacts"));
     print_waveform_index_profile(
         capture,
         repository,
-        logic_analyzer_platform::native_work_executor(),
+        platform::native_work_executor(),
         "native-durable",
     );
 }
@@ -2144,9 +2143,8 @@ fn waveform_index_concurrency_profile(capture: &Path) {
         let presentation = DslFileSource::indexed_capture_presentation_from_path(capture)
             .expect("reference capture should provide an indexed presentation");
         let workspace = temporary_workspace();
-        let repository = logic_analyzer_platform::isolated_native_artifact_repository(
-            workspace.path().join("artifacts"),
-        );
+        let repository =
+            platform::isolated_native_artifact_repository(workspace.path().join("artifacts"));
         let index = presentation
             .factory
             .open(
@@ -2186,11 +2184,10 @@ fn waveform_index_concurrency_profile(capture: &Path) {
 fn derived_storage_profile(capture: &Path) {
     let workspace = temporary_workspace();
     let output = workspace.path().join("compiled");
-    let native_work_executor = logic_analyzer_platform::native_work_executor();
+    let native_work_executor = platform::native_work_executor();
     let metrics = Arc::new(DerivedProfileMetrics::new());
-    let native_repository = logic_analyzer_platform::isolated_native_artifact_repository(
-        workspace.path().join("artifacts"),
-    );
+    let native_repository =
+        platform::isolated_native_artifact_repository(workspace.path().join("artifacts"));
     let repository: Arc<dyn ArtifactRepository> = Arc::new(ProfiledArtifactRepository::new(
         native_repository,
         Arc::clone(&metrics),
@@ -2273,8 +2270,8 @@ fn in_memory_compiler_runtime_benchmark(capture: &Path) {
     let widget = configured_widget(capture, &output);
     let compiler = configured_platform_compiler(
         &widget,
-        logic_analyzer_platform::native_artifact_repository("logic-conduit"),
-        logic_analyzer_platform::native_work_executor(),
+        platform::native_artifact_repository("logic-conduit"),
+        platform::native_work_executor(),
     );
     let mut context = compile_context(workspace.path());
     let usage_before = resource_usage();
@@ -2515,11 +2512,10 @@ fn live_viewer_subscription_benchmark(capture: &Path) {
     let workspace = temporary_workspace();
     let output = workspace.path().join("compiled");
     std::fs::create_dir_all(&output).unwrap();
-    let native_work_executor = logic_analyzer_platform::native_work_executor();
+    let native_work_executor = platform::native_work_executor();
     let metrics = Arc::new(DerivedProfileMetrics::new());
-    let native_repository = logic_analyzer_platform::isolated_native_artifact_repository(
-        workspace.path().join("artifacts"),
-    );
+    let native_repository =
+        platform::isolated_native_artifact_repository(workspace.path().join("artifacts"));
     let repository: Arc<dyn ArtifactRepository> = Arc::new(ProfiledArtifactRepository::new(
         native_repository,
         Arc::clone(&metrics),

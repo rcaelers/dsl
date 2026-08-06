@@ -115,7 +115,7 @@ nothing about the compiled contract.
    (`logic-analyzer-examples`, which owns cross-crate tests per the testing strategy) that runs
    `cargo metadata --format-version 1` via `std::process::Command`, parses it with the already
    available `serde_json`, and asserts the *forbidden edge list*:
-   - `logic-analyzer-platform` ↛ `logic-analyzer-ui`, ↛ `logic-analyzer-graph-nodes`
+   - `platform` ↛ `logic-analyzer-ui`, ↛ `logic-analyzer-graph-nodes`
      (activates as the composition items land — until then mark the assertion `#[ignore]` with
      the TODO item ID in the ignore reason);
    - `logic-analyzer-graph-{plan,runtime,capabilities,orchestration}` ↛ `node-graph`

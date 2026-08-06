@@ -165,10 +165,10 @@ async fn application_services(
 ) {
     let kernels = portable_worker_kernels();
     let required_operations = kernels.operations().cloned().collect::<Vec<_>>();
-    let parallelism = logic_analyzer_platform::browser_worker_parallelism();
+    let parallelism = platform::browser_worker_parallelism();
     let max_outstanding = parallelism.saturating_mul(2).max(parallelism);
     let worker_operation_executor: Rc<dyn WorkerOperationExecutor> =
-        match logic_analyzer_platform::WebWorkerAdapter::new(
+        match platform::WebWorkerAdapter::new(
             worker_module_url,
             worker_wasm_url,
             parallelism,
@@ -179,7 +179,7 @@ async fn application_services(
             Err(reason) => Rc::new(CooperativeWorkerOperationExecutor::new(kernels, reason)),
         };
     let artifact_repository: Arc<dyn ArtifactRepository> =
-        match logic_analyzer_platform::open_browser_artifact_repository(&format!(
+        match platform::open_browser_artifact_repository(&format!(
             "{}-artifacts-v1",
             logic_analyzer_ui::APPLICATION_ID,
         ))
@@ -217,7 +217,7 @@ async fn application_services(
         Arc::clone(&imported_files),
         capture_worker_client.clone(),
     );
-    let file_picker: Box<dyn logic_analyzer_platform::FilePickerService> = Box::new(
+    let file_picker: Box<dyn platform::FilePickerService> = Box::new(
         crate::web_file_import::BrowserFilePickerService::new(imported_files),
     );
     let work_executor: Arc<dyn WorkExecutor> = Arc::new(InlineWorkExecutor);
