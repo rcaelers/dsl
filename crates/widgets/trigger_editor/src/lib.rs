@@ -4,9 +4,6 @@
 //! contracts. Device-specific predicate semantics, acquisition behavior, and
 //! application composition belong to their respective owners.
 
-#[cfg(test)]
-mod architecture_tests;
-
 use std::collections::BTreeMap;
 
 use signal_capture_session::{

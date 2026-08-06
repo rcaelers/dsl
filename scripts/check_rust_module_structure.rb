@@ -358,6 +358,15 @@ files.each do |path|
     end
   end
 
+  if rel.start_with?("crates/widgets/trigger_editor/src/") && !File.basename(path).include?("tests")
+    implementation = implementation_source(source)
+    ["U3Pro16", "DSLogic", "SPI", "UART", "Binary Decoder", "demo:"].each do |token|
+      implementation.to_enum(:scan, /#{Regexp.escape(token)}/).each do
+        errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: generic trigger editor contains concrete provider or protocol token #{token.inspect}"
+      end
+    end
+  end
+
   graph_node_implementation = rel.start_with?("crates/logic_analyzer_graph_nodes/src/nodes/")
   plugin_implementation = rel.start_with?("plugins/")
   if graph_node_implementation || plugin_implementation

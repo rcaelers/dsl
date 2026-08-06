@@ -350,6 +350,17 @@ fn signal_sinks_depend_only_on_portable_stream_and_data_contracts() {
 }
 
 #[test]
+fn trigger_editor_depends_only_on_the_provider_neutral_trigger_contract() {
+    let dependencies = local_resolved_non_dev_dependencies(workspace_metadata(), "trigger-editor");
+
+    assert_eq!(
+        dependencies,
+        BTreeSet::from(["signal-capture-session".to_owned()]),
+        "the generic trigger widget may depend only on the provider-neutral trigger contract"
+    );
+}
+
+#[test]
 fn headless_graph_tier_depends_on_the_document_model_not_the_node_editor() {
     let metadata = workspace_metadata();
 

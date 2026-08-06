@@ -27,7 +27,7 @@ the named function/type over the number when they disagree.
 
 ## tests.architecture-structural (P2) {#tests-architecture-structural}
 
-**Problem.** ~505 lines of `architecture_tests.rs` remain across the workspace that `include_str!`
+**Problem.** ~481 lines of `architecture_tests.rs` remain across the workspace that `include_str!`
 sibling files and assert `.contains("…")` (largest: `logic_analyzer_viewer` 66 lines, followed by
 `signal_runtime` at 59 and the signal capture-session suite at 52). They break on
 renames, pass when the string appears in a comment, and prove nothing about the compiled contract.
@@ -61,6 +61,7 @@ resolved non-dev dependency graph. Its forbidden-edge contract is:
      capture, source-generation, and typed-stream contracts within the workspace.
    - `signal-sinks` depends only on portable capture, derived-data, and typed-stream contracts within
      the workspace.
+   - `trigger-editor` depends only on the provider-neutral trigger contract within the workspace.
    Target-specific edges participate in the resolved graph; dev-dependencies are allowed except for
    the explicit UI composition rule above.
 2. The real built-in and example-plugin inventories construct a `GraphRegistry` snapshot in a
@@ -72,12 +73,14 @@ resolved non-dev dependency graph. Its forbidden-edge contract is:
    contract; a behavior test proves the coordinator routes a finalized session through that port.
 5. The workspace module check rejects direct native file I/O throughout `signal_sinks`; writer
    behavior tests exercise each portable implementation through injected `OutputStorage`.
+6. The workspace module check keeps concrete provider and protocol tokens out of `trigger_editor`;
+   model behavior tests exercise schema-driven editing across every neutral operand kind.
 
 **Direction.**
 
 1. Go through each remaining `architecture_tests.rs` rule by rule: delete rules now covered structurally;
    keep a string test only where no structural probe exists (e.g. "no `std::env` access in
    tests"), and add a one-line comment saying why it stays textual.
-2. Prioritize the `trigger_editor` suite. Do not replace an implementation-text check with another
+2. Prioritize the UI `node_catalog_service` suite. Do not replace an implementation-text check with another
    filename-sensitive source scan; prefer a dependency edge, public API probe, registry construction,
    or behavior test.
