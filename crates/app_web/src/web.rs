@@ -223,10 +223,14 @@ async fn application_services(
     let work_executor: Arc<dyn WorkExecutor> = Arc::new(InlineWorkExecutor);
     let app_manager_factory = Arc::new(CooperativeAppManagerFactory);
 
-    logic_analyzer_graph_nodes::install_file_source_factories(
-        Arc::clone(&dsl_file_source_factory),
-        Arc::clone(&sigrok_file_source_factory),
-    );
+    let node_editor_overrides = vec![
+        logic_analyzer_graph_nodes::dsl_file_source_editor_override(Arc::clone(
+            &dsl_file_source_factory,
+        )),
+        logic_analyzer_graph_nodes::sigrok_file_source_editor_override(Arc::clone(
+            &sigrok_file_source_factory,
+        )),
+    ];
     let capability_overrides = vec![
         logic_analyzer_graph_nodes::dsl_file_source_capability_override(dsl_file_source_factory),
         logic_analyzer_graph_nodes::sigrok_file_source_capability_override(
@@ -255,6 +259,7 @@ async fn application_services(
     .with_node_file_dialog(Box::new(
         crate::node_file_dialog::BrowserNodeFileDialog::new(file_picker),
     ))
+    .with_node_editor_overrides(node_editor_overrides)
     .with_graph_execution_and_capability_overrides(
         source_preparation_executor,
         app_manager_factory,

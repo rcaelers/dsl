@@ -1,4 +1,6 @@
-use logic_analyzer_graph_registry::graph_node_registrations;
+use std::collections::BTreeMap;
+
+use logic_analyzer_graph_registry::{GraphNodeEditorOverride, graph_node_registrations};
 use node_graph::NodeTypeRegistry;
 
 use crate::viewer_selection::LEGACY_VIEWER_NODE_ID;
@@ -8,6 +10,22 @@ use crate::viewer_selection::LEGACY_VIEWER_NODE_ID;
 /// The obsolete viewer node is deliberately excluded because output selection is
 /// now persisted as UI-owned state rather than represented by a graph node.
 pub fn build_node_registry() -> NodeTypeRegistry {
+    build_node_registry_with_editor_overrides(Vec::new())
+}
+
+pub(crate) fn build_node_registry_with_editor_overrides(
+    editor_overrides: Vec<GraphNodeEditorOverride>,
+) -> NodeTypeRegistry {
+    let mut overrides_by_id = BTreeMap::new();
+    for editor_override in editor_overrides {
+        let stable_id = editor_override.stable_id().to_owned();
+        assert!(
+            overrides_by_id
+                .insert(stable_id.clone(), editor_override)
+                .is_none(),
+            "duplicate graph-node editor override '{stable_id}'"
+        );
+    }
     let mut registry = NodeTypeRegistry::new();
     for registration in graph_node_registrations() {
         if registration.stable_id() == LEGACY_VIEWER_NODE_ID {
@@ -18,8 +36,17 @@ pub fn build_node_registry() -> NodeTypeRegistry {
             "graph-node inventory definition '{}' conflicts with an explicit catalog entry",
             registration.name()
         );
-        registration.apply_node(&mut registry);
+        if let Some(editor_override) = overrides_by_id.remove(registration.stable_id()) {
+            editor_override.apply(&mut registry);
+        } else {
+            registration.apply_node(&mut registry);
+        }
     }
+    assert!(
+        overrides_by_id.is_empty(),
+        "editor overrides reference unregistered graph-node features: {:?}",
+        overrides_by_id.keys().collect::<Vec<_>>()
+    );
     registry
 }
 

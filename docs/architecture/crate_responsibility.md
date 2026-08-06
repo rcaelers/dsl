@@ -95,10 +95,11 @@ outside this crate.
 #### `logic-analyzer-graph-registry`
 
 Owns graph-node, payload, and protocol-presentation registration descriptors; compile-time
-inventory collection; deterministic validation; host overrides; and immutable `GraphRegistry`
-snapshots. Viewer-renderer registration remains with `logic-analyzer-viewer`, and application-panel
-registration remains with `logic-analyzer-ui`. The registry owns no graph document, lowering
-policy, execution lifetime, or UI state.
+inventory collection; deterministic validation; instance-owned editor registration overrides;
+runtime capability overrides; and immutable `GraphRegistry` snapshots. Viewer-renderer registration
+remains with `logic-analyzer-viewer`, and application-panel registration remains with
+`logic-analyzer-ui`. The registry owns no graph document, lowering policy, execution lifetime, or
+UI state.
 
 #### `logic-analyzer-graph-nodes`
 
@@ -204,9 +205,9 @@ or UI policy.
 #### `logic-analyzer-app-native`
 
 Is the native composition root. It boots the desktop host, enables the selected registration
-inventory, adapts native host mechanisms to UI/domain ports, selects concrete node capabilities,
-constructs `AppServices`, and injects them into `logic-analyzer-ui`. Reusable application policy
-and services remain in library crates.
+inventory, adapts native host mechanisms to UI/domain ports, binds concrete node metadata and
+runtime capabilities as instance-owned overrides, constructs `AppServices`, and injects them into
+`logic-analyzer-ui`. Reusable application policy and services remain in library crates.
 
 #### `logic-analyzer-app-web`
 

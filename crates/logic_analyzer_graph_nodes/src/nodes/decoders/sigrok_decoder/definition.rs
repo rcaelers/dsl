@@ -5,8 +5,8 @@ use egui::{Color32, Rect, Ui};
 use serde::{Deserialize, Serialize};
 
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
-    SigrokCatalogEntry, SigrokCatalogSnapshot, SigrokDecoderDescriptor, SigrokOutputKind,
-    SigrokScalarValue,
+    SigrokCatalogEntry, SigrokCatalogScanner, SigrokCatalogSnapshot, SigrokDecoderDescriptor,
+    SigrokOutputKind, SigrokScalarValue,
 };
 use node_graph::{
     BoolValue, EnumValue, FloatValue, InlineControl, InlineControlContext, InputDef, IntValue,
@@ -14,7 +14,6 @@ use node_graph::{
     StringValue,
 };
 
-use crate::host_configuration::sigrok_catalog_scanner;
 use crate::sockets::{COLOR_DECODERS, ProtocolPackets, Signal, Words};
 
 const PROTOCOL_CONTRACT_SCHEMA_VERSION: u8 = 2;
@@ -495,7 +494,6 @@ impl NodeDef for SigrokDecoderDefinition {
     }
 
     fn on_update(state: &mut Self::State, inputs: &mut [Socket], _outputs: &mut [Socket]) {
-        refresh_catalog(state);
         apply_catalog_selection(state);
         if state.schema_version < PROTOCOL_CONTRACT_SCHEMA_VERSION
             && (!state.protocol_inputs.is_empty()
@@ -554,14 +552,19 @@ fn catalog_search_paths(control: &SigrokCatalogControl) -> Vec<PathBuf> {
         .collect()
 }
 
-fn refresh_catalog(state: &mut SigrokDecoderState) {
+pub(crate) fn update_catalog(state: &mut SigrokDecoderState, scanner: &dyn SigrokCatalogScanner) {
+    refresh_catalog(state, scanner);
+    apply_catalog_selection(state);
+}
+
+fn refresh_catalog(state: &mut SigrokDecoderState, scanner: &dyn SigrokCatalogScanner) {
     if !state.catalog.refresh_requested
         && (state.decoder_id.is_empty() || state.schema_version >= PROTOCOL_CONTRACT_SCHEMA_VERSION)
     {
         return;
     }
     let search_paths = catalog_search_paths(&state.catalog);
-    let snapshot = sigrok_catalog_scanner().scan(&search_paths);
+    let snapshot = scanner.scan(&search_paths);
     apply_catalog_snapshot(state, &snapshot);
 }
 

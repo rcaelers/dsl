@@ -1281,6 +1281,7 @@ impl App {
             application_settings,
             host_symbol_fonts,
             node_file_dialog,
+            node_editor_overrides,
             work_executor,
             worker_operation_executor,
             capture_export_service,
@@ -1295,7 +1296,8 @@ impl App {
         install_fonts(&cc.egui_ctx, host_symbol_fonts);
         let repaint_context = cc.egui_ctx.clone();
         host_service.set_command_repaint(Box::new(move || repaint_context.request_repaint()));
-        let registry = crate::build_node_registry();
+        let registry =
+            crate::node_registry::build_node_registry_with_editor_overrides(node_editor_overrides);
         let input_bindings = Arc::new(input_bindings);
         let plugin_panel_registry = PluginPanelRegistry::standard();
         let mut widget = NodeGraphWidget::new(registry);

@@ -8,16 +8,23 @@ submission, and feature-local tests.
 
 ## Facade and dependencies
 
-The crate root exposes the linker-retention anchor and narrowly scoped host-configuration helpers.
-Internals depend on graph capabilities, graph registry descriptors, concrete processing, the
-generic signal owners, node graph, and viewer registration contracts. Compiler, runtime, and UI read
-registrations through the graph registry and never depend on this bundle.
+The crate root exposes the linker-retention anchor and narrowly scoped constructors for runtime
+capability overrides, editor registration overrides, and host-discovered node templates. Internals
+depend on graph capabilities, graph registry descriptors, concrete processing, the generic signal
+owners, node graph, and viewer registration contracts. Compiler, runtime, and UI read registrations
+through the graph registry and never depend on this bundle.
 
 ## Ownership boundaries
 
 The crate does not own generic lowering, runtime scheduling, application panel policy, target
 selection, or a manual global node list. Stable node and payload identities, plus user-visible
 saved-graph migration, remain with their concrete features.
+
+Concrete file-source factories and the Sigrok catalog scanner are bound to individual editor
+registries through `GraphNodeEditorOverride`. `NodeDef::on_update` remains host-independent; the
+generic node registry runs the bound state update around schema reconciliation. Runtime builders
+receive the same application-owned factories through `GraphNodeCapabilityOverride`. No graph-node
+factory or scanner is installed in process-global state.
 
 ## Built-in socket visual language
 

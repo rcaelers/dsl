@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::sync::Arc;
 
 use egui::{Rect, Ui};
 use serde_json::Value;
@@ -27,6 +28,9 @@ pub(crate) struct NodePanelMeta {
     pub(crate) tab_id: String,
     pub(crate) metadata: PanelMetadata,
 }
+
+pub(crate) type NodeStateUpdate<S> =
+    Arc<dyn Fn(&mut S, &mut [Socket], &mut [Socket]) + Send + Sync>;
 
 pub(crate) trait NodeInstance {
     fn update(&mut self, inputs: &mut Vec<Socket>, outputs: &mut Vec<Socket>);
@@ -87,6 +91,7 @@ pub(crate) struct NodeRuntime {
 
 pub(crate) struct TypedNode<T: NodeDef> {
     pub state: T::State,
+    pub state_update: Option<NodeStateUpdate<T::State>>,
     pub inputs: Vec<InputDef<T::State>>,
     pub outputs: Vec<OutputDef<T::State>>,
     pub properties: Vec<PropDef<T::State>>,
@@ -97,6 +102,9 @@ pub(crate) struct TypedNode<T: NodeDef> {
 impl<T: NodeDef> NodeInstance for TypedNode<T> {
     fn update(&mut self, inputs: &mut Vec<Socket>, outputs: &mut Vec<Socket>) {
         T::on_update(&mut self.state, inputs, outputs);
+        if let Some(state_update) = &self.state_update {
+            state_update(&mut self.state, inputs, outputs);
+        }
         let schema = T::instance_schema(&self.state);
         reconcile_input_sockets(inputs, &schema.inputs);
         reconcile_output_sockets(outputs, &schema.outputs);
@@ -106,6 +114,9 @@ impl<T: NodeDef> NodeInstance for TypedNode<T> {
         self.panel = schema.panel;
         self.panels = schema.panels;
         T::on_update(&mut self.state, inputs, outputs);
+        if let Some(state_update) = &self.state_update {
+            state_update(&mut self.state, inputs, outputs);
+        }
     }
 
     fn badge(&self) -> Option<NodeBadge> {

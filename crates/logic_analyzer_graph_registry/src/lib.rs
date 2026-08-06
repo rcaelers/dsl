@@ -4,6 +4,7 @@
 //! `logic_analyzer_graph_capabilities`. Compiler, runtime, and UI consumers read the same deterministically
 //! validated inventory without owning plugin discovery policy.
 
+mod editor_override;
 mod graph_registration;
 mod payload_registration;
 mod protocol_packet_presentation;
@@ -12,6 +13,7 @@ mod registry;
 #[cfg(test)]
 mod architecture_tests;
 
+pub use editor_override::GraphNodeEditorOverride;
 pub use graph_registration::{GraphNodeRegistration, graph_node_registrations};
 pub use payload_registration::{
     PayloadRegistration, PayloadRequestConfigurator, payload_registrations,

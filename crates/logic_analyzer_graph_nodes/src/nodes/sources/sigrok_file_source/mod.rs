@@ -1,3 +1,3 @@
 pub(crate) mod builder;
-mod definition;
+pub(crate) mod definition;
 mod registration;

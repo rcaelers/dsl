@@ -221,9 +221,10 @@ portable decoder configuration, state machine, output contracts, and `SigrokExec
 `logic_analyzer_graph_nodes` owns the portable graph-node schema and turns portable discovery
 snapshots into node templates. The native application adapter owns Python interpreter
 initialization, the `sigrokdecode` compatibility host, package discovery, directory settings, and
-the native execution-factory implementation. It injects that factory and scanner into the domain
-contracts. A host without an embedded runtime injects no implementation and the portable node
-reports that the capability is unavailable. Platform has no Sigrok-specific module or dependency.
+the native execution-factory implementation. It binds that factory and scanner to one application
+through runtime capability overrides, editor registration overrides, and the UI node-catalog
+service. A host without an embedded runtime injects no implementation and the portable node reports
+that the capability is unavailable. Platform has no Sigrok-specific module or dependency.
 
 The memory repository, owned backing, fake source, cooperative executor, and other host-independent
 implementations live in their behavioral owner crates and can be selected on native, web, or in

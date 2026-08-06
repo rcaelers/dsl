@@ -3,7 +3,9 @@
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
-use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSourceConfig;
+use logic_analyzer_processing::nodes::sources::dsl_file::{
+    DslFileSourceConfig, DslFileSourceFactory,
+};
 use node_graph::{
     FileValue, InputDef, IntValue, NodeBadge, NodeDef, NodeInstanceSchema, OutputDef, Socket,
 };
@@ -103,7 +105,6 @@ impl NodeDef for DslFileSource {
             );
         }
 
-        let path_changed = state.metadata_path != state.file.value;
         if state.file.value.trim().is_empty() {
             // Preserve migrated/saved schema when no filesystem path is
             // available (notably in portable graphs and wasm). If a known
@@ -112,32 +113,6 @@ impl NodeDef for DslFileSource {
                 state.channel_names.clear();
             }
             state.metadata_path.clear();
-            return;
-        }
-        if !path_changed && !state.channel_names.is_empty() {
-            return;
-        }
-
-        let metadata = crate::host_configuration::dsl_file_source_factory().metadata(
-            DslFileSourceConfig::new(&state.file.value, state.channel_names.iter().cloned()),
-        );
-        match metadata.channel_names() {
-            Ok(Some(names)) => {
-                state.channel_names = names;
-                state.metadata_path.clone_from(&state.file.value);
-            }
-            Ok(None) if !state.channel_names.is_empty() => {
-                state.metadata_path.clone_from(&state.file.value);
-            }
-            Ok(None) => {
-                state.diagnostic = Some("Channel metadata is unavailable on this platform".into());
-            }
-            Err(error) => {
-                if path_changed {
-                    state.channel_names.clear();
-                }
-                state.diagnostic = Some(format!("Could not inspect DSL file: {error}"));
-            }
         }
     }
 
@@ -147,6 +122,39 @@ impl NodeDef for DslFileSource {
             .as_ref()
             .map(NodeBadge::error)
             .or_else(|| state.compatibility_warning.as_ref().map(NodeBadge::warning))
+    }
+}
+
+pub(crate) fn update_source_metadata(
+    state: &mut DslFileSourceState,
+    source_factory: &dyn DslFileSourceFactory,
+) {
+    let path_changed = state.metadata_path != state.file.value;
+    if state.file.value.trim().is_empty() || (!path_changed && !state.channel_names.is_empty()) {
+        return;
+    }
+
+    let metadata = source_factory.metadata(DslFileSourceConfig::new(
+        &state.file.value,
+        state.channel_names.iter().cloned(),
+    ));
+    match metadata.channel_names() {
+        Ok(Some(names)) => {
+            state.channel_names = names;
+            state.metadata_path.clone_from(&state.file.value);
+        }
+        Ok(None) if !state.channel_names.is_empty() => {
+            state.metadata_path.clone_from(&state.file.value);
+        }
+        Ok(None) => {
+            state.diagnostic = Some("Channel metadata is unavailable on this platform".into());
+        }
+        Err(error) => {
+            if path_changed {
+                state.channel_names.clear();
+            }
+            state.diagnostic = Some(format!("Could not inspect DSL file: {error}"));
+        }
     }
 }
 

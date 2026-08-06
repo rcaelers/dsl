@@ -3,7 +3,9 @@
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
-use logic_analyzer_processing::nodes::sources::sigrok_file::SigrokFileSourceConfig;
+use logic_analyzer_processing::nodes::sources::sigrok_file::{
+    SigrokFileSourceConfig, SigrokFileSourceFactory,
+};
 use logic_analyzer_processing::nodes::sources::synthetic_capture_source::SyntheticCaptureSource;
 use node_graph::{
     FileValue, InputDef, IntValue, NodeBadge, NodeDef, NodeInstanceSchema, OutputDef, Socket,
@@ -112,40 +114,9 @@ impl NodeDef for SigrokFileSource {
             return;
         }
 
-        let path_changed = state.metadata_path != state.file.value;
         if state.file.value.trim().is_empty() {
             state.channel_names.clear();
             state.metadata_path.clear();
-            return;
-        }
-        if !path_changed && !state.channel_names.is_empty() {
-            return;
-        }
-
-        let metadata = crate::host_configuration::sigrok_file_source_factory().metadata(
-            SigrokFileSourceConfig::new(
-                &state.file.value,
-                state.channel_names.iter().cloned(),
-                false,
-            ),
-        );
-        match metadata.channel_names() {
-            Ok(Some(names)) => {
-                state.channel_names = names;
-                state.metadata_path.clone_from(&state.file.value);
-            }
-            Ok(None) if !state.channel_names.is_empty() => {
-                state.metadata_path.clone_from(&state.file.value);
-            }
-            Ok(None) => {
-                state.diagnostic = Some("Channel metadata is unavailable on this platform".into());
-            }
-            Err(error) => {
-                if path_changed {
-                    state.channel_names.clear();
-                }
-                state.diagnostic = Some(format!("Could not inspect Sigrok file: {error}"));
-            }
         }
     }
 
@@ -155,6 +126,43 @@ impl NodeDef for SigrokFileSource {
             .as_ref()
             .map(NodeBadge::error)
             .or_else(|| state.compatibility_warning.as_ref().map(NodeBadge::warning))
+    }
+}
+
+pub(crate) fn update_source_metadata(
+    state: &mut SigrokFileSourceState,
+    source_factory: &dyn SigrokFileSourceFactory,
+) {
+    let path_changed = state.metadata_path != state.file.value;
+    if state.demo_data
+        || state.file.value.trim().is_empty()
+        || (!path_changed && !state.channel_names.is_empty())
+    {
+        return;
+    }
+
+    let metadata = source_factory.metadata(SigrokFileSourceConfig::new(
+        &state.file.value,
+        state.channel_names.iter().cloned(),
+        false,
+    ));
+    match metadata.channel_names() {
+        Ok(Some(names)) => {
+            state.channel_names = names;
+            state.metadata_path.clone_from(&state.file.value);
+        }
+        Ok(None) if !state.channel_names.is_empty() => {
+            state.metadata_path.clone_from(&state.file.value);
+        }
+        Ok(None) => {
+            state.diagnostic = Some("Channel metadata is unavailable on this platform".into());
+        }
+        Err(error) => {
+            if path_changed {
+                state.channel_names.clear();
+            }
+            state.diagnostic = Some(format!("Could not inspect Sigrok file: {error}"));
+        }
     }
 }
 

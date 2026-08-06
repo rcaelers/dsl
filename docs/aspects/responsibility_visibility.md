@@ -222,7 +222,10 @@ byte-oriented document selection, storage, and downloads to `platform`; the nati
 adapter delegates file access, configuration paths, and file/directory dialogs to
 `NativeDocumentHost` while retaining product parsing and shell commands. Platform exposes the
 repository mechanisms and allocates the application directory backing its native implementation;
-the application roots select the repository and web fallback policy.
+the application roots select the repository and web fallback policy. Concrete source factories and
+decoder scanners are retained per application instance: runtime behavior receives capability
+overrides, while editor metadata receives stable-ID-keyed registration overrides through
+`AppServices`. Node definitions and reusable crates read no process-global host configuration.
 Cache identity, inspection, invalidation, cleanup, preview,
 and producer-pruning policy remain in graph runtime and operate identically on the web OPFS-backed
 repository and its memory fallback. The UI owns the portable configuration model, bundled fallback

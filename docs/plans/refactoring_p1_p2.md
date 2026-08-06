@@ -25,47 +25,6 @@ the named function/type over the number when they disagree.
   now has a structural check from the [tests item](#tests-architecture-structural), delete the
   string test in the same PR.
 
-## composition.host-factory-injection (P2) {#composition-host-factory-injection}
-
-**Problem.** `crates/logic_analyzer_graph_nodes/src/host_configuration.rs` holds process-global
-slots: `SIGROK_CATALOG_SCANNER`, `DSL_FILE_SOURCE_FACTORY`, and `SIGROK_FILE_SOURCE_FACTORY`,
-installed by the native and web application roots. Initialization order is significant, two
-application instances in one process are impossible, and tests with different hosts cannot run
-concurrently.
-
-**Key facts.**
-
-- The traits `SigrokDecoderRuntime` and `SigrokCatalogScanner` belong to and are defined by
-  `logic_analyzer_processing::nodes::decoders::sigrok_decoder`; graph nodes still re-export them
-  while the remaining callers migrate.
-- The Sigrok *decoder runtime* is already injected correctly: `sigrok_decoder_capability_override
-  (runtime)` carries the `Arc` into the builder (`nodes/decoders/sigrok_decoder/builder.rs:71`).
-  That is the pattern to replicate.
-- Only one code path reads a global outside the install functions:
-  `nodes/decoders/sigrok_decoder/definition.rs:564` calls `sigrok_catalog_scanner().scan(…)`.
-  Find who calls that function — it will be node-template/definition construction — and thread
-  the scanner (or a pre-scanned `SigrokCatalogSnapshot`) through that call chain instead. Note
-  `sigrok_node_templates(snapshot)` (host_configuration.rs:152) already takes a snapshot
-  argument; converging on snapshot-passing is the likely shape.
-- Grep for remaining readers of `dsl_file_source_factory()` / `sigrok_file_source_factory()`
-  (the `pub(crate)` getters, lines 83–89). Each reader is a place where a builder or definition
-  needs the factory carried through its capability override or registration input, the same way
-  the decoder runtime is carried.
-
-**Steps.**
-
-1. For each global reader found above, thread the dependency explicitly (constructor argument,
-   capability-override payload, or registration input). No default-to-unavailable global fallback
-   — the *builder* may still default to an unavailable backend, as `SigrokDecoderBuilder::default`
-   does today.
-2. Delete the statics, `install_*` functions, and temporary graph-node trait re-exports; delete
-   their call sites in the app crates.
-3. Add a test that constructs two registries/app-service bundles with different fakes in one
-   process and shows they do not observe each other.
-
-**Acceptance.** No `OnceLock`/`RwLock`/`static` host state in `logic_analyzer_graph_nodes`;
-`install_` no longer appears in platform or app crates.
-
 ## graph.document-model-extraction (P2) {#graph-document-model-extraction}
 
 **Problem.** `logic_analyzer_graph_plan`, `graph_runtime`, and `graph_capabilities` import only

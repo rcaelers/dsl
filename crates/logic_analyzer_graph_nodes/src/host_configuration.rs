@@ -1,71 +1,78 @@
 //! Host-facing construction of concrete node-runtime overrides.
 
-use std::path::PathBuf;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::Arc;
 
 use logic_analyzer_graph_capabilities::node::GraphNodeCapabilityOverride;
-use logic_analyzer_processing::nodes::decoders::sigrok_decoder::SigrokCatalogSnapshot;
-pub use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
-    SigrokCatalogScanner, SigrokDecoderRuntime,
+use logic_analyzer_graph_registry::GraphNodeEditorOverride;
+use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+    SigrokCatalogScanner, SigrokCatalogSnapshot, SigrokDecoderRuntime,
 };
 use logic_analyzer_processing::nodes::sinks::binary_file_writer::BinaryFileWriterFactory;
 use logic_analyzer_processing::nodes::sinks::csv_word_writer::CsvWordWriterFactory;
 use logic_analyzer_processing::nodes::sinks::text_file_writer::TextFileWriterFactory;
-use logic_analyzer_processing::nodes::sources::dsl_file::{
-    DslFileSourceFactory, unavailable_source_factory as unavailable_dsl_file_source_factory,
-};
+use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSourceFactory;
 use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::DsLogicU3Pro16SourceFactory;
-use logic_analyzer_processing::nodes::sources::sigrok_file::{
-    SigrokFileSourceFactory, portable_source_factory as portable_sigrok_file_source_factory,
-};
+use logic_analyzer_processing::nodes::sources::sigrok_file::SigrokFileSourceFactory;
 
-struct UnavailableSigrokCatalogScanner;
+const DSL_FILE_SOURCE_ID: &str = "org.logicconduit.graph-node.sources.dsl-file-source/v1";
+const SIGROK_FILE_SOURCE_ID: &str = "org.logicconduit.graph-node.sources.sigrok-file-source/v1";
+const SIGROK_DECODER_ID: &str = "org.logicconduit.graph-node.decoders.sigrok-decoder/v1";
 
-impl SigrokCatalogScanner for UnavailableSigrokCatalogScanner {
-    fn scan(&self, _directories: &[PathBuf]) -> SigrokCatalogSnapshot {
-        SigrokCatalogSnapshot::default()
-    }
+/// Binds DSL source metadata discovery to one editor registry.
+pub fn dsl_file_source_editor_override(
+    source_factory: Arc<dyn DslFileSourceFactory>,
+) -> GraphNodeEditorOverride {
+    GraphNodeEditorOverride::new(DSL_FILE_SOURCE_ID, move |registry| {
+        let source_factory = Arc::clone(&source_factory);
+        registry
+            .register_with_state_update::<
+                crate::nodes::sources::file_source::definition::DslFileSource,
+                _,
+            >(
+                move |state, _inputs, _outputs| {
+                    crate::nodes::sources::file_source::definition::update_source_metadata(
+                        state,
+                        source_factory.as_ref(),
+                    );
+                },
+            );
+    })
 }
 
-static SIGROK_CATALOG_SCANNER: OnceLock<Arc<dyn SigrokCatalogScanner>> = OnceLock::new();
-static DSL_FILE_SOURCE_FACTORY: OnceLock<RwLock<Arc<dyn DslFileSourceFactory>>> = OnceLock::new();
-static SIGROK_FILE_SOURCE_FACTORY: OnceLock<RwLock<Arc<dyn SigrokFileSourceFactory>>> =
-    OnceLock::new();
-
-/// Installs the host scanner used by existing Sigrok decoder nodes.
-pub fn install_sigrok_catalog_scanner(scanner: Arc<dyn SigrokCatalogScanner>) {
-    let _ = SIGROK_CATALOG_SCANNER.set(scanner);
+/// Binds Sigrok file-source metadata discovery to one editor registry.
+pub fn sigrok_file_source_editor_override(
+    source_factory: Arc<dyn SigrokFileSourceFactory>,
+) -> GraphNodeEditorOverride {
+    GraphNodeEditorOverride::new(SIGROK_FILE_SOURCE_ID, move |registry| {
+        let source_factory = Arc::clone(&source_factory);
+        registry.register_with_state_update::<
+            crate::nodes::sources::sigrok_file_source::definition::SigrokFileSource,
+            _,
+        >(move |state, _inputs, _outputs| {
+            crate::nodes::sources::sigrok_file_source::definition::update_source_metadata(
+                state,
+                source_factory.as_ref(),
+            );
+        });
+    })
 }
 
-pub(crate) fn sigrok_catalog_scanner() -> Arc<dyn SigrokCatalogScanner> {
-    SIGROK_CATALOG_SCANNER
-        .get_or_init(|| Arc::new(UnavailableSigrokCatalogScanner))
-        .clone()
-}
-
-/// Installs host acquisition factories used by file-node presentation and runtime overrides.
-pub fn install_file_source_factories(
-    dsl: Arc<dyn DslFileSourceFactory>,
-    sigrok: Arc<dyn SigrokFileSourceFactory>,
-) {
-    *dsl_file_source_factory_slot().write().unwrap() = dsl;
-    *sigrok_file_source_factory_slot().write().unwrap() = sigrok;
-}
-
-pub(crate) fn dsl_file_source_factory() -> Arc<dyn DslFileSourceFactory> {
-    dsl_file_source_factory_slot().read().unwrap().clone()
-}
-
-pub(crate) fn sigrok_file_source_factory() -> Arc<dyn SigrokFileSourceFactory> {
-    sigrok_file_source_factory_slot().read().unwrap().clone()
-}
-
-fn dsl_file_source_factory_slot() -> &'static RwLock<Arc<dyn DslFileSourceFactory>> {
-    DSL_FILE_SOURCE_FACTORY.get_or_init(|| RwLock::new(unavailable_dsl_file_source_factory()))
-}
-
-fn sigrok_file_source_factory_slot() -> &'static RwLock<Arc<dyn SigrokFileSourceFactory>> {
-    SIGROK_FILE_SOURCE_FACTORY.get_or_init(|| RwLock::new(portable_sigrok_file_source_factory()))
+/// Binds Sigrok decoder catalog discovery to one editor registry.
+pub fn sigrok_decoder_editor_override(
+    scanner: Arc<dyn SigrokCatalogScanner>,
+) -> GraphNodeEditorOverride {
+    GraphNodeEditorOverride::new(SIGROK_DECODER_ID, move |registry| {
+        let scanner = Arc::clone(&scanner);
+        registry.register_with_state_update::<
+            crate::nodes::decoders::sigrok_decoder::definition::SigrokDecoderDefinition,
+            _,
+        >(move |state, _inputs, _outputs| {
+            crate::nodes::decoders::sigrok_decoder::definition::update_catalog(
+                state,
+                scanner.as_ref(),
+            );
+        });
+    })
 }
 
 /// Returns the U3Pro16 builder override for one host-selected source factory.
@@ -123,4 +130,96 @@ pub fn sigrok_decoder_capability_override(
 /// Builds graph-node templates from portable Sigrok discovery metadata.
 pub fn sigrok_node_templates(snapshot: &SigrokCatalogSnapshot) -> Vec<node_graph::NodeTemplate> {
     crate::nodes::decoders::sigrok_decoder::definition::node_templates(snapshot)
+}
+
+#[cfg(test)]
+mod host_configuration_tests {
+    use std::sync::Arc;
+
+    use logic_analyzer_processing::nodes::sources::dsl_file::{
+        DslFileSourceConfig, DslFileSourceFactory,
+    };
+    use logic_analyzer_processing::{
+        CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle,
+        CaptureSourceMetadata, CaptureSourcePresentation, ProcessNodeConstruction,
+    };
+    use node_graph::api::{GraphDocumentBuilder, NodeDef, NodeTypeRegistry};
+    use platform_artifacts::ArtifactRepository;
+    use platform_runtime::WorkExecutor;
+
+    use super::dsl_file_source_editor_override;
+    use crate::nodes::sources::file_source::definition::DslFileSource;
+
+    struct NamedMetadata {
+        channel: String,
+    }
+
+    impl CaptureSourceMetadata for NamedMetadata {
+        fn lifecycle(&self) -> CaptureSourceLifecycle {
+            CaptureSourceLifecycle::new(CaptureSourceKind::File, true, true, true)
+        }
+
+        fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+            Ok(None)
+        }
+
+        fn cache_identity(&self) -> CaptureSourceCacheIdentity {
+            CaptureSourceCacheIdentity::Dynamic
+        }
+
+        fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+            Ok(Some(vec![self.channel.clone()]))
+        }
+    }
+
+    struct NamedDslFactory {
+        channel: String,
+    }
+
+    impl DslFileSourceFactory for NamedDslFactory {
+        fn lifecycle(&self) -> CaptureSourceLifecycle {
+            CaptureSourceLifecycle::new(CaptureSourceKind::File, true, true, true)
+        }
+
+        fn metadata(&self, _config: DslFileSourceConfig) -> Arc<dyn CaptureSourceMetadata> {
+            Arc::new(NamedMetadata {
+                channel: self.channel.clone(),
+            })
+        }
+
+        fn create(
+            &self,
+            _name: &str,
+            _config: DslFileSourceConfig,
+            _artifact_repository: Arc<dyn ArtifactRepository>,
+            _work_executor: Arc<dyn WorkExecutor>,
+        ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+            Err("not used by editor metadata tests".into())
+        }
+    }
+
+    fn document_with_channel(channel: &str) -> GraphDocumentBuilder {
+        let source_factory: Arc<dyn DslFileSourceFactory> = Arc::new(NamedDslFactory {
+            channel: channel.to_owned(),
+        });
+        let mut registry = NodeTypeRegistry::new();
+        dsl_file_source_editor_override(source_factory).apply(&mut registry);
+        let mut document = GraphDocumentBuilder::new(registry);
+        let node = document.add_node(DslFileSource::name()).unwrap();
+        let mut state = DslFileSource::state();
+        state.file.value = "same-capture.dsl".into();
+        assert!(document.set_node_state(node, serde_json::to_value(state).unwrap()));
+        document
+    }
+
+    #[test]
+    fn editor_registries_keep_host_metadata_factories_instance_owned() {
+        let first = document_with_channel("First host channel");
+        let second = document_with_channel("Second host channel");
+
+        let first_outputs = &first.graph().nodes.values().next().unwrap().outputs;
+        let second_outputs = &second.graph().nodes.values().next().unwrap().outputs;
+        assert_eq!(first_outputs[0].name, "First host channel");
+        assert_eq!(second_outputs[0].name, "Second host channel");
+    }
 }

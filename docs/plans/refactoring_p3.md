@@ -12,9 +12,7 @@ P3 items are planned work, often alongside related changes. Ordering that matter
 [ui.boundaries.module-ownership](#ui-boundaries-module-ownership) rules before or alongside both
 UI decompositions; the `signal.tier-naming` decision (a P2 item) before
 [session.domain-relocation](#session-domain-relocation) and
-[derived.payload.builtin-registration](#derived-payload-builtin-registration);
-`composition.host-factory-injection` (P2) before step 3 of
-[errors.typed-boundaries](#errors-typed-boundaries).
+[derived.payload.builtin-registration](#derived-payload-builtin-registration).
 
 ## ui.graph-service.port-shape (P3 · medium) {#ui-graph-service-port-shape}
 
@@ -150,9 +148,9 @@ surfaces rather than replacing them with an umbrella error.
    still return `String`.
 2. `signal_runtime`: manager and pipeline-supervision paths that still return `String`.
    Downstream crates then hold typed sources to wrap.
-3. Host-override contracts — `SigrokDecoderRuntime::{discover,create}`,
-   `SigrokCatalogScanner` — *after* `composition.host-factory-injection` has moved them into
-   `logic_analyzer_processing`, so the error types are defined once, in their final home.
+3. Host-override contracts — `SigrokDecoderRuntime::{discover,create}` and
+   `SigrokCatalogScanner` — in their `logic_analyzer_processing` owner, so the error types are
+   defined once in their final home.
 4. `graph_runtime` source preparation: give `SourcePreparationUpdate::Failed` a typed cause and
    find the UI code that currently distinguishes failures by message text (search `app.rs` and
    the run-message path for string matching on error content) — each such site becomes a match
@@ -203,8 +201,8 @@ cache) constructed with its configuration. Thread it to the two consumer kinds:
 
 Then delete the statics and the free-function entry points. Tests construct their own handle,
 which also removes any cross-test cache interference. Leave `NEXT_STORE_ID: AtomicU64`
-(`store.rs:39`) alone — an ID generator is not configuration state. Same shape as
-`composition.host-factory-injection`; copy its pattern.
+(`store.rs:39`) alone — an ID generator is not configuration state. Follow the same instance-owned
+service injection used by graph-node editor and capability overrides.
 
 ## derived.payload.builtin-registration (P3 · medium) {#derived-payload-builtin-registration}
 

@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 
 use logic_analyzer_graph_plan::ProcessingGraphError as CompileError;
+use logic_analyzer_graph_registry::GraphNodeEditorOverride;
 use logic_analyzer_graph_runtime::{
     GraphRunContext, PreparedCapture, PreparedCaptureData, SourcePreparationStatus,
     SourcePreparationUpdate, SourceProcessOverrides,
@@ -109,6 +110,7 @@ pub struct HeadlessGraphRunner {
     graph_service: Box<dyn GraphService>,
     host_service: Box<dyn crate::HostService>,
     work_executor: std::sync::Arc<dyn platform_runtime::WorkExecutor>,
+    node_editor_overrides: Vec<GraphNodeEditorOverride>,
 }
 
 impl HeadlessGraphRunner {
@@ -121,12 +123,14 @@ impl HeadlessGraphRunner {
             graph_service,
             host_service,
             work_executor,
+            node_editor_overrides,
             ..
         } = services.into_parts();
         Self {
             graph_service,
             host_service,
             work_executor,
+            node_editor_overrides,
         }
     }
 
@@ -146,7 +150,7 @@ impl HeadlessGraphRunner {
             .host_service
             .load_graph(path)
             .map_err(HeadlessRunError::new)?;
-        let graph = restore_graph(graph);
+        let graph = restore_graph(graph, self.node_editor_overrides.clone());
         let graph_load_seconds = load_started.elapsed().as_secs_f64();
         self.run_restored_graph(graph, graph_load_seconds, total_started, emit)
     }
@@ -164,7 +168,7 @@ impl HeadlessGraphRunner {
     ) -> Result<HeadlessRunReport, HeadlessRunError> {
         let total_started = Instant::now();
         let load_started = Instant::now();
-        let graph = restore_graph(graph);
+        let graph = restore_graph(graph, self.node_editor_overrides.clone());
         let graph_load_seconds = load_started.elapsed().as_secs_f64();
         self.run_restored_graph(graph, graph_load_seconds, total_started, emit)
     }
@@ -401,8 +405,10 @@ impl HeadlessGraphRunner {
 
 type CacheConfigs = BTreeMap<[u8; 32], (NodeId, signal_derived::PersistentStoreConfig)>;
 
-fn restore_graph(graph: GraphState) -> GraphState {
-    let mut widget = NodeGraphWidget::new(crate::build_node_registry());
+fn restore_graph(graph: GraphState, editor_overrides: Vec<GraphNodeEditorOverride>) -> GraphState {
+    let mut widget = NodeGraphWidget::new(
+        crate::node_registry::build_node_registry_with_editor_overrides(editor_overrides),
+    );
     widget.set_graph(graph);
     widget.graph().clone()
 }

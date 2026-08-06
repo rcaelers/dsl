@@ -204,11 +204,17 @@ fn application_services() -> (
         platform::native_worker_operation_executor(signal_derived::portable_worker_kernels())
             .expect("native worker-operation pool configuration is valid");
 
-    logic_analyzer_graph_nodes::install_file_source_factories(
-        Arc::clone(&dsl_file_source_factory),
-        Arc::clone(&sigrok_file_source_factory),
-    );
-    logic_analyzer_graph_nodes::install_sigrok_catalog_scanner(Arc::clone(&sigrok_catalog_scanner));
+    let node_editor_overrides = vec![
+        logic_analyzer_graph_nodes::dsl_file_source_editor_override(Arc::clone(
+            &dsl_file_source_factory,
+        )),
+        logic_analyzer_graph_nodes::sigrok_file_source_editor_override(Arc::clone(
+            &sigrok_file_source_factory,
+        )),
+        logic_analyzer_graph_nodes::sigrok_decoder_editor_override(Arc::clone(
+            &sigrok_catalog_scanner,
+        )),
+    ];
     let node_catalogs = vec![crate::sigrok_catalog::service(
         sigrok_catalog_scanner,
         Arc::clone(&work_executor),
@@ -252,6 +258,7 @@ fn application_services() -> (
     .with_node_file_dialog(Box::new(
         crate::native_host::NativeNodeFileDialogService::new(),
     ))
+    .with_node_editor_overrides(node_editor_overrides)
     .with_graph_execution_and_capability_overrides(
         Box::new(logic_analyzer_graph_runtime::ThreadedSourcePreparationExecutor::new()),
         app_manager_factory,

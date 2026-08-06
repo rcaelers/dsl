@@ -63,6 +63,13 @@ mentions (inputs, outputs, `.accepts::<T>()`) into a **type identity table**
 (`socket_types: name → (color, shape)`; first registration wins). That table is what
 re-skins resolved sockets and wires; compatibility checking never consults it.
 
+`NodeTypeRegistry::register_with_state_update::<T, _>()` additionally binds one instance-owned,
+type-safe state-update closure to that registration. The hook receives only the concrete node
+state and generic sockets; the widget does not know why the state changes. Application composition
+uses this seam for host-discovered metadata while leaving `NodeDef::on_update` deterministic and
+host-independent. Each registry owns its closures, so two widgets can bind different services to
+the same node definition without shared configuration.
+
 ## Socket type system
 
 Connection validity is decided **per node, not per type** — there is no global cast table.

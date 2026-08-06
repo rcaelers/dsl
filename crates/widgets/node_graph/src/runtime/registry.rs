@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use egui::{Color32, Pos2};
 
-use super::instance::{NodeInstance, NodeRuntime, TypedNode};
+use super::instance::{NodeInstance, NodeRuntime, NodeStateUpdate, TypedNode};
 use crate::api::{InputDef, NodeDef, OutputDef};
 use crate::model::{Node, NodeId, NodeKind, Socket, SocketDirection, SocketShape, VariadicInfo};
 
@@ -297,7 +297,12 @@ fn input_sockets_match_defs<S>(sockets: &[Socket], defs: &[InputDef<S>]) -> bool
     iter.next().is_none()
 }
 
-fn build_node<T: NodeDef>(id: NodeId, pos: Pos2, state: T::State) -> NodeRuntime {
+fn build_node_with_state_update<T: NodeDef>(
+    id: NodeId,
+    pos: Pos2,
+    state: T::State,
+    state_update: Option<NodeStateUpdate<T::State>>,
+) -> NodeRuntime {
     let schema = T::instance_schema(&state);
     let inputs = schema.inputs;
     let outputs = schema.outputs;
@@ -325,6 +330,7 @@ fn build_node<T: NodeDef>(id: NodeId, pos: Pos2, state: T::State) -> NodeRuntime
     };
     let mut instance: Box<dyn NodeInstance> = Box::new(TypedNode::<T> {
         state,
+        state_update,
         inputs,
         outputs,
         properties,
@@ -340,11 +346,20 @@ fn build_node<T: NodeDef>(id: NodeId, pos: Pos2, state: T::State) -> NodeRuntime
     NodeRuntime { node, instance }
 }
 
+#[cfg(test)]
+fn build_node<T: NodeDef>(id: NodeId, pos: Pos2, state: T::State) -> NodeRuntime {
+    build_node_with_state_update::<T>(id, pos, state, None)
+}
+
+#[cfg(test)]
 fn create_node<T: NodeDef>(id: NodeId, pos: Pos2) -> NodeRuntime {
     build_node::<T>(id, pos, T::state())
 }
 
-fn restore_node<T: NodeDef>(node: &mut Node) -> Box<dyn NodeInstance> {
+fn restore_node_with_state_update<T: NodeDef>(
+    node: &mut Node,
+    state_update: Option<NodeStateUpdate<T::State>>,
+) -> Box<dyn NodeInstance> {
     let mut state = serde_json::from_value(node.state.clone()).unwrap_or_else(|_| T::state());
     T::migrate_saved_sockets(&mut state, &mut node.inputs, &mut node.outputs);
     let schema = T::instance_schema(&state);
@@ -363,6 +378,7 @@ fn restore_node<T: NodeDef>(node: &mut Node) -> Box<dyn NodeInstance> {
     }
     let mut instance: Box<dyn NodeInstance> = Box::new(TypedNode::<T> {
         state,
+        state_update,
         inputs,
         outputs,
         properties,
@@ -378,24 +394,43 @@ fn restore_node<T: NodeDef>(node: &mut Node) -> Box<dyn NodeInstance> {
     instance
 }
 
+#[cfg(test)]
+fn restore_node<T: NodeDef>(node: &mut Node) -> Box<dyn NodeInstance> {
+    restore_node_with_state_update::<T>(node, None)
+}
+
 // ── RegisteredNodeType ────────────────────────────────────────────────────────
+
+type NodeRestore = Arc<dyn Fn(&mut Node) -> Box<dyn NodeInstance> + Send + Sync>;
 
 pub(crate) struct RegisteredNodeType {
     pub(crate) name: String,
     pub(crate) category: String,
     pub(crate) create: Arc<dyn Fn(NodeId, Pos2) -> NodeRuntime + Send + Sync>,
-    pub(crate) restore: fn(&mut Node) -> Box<dyn NodeInstance>,
+    pub(crate) restore: NodeRestore,
     pub(crate) add_menu_visible: bool,
     pub(crate) template_namespace: Option<String>,
 }
 
 impl RegisteredNodeType {
     fn from_def<T: NodeDef>() -> Self {
+        Self::from_def_with_state_update::<T>(None)
+    }
+
+    fn from_def_with_state_update<T: NodeDef>(
+        state_update: Option<NodeStateUpdate<T::State>>,
+    ) -> Self {
+        let create_state_update = state_update.clone();
+        let restore_state_update = state_update;
         Self {
             name: T::name().to_owned(),
             category: T::category().to_owned(),
-            create: Arc::new(create_node::<T>),
-            restore: restore_node::<T>,
+            create: Arc::new(move |id, pos| {
+                build_node_with_state_update::<T>(id, pos, T::state(), create_state_update.clone())
+            }),
+            restore: Arc::new(move |node| {
+                restore_node_with_state_update::<T>(node, restore_state_update.clone())
+            }),
             add_menu_visible: T::add_menu_visible(),
             template_namespace: None,
         }
@@ -455,6 +490,29 @@ impl NodeTypeRegistry {
 
     /// Registers a concrete node definition and its socket type identities.
     pub fn register<T: NodeDef>(&mut self) -> &mut Self {
+        self.record_definition_socket_types::<T>();
+        self.types.push(RegisteredNodeType::from_def::<T>());
+        self
+    }
+
+    /// Registers a concrete definition with an instance-owned state update supplied by its host.
+    ///
+    /// The hook is generic widget infrastructure: it receives only definition state and sockets.
+    /// Concrete nodes use it to bind application-composed metadata services without global state.
+    pub fn register_with_state_update<T, F>(&mut self, state_update: F) -> &mut Self
+    where
+        T: NodeDef,
+        F: Fn(&mut T::State, &mut [Socket], &mut [Socket]) + Send + Sync + 'static,
+    {
+        self.record_definition_socket_types::<T>();
+        self.types
+            .push(RegisteredNodeType::from_def_with_state_update::<T>(Some(
+                Arc::new(state_update),
+            )));
+        self
+    }
+
+    fn record_definition_socket_types<T: NodeDef>(&mut self) {
         for input in T::inputs() {
             self.record_socket_type(&input.identity);
             for accepted in &input.accepted {
@@ -464,8 +522,6 @@ impl NodeTypeRegistry {
         for output in T::outputs() {
             self.record_socket_type(&output.identity);
         }
-        self.types.push(RegisteredNodeType::from_def::<T>());
-        self
     }
 
     /// Replaces all catalog templates contributed by one host namespace.
@@ -477,7 +533,8 @@ impl NodeTypeRegistry {
                 continue;
             };
             let create_base = Arc::clone(&base.create);
-            let restore = base.restore;
+            let restore = Arc::clone(&base.restore);
+            let create_restore = Arc::clone(&restore);
             let state = template.state;
             let title = template.title;
             self.types.push(RegisteredNodeType {
@@ -487,7 +544,7 @@ impl NodeTypeRegistry {
                     let mut runtime = create_base(id, pos);
                     runtime.node.state = state.clone();
                     runtime.node.title = title.clone();
-                    runtime.instance = restore(&mut runtime.node);
+                    runtime.instance = create_restore(&mut runtime.node);
                     runtime.node.title = title.clone();
                     runtime.instance.set_bound_title(&title);
                     runtime.node.state = runtime.instance.save_state();

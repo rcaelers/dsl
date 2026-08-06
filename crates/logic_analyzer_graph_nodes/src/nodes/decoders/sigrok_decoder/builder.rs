@@ -10,8 +10,8 @@ use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
-    SigrokChannel, SigrokDecoderConfig, SigrokDecoderDescriptor, SigrokInitialPin,
-    SigrokOptionValue,
+    SigrokChannel, SigrokDecoderConfig, SigrokDecoderDescriptor, SigrokDecoderRuntime,
+    SigrokInitialPin, SigrokOptionValue,
 };
 use node_graph::api::Socket;
 use signal_capture::SampleBlock;
@@ -19,7 +19,6 @@ use signal_derived::{ProtocolPacket, Word};
 use signal_runtime::ProcessNode;
 
 use super::definition::{SavedOptionControl, SavedOutputKind, SavedScalar, SigrokDecoderState};
-use crate::host_configuration::SigrokDecoderRuntime;
 
 struct UnavailableSigrokDecoderRuntime;
 

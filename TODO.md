@@ -304,8 +304,7 @@ item here, so acceptance comparisons stop being ad-hoc.
   types so failures carry a responsibility and callers can classify them. Roughly 360 signatures
   use a string error today; `platform`, `logic_analyzer_ui`, `platform_runtime`,
   and `signal_runtime` hold many of them. Work outward from the lowest owner so downstream crates
-  inherit typed failures instead of re-wrapping strings. Sequence step 3 after
-  [composition.host-factory-injection], which relocates the host-override contracts it types.
+  inherit typed failures instead of re-wrapping strings.
   Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#errors-typed-boundaries).
   1. [ ] Give `platform_runtime` typed executor, task, worker-message, kernel-registration, and
      queue errors next to `WorkerMessageError`.
@@ -323,19 +322,6 @@ item here, so acceptance comparisons stop being ad-hoc.
 
 ### Composition and host wiring
 
-- [composition.host-factory-injection] (P2 · high) Remove the process-global host factory slots in
-  `logic_analyzer_graph_nodes::host_configuration`. The `OnceLock`/`RwLock` slots behind
-  `install_sigrok_catalog_scanner` and `install_file_source_factories` make initialization order
-  significant, prevent two application instances in one process, and prevent tests with different
-  hosts from running concurrently. Carry the factories as instance-owned dependencies to the
-  capability overrides that need them. Static `NodeDef::on_update` paths currently read host
-  metadata, so this is not only constructor plumbing: make definition updates pure or inject an
-  instance/context into definition registration, and let an app/domain service discover metadata
-  and write explicit state or schema snapshots. Sigrok-specific runtime and scanner contracts stay
-  with the decoder domain and consume neutral platform primitives; platform must not implement or
-  import Sigrok contracts. Application assembly already lives in the app crates; removing these
-  globals makes those dependencies instance-owned instead of merely app-installed.
-  Direction: [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#composition-host-factory-injection).
 - [derived.cache.global-state] (P2 · high) Give the decoded-block cache an owned handle instead of the
   process-global `configure_decoded_block_cache`, `decoded_block_cache_stats`, and `clear_cache`
   entry points in `signal_derived`. The memory panel and cache commands then act on a service the
@@ -472,9 +458,7 @@ item here, so acceptance comparisons stop being ad-hoc.
   Direction, including the forbidden-edge list:
   [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#tests-architecture-structural).
 - [docs.drift-correction] (P3 · medium) Correct the design statements the code no longer satisfies: `AGENTS.md`
-  still describes a `signal_processing` crate that no longer exists, and both `AGENTS.md` and
-  `docs/architecture/crate_responsibility.md` describe the application crates as the composition
-  roots and host factories as injected. `AGENTS.md` also assigns execution and saved-document
+  still describes a `signal_processing` crate that no longer exists. `AGENTS.md` also assigns execution and saved-document
   synchronization too broadly to the compiler; `responsibility_visibility.md` both permits and
   forbids `pub(super)`; its UI-owned-port statement must be reconciled with the chosen
   domain-neutral platform boundary. The P1/P2 direction currently contradicts this TODO by keeping

@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use input_bindings::InputBindings;
 use logic_analyzer_graph_capabilities::node::GraphNodeCapabilityOverride;
+use logic_analyzer_graph_registry::GraphNodeEditorOverride;
 use logic_analyzer_graph_runtime::SourcePreparationExecutor;
 use node_graph::FileDialogService;
 use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
@@ -32,6 +33,7 @@ pub struct AppServices {
     application_settings: ApplicationSettings,
     host_symbol_fonts: Vec<egui::FontData>,
     node_file_dialog: Option<Box<dyn FileDialogService>>,
+    node_editor_overrides: Vec<GraphNodeEditorOverride>,
     work_executor: Arc<dyn WorkExecutor>,
     worker_operation_executor: Rc<dyn WorkerOperationExecutor>,
     capture_export_service: Box<dyn CaptureExportService>,
@@ -45,6 +47,7 @@ pub(crate) struct AppServiceParts {
     pub(crate) application_settings: ApplicationSettings,
     pub(crate) host_symbol_fonts: Vec<egui::FontData>,
     pub(crate) node_file_dialog: Option<Box<dyn FileDialogService>>,
+    pub(crate) node_editor_overrides: Vec<GraphNodeEditorOverride>,
     pub(crate) work_executor: Arc<dyn WorkExecutor>,
     pub(crate) worker_operation_executor: Rc<dyn WorkerOperationExecutor>,
     pub(crate) capture_export_service: Box<dyn CaptureExportService>,
@@ -85,6 +88,7 @@ impl AppServices {
             application_settings,
             host_symbol_fonts,
             node_file_dialog: None,
+            node_editor_overrides: Vec::new(),
             work_executor: Arc::new(InlineWorkExecutor),
             worker_operation_executor: Rc::new(CooperativeWorkerOperationExecutor::new(
                 portable_worker_kernels(),
@@ -121,6 +125,12 @@ impl AppServices {
     /// Supplies the host capability used by file controls embedded in graph nodes.
     pub fn with_node_file_dialog(mut self, service: Box<dyn FileDialogService>) -> Self {
         self.node_file_dialog = Some(service);
+        self
+    }
+
+    /// Supplies instance-owned metadata services for concrete graph-node definitions.
+    pub fn with_node_editor_overrides(mut self, overrides: Vec<GraphNodeEditorOverride>) -> Self {
+        self.node_editor_overrides = overrides;
         self
     }
 
@@ -189,6 +199,7 @@ impl AppServices {
             application_settings: self.application_settings,
             host_symbol_fonts: self.host_symbol_fonts,
             node_file_dialog: self.node_file_dialog,
+            node_editor_overrides: self.node_editor_overrides,
             work_executor: self.work_executor,
             worker_operation_executor: self.worker_operation_executor,
             capture_export_service: self.capture_export_service,
