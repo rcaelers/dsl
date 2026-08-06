@@ -216,14 +216,12 @@ pub(crate) fn capture_metadata(
     Ok(metadata)
 }
 
-pub(crate) fn worker_file_source_factories() -> (
-    Arc<dyn DslFileSourceFactory>,
-    Arc<dyn SigrokFileSourceFactory>,
-) {
-    (
-        Arc::new(WorkerDslFileSourceFactory),
-        Arc::new(WorkerSigrokFileSourceFactory),
-    )
+pub(crate) fn worker_dsl_file_source_factory() -> Arc<dyn DslFileSourceFactory> {
+    Arc::new(WorkerDslFileSourceFactory)
+}
+
+pub(crate) fn worker_sigrok_file_source_factory() -> Arc<dyn SigrokFileSourceFactory> {
+    Arc::new(WorkerSigrokFileSourceFactory)
 }
 
 struct WorkerDslFileSourceFactory;

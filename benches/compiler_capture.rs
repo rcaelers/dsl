@@ -1066,11 +1066,11 @@ fn configured_compiler(widget: &NodeGraphWidget) -> BenchmarkGraphExecution {
 
 fn configured_platform_compiler(
     widget: &NodeGraphWidget,
-    services: &logic_analyzer_platform::PlatformServices,
+    artifact_repository: Arc<dyn ArtifactRepository>,
+    work_executor: Arc<dyn WorkExecutor>,
 ) -> BenchmarkGraphExecution {
-    let repository: Arc<dyn ArtifactRepository> = Arc::new(BenchmarkArtifactRepository::new(
-        services.artifact_repository(),
-    ));
+    let repository: Arc<dyn ArtifactRepository> =
+        Arc::new(BenchmarkArtifactRepository::new(artifact_repository));
     let mut compiler = BenchmarkGraphExecution::new(
         GraphLowerer::with_capability_overrides(vec![
             logic_analyzer_graph_nodes::binary_file_writer_capability_override(
@@ -1088,7 +1088,7 @@ fn configured_platform_compiler(
                 work_executor: runtime_executor(),
                 metrics: None,
             }),
-            services.work_executor(),
+            work_executor,
         ),
     );
     compiler.set_artifact_repository(repository);
@@ -2060,11 +2060,10 @@ fn reference_pipeline_baseline(capture: &Path) {
 }
 
 fn waveform_index_profile(capture: &Path) {
-    let services = logic_analyzer_platform::standard_services("logic-conduit");
     print_waveform_index_profile(
         capture,
         Arc::new(MemoryArtifactRepository::new()),
-        services.work_executor(),
+        logic_analyzer_platform::native_work_executor(),
         "memory",
     );
 }
@@ -2074,11 +2073,10 @@ fn persistent_waveform_index_profile(capture: &Path) {
     let repository = logic_analyzer_platform::isolated_native_artifact_repository(
         workspace.path().join("artifacts"),
     );
-    let services = logic_analyzer_platform::standard_services("logic-conduit");
     print_waveform_index_profile(
         capture,
         repository,
-        services.work_executor(),
+        logic_analyzer_platform::native_work_executor(),
         "native-durable",
     );
 }
@@ -2188,7 +2186,7 @@ fn waveform_index_concurrency_profile(capture: &Path) {
 fn derived_storage_profile(capture: &Path) {
     let workspace = temporary_workspace();
     let output = workspace.path().join("compiled");
-    let services = logic_analyzer_platform::standard_services("logic-conduit");
+    let native_work_executor = logic_analyzer_platform::native_work_executor();
     let metrics = Arc::new(DerivedProfileMetrics::new());
     let native_repository = logic_analyzer_platform::isolated_native_artifact_repository(
         workspace.path().join("artifacts"),
@@ -2204,14 +2202,14 @@ fn derived_storage_profile(capture: &Path) {
         .factory
         .open(
             Arc::clone(&repository),
-            services.work_executor(),
+            Arc::clone(&native_work_executor),
             &mut |_| true,
         )
         .expect("reference capture index should prepare");
     metrics.reset();
 
     let work_executor: Arc<dyn WorkExecutor> = Arc::new(ProfiledWorkExecutor::new(
-        services.work_executor(),
+        native_work_executor,
         Arc::clone(&metrics),
     ));
     let widget = configured_widget(capture, &output);
@@ -2273,8 +2271,11 @@ fn in_memory_compiler_runtime_benchmark(capture: &Path) {
     let output = workspace.path().join("compiled");
     std::fs::create_dir_all(&output).unwrap();
     let widget = configured_widget(capture, &output);
-    let services = logic_analyzer_platform::standard_services("logic-conduit");
-    let compiler = configured_platform_compiler(&widget, &services);
+    let compiler = configured_platform_compiler(
+        &widget,
+        logic_analyzer_platform::native_artifact_repository("logic-conduit"),
+        logic_analyzer_platform::native_work_executor(),
+    );
     let mut context = compile_context(workspace.path());
     let usage_before = resource_usage();
     let started = Instant::now();
@@ -2514,7 +2515,7 @@ fn live_viewer_subscription_benchmark(capture: &Path) {
     let workspace = temporary_workspace();
     let output = workspace.path().join("compiled");
     std::fs::create_dir_all(&output).unwrap();
-    let services = logic_analyzer_platform::standard_services("logic-conduit");
+    let native_work_executor = logic_analyzer_platform::native_work_executor();
     let metrics = Arc::new(DerivedProfileMetrics::new());
     let native_repository = logic_analyzer_platform::isolated_native_artifact_repository(
         workspace.path().join("artifacts"),
@@ -2529,13 +2530,13 @@ fn live_viewer_subscription_benchmark(capture: &Path) {
         .factory
         .open(
             Arc::clone(&repository),
-            services.work_executor(),
+            Arc::clone(&native_work_executor),
             &mut |_| true,
         )
         .expect("reference capture index should prepare");
     metrics.reset();
     let work_executor: Arc<dyn WorkExecutor> = Arc::new(ProfiledWorkExecutor::new(
-        services.work_executor(),
+        native_work_executor,
         Arc::clone(&metrics),
     ));
     let widget = configured_widget(capture, &output);

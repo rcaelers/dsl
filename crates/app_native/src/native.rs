@@ -156,75 +156,50 @@ fn application_services() -> (
     logic_analyzer_ui::AppServices,
     Vec<Box<dyn logic_analyzer_ui::NodeCatalogService>>,
 ) {
-    let logic_analyzer_platform::PlatformServices {
-        capture_worker_client: _,
-        app_manager_factory,
-        dsl_file_source_factory,
-        sigrok_file_source_factory,
-        sigrok_decoder_runtime,
-        sigrok_catalog_scanner,
-        u3pro16_source_factory,
-        output_storage,
-        file_picker: _,
-        graph_worker_client,
-        artifact_repository,
-        work_executor,
-        worker_operation_executor,
-    } = logic_analyzer_platform::standard_services(APPLICATION_ID);
+    let app_manager_factory = logic_analyzer_platform::native_app_manager_factory();
+    let artifact_repository = logic_analyzer_platform::native_artifact_repository(APPLICATION_ID);
+    let dsl_file_source_factory = logic_analyzer_platform::native_dsl_file_source_factory();
+    let output_storage = logic_analyzer_platform::native_output_storage();
+    let sigrok_catalog_scanner = logic_analyzer_platform::native_sigrok_catalog_scanner();
+    let sigrok_decoder_runtime = logic_analyzer_platform::native_sigrok_decoder_runtime();
+    let sigrok_file_source_factory = logic_analyzer_platform::native_sigrok_file_source_factory();
+    let u3pro16_source_factory = logic_analyzer_platform::native_u3pro16_source_factory();
+    let work_executor = logic_analyzer_platform::native_work_executor();
+    let worker_operation_executor = logic_analyzer_platform::native_worker_operation_executor();
 
     logic_analyzer_graph_nodes::install_file_source_factories(
         Arc::clone(&dsl_file_source_factory),
         Arc::clone(&sigrok_file_source_factory),
     );
-    let node_catalogs = sigrok_catalog_scanner
-        .map(|scanner| {
-            logic_analyzer_graph_nodes::install_sigrok_catalog_scanner(Arc::clone(&scanner));
-            vec![crate::sigrok_catalog::service(
-                scanner,
-                Arc::clone(&work_executor),
-            )]
-        })
-        .unwrap_or_default();
+    logic_analyzer_graph_nodes::install_sigrok_catalog_scanner(Arc::clone(&sigrok_catalog_scanner));
+    let node_catalogs = vec![crate::sigrok_catalog::service(
+        sigrok_catalog_scanner,
+        Arc::clone(&work_executor),
+    )];
 
-    let mut capability_overrides = Vec::new();
-    if let Some(storage) = output_storage {
-        capability_overrides.push(
-            logic_analyzer_graph_nodes::binary_file_writer_capability_override(
-                logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
-                    Arc::clone(&storage),
-                ),
+    let capability_overrides = vec![
+        logic_analyzer_graph_nodes::binary_file_writer_capability_override(
+            logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
+                Arc::clone(&output_storage),
             ),
-        );
-        capability_overrides.push(
-            logic_analyzer_graph_nodes::csv_word_writer_capability_override(
-                logic_analyzer_processing::nodes::sinks::csv_word_writer::writer_factory(
-                    Arc::clone(&storage),
-                ),
+        ),
+        logic_analyzer_graph_nodes::csv_word_writer_capability_override(
+            logic_analyzer_processing::nodes::sinks::csv_word_writer::writer_factory(Arc::clone(
+                &output_storage,
+            )),
+        ),
+        logic_analyzer_graph_nodes::text_file_writer_capability_override(
+            logic_analyzer_processing::nodes::sinks::text_file_writer::writer_factory(
+                output_storage,
             ),
-        );
-        capability_overrides.push(
-            logic_analyzer_graph_nodes::text_file_writer_capability_override(
-                logic_analyzer_processing::nodes::sinks::text_file_writer::writer_factory(storage),
-            ),
-        );
-    }
-    capability_overrides.push(
+        ),
         logic_analyzer_graph_nodes::dsl_file_source_capability_override(dsl_file_source_factory),
-    );
-    capability_overrides.push(
         logic_analyzer_graph_nodes::sigrok_file_source_capability_override(
             sigrok_file_source_factory,
         ),
-    );
-    if let Some(runtime) = sigrok_decoder_runtime {
-        capability_overrides
-            .push(logic_analyzer_graph_nodes::sigrok_decoder_capability_override(runtime));
-    }
-    if let Some(factory) = u3pro16_source_factory {
-        capability_overrides.push(logic_analyzer_graph_nodes::u3pro16_capability_override(
-            factory,
-        ));
-    }
+        logic_analyzer_graph_nodes::sigrok_decoder_capability_override(sigrok_decoder_runtime),
+        logic_analyzer_graph_nodes::u3pro16_capability_override(u3pro16_source_factory),
+    ];
 
     let ui_services = logic_analyzer_ui::AppServices::with_host_configuration(
         Box::new(crate::native_host::NativeHostService::new()),
@@ -246,7 +221,7 @@ fn application_services() -> (
         Arc::clone(&work_executor),
         capability_overrides,
     )
-    .with_graph_worker_client(graph_worker_client)
+    .with_graph_worker_client(None)
     .with_worker_operation_executor(worker_operation_executor)
     .with_artifact_repository(artifact_repository);
 

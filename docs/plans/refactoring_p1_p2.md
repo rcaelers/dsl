@@ -25,44 +25,6 @@ the named function/type over the number when they disagree.
   now has a structural check from the [tests item](#tests-architecture-structural), delete the
   string test in the same PR.
 
-## composition.application-roots (P1) {#composition-application-roots}
-
-**Current split.** The app crates construct `AppServices`, select concrete node overrides, and
-construct the web-worker `GraphWorkerRuntime`. Platform no longer imports UI, graph-node,
-graph-capability, or graph-runtime crates. It still returns a `PlatformServices` record containing
-domain-typed factories and clients, so `standard_services()` remains an intermediate assembly
-facade rather than a mechanism-level API.
-
-**Target.** `app_native` and `app_web` are the composition roots. Platform exposes narrow public
-constructors for generic host mechanisms; the apps and domain owners adapt those mechanisms to
-their contracts, select `logic_analyzer_graph_nodes::*_capability_override(...)`, and build
-`AppServices`.
-
-**What platform keeps.** Reusable mechanism implementations such as byte storage, prepared-file
-access, mmap-backed buffers, file and directory pickers, downloads, generic USB transport, clocks,
-and task/worker transport. It does not keep concrete source, sink, decoder, device, graph, capture,
-export, settings, or UI adapters. Application or domain code combines the mechanisms into those
-behaviors.
-
-**Steps.**
-
-1. Keep the already moved `AppServices`, override-vector, catalog, and worker-runtime assembly in
-   the app crates. Remove any new concrete selection that reappears in platform.
-2. Replace one domain-typed `PlatformServices` field at a time with a neutral mechanism
-   constructor. Move the corresponding adapter to its behavioral owner or app root and remove its
-   temporary manifest-edge exception in the same change.
-3. Delete `standard_services()`, `standard_services_with_worker_urls()`, `PlatformServices`, and
-   `WorkerGraphHostServices` after their final fields have been replaced. App roots then call
-   mechanism constructors directly.
-4. Delete the interim `install_sigrok_catalog_scanner` and `install_file_source_factories` calls
-   when [host-factory-injection](#composition-host-factory-injection) replaces the remaining
-   process-global configuration with instance-owned dependencies.
-
-**Acceptance.** The app roots build UI and graph services without a platform-owned application
-bundle. Adding a new device, decoder, source, sink, format, or workflow touches its behavioral
-owner, graph nodes where applicable, and the app roots—not platform unless it introduces a new
-generic host mechanism.
-
 ## composition.platform-ui-inversion (P1) {#composition-platform-ui-inversion}
 
 **Problem.** Removing a UI import is insufficient if platform still speaks Logic Conduit domain
@@ -92,8 +54,8 @@ crate: that would reverse the dependency without removing the abstraction leak.
      mechanisms into processing-owned source, device, decoder, and sink adapters;
    - pass portable worker-kernel inventories and capture/session behavior into platform worker
      mechanisms instead of importing them there.
-4. Replace `PlatformServices` domain fields with those mechanism constructors and delete each
-   structural-test exception as its dependency disappears.
+4. Move each remaining domain adapter behind a neutral mechanism constructor and delete its
+   structural-test exception as the dependency disappears.
 
 **Acceptance.** Platform's manifest has none of the domain edges enumerated by the structural
 test. Its public names and data types are meaningful to another native/web application without
@@ -102,17 +64,16 @@ knowing Logic Conduit, graphs, capture sessions, node identities, protocols, or 
 ## composition.host-factory-injection (P2) {#composition-host-factory-injection}
 
 **Problem.** `crates/logic_analyzer_graph_nodes/src/host_configuration.rs` holds process-global
-slots: `SIGROK_CATALOG_SCANNER` (`OnceLock`, line 58), `DSL_FILE_SOURCE_FACTORY` and
-`SIGROK_FILE_SOURCE_FACTORY` (`OnceLock<RwLock<…>>`, lines 59–61), installed from platform
-(`native.rs:128–133`, `web.rs:94`). Initialization order is significant, two application
-instances in one process are impossible, and tests with different hosts cannot run concurrently.
+slots: `SIGROK_CATALOG_SCANNER`, `DSL_FILE_SOURCE_FACTORY`, and `SIGROK_FILE_SOURCE_FACTORY`,
+installed by the native and web application roots. Initialization order is significant, two
+application instances in one process are impossible, and tests with different hosts cannot run
+concurrently.
 
 **Key facts.**
 
-- The traits `SigrokDecoderRuntime` and `SigrokCatalogScanner` (host_configuration.rs:23–48) are
-  typed entirely in `logic_analyzer_processing` and `signal_runtime` types. They belong next to
-  `logic_analyzer_processing::nodes::decoders::sigrok_decoder`. Moving them is what lets
-  application-roots drop the platform→graph-nodes edge.
+- The traits `SigrokDecoderRuntime` and `SigrokCatalogScanner` belong to and are defined by
+  `logic_analyzer_processing::nodes::decoders::sigrok_decoder`; graph nodes still re-export them
+  while the remaining callers migrate.
 - The Sigrok *decoder runtime* is already injected correctly: `sigrok_decoder_capability_override
   (runtime)` carries the `Arc` into the builder (`nodes/decoders/sigrok_decoder/builder.rs:71`).
   That is the pattern to replicate.
@@ -129,15 +90,13 @@ instances in one process are impossible, and tests with different hosts cannot r
 
 **Steps.**
 
-1. Move the two trait definitions into `logic_analyzer_processing` (public module
-   `nodes::decoders::sigrok_decoder`); leave `pub use` re-exports in `logic_analyzer_graph_nodes`
-   temporarily so callers migrate incrementally, and remove them at the end.
-2. For each global reader found above, thread the dependency explicitly (constructor argument,
+1. For each global reader found above, thread the dependency explicitly (constructor argument,
    capability-override payload, or registration input). No default-to-unavailable global fallback
    — the *builder* may still default to an unavailable backend, as `SigrokDecoderBuilder::default`
    does today.
-3. Delete the statics and `install_*` functions; delete their call sites in platform/apps.
-4. Add a test that constructs two registries/app-service bundles with different fakes in one
+2. Delete the statics, `install_*` functions, and temporary graph-node trait re-exports; delete
+   their call sites in the app crates.
+3. Add a test that constructs two registries/app-service bundles with different fakes in one
    process and shows they do not observe each other.
 
 **Acceptance.** No `OnceLock`/`RwLock`/`static` host state in `logic_analyzer_graph_nodes`;

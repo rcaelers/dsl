@@ -1,141 +1,100 @@
-use std::rc::Rc;
 use std::sync::Arc;
 
-use signal_artifacts::MemoryArtifactRepository;
-use signal_derived::portable_worker_kernels;
-use signal_runtime::{
-    CooperativeAppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor,
-    WorkerOperationExecutor,
-};
+use logic_analyzer_graph_orchestration::GraphWorkerClient;
+use logic_analyzer_processing::nodes::sinks::OutputStorage;
+use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSourceFactory;
+use logic_analyzer_processing::nodes::sources::sigrok_file::SigrokFileSourceFactory;
+use signal_artifacts::ArtifactRepository;
+use signal_capture::CaptureWorkerClient;
 
 use super::web_artifact_repository::BrowserArtifactRepository;
 use super::web_capture_worker::install_capture_worker;
 use super::web_file_import::{
     BrowserFilePickerService, BrowserFileRegistry, dsl_source_factory, sigrok_source_factory,
+    worker_dsl_file_source_factory, worker_sigrok_file_source_factory,
 };
-use super::web_worker::WebWorkerAdapter;
-use crate::services::{PlatformServices, WorkerGraphHostServices};
+use crate::FilePickerService;
 
-/// Returns browser-worker storage and source factories for application-owned node composition.
-pub fn worker_graph_host_services() -> WorkerGraphHostServices {
-    let (dsl_file_source_factory, sigrok_file_source_factory) =
-        super::web_file_import::worker_file_source_factories();
-    WorkerGraphHostServices {
-        output_storage: super::web_output_storage::output_storage(),
-        dsl_file_source_factory,
-        sigrok_file_source_factory,
+/// Shared browser state for one application's imported capture files.
+///
+/// The handle keeps the file picker and the two format adapters on the same
+/// opaque-reference registry without selecting any application services.
+#[derive(Default)]
+pub struct BrowserFileImport {
+    registry: Arc<BrowserFileRegistry>,
+}
+
+impl BrowserFileImport {
+    /// Creates an empty browser capture-file registry.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Creates a browser file picker backed by this registry.
+    pub fn file_picker(&self) -> Box<dyn FilePickerService> {
+        Box::new(BrowserFilePickerService::new(Arc::clone(&self.registry)))
+    }
+
+    /// Creates the DSL source adapter backed by this registry.
+    pub fn dsl_file_source_factory(
+        &self,
+        capture_worker: Option<Arc<CaptureWorkerClient>>,
+    ) -> Arc<dyn DslFileSourceFactory> {
+        dsl_source_factory(Arc::clone(&self.registry), capture_worker)
+    }
+
+    /// Creates the Sigrok source adapter backed by this registry.
+    pub fn sigrok_file_source_factory(
+        &self,
+        capture_worker: Option<Arc<CaptureWorkerClient>>,
+    ) -> Arc<dyn SigrokFileSourceFactory> {
+        sigrok_source_factory(Arc::clone(&self.registry), capture_worker)
     }
 }
 
-pub(crate) fn standard_services(_application_id: &str) -> PlatformServices {
-    let worker_operations: Rc<dyn WorkerOperationExecutor> =
-        Rc::new(CooperativeWorkerOperationExecutor::new(
-            portable_worker_kernels(),
-            "browser worker module URLs were not provided",
-        ));
-    compose_services(
-        worker_operations,
-        Arc::new(MemoryArtifactRepository::new()),
-        None,
-    )
+/// Opens the browser's durable artifact repository.
+pub async fn open_browser_artifact_repository() -> Result<Arc<dyn ArtifactRepository>, String> {
+    BrowserArtifactRepository::open()
+        .await
+        .map(|repository| Arc::new(repository) as Arc<dyn ArtifactRepository>)
 }
 
-pub(crate) async fn standard_services_with_worker_urls(
-    _application_id: &str,
+/// Starts the shared capture/graph browser worker and returns its two clients.
+pub fn browser_worker_clients(
     module_url: &str,
     wasm_url: &str,
-) -> PlatformServices {
-    let kernels = portable_worker_kernels();
-    let required_operations = kernels.operations().cloned().collect::<Vec<_>>();
-    let parallelism = browser_parallelism();
-    let max_outstanding = parallelism.saturating_mul(2).max(parallelism);
-    let worker_operations: Rc<dyn WorkerOperationExecutor> = match WebWorkerAdapter::new(
+    max_outstanding_capture_requests: usize,
+    artifact_repository: Arc<dyn ArtifactRepository>,
+) -> Result<(Arc<CaptureWorkerClient>, Arc<GraphWorkerClient>), String> {
+    install_capture_worker(
         module_url,
         wasm_url,
-        parallelism,
-        max_outstanding,
-        &required_operations,
-    ) {
-        Ok(adapter) => Rc::new(adapter),
-        Err(reason) => Rc::new(CooperativeWorkerOperationExecutor::new(kernels, reason)),
-    };
-    let artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository> =
-        match BrowserArtifactRepository::open().await {
-            Ok(repository) => Arc::new(repository),
-            Err(error) => {
-                tracing::warn!(%error, "browser persistence is unavailable; using the memory repository");
-                Arc::new(MemoryArtifactRepository::new())
-            }
-        };
-    let worker_clients = match install_capture_worker(
-        module_url,
-        wasm_url,
-        32,
-        Arc::clone(&artifact_repository),
-    ) {
-        Ok(clients) => Some(clients),
-        Err(error) => {
-            tracing::warn!(%error, "browser capture worker is unavailable; using inline source preparation");
-            None
-        }
-    };
-    compose_services(worker_operations, artifact_repository, worker_clients)
-}
-
-fn compose_services(
-    worker_operations: Rc<dyn WorkerOperationExecutor>,
-    artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository>,
-    worker_clients: Option<super::web_capture_worker::BrowserWorkerClients>,
-) -> PlatformServices {
-    let work_executor: Arc<dyn signal_runtime::WorkExecutor> = Arc::new(InlineWorkExecutor);
-    let imported_files = Arc::new(BrowserFileRegistry::default());
-    let capture_worker = worker_clients
-        .as_ref()
-        .map(|clients| Arc::clone(&clients.capture));
-    let graph_worker = worker_clients.map(|clients| clients.graph);
-    let dsl_file_source_factory =
-        dsl_source_factory(Arc::clone(&imported_files), capture_worker.clone());
-    let sigrok_file_source_factory =
-        sigrok_source_factory(Arc::clone(&imported_files), capture_worker.clone());
-    PlatformServices {
-        capture_worker_client: capture_worker,
-        app_manager_factory: Arc::new(CooperativeAppManagerFactory),
-        dsl_file_source_factory,
-        sigrok_file_source_factory,
-        sigrok_decoder_runtime: None,
-        sigrok_catalog_scanner: None,
-        u3pro16_source_factory: None,
-        output_storage: None,
-        file_picker: Some(Box::new(BrowserFilePickerService::new(imported_files))),
-        graph_worker_client: graph_worker,
+        max_outstanding_capture_requests,
         artifact_repository,
-        work_executor,
-        worker_operation_executor: worker_operations,
-    }
+    )
+    .map(|clients| (clients.capture, clients.graph))
 }
 
-fn browser_parallelism() -> usize {
+/// Creates the DSL source adapter used inside the graph worker.
+pub fn browser_worker_dsl_file_source_factory() -> Arc<dyn DslFileSourceFactory> {
+    worker_dsl_file_source_factory()
+}
+
+/// Creates the Sigrok source adapter used inside the graph worker.
+pub fn browser_worker_sigrok_file_source_factory() -> Arc<dyn SigrokFileSourceFactory> {
+    worker_sigrok_file_source_factory()
+}
+
+/// Returns the graph worker's browser-backed output destination.
+pub fn browser_worker_output_storage() -> Arc<dyn OutputStorage> {
+    super::web_output_storage::output_storage()
+}
+
+/// Chooses a conservative browser worker count from host concurrency.
+pub fn browser_worker_parallelism() -> usize {
     web_sys::window()
         .map(|window| window.navigator().hardware_concurrency() as usize)
         .unwrap_or(1)
         .saturating_sub(1)
         .clamp(1, 8)
-}
-
-#[cfg(test)]
-mod web_tests {
-    use signal_runtime::WorkerExecutionMode;
-
-    use super::standard_services;
-
-    #[test]
-    fn web_composition_injects_portable_services_without_native_catalogs() {
-        let services = standard_services("test-application");
-        assert_eq!(services.work_executor().available_parallelism(), 1);
-        assert!(!services.artifact_repository().capabilities().durable);
-        assert_eq!(
-            services.worker_execution_capability().mode(),
-            WorkerExecutionMode::Cooperative
-        );
-    }
 }

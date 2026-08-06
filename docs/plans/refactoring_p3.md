@@ -197,7 +197,7 @@ cache) constructed with its configuration. Thread it to the two consumer kinds:
 1. *Stores/readers* that currently call `shared_cache()` internally — the handle becomes a
    constructor argument, carried the same way `ArtifactRepository` already is.
 2. *Administration* — the memory panel and clear/stats commands receive the handle from the
-   application (it slots naturally into the service bundle assembled at the composition root,
+   application (it slots naturally into the service set assembled at the composition root,
    alongside the artifact repository).
 
 Then delete the statics and the free-function entry points. Tests construct their own handle,
@@ -322,9 +322,9 @@ Two classes, treated differently:
    stall long-term should the docs gain an explicit "not yet true, see TODO" marker — a normative
    doc that silently disagrees with the code is how this drift started.
 
-Sweep for further drift while there: any doc naming `standard_services`, `install_…`, or the
-pre-split processing layout will need updating as those items land — each such PR updates the
-docs it invalidates, per the ground rules.
+Sweep for further drift while there: any doc naming obsolete composition facades, global
+`install_…` APIs, or the pre-split processing layout will need updating as those items land — each
+such PR updates the docs it invalidates, per the ground rules.
 
 ## naming.implementation-files (P3 · low) {#naming-implementation-files}
 

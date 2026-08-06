@@ -1,6 +1,14 @@
+use std::rc::Rc;
 use std::sync::Arc;
 
 use wasm_bindgen::prelude::*;
+
+use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+use signal_derived::portable_worker_kernels;
+use signal_runtime::{
+    CooperativeAppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor,
+    WorkExecutor, WorkerOperationExecutor,
+};
 
 use crate::demo_graphs::embedded_demo_graphs;
 
@@ -29,11 +37,10 @@ fn initialize_compile_time_inventories() {
 #[wasm_bindgen(js_name = initializeWorkerHost)]
 pub fn initialize_worker_host() {
     initialize_compile_time_inventories();
-    let logic_analyzer_platform::WorkerGraphHostServices {
-        output_storage,
-        dsl_file_source_factory,
-        sigrok_file_source_factory,
-    } = logic_analyzer_platform::worker_graph_host_services();
+    let output_storage = logic_analyzer_platform::browser_worker_output_storage();
+    let dsl_file_source_factory = logic_analyzer_platform::browser_worker_dsl_file_source_factory();
+    let sigrok_file_source_factory =
+        logic_analyzer_platform::browser_worker_sigrok_file_source_factory();
     let capability_overrides = vec![
         logic_analyzer_graph_nodes::binary_file_writer_capability_override(
             logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
@@ -94,18 +101,13 @@ impl WebHandle {
     pub async fn start(&self, canvas: web_sys::HtmlCanvasElement) -> Result<(), JsValue> {
         let worker_module_url = self.worker_module_url.clone();
         let worker_wasm_url = self.worker_wasm_url.clone();
-        let platform_services = logic_analyzer_platform::standard_services_with_worker_urls(
-            logic_analyzer_ui::APPLICATION_ID,
-            &worker_module_url,
-            &worker_wasm_url,
-        )
-        .await;
+        let (ui_services, node_catalogs) =
+            application_services(&worker_module_url, &worker_wasm_url).await;
         self.runner
             .start(
                 canvas,
                 eframe::WebOptions::default(),
                 Box::new(move |cc| {
-                    let (ui_services, node_catalogs) = application_services(platform_services);
                     Ok(Box::new(
                         logic_analyzer_ui::App::new_with_demo_graphs_catalogs_and_services(
                             cc,
@@ -126,24 +128,61 @@ impl WebHandle {
     }
 }
 
-fn application_services(
-    platform_services: logic_analyzer_platform::PlatformServices,
+async fn application_services(
+    worker_module_url: &str,
+    worker_wasm_url: &str,
 ) -> (
     logic_analyzer_ui::AppServices,
     Vec<Box<dyn logic_analyzer_ui::NodeCatalogService>>,
 ) {
-    let logic_analyzer_platform::PlatformServices {
-        file_picker,
-        capture_worker_client,
-        app_manager_factory,
-        dsl_file_source_factory,
-        sigrok_file_source_factory,
-        graph_worker_client,
-        artifact_repository,
-        work_executor,
-        worker_operation_executor,
-        ..
-    } = platform_services;
+    let kernels = portable_worker_kernels();
+    let required_operations = kernels.operations().cloned().collect::<Vec<_>>();
+    let parallelism = logic_analyzer_platform::browser_worker_parallelism();
+    let max_outstanding = parallelism.saturating_mul(2).max(parallelism);
+    let worker_operation_executor: Rc<dyn WorkerOperationExecutor> =
+        match logic_analyzer_platform::WebWorkerAdapter::new(
+            worker_module_url,
+            worker_wasm_url,
+            parallelism,
+            max_outstanding,
+            &required_operations,
+        ) {
+            Ok(adapter) => Rc::new(adapter),
+            Err(reason) => Rc::new(CooperativeWorkerOperationExecutor::new(kernels, reason)),
+        };
+    let artifact_repository: Arc<dyn ArtifactRepository> =
+        match logic_analyzer_platform::open_browser_artifact_repository().await {
+            Ok(repository) => repository,
+            Err(error) => {
+                log::warn!(
+                    "browser persistence is unavailable; using the memory repository: {error}"
+                );
+                Arc::new(MemoryArtifactRepository::new())
+            }
+        };
+    let (capture_worker_client, graph_worker_client) =
+        match logic_analyzer_platform::browser_worker_clients(
+            worker_module_url,
+            worker_wasm_url,
+            32,
+            Arc::clone(&artifact_repository),
+        ) {
+            Ok((capture, graph)) => (Some(capture), Some(graph)),
+            Err(error) => {
+                log::warn!(
+                    "browser capture worker is unavailable; using inline source preparation: {error}"
+                );
+                (None, None)
+            }
+        };
+    let imported_files = logic_analyzer_platform::BrowserFileImport::new();
+    let dsl_file_source_factory =
+        imported_files.dsl_file_source_factory(capture_worker_client.clone());
+    let sigrok_file_source_factory =
+        imported_files.sigrok_file_source_factory(capture_worker_client.clone());
+    let file_picker = imported_files.file_picker();
+    let work_executor: Arc<dyn WorkExecutor> = Arc::new(InlineWorkExecutor);
+    let app_manager_factory = Arc::new(CooperativeAppManagerFactory);
 
     logic_analyzer_graph_nodes::install_file_source_factories(
         Arc::clone(&dsl_file_source_factory),
@@ -175,9 +214,7 @@ fn application_services(
     )
     .with_capture_export_service(logic_analyzer_ui::unavailable_capture_export_service())
     .with_node_file_dialog(Box::new(
-        crate::node_file_dialog::BrowserNodeFileDialog::new(
-            file_picker.expect("the browser supplies its asynchronous file picker"),
-        ),
+        crate::node_file_dialog::BrowserNodeFileDialog::new(file_picker),
     ))
     .with_graph_execution_and_capability_overrides(
         source_preparation_executor,

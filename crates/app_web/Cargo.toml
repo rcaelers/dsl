@@ -20,6 +20,9 @@ logic-analyzer-processing = { path = "../logic_analyzer_processing" }
 logic-analyzer-platform = { path = "../logic_analyzer_platform" }
 node-graph = { path = "../widgets/node_graph" }
 serde_json = { workspace = true }
+signal-artifacts = { path = "../signal_artifacts" }
+signal-derived = { path = "../signal_derived" }
+signal-runtime = { path = "../signal_runtime" }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
 web-sys = { workspace = true }

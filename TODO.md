@@ -321,21 +321,6 @@ item here, so acceptance comparisons stop being ad-hoc.
 
 ### Composition and host wiring
 
-- [composition.application-roots] (P1 · high) Finish making the application crates the
-  composition roots the design describes. `app_native` and `app_web` now construct `AppServices`,
-  select the concrete node capability overrides, and build the web-worker graph runtime. Platform
-  no longer depends on `logic-analyzer-ui`, `logic-analyzer-graph-nodes`,
-  `logic-analyzer-graph-capabilities`, or `logic-analyzer-graph-runtime`, and adding another
-  existing node override no longer changes platform.
-  Replace the remaining `logic_analyzer_platform::standard_services`/`PlatformServices`
-  intermediate bundle with narrow mechanism constructors as the domain-facing adapters are moved
-  to their owners. The app roots should receive and combine low-level platform mechanisms, not a
-  bundle whose fields are typed as concrete source, decoder, sink, capture-worker, or graph-worker
-  services. This item removes the remaining application assembly facade;
-  [composition.platform-ui-inversion] removes the domain-aware adapters behind it. Adding a node,
-  device, decoder, source, sink, format, or application workflow must not require editing the
-  platform crate.
-  Direction: [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#composition-application-roots).
 - [composition.platform-ui-inversion] (P1 · high) Make `logic_analyzer_platform` a reusable,
   domain-neutral host-mechanism crate, not merely a crate without a UI dependency. It owns native
   and web implementations of low-level capabilities such as file and directory access, file
@@ -367,14 +352,14 @@ item here, so acceptance comparisons stop being ad-hoc.
   `logic_analyzer_graph_nodes::host_configuration`. The `OnceLock`/`RwLock` slots behind
   `install_sigrok_catalog_scanner` and `install_file_source_factories` make initialization order
   significant, prevent two application instances in one process, and prevent tests with different
-  hosts from running concurrently. Carry the factories through the injected service bundle to the
+  hosts from running concurrently. Carry the factories as instance-owned dependencies to the
   capability overrides that need them. Static `NodeDef::on_update` paths currently read host
   metadata, so this is not only constructor plumbing: make definition updates pure or inject an
   instance/context into definition registration, and let an app/domain service discover metadata
   and write explicit state or schema snapshots. Sigrok-specific runtime and scanner contracts stay
   with the decoder domain and consume neutral platform primitives; platform must not implement or
-  import Sigrok contracts. Do this together with [composition.application-roots]: moving assembly
-  to the app crates while the global slots remain only relocates the install calls.
+  import Sigrok contracts. Application assembly already lives in the app crates; removing these
+  globals makes those dependencies instance-owned instead of merely app-installed.
   Direction: [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#composition-host-factory-injection).
 - [derived.cache.global-state] (P2 · high) Give the decoded-block cache an owned handle instead of the
   process-global `configure_decoded_block_cache`, `decoded_block_cache_stats`, and `clear_cache`

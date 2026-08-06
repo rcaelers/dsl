@@ -54,37 +54,39 @@ generations are rejected and invalidated as a unit. Unfinished ephemeral artifac
 when their last store handle is dropped. Graph-runtime cache lookup, graph pruning, preview,
 invalidation, and cleanup apply the same policy to native and web repositories.
 
-`logic_analyzer_platform` selects the artifact repository and host mechanisms. Native and web
-application roots decompose the temporary `PlatformServices` bundle, adapt mechanisms to the UI
-host-service port and domain contracts, and construct `AppServices`. That composition boundary
-passes the selected repository through the graph service to every graph-runtime operation
-and `NodeBuildContext`; concrete derived-lane configuration therefore receives a capability rather than
-selecting a target backend. The native adapter provides a durable repository whose same-directory
-publication is atomic and whose immutable reads use mmap-backed byte regions. The web adapter
+`logic_analyzer_platform` exposes target-scoped constructors for artifact repositories and host
+mechanisms. Native and web application roots call the constructors they need, adapt mechanisms to
+the UI host-service port and domain contracts, select fallbacks, and construct `AppServices`. That
+composition boundary passes the selected repository through the graph service to every
+graph-runtime operation and `NodeBuildContext`; concrete derived-lane configuration therefore
+receives a capability rather than selecting a target backend. The native adapter provides a
+durable repository whose same-directory publication is atomic and whose immutable reads use
+mmap-backed byte regions. The web adapter
 selects the OPFS-backed browser repository and falls back explicitly to the portable
 process-lifetime memory repository when initialization fails. Platform allocates the application
 directory backing the native repository.
-Cache administration is graph-runtime policy over the injected repository, so web caches use the same identity,
-preview, pruning, invalidation, inspection, and cleanup paths. `NativeDocumentHost` owns
-configuration paths, byte I/O, and file/directory dialogs; the native app adapts those mechanisms
-to settings decoding, input bindings, graph documents, and optional system symbol fonts. The UI
-owns bundled fallback fonts and the portable font installation algorithm. The web app supplies
-embedded settings and adapts the platform's
-asynchronous browser picker, process-lifetime document registry, and byte download mechanism to
-graph documents. Its opaque document
-references never enter the saved graph. Capture-file selection remains a separate asynchronous
-node file-dialog capability. General output-file operations are explicit unavailable capabilities.
+Cache administration is graph-runtime policy over the injected repository, so web caches use the
+same identity, preview, pruning, invalidation, inspection, and cleanup paths. `NativeDocumentHost`
+owns configuration paths, byte I/O, and file/directory dialogs; the native app adapts those
+mechanisms to settings decoding, input bindings, graph documents, and optional system symbol
+fonts. The UI owns bundled fallback fonts and the portable font installation algorithm. The web
+app supplies embedded settings and adapts the platform's asynchronous browser picker,
+process-lifetime document registry, and byte download mechanism to graph documents. Its opaque
+document references never enter the saved graph. Capture-file selection remains a separate
+asynchronous node file-dialog capability. General output-file operations are explicit unavailable
+capabilities.
 Finite-source preparation uses the graph-runtime-owned execution contract: native composition
 selects its threaded executor, while web composition selects a browser capture-worker executor with
-an inline fallback. The compiler
-discovers the source-preparation factory; the graph runtime polls one task contract and contains no
-target-selected source-preparation implementation.
-The application-runtime facade likewise receives a factory from platform composition. Native runs
-receive the threaded pipeline-manager backend; web runs receive the portable cooperative backend.
-The graph runtime creates managers through the same factory contract and does not select either backend.
-Portable processing work uses the `signal_runtime::WorkExecutor` contract. The platform service
-bundle supplies bounded finite-work execution and host-owned long-running task execution through
-one capability, passes it through the UI graph-service construction boundary, and the graph runtime makes
+an inline fallback. The compiler discovers the source-preparation factory; the graph runtime polls
+one task contract and contains no target-selected source-preparation implementation.
+The application-runtime facade likewise receives a factory selected by the application root.
+Native runs request the threaded pipeline-manager backend; web runs construct the portable
+cooperative backend.
+The graph runtime creates managers through the same factory contract and does not select either
+backend.
+Portable processing work uses the `signal_runtime::WorkExecutor` contract. The native application
+root requests bounded finite-work execution and host-owned long-running task execution through one
+capability and passes it through the UI graph-service construction boundary; the graph runtime makes
 it available to node builders in their `NodeBuildContext`. Concrete nodes choose whether they need
 finite or long-running work without selecting a target or a platform implementation.
 The `logic_analyzer_capture_export` crate supplies both `CaptureExportService` and its native
@@ -184,7 +186,6 @@ logic_analyzer_platform/
   src/
     lib.rs                    curated crate-root construction API
     file_dialog.rs            target-neutral file-picker contracts and opaque references
-    services.rs               temporary app-consumed adapter bundle
     platform/
       mod.rs                  the only reusable target selector
       native.rs               native mechanisms and remaining domain adapters
@@ -197,10 +198,11 @@ logic_analyzer_platform/
       web_document.rs         byte-oriented browser documents and downloads
 ```
 
-The crate root exposes constructors and a temporary composition bundle, not public `native` and
-`web` namespaces. Application roots decompose that bundle, construct concrete node overrides,
-catalog services, graph-worker runtimes, and UI services, and inject them. No core crate names
-`PlatformServices` or depends on `logic_analyzer_platform`.
+The crate root exposes individually scoped, target-selected constructors rather than public
+`native` and `web` namespaces or an application-wide service bundle. Application roots request
+only the adapters they use, construct concrete node overrides, catalog services, graph-worker
+runtimes, and UI services, and inject them. No reusable core crate depends on
+`logic_analyzer_platform`.
 
 Traits implemented by the adapter crate are supported cross-crate ports re-exported from the crate
 root of their behavioral owner. For example, artifact storage ports belong to `signal_artifacts`,
@@ -706,15 +708,15 @@ operation identifiers, and the reason parallel execution is unavailable. It is d
 separate from `WorkExecutor`: ordinary closures, runtime nodes, stream readers, and watchdog tasks
 remain on their existing cooperative or native host paths.
 
-The web application passes the absolute generated-module URLs into the platform composition root.
-`logic_analyzer_platform` derives a bounded worker count from browser hardware concurrency and
-selects `WebWorkerAdapter` only after browser worker construction succeeds and every required
-operation identifier is present in the portable registry. Failed construction or missing worker
-configuration selects `CooperativeWorkerOperationExecutor`, which invokes the same registry and
-emits the same progress and terminal messages. Graphs and processing nodes therefore do not branch
-on worker availability, while diagnostics can distinguish parallel execution from its explicit
-cooperative fallback. `AppServices` retains the selected generic executor for the application
-lifetime; the UI neither owns browser-worker construction nor inspects the concrete adapter.
+The web application passes the absolute generated-module URLs to `WebWorkerAdapter`. It requests a
+bounded worker count derived from browser hardware concurrency and selects the adapter only after
+browser worker construction succeeds and every required operation identifier is present in the
+portable registry. Failed construction or missing worker configuration makes the application
+select `CooperativeWorkerOperationExecutor`, which invokes the same registry and emits the same
+progress and terminal messages. Graphs and processing nodes therefore do not branch on worker
+availability, while diagnostics can distinguish parallel execution from its explicit cooperative
+fallback. `AppServices` retains the selected generic executor for the application lifetime; the UI
+neither owns browser-worker construction nor inspects the concrete adapter.
 
 `AcquisitionContext` carries the selected executor into concrete live providers. Buffered and
 streaming device captures therefore retain their portable lifecycle, cancellation, and backpressure
@@ -722,8 +724,8 @@ behavior while the host controls how their long-running acquisition task execute
 
 The execution contract separates the reusable bounded finite-operation queue from long-running
 runtime supervision and file-source delivery so blocked stream endpoints cannot starve indexing.
-Host adapters select their transport by platform composition rather than target conditionals in
-shared algorithms. The WASM application build validates the inline worker bootstrap as JavaScript,
+Application roots select host transports explicitly rather than using target conditionals in shared
+algorithms. The WASM application build validates the inline worker bootstrap as JavaScript,
 checks the generated browser module, and requires the exported portable-kernel entry point.
 
 Finite and long-running submissions may carry an owner-defined diagnostic label. Profilers use the
@@ -848,16 +850,16 @@ bounded blocks and a repository rather than preloading one contiguous buffer.
   target-selected worker implementation.
 - `logic_analyzer_platform` is an adapter/integration crate above the contract owners. It contains
   reusable native and web implementations for files, mmap, worker execution, browser handles,
-  OPFS, dialogs, and USB access. Its temporary service bundle still exposes concrete processing,
-  graph-worker, capture/session, derived-kernel, and node-dialog contracts; the structural
-  allowlist prevents that surface from growing while the P1 inversion removes it.
+  OPFS, dialogs, and USB access. Some individually scoped constructors still expose concrete
+  processing, graph-worker, capture/session, and derived-kernel contracts; the structural allowlist
+  prevents that surface from growing while the P1 inversion removes it.
 - `app_native` and `app_web` are unavoidable target-specific composition roots. They initialize
   their host, obtain `logic_analyzer_platform` mechanisms, adapt domain/UI ports, select concrete
   node overrides, and construct application and worker services. They contain no reusable storage,
   processing, or scheduling implementation.
 
 The current dependency direction points from app composition through platform to generic contracts,
-with the platform's six temporary domain edges checked separately:
+with the platform's five temporary domain edges checked separately:
 
 ```text
 signal_artifacts   signal_runtime   signal_capture   signal_derived   signal_capture_session

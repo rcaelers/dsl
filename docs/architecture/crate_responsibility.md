@@ -181,10 +181,10 @@ selection remain outside this crate.
 #### `logic-analyzer-platform`
 
 Owns reusable native and web host mechanisms and the workspace's single reusable target-selection
-point. Its current service bundle provides storage, worker, file-source, output, and device adapter
-parts to application composition; the remaining domain-typed parts are constrained by the explicit
-P1 structural allowlist. UI host adaptation, concrete node selection, graph construction, and
-application policy remain outside this crate.
+point. Its crate-root facade provides individually scoped storage, worker, file-source, output, and
+device adapter constructors to application composition; the remaining domain-typed constructors
+are constrained by the explicit P1 structural allowlist. UI host adaptation, concrete node
+selection, graph construction, and application policy remain outside this crate.
 
 #### `logic-analyzer-capture-export`
 

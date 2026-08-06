@@ -10,43 +10,28 @@
 
 mod file_dialog;
 mod platform;
-mod services;
 
 pub use file_dialog::{
     DroppedFileData, FileDialogFilter, FileOpenDialog, FilePickerProgress, FilePickerRequest,
     FilePickerService, FileReference, FileSaveDialog,
 };
-pub use services::{PlatformServices, WorkerGraphHostServices};
-
-/// Builds host services for the selected target.
-pub fn standard_services(application_id: &str) -> PlatformServices {
-    platform::standard_services(application_id)
-}
-
 std::cfg_select! {
     target_arch = "wasm32" => {
         pub use platform::{
-            BrowserDocumentHost, BrowserDownload, WebWorkerAdapter,
-            initialize_graph_worker_runtime, worker_artifact_repository,
-            worker_graph_host_services,
+            BrowserDocumentHost, BrowserDownload, BrowserFileImport, WebWorkerAdapter,
+            browser_worker_clients, browser_worker_dsl_file_source_factory,
+            browser_worker_output_storage, browser_worker_parallelism,
+            browser_worker_sigrok_file_source_factory, initialize_graph_worker_runtime,
+            open_browser_artifact_repository, worker_artifact_repository,
         };
-
-        /// Builds web services with a parallel finite-operation worker pool when the
-        /// browser accepts the supplied generated-module URLs.
-        ///
-        /// # Parameters
-        /// - `module_url`: Input consumed by this operation.
-        /// - `wasm_url`: Input consumed by this operation.
-        pub async fn standard_services_with_worker_urls(
-            application_id: &str,
-            module_url: &str,
-            wasm_url: &str,
-        ) -> PlatformServices {
-            platform::standard_services_with_worker_urls(application_id, module_url, wasm_url).await
-        }
     }
     _ => {
-        pub use platform::NativeDocumentHost;
+        pub use platform::{
+            NativeDocumentHost, native_app_manager_factory, native_artifact_repository,
+            native_dsl_file_source_factory, native_output_storage, native_sigrok_catalog_scanner,
+            native_sigrok_decoder_runtime, native_sigrok_file_source_factory,
+            native_u3pro16_source_factory, native_work_executor, native_worker_operation_executor,
+        };
         #[cfg(feature = "developer-tools")]
         pub use platform::{
             isolated_native_artifact_repository, validate_capture_hardware, validate_fpga_hardware,

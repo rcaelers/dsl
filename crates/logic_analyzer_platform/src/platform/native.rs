@@ -35,7 +35,7 @@ use signal_capture::{
 use signal_capture_session::logic_analyzer::LogicAnalyzerError;
 use signal_runtime::{
     AppManager, AppManagerBackend, AppManagerFactory, PipelineManager, ProcessNode, WorkExecutor,
-    WorkExecutorTask, WorkTask,
+    WorkExecutorTask, WorkTask, WorkerOperationExecutor,
 };
 
 use super::native_artifact_repository::NativeArtifactRepository;
@@ -43,34 +43,29 @@ use super::native_file_identity_cache::NativeFileIdentityCache;
 use super::native_file_source::NativeFileByteSource;
 use super::native_sigrok::{PythonSigrokExecutionFactory, discover_sigrok_decoder, scan_catalog};
 use super::native_worker::NativeWorkerOperationExecutor;
-use crate::services::PlatformServices;
 
-pub(crate) fn standard_services(application_id: &str) -> PlatformServices {
-    let cache_directory = derived_cache_directory(application_id);
-    let artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository> = Arc::new(
-        NativeArtifactRepository::new(cache_directory.join("artifacts")),
-    );
-    let work_executor: Arc<dyn WorkExecutor> = Arc::new(NativeWorkExecutor::new());
-    let sigrok_catalog_scanner = native_sigrok_catalog_scanner();
-    let dsl_file_source_factory = native_dsl_file_source_factory();
-    let sigrok_file_source_factory = native_sigrok_file_source_factory();
-    PlatformServices {
-        capture_worker_client: None,
-        app_manager_factory: Arc::new(NativeAppManagerFactory {
-            work_executor: Arc::new(NativeRuntimeExecutor),
-        }),
-        dsl_file_source_factory,
-        sigrok_file_source_factory,
-        sigrok_decoder_runtime: Some(native_sigrok_decoder_runtime()),
-        sigrok_catalog_scanner: Some(sigrok_catalog_scanner),
-        u3pro16_source_factory: Some(native_u3pro16_source_factory()),
-        output_storage: Some(native_output_storage()),
-        file_picker: None,
-        artifact_repository,
-        work_executor,
-        worker_operation_executor: Rc::new(NativeWorkerOperationExecutor::new()),
-        graph_worker_client: None,
-    }
+/// Opens the native durable artifact repository for an application.
+pub fn native_artifact_repository(application_id: &str) -> Arc<dyn ArtifactRepository> {
+    Arc::new(NativeArtifactRepository::new(
+        derived_cache_directory(application_id).join("artifacts"),
+    ))
+}
+
+/// Creates the native bounded executor for finite processing work.
+pub fn native_work_executor() -> Arc<dyn WorkExecutor> {
+    Arc::new(NativeWorkExecutor::new())
+}
+
+/// Creates the native threaded application-runtime factory.
+pub fn native_app_manager_factory() -> Arc<dyn AppManagerFactory> {
+    Arc::new(NativeAppManagerFactory {
+        work_executor: Arc::new(NativeRuntimeExecutor),
+    })
+}
+
+/// Creates the native worker-operation executor.
+pub fn native_worker_operation_executor() -> Rc<dyn WorkerOperationExecutor> {
+    Rc::new(NativeWorkerOperationExecutor::new())
 }
 
 struct NativeOutputStorage;
@@ -102,7 +97,8 @@ impl OutputStorage for NativeOutputStorage {
     }
 }
 
-fn native_output_storage() -> Arc<dyn OutputStorage> {
+/// Creates the native filesystem-backed output destination.
+pub fn native_output_storage() -> Arc<dyn OutputStorage> {
     Arc::new(NativeOutputStorage)
 }
 
@@ -278,7 +274,8 @@ impl DslFileSourceFactory for NativeDslFileSourceFactory {
     }
 }
 
-fn native_dsl_file_source_factory() -> Arc<dyn DslFileSourceFactory> {
+/// Creates the native DSL file-source adapter.
+pub fn native_dsl_file_source_factory() -> Arc<dyn DslFileSourceFactory> {
     Arc::new(NativeDslFileSourceFactory {
         identities: Arc::new(NativeFileIdentityCache::default()),
     })
@@ -380,7 +377,8 @@ impl SigrokFileSourceFactory for NativeSigrokFileSourceFactory {
     }
 }
 
-fn native_sigrok_file_source_factory() -> Arc<dyn SigrokFileSourceFactory> {
+/// Creates the native Sigrok file-source adapter.
+pub fn native_sigrok_file_source_factory() -> Arc<dyn SigrokFileSourceFactory> {
     Arc::new(NativeSigrokFileSourceFactory {
         identities: Arc::new(NativeFileIdentityCache::default()),
     })
@@ -411,7 +409,8 @@ impl SigrokDecoderRuntime for NativeSigrokDecoderRuntime {
     }
 }
 
-fn native_sigrok_decoder_runtime() -> Arc<dyn SigrokDecoderRuntime> {
+/// Returns the native Python-backed Sigrok decoder runtime.
+pub fn native_sigrok_decoder_runtime() -> Arc<dyn SigrokDecoderRuntime> {
     static RUNTIME: OnceLock<Arc<NativeSigrokDecoderRuntime>> = OnceLock::new();
     RUNTIME
         .get_or_init(|| Arc::new(NativeSigrokDecoderRuntime))
@@ -426,7 +425,8 @@ impl SigrokCatalogScanner for NativeSigrokCatalogScanner {
     }
 }
 
-fn native_sigrok_catalog_scanner() -> Arc<dyn SigrokCatalogScanner> {
+/// Returns the native Sigrok decoder catalog scanner.
+pub fn native_sigrok_catalog_scanner() -> Arc<dyn SigrokCatalogScanner> {
     static SCANNER: OnceLock<Arc<NativeSigrokCatalogScanner>> = OnceLock::new();
     SCANNER
         .get_or_init(|| Arc::new(NativeSigrokCatalogScanner))
@@ -527,7 +527,8 @@ impl CaptureSourceMetadata for NativeU3Pro16Metadata {
     }
 }
 
-fn native_u3pro16_source_factory() -> Arc<dyn DsLogicU3Pro16SourceFactory> {
+/// Returns the native DSLogic U3Pro16 source adapter.
+pub fn native_u3pro16_source_factory() -> Arc<dyn DsLogicU3Pro16SourceFactory> {
     static FACTORY: OnceLock<Arc<NativeU3Pro16SourceFactory>> = OnceLock::new();
     FACTORY
         .get_or_init(|| Arc::new(NativeU3Pro16SourceFactory))

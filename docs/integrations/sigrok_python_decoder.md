@@ -270,8 +270,8 @@ Embedded CPython and native threads are selected as a complete native implementa
 Sigrok support platform module. No PyO3 type or `cfg(target_arch = "wasm32")` conditional leaks into
 generic processing, graph, compiler, viewer, or UI code.
 
-The wasm target omits the native runtime registration and CPython host. Its platform composition
-does not advertise Sigrok Python decoder execution.
+The wasm target omits the native runtime registration and CPython host. Its application
+composition does not advertise Sigrok Python decoder execution.
 
 ## Errors, trust, and distribution
 
