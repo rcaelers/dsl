@@ -99,27 +99,6 @@ nothing about the compiled contract.
    other P1/P2 items), then `graph_nodes`/`graph_compiler` (the two largest files), then the
    rest opportunistically.
 
-## signal.tier-naming (P2 · decision) {#signal-tier-naming}
-
-This item is a *decision to record*, not a refactoring to execute. The recommendation already in
-TODO.md: name the tier for this application and let it use domain vocabulary directly — no second
-domain consumes it, and `DigitalLaneSnapshot`, `TriggerLaneSnapshot`, `ProtocolPacket`,
-`SimpleTriggerCondition`, and the `logic_analyzer` module already live there.
-
-**To execute the decision:** add a short "Tier vocabulary" section to
-`docs/architecture/vocabulary_and_concepts.md` stating: (1) the `signal_*` crates are
-application-tier infrastructure for this product, not a domain-neutral framework; (2) domain
-vocabulary is therefore permitted in them, and the placement rule for a new type is *lowest crate
-whose stated responsibility covers it*, never "keep it generic just in case"; (3) crate renames
-are expressly out of scope — the names stay until a rename is worth its churn on its own merits.
-Then update the affected TODO items ([session.domain-relocation],
-[derived.payload.builtin-registration]) to reference the recorded decision instead of the open
-question. If the maintainer instead chooses the separation option, those two items become purges
-and this section must be rewritten — do not guess; the maintainer makes this call explicitly.
-
-**Ordering.** Record the decision before starting [processing.domain-split] so new crate names
-and type placements follow one rule.
-
 ## processing.domain-split (P2) {#processing-domain-split}
 
 **Problem.** `logic_analyzer_processing` is 28k lines defined by a negation ("concrete"). Current
@@ -129,17 +108,17 @@ decoders (`nodes/decoders/{i2c,spi,uart,parallel,sigrok}_decoder` plus `support/
 twelve logic primitives (`nodes/logic/*`), sinks (`nodes/sinks/*`), synthetic sources, and five
 binaries under `src/bin/` with `clap`/`tracing-subscriber` as *library* dependencies.
 
-**Gate.** Record the [tier-naming decision](#signal-tier-naming) first.
-
-**Target crates** (names follow the recorded tier decision; these assume the domain-vocabulary
-option):
+**Target crates.** Names follow the domain-neutral signal-tier vocabulary recorded in
+[`vocabulary_and_concepts.md`](../architecture/vocabulary_and_concepts.md#tier-vocabulary):
 
 | New crate | Takes | Positive responsibility |
 | --- | --- | --- |
 | `logic-analyzer-capture-formats` | `support/capture_archive`, `capture_format`, `dsl_file`, `sigrok_file`, `capture_index.rs`, plus `nodes/sources/{dsl_file,sigrok_file}` | Reading and indexing DSL and Sigrok capture files |
 | `logic-analyzer-device-dslogic` | `nodes/sources/dslogic_u3pro16` and its protocol/transport support | DSLogic U3Pro16 acquisition |
-| `logic-analyzer-protocol-decoders` | `nodes/decoders/*`, `support/sigrokdecode` | Protocol decoding, including the Sigrok decoder host contract |
-| `logic-analyzer-processing` (residual, may rename) | `nodes/logic/*`, `nodes/sinks/*`, synthetic sources, `types` | Generic logic primitives and sinks |
+| `logic-analyzer-protocol-decoders` | `nodes/decoders/*`, `support/sigrokdecode`, and decoder-specific conventions from `types` | Protocol decoding, including the Sigrok decoder host contract |
+| `signal-transforms` | `nodes/logic/*` and genuinely protocol-neutral conventions from `types` | Portable signal transforms |
+| `signal-sinks` | `nodes/sinks/*` | Portable terminal signal consumers and output encodings |
+| `signal-generators` | synthetic and demo sources | Deterministic portable signal generation |
 
 **Steps, in PR-sized units.**
 

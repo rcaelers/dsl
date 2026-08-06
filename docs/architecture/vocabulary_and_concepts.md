@@ -24,6 +24,28 @@ and payload behavior. Lowering resolves both into a complete, immutable processi
 runtime materializes that plan using injected execution and storage services. A run publishes
 generic observations that the application binds to presentation components.
 
+## Tier vocabulary
+
+The `platform`/`platform_*` and `signal_*` names identify reusable, application-neutral
+infrastructure.
+Within the signal tier, domain-neutral signal concepts include samples, edges, typed streams,
+immutable captures, retained values, and acquisition lifecycle. Logic-analyzer graph concepts,
+concrete devices and formats, decoded protocols, renderer contracts, and product-specific trigger
+or control vocabulary belong to `logic_analyzer_*` owners above that tier.
+
+A new type lives in the lowest crate whose stated responsibility covers its behavior. A
+domain-specific type is not moved into the signal tier merely because it might be reusable later;
+when multiple domains need a capability, they share an explicitly neutral contract owned by the
+corresponding signal crate. The existing `signal_*` crate names accurately express this boundary,
+so this ownership decision does not require a crate rename.
+
+### Proposed future separation
+
+The remaining `signal_capture_session::logic_analyzer` facade and trigger- or protocol-specific
+retained-data contracts are relocated to logic-analyzer domain owners. The actionable relocations
+are tracked by `session.domain-relocation` and `derived.payload.builtin-registration` in
+[`TODO.md`](../../TODO.md).
+
 ## Graph documents and features
 
 ### Graph document

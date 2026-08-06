@@ -107,9 +107,8 @@ ordered steps, and acceptance checks — in
 [P1/P2 Refactoring Directions](docs/plans/refactoring_p1_p2.md) and
 [P3 Refactoring Directions](docs/plans/refactoring_p3.md). Read the item's section, and the
 ground rules at the top of the P1/P2 document, before starting one of these items.
-The dependency graph is consistent with the priority ordering: the two P1 composition items plus
-[tests.architecture-structural] and the [signal.tier-naming] decision unblock almost everything
-else, and no P3 item gates a P2.
+The dependency graph is consistent with the priority ordering: ordering constraints are stated on
+the affected items, and no P3 item gates a P2.
 
 ### Capture indexing and caching
 
@@ -377,14 +376,18 @@ item here, so acceptance comparisons stop being ad-hoc.
   residual crate: give output sinks/formats, synthetic sources, and generic logic transforms their
   own positive owners. Device and decoder crates consume injected neutral file, USB, process, and
   storage capabilities; they do not move domain behavior into platform.
-  Decide [signal.tier-naming] first so the split does not re-pose the tier question crate by
-  crate, and do it before the `capture.web.usb-*` backlog adds more transport code to the crate.
+  Follow the recorded signal-tier vocabulary: reusable signal transforms, sinks, and generators
+  remain in narrowly owned `signal_*` crates, while concrete formats, devices, and decoded
+  protocols live in `logic_analyzer_*` crates. Do the split before the `capture.web.usb-*` backlog
+  adds more transport code to the crate.
   Direction, including the target crate map and PR ordering:
   [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#processing-domain-split).
-- [session.domain-relocation] (P3 · medium — after the [signal.tier-naming] decision) Move logic-analyzer vocabulary out of the generic session tier.
+- [session.domain-relocation] (P3 · medium) Purge logic-analyzer vocabulary from the generic session tier.
   `signal_capture_session` publishes 129 items and a public `logic_analyzer` module, and the
   trigger program, trigger schema, and `SimpleTriggerCondition` types it owns are domain concepts
-  that generic acquisition does not need. Decide one boundary and apply it to the whole crate.
+  that generic acquisition does not need. Move trigger data into a small logic-analyzer trigger
+  domain and move source/driver contracts to their concrete acquisition owners; do not retain
+  compatibility re-exports through the generic crate.
   The trigger vocabulary is the highest-leverage cluster: `logic_analyzer_viewer`
   (`simple_trigger.rs`) and `logic_analyzer_graph_compiler` also import it from the session
   crate, so three consumers currently reach into the generic tier for domain types.
@@ -394,12 +397,13 @@ item here, so acceptance comparisons stop being ad-hoc.
   `signal_capture_session::live_capture_store::*`, `logic_analyzer_graph_plan::plan::*`, and
   `logic_analyzer_graph_runtime::runtime::*`. Treat the lists as API contracts and remove duplicate
   public paths while doing [node-graph.single-import-path].
-- [derived.payload.builtin-registration] (P3 · medium — after the [signal.tier-naming] decision) Register the built-in derived payload kinds through
-  `PayloadRegistry` like every other payload. `signal_derived` currently has both an open registry
-  and a closed built-in set (`digital_payload_adapter`, `word_payload_adapter`,
-  `trigger_payload_adapter`, `TriggerLaneSnapshot`, `ProtocolPacket`), so the built-ins are the
-  seam where the generic tier erodes. The tier decision determines whether these built-ins become
-  ordinary domain registrations or the open registry closes over a domain vocabulary.
+- [derived.payload.builtin-registration] (P3 · medium) Register built-in derived payload kinds through
+  `PayloadRegistry` like every other payload and purge product vocabulary from `signal_derived`.
+  The crate currently has both an open registry and a closed built-in set
+  (`digital_payload_adapter`, `word_payload_adapter`, `trigger_payload_adapter`,
+  `TriggerLaneSnapshot`, `ProtocolPacket`). Generic retained-value, query, and storage contracts
+  stay in `signal_derived`; trigger/protocol semantics and their registrations move to the
+  corresponding logic-analyzer feature owners.
   Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#derived-payload-builtin-registration).
 - [ui.graph-service.port-shape] (P3 · medium) Resolve the `GraphService` port. Its contract is typed in
   `ProcessingGraph`, `GraphRunContext`, `ApplySummary`, `SourceReadinessRegistry`, and
@@ -417,25 +421,6 @@ item here, so acceptance comparisons stop being ad-hoc.
   documented split between the compiler-facing namespace and the editor facade is unenforced.
   The crate root additionally re-exports `model::{GraphState, NodeId, …}` and `runtime::{…}`
   directly, so the same types resolve through three paths, not two.
-
-### Layering vocabulary
-
-- [signal.tier-naming] (P2 decision · high) Settle what the `signal_*` tier promises. The names read as a domain-neutral
-  framework, but the crates own `DigitalLaneSnapshot`, `TriggerLaneSnapshot`, `ProtocolPacket`,
-  `SimpleTriggerCondition`, and a `logic_analyzer` module. The example plugin's custom
-  `CameraFrame` payload already consumes `signal_runtime` and `signal_derived`, demonstrating that
-  the generic extension seam has a second use outside the built-in logic-analyzer payloads.
-  Either rename the tier for this application and let it use domain vocabulary directly, or keep
-  the names and complete the separation. Until one is chosen, no rule decides which side a new
-  type belongs on. Review recommendation: keep `platform_artifacts`, `platform_runtime`,
-  `signal_runtime`, `signal_capture`, and `signal_derived` domain-neutral; move built-in
-  protocol/presentation payloads outward and move trigger/control vocabulary into a small
-  logic-analyzer trigger domain
-  rather than into immutable capture storage. `signal_capture_session` retains only generic
-  acquisition lifecycle, integrity, and storage coordination.
-  Make the decision before [processing.domain-split]; executing the rename can follow later.
-  Direction for recording the decision:
-  [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#signal-tier-naming).
 
 ### Enforcement and documentation
 
