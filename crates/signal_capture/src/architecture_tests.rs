@@ -6,7 +6,9 @@ fn implementation_source(source: &'static str) -> &'static str {
 }
 
 #[test]
-fn capture_has_no_session_derived_graph_or_ui_dependency() {
+fn generic_capture_owner_has_no_session_derived_or_application_special_cases() {
+    // Cargo metadata proves that higher-level owners are not dependencies, but it cannot detect
+    // branching on their type names, so this remains an intentional source-level assertion.
     let sources = [
         include_str!("capture/implementation.rs"),
         include_str!("capture/query.rs"),
@@ -21,36 +23,17 @@ fn capture_has_no_session_derived_graph_or_ui_dependency() {
         include_str!("waveform_index/storage.rs"),
     ];
     for forbidden in [
-        "signal_capture_session",
         "live_capture",
         "CaptureSession",
         "CaptureStore",
         "DerivedLanes",
         "PayloadRegistry",
-        "node_graph",
-        "egui",
     ] {
         assert!(
             sources
                 .iter()
                 .all(|source| !implementation_source(source).contains(forbidden)),
-            "capture owner contains unrelated dependency {forbidden:?}"
-        );
-    }
-}
-
-#[test]
-fn capture_manifest_depends_only_on_lower_level_owners() {
-    let manifest = include_str!("../Cargo.toml");
-    for forbidden in [
-        "signal-capture-session",
-        "logic-analyzer-",
-        "node-graph",
-        "egui",
-    ] {
-        assert!(
-            !manifest.contains(forbidden),
-            "capture manifest contains unrelated dependency {forbidden:?}"
+            "generic capture owner contains higher-level token {forbidden:?}"
         );
     }
 }

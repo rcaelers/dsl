@@ -268,6 +268,21 @@ fn signal_runtime_depends_only_on_the_host_scheduling_contract() {
 }
 
 #[test]
+fn signal_capture_depends_only_on_generic_storage_and_execution_contracts() {
+    let dependencies = local_resolved_non_dev_dependencies(workspace_metadata(), "signal-capture");
+
+    assert_eq!(
+        dependencies,
+        BTreeSet::from([
+            "platform-artifacts".to_owned(),
+            "platform-runtime".to_owned(),
+            "signal-runtime".to_owned(),
+        ]),
+        "generic immutable capture and indexing may depend only on storage and execution contracts"
+    );
+}
+
+#[test]
 fn headless_graph_tier_depends_on_the_document_model_not_the_node_editor() {
     let metadata = workspace_metadata();
 
