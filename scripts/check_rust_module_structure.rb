@@ -351,6 +351,13 @@ files.each do |path|
     end
   end
 
+  if rel.start_with?("crates/signal_sinks/src/") && !File.basename(path).include?("tests")
+    implementation = implementation_source(source)
+    implementation.to_enum(:scan, /\b(?:std::fs|File::create|OpenOptions)\b/).each do
+      errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: portable sinks write through OutputStorage rather than native file I/O"
+    end
+  end
+
   graph_node_implementation = rel.start_with?("crates/logic_analyzer_graph_nodes/src/nodes/")
   plugin_implementation = rel.start_with?("plugins/")
   if graph_node_implementation || plugin_implementation

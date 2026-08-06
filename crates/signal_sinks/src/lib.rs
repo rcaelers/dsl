@@ -3,8 +3,6 @@
 //! Destination acquisition is injected through [`OutputStorage`]. Graph lifecycle, UI policy, and
 //! target-specific file access remain outside this crate.
 
-#[cfg(test)]
-mod architecture_tests;
 pub mod binary_file_writer;
 pub mod csv_word_writer;
 pub mod discard_writer;

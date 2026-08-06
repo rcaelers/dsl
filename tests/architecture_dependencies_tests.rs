@@ -335,6 +335,21 @@ fn capture_formats_depend_only_on_portable_capture_and_host_contracts() {
 }
 
 #[test]
+fn signal_sinks_depend_only_on_portable_stream_and_data_contracts() {
+    let dependencies = local_resolved_non_dev_dependencies(workspace_metadata(), "signal-sinks");
+
+    assert_eq!(
+        dependencies,
+        BTreeSet::from([
+            "signal-capture".to_owned(),
+            "signal-derived".to_owned(),
+            "signal-runtime".to_owned(),
+        ]),
+        "portable terminal consumers may depend only on capture, derived-data, and typed-stream contracts"
+    );
+}
+
+#[test]
 fn headless_graph_tier_depends_on_the_document_model_not_the_node_editor() {
     let metadata = workspace_metadata();
 
