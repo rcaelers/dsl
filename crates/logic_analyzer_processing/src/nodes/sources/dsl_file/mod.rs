@@ -20,7 +20,9 @@ mod cooperative;
 mod facade;
 mod implementation;
 mod path_compatibility;
+mod prepared_file;
 
 pub use configuration::DslFileSourceConfig;
 pub use facade::{DslFileSourceFactory, unavailable_source_factory};
 pub use implementation::DslFileSource;
+pub use prepared_file::prepared_file_source_factory;

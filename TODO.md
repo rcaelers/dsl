@@ -321,33 +321,6 @@ item here, so acceptance comparisons stop being ad-hoc.
 
 ### Composition and host wiring
 
-- [composition.platform-ui-inversion] (P1 · high) Make `logic_analyzer_platform` a reusable,
-  domain-neutral host-mechanism crate, not merely a crate without a UI dependency. It owns native
-  and web implementations of low-level capabilities such as file and directory access, file
-  dialogs, memory-mapped buffers, web storage, generic USB transport, process/task execution,
-  clocks, and other host mechanisms. It must not know about Logic Conduit application settings,
-  commands, graphs, node catalogs, capture formats, protocol decoders, concrete devices, export
-  workflows, or node names. In particular, remove its dependencies on `logic_analyzer_ui`, graph
-  crates, `logic_analyzer_processing`, and other domain crates.
-  Define narrowly scoped neutral host contracts below both consumers and implement them in
-  platform. Keep domain-aware adaptation above platform: `app_native`/`app_web` compose platform
-  primitives with UI and domain services, while format/device/decoder crates turn injected file,
-  USB, process, or storage capabilities into domain behavior. Do not create one omnibus
-  `logic-analyzer-host-ports` crate containing application constants and UI value types; that
-  would relocate the leak rather than remove platform's domain knowledge. Revisit the crate name
-  once it is reusable outside Logic Conduit.
-  The first inversion slice moves native and browser `HostService` adaptation into the app roots,
-  exposes target-neutral dialog requests plus native/browser byte-oriented document mechanisms,
-  adapts the generic asynchronous browser file picker to `node_graph` in `app_web`,
-  moves the capture-export service contract and native asynchronous implementation into
-  `logic_analyzer_capture_export`, moves threaded source preparation into graph runtime, and makes
-  the web worker receive an app-built `GraphWorkerRuntime`. The structural dependency test records
-  the five remaining temporary platform edges exactly: `logic-analyzer-graph-orchestration`,
-  `logic-analyzer-processing`, `signal-capture`, `signal-capture-session`, and `signal-derived`.
-  Remove each exception in the
-  same change that replaces it with a neutral mechanism boundary; an unlisted domain edge fails
-  immediately.
-  Direction: [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#composition-platform-ui-inversion).
 - [composition.host-factory-injection] (P2 · high) Remove the process-global host factory slots in
   `logic_analyzer_graph_nodes::host_configuration`. The `OnceLock`/`RwLock` slots behind
   `install_sigrok_catalog_scanner` and `install_file_source_factories` make initialization order
@@ -486,9 +459,9 @@ item here, so acceptance comparisons stop being ad-hoc.
   temporary violation allowlist keyed by TODO ID, fail on every unlisted edge, and delete each
   exception in the refactoring that removes it. Land the manifest checks together with the P1
   composition items so restored boundaries are locked in as they are established.
-  A workspace `cargo metadata` test now locks the platform boundary to the exact temporary
-  violation allowlist owned by [composition.platform-ui-inversion]; continue converting the
-  remaining source-text checks and add the other dependency rules listed in the direction.
+  A workspace `cargo metadata` test now rejects every platform dependency on a Logic Conduit
+  domain crate; continue converting the remaining source-text checks and add the other dependency
+  rules listed in the direction.
   Direction, including the forbidden-edge list:
   [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#tests-architecture-structural).
 - [docs.drift-correction] (P3 · medium) Correct the design statements the code no longer satisfies: `AGENTS.md`

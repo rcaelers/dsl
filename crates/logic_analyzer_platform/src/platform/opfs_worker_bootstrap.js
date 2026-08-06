@@ -1,7 +1,7 @@
-const ROOT_NAME = "logic-conduit-artifacts-v1";
 const POINTER_VERSION = 1;
 
 let root = null;
+let rootName = null;
 let commandChain = Promise.resolve();
 
 function text(error) {
@@ -56,7 +56,7 @@ async function storageRoot() {
     throw new DOMException("OPFS is unavailable", "NotSupportedError");
   }
   const origin = await self.navigator.storage.getDirectory();
-  root = await origin.getDirectoryHandle(ROOT_NAME, { create: true });
+  root = await origin.getDirectoryHandle(rootName, { create: true });
   return root;
 }
 
@@ -195,6 +195,10 @@ async function persistenceGranted() {
 
 async function initialize(message) {
   try {
+    if (typeof message.rootName !== "string" || message.rootName.length === 0) {
+      throw new Error("OPFS root name is required");
+    }
+    rootName = message.rootName;
     await storageRoot();
     const durable = await persistenceGranted().catch(() => false);
     const loaded = await loadEntries(Number(message.maxBytes));

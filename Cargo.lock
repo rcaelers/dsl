@@ -2111,6 +2111,7 @@ checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 name = "logic-analyzer-app-native"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "clap",
  "crossbeam-channel",
  "eframe",
@@ -2127,10 +2128,16 @@ dependencies = [
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
+ "pyo3",
  "serde",
  "serde_json",
+ "signal-capture",
+ "signal-capture-session",
  "signal-derived",
  "signal-runtime",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tracing",
  "tracing-subscriber",
 ]
 
@@ -2138,8 +2145,11 @@ dependencies = [
 name = "logic-analyzer-app-web"
 version = "0.1.0"
 dependencies = [
+ "blake3",
+ "console_error_panic_hook",
  "eframe",
  "example-plugin",
+ "js-sys",
  "log",
  "logic-analyzer-graph-nodes",
  "logic-analyzer-graph-orchestration",
@@ -2148,14 +2158,19 @@ dependencies = [
  "logic-analyzer-processing",
  "logic-analyzer-ui",
  "node-graph",
+ "rfd",
+ "serde",
  "serde_json",
  "signal-artifacts",
+ "signal-capture",
  "signal-derived",
  "signal-runtime",
+ "tracing",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
+ "zip",
 ]
 
 [[package]]
@@ -2317,26 +2332,15 @@ name = "logic-analyzer-platform"
 version = "0.1.0"
 dependencies = [
  "blake3",
- "clap",
- "console_error_panic_hook",
  "crossbeam-channel",
  "js-sys",
- "logic-analyzer-graph-orchestration",
- "logic-analyzer-processing",
  "logic-analyzer-test-support",
  "memmap2",
- "pyo3",
  "rfd",
  "rusb",
- "serde",
- "serde_json",
  "signal-artifacts",
- "signal-capture",
- "signal-capture-session",
- "signal-derived",
  "signal-runtime",
  "tempfile",
- "thiserror 2.0.19",
  "tracing",
  "wasm-bindgen",
  "wasm-bindgen-futures",

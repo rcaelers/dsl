@@ -68,7 +68,7 @@ The implementation follows the graph planning and execution boundaries:
 
 ```mermaid
 flowchart LR
-    Platform[logic_analyzer_platform native_sigrok] --> Contract[logic_analyzer_processing SigrokDecoderRuntime]
+    NativeApp[app_native native_sigrok adapter] --> Contract[logic_analyzer_processing SigrokDecoderRuntime]
     Contract --> Node[logic_analyzer_processing Sigrok ProcessNode]
     GraphNode[logic_analyzer_graph_nodes Sigrok definition and capabilities] --> Contract
     GraphNode --> Registry[logic_analyzer_graph_registry]
@@ -77,9 +77,10 @@ flowchart LR
 
 `logic_analyzer_processing` owns the portable decoder descriptors, execution contract, configured
 processing node, and output payloads. `logic_analyzer_graph_nodes` owns graph state, controls,
-migration, capabilities, and presentation metadata. `logic_analyzer_platform` owns CPython,
+migration, capabilities, and presentation metadata. The native application adapter owns CPython,
 package discovery, `wait()` scheduling, Python/Rust conversion, and the native execution-contract
-implementation. PyO3 types do not cross the platform adapter boundary.
+implementation. PyO3 types stay inside that target-specific adapter; the reusable platform crate
+has no Sigrok knowledge.
 
 Generic components see only graph contracts, typed ports, and registered collected
 payloads. They do not branch on Sigrok decoder IDs, channel labels, annotation classes, or protocol

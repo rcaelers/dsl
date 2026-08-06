@@ -7,13 +7,41 @@ use signal_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 use signal_derived::portable_worker_kernels;
 use signal_runtime::{
     CooperativeAppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor,
-    WorkExecutor, WorkerOperationExecutor,
+    WorkExecutor, WorkerMessage, WorkerOperation, WorkerOperationExecutor, WorkerRequest,
 };
 
 use crate::demo_graphs::embedded_demo_graphs;
 
 unsafe extern "C" {
     fn __wasm_call_ctors();
+}
+
+thread_local! {
+    static PORTABLE_KERNELS: signal_runtime::WorkerKernelRegistry = portable_worker_kernels();
+}
+
+#[wasm_bindgen(js_name = executePortableWorkerOperation)]
+/// Executes one portable worker operation received from the browser bootstrap.
+pub fn execute_portable_worker_operation(
+    operation: String,
+    payload: Vec<u8>,
+) -> Result<Vec<u8>, JsValue> {
+    let operation =
+        WorkerOperation::new(operation).map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let message = PORTABLE_KERNELS.with(|kernels| {
+        kernels.execute(WorkerRequest {
+            sequence: 0,
+            operation,
+            payload,
+        })
+    });
+    match message {
+        WorkerMessage::Complete { payload, .. } => Ok(payload),
+        WorkerMessage::Failed { message, .. } => Err(JsValue::from_str(&message)),
+        _ => Err(JsValue::from_str(
+            "worker kernel returned a non-terminal message",
+        )),
+    }
 }
 
 fn initialize_compile_time_inventories() {
@@ -37,10 +65,9 @@ fn initialize_compile_time_inventories() {
 #[wasm_bindgen(js_name = initializeWorkerHost)]
 pub fn initialize_worker_host() {
     initialize_compile_time_inventories();
-    let output_storage = logic_analyzer_platform::browser_worker_output_storage();
-    let dsl_file_source_factory = logic_analyzer_platform::browser_worker_dsl_file_source_factory();
-    let sigrok_file_source_factory =
-        logic_analyzer_platform::browser_worker_sigrok_file_source_factory();
+    let output_storage = crate::web_output_storage::output_storage();
+    let dsl_file_source_factory = crate::web_file_import::worker_dsl_file_source_factory();
+    let sigrok_file_source_factory = crate::web_file_import::worker_sigrok_file_source_factory();
     let capability_overrides = vec![
         logic_analyzer_graph_nodes::binary_file_writer_capability_override(
             logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
@@ -62,10 +89,10 @@ pub fn initialize_worker_host() {
             sigrok_file_source_factory,
         ),
     ];
-    logic_analyzer_platform::initialize_graph_worker_runtime(
+    crate::web_capture_worker::initialize_graph_worker_runtime(
         logic_analyzer_graph_orchestration::GraphWorkerRuntime::with_repository(
             capability_overrides,
-            logic_analyzer_platform::worker_artifact_repository(),
+            crate::web_capture_worker::worker_artifact_repository(),
         ),
     );
 }
@@ -151,7 +178,12 @@ async fn application_services(
             Err(reason) => Rc::new(CooperativeWorkerOperationExecutor::new(kernels, reason)),
         };
     let artifact_repository: Arc<dyn ArtifactRepository> =
-        match logic_analyzer_platform::open_browser_artifact_repository().await {
+        match logic_analyzer_platform::open_browser_artifact_repository(&format!(
+            "{}-artifacts-v1",
+            logic_analyzer_ui::APPLICATION_ID,
+        ))
+        .await
+        {
             Ok(repository) => repository,
             Err(error) => {
                 log::warn!(
@@ -161,13 +193,13 @@ async fn application_services(
             }
         };
     let (capture_worker_client, graph_worker_client) =
-        match logic_analyzer_platform::browser_worker_clients(
+        match crate::web_capture_worker::install_capture_worker(
             worker_module_url,
             worker_wasm_url,
             32,
             Arc::clone(&artifact_repository),
         ) {
-            Ok((capture, graph)) => (Some(capture), Some(graph)),
+            Ok(clients) => (Some(clients.capture), Some(clients.graph)),
             Err(error) => {
                 log::warn!(
                     "browser capture worker is unavailable; using inline source preparation: {error}"
@@ -175,12 +207,18 @@ async fn application_services(
                 (None, None)
             }
         };
-    let imported_files = logic_analyzer_platform::BrowserFileImport::new();
-    let dsl_file_source_factory =
-        imported_files.dsl_file_source_factory(capture_worker_client.clone());
-    let sigrok_file_source_factory =
-        imported_files.sigrok_file_source_factory(capture_worker_client.clone());
-    let file_picker = imported_files.file_picker();
+    let imported_files = Arc::new(crate::web_file_import::BrowserFileRegistry::default());
+    let dsl_file_source_factory = crate::web_file_import::dsl_source_factory(
+        Arc::clone(&imported_files),
+        capture_worker_client.clone(),
+    );
+    let sigrok_file_source_factory = crate::web_file_import::sigrok_source_factory(
+        Arc::clone(&imported_files),
+        capture_worker_client.clone(),
+    );
+    let file_picker: Box<dyn logic_analyzer_platform::FilePickerService> = Box::new(
+        crate::web_file_import::BrowserFilePickerService::new(imported_files),
+    );
     let work_executor: Arc<dyn WorkExecutor> = Arc::new(InlineWorkExecutor);
     let app_manager_factory = Arc::new(CooperativeAppManagerFactory);
 

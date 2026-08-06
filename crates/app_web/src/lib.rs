@@ -9,6 +9,10 @@ std::cfg_select! {
         mod host_service;
         mod node_file_dialog;
         #[allow(unreachable_pub)]
+        mod web_capture_worker;
+        mod web_file_import;
+        mod web_output_storage;
+        #[allow(unreachable_pub)]
         mod web;
 
         pub use web::WebHandle;

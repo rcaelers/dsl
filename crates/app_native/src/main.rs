@@ -8,8 +8,10 @@ std::cfg_select! {
         #[cfg(target_os = "macos")]
         mod macos_menu;
         mod native_host;
+        mod native_sigrok;
         mod native;
         mod sigrok_catalog;
+        mod u3pro16_host;
 
         fn main() -> std::process::ExitCode {
             match native::run() {

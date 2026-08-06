@@ -25,42 +25,6 @@ the named function/type over the number when they disagree.
   now has a structural check from the [tests item](#tests-architecture-structural), delete the
   string test in the same PR.
 
-## composition.platform-ui-inversion (P1) {#composition-platform-ui-inversion}
-
-**Problem.** Removing a UI import is insufficient if platform still speaks Logic Conduit domain
-types. Its remaining dependency edges expose graph-worker clients, processing source/sink/device
-and Sigrok contracts, capture-worker and session types, and derived worker kernels. Those are
-application integrations, not reusable host mechanisms.
-
-**Chosen direction.** Keep platform domain-neutral. It owns low-level capabilities such as file
-and directory access, file dialogs, mmap-backed buffers, web storage, generic USB transport,
-process/task execution, clocks, and worker transport. Domain-aware adapters live in the app roots
-or behavioral domain crates. Do not extract UI/application records into an omnibus host-ports
-crate: that would reverse the dependency without removing the abstraction leak.
-
-**Steps.**
-
-1. Keep UI `HostService` adapters, application settings, input bindings, fonts, shell commands,
-   and Sigrok catalog presentation in the app roots. Platform exposes target-neutral dialog
-   requests plus native/browser byte, path, picker, and download mechanisms those adapters consume.
-2. Keep `CaptureExportService` and its native asynchronous implementation in
-   `logic_analyzer_capture_export`; the app selects it and UI consumes its contract.
-   Browser file selection exposes neutral requests, progress, dropped bytes, and opaque references
-   from platform; `app_web` adapts that mechanism to `node_graph::FileDialogService`.
-3. For the remaining exact manifest allowlist, remove one edge at a time:
-   - move graph/capture worker protocol assembly to the app or owning orchestration/runtime crate,
-     leaving platform with a generic worker transport;
-   - inject generic filesystem/prepared-byte-source, USB, Python/process, output-stream, and task
-     mechanisms into processing-owned source, device, decoder, and sink adapters;
-   - pass portable worker-kernel inventories and capture/session behavior into platform worker
-     mechanisms instead of importing them there.
-4. Move each remaining domain adapter behind a neutral mechanism constructor and delete its
-   structural-test exception as the dependency disappears.
-
-**Acceptance.** Platform's manifest has none of the domain edges enumerated by the structural
-test. Its public names and data types are meaningful to another native/web application without
-knowing Logic Conduit, graphs, capture sessions, node identities, protocols, or concrete devices.
-
 ## composition.host-factory-injection (P2) {#composition-host-factory-injection}
 
 **Problem.** `crates/logic_analyzer_graph_nodes/src/host_configuration.rs` holds process-global

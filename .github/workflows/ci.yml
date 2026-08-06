@@ -108,8 +108,8 @@ jobs:
           cargo check -p logic-analyzer-examples --bench compiler_capture
       - name: Check manual validation commands
         run: |
-          cargo check -p logic-analyzer-platform --features developer-tools --bin u3pro16-hardware-validation
-          cargo check -p logic-analyzer-platform --features developer-tools --bin sigrok-upstream-validation
+          cargo check -p logic-analyzer-app-native --features developer-tools --bin u3pro16-hardware-validation
+          cargo check -p logic-analyzer-app-native --features developer-tools --bin sigrok-upstream-validation
 
   check-wasm:
     needs: architecture
@@ -145,7 +145,7 @@ jobs:
       - name: Test browser capture-file import adapters
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
-        run: cargo test -p logic-analyzer-platform --target wasm32-unknown-unknown --lib web_file_import_tests
+        run: cargo test -p logic-analyzer-app-web --target wasm32-unknown-unknown --lib web_file_import_tests
       - name: Test browser graph-document adapters
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner

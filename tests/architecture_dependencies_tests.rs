@@ -15,17 +15,6 @@ const PLATFORM_DOMAIN_CRATES: &[&str] = &[
     "signal-derived",
 ];
 
-// Temporary exceptions owned by composition.platform-ui-inversion. The test
-// deliberately requires this list to equal the remaining manifest violations,
-// so removing an edge also requires deleting its exception.
-const TEMPORARY_PLATFORM_DOMAIN_EDGES: &[&str] = &[
-    "logic-analyzer-graph-orchestration",
-    "logic-analyzer-processing",
-    "signal-capture",
-    "signal-capture-session",
-    "signal-derived",
-];
-
 fn workspace_metadata() -> serde_json::Value {
     let output = Command::new(env!("CARGO"))
         .args(["metadata", "--format-version", "1", "--no-deps"])
@@ -59,20 +48,16 @@ fn non_dev_dependencies(package: &serde_json::Value) -> BTreeSet<&str> {
 }
 
 #[test]
-fn platform_domain_edges_match_the_explicit_temporary_allowlist() {
+fn platform_has_no_domain_dependencies() {
     let metadata = workspace_metadata();
-    let actual = non_dev_dependencies(package(&metadata, "logic-analyzer-platform"))
+    let dependencies = non_dev_dependencies(package(&metadata, "logic-analyzer-platform"))
         .into_iter()
         .filter(|name| PLATFORM_DOMAIN_CRATES.contains(name))
         .collect::<BTreeSet<_>>();
-    let expected = TEMPORARY_PLATFORM_DOMAIN_EDGES
-        .iter()
-        .copied()
-        .collect::<BTreeSet<_>>();
 
-    assert_eq!(
-        actual, expected,
-        "platform domain dependencies must be removed with their TODO allowlist entries"
+    assert!(
+        dependencies.is_empty(),
+        "platform must remain independent of Logic Conduit domain crates: {dependencies:?}"
     );
 }
 

@@ -228,12 +228,11 @@ menu, publish portable commands and receive recent-document state through the ap
 Native composition installs the capture-export-owned repository-backed service; web composition
 installs an explicit unavailable exporter.
 
-The platform facade exposes individually scoped constructors for file-source adapters, file-writer
-output storage, the U3Pro16 transport and FPGA-image provider, browser capture-file state,
-repositories, and worker mechanisms. Application roots request the parts they need, choose
-fallbacks, install concrete graph-node overrides, and build `AppServices`; platform does not
-select nodes or build graph/UI services. Moving the remaining domain-aware constructors behind
-neutral host mechanisms is tracked by `composition.platform-ui-inversion` in `TODO.md`.
+The platform facade exposes individually scoped constructors for native paths, random-access file
+bytes, output files, generic USB transfers, browser documents and downloads, repositories, and
+worker mechanisms. Application roots combine those mechanisms with processing factories, concrete
+device adapters, graph-worker protocols, fallbacks, and UI services. Platform does not select
+nodes, formats, devices, graph behavior, or application policy.
 
 ## Isolated host adapter crate
 
@@ -300,10 +299,10 @@ allowlist. Its fixture tests and repository check run in CI before compilation; 
 allowlist therefore require an architecture-document update and an explicit checker change.
 
 Application roots may depend directly on the UI facade, graph/node registration crates, domain
-services, and low-level platform mechanisms needed for composition. The boundary checker instead
-rejects core-to-platform dependencies and locks platform's remaining domain dependencies to the
-exact temporary allowlist owned by `composition.platform-ui-inversion`. Application modules select
-implementations and wire contracts but do not implement reusable execution or data-plane policy.
+services, and low-level platform mechanisms needed for composition. The boundary checker rejects
+core-to-platform dependencies, and the workspace manifest test rejects every platform dependency
+on a Logic Conduit domain crate. Application modules select implementations and wire contracts but
+do not implement reusable execution or data-plane policy.
 Target-conditioned synthetic
 sources and discard sinks are rejected even in otherwise allowlisted target-selection locations;
 those portable implementations are chosen through explicit graph configuration or injected

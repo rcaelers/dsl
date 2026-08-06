@@ -24,8 +24,8 @@ pub use artifact::{
     ReadArtifact, RepositoryCapabilities, RepositoryError, WriteArtifact,
 };
 pub use contract::{
-    ByteRange, ByteRegion, ImmutableByteRegion, PreparedByteSource, RandomAccessReader,
-    SourceCapabilities, SourceIdentity, SourceReadError,
+    ByteRange, ByteRegion, ImmutableByteRegion, PreparedByteSource, PreparedByteSourceOpener,
+    RandomAccessReader, SourceCapabilities, SourceIdentity, SourceReadError,
 };
 pub use crc32c::{block_checksum, checksum_parts};
 pub use memory::{ChunkedByteSource, OwnedByteSource};

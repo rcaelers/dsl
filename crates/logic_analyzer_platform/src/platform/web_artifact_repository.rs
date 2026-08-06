@@ -76,12 +76,12 @@ struct OpfsRuntime {
 }
 
 impl BrowserArtifactRepository {
-    pub(crate) async fn open() -> Result<Self, String> {
-        Self::open_with_budget(DEFAULT_BROWSER_CACHE_BYTES).await
+    pub(crate) async fn open(root_name: &str) -> Result<Self, String> {
+        Self::open_with_budget(root_name, DEFAULT_BROWSER_CACHE_BYTES).await
     }
 
-    async fn open_with_budget(max_bytes: u64) -> Result<Self, String> {
-        let (worker, initial) = initialize_worker(max_bytes).await?;
+    async fn open_with_budget(root_name: &str, max_bytes: u64) -> Result<Self, String> {
+        let (worker, initial) = initialize_worker(root_name, max_bytes).await?;
         let memory = MemoryArtifactRepository::with_budget(max_bytes);
         for entry in initial.entries {
             let mut writer = memory
@@ -272,7 +272,13 @@ fn read_complete_artifact(
     Ok(bytes)
 }
 
-async fn initialize_worker(max_bytes: u64) -> Result<(Worker, InitialState), String> {
+async fn initialize_worker(
+    root_name: &str,
+    max_bytes: u64,
+) -> Result<(Worker, InitialState), String> {
+    if root_name.is_empty() {
+        return Err("the browser artifact root name must not be empty".to_owned());
+    }
     let worker_url = create_worker_url()?;
     let worker = create_worker(&worker_url);
     let _ = Url::revoke_object_url(&worker_url);
@@ -312,6 +318,7 @@ async fn initialize_worker(max_bytes: u64) -> Result<(Worker, InitialState), Str
     worker.set_onmessage(Some(message_handler.as_ref().unchecked_ref()));
     worker.set_onerror(Some(error_handler.as_ref().unchecked_ref()));
     let message = message_object("initialize")?;
+    set(&message, "rootName", JsValue::from_str(root_name))?;
     set(&message, "maxBytes", JsValue::from_f64(max_bytes as f64))?;
     if let Err(error) = worker.post_message(&message) {
         worker.terminate();
@@ -625,9 +632,12 @@ mod browser_repository_tests {
 
     #[wasm_bindgen_test]
     async fn published_artifact_rehydrates_from_a_second_opfs_worker() {
-        let repository = BrowserArtifactRepository::open_with_budget(1024 * 1024)
-            .await
-            .expect("browser test requires OPFS");
+        let repository = BrowserArtifactRepository::open_with_budget(
+            "platform-artifact-repository-test",
+            1024 * 1024,
+        )
+        .await
+        .expect("browser test requires OPFS");
         let key = ArtifactKey::new(
             ArtifactNamespace::new("browser-opfs-test").unwrap(),
             SourceIdentity::from_bytes([0xb7; 32]),
@@ -640,9 +650,12 @@ mod browser_repository_tests {
         writer.publish().unwrap();
         wait_until_idle(&repository).await;
 
-        let reopened = BrowserArtifactRepository::open_with_budget(1024 * 1024)
-            .await
-            .expect("the second worker must reopen OPFS");
+        let reopened = BrowserArtifactRepository::open_with_budget(
+            "platform-artifact-repository-test",
+            1024 * 1024,
+        )
+        .await
+        .expect("the second worker must reopen OPFS");
         let mut reader = reopened.open(&key).unwrap().unwrap();
         let mut bytes = vec![0_u8; usize::try_from(reader.len().unwrap()).unwrap()];
         reader.read_at(0, &mut bytes).unwrap();

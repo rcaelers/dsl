@@ -19,7 +19,9 @@ mod cooperative;
 mod facade;
 mod implementation;
 mod path_compatibility;
+mod prepared_file;
 
 pub use configuration::SigrokFileSourceConfig;
 pub use facade::{SigrokFileSourceFactory, portable_source_factory};
 pub use implementation::SigrokFileSource;
+pub use prepared_file::prepared_file_source_factory;

@@ -21,7 +21,7 @@ use signal_capture::{
 };
 use signal_runtime::InlineWorkExecutor;
 
-const WORKER_BOOTSTRAP: &str = include_str!("web_worker_bootstrap.js");
+const WORKER_BOOTSTRAP: &str = include_str!("capture_worker_bootstrap.js");
 const PUMP_INTERVAL_MS: i32 = 4;
 const WORKER_PANIC_PROPERTY: &str = "logicConduitWorkerPanic";
 
@@ -316,7 +316,17 @@ fn handle_worker_message(
                     )
                     .map_err(|error| format!("graph worker returned invalid output files: {error}"))
                 })
-                .map(super::web_document::queue_output_files);
+                .map(|files| {
+                    files
+                        .into_iter()
+                        .map(|file| logic_analyzer_platform::BrowserDownloadFile {
+                            name: file.name,
+                            bytes: file.bytes,
+                            annotations: vec![file.producer_node, file.producer_socket],
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .map(logic_analyzer_platform::queue_browser_downloads);
             if let Err(error) = result {
                 tracing::warn!(%error, "browser graph output download failed");
             }

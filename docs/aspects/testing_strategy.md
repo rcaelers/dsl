@@ -244,10 +244,10 @@ U3Pro16 hardware validation is an explicit command requiring a connected
 device. FPGA validation also requires the exact image as a positional path:
 
 ```console
-cargo run --release -p logic-analyzer-processing \
+cargo run --release -p logic-analyzer-app-native \
   --features developer-tools --bin u3pro16-hardware-validation -- \
   fpga /path/to/DSLogicU3Pro16.bin
-cargo run --release -p logic-analyzer-processing \
+cargo run --release -p logic-analyzer-app-native \
   --features developer-tools --bin u3pro16-hardware-validation -- capture
 ```
 
@@ -256,10 +256,10 @@ The oracle command additionally requires `pkg-config`, a C compiler, and an
 installed libsigrokdecode development package:
 
 ```console
-cargo run --release -p logic-analyzer-processing \
+cargo run --release -p logic-analyzer-app-native \
   --features developer-tools --bin sigrok-upstream-validation -- \
   chunk-boundaries /path/to/libsigrokdecode/decoders
-cargo run --release -p logic-analyzer-processing \
+cargo run --release -p logic-analyzer-app-native \
   --features developer-tools --bin sigrok-upstream-validation -- \
   oracle /path/to/libsigrokdecode/decoders
 ```

@@ -373,9 +373,7 @@ fn hex_value(value: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod native_artifact_repository_tests {
-    use logic_analyzer_test_support::{
-        capture_store_conformance, derived_store_conformance, repository_conformance,
-    };
+    use logic_analyzer_test_support::repository_conformance;
     use signal_artifacts::MemoryArtifactRepository;
 
     use super::*;
@@ -419,33 +417,5 @@ mod native_artifact_repository_tests {
         published.read_at(0, &mut bytes).unwrap();
         assert_eq!(&bytes, b"recovered");
         assert!(abandoned.exists());
-    }
-
-    #[test]
-    fn native_and_memory_repositories_run_the_same_derived_store() {
-        let directory = tempfile::tempdir().unwrap();
-        let native: Arc<dyn ArtifactRepository> = Arc::new(NativeArtifactRepository::new(
-            directory.path().join("artifacts"),
-        ));
-        let memory: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
-
-        assert_eq!(
-            derived_store_conformance(native),
-            derived_store_conformance(memory)
-        );
-    }
-
-    #[test]
-    fn native_and_memory_repositories_run_the_same_capture_store() {
-        let directory = tempfile::tempdir().unwrap();
-        let native: Arc<dyn ArtifactRepository> = Arc::new(NativeArtifactRepository::new(
-            directory.path().join("artifacts"),
-        ));
-        let memory: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
-
-        assert_eq!(
-            capture_store_conformance(native),
-            capture_store_conformance(memory)
-        );
     }
 }

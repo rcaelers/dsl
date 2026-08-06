@@ -20,9 +20,15 @@ thread_local! {
 pub struct BrowserDownload {
     pub id: u64,
     pub name: String,
-    pub producer: String,
-    pub channel: String,
+    pub annotations: Vec<String>,
     pub byte_len: u64,
+}
+
+/// Bytes and opaque annotations queued for an explicit browser download.
+pub struct BrowserDownloadFile {
+    pub name: String,
+    pub bytes: Vec<u8>,
+    pub annotations: Vec<String>,
 }
 
 #[derive(Default)]
@@ -34,8 +40,7 @@ struct BrowserOutputDownloads {
 struct BrowserOutputDownload {
     name: String,
     bytes: Vec<u8>,
-    producer: String,
-    channel: String,
+    annotations: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -217,8 +222,7 @@ impl BrowserDocumentHost {
                 .map(|(&id, file)| BrowserDownload {
                     id,
                     name: file.name.clone(),
-                    producer: file.producer.clone(),
-                    channel: file.channel.clone(),
+                    annotations: file.annotations.clone(),
                     byte_len: file.bytes.len() as u64,
                 })
                 .collect::<Vec<_>>();
@@ -249,9 +253,8 @@ impl Default for BrowserDocumentHost {
     }
 }
 
-pub(crate) fn queue_output_files(
-    files: impl IntoIterator<Item = super::web_output_storage::BrowserOutputFile>,
-) {
+/// Replaces the page's pending download queue with host-agnostic byte payloads.
+pub fn queue_browser_downloads(files: impl IntoIterator<Item = BrowserDownloadFile>) {
     OUTPUT_DOWNLOADS.with(|downloads| {
         let mut downloads = downloads.borrow_mut();
         downloads.files.clear();
@@ -263,8 +266,7 @@ pub(crate) fn queue_output_files(
                 BrowserOutputDownload {
                     name: file.name,
                     bytes: file.bytes,
-                    producer: file.producer_node,
-                    channel: file.producer_socket,
+                    annotations: file.annotations,
                 },
             );
         }

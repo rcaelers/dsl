@@ -4,14 +4,14 @@ use std::sync::{Arc, Mutex};
 use js_sys::Uint8Array;
 use wasm_bindgen_futures::JsFuture;
 
+use logic_analyzer_platform::{
+    DroppedFileData, FilePickerProgress, FilePickerRequest, FilePickerService, FileReference,
+};
 use signal_artifacts::SourceIdentity;
 
 use super::super::web_capture_worker::{attach_capture_file, cancel_capture_file_attachment};
 use super::registry::{
     BrowserFileRegistry, IMPORT_CHUNK_BYTES, MAX_IMPORT_BYTES, file_limit_error,
-};
-use crate::{
-    DroppedFileData, FilePickerProgress, FilePickerRequest, FilePickerService, FileReference,
 };
 
 #[derive(Default)]
@@ -319,8 +319,9 @@ mod dialog_tests {
 
     use wasm_bindgen_test::wasm_bindgen_test;
 
+    use logic_analyzer_platform::{FilePickerProgress, FilePickerService, FileReference};
+
     use super::{BrowserFilePickerService, BrowserFileRegistry, finish_request};
-    use crate::{FilePickerProgress, FilePickerService, FileReference};
 
     #[wasm_bindgen_test(unsupported = test)]
     fn cancelled_generation_cannot_publish_over_a_new_request() {

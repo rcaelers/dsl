@@ -167,7 +167,8 @@ names, or a storage implementation name.
 
 Portable implementations remain in their behavioral owner and compile everywhere. This includes
 the chunked-memory repository, owned byte backing, deterministic fake sources, and cooperative
-executor. `logic_analyzer_platform` selects or constructs them but does not fork their algorithms.
+executor. Application composition selects them explicitly; `logic_analyzer_platform` does not
+fork their algorithms.
 Persistent metadata receives the root-level `signal_artifacts::UnixTimeSource` capability. Its
 default implementation uses `web-time` on every target, while deterministic conformance fixtures
 inject a fixed clock so complete manifests and encoded generations can be compared byte for byte.
@@ -177,7 +178,7 @@ inject a fixed clock so complete manifests and encoded generations can be compar
 `logic_analyzer_platform` is a top-level adapter crate, not a lower-level dependency of the core.
 It returns target-selected mechanisms and adapter parts to the application composition root and
 does not define parallel copies of consumer data models. Core crates never depend on it. Its
-remaining inward domain edges are exact temporary exceptions in the workspace structural test.
+manifest depends only on generic runtime and artifact contracts, not Logic Conduit domain crates.
 
 Its private layout has one target-selection point:
 
@@ -188,14 +189,14 @@ logic_analyzer_platform/
     file_dialog.rs            target-neutral file-picker contracts and opaque references
     platform/
       mod.rs                  the only reusable target selector
-      native.rs               native mechanisms and remaining domain adapters
+      native.rs               native task and repository mechanisms
       native_document.rs      filesystem, configuration-path, and dialog mechanisms
-      native_sigrok/
-        mod.rs                embedded-Python Sigrok host composition
-        discovery.rs          package discovery and native directory scanning
-        execution.rs          Python-backed Sigrok execution factory
-      web.rs                  browser mechanisms and remaining domain adapters
+      native_file_source.rs   random-access prepared byte sources
+      native_file_output.rs   generic file creation and append operations
+      native_usb.rs           generic USB device and transfer operations
+      web.rs                  browser repository and parallelism mechanisms
       web_document.rs         byte-oriented browser documents and downloads
+      web_worker.rs           finite-operation Web Worker transport
 ```
 
 The crate root exposes individually scoped, target-selected constructors rather than public
@@ -214,16 +215,14 @@ roots perform domain/UI adaptation and select these implementations; in particul
 bridges the platform file-picker mechanism to the node-control dialog port. Making a port
 implementable does not expose its concrete native or web dependencies.
 
-The Sigrok decoder node follows the same ownership boundaries. `logic_analyzer_processing` owns the portable
-decoder configuration, state machine, output contracts, and `SigrokExecutionFactory` port.
+The Sigrok decoder node follows the same ownership boundaries. `logic_analyzer_processing` owns the
+portable decoder configuration, state machine, output contracts, and `SigrokExecutionFactory` port.
 `logic_analyzer_graph_nodes` owns the portable graph-node schema and turns portable discovery
-snapshots into node templates. `logic_analyzer_platform::platform::native_sigrok` owns Python
-interpreter initialization, the `sigrokdecode` compatibility host, package discovery, directory
-settings, and the native execution-factory implementation. A host injects that factory and
-scanner; a host without an embedded runtime injects no implementation and the portable node
-reports that the capability is unavailable. These Sigrok-specific platform modules are part of the
-temporary `logic-analyzer-processing` dependency tracked by
-`composition.platform-ui-inversion`; they are not generic host mechanisms.
+snapshots into node templates. The native application adapter owns Python interpreter
+initialization, the `sigrokdecode` compatibility host, package discovery, directory settings, and
+the native execution-factory implementation. It injects that factory and scanner into the domain
+contracts. A host without an embedded runtime injects no implementation and the portable node
+reports that the capability is unavailable. Platform has no Sigrok-specific module or dependency.
 
 The memory repository, owned backing, fake source, cooperative executor, and other host-independent
 implementations live in their behavioral owner crates and can be selected on native, web, or in

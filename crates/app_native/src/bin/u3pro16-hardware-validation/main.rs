@@ -4,7 +4,13 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use logic_analyzer_platform::{validate_capture_hardware, validate_fpga_hardware};
+use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::{
+    validate_capture_hardware, validate_fpga_hardware,
+};
+
+#[allow(dead_code)]
+#[path = "../../u3pro16_host.rs"]
+mod u3pro16_host;
 
 #[derive(Debug, Parser)]
 #[command(about = "Run explicit validations against a connected DSLogic U3Pro16")]
@@ -23,7 +29,9 @@ enum Command {
 
 fn main() -> Result<(), String> {
     match Args::parse().command {
-        Command::Fpga { image } => validate_fpga_hardware(&image),
-        Command::Capture => validate_capture_hardware(),
+        Command::Fpga { image } => {
+            validate_fpga_hardware(u3pro16_host::transport_factory().as_ref(), &image)
+        }
+        Command::Capture => validate_capture_hardware(u3pro16_host::transport_factory().as_ref()),
     }
 }

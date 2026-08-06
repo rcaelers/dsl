@@ -5,47 +5,21 @@ edition = "2024"
 authors = ["Rob Caelers <rob.caelers@gmail.com>"]
 
 [features]
-developer-tools = ["logic-analyzer-processing/developer-tools"]
-
-[[bin]]
-name = "u3pro16-hardware-validation"
-path = "src/bin/u3pro16-hardware-validation/main.rs"
-required-features = ["developer-tools"]
-test = false
-bench = false
-
-[[bin]]
-name = "sigrok-upstream-validation"
-path = "src/bin/sigrok-upstream-validation/main.rs"
-required-features = ["developer-tools"]
-test = false
-bench = false
+developer-tools = []
 
 [dependencies]
-logic-analyzer-graph-orchestration = { path = "../logic_analyzer_graph_orchestration" }
-logic-analyzer-processing = { path = "../logic_analyzer_processing" }
-serde_json = { workspace = true }
-serde = { workspace = true }
 blake3 = { workspace = true }
-signal-capture-session = { path = "../signal_capture_session" }
-signal-capture = { path = "../signal_capture" }
-signal-derived = { path = "../signal_derived" }
 signal-runtime = { path = "../signal_runtime" }
 signal-artifacts = { path = "../signal_artifacts" }
 tracing = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 crossbeam-channel = { workspace = true }
-clap = { workspace = true }
 memmap2 = { workspace = true }
 rfd = { workspace = true }
 rusb = { workspace = true }
-pyo3 = { workspace = true }
-thiserror = { workspace = true }
-tempfile = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-console_error_panic_hook = "0.1.7"
 js-sys = { workspace = true }
 rfd = { workspace = true, features = ["file-handle-inner"] }
 wasm-bindgen = { workspace = true }
@@ -72,3 +46,6 @@ web-sys = { workspace = true, features = [
 logic-analyzer-test-support = { path = "../logic_analyzer_test_support" }
 wasm-bindgen-test = { workspace = true }
 zip = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tempfile = { workspace = true }

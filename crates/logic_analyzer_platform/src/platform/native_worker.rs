@@ -2,7 +2,6 @@ use std::sync::Mutex;
 
 use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
 
-use signal_derived::portable_worker_kernels;
 use signal_runtime::{
     WorkerExecutionCapability, WorkerHostCommand, WorkerKernelRegistry, WorkerMessage,
     WorkerOperationExecutor, WorkerOperationQueue, WorkerRequest,
@@ -33,14 +32,9 @@ pub(crate) struct NativeWorkerOperationExecutor {
 }
 
 impl NativeWorkerOperationExecutor {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(kernels: WorkerKernelRegistry) -> Result<Self, String> {
         let worker_count = native_worker_count();
-        Self::with_registry(
-            portable_worker_kernels(),
-            worker_count,
-            worker_count.saturating_mul(4),
-        )
-        .expect("native worker-operation pool configuration is valid")
+        Self::with_registry(kernels, worker_count, worker_count.saturating_mul(4))
     }
 
     fn with_registry(
@@ -234,7 +228,7 @@ mod native_worker_tests {
     use super::NativeWorkerOperationExecutor;
 
     fn operation() -> WorkerOperation {
-        WorkerOperation::new("org.logic-conduit.test.reverse/v1").unwrap()
+        WorkerOperation::new("org.example.test.reverse/v1").unwrap()
     }
 
     fn request(sequence: u64, payload: Vec<u8>) -> WorkerRequest {

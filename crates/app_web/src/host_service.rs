@@ -45,12 +45,15 @@ impl HostService for BrowserHostService {
         self.documents
             .pending_downloads()
             .into_iter()
-            .map(|download| DownloadableOutput {
-                id: download.id,
-                name: download.name,
-                producer_node: download.producer,
-                producer_socket: download.channel,
-                byte_len: download.byte_len,
+            .map(|download| {
+                let mut annotations = download.annotations.into_iter();
+                DownloadableOutput {
+                    id: download.id,
+                    name: download.name,
+                    producer_node: annotations.next().unwrap_or_default(),
+                    producer_socket: annotations.next().unwrap_or_default(),
+                    byte_len: download.byte_len,
+                }
             })
             .collect()
     }

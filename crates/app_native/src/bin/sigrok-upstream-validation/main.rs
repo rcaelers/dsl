@@ -1,5 +1,10 @@
 //! Explicit compatibility validation against an upstream Sigrok SPI decoder.
 
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(dead_code, unused_imports)]
+#[path = "../../native_sigrok/mod.rs"]
+mod native_sigrok;
+
 std::cfg_select! {
     target_arch = "wasm32" => {
         fn main() {}
@@ -10,7 +15,7 @@ std::cfg_select! {
 
             use clap::{Parser, Subcommand};
 
-            use logic_analyzer_platform::{validate_spi_chunk_boundaries, validate_spi_oracle};
+            use crate::native_sigrok::{validate_spi_chunk_boundaries, validate_spi_oracle};
 
             #[derive(Debug, Parser)]
             #[command(

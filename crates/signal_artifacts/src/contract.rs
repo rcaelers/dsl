@@ -1,3 +1,6 @@
+use std::path::Path;
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 
 /// Stable content-oriented identity used to address a prepared byte source.
@@ -148,6 +151,21 @@ pub trait PreparedByteSource: Send + Sync {
     fn open_reader(&self) -> Result<Box<dyn RandomAccessReader>, SourceReadError>;
 }
 
+/// Host capability that acquires random-access bytes for a filesystem path.
+pub trait PreparedByteSourceOpener: Send + Sync {
+    /// Acquires one immutable source generation for `path`.
+    fn open(&self, path: &Path) -> Result<Arc<dyn PreparedByteSource>, SourceReadError>;
+}
+
+impl<F> PreparedByteSourceOpener for F
+where
+    F: Fn(&Path) -> Result<Arc<dyn PreparedByteSource>, SourceReadError> + Send + Sync,
+{
+    fn open(&self, path: &Path) -> Result<Arc<dyn PreparedByteSource>, SourceReadError> {
+        self(path)
+    }
+}
+
 /// Immutable bytes that may be owned memory, mmap, or another host backing.
 pub trait ImmutableByteRegion: Send + Sync {
     /// Returns immutable bytes held by this backing.
@@ -236,4 +254,3 @@ impl ImmutableByteRegion for ByteRegion {
         Self::bytes(self)
     }
 }
-use std::sync::Arc;

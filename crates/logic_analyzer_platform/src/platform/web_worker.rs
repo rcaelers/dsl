@@ -9,17 +9,12 @@ use web_sys::{
     Blob, BlobPropertyBag, ErrorEvent, MessageEvent, Url, Worker, WorkerOptions, WorkerType,
 };
 
-use signal_derived::portable_worker_kernels;
 use signal_runtime::{
     WorkerExecutionCapability, WorkerHostCommand, WorkerMessage, WorkerOperation,
     WorkerOperationExecutor, WorkerOperationQueue, WorkerRequest,
 };
 
 const WORKER_BOOTSTRAP: &str = include_str!("web_worker_bootstrap.js");
-
-thread_local! {
-    static PORTABLE_KERNELS: signal_runtime::WorkerKernelRegistry = portable_worker_kernels();
-}
 
 struct AdapterState {
     workers: Vec<Worker>,
@@ -49,13 +44,13 @@ impl WebWorkerAdapter {
     /// - `wasm_url`: Input consumed by this operation.
     /// - `worker_count`: Input consumed by this operation.
     /// - `max_outstanding`: Input consumed by this operation.
-    /// - `required_operations`: Input consumed by this operation.
+    /// - `registered_operations`: Operations supported by the injected worker runtime.
     pub fn new(
         module_url: &str,
         wasm_url: &str,
         worker_count: usize,
         max_outstanding: usize,
-        required_operations: &[WorkerOperation],
+        registered_operations: &[WorkerOperation],
     ) -> Result<Self, String> {
         if worker_count == 0 {
             return Err("the Web Worker pool must contain at least one worker".to_string());
@@ -65,18 +60,6 @@ impl WebWorkerAdapter {
                 "the Web Worker queue must hold at least one request per worker".to_string(),
             );
         }
-        let kernels = portable_worker_kernels();
-        let operations = kernels.operations().cloned().collect::<Vec<_>>();
-        if let Some(operation) = required_operations
-            .iter()
-            .find(|operation| !kernels.supports(operation))
-        {
-            return Err(format!(
-                "Web Worker operation '{}' is not registered",
-                operation.as_str()
-            ));
-        }
-
         let worker_url = create_worker_url()?;
         let mut workers: Vec<Worker> = Vec::with_capacity(worker_count);
         for _ in 0..worker_count {
@@ -99,7 +82,11 @@ impl WebWorkerAdapter {
             return Err(js_error("could not release worker bootstrap URL", error));
         }
 
-        let queue = WorkerOperationQueue::new(worker_count, max_outstanding, operations)?;
+        let queue = WorkerOperationQueue::new(
+            worker_count,
+            max_outstanding,
+            registered_operations.to_vec(),
+        )?;
         let state = Rc::new(RefCell::new(AdapterState {
             workers,
             queue,
@@ -203,30 +190,6 @@ impl Drop for WebWorkerAdapter {
         }
         self.message_handlers.clear();
         self.error_handlers.clear();
-    }
-}
-
-#[wasm_bindgen(js_name = executePortableWorkerOperation)]
-/// Executes one portable worker operation received from the browser bootstrap.
-pub fn execute_portable_worker_operation(
-    operation: String,
-    payload: Vec<u8>,
-) -> Result<Vec<u8>, JsValue> {
-    let operation =
-        WorkerOperation::new(operation).map_err(|error| JsValue::from_str(&error.to_string()))?;
-    let message = PORTABLE_KERNELS.with(|kernels| {
-        kernels.execute(WorkerRequest {
-            sequence: 0,
-            operation,
-            payload,
-        })
-    });
-    match message {
-        WorkerMessage::Complete { payload, .. } => Ok(payload),
-        WorkerMessage::Failed { message, .. } => Err(JsValue::from_str(&message)),
-        _ => Err(JsValue::from_str(
-            "worker kernel returned a non-terminal message",
-        )),
     }
 }
 

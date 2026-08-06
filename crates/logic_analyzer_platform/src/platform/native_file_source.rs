@@ -4,6 +4,7 @@ use std::io::{Read, Seek, SeekFrom};
 #[cfg(unix)]
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use signal_artifacts::{
@@ -54,10 +55,8 @@ impl NativeFileByteSource {
         })
     }
 
-    pub(crate) fn open(
-        path: impl AsRef<Path>,
-        identity: SourceIdentity,
-    ) -> Result<Self, SourceReadError> {
+    #[cfg(test)]
+    fn open(path: impl AsRef<Path>, identity: SourceIdentity) -> Result<Self, SourceReadError> {
         let path = path.as_ref().to_owned();
         let stamp = NativeFileStamp::read(&path)?;
         Ok(Self {
@@ -89,6 +88,14 @@ impl PreparedByteSource for NativeFileByteSource {
             stamp: self.stamp.clone(),
         }))
     }
+}
+
+/// Acquires a native file as an immutable random-access byte source.
+pub fn native_file_byte_source(
+    path: &Path,
+) -> Result<Arc<dyn PreparedByteSource>, SourceReadError> {
+    NativeFileByteSource::acquire(path)
+        .map(|source| Arc::new(source) as Arc<dyn PreparedByteSource>)
 }
 
 struct NativeFileReader {
@@ -145,7 +152,7 @@ mod native_file_source_tests {
     #[test]
     fn prepared_file_opens_independent_random_access_readers() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("capture.bin");
+        let path = directory.path().join("source.bin");
         std::fs::write(&path, b"0123456789").unwrap();
         let source =
             NativeFileByteSource::open(&path, SourceIdentity::from_bytes([0x31; 32])).unwrap();
@@ -164,8 +171,8 @@ mod native_file_source_tests {
     #[test]
     fn acquired_file_has_a_stable_host_identity() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("capture.bin");
-        std::fs::write(&path, b"capture").unwrap();
+        let path = directory.path().join("source.bin");
+        std::fs::write(&path, b"source").unwrap();
 
         let first = NativeFileByteSource::acquire(&path).unwrap();
         let second = NativeFileByteSource::acquire(&path).unwrap();
@@ -176,7 +183,7 @@ mod native_file_source_tests {
     #[test]
     fn prepared_file_rejects_replacement_after_acquisition() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("capture.bin");
+        let path = directory.path().join("source.bin");
         std::fs::write(&path, b"before").unwrap();
         let source =
             NativeFileByteSource::open(&path, SourceIdentity::from_bytes([0x32; 32])).unwrap();

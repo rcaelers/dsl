@@ -31,6 +31,7 @@ std::cfg_select! {
         mod buffered;
         mod capture;
         mod common;
+        mod host_factory;
         mod implementation;
         mod source;
         mod streaming;
@@ -45,6 +46,7 @@ std::cfg_select! {
         pub use capture::DsLogicU3Pro16Capture;
         #[cfg(feature = "developer-tools")]
         pub use hardware_validation::{validate_capture_hardware, validate_fpga_hardware};
+        pub use host_factory::source_factory;
         pub use source::DsLogicU3Pro16Source;
     }
 }
