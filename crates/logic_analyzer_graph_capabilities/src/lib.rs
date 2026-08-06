@@ -6,7 +6,5 @@
 //! execution, UI state, viewer widgets, capture export, nor target selection. Concrete node
 //! migration remains with the node feature that owns the serialized state.
 
-#[cfg(test)]
-mod architecture_tests;
 pub mod node;
 pub mod node_support;

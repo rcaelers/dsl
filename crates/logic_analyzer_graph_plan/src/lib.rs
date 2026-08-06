@@ -2,7 +2,4 @@
 
 mod plan;
 
-#[cfg(test)]
-mod architecture_tests;
-
 pub use plan::*;

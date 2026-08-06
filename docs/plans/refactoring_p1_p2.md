@@ -27,39 +27,33 @@ the named function/type over the number when they disagree.
 
 ## tests.architecture-structural (P2) {#tests-architecture-structural}
 
-**Problem.** ~1,670 lines of `architecture_tests.rs` across the workspace `include_str!` sibling
-files and assert `.contains("…")` (largest: `graph_nodes` 319 lines, `graph_compiler` 287,
-`processing` 185). They break on renames, pass when the string appears in a comment, and prove
-nothing about the compiled contract.
+**Problem.** ~760 lines of `architecture_tests.rs` remain across the workspace that `include_str!`
+sibling files and assert `.contains("…")` (largest: `logic_analyzer_viewer` 105 lines,
+`signal_derived` 68, and `signal_runtime` 60). They break on renames, pass when the string appears
+in a comment, and prove nothing about the compiled contract.
 
-**Direction.**
+The top-level integration package parses `cargo metadata --format-version 1` and asserts the
+resolved non-dev dependency graph. Its forbidden-edge contract is:
 
-1. Add one workspace-level test in the top-level integration package
-   (`logic-analyzer-examples`, which owns cross-crate tests per the testing strategy) that runs
-   `cargo metadata --format-version 1` via `std::process::Command`, parses it with the already
-   available `serde_json`, and asserts the *forbidden edge list*:
+1. The workspace dependency graph rejects:
    - `platform` ↛ `logic-analyzer-ui`, ↛ `logic-analyzer-graph-nodes`
-     (activates as the composition items land — until then mark the assertion `#[ignore]` with
-     the TODO item ID in the ignore reason);
-   - `logic-analyzer-graph-{plan,runtime,capabilities,orchestration}` ↛ `node-graph`
-     (after the extraction item);
+     and platform has no other workspace dependencies than its two neutral contract owners;
+   - `logic-analyzer-graph-{plan,runtime,capabilities,orchestration}` ↛ `node-graph`;
    - `logic-analyzer-graph-compiler` ↔ `logic-analyzer-graph-runtime`: neither depends on the
      other; runtime also ↛ registry;
    - `logic-analyzer-graph-nodes` and `example-plugin` ↛ compiler;
    - `logic-analyzer-ui` ↛ `logic-analyzer-{capture-formats,device-dslogic,protocol-decoders}`,
      ↛ `signal-{generators,sinks,transforms}`, ↛ `logic-analyzer-graph-nodes`.
-   Assert on the dependency *graph* (resolve `id`/`dependencies` from metadata), not on raw
-   `Cargo.toml` text, so target-specific and dev-dependencies are handled deliberately: dev-deps
-   are allowed unless the rule says otherwise.
-2. Capability rules become registry-construction tests: build a `GraphRegistry` snapshot from the
-   real inventories (the compiler tests already consume the public immutable registry — follow
-   that pattern) and assert on the resulting descriptors: every registration with a semantics has
-   a materializer, override stable-IDs resolve, duplicate IDs rejected, and so on. Most of these
-   assertions already exist as registry unit tests — the work is deleting the string tests that
-   duplicate them, not writing new ones.
-3. Go through each `architecture_tests.rs` rule by rule: delete rules now covered structurally;
+   Target-specific edges participate in the resolved graph; dev-dependencies are allowed.
+2. The real built-in and example-plugin inventories construct a `GraphRegistry` snapshot in a
+   cross-crate test. Registration descriptors must match the snapshot, override stable IDs resolve,
+   and duplicate overrides are rejected.
+
+**Direction.**
+
+1. Go through each remaining `architecture_tests.rs` rule by rule: delete rules now covered structurally;
    keep a string test only where no structural probe exists (e.g. "no `std::env` access in
    tests"), and add a one-line comment saying why it stays textual.
-4. Do not chase 100% conversion in one PR. Priority order: the manifest-edge test (it guards the
-   other P1/P2 items), then `graph_nodes`/`graph_compiler` (the two largest files), then the
-   rest opportunistically.
+2. Prioritize the viewer, signal-tier, and UI service suites. Do not replace an implementation-text
+   check with another filename-sensitive source scan; prefer a dependency edge, public API probe,
+   registry construction, or behavior test.

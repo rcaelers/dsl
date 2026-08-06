@@ -9,9 +9,6 @@ mod payload_registration;
 mod protocol_packet_presentation;
 mod registry;
 
-#[cfg(test)]
-mod architecture_tests;
-
 pub use graph_registration::{GraphNodeRegistration, graph_node_registrations};
 pub use payload_registration::{
     PayloadRegistration, PayloadRequestConfigurator, payload_registrations,

@@ -7,7 +7,4 @@
 
 mod runtime;
 
-#[cfg(test)]
-mod architecture_tests;
-
 pub use runtime::*;

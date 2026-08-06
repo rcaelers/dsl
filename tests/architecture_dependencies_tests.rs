@@ -1,17 +1,154 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::process::Command;
+use std::sync::OnceLock;
 
-fn workspace_metadata() -> serde_json::Value {
-    let output = Command::new(env!("CARGO"))
-        .args(["metadata", "--format-version", "1", "--no-deps"])
-        .output()
-        .expect("cargo metadata must run");
+use serde_json::Value;
+
+static WORKSPACE_METADATA: OnceLock<Value> = OnceLock::new();
+
+fn workspace_metadata() -> &'static Value {
+    WORKSPACE_METADATA.get_or_init(|| {
+        let output = Command::new(env!("CARGO"))
+            .args(["metadata", "--format-version", "1"])
+            .output()
+            .expect("cargo metadata must run");
+        assert!(
+            output.status.success(),
+            "cargo metadata failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice(&output.stdout).expect("cargo metadata must be JSON")
+    })
+}
+
+fn workspace_member_ids(metadata: &Value) -> HashSet<&str> {
+    metadata["workspace_members"]
+        .as_array()
+        .expect("workspace members must be an array")
+        .iter()
+        .map(|member| {
+            member
+                .as_str()
+                .expect("workspace member ID must be a string")
+        })
+        .collect()
+}
+
+fn package<'a>(metadata: &'a Value, name: &str) -> &'a Value {
+    let workspace_member_ids = workspace_member_ids(metadata);
+    metadata["packages"]
+        .as_array()
+        .expect("metadata packages must be an array")
+        .iter()
+        .find(|package| {
+            package["name"] == name
+                && workspace_member_ids
+                    .contains(package["id"].as_str().expect("package ID must be a string"))
+        })
+        .unwrap_or_else(|| panic!("workspace must contain {name}"))
+}
+
+fn resolved_non_dev_dependencies(metadata: &Value, owner: &str) -> BTreeSet<String> {
+    let package_names = metadata["packages"]
+        .as_array()
+        .expect("metadata packages must be an array")
+        .iter()
+        .map(|package| {
+            (
+                package["id"].as_str().expect("package ID must be a string"),
+                package["name"]
+                    .as_str()
+                    .expect("package name must be a string"),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let owner_id = package(metadata, owner)["id"]
+        .as_str()
+        .expect("package ID must be a string");
+    let owner_node = metadata["resolve"]["nodes"]
+        .as_array()
+        .expect("resolved metadata nodes must be an array")
+        .iter()
+        .find(|node| node["id"] == owner_id)
+        .unwrap_or_else(|| panic!("resolved dependency graph must contain {owner}"));
+
+    owner_node["deps"]
+        .as_array()
+        .expect("resolved dependencies must be an array")
+        .iter()
+        .filter(|dependency| {
+            dependency["dep_kinds"]
+                .as_array()
+                .expect("resolved dependency kinds must be an array")
+                .iter()
+                .any(|kind| kind["kind"] != "dev")
+        })
+        .map(|dependency| {
+            let package_id = dependency["pkg"]
+                .as_str()
+                .expect("resolved package ID must be a string");
+            package_names
+                .get(package_id)
+                .unwrap_or_else(|| panic!("resolved package {package_id} must have metadata"))
+                .to_string()
+        })
+        .collect()
+}
+
+fn local_resolved_non_dev_dependencies(metadata: &Value, owner: &str) -> BTreeSet<String> {
+    let workspace_member_ids = workspace_member_ids(metadata);
+    let workspace_package_names = metadata["packages"]
+        .as_array()
+        .expect("metadata packages must be an array")
+        .iter()
+        .filter(|candidate| {
+            workspace_member_ids.contains(
+                candidate["id"]
+                    .as_str()
+                    .expect("package ID must be a string"),
+            )
+        })
+        .map(|candidate| {
+            candidate["name"]
+                .as_str()
+                .expect("package name must be a string")
+                .to_owned()
+        })
+        .collect::<HashSet<_>>();
+
+    resolved_non_dev_dependencies(metadata, owner)
+        .into_iter()
+        .filter(|dependency| workspace_package_names.contains(dependency))
+        .collect()
+}
+
+fn assert_forbidden_edges(metadata: &Value, owner: &str, forbidden: &[&str]) {
+    let dependencies = resolved_non_dev_dependencies(metadata, owner);
+    let forbidden = forbidden
+        .iter()
+        .map(|dependency| (*dependency).to_owned())
+        .collect::<BTreeSet<_>>();
+    let violations = dependencies
+        .intersection(&forbidden)
+        .cloned()
+        .collect::<BTreeSet<_>>();
     assert!(
-        output.status.success(),
-        "cargo metadata failed: {}",
-        String::from_utf8_lossy(&output.stderr)
+        violations.is_empty(),
+        "{owner} has forbidden non-dev dependency edges: {violations:?}"
     );
-    serde_json::from_slice(&output.stdout).expect("cargo metadata must be JSON")
+}
+
+fn assert_required_edges(metadata: &Value, owner: &str, required: &[&str]) {
+    let dependencies = resolved_non_dev_dependencies(metadata, owner);
+    let missing = required
+        .iter()
+        .filter(|dependency| !dependencies.contains(**dependency))
+        .copied()
+        .collect::<BTreeSet<_>>();
+    assert!(
+        missing.is_empty(),
+        "{owner} is missing required non-dev dependency edges: {missing:?}"
+    );
 }
 
 #[test]
@@ -19,7 +156,7 @@ fn platform_contract_crates_have_no_product_dependencies() {
     let metadata = workspace_metadata();
 
     for owner in ["platform-artifacts", "platform-runtime"] {
-        let dependencies = local_non_dev_dependencies(package(&metadata, owner));
+        let dependencies = local_resolved_non_dev_dependencies(metadata, owner);
         assert!(
             dependencies.is_empty(),
             "{owner} must remain independent of every workspace crate: {dependencies:?}"
@@ -27,56 +164,27 @@ fn platform_contract_crates_have_no_product_dependencies() {
     }
 }
 
-fn package<'a>(metadata: &'a serde_json::Value, name: &str) -> &'a serde_json::Value {
-    metadata["packages"]
-        .as_array()
-        .expect("metadata packages must be an array")
-        .iter()
-        .find(|package| package["name"] == name)
-        .unwrap_or_else(|| panic!("workspace must contain {name}"))
-}
-
-fn non_dev_dependencies(package: &serde_json::Value) -> BTreeSet<&str> {
-    package["dependencies"]
-        .as_array()
-        .expect("package dependencies must be an array")
-        .iter()
-        .filter(|dependency| dependency["kind"] != "dev")
-        .filter_map(|dependency| dependency["name"].as_str())
-        .collect()
-}
-
-fn local_non_dev_dependencies(package: &serde_json::Value) -> BTreeSet<&str> {
-    package["dependencies"]
-        .as_array()
-        .expect("package dependencies must be an array")
-        .iter()
-        .filter(|dependency| dependency["kind"] != "dev")
-        .filter(|dependency| !dependency["path"].is_null())
-        .filter_map(|dependency| dependency["name"].as_str())
-        .collect()
-}
-
 #[test]
 fn platform_depends_only_on_neutral_contract_owners() {
     let metadata = workspace_metadata();
-    let dependencies = local_non_dev_dependencies(package(&metadata, "platform"));
+    let dependencies = local_resolved_non_dev_dependencies(metadata, "platform");
 
     assert_eq!(
         dependencies,
-        BTreeSet::from(["platform-artifacts", "platform-runtime"]),
+        BTreeSet::from([
+            "platform-artifacts".to_owned(),
+            "platform-runtime".to_owned(),
+        ]),
         "platform may depend only on its neutral contract owners"
     );
 }
 
 #[test]
 fn capture_export_owner_does_not_depend_on_ui_or_platform() {
-    let metadata = workspace_metadata();
-    let dependencies = non_dev_dependencies(package(&metadata, "logic-analyzer-capture-export"));
-
-    assert!(
-        dependencies.is_disjoint(&BTreeSet::from(["platform", "logic-analyzer-ui",])),
-        "the capture-export service contract and implementation must remain independent of UI and platform"
+    assert_forbidden_edges(
+        workspace_metadata(),
+        "logic-analyzer-capture-export",
+        &["logic-analyzer-ui", "platform"],
     );
 }
 
@@ -92,11 +200,7 @@ fn headless_graph_tier_depends_on_the_document_model_not_the_node_editor() {
         "logic-analyzer-graph-registry",
         "logic-analyzer-graph-runtime",
     ] {
-        let dependencies = non_dev_dependencies(package(&metadata, owner));
-        assert!(
-            !dependencies.contains("node-graph"),
-            "{owner} must remain independent of the node editor"
-        );
+        assert_forbidden_edges(metadata, owner, &["node-graph"]);
     }
 
     for owner in [
@@ -106,7 +210,7 @@ fn headless_graph_tier_depends_on_the_document_model_not_the_node_editor() {
         "logic-analyzer-graph-plan",
         "logic-analyzer-graph-runtime",
     ] {
-        let dependencies = non_dev_dependencies(package(&metadata, owner));
+        let dependencies = resolved_non_dev_dependencies(metadata, owner);
         assert!(
             dependencies.contains("node-graph-document"),
             "{owner} must consume the neutral graph document contract"
@@ -114,9 +218,120 @@ fn headless_graph_tier_depends_on_the_document_model_not_the_node_editor() {
     }
 
     let document_dependencies =
-        local_non_dev_dependencies(package(&metadata, "node-graph-document"));
+        local_resolved_non_dev_dependencies(metadata, "node-graph-document");
     assert!(
         document_dependencies.is_empty(),
         "the graph document model must have no workspace dependencies: {document_dependencies:?}"
+    );
+}
+
+#[test]
+fn workspace_dependency_direction_has_no_forbidden_product_edges() {
+    let metadata = workspace_metadata();
+    let rules: &[(&str, &[&str])] = &[
+        (
+            "logic-analyzer-graph-capabilities",
+            &[
+                "egui",
+                "logic-analyzer-graph-compiler",
+                "logic-analyzer-graph-nodes",
+                "logic-analyzer-graph-registry",
+                "logic-analyzer-graph-runtime",
+                "logic-analyzer-ui",
+                "logic-analyzer-viewer",
+                "node-graph",
+            ],
+        ),
+        (
+            "logic-analyzer-graph-compiler",
+            &[
+                "egui",
+                "logic-analyzer-capture-formats",
+                "logic-analyzer-device-dslogic",
+                "logic-analyzer-graph-editor-registry",
+                "logic-analyzer-graph-nodes",
+                "logic-analyzer-graph-runtime",
+                "logic-analyzer-protocol-decoders",
+                "logic-analyzer-viewer",
+                "node-graph",
+                "signal-generators",
+                "signal-sinks",
+                "signal-transforms",
+            ],
+        ),
+        (
+            "logic-analyzer-graph-plan",
+            &[
+                "logic-analyzer-graph-compiler",
+                "logic-analyzer-graph-registry",
+                "logic-analyzer-graph-runtime",
+                "logic-analyzer-ui",
+                "node-graph",
+            ],
+        ),
+        (
+            "logic-analyzer-graph-runtime",
+            &[
+                "egui",
+                "logic-analyzer-capture-formats",
+                "logic-analyzer-device-dslogic",
+                "logic-analyzer-graph-compiler",
+                "logic-analyzer-graph-nodes",
+                "logic-analyzer-graph-registry",
+                "logic-analyzer-protocol-decoders",
+                "logic-analyzer-ui",
+                "logic-analyzer-viewer",
+                "node-graph",
+                "signal-generators",
+                "signal-sinks",
+                "signal-transforms",
+            ],
+        ),
+        (
+            "logic-analyzer-graph-registry",
+            &[
+                "egui",
+                "logic-analyzer-graph-compiler",
+                "logic-analyzer-graph-nodes",
+                "logic-analyzer-graph-runtime",
+                "logic-analyzer-ui",
+                "node-graph",
+                "platform",
+            ],
+        ),
+        (
+            "logic-analyzer-graph-nodes",
+            &["logic-analyzer-graph-compiler"],
+        ),
+        ("example-plugin", &["logic-analyzer-graph-compiler"]),
+        (
+            "logic-analyzer-ui",
+            &[
+                "logic-analyzer-capture-formats",
+                "logic-analyzer-device-dslogic",
+                "logic-analyzer-graph-nodes",
+                "logic-analyzer-protocol-decoders",
+                "signal-generators",
+                "signal-sinks",
+                "signal-transforms",
+            ],
+        ),
+        (
+            "platform",
+            &["logic-analyzer-graph-nodes", "logic-analyzer-ui"],
+        ),
+    ];
+
+    for (owner, forbidden) in rules {
+        assert_forbidden_edges(metadata, owner, forbidden);
+    }
+
+    assert_required_edges(
+        metadata,
+        "logic-analyzer-graph-orchestration",
+        &[
+            "logic-analyzer-graph-compiler",
+            "logic-analyzer-graph-runtime",
+        ],
     );
 }

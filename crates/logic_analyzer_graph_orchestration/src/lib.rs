@@ -4,9 +4,6 @@ mod worker_client;
 mod worker_execution;
 mod worker_execution_codec;
 
-#[cfg(test)]
-mod architecture_tests;
-
 pub use worker_client::GraphWorkerClient;
 pub use worker_execution::{GraphWorkerMessage, GraphWorkerRequest, GraphWorkerRuntime};
 pub use worker_execution_codec::{
