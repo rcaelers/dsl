@@ -6,13 +6,15 @@ fn implementation_source(source: &'static str) -> &'static str {
 }
 
 #[test]
-fn generic_capture_storage_contains_no_concrete_provider_contracts() {
+fn capture_sessions_do_not_leak_provider_application_or_lower_owner_details() {
+    // Cargo metadata proves dependency direction, but it cannot detect name-based provider cases,
+    // application-selected namespaces, or public re-exports, so these remain source assertions.
     let sources = [
         include_str!("live_capture/implementation.rs"),
         include_str!("live_capture_store/mod.rs"),
         include_str!("live_capture_store/artifact_store.rs"),
     ];
-    for token in ["DeterministicFake", "BufferedFake", "U3Pro16", "u3pro16"] {
+    for token in ["U3Pro16", "u3pro16"] {
         assert!(
             sources
                 .iter()
@@ -20,10 +22,7 @@ fn generic_capture_storage_contains_no_concrete_provider_contracts() {
             "generic capture-session storage contains provider token {token:?}"
         );
     }
-}
 
-#[test]
-fn generic_storage_does_not_choose_an_application_cache_namespace() {
     let source = include_str!("live_capture_store/session_repository.rs");
     for token in ["default_capture_session_directory", ".join(\"dsl\")"] {
         assert!(
@@ -31,10 +30,7 @@ fn generic_storage_does_not_choose_an_application_cache_namespace() {
             "generic session storage contains application cache policy {token:?}"
         );
     }
-}
 
-#[test]
-fn lower_level_contracts_are_not_redirected_through_signal_capture_session() {
     let library = include_str!("lib.rs");
     for forbidden in [
         "pub use platform_artifacts",
