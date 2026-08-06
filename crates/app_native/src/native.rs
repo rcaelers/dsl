@@ -165,7 +165,7 @@ fn application_services() -> (
         sigrok_catalog_scanner,
         u3pro16_source_factory,
         output_storage,
-        node_file_dialog: _,
+        file_picker: _,
         graph_worker_client,
         artifact_repository,
         work_executor,

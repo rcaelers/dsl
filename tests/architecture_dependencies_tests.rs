@@ -21,7 +21,6 @@ const PLATFORM_DOMAIN_CRATES: &[&str] = &[
 const TEMPORARY_PLATFORM_DOMAIN_EDGES: &[&str] = &[
     "logic-analyzer-graph-orchestration",
     "logic-analyzer-processing",
-    "node-graph",
     "signal-capture",
     "signal-capture-session",
     "signal-derived",

@@ -4,30 +4,32 @@ use std::sync::{Arc, Mutex};
 use js_sys::Uint8Array;
 use wasm_bindgen_futures::JsFuture;
 
-use node_graph::{DroppedFile, FileDialogProgress, FileDialogRequest, FileDialogService};
 use signal_artifacts::SourceIdentity;
 
 use super::super::web_capture_worker::{attach_capture_file, cancel_capture_file_attachment};
 use super::registry::{
     BrowserFileRegistry, IMPORT_CHUNK_BYTES, MAX_IMPORT_BYTES, file_limit_error,
 };
+use crate::{
+    DroppedFileData, FilePickerProgress, FilePickerRequest, FilePickerService, FileReference,
+};
 
 #[derive(Default)]
 struct DialogState {
     pending: HashMap<u64, u64>,
-    completed: HashMap<u64, Result<String, String>>,
-    progress: HashMap<u64, FileDialogProgress>,
+    completed: HashMap<u64, Result<FileReference, String>>,
+    progress: HashMap<u64, FilePickerProgress>,
     attachments: HashMap<u64, String>,
     next_generation: u64,
     repaint: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
-pub(crate) struct BrowserNodeFileDialogService {
+pub(crate) struct BrowserFilePickerService {
     registry: Arc<BrowserFileRegistry>,
     state: Arc<Mutex<DialogState>>,
 }
 
-impl BrowserNodeFileDialogService {
+impl BrowserFilePickerService {
     pub(crate) fn new(registry: Arc<BrowserFileRegistry>) -> Self {
         Self {
             registry,
@@ -36,12 +38,12 @@ impl BrowserNodeFileDialogService {
     }
 }
 
-impl FileDialogService for BrowserNodeFileDialogService {
+impl FilePickerService for BrowserFilePickerService {
     fn available(&self, save: bool) -> bool {
         !save
     }
 
-    fn pick(&mut self, request: FileDialogRequest<'_>) -> Option<String> {
+    fn pick(&mut self, request: FilePickerRequest<'_>) -> Option<FileReference> {
         if request.save {
             return None;
         }
@@ -56,7 +58,7 @@ impl FileDialogService for BrowserNodeFileDialogService {
             state.completed.remove(&request.request_id);
             state.progress.insert(
                 request.request_id,
-                FileDialogProgress {
+                FilePickerProgress {
                     completed_bytes: 0,
                     total_bytes: None,
                 },
@@ -89,7 +91,7 @@ impl FileDialogService for BrowserNodeFileDialogService {
                     &state,
                     request_id,
                     generation,
-                    FileDialogProgress {
+                    FilePickerProgress {
                         completed_bytes: 0,
                         total_bytes: Some(length as u64),
                     },
@@ -112,7 +114,7 @@ impl FileDialogService for BrowserNodeFileDialogService {
                                 &progress_state,
                                 request_id,
                                 generation,
-                                FileDialogProgress {
+                                FilePickerProgress {
                                     completed_bytes,
                                     total_bytes: Some(total_bytes),
                                 },
@@ -129,7 +131,7 @@ impl FileDialogService for BrowserNodeFileDialogService {
                                     attached.identity,
                                     attached.metadata,
                                 )?;
-                                Ok(complete_reference)
+                                Ok(FileReference::from(complete_reference))
                             });
                             finish_request(&complete_state, request_id, generation, Some(result));
                         }),
@@ -154,9 +156,11 @@ impl FileDialogService for BrowserNodeFileDialogService {
                         match read_browser_file_chunks(file.inner(), &state, request_id, generation)
                             .await
                         {
-                            Ok(Some((chunks, identity))) => {
-                                Some(registry.register_chunks_with_identity(name, chunks, identity))
-                            }
+                            Ok(Some((chunks, identity))) => Some(
+                                registry
+                                    .register_chunks_with_identity(name, chunks, identity)
+                                    .map(FileReference::from),
+                            ),
                             Ok(None) => None,
                             Err(error) => Some(Err(error)),
                         }
@@ -170,11 +174,11 @@ impl FileDialogService for BrowserNodeFileDialogService {
         None
     }
 
-    fn take_picked(&mut self, request_id: u64) -> Option<Result<String, String>> {
+    fn take_picked(&mut self, request_id: u64) -> Option<Result<FileReference, String>> {
         self.state.lock().unwrap().completed.remove(&request_id)
     }
 
-    fn progress(&self, request_id: u64) -> Option<FileDialogProgress> {
+    fn progress(&self, request_id: u64) -> Option<FilePickerProgress> {
         self.state
             .lock()
             .unwrap()
@@ -201,11 +205,13 @@ impl FileDialogService for BrowserNodeFileDialogService {
         cancelled
     }
 
-    fn import_dropped(&mut self, file: DroppedFile) -> Result<String, String> {
+    fn import_dropped(&mut self, file: DroppedFileData) -> Result<FileReference, String> {
         let bytes = file
             .bytes
             .ok_or_else(|| format!("the browser did not provide bytes for '{}'", file.name))?;
-        self.registry.register(file.name, bytes)
+        self.registry
+            .register(file.name, bytes)
+            .map(FileReference::from)
     }
 
     fn set_repaint(&mut self, repaint: Box<dyn Fn() + Send + Sync>) {
@@ -242,7 +248,7 @@ async fn read_browser_file_chunks(
             state,
             request_id,
             generation,
-            FileDialogProgress {
+            FilePickerProgress {
                 completed_bytes: offset as u64,
                 total_bytes: Some(length as u64),
             },
@@ -262,7 +268,7 @@ fn update_progress(
     state: &Arc<Mutex<DialogState>>,
     request_id: u64,
     generation: u64,
-    progress: FileDialogProgress,
+    progress: FilePickerProgress,
 ) -> bool {
     let updated = {
         let mut state = state.lock().unwrap();
@@ -280,7 +286,7 @@ fn finish_request(
     state: &Arc<Mutex<DialogState>>,
     request_id: u64,
     generation: u64,
-    result: Option<Result<String, String>>,
+    result: Option<Result<FileReference, String>>,
 ) {
     let finished = {
         let mut state = state.lock().unwrap();
@@ -313,20 +319,18 @@ mod dialog_tests {
 
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    use node_graph::{FileDialogProgress, FileDialogService};
-
-    use super::{BrowserFileRegistry, BrowserNodeFileDialogService, finish_request};
+    use super::{BrowserFilePickerService, BrowserFileRegistry, finish_request};
+    use crate::{FilePickerProgress, FilePickerService, FileReference};
 
     #[wasm_bindgen_test(unsupported = test)]
     fn cancelled_generation_cannot_publish_over_a_new_request() {
-        let mut dialog =
-            BrowserNodeFileDialogService::new(Arc::new(BrowserFileRegistry::default()));
+        let mut dialog = BrowserFilePickerService::new(Arc::new(BrowserFileRegistry::default()));
         {
             let mut state = dialog.state.lock().unwrap();
             state.pending.insert(7, 1);
             state.progress.insert(
                 7,
-                FileDialogProgress {
+                FilePickerProgress {
                     completed_bytes: 4,
                     total_bytes: Some(8),
                 },
@@ -340,7 +344,7 @@ mod dialog_tests {
             state.pending.insert(7, 2);
             state.progress.insert(
                 7,
-                FileDialogProgress {
+                FilePickerProgress {
                     completed_bytes: 0,
                     total_bytes: None,
                 },
@@ -351,13 +355,13 @@ mod dialog_tests {
             &dialog.state,
             7,
             1,
-            Some(Ok("browser-file://stale".to_owned())),
+            Some(Ok(FileReference::from("browser-file://stale".to_owned()))),
         );
 
         assert_eq!(dialog.take_picked(7), None);
         assert_eq!(
             dialog.progress(7),
-            Some(FileDialogProgress {
+            Some(FilePickerProgress {
                 completed_bytes: 0,
                 total_bytes: None,
             })

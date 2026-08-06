@@ -133,7 +133,7 @@ fn application_services(
     Vec<Box<dyn logic_analyzer_ui::NodeCatalogService>>,
 ) {
     let logic_analyzer_platform::PlatformServices {
-        node_file_dialog,
+        file_picker,
         capture_worker_client,
         app_manager_factory,
         dsl_file_source_factory,
@@ -174,9 +174,11 @@ fn application_services(
         Vec::new(),
     )
     .with_capture_export_service(logic_analyzer_ui::unavailable_capture_export_service())
-    .with_node_file_dialog(
-        node_file_dialog.expect("the browser supplies its asynchronous node-file dialog"),
-    )
+    .with_node_file_dialog(Box::new(
+        crate::node_file_dialog::BrowserNodeFileDialog::new(
+            file_picker.expect("the browser supplies its asynchronous file picker"),
+        ),
+    ))
     .with_graph_execution_and_capability_overrides(
         source_preparation_executor,
         app_manager_factory,

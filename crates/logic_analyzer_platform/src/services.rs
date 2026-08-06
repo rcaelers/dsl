@@ -11,12 +11,13 @@ use logic_analyzer_processing::nodes::sinks::OutputStorage;
 use logic_analyzer_processing::nodes::sources::dsl_file::DslFileSourceFactory;
 use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::DsLogicU3Pro16SourceFactory;
 use logic_analyzer_processing::nodes::sources::sigrok_file::SigrokFileSourceFactory;
-use node_graph::FileDialogService;
 use signal_artifacts::ArtifactRepository;
 use signal_capture::CaptureWorkerClient;
 use signal_runtime::{
     AppManagerFactory, WorkExecutor, WorkerExecutionCapability, WorkerOperationExecutor,
 };
+
+use crate::FilePickerService;
 
 /// Browser-worker host resources adapted to concrete graph nodes by `app_web`.
 pub struct WorkerGraphHostServices {
@@ -40,7 +41,7 @@ pub struct PlatformServices {
     pub sigrok_catalog_scanner: Option<Arc<dyn SigrokCatalogScanner>>,
     pub u3pro16_source_factory: Option<Arc<dyn DsLogicU3Pro16SourceFactory>>,
     pub output_storage: Option<Arc<dyn OutputStorage>>,
-    pub node_file_dialog: Option<Box<dyn FileDialogService>>,
+    pub file_picker: Option<Box<dyn FilePickerService>>,
     pub graph_worker_client: Option<Arc<GraphWorkerClient>>,
     pub artifact_repository: Arc<dyn ArtifactRepository>,
     pub work_executor: Arc<dyn WorkExecutor>,

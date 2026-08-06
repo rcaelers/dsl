@@ -65,7 +65,7 @@ pub(crate) fn standard_services(application_id: &str) -> PlatformServices {
         sigrok_catalog_scanner: Some(sigrok_catalog_scanner),
         u3pro16_source_factory: Some(native_u3pro16_source_factory()),
         output_storage: Some(native_output_storage()),
-        node_file_dialog: None,
+        file_picker: None,
         artifact_repository,
         work_executor,
         worker_operation_executor: Rc::new(NativeWorkerOperationExecutor::new()),

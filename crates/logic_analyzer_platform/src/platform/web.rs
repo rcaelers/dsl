@@ -11,7 +11,7 @@ use signal_runtime::{
 use super::web_artifact_repository::BrowserArtifactRepository;
 use super::web_capture_worker::install_capture_worker;
 use super::web_file_import::{
-    BrowserFileRegistry, BrowserNodeFileDialogService, dsl_source_factory, sigrok_source_factory,
+    BrowserFilePickerService, BrowserFileRegistry, dsl_source_factory, sigrok_source_factory,
 };
 use super::web_worker::WebWorkerAdapter;
 use crate::services::{PlatformServices, WorkerGraphHostServices};
@@ -106,7 +106,7 @@ fn compose_services(
         sigrok_catalog_scanner: None,
         u3pro16_source_factory: None,
         output_storage: None,
-        node_file_dialog: Some(Box::new(BrowserNodeFileDialogService::new(imported_files))),
+        file_picker: Some(Box::new(BrowserFilePickerService::new(imported_files))),
         graph_worker_client: graph_worker,
         artifact_repository,
         work_executor,

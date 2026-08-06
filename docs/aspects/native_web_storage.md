@@ -96,8 +96,8 @@ Native shell integrations exchange portable commands and UI state through the ap
 service; their queues and repaint wake-ups stay in the native app root. Runtime cache diagnostics
 use the same application boundary and one portable UI snapshot path. Embedded graph-node file
 controls use `node_graph::FileDialogService`. Native composition implements it in the app root;
-browser composition receives its capture-file implementation from the temporary platform bundle.
-The widget contains no target selection or native dialog dependency.
+browser composition adapts the platform's generic asynchronous `FilePickerService` and opaque file
+references to it. The widget contains no target selection or platform dependency.
 
 ## Unified native and web data plane
 
@@ -183,7 +183,7 @@ Its private layout has one target-selection point:
 logic_analyzer_platform/
   src/
     lib.rs                    curated crate-root construction API
-    file_dialog.rs            target-neutral file-picker request records
+    file_dialog.rs            target-neutral file-picker contracts and opaque references
     services.rs               temporary app-consumed adapter bundle
     platform/
       mod.rs                  the only reusable target selector
@@ -208,8 +208,9 @@ processing execution belongs to `signal_runtime`, encoded-store ports belong to 
 cache-administration and source-preparation ports belong to `logic_analyzer_graph_runtime`, embedded
 node-control dialogs belong to `node_graph`, application dialogs and host commands belong to
 `logic_analyzer_ui`, and capture export belongs to `logic_analyzer_capture_export`. Application
-roots perform domain/UI adaptation and select these implementations. Making a port implementable
-does not expose its concrete native or web dependencies.
+roots perform domain/UI adaptation and select these implementations; in particular, `app_web`
+bridges the platform file-picker mechanism to the node-control dialog port. Making a port
+implementable does not expose its concrete native or web dependencies.
 
 The Sigrok decoder node follows the same ownership boundaries. `logic_analyzer_processing` owns the portable
 decoder configuration, state machine, output contracts, and `SigrokExecutionFactory` port.

@@ -24,7 +24,6 @@ bench = false
 [dependencies]
 logic-analyzer-graph-orchestration = { path = "../logic_analyzer_graph_orchestration" }
 logic-analyzer-processing = { path = "../logic_analyzer_processing" }
-node-graph = { path = "../widgets/node_graph" }
 serde_json = { workspace = true }
 serde = { workspace = true }
 blake3 = { workspace = true }

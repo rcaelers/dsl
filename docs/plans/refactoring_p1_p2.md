@@ -67,8 +67,8 @@ generic host mechanism.
 
 **Problem.** Removing a UI import is insufficient if platform still speaks Logic Conduit domain
 types. Its remaining dependency edges expose graph-worker clients, processing source/sink/device
-and Sigrok contracts, node-graph dialogs, capture-worker and session types, and derived worker
-kernels. Those are application integrations, not reusable host mechanisms.
+and Sigrok contracts, capture-worker and session types, and derived worker kernels. Those are
+application integrations, not reusable host mechanisms.
 
 **Chosen direction.** Keep platform domain-neutral. It owns low-level capabilities such as file
 and directory access, file dialogs, mmap-backed buffers, web storage, generic USB transport,
@@ -83,11 +83,11 @@ crate: that would reverse the dependency without removing the abstraction leak.
    requests plus native/browser byte, path, picker, and download mechanisms those adapters consume.
 2. Keep `CaptureExportService` and its native asynchronous implementation in
    `logic_analyzer_capture_export`; the app selects it and UI consumes its contract.
+   Browser file selection exposes neutral requests, progress, dropped bytes, and opaque references
+   from platform; `app_web` adapts that mechanism to `node_graph::FileDialogService`.
 3. For the remaining exact manifest allowlist, remove one edge at a time:
    - move graph/capture worker protocol assembly to the app or owning orchestration/runtime crate,
      leaving platform with a generic worker transport;
-   - make browser file selection return neutral selected-file handles and adapt those to
-     `node_graph` and concrete capture sources above platform;
    - inject generic filesystem/prepared-byte-source, USB, Python/process, output-stream, and task
      mechanisms into processing-owned source, device, decoder, and sink adapters;
    - pass portable worker-kernel inventories and capture/session behavior into platform worker

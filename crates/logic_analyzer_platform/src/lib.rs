@@ -12,7 +12,10 @@ mod file_dialog;
 mod platform;
 mod services;
 
-pub use file_dialog::{FileDialogFilter, FileOpenDialog, FileSaveDialog};
+pub use file_dialog::{
+    DroppedFileData, FileDialogFilter, FileOpenDialog, FilePickerProgress, FilePickerRequest,
+    FilePickerService, FileReference, FileSaveDialog,
+};
 pub use services::{PlatformServices, WorkerGraphHostServices};
 
 /// Builds host services for the selected target.

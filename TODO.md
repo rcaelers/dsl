@@ -353,12 +353,13 @@ item here, so acceptance comparisons stop being ad-hoc.
   once it is reusable outside Logic Conduit.
   The first inversion slice moves native and browser `HostService` adaptation into the app roots,
   exposes target-neutral dialog requests plus native/browser byte-oriented document mechanisms,
+  adapts the generic asynchronous browser file picker to `node_graph` in `app_web`,
   moves the capture-export service contract and native asynchronous implementation into
   `logic_analyzer_capture_export`, moves threaded source preparation into graph runtime, and makes
   the web worker receive an app-built `GraphWorkerRuntime`. The structural dependency test records
-  the six remaining temporary platform edges exactly:
-  `logic-analyzer-graph-orchestration`, `logic-analyzer-processing`, `node-graph`,
-  `signal-capture`, `signal-capture-session`, and `signal-derived`. Remove each exception in the
+  the five remaining temporary platform edges exactly: `logic-analyzer-graph-orchestration`,
+  `logic-analyzer-processing`, `signal-capture`, `signal-capture-session`, and `signal-derived`.
+  Remove each exception in the
   same change that replaces it with a neutral mechanism boundary; an unlisted domain edge fails
   immediately.
   Direction: [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#composition-platform-ui-inversion).

@@ -2322,7 +2322,6 @@ dependencies = [
  "logic-analyzer-processing",
  "logic-analyzer-test-support",
  "memmap2",
- "node-graph",
  "pyo3",
  "rfd",
  "rusb",

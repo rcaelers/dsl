@@ -7,6 +7,7 @@ std::cfg_select! {
     target_arch = "wasm32" => {
         mod demo_graphs;
         mod host_service;
+        mod node_file_dialog;
         #[allow(unreachable_pub)]
         mod web;
 
@@ -14,6 +15,7 @@ std::cfg_select! {
     }
     test => {
         mod demo_graphs;
+        mod node_file_dialog;
     }
     _ => {}
 }
