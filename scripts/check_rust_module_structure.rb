@@ -178,9 +178,6 @@ if graph_nodes_manifest.match?(/^logic-analyzer-graph-compiler\s*=/)
 end
 
 ui_manifest = File.read(File.join(ROOT, "crates/logic_analyzer_ui/Cargo.toml"))
-if ui_manifest.match?(/^logic-analyzer-capture-export\s*=/)
-  errors << "crates/logic_analyzer_ui/Cargo.toml: concrete capture export belongs to logic-analyzer-platform"
-end
 if ui_manifest.match?(/^rfd\s*=/)
   errors << "crates/logic_analyzer_ui/Cargo.toml: native dialogs belong to logic-analyzer-platform"
 end
@@ -320,9 +317,6 @@ files.each do |path|
       end
     end
     unless File.basename(path).include?("tests")
-      implementation.to_enum(:scan, /\blogic_analyzer_capture_export\b/).each do
-        errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: concrete capture export belongs behind CaptureExportService"
-      end
       implementation.to_enum(:scan, /\b(?:export_finalized_capture|CaptureExportObserver|CaptureExportProgress|CaptureExportReport|ActiveExport)\b/).each do
         errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: capture export worker details belong behind CaptureExportService"
       end

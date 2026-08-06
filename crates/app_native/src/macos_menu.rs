@@ -8,12 +8,13 @@ use objc2_app_kit::{NSApp, NSImage, NSMenu, NSMenuItem, NSWindow};
 use objc2_foundation::{MainThreadMarker, NSObject, NSString, ns_string};
 
 use input_bindings::InputBindings;
-use logic_analyzer_platform::{dispatch_host_command, set_recent_files_listener};
 use logic_analyzer_ui::{
     APPLICATION_NAME, ApplicationPanelIcon, DECODER_PANEL_ICON, HostCommand, LOG_PANEL_ICON,
     LOGIC_ANALYZER_PANEL_ICON, MEMORY_PANEL_ICON, NODE_GRAPH_PANEL_ICON, TRIGGERS_PANEL_ICON,
     WATCHES_PANEL_ICON,
 };
+
+use crate::native_host::{dispatch_host_command, set_recent_files_listener};
 
 thread_local! {
     /// "Open Recent" items dispatch through one shared `openRecent:`

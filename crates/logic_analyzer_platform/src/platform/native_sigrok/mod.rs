@@ -2,7 +2,6 @@
 
 #[allow(dead_code)]
 mod bridge;
-mod catalog;
 #[allow(dead_code)]
 mod conditions;
 mod discovery;
@@ -21,7 +20,6 @@ mod worker;
 mod worker_tests;
 
 pub(crate) use bridge::DecoderOutput;
-pub(crate) use catalog::directory_catalog;
 pub(crate) use discovery::{discover_sigrok_decoder, scan_catalog};
 pub(crate) use execution::PythonSigrokExecutionFactory;
 #[cfg(feature = "developer-tools")]

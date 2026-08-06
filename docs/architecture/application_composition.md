@@ -34,7 +34,7 @@ Presentation widgets do not define or aggregate memory diagnostics. Generic UI c
 payload IDs and storage contracts; it does not infer protocols or concrete nodes from their names.
 
 - `App::build` creates the editor node-type registry from graph-node inventory, composes the
-  UI-owned graph and host service ports, and installs the platform symbol font used by menu
+  UI-owned graph and host service ports, and installs host-supplied symbol fonts used by menu
   glyphs. The graph service's lowerer owns a validated
   `logic_analyzer_graph_registry::GraphRegistry` snapshot; its separate runtime has no registry or
   compiler dependency.

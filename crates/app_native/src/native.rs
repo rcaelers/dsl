@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use clap::{Args as ClapArgs, Parser, Subcommand};
@@ -136,8 +137,7 @@ fn run_ui(file: Option<PathBuf>) -> MainResult {
         APPLICATION_NAME,
         options,
         Box::new(move |cc| {
-            let platform_services = logic_analyzer_platform::standard_services();
-            let (ui_services, node_catalogs) = platform_services.into_ui_and_node_catalogs();
+            let (ui_services, node_catalogs) = application_services();
             let app = logic_analyzer_ui::App::new_with_file_catalogs_and_services(
                 cc,
                 file.as_deref(),
@@ -152,9 +152,109 @@ fn run_ui(file: Option<PathBuf>) -> MainResult {
     Ok(())
 }
 
+fn application_services() -> (
+    logic_analyzer_ui::AppServices,
+    Vec<Box<dyn logic_analyzer_ui::NodeCatalogService>>,
+) {
+    let logic_analyzer_platform::PlatformServices {
+        capture_worker_client: _,
+        app_manager_factory,
+        dsl_file_source_factory,
+        sigrok_file_source_factory,
+        sigrok_decoder_runtime,
+        sigrok_catalog_scanner,
+        u3pro16_source_factory,
+        output_storage,
+        node_file_dialog: _,
+        graph_worker_client,
+        artifact_repository,
+        work_executor,
+        worker_operation_executor,
+    } = logic_analyzer_platform::standard_services(APPLICATION_ID);
+
+    logic_analyzer_graph_nodes::install_file_source_factories(
+        Arc::clone(&dsl_file_source_factory),
+        Arc::clone(&sigrok_file_source_factory),
+    );
+    let node_catalogs = sigrok_catalog_scanner
+        .map(|scanner| {
+            logic_analyzer_graph_nodes::install_sigrok_catalog_scanner(Arc::clone(&scanner));
+            vec![crate::sigrok_catalog::service(
+                scanner,
+                Arc::clone(&work_executor),
+            )]
+        })
+        .unwrap_or_default();
+
+    let mut capability_overrides = Vec::new();
+    if let Some(storage) = output_storage {
+        capability_overrides.push(
+            logic_analyzer_graph_nodes::binary_file_writer_capability_override(
+                logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
+                    Arc::clone(&storage),
+                ),
+            ),
+        );
+        capability_overrides.push(
+            logic_analyzer_graph_nodes::csv_word_writer_capability_override(
+                logic_analyzer_processing::nodes::sinks::csv_word_writer::writer_factory(
+                    Arc::clone(&storage),
+                ),
+            ),
+        );
+        capability_overrides.push(
+            logic_analyzer_graph_nodes::text_file_writer_capability_override(
+                logic_analyzer_processing::nodes::sinks::text_file_writer::writer_factory(storage),
+            ),
+        );
+    }
+    capability_overrides.push(
+        logic_analyzer_graph_nodes::dsl_file_source_capability_override(dsl_file_source_factory),
+    );
+    capability_overrides.push(
+        logic_analyzer_graph_nodes::sigrok_file_source_capability_override(
+            sigrok_file_source_factory,
+        ),
+    );
+    if let Some(runtime) = sigrok_decoder_runtime {
+        capability_overrides
+            .push(logic_analyzer_graph_nodes::sigrok_decoder_capability_override(runtime));
+    }
+    if let Some(factory) = u3pro16_source_factory {
+        capability_overrides.push(logic_analyzer_graph_nodes::u3pro16_capability_override(
+            factory,
+        ));
+    }
+
+    let ui_services = logic_analyzer_ui::AppServices::with_host_configuration(
+        Box::new(crate::native_host::NativeHostService::new()),
+        crate::native_host::input_bindings(),
+        crate::native_host::application_settings(),
+        crate::native_host::system_symbol_fonts(),
+    )
+    .with_capture_export_service(
+        logic_analyzer_capture_export::native_capture_export_service(Arc::clone(
+            &artifact_repository,
+        )),
+    )
+    .with_node_file_dialog(Box::new(
+        crate::native_host::NativeNodeFileDialogService::new(),
+    ))
+    .with_graph_execution_and_capability_overrides(
+        Box::new(logic_analyzer_graph_runtime::ThreadedSourcePreparationExecutor::new()),
+        app_manager_factory,
+        Arc::clone(&work_executor),
+        capability_overrides,
+    )
+    .with_graph_worker_client(graph_worker_client)
+    .with_worker_operation_executor(worker_operation_executor)
+    .with_artifact_repository(artifact_repository);
+
+    (ui_services, node_catalogs)
+}
+
 fn run_headless(args: RunArgs) -> MainResult {
-    let platform_services = logic_analyzer_platform::standard_services();
-    let (ui_services, _node_catalogs) = platform_services.into_ui_and_node_catalogs();
+    let (ui_services, _node_catalogs) = application_services();
     let mut runner = HeadlessGraphRunner::new(ui_services);
     let progress_interval = Duration::from_secs_f64(args.progress_interval);
     let mut last_progress = Instant::now()

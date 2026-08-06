@@ -2060,7 +2060,7 @@ fn reference_pipeline_baseline(capture: &Path) {
 }
 
 fn waveform_index_profile(capture: &Path) {
-    let services = logic_analyzer_platform::standard_services();
+    let services = logic_analyzer_platform::standard_services("logic-conduit");
     print_waveform_index_profile(
         capture,
         Arc::new(MemoryArtifactRepository::new()),
@@ -2074,7 +2074,7 @@ fn persistent_waveform_index_profile(capture: &Path) {
     let repository = logic_analyzer_platform::isolated_native_artifact_repository(
         workspace.path().join("artifacts"),
     );
-    let services = logic_analyzer_platform::standard_services();
+    let services = logic_analyzer_platform::standard_services("logic-conduit");
     print_waveform_index_profile(
         capture,
         repository,
@@ -2188,7 +2188,7 @@ fn waveform_index_concurrency_profile(capture: &Path) {
 fn derived_storage_profile(capture: &Path) {
     let workspace = temporary_workspace();
     let output = workspace.path().join("compiled");
-    let services = logic_analyzer_platform::standard_services();
+    let services = logic_analyzer_platform::standard_services("logic-conduit");
     let metrics = Arc::new(DerivedProfileMetrics::new());
     let native_repository = logic_analyzer_platform::isolated_native_artifact_repository(
         workspace.path().join("artifacts"),
@@ -2273,7 +2273,7 @@ fn in_memory_compiler_runtime_benchmark(capture: &Path) {
     let output = workspace.path().join("compiled");
     std::fs::create_dir_all(&output).unwrap();
     let widget = configured_widget(capture, &output);
-    let services = logic_analyzer_platform::standard_services();
+    let services = logic_analyzer_platform::standard_services("logic-conduit");
     let compiler = configured_platform_compiler(&widget, &services);
     let mut context = compile_context(workspace.path());
     let usage_before = resource_usage();
@@ -2514,7 +2514,7 @@ fn live_viewer_subscription_benchmark(capture: &Path) {
     let workspace = temporary_workspace();
     let output = workspace.path().join("compiled");
     std::fs::create_dir_all(&output).unwrap();
-    let services = logic_analyzer_platform::standard_services();
+    let services = logic_analyzer_platform::standard_services("logic-conduit");
     let metrics = Arc::new(DerivedProfileMetrics::new());
     let native_repository = logic_analyzer_platform::isolated_native_artifact_repository(
         workspace.path().join("artifacts"),

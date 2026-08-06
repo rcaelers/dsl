@@ -1,3 +1,5 @@
+//! Native capture-export service adapter.
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -5,15 +7,14 @@ use std::thread::JoinHandle;
 
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
 
-use logic_analyzer_capture_export::{
-    CaptureExportObserver, CaptureExportProgress, CaptureExportReport, export_finalized_capture,
-};
-use logic_analyzer_ui::{
-    CaptureExportCompletion, CaptureExportFormat, CaptureExportService, CaptureExportStatus,
-};
 use signal_artifacts::ArtifactRepository;
 use signal_capture_session::{
     CaptureSessionId, CaptureSessionRepository, CaptureSessionRepositoryConfig,
+};
+
+use crate::{
+    CaptureExportCompletion, CaptureExportFormat, CaptureExportObserver, CaptureExportProgress,
+    CaptureExportReport, CaptureExportService, CaptureExportStatus, export_finalized_capture,
 };
 
 struct ExportObserver {
@@ -83,17 +84,8 @@ impl CaptureExportService for NativeCaptureExportService {
                     cancellation: worker_cancellation,
                     progress: progress_sender,
                 };
-                let backend_format = match format {
-                    CaptureExportFormat::Portable => {
-                        logic_analyzer_capture_export::CaptureExportFormat::Portable
-                    }
-                };
-                let result = export_finalized_capture(
-                    &capture,
-                    backend_format,
-                    &worker_destination,
-                    &mut observer,
-                );
+                let result =
+                    export_finalized_capture(&capture, format, &worker_destination, &mut observer);
                 let _ = completion_sender.send(result);
             })
             .map_err(|error| format!("could not start capture export: {error}"))?;
@@ -145,7 +137,6 @@ impl CaptureExportService for NativeCaptureExportService {
             status.samples_written = progress.samples_written;
             status.total_samples = progress.total_samples;
         }
-
         let completion =
             self.active
                 .as_ref()
@@ -188,7 +179,8 @@ impl Drop for NativeCaptureExportService {
     }
 }
 
-pub(crate) fn native_capture_export_service(
+/// Creates the native asynchronous capture-export service.
+pub fn native_capture_export_service(
     artifact_repository: Arc<dyn ArtifactRepository>,
 ) -> Box<dyn CaptureExportService> {
     let repository =

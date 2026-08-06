@@ -27,93 +27,77 @@ the named function/type over the number when they disagree.
 
 ## composition.application-roots (P1) {#composition-application-roots}
 
-**Problem.** `logic_analyzer_platform` assembles the whole application.
-`standard_services()` (`crates/logic_analyzer_platform/src/platform/native.rs:114`, and the web
-variant at `platform/web.rs:25`) constructs `AppServices`, selects concrete nodes by name, and
-applies the capability-override list (`binary_file_writer`, `csv_word_writer`,
-`text_file_writer`, `dsl_file_source`, `sigrok_file_source`, `sigrok_decoder`, `u3pro16`). The
-app crates (`crates/app_native/src/native.rs:139` and `app_web`) only call it. This is why
-platform's manifest depends on `logic-analyzer-graph-nodes` — an adapter crate sitting above the
-application it serves.
+**Current split.** The app crates construct `AppServices`, select concrete node overrides, and
+construct the web-worker `GraphWorkerRuntime`. Platform no longer imports UI, graph-node,
+graph-capability, or graph-runtime crates. It still returns a `PlatformServices` record containing
+domain-typed factories and clients, so `standard_services()` remains an intermediate assembly
+facade rather than a mechanism-level API.
 
 **Target.** `app_native` and `app_web` are the composition roots. Platform exposes narrow public
-constructors for each adapter it owns; the apps call `logic_analyzer_graph_nodes::
-*_capability_override(...)` themselves, passing platform adapters in, and build `AppServices`.
+constructors for generic host mechanisms; the apps and domain owners adapt those mechanisms to
+their contracts, select `logic_analyzer_graph_nodes::*_capability_override(...)`, and build
+`AppServices`.
 
-**What platform keeps.** Adapters implementing contracts defined by core crates:
-`NativeArtifactRepository`, `NativeWorkExecutor`, `NativeWorkerOperationExecutor`,
-`NativeOutputStorage`, the U3Pro16 transport factory, the Sigrok Python runtime and directory
-scanner, dialogs/menus/fonts. The traits these implement live in `logic_analyzer_processing`,
-`signal_artifacts`, `signal_runtime`, and (today, wrongly) `logic_analyzer_graph_nodes` — see the
-dependency note below. A platform→processing manifest edge is therefore legitimate and remains;
-the platform→graph-nodes and platform→ui edges are the ones being removed.
+**What platform keeps.** Reusable mechanism implementations such as byte storage, prepared-file
+access, mmap-backed buffers, file and directory pickers, downloads, generic USB transport, clocks,
+and task/worker transport. It does not keep concrete source, sink, decoder, device, graph, capture,
+export, settings, or UI adapters. Application or domain code combines the mechanisms into those
+behaviors.
 
 **Steps.**
 
-1. Promote the adapter constructors `standard_services()` uses to `pub` platform API, each
-   returning the contract type (`Arc<dyn DslFileSourceFactory>`, `Arc<dyn SigrokDecoderRuntime>`,
-   `Arc<dyn WorkExecutor>`, …). Most already exist as private `native_*` functions in `native.rs`
-   — promote and document them; do not rewrite them.
-2. Move the body of `standard_services()` — override-vec assembly plus the `AppServices` builder
-   chain — essentially verbatim into `app_native::native` (and the web equivalent into
-   `app_web`). The apps already depend on `logic-analyzer-graph-nodes` and `logic-analyzer-ui`,
-   so no new app dependencies are needed.
-3. Delete `standard_services()` and shrink or delete `PlatformServices`
-   (`crates/logic_analyzer_platform/src/services.rs`) — once apps assemble `AppServices`, the
-   bundle holds nothing platform-specific. Its accessors (`artifact_repository()`,
-   `work_executor()`, …) become individual platform constructors the app calls.
-4. Remove `logic-analyzer-graph-nodes` from platform's `Cargo.toml`. **This will fail until the
-   [host-factory-injection step](#composition-host-factory-injection) moves the
-   `SigrokDecoderRuntime`/`SigrokCatalogScanner` trait definitions out of
-   `logic_analyzer_graph_nodes::host_configuration` — platform implements those traits.** Do that
-   trait move first (it is step 1 of the other item) or land the two items together.
-5. The `install_sigrok_catalog_scanner` / `install_file_source_factories` calls currently inside
-   `standard_services()` (native.rs:128–133) move with the body to the apps as an interim state;
-   they disappear entirely when host-factory-injection completes.
+1. Keep the already moved `AppServices`, override-vector, catalog, and worker-runtime assembly in
+   the app crates. Remove any new concrete selection that reappears in platform.
+2. Replace one domain-typed `PlatformServices` field at a time with a neutral mechanism
+   constructor. Move the corresponding adapter to its behavioral owner or app root and remove its
+   temporary manifest-edge exception in the same change.
+3. Delete `standard_services()`, `standard_services_with_worker_urls()`, `PlatformServices`, and
+   `WorkerGraphHostServices` after their final fields have been replaced. App roots then call
+   mechanism constructors directly.
+4. Delete the interim `install_sigrok_catalog_scanner` and `install_file_source_factories` calls
+   when [host-factory-injection](#composition-host-factory-injection) replaces the remaining
+   process-global configuration with instance-owned dependencies.
 
-**Acceptance.** Platform's `Cargo.toml` lists neither `logic-analyzer-graph-nodes` nor (after the
-[inversion item](#composition-platform-ui-inversion)) `logic-analyzer-ui`. Adding a new device or
-format touches processing (behavior), graph-nodes (node definition), and the app crates (wiring)
-— not platform, unless a new host adapter is genuinely needed.
+**Acceptance.** The app roots build UI and graph services without a platform-owned application
+bundle. Adding a new device, decoder, source, sink, format, or workflow touches its behavioral
+owner, graph nodes where applicable, and the app roots—not platform unless it introduces a new
+generic host mechanism.
 
 ## composition.platform-ui-inversion (P1) {#composition-platform-ui-inversion}
 
-**Problem.** Platform implements port traits that `logic_analyzer_ui` defines, so the
-platform→ui manifest edge survives application-roots on its own. The implementations:
-`NativeHostService` (`platform/native.rs`), the web `HostService` (`platform/web_document.rs`),
-`NodeCatalogService` (`platform/native_sigrok/catalog.rs`), `CaptureExportService`
-(`platform/native_capture_export.rs`). Platform also consumes UI-owned value types:
-`ApplicationSettings`, `HostCommand`, `HostUiCapabilities`, `OpenDialog`, `SaveDialog`,
-`ModifierKeyLabels`, `DecodedBlockCacheSnapshot`, `NodeCatalogSnapshot`, `APPLICATION_ID`,
-`default_input_bindings` (see the imports at `platform/native.rs:38`).
+**Problem.** Removing a UI import is insufficient if platform still speaks Logic Conduit domain
+types. Its remaining dependency edges expose graph-worker clients, processing source/sink/device
+and Sigrok contracts, node-graph dialogs, capture-worker and session types, and derived worker
+kernels. Those are application integrations, not reusable host mechanisms.
 
-**Chosen direction.** Extract the host-port contracts into a new small crate below both
-consumers — working name `logic-analyzer-host-ports` (`crates/logic_analyzer_host_ports`). This
-beats moving the adapter implementations into the app crates because the implementations are
-large, shared between both apps, and genuinely platform code; only the *contract location* is
-wrong.
+**Chosen direction.** Keep platform domain-neutral. It owns low-level capabilities such as file
+and directory access, file dialogs, mmap-backed buffers, web storage, generic USB transport,
+process/task execution, clocks, and worker transport. Domain-aware adapters live in the app roots
+or behavioral domain crates. Do not extract UI/application records into an omnibus host-ports
+crate: that would reverse the dependency without removing the abstraction leak.
 
 **Steps.**
 
-1. Inventory exactly what platform imports from `logic_analyzer_ui` (grep `logic_analyzer_ui::`
-   under `crates/logic_analyzer_platform/src`). That import list *is* the port surface.
-2. Verify the port types are UI-framework-free. If any trait method or value type mentions `egui`
-   types, split that method out or replace the type with a neutral one before moving — the ports
-   crate must not depend on `egui`.
-3. Create the ports crate owning those traits and value types. Move them; do not copy.
-4. `logic_analyzer_ui` depends on the ports crate and **re-exports every moved symbol from its
-   existing facade paths**, so the apps and other consumers compile unchanged. UI-internal code
-   keeps using its own facade.
-5. Point platform's imports at the ports crate and delete `logic-analyzer-ui` from platform's
-   `Cargo.toml`.
-6. Judgment calls, resolved as follows: `APPLICATION_ID` and `default_input_bindings` move to the
-   ports crate (they are product/host constants both sides need). `ApplicationSettings` moves if
-   platform only loads/persists it; if UI mutates it richly, split the persisted record (ports)
-   from UI behavior. `DecodedBlockCacheSnapshot` likely belongs to `signal_derived` — check where
-   it is produced before moving it to ports.
+1. Keep UI `HostService` adapters, application settings, input bindings, fonts, shell commands,
+   and Sigrok catalog presentation in the app roots. Platform exposes target-neutral dialog
+   requests plus native/browser byte, path, picker, and download mechanisms those adapters consume.
+2. Keep `CaptureExportService` and its native asynchronous implementation in
+   `logic_analyzer_capture_export`; the app selects it and UI consumes its contract.
+3. For the remaining exact manifest allowlist, remove one edge at a time:
+   - move graph/capture worker protocol assembly to the app or owning orchestration/runtime crate,
+     leaving platform with a generic worker transport;
+   - make browser file selection return neutral selected-file handles and adapt those to
+     `node_graph` and concrete capture sources above platform;
+   - inject generic filesystem/prepared-byte-source, USB, Python/process, output-stream, and task
+     mechanisms into processing-owned source, device, decoder, and sink adapters;
+   - pass portable worker-kernel inventories and capture/session behavior into platform worker
+     mechanisms instead of importing them there.
+4. Replace `PlatformServices` domain fields with those mechanism constructors and delete each
+   structural-test exception as its dependency disappears.
 
-**Acceptance.** Platform's manifest has no `logic-analyzer-ui`; ports crate has no `egui`,
-UI, widget, or platform dependency; apps compile without import changes.
+**Acceptance.** Platform's manifest has none of the domain edges enumerated by the structural
+test. Its public names and data types are meaningful to another native/web application without
+knowing Logic Conduit, graphs, capture sessions, node identities, protocols, or concrete devices.
 
 ## composition.host-factory-injection (P2) {#composition-host-factory-injection}
 

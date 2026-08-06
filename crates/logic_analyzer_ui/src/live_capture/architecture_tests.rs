@@ -6,13 +6,9 @@ fn implementation_source(source: &'static str) -> &'static str {
 }
 
 #[test]
-fn ui_manifest_has_no_concrete_test_composition_dependencies() {
+fn ui_manifest_has_no_concrete_node_or_test_support_composition_dependencies() {
     let manifest = include_str!("../../Cargo.toml");
-    for dependency in [
-        "logic-analyzer-capture-export",
-        "logic-analyzer-graph-nodes",
-        "logic-analyzer-test-support",
-    ] {
+    for dependency in ["logic-analyzer-graph-nodes", "logic-analyzer-test-support"] {
         assert!(
             !manifest.contains(dependency),
             "UI tests must use UI-owned service, catalog, and acquisition fakes; {dependency} composition belongs outside the UI crate"

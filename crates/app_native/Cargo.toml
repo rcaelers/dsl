@@ -10,12 +10,20 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { workspace = true }
+crossbeam-channel = { workspace = true }
 eframe = { workspace = true }
 egui = { workspace = true }
 input-bindings = { path = "../input_bindings" }
+logic-analyzer-capture-export = { path = "../logic_analyzer_capture_export" }
 logic-analyzer-ui = { path = "../logic_analyzer_ui" }
 logic-analyzer-graph-nodes = { path = "../logic_analyzer_graph_nodes" }
+logic-analyzer-graph-runtime = { path = "../logic_analyzer_graph_runtime" }
+logic-analyzer-processing = { path = "../logic_analyzer_processing" }
 logic-analyzer-platform = { path = "../logic_analyzer_platform" }
+node-graph = { path = "../widgets/node_graph" }
+signal-derived = { path = "../signal_derived" }
+signal-runtime = { path = "../signal_runtime" }
+serde = { workspace = true }
 serde_json = { workspace = true }
 tracing-subscriber = { workspace = true }
 example-plugin = { path = "../../plugins/example-plugin", optional = true }

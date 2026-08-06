@@ -321,21 +321,20 @@ item here, so acceptance comparisons stop being ad-hoc.
 
 ### Composition and host wiring
 
-- [composition.application-roots] (P1 · high) Make the application crates the composition roots
-  the design describes. `logic_analyzer_platform::standard_services` currently assembles the whole
-  application, so `platform/native.rs` imports `DsLogicU3Pro16SourceFactory`, `SigrokDecoder`,
-  `DslFileSource`, and the file-sink factories by name and applies a hand-maintained list of
-  `*_capability_override` calls. Move node selection, override assembly, `AppServices`
-  construction, and the equivalent web-worker graph construction to `app_native` and `app_web`.
-  Adding a node, device, decoder, source, sink, format, or application workflow must not require
-  editing the platform crate.
-  The manifest edges are themselves the defect: `logic_analyzer_platform` depends on
-  `logic-analyzer-ui`, `logic-analyzer-graph-nodes`, and `logic-analyzer-processing`, placing the
-  adapter crate above the application it should serve. This item removes graph and application
-  assembly; [composition.platform-ui-inversion] completes the stricter domain-neutral platform
-  boundary. The web worker must receive an app-built runtime or app-provided factory rather than
-  recreating the concrete override list inside platform. When both items are fixed, an architecture
-  check asserts that platform depends only on neutral host contracts and generic infrastructure.
+- [composition.application-roots] (P1 · high) Finish making the application crates the
+  composition roots the design describes. `app_native` and `app_web` now construct `AppServices`,
+  select the concrete node capability overrides, and build the web-worker graph runtime. Platform
+  no longer depends on `logic-analyzer-ui`, `logic-analyzer-graph-nodes`,
+  `logic-analyzer-graph-capabilities`, or `logic-analyzer-graph-runtime`, and adding another
+  existing node override no longer changes platform.
+  Replace the remaining `logic_analyzer_platform::standard_services`/`PlatformServices`
+  intermediate bundle with narrow mechanism constructors as the domain-facing adapters are moved
+  to their owners. The app roots should receive and combine low-level platform mechanisms, not a
+  bundle whose fields are typed as concrete source, decoder, sink, capture-worker, or graph-worker
+  services. This item removes the remaining application assembly facade;
+  [composition.platform-ui-inversion] removes the domain-aware adapters behind it. Adding a node,
+  device, decoder, source, sink, format, or application workflow must not require editing the
+  platform crate.
   Direction: [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#composition-application-roots).
 - [composition.platform-ui-inversion] (P1 · high) Make `logic_analyzer_platform` a reusable,
   domain-neutral host-mechanism crate, not merely a crate without a UI dependency. It owns native
@@ -352,6 +351,16 @@ item here, so acceptance comparisons stop being ad-hoc.
   `logic-analyzer-host-ports` crate containing application constants and UI value types; that
   would relocate the leak rather than remove platform's domain knowledge. Revisit the crate name
   once it is reusable outside Logic Conduit.
+  The first inversion slice moves native and browser `HostService` adaptation into the app roots,
+  exposes target-neutral dialog requests plus native/browser byte-oriented document mechanisms,
+  moves the capture-export service contract and native asynchronous implementation into
+  `logic_analyzer_capture_export`, moves threaded source preparation into graph runtime, and makes
+  the web worker receive an app-built `GraphWorkerRuntime`. The structural dependency test records
+  the six remaining temporary platform edges exactly:
+  `logic-analyzer-graph-orchestration`, `logic-analyzer-processing`, `node-graph`,
+  `signal-capture`, `signal-capture-session`, and `signal-derived`. Remove each exception in the
+  same change that replaces it with a neutral mechanism boundary; an unlisted domain edge fails
+  immediately.
   Direction: [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#composition-platform-ui-inversion).
 - [composition.host-factory-injection] (P2 · high) Remove the process-global host factory slots in
   `logic_analyzer_graph_nodes::host_configuration`. The `OnceLock`/`RwLock` slots behind
@@ -491,6 +500,9 @@ item here, so acceptance comparisons stop being ad-hoc.
   temporary violation allowlist keyed by TODO ID, fail on every unlisted edge, and delete each
   exception in the refactoring that removes it. Land the manifest checks together with the P1
   composition items so restored boundaries are locked in as they are established.
+  A workspace `cargo metadata` test now locks the platform boundary to the exact temporary
+  violation allowlist owned by [composition.platform-ui-inversion]; continue converting the
+  remaining source-text checks and add the other dependency rules listed in the direction.
   Direction, including the forbidden-edge list:
   [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#tests-architecture-structural).
 - [docs.drift-correction] (P3 · medium) Correct the design statements the code no longer satisfies: `AGENTS.md`

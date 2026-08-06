@@ -16,6 +16,7 @@
 
 mod contracts;
 mod implementation;
+mod runtime;
 
 pub use contracts::{
     InitialPin, LogicChunk, MetadataRegistration, MetadataType, OutputRegistration,
@@ -28,3 +29,4 @@ pub use contracts::{
 pub use implementation::{
     SigrokChannel, SigrokDecoder, SigrokDecoderConfig, SigrokInitialPin, SigrokOptionValue,
 };
+pub use runtime::{SigrokCatalogScanner, SigrokDecoderRuntime};

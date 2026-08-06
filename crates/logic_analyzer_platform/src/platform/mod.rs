@@ -10,15 +10,18 @@ std::cfg_select! {
         #[allow(unreachable_pub)]
         mod web_worker;
 
+        pub use web::worker_graph_host_services;
         pub(crate) use web::{standard_services, standard_services_with_worker_urls};
+        pub use web_capture_worker::{initialize_graph_worker_runtime, worker_artifact_repository};
+        pub use web_document::{BrowserDocumentHost, BrowserDownload};
         pub use web_worker::WebWorkerAdapter;
     }
     _ => {
         mod native;
         mod native_artifact_repository;
-        mod native_capture_export;
         mod native_file_identity_cache;
         mod native_file_source;
+        mod native_document;
         mod native_sigrok;
         mod native_worker;
 
@@ -26,10 +29,9 @@ std::cfg_select! {
         mod native_hardware_validation;
 
         pub(crate) use native::standard_services;
-        #[cfg(target_os = "macos")]
-        pub use native::{dispatch_host_command, set_recent_files_listener};
         #[cfg(feature = "developer-tools")]
         pub use native_artifact_repository::isolated_native_artifact_repository;
+        pub use native_document::NativeDocumentHost;
         #[cfg(feature = "developer-tools")]
         pub use native_hardware_validation::{validate_capture_hardware, validate_fpga_hardware};
         #[cfg(feature = "developer-tools")]

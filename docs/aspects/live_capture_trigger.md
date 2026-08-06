@@ -252,8 +252,9 @@ Save Capture Data pins a finalized session and streams it through
 `logic_analyzer_capture_export` to a sigrok v2 `.sr` file. The export contains raw physical
 channels, channel names, and sample rate. Trigger position uses an optional compatible metadata key
 and produces a warning because sigrok v2 has no standard trigger-position field. Derived lanes are
-not represented as raw capture data. Native platform services own destination selection and the
-export worker; the web platform advertises capture export as unavailable.
+not represented as raw capture data. Native application composition adapts destination selection
+and injects the capture-export-owned asynchronous service; web composition injects the explicit
+unavailable service.
 
 ## Integrity and failure rules
 

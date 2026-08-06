@@ -59,7 +59,7 @@ class PlatformBoundaryCheckTest < Minitest::Test
     end
   end
 
-  def test_rejects_core_platform_dependencies_and_application_runtime_ownership
+  def test_rejects_core_platform_dependencies_and_allows_application_composition_dependencies
     with_workspace do |root|
       write(root, "crates/core/Cargo.toml", <<~TOML)
         [dependencies]
@@ -72,7 +72,7 @@ class PlatformBoundaryCheckTest < Minitest::Test
 
       errors = PlatformBoundaryCheck.new(root).errors
       assert(errors.any? { |error| error.include?("core crates must not depend") })
-      assert(errors.any? { |error| error.include?("application crates are bootstrap roots") })
+      refute(errors.any? { |error| error.include?("logic-analyzer-processing") })
     end
   end
 

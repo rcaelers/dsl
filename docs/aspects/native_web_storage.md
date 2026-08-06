@@ -32,13 +32,15 @@ and manifest. Authoritative capture chunks, waveform-index segments, derived ind
 explicitly flush before publication. No capture, raw cache, waveform index, or replay session must
 fit in one resident allocation.
 
-Host source acquisition and output destinations are selected in `logic_analyzer_platform`.
+Host source acquisition and output-destination adapters are selected by
+`logic_analyzer_platform`, then installed as concrete node capabilities by the application roots.
 Native composition injects DSL and Sigrok path adapters, filesystem-backed writer storage, the
-U3Pro16 USB transport and FPGA-image provider, and repository-backed capture export. Web composition
-injects browser DSL and Sigrok import adapters plus explicit unavailable writer, USB, and export
-capabilities. The portable Sigrok source supports explicitly configured demo data; web composition
-does not silently substitute it for a file. Browser graph-document Save and Save As use JSON
-downloads, while general processing-node output and capture export are unavailable capabilities.
+U3Pro16 USB transport and FPGA-image provider, and the capture-export-owned repository-backed
+service. Web composition injects browser DSL and Sigrok import adapters plus explicit unavailable
+writer, USB, and export capabilities. The portable Sigrok source supports explicitly configured
+demo data; web composition does not silently substitute it for a file. Browser graph-document Save
+and Save As adapt the platform's byte download mechanism to JSON, while general processing-node
+output and capture export are unavailable capabilities.
 
 Platform selection occurs at complete implementation-file boundaries in `logic_analyzer_platform`.
 Generic compiler, runtime, viewer, graph-node, and UI code contains no target-selected source. The
@@ -52,29 +54,29 @@ generations are rejected and invalidated as a unit. Unfinished ephemeral artifac
 when their last store handle is dropped. Graph-runtime cache lookup, graph pruning, preview,
 invalidation, and cleanup apply the same policy to native and web repositories.
 
-`logic_analyzer_platform` composes the UI host-service port and selects the artifact
-repository contract. Native and web application bootstraps obtain an opaque `PlatformServices`
-bundle from that crate and inject its UI services when constructing the application. That service
-boundary passes the selected repository through the graph service to every graph-runtime operation
+`logic_analyzer_platform` selects the artifact repository and host mechanisms. Native and web
+application roots decompose the temporary `PlatformServices` bundle, adapt mechanisms to the UI
+host-service port and domain contracts, and construct `AppServices`. That composition boundary
+passes the selected repository through the graph service to every graph-runtime operation
 and `NodeBuildContext`; concrete derived-lane configuration therefore receives a capability rather than
 selecting a target backend. The native adapter provides a durable repository whose same-directory
 publication is atomic and whose immutable reads use mmap-backed byte regions. The web adapter
 selects the OPFS-backed browser repository and falls back explicitly to the portable
-process-lifetime memory repository when initialization fails. The native adapter also owns file
-dialogs, graph document I/O, and allocation of the application directory backing its repository.
+process-lifetime memory repository when initialization fails. Platform allocates the application
+directory backing the native repository.
 Cache administration is graph-runtime policy over the injected repository, so web caches use the same identity,
-preview, pruning, invalidation, inspection, and cleanup paths. The native adapter also owns native
-configuration-file discovery and I/O. It then passes decoded portable settings and bindings
-to the UI. It supplies
-optional system symbol fonts; the UI owns bundled fallback fonts and the portable font installation
-algorithm. The web adapter supplies embedded settings, opens graph documents through an
-asynchronous browser picker, retains selected and saved graph bytes in a process-lifetime document
-registry, and implements Save and Save As as browser JSON downloads. Its opaque document
+preview, pruning, invalidation, inspection, and cleanup paths. `NativeDocumentHost` owns
+configuration paths, byte I/O, and file/directory dialogs; the native app adapts those mechanisms
+to settings decoding, input bindings, graph documents, and optional system symbol fonts. The UI
+owns bundled fallback fonts and the portable font installation algorithm. The web app supplies
+embedded settings and adapts the platform's
+asynchronous browser picker, process-lifetime document registry, and byte download mechanism to
+graph documents. Its opaque document
 references never enter the saved graph. Capture-file selection remains a separate asynchronous
 node file-dialog capability. General output-file operations are explicit unavailable capabilities.
-Finite-source preparation uses the graph-runtime-owned execution contract: the native platform adapter
-uses a bounded worker, while the web adapter selects a browser capture worker with an inline
-fallback. The compiler
+Finite-source preparation uses the graph-runtime-owned execution contract: native composition
+selects its threaded executor, while web composition selects a browser capture-worker executor with
+an inline fallback. The compiler
 discovers the source-preparation factory; the graph runtime polls one task contract and contains no
 target-selected source-preparation implementation.
 The application-runtime facade likewise receives a factory from platform composition. Native runs
@@ -85,17 +87,17 @@ bundle supplies bounded finite-work execution and host-owned long-running task e
 one capability, passes it through the UI graph-service construction boundary, and the graph runtime makes
 it available to node builders in their `NodeBuildContext`. Concrete nodes choose whether they need
 finite or long-running work without selecting a target or a platform implementation.
-The platform service bundle also supplies the UI-owned `CaptureExportService`; its native adapter
-owns repository access and export-worker execution, while the portable unavailable service reports
-absence explicitly. The UI has no export feature flag, target-selected export module, or concrete
-export dependency. Graph document persistence and embedded node file dialogs likewise cross
-host-service contracts, and the node-graph widget exposes only model snapshots and replacement.
-Native shell integrations exchange portable commands and UI state through that service contract;
-their queues and repaint wake-ups remain inside the platform adapter. Runtime cache diagnostics use
-the same adapter boundary and one portable UI snapshot path. Embedded graph-node file controls use
-the portable `node_graph::FileDialogService`, supplied through the same platform service bundle;
-the widget contains no target selection or native dialog dependency. The UI owns the portable request,
-result, and service contract and does not select an implementation.
+The `logic_analyzer_capture_export` crate supplies both `CaptureExportService` and its native
+repository-backed asynchronous implementation; native composition injects it, while the portable
+unavailable service reports absence explicitly on web. UI has no export feature flag or
+target-selected export module. Graph document persistence and embedded node file dialogs likewise
+cross host-service contracts, and the node-graph widget exposes only model snapshots and replacement.
+Native shell integrations exchange portable commands and UI state through the app-owned host
+service; their queues and repaint wake-ups stay in the native app root. Runtime cache diagnostics
+use the same application boundary and one portable UI snapshot path. Embedded graph-node file
+controls use `node_graph::FileDialogService`. Native composition implements it in the app root;
+browser composition receives its capture-file implementation from the temporary platform bundle.
+The widget contains no target selection or native dialog dependency.
 
 ## Unified native and web data plane
 
@@ -171,9 +173,9 @@ inject a fixed clock so complete manifests and encoded generations can be compar
 ### Platform adapter crate
 
 `logic_analyzer_platform` is a top-level adapter crate, not a lower-level dependency of the core.
-It depends inward on the crates that define capability contracts and returns implementations of
-those contracts to the application composition root. It does not define parallel copies of their
-data models.
+It returns target-selected mechanisms and adapter parts to the application composition root and
+does not define parallel copies of consumer data models. Core crates never depend on it. Its
+remaining inward domain edges are exact temporary exceptions in the workspace structural test.
 
 Its private layout has one target-selection point:
 
@@ -181,33 +183,33 @@ Its private layout has one target-selection point:
 logic_analyzer_platform/
   src/
     lib.rs                    curated crate-root construction API
-    services.rs               composition-only adapter bundle
+    file_dialog.rs            target-neutral file-picker request records
+    services.rs               temporary app-consumed adapter bundle
     platform/
       mod.rs                  the only reusable target selector
-      native.rs               native host-service composition
+      native.rs               native mechanisms and remaining domain adapters
+      native_document.rs      filesystem, configuration-path, and dialog mechanisms
       native_sigrok/
         mod.rs                embedded-Python Sigrok host composition
         discovery.rs          package discovery and native directory scanning
         execution.rs          Python-backed Sigrok execution factory
-        catalog.rs            persisted external-decoder catalog adapter
-      web.rs                  web host-service composition
+      web.rs                  browser mechanisms and remaining domain adapters
+      web_document.rs         byte-oriented browser documents and downloads
 ```
 
-The crate root exposes constructors and an opaque composition bundle, not public `native` and
-`web` namespaces. The application bootstrap decomposes that bundle into the capability objects
-accepted by the compiler, runtime, processing factories, dynamic node catalogs, and UI host. No
-core crate names `PlatformServices` or depends on `logic_analyzer_platform`.
+The crate root exposes constructors and a temporary composition bundle, not public `native` and
+`web` namespaces. Application roots decompose that bundle, construct concrete node overrides,
+catalog services, graph-worker runtimes, and UI services, and inject them. No core crate names
+`PlatformServices` or depends on `logic_analyzer_platform`.
 
 Traits implemented by the adapter crate are supported cross-crate ports re-exported from the crate
 root of their behavioral owner. For example, artifact storage ports belong to `signal_artifacts`,
-processing execution belongs to `signal_runtime`, encoded-store ports belong to `signal_derived`, cache-administration
-ports belong to `logic_analyzer_graph_runtime`, embedded
-node-control dialogs belong to `node_graph`, and application dialogs, host commands,
-cache diagnostics, and capture export belong to `logic_analyzer_ui`.
-Making those ports implementable does not expose their concrete native or web dependencies. The
-capture-export port has one target-neutral contract, and its repository-backed adapter is selected
-in `logic_analyzer_platform`. Repository-backed session storage is accessed through the same UI
-contract.
+processing execution belongs to `signal_runtime`, encoded-store ports belong to `signal_derived`,
+cache-administration and source-preparation ports belong to `logic_analyzer_graph_runtime`, embedded
+node-control dialogs belong to `node_graph`, application dialogs and host commands belong to
+`logic_analyzer_ui`, and capture export belongs to `logic_analyzer_capture_export`. Application
+roots perform domain/UI adaptation and select these implementations. Making a port implementable
+does not expose its concrete native or web dependencies.
 
 The Sigrok decoder node follows the same ownership boundaries. `logic_analyzer_processing` owns the portable
 decoder configuration, state machine, output contracts, and `SigrokExecutionFactory` port.
@@ -216,7 +218,9 @@ snapshots into node templates. `logic_analyzer_platform::platform::native_sigrok
 interpreter initialization, the `sigrokdecode` compatibility host, package discovery, directory
 settings, and the native execution-factory implementation. A host injects that factory and
 scanner; a host without an embedded runtime injects no implementation and the portable node
-reports that the capability is unavailable.
+reports that the capability is unavailable. These Sigrok-specific platform modules are part of the
+temporary `logic-analyzer-processing` dependency tracked by
+`composition.platform-ui-inversion`; they are not generic host mechanisms.
 
 The memory repository, owned backing, fake source, cooperative executor, and other host-independent
 implementations live in their behavioral owner crates and can be selected on native, web, or in
@@ -837,19 +841,22 @@ bounded blocks and a repository rather than preloading one contiguous buffer.
   materialization, execution lifecycle, and collected run data. It depends on injected repository,
   manager, and work-execution capabilities rather than physical storage implementations.
 - `logic_analyzer_ui` owns application-facing commands and status. Native and web application
-  crates provide only thin bootstraps that install host capability adapters.
+  crates adapt host mechanisms, select concrete capabilities, and construct UI/worker services.
 - `logic_analyzer_viewer` consumes capture and derived query handles. It has no repository,
   mmap, path, browser handle, cache administration, memory-management responsibility, or
   target-selected worker implementation.
 - `logic_analyzer_platform` is an adapter/integration crate above the contract owners. It contains
   reusable native and web implementations for files, mmap, worker execution, browser handles,
-  OPFS, dialogs, export destinations, and USB transport. It owns no codec, index, cache policy,
-  graph policy, viewer behavior, concrete protocol, or node schema.
+  OPFS, dialogs, and USB access. Its temporary service bundle still exposes concrete processing,
+  graph-worker, capture/session, derived-kernel, and node-dialog contracts; the structural
+  allowlist prevents that surface from growing while the P1 inversion removes it.
 - `app_native` and `app_web` are unavoidable target-specific composition roots. They initialize
-  their host, construct `logic_analyzer_platform` services, and inject them. They contain no
-  reusable storage, processing, or scheduling implementation.
+  their host, obtain `logic_analyzer_platform` mechanisms, adapt domain/UI ports, select concrete
+  node overrides, and construct application and worker services. They contain no reusable storage,
+  processing, or scheduling implementation.
 
-The dependency direction points from adapters to contract owners:
+The current dependency direction points from app composition through platform to generic contracts,
+with the platform's six temporary domain edges checked separately:
 
 ```text
 signal_artifacts   signal_runtime   signal_capture   signal_derived   signal_capture_session
@@ -859,7 +866,7 @@ signal_artifacts   signal_runtime   signal_capture   signal_derived   signal_cap
                              logic_analyzer_platform
                                            ^
                                            |
-                                app_native / app_web
+        UI / graph nodes / domain services <- app_native / app_web
 ```
 
 Core crates never depend on `logic_analyzer_platform`; doing so would reverse the injection

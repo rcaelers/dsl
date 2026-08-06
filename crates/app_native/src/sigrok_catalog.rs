@@ -1,34 +1,31 @@
-use std::path::PathBuf;
+//! Native composition of Sigrok discovery with the UI node-catalog port.
+
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use serde::{Deserialize, Serialize};
 
-use logic_analyzer_processing::nodes::decoders::sigrok_decoder::SigrokCatalogSnapshot;
+use logic_analyzer_platform::NativeDocumentHost;
+use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+    SigrokCatalogScanner, SigrokCatalogSnapshot,
+};
 use logic_analyzer_ui::{NodeCatalogService, NodeCatalogSnapshot};
 use node_graph::NodeTemplate;
 use signal_runtime::{WorkExecutor, WorkTask};
 
-use super::discovery::scan_catalog;
-
 const NAMESPACE: &str = "logic_conduit.sigrok_python";
-
-pub(crate) fn directory_catalog(
-    settings_path: PathBuf,
-    default_directories: Vec<PathBuf>,
-    work_executor: Arc<dyn WorkExecutor>,
-) -> SigrokDirectoryCatalog {
-    SigrokDirectoryCatalog::with_work_executor(settings_path, default_directories, work_executor)
-}
 
 #[derive(Default, Deserialize, Serialize)]
 struct SavedSettings {
     directories: Vec<PathBuf>,
 }
 
-pub(crate) struct SigrokDirectoryCatalog {
+struct SigrokDirectoryCatalog {
+    documents: NativeDocumentHost,
     settings_path: PathBuf,
     directories: Vec<PathBuf>,
+    scanner: Arc<dyn SigrokCatalogScanner>,
     sender: Sender<(u64, SigrokCatalogSnapshot)>,
     receiver: Receiver<(u64, SigrokCatalogSnapshot)>,
     work_executor: Arc<dyn WorkExecutor>,
@@ -41,18 +38,22 @@ pub(crate) struct SigrokDirectoryCatalog {
 }
 
 impl SigrokDirectoryCatalog {
-    pub(crate) fn with_work_executor(
+    fn new(
+        documents: NativeDocumentHost,
         settings_path: PathBuf,
         default_directories: Vec<PathBuf>,
+        scanner: Arc<dyn SigrokCatalogScanner>,
         work_executor: Arc<dyn WorkExecutor>,
     ) -> Self {
         let (sender, receiver) = mpsc::channel();
-        let directories = load_settings(&settings_path)
+        let directories = load_settings(&documents, &settings_path)
             .map(|settings| settings.directories)
             .unwrap_or(default_directories);
         let mut catalog = Self {
+            documents,
             settings_path,
             directories,
+            scanner,
             sender,
             receiver,
             work_executor,
@@ -71,12 +72,13 @@ impl SigrokDirectoryCatalog {
         self.generation = self.generation.wrapping_add(1);
         let generation = self.generation;
         let directories = self.directories.clone();
+        let scanner = Arc::clone(&self.scanner);
         let sender = self.sender.clone();
         self.scanning = true;
         let task = self
             .work_executor
             .submit(Box::new(move || {
-                let _ = sender.send((generation, scan_catalog(&directories)));
+                let _ = sender.send((generation, scanner.scan(&directories)));
             }))
             .expect("Sigrok decoder scan task can be scheduled");
         self.scan_tasks.push(task);
@@ -104,14 +106,10 @@ impl SigrokDirectoryCatalog {
             directories: self.directories.clone(),
         };
         let result = self
-            .settings_path
-            .parent()
-            .ok_or_else(|| "settings path has no parent".to_owned())
-            .and_then(|parent| std::fs::create_dir_all(parent).map_err(|error| error.to_string()))
+            .documents
+            .create_parent_directories(&self.settings_path)
             .and_then(|()| serde_json::to_vec_pretty(&settings).map_err(|error| error.to_string()))
-            .and_then(|bytes| {
-                std::fs::write(&self.settings_path, bytes).map_err(|error| error.to_string())
-            });
+            .and_then(|bytes| self.documents.write(&self.settings_path, &bytes));
         if let Err(error) = result {
             self.diagnostics.push(format!(
                 "Could not save Sigrok decoder settings to {}: {error}",
@@ -139,7 +137,10 @@ impl NodeCatalogService for SigrokDirectoryCatalog {
     }
 
     fn add_directory(&mut self) {
-        let Some(directory) = rfd::FileDialog::new().pick_folder() else {
+        let Some(directory) = self
+            .documents
+            .choose_directory("Add Sigrok decoder directory", None)
+        else {
             return;
         };
         if !self.directories.contains(&directory) {
@@ -167,86 +168,37 @@ impl NodeCatalogService for SigrokDirectoryCatalog {
     }
 }
 
-fn load_settings(path: &PathBuf) -> Option<SavedSettings> {
-    serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+pub(crate) fn service(
+    scanner: Arc<dyn SigrokCatalogScanner>,
+    work_executor: Arc<dyn WorkExecutor>,
+) -> Box<dyn NodeCatalogService> {
+    let documents = NativeDocumentHost::new();
+    Box::new(SigrokDirectoryCatalog::new(
+        documents,
+        documents.configuration_file(logic_analyzer_ui::APPLICATION_ID, "sigrok_decoders.json"),
+        default_directories(&documents),
+        scanner,
+        work_executor,
+    ))
 }
 
-#[cfg(test)]
-mod catalog_tests {
-    use std::time::{Duration, Instant};
-
-    use super::*;
-
-    #[test]
-    fn background_scan_publishes_clearly_external_templates() {
-        let directory = tempfile::tempdir().unwrap();
-        let decoder_root = directory.path().join("decoders");
-        write_fixture(&decoder_root);
-        let settings_path = directory.path().join("sigrok_decoders.json");
-        std::fs::write(
-            &settings_path,
-            serde_json::to_vec(&SavedSettings {
-                directories: vec![decoder_root],
-            })
-            .unwrap(),
-        )
-        .unwrap();
-        let mut catalog = SigrokDirectoryCatalog::with_work_executor(
-            settings_path,
-            Vec::new(),
-            Arc::new(signal_runtime::InlineWorkExecutor),
-        );
-        let deadline = Instant::now() + Duration::from_secs(5);
-
-        let templates = loop {
-            if let Some(templates) = catalog.take_templates() {
-                break templates;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "background catalog scan timed out"
-            );
-            std::thread::sleep(Duration::from_millis(10));
-        };
-
-        assert_eq!(templates.len(), 1);
-        assert_eq!(templates[0].name, "Foreign fixture (foreign_fixture)");
-        assert_eq!(templates[0].category, "External Sigrok::Test instruments");
-        assert_eq!(templates[0].base_type, "Sigrok Decoder");
+fn default_directories(documents: &NativeDocumentHost) -> Vec<PathBuf> {
+    let mut paths = std::env::var_os("SIGROK_DECODERS_DIR")
+        .map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
+        .unwrap_or_default();
+    for path in [
+        PathBuf::from("/opt/homebrew/share/libsigrokdecode/decoders"),
+        PathBuf::from("/usr/local/share/libsigrokdecode/decoders"),
+        PathBuf::from("/usr/share/libsigrokdecode/decoders"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../dslogic/libsigrokdecode/decoders"),
+    ] {
+        if documents.is_directory(&path) && !paths.contains(&path) {
+            paths.push(path);
+        }
     }
+    paths
+}
 
-    fn write_fixture(root: &std::path::Path) {
-        let package = root.join("foreign_fixture");
-        std::fs::create_dir_all(&package).unwrap();
-        std::fs::write(package.join("__init__.py"), "from .pd import Decoder\n").unwrap();
-        std::fs::write(
-            package.join("pd.py"),
-            r#"import sigrokdecode as srd
-
-class Decoder(srd.Decoder):
-    api_version = 3
-    id = 'foreign_fixture'
-    name = 'Foreign fixture'
-    longname = 'Foreign fixture'
-    desc = 'Fixture decoder.'
-    license = 'mit'
-    inputs = ['logic']
-    outputs = []
-    tags = ['Test instruments']
-    channels = ({'id': 'data', 'name': 'Data', 'desc': 'Data'},)
-    optional_channels = ()
-    options = ()
-    annotations = ()
-    annotation_rows = ()
-    binary = ()
-
-    def metadata(self, key, value):
-        self.samplerate = value
-
-    def start(self):
-        pass
-"#,
-        )
-        .unwrap();
-    }
+fn load_settings(documents: &NativeDocumentHost, path: &Path) -> Option<SavedSettings> {
+    serde_json::from_slice(&documents.read_optional(path).ok()??).ok()
 }

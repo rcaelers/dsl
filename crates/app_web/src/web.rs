@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use wasm_bindgen::prelude::*;
 
 use crate::demo_graphs::embedded_demo_graphs;
@@ -27,6 +29,38 @@ fn initialize_compile_time_inventories() {
 #[wasm_bindgen(js_name = initializeWorkerHost)]
 pub fn initialize_worker_host() {
     initialize_compile_time_inventories();
+    let logic_analyzer_platform::WorkerGraphHostServices {
+        output_storage,
+        dsl_file_source_factory,
+        sigrok_file_source_factory,
+    } = logic_analyzer_platform::worker_graph_host_services();
+    let capability_overrides = vec![
+        logic_analyzer_graph_nodes::binary_file_writer_capability_override(
+            logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
+                Arc::clone(&output_storage),
+            ),
+        ),
+        logic_analyzer_graph_nodes::csv_word_writer_capability_override(
+            logic_analyzer_processing::nodes::sinks::csv_word_writer::writer_factory(Arc::clone(
+                &output_storage,
+            )),
+        ),
+        logic_analyzer_graph_nodes::text_file_writer_capability_override(
+            logic_analyzer_processing::nodes::sinks::text_file_writer::writer_factory(
+                output_storage,
+            ),
+        ),
+        logic_analyzer_graph_nodes::dsl_file_source_capability_override(dsl_file_source_factory),
+        logic_analyzer_graph_nodes::sigrok_file_source_capability_override(
+            sigrok_file_source_factory,
+        ),
+    ];
+    logic_analyzer_platform::initialize_graph_worker_runtime(
+        logic_analyzer_graph_orchestration::GraphWorkerRuntime::with_repository(
+            capability_overrides,
+            logic_analyzer_platform::worker_artifact_repository(),
+        ),
+    );
 }
 
 #[derive(Clone)]
@@ -61,6 +95,7 @@ impl WebHandle {
         let worker_module_url = self.worker_module_url.clone();
         let worker_wasm_url = self.worker_wasm_url.clone();
         let platform_services = logic_analyzer_platform::standard_services_with_worker_urls(
+            logic_analyzer_ui::APPLICATION_ID,
             &worker_module_url,
             &worker_wasm_url,
         )
@@ -70,8 +105,7 @@ impl WebHandle {
                 canvas,
                 eframe::WebOptions::default(),
                 Box::new(move |cc| {
-                    let (ui_services, node_catalogs) =
-                        platform_services.into_ui_and_node_catalogs();
+                    let (ui_services, node_catalogs) = application_services(platform_services);
                     Ok(Box::new(
                         logic_analyzer_ui::App::new_with_demo_graphs_catalogs_and_services(
                             cc,
@@ -90,6 +124,69 @@ impl WebHandle {
     pub fn destroy(&self) {
         self.runner.destroy();
     }
+}
+
+fn application_services(
+    platform_services: logic_analyzer_platform::PlatformServices,
+) -> (
+    logic_analyzer_ui::AppServices,
+    Vec<Box<dyn logic_analyzer_ui::NodeCatalogService>>,
+) {
+    let logic_analyzer_platform::PlatformServices {
+        node_file_dialog,
+        capture_worker_client,
+        app_manager_factory,
+        dsl_file_source_factory,
+        sigrok_file_source_factory,
+        graph_worker_client,
+        artifact_repository,
+        work_executor,
+        worker_operation_executor,
+        ..
+    } = platform_services;
+
+    logic_analyzer_graph_nodes::install_file_source_factories(
+        Arc::clone(&dsl_file_source_factory),
+        Arc::clone(&sigrok_file_source_factory),
+    );
+    let capability_overrides = vec![
+        logic_analyzer_graph_nodes::dsl_file_source_capability_override(dsl_file_source_factory),
+        logic_analyzer_graph_nodes::sigrok_file_source_capability_override(
+            sigrok_file_source_factory,
+        ),
+    ];
+    let source_preparation_executor: Box<
+        dyn logic_analyzer_graph_runtime::SourcePreparationExecutor,
+    > = if let Some(client) = capture_worker_client {
+        Box::new(
+            logic_analyzer_graph_runtime::CaptureWorkerSourcePreparationExecutor::new(
+                client,
+                Box::new(logic_analyzer_graph_runtime::InlineSourcePreparationExecutor),
+            ),
+        )
+    } else {
+        Box::new(logic_analyzer_graph_runtime::InlineSourcePreparationExecutor)
+    };
+    let ui_services = logic_analyzer_ui::AppServices::with_host_configuration(
+        Box::new(crate::host_service::BrowserHostService::new()),
+        logic_analyzer_ui::default_input_bindings(),
+        logic_analyzer_ui::ApplicationSettings::default(),
+        Vec::new(),
+    )
+    .with_capture_export_service(logic_analyzer_ui::unavailable_capture_export_service())
+    .with_node_file_dialog(
+        node_file_dialog.expect("the browser supplies its asynchronous node-file dialog"),
+    )
+    .with_graph_execution_and_capability_overrides(
+        source_preparation_executor,
+        app_manager_factory,
+        Arc::clone(&work_executor),
+        capability_overrides,
+    )
+    .with_graph_worker_client(graph_worker_client)
+    .with_worker_operation_executor(worker_operation_executor)
+    .with_artifact_repository(artifact_repository);
+    (ui_services, Vec::new())
 }
 
 #[cfg(test)]

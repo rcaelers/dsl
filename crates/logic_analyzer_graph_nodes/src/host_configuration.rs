@@ -4,8 +4,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, RwLock};
 
 use logic_analyzer_graph_capabilities::node::GraphNodeCapabilityOverride;
-use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
-    SigrokCatalogSnapshot, SigrokDecoderConfig, SigrokDecoderDescriptor,
+use logic_analyzer_processing::nodes::decoders::sigrok_decoder::SigrokCatalogSnapshot;
+pub use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
+    SigrokCatalogScanner, SigrokDecoderRuntime,
 };
 use logic_analyzer_processing::nodes::sinks::binary_file_writer::BinaryFileWriterFactory;
 use logic_analyzer_processing::nodes::sinks::csv_word_writer::CsvWordWriterFactory;
@@ -17,35 +18,6 @@ use logic_analyzer_processing::nodes::sources::dslogic_u3pro16::DsLogicU3Pro16So
 use logic_analyzer_processing::nodes::sources::sigrok_file::{
     SigrokFileSourceFactory, portable_source_factory as portable_sigrok_file_source_factory,
 };
-use signal_runtime::{ProcessNode, WorkExecutor};
-
-/// Host-provided discovery and execution for Sigrok decoder packages.
-pub trait SigrokDecoderRuntime: Send + Sync {
-    /// Discovers the saved decoder package and its current contract.
-    ///
-    /// # Parameters
-    /// - `decoder_root`: Input consumed by this operation.
-    /// - `decoder_id`: Input consumed by this operation.
-    fn discover(
-        &self,
-        decoder_root: &std::path::Path,
-        decoder_id: &str,
-    ) -> Result<SigrokDecoderDescriptor, String>;
-
-    /// Creates one configured decoder processing node.
-    fn create(
-        &self,
-        name: &str,
-        config: SigrokDecoderConfig,
-        work_executor: Arc<dyn WorkExecutor>,
-    ) -> Result<Box<dyn ProcessNode>, String>;
-}
-
-/// Host-provided scanner for Sigrok decoder-package directories.
-pub trait SigrokCatalogScanner: Send + Sync {
-    /// Returns the current decoder catalog for the selected directories.
-    fn scan(&self, directories: &[PathBuf]) -> SigrokCatalogSnapshot;
-}
 
 struct UnavailableSigrokCatalogScanner;
 

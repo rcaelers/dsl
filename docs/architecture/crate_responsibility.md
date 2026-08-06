@@ -172,35 +172,40 @@ identities are opaque strings; application command policy and menu layout remain
 
 Owns portable application interaction and panel composition. It coordinates the graph editor,
 viewer, output selection, Run and live-apply workflow, documents, menus, panels, and application
-services through UI-owned graph, host, capture, and export ports. Concrete graph-node definitions,
-processing execution policy, host I/O, and target selection remain outside this crate.
+services through UI-owned graph, host, and capture ports and the capture-export-owned service
+contract. Concrete graph-node definitions, processing execution policy, host I/O, and target
+selection remain outside this crate.
 
 ### Host, application, and support crates
 
 #### `logic-analyzer-platform`
 
-Owns reusable native and web implementations of capability contracts defined by core crates. Its
-opaque service bundle provides storage, worker, file, menu, font, and device adapters to application
-composition. It is the only reusable crate that selects code and dependencies by compilation
-target; core-domain policy and data models remain with their defining crates.
+Owns reusable native and web host mechanisms and the workspace's single reusable target-selection
+point. Its current service bundle provides storage, worker, file-source, output, and device adapter
+parts to application composition; the remaining domain-typed parts are constrained by the explicit
+P1 structural allowlist. UI host adaptation, concrete node selection, graph construction, and
+application policy remain outside this crate.
 
 #### `logic-analyzer-capture-export`
 
 Owns native streaming export of finalized generic captures, including format selection, progress,
-observer, and result contracts. It does not own capture acquisition, graph behavior, concrete
-processing nodes, or UI policy.
+observer, result, and stateful application-service contracts, plus the asynchronous native service
+implementation. It does not own capture acquisition, graph behavior, concrete processing nodes,
+or UI policy.
 
 #### `logic-analyzer-app-native`
 
 Is the native composition root. It boots the desktop host, enables the selected registration
-inventory, constructs native platform services, and injects them into `logic-analyzer-ui`. Reusable
-application policy and services remain in library crates.
+inventory, adapts native host mechanisms to UI/domain ports, selects concrete node capabilities,
+constructs `AppServices`, and injects them into `logic-analyzer-ui`. Reusable application policy
+and services remain in library crates.
 
 #### `logic-analyzer-app-web`
 
 Is the browser composition root. It boots the web host, enables the selected registration
-inventory, constructs browser platform services, and injects them into `logic-analyzer-ui`.
-Reusable application policy and services remain in library crates.
+inventory, adapts browser host mechanisms to UI/domain ports, selects concrete node capabilities,
+constructs both UI services and the worker graph runtime, and injects them. Reusable application
+policy and services remain in library crates.
 
 #### `logic-analyzer-test-support`
 
@@ -303,9 +308,9 @@ process-node executor.
 
 The UI's private graph-service adapter owns a lowerer and a graph runtime. It lowers the current
 document before Run or apply and passes the resulting `ProcessingGraph` to the runtime. The
-platform adapter provides worker transport through the UI graph-service port. The neutral graph
-orchestration crate owns the messages, codec, client, and worker-side compiler/runtime composition
-used by that adapter.
+platform adapter provides worker transport, application composition injects its client into the UI
+graph service, and the web app constructs the worker-side runtime. The neutral graph orchestration
+crate owns the messages, codec, client, and worker-side compiler/runtime composition.
 
 ## Graph plug-in contracts
 
@@ -325,9 +330,9 @@ The compiler copies resolved materializer handles and presentation values into t
 The runtime invokes those handles through the plan and does not read the registry.
 
 `NodeCatalogService` is a UI-owned portable port. Its snapshots contain stable namespaces,
-host-formatted directory labels, scan status, diagnostics, and completed node templates. Platform
-adapters own directory selection, filesystem paths, persistence, and scanning; host paths do not
-enter graph capability contracts or UI state.
+host-formatted directory labels, scan status, diagnostics, and completed node templates. Native
+application composition adapts the injected Sigrok scanner and work executor to that port; host
+paths do not enter graph capability contracts or UI state.
 
 ## Generic processing dependencies
 

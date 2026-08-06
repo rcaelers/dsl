@@ -230,9 +230,10 @@ registered renderer. The viewer and UI do not select rendering behavior from pro
 A **platform adapter** implements portable host capabilities with native or browser APIs.
 `logic_analyzer_platform` is the reusable target-selection boundary.
 
-A **composition root** is a thin native or web application package that selects an enabled plug-in
-inventory, constructs platform services, and injects them into the UI. It does not own reusable
-storage, execution, graph, or presentation policy.
+A **composition root** is a native or web application package that selects an enabled plug-in
+inventory, obtains low-level platform mechanisms, adapts domain and UI ports, selects concrete node
+capabilities, and constructs application and worker services. It does not own reusable storage,
+execution, graph, or presentation policy.
 
 ### Worker orchestration
 

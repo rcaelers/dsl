@@ -1,4 +1,5 @@
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError};
 use std::sync::{Arc, Mutex};
 
 use signal_capture::{
@@ -146,6 +147,82 @@ impl SourcePreparationExecutor for InlineSourcePreparationExecutor {
         Ok(Box::new(InlineSourcePreparationTask {
             result: Some(work(control)),
         }))
+    }
+}
+
+/// Native threaded executor for finite source-preparation closures.
+pub struct ThreadedSourcePreparationExecutor {
+    sender: SyncSender<QueuedSourcePreparation>,
+}
+
+impl ThreadedSourcePreparationExecutor {
+    /// Starts a bounded source-preparation worker thread.
+    pub fn new() -> Self {
+        let (sender, receiver) = std::sync::mpsc::sync_channel::<QueuedSourcePreparation>(2);
+        std::thread::Builder::new()
+            .name("source-preparation-0".into())
+            .spawn(move || run_source_preparation_worker(receiver))
+            .expect("source preparation worker thread can start");
+        Self { sender }
+    }
+}
+
+impl Default for ThreadedSourcePreparationExecutor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SourcePreparationExecutor for ThreadedSourcePreparationExecutor {
+    fn submit(
+        &self,
+        work: SourcePreparationWork,
+        control: SourcePreparationControl,
+    ) -> Result<Box<dyn SourcePreparationTask>, String> {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        self.sender
+            .try_send(QueuedSourcePreparation {
+                work,
+                control,
+                result: sender,
+            })
+            .map_err(|error| match error {
+                TrySendError::Full(_) => "source-preparation worker queue is full".to_owned(),
+                TrySendError::Disconnected(_) => "source-preparation worker stopped".to_owned(),
+            })?;
+        Ok(Box::new(ThreadedSourcePreparationTask { receiver }))
+    }
+}
+
+struct QueuedSourcePreparation {
+    work: SourcePreparationWork,
+    control: SourcePreparationControl,
+    result: SyncSender<SourcePreparationResult>,
+}
+
+fn run_source_preparation_worker(receiver: Receiver<QueuedSourcePreparation>) {
+    while let Ok(task) = receiver.recv() {
+        let result = if task.control.is_cancelled() {
+            Err("source preparation cancelled".into())
+        } else {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (task.work)(task.control)))
+                .unwrap_or_else(|_| Err("source-preparation worker panicked".into()))
+        };
+        let _ = task.result.send(result);
+    }
+}
+
+struct ThreadedSourcePreparationTask {
+    receiver: Receiver<SourcePreparationResult>,
+}
+
+impl SourcePreparationTask for ThreadedSourcePreparationTask {
+    fn poll(&mut self) -> SourcePreparationTaskUpdate {
+        match self.receiver.try_recv() {
+            Ok(result) => SourcePreparationTaskUpdate::Complete(result),
+            Err(TryRecvError::Empty) => SourcePreparationTaskUpdate::Pending,
+            Err(TryRecvError::Disconnected) => SourcePreparationTaskUpdate::Disconnected,
+        }
     }
 }
 
@@ -297,6 +374,39 @@ mod source_preparation_executor_tests {
     use signal_runtime::WorkerOperation;
 
     use super::*;
+
+    #[test]
+    fn threaded_executor_completes_work_off_the_caller() {
+        let executor = ThreadedSourcePreparationExecutor::new();
+        let mut task = executor
+            .submit(
+                Box::new(|_| Ok(PreparedCaptureData::Channels(vec![(4, "Data".into())]))),
+                SourcePreparationControl::new(),
+            )
+            .unwrap();
+
+        for _ in 0..10_000 {
+            match task.poll() {
+                SourcePreparationTaskUpdate::Pending => std::thread::yield_now(),
+                SourcePreparationTaskUpdate::Complete(Ok(PreparedCaptureData::Channels(
+                    channels,
+                ))) => {
+                    assert_eq!(channels, vec![(4, "Data".into())]);
+                    return;
+                }
+                SourcePreparationTaskUpdate::Complete(Ok(_)) => {
+                    panic!("source preparation returned the wrong data kind");
+                }
+                SourcePreparationTaskUpdate::Complete(Err(error)) => {
+                    panic!("source preparation failed: {error}");
+                }
+                SourcePreparationTaskUpdate::Disconnected => {
+                    panic!("source preparation worker disconnected");
+                }
+            }
+        }
+        panic!("source preparation worker did not complete");
+    }
 
     fn metadata() -> CaptureMetadata {
         CaptureMetadata {

@@ -21,6 +21,7 @@ logic-analyzer-graph-plan = { path = "../logic_analyzer_graph_plan" }
 logic-analyzer-graph-runtime = { path = "../logic_analyzer_graph_runtime" }
 logic-analyzer-graph-capabilities = { path = "../logic_analyzer_graph_capabilities" }
 logic-analyzer-graph-registry = { path = "../logic_analyzer_graph_registry" }
+logic-analyzer-capture-export = { path = "../logic_analyzer_capture_export" }
 logic-analyzer-viewer = { path = "../widgets/logic_analyzer_viewer" }
 node-graph = { path = "../widgets/node_graph" }
 panel-layout = { path = "../widgets/panel_layout" }

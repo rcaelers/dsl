@@ -32,13 +32,6 @@ class PlatformBoundaryCheck
     wasm-bindgen-futures
     web-sys
   ].freeze
-  APPLICATION_FORBIDDEN_DEPENDENCIES = %w[
-    logic-analyzer-capture-export
-    logic-analyzer-graph-compiler
-    logic-analyzer-processing
-    logic-analyzer-viewer
-    signal-capture-session
-  ].freeze
   TARGET_PREDICATE = /\b(?:target_(?:abi|arch|endian|env|family|feature|os|pointer_width|vendor)|unix|windows)\b/
   TARGET_ATTRIBUTE = /#\s*\[\s*cfg(?:_attr)?\s*\(.*?\)\s*\]/m
   TARGET_INSPECTION = /\bcfg!\s*\(.*?\)/m
@@ -118,14 +111,8 @@ class PlatformBoundaryCheck
         end
       end
 
-      if %w[crates/app_native crates/app_web].include?(crate_root)
-        source.each_line.with_index(1) do |line, number|
-          dependency = line.match(/^\s*([A-Za-z0-9_-]+)\s*=/)&.[](1)
-          next unless dependency && APPLICATION_FORBIDDEN_DEPENDENCIES.include?(dependency)
-
-          errors << "#{relative}:#{number}: application crates are bootstrap roots and must not depend on #{dependency}"
-        end
-      elsif source.match?(/^\s*logic-analyzer-platform\s*=/)
+      if !%w[crates/app_native crates/app_web].include?(crate_root) &&
+          source.match?(/^\s*logic-analyzer-platform\s*=/)
         errors << "#{relative}: reusable core crates must not depend on logic-analyzer-platform"
       end
 

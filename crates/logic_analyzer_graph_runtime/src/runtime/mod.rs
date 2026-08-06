@@ -33,4 +33,5 @@ pub use source_preparation_executor::{
     CaptureWorkerSourcePreparationExecutor, InlineSourcePreparationExecutor,
     SourcePreparationControl, SourcePreparationExecutor, SourcePreparationResult,
     SourcePreparationTask, SourcePreparationTaskUpdate, SourcePreparationWork,
+    ThreadedSourcePreparationExecutor,
 };

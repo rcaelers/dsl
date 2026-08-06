@@ -1,10 +1,9 @@
 use std::path::PathBuf;
 
-use signal_capture_session::CaptureSessionId;
-
-use super::contract::{
+use logic_analyzer_capture_export::{
     CaptureExportCompletion, CaptureExportFormat, CaptureExportService, CaptureExportStatus,
 };
+use signal_capture_session::CaptureSessionId;
 
 struct UnavailableCaptureExportService;
 

@@ -33,11 +33,20 @@ thread_local! {
         WORKER_ARTIFACT_REPOSITORY.with(Arc::clone),
         Arc::new(InlineWorkExecutor),
     ));
-    static GRAPH_WORKER_RUNTIME: RefCell<GraphWorkerRuntime> = RefCell::new(GraphWorkerRuntime::with_repository(
-        super::web_file_import::worker_graph_capability_overrides(),
-        WORKER_ARTIFACT_REPOSITORY.with(Arc::clone),
-    ));
+    static GRAPH_WORKER_RUNTIME: RefCell<Option<GraphWorkerRuntime>> = const { RefCell::new(None) };
     static CAPTURE_IDENTITY_HASHERS: RefCell<CaptureIdentityHashers> = RefCell::new(CaptureIdentityHashers::default());
+}
+
+/// Installs the application-owned graph runtime in this worker instance.
+pub fn initialize_graph_worker_runtime(graph_worker_runtime: GraphWorkerRuntime) {
+    GRAPH_WORKER_RUNTIME.with(|runtime| {
+        *runtime.borrow_mut() = Some(graph_worker_runtime);
+    });
+}
+
+/// Returns the artifact repository retained by capture and graph runtimes in this worker.
+pub fn worker_artifact_repository() -> Arc<dyn ArtifactRepository> {
+    WORKER_ARTIFACT_REPOSITORY.with(Arc::clone)
 }
 
 type AttachmentProgress = Box<dyn Fn(u64, u64)>;
@@ -444,17 +453,17 @@ pub fn execute_graph_worker_request(payload: Vec<u8>, publish: &Function) -> Res
         super::web_output_storage::begin_output_run();
     }
     let mut failure = None;
-    GRAPH_WORKER_RUNTIME.with(|runtime| {
-        runtime
-            .borrow_mut()
-            .execute_streaming(request, &mut |message| {
-                publish_graph_message(publish, message, &mut failure);
-            });
-    });
-    failure.map_or_else(
-        || Ok(GRAPH_WORKER_RUNTIME.with(|runtime| runtime.borrow().has_active_run())),
-        Err,
-    )
+    let active = GRAPH_WORKER_RUNTIME.with(|runtime| {
+        let mut runtime = runtime.borrow_mut();
+        let runtime = runtime.as_mut().ok_or_else(|| {
+            JsValue::from_str("graph-worker runtime was not initialized by the application")
+        })?;
+        runtime.execute_streaming(request, &mut |message| {
+            publish_graph_message(publish, message, &mut failure);
+        });
+        Ok::<bool, JsValue>(runtime.has_active_run())
+    })?;
+    failure.map_or(Ok(active), Err)
 }
 
 #[wasm_bindgen(js_name = advanceGraphWorkerRun)]
@@ -469,10 +478,14 @@ pub fn advance_graph_worker_run(publish: &Function) -> Result<bool, JsValue> {
     install_worker_panic_hook();
     let mut failure = None;
     let active = GRAPH_WORKER_RUNTIME.with(|runtime| {
-        runtime.borrow_mut().advance_streaming(&mut |message| {
+        let mut runtime = runtime.borrow_mut();
+        let runtime = runtime.as_mut().ok_or_else(|| {
+            JsValue::from_str("graph-worker runtime was not initialized by the application")
+        })?;
+        Ok::<bool, JsValue>(runtime.advance_streaming(&mut |message| {
             publish_graph_message(publish, message, &mut failure);
-        })
-    });
+        }))
+    })?;
     failure.map_or(Ok(active), Err)
 }
 

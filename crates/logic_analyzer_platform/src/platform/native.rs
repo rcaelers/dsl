@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
-use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,15 +8,9 @@ use std::time::{Duration, Instant};
 
 use rusb::{Context, DeviceHandle, UsbContext};
 
-use logic_analyzer_graph_nodes::{
-    SigrokCatalogScanner, SigrokDecoderRuntime, install_sigrok_catalog_scanner,
-};
-use logic_analyzer_graph_runtime::{
-    SourcePreparationExecutor, SourcePreparationResult, SourcePreparationTask,
-    SourcePreparationTaskUpdate, SourcePreparationWork,
-};
 use logic_analyzer_processing::nodes::decoders::sigrok_decoder::{
-    SigrokCatalogSnapshot, SigrokDecoder, SigrokDecoderConfig, SigrokDecoderDescriptor,
+    SigrokCatalogScanner, SigrokCatalogSnapshot, SigrokDecoder, SigrokDecoderConfig,
+    SigrokDecoderDescriptor, SigrokDecoderRuntime,
 };
 use logic_analyzer_processing::nodes::sinks::{OutputFile, OutputStorage};
 use logic_analyzer_processing::nodes::sources::dsl_file::{
@@ -35,12 +28,6 @@ use logic_analyzer_processing::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
     CaptureSourcePresentation, CaptureSourceRuntimeCapabilities, ProcessNodeConstruction,
 };
-use logic_analyzer_ui::{
-    APPLICATION_ID, AppServices, ApplicationSettings, DecodedBlockCacheSnapshot, HostCommand,
-    HostService, HostUiCapabilities, ModifierKeyLabels, OpenDialog, SaveDialog,
-    default_input_bindings,
-};
-use node_graph::{FileDialogRequest, FileDialogService};
 use signal_artifacts::{ArtifactRepository, PreparedByteSource, SourceIdentity};
 use signal_capture::{
     CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory, IndexedCapturePresentation,
@@ -52,143 +39,38 @@ use signal_runtime::{
 };
 
 use super::native_artifact_repository::NativeArtifactRepository;
-use super::native_capture_export::native_capture_export_service;
 use super::native_file_identity_cache::NativeFileIdentityCache;
 use super::native_file_source::NativeFileByteSource;
-use super::native_sigrok;
 use super::native_sigrok::{PythonSigrokExecutionFactory, discover_sigrok_decoder, scan_catalog};
 use super::native_worker::NativeWorkerOperationExecutor;
 use crate::services::PlatformServices;
 
-#[cfg(target_os = "macos")]
-type RecentFilesListener = Box<dyn Fn(&[PathBuf]) + Send + Sync>;
-
-#[cfg(target_os = "macos")]
-static RECENT_FILES_LISTENER: std::sync::OnceLock<RecentFilesListener> = std::sync::OnceLock::new();
-
-#[cfg(target_os = "macos")]
-/// Sets recent files listener.
-///
-/// # Parameters
-/// - `listener`: Input consumed by this operation.
-pub fn set_recent_files_listener(listener: impl Fn(&[PathBuf]) + Send + Sync + 'static) {
-    let _ = RECENT_FILES_LISTENER.set(Box::new(listener));
-}
-
-struct HostCommandBridge {
-    #[cfg(any(target_os = "macos", test))]
-    sender: crossbeam_channel::Sender<HostCommand>,
-    receiver: crossbeam_channel::Receiver<HostCommand>,
-    repaint: std::sync::Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
-}
-
-static HOST_COMMAND_BRIDGE: std::sync::OnceLock<HostCommandBridge> = std::sync::OnceLock::new();
-
-fn host_command_bridge() -> &'static HostCommandBridge {
-    HOST_COMMAND_BRIDGE.get_or_init(|| {
-        let (_sender, receiver) = crossbeam_channel::unbounded();
-        HostCommandBridge {
-            #[cfg(any(target_os = "macos", test))]
-            sender: _sender,
-            receiver,
-            repaint: std::sync::Mutex::new(None),
-        }
-    })
-}
-
-#[cfg(target_os = "macos")]
-/// Dispatches one host-shell command into the portable application command queue.
-pub fn dispatch_host_command(command: HostCommand) {
-    queue_host_command(command);
-}
-
-#[cfg(any(target_os = "macos", test))]
-fn queue_host_command(command: HostCommand) {
-    let bridge = host_command_bridge();
-    let _ = bridge.sender.send(command);
-    if let Some(repaint) = bridge.repaint.lock().unwrap().as_ref() {
-        repaint();
-    }
-}
-
-pub(crate) fn standard_services() -> PlatformServices {
-    let cache_directory = derived_cache_directory();
+pub(crate) fn standard_services(application_id: &str) -> PlatformServices {
+    let cache_directory = derived_cache_directory(application_id);
     let artifact_repository: Arc<dyn signal_artifacts::ArtifactRepository> = Arc::new(
         NativeArtifactRepository::new(cache_directory.join("artifacts")),
     );
-    let input_bindings = load_input_bindings();
-    let application_settings = load_application_settings();
-    let capture_export_service = native_capture_export_service(Arc::clone(&artifact_repository));
     let work_executor: Arc<dyn WorkExecutor> = Arc::new(NativeWorkExecutor::new());
-    let settings_path = dirs::config_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("logic-conduit")
-        .join("sigrok_decoders.json");
     let sigrok_catalog_scanner = native_sigrok_catalog_scanner();
-    install_sigrok_catalog_scanner(Arc::clone(&sigrok_catalog_scanner));
     let dsl_file_source_factory = native_dsl_file_source_factory();
     let sigrok_file_source_factory = native_sigrok_file_source_factory();
-    logic_analyzer_graph_nodes::install_file_source_factories(
-        Arc::clone(&dsl_file_source_factory),
-        Arc::clone(&sigrok_file_source_factory),
-    );
-    let node_catalogs = vec![Box::new(native_sigrok::directory_catalog(
-        settings_path,
-        native_sigrok_decoder_directories(),
-        Arc::clone(&work_executor),
-    )) as Box<dyn logic_analyzer_ui::NodeCatalogService>];
-    let ui_services =
-        AppServices::with_host_configuration(
-            Box::new(NativeHostService::new()),
-            input_bindings,
-            application_settings,
-            system_symbol_fonts(),
-        )
-        .with_capture_export_service(capture_export_service)
-        .with_node_file_dialog(Box::new(NativeNodeFileDialogService))
-        .with_graph_execution_and_capability_overrides(
-            Box::new(NativeSourcePreparationExecutor::new()),
-            Arc::new(NativeAppManagerFactory {
-                work_executor: Arc::new(NativeRuntimeExecutor),
-            }),
-            Arc::clone(&work_executor),
-            vec![
-                logic_analyzer_graph_nodes::binary_file_writer_capability_override(
-                    logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
-                        native_output_storage(),
-                    ),
-                ),
-                logic_analyzer_graph_nodes::csv_word_writer_capability_override(
-                    logic_analyzer_processing::nodes::sinks::csv_word_writer::writer_factory(
-                        native_output_storage(),
-                    ),
-                ),
-                logic_analyzer_graph_nodes::text_file_writer_capability_override(
-                    logic_analyzer_processing::nodes::sinks::text_file_writer::writer_factory(
-                        native_output_storage(),
-                    ),
-                ),
-                logic_analyzer_graph_nodes::dsl_file_source_capability_override(
-                    dsl_file_source_factory,
-                ),
-                logic_analyzer_graph_nodes::sigrok_file_source_capability_override(
-                    sigrok_file_source_factory,
-                ),
-                logic_analyzer_graph_nodes::sigrok_decoder_capability_override(
-                    native_sigrok_decoder_runtime(),
-                ),
-                logic_analyzer_graph_nodes::u3pro16_capability_override(
-                    native_u3pro16_source_factory(),
-                ),
-            ],
-        );
-    PlatformServices::with_ui_services(
-        ui_services,
-        node_catalogs,
+    PlatformServices {
+        capture_worker_client: None,
+        app_manager_factory: Arc::new(NativeAppManagerFactory {
+            work_executor: Arc::new(NativeRuntimeExecutor),
+        }),
+        dsl_file_source_factory,
+        sigrok_file_source_factory,
+        sigrok_decoder_runtime: Some(native_sigrok_decoder_runtime()),
+        sigrok_catalog_scanner: Some(sigrok_catalog_scanner),
+        u3pro16_source_factory: Some(native_u3pro16_source_factory()),
+        output_storage: Some(native_output_storage()),
+        node_file_dialog: None,
         artifact_repository,
         work_executor,
-        Rc::new(NativeWorkerOperationExecutor::new()),
-    )
+        worker_operation_executor: Rc::new(NativeWorkerOperationExecutor::new()),
+        graph_worker_client: None,
+    }
 }
 
 struct NativeOutputStorage;
@@ -549,23 +431,6 @@ fn native_sigrok_catalog_scanner() -> Arc<dyn SigrokCatalogScanner> {
     SCANNER
         .get_or_init(|| Arc::new(NativeSigrokCatalogScanner))
         .clone()
-}
-
-fn native_sigrok_decoder_directories() -> Vec<PathBuf> {
-    let mut paths = std::env::var_os("SIGROK_DECODERS_DIR")
-        .map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
-        .unwrap_or_default();
-    for path in [
-        PathBuf::from("/opt/homebrew/share/libsigrokdecode/decoders"),
-        PathBuf::from("/usr/local/share/libsigrokdecode/decoders"),
-        PathBuf::from("/usr/share/libsigrokdecode/decoders"),
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../dslogic/libsigrokdecode/decoders"),
-    ] {
-        if path.is_dir() && !paths.contains(&path) {
-            paths.push(path);
-        }
-    }
-    paths
 }
 
 const U3PRO16_LIFECYCLE: CaptureSourceLifecycle =
@@ -1231,191 +1096,20 @@ impl AppManagerBackend for NativeAppManagerBackend {
     }
 }
 
-struct NativeSourcePreparationExecutor {
-    sender: crossbeam_channel::Sender<QueuedSourcePreparation>,
+fn derived_cache_directory(application_id: &str) -> PathBuf {
+    application_cache_directory(application_id).join("derived")
 }
 
-impl NativeSourcePreparationExecutor {
-    fn new() -> Self {
-        const WORKERS: usize = 1;
-        let (sender, receiver) = crossbeam_channel::bounded(WORKERS * 2);
-        for index in 0..WORKERS {
-            let receiver = receiver.clone();
-            std::thread::Builder::new()
-                .name(format!("source-preparation-{index}"))
-                .spawn(move || run_source_preparation_worker(receiver))
-                .expect("failed to start source preparation worker");
-        }
-        Self { sender }
-    }
-}
-
-impl SourcePreparationExecutor for NativeSourcePreparationExecutor {
-    fn submit(
-        &self,
-        work: SourcePreparationWork,
-        control: logic_analyzer_graph_runtime::SourcePreparationControl,
-    ) -> Result<Box<dyn SourcePreparationTask>, String> {
-        let (sender, receiver) = crossbeam_channel::bounded(1);
-        self.sender
-            .try_send(QueuedSourcePreparation {
-                work,
-                control,
-                result_sender: sender,
-            })
-            .map_err(|error| match error {
-                crossbeam_channel::TrySendError::Full(_) => {
-                    String::from("source-preparation worker queue is full")
-                }
-                crossbeam_channel::TrySendError::Disconnected(_) => {
-                    String::from("source-preparation worker stopped")
-                }
-            })?;
-        Ok(Box::new(NativeSourcePreparationTask { receiver }))
-    }
-}
-
-struct QueuedSourcePreparation {
-    work: SourcePreparationWork,
-    control: logic_analyzer_graph_runtime::SourcePreparationControl,
-    result_sender: crossbeam_channel::Sender<SourcePreparationResult>,
-}
-
-fn run_source_preparation_worker(receiver: crossbeam_channel::Receiver<QueuedSourcePreparation>) {
-    while let Ok(QueuedSourcePreparation {
-        work,
-        control,
-        result_sender,
-    }) = receiver.recv()
-    {
-        let result = if control.is_cancelled() {
-            Err("source preparation cancelled".into())
-        } else {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(control)))
-                .unwrap_or_else(|_| Err("source-preparation worker panicked".into()))
-        };
-        let _ = result_sender.send(result);
-    }
-}
-
-struct NativeSourcePreparationTask {
-    receiver: crossbeam_channel::Receiver<SourcePreparationResult>,
-}
-
-impl SourcePreparationTask for NativeSourcePreparationTask {
-    fn poll(&mut self) -> SourcePreparationTaskUpdate {
-        match self.receiver.try_recv() {
-            Ok(result) => SourcePreparationTaskUpdate::Complete(result),
-            Err(crossbeam_channel::TryRecvError::Empty) => SourcePreparationTaskUpdate::Pending,
-            Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                SourcePreparationTaskUpdate::Disconnected
-            }
-        }
-    }
-}
-
-fn system_symbol_fonts() -> Vec<egui::FontData> {
-    symbol_font_paths()
-        .iter()
-        .filter_map(|path| std::fs::read(path).ok())
-        .map(egui::FontData::from_owned)
-        .collect()
-}
-
-#[cfg(target_os = "macos")]
-fn symbol_font_paths() -> &'static [&'static str] {
-    &["/System/Library/Fonts/Apple Symbols.ttf"]
-}
-
-#[cfg(target_os = "windows")]
-fn symbol_font_paths() -> &'static [&'static str] {
-    &[r"C:\Windows\Fonts\seguisym.ttf"]
-}
-
-#[cfg(target_os = "linux")]
-fn symbol_font_paths() -> &'static [&'static str] {
-    &[
-        "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSansSymbols-Regular.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSansMath-Regular.ttf",
-        "/usr/share/fonts/noto/NotoSansSymbols2-Regular.ttf",
-        "/usr/share/fonts/noto/NotoSansSymbols-Regular.ttf",
-        "/usr/share/fonts/noto/NotoSansMath-Regular.ttf",
-        "/usr/share/fonts/google-noto-sans-symbols2-fonts/NotoSansSymbols2-Regular.ttf",
-        "/usr/share/fonts/google-noto-sans-symbols-fonts/NotoSansSymbols-Regular.ttf",
-        "/usr/share/fonts/google-noto-sans-math-fonts/NotoSansMath-Regular.ttf",
-        "/usr/local/share/NotoSansSymbols2-Regular.ttf",
-        "/usr/local/share/NotoSansSymbols-Regular.ttf",
-        "/usr/local/share/NotoSansMath-Regular.ttf",
-    ]
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-fn symbol_font_paths() -> &'static [&'static str] {
-    &[]
-}
-
-fn load_application_settings() -> ApplicationSettings {
-    let Some(path) = configuration_file("application.json") else {
-        return ApplicationSettings::default();
-    };
-    load_application_settings_path(&path)
-}
-
-fn load_application_settings_path(path: &Path) -> ApplicationSettings {
-    match std::fs::read_to_string(path) {
-        Ok(json) => ApplicationSettings::from_json(&json).unwrap_or_else(|error| {
-            panic!(
-                "invalid application configuration in {}: {error}",
-                path.display()
-            )
-        }),
-        Err(error) if error.kind() == ErrorKind::NotFound => ApplicationSettings::default(),
-        Err(error) => panic!(
-            "cannot read application configuration from {}: {error}",
-            path.display()
-        ),
-    }
-}
-
-fn load_input_bindings() -> input_bindings::InputBindings {
-    let Some(path) = configuration_file("input_bindings.json") else {
-        return default_input_bindings();
-    };
-    load_input_bindings_path(&path)
-}
-
-fn load_input_bindings_path(path: &Path) -> input_bindings::InputBindings {
-    match std::fs::read_to_string(path) {
-        Ok(json) => input_bindings::InputBindings::from_json(&json).unwrap_or_else(|error| {
-            panic!("invalid input bindings in {}: {error}", path.display())
-        }),
-        Err(error) if error.kind() == ErrorKind::NotFound => default_input_bindings(),
-        Err(error) => panic!(
-            "cannot read input bindings from {}: {error}",
-            path.display()
-        ),
-    }
-}
-
-fn configuration_file(name: &str) -> Option<PathBuf> {
-    dirs::config_dir().map(|directory| directory.join(APPLICATION_ID).join(name))
-}
-
-fn derived_cache_directory() -> PathBuf {
-    application_cache_directory().join("derived")
-}
-
-fn application_cache_directory() -> PathBuf {
+fn application_cache_directory(application_id: &str) -> PathBuf {
     std::cfg_select! {
         target_os = "macos" => std::env::var_os("HOME")
             .map(PathBuf::from)
-            .map(|home| application_directory(home.join("Library").join("Caches")))
-            .unwrap_or_else(|| application_directory(std::env::temp_dir())),
+            .map(|home| application_directory(home.join("Library").join("Caches"), application_id))
+            .unwrap_or_else(|| application_directory(std::env::temp_dir(), application_id)),
         target_os = "windows" => std::env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)
-            .map(application_directory)
-            .unwrap_or_else(|| application_directory(std::env::temp_dir())),
+            .map(|directory| application_directory(directory, application_id))
+            .unwrap_or_else(|| application_directory(std::env::temp_dir(), application_id)),
         _ => std::env::var_os("XDG_CACHE_HOME")
             .map(PathBuf::from)
             .or_else(|| {
@@ -1423,169 +1117,23 @@ fn application_cache_directory() -> PathBuf {
                     .map(PathBuf::from)
                     .map(|home| home.join(".cache"))
             })
-            .map(application_directory)
-            .unwrap_or_else(|| application_directory(std::env::temp_dir())),
+            .map(|directory| application_directory(directory, application_id))
+            .unwrap_or_else(|| application_directory(std::env::temp_dir(), application_id)),
     }
 }
 
-fn application_directory(parent: PathBuf) -> PathBuf {
-    parent.join(APPLICATION_ID)
-}
-
-struct NativeHostService {
-    commands: crossbeam_channel::Receiver<HostCommand>,
-}
-
-struct NativeNodeFileDialogService;
-
-impl FileDialogService for NativeNodeFileDialogService {
-    fn available(&self, _save: bool) -> bool {
-        true
-    }
-
-    fn pick(&mut self, request: FileDialogRequest<'_>) -> Option<String> {
-        let mut dialog = rfd::FileDialog::new();
-        if !request.title.is_empty() {
-            dialog = dialog.set_title(request.title);
-        }
-        for filter in request.filters {
-            let extensions = filter
-                .extensions
-                .iter()
-                .map(String::as_str)
-                .collect::<Vec<_>>();
-            dialog = dialog.add_filter(&filter.name, &extensions);
-        }
-        let selected = if request.save {
-            dialog.save_file()
-        } else {
-            dialog.pick_file()
-        };
-        selected.map(|path| path.display().to_string())
-    }
-}
-
-impl NativeHostService {
-    fn new() -> Self {
-        Self {
-            commands: host_command_bridge().receiver.clone(),
-        }
-    }
-}
-
-impl HostService for NativeHostService {
-    fn ui_capabilities(&self) -> HostUiCapabilities {
-        #[cfg(target_os = "macos")]
-        {
-            HostUiCapabilities {
-                direct_document_access: true,
-                system_menu_bar: true,
-                viewport_close_guard: false,
-                modifier_key_labels: ModifierKeyLabels {
-                    alternate: "Option",
-                    command: "Command",
-                },
-            }
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            HostUiCapabilities {
-                direct_document_access: true,
-                system_menu_bar: false,
-                viewport_close_guard: true,
-                modifier_key_labels: ModifierKeyLabels::default(),
-            }
-        }
-    }
-
-    fn decoded_block_cache_snapshot(&self) -> Option<DecodedBlockCacheSnapshot> {
-        let stats = signal_derived::decoded_block_cache_stats();
-        Some(DecodedBlockCacheSnapshot {
-            entries: stats.entries,
-            memory_bytes: stats.memory_bytes,
-            budget_bytes: stats.budget_bytes,
-            hits: stats.hits,
-            misses: stats.misses,
-        })
-    }
-
-    fn set_command_repaint(&mut self, repaint: Box<dyn Fn() + Send + Sync>) {
-        *host_command_bridge().repaint.lock().unwrap() = Some(repaint);
-    }
-
-    fn take_commands(&mut self) -> Vec<HostCommand> {
-        self.commands.try_iter().collect()
-    }
-
-    fn publish_recent_files(&self, paths: &[PathBuf]) {
-        #[cfg(target_os = "macos")]
-        if let Some(listener) = RECENT_FILES_LISTENER.get() {
-            listener(paths);
-        }
-        #[cfg(not(target_os = "macos"))]
-        let _ = paths;
-    }
-
-    fn document_exists(&self, path: &Path) -> bool {
-        path.exists()
-    }
-
-    fn choose_open_file(&mut self, request: OpenDialog<'_>) -> Option<PathBuf> {
-        let mut dialog = rfd::FileDialog::new()
-            .set_title(request.title)
-            .add_filter(request.filter_label, request.extensions);
-        if let Some(directory) = request.initial_directory {
-            dialog = dialog.set_directory(directory);
-        }
-        dialog.pick_file()
-    }
-
-    fn choose_save_file(&mut self, request: SaveDialog<'_>) -> Option<PathBuf> {
-        let mut dialog = rfd::FileDialog::new()
-            .set_title(request.title)
-            .set_file_name(request.default_file_name)
-            .add_filter(request.filter_label, request.extensions);
-        if let Some(directory) = request.initial_directory {
-            dialog = dialog.set_directory(directory);
-        }
-        dialog.save_file()
-    }
-
-    fn load_graph(&mut self, path: &Path) -> Result<node_graph::GraphState, String> {
-        let json = std::fs::read_to_string(path)
-            .map_err(|error| format!("could not read {}: {error}", path.display()))?;
-        serde_json::from_str(&json)
-            .map_err(|error| format!("could not parse {}: {error}", path.display()))
-    }
-
-    fn save_graph(&mut self, path: &Path, graph: &serde_json::Value) -> Result<(), String> {
-        let json = serde_json::to_string_pretty(graph)
-            .map_err(|error| format!("could not serialize graph: {error}"))?;
-        std::fs::write(path, json)
-            .map_err(|error| format!("could not write {}: {error}", path.display()))
-    }
+fn application_directory(parent: PathBuf, application_id: &str) -> PathBuf {
+    parent.join(application_id)
 }
 
 #[cfg(test)]
 mod native_tests {
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use logic_analyzer_graph_runtime::{
-        PreparedCaptureData, SourcePreparationControl, SourcePreparationExecutor,
-        SourcePreparationTaskUpdate,
-    };
-    use logic_analyzer_ui::{AppServices, HostCommand, HostService};
-    use signal_artifacts::MemoryArtifactRepository;
-    use signal_derived::portable_worker_kernels;
-    use signal_runtime::{
-        AppManagerFactory, CooperativeWorkerOperationExecutor, InlineWorkExecutor, WorkExecutor,
-    };
+    use signal_runtime::{AppManagerFactory, WorkExecutor};
 
     use super::{
-        NativeAppManagerFactory, NativeHostService, NativeRuntimeExecutor,
-        NativeSourcePreparationExecutor, NativeWorkExecutor, application_directory,
-        load_application_settings_path, load_input_bindings_path, queue_host_command,
+        NativeAppManagerFactory, NativeRuntimeExecutor, NativeWorkExecutor, application_directory,
     };
 
     #[test]
@@ -1597,39 +1145,6 @@ mod native_tests {
 
         manager.pump(1);
         assert!(manager.is_finished());
-    }
-
-    #[test]
-    fn native_source_preparation_executor_completes_work_off_the_caller() {
-        let executor = NativeSourcePreparationExecutor::new();
-        let mut task = executor
-            .submit(
-                Box::new(|_| Ok(PreparedCaptureData::Channels(vec![(4, "Data".into())]))),
-                SourcePreparationControl::new(),
-            )
-            .unwrap();
-
-        for _ in 0..10_000 {
-            match task.poll() {
-                SourcePreparationTaskUpdate::Pending => std::thread::yield_now(),
-                SourcePreparationTaskUpdate::Complete(Ok(PreparedCaptureData::Channels(
-                    channels,
-                ))) => {
-                    assert_eq!(channels, vec![(4, "Data".into())]);
-                    return;
-                }
-                SourcePreparationTaskUpdate::Complete(Ok(_)) => {
-                    panic!("source preparation returned the wrong data kind");
-                }
-                SourcePreparationTaskUpdate::Complete(Err(error)) => {
-                    panic!("source preparation failed: {error}");
-                }
-                SourcePreparationTaskUpdate::Disconnected => {
-                    panic!("source preparation worker disconnected");
-                }
-            }
-        }
-        panic!("source preparation worker did not complete");
     }
 
     #[test]
@@ -1651,88 +1166,12 @@ mod native_tests {
     }
 
     #[test]
-    fn native_composition_preserves_injected_host_services_and_catalogs() {
-        let services = crate::services::PlatformServices::with_ui_services(
-            AppServices::with_host_service(Box::new(NativeHostService::new())),
-            Vec::new(),
-            Arc::new(MemoryArtifactRepository::new()),
-            Arc::new(InlineWorkExecutor),
-            std::rc::Rc::new(CooperativeWorkerOperationExecutor::new(
-                portable_worker_kernels(),
-                "test fallback",
-            )),
-        );
-        assert_eq!(services.work_executor().available_parallelism(), 1);
-        assert!(!services.artifact_repository().capabilities().durable);
-
-        let (_, node_catalogs) = services.into_ui_and_node_catalogs();
-        assert!(node_catalogs.is_empty());
-    }
-
-    #[test]
-    fn native_shell_commands_wake_and_reach_the_ui_service_port() {
-        let repaint_count = Arc::new(AtomicUsize::new(0));
-        let callback_count = Arc::clone(&repaint_count);
-        let mut host = NativeHostService::new();
-        host.set_command_repaint(Box::new(move || {
-            callback_count.fetch_add(1, Ordering::Relaxed);
-        }));
-
-        queue_host_command(HostCommand::Run);
-
-        assert_eq!(repaint_count.load(Ordering::Relaxed), 1);
-        assert_eq!(host.take_commands(), vec![HostCommand::Run]);
-    }
-
-    #[test]
     fn native_cache_directories_use_the_application_identifier() {
         let parent = tempfile::tempdir().unwrap();
 
         assert_eq!(
-            application_directory(parent.path().to_owned()),
+            application_directory(parent.path().to_owned(), "logic-conduit"),
             parent.path().join("logic-conduit")
         );
-    }
-
-    #[test]
-    fn native_configuration_files_override_embedded_defaults() {
-        let directory = tempfile::tempdir().unwrap();
-        let application = directory.path().join("application.json");
-        let input_bindings = directory.path().join("input_bindings.json");
-        std::fs::write(
-            &application,
-            r#"{
-                "logic_analyzer_viewer": { "color_profile": "classic" },
-                "live_capture": { "max_recent_sessions": 7, "max_storage_gib": 12 }
-            }"#,
-        )
-        .unwrap();
-        std::fs::write(
-            &input_bindings,
-            r#"{"bindings":[
-                {"context":"custom","action":"only","label":"Only","input":"key","key":"f12"}
-            ]}"#,
-        )
-        .unwrap();
-
-        let settings = load_application_settings_path(&application);
-        let bindings = load_input_bindings_path(&input_bindings);
-
-        assert_eq!(settings.max_recent_capture_sessions(), 7);
-        assert_eq!(settings.max_capture_storage_gib(), 12);
-        assert!(bindings.shortcut(&["custom"], "only").is_some());
-        assert!(bindings.shortcut(&["global"], "save").is_none());
-    }
-
-    #[test]
-    fn missing_native_configuration_files_use_embedded_defaults() {
-        let directory = tempfile::tempdir().unwrap();
-
-        let settings = load_application_settings_path(&directory.path().join("missing.json"));
-        let bindings = load_input_bindings_path(&directory.path().join("missing.json"));
-
-        assert_eq!(settings.max_recent_capture_sessions(), 10);
-        assert_eq!(settings.max_capture_storage_gib(), 20);
-        assert!(bindings.shortcut(&["global"], "save").is_some());
     }
 }

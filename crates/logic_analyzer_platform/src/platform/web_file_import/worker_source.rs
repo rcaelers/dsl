@@ -6,7 +6,6 @@ use js_sys::Uint8Array;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use logic_analyzer_graph_capabilities::node::GraphNodeCapabilityOverride;
 use logic_analyzer_processing::nodes::sources::dsl_file::{
     DslFileSource, DslFileSourceConfig, DslFileSourceFactory,
 };
@@ -217,31 +216,14 @@ pub(crate) fn capture_metadata(
     Ok(metadata)
 }
 
-pub(crate) fn worker_graph_capability_overrides() -> Vec<GraphNodeCapabilityOverride> {
-    let output_storage = super::super::web_output_storage::output_storage();
-    vec![
-        logic_analyzer_graph_nodes::binary_file_writer_capability_override(
-            logic_analyzer_processing::nodes::sinks::binary_file_writer::writer_factory(
-                Arc::clone(&output_storage),
-            ),
-        ),
-        logic_analyzer_graph_nodes::csv_word_writer_capability_override(
-            logic_analyzer_processing::nodes::sinks::csv_word_writer::writer_factory(Arc::clone(
-                &output_storage,
-            )),
-        ),
-        logic_analyzer_graph_nodes::text_file_writer_capability_override(
-            logic_analyzer_processing::nodes::sinks::text_file_writer::writer_factory(
-                output_storage,
-            ),
-        ),
-        logic_analyzer_graph_nodes::dsl_file_source_capability_override(Arc::new(
-            WorkerDslFileSourceFactory,
-        )),
-        logic_analyzer_graph_nodes::sigrok_file_source_capability_override(Arc::new(
-            WorkerSigrokFileSourceFactory,
-        )),
-    ]
+pub(crate) fn worker_file_source_factories() -> (
+    Arc<dyn DslFileSourceFactory>,
+    Arc<dyn SigrokFileSourceFactory>,
+) {
+    (
+        Arc::new(WorkerDslFileSourceFactory),
+        Arc::new(WorkerSigrokFileSourceFactory),
+    )
 }
 
 struct WorkerDslFileSourceFactory;

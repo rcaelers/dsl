@@ -1,11 +1,6 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use logic_analyzer_graph_runtime::{
-    CaptureWorkerSourcePreparationExecutor, InlineSourcePreparationExecutor,
-    SourcePreparationExecutor,
-};
-use logic_analyzer_ui::{AppServices, ApplicationSettings, default_input_bindings};
 use signal_artifacts::MemoryArtifactRepository;
 use signal_derived::portable_worker_kernels;
 use signal_runtime::{
@@ -15,14 +10,24 @@ use signal_runtime::{
 
 use super::web_artifact_repository::BrowserArtifactRepository;
 use super::web_capture_worker::install_capture_worker;
-use super::web_document::BrowserDocumentHostService;
 use super::web_file_import::{
     BrowserFileRegistry, BrowserNodeFileDialogService, dsl_source_factory, sigrok_source_factory,
 };
 use super::web_worker::WebWorkerAdapter;
-use crate::services::PlatformServices;
+use crate::services::{PlatformServices, WorkerGraphHostServices};
 
-pub(crate) fn standard_services() -> PlatformServices {
+/// Returns browser-worker storage and source factories for application-owned node composition.
+pub fn worker_graph_host_services() -> WorkerGraphHostServices {
+    let (dsl_file_source_factory, sigrok_file_source_factory) =
+        super::web_file_import::worker_file_source_factories();
+    WorkerGraphHostServices {
+        output_storage: super::web_output_storage::output_storage(),
+        dsl_file_source_factory,
+        sigrok_file_source_factory,
+    }
+}
+
+pub(crate) fn standard_services(_application_id: &str) -> PlatformServices {
     let worker_operations: Rc<dyn WorkerOperationExecutor> =
         Rc::new(CooperativeWorkerOperationExecutor::new(
             portable_worker_kernels(),
@@ -36,6 +41,7 @@ pub(crate) fn standard_services() -> PlatformServices {
 }
 
 pub(crate) async fn standard_services_with_worker_urls(
+    _application_id: &str,
     module_url: &str,
     wasm_url: &str,
 ) -> PlatformServices {
@@ -91,48 +97,21 @@ fn compose_services(
         dsl_source_factory(Arc::clone(&imported_files), capture_worker.clone());
     let sigrok_file_source_factory =
         sigrok_source_factory(Arc::clone(&imported_files), capture_worker.clone());
-    logic_analyzer_graph_nodes::install_file_source_factories(
-        Arc::clone(&dsl_file_source_factory),
-        Arc::clone(&sigrok_file_source_factory),
-    );
-    let source_preparation_executor: Box<dyn SourcePreparationExecutor> =
-        if let Some(client) = capture_worker {
-            Box::new(CaptureWorkerSourcePreparationExecutor::new(
-                client,
-                Box::new(InlineSourcePreparationExecutor),
-            ))
-        } else {
-            Box::new(InlineSourcePreparationExecutor)
-        };
-    let ui_services = AppServices::with_host_configuration(
-        Box::new(BrowserDocumentHostService::new()),
-        default_input_bindings(),
-        ApplicationSettings::default(),
-        Vec::new(),
-    )
-    .with_capture_export_service(logic_analyzer_ui::unavailable_capture_export_service())
-    .with_node_file_dialog(Box::new(BrowserNodeFileDialogService::new(imported_files)))
-    .with_graph_execution_and_capability_overrides(
-        source_preparation_executor,
-        Arc::new(CooperativeAppManagerFactory),
-        Arc::clone(&work_executor),
-        vec![
-            logic_analyzer_graph_nodes::dsl_file_source_capability_override(
-                dsl_file_source_factory,
-            ),
-            logic_analyzer_graph_nodes::sigrok_file_source_capability_override(
-                sigrok_file_source_factory,
-            ),
-        ],
-    )
-    .with_graph_worker_client(graph_worker);
-    PlatformServices::with_ui_services(
-        ui_services,
-        Vec::new(),
+    PlatformServices {
+        capture_worker_client: capture_worker,
+        app_manager_factory: Arc::new(CooperativeAppManagerFactory),
+        dsl_file_source_factory,
+        sigrok_file_source_factory,
+        sigrok_decoder_runtime: None,
+        sigrok_catalog_scanner: None,
+        u3pro16_source_factory: None,
+        output_storage: None,
+        node_file_dialog: Some(Box::new(BrowserNodeFileDialogService::new(imported_files))),
+        graph_worker_client: graph_worker,
         artifact_repository,
         work_executor,
-        worker_operations,
-    )
+        worker_operation_executor: worker_operations,
+    }
 }
 
 fn browser_parallelism() -> usize {
@@ -151,18 +130,11 @@ mod web_tests {
 
     #[test]
     fn web_composition_injects_portable_services_without_native_catalogs() {
-        let services = standard_services();
+        let services = standard_services("test-application");
         assert_eq!(services.work_executor().available_parallelism(), 1);
         assert!(!services.artifact_repository().capabilities().durable);
         assert_eq!(
             services.worker_execution_capability().mode(),
-            WorkerExecutionMode::Cooperative
-        );
-
-        let (ui_services, node_catalogs) = services.into_ui_and_node_catalogs();
-        assert!(node_catalogs.is_empty());
-        assert_eq!(
-            ui_services.worker_execution_capability().mode(),
             WorkerExecutionMode::Cooperative
         );
     }
