@@ -18,6 +18,18 @@ contracts, while background encoding uses `platform_runtime` work and worker-ope
 Shared persistence time and integrity primitives come from `platform_artifacts`, so derived and
 capture-session stores do not depend on each other.
 
+## Decoded-block cache ownership
+
+`DecodedBlockCacheHandle` owns one bounded decoded-block LRU and its activity counters. Cloning a
+handle shares that instance; constructing another handle creates an independent cache. Indexed
+store constructors require the handle explicitly, and the graph runtime passes its application-
+owned handle through payload collection, cached previews, and sampling-point stores.
+
+The UI reads memory diagnostics from that same handle. Clearing the current graph's persistent
+derived artifacts also evicts decoded blocks from the application-owned LRU. No process-global
+cache configuration or statistics surface exists, so separate applications and concurrent tests
+do not share decoded data or counters.
+
 ## Errors and tests
 
 Payload registration reports identity collisions explicitly. Encoded stores retain codec, query,

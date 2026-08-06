@@ -1,18 +1,112 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::fmt;
+use std::sync::{Arc, Mutex};
 
 use super::codec::DecodedWordBlock;
 use super::format::RestartEntry;
 
 const DEFAULT_DECODED_BLOCK_CACHE_BYTES: usize = 64 * 1024 * 1024;
 
+/// Current usage and activity counters for one decoded-block cache instance.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DecodedBlockCacheStats {
+    /// Number of decoded-block lookups served from this cache.
     pub hits: u64,
+    /// Number of decoded-block lookups not present in this cache.
     pub misses: u64,
+    /// Number of immutable decoded blocks currently retained.
     pub entries: usize,
+    /// Estimated bytes currently retained by decoded blocks.
     pub memory_bytes: usize,
+    /// Maximum estimated bytes this cache may retain.
     pub budget_bytes: usize,
+}
+
+/// Cloneable owner of one bounded decoded annotation-block cache.
+///
+/// Clones share one cache instance. Constructing another handle creates an
+/// independent cache, allowing each application or isolated test to own its
+/// complete decoded-block lifetime and statistics.
+#[derive(Clone)]
+pub struct DecodedBlockCacheHandle {
+    cache: Arc<Mutex<DecodedBlockCache>>,
+}
+
+impl DecodedBlockCacheHandle {
+    /// Creates an empty decoded-block cache with a fixed byte budget.
+    ///
+    /// A zero-byte budget explicitly disables decoded-block retention while
+    /// preserving miss statistics.
+    ///
+    /// # Parameters
+    /// - `budget_bytes`: Maximum estimated bytes retained by decoded blocks.
+    pub fn new(budget_bytes: usize) -> Self {
+        Self {
+            cache: Arc::new(Mutex::new(DecodedBlockCache::new(budget_bytes))),
+        }
+    }
+
+    /// Returns a coherent usage and activity snapshot for this cache instance.
+    pub fn stats(&self) -> DecodedBlockCacheStats {
+        self.cache.lock().unwrap().stats()
+    }
+
+    /// Clears hit and miss counters without evicting decoded blocks.
+    pub fn reset_stats(&self) {
+        let mut cache = self.cache.lock().unwrap();
+        cache.hits = 0;
+        cache.misses = 0;
+    }
+
+    /// Evicts every decoded block owned by this cache instance.
+    pub fn clear(&self) {
+        let mut cache = self.cache.lock().unwrap();
+        cache.entries.clear();
+        cache.memory_bytes = 0;
+    }
+
+    pub(crate) fn cached_block(
+        &self,
+        store_id: u64,
+        sequence: u64,
+    ) -> Option<Arc<DecodedWordBlock>> {
+        self.cache
+            .lock()
+            .unwrap()
+            .get(CacheKey { store_id, sequence })
+    }
+
+    pub(crate) fn cache_block(&self, store_id: u64, block: Arc<DecodedWordBlock>) {
+        let sequence = block.header.sequence;
+        self.cache
+            .lock()
+            .unwrap()
+            .insert(CacheKey { store_id, sequence }, block);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn contains(&self, store_id: u64, sequence: u64) -> bool {
+        self.cache
+            .lock()
+            .unwrap()
+            .entries
+            .contains_key(&CacheKey { store_id, sequence })
+    }
+}
+
+impl Default for DecodedBlockCacheHandle {
+    fn default() -> Self {
+        Self::new(DEFAULT_DECODED_BLOCK_CACHE_BYTES)
+    }
+}
+
+impl fmt::Debug for DecodedBlockCacheHandle {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DecodedBlockCacheHandle")
+            .field("stats", &self.stats())
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -37,11 +131,11 @@ struct DecodedBlockCache {
 }
 
 impl DecodedBlockCache {
-    fn new() -> Self {
+    fn new(budget_bytes: usize) -> Self {
         Self {
             entries: HashMap::new(),
             memory_bytes: 0,
-            budget_bytes: DEFAULT_DECODED_BLOCK_CACHE_BYTES,
+            budget_bytes,
             access_clock: 0,
             hits: 0,
             misses: 0,
@@ -112,57 +206,6 @@ fn decoded_block_bytes(block: &DecodedWordBlock) -> usize {
         + block.restarts.capacity() * size_of::<RestartEntry>()
 }
 
-fn shared_cache() -> &'static Mutex<DecodedBlockCache> {
-    static CACHE: OnceLock<Mutex<DecodedBlockCache>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(DecodedBlockCache::new()))
-}
-
-pub(crate) fn cached_block(store_id: u64, sequence: u64) -> Option<Arc<DecodedWordBlock>> {
-    shared_cache()
-        .lock()
-        .unwrap()
-        .get(CacheKey { store_id, sequence })
-}
-
-pub(crate) fn cache_block(store_id: u64, block: Arc<DecodedWordBlock>) {
-    let sequence = block.header.sequence;
-    shared_cache()
-        .lock()
-        .unwrap()
-        .insert(CacheKey { store_id, sequence }, block);
-}
-
-/// Sets the process-wide decoded-block cache byte budget.
-///
-/// # Parameters
-/// - `budget_bytes`: Maximum bytes retained by decoded immutable blocks.
-pub fn configure_decoded_block_cache(budget_bytes: usize) {
-    let mut cache = shared_cache().lock().unwrap();
-    cache.budget_bytes = budget_bytes;
-    cache.evict_to_budget();
-}
-
-/// Returns current process-wide decoded-block cache statistics.
-pub fn decoded_block_cache_stats() -> DecodedBlockCacheStats {
-    shared_cache().lock().unwrap().stats()
-}
-
-/// Clears hit and miss counters without evicting cached blocks.
-pub fn reset_decoded_block_cache_stats() {
-    let mut cache = shared_cache().lock().unwrap();
-    cache.hits = 0;
-    cache.misses = 0;
-}
-
-#[cfg(test)]
-pub(crate) fn cache_contains(store_id: u64, sequence: u64) -> bool {
-    shared_cache()
-        .lock()
-        .unwrap()
-        .entries
-        .contains_key(&CacheKey { store_id, sequence })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,8 +242,7 @@ mod tests {
         let second = block(2, 32);
         let third = block(3, 32);
         let one_block = decoded_block_bytes(&first);
-        let mut cache = DecodedBlockCache::new();
-        cache.budget_bytes = one_block * 2;
+        let mut cache = DecodedBlockCache::new(one_block * 2);
         let key = |sequence| CacheKey {
             store_id: 7,
             sequence,
@@ -215,5 +257,19 @@ mod tests {
         assert!(cache.get(key(2)).is_none());
         assert!(cache.get(key(3)).is_some());
         assert!(cache.memory_bytes <= cache.budget_bytes);
+    }
+
+    #[test]
+    fn separately_constructed_handles_isolate_entries_and_statistics() {
+        let first = DecodedBlockCacheHandle::new(1024 * 1024);
+        let second = DecodedBlockCacheHandle::new(1024 * 1024);
+
+        first.cache_block(7, block(1, 8));
+        assert!(first.cached_block(7, 1).is_some());
+        assert!(second.cached_block(7, 1).is_none());
+        assert_eq!(first.stats().entries, 1);
+        assert_eq!(first.stats().hits, 1);
+        assert_eq!(second.stats().entries, 0);
+        assert_eq!(second.stats().misses, 1);
     }
 }

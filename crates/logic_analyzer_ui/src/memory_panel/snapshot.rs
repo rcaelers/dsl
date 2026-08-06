@@ -8,34 +8,23 @@ use crate::app::App;
 
 impl App {
     pub(crate) fn cache_memory_snapshot(&mut self) -> CacheMemorySnapshot {
-        let decoded = self.host_service.decoded_block_cache_snapshot();
+        let decoded = self.decoded_block_cache.stats();
         let mut snapshot = CacheMemorySnapshot {
-            services: vec![decoded.map_or_else(
-                || MemoryServiceSnapshot {
-                    name: "Decoded block cache".to_owned(),
-                    state: "Unavailable".to_owned(),
-                    detail: "The data-plane adapter does not provide this cache".to_owned(),
-                    used_bytes: None,
-                    budget_bytes: None,
-                },
-                |decoded| {
-                    MemoryServiceSnapshot {
-                        name: "Decoded block cache".to_owned(),
-                        state: if decoded.entries == 0 {
-                            "Empty"
-                        } else {
-                            "Ready"
-                        }
-                        .to_owned(),
-                        detail: format!(
-                            "{} block(s) · {} hit(s) · {} miss(es)",
-                            decoded.entries, decoded.hits, decoded.misses
-                        ),
-                        used_bytes: Some(decoded.memory_bytes as u64),
-                        budget_bytes: Some(decoded.budget_bytes as u64),
-                    }
-                },
-            )],
+            services: vec![MemoryServiceSnapshot {
+                name: "Decoded block cache".to_owned(),
+                state: if decoded.entries == 0 {
+                    "Empty"
+                } else {
+                    "Ready"
+                }
+                .to_owned(),
+                detail: format!(
+                    "{} block(s) · {} hit(s) · {} miss(es)",
+                    decoded.entries, decoded.hits, decoded.misses
+                ),
+                used_bytes: Some(decoded.memory_bytes as u64),
+                budget_bytes: Some(decoded.budget_bytes as u64),
+            }],
             persistent_caches: Vec::new(),
         };
         let inventory = match self

@@ -3,8 +3,8 @@ use std::sync::Arc;
 use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 
 use super::{
-    AnnotationQuery, IndexedAnnotationStore, IndexedAnnotationWriter, LiveStoreConfig,
-    PersistentStoreConfig, Word,
+    AnnotationQuery, DecodedBlockCacheHandle, IndexedAnnotationStore, IndexedAnnotationWriter,
+    LiveStoreConfig, PersistentStoreConfig, Word,
 };
 
 #[wasm_bindgen_test::wasm_bindgen_test(unsupported = test)]
@@ -18,7 +18,9 @@ fn encoded_store_queries_are_portable_to_the_wasm_memory_repository() {
         ..LiveStoreConfig::default()
     }
     .with_artifact_repository(repository);
-    let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+    let decoded_block_cache = DecodedBlockCacheHandle::default();
+    let (mut writer, store) =
+        IndexedAnnotationWriter::create(config, decoded_block_cache.clone()).unwrap();
     writer
         .append_batch(&[
             Word::spanning(0x12, 100, 20),
@@ -30,7 +32,7 @@ fn encoded_store_queries_are_portable_to_the_wasm_memory_repository() {
     writer.finish().unwrap();
     drop(store);
 
-    let reopened = IndexedAnnotationStore::open_persistent(&persistent)
+    let reopened = IndexedAnnotationStore::open_persistent(&persistent, decoded_block_cache)
         .unwrap()
         .expect("the encoded memory generation must reopen");
     assert_eq!(

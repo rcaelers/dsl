@@ -22,11 +22,10 @@ mod implementation {
     use platform_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
     use signal_capture::EdgeQueryProcessNodeExt;
     use signal_derived::{
-        CollectedWordLaneOptions, CollectedWordLaneQuery, DecodedBlockCacheStats,
-        DerivedDataCollector, DerivedDataCollectorMetrics, DerivedDataRetention, DerivedLanes,
-        LiveStoreConfig, PersistentStoreConfig, SamplingPointStore, Word,
-        built_in_word_lane_ingestor, configure_decoded_block_cache, decoded_block_cache_stats,
-        reset_decoded_block_cache_stats,
+        CollectedWordLaneOptions, CollectedWordLaneQuery, DecodedBlockCacheHandle,
+        DecodedBlockCacheStats, DerivedDataCollector, DerivedDataCollectorMetrics,
+        DerivedDataRetention, DerivedLanes, LiveStoreConfig, PersistentStoreConfig,
+        SamplingPointStore, Word, built_in_word_lane_ingestor,
     };
     use signal_runtime::{
         InputPort, OutputPort, Pipeline, PortSchema, ProcessNode, ProtocolKind, WorkError,
@@ -613,6 +612,7 @@ mod implementation {
     fn benchmark_indexed_store(
         lane: &signal_derived::IndexedAnnotationLane,
         query_samples: usize,
+        decoded_block_cache: &DecodedBlockCacheHandle,
     ) -> Result<(OutputStats, IndexedStoreMetrics), Box<dyn std::error::Error>> {
         let storage = lane.storage_metadata();
         let metadata = lane.metadata();
@@ -629,7 +629,7 @@ mod implementation {
             })
             .collect();
 
-        reset_decoded_block_cache_stats();
+        decoded_block_cache.reset_stats();
         let mut exact_cold = Vec::with_capacity(sample_count);
         let mut exact_warm = Vec::with_capacity(sample_count);
         for &position in &positions {
@@ -664,7 +664,7 @@ mod implementation {
             let _ = lane.query().nearest_boundary(position, 1_000_000)?;
             cursor.push(started.elapsed());
         }
-        let decoded_cache = decoded_block_cache_stats();
+        let decoded_cache = decoded_block_cache.stats();
 
         let validation_started = Instant::now();
         let mut stats = OutputStats::default();
@@ -748,7 +748,7 @@ mod implementation {
             .decoded_cache_mib
             .checked_mul(1024 * 1024)
             .ok_or("--decoded-cache-mib is too large")?;
-        configure_decoded_block_cache(decoded_cache_bytes);
+        let decoded_block_cache = DecodedBlockCacheHandle::new(decoded_cache_bytes);
         let required_channels = args
             .data
             .iter()
@@ -793,6 +793,7 @@ mod implementation {
                 let points = SamplingPointStore::create_persistent(
                     PersistentStoreConfig::new([0x53; 32]),
                     persistence_executor,
+                    decoded_block_cache.clone(),
                 )?;
                 decoder.with_sampling_points(points)
             }
@@ -877,6 +878,7 @@ mod implementation {
                             store.clone(),
                             DerivedDataRetention::MaxEntries(args.viewer_max_entries.max(1)),
                             CollectedWordLaneOptions::new(store_config, None),
+                            decoded_block_cache.clone(),
                         )),
                 )?;
                 viewer_store = Some(store);
@@ -931,7 +933,8 @@ mod implementation {
                 .query::<CollectedWordLaneQuery>()
                 .ok_or("viewer benchmark published an unexpected word query type")?;
             if let Some(indexed) = query.indexed_lane() {
-                let (stats, metrics) = benchmark_indexed_store(&indexed, args.query_samples)?;
+                let (stats, metrics) =
+                    benchmark_indexed_store(&indexed, args.query_samples, &decoded_block_cache)?;
                 indexed_store = Some(metrics);
                 (stats, Some("indexed-store"))
             } else {

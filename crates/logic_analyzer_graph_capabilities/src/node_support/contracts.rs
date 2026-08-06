@@ -9,7 +9,8 @@ use signal_capture_session::{
     CaptureChannelId, SimpleTriggerCondition, TriggerEditorSchema, TriggerProgram,
 };
 use signal_derived::{
-    DerivedDataRetention, DerivedLanes, PersistentStoreConfig, SamplingPointStore, TimelineMarker,
+    DecodedBlockCacheHandle, DerivedDataRetention, DerivedLanes, PersistentStoreConfig,
+    SamplingPointStore, TimelineMarker,
 };
 
 use super::port::PortKind;
@@ -93,6 +94,8 @@ pub trait NodeBuildContext {
     fn derived_data_retention(&self) -> DerivedDataRetention;
     /// Returns persistent word-store configuration for a collected output member.
     fn derived_word_cache(&self, member: usize) -> Option<&PersistentStoreConfig>;
+    /// Returns the decoded-block cache owned by the current application run.
+    fn decoded_block_cache(&self) -> DecodedBlockCacheHandle;
     /// Returns run-owned sampling-point storage for `runtime_name` when requested.
     fn sampling_points(&self, runtime_name: &str) -> Option<SamplingPointStore>;
     /// Returns the bounded executor available to the node.

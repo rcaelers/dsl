@@ -27,10 +27,9 @@ pub use derived_data_collector::{
 };
 pub use derived_index::{AppendOnlyMipmap, ChunkedMipmap, LaneFold, MipmapRecord};
 pub use derived_word_store::{
-    AnnotationQuery, BlockCodecConfig, DecodedBlockCacheStats, IndexedAnnotationStore,
-    IndexedAnnotationWriter, LiveStoreConfig, PersistentStoreConfig, StoreStatus,
-    WordPresenceBucket, cleanup_cache, clear_cache, clear_cache_entry,
-    configure_decoded_block_cache, decoded_block_cache_stats, reset_decoded_block_cache_stats,
+    AnnotationQuery, BlockCodecConfig, DecodedBlockCacheHandle, DecodedBlockCacheStats,
+    IndexedAnnotationStore, IndexedAnnotationWriter, LiveStoreConfig, PersistentStoreConfig,
+    StoreStatus, WordPresenceBucket, cleanup_cache, clear_cache, clear_cache_entry,
 };
 pub use events::{
     Annotation, MAX_ANNOTATION_NS, NumberSample, ProtocolPacket, ProtocolValue, TextSample,

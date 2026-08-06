@@ -1,6 +1,7 @@
 use logic_analyzer_graph_capabilities::node_support::NodeBuildContext;
 use signal_derived::{
-    DerivedDataRetention, DerivedLanes, PersistentStoreConfig, SamplingPointStore,
+    DecodedBlockCacheHandle, DerivedDataRetention, DerivedLanes, PersistentStoreConfig,
+    SamplingPointStore,
 };
 
 #[derive(Default)]
@@ -19,6 +20,10 @@ impl NodeBuildContext for TestNodeBuildContext {
 
     fn derived_word_cache(&self, _member: usize) -> Option<&PersistentStoreConfig> {
         None
+    }
+
+    fn decoded_block_cache(&self) -> DecodedBlockCacheHandle {
+        DecodedBlockCacheHandle::default()
     }
 
     fn sampling_points(&self, _runtime_name: &str) -> Option<SamplingPointStore> {

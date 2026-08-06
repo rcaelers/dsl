@@ -860,9 +860,20 @@ mod tests {
 
     use super::*;
     use crate::derived_word_store::{
-        AnnotationQuery, IndexedAnnotationStore, IndexedAnnotationWriter, LiveStoreConfig,
+        AnnotationQuery, DecodedBlockCacheHandle, IndexedAnnotationStore, IndexedAnnotationWriter,
+        LiveStoreConfig,
     };
     use crate::events::Word;
+
+    fn create_store(
+        config: LiveStoreConfig,
+    ) -> StoreResult<(IndexedAnnotationWriter, IndexedAnnotationStore)> {
+        IndexedAnnotationWriter::create(config, DecodedBlockCacheHandle::default())
+    }
+
+    fn open_store(config: &PersistentStoreConfig) -> StoreResult<Option<IndexedAnnotationStore>> {
+        IndexedAnnotationStore::open_persistent(config, DecodedBlockCacheHandle::default())
+    }
 
     #[test]
     fn index_header_preserves_counts_above_the_wasm32_address_range() {
@@ -886,7 +897,7 @@ mod tests {
             persistence: Some(persistent.clone()),
             ..LiveStoreConfig::default()
         };
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, store) = create_store(config).unwrap();
         writer.append(Word::new(0x42, 100)).unwrap();
         writer.finish().unwrap();
         drop(store);
@@ -898,7 +909,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(IndexedAnnotationStore::open_persistent(&persistent).is_err());
+        assert!(open_store(&persistent).is_err());
         assert!(
             repository
                 .open(&manifest_key(&persistent).unwrap())
@@ -917,11 +928,7 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
-        assert!(
-            IndexedAnnotationStore::open_persistent(&persistent)
-                .unwrap()
-                .is_none()
-        );
+        assert!(open_store(&persistent).unwrap().is_none());
     }
 
     #[test]
@@ -934,7 +941,7 @@ mod tests {
             persistence: Some(persistent.clone()),
             ..LiveStoreConfig::default()
         };
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, store) = create_store(config).unwrap();
         writer.append(Word::new(0x42, 100)).unwrap();
         writer.finish().unwrap();
         drop(store);
@@ -943,7 +950,7 @@ mod tests {
             .remove(&segment_key(cache_key, 0).unwrap())
             .unwrap();
 
-        let reopened = IndexedAnnotationStore::open_persistent(&persistent)
+        let reopened = open_store(&persistent)
             .expect("metadata should remain readable")
             .expect("the complete manifest and index should identify a cache hit");
         assert!(reopened.exact_window(0, 200, 8).is_err());

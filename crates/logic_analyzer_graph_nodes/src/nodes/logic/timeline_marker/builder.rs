@@ -327,7 +327,8 @@ mod builder_tests {
     use std::collections::HashMap;
 
     use signal_derived::{
-        DerivedDataRetention, DerivedLanes, PersistentStoreConfig, SamplingPointStore,
+        DecodedBlockCacheHandle, DerivedDataRetention, DerivedLanes, PersistentStoreConfig,
+        SamplingPointStore,
     };
 
     use super::*;
@@ -349,6 +350,10 @@ mod builder_tests {
 
         fn derived_word_cache(&self, _member: usize) -> Option<&PersistentStoreConfig> {
             None
+        }
+
+        fn decoded_block_cache(&self) -> DecodedBlockCacheHandle {
+            DecodedBlockCacheHandle::default()
         }
 
         fn sampling_points(&self, _runtime_name: &str) -> Option<SamplingPointStore> {

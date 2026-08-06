@@ -13,7 +13,8 @@ use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 use platform_runtime::{InlineWorkExecutor, WorkExecutor};
 use signal_capture::SampleBlock;
 use signal_derived::{
-    DerivedDataRetention, DerivedLanes, PersistentStoreConfig, SamplingPointStore,
+    DecodedBlockCacheHandle, DerivedDataRetention, DerivedLanes, PersistentStoreConfig,
+    SamplingPointStore,
 };
 use signal_runtime::{
     AppManager, ConfigurationBoundary, DisconnectEvent, InputSub, NodeConfig, NodeFailure,
@@ -44,6 +45,7 @@ pub struct GraphRunContext {
     source_readiness: SourceReadinessRegistry,
     work_executor: Arc<dyn WorkExecutor>,
     artifact_repository: Arc<dyn ArtifactRepository>,
+    decoded_block_cache: DecodedBlockCacheHandle,
 }
 
 impl Default for GraphRunContext {
@@ -61,6 +63,7 @@ impl Default for GraphRunContext {
             source_readiness: SourceReadinessRegistry::default(),
             work_executor: Arc::new(InlineWorkExecutor),
             artifact_repository: Arc::new(MemoryArtifactRepository::new()),
+            decoded_block_cache: DecodedBlockCacheHandle::default(),
         }
     }
 }
@@ -77,6 +80,14 @@ impl GraphRunContext {
     /// Supplies the host-selected repository used by concrete data stores.
     pub fn set_artifact_repository(&mut self, repository: Arc<dyn ArtifactRepository>) {
         self.artifact_repository = repository;
+    }
+
+    /// Supplies the application-owned cache used by every decoded annotation store in this run.
+    ///
+    /// # Parameters
+    /// - `cache`: Decoded-block cache shared by the application's stores and administration UI.
+    pub fn set_decoded_block_cache(&mut self, cache: DecodedBlockCacheHandle) {
+        self.decoded_block_cache = cache;
     }
 
     /// Returns the run's collected lanes for binding to host views and panels.
@@ -163,6 +174,10 @@ impl NodeBuildContext for GraphRunContext {
         self.derived_word_caches
             .get(member)
             .and_then(Option::as_ref)
+    }
+
+    fn decoded_block_cache(&self) -> DecodedBlockCacheHandle {
+        self.decoded_block_cache.clone()
     }
 
     fn sampling_points(&self, runtime_name: &str) -> Option<SamplingPointStore> {
@@ -582,6 +597,7 @@ pub struct LiveRun {
     timeline_markers: HashMap<TimelineMarkerReference, signal_derived::TimelineMarker>,
     work_executor: Arc<dyn WorkExecutor>,
     artifact_repository: Arc<dyn ArtifactRepository>,
+    decoded_block_cache: DecodedBlockCacheHandle,
 }
 
 /// One provider-owned source process used only while a live capture follows
@@ -613,8 +629,9 @@ pub(crate) fn load_cached_data_with_subscriptions(
         &mut compiled,
         &ctx.derived_lanes,
         &ctx.artifact_repository,
+        &ctx.decoded_block_cache,
     );
-    let preview = cache_policy::prepare_cached_preview(&compiled);
+    let preview = cache_policy::prepare_cached_preview(&compiled, &ctx.decoded_block_cache);
     if preview.is_none() && !sampling_cache_loaded {
         cache_policy::schedule_maintenance(&compiled, &ctx.artifact_repository, &ctx.work_executor);
         return Ok(false);
@@ -668,13 +685,15 @@ fn start_live_inner(
     cache_policy::assign_derived_word_caches(&mut compiled);
     cache_policy::assign_sampling_point_caches(&mut compiled);
     cache_policy::configure_repository(&mut compiled, &ctx.artifact_repository);
-    let (execution, cache_pruned) = cache_policy::prepare_execution(&compiled);
+    let (execution, cache_pruned) =
+        cache_policy::prepare_execution(&compiled, &ctx.decoded_block_cache);
     cache_policy::prepare_sampling_point_stores(
         &mut compiled,
         &execution,
         &ctx.derived_lanes,
         &ctx.artifact_repository,
         &ctx.work_executor,
+        &ctx.decoded_block_cache,
     );
     ctx.derived_data_retention = compiled.derived_data_retention;
     ctx.sampling_overlays
@@ -743,6 +762,7 @@ fn start_live_inner(
         timeline_markers: ctx.timeline_markers.clone(),
         work_executor: Arc::clone(&ctx.work_executor),
         artifact_repository: Arc::clone(&ctx.artifact_repository),
+        decoded_block_cache: ctx.decoded_block_cache.clone(),
     })
 }
 
@@ -834,6 +854,7 @@ impl LiveRun {
             timeline_markers: self.timeline_markers.clone(),
             work_executor: Arc::clone(&self.work_executor),
             artifact_repository: Arc::clone(&self.artifact_repository),
+            decoded_block_cache: self.decoded_block_cache.clone(),
         };
         let mut summary = ApplySummary::default();
         for edit in edits {

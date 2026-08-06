@@ -183,29 +183,6 @@ Acceptance: `signal_capture_session` exposes no logic-analyzer trigger, device, 
 vocabulary; it has no `logic_analyzer_*` dependency; and the viewer and trigger editor depend on
 the trigger owner rather than `signal-capture-session`.
 
-## derived.cache.global-state (P3 · medium) {#derived-cache-global-state}
-
-**Current state.** The decoded-block cache is a process global:
-`crates/signal_derived/src/derived_word_store/cache.rs:115` — `shared_cache()` over
-`static CACHE: OnceLock<Mutex<DecodedBlockCache>>` — with public entry points
-`configure_decoded_block_cache`, `decoded_block_cache_stats`,
-`reset_decoded_block_cache_stats`, `clear_cache`, `clear_cache_entry`, `cleanup_cache`
-re-exported at `lib.rs:32–33`. The UI memory panel and cache commands act on ambient state.
-
-**Direction.** Introduce an owned, cloneable `DecodedBlockCacheHandle` (Arc over the mutexed
-cache) constructed with its configuration. Thread it to the two consumer kinds:
-
-1. *Stores/readers* that currently call `shared_cache()` internally — the handle becomes a
-   constructor argument, carried the same way `ArtifactRepository` already is.
-2. *Administration* — the memory panel and clear/stats commands receive the handle from the
-   application (it slots naturally into the service set assembled at the composition root,
-   alongside the artifact repository).
-
-Then delete the statics and the free-function entry points. Tests construct their own handle,
-which also removes any cross-test cache interference. Leave `NEXT_STORE_ID: AtomicU64`
-(`store.rs:39`) alone — an ID generator is not configuration state. Follow the same instance-owned
-service injection used by graph-node editor and capability overrides.
-
 ## derived.payload.builtin-registration (P3 · medium) {#derived-payload-builtin-registration}
 
 The recorded signal-tier vocabulary makes this both an ownership purge and a registration-path

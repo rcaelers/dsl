@@ -9,8 +9,8 @@ use super::storage::in_memory_storage_snapshot;
 use crate::derived_index::{ChunkedMipmap, LaneFold, MipmapRecord};
 use crate::derived_word_store::{
     AnnotationQuery, AnnotationStoreBackend, AnnotationStoreMetadata, AnnotationStoreWriterBackend,
-    IndexedAnnotationStore, IndexedAnnotationWriter, LiveStoreConfig, LiveStoreMetadata,
-    StoreStatus, WordPresenceBucket,
+    DecodedBlockCacheHandle, IndexedAnnotationStore, IndexedAnnotationWriter, LiveStoreConfig,
+    LiveStoreMetadata, StoreStatus, WordPresenceBucket,
 };
 use crate::events::{Annotation, Word};
 use crate::payload::{
@@ -570,12 +570,17 @@ struct WordLane {
 
 impl WordLane {
     fn new(request: CollectedLaneRequest) -> Self {
+        let decoded_block_cache = request.decoded_block_cache().clone();
         let options = request
             .options::<CollectedWordLaneOptions>()
             .cloned()
             .unwrap_or_default();
-        let lane =
-            Self::with_options_inner(request.name().to_owned(), request.retention(), options);
+        let lane = Self::with_options_inner(
+            request.name().to_owned(),
+            request.retention(),
+            options,
+            decoded_block_cache,
+        );
         request.publish_query(Arc::new(CollectedWordLaneQuery {
             storage: Arc::clone(&lane.storage),
             display_format: request
@@ -589,10 +594,14 @@ impl WordLane {
         name: String,
         retention: DerivedDataRetention,
         options: CollectedWordLaneOptions,
+        decoded_block_cache: DecodedBlockCacheHandle,
     ) -> Self {
         if options.indexed {
             if let Some(persistent) = options.store_config.persistence.as_ref() {
-                match IndexedAnnotationStore::open_persistent(persistent) {
+                match IndexedAnnotationStore::open_persistent(
+                    persistent,
+                    decoded_block_cache.clone(),
+                ) {
                     Ok(Some(indexed_store)) => {
                         return Self {
                             name,
@@ -614,7 +623,7 @@ impl WordLane {
                     ),
                 }
             }
-            match IndexedAnnotationWriter::create(options.store_config) {
+            match IndexedAnnotationWriter::create(options.store_config, decoded_block_cache) {
                 Ok((writer, indexed_store)) => {
                     return Self {
                         name,
@@ -761,11 +770,13 @@ pub(crate) fn append_words_to_in_memory_storage(
 /// - `lanes`: Input consumed by this operation.
 /// - `retention`: Input consumed by this operation.
 /// - `options`: Input consumed by this operation.
+/// - `decoded_block_cache`: Cache shared by indexed stores created for this lane.
 pub fn built_in_word_lane_ingestor(
     name: impl Into<String>,
     lanes: DerivedLanes,
     retention: DerivedDataRetention,
     options: CollectedWordLaneOptions,
+    decoded_block_cache: DecodedBlockCacheHandle,
 ) -> Box<dyn CollectedLaneIngestor> {
     let mut payloads = PayloadRegistry::new();
     payloads
@@ -779,7 +790,9 @@ pub fn built_in_word_lane_ingestor(
         .expect("built-in word payload must be registered")
         .clone();
     Box::new(WordLane::new(
-        CollectedLaneRequest::new(name, 0, lanes, payload, retention).with_options(options),
+        CollectedLaneRequest::new(name, 0, lanes, payload, retention)
+            .with_decoded_block_cache(decoded_block_cache)
+            .with_options(options),
     ))
 }
 

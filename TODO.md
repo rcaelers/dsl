@@ -319,15 +319,6 @@ item here, so acceptance comparisons stop being ad-hoc.
   5. [ ] Keep display strings at the presentation boundary only; generic crates map a concrete
      format or transport failure into their own variant rather than formatting it early.
 
-### Composition and host wiring
-
-- [derived.cache.global-state] (P2 · high) Give the decoded-block cache an owned handle instead of the
-  process-global `configure_decoded_block_cache`, `decoded_block_cache_stats`, and `clear_cache`
-  entry points in `signal_derived`. The memory panel and cache commands then act on a service the
-  application owns rather than on ambient state, allowing multiple application instances and
-  isolated concurrent tests.
-  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#derived-cache-global-state).
-
 ### Application state decomposition
 
 - [ui.app.decomposition] (P3 · high) Split `logic_analyzer_ui::App`. One struct with about fifty fields across

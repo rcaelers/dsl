@@ -176,11 +176,17 @@ impl NumberLane {
         let storage = Arc::new(RwLock::new(NumberLaneStorage::default()));
         let (indexed, indexed_query) = request.indexed_store().cloned().map_or(
             (None, None),
-            |config| match indexed_lane(request.name(), config) {
+            |config| {
+                match indexed_lane(
+                    request.name(),
+                    config,
+                    request.decoded_block_cache().clone(),
+                ) {
                 Ok((writer, query)) => (Some(writer), Some(query)),
                 Err(error) => {
                     tracing::warn!(lane = request.name(), %error, "could not create indexed number lane; using memory");
                     (None, None)
+                }
                 }
             },
         );

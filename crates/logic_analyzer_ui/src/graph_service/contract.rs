@@ -22,7 +22,7 @@ use logic_analyzer_graph_runtime::{
 };
 use node_graph::{GraphState, NodeId};
 use platform_artifacts::ArtifactRepository;
-use signal_derived::PersistentStoreConfig;
+use signal_derived::{DecodedBlockCacheHandle, PersistentStoreConfig};
 use signal_runtime::{ConfigurationBoundary, DisconnectEvent, NodeFailure};
 
 use crate::live_capture::CaptureFeatureDiscovery;
@@ -93,6 +93,8 @@ pub(crate) trait GraphRun {
 
 pub(crate) trait GraphService: CaptureFeatureDiscovery {
     fn set_artifact_repository(&mut self, repository: Arc<dyn ArtifactRepository>);
+
+    fn set_decoded_block_cache(&mut self, cache: DecodedBlockCacheHandle);
 
     fn set_graph_worker_client(&mut self, _client: Option<Arc<GraphWorkerClient>>) {}
 

@@ -10,8 +10,8 @@ use signal_capture_session::{
     CaptureStore, CaptureStoreConfig, CaptureStoreCursor, CaptureStoreDescriptor, FinalizedCapture,
 };
 use signal_derived::{
-    Annotation, AnnotationQuery, BlockCodecConfig, IndexedAnnotationStore, IndexedAnnotationWriter,
-    LiveStoreConfig, PersistentStoreConfig, Word, WordPresenceBucket,
+    Annotation, AnnotationQuery, BlockCodecConfig, DecodedBlockCacheHandle, IndexedAnnotationStore,
+    IndexedAnnotationWriter, LiveStoreConfig, PersistentStoreConfig, Word, WordPresenceBucket,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -173,6 +173,7 @@ pub fn capture_store_conformance(
 pub fn derived_store_conformance(
     repository: Arc<dyn ArtifactRepository>,
 ) -> DerivedStoreConformanceSnapshot {
+    let decoded_block_cache = DecodedBlockCacheHandle::default();
     let clock: Arc<dyn UnixTimeSource> = Arc::new(FixedTimeSource(9_876_543_210));
     let persistent = PersistentStoreConfig::new([0x71; 32])
         .with_artifact_repository(Arc::clone(&repository))
@@ -188,7 +189,8 @@ pub fn derived_store_conformance(
         ..LiveStoreConfig::default()
     }
     .with_artifact_repository(Arc::clone(&repository));
-    let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+    let (mut writer, store) =
+        IndexedAnnotationWriter::create(config, decoded_block_cache.clone()).unwrap();
     writer
         .append_batch(&[Word::spanning(0x12, 100, 20), Word::new(0x34, 200)])
         .unwrap();
@@ -210,9 +212,10 @@ pub fn derived_store_conformance(
     writer.finish().unwrap();
     drop(store);
 
-    let reopened = IndexedAnnotationStore::open_persistent(&persistent)
-        .unwrap()
-        .expect("the persistent generation must reopen");
+    let reopened =
+        IndexedAnnotationStore::open_persistent(&persistent, decoded_block_cache.clone())
+            .unwrap()
+            .expect("the persistent generation must reopen");
     let exact = reopened.exact_window(0, 600, 16).unwrap().annotations;
     let presence = reopened.presence_window(0, 600, 16).unwrap();
     let nearest_boundary = reopened.nearest_boundary(118, 5).unwrap();
@@ -236,13 +239,14 @@ pub fn derived_store_conformance(
         ..LiveStoreConfig::default()
     }
     .with_artifact_repository(repository);
-    let (mut writer, store) = IndexedAnnotationWriter::create(cancel_config).unwrap();
+    let (mut writer, store) =
+        IndexedAnnotationWriter::create(cancel_config, decoded_block_cache.clone()).unwrap();
     writer.append(Word::new(0xff, 1_000)).unwrap();
     writer.cancel().unwrap();
     drop(writer);
     drop(store);
     assert!(
-        IndexedAnnotationStore::open_persistent(&cancelled)
+        IndexedAnnotationStore::open_persistent(&cancelled, decoded_block_cache)
             .unwrap()
             .is_none()
     );
@@ -300,6 +304,7 @@ fn verify_capture_corruption(repository: Arc<dyn ArtifactRepository>) {
 }
 
 fn verify_derived_corruption(repository: Arc<dyn ArtifactRepository>) {
+    let decoded_block_cache = DecodedBlockCacheHandle::default();
     let cache_key = [0x73; 32];
     let persistent = PersistentStoreConfig::new(cache_key)
         .with_artifact_repository(Arc::clone(&repository))
@@ -309,7 +314,8 @@ fn verify_derived_corruption(repository: Arc<dyn ArtifactRepository>) {
         ..LiveStoreConfig::default()
     }
     .with_artifact_repository(Arc::clone(&repository));
-    let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+    let (mut writer, store) =
+        IndexedAnnotationWriter::create(config, decoded_block_cache.clone()).unwrap();
     writer.append(Word::new(0xab, 2_000)).unwrap();
     writer.finish().unwrap();
     drop(store);
@@ -325,7 +331,7 @@ fn verify_derived_corruption(repository: Arc<dyn ArtifactRepository>) {
     replacement.write_at(0, b"corrupt").unwrap();
     replacement.publish().unwrap();
 
-    assert!(IndexedAnnotationStore::open_persistent(&persistent).is_err());
+    assert!(IndexedAnnotationStore::open_persistent(&persistent, decoded_block_cache).is_err());
 }
 
 fn repository_snapshot(repository: &dyn ArtifactRepository) -> RepositoryConformanceSnapshot {

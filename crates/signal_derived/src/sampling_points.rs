@@ -5,8 +5,8 @@ use crossbeam_channel::{Receiver, Sender};
 use platform_runtime::{WorkExecutor, WorkTask};
 
 use crate::derived_word_store::{
-    AnnotationQuery, IndexedAnnotationStore, IndexedAnnotationWriter, LiveStoreConfig,
-    PersistentStoreConfig, StoreError, StoreResult,
+    AnnotationQuery, DecodedBlockCacheHandle, IndexedAnnotationStore, IndexedAnnotationWriter,
+    LiveStoreConfig, PersistentStoreConfig, StoreError, StoreResult,
 };
 use crate::{CollectedWordLaneQuery, DerivedLanes, Word, WordPayload};
 
@@ -283,17 +283,23 @@ impl SamplingPointStore {
         }));
     }
 
-    /// Creates a store backed by the shared persistent annotation repository.
+    /// Creates a store backed by the selected persistent annotation repository.
+    ///
+    /// # Parameters
+    /// - `config`: Persistent cache identity and repository configuration.
+    /// - `work_executor`: Executor used by the persistent sampling writer.
+    /// - `decoded_block_cache`: Application-owned decoded-block cache.
     pub fn create_persistent(
         config: PersistentStoreConfig,
         work_executor: Arc<dyn WorkExecutor>,
+        decoded_block_cache: DecodedBlockCacheHandle,
     ) -> StoreResult<Self> {
         let live_config = LiveStoreConfig {
             persistence: Some(config),
             work_executor: Arc::clone(&work_executor),
             ..LiveStoreConfig::default()
         };
-        let (writer, store) = IndexedAnnotationWriter::create(live_config)?;
+        let (writer, store) = IndexedAnnotationWriter::create(live_config, decoded_block_cache)?;
         let writer = if work_executor.supports_long_running_tasks() {
             PersistentSamplingWriter::Queued(start_queued_writer(writer, work_executor)?)
         } else {
@@ -309,8 +315,16 @@ impl SamplingPointStore {
     }
 
     /// Opens an existing persistent store as a read-only sampling-point source.
-    pub fn open_persistent(config: &PersistentStoreConfig) -> StoreResult<Option<Self>> {
-        let Some(store) = IndexedAnnotationStore::open_persistent(config)? else {
+    ///
+    /// # Parameters
+    /// - `config`: Persistent cache identity and repository configuration.
+    /// - `decoded_block_cache`: Application-owned decoded-block cache.
+    pub fn open_persistent(
+        config: &PersistentStoreConfig,
+        decoded_block_cache: DecodedBlockCacheHandle,
+    ) -> StoreResult<Option<Self>> {
+        let Some(store) = IndexedAnnotationStore::open_persistent(config, decoded_block_cache)?
+        else {
             return Ok(None);
         };
         Ok(Some(Self {
@@ -878,9 +892,13 @@ mod sampling_point_store_tests {
         let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
         let config = PersistentStoreConfig::new([0x53; 32])
             .with_artifact_repository(Arc::clone(&repository));
-        let store =
-            SamplingPointStore::create_persistent(config.clone(), Arc::new(InlineWorkExecutor))
-                .unwrap();
+        let decoded_block_cache = DecodedBlockCacheHandle::default();
+        let store = SamplingPointStore::create_persistent(
+            config.clone(),
+            Arc::new(InlineWorkExecutor),
+            decoded_block_cache.clone(),
+        )
+        .unwrap();
         let wide_values = (0..73).map(|index| index % 3 == 0).collect::<Vec<_>>();
         let expected = vec![
             SamplingPoint::new(10, true, vec![false, true]),
@@ -891,7 +909,7 @@ mod sampling_point_store_tests {
         store.finish().unwrap();
         drop(store);
 
-        let reopened = SamplingPointStore::open_persistent(&config)
+        let reopened = SamplingPointStore::open_persistent(&config, decoded_block_cache)
             .unwrap()
             .expect("published sampling points should reopen");
 
@@ -914,9 +932,13 @@ mod sampling_point_store_tests {
         let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
         let config = PersistentStoreConfig::new([0x71; 32])
             .with_artifact_repository(Arc::clone(&repository));
-        let store =
-            SamplingPointStore::create_persistent(config.clone(), Arc::new(ThreadWorkExecutor))
-                .unwrap();
+        let decoded_block_cache = DecodedBlockCacheHandle::default();
+        let store = SamplingPointStore::create_persistent(
+            config.clone(),
+            Arc::new(ThreadWorkExecutor),
+            decoded_block_cache.clone(),
+        )
+        .unwrap();
         let mut batch = PackedSamplingPointBatch::with_capacity(2);
         batch.push(PackedSamplingPoint::new(10, true, 0b101, 3));
         batch.push(PackedSamplingPoint::new(
@@ -929,7 +951,7 @@ mod sampling_point_store_tests {
         store.finish().unwrap();
         drop(store);
 
-        let reopened = SamplingPointStore::open_persistent(&config)
+        let reopened = SamplingPointStore::open_persistent(&config, decoded_block_cache)
             .unwrap()
             .expect("queued sampling points should be published");
         assert_eq!(

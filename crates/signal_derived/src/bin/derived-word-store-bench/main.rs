@@ -2,7 +2,7 @@
 
 use web_time::Instant;
 
-use signal_derived::{IndexedAnnotationWriter, LiveStoreConfig, Word};
+use signal_derived::{DecodedBlockCacheHandle, IndexedAnnotationWriter, LiveStoreConfig, Word};
 
 const BATCH_WORDS: usize = 1_048_576;
 const DEFAULT_BATCH_COUNT: usize = 128;
@@ -26,7 +26,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut words = (0..BATCH_WORDS)
         .map(|index| Word::new((index & 0xff) as u64, generated_timestamp_ns(index)))
         .collect::<Vec<_>>();
-    let (mut writer, store) = IndexedAnnotationWriter::create(config)?;
+    let (mut writer, store) =
+        IndexedAnnotationWriter::create(config, DecodedBlockCacheHandle::default())?;
 
     let started = Instant::now();
     for batch in 0..batch_count {

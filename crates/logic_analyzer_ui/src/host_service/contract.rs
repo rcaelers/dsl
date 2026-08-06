@@ -17,16 +17,6 @@ pub struct SaveDialog<'a> {
     pub initial_directory: Option<&'a Path>,
 }
 
-/// Host-adapted diagnostics for the shared decoded-block cache.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DecodedBlockCacheSnapshot {
-    pub entries: usize,
-    pub memory_bytes: usize,
-    pub budget_bytes: usize,
-    pub hits: u64,
-    pub misses: u64,
-}
-
 /// One host-retained output file ready for an explicit user download.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DownloadableOutput {
@@ -103,12 +93,6 @@ pub trait HostService {
     /// Returns immutable host UI capabilities selected during composition.
     fn ui_capabilities(&self) -> HostUiCapabilities {
         HostUiCapabilities::default()
-    }
-
-    /// Returns runtime-cache diagnostics when the selected data-plane adapter
-    /// provides that cache.
-    fn decoded_block_cache_snapshot(&self) -> Option<DecodedBlockCacheSnapshot> {
-        None
     }
 
     /// Lists completed output files retained by the host until the user downloads them.

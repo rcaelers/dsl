@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use logic_analyzer_ui::{
-    APPLICATION_ID, ApplicationSettings, DecodedBlockCacheSnapshot, HostCommand, HostService,
-    HostUiCapabilities, ModifierKeyLabels, OpenDialog, SaveDialog, default_input_bindings,
+    APPLICATION_ID, ApplicationSettings, HostCommand, HostService, HostUiCapabilities,
+    ModifierKeyLabels, OpenDialog, SaveDialog, default_input_bindings,
 };
 use node_graph::{FileDialogRequest, FileDialogService};
 use platform::{FileDialogFilter, FileOpenDialog, FileSaveDialog, NativeDocumentHost};
@@ -86,17 +86,6 @@ impl HostService for NativeHostService {
                 modifier_key_labels: ModifierKeyLabels::default(),
             }
         }
-    }
-
-    fn decoded_block_cache_snapshot(&self) -> Option<DecodedBlockCacheSnapshot> {
-        let stats = signal_derived::decoded_block_cache_stats();
-        Some(DecodedBlockCacheSnapshot {
-            entries: stats.entries,
-            memory_bytes: stats.memory_bytes,
-            budget_bytes: stats.budget_bytes,
-            hits: stats.hits,
-            misses: stats.misses,
-        })
     }
 
     fn set_command_repaint(&mut self, repaint: Box<dyn Fn() + Send + Sync>) {

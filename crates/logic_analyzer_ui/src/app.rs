@@ -547,6 +547,7 @@ pub struct App {
     pub(crate) panel_layout: PanelLayout,
     pub(crate) graph_service: Box<dyn GraphService>,
     pub(crate) derived_cache_clear_task: Option<runtime::DerivedCacheClearTask>,
+    pub(crate) decoded_block_cache: signal_derived::DecodedBlockCacheHandle,
     pub(crate) host_service: Box<dyn HostService>,
     pub(crate) host_ui_capabilities: crate::HostUiCapabilities,
     pub(crate) capture: CaptureCoordinator,
@@ -1286,6 +1287,7 @@ impl App {
             worker_operation_executor,
             capture_export_service,
             artifact_repository,
+            decoded_block_cache,
         } = services;
         let mut host_service = host_service;
         let host_ui_capabilities = host_service.ui_capabilities();
@@ -1334,6 +1336,7 @@ impl App {
             panel_layout: Self::default_panel_layout(),
             graph_service,
             derived_cache_clear_task: None,
+            decoded_block_cache,
             host_service,
             host_ui_capabilities,
             capture,

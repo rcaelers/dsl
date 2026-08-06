@@ -28,9 +28,10 @@ default primary-panel arrangement. The macOS menu bar exposes the same panel com
 The Memory panel is the application-owned resource inventory. The application retains the same
 `DerivedLanes` query handle that it supplies to presentation consumers and records generic capture
 storage metadata when it attaches a prepared raw capture. It combines those facts with
-platform-neutral storage snapshots published by payload adapters and native host inspection of
-persistent cache entries. It identifies active services, raw-capture backing, every collected
-signal lane, decoded-block LRU usage, and the current graph's persistent derived-cache entries.
+platform-neutral storage snapshots published by payload adapters, statistics from the
+application-owned decoded-block cache handle, and persistent-cache inspection through the graph
+service. It identifies active services, raw-capture backing, every collected signal lane,
+decoded-block LRU usage, and the current graph's persistent derived-cache entries.
 Presentation widgets do not define or aggregate memory diagnostics. Generic UI code displays
 payload IDs and storage contracts; it does not infer protocols or concrete nodes from their names.
 

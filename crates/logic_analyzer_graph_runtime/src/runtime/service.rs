@@ -7,7 +7,7 @@ use logic_analyzer_graph_plan::{
 use node_graph::api::NodeId;
 use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 use platform_runtime::{InlineWorkExecutor, WorkExecutor};
-use signal_derived::PersistentStoreConfig;
+use signal_derived::{DecodedBlockCacheHandle, PersistentStoreConfig};
 use signal_runtime::{AppManagerFactory, ConfigurationBoundary, CooperativeAppManagerFactory};
 
 use super::execution::{
@@ -30,6 +30,7 @@ pub struct GraphRuntime {
     runtime_factory: Arc<dyn AppManagerFactory>,
     work_executor: Arc<dyn WorkExecutor>,
     artifact_repository: Arc<dyn ArtifactRepository>,
+    decoded_block_cache: DecodedBlockCacheHandle,
 }
 
 impl GraphRuntime {
@@ -56,6 +57,7 @@ impl GraphRuntime {
             runtime_factory,
             work_executor,
             artifact_repository: Arc::new(MemoryArtifactRepository::new()),
+            decoded_block_cache: DecodedBlockCacheHandle::default(),
         }
     }
 
@@ -64,6 +66,14 @@ impl GraphRuntime {
         self.source_preparation
             .set_artifact_repository(Arc::clone(&repository));
         self.artifact_repository = repository;
+    }
+
+    /// Supplies the application-owned decoded-block cache used by graph runs.
+    ///
+    /// # Parameters
+    /// - `cache`: Cache shared by graph stores and application administration.
+    pub fn set_decoded_block_cache(&mut self, cache: DecodedBlockCacheHandle) {
+        self.decoded_block_cache = cache;
     }
 
     /// Synchronizes finite-source preparation from compiler discovery output.
@@ -108,16 +118,19 @@ impl GraphRuntime {
         &self,
         config: &PersistentStoreConfig,
     ) -> Result<DerivedCacheClearStats, String> {
+        self.decoded_block_cache.clear();
         cache_policy::clear_entry(config)
     }
 
     /// Starts host-scheduled cleanup of all persistent derived-data caches.
     pub fn start_clear_derived_caches(&self) -> Result<DerivedCacheClearTask, String> {
+        self.decoded_block_cache.clear();
         cache_policy::start_clear_repository(&self.artifact_repository, &self.work_executor)
     }
 
     /// Immediately removes all persistent derived-data cache entries.
     pub fn clear_derived_caches(&self) -> Result<DerivedCacheClearStats, String> {
+        self.decoded_block_cache.clear();
         cache_policy::clear_repository(&self.artifact_repository)
     }
 
@@ -193,6 +206,7 @@ impl GraphRuntime {
     fn configure_context(&self, context: &mut GraphRunContext) {
         context.set_work_executor(Arc::clone(&self.work_executor));
         context.set_artifact_repository(Arc::clone(&self.artifact_repository));
+        context.set_decoded_block_cache(self.decoded_block_cache.clone());
     }
 }
 

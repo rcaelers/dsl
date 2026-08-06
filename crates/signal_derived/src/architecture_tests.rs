@@ -47,3 +47,22 @@ fn derived_manifest_depends_only_on_lower_level_owners() {
         assert!(!manifest.contains(forbidden));
     }
 }
+
+#[test]
+fn decoded_block_cache_has_no_process_global_entry_point() {
+    let cache = implementation_source(include_str!("derived_word_store/cache.rs"));
+    assert!(cache.contains("pub struct DecodedBlockCacheHandle"));
+    for forbidden in [
+        "OnceLock",
+        "static CACHE",
+        "shared_cache",
+        "configure_decoded_block_cache",
+        "decoded_block_cache_stats",
+        "reset_decoded_block_cache_stats",
+    ] {
+        assert!(
+            !cache.contains(forbidden),
+            "decoded-block cache contains process-global entry point {forbidden:?}"
+        );
+    }
+}

@@ -11,7 +11,7 @@ use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 use platform_runtime::{
     CooperativeWorkerOperationExecutor, InlineWorkExecutor, WorkExecutor, WorkerOperationExecutor,
 };
-use signal_derived::portable_worker_kernels;
+use signal_derived::{DecodedBlockCacheHandle, portable_worker_kernels};
 use signal_runtime::AppManagerFactory;
 
 use crate::application_settings::{ApplicationSettings, default_input_bindings};
@@ -38,6 +38,7 @@ pub struct AppServices {
     worker_operation_executor: Rc<dyn WorkerOperationExecutor>,
     capture_export_service: Box<dyn CaptureExportService>,
     artifact_repository: Arc<dyn ArtifactRepository>,
+    decoded_block_cache: DecodedBlockCacheHandle,
 }
 
 pub(crate) struct AppServiceParts {
@@ -52,6 +53,7 @@ pub(crate) struct AppServiceParts {
     pub(crate) worker_operation_executor: Rc<dyn WorkerOperationExecutor>,
     pub(crate) capture_export_service: Box<dyn CaptureExportService>,
     pub(crate) artifact_repository: Arc<dyn ArtifactRepository>,
+    pub(crate) decoded_block_cache: DecodedBlockCacheHandle,
 }
 
 impl AppServices {
@@ -81,6 +83,8 @@ impl AppServices {
             Arc::new(MemoryArtifactRepository::new());
         let mut graph_service = standard_graph_service();
         graph_service.set_artifact_repository(Arc::clone(&artifact_repository));
+        let decoded_block_cache = DecodedBlockCacheHandle::default();
+        graph_service.set_decoded_block_cache(decoded_block_cache.clone());
         Self {
             graph_service,
             host_service,
@@ -96,6 +100,7 @@ impl AppServices {
             )),
             capture_export_service: unavailable_capture_export_service(),
             artifact_repository,
+            decoded_block_cache,
         }
     }
 
@@ -110,6 +115,16 @@ impl AppServices {
         self.graph_service
             .set_artifact_repository(Arc::clone(&repository));
         self.artifact_repository = repository;
+        self
+    }
+
+    /// Supplies the instance-owned cache shared by decoded annotation stores and administration.
+    ///
+    /// # Parameters
+    /// - `cache`: Cache configured by the application composition root.
+    pub fn with_decoded_block_cache(mut self, cache: DecodedBlockCacheHandle) -> Self {
+        self.graph_service.set_decoded_block_cache(cache.clone());
+        self.decoded_block_cache = cache;
         self
     }
 
@@ -167,6 +182,8 @@ impl AppServices {
         );
         self.graph_service
             .set_artifact_repository(Arc::clone(&self.artifact_repository));
+        self.graph_service
+            .set_decoded_block_cache(self.decoded_block_cache.clone());
         self.work_executor = work_executor;
         self
     }
@@ -187,6 +204,8 @@ impl AppServices {
         );
         self.graph_service
             .set_artifact_repository(Arc::clone(&self.artifact_repository));
+        self.graph_service
+            .set_decoded_block_cache(self.decoded_block_cache.clone());
         self.work_executor = work_executor;
         self
     }
@@ -204,6 +223,7 @@ impl AppServices {
             worker_operation_executor: self.worker_operation_executor,
             capture_export_service: self.capture_export_service,
             artifact_repository: self.artifact_repository,
+            decoded_block_cache: self.decoded_block_cache,
         }
     }
 }

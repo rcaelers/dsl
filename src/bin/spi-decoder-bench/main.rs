@@ -207,6 +207,7 @@ mod implementation {
                                 lanes.clone(),
                                 DerivedDataRetention::MaxEntries(4_000_000),
                                 CollectedWordLaneOptions::new(LiveStoreConfig::default(), None),
+                                signal_derived::DecodedBlockCacheHandle::default(),
                             )),
                     )?;
                     pipeline.connect("decoder", "mosi_words", "viewer", "in0")?;

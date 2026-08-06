@@ -13,7 +13,7 @@ use platform_artifacts::{
 use platform_runtime::WorkExecutor;
 
 use super::backend::{AnnotationStoreBackend, AnnotationStoreWriterBackend};
-use super::cache::{cache_block, cached_block};
+use super::cache::DecodedBlockCacheHandle;
 use super::codec::{
     DecodedWordBlock, EncodedBlockMetadata, WordBlockBuilder, decode_word_block,
     decode_word_block_range,
@@ -83,6 +83,7 @@ struct LiveState {
 struct StoreShared {
     state: RwLock<LiveState>,
     repository: Arc<dyn ArtifactRepository>,
+    decoded_block_cache: DecodedBlockCacheHandle,
     store_identity: [u8; 32],
     store_id: u64,
     remove_on_drop: AtomicBool,
@@ -130,8 +131,10 @@ impl IndexedAnnotationStore {
     ///
     /// # Parameters
     /// - `config`: Persistent cache identity and repository configuration.
+    /// - `decoded_block_cache`: Application-owned decoded-block cache.
     pub fn open_persistent(
         config: &PersistentStoreConfig,
+        decoded_block_cache: DecodedBlockCacheHandle,
     ) -> StoreResult<Option<IndexedAnnotationStore>> {
         let Some(index) = persistent::open(config)? else {
             return Ok(None);
@@ -150,6 +153,7 @@ impl IndexedAnnotationStore {
                     status: StoreStatus::Finished,
                 }),
                 repository: Arc::clone(&config.artifact_repository),
+                decoded_block_cache,
                 store_identity: config.cache_key,
                 store_id: NEXT_STORE_ID.fetch_add(1, Ordering::Relaxed),
                 remove_on_drop: AtomicBool::new(false),
@@ -270,14 +274,20 @@ impl IndexedAnnotationStore {
     }
 
     fn read_cached_entry(&self, entry: BlockDirectoryEntry) -> StoreResult<Arc<DecodedWordBlock>> {
-        if let Some(block) = cached_block(self.shared.store_id, entry.sequence) {
+        if let Some(block) = self
+            .shared
+            .decoded_block_cache
+            .cached_block(self.shared.store_id, entry.sequence)
+        {
             return Ok(block);
         }
         let bytes = self.read_entry_bytes(entry)?;
         let decoded = decode_word_block(&bytes)?;
         validate_directory_header(decoded.header, entry)?;
         let decoded = Arc::new(decoded);
-        cache_block(self.shared.store_id, Arc::clone(&decoded));
+        self.shared
+            .decoded_block_cache
+            .cache_block(self.shared.store_id, Arc::clone(&decoded));
         Ok(decoded)
     }
 
@@ -318,7 +328,11 @@ impl IndexedAnnotationStore {
         end_ns: u64,
         max_context_words: usize,
     ) -> StoreResult<QueryBlockWords> {
-        if let Some(block) = cached_block(self.shared.store_id, entry.sequence) {
+        if let Some(block) = self
+            .shared
+            .decoded_block_cache
+            .cached_block(self.shared.store_id, entry.sequence)
+        {
             return Ok(QueryBlockWords::Cached(block));
         }
         if entry.flags & BLOCK_FLAG_HAS_DURATIONS as u8 != 0
@@ -800,7 +814,11 @@ impl IndexedAnnotationWriter {
     ///
     /// # Parameters
     /// - `config`: Live encoding, publishing, execution, and persistence policy.
-    pub fn create(config: LiveStoreConfig) -> StoreResult<(Self, IndexedAnnotationStore)> {
+    /// - `decoded_block_cache`: Application-owned decoded-block cache.
+    pub fn create(
+        config: LiveStoreConfig,
+        decoded_block_cache: DecodedBlockCacheHandle,
+    ) -> StoreResult<(Self, IndexedAnnotationStore)> {
         if config.hot_tail_publish_words == 0 {
             return Err(StoreError::Codec(CodecError::InvalidConfiguration(
                 "hot_tail_publish_words must be greater than zero",
@@ -843,6 +861,7 @@ impl IndexedAnnotationWriter {
                 status: StoreStatus::Live,
             }),
             repository,
+            decoded_block_cache,
             store_identity,
             store_id,
             remove_on_drop: AtomicBool::new(true),
@@ -1331,8 +1350,17 @@ mod tests {
 
     use super::*;
     use crate::derived_word_store::BlockCodecConfig;
-    use crate::derived_word_store::cache::cache_contains;
     use crate::events::instantaneous_word_end_ns;
+
+    fn create_store(
+        config: LiveStoreConfig,
+    ) -> StoreResult<(IndexedAnnotationWriter, IndexedAnnotationStore)> {
+        IndexedAnnotationWriter::create(config, DecodedBlockCacheHandle::default())
+    }
+
+    fn open_store(config: &PersistentStoreConfig) -> StoreResult<Option<IndexedAnnotationStore>> {
+        IndexedAnnotationStore::open_persistent(config, DecodedBlockCacheHandle::default())
+    }
 
     struct RecordingWorkExecutor {
         workers: usize,
@@ -1432,7 +1460,7 @@ mod tests {
     fn configured_executor_bounds_and_receives_block_encoding_work() {
         let executor = Arc::new(RecordingWorkExecutor::new(9));
         let config = test_config().with_work_executor(executor.clone());
-        let (mut writer, _) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, _) = create_store(config).unwrap();
 
         let words = (0..32)
             .map(|index| Word::new(index, index * 10))
@@ -1448,7 +1476,7 @@ mod tests {
     fn append_does_not_wait_for_dispatched_block_encoding() {
         let executor = Arc::new(QueuedWorkExecutor::new());
         let config = test_config().with_work_executor(executor.clone());
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, store) = create_store(config).unwrap();
         let words = (0..16)
             .map(|index| Word::new(index, index * 10))
             .collect::<Vec<_>>();
@@ -1470,7 +1498,7 @@ mod tests {
         let cache_key = [0x5a; 32];
         let config = persistent_config(cache_key);
         let persistent = config.persistence.clone().unwrap();
-        let (mut writer, live_store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, live_store) = create_store(config).unwrap();
         let words: Vec<_> = (0..41)
             .map(|index| match index {
                 17 => Word::bytes_with_tag(index, vec![0xa5; 96], index * 80, index % 5),
@@ -1493,9 +1521,7 @@ mod tests {
 
         drop((writer, live_store));
 
-        let reopened = IndexedAnnotationStore::open_persistent(&persistent)
-            .unwrap()
-            .expect("published cache");
+        let reopened = open_store(&persistent).unwrap().expect("published cache");
         assert_eq!(reopened.metadata().total_word_count, words.len() as u64);
         assert_eq!(
             reopened
@@ -1514,7 +1540,7 @@ mod tests {
             .collect();
         let build = |cache_key, words: &[Word], batch_words: usize| {
             let config = persistent_config(cache_key);
-            let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+            let (mut writer, store) = create_store(config).unwrap();
             for batch in words.chunks(batch_words) {
                 writer.append_batch(batch).unwrap();
             }
@@ -1536,15 +1562,11 @@ mod tests {
     fn unfinished_persistent_store_never_becomes_discoverable() {
         let config = persistent_config([0x33; 32]);
         let persistent = config.persistence.clone().unwrap();
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, store) = create_store(config).unwrap();
         writer.append(Word::new(1, 10)).unwrap();
         drop((writer, store));
 
-        assert!(
-            IndexedAnnotationStore::open_persistent(&persistent)
-                .unwrap()
-                .is_none()
-        );
+        assert!(open_store(&persistent).unwrap().is_none());
     }
 
     #[test]
@@ -1556,7 +1578,7 @@ mod tests {
         for key in [first_key, second_key] {
             let mut config = persistent_config(key);
             config = config.with_artifact_repository(Arc::clone(&repository));
-            let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+            let (mut writer, store) = create_store(config).unwrap();
             writer.append(Word::new(u64::from(key[0]), 10)).unwrap();
             writer.finish().unwrap();
             drop((writer, store));
@@ -1567,7 +1589,7 @@ mod tests {
         assert_eq!(stats.entries, 1);
         assert_eq!(stats.removed_entries, 1);
         assert!(
-            IndexedAnnotationStore::open_persistent(
+            open_store(
                 &PersistentStoreConfig::new(first_key)
                     .with_artifact_repository(Arc::clone(&repository))
             )
@@ -1575,7 +1597,7 @@ mod tests {
             .is_none()
         );
         assert!(
-            IndexedAnnotationStore::open_persistent(
+            open_store(
                 &PersistentStoreConfig::new(second_key)
                     .with_artifact_repository(Arc::clone(&repository))
             )
@@ -1595,7 +1617,7 @@ mod tests {
         for persistent in [&first, &second] {
             let mut config = test_config();
             config.persistence = Some(persistent.clone());
-            let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+            let (mut writer, store) = create_store(config).unwrap();
             writer.append(Word::new(1, 10)).unwrap();
             writer.finish().unwrap();
             drop((writer, store));
@@ -1604,16 +1626,8 @@ mod tests {
         let stats = persistent::clear_cache_entry(&first).unwrap();
         assert_eq!(stats.removed_entries, 1);
         assert!(stats.removed_bytes > 0);
-        assert!(
-            IndexedAnnotationStore::open_persistent(&first)
-                .unwrap()
-                .is_none()
-        );
-        assert!(
-            IndexedAnnotationStore::open_persistent(&second)
-                .unwrap()
-                .is_some()
-        );
+        assert!(open_store(&first).unwrap().is_none());
+        assert!(open_store(&second).unwrap().is_some());
         assert_eq!(
             persistent::clear_cache_entry(&first)
                 .unwrap()
@@ -1624,7 +1638,7 @@ mod tests {
 
     #[test]
     fn finish_commits_partial_block_and_reads_it_by_directory_offset() {
-        let (mut writer, store) = IndexedAnnotationWriter::create(test_config()).unwrap();
+        let (mut writer, store) = create_store(test_config()).unwrap();
         let words: Vec<_> = (0..7)
             .map(|index| Word::spanning(index, index * 10, index % 3))
             .collect();
@@ -1644,7 +1658,7 @@ mod tests {
 
     #[test]
     fn configured_boundaries_create_multiple_ordered_blocks() {
-        let (mut writer, store) = IndexedAnnotationWriter::create(test_config()).unwrap();
+        let (mut writer, store) = create_store(test_config()).unwrap();
         let words: Vec<_> = (0..41).map(|index| Word::new(index, index * 80)).collect();
         writer.append_batch(&words).unwrap();
         writer.finish().unwrap();
@@ -1664,7 +1678,7 @@ mod tests {
     fn active_segment_keeps_committed_blocks_queryable_before_publication() {
         let mut config = test_config();
         config.block.max_words = 1;
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, store) = create_store(config).unwrap();
         writer.target_segment_bytes = 1024;
         let expected = (0..4)
             .map(|index| Word::new(index, index * 10))
@@ -1691,7 +1705,7 @@ mod tests {
         let mut config = test_config().with_artifact_repository(Arc::clone(&repository));
         config.persistence = Some(persistent.clone());
         config.block.max_words = 1;
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, store) = create_store(config).unwrap();
         writer.target_segment_bytes = 200;
         let expected = (0..12)
             .map(|index| Word::new(index, index * 10))
@@ -1714,7 +1728,7 @@ mod tests {
         }
         drop(store);
 
-        let reopened = IndexedAnnotationStore::open_persistent(&persistent)
+        let reopened = open_store(&persistent)
             .unwrap()
             .expect("segmented persistent store should reopen");
         assert_eq!(
@@ -1744,7 +1758,7 @@ mod tests {
 
         let config = test_config();
         let block_config = config.block;
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, store) = create_store(config).unwrap();
         let words: Vec<_> = (0..48).map(|index| Word::new(index, index * 80)).collect();
         let mut blocks = words
             .chunks(16)
@@ -1797,7 +1811,7 @@ mod tests {
 
     #[test]
     fn batched_append_publishes_all_completed_blocks_before_returning() {
-        let (mut writer, store) = IndexedAnnotationWriter::create(test_config()).unwrap();
+        let (mut writer, store) = create_store(test_config()).unwrap();
         let words: Vec<_> = (0..91).map(|index| Word::new(index, index * 80)).collect();
         let batches = words.chunks(7).map(<[Word]>::to_vec).collect::<Vec<_>>();
 
@@ -1818,7 +1832,7 @@ mod tests {
 
     #[test]
     fn exact_word_limit_commits_without_publishing_a_duplicate_hot_tail() {
-        let (mut writer, store) = IndexedAnnotationWriter::create(test_config()).unwrap();
+        let (mut writer, store) = create_store(test_config()).unwrap();
         let words: Vec<_> = (0..16).map(|index| Word::new(index, index * 80)).collect();
 
         writer.append_batch(&words).unwrap();
@@ -1831,7 +1845,7 @@ mod tests {
 
     #[test]
     fn concurrent_readers_never_observe_partial_commits() {
-        let (mut writer, store) = IndexedAnnotationWriter::create(test_config()).unwrap();
+        let (mut writer, store) = create_store(test_config()).unwrap();
         let done = Arc::new(AtomicBool::new(false));
         let readers: Vec<_> = (0..4)
             .map(|_| {
@@ -1871,7 +1885,7 @@ mod tests {
 
     #[test]
     fn out_of_order_input_fails_only_the_store() {
-        let (mut writer, store) = IndexedAnnotationWriter::create(test_config()).unwrap();
+        let (mut writer, store) = create_store(test_config()).unwrap();
         writer.append(Word::new(1, 10)).unwrap();
         assert!(matches!(
             writer.append(Word::new(2, 9)),
@@ -1889,7 +1903,7 @@ mod tests {
 
     #[test]
     fn committed_read_error_is_reported_through_store_status() {
-        let (mut writer, store) = IndexedAnnotationWriter::create(test_config()).unwrap();
+        let (mut writer, store) = create_store(test_config()).unwrap();
         writer.append(Word::new(1, 0)).unwrap();
         writer.finish().unwrap();
 
@@ -1915,7 +1929,7 @@ mod tests {
     fn cancellation_discards_the_unpublished_active_segment_promptly() {
         let mut config = test_config();
         config.block.max_words = 1;
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, store) = create_store(config).unwrap();
         writer.append(Word::new(1, 0)).unwrap();
         let key = segment_key(store.shared.store_identity, 0).unwrap();
 
@@ -1937,7 +1951,7 @@ mod tests {
         let mut config = test_config();
         config.block.max_words = 4;
         config.hot_tail_publish_words = 1;
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, store) = create_store(config).unwrap();
         let words: Vec<_> = (0..10)
             .map(|index| {
                 if index == 6 {
@@ -1958,7 +1972,7 @@ mod tests {
 
     #[test]
     fn exact_query_reports_an_incomplete_limited_window() {
-        let (mut writer, store) = IndexedAnnotationWriter::create(test_config()).unwrap();
+        let (mut writer, store) = create_store(test_config()).unwrap();
         let words: Vec<_> = (0..100).map(|index| Word::new(index, index * 10)).collect();
         writer.append_batch(&words).unwrap();
         writer.finish().unwrap();
@@ -1973,7 +1987,7 @@ mod tests {
         let mut config = test_config();
         config.block.max_words = 1;
         config.hot_tail_publish_words = 1;
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, store) = create_store(config).unwrap();
         writer
             .append_batch(&[Word::new(1, 0), Word::new(2, 100), Word::new(3, 10_000)])
             .unwrap();
@@ -1999,7 +2013,7 @@ mod tests {
         let mut config = test_config();
         config.block.max_words = 2;
         config.hot_tail_publish_words = 1;
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, store) = create_store(config).unwrap();
         writer
             .append_batch(&[Word::new(1, 10), Word::spanning(2, 30, 5), Word::new(3, 50)])
             .unwrap();
@@ -2013,7 +2027,7 @@ mod tests {
     fn exact_and_boundary_queries_find_a_partial_word_spanning_later_blocks() {
         let mut config = test_config();
         config.block.max_words = 2;
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, store) = create_store(config).unwrap();
         let mut words = vec![Word::spanning(0x27, 10, 9_990)];
         words.extend((1..=9).map(|index| Word::new(index, index * 100)));
         writer.append_batch(&words).unwrap();
@@ -2037,7 +2051,7 @@ mod tests {
     fn exact_and_boundary_queries_match_randomized_reference() {
         let mut config = test_config();
         config.block.max_words = 31;
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, store) = create_store(config).unwrap();
         let mut random = 0x243f_6a88_85a3_08d3u64;
         let mut timestamp = 0u64;
         let mut words = Vec::new();
@@ -2076,16 +2090,26 @@ mod tests {
     }
 
     #[test]
-    fn exact_query_populates_the_process_decoded_block_cache() {
-        let (mut writer, store) = IndexedAnnotationWriter::create(test_config()).unwrap();
+    fn exact_query_populates_the_injected_decoded_block_cache() {
+        let (mut writer, store) = create_store(test_config()).unwrap();
         writer
             .append_batch(&[Word::new(1, 10), Word::new(2, 20)])
             .unwrap();
         writer.finish().unwrap();
-        assert!(!cache_contains(store.shared.store_id, 0));
+        assert!(
+            !store
+                .shared
+                .decoded_block_cache
+                .contains(store.shared.store_id, 0)
+        );
 
         store.exact_window(0, 30, 10).unwrap();
-        assert!(cache_contains(store.shared.store_id, 0));
+        assert!(
+            store
+                .shared
+                .decoded_block_cache
+                .contains(store.shared.store_id, 0)
+        );
     }
 
     #[test]
@@ -2093,21 +2117,41 @@ mod tests {
         let mut config = test_config();
         config.block.max_words = 16;
         config.hot_tail_publish_words = 1;
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, store) = create_store(config).unwrap();
         let words: Vec<_> = (0..40).map(|index| Word::new(index, index * 100)).collect();
         writer.append_batch(&words).unwrap();
         assert_eq!(store.snapshot().metadata.committed_block_count, 2);
         assert_eq!(store.snapshot().metadata.hot_tail_word_count, 8);
-        assert!(!cache_contains(store.shared.store_id, 0));
-        assert!(!cache_contains(store.shared.store_id, 1));
+        assert!(
+            !store
+                .shared
+                .decoded_block_cache
+                .contains(store.shared.store_id, 0)
+        );
+        assert!(
+            !store
+                .shared
+                .decoded_block_cache
+                .contains(store.shared.store_id, 1)
+        );
 
         // One target bucket permits at most 32 refined words, so this
         // forty-word window must take the summary fallback.
         let buckets = store.presence_window(0, 3_999, 1).unwrap();
         assert!(buckets.len() <= 1);
         assert!(buckets.iter().any(|bucket| bucket.end_ns >= 3_900));
-        assert!(!cache_contains(store.shared.store_id, 0));
-        assert!(!cache_contains(store.shared.store_id, 1));
+        assert!(
+            !store
+                .shared
+                .decoded_block_cache
+                .contains(store.shared.store_id, 0)
+        );
+        assert!(
+            !store
+                .shared
+                .decoded_block_cache
+                .contains(store.shared.store_id, 1)
+        );
     }
 
     #[test]
@@ -2116,7 +2160,7 @@ mod tests {
         config.block.max_words = 64;
         config.block.max_inter_word_gap_ns = 100;
         config.hot_tail_publish_words = 1;
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, store) = create_store(config).unwrap();
         writer
             .append_batch(&[Word::new(1, 0), Word::new(2, 10), Word::new(3, 10_000)])
             .unwrap();
@@ -2132,7 +2176,7 @@ mod tests {
         let mut config = test_config();
         config.block.max_words = 1_000;
         config.block.max_inter_word_gap_ns = u64::MAX;
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, store) = create_store(config).unwrap();
         let mut words: Vec<_> = (0..150).map(|timestamp| Word::new(1, timestamp)).collect();
         words.extend((10_000..10_150).map(|timestamp| Word::new(2, timestamp)));
         writer.append_batch(&words).unwrap();
@@ -2154,7 +2198,7 @@ mod tests {
         let mut config = test_config();
         config.block.max_words = 20_000;
         config.block.max_inter_word_gap_ns = u64::MAX;
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, store) = create_store(config).unwrap();
         let mut words: Vec<_> = (0..5_000).map(|index| Word::new(1, index * 10)).collect();
         words.extend((0..5_000).map(|index| Word::new(2, 100_000 + index * 10)));
         writer.append_batch(&words).unwrap();
@@ -2165,7 +2209,12 @@ mod tests {
             store.shared.state.read().unwrap().presence.leaves().len(),
             2
         );
-        assert!(!cache_contains(store.shared.store_id, 0));
+        assert!(
+            !store
+                .shared
+                .decoded_block_cache
+                .contains(store.shared.store_id, 0)
+        );
         let buckets = store.presence_window(0, 149_990, 100).unwrap();
         assert!(
             buckets
@@ -2173,7 +2222,12 @@ mod tests {
                 .all(|bucket| !(bucket.start_ns <= 75_000 && bucket.end_ns >= 75_000)),
             "coarse summaries must preserve an inactive interval inside one block"
         );
-        assert!(!cache_contains(store.shared.store_id, 0));
+        assert!(
+            !store
+                .shared
+                .decoded_block_cache
+                .contains(store.shared.store_id, 0)
+        );
     }
 
     #[test]
@@ -2232,16 +2286,14 @@ mod tests {
         config.block.max_words = 20_000;
         config.block.max_inter_word_gap_ns = u64::MAX;
         let persistent = config.persistence.clone().unwrap();
-        let (mut writer, live_store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, live_store) = create_store(config).unwrap();
         let mut words: Vec<_> = (0..5_000).map(|index| Word::new(1, index * 10)).collect();
         words.extend((0..5_000).map(|index| Word::new(2, 100_000 + index * 10)));
         writer.append_batch(&words).unwrap();
         writer.finish().unwrap();
         drop((writer, live_store));
 
-        let reopened = IndexedAnnotationStore::open_persistent(&persistent)
-            .unwrap()
-            .expect("published cache");
+        let reopened = open_store(&persistent).unwrap().expect("published cache");
         assert_eq!(reopened.snapshot().metadata.committed_block_count, 1);
         assert_eq!(
             reopened
@@ -2261,7 +2313,12 @@ mod tests {
                 .all(|bucket| !(bucket.start_ns <= 75_000 && bucket.end_ns >= 75_000)),
             "reopened presence summaries must retain internal gaps"
         );
-        assert!(!cache_contains(reopened.shared.store_id, 0));
+        assert!(
+            !reopened
+                .shared
+                .decoded_block_cache
+                .contains(reopened.shared.store_id, 0)
+        );
     }
 
     fn direct_annotations(words: &[Word], start_ns: u64, end_ns: u64) -> Vec<Annotation> {

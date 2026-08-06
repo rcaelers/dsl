@@ -7,6 +7,6 @@ mod contract;
 mod host_service_tests;
 
 pub use contract::{
-    DecodedBlockCacheSnapshot, DownloadableOutput, HostCommand, HostService, HostUiCapabilities,
-    ModifierKeyLabels, OpenDialog, SaveDialog,
+    DownloadableOutput, HostCommand, HostService, HostUiCapabilities, ModifierKeyLabels,
+    OpenDialog, SaveDialog,
 };

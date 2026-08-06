@@ -89,6 +89,8 @@ impl CaptureFeatureDiscovery for FakeGraphService {
 impl GraphService for FakeGraphService {
     fn set_artifact_repository(&mut self, _repository: Arc<dyn ArtifactRepository>) {}
 
+    fn set_decoded_block_cache(&mut self, _cache: signal_derived::DecodedBlockCacheHandle) {}
+
     fn derived_cache_configs_by_node(
         &self,
         _graph: &GraphState,

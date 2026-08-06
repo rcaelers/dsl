@@ -22,7 +22,8 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
 - `signal_runtime` owns generic typed-stream execution, scheduling, and pipeline supervision.
   Its root also owns the generic `ProcessNodeConstruction<M>` result contract.
 - `signal_capture` owns immutable generic capture, query, and finite indexing contracts.
-- `signal_derived` owns generic derived-data payload, collection, indexing, and storage contracts.
+- `signal_derived` owns generic derived-data payload, collection, indexing, storage, and the
+  explicitly injected decoded-block cache handle.
 - `signal_capture_session` owns generic capture-session
   contracts and lazy capture-source metadata/lifecycle contracts. It consumes fixed-width byte ranges, stable source identities, prepared
   random-access sources, immutable byte regions, and portable memory sources directly from
@@ -163,7 +164,7 @@ nearest owning facade. The allowlist names canonical public namespaces.
 | `platform_runtime` | none | Its crate root exposes host work, worker-operation, kernel, capability, and queue contracts; implementation modules remain private. |
 | `signal_runtime` | none | Its crate root is the curated stream-execution facade; ports, channels, schedulers, and managers remain private implementation modules. |
 | `signal_capture` | none | Its crate root exposes immutable capture, query, edge-capability, and finite-index contracts; implementation modules remain private. |
-| `signal_derived` | `derived_word_store` | The public module owns the independently usable encoded annotation-store contract; other payload, lane, sampling, and index contracts are exposed through the crate facade. |
+| `signal_derived` | `derived_word_store` | The public module owns the independently usable encoded annotation-store and decoded-block cache contracts; other payload, lane, sampling, and index contracts are exposed through the crate facade. |
 | `signal_capture_session` | `live_capture`, `live_capture_store`, `logic_analyzer` | These are substantial generic capture-session domains. `live_capture` owns the provider-neutral configured and prepared acquisition contracts. `logic_analyzer` owns the driver-neutral capture, trigger, and processing-source contracts consumed by concrete device nodes. Lower-level runtime, capture, and derived contracts are imported directly from their owning crates and are not re-exported. |
 | `logic_analyzer_capture_formats` | `dsl_file`, `sigrok_file` | Each format facade owns its configuration, factory, parser, index, and replay contracts; archive helpers remain private. |
 | `logic_analyzer_device_dslogic` | none | Its crate root exposes the DSLogic source and transport contracts; protocol implementation modules remain private. |

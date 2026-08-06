@@ -454,6 +454,7 @@ fn standalone_word_ingestor_publishes_only_its_query() {
         lanes.clone(),
         DerivedDataRetention::Unlimited,
         options,
+        crate::DecodedBlockCacheHandle::default(),
     );
 
     assert!(
@@ -1504,7 +1505,9 @@ fn collector_reopens_persistent_lane_and_does_not_rewrite_incoming_words() {
         persistence: Some(persistent),
         ..LiveStoreConfig::default()
     };
-    let (mut writer, _) = IndexedAnnotationWriter::create(config.clone()).unwrap();
+    let (mut writer, _) =
+        IndexedAnnotationWriter::create(config.clone(), crate::DecodedBlockCacheHandle::default())
+            .unwrap();
     writer
         .append_batch(&[Word::new(1, 10), Word::new(2, 20)])
         .unwrap();

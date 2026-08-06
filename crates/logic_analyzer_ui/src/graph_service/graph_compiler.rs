@@ -293,6 +293,10 @@ impl GraphService for UiGraphService {
         self.runtime.set_artifact_repository(repository);
     }
 
+    fn set_decoded_block_cache(&mut self, cache: signal_derived::DecodedBlockCacheHandle) {
+        self.runtime.set_decoded_block_cache(cache);
+    }
+
     fn set_graph_worker_client(&mut self, client: Option<Arc<GraphWorkerClient>>) {
         self.graph_worker_client = client;
     }

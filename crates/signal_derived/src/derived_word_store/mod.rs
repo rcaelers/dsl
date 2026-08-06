@@ -57,7 +57,7 @@
 //!         |       |        |
 //!         |       |        +-- presence index
 //!         |       +----------- committed block directory
-//!         +------------------- bounded decoded-block cache (native)
+//!         +------------------- injected bounded decoded-block cache
 //!            |
 //!            v
 //!       Arc<dyn AnnotationQuery>
@@ -69,6 +69,8 @@
 //! The pipeline node appends blocks outside the egui thread. The viewer holds an opaque
 //! `CollectedLaneQuery`; each adapter converts bounded indexed results back to its typed immutable
 //! snapshot. Only fully committed blocks and an immutable hot tail are visible to readers.
+//! Every store receives a `DecodedBlockCacheHandle` when it is constructed. Cloned handles share
+//! one application-owned LRU; separately constructed handles isolate applications and tests.
 //!
 //! ## Platform model
 //!
@@ -390,10 +392,7 @@ mod vlq;
 mod persistent;
 
 pub(crate) use backend::{AnnotationStoreBackend, AnnotationStoreWriterBackend};
-pub use cache::{
-    DecodedBlockCacheStats, configure_decoded_block_cache, decoded_block_cache_stats,
-    reset_decoded_block_cache_stats,
-};
+pub use cache::{DecodedBlockCacheHandle, DecodedBlockCacheStats};
 pub(crate) use codec::{EncodeWordBlockRequest, encode_owned_word_block};
 pub use config::{BlockCodecConfig, LiveStoreConfig, PersistentStoreConfig};
 pub use errors::{CodecError, CodecResult};

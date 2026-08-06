@@ -1,6 +1,7 @@
 use crate::derived_index::MipmapRecord;
 use crate::derived_word_store::{
-    AnnotationQuery, IndexedAnnotationStore, IndexedAnnotationWriter, LiveStoreConfig, StoreStatus,
+    AnnotationQuery, DecodedBlockCacheHandle, IndexedAnnotationStore, IndexedAnnotationWriter,
+    LiveStoreConfig, StoreStatus,
 };
 use crate::events::{Annotation, Word};
 use crate::payload::{CollectedLaneStorageBacking, CollectedLaneStorageSnapshot};
@@ -24,9 +25,10 @@ pub(crate) struct IndexedLaneWriter {
 pub(crate) fn indexed_lane(
     name: &str,
     config: LiveStoreConfig,
+    decoded_block_cache: DecodedBlockCacheHandle,
 ) -> Result<(IndexedLaneWriter, IndexedLaneQuery), String> {
     if let Some(persistent) = config.persistence.as_ref() {
-        match IndexedAnnotationStore::open_persistent(persistent) {
+        match IndexedAnnotationStore::open_persistent(persistent, decoded_block_cache.clone()) {
             Ok(Some(store)) => {
                 return Ok((
                     IndexedLaneWriter {
@@ -45,7 +47,7 @@ pub(crate) fn indexed_lane(
         }
     }
 
-    IndexedAnnotationWriter::create(config)
+    IndexedAnnotationWriter::create(config, decoded_block_cache)
         .map(|(writer, store)| {
             (
                 IndexedLaneWriter {

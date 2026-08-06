@@ -33,7 +33,8 @@ impl DataCollectorBuilder {
                 ctx.derived_lanes().clone(),
                 descriptor,
                 ctx.derived_data_retention(),
-            );
+            )
+            .with_decoded_block_cache(ctx.decoded_block_cache());
             if let Some(persistent) = ctx.derived_word_cache(*member) {
                 request = request.with_indexed_store(
                     LiveStoreConfig {

@@ -23,6 +23,7 @@ fn application_orchestration_depends_on_the_ui_owned_host_service() {
     }
 
     let contract = include_str!("contract.rs");
+    assert!(!contract.contains("DecodedBlockCache"));
     assert!(!contract.contains("clear_cache"));
     assert!(!contract.contains("inspect_cache_entry"));
 }

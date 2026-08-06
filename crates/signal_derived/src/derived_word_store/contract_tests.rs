@@ -1,7 +1,8 @@
+use super::cache::DecodedBlockCacheHandle;
 use super::config::LiveStoreConfig;
 use super::query::{AnnotationQuery, WordPresenceBucket};
 use super::state::StoreStatus;
-use super::store::IndexedAnnotationWriter;
+use super::store::{IndexedAnnotationStore, IndexedAnnotationWriter, StoreResult};
 use crate::events::{Annotation, Word};
 
 fn config() -> LiveStoreConfig {
@@ -11,9 +12,15 @@ fn config() -> LiveStoreConfig {
     }
 }
 
+fn create_store(
+    config: LiveStoreConfig,
+) -> StoreResult<(IndexedAnnotationWriter, IndexedAnnotationStore)> {
+    IndexedAnnotationWriter::create(config, DecodedBlockCacheHandle::default())
+}
+
 #[test]
 fn backend_contract_append_query_finish() {
-    let (mut writer, store) = IndexedAnnotationWriter::create(config()).unwrap();
+    let (mut writer, store) = create_store(config()).unwrap();
     writer
         .append_batch(&[Word::spanning(0x11, 100, 20), Word::new(0x22, 200)])
         .unwrap();
@@ -52,7 +59,7 @@ fn backend_contract_append_query_finish() {
 
 #[test]
 fn backend_contract_cancel() {
-    let (mut writer, store) = IndexedAnnotationWriter::create(config()).unwrap();
+    let (mut writer, store) = create_store(config()).unwrap();
     writer.append(Word::new(0x33, 100)).unwrap();
     writer.cancel().unwrap();
 
@@ -61,7 +68,7 @@ fn backend_contract_cancel() {
 
 #[test]
 fn backend_contract_rejects_out_of_order_words() {
-    let (mut writer, _store) = IndexedAnnotationWriter::create(config()).unwrap();
+    let (mut writer, _store) = create_store(config()).unwrap();
     let error = writer
         .append_batch(&[Word::new(1, 200), Word::new(2, 100)])
         .unwrap_err();
@@ -70,7 +77,7 @@ fn backend_contract_rejects_out_of_order_words() {
 
 #[test]
 fn backend_contract_sparse_instantaneous_words_leave_gaps_empty() {
-    let (mut writer, store) = IndexedAnnotationWriter::create(config()).unwrap();
+    let (mut writer, store) = create_store(config()).unwrap();
     writer
         .append_batch(&[
             Word::new(1, 1_000),

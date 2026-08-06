@@ -422,6 +422,10 @@ The derived-word block codec, directory format, presence summaries, exact-window
 nearest-boundary queries, decoded-block LRU, and integrity validation are the only implementations.
 They read and write artifacts through the repository and byte-region contracts.
 
+Each application owns a `DecodedBlockCacheHandle` and injects clones into every derived store it
+constructs. The handle provides the same bounded LRU behavior and statistics on native and web;
+independently constructed applications and tests do not share decoded blocks or counters.
+
 The web memory repository stores the same encoded segments, indexes, and manifests as the native
 repository. It does not retain a platform-specific `Vec<Word>` as its authoritative representation.
 Small captures naturally use one or a few blocks; they do not select a different query engine.

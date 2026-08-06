@@ -12,8 +12,8 @@ use logic_analyzer_graph_plan::{
 use node_graph::api::NodeId;
 use platform_artifacts::ArtifactRepository;
 use platform_runtime::{WorkExecutor, WorkTask};
-use signal_derived::PersistentStoreConfig;
 use signal_derived::derived_word_store::PersistentCacheClearTask;
+use signal_derived::{DecodedBlockCacheHandle, PersistentStoreConfig};
 
 use super::derived_cache_backend::{
     DerivedCacheBackend, DerivedCacheLookup, RepositoryDerivedCacheBackend,
@@ -234,8 +234,14 @@ pub(crate) fn configure_repository(
     }
 }
 
-pub(crate) fn prepare_execution(compiled: &ProcessingGraph) -> (ProcessingGraph, bool) {
-    prepare_execution_with_backend(compiled, &RepositoryDerivedCacheBackend)
+pub(crate) fn prepare_execution(
+    compiled: &ProcessingGraph,
+    decoded_block_cache: &DecodedBlockCacheHandle,
+) -> (ProcessingGraph, bool) {
+    prepare_execution_with_backend(
+        compiled,
+        &RepositoryDerivedCacheBackend::new(decoded_block_cache.clone()),
+    )
 }
 
 pub(crate) fn prepare_execution_with_backend(
@@ -285,8 +291,14 @@ pub(crate) fn prepare_execution_with_backend(
     (execution, true)
 }
 
-pub(crate) fn prepare_cached_preview(compiled: &ProcessingGraph) -> Option<ProcessingGraph> {
-    prepare_cached_preview_with_backend(compiled, &RepositoryDerivedCacheBackend)
+pub(crate) fn prepare_cached_preview(
+    compiled: &ProcessingGraph,
+    decoded_block_cache: &DecodedBlockCacheHandle,
+) -> Option<ProcessingGraph> {
+    prepare_cached_preview_with_backend(
+        compiled,
+        &RepositoryDerivedCacheBackend::new(decoded_block_cache.clone()),
+    )
 }
 
 pub(crate) fn prepare_cached_preview_with_backend(
@@ -477,6 +489,7 @@ pub(crate) fn prepare_sampling_point_stores(
     lanes: &signal_derived::DerivedLanes,
     repository: &Arc<dyn ArtifactRepository>,
     work_executor: &Arc<dyn WorkExecutor>,
+    decoded_block_cache: &DecodedBlockCacheHandle,
 ) {
     for candidate in &mut compiled.sampling_overlays {
         if candidate.install_retained_word_provider(lanes.clone()) {
@@ -492,12 +505,19 @@ pub(crate) fn prepare_sampling_point_stores(
             .iter()
             .any(|node| node.id == candidate.node_id());
         let store = if executed {
-            signal_derived::SamplingPointStore::create_persistent(config, Arc::clone(work_executor))
-                .ok()
+            signal_derived::SamplingPointStore::create_persistent(
+                config,
+                Arc::clone(work_executor),
+                decoded_block_cache.clone(),
+            )
+            .ok()
         } else {
-            signal_derived::SamplingPointStore::open_persistent(&config)
-                .ok()
-                .flatten()
+            signal_derived::SamplingPointStore::open_persistent(
+                &config,
+                decoded_block_cache.clone(),
+            )
+            .ok()
+            .flatten()
         };
         if let Some(store) = store {
             candidate.set_points(store);
@@ -509,6 +529,7 @@ pub(crate) fn open_sampling_point_stores(
     compiled: &mut ProcessingGraph,
     lanes: &signal_derived::DerivedLanes,
     repository: &Arc<dyn ArtifactRepository>,
+    decoded_block_cache: &DecodedBlockCacheHandle,
 ) -> bool {
     let mut opened = false;
     for candidate in &mut compiled.sampling_overlays {
@@ -521,7 +542,10 @@ pub(crate) fn open_sampling_point_stores(
         };
         let config =
             PersistentStoreConfig::new(cache_key).with_artifact_repository(Arc::clone(repository));
-        if let Ok(Some(store)) = signal_derived::SamplingPointStore::open_persistent(&config) {
+        if let Ok(Some(store)) = signal_derived::SamplingPointStore::open_persistent(
+            &config,
+            decoded_block_cache.clone(),
+        ) {
             candidate.set_points(store);
             opened = true;
         }
@@ -726,7 +750,11 @@ mod cache_policy_tests {
             persistence: Some(persistent.clone()),
             ..LiveStoreConfig::default()
         };
-        let (mut writer, store) = IndexedAnnotationWriter::create(config).unwrap();
+        let (mut writer, store) = IndexedAnnotationWriter::create(
+            config,
+            signal_derived::DecodedBlockCacheHandle::default(),
+        )
+        .unwrap();
         writer
             .append_batch(&[Word::spanning(0x42, 100, 20)])
             .unwrap();

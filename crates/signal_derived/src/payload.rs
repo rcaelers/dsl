@@ -12,7 +12,7 @@ use std::sync::Arc;
 use signal_runtime::{InputPort, PortSchema, WorkResult};
 
 use crate::derived_data_collector::{DerivedDataRetention, DerivedLanes};
-use crate::derived_word_store::LiveStoreConfig;
+use crate::derived_word_store::{DecodedBlockCacheHandle, LiveStoreConfig};
 use crate::events::WordPayload;
 
 /// One type-erased collector input owned by a registered payload adapter.
@@ -237,6 +237,7 @@ pub struct CollectedLaneRequest {
     lanes: DerivedLanes,
     payload: PayloadDescriptor,
     retention: DerivedDataRetention,
+    decoded_block_cache: DecodedBlockCacheHandle,
     indexed_store: Option<LiveStoreConfig>,
     options: Arc<dyn Any + Send + Sync>,
 }
@@ -263,6 +264,7 @@ impl CollectedLaneRequest {
             lanes,
             payload,
             retention,
+            decoded_block_cache: DecodedBlockCacheHandle::default(),
             indexed_store: None,
             options: Arc::new(()),
         }
@@ -291,6 +293,20 @@ impl CollectedLaneRequest {
     /// Returns the lane retention policy.
     pub fn retention(&self) -> DerivedDataRetention {
         self.retention
+    }
+
+    /// Supplies the decoded-block cache owned by the current application or run.
+    ///
+    /// # Parameters
+    /// - `cache`: Cache shared by indexed stores created for this lane.
+    pub fn with_decoded_block_cache(mut self, cache: DecodedBlockCacheHandle) -> Self {
+        self.decoded_block_cache = cache;
+        self
+    }
+
+    /// Returns the decoded-block cache selected for indexed lane storage.
+    pub fn decoded_block_cache(&self) -> &DecodedBlockCacheHandle {
+        &self.decoded_block_cache
     }
 
     /// Supplies the generic indexed storage selected for this collected lane.
