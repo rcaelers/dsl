@@ -21,9 +21,12 @@ owner-specific surfaces rather than replacing them with an umbrella error.
 host adapters classify catalog discovery, decoder discovery, invalid configuration, and execution
 transport failures before the graph materializer maps them into its generic build diagnostic.
 `logic_analyzer_graph_runtime` owns `SourcePreparationError`, including discovery, metadata, index,
-cancellation, executor, and worker-protocol causes. Graph-worker messages and the UI graph-run
-adapter retain classified terminal failures. `logic_analyzer_capture_export` likewise preserves
-export metadata, capture consistency, capture-store, destination, archive, and cancellation causes.
+cancellation, executor, and worker-protocol causes. `logic_analyzer_graph_orchestration` owns
+separate graph-worker codec, bounded-client, and serializable transport failures. The browser host
+retains those categories through disconnect and terminal messages; the UI graph-run adapter formats
+them only when projecting its presentation-facing diagnostic. `logic_analyzer_capture_export`
+likewise preserves export metadata, capture consistency, capture-store, destination, archive, and
+cancellation causes.
 Its service retains capture-store and executor sources, worker loss, and the typed exporter failure;
 UI policy therefore matches a cancellation variant rather than display text.
 

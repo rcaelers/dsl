@@ -7,6 +7,7 @@ use logic_analyzer_graph_runtime::GraphRunContext;
 use node_graph_document::GraphState;
 use platform_artifacts::{ArtifactReplicationReceiver, ArtifactRepository};
 
+use crate::errors::{GraphWorkerClientError, GraphWorkerTransportFailure};
 use crate::worker_execution::{GraphWorkerFailure, GraphWorkerMessage, GraphWorkerRequest};
 
 /// Thread-safe queue shared by a host worker adapter and graph-run proxies.
@@ -23,7 +24,7 @@ struct ClientState {
     cancelled: BTreeSet<u64>,
     outbound: VecDeque<GraphWorkerRequest>,
     updates: BTreeMap<u64, VecDeque<GraphWorkerMessage>>,
-    disconnected: Option<String>,
+    disconnected: Option<GraphWorkerTransportFailure>,
 }
 
 impl GraphWorkerClient {
@@ -35,9 +36,9 @@ impl GraphWorkerClient {
     pub fn new(
         max_outstanding: usize,
         artifact_repository: Arc<dyn ArtifactRepository>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, GraphWorkerClientError> {
         if max_outstanding == 0 {
-            return Err("graph-worker queue must accept at least one request".to_owned());
+            return Err(GraphWorkerClientError::InvalidCapacity);
         }
         Ok(Self {
             max_outstanding,
@@ -57,7 +58,7 @@ impl GraphWorkerClient {
         graph: GraphState,
         subscriptions: OutputSubscriptionPlan,
         context: &GraphRunContext,
-    ) -> Result<u64, String> {
+    ) -> Result<u64, GraphWorkerClientError> {
         let timeline_markers = context
             .timeline_markers()
             .map(|(reference, marker)| match reference {
@@ -65,19 +66,18 @@ impl GraphWorkerClient {
             })
             .collect();
         let mut state = self.state.lock().unwrap();
-        if let Some(message) = &state.disconnected {
-            return Err(message.clone());
+        if let Some(error) = &state.disconnected {
+            return Err(GraphWorkerClientError::Disconnected(error.clone()));
         }
         if state.pending.len() >= self.max_outstanding {
-            return Err(format!(
-                "graph-worker queue is full ({} outstanding request limit)",
-                self.max_outstanding
-            ));
+            return Err(GraphWorkerClientError::QueueFull {
+                limit: self.max_outstanding,
+            });
         }
         state.next_sequence = state
             .next_sequence
             .checked_add(1)
-            .ok_or_else(|| "graph-worker request sequence exhausted".to_owned())?;
+            .ok_or(GraphWorkerClientError::SequenceExhausted)?;
         let sequence = state.next_sequence;
         state.pending.insert(sequence);
         state.outbound.push_back(GraphWorkerRequest::Start {
@@ -109,13 +109,11 @@ impl GraphWorkerClient {
     }
 
     /// Applies one worker message and makes it available to the matching caller.
-    pub fn publish(&self, message: GraphWorkerMessage) -> Result<(), String> {
+    pub fn publish(&self, message: GraphWorkerMessage) -> Result<(), GraphWorkerClientError> {
         let sequence = message_sequence(&message);
         let mut state = self.state.lock().unwrap();
         if !state.pending.contains(&sequence) {
-            return Err(format!(
-                "graph worker returned sequence {sequence} with no pending request"
-            ));
+            return Err(GraphWorkerClientError::UnexpectedSequence { sequence });
         }
         if state.cancelled.contains(&sequence)
             && matches!(
@@ -130,7 +128,9 @@ impl GraphWorkerClient {
         if let GraphWorkerMessage::Artifacts { events, .. } = &message {
             let mut receiver = self.receiver.lock().unwrap();
             for event in events.iter().cloned() {
-                receiver.apply(event).map_err(|error| error.to_string())?;
+                receiver
+                    .apply(event)
+                    .map_err(GraphWorkerClientError::ArtifactReplication)?;
             }
         }
         let terminal = message_is_terminal(&message);
@@ -163,11 +163,10 @@ impl GraphWorkerClient {
     /// Fails every pending execution after the worker transport disconnects.
     ///
     /// # Parameters
-    /// - `message`: User-presentable transport failure description.
-    pub fn fail_all(&self, message: impl Into<String>) {
-        let message = message.into();
+    /// - `error`: Owner-classified transport failure shared by all pending runs.
+    pub fn fail_all(&self, error: GraphWorkerTransportFailure) {
         let mut state = self.state.lock().unwrap();
-        state.disconnected = Some(message.clone());
+        state.disconnected = Some(error.clone());
         let pending = std::mem::take(&mut state.pending);
         state.cancelled.clear();
         state.outbound.clear();
@@ -178,7 +177,7 @@ impl GraphWorkerClient {
                 .or_default()
                 .push_back(GraphWorkerMessage::Failed {
                     sequence,
-                    error: GraphWorkerFailure::Transport(message.clone()),
+                    error: GraphWorkerFailure::Transport(error.clone()),
                 });
         }
     }
@@ -214,6 +213,7 @@ mod worker_client_tests {
     use platform_artifacts::{ArtifactKey, ArtifactNamespace, MemoryArtifactRepository};
 
     use super::*;
+    use crate::errors::{GraphWorkerCodecError, GraphWorkerFrame};
 
     #[test]
     fn client_applies_artifacts_before_reporting_completion() {
@@ -255,6 +255,56 @@ mod worker_client_tests {
         assert!(matches!(
             client.take_updates(sequence).last(),
             Some(GraphWorkerMessage::Finished { .. })
+        ));
+    }
+
+    #[test]
+    fn client_retains_admission_protocol_and_disconnect_failures() {
+        let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+        assert!(matches!(
+            GraphWorkerClient::new(0, Arc::clone(&repository)),
+            Err(GraphWorkerClientError::InvalidCapacity)
+        ));
+
+        let client = GraphWorkerClient::new(1, repository).unwrap();
+        let sequence = client
+            .start(
+                GraphState::default(),
+                OutputSubscriptionPlan::new(),
+                &GraphRunContext::default(),
+            )
+            .unwrap();
+        assert!(matches!(
+            client.start(
+                GraphState::default(),
+                OutputSubscriptionPlan::new(),
+                &GraphRunContext::default(),
+            ),
+            Err(GraphWorkerClientError::QueueFull { limit: 1 })
+        ));
+        assert!(matches!(
+            client.publish(GraphWorkerMessage::Finished { sequence: 99 }),
+            Err(GraphWorkerClientError::UnexpectedSequence { sequence: 99 })
+        ));
+
+        let failure = GraphWorkerTransportFailure::Codec(GraphWorkerCodecError::InvalidHeader {
+            frame: GraphWorkerFrame::MessageBatch,
+        });
+        client.fail_all(failure.clone());
+        assert!(matches!(
+            client.take_updates(sequence).as_slice(),
+            [GraphWorkerMessage::Failed {
+                error: GraphWorkerFailure::Transport(error),
+                ..
+            }] if error == &failure
+        ));
+        assert!(matches!(
+            client.start(
+                GraphState::default(),
+                OutputSubscriptionPlan::new(),
+                &GraphRunContext::default(),
+            ),
+            Err(GraphWorkerClientError::Disconnected(error)) if error == failure
         ));
     }
 }

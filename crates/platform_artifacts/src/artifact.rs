@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+use serde::{Deserialize, Serialize};
+
 use super::contract::{
     ByteRange, ByteRegion, ImmutableByteRegion, SourceIdentity, SourceReadError,
 };
@@ -87,7 +89,7 @@ impl RepositoryCapabilities {
     };
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 pub enum RepositoryError {
     #[error("artifact repository is unavailable")]
     Unavailable,

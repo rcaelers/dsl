@@ -1,9 +1,13 @@
 //! Application-neutral orchestration that composes graph compilation and runtime execution.
 
+mod errors;
 mod worker_client;
 mod worker_execution;
 mod worker_execution_codec;
 
+pub use errors::{
+    GraphWorkerClientError, GraphWorkerCodecError, GraphWorkerFrame, GraphWorkerTransportFailure,
+};
 pub use worker_client::GraphWorkerClient;
 pub use worker_execution::{
     GraphWorkerFailure, GraphWorkerMessage, GraphWorkerRequest, GraphWorkerRuntime,

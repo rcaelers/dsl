@@ -97,6 +97,54 @@ graph_worker_contract = File.read(File.join(
 unless graph_worker_contract.match?(/Failed\s*\{.*?error:\s*GraphWorkerFailure,/m)
   errors << "crates/logic_analyzer_graph_orchestration/src/worker_execution.rs: graph-worker terminal diagnostics must retain GraphWorkerFailure"
 end
+unless graph_worker_contract.match?(
+  /Transport\(\#\[source\]\s*GraphWorkerTransportFailure\)/
+)
+  errors << "crates/logic_analyzer_graph_orchestration/src/worker_execution.rs: graph-worker transport failures must retain their typed cause"
+end
+
+graph_worker_codec_path = File.join(
+  ROOT,
+  "crates/logic_analyzer_graph_orchestration/src/worker_execution_codec.rs"
+)
+graph_worker_codec = File.read(graph_worker_codec_path).split(
+  /^\s*#\s*\[\s*cfg\s*\([^\]]*\btest\b[^\]]*\)\s*\]\s*\n\s*mod\s+\w*tests\b/,
+  2
+).first
+%w[
+  encode_graph_worker_request decode_graph_worker_request
+  encode_graph_worker_messages decode_graph_worker_messages
+].each do |operation|
+  next if graph_worker_codec.match?(
+    /pub fn\s+#{operation}\b[^\{]*->\s*Result<[^\{]*,\s*GraphWorkerCodecError>\s*\{/m
+  )
+
+  errors << "crates/logic_analyzer_graph_orchestration/src/worker_execution_codec.rs: #{operation} must retain GraphWorkerCodecError"
+end
+if graph_worker_codec.match?(/Result<.*?,\s*String>/m)
+  errors << "crates/logic_analyzer_graph_orchestration/src/worker_execution_codec.rs: codec failures must not collapse into display strings"
+end
+
+graph_worker_client_path = File.join(
+  ROOT,
+  "crates/logic_analyzer_graph_orchestration/src/worker_client.rs"
+)
+graph_worker_client = File.read(graph_worker_client_path).split(
+  /^\s*#\s*\[\s*cfg\s*\([^\]]*\btest\b[^\]]*\)\s*\]\s*\n\s*mod\s+\w*tests\b/,
+  2
+).first
+%w[new start publish].each do |operation|
+  next if graph_worker_client.match?(
+    /pub fn\s+#{operation}\b[^\{]*->\s*Result<[^\{]*,\s*GraphWorkerClientError>\s*\{/m
+  )
+
+  errors << "crates/logic_analyzer_graph_orchestration/src/worker_client.rs: #{operation} must retain GraphWorkerClientError"
+end
+unless graph_worker_client.match?(
+  /pub fn\s+fail_all\b.*?error:\s*GraphWorkerTransportFailure/m
+)
+  errors << "crates/logic_analyzer_graph_orchestration/src/worker_client.rs: disconnects must retain GraphWorkerTransportFailure"
+end
 
 capture_export_contract = File.read(File.join(
   ROOT,

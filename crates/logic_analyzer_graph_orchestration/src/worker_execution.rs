@@ -18,6 +18,8 @@ use platform_artifacts::{
 use platform_runtime::InlineWorkExecutor;
 use signal_runtime::CooperativeAppManagerFactory;
 
+use crate::errors::GraphWorkerTransportFailure;
+
 const GRAPH_PUMP_BUDGET: usize = 256;
 const GRAPH_PUMP_DURATION: Duration = Duration::from_millis(4);
 const MAX_REPLICATION_EVENTS: usize = 8;
@@ -46,7 +48,7 @@ pub enum GraphWorkerFailure {
     Cache(String),
     /// The host worker transport stopped or rejected the request.
     #[error("graph worker transport failed: {0}")]
-    Transport(String),
+    Transport(#[source] GraphWorkerTransportFailure),
 }
 
 /// Owned command envelope for one worker-hosted processing graph.

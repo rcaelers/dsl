@@ -261,8 +261,11 @@ adapter dependency.
 
 `logic_analyzer_graph_runtime` classifies finite-source discovery, metadata inspection, index
 construction, cancellation, executor, and worker-protocol failures in `SourcePreparationError`.
-The orchestration worker protocol retains a typed terminal category, and the UI maps it into its
-own graph-run failure contract before rendering a run message. `logic_analyzer_capture_export`
+`logic_analyzer_graph_orchestration` separately classifies codec, bounded-client, and serializable
+transport failures. Its client retains the typed transport cause after disconnection and in every
+pending run's terminal message. The browser host maps JavaScript mechanism failures into that
+contract, while codec and artifact-repository causes stay structured; the UI maps the terminal
+failure into its own graph-run presentation contract. `logic_analyzer_capture_export`
 retains cancellation separately from unavailable, lifecycle, capture-access, executor, and export
 failures across its application-service facade. Its exporter retains typed metadata, capture
 consistency, store, destination, and archive failures rather than collapsing them into an early

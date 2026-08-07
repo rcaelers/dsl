@@ -5,6 +5,7 @@ use logic_analyzer_graph_plan::OutputSubscriptionPlan;
 use node_graph_document::{GraphState, Socket};
 use platform_artifacts::{ArtifactReplicationEvent, SourceIdentity};
 
+use crate::errors::{GraphWorkerCodecError, GraphWorkerFrame};
 use crate::worker_execution::{GraphWorkerMessage, GraphWorkerRequest};
 
 const MAGIC: &[u8; 5] = b"LGWM\x01";
@@ -25,7 +26,9 @@ const CANCEL_REQUEST: u8 = 1;
 ///
 /// # Parameters
 /// - `request`: Start or cancellation command to encode for a worker transport.
-pub fn encode_graph_worker_request(request: &GraphWorkerRequest) -> Result<Vec<u8>, String> {
+pub fn encode_graph_worker_request(
+    request: &GraphWorkerRequest,
+) -> Result<Vec<u8>, GraphWorkerCodecError> {
     let mut output = Vec::new();
     output.extend_from_slice(REQUEST_MAGIC);
     match request {
@@ -40,14 +43,13 @@ pub fn encode_graph_worker_request(request: &GraphWorkerRequest) -> Result<Vec<u
             put_bytes(&mut output, &encode_worker_graph(graph)?);
             put_bytes(
                 &mut output,
-                &serde_json::to_vec(subscriptions).map_err(|error| {
-                    format!("could not encode worker output subscriptions: {error}")
-                })?,
+                &serde_json::to_vec(subscriptions)
+                    .map_err(|error| encoding_error("output subscriptions", error))?,
             );
             put_u32(
                 &mut output,
                 u32::try_from(timeline_markers.len())
-                    .map_err(|_| "worker timeline-marker list is too large".to_owned())?,
+                    .map_err(|_| count_overflow("timeline markers"))?,
             );
             for (number, timestamp_ns) in timeline_markers {
                 put_u32(&mut output, *number);
@@ -65,30 +67,32 @@ pub fn encode_graph_worker_request(request: &GraphWorkerRequest) -> Result<Vec<u
 /// Serializes a graph for execution without applying the compact saved-document
 /// projection. Runtime lowering needs the definition-derived socket contract,
 /// while saved documents intentionally omit that redundant presentation state.
-fn encode_worker_graph(graph: &GraphState) -> Result<Vec<u8>, String> {
-    let mut document = serde_json::to_value(graph)
-        .map_err(|error| format!("could not encode worker graph: {error}"))?;
+fn encode_worker_graph(graph: &GraphState) -> Result<Vec<u8>, GraphWorkerCodecError> {
+    let mut document =
+        serde_json::to_value(graph).map_err(|error| encoding_error("graph", error))?;
     let nodes = document
         .get_mut("nodes")
         .and_then(serde_json::Value::as_object_mut)
-        .ok_or_else(|| "could not encode worker graph nodes".to_owned())?;
+        .ok_or_else(|| GraphWorkerCodecError::InvalidGraphStructure("missing node map".into()))?;
     for node in graph.nodes.values() {
         let encoded_node = nodes
             .get_mut(&node.id.0.to_string())
             .and_then(serde_json::Value::as_object_mut)
-            .ok_or_else(|| "could not encode worker graph node".to_owned())?;
+            .ok_or_else(|| {
+                GraphWorkerCodecError::InvalidGraphStructure(format!("missing node {}", node.id.0))
+            })?;
         encoded_node.insert(
             "inputs".to_owned(),
             serde_json::to_value(WorkerSockets(&node.inputs))
-                .map_err(|error| format!("could not encode worker input sockets: {error}"))?,
+                .map_err(|error| encoding_error("input sockets", error))?,
         );
         encoded_node.insert(
             "outputs".to_owned(),
             serde_json::to_value(WorkerSockets(&node.outputs))
-                .map_err(|error| format!("could not encode worker output sockets: {error}"))?,
+                .map_err(|error| encoding_error("output sockets", error))?,
         );
     }
-    serde_json::to_vec(&document).map_err(|error| format!("could not encode worker graph: {error}"))
+    serde_json::to_vec(&document).map_err(|error| encoding_error("graph", error))
 }
 
 struct WorkerSockets<'a>(&'a [Socket]);
@@ -137,21 +141,23 @@ fn worker_socket_value(socket: &Socket) -> Result<serde_json::Value, serde_json:
 }
 
 /// Decodes one framed graph-worker request.
-pub fn decode_graph_worker_request(bytes: &[u8]) -> Result<GraphWorkerRequest, String> {
+pub fn decode_graph_worker_request(
+    bytes: &[u8],
+) -> Result<GraphWorkerRequest, GraphWorkerCodecError> {
     let mut reader = Reader::new(bytes);
     if reader.take(REQUEST_MAGIC.len())? != REQUEST_MAGIC {
-        return Err("graph-worker request has an invalid header".to_owned());
+        return Err(GraphWorkerCodecError::InvalidHeader {
+            frame: GraphWorkerFrame::Request,
+        });
     }
-    let request = match reader.u8()? {
+    let kind = reader.u8()?;
+    let request = match kind {
         START_REQUEST => {
             let sequence = reader.u64()?;
-            let graph = serde_json::from_slice(reader.bytes()?).map_err(|error| {
-                format!("graph-worker request contains an invalid graph: {error}")
-            })?;
+            let graph = serde_json::from_slice(reader.bytes()?)
+                .map_err(|error| decoding_error("request graph", error))?;
             let subscriptions = serde_json::from_slice::<OutputSubscriptionPlan>(reader.bytes()?)
-                .map_err(|error| {
-                format!("graph-worker request contains invalid subscriptions: {error}")
-            })?;
+                .map_err(|error| decoding_error("request subscriptions", error))?;
             let marker_count = reader.u32()? as usize;
             let mut timeline_markers = Vec::with_capacity(marker_count);
             for _ in 0..marker_count {
@@ -167,7 +173,12 @@ pub fn decode_graph_worker_request(bytes: &[u8]) -> Result<GraphWorkerRequest, S
         CANCEL_REQUEST => GraphWorkerRequest::Cancel {
             sequence: reader.u64()?,
         },
-        _ => return Err("graph-worker request has an unknown kind".to_owned()),
+        _ => {
+            return Err(GraphWorkerCodecError::UnknownKind {
+                frame: GraphWorkerFrame::Request,
+                kind,
+            });
+        }
     };
     reader.finish()?;
     Ok(request)
@@ -177,13 +188,14 @@ pub fn decode_graph_worker_request(bytes: &[u8]) -> Result<GraphWorkerRequest, S
 ///
 /// # Parameters
 /// - `messages`: Ordered worker messages to encode as one bounded transport frame.
-pub fn encode_graph_worker_messages(messages: &[GraphWorkerMessage]) -> Result<Vec<u8>, String> {
+pub fn encode_graph_worker_messages(
+    messages: &[GraphWorkerMessage],
+) -> Result<Vec<u8>, GraphWorkerCodecError> {
     let mut output = Vec::new();
     output.extend_from_slice(MAGIC);
     put_u32(
         &mut output,
-        u32::try_from(messages.len())
-            .map_err(|_| "graph-worker message batch is too large".to_owned())?,
+        u32::try_from(messages.len()).map_err(|_| count_overflow("message batch"))?,
     );
     for message in messages {
         let mut encoded = Vec::new();
@@ -193,8 +205,7 @@ pub fn encode_graph_worker_messages(messages: &[GraphWorkerMessage]) -> Result<V
                 put_u64(&mut encoded, *sequence);
                 put_u32(
                     &mut encoded,
-                    u32::try_from(events.len())
-                        .map_err(|_| "artifact event batch is too large".to_owned())?,
+                    u32::try_from(events.len()).map_err(|_| count_overflow("artifact events"))?,
                 );
                 for event in events {
                     encode_event(&mut encoded, event)?;
@@ -203,9 +214,8 @@ pub fn encode_graph_worker_messages(messages: &[GraphWorkerMessage]) -> Result<V
             _ => {
                 encoded.push(JSON_MESSAGE);
                 encoded.extend_from_slice(
-                    &serde_json::to_vec(message).map_err(|error| {
-                        format!("could not encode graph-worker message: {error}")
-                    })?,
+                    &serde_json::to_vec(message)
+                        .map_err(|error| encoding_error("message", error))?,
                 );
             }
         }
@@ -216,22 +226,26 @@ pub fn encode_graph_worker_messages(messages: &[GraphWorkerMessage]) -> Result<V
 }
 
 /// Decodes a compact graph-worker result batch.
-pub fn decode_graph_worker_messages(bytes: &[u8]) -> Result<Vec<GraphWorkerMessage>, String> {
+pub fn decode_graph_worker_messages(
+    bytes: &[u8],
+) -> Result<Vec<GraphWorkerMessage>, GraphWorkerCodecError> {
     let mut reader = Reader::new(bytes);
     if reader.take(MAGIC.len())? != MAGIC {
-        return Err("graph-worker message batch has an invalid header".to_owned());
+        return Err(GraphWorkerCodecError::InvalidHeader {
+            frame: GraphWorkerFrame::MessageBatch,
+        });
     }
     let count = reader.u32()? as usize;
     let mut messages = Vec::with_capacity(count);
     for _ in 0..count {
         let length = reader.length()?;
         let mut message = Reader::new(reader.take(length)?);
-        match message.u8()? {
+        let kind = message.u8()?;
+        match kind {
             JSON_MESSAGE => {
                 messages.push(
-                    serde_json::from_slice(message.remaining()).map_err(|error| {
-                        format!("graph-worker message contains invalid JSON: {error}")
-                    })?,
+                    serde_json::from_slice(message.remaining())
+                        .map_err(|error| decoding_error("message JSON", error))?,
                 );
                 message.consume_remaining();
             }
@@ -244,7 +258,12 @@ pub fn decode_graph_worker_messages(bytes: &[u8]) -> Result<Vec<GraphWorkerMessa
                 }
                 messages.push(GraphWorkerMessage::Artifacts { sequence, events });
             }
-            _ => return Err("graph-worker message has an unknown encoding".to_owned()),
+            _ => {
+                return Err(GraphWorkerCodecError::UnknownKind {
+                    frame: GraphWorkerFrame::MessageBatch,
+                    kind,
+                });
+            }
         }
         message.finish()?;
     }
@@ -252,7 +271,10 @@ pub fn decode_graph_worker_messages(bytes: &[u8]) -> Result<Vec<GraphWorkerMessa
     Ok(messages)
 }
 
-fn encode_event(output: &mut Vec<u8>, event: &ArtifactReplicationEvent) -> Result<(), String> {
+fn encode_event(
+    output: &mut Vec<u8>,
+    event: &ArtifactReplicationEvent,
+) -> Result<(), GraphWorkerCodecError> {
     match event {
         ArtifactReplicationEvent::PublishedChunk {
             namespace,
@@ -283,8 +305,11 @@ fn encode_event(output: &mut Vec<u8>, event: &ArtifactReplicationEvent) -> Resul
     Ok(())
 }
 
-fn decode_event(reader: &mut Reader<'_>) -> Result<ArtifactReplicationEvent, String> {
-    match reader.u8()? {
+fn decode_event(
+    reader: &mut Reader<'_>,
+) -> Result<ArtifactReplicationEvent, GraphWorkerCodecError> {
+    let kind = reader.u8()?;
+    match kind {
         PUBLISHED_CHUNK => {
             let namespace = reader.string()?;
             let identity = SourceIdentity::from_bytes(reader.take(32)?.try_into().unwrap());
@@ -293,7 +318,12 @@ fn decode_event(reader: &mut Reader<'_>) -> Result<ArtifactReplicationEvent, Str
             let complete = match reader.u8()? {
                 0 => false,
                 1 => true,
-                _ => return Err("artifact completion flag is invalid".to_owned()),
+                value => {
+                    return Err(GraphWorkerCodecError::InvalidFlag {
+                        field: "artifact completion".into(),
+                        value,
+                    });
+                }
             };
             let data_length = reader.length()?;
             let data = reader.take(data_length)?.to_vec();
@@ -310,14 +340,17 @@ fn decode_event(reader: &mut Reader<'_>) -> Result<ArtifactReplicationEvent, Str
             namespace: reader.string()?,
             identity: SourceIdentity::from_bytes(reader.take(32)?.try_into().unwrap()),
         }),
-        _ => Err("artifact replication event has an unknown encoding".to_owned()),
+        _ => Err(GraphWorkerCodecError::UnknownKind {
+            frame: GraphWorkerFrame::ArtifactEvent,
+            kind,
+        }),
     }
 }
 
-fn put_string(output: &mut Vec<u8>, value: &str) -> Result<(), String> {
+fn put_string(output: &mut Vec<u8>, value: &str) -> Result<(), GraphWorkerCodecError> {
     put_u32(
         output,
-        u32::try_from(value.len()).map_err(|_| "artifact namespace is too large".to_owned())?,
+        u32::try_from(value.len()).map_err(|_| count_overflow("artifact namespace bytes"))?,
     );
     output.extend_from_slice(value.as_bytes());
     Ok(())
@@ -346,44 +379,45 @@ impl<'a> Reader<'a> {
         Self { bytes, cursor: 0 }
     }
 
-    fn u8(&mut self) -> Result<u8, String> {
+    fn u8(&mut self) -> Result<u8, GraphWorkerCodecError> {
         Ok(self.take(1)?[0])
     }
 
-    fn u32(&mut self) -> Result<u32, String> {
+    fn u32(&mut self) -> Result<u32, GraphWorkerCodecError> {
         Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap()))
     }
 
-    fn u64(&mut self) -> Result<u64, String> {
+    fn u64(&mut self) -> Result<u64, GraphWorkerCodecError> {
         Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap()))
     }
 
-    fn length(&mut self) -> Result<usize, String> {
-        usize::try_from(self.u64()?)
-            .map_err(|_| "graph-worker field length exceeds this host".to_owned())
+    fn length(&mut self) -> Result<usize, GraphWorkerCodecError> {
+        usize::try_from(self.u64()?).map_err(|_| GraphWorkerCodecError::LengthOverflow)
     }
 
-    fn string(&mut self) -> Result<String, String> {
+    fn string(&mut self) -> Result<String, GraphWorkerCodecError> {
         let length = self.u32()? as usize;
         std::str::from_utf8(self.take(length)?)
             .map(str::to_owned)
-            .map_err(|_| "artifact namespace is not UTF-8".to_owned())
+            .map_err(|_| GraphWorkerCodecError::InvalidUtf8 {
+                field: "artifact namespace".into(),
+            })
     }
 
-    fn bytes(&mut self) -> Result<&'a [u8], String> {
+    fn bytes(&mut self) -> Result<&'a [u8], GraphWorkerCodecError> {
         let length = self.length()?;
         self.take(length)
     }
 
-    fn take(&mut self, length: usize) -> Result<&'a [u8], String> {
+    fn take(&mut self, length: usize) -> Result<&'a [u8], GraphWorkerCodecError> {
         let end = self
             .cursor
             .checked_add(length)
-            .ok_or_else(|| "graph-worker message length overflow".to_owned())?;
+            .ok_or(GraphWorkerCodecError::AddressOverflow)?;
         let value = self
             .bytes
             .get(self.cursor..end)
-            .ok_or_else(|| "graph-worker message is truncated".to_owned())?;
+            .ok_or(GraphWorkerCodecError::Truncated)?;
         self.cursor = end;
         Ok(value)
     }
@@ -396,20 +430,42 @@ impl<'a> Reader<'a> {
         self.cursor = self.bytes.len();
     }
 
-    fn finish(&self) -> Result<(), String> {
+    fn finish(&self) -> Result<(), GraphWorkerCodecError> {
         if self.cursor == self.bytes.len() {
             Ok(())
         } else {
-            Err("graph-worker message has trailing bytes".to_owned())
+            Err(GraphWorkerCodecError::TrailingBytes)
         }
+    }
+}
+
+fn encoding_error(context: &str, error: serde_json::Error) -> GraphWorkerCodecError {
+    GraphWorkerCodecError::Encoding {
+        context: context.to_owned(),
+        message: error.to_string(),
+    }
+}
+
+fn decoding_error(context: &str, error: serde_json::Error) -> GraphWorkerCodecError {
+    GraphWorkerCodecError::Decoding {
+        context: context.to_owned(),
+        message: error.to_string(),
+    }
+}
+
+fn count_overflow(field: &str) -> GraphWorkerCodecError {
+    GraphWorkerCodecError::CountOverflow {
+        field: field.to_owned(),
     }
 }
 
 #[cfg(test)]
 mod worker_execution_codec_tests {
     use node_graph_document::NodeId;
+    use platform_artifacts::RepositoryError;
 
     use super::*;
+    use crate::errors::GraphWorkerTransportFailure;
     use crate::worker_execution::GraphWorkerFailure;
 
     #[test]
@@ -477,6 +533,20 @@ mod worker_execution_codec_tests {
                 sequence: 3,
                 error: GraphWorkerFailure::Artifact("replication stopped".into()),
             },
+            GraphWorkerMessage::Failed {
+                sequence: 4,
+                error: GraphWorkerFailure::Transport(GraphWorkerTransportFailure::Codec(
+                    GraphWorkerCodecError::InvalidHeader {
+                        frame: GraphWorkerFrame::Request,
+                    },
+                )),
+            },
+            GraphWorkerMessage::Failed {
+                sequence: 5,
+                error: GraphWorkerFailure::Transport(GraphWorkerTransportFailure::Artifact(
+                    RepositoryError::QuotaExceeded,
+                )),
+            },
             GraphWorkerMessage::Artifacts {
                 sequence: 3,
                 events: vec![ArtifactReplicationEvent::PublishedChunk {
@@ -493,5 +563,32 @@ mod worker_execution_codec_tests {
         let encoded = encode_graph_worker_messages(&messages).unwrap();
         assert!(encoded.len() < data.len() + 512);
         assert_eq!(decode_graph_worker_messages(&encoded).unwrap(), messages);
+    }
+
+    #[test]
+    fn malformed_frames_retain_their_codec_failure_category() {
+        assert!(matches!(
+            decode_graph_worker_request(b"wrong"),
+            Err(GraphWorkerCodecError::InvalidHeader {
+                frame: GraphWorkerFrame::Request
+            })
+        ));
+
+        let mut unknown_request = REQUEST_MAGIC.to_vec();
+        unknown_request.push(99);
+        assert!(matches!(
+            decode_graph_worker_request(&unknown_request),
+            Err(GraphWorkerCodecError::UnknownKind {
+                frame: GraphWorkerFrame::Request,
+                kind: 99
+            })
+        ));
+
+        let mut truncated_batch = MAGIC.to_vec();
+        put_u32(&mut truncated_batch, 1);
+        assert!(matches!(
+            decode_graph_worker_messages(&truncated_batch),
+            Err(GraphWorkerCodecError::Truncated)
+        ));
     }
 }

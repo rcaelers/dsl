@@ -157,10 +157,10 @@ impl WorkerGraphRun {
                 service.lowerer().output_subscriptions().clone(),
                 context,
             )
-            .map_err(|message| {
+            .map_err(|error| {
                 vec![CompileError {
                     node: None,
-                    message,
+                    message: error.to_string(),
                 }]
             })?;
         Ok(Self {
@@ -275,7 +275,7 @@ fn graph_run_failure(error: GraphWorkerFailure) -> GraphRunFailure {
         GraphWorkerFailure::Node(message) => GraphRunFailure::Node(message),
         GraphWorkerFailure::Artifact(message) => GraphRunFailure::Artifact(message),
         GraphWorkerFailure::Cache(message) => GraphRunFailure::Cache(message),
-        GraphWorkerFailure::Transport(message) => GraphRunFailure::Transport(message),
+        GraphWorkerFailure::Transport(error) => GraphRunFailure::Transport(error.to_string()),
     }
 }
 

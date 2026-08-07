@@ -599,15 +599,21 @@ while preserving the prepared raw capture and index.
 `GraphWorkerClient` is the target-neutral main-side queue. It transfers an owned graph document,
 output-subscription plan, and timeline-marker snapshot, routes progress and terminal messages by
 sequence, and applies replicated artifact mutations before reporting completion. The UI's graph-run
-adapter only polls this client. Once the final cache manifests are present, the ordinary graph-runtime
-cache-preview path publishes query adapters into the same shared `DerivedLanes` catalog
+adapter only polls this client. Queue admission and correlation failures use the client-owned error
+contract. Codec, host-mechanism, queue, correlation, and artifact-replication failures enter a
+serializable transport-failure envelope, which remains attached to worker disconnection and
+terminal messages until the UI or JavaScript export boundary renders it. Once the final cache
+manifests are present, the ordinary graph-runtime cache-preview path publishes query adapters into
+the same shared `DerivedLanes` catalog
 bound to the viewer and panels. Native composition does not install this adapter and continues to
 use its threaded runtime unchanged.
 
 The graph request codec frames the saved graph JSON separately from its fixed-width sequence,
 subscription, and timeline-marker fields. This preserves the graph's numeric node-map keys without
 routing them through a buffered tagged-enum representation. Artifact result messages use the same
-bounded framing contract in the opposite direction.
+bounded framing contract in the opposite direction. Malformed headers, discriminants, lengths,
+flags, text, graph structure, and JSON fields remain distinct codec failures rather than becoming
+preformatted host messages.
 
 Artifact bytes cross this boundary through `ReplicatingArtifactRepository` and
 `ArtifactReplicationReceiver`. Publications are immutable while in flight, are transferred in
