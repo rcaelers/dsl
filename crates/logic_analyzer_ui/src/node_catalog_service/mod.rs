@@ -2,7 +2,4 @@
 
 mod contract;
 
-#[cfg(test)]
-mod architecture_tests;
-
 pub use contract::{NodeCatalogService, NodeCatalogSnapshot};

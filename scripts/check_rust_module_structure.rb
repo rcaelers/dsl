@@ -358,6 +358,13 @@ files.each do |path|
     end
   end
 
+  if rel.start_with?("crates/logic_analyzer_ui/src/node_catalog_service/") && !File.basename(path).include?("tests")
+    implementation = implementation_source(source)
+    implementation.to_enum(:scan, /\bPathBuf\b/).each do
+      errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: node catalog services expose host-formatted labels rather than filesystem paths"
+    end
+  end
+
   if rel.start_with?("crates/widgets/trigger_editor/src/") && !File.basename(path).include?("tests")
     implementation = implementation_source(source)
     ["U3Pro16", "DSLogic", "SPI", "UART", "Binary Decoder", "demo:"].each do |token|
