@@ -17,6 +17,3 @@ static LINK_ANCHOR: u8 = 0;
 pub fn link() -> usize {
     std::ptr::addr_of!(LINK_ANCHOR) as usize
 }
-
-#[cfg(test)]
-mod architecture_tests;

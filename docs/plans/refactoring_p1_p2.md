@@ -27,7 +27,7 @@ the named function/type over the number when they disagree.
 
 ## tests.architecture-structural (P2) {#tests-architecture-structural}
 
-**Problem.** ~460 lines of `architecture_tests.rs` remain across the workspace that `include_str!`
+**Problem.** ~447 lines of `architecture_tests.rs` remain across the workspace that `include_str!`
 sibling files and assert `.contains("…")` (largest: `logic_analyzer_viewer` 66 lines, followed by
 `signal_runtime` at 59 and the signal capture-session suite at 52). They break on
 renames, pass when the string appears in a comment, and prove nothing about the compiled contract.
@@ -81,12 +81,14 @@ resolved non-dev dependency graph. Its forbidden-edge contract is:
 8. The platform-boundary check rejects target-selected UI diagnostics, while the workspace module
    check rejects obsolete host/platform cache routes. The compiled snapshot implementation reads its
    instance-owned decoded cache and inspects persistent entries through `GraphService`.
+9. The real plugin inventory asserts by stable ID that both example nodes publish semantics and
+   materialization, without unrelated capture, live-capture, presentation, or timeline capabilities.
 
 **Direction.**
 
 1. Go through each remaining `architecture_tests.rs` rule by rule: delete rules now covered structurally;
    keep a string test only where no structural probe exists (e.g. "no `std::env` access in
    tests"), and add a one-line comment saying why it stays textual.
-2. Prioritize the `example-plugin` suite. Do not replace an implementation-text check with another
+2. Prioritize the `logic_analyzer_device_dslogic` suite. Do not replace an implementation-text check with another
    filename-sensitive source scan; prefer a dependency edge, public API probe, registry construction,
    or behavior test.

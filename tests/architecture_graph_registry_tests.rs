@@ -67,6 +67,34 @@ fn real_graph_node_inventory_constructs_one_consistent_capability_snapshot() {
 }
 
 #[test]
+fn example_plugin_nodes_publish_only_semantics_and_materialization_capabilities() {
+    let registrations = linked_registrations();
+    for (stable_id, name) in [
+        (
+            "org.logicconduit.example.graph-node.camera-frame-source/v1",
+            "Camera Frame Source",
+        ),
+        (
+            "org.logicconduit.example.graph-node.pulse-measure/v1",
+            "Pulse Measure",
+        ),
+    ] {
+        let registration = registrations
+            .iter()
+            .find(|registration| registration.stable_id() == stable_id)
+            .unwrap_or_else(|| panic!("example plugin must register {stable_id}"));
+
+        assert_eq!(registration.name(), name);
+        assert!(registration.semantics().is_some());
+        assert!(registration.materializer().is_some());
+        assert!(registration.capture_source().is_none());
+        assert!(registration.live_capture().is_none());
+        assert!(registration.presentation().is_none());
+        assert!(registration.timeline().is_none());
+    }
+}
+
+#[test]
 fn host_capability_override_resolves_by_registered_stable_id() {
     let registrations = linked_registrations();
     let registration = registrations
