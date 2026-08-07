@@ -132,12 +132,14 @@ pub(crate) fn start_clear_repository(
     let result = Arc::new(Mutex::new(None));
     let worker_result = Arc::clone(&result);
     let worker_repository = Arc::clone(repository);
-    let work = work_executor.submit(Box::new(move || {
-        let cleared = clear_repository(&worker_repository);
-        if let Ok(mut result) = worker_result.lock() {
-            *result = Some(cleared);
-        }
-    }))?;
+    let work = work_executor
+        .submit(Box::new(move || {
+            let cleared = clear_repository(&worker_repository);
+            if let Ok(mut result) = worker_result.lock() {
+                *result = Some(cleared);
+            }
+        }))
+        .map_err(|error| error.to_string())?;
     Ok(DerivedCacheClearTask {
         mode: DerivedCacheClearMode::Background { work, result },
     })
@@ -735,7 +737,10 @@ mod cache_policy_tests {
             true
         }
 
-        fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        fn submit(
+            &self,
+            task: WorkExecutorTask,
+        ) -> Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
             *self.queued.lock().unwrap() = Some(task);
             Ok(Box::new(QueuedWorkTask(Arc::clone(&self.finished))))
         }

@@ -10,7 +10,7 @@ pub fn register_capture_worker_kernel(registry: &mut WorkerKernelRegistry) {
     registry
         .register(BUILD_CAPTURE_INDEX_BLOCK_OPERATION, |payload| {
             let request = decode_capture_index_request(&payload)?;
-            build_capture_index_block(request).map(encode_capture_index_result)
+            Ok(build_capture_index_block(request).map(encode_capture_index_result)?)
         })
         .expect("the capture-index operation identifier is unique and valid");
 }

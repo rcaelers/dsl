@@ -114,7 +114,7 @@ impl DecoderWorker {
             .submit_long_running(Box::new(move || {
                 let _ = result_sender.send(run_decoder(config, task_bridge, protocol_receiver));
             }))
-            .map_err(WorkerError::Execution)?;
+            .map_err(|error| WorkerError::Execution(error.to_string()))?;
         Ok(Self {
             bridge,
             outputs,

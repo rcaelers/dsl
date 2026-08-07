@@ -331,7 +331,7 @@ impl SigrokFileSource {
                             }
                             .run()
                         }))
-                        .map_err(WorkError::NodeError)?;
+                        .map_err(|error| WorkError::NodeError(error.to_string()))?;
                     reader_tasks.push(task);
                 }
             }
@@ -357,7 +357,7 @@ impl SigrokFileSource {
                             }
                             .run()
                         }))
-                        .map_err(WorkError::NodeError)?;
+                        .map_err(|error| WorkError::NodeError(error.to_string()))?;
                     reader_tasks.push(task);
                 }
             }
@@ -422,14 +422,14 @@ mod tests {
         fn submit(
             &self,
             _task: WorkExecutorTask,
-        ) -> std::result::Result<Box<dyn WorkTask>, String> {
+        ) -> std::result::Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
             Err("finite work must not schedule a file reader".into())
         }
 
         fn submit_long_running(
             &self,
             task: WorkExecutorTask,
-        ) -> std::result::Result<Box<dyn WorkTask>, String> {
+        ) -> std::result::Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
             self.submitted.fetch_add(1, Ordering::Relaxed);
             task();
             Ok(Box::new(CompletedWorkTask))

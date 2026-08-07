@@ -251,7 +251,7 @@ fn work_parallel(
                 };
                 let _ = completion.send(result);
             }))
-            .map_err(WorkError::NodeError)?;
+            .map_err(|error| WorkError::NodeError(error.to_string()))?;
 
         blocks.parallel.in_flight += 1;
         blocks.next_sequence += 1;
@@ -411,7 +411,10 @@ use signal_runtime::{ChannelMessage, ProcessNode, Scheduler, Sender, Watchdog};
             2
         }
 
-        fn submit(&self, task: WorkExecutorTask) -> std::result::Result<Box<dyn WorkTask>, String> {
+        fn submit(
+            &self,
+            task: WorkExecutorTask,
+        ) -> std::result::Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
             Ok(Box::new(TestWorkTask {
                 handle: Some(std::thread::spawn(task)),
             }))

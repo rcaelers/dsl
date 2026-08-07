@@ -10,8 +10,8 @@ mod worker_operation_queue;
 
 pub use work_executor::{
     CompletedWorkTask, CooperativeWorkerOperationExecutor, InlineWorkExecutor, WorkExecutor,
-    WorkExecutorTask, WorkTask, WorkerExecutionCapability, WorkerExecutionMode,
-    WorkerKernelRegistry, WorkerMessage, WorkerMessageError, WorkerOperation,
-    WorkerOperationExecutor, WorkerRequest,
+    WorkExecutorError, WorkExecutorTask, WorkTask, WorkerExecutionCapability, WorkerExecutionMode,
+    WorkerFailure, WorkerKernelError, WorkerKernelRegistry, WorkerMessage, WorkerMessageError,
+    WorkerOperation, WorkerOperationExecutor, WorkerRequest,
 };
-pub use worker_operation_queue::{WorkerHostCommand, WorkerOperationQueue};
+pub use worker_operation_queue::{WorkerHostCommand, WorkerOperationQueue, WorkerQueueError};

@@ -601,7 +601,7 @@ fn start_queued_writer(
             let outcome = run_queued_writer(writer, receiver).map_err(|error| error.to_string());
             *worker_result.lock().unwrap() = Some(outcome);
         }))
-        .map_err(StoreError::Persistent)?;
+        .map_err(|error| StoreError::Persistent(error.to_string()))?;
     Ok(QueuedSamplingWriter {
         sender: Mutex::new(Some(sender)),
         task: Mutex::new(Some(task)),
@@ -744,7 +744,10 @@ mod sampling_point_store_tests {
             true
         }
 
-        fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        fn submit(
+            &self,
+            task: WorkExecutorTask,
+        ) -> Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
             let handle = std::thread::spawn(task);
             Ok(Box::new(ThreadWorkTask(Some(handle))))
         }

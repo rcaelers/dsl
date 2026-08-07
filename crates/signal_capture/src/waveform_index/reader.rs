@@ -1442,12 +1442,17 @@ mod reader_tests {
             2
         }
 
-        fn submit(&self, task: WorkExecutorTask) -> std::result::Result<Box<dyn WorkTask>, String> {
+        fn submit(
+            &self,
+            task: WorkExecutorTask,
+        ) -> std::result::Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
             std::thread::Builder::new()
                 .name("waveform-index-profile-test".to_owned())
                 .spawn(task)
                 .map(|handle| Box::new(JoinTask(Some(handle))) as Box<dyn WorkTask>)
-                .map_err(|error| error.to_string())
+                .map_err(|error| platform_runtime::WorkExecutorError::TaskStart {
+                    message: error.to_string(),
+                })
         }
     }
 

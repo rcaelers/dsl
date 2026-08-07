@@ -797,7 +797,7 @@ impl GrowingCaptureIndex {
                     .unwrap_or_else(|error| error.into_inner()) = Some(outcome);
                 worker_completed.store(true, Ordering::Release);
             }))
-            .map_err(Error::ParseError)?;
+            .map_err(|error| Error::ParseError(error.to_string()))?;
         let query = Self {
             display_name: display_name.into(),
             identity,
@@ -1150,7 +1150,10 @@ mod tests {
             1
         }
 
-        fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        fn submit(
+            &self,
+            task: WorkExecutorTask,
+        ) -> Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
             std::thread::spawn(task);
             Ok(Box::new(CompletedWorkTask))
         }

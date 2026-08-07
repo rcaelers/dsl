@@ -1,8 +1,41 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use super::work_executor::{
-    WorkerExecutionCapability, WorkerMessage, WorkerOperation, WorkerRequest,
+    WorkerExecutionCapability, WorkerFailure, WorkerMessage, WorkerOperation, WorkerRequest,
 };
+
+/// Admission or configuration failure for a bounded worker-operation queue.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum WorkerQueueError {
+    /// A worker pool cannot execute requests without at least one host slot.
+    #[error("the worker pool must contain at least one worker")]
+    EmptyPool,
+    /// The outstanding-request bound cannot keep every worker occupied.
+    #[error("the worker queue must hold at least one request per worker")]
+    InsufficientCapacity {
+        /// Configured number of worker slots.
+        worker_count: usize,
+        /// Configured maximum number of outstanding requests.
+        max_outstanding: usize,
+    },
+    /// The selected worker host does not advertise the requested operation.
+    #[error("worker operation '{operation}' is not registered")]
+    OperationNotRegistered {
+        /// Stable operation identifier requested by the caller.
+        operation: String,
+    },
+    /// A caller reused or moved backwards in its monotonically increasing sequence.
+    #[error("worker request sequence {sequence} is not greater than the previous sequence")]
+    NonMonotonicSequence {
+        /// Rejected caller sequence.
+        sequence: u64,
+        /// Most recently accepted sequence.
+        previous: u64,
+    },
+    /// The bounded queue already contains its maximum accepted work.
+    #[error("worker request queue is full")]
+    Full,
+}
 
 #[derive(Clone, Debug, Default)]
 struct WorkerState {
@@ -59,12 +92,15 @@ impl WorkerOperationQueue {
         worker_count: usize,
         max_outstanding: usize,
         operations: impl IntoIterator<Item = WorkerOperation>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, WorkerQueueError> {
         if worker_count == 0 {
-            return Err("the worker pool must contain at least one worker".to_string());
+            return Err(WorkerQueueError::EmptyPool);
         }
         if max_outstanding < worker_count {
-            return Err("the worker queue must hold at least one request per worker".to_string());
+            return Err(WorkerQueueError::InsufficientCapacity {
+                worker_count,
+                max_outstanding,
+            });
         }
         Ok(Self {
             workers: vec![WorkerState::default(); worker_count],
@@ -98,24 +134,26 @@ impl WorkerOperationQueue {
     }
 
     /// Accepts a monotonically sequenced request and returns runnable work.
-    pub fn submit(&mut self, request: WorkerRequest) -> Result<Vec<WorkerHostCommand>, String> {
+    pub fn submit(
+        &mut self,
+        request: WorkerRequest,
+    ) -> Result<Vec<WorkerHostCommand>, WorkerQueueError> {
         if !self.operations.contains(&request.operation) {
-            return Err(format!(
-                "worker operation '{}' is not registered",
-                request.operation.as_str()
-            ));
+            return Err(WorkerQueueError::OperationNotRegistered {
+                operation: request.operation.as_str().to_owned(),
+            });
         }
         if self
             .last_submitted_sequence
             .is_some_and(|previous| request.sequence <= previous)
         {
-            return Err(format!(
-                "worker request sequence {} is not greater than the previous sequence",
-                request.sequence
-            ));
+            return Err(WorkerQueueError::NonMonotonicSequence {
+                sequence: request.sequence,
+                previous: self.last_submitted_sequence.unwrap_or_default(),
+            });
         }
         if self.outstanding() >= self.max_outstanding {
-            return Err("worker request queue is full".to_string());
+            return Err(WorkerQueueError::Full);
         }
         self.last_submitted_sequence = Some(request.sequence);
         self.submission_order.push_back(request.sequence);
@@ -154,7 +192,7 @@ impl WorkerOperationQueue {
         &mut self,
         worker_index: usize,
         reported_sequence: Option<u64>,
-        result: Result<Vec<u8>, String>,
+        result: Result<Vec<u8>, WorkerFailure>,
     ) -> Vec<WorkerHostCommand> {
         let Some(running) = self
             .workers
@@ -163,16 +201,21 @@ impl WorkerOperationQueue {
         else {
             return self.worker_failed(
                 worker_index,
-                "worker returned a terminal message without an active request".to_string(),
+                WorkerFailure::Protocol {
+                    message: "worker returned a terminal message without an active request"
+                        .to_string(),
+                },
             );
         };
         if reported_sequence.is_some_and(|sequence| sequence != running) {
             return self.worker_failed(
                 worker_index,
-                format!(
-                    "worker returned sequence {} while running sequence {running}",
-                    reported_sequence.unwrap_or_default()
-                ),
+                WorkerFailure::Protocol {
+                    message: format!(
+                        "worker returned sequence {} while running sequence {running}",
+                        reported_sequence.unwrap_or_default()
+                    ),
+                },
             );
         }
         self.workers[worker_index].running = None;
@@ -182,9 +225,9 @@ impl WorkerOperationQueue {
                     sequence: running,
                     payload,
                 },
-                Err(message) => WorkerMessage::Failed {
+                Err(error) => WorkerMessage::Failed {
                     sequence: running,
-                    message,
+                    error,
                 },
             };
             self.record_terminal(message);
@@ -196,7 +239,7 @@ impl WorkerOperationQueue {
     pub fn worker_failed(
         &mut self,
         worker_index: usize,
-        message: String,
+        error: WorkerFailure,
     ) -> Vec<WorkerHostCommand> {
         let Some(worker) = self.workers.get_mut(worker_index) else {
             return Vec::new();
@@ -206,7 +249,7 @@ impl WorkerOperationQueue {
         if let Some(sequence) = worker.running.take()
             && !self.cancelled.contains(&sequence)
         {
-            self.record_terminal(WorkerMessage::Failed { sequence, message });
+            self.record_terminal(WorkerMessage::Failed { sequence, error });
         }
         self.fail_pending_if_unavailable();
         self.dispatch_ready_workers()
@@ -237,7 +280,7 @@ impl WorkerOperationQueue {
             .collect::<Vec<_>>();
         self.record_terminal(WorkerMessage::Failed {
             sequence,
-            message: "worker operation was cancelled".to_string(),
+            error: WorkerFailure::Cancelled,
         });
         commands.extend(self.dispatch_ready_workers());
         (true, commands)
@@ -297,7 +340,7 @@ impl WorkerOperationQueue {
                     sequence,
                     WorkerMessage::Failed {
                         sequence,
-                        message: "all workers are unavailable".to_string(),
+                        error: WorkerFailure::Unavailable,
                     },
                 );
             }
@@ -318,10 +361,10 @@ fn terminal_sequence(message: &WorkerMessage) -> u64 {
 #[cfg(test)]
 mod worker_operation_queue_tests {
     use super::super::work_executor::{
-        CooperativeWorkerOperationExecutor, WorkerKernelRegistry, WorkerMessage, WorkerOperation,
-        WorkerOperationExecutor, WorkerRequest,
+        CooperativeWorkerOperationExecutor, WorkerFailure, WorkerKernelRegistry, WorkerMessage,
+        WorkerOperation, WorkerOperationExecutor, WorkerRequest,
     };
-    use super::{WorkerHostCommand, WorkerOperationQueue};
+    use super::{WorkerHostCommand, WorkerOperationQueue, WorkerQueueError};
 
     fn operation() -> WorkerOperation {
         WorkerOperation::new("org.example.operation/v1").unwrap()
@@ -344,21 +387,39 @@ mod worker_operation_queue_tests {
 
     #[wasm_bindgen_test::wasm_bindgen_test(unsupported = test)]
     fn rejects_invalid_capacity_and_unregistered_or_non_monotonic_requests() {
-        assert!(WorkerOperationQueue::new(0, 1, [operation()]).is_err());
-        assert!(WorkerOperationQueue::new(2, 1, [operation()]).is_err());
+        assert!(matches!(
+            WorkerOperationQueue::new(0, 1, [operation()]),
+            Err(WorkerQueueError::EmptyPool)
+        ));
+        assert!(matches!(
+            WorkerOperationQueue::new(2, 1, [operation()]),
+            Err(WorkerQueueError::InsufficientCapacity {
+                worker_count: 2,
+                max_outstanding: 1,
+            })
+        ));
         let mut queue = WorkerOperationQueue::new(1, 2, [operation()]).unwrap();
         let unknown = WorkerOperation::new("org.example.unknown/v1").unwrap();
-        assert!(
+        assert_eq!(
             queue
                 .submit(WorkerRequest {
                     sequence: 1,
                     operation: unknown,
                     payload: Vec::new(),
                 })
-                .is_err()
+                .unwrap_err(),
+            WorkerQueueError::OperationNotRegistered {
+                operation: "org.example.unknown/v1".to_string(),
+            }
         );
         queue.submit(request(2)).unwrap();
-        assert!(queue.submit(request(2)).is_err());
+        assert_eq!(
+            queue.submit(request(2)).unwrap_err(),
+            WorkerQueueError::NonMonotonicSequence {
+                sequence: 2,
+                previous: 2,
+            }
+        );
     }
 
     #[wasm_bindgen_test::wasm_bindgen_test(unsupported = test)]
@@ -367,7 +428,10 @@ mod worker_operation_queue_tests {
         queue.worker_ready(0);
         assert_eq!(queue.submit(request(1)).unwrap().len(), 1);
         assert!(queue.submit(request(2)).unwrap().is_empty());
-        assert!(queue.submit(request(3)).is_err());
+        assert_eq!(
+            queue.submit(request(3)).unwrap_err(),
+            WorkerQueueError::Full
+        );
         let commands = queue.worker_completed(0, Some(1), Ok(vec![11]));
         assert_eq!(commands.len(), 1);
         assert_eq!(run_sequence(&commands[0]), 2);
@@ -427,11 +491,11 @@ mod worker_operation_queue_tests {
             vec![
                 WorkerMessage::Failed {
                     sequence: 1,
-                    message: "worker operation was cancelled".to_string(),
+                    error: WorkerFailure::Cancelled,
                 },
                 WorkerMessage::Failed {
                     sequence: 2,
-                    message: "worker operation was cancelled".to_string(),
+                    error: WorkerFailure::Cancelled,
                 },
             ]
         );
@@ -451,13 +515,20 @@ mod worker_operation_queue_tests {
         queue.submit(request(3)).unwrap();
 
         queue.worker_completed(1, Some(2), Ok(vec![2]));
-        queue.worker_failed(0, "worker zero failed".to_string());
+        queue.worker_failed(
+            0,
+            WorkerFailure::Host {
+                message: "worker zero failed".to_string(),
+            },
+        );
         assert_eq!(
             queue.drain_messages(),
             vec![
                 WorkerMessage::Failed {
                     sequence: 1,
-                    message: "worker zero failed".to_string(),
+                    error: WorkerFailure::Host {
+                        message: "worker zero failed".to_string(),
+                    },
                 },
                 WorkerMessage::Complete {
                     sequence: 2,
@@ -465,12 +536,19 @@ mod worker_operation_queue_tests {
                 },
             ]
         );
-        queue.worker_failed(1, "worker one failed".to_string());
+        queue.worker_failed(
+            1,
+            WorkerFailure::Host {
+                message: "worker one failed".to_string(),
+            },
+        );
         assert_eq!(
             queue.drain_messages(),
             vec![WorkerMessage::Failed {
                 sequence: 3,
-                message: "worker one failed".to_string(),
+                error: WorkerFailure::Host {
+                    message: "worker one failed".to_string(),
+                },
             }]
         );
     }
@@ -485,7 +563,9 @@ mod worker_operation_queue_tests {
             queue.drain_messages(),
             vec![WorkerMessage::Failed {
                 sequence: 7,
-                message: "worker returned sequence 8 while running sequence 7".to_string(),
+                error: WorkerFailure::Protocol {
+                    message: "worker returned sequence 8 while running sequence 7".to_string(),
+                },
             }]
         );
     }
@@ -521,7 +601,7 @@ mod worker_operation_queue_tests {
         queue.worker_progress(request.sequence, 0, Some(1));
         let result = match kernels.execute(request.clone()) {
             WorkerMessage::Complete { payload, .. } => Ok(payload),
-            WorkerMessage::Failed { message, .. } => Err(message),
+            WorkerMessage::Failed { error, .. } => Err(error),
             _ => panic!("kernel returned a non-terminal message"),
         };
         queue.worker_progress(request.sequence, 1, Some(1));

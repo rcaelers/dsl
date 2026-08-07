@@ -10,8 +10,8 @@ use web_sys::{
 };
 
 use platform_runtime::{
-    WorkerExecutionCapability, WorkerHostCommand, WorkerMessage, WorkerOperation,
-    WorkerOperationExecutor, WorkerOperationQueue, WorkerRequest,
+    WorkerExecutionCapability, WorkerFailure, WorkerHostCommand, WorkerMessage, WorkerOperation,
+    WorkerOperationExecutor, WorkerOperationQueue, WorkerQueueError, WorkerRequest,
 };
 
 const WORKER_BOOTSTRAP: &str = include_str!("web_worker_bootstrap.js");
@@ -86,7 +86,8 @@ impl WebWorkerAdapter {
             worker_count,
             max_outstanding,
             registered_operations.to_vec(),
-        )?;
+        )
+        .map_err(|error| error.to_string())?;
         let state = Rc::new(RefCell::new(AdapterState {
             workers,
             queue,
@@ -131,7 +132,7 @@ impl WebWorkerAdapter {
     ///
     /// # Parameters
     /// - `request`: Input consumed by this operation.
-    pub fn submit(&self, request: WorkerRequest) -> Result<(), String> {
+    pub fn submit(&self, request: WorkerRequest) -> Result<(), WorkerQueueError> {
         let mut state = self.state.borrow_mut();
         let commands = state.queue.submit(request)?;
         initialize_workers(&mut state);
@@ -166,7 +167,7 @@ impl WorkerOperationExecutor for WebWorkerAdapter {
         self.state.borrow().queue.capability()
     }
 
-    fn submit(&self, request: WorkerRequest) -> Result<(), String> {
+    fn submit(&self, request: WorkerRequest) -> Result<(), WorkerQueueError> {
         WebWorkerAdapter::submit(self, request)
     }
 
@@ -266,7 +267,11 @@ fn initialize_workers(state: &mut AdapterState) {
             &state.module_url,
             &state.wasm_url,
         ) {
-            commands.extend(state.queue.worker_failed(worker_index, error));
+            commands.extend(
+                state
+                    .queue
+                    .worker_failed(worker_index, WorkerFailure::Host { message: error }),
+            );
         }
     }
     apply_commands(state, commands);
@@ -286,7 +291,11 @@ fn apply_commands(state: &mut AdapterState, commands: Vec<WorkerHostCommand>) {
                     .ok_or_else(|| format!("worker slot {worker_index} does not exist"))
                     .and_then(|worker| post_run(worker, request));
                 if let Err(message) = result {
-                    commands.extend(state.queue.worker_failed(worker_index, message));
+                    commands.extend(
+                        state
+                            .queue
+                            .worker_failed(worker_index, WorkerFailure::Host { message }),
+                    );
                 }
             }
             WorkerHostCommand::Cancel {
@@ -319,19 +328,27 @@ fn handle_worker_message(state: &Rc<RefCell<AdapterState>>, worker_index: usize,
         "complete" | "failed" => {
             let sequence = sequence_property(&value).ok();
             let result = if kind == "complete" {
-                property(&value, "payload").map(|payload| Uint8Array::new(&payload).to_vec())
+                property(&value, "payload")
+                    .map(|payload| Uint8Array::new(&payload).to_vec())
+                    .map_err(|message| WorkerFailure::Protocol { message })
             } else {
-                Err(string_property(&value, "message").unwrap_or_else(|error| error))
+                Err(WorkerFailure::Kernel {
+                    message: string_property(&value, "message").unwrap_or_else(|error| error),
+                })
             };
             state.queue.worker_completed(worker_index, sequence, result)
         }
         "worker_failed" => {
             let message = string_property(&value, "message").unwrap_or_else(|error| error);
-            state.queue.worker_failed(worker_index, message)
+            state
+                .queue
+                .worker_failed(worker_index, WorkerFailure::Host { message })
         }
         _ => state.queue.worker_failed(
             worker_index,
-            "Web Worker returned an unknown message".to_string(),
+            WorkerFailure::Protocol {
+                message: "Web Worker returned an unknown message".to_string(),
+            },
         ),
     };
     apply_commands(&mut state, commands);
@@ -339,7 +356,9 @@ fn handle_worker_message(state: &Rc<RefCell<AdapterState>>, worker_index: usize,
 
 fn handle_worker_error(state: &Rc<RefCell<AdapterState>>, worker_index: usize, message: String) {
     let mut state = state.borrow_mut();
-    let commands = state.queue.worker_failed(worker_index, message);
+    let commands = state
+        .queue
+        .worker_failed(worker_index, WorkerFailure::Host { message });
     apply_commands(&mut state, commands);
 }
 

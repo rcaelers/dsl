@@ -704,8 +704,9 @@ parity with `CooperativeWorkerOperationExecutor`.
 The native finite-operation adapter in `platform` runs those commands in a bounded
 worker pool. Each slot owns one request channel and executes at most one operation at a time; the
 shared queue bounds accepted work to four requests per advertised worker. The adapter converts a
-kernel panic or transport loss into an ordered failure. Cancellation publishes an ordered failure
-immediately and suppresses any late result, without claiming to preempt synchronous native code.
+kernel panic or transport loss into a classified, ordered `WorkerFailure`. Cancellation publishes
+the `Cancelled` failure immediately and suppresses any late result, without claiming to preempt
+synchronous native code.
 Closing the adapter disconnects the request channels, so idle workers exit without making shutdown
 wait for a defective finite kernel.
 

@@ -3,8 +3,8 @@ use std::sync::Mutex;
 use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
 
 use platform_runtime::{
-    WorkerExecutionCapability, WorkerHostCommand, WorkerKernelRegistry, WorkerMessage,
-    WorkerOperationExecutor, WorkerOperationQueue, WorkerRequest,
+    WorkerExecutionCapability, WorkerFailure, WorkerHostCommand, WorkerKernelRegistry,
+    WorkerMessage, WorkerOperationExecutor, WorkerOperationQueue, WorkerQueueError, WorkerRequest,
 };
 
 enum WorkerEvent {
@@ -16,7 +16,7 @@ enum WorkerEvent {
     Complete {
         worker_index: usize,
         sequence: u64,
-        result: Result<Vec<u8>, String>,
+        result: Result<Vec<u8>, WorkerFailure>,
     },
 }
 
@@ -43,7 +43,8 @@ impl NativeWorkerOperationExecutor {
         max_outstanding: usize,
     ) -> Result<Self, String> {
         let operations = kernels.operations().cloned().collect::<Vec<_>>();
-        let mut queue = WorkerOperationQueue::new(worker_count, max_outstanding, operations)?;
+        let mut queue = WorkerOperationQueue::new(worker_count, max_outstanding, operations)
+            .map_err(|error| error.to_string())?;
         let (event_sender, events) = crossbeam_channel::unbounded();
         let mut workers = Vec::with_capacity(worker_count);
 
@@ -77,7 +78,7 @@ impl WorkerOperationExecutor for NativeWorkerOperationExecutor {
         state.queue.capability()
     }
 
-    fn submit(&self, request: WorkerRequest) -> Result<(), String> {
+    fn submit(&self, request: WorkerRequest) -> Result<(), WorkerQueueError> {
         let mut state = self.state.lock().unwrap();
         pump_events(&mut state);
         let commands = state.queue.submit(request)?;
@@ -135,9 +136,13 @@ fn run_worker(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| kernels.execute(request)));
         let result = match terminal {
             Ok(WorkerMessage::Complete { payload, .. }) => Ok(payload),
-            Ok(WorkerMessage::Failed { message, .. }) => Err(message),
-            Ok(_) => Err("worker kernel returned a non-terminal message".to_string()),
-            Err(_) => Err("worker operation panicked".to_string()),
+            Ok(WorkerMessage::Failed { error, .. }) => Err(error),
+            Ok(_) => Err(WorkerFailure::Protocol {
+                message: "worker kernel returned a non-terminal message".to_string(),
+            }),
+            Err(_) => Err(WorkerFailure::Kernel {
+                message: "worker operation panicked".to_string(),
+            }),
         };
         if events
             .send(WorkerEvent::Progress {
@@ -202,7 +207,11 @@ fn apply_commands(state: &mut AdapterState, mut commands: Vec<WorkerHostCommand>
                             "native operation worker stopped".to_string()
                         }
                     };
-                    commands.extend(state.queue.worker_failed(worker_index, message));
+                    commands.extend(
+                        state
+                            .queue
+                            .worker_failed(worker_index, WorkerFailure::Host { message }),
+                    );
                 }
             }
             WorkerHostCommand::Cancel { .. } => {
@@ -221,7 +230,7 @@ mod native_worker_tests {
     use std::time::{Duration, Instant};
 
     use platform_runtime::{
-        WorkerExecutionMode, WorkerKernelRegistry, WorkerMessage, WorkerOperation,
+        WorkerExecutionMode, WorkerFailure, WorkerKernelRegistry, WorkerMessage, WorkerOperation,
         WorkerOperationExecutor, WorkerRequest,
     };
 
@@ -329,7 +338,7 @@ mod native_worker_tests {
                 .collect::<Vec<_>>(),
             vec![WorkerMessage::Failed {
                 sequence: 1,
-                message: "worker operation was cancelled".to_string(),
+                error: WorkerFailure::Cancelled,
             }]
         );
 
@@ -364,7 +373,9 @@ mod native_worker_tests {
             terminal,
             WorkerMessage::Failed {
                 sequence: 7,
-                message: "worker operation panicked".to_string(),
+                error: WorkerFailure::Kernel {
+                    message: "worker operation panicked".to_string(),
+                },
             }
         );
     }

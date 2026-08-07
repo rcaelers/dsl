@@ -1053,7 +1053,10 @@ mod tests {
             2
         }
 
-        fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        fn submit(
+            &self,
+            task: WorkExecutorTask,
+        ) -> Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
             Ok(Box::new(TestWorkTask {
                 handle: Some(std::thread::spawn(task)),
             }))
@@ -1075,7 +1078,10 @@ mod tests {
             }
         }
 
-        fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        fn submit(
+            &self,
+            task: WorkExecutorTask,
+        ) -> Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
             Ok(Box::new(TestWorkTask {
                 handle: Some(std::thread::spawn(task)),
             }))

@@ -221,7 +221,7 @@ mod tests {
 
     use crossbeam_channel::bounded;
 
-    use platform_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
+    use platform_runtime::{WorkExecutor, WorkExecutorError, WorkExecutorTask, WorkTask};
 
     use super::super::errors::{WorkError, WorkResult};
     use super::super::node::ProcessNode;
@@ -235,7 +235,7 @@ mod tests {
             2
         }
 
-        fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, WorkExecutorError> {
             Ok(Box::new(TestWorkTask {
                 handle: Some(thread::spawn(task)),
             }))

@@ -46,7 +46,7 @@ impl WorkExecutor for SpawnWorkExecutor {
     fn submit(
         &self,
         task: platform_runtime::WorkExecutorTask,
-    ) -> Result<Box<dyn WorkTask>, String> {
+    ) -> Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
         std::thread::spawn(task);
         Ok(Box::new(CompletedWorkTask))
     }

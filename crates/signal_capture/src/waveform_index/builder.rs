@@ -229,7 +229,7 @@ where
                     for task in tasks {
                         task.wait();
                     }
-                    return Err(Error::ParseError(error));
+                    return Err(Error::ParseError(error.to_string()));
                 }
             }
         }

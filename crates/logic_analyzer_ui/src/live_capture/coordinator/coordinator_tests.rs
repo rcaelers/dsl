@@ -44,7 +44,7 @@ impl WorkExecutor for TestWorkExecutor {
     fn submit(
         &self,
         task: platform_runtime::WorkExecutorTask,
-    ) -> Result<Box<dyn platform_runtime::WorkTask>, String> {
+    ) -> Result<Box<dyn platform_runtime::WorkTask>, platform_runtime::WorkExecutorError> {
         std::thread::spawn(task);
         Ok(Box::new(platform_runtime::CompletedWorkTask))
     }

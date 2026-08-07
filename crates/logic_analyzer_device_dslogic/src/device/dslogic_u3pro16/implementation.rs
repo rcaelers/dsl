@@ -1430,11 +1430,17 @@ mod tests {
             1
         }
 
-        fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        fn submit(
+            &self,
+            task: WorkExecutorTask,
+        ) -> Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
             self.submit_long_running(task)
         }
 
-        fn submit_long_running(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        fn submit_long_running(
+            &self,
+            task: WorkExecutorTask,
+        ) -> Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
             Ok(Box::new(TestWorkTask {
                 handle: Some(std::thread::spawn(task)),
             }))

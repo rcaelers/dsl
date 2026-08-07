@@ -1083,7 +1083,7 @@ impl IndexedAnnotationWriter {
                     let _ = completion.send(message);
                 }),
             )
-            .map_err(StoreError::Persistent)?;
+            .map_err(|error| StoreError::Persistent(error.to_string()))?;
         self.in_flight_blocks += 1;
         self.next_dispatch_sequence += 1;
         self.words_since_tail_publish = 0;
@@ -1392,7 +1392,8 @@ mod tests {
         fn submit(
             &self,
             task: platform_runtime::WorkExecutorTask,
-        ) -> Result<Box<dyn platform_runtime::WorkTask>, String> {
+        ) -> Result<Box<dyn platform_runtime::WorkTask>, platform_runtime::WorkExecutorError>
+        {
             self.tasks.lock().unwrap().push(task);
             Ok(Box::new(platform_runtime::CompletedWorkTask))
         }
@@ -1415,7 +1416,8 @@ mod tests {
         fn submit(
             &self,
             task: platform_runtime::WorkExecutorTask,
-        ) -> Result<Box<dyn platform_runtime::WorkTask>, String> {
+        ) -> Result<Box<dyn platform_runtime::WorkTask>, platform_runtime::WorkExecutorError>
+        {
             self.submissions.fetch_add(1, Ordering::Relaxed);
             task();
             Ok(Box::new(platform_runtime::CompletedWorkTask))

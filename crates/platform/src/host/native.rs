@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use platform_artifacts::ArtifactRepository;
 use platform_runtime::{
-    WorkExecutor, WorkExecutorTask, WorkTask, WorkerKernelRegistry, WorkerOperationExecutor,
+    WorkExecutor, WorkExecutorError, WorkExecutorTask, WorkTask, WorkerKernelRegistry,
+    WorkerOperationExecutor,
 };
 
 use super::native_artifact_repository::NativeArtifactRepository;
@@ -71,7 +72,7 @@ impl WorkExecutor for NativeWorkExecutor {
         std::thread::sleep(duration);
     }
 
-    fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+    fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, WorkExecutorError> {
         let completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let task_completed = Arc::clone(&completed);
         let (completion_sender, completion_receiver) = crossbeam_channel::bounded(1);
@@ -82,12 +83,8 @@ impl WorkExecutor for NativeWorkExecutor {
                 let _ = completion_sender.send(());
             }))
             .map_err(|error| match error {
-                crossbeam_channel::TrySendError::Full(_) => {
-                    String::from("processing work executor queue is full")
-                }
-                crossbeam_channel::TrySendError::Disconnected(_) => {
-                    String::from("processing work executor stopped")
-                }
+                crossbeam_channel::TrySendError::Full(_) => WorkExecutorError::QueueFull,
+                crossbeam_channel::TrySendError::Disconnected(_) => WorkExecutorError::Stopped,
             })?;
         Ok(Box::new(NativeWorkTask {
             completed,
@@ -95,7 +92,10 @@ impl WorkExecutor for NativeWorkExecutor {
         }))
     }
 
-    fn submit_long_running(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+    fn submit_long_running(
+        &self,
+        task: WorkExecutorTask,
+    ) -> Result<Box<dyn WorkTask>, WorkExecutorError> {
         spawn_runtime_task(task)
     }
 }
@@ -105,7 +105,7 @@ struct NativeWorkTask {
     completion_receiver: crossbeam_channel::Receiver<()>,
 }
 
-fn spawn_runtime_task(task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+fn spawn_runtime_task(task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, WorkExecutorError> {
     let completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let task_completed = Arc::clone(&completed);
     let (completion_sender, completion_receiver) = crossbeam_channel::bounded(1);
@@ -116,7 +116,9 @@ fn spawn_runtime_task(task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, Strin
             task_completed.store(true, Ordering::Release);
             let _ = completion_sender.send(());
         })
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| WorkExecutorError::TaskStart {
+            message: error.to_string(),
+        })?;
     Ok(Box::new(NativeWorkTask {
         completed,
         completion_receiver,

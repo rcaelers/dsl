@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use super::worker_operation_queue::WorkerQueueError;
+
 /// One bounded unit of host-scheduled work.
 pub type WorkExecutorTask = Box<dyn FnOnce() + Send + 'static>;
 
@@ -82,8 +84,8 @@ pub enum WorkerMessage {
     Failed {
         /// Caller-assigned sequence of the failed operation.
         sequence: u64,
-        /// User-presentable failure explanation.
-        message: String,
+        /// Classified operation, host, or protocol failure.
+        error: WorkerFailure,
     },
 }
 
@@ -96,7 +98,76 @@ pub enum WorkerMessageError {
     DuplicateOperation,
 }
 
-type WorkerKernel = dyn Fn(Vec<u8>) -> Result<Vec<u8>, String> + Send + Sync + 'static;
+/// Failure returned by a registered finite worker kernel.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum WorkerKernelError {
+    /// The operation owner rejected the payload or could not produce its result.
+    #[error("{message}")]
+    Execution {
+        /// Owner-provided operation diagnostic.
+        message: String,
+    },
+}
+
+impl From<String> for WorkerKernelError {
+    fn from(message: String) -> Self {
+        Self::Execution { message }
+    }
+}
+
+impl From<&str> for WorkerKernelError {
+    fn from(message: &str) -> Self {
+        Self::Execution {
+            message: message.to_owned(),
+        }
+    }
+}
+
+/// Terminal failure transported in a [`WorkerMessage`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
+#[serde(tag = "reason", rename_all = "snake_case")]
+pub enum WorkerFailure {
+    /// The request names no kernel in the selected registry.
+    #[error("worker operation '{operation}' is not registered")]
+    OperationNotRegistered {
+        /// Stable operation identifier requested by the caller.
+        operation: String,
+    },
+    /// The registered operation rejected its payload or failed while executing.
+    #[error("{message}")]
+    Kernel {
+        /// Operation-owner diagnostic.
+        message: String,
+    },
+    /// The selected host mechanism failed.
+    #[error("{message}")]
+    Host {
+        /// Host-adapter diagnostic with no host-specific error type.
+        message: String,
+    },
+    /// A worker violated the portable request/response protocol.
+    #[error("{message}")]
+    Protocol {
+        /// Protocol diagnostic.
+        message: String,
+    },
+    /// The operation was cancelled before its result was released.
+    #[error("worker operation was cancelled")]
+    Cancelled,
+    /// No worker remains available to execute accepted work.
+    #[error("all workers are unavailable")]
+    Unavailable,
+}
+
+impl From<WorkerKernelError> for WorkerFailure {
+    fn from(error: WorkerKernelError) -> Self {
+        match error {
+            WorkerKernelError::Execution { message } => Self::Kernel { message },
+        }
+    }
+}
+
+type WorkerKernel = dyn Fn(Vec<u8>) -> Result<Vec<u8>, WorkerKernelError> + Send + Sync + 'static;
 
 /// Portable catalog of finite operations available to a host worker.
 ///
@@ -195,7 +266,7 @@ pub trait WorkerOperationExecutor {
     fn capability(&self) -> WorkerExecutionCapability;
 
     /// Submits one monotonically sequenced finite operation.
-    fn submit(&self, request: WorkerRequest) -> Result<(), String>;
+    fn submit(&self, request: WorkerRequest) -> Result<(), WorkerQueueError>;
 
     /// Cancels queued or running work when possible.
     fn cancel(&self, sequence: u64) -> bool;
@@ -237,19 +308,18 @@ impl WorkerOperationExecutor for CooperativeWorkerOperationExecutor {
         self.capability.clone()
     }
 
-    fn submit(&self, request: WorkerRequest) -> Result<(), String> {
+    fn submit(&self, request: WorkerRequest) -> Result<(), WorkerQueueError> {
         let mut last_sequence = self.last_sequence.borrow_mut();
         if last_sequence.is_some_and(|previous| request.sequence <= previous) {
-            return Err(format!(
-                "worker request sequence {} is not greater than the previous sequence",
-                request.sequence
-            ));
+            return Err(WorkerQueueError::NonMonotonicSequence {
+                sequence: request.sequence,
+                previous: last_sequence.unwrap_or_default(),
+            });
         }
         if !self.capability.supports(&request.operation) {
-            return Err(format!(
-                "worker operation '{}' is not registered",
-                request.operation.as_str()
-            ));
+            return Err(WorkerQueueError::OperationNotRegistered {
+                operation: request.operation.as_str().to_owned(),
+            });
         }
         *last_sequence = Some(request.sequence);
         let sequence = request.sequence;
@@ -295,7 +365,7 @@ impl WorkerKernelRegistry {
         kernel: F,
     ) -> Result<(), WorkerMessageError>
     where
-        F: Fn(Vec<u8>) -> Result<Vec<u8>, String> + Send + Sync + 'static,
+        F: Fn(Vec<u8>) -> Result<Vec<u8>, WorkerKernelError> + Send + Sync + 'static,
     {
         let operation = WorkerOperation::new(operation)?;
         if self.kernels.contains_key(&operation) {
@@ -324,15 +394,54 @@ impl WorkerKernelRegistry {
         let Some(kernel) = self.kernels.get(&request.operation) else {
             return WorkerMessage::Failed {
                 sequence,
-                message: format!(
-                    "worker operation '{}' is not registered",
-                    request.operation.as_str()
-                ),
+                error: WorkerFailure::OperationNotRegistered {
+                    operation: request.operation.as_str().to_owned(),
+                },
             };
         };
         match kernel(request.payload) {
             Ok(payload) => WorkerMessage::Complete { sequence, payload },
-            Err(message) => WorkerMessage::Failed { sequence, message },
+            Err(error) => WorkerMessage::Failed {
+                sequence,
+                error: error.into(),
+            },
+        }
+    }
+}
+
+/// Failure to submit work through a [`WorkExecutor`].
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum WorkExecutorError {
+    /// The bounded finite-work queue has reached capacity.
+    #[error("processing work executor queue is full")]
+    QueueFull,
+    /// The host work executor is no longer running.
+    #[error("processing work executor stopped")]
+    Stopped,
+    /// The host could not start an independently scheduled task.
+    #[error("{message}")]
+    TaskStart {
+        /// Host-neutral task-start diagnostic.
+        message: String,
+    },
+    /// An executor implementation rejected the task for another stated reason.
+    #[error("{message}")]
+    Rejected {
+        /// Executor-owned rejection diagnostic.
+        message: String,
+    },
+}
+
+impl From<String> for WorkExecutorError {
+    fn from(message: String) -> Self {
+        Self::Rejected { message }
+    }
+}
+
+impl From<&str> for WorkExecutorError {
+    fn from(message: &str) -> Self {
+        Self::Rejected {
+            message: message.to_owned(),
         }
     }
 }
@@ -362,7 +471,7 @@ pub trait WorkExecutor: Send + Sync {
     fn idle(&self, _duration: Duration) {}
 
     /// Enqueues finite work without exposing worker implementation details.
-    fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String>;
+    fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, WorkExecutorError>;
 
     /// Enqueues finite work with an owner-defined diagnostic label.
     ///
@@ -373,7 +482,7 @@ pub trait WorkExecutor: Send + Sync {
         &self,
         _label: &'static str,
         task: WorkExecutorTask,
-    ) -> Result<Box<dyn WorkTask>, String> {
+    ) -> Result<Box<dyn WorkTask>, WorkExecutorError> {
         self.submit(task)
     }
 
@@ -381,7 +490,10 @@ pub trait WorkExecutor: Send + Sync {
     ///
     /// Hosts with a bounded finite-work queue override this to keep a slow
     /// reader, processing node, or watchdog from starving indexing work.
-    fn submit_long_running(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+    fn submit_long_running(
+        &self,
+        task: WorkExecutorTask,
+    ) -> Result<Box<dyn WorkTask>, WorkExecutorError> {
         self.submit(task)
     }
 
@@ -393,7 +505,7 @@ pub trait WorkExecutor: Send + Sync {
         &self,
         _label: &'static str,
         task: WorkExecutorTask,
-    ) -> Result<Box<dyn WorkTask>, String> {
+    ) -> Result<Box<dyn WorkTask>, WorkExecutorError> {
         self.submit_long_running(task)
     }
 }
@@ -406,7 +518,7 @@ impl WorkExecutor for InlineWorkExecutor {
         1
     }
 
-    fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+    fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, WorkExecutorError> {
         task();
         Ok(Box::new(CompletedWorkTask))
     }
@@ -426,8 +538,9 @@ impl WorkTask for CompletedWorkTask {
 #[cfg(test)]
 mod work_executor_tests {
     use super::{
-        CooperativeWorkerOperationExecutor, WorkerExecutionMode, WorkerKernelRegistry,
-        WorkerMessage, WorkerOperation, WorkerOperationExecutor, WorkerRequest,
+        CooperativeWorkerOperationExecutor, WorkExecutorError, WorkerExecutionMode, WorkerFailure,
+        WorkerKernelError, WorkerKernelRegistry, WorkerMessage, WorkerMessageError,
+        WorkerOperation, WorkerOperationExecutor, WorkerRequest,
     };
 
     #[wasm_bindgen_test::wasm_bindgen_test(unsupported = test)]
@@ -456,7 +569,9 @@ mod work_executor_tests {
             },
             WorkerMessage::Failed {
                 sequence: 6,
-                message: "expected failure".to_string(),
+                error: WorkerFailure::Kernel {
+                    message: "expected failure".to_string(),
+                },
             },
         ];
 
@@ -471,7 +586,10 @@ mod work_executor_tests {
 
     #[test]
     fn worker_operations_require_a_stable_nonempty_identifier() {
-        assert!(WorkerOperation::new("  ").is_err());
+        assert_eq!(
+            WorkerOperation::new("  ").unwrap_err(),
+            WorkerMessageError::InvalidOperation
+        );
     }
 
     #[test]
@@ -483,7 +601,10 @@ mod work_executor_tests {
                 Ok(payload)
             })
             .unwrap();
-        assert!(registry.register("org.example.reverse/v1", Ok).is_err());
+        assert_eq!(
+            registry.register("org.example.reverse/v1", Ok).unwrap_err(),
+            WorkerMessageError::DuplicateOperation
+        );
 
         let operation = WorkerOperation::new("org.example.reverse/v1").unwrap();
         assert!(registry.supports(&operation));
@@ -497,6 +618,42 @@ mod work_executor_tests {
                 sequence: 42,
                 payload: vec![3, 2, 1],
             }
+        );
+
+        registry
+            .register("org.example.fail/v1", |_| {
+                Err(WorkerKernelError::Execution {
+                    message: "expected kernel failure".to_string(),
+                })
+            })
+            .unwrap();
+        assert_eq!(
+            registry.execute(WorkerRequest {
+                sequence: 43,
+                operation: WorkerOperation::new("org.example.fail/v1").unwrap(),
+                payload: Vec::new(),
+            }),
+            WorkerMessage::Failed {
+                sequence: 43,
+                error: WorkerFailure::Kernel {
+                    message: "expected kernel failure".to_string(),
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn work_executor_errors_preserve_classification_and_diagnostics() {
+        assert_eq!(
+            WorkExecutorError::QueueFull.to_string(),
+            "processing work executor queue is full"
+        );
+        assert_eq!(
+            WorkExecutorError::TaskStart {
+                message: "host refused task".to_string(),
+            }
+            .to_string(),
+            "host refused task"
         );
     }
 

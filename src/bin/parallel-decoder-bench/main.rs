@@ -93,7 +93,10 @@ mod implementation {
             true
         }
 
-        fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+        fn submit(
+            &self,
+            task: WorkExecutorTask,
+        ) -> Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
             Ok(Box::new(BenchmarkWorkTask {
                 handle: Some(std::thread::spawn(task)),
             }))

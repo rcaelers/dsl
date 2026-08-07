@@ -661,7 +661,10 @@ mod source_preparation_tests {
         fn submit(
             &self,
             task: platform_runtime::WorkExecutorTask,
-        ) -> std::result::Result<Box<dyn platform_runtime::WorkTask>, String> {
+        ) -> std::result::Result<
+            Box<dyn platform_runtime::WorkTask>,
+            platform_runtime::WorkExecutorError,
+        > {
             task();
             Ok(Box::new(platform_runtime::CompletedWorkTask))
         }

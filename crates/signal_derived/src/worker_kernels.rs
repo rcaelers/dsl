@@ -17,9 +17,9 @@ pub fn portable_worker_kernels() -> WorkerKernelRegistry {
     registry
         .register(ENCODE_WORD_BLOCK_OPERATION, |payload| {
             let request = decode_word_block_request(&payload)?;
-            encode_owned_word_block(request, Vec::new())
+            Ok(encode_owned_word_block(request, Vec::new())
                 .map(|result| result.bytes)
-                .map_err(|error| error.to_string())
+                .map_err(|error| error.to_string())?)
         })
         .expect("the derived-word operation identifier is unique and valid");
     register_capture_worker_kernel(&mut registry);

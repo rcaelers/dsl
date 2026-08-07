@@ -251,14 +251,16 @@ mod execution_tests {
         fn submit(
             &self,
             task: platform_runtime::WorkExecutorTask,
-        ) -> Result<Box<dyn platform_runtime::WorkTask>, String> {
+        ) -> Result<Box<dyn platform_runtime::WorkTask>, platform_runtime::WorkExecutorError>
+        {
             self.submit_long_running(task)
         }
 
         fn submit_long_running(
             &self,
             task: platform_runtime::WorkExecutorTask,
-        ) -> Result<Box<dyn platform_runtime::WorkTask>, String> {
+        ) -> Result<Box<dyn platform_runtime::WorkTask>, platform_runtime::WorkExecutorError>
+        {
             Ok(Box::new(TestWorkTask {
                 handle: Some(std::thread::spawn(task)),
             }))

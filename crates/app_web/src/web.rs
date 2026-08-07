@@ -38,7 +38,7 @@ pub fn execute_portable_worker_operation(
     });
     match message {
         WorkerMessage::Complete { payload, .. } => Ok(payload),
-        WorkerMessage::Failed { message, .. } => Err(JsValue::from_str(&message)),
+        WorkerMessage::Failed { error, .. } => Err(JsValue::from_str(&error.to_string())),
         _ => Err(JsValue::from_str(
             "worker kernel returned a non-terminal message",
         )),

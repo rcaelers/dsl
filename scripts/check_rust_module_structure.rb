@@ -302,6 +302,16 @@ files.each do |path|
   tests = test_source(path, source)
   test_offset = tests.empty? ? 0 : source.index(tests)
 
+  if rel.start_with?("crates/platform_runtime/src/")
+    implementation = implementation_source(source)
+    implementation.to_enum(:scan, /Result\s*<[^;{}]*,\s*String\s*>/).each do
+      errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: platform_runtime cross-crate contracts use owner-specific error types"
+    end
+    implementation.to_enum(:scan, /Failed\s*\{[^}]{0,300}\bmessage:\s*String/).each do
+      errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: worker terminal failures use the classified WorkerFailure contract"
+    end
+  end
+
   source.to_enum(:scan, /#\s*\[\s*ignore(?:\s*=|\s*\])/).each do
     errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: benchmarks and external validation belong in explicit non-test commands, not ignored tests"
   end

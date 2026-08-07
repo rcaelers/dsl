@@ -30,3 +30,11 @@ work, accepts monotonically increasing sequence identifiers, and releases termin
 submission order. Native and wasm tests cover message round trips, backpressure, completion,
 cancellation, and worker failure. Workspace dependency tests keep both platform contract owners
 independent of product and signal-domain crates.
+
+The crate owns distinct error boundaries. `WorkExecutorError` classifies host-work admission and
+task startup failures. `WorkerMessageError` validates operation identifiers and kernel
+registration, while `WorkerKernelError` carries an operation owner's execution failure.
+`WorkerQueueError` classifies bounded-queue configuration and request admission. Accepted requests
+report terminal kernel, host, protocol, cancellation, and worker-availability failures as the
+serializable `WorkerFailure` value in `WorkerMessage::Failed`; adapters do not flatten those
+classes into a submission string.

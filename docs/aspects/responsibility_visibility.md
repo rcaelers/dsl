@@ -243,6 +243,11 @@ types and dependencies. When they implement a generic source or runtime trait, t
 concrete error into a generic boundary error without moving the concrete dependency into the
 generic crate.
 
+`platform_runtime` distinguishes work-executor admission, worker-kernel execution, bounded-queue
+admission, message validation, and terminal worker failure. Native and browser adapters map their
+mechanism errors into those contracts; higher-level runtimes can classify the failure before any
+presentation boundary formats it.
+
 ## Platform surfaces
 
 Native and wasm reusable crates share the platform-neutral data model and compile the same source

@@ -582,7 +582,10 @@ impl WorkExecutor for BenchmarkWorkExecutor {
         std::thread::sleep(duration);
     }
 
-    fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+    fn submit(
+        &self,
+        task: WorkExecutorTask,
+    ) -> Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
         let handle = std::thread::Builder::new()
             .name("compiler-capture-runtime".into())
             .spawn(task)
@@ -609,7 +612,10 @@ impl WorkExecutor for ProfileWorkExecutor {
         self.workers
     }
 
-    fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+    fn submit(
+        &self,
+        task: WorkExecutorTask,
+    ) -> Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
         let handle = std::thread::Builder::new()
             .name("waveform-index-profile".into())
             .spawn(task)
@@ -644,7 +650,10 @@ impl WorkExecutor for ProfiledWorkExecutor {
         self.inner.idle(duration);
     }
 
-    fn submit(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+    fn submit(
+        &self,
+        task: WorkExecutorTask,
+    ) -> Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
         self.submit_labeled("unlabeled", task)
     }
 
@@ -652,7 +661,7 @@ impl WorkExecutor for ProfiledWorkExecutor {
         &self,
         label: &'static str,
         task: WorkExecutorTask,
-    ) -> Result<Box<dyn WorkTask>, String> {
+    ) -> Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
         let metrics = Arc::clone(&self.metrics);
         self.inner.submit_labeled(
             label,
@@ -666,7 +675,10 @@ impl WorkExecutor for ProfiledWorkExecutor {
         )
     }
 
-    fn submit_long_running(&self, task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, String> {
+    fn submit_long_running(
+        &self,
+        task: WorkExecutorTask,
+    ) -> Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
         self.submit_long_running_labeled("unlabeled-long-running", task)
     }
 
@@ -674,7 +686,7 @@ impl WorkExecutor for ProfiledWorkExecutor {
         &self,
         label: &'static str,
         task: WorkExecutorTask,
-    ) -> Result<Box<dyn WorkTask>, String> {
+    ) -> Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
         let metrics = Arc::clone(&self.metrics);
         self.inner.submit_long_running_labeled(
             label,

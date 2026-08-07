@@ -279,7 +279,7 @@ impl<T: UsbTransport> PreparedAcquisition for PreparedStreamingAcquisition<T> {
                     stop_requested,
                 ));
             }))
-            .map_err(AcquisitionError::WorkerStart)?;
+            .map_err(|error| AcquisitionError::WorkerStart(error.to_string()))?;
         self.task = Some(task);
         self.result = Some(result);
         self.started = true;
