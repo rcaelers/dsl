@@ -24,11 +24,11 @@ use platform_runtime::WorkExecutor;
 use signal_derived::{DerivedLanes, PersistentStoreConfig};
 use signal_runtime::{AppManagerFactory, ConfigurationBoundary, DisconnectEvent};
 
-use super::contract::{CachedDataLoader, GraphRun, GraphService};
+use super::contract::{CachedDataLoader, GraphRun};
 use crate::live_capture::{CaptureAvailability, CaptureFeatureDiscovery};
 
 /// UI-owned orchestration of document compilation and processing-graph execution.
-struct UiGraphService {
+pub(crate) struct UiGraphService {
     compiler: GraphLowerer,
     runtime: GraphRuntime,
     graph_worker_client: Option<Arc<GraphWorkerClient>>,
@@ -285,23 +285,26 @@ impl CaptureFeatureDiscovery for UiGraphService {
     }
 }
 
-impl GraphService for UiGraphService {
-    fn set_artifact_repository(
+impl UiGraphService {
+    pub(crate) fn set_artifact_repository(
         &mut self,
         repository: std::sync::Arc<dyn platform_artifacts::ArtifactRepository>,
     ) {
         self.runtime.set_artifact_repository(repository);
     }
 
-    fn set_decoded_block_cache(&mut self, cache: signal_derived::DecodedBlockCacheHandle) {
+    pub(crate) fn set_decoded_block_cache(
+        &mut self,
+        cache: signal_derived::DecodedBlockCacheHandle,
+    ) {
         self.runtime.set_decoded_block_cache(cache);
     }
 
-    fn set_graph_worker_client(&mut self, client: Option<Arc<GraphWorkerClient>>) {
+    pub(crate) fn set_graph_worker_client(&mut self, client: Option<Arc<GraphWorkerClient>>) {
         self.graph_worker_client = client;
     }
 
-    fn derived_cache_configs_by_node(
+    pub(crate) fn derived_cache_configs_by_node(
         &self,
         graph: &GraphState,
     ) -> Result<std::collections::HashMap<NodeId, Vec<PersistentStoreConfig>>, Vec<CompileError>>
@@ -310,58 +313,61 @@ impl GraphService for UiGraphService {
         Ok(self.runtime.derived_cache_configs_by_node(&compiled))
     }
 
-    fn clear_derived_cache_entry(
+    pub(crate) fn clear_derived_cache_entry(
         &self,
         config: &PersistentStoreConfig,
     ) -> Result<logic_analyzer_graph_runtime::DerivedCacheClearStats, String> {
         self.runtime.clear_derived_cache_entry(config)
     }
 
-    fn start_clear_derived_caches(
+    pub(crate) fn start_clear_derived_caches(
         &self,
     ) -> Result<logic_analyzer_graph_runtime::DerivedCacheClearTask, String> {
         self.runtime.start_clear_derived_caches()
     }
 
-    fn inspect_derived_cache_entry(
+    pub(crate) fn inspect_derived_cache_entry(
         &self,
         config: &PersistentStoreConfig,
     ) -> Result<Option<logic_analyzer_graph_runtime::DerivedCacheEntrySnapshot>, String> {
         self.runtime.inspect_derived_cache_entry(config)
     }
 
-    fn set_output_subscriptions(&mut self, subscriptions: OutputSubscriptionPlan) {
+    pub(crate) fn set_output_subscriptions(&mut self, subscriptions: OutputSubscriptionPlan) {
         self.compiler.set_output_subscriptions(subscriptions);
     }
 
-    fn synchronize_prepared_capture(&mut self, graph: &GraphState) -> SourcePreparationUpdate {
+    pub(crate) fn synchronize_prepared_capture(
+        &mut self,
+        graph: &GraphState,
+    ) -> SourcePreparationUpdate {
         let discovered = self.lowerer().discover_capture_presentation(graph);
         self.runtime.synchronize_prepared_capture(discovered)
     }
 
-    fn reset_prepared_capture(&mut self) {
+    pub(crate) fn reset_prepared_capture(&mut self) {
         self.runtime.reset_prepared_capture();
     }
 
-    fn source_preparation_status(&self) -> SourcePreparationStatus {
+    pub(crate) fn source_preparation_status(&self) -> SourcePreparationStatus {
         self.runtime.source_preparation_status()
     }
 
-    fn discover_live_capture_feature(
+    pub(crate) fn discover_live_capture_feature(
         &self,
         graph: &GraphState,
     ) -> Result<Option<DiscoveredLiveCaptureFeature>, LiveCaptureDiscoveryError> {
         self.lowerer().discover_live_capture_feature(graph)
     }
 
-    fn discover_trigger_configuration(
+    pub(crate) fn discover_trigger_configuration(
         &self,
         graph: &GraphState,
     ) -> Result<Option<DiscoveredTriggerConfiguration>, LiveCaptureDiscoveryError> {
         self.lowerer().discover_trigger_configuration(graph)
     }
 
-    fn apply_live_capture_edit(
+    pub(crate) fn apply_live_capture_edit(
         &self,
         graph: &GraphState,
         source_node: NodeId,
@@ -371,14 +377,14 @@ impl GraphService for UiGraphService {
             .apply_live_capture_edit(graph, source_node, edit)
     }
 
-    fn discover_timeline_markers(
+    pub(crate) fn discover_timeline_markers(
         &self,
         graph: &GraphState,
     ) -> Result<Vec<DiscoveredTimelineMarker>, String> {
         self.lowerer().discover_timeline_markers(graph)
     }
 
-    fn apply_timeline_marker_edit(
+    pub(crate) fn apply_timeline_marker_edit(
         &self,
         graph: &GraphState,
         owner_node: NodeId,
@@ -388,7 +394,7 @@ impl GraphService for UiGraphService {
             .apply_timeline_marker_edit(graph, owner_node, edit)
     }
 
-    fn discover_timeline_marker_reference_bindings(
+    pub(crate) fn discover_timeline_marker_reference_bindings(
         &self,
         graph: &GraphState,
     ) -> Result<Vec<DiscoveredTimelineMarkerReferenceBinding>, String> {
@@ -396,7 +402,7 @@ impl GraphService for UiGraphService {
             .discover_timeline_marker_reference_bindings(graph)
     }
 
-    fn apply_timeline_marker_reference_binding_edit(
+    pub(crate) fn apply_timeline_marker_reference_binding_edit(
         &self,
         graph: &GraphState,
         owner_node: NodeId,
@@ -406,7 +412,7 @@ impl GraphService for UiGraphService {
             .apply_timeline_marker_reference_binding_edit(graph, owner_node, edit)
     }
 
-    fn graph_contains_node(
+    pub(crate) fn graph_contains_node(
         &self,
         graph: &GraphState,
         node: NodeId,
@@ -419,14 +425,14 @@ impl GraphService for UiGraphService {
         })
     }
 
-    fn sampling_overlay_candidates(
+    pub(crate) fn sampling_overlay_candidates(
         &self,
         graph: &GraphState,
     ) -> Result<Vec<SamplingOverlayCandidate>, Vec<CompileError>> {
         self.lowerer().sampling_overlay_candidates(graph)
     }
 
-    fn load_cached_data(
+    pub(crate) fn load_cached_data(
         &self,
         graph: &GraphState,
         context: &mut GraphRunContext,
@@ -435,7 +441,7 @@ impl GraphService for UiGraphService {
         self.runtime.load_cached_data(compiled, context)
     }
 
-    fn start_run(
+    pub(crate) fn start_run(
         &self,
         graph: &GraphState,
         context: &mut GraphRunContext,
@@ -453,7 +459,7 @@ impl GraphService for UiGraphService {
             .map(|run| Box::new(run) as Box<dyn GraphRun>)
     }
 
-    fn start_live_analysis(
+    pub(crate) fn start_live_analysis(
         &self,
         graph: &GraphState,
         context: &mut GraphRunContext,
@@ -465,7 +471,7 @@ impl GraphService for UiGraphService {
             .map(|run| Box::new(run) as Box<dyn GraphRun>)
     }
 
-    fn apply_run(
+    pub(crate) fn apply_run(
         &self,
         run: &mut dyn GraphRun,
         graph: &GraphState,
@@ -474,7 +480,7 @@ impl GraphService for UiGraphService {
         run.apply_processing_graph(compiled, None)
     }
 
-    fn apply_configuration_epoch(
+    pub(crate) fn apply_configuration_epoch(
         &self,
         run: &mut dyn GraphRun,
         graph: &GraphState,
@@ -484,7 +490,7 @@ impl GraphService for UiGraphService {
         run.apply_processing_graph(compiled, Some(boundary))
     }
 
-    fn synchronize_run_data(
+    pub(crate) fn synchronize_run_data(
         &self,
         run: &mut dyn GraphRun,
         graph: &GraphState,
@@ -496,18 +502,15 @@ impl GraphService for UiGraphService {
     }
 }
 
-pub(crate) fn standard_graph_service() -> Box<dyn GraphService> {
-    Box::new(UiGraphService::new(
-        GraphLowerer::new(),
-        GraphRuntime::new(),
-    ))
+pub(crate) fn standard_graph_service() -> UiGraphService {
+    UiGraphService::new(GraphLowerer::new(), GraphRuntime::new())
 }
 
 pub(crate) fn graph_service_with_execution(
     source_preparation_executor: Box<dyn SourcePreparationExecutor>,
     runtime_factory: std::sync::Arc<dyn AppManagerFactory>,
     work_executor: std::sync::Arc<dyn WorkExecutor>,
-) -> Box<dyn GraphService> {
+) -> UiGraphService {
     graph_service_with_execution_and_capability_overrides(
         source_preparation_executor,
         runtime_factory,
@@ -521,9 +524,9 @@ pub(crate) fn graph_service_with_execution_and_capability_overrides(
     runtime_factory: std::sync::Arc<dyn AppManagerFactory>,
     work_executor: std::sync::Arc<dyn WorkExecutor>,
     capability_overrides: Vec<GraphNodeCapabilityOverride>,
-) -> Box<dyn GraphService> {
-    Box::new(UiGraphService::new(
+) -> UiGraphService {
+    UiGraphService::new(
         GraphLowerer::with_capability_overrides(capability_overrides),
         GraphRuntime::with_execution(source_preparation_executor, runtime_factory, work_executor),
-    ))
+    )
 }

@@ -18,7 +18,7 @@ It does not allocate stores, prepare a source, create an execution manager, or s
 sequenceDiagram
     actor User
     participant UI as logic_analyzer_ui
-    participant Service as UI GraphService adapter
+    participant Service as UiGraphService
     participant Lowerer as GraphLowerer
     participant Registry as GraphRegistry
     participant Semantics as GraphNodeSemantics
@@ -64,7 +64,7 @@ capture-row and producer-output identities and stores only the resolved values i
 
 ## Starting and running a pipeline
 
-The UI graph-service adapter owns a lowerer and a separate runtime. Pressing Run uses them in
+The UI's concrete `UiGraphService` owns a lowerer and a separate runtime. Pressing Run uses them in
 sequence. A file/synthetic UI Run releases passive preview handles and clears the selected graph's
 derived cache entries so Run means fresh execution. Re-analysis uses a dynamic capture-session
 source and fresh derived stores. Other runtime clients can keep validated cache entries and allow
@@ -74,7 +74,7 @@ execution pruning.
 sequenceDiagram
     actor User
     participant UI as logic_analyzer_ui
-    participant Service as UI GraphService adapter
+    participant Service as UiGraphService
     participant Lowerer as GraphLowerer
     participant Runtime as GraphRuntime
     participant Repo as ArtifactRepository

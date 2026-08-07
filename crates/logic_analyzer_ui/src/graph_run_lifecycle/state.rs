@@ -2,7 +2,7 @@ use logic_analyzer_graph_plan::SamplingOverlayCandidate;
 use logic_analyzer_graph_runtime::DerivedCacheClearTask;
 use node_graph::GraphState;
 
-use crate::graph_service::{GraphRun, GraphService};
+use crate::graph_service::{GraphRun, UiGraphService};
 
 /// One bounded foreground-run polling outcome handed back to the application shell.
 pub(crate) struct GraphRunPoll {
@@ -18,7 +18,7 @@ pub(crate) struct GraphRunPoll {
 /// detached. The preview revision belongs to the idle cached-data path. Persistent run status is
 /// kept here while one-off notifications remain owned by the application shell.
 pub(crate) struct GraphRunLifecycle {
-    graph_service: Box<dyn GraphService>,
+    graph_service: UiGraphService,
     run: Option<Box<dyn GraphRun>>,
     run_message: Option<(String, bool)>,
     running_graph_semantics: Option<Vec<u8>>,
@@ -29,7 +29,7 @@ pub(crate) struct GraphRunLifecycle {
 }
 
 impl GraphRunLifecycle {
-    pub(crate) fn new(graph_service: Box<dyn GraphService>) -> Self {
+    pub(crate) fn new(graph_service: UiGraphService) -> Self {
         Self {
             graph_service,
             run: None,
@@ -42,12 +42,12 @@ impl GraphRunLifecycle {
         }
     }
 
-    pub(crate) fn service(&self) -> &dyn GraphService {
-        self.graph_service.as_ref()
+    pub(crate) fn service(&self) -> &UiGraphService {
+        &self.graph_service
     }
 
-    pub(crate) fn service_mut(&mut self) -> &mut dyn GraphService {
-        self.graph_service.as_mut()
+    pub(crate) fn service_mut(&mut self) -> &mut UiGraphService {
+        &mut self.graph_service
     }
 
     pub(crate) fn run(&self) -> Option<&dyn GraphRun> {

@@ -2,7 +2,7 @@
 
 Design of application-facing orchestration in `logic-analyzer-ui`
 ([crates/logic_analyzer_ui](../../crates/logic_analyzer_ui)). It composes the editor, viewer,
-graph-service port, and host services into one portable application. The native and web binaries
+concrete graph service, and host services into one portable application. The native and web binaries
 are documented separately in [Application Shells Design](../crates/application_shells.md).
 Companion designs cover [graph composition](graph_composition.md),
 [processing graph workflows](processing_workflows.md),
@@ -12,8 +12,8 @@ the `signal_runtime` Rustdoc, and
 
 Layering rule: `node_graph` stays UI-generic, the `platform_*` foundations and `signal_*` contract
 owners stay generic and UI-free, and the capture-format, device, protocol-decoder, transform, sink,
-and generator crates own UI-independent runtime behavior. The UI consumes graph-service and
-host-service contracts; it does not define concrete nodes or compiler behavior.
+and generator crates own UI-independent runtime behavior. The UI owns its concrete graph service
+and consumes host-service contracts; it does not define concrete nodes or compiler behavior.
 
 ## Application state ownership
 
@@ -68,7 +68,7 @@ payload IDs and storage contracts; it does not infer protocols or concrete nodes
 
 - `App::build` creates the editor node-type registry from the editor inventory after matching it
   to headless graph features by stable ID, composes the
-  UI-owned graph and host service ports, and installs host-supplied symbol fonts used by menu
+  UI-owned concrete graph service and host-service ports, and installs host-supplied symbol fonts used by menu
   glyphs. The graph service's lowerer owns a validated
   `logic_analyzer_graph_registry::GraphRegistry` snapshot; its separate runtime has no registry or
   compiler dependency.
@@ -136,5 +136,5 @@ to those cached lanes. The same metadata-only path applies while processing is a
 has completed; a View panel change never restarts or reruns the processing graph.
 
 The lowerer/runtime handoff, worker path, cache behavior, and live-apply classifications are tested
-at their owning crate boundaries and by the top-level integration package. UI tests replace the
-private graph-service port with deterministic implementations.
+at their owning crate boundaries and by the top-level integration package. UI tests exercise the
+concrete graph service with in-memory repositories and controlled executors.

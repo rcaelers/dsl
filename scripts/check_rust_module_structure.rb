@@ -336,9 +336,14 @@ files.each do |path|
     graph_service_adapter = rel == "crates/logic_analyzer_ui/src/graph_service/graph_compiler.rs"
     capture_export_service_adapter =
       rel.start_with?("crates/logic_analyzer_ui/src/capture_export_service/")
+    unless File.basename(path).include?("tests")
+      implementation.to_enum(:scan, /\b(?:trait\s+GraphService|dyn\s+GraphService)\b/).each do
+        errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: UI graph execution uses the concrete UiGraphService; do not reintroduce a production GraphService trait"
+      end
+    end
     unless File.basename(path).include?("tests") || graph_service_adapter
       implementation.to_enum(:scan, /\b(?:GraphCompiler|GraphLowerer|GraphRuntime|LiveRun)\b/).each do
-        errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: UI orchestration depends on the UI-owned GraphService and GraphRun; concrete lowering and runtime knowledge belongs in its adapter"
+        errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: UI orchestration depends on the UI-owned UiGraphService and GraphRun; concrete lowering and runtime knowledge belongs in the graph-service owner"
       end
     end
     implementation.to_enum(:scan, /\bBuilderRegistry\b/).each do
@@ -365,7 +370,7 @@ files.each do |path|
         :scan,
         /\b(?:decoded_block_cache_stats|platform_memory_snapshot)\b|\bhost_service\s*\.\s*(?:decoded_block_cache|inspect_cache_entry)\b/
       ).each do
-        errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: cache diagnostics use the instance-owned decoded cache and GraphService rather than host or platform routes"
+        errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: cache diagnostics use the instance-owned decoded cache and UiGraphService rather than host or platform routes"
       end
       unless capture_export_service_adapter
         implementation.to_enum(:scan, /\blogic_analyzer_capture_export\b/).each do

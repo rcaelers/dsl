@@ -1163,7 +1163,7 @@ impl App {
         );
         let capture_availability = capture_availability(
             widget.graph(),
-            graph_service.as_ref(),
+            &graph_service,
             capture.backend_unavailable_reason(),
         );
         let presentation_graph_nodes = widget.graph().nodes.keys().copied().collect();

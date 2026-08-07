@@ -17,17 +17,17 @@ use signal_runtime::AppManagerFactory;
 use crate::application_settings::{ApplicationSettings, default_input_bindings};
 use crate::capture_export_service::{CaptureExportService, unavailable_capture_export_service};
 use crate::graph_service::{
-    GraphService, graph_service_with_execution,
+    UiGraphService, graph_service_with_execution,
     graph_service_with_execution_and_capability_overrides, standard_graph_service,
 };
 use crate::host_service::{HostService, OpenDialog, SaveDialog};
 
 /// The UI services selected by the application composition root.
 ///
-/// The UI owns these ports. Hosts provide their implementations without
-/// exposing native or browser details to application behavior.
+/// The UI owns graph composition and its host-facing ports. Hosts provide port
+/// implementations without exposing native or browser details to application behavior.
 pub struct AppServices {
-    graph_service: Box<dyn GraphService>,
+    graph_service: UiGraphService,
     host_service: Box<dyn HostService>,
     input_bindings: InputBindings,
     application_settings: ApplicationSettings,
@@ -42,7 +42,7 @@ pub struct AppServices {
 }
 
 pub(crate) struct AppServiceParts {
-    pub(crate) graph_service: Box<dyn GraphService>,
+    pub(crate) graph_service: UiGraphService,
     pub(crate) host_service: Box<dyn HostService>,
     pub(crate) input_bindings: InputBindings,
     pub(crate) application_settings: ApplicationSettings,

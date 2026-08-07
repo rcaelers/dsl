@@ -28,7 +28,7 @@ use node_graph::{GraphState, NodeGraphWidget, NodeId};
 
 use crate::app::supply_saved_timeline_cursors;
 use crate::app_services::{AppServiceParts, AppServices};
-use crate::graph_service::{GraphRun, GraphService};
+use crate::graph_service::{GraphRun, UiGraphService};
 use crate::viewer_selection::{output_subscription_plan, synchronize_viewer_compatibility};
 
 const EXECUTION_POLL_INTERVAL: Duration = Duration::from_millis(2);
@@ -120,7 +120,7 @@ impl std::error::Error for HeadlessRunError {}
 /// Executes saved graph documents with the same application and native-host
 /// contracts used by the interactive Run command.
 pub struct HeadlessGraphRunner {
-    graph_service: Box<dyn GraphService>,
+    graph_service: UiGraphService,
     host_service: Box<dyn crate::HostService>,
     work_executor: std::sync::Arc<dyn platform_runtime::WorkExecutor>,
     node_editor_overrides: Vec<GraphNodeEditorOverride>,

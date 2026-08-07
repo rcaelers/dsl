@@ -414,7 +414,7 @@ process-node executor.
 
 ### Application coordination
 
-The UI's private graph-service adapter owns a lowerer and a graph runtime. It lowers the current
+The UI's private concrete `UiGraphService` owns a lowerer and a graph runtime. It lowers the current
 document before Run or apply and passes the resulting `ProcessingGraph` to the runtime. The
 platform adapter provides generic worker transport, application composition adapts and injects its
 client into the UI graph service, and the web app constructs the worker-side runtime. The neutral

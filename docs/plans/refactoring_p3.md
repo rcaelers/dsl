@@ -10,38 +10,6 @@ P3 items are planned work, often alongside related changes. The module-ownership
 [`responsibility_visibility.md`](../aspects/responsibility_visibility.md#module-ownership) guide
 the remaining UI decompositions.
 
-## ui.graph-service.port-shape (P3 · medium) {#ui-graph-service-port-shape}
-
-**Current state.** `GraphService` is a `pub(crate)` trait
-(`crates/logic_analyzer_ui/src/graph_service/contract.rs:94`) with two implementations:
-`UiGraphService` (`graph_service/graph_compiler.rs:287`) and `FakeGraphService` in
-`graph_service/graph_service_tests.rs`. The contract is typed in compiler, runtime, plan,
-orchestration, and capability types, so the trait hides nothing — the UI manifest carries all six
-graph-crate dependencies regardless.
-
-**Recorded recommendation: remove the trait.** The UI owns graph execution; document that.
-
-**Steps.**
-
-1. Check what `FakeGraphService` actually fakes in the UI component tests. The testing strategy
-   already says UI tests use local implementations — the question is at what level. The cleaner
-   seam is *below* the service: construct the real `UiGraphService` over the in-memory
-   `ArtifactRepository` (`platform_artifacts` provides one) and controlled executors, which the
-   graph-runtime tests already do. If a handful of tests genuinely need to stub whole-service
-   behavior, keep a minimal `#[cfg(test)]` trait for those tests only — not a production
-   abstraction.
-2. Change `App.graph_service: Box<dyn GraphService>` (`app.rs:547`) to the concrete
-   `UiGraphService`; inline or delete `contract.rs`; keep `CaptureFeatureDiscovery` (the
-   supertrait) only if something else implements it.
-3. While touching the contract: do not widen it. The four `Result<_, String>` methods on it are
-   [errors.typed-boundaries](#errors-typed-boundaries) work; leave them unless that item is being
-   done in the same series.
-4. Update `docs/architecture/crate_responsibility.md` ("Application coordination" section) to say
-   the UI owns a concrete graph service rather than a port.
-
-**Acceptance.** No `dyn GraphService` in production code; UI tests pass against the real service
-with injected repositories/executors.
-
 ## errors.typed-boundaries (P3 · medium) {#errors-typed-boundaries}
 
 The remaining string-error surfaces are concentrated in platform, UI, graph nodes, processing,

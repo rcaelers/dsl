@@ -319,14 +319,6 @@ item here, so acceptance comparisons stop being ad-hoc.
   `logic_analyzer_graph_runtime::runtime::*`. Treat the lists as API contracts and remove duplicate
   public paths while doing [node-graph.single-import-path].
   Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#derived-payload-builtin-registration).
-- [ui.graph-service.port-shape] (P3 · medium) Resolve the `GraphService` port. Its contract is typed in
-  `ProcessingGraph`, `GraphRunContext`, `ApplySummary`, `SourceReadinessRegistry`, and
-  `ProcessingGraphError`, so the UI manifest still depends on the compiler, runtime, plan,
-  orchestration, registry, and capability crates. Either narrow the port to UI-shaped types and
-  drop those dependencies, or remove the indirection and document that the UI owns graph
-  execution. The present shape costs a trait and its adapters without reducing coupling.
-  Review recommendation: remove the trait and document that the UI owns graph execution.
-  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#ui-graph-service-port-shape).
 - [node-graph.category-ordering] (P4 · low) Replace the `category.label == "External Sigrok"` sort key in
   `node_graph`'s add-menu construction with an ordering value supplied by the category metadata.
   It is the one place a generic widget branches on a protocol name.

@@ -69,10 +69,11 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
 - `logic_analyzer_test_support` owns deterministic capture providers and data-plane conformance
   fixtures shared by cross-crate tests. It depends on generic runtime contracts rather than
   concrete processing, graph, or UI crates.
-- `logic_analyzer_ui` owns the application-facing graph service port. Application orchestration
-  depends on its private `GraphService` and `GraphRun` traits; the crate's production
-  adapter composes `GraphLowerer`, `GraphRuntime`, and `LiveRun`, while UI tests provide deterministic local
-  implementations. Its public `HostService` port owns file and directory dialogs, graph-document
+- `logic_analyzer_ui` owns the concrete application graph service. Application orchestration
+  calls its private `UiGraphService`, which composes `GraphLowerer` and `GraphRuntime` directly;
+  the private `GraphRun` trait remains the execution-lifecycle boundary between local `LiveRun`
+  and worker-backed runs. UI tests exercise the concrete service with injected repositories and
+  executors. Its public `HostService` port owns file and directory dialogs, graph-document
   persistence, derived-cache commands and diagnostics, and native-shell state exchange. Native and
   web application roots implement that application-facing port by adapting low-level host
   mechanisms. These application and domain contracts do not belong to `platform`; it remains
