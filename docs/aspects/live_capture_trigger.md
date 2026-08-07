@@ -35,6 +35,14 @@ flowchart LR
     UI --> Viewer
 ```
 
+Inside `logic_analyzer_ui::live_capture`, `CaptureCoordinator` is the stable composition facade for
+three private owners. `CaptureAcquisition` admits one active worker and serializes capture commands
+and configuration-epoch acknowledgements. `CapturePublication` owns completed-session pins,
+waveform publication and retirement, application metadata, replay construction, retention cleanup,
+and export state. `CaptureStatusProjection` maps acquisition events and terminal outcomes to the
+status consumed by application controls and records ordered state history. The coordinator itself
+contains only transitions that couple these owners.
+
 ## Source discovery and capabilities
 
 A concrete graph node registers a `LiveCaptureFeatureProvider`. Discovery first lowers the graph,

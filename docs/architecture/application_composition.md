@@ -24,7 +24,7 @@ cross-panel invariant is held by four private module owners:
 | Owner | Invariants and responsibility |
 | --- | --- |
 | `GraphRunLifecycle` | Graph-service access, the foreground run and semantic baseline, idle preview revision, live-sync clock, sampling candidates, persistent run status, and cache-clear task |
-| `CaptureAnalysisLifecycle` | Capture coordinator and availability, trigger discovery, acquisition graph snapshot, post-capture analysis, serialized configuration-epoch synchronization, and capture-storage projection |
+| `CaptureAnalysisLifecycle` | Capture availability and trigger discovery, the composed acquisition/publication/status coordinator, acquisition graph snapshot, post-capture analysis, serialized configuration-epoch synchronization, and capture-storage projection |
 | `PresentationCatalogs` | Derived lanes, output/table catalogs, decoder and plug-in panel bindings, graph-node membership, saved viewer row order, and sampling-overlay selections |
 | `TimelineMarkerBindings` | Mapping viewer marker identities to graph-node marker identities and independently suppressing repeated marker/reference discovery failures |
 

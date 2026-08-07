@@ -306,10 +306,6 @@ item here, so acceptance comparisons stop being ad-hoc.
 
 ### Application state decomposition
 
-- [ui.capture.coordinator-decomposition] (P3 · high) Split `live_capture/coordinator.rs` along the same lines.
-  Its 2,867 lines mix acquisition commands, event polling, storage publication, and status
-  presentation; the acquisition state machine and the presentation projection are separate owners.
-  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#ui-capture-coordinator-decomposition).
 - [ui.boundaries.module-ownership] (P3 · medium) Apply the module-ownership rules in
   `docs/aspects/responsibility_visibility.md` to the remaining substantial modules. The rules and
   the extracted application-state owners now state the intra-crate boundary, but several existing

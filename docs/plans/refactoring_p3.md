@@ -42,32 +42,6 @@ graph-crate dependencies regardless.
 **Acceptance.** No `dyn GraphService` in production code; UI tests pass against the real service
 with injected repositories/executors.
 
-## ui.capture.coordinator-decomposition (P3 · high) {#ui-capture-coordinator-decomposition}
-
-**Current state.** `crates/logic_analyzer_ui/src/live_capture/coordinator.rs` is 2,867 lines.
-Its internal types already name the seams: `CaptureCommand`, `PersistedConfigurationEpoch`,
-`WorkerPreparedConfigurationEpoch`, `CaptureWorkerSession`/`CaptureWorkerPorts`,
-`ActiveCapture`, `CompletedCapture`, `PinnedCaptureIndex`, `RecordingEventPublisher`,
-`write_application_metadata`, with `CaptureCoordinator` at line 293, its main `impl` at 312, and
-the `CaptureCoordinatorContract` impl at 838.
-
-**Split along the lines the types already draw**, as sibling leaf modules inside `live_capture`:
-
-- *Acquisition state machine*: commands, configuration epochs, the worker session, active/
-  completed capture transitions. Owns the invariant that only one capture is active and that
-  epoch acknowledgements are ordered.
-- *Storage publication*: `PinnedCaptureIndex`, `write_application_metadata`, session-repository
-  interaction — everything that turns a completed capture into published artifacts.
-- *Status projection*: the snapshot/status types the UI reads. Projection reads the state
-  machine; the state machine never formats for display.
-- `CaptureCoordinator` remains as the thin composition of the three, keeping
-  `CaptureCoordinatorContract` stable so `App` (and later the extracted capture-analysis owner)
-  does not change in the same PR.
-
-Also: `TestWorkExecutor` and `test_work_executor()` sit at the top of the production file
-(lines 46–68) — move them into a `…tests` module or the test-support crate first; that is a
-trivial standalone PR.
-
 ## ui.boundaries.module-ownership (P3 · medium) {#ui-boundaries-module-ownership}
 
 **Current state.** `docs/aspects/responsibility_visibility.md` defines the four-part ownership
