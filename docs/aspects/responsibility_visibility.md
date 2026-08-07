@@ -259,6 +259,13 @@ and per-package catalog diagnostics. Decoder runtime failures distinguish packag
 portable configuration validation, and host execution transport without exposing PyO3 or another
 adapter dependency.
 
+`logic_analyzer_graph_runtime` classifies finite-source discovery, metadata inspection, index
+construction, cancellation, executor, and worker-protocol failures in `SourcePreparationError`.
+The orchestration worker protocol retains a typed terminal category, and the UI maps it into its
+own graph-run failure contract before rendering a run message. `logic_analyzer_capture_export`
+retains cancellation separately from unavailable, lifecycle, capture-access, executor, and export
+failures across its application-service facade.
+
 ## Platform surfaces
 
 Native and wasm reusable crates share the platform-neutral data model and compile the same source

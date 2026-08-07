@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use logic_analyzer_graph_capabilities::node::GraphNodeCapabilityOverride;
 use logic_analyzer_graph_compiler::GraphLowerer;
@@ -21,6 +22,32 @@ const GRAPH_PUMP_BUDGET: usize = 256;
 const GRAPH_PUMP_DURATION: Duration = Duration::from_millis(4);
 const MAX_REPLICATION_EVENTS: usize = 8;
 const MAX_REPLICATION_PAYLOAD_BYTES: usize = 4 * 1024 * 1024;
+
+/// Classified terminal failure from one worker-hosted graph execution.
+#[derive(Clone, Debug, Error, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GraphWorkerFailure {
+    /// Another graph execution still owns the worker runtime.
+    #[error("the graph worker already has an active run")]
+    Busy,
+    /// Graph lowering rejected the requested document.
+    #[error("graph compilation failed: {0}")]
+    Compilation(String),
+    /// Runtime construction or execution failed.
+    #[error("graph execution failed: {0}")]
+    Execution(String),
+    /// One or more processing nodes terminated with an error.
+    #[error("graph node execution failed: {0}")]
+    Node(String),
+    /// Derived-data artifact replication failed.
+    #[error("graph artifact replication failed: {0}")]
+    Artifact(String),
+    /// Derived-cache preparation failed before the run started.
+    #[error("graph cache preparation failed: {0}")]
+    Cache(String),
+    /// The host worker transport stopped or rejected the request.
+    #[error("graph worker transport failed: {0}")]
+    Transport(String),
+}
 
 /// Owned command envelope for one worker-hosted processing graph.
 #[derive(Clone)]
@@ -75,8 +102,8 @@ pub enum GraphWorkerMessage {
     Failed {
         /// Generation that failed.
         sequence: u64,
-        /// User-presentable failure description.
-        message: String,
+        /// Classified terminal cause.
+        error: GraphWorkerFailure,
     },
     /// The generation stopped after a matching cancellation request.
     Cancelled {
@@ -175,10 +202,7 @@ impl GraphWorkerRuntime {
         };
         if let Err(error) = self.emit_artifacts(sequence, emit) {
             self.active = None;
-            emit(GraphWorkerMessage::Failed {
-                sequence,
-                message: error,
-            });
+            emit(GraphWorkerMessage::Failed { sequence, error });
             return false;
         }
         if !finished {
@@ -196,11 +220,13 @@ impl GraphWorkerRuntime {
             self.active = None;
             emit(GraphWorkerMessage::Failed {
                 sequence,
-                message: failures
-                    .into_iter()
-                    .map(|(_, failure)| format!("{}: {}", failure.node, failure.error))
-                    .collect::<Vec<_>>()
-                    .join("\n"),
+                error: GraphWorkerFailure::Node(
+                    failures
+                        .into_iter()
+                        .map(|(_, failure)| format!("{}: {}", failure.node, failure.error))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                ),
             });
             return false;
         }
@@ -225,19 +251,22 @@ impl GraphWorkerRuntime {
         if self.active.is_some() {
             emit(GraphWorkerMessage::Failed {
                 sequence,
-                message: "the graph worker already has an active run".to_owned(),
+                error: GraphWorkerFailure::Busy,
             });
             return;
         }
         if let Err(error) = self.repository.discard_pending() {
             emit(GraphWorkerMessage::Failed {
                 sequence,
-                message: error.to_string(),
+                error: GraphWorkerFailure::Artifact(error.to_string()),
             });
             return;
         }
         if let Err(message) = self.runtime.clear_derived_caches() {
-            emit(GraphWorkerMessage::Failed { sequence, message });
+            emit(GraphWorkerMessage::Failed {
+                sequence,
+                error: GraphWorkerFailure::Cache(message),
+            });
             return;
         }
         self.lowerer.set_output_subscriptions(subscriptions);
@@ -255,11 +284,13 @@ impl GraphWorkerRuntime {
             Err(errors) => {
                 emit(GraphWorkerMessage::Failed {
                     sequence,
-                    message: errors
-                        .into_iter()
-                        .map(|error| error.message)
-                        .collect::<Vec<_>>()
-                        .join("\n"),
+                    error: GraphWorkerFailure::Compilation(
+                        errors
+                            .into_iter()
+                            .map(|error| error.message)
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    ),
                 });
                 return;
             }
@@ -278,11 +309,13 @@ impl GraphWorkerRuntime {
             }
             Err(errors) => emit(GraphWorkerMessage::Failed {
                 sequence,
-                message: errors
-                    .into_iter()
-                    .map(|error| error.message)
-                    .collect::<Vec<_>>()
-                    .join("\n"),
+                error: GraphWorkerFailure::Execution(
+                    errors
+                        .into_iter()
+                        .map(|error| error.message)
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                ),
             }),
         }
     }
@@ -303,11 +336,11 @@ impl GraphWorkerRuntime {
         &self,
         sequence: u64,
         emit: &mut dyn FnMut(GraphWorkerMessage),
-    ) -> Result<(), String> {
+    ) -> Result<(), GraphWorkerFailure> {
         let events = self
             .repository
             .drain(MAX_REPLICATION_EVENTS, MAX_REPLICATION_PAYLOAD_BYTES)
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| GraphWorkerFailure::Artifact(error.to_string()))?;
         if !events.is_empty() {
             emit(GraphWorkerMessage::Artifacts { sequence, events });
         }
@@ -336,7 +369,7 @@ mod worker_execution_tests {
             messages.as_slice(),
             [GraphWorkerMessage::Failed {
                 sequence: 7,
-                message,
+                error: GraphWorkerFailure::Compilation(message),
             }] if message.contains("no sink")
         ));
         assert!(!runtime.has_active_run());

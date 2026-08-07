@@ -7,10 +7,10 @@ use signal_capture::{
     CaptureWorkerClient, CaptureWorkerIndexQueryExecutor, CaptureWorkerMessage,
 };
 
-use super::PreparedCaptureData;
+use super::source_preparation_contract::{PreparedCaptureData, SourcePreparationError};
 
 /// Result produced when a source-preparation task completes.
-pub type SourcePreparationResult = Result<PreparedCaptureData, String>;
+pub type SourcePreparationResult = Result<PreparedCaptureData, SourcePreparationError>;
 
 /// One source-preparation operation accepted by a host executor.
 pub type SourcePreparationWork =
@@ -119,7 +119,7 @@ pub trait SourcePreparationExecutor: Send + Sync {
         &self,
         work: SourcePreparationWork,
         control: SourcePreparationControl,
-    ) -> Result<Box<dyn SourcePreparationTask>, String>;
+    ) -> Result<Box<dyn SourcePreparationTask>, SourcePreparationError>;
 
     /// Submits an opaque preparation request that must execute in a
     /// host-owned context, such as the worker that owns a browser file.
@@ -127,11 +127,11 @@ pub trait SourcePreparationExecutor: Send + Sync {
         &self,
         request: CaptureIndexPreparationRequest,
         _control: SourcePreparationControl,
-    ) -> Result<Box<dyn SourcePreparationTask>, String> {
-        Err(format!(
-            "capture-index preparation operation '{}' is unavailable",
+    ) -> Result<Box<dyn SourcePreparationTask>, SourcePreparationError> {
+        Err(SourcePreparationError::Executor(format!(
+            "operation '{}' is unavailable",
             request.operation().as_str()
-        ))
+        )))
     }
 }
 
@@ -143,7 +143,7 @@ impl SourcePreparationExecutor for InlineSourcePreparationExecutor {
         &self,
         work: SourcePreparationWork,
         control: SourcePreparationControl,
-    ) -> Result<Box<dyn SourcePreparationTask>, String> {
+    ) -> Result<Box<dyn SourcePreparationTask>, SourcePreparationError> {
         Ok(Box::new(InlineSourcePreparationTask {
             result: Some(work(control)),
         }))
@@ -178,7 +178,7 @@ impl SourcePreparationExecutor for ThreadedSourcePreparationExecutor {
         &self,
         work: SourcePreparationWork,
         control: SourcePreparationControl,
-    ) -> Result<Box<dyn SourcePreparationTask>, String> {
+    ) -> Result<Box<dyn SourcePreparationTask>, SourcePreparationError> {
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         self.sender
             .try_send(QueuedSourcePreparation {
@@ -187,8 +187,12 @@ impl SourcePreparationExecutor for ThreadedSourcePreparationExecutor {
                 result: sender,
             })
             .map_err(|error| match error {
-                TrySendError::Full(_) => "source-preparation worker queue is full".to_owned(),
-                TrySendError::Disconnected(_) => "source-preparation worker stopped".to_owned(),
+                TrySendError::Full(_) => {
+                    SourcePreparationError::Executor("worker queue is full".into())
+                }
+                TrySendError::Disconnected(_) => {
+                    SourcePreparationError::Executor("worker stopped".into())
+                }
             })?;
         Ok(Box::new(ThreadedSourcePreparationTask { receiver }))
     }
@@ -203,10 +207,10 @@ struct QueuedSourcePreparation {
 fn run_source_preparation_worker(receiver: Receiver<QueuedSourcePreparation>) {
     while let Ok(task) = receiver.recv() {
         let result = if task.control.is_cancelled() {
-            Err("source preparation cancelled".into())
+            Err(SourcePreparationError::Cancelled)
         } else {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (task.work)(task.control)))
-                .unwrap_or_else(|_| Err("source-preparation worker panicked".into()))
+                .unwrap_or_else(|_| Err(SourcePreparationError::Executor("worker panicked".into())))
         };
         let _ = task.result.send(result);
     }
@@ -254,7 +258,7 @@ impl SourcePreparationExecutor for CaptureWorkerSourcePreparationExecutor {
         &self,
         work: SourcePreparationWork,
         control: SourcePreparationControl,
-    ) -> Result<Box<dyn SourcePreparationTask>, String> {
+    ) -> Result<Box<dyn SourcePreparationTask>, SourcePreparationError> {
         self.local.submit(work, control)
     }
 
@@ -262,8 +266,11 @@ impl SourcePreparationExecutor for CaptureWorkerSourcePreparationExecutor {
         &self,
         request: CaptureIndexPreparationRequest,
         control: SourcePreparationControl,
-    ) -> Result<Box<dyn SourcePreparationTask>, String> {
-        let sequence = self.client.submit_preparation(request)?;
+    ) -> Result<Box<dyn SourcePreparationTask>, SourcePreparationError> {
+        let sequence = self
+            .client
+            .submit_preparation(request)
+            .map_err(SourcePreparationError::Executor)?;
         Ok(Box::new(CaptureWorkerSourcePreparationTask {
             client: Arc::clone(&self.client),
             control,
@@ -304,7 +311,7 @@ impl SourcePreparationTask for CaptureWorkerSourcePreparationTask {
                     if !self.control.report_metadata(metadata.clone()) {
                         self.client.release(session_id);
                         return SourcePreparationTaskUpdate::Complete(Err(
-                            "source preparation cancelled".to_owned(),
+                            SourcePreparationError::Cancelled,
                         ));
                     }
                     let query_executor = Arc::new(CaptureWorkerIndexQueryExecutor::new(
@@ -323,18 +330,22 @@ impl SourcePreparationTask for CaptureWorkerSourcePreparationTask {
                 }
                 CaptureWorkerMessage::Failed { message, .. } => {
                     self.terminal = true;
-                    return SourcePreparationTaskUpdate::Complete(Err(message));
+                    return SourcePreparationTaskUpdate::Complete(Err(
+                        SourcePreparationError::Index(message),
+                    ));
                 }
                 CaptureWorkerMessage::Cancelled { .. } => {
                     self.terminal = true;
                     return SourcePreparationTaskUpdate::Complete(Err(
-                        "source preparation cancelled".to_owned(),
+                        SourcePreparationError::Cancelled,
                     ));
                 }
                 CaptureWorkerMessage::Window { .. } | CaptureWorkerMessage::Replay { .. } => {
                     self.terminal = true;
                     return SourcePreparationTaskUpdate::Complete(Err(
-                        "capture worker returned data for a preparation request".to_owned(),
+                        SourcePreparationError::WorkerProtocol(
+                            "worker returned query or replay data for a preparation request".into(),
+                        ),
                     ));
                 }
             }

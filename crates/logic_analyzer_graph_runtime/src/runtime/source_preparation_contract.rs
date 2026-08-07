@@ -1,5 +1,30 @@
+use thiserror::Error;
+
 use logic_analyzer_graph_capabilities::node_support::CapturePresentationSignal;
 use signal_capture::{CaptureIndex, CaptureIndexBuildProgress, CaptureMetadata};
+
+/// Failure produced while discovering or preparing one finite capture source.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+pub enum SourcePreparationError {
+    /// The graph's finite-source presentation contract could not be discovered.
+    #[error("capture-source discovery failed: {0}")]
+    Discovery(String),
+    /// Source metadata could not be inspected before preparation.
+    #[error("capture metadata inspection failed: {0}")]
+    Metadata(String),
+    /// The source's waveform index could not be opened or built.
+    #[error("capture index preparation failed: {0}")]
+    Index(String),
+    /// The current preparation generation was cancelled.
+    #[error("source preparation was cancelled")]
+    Cancelled,
+    /// The injected preparation executor rejected or lost the operation.
+    #[error("capture preparation executor failed: {0}")]
+    Executor(String),
+    /// The host worker returned a response that does not belong to preparation.
+    #[error("capture preparation worker protocol failed: {0}")]
+    WorkerProtocol(String),
+}
 
 /// Prepared capture data ready for the host viewer and graph runtime.
 pub struct PreparedCapture {
@@ -54,8 +79,8 @@ pub enum SourcePreparationUpdate {
     Preparing(PreparingCapture),
     /// Preparation completed successfully.
     Ready(PreparedCapture),
-    /// Preparation failed with a user-presentable error.
-    Failed(String),
+    /// Preparation failed with a classified owner-defined cause.
+    Failed(SourcePreparationError),
 }
 
 /// Current phase of finite-source preparation.
@@ -68,7 +93,7 @@ pub enum SourcePreparationStatus {
     /// Prepared capture data is available.
     Ready,
     /// The latest preparation attempt failed.
-    Failed(String),
+    Failed(SourcePreparationError),
 }
 
 /// Observable state of the current finite-source preparation generation.

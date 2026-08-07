@@ -29,7 +29,7 @@ use super::storage_publication::CapturePublication;
 use super::storage_publication::{PersistedConfigurationEpochOutcome, read_application_metadata};
 use crate::capture_export_service::{
     CaptureExportCompletion, CaptureExportFormat as CaptureRawExportFormat, CaptureExportService,
-    CaptureExportStatus,
+    CaptureExportServiceError, CaptureExportStatus,
 };
 #[cfg(test)]
 use crate::capture_export_service::{
@@ -106,7 +106,9 @@ impl CaptureCoordinator {
         self.publication.export_status()
     }
 
-    pub(crate) fn take_export_notice(&mut self) -> Option<Result<CaptureExportCompletion, String>> {
+    pub(crate) fn take_export_notice(
+        &mut self,
+    ) -> Option<Result<CaptureExportCompletion, CaptureExportServiceError>> {
         self.publication.take_export_notice()
     }
 

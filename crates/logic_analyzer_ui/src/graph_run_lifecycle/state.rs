@@ -2,11 +2,11 @@ use logic_analyzer_graph_plan::SamplingOverlayCandidate;
 use logic_analyzer_graph_runtime::DerivedCacheClearTask;
 use node_graph::GraphState;
 
-use crate::graph_service::{GraphRun, UiGraphService};
+use crate::graph_service::{GraphRun, GraphRunFailure, UiGraphService};
 
 /// One bounded foreground-run polling outcome handed back to the application shell.
 pub(crate) struct GraphRunPoll {
-    pub(crate) failure: Option<String>,
+    pub(crate) failure: Option<GraphRunFailure>,
     pub(crate) synchronized: Result<bool, Vec<logic_analyzer_graph_plan::ProcessingGraphError>>,
     pub(crate) sampling_overlay_candidates: Option<Vec<SamplingOverlayCandidate>>,
     pub(crate) finished: bool,

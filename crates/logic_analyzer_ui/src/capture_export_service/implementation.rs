@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
 use logic_analyzer_capture_export::{
-    CaptureExportCompletion, CaptureExportFormat, CaptureExportService, CaptureExportStatus,
+    CaptureExportCompletion, CaptureExportFormat, CaptureExportService, CaptureExportServiceError,
+    CaptureExportStatus,
 };
 use signal_capture_session::CaptureSessionId;
 
@@ -13,15 +14,17 @@ impl CaptureExportService for UnavailableCaptureExportService {
         _session_id: CaptureSessionId,
         _format: CaptureExportFormat,
         _destination: PathBuf,
-    ) -> Result<(), String> {
-        Err("capture export is unavailable on this host".into())
+    ) -> Result<(), CaptureExportServiceError> {
+        Err(CaptureExportServiceError::Unavailable)
     }
 
     fn status(&self) -> Option<&CaptureExportStatus> {
         None
     }
 
-    fn take_completion(&mut self) -> Option<Result<CaptureExportCompletion, String>> {
+    fn take_completion(
+        &mut self,
+    ) -> Option<Result<CaptureExportCompletion, CaptureExportServiceError>> {
         None
     }
 

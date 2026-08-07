@@ -290,9 +290,7 @@ item here, so acceptance comparisons stop being ad-hoc.
   processing crates hold many of them. Work outward from the lowest owner so downstream crates
   inherit typed failures instead of re-wrapping strings.
   Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#errors-typed-boundaries).
-  1. [ ] Type source preparation and run diagnostics so `SourcePreparationUpdate::Failed` and the
-     UI's run-message path stop matching on message text.
-  2. [ ] Keep display strings at the presentation boundary only; generic crates map a concrete
+  1. [ ] Keep display strings at the presentation boundary only; generic crates map a concrete
      format or transport failure into their own variant rather than formatting it early.
 
 ### Application state decomposition

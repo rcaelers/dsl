@@ -244,7 +244,7 @@ impl HeadlessGraphRunner {
         let nodes = node_progress(&graph, run.as_ref());
         run.wait();
         if let Some(failure) = run.take_failure() {
-            return Err(HeadlessRunError::new(failure));
+            return Err(HeadlessRunError::new(failure.to_string()));
         }
         let node_failures = run.take_node_failures();
         if !node_failures.is_empty() {

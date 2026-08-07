@@ -7,7 +7,7 @@ use logic_analyzer_graph_runtime::GraphRunContext;
 use node_graph_document::GraphState;
 use platform_artifacts::{ArtifactReplicationReceiver, ArtifactRepository};
 
-use crate::{GraphWorkerMessage, GraphWorkerRequest};
+use crate::worker_execution::{GraphWorkerFailure, GraphWorkerMessage, GraphWorkerRequest};
 
 /// Thread-safe queue shared by a host worker adapter and graph-run proxies.
 pub struct GraphWorkerClient {
@@ -178,7 +178,7 @@ impl GraphWorkerClient {
                 .or_default()
                 .push_back(GraphWorkerMessage::Failed {
                     sequence,
-                    message: message.clone(),
+                    error: GraphWorkerFailure::Transport(message.clone()),
                 });
         }
     }

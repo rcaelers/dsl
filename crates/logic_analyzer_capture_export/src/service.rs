@@ -12,9 +12,12 @@ use signal_capture_session::{
     CaptureSessionId, CaptureSessionRepository, CaptureSessionRepositoryConfig,
 };
 
-use crate::{
-    CaptureExportCompletion, CaptureExportFormat, CaptureExportObserver, CaptureExportProgress,
-    CaptureExportReport, CaptureExportService, CaptureExportStatus, export_finalized_capture,
+use crate::capture_export::{
+    CaptureExportFormat, CaptureExportObserver, CaptureExportProgress, CaptureExportReport,
+    export_finalized_capture,
+};
+use crate::service_contract::{
+    CaptureExportCompletion, CaptureExportService, CaptureExportServiceError, CaptureExportStatus,
 };
 
 struct ExportObserver {
@@ -35,14 +38,14 @@ impl CaptureExportObserver for ExportObserver {
 struct ActiveExport {
     cancellation: Arc<AtomicBool>,
     progress: Receiver<CaptureExportProgress>,
-    completion: Receiver<Result<CaptureExportReport, String>>,
+    completion: Receiver<Result<CaptureExportReport, CaptureExportServiceError>>,
     worker: Option<JoinHandle<()>>,
 }
 
 struct NativeCaptureExportService {
     repository: CaptureSessionRepository,
     status: Option<CaptureExportStatus>,
-    completion: Option<Result<CaptureExportCompletion, String>>,
+    completion: Option<Result<CaptureExportCompletion, CaptureExportServiceError>>,
     active: Option<ActiveExport>,
 }
 
@@ -62,14 +65,14 @@ impl CaptureExportService for NativeCaptureExportService {
         session_id: CaptureSessionId,
         format: CaptureExportFormat,
         destination: PathBuf,
-    ) -> Result<(), String> {
+    ) -> Result<(), CaptureExportServiceError> {
         if self.active.is_some() {
-            return Err("a capture export is already active".into());
+            return Err(CaptureExportServiceError::AlreadyActive);
         }
         let (capture, session_pin) = self
             .repository
             .open(session_id)
-            .map_err(|error| format!("could not pin capture for export: {error}"))?;
+            .map_err(|error| CaptureExportServiceError::Capture(error.to_string()))?;
         let total_samples = capture.manifest().committed_samples;
         let cancellation = Arc::new(AtomicBool::new(false));
         let (progress_sender, progress) = crossbeam_channel::bounded(1);
@@ -85,10 +88,11 @@ impl CaptureExportService for NativeCaptureExportService {
                     progress: progress_sender,
                 };
                 let result =
-                    export_finalized_capture(&capture, format, &worker_destination, &mut observer);
+                    export_finalized_capture(&capture, format, &worker_destination, &mut observer)
+                        .map_err(CaptureExportServiceError::from);
                 let _ = completion_sender.send(result);
             })
-            .map_err(|error| format!("could not start capture export: {error}"))?;
+            .map_err(|error| CaptureExportServiceError::Executor(error.to_string()))?;
         self.completion = None;
         self.status = Some(CaptureExportStatus {
             format_label: format.descriptor().label.to_owned(),
@@ -110,7 +114,9 @@ impl CaptureExportService for NativeCaptureExportService {
         self.status.as_ref()
     }
 
-    fn take_completion(&mut self) -> Option<Result<CaptureExportCompletion, String>> {
+    fn take_completion(
+        &mut self,
+    ) -> Option<Result<CaptureExportCompletion, CaptureExportServiceError>> {
         self.completion.take()
     }
 
@@ -144,7 +150,9 @@ impl CaptureExportService for NativeCaptureExportService {
                     Ok(completion) => Some(completion),
                     Err(TryRecvError::Empty) => None,
                     Err(TryRecvError::Disconnected) => {
-                        Some(Err("capture export worker stopped without a result".into()))
+                        Some(Err(CaptureExportServiceError::Executor(
+                            "worker stopped without a result".into(),
+                        )))
                     }
                 });
         let Some(completion) = completion else {

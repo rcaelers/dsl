@@ -20,6 +20,11 @@ owner-specific surfaces rather than replacing them with an umbrella error.
 `logic_analyzer_protocol_decoders` owns the typed Sigrok catalog and decoder-runtime errors;
 host adapters classify catalog discovery, decoder discovery, invalid configuration, and execution
 transport failures before the graph materializer maps them into its generic build diagnostic.
+`logic_analyzer_graph_runtime` owns `SourcePreparationError`, including discovery, metadata, index,
+cancellation, executor, and worker-protocol causes. Graph-worker messages and the UI graph-run
+adapter retain classified terminal failures. `logic_analyzer_capture_export` likewise preserves
+cancellation through its exporter and service contracts, so UI policy matches a variant rather
+than display text.
 
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
@@ -32,11 +37,7 @@ transport failures before the graph materializer maps them into its generic buil
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. `graph_runtime` source preparation: give `SourcePreparationUpdate::Failed` a typed cause and
-   find the UI code that currently distinguishes failures by message text (search `app.rs` and
-   the run-message path for string matching on error content) — each such site becomes a match
-   on a variant.
-2. Platform and UI last: most occurrences will collapse into carrying the
+1. Platform and UI last: most occurrences will collapse into carrying the
    now-typed lower errors; only genuinely UI-owned failures need new variants.
 
 Expect this to span many small PRs; each facade conversion is independently landable.

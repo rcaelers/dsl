@@ -72,6 +72,54 @@ sigrok_decoder_error = sigrok_runtime_source[/pub enum SigrokDecoderRuntimeError
   errors << "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/runtime.rs: SigrokDecoderRuntimeError must classify #{variant.downcase} failures"
 end
 
+source_preparation_contract_path = File.join(
+  ROOT,
+  "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_contract.rs"
+)
+source_preparation_contract = File.read(source_preparation_contract_path)
+if source_preparation_contract.scan(/Failed\(SourcePreparationError\)/).length < 2
+  errors << "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_contract.rs: source-preparation updates and status must retain their typed failure cause"
+end
+source_preparation_executor = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_executor.rs"
+))
+unless source_preparation_executor.match?(
+  /pub type SourcePreparationResult\s*=\s*Result<PreparedCaptureData, SourcePreparationError>/
+)
+  errors << "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_executor.rs: preparation tasks must retain SourcePreparationError"
+end
+
+graph_worker_contract = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_graph_orchestration/src/worker_execution.rs"
+))
+unless graph_worker_contract.match?(/Failed\s*\{.*?error:\s*GraphWorkerFailure,/m)
+  errors << "crates/logic_analyzer_graph_orchestration/src/worker_execution.rs: graph-worker terminal diagnostics must retain GraphWorkerFailure"
+end
+
+capture_export_contract = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_capture_export/src/service_contract.rs"
+))
+unless capture_export_contract.match?(
+  /fn\s+take_completion\b.*?Result<CaptureExportCompletion,\s*CaptureExportServiceError>/m
+)
+  errors << "crates/logic_analyzer_capture_export/src/service_contract.rs: capture-export completion must retain its typed service error"
+end
+
+ui_graph_run_contract = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_ui/src/graph_service/contract.rs"
+))
+unless ui_graph_run_contract.match?(/fn\s+take_failure\b.*?Option<GraphRunFailure>/m)
+  errors << "crates/logic_analyzer_ui/src/graph_service/contract.rs: graph-run terminal diagnostics must retain GraphRunFailure"
+end
+ui_app_source = File.read(File.join(ROOT, "crates/logic_analyzer_ui/src/app.rs"))
+if ui_app_source.match?(/error\s*==\s*"capture export was cancelled"/)
+  errors << "crates/logic_analyzer_ui/src/app.rs: capture-export cancellation must be matched by typed variant, not display text"
+end
+
 def relative(path)
   path.delete_prefix("#{ROOT}/")
 end

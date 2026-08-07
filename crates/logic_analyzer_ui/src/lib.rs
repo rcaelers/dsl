@@ -46,7 +46,7 @@ pub use app_services::AppServices;
 pub use application_settings::{ApplicationSettings, default_input_bindings};
 pub use capture_export_service::{
     CaptureExportCompletion, CaptureExportDescriptor, CaptureExportFormat, CaptureExportService,
-    CaptureExportStatus, unavailable_capture_export_service,
+    CaptureExportServiceError, CaptureExportStatus, unavailable_capture_export_service,
 };
 pub use headless::{
     HeadlessCacheReport, HeadlessGraphRunner, HeadlessNodeProgress, HeadlessRunError,

@@ -1,3 +1,4 @@
+use std::fmt;
 use std::time::Duration;
 
 use logic_analyzer_graph_plan::{
@@ -13,6 +14,36 @@ use signal_runtime::{ConfigurationBoundary, DisconnectEvent, NodeFailure};
 
 pub(crate) type CachedDataLoader<'a> =
     dyn FnMut(&GraphState, &mut GraphRunContext) -> Result<bool, Vec<CompileError>> + 'a;
+
+/// Classified terminal failure from an active graph run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum GraphRunFailure {
+    Busy,
+    Compilation(String),
+    Execution(String),
+    Node(String),
+    Artifact(String),
+    Cache(String),
+    Transport(String),
+}
+
+impl fmt::Display for GraphRunFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Busy => formatter.write_str("the graph worker already has an active run"),
+            Self::Compilation(message) => write!(formatter, "graph compilation failed: {message}"),
+            Self::Execution(message) => write!(formatter, "graph execution failed: {message}"),
+            Self::Node(message) => write!(formatter, "graph node execution failed: {message}"),
+            Self::Artifact(message) => {
+                write!(formatter, "graph artifact replication failed: {message}")
+            }
+            Self::Cache(message) => write!(formatter, "graph cache preparation failed: {message}"),
+            Self::Transport(message) => {
+                write!(formatter, "graph worker transport failed: {message}")
+            }
+        }
+    }
+}
 
 pub(crate) trait GraphRun {
     fn persistent_cache_configs(&self) -> Vec<PersistentStoreConfig>;
@@ -52,7 +83,7 @@ pub(crate) trait GraphRun {
         Vec::new()
     }
 
-    fn take_failure(&mut self) -> Option<String> {
+    fn take_failure(&mut self) -> Option<GraphRunFailure> {
         None
     }
 

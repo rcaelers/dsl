@@ -25,7 +25,7 @@ use super::implementation::{
 };
 use crate::capture_export_service::{
     CaptureExportCompletion, CaptureExportFormat as CaptureRawExportFormat, CaptureExportService,
-    CaptureExportStatus,
+    CaptureExportServiceError, CaptureExportStatus,
 };
 
 const APPLICATION_METADATA_NAMESPACE: &str = "capture-application-v1";
@@ -192,7 +192,9 @@ impl CapturePublication {
         self.export_service.status()
     }
 
-    pub(crate) fn take_export_notice(&mut self) -> Option<Result<CaptureExportCompletion, String>> {
+    pub(crate) fn take_export_notice(
+        &mut self,
+    ) -> Option<Result<CaptureExportCompletion, CaptureExportServiceError>> {
         self.export_service.take_completion()
     }
 
@@ -208,7 +210,9 @@ impl CapturePublication {
         let session_id = self
             .current_session_id()
             .ok_or_else(|| "there is no displayed capture to export".to_owned())?;
-        self.export_service.start(session_id, format, destination)
+        self.export_service
+            .start(session_id, format, destination)
+            .map_err(|error| error.to_string())
     }
 
     pub(crate) fn request_cancel_export(&mut self) {

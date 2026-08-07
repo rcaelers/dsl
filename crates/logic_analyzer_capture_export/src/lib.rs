@@ -11,8 +11,10 @@ mod service;
 mod service_contract;
 
 pub use capture_export::{
-    CaptureExportDescriptor, CaptureExportFormat, CaptureExportObserver, CaptureExportProgress,
-    CaptureExportReport, export_finalized_capture,
+    CaptureExportDescriptor, CaptureExportError, CaptureExportFormat, CaptureExportObserver,
+    CaptureExportProgress, CaptureExportReport, export_finalized_capture,
 };
 pub use service::native_capture_export_service;
-pub use service_contract::{CaptureExportCompletion, CaptureExportService, CaptureExportStatus};
+pub use service_contract::{
+    CaptureExportCompletion, CaptureExportService, CaptureExportServiceError, CaptureExportStatus,
+};

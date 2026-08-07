@@ -2131,7 +2131,7 @@ impl App {
         }
     }
 
-    pub(crate) fn publish_file_source_failure(&self, error: &str) {
+    pub(crate) fn publish_file_source_failure(&self, error: &runtime::SourcePreparationError) {
         let Some(run) = self.graph_run.run() else {
             return;
         };
@@ -2148,7 +2148,7 @@ impl App {
                 &mut readiness.data,
             ] {
                 if *artifact != runtime::SourceArtifactReadiness::Unsupported {
-                    *artifact = runtime::SourceArtifactReadiness::Failed(error.to_owned());
+                    *artifact = runtime::SourceArtifactReadiness::Failed(error.to_string());
                 }
             }
             registry.publish(readiness);
@@ -2381,7 +2381,7 @@ impl App {
                         self.toasts.warning(format!("Export warning: {warning}"));
                     }
                 }
-                Err(error) if error == "capture export was cancelled" => {
+                Err(crate::CaptureExportServiceError::Cancelled) => {
                     self.toasts.info("Capture export cancelled");
                 }
                 Err(error) => self.toasts.error(format!("Capture export failed: {error}")),
@@ -2720,7 +2720,8 @@ impl App {
         else {
             return;
         };
-        if let Some(message) = failure {
+        if let Some(failure) = failure {
+            let message = failure.to_string();
             self.graph_run.set_run_message(message.clone(), true);
             self.toasts.error(message);
         }

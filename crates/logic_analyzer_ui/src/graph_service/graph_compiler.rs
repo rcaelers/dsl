@@ -9,7 +9,9 @@ use logic_analyzer_graph_compiler::{
     DiscoveredTimelineMarkerReferenceBinding, DiscoveredTriggerConfiguration, GraphLowerer,
     LiveCaptureDiscoveryError,
 };
-use logic_analyzer_graph_orchestration::{GraphWorkerClient, GraphWorkerMessage};
+use logic_analyzer_graph_orchestration::{
+    GraphWorkerClient, GraphWorkerFailure, GraphWorkerMessage,
+};
 use logic_analyzer_graph_plan::{
     CollectedOutputSubscription, CollectedTableSubscription, OutputSubscriptionPlan,
     ProcessingGraphError as CompileError, SamplingOverlayCandidate,
@@ -24,7 +26,7 @@ use platform_runtime::WorkExecutor;
 use signal_derived::{DerivedLanes, PersistentStoreConfig};
 use signal_runtime::{AppManagerFactory, ConfigurationBoundary, DisconnectEvent};
 
-use super::contract::{CachedDataLoader, GraphRun};
+use super::contract::{CachedDataLoader, GraphRun, GraphRunFailure};
 use crate::live_capture::{CaptureAvailability, CaptureFeatureDiscovery};
 
 /// UI-owned orchestration of document compilation and processing-graph execution.
@@ -130,7 +132,7 @@ struct WorkerGraphRun {
     finished: bool,
     stopping: bool,
     needs_data_sync: bool,
-    failure: Option<String>,
+    failure: Option<GraphRunFailure>,
 }
 
 impl WorkerGraphRun {
@@ -221,9 +223,9 @@ impl GraphRun for WorkerGraphRun {
                     self.finished = true;
                     self.needs_data_sync = true;
                 }
-                GraphWorkerMessage::Failed { message, .. } => {
+                GraphWorkerMessage::Failed { error, .. } => {
                     self.finished = true;
-                    self.failure = Some(message);
+                    self.failure = Some(graph_run_failure(error));
                 }
                 GraphWorkerMessage::Cancelled { .. } => {
                     self.finished = true;
@@ -240,7 +242,7 @@ impl GraphRun for WorkerGraphRun {
         Vec::new()
     }
 
-    fn take_failure(&mut self) -> Option<String> {
+    fn take_failure(&mut self) -> Option<GraphRunFailure> {
         self.failure.take()
     }
 
@@ -262,6 +264,18 @@ impl GraphRun for WorkerGraphRun {
         }
         self.needs_data_sync = false;
         Ok(loaded)
+    }
+}
+
+fn graph_run_failure(error: GraphWorkerFailure) -> GraphRunFailure {
+    match error {
+        GraphWorkerFailure::Busy => GraphRunFailure::Busy,
+        GraphWorkerFailure::Compilation(message) => GraphRunFailure::Compilation(message),
+        GraphWorkerFailure::Execution(message) => GraphRunFailure::Execution(message),
+        GraphWorkerFailure::Node(message) => GraphRunFailure::Node(message),
+        GraphWorkerFailure::Artifact(message) => GraphRunFailure::Artifact(message),
+        GraphWorkerFailure::Cache(message) => GraphRunFailure::Cache(message),
+        GraphWorkerFailure::Transport(message) => GraphRunFailure::Transport(message),
     }
 }
 

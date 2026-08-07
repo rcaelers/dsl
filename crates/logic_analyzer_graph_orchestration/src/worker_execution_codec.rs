@@ -5,7 +5,7 @@ use logic_analyzer_graph_plan::OutputSubscriptionPlan;
 use node_graph_document::{GraphState, Socket};
 use platform_artifacts::{ArtifactReplicationEvent, SourceIdentity};
 
-use crate::{GraphWorkerMessage, GraphWorkerRequest};
+use crate::worker_execution::{GraphWorkerMessage, GraphWorkerRequest};
 
 const MAGIC: &[u8; 5] = b"LGWM\x01";
 const REQUEST_MAGIC: &[u8; 5] = b"LGRQ\x01";
@@ -410,6 +410,7 @@ mod worker_execution_codec_tests {
     use node_graph_document::NodeId;
 
     use super::*;
+    use crate::worker_execution::GraphWorkerFailure;
 
     #[test]
     fn requests_round_trip_nonempty_saved_graphs() {
@@ -471,6 +472,10 @@ mod worker_execution_codec_tests {
             GraphWorkerMessage::Progress {
                 sequence: 3,
                 nodes: vec![(NodeId(7), 42)],
+            },
+            GraphWorkerMessage::Failed {
+                sequence: 3,
+                error: GraphWorkerFailure::Artifact("replication stopped".into()),
             },
             GraphWorkerMessage::Artifacts {
                 sequence: 3,

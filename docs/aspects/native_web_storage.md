@@ -92,7 +92,8 @@ finite or long-running work without selecting a target or a platform implementat
 The `logic_analyzer_capture_export` crate supplies both `CaptureExportService` and its native
 repository-backed asynchronous implementation; native composition injects it, while the portable
 unavailable service reports absence explicitly on web. UI has no export feature flag or
-target-selected export module. Graph document persistence and embedded node file dialogs likewise
+target-selected export module. Cancellation remains a typed service result rather than a display
+string interpreted by the UI. Graph document persistence and embedded node file dialogs likewise
 cross host-service contracts, and the node-graph widget exposes only model snapshots and replacement.
 Native shell integrations exchange portable commands and UI state through the app-owned host
 service; their queues and repaint wake-ups stay in the native app root. Runtime cache diagnostics
@@ -494,6 +495,9 @@ Replacing, clearing, failing, or explicitly resetting the source cancels the act
 discarding its task. Progress callbacks return whether work may continue, so capture-index builders
 stop at a deterministic work boundary after cancellation. Completion is published only from the
 task retained by the active generation; stale workers cannot replace current viewer data.
+Preparation failures retain a graph-runtime-owned category for discovery, metadata, index work,
+cancellation, executor admission or loss, and worker-protocol violations. Host adapters do not
+encode those distinctions into messages.
 
 The preparation algorithm is identical for inline/cooperative and native execution. The host
 executor only decides where the capability-driven operation runs. Cache validation, index build and

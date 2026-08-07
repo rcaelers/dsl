@@ -10,14 +10,20 @@ use platform_runtime::{InlineWorkExecutor, WorkExecutor};
 use signal_derived::{DecodedBlockCacheHandle, PersistentStoreConfig};
 use signal_runtime::{AppManagerFactory, ConfigurationBoundary, CooperativeAppManagerFactory};
 
+use super::cache_policy::{
+    self, DerivedCacheClearStats, DerivedCacheClearTask, DerivedCacheEntrySnapshot,
+};
+use super::errors::ApplyError;
 use super::execution::{
     self, ApplySummary, GraphRunContext, LiveAnalysisSource, LiveRun, SourceProcessOverrides,
 };
 use super::source_preparation::SourcePreparation;
-use super::{
-    ApplyError, DerivedCacheClearStats, DerivedCacheClearTask, DerivedCacheEntrySnapshot,
-    InlineSourcePreparationExecutor, SourcePreparationExecutor, SourcePreparationSnapshot,
-    SourcePreparationStatus, SourcePreparationUpdate, cache_policy,
+use super::source_preparation_contract::{
+    SourcePreparationError, SourcePreparationSnapshot, SourcePreparationStatus,
+    SourcePreparationUpdate,
+};
+use super::source_preparation_executor::{
+    InlineSourcePreparationExecutor, SourcePreparationExecutor,
 };
 
 /// Composes execution-lifetime graph services.
@@ -83,7 +89,9 @@ impl GraphRuntime {
     ) -> SourcePreparationUpdate {
         match discovered {
             Ok(discovered) => self.source_preparation.synchronize(discovered),
-            Err(error) => self.source_preparation.fail(error),
+            Err(error) => self
+                .source_preparation
+                .fail(SourcePreparationError::Discovery(error)),
         }
     }
 

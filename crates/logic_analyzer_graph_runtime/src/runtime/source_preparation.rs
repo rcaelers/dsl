@@ -7,15 +7,15 @@ use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 use platform_runtime::InlineWorkExecutor;
 use platform_runtime::WorkExecutor;
 
+use super::source_preparation_contract::{
+    PreparedCapture, PreparedCaptureData, PreparingCapture, SourcePreparationError,
+    SourcePreparationSnapshot, SourcePreparationStatus, SourcePreparationUpdate,
+};
 #[cfg(test)]
 use super::source_preparation_executor::InlineSourcePreparationExecutor;
 use super::source_preparation_executor::{
     SourcePreparationControl, SourcePreparationExecutor, SourcePreparationTask,
     SourcePreparationTaskUpdate,
-};
-use super::{
-    PreparedCapture, PreparedCaptureData, PreparingCapture, SourcePreparationSnapshot,
-    SourcePreparationStatus, SourcePreparationUpdate,
 };
 
 pub(crate) struct SourcePreparation {
@@ -111,7 +111,7 @@ impl SourcePreparation {
             SourcePreparationTaskUpdate::Disconnected => {
                 self.task = None;
                 self.control = None;
-                let error = "capture preparation worker stopped".to_owned();
+                let error = SourcePreparationError::Executor("worker stopped".into());
                 self.status = SourcePreparationStatus::Failed(error.clone());
                 SourcePreparationUpdate::Failed(error)
             }
@@ -129,7 +129,7 @@ impl SourcePreparation {
     }
 
     /// Records a discovery failure once, cancelling any preparation superseded by it.
-    pub(crate) fn fail(&mut self, error: String) -> SourcePreparationUpdate {
+    pub(crate) fn fail(&mut self, error: SourcePreparationError) -> SourcePreparationUpdate {
         let unchanged = matches!(
             &self.status,
             SourcePreparationStatus::Failed(previous) if previous == &error
@@ -178,16 +178,18 @@ impl SourcePreparation {
                     let work_executor = Arc::clone(&self.work_executor);
                     let artifact_repository = Arc::clone(&self.artifact_repository);
                     let work = Box::new(move |control: SourcePreparationControl| {
-                        let metadata = factory.metadata().map_err(|error| error.to_string())?;
+                        let metadata = factory
+                            .metadata()
+                            .map_err(|error| SourcePreparationError::Metadata(error.to_string()))?;
                         if !control.report_metadata(metadata) {
-                            return Err("source preparation cancelled".to_owned());
+                            return Err(SourcePreparationError::Cancelled);
                         }
                         factory
                             .open(artifact_repository, work_executor, &mut |progress| {
                                 control.report_progress(progress)
                             })
                             .map(PreparedCaptureData::Indexed)
-                            .map_err(|error| error.to_string())
+                            .map_err(|error| SourcePreparationError::Index(error.to_string()))
                     });
                     self.executor.submit(work, control.clone())
                 };
@@ -198,7 +200,6 @@ impl SourcePreparation {
                         self.preparing_update(identity, visible_channels)
                     }
                     Err(error) => {
-                        let error = format!("could not start capture preparation worker: {error}");
                         self.status = SourcePreparationStatus::Failed(error.clone());
                         SourcePreparationUpdate::Failed(error)
                     }
@@ -302,15 +303,14 @@ mod source_preparation_tests {
             *submission.state.lock().unwrap() = ControlledTaskState::Complete(Some(result));
         }
 
-        fn fail_next(&self, error: &str) {
+        fn fail_next(&self, error: SourcePreparationError) {
             let submission = self
                 .submissions
                 .lock()
                 .unwrap()
                 .pop_front()
                 .expect("a preparation task should be pending");
-            *submission.state.lock().unwrap() =
-                ControlledTaskState::Complete(Some(Err(error.to_owned())));
+            *submission.state.lock().unwrap() = ControlledTaskState::Complete(Some(Err(error)));
         }
 
         fn disconnect_next(&self) {
@@ -352,7 +352,7 @@ mod source_preparation_tests {
             &self,
             work: SourcePreparationWork,
             control: SourcePreparationControl,
-        ) -> Result<Box<dyn SourcePreparationTask>, String> {
+        ) -> Result<Box<dyn SourcePreparationTask>, SourcePreparationError> {
             let state = Arc::new(Mutex::new(ControlledTaskState::Pending));
             self.submissions
                 .lock()
@@ -415,7 +415,7 @@ mod source_preparation_tests {
             &self,
             work: SourcePreparationWork,
             control: SourcePreparationControl,
-        ) -> Result<Box<dyn SourcePreparationTask>, String> {
+        ) -> Result<Box<dyn SourcePreparationTask>, SourcePreparationError> {
             Ok(Box::new(ImmediateTask(Some(work(control)))))
         }
     }
@@ -442,15 +442,17 @@ mod source_preparation_tests {
             &self,
             _work: SourcePreparationWork,
             _control: SourcePreparationControl,
-        ) -> Result<Box<dyn SourcePreparationTask>, String> {
-            Err("hosted preparation must not use the local work path".to_owned())
+        ) -> Result<Box<dyn SourcePreparationTask>, SourcePreparationError> {
+            Err(SourcePreparationError::Executor(
+                "hosted preparation must not use the local work path".into(),
+            ))
         }
 
         fn submit_request(
             &self,
             request: CaptureIndexPreparationRequest,
             control: SourcePreparationControl,
-        ) -> Result<Box<dyn SourcePreparationTask>, String> {
+        ) -> Result<Box<dyn SourcePreparationTask>, SourcePreparationError> {
             self.requests.lock().unwrap().push(request);
             assert!(control.report_metadata(test_metadata()));
             Ok(Box::new(ImmediateTask(Some(Ok(
@@ -871,15 +873,20 @@ mod source_preparation_tests {
             SourcePreparationUpdate::Preparing(_)
         ));
 
-        executor.fail_next("controlled preparation failure");
+        executor.fail_next(SourcePreparationError::Index(
+            "controlled preparation failure".into(),
+        ));
         assert!(matches!(
             preparation.synchronize(Some(indexed("indexed-capture", open_count.clone()))),
-            SourcePreparationUpdate::Failed(error) if error == "controlled preparation failure"
+            SourcePreparationUpdate::Failed(SourcePreparationError::Index(error))
+                if error == "controlled preparation failure"
         ));
         assert_eq!(*open_count.lock().unwrap(), 0);
         assert_eq!(
             preparation.status(),
-            SourcePreparationStatus::Failed("controlled preparation failure".into())
+            SourcePreparationStatus::Failed(SourcePreparationError::Index(
+                "controlled preparation failure".into()
+            ))
         );
     }
 
@@ -892,7 +899,7 @@ mod source_preparation_tests {
         ));
         assert!(matches!(
             preparation.synchronize(Some(failing_indexed("indexed-capture"))),
-            SourcePreparationUpdate::Failed(error)
+            SourcePreparationUpdate::Failed(SourcePreparationError::Index(error))
                 if error == "Parse error: controlled index error"
         ));
     }
@@ -918,16 +925,23 @@ mod source_preparation_tests {
         let mut preparation = SourcePreparation::new();
 
         assert!(matches!(
-            preparation.fail("two sources are enabled".into()),
-            SourcePreparationUpdate::Failed(error) if error == "two sources are enabled"
+            preparation.fail(SourcePreparationError::Discovery(
+                "two sources are enabled".into()
+            )),
+            SourcePreparationUpdate::Failed(SourcePreparationError::Discovery(error))
+                if error == "two sources are enabled"
         ));
         assert!(matches!(
-            preparation.fail("two sources are enabled".into()),
+            preparation.fail(SourcePreparationError::Discovery(
+                "two sources are enabled".into()
+            )),
             SourcePreparationUpdate::Unchanged
         ));
         assert_eq!(
             preparation.status(),
-            SourcePreparationStatus::Failed("two sources are enabled".into())
+            SourcePreparationStatus::Failed(SourcePreparationError::Discovery(
+                "two sources are enabled".into()
+            ))
         );
     }
 
@@ -944,8 +958,8 @@ mod source_preparation_tests {
         executor.disconnect_next();
         assert!(matches!(
             preparation.synchronize(Some(indexed("indexed-capture", open_count))),
-            SourcePreparationUpdate::Failed(error)
-                if error == "capture preparation worker stopped"
+            SourcePreparationUpdate::Failed(SourcePreparationError::Executor(error))
+                if error == "worker stopped"
         ));
     }
 }

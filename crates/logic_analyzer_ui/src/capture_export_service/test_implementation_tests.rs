@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use logic_analyzer_capture_export::{
-    CaptureExportCompletion, CaptureExportFormat, CaptureExportService, CaptureExportStatus,
+    CaptureExportCompletion, CaptureExportFormat, CaptureExportService, CaptureExportServiceError,
+    CaptureExportStatus,
 };
 use signal_capture_session::CaptureSessionId;
 
@@ -12,14 +13,14 @@ enum ScriptedEvent {
         samples_written: u64,
         total_samples: u64,
     },
-    Complete(Result<Vec<String>, String>),
+    Complete(Result<Vec<String>, CaptureExportServiceError>),
 }
 
 #[derive(Default)]
 struct SharedState {
     starts: Vec<(CaptureSessionId, CaptureExportFormat, PathBuf)>,
     cancel_requests: usize,
-    start_error: Option<String>,
+    start_error: Option<CaptureExportServiceError>,
 }
 
 #[derive(Clone)]
@@ -37,7 +38,8 @@ impl ScriptedCaptureExportControl {
     }
 
     fn fail_start(&self, message: impl Into<String>) {
-        self.shared.lock().unwrap().start_error = Some(message.into());
+        self.shared.lock().unwrap().start_error =
+            Some(CaptureExportServiceError::Executor(message.into()));
     }
 }
 
@@ -45,7 +47,7 @@ struct ScriptedCaptureExportService {
     shared: Arc<Mutex<SharedState>>,
     events: VecDeque<ScriptedEvent>,
     status: Option<CaptureExportStatus>,
-    completion: Option<Result<CaptureExportCompletion, String>>,
+    completion: Option<Result<CaptureExportCompletion, CaptureExportServiceError>>,
 }
 
 impl CaptureExportService for ScriptedCaptureExportService {
@@ -54,7 +56,7 @@ impl CaptureExportService for ScriptedCaptureExportService {
         session_id: CaptureSessionId,
         format: CaptureExportFormat,
         destination: PathBuf,
-    ) -> Result<(), String> {
+    ) -> Result<(), CaptureExportServiceError> {
         let mut shared = self.shared.lock().unwrap();
         if let Some(error) = shared.start_error.take() {
             return Err(error);
@@ -78,7 +80,9 @@ impl CaptureExportService for ScriptedCaptureExportService {
         self.status.as_ref()
     }
 
-    fn take_completion(&mut self) -> Option<Result<CaptureExportCompletion, String>> {
+    fn take_completion(
+        &mut self,
+    ) -> Option<Result<CaptureExportCompletion, CaptureExportServiceError>> {
         self.completion.take()
     }
 
@@ -193,11 +197,14 @@ fn scripted_service_controls_start_and_worker_failures() {
             CaptureExportFormat::Portable,
             PathBuf::from("capture.sr"),
         ),
-        Err("executor unavailable".into())
+        Err(CaptureExportServiceError::Executor(
+            "executor unavailable".into()
+        ))
     );
 
-    let (mut service, _) =
-        scripted_service_with_events([ScriptedEvent::Complete(Err("encoding failed".into()))]);
+    let (mut service, _) = scripted_service_with_events([ScriptedEvent::Complete(Err(
+        CaptureExportServiceError::Export("encoding failed".into()),
+    ))]);
     service
         .start(
             CaptureSessionId::new(9),
@@ -208,6 +215,29 @@ fn scripted_service_controls_start_and_worker_failures() {
     service.poll();
     assert_eq!(
         service.take_completion(),
-        Some(Err("encoding failed".into()))
+        Some(Err(CaptureExportServiceError::Export(
+            "encoding failed".into()
+        )))
+    );
+}
+
+#[test]
+fn scripted_service_preserves_cancellation_as_a_typed_completion() {
+    let (mut service, _) = scripted_service_with_events([ScriptedEvent::Complete(Err(
+        CaptureExportServiceError::Cancelled,
+    ))]);
+    service
+        .start(
+            CaptureSessionId::new(10),
+            CaptureExportFormat::Portable,
+            PathBuf::from("capture.sr"),
+        )
+        .unwrap();
+
+    service.poll();
+
+    assert_eq!(
+        service.take_completion(),
+        Some(Err(CaptureExportServiceError::Cancelled))
     );
 }

@@ -2,9 +2,43 @@
 
 use std::path::PathBuf;
 
+use thiserror::Error;
+
 use signal_capture_session::CaptureSessionId;
 
-use crate::CaptureExportFormat;
+use crate::capture_export::{CaptureExportError, CaptureExportFormat};
+
+/// Failure reported by the stateful capture-export application service.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+pub enum CaptureExportServiceError {
+    /// This host has no capture-export implementation.
+    #[error("capture export is unavailable on this host")]
+    Unavailable,
+    /// Another export still owns the service worker.
+    #[error("a capture export is already active")]
+    AlreadyActive,
+    /// The requested finalized capture could not be opened.
+    #[error("could not open the capture for export: {0}")]
+    Capture(String),
+    /// The asynchronous export worker could not be started or observed.
+    #[error("capture export executor failed: {0}")]
+    Executor(String),
+    /// Cooperative cancellation stopped the active export.
+    #[error("capture export was cancelled")]
+    Cancelled,
+    /// The exporter could not encode or publish the capture.
+    #[error("{0}")]
+    Export(String),
+}
+
+impl From<CaptureExportError> for CaptureExportServiceError {
+    fn from(error: CaptureExportError) -> Self {
+        match error {
+            CaptureExportError::Cancelled => Self::Cancelled,
+            CaptureExportError::Failed(message) => Self::Export(message),
+        }
+    }
+}
 
 /// Progress reported while a capture export is running.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -31,13 +65,15 @@ pub trait CaptureExportService {
         session_id: CaptureSessionId,
         format: CaptureExportFormat,
         destination: PathBuf,
-    ) -> Result<(), String>;
+    ) -> Result<(), CaptureExportServiceError>;
 
     /// Returns the most recently published progress while an export is active.
     fn status(&self) -> Option<&CaptureExportStatus>;
 
     /// Takes the terminal completion or failure exactly once.
-    fn take_completion(&mut self) -> Option<Result<CaptureExportCompletion, String>>;
+    fn take_completion(
+        &mut self,
+    ) -> Option<Result<CaptureExportCompletion, CaptureExportServiceError>>;
 
     /// Requests cooperative cancellation of the active export.
     fn request_cancel(&mut self);
