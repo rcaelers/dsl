@@ -114,6 +114,23 @@ not supported extension points remain private, including their generic parameter
 
 The workspace uses an owner-facade module layout.
 
+### Module ownership
+
+A substantial module is an architectural owner inside its crate. A module that exceeds roughly
+1,000 lines or owns cross-cutting mutable state states four things in its module documentation:
+
+1. the data and invariants it owns;
+2. the facade through which sibling or external consumers use it;
+3. the owner-level dependencies it may consume; and
+4. the behavior and data it explicitly excludes.
+
+The line threshold is advisory, not a lint target. A shorter stateful module can still require an
+ownership statement, and a long cohesive implementation is acceptable when its answer remains
+concise. A module that cannot answer the four questions without listing unrelated behaviors is a
+decomposition candidate. Extracted owner structs keep their fields private and expose invariant-
+preserving methods through a directory-backed facade; a caller passes another owner or narrow view
+only when a transition genuinely couples them.
+
 ### Source structure
 
 - Module declarations occur only in `lib.rs`, `main.rs`, and `mod.rs` files.

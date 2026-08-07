@@ -15,6 +15,24 @@ owners stay generic and UI-free, and the capture-format, device, protocol-decode
 and generator crates own UI-independent runtime behavior. The UI consumes graph-service and
 host-service contracts; it does not define concrete nodes or compiler behavior.
 
+## Application state ownership
+
+`App` is the application shell and frame dispatcher. It directly retains widgets, panel layout,
+host ports, dialogs, notifications, and shell preferences. Mutable state with a lifecycle or
+cross-panel invariant is held by four private module owners:
+
+| Owner | Invariants and responsibility |
+| --- | --- |
+| `GraphRunLifecycle` | Graph-service access, the foreground run and semantic baseline, idle preview revision, live-sync clock, sampling candidates, persistent run status, and cache-clear task |
+| `CaptureAnalysisLifecycle` | Capture coordinator and availability, trigger discovery, acquisition graph snapshot, post-capture analysis, serialized configuration-epoch synchronization, and capture-storage projection |
+| `PresentationCatalogs` | Derived lanes, output/table catalogs, decoder and plug-in panel bindings, graph-node membership, saved viewer row order, and sampling-overlay selections |
+| `TimelineMarkerBindings` | Mapping viewer marker identities to graph-node marker identities and independently suppressing repeated marker/reference discovery failures |
+
+Each owner has private fields and invariant-preserving methods behind an internal directory-backed
+facade. The shell composes operations that cross an owner boundary—for example, applying a marker
+edit through the graph service and then updating the viewer. Persisted graph extensions remain at
+the document-composition boundary, so this ownership split does not change saved formats.
+
 ## Application services
 
 The application window uses a persistent panel layout. The default places the Logic Analyzer above

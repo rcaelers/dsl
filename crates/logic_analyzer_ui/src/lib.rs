@@ -7,13 +7,17 @@
 
 mod about;
 mod app;
+#[cfg(test)]
+mod app_architecture_tests;
 mod app_platform;
 mod app_services;
 mod application_settings;
+mod capture_analysis_lifecycle;
 mod capture_export_service;
 mod collected_output_presentation;
 mod decoder_panel;
 mod decoder_table_presentation;
+mod graph_run_lifecycle;
 mod graph_service;
 mod headless;
 mod host_service;
@@ -25,11 +29,13 @@ mod output_downloads;
 mod panel_presentation;
 mod plugin_panel;
 mod preferences;
+mod presentation_catalogs;
 mod product;
 mod sampling_overlay_presentation;
 mod symbol_fonts;
 #[cfg(test)]
 mod test_contracts_tests;
+mod timeline_marker_bindings;
 mod toast;
 mod viewer_selection;
 

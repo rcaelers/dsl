@@ -28,7 +28,8 @@ impl App {
             persistent_caches: Vec::new(),
         };
         let inventory = match self
-            .graph_service
+            .graph_run
+            .service()
             .derived_cache_configs_by_node(self.node_graph.graph())
         {
             Ok(inventory) => inventory,
@@ -65,7 +66,10 @@ impl App {
             }
         }
         for (_, (config, owners)) in entries {
-            let inspected = self.graph_service.inspect_derived_cache_entry(&config);
+            let inspected = self
+                .graph_run
+                .service()
+                .inspect_derived_cache_entry(&config);
             let (state, info) = match inspected {
                 Ok(Some(info)) => (PersistentCacheSnapshotState::Ready, Some(info)),
                 Ok(None) => (PersistentCacheSnapshotState::Missing, None),

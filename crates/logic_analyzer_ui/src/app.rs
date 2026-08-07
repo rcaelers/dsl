@@ -1,4 +1,12 @@
-use std::collections::{HashMap, HashSet};
+//! Application-shell composition and per-frame dispatch.
+//!
+//! `App` owns the editor/viewer widgets, shell panels, host ports, notifications, and the four
+//! owner objects that maintain graph-run, capture-analysis, presentation-catalog, and
+//! timeline-marker invariants. The crate-root `App` re-export is its supported facade. This module
+//! may compose UI-owned services and portable widget/runtime contracts; it does not own the inner
+//! lifecycle state, concrete graph nodes, processing behavior, target selection, or host adapters.
+
+use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 use std::rc::Rc;
@@ -7,18 +15,15 @@ use std::sync::Arc;
 use input_bindings::{InputBindings, PointerButtonName, PointerGesture, Trigger};
 use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentationSignal, LiveCaptureEdit, TimelineMarkerEdit as GraphTimelineMarkerEdit,
-    TimelineMarkerReference, TimelineMarkerReferenceBindingDescriptor,
-    TimelineMarkerReferenceBindingEdit, TimelineMarkerReferenceChoice, ViewerOutputPanelAction,
-    ViewerOutputPanelEntry, ViewerOutputPanelModel,
+    TimelineMarkerReference, TimelineMarkerReferenceBindingEdit, TimelineMarkerReferenceChoice,
+    ViewerOutputPanelAction, ViewerOutputPanelEntry, ViewerOutputPanelModel,
 };
-use logic_analyzer_graph_compiler as compiler;
 use logic_analyzer_graph_plan as plan;
 use logic_analyzer_graph_runtime as runtime;
 use logic_analyzer_viewer::{
     LogicAnalyzerViewer, SimpleTriggerEdit, SimpleTriggerLane, TimeCursor,
-    TimelineMarker as ViewerTimelineMarker, TimelineMarkerEdit as ViewerTimelineMarkerEdit,
-    ViewerLaneGroupId, ViewerRowHeight, ViewerRowHeightSettings, ViewerRowId,
-    WaveformPresentationRegistry,
+    TimelineMarkerEdit as ViewerTimelineMarkerEdit, ViewerLaneGroupId, ViewerRowHeight,
+    ViewerRowHeightSettings, ViewerRowId, WaveformPresentationRegistry,
 };
 use node_graph::{
     GraphState, NodeBadge, NodeContextAction, NodeGraphWidget, NodeId, PanelDataProvider,
@@ -29,10 +34,11 @@ use trigger_editor::{TriggerEditor, TriggerEditorChannel};
 
 use crate::about::AboutWindow;
 use crate::app_services::AppServiceParts;
+use crate::capture_analysis_lifecycle::CaptureAnalysisLifecycle;
 use crate::collected_output_presentation::waveform_presentation_registry;
 use crate::decoder_panel::{DecoderPanels, DecoderTableRegistry};
 use crate::decoder_table_presentation::decoder_table_registry;
-use crate::graph_service::{GraphRun, GraphService};
+use crate::graph_run_lifecycle::{GraphRunLifecycle, GraphRunPoll};
 use crate::host_service::HostService;
 use crate::live_capture::{
     CaptureAnalysisAttachment, CaptureAvailability, CaptureCoordinator, CaptureCoordinatorContract,
@@ -48,10 +54,12 @@ use crate::panel_presentation::{
     DECODER_PANEL_ICON, LOG_PANEL_ICON, LOGIC_ANALYZER_PANEL_ICON, MEMORY_PANEL_ICON,
     NODE_GRAPH_PANEL_ICON, TRIGGERS_PANEL_ICON, WATCHES_PANEL_ICON,
 };
-use crate::plugin_panel::{PluginPanelIcon, PluginPanelRegistry, PluginPanels, PluginPanelsState};
+use crate::plugin_panel::{PluginPanelIcon, PluginPanelRegistry, PluginPanelsState};
 use crate::preferences::PreferencesWindow;
+use crate::presentation_catalogs::PresentationCatalogs;
 use crate::sampling_overlay_presentation::sampling_overlay_presentation;
 use crate::symbol_fonts::bundled_symbol_fonts;
+use crate::timeline_marker_bindings::TimelineMarkerBindings;
 use crate::toast::{ToastSource, Toasts};
 use crate::viewer_selection::{
     output_subscription_plan, set_viewer_output_selected, synchronize_viewer_compatibility,
@@ -274,111 +282,6 @@ fn save_sampling_overlays(
     }
 }
 
-fn toggle_sampling_overlay(selected: &mut Vec<NodeId>, node: NodeId) {
-    if let Some(index) = selected.iter().position(|candidate| *candidate == node) {
-        selected.remove(index);
-    } else {
-        selected.push(node);
-    }
-}
-
-fn visible_output_subscriptions(
-    catalog: &[plan::CollectedOutputSubscription],
-    graph: &GraphState,
-) -> Vec<plan::CollectedOutputSubscription> {
-    let selected = viewer_output_selections(graph)
-        .into_iter()
-        .filter(|selection| selection.selected)
-        .map(|selection| (selection.node, selection.output))
-        .collect::<HashSet<_>>();
-    catalog
-        .iter()
-        .filter_map(|subscription| {
-            let mut subscription = subscription.clone();
-            subscription.lanes.retain(|lane| {
-                selected.contains(&(lane.input.source_node, lane.input.source_output))
-            });
-            (!subscription.lanes.is_empty()).then_some(subscription)
-        })
-        .collect()
-}
-
-fn visible_table_subscriptions(
-    catalog: &[plan::CollectedTableSubscription],
-    graph: &GraphState,
-) -> Vec<plan::CollectedTableSubscription> {
-    catalog
-        .iter()
-        .filter_map(|subscription| {
-            let mut subscription = subscription.clone();
-            subscription
-                .lanes
-                .retain(|lane| graph.nodes.contains_key(&lane.input.source_node));
-            (!subscription.lanes.is_empty()).then_some(subscription)
-        })
-        .collect()
-}
-
-fn merge_output_subscription_catalog(
-    catalog: &mut Vec<plan::CollectedOutputSubscription>,
-    incoming: &[plan::CollectedOutputSubscription],
-) {
-    for subscription in incoming {
-        for lane in &subscription.lanes {
-            for existing in catalog.iter_mut() {
-                existing.lanes.retain(|candidate| {
-                    candidate.input.source_node != lane.input.source_node
-                        || candidate.input.source_output != lane.input.source_output
-                });
-            }
-        }
-        let target = if let Some(existing) = catalog
-            .iter_mut()
-            .find(|existing| existing.runtime_name == subscription.runtime_name)
-        {
-            existing
-        } else {
-            catalog.push(plan::CollectedOutputSubscription {
-                runtime_name: subscription.runtime_name.clone(),
-                lanes: Vec::new(),
-            });
-            catalog.last_mut().unwrap()
-        };
-        target.lanes.extend(subscription.lanes.iter().cloned());
-    }
-    catalog.retain(|subscription| !subscription.lanes.is_empty());
-}
-
-fn merge_table_subscription_catalog(
-    catalog: &mut Vec<plan::CollectedTableSubscription>,
-    incoming: &[plan::CollectedTableSubscription],
-) {
-    for subscription in incoming {
-        for lane in &subscription.lanes {
-            for existing in catalog.iter_mut() {
-                existing.lanes.retain(|candidate| {
-                    candidate.input.source_node != lane.input.source_node
-                        || candidate.input.source_output != lane.input.source_output
-                });
-            }
-        }
-        let target = if let Some(existing) = catalog
-            .iter_mut()
-            .find(|existing| existing.collector == subscription.collector)
-        {
-            existing
-        } else {
-            catalog.push(plan::CollectedTableSubscription {
-                collector: subscription.collector,
-                lanes: Vec::new(),
-            });
-            catalog.last_mut().unwrap()
-        };
-        target.lanes.extend(subscription.lanes.iter().cloned());
-    }
-    catalog.retain(|subscription| !subscription.lanes.is_empty());
-}
-
 fn saved_viewer_lane_order(graph: &GraphState) -> Result<Vec<SavedViewerRow>, serde_json::Error> {
     Ok(graph
         .extension(VIEWER_LANE_ORDER_EXTENSION)?
@@ -545,29 +448,11 @@ pub struct App {
     pub(crate) logic_analyzer: LogicAnalyzerViewer,
     pub(crate) input_bindings: Arc<InputBindings>,
     pub(crate) panel_layout: PanelLayout,
-    pub(crate) graph_service: Box<dyn GraphService>,
-    pub(crate) derived_cache_clear_task: Option<runtime::DerivedCacheClearTask>,
+    pub(crate) graph_run: GraphRunLifecycle,
     pub(crate) decoded_block_cache: signal_derived::DecodedBlockCacheHandle,
     pub(crate) host_service: Box<dyn HostService>,
     pub(crate) host_ui_capabilities: crate::HostUiCapabilities,
-    pub(crate) capture: CaptureCoordinator,
-    pub(crate) capture_availability: CaptureAvailability,
-    pub(crate) trigger_configuration: Option<compiler::DiscoveredTriggerConfiguration>,
-    pub(crate) trigger_configuration_error: Option<String>,
-    pub(crate) capture_graph: Option<GraphState>,
-    pub(crate) capture_analysis: Option<Box<dyn GraphRun>>,
-    pub(crate) capture_analysis_error: Option<String>,
-    pub(crate) capture_epoch_observed_graph: Option<Vec<u8>>,
-    pub(crate) capture_epoch_request_in_flight: bool,
-    pub(crate) last_capture_epoch_sync: f64,
-    pub(crate) run: Option<Box<dyn GraphRun>>,
-    /// Persistent run *state* shown in the status bar next to Run/Stop — the
-    /// current compile-error summary, or "stop & rerun to apply" while a
-    /// live edit can't be applied in place. One-off events (a live edit that
-    /// *did* apply, one that failed) go through `toasts` instead (Phase 4.2).
-    pub(crate) run_message: Option<(String, bool /* is_error */)>,
-    pub(crate) cached_preview_graph: Option<Vec<u8>>,
-    pub(crate) running_graph_semantics: Option<Vec<u8>>,
+    pub(crate) capture_analysis: CaptureAnalysisLifecycle,
     /// Transient one-off notifications (file loaded/saved, node(s)
     /// copied/pasted, live-edit results) — bottom-right, self-clearing.
     pub(crate) toasts: Toasts,
@@ -579,22 +464,9 @@ pub struct App {
     pub(crate) demo_graphs: Vec<DemoGraph>,
     /// Nodes badged with compile errors; cleared on the next Run.
     pub(crate) error_badges: Vec<NodeId>,
-    /// Last time the running pipeline was diffed against the edited graph.
-    pub(crate) last_live_sync: f64,
-    pub(crate) sampling_overlay_candidates: Vec<plan::SamplingOverlayCandidate>,
-    pub(crate) selected_sampling_overlays: Vec<NodeId>,
-    pub(crate) viewer_lane_order: Vec<SavedViewerRow>,
-    pub(crate) decoder_panels: DecoderPanels,
-    pub(crate) plugin_panels: PluginPanels,
+    pub(crate) presentations: PresentationCatalogs,
     pub(crate) memory_panel: MemoryPanel,
-    pub(crate) presented_derived_lanes: signal_derived::DerivedLanes,
-    pub(crate) output_presentation_catalog: Vec<plan::CollectedOutputSubscription>,
-    pub(crate) table_presentation_catalog: Vec<plan::CollectedTableSubscription>,
-    pub(crate) presentation_graph_nodes: HashSet<NodeId>,
-    pub(crate) capture_storage: Option<CaptureStorageSnapshot>,
-    pub(crate) timeline_marker_owners: HashMap<String, (NodeId, String)>,
-    pub(crate) timeline_marker_error: Option<String>,
-    pub(crate) timeline_marker_reference_error: Option<String>,
+    pub(crate) timeline_markers: TimelineMarkerBindings,
     pub(crate) _worker_operation_executor: Rc<dyn platform_runtime::WorkerOperationExecutor>,
 }
 
@@ -638,29 +510,11 @@ fn hex_identity(identity: platform_artifacts::SourceIdentity) -> String {
         .collect()
 }
 
-fn timeline_marker_reference_binding_is_synchronized(
-    binding: &TimelineMarkerReferenceBindingDescriptor,
-    choices: &[TimelineMarkerReferenceChoice],
-) -> bool {
-    if binding.choices != choices {
-        return false;
-    }
-    let selected_timestamp = binding.selected.and_then(|selected| {
-        choices
-            .iter()
-            .find(|choice| choice.reference == selected)
-            .map(|choice| choice.timestamp_ns)
-    });
-    selected_timestamp
-        .map(|timestamp_ns| timestamp_ns == binding.timestamp_ns)
-        .unwrap_or(binding.selected.is_none())
-}
-
 impl App {
     fn refresh_simple_trigger_ui(&mut self) {
         let lanes = self
-            .trigger_configuration
-            .as_ref()
+            .capture_analysis
+            .trigger_configuration()
             .map(|configuration| configuration.feature.channels())
             .unwrap_or_default()
             .iter()
@@ -675,28 +529,24 @@ impl App {
 
     fn refresh_trigger_configuration(&mut self) {
         match self
-            .graph_service
+            .graph_run
+            .service()
             .discover_trigger_configuration(self.node_graph.graph())
         {
-            Ok(configuration) => {
-                self.trigger_configuration = configuration;
-                self.trigger_configuration_error = self
-                    .trigger_configuration
-                    .is_none()
-                    .then(|| "The graph has no trigger-configurable source".into());
-            }
-            Err(error) => {
-                self.trigger_configuration = None;
-                self.trigger_configuration_error = Some(error.message);
-            }
+            Ok(configuration) => self
+                .capture_analysis
+                .set_trigger_configuration(configuration),
+            Err(error) => self
+                .capture_analysis
+                .set_trigger_configuration_error(error.message),
         }
         self.refresh_simple_trigger_ui();
     }
 
     fn apply_simple_trigger_edit(&mut self, edit: SimpleTriggerEdit) {
         let request = self
-            .trigger_configuration
-            .as_ref()
+            .capture_analysis
+            .trigger_configuration()
             .and_then(|configuration| {
                 configuration
                     .feature
@@ -722,7 +572,7 @@ impl App {
             return;
         };
         let toast_source = self.toast_source_for_node(source_node);
-        let state = match self.graph_service.apply_live_capture_edit(
+        let state = match self.graph_run.service().apply_live_capture_edit(
             self.node_graph.graph(),
             source_node,
             &request,
@@ -742,11 +592,14 @@ impl App {
             self.refresh_simple_trigger_ui();
             return;
         }
-        self.capture_availability = capture_availability(
+        let availability = capture_availability(
             self.node_graph.graph(),
-            self.graph_service.as_ref(),
-            self.capture.backend_unavailable_reason(),
+            self.graph_run.service(),
+            self.capture_analysis
+                .coordinator()
+                .backend_unavailable_reason(),
         );
+        self.capture_analysis.set_availability(availability);
         self.refresh_trigger_configuration();
     }
 
@@ -755,8 +608,8 @@ impl App {
         program: Option<signal_capture_session::TriggerProgram>,
     ) {
         let Some(source_node) = self
-            .trigger_configuration
-            .as_ref()
+            .capture_analysis
+            .trigger_configuration()
             .map(|configuration| configuration.source_node)
         else {
             self.toasts.error_from(
@@ -768,7 +621,7 @@ impl App {
         };
         let toast_source = self.toast_source_for_node(source_node);
         let request = LiveCaptureEdit::SetTriggerProgram { program };
-        let state = match self.graph_service.apply_live_capture_edit(
+        let state = match self.graph_run.service().apply_live_capture_edit(
             self.node_graph.graph(),
             source_node,
             &request,
@@ -786,60 +639,41 @@ impl App {
                 "The trigger could not be changed while the graph is read-only",
             );
         }
-        self.capture_availability = capture_availability(
+        let availability = capture_availability(
             self.node_graph.graph(),
-            self.graph_service.as_ref(),
-            self.capture.backend_unavailable_reason(),
+            self.graph_run.service(),
+            self.capture_analysis
+                .coordinator()
+                .backend_unavailable_reason(),
         );
+        self.capture_analysis.set_availability(availability);
         self.refresh_trigger_configuration();
     }
 
     fn refresh_timeline_markers(&mut self) {
-        let mut discovered = match self
-            .graph_service
+        let discovered = match self
+            .graph_run
+            .service()
             .discover_timeline_markers(self.node_graph.graph())
         {
-            Ok(discovered) => {
-                self.timeline_marker_error = None;
-                discovered
-            }
+            Ok(discovered) => discovered,
             Err(error) => {
-                if self.timeline_marker_error.as_deref() != Some(&error) {
+                if self.timeline_markers.record_marker_error(error.clone()) {
                     self.toasts.error_from(
                         ToastSource::panel("Logic Analyzer"),
                         format!("Could not load timeline markers: {error}"),
                     );
                 }
-                self.timeline_marker_error = Some(error);
-                self.timeline_marker_owners.clear();
                 self.logic_analyzer.set_timeline_markers(Vec::new());
                 return;
             }
         };
-        discovered.sort_by(|left, right| {
-            (left.owner_node.0, left.marker.id.as_str())
-                .cmp(&(right.owner_node.0, right.marker.id.as_str()))
-        });
-        self.timeline_marker_owners.clear();
-        let markers = discovered
-            .into_iter()
-            .map(|discovered| {
-                let id = format!("{}:{}", discovered.owner_node.0, discovered.marker.id);
-                self.timeline_marker_owners
-                    .insert(id.clone(), (discovered.owner_node, discovered.marker.id));
-                ViewerTimelineMarker {
-                    id,
-                    label: discovered.marker.name,
-                    time_us: discovered.marker.timestamp_ns as f64 / 1_000.0,
-                }
-            })
-            .collect();
+        let markers = self.timeline_markers.replace_markers(discovered);
         self.logic_analyzer.set_timeline_markers(markers);
     }
 
     fn apply_timeline_marker_edit(&mut self, edit: ViewerTimelineMarkerEdit) {
-        let Some((owner_node, local_id)) = self.timeline_marker_owners.get(&edit.id).cloned()
-        else {
+        let Some((owner_node, local_id)) = self.timeline_markers.owner(&edit.id) else {
             self.toasts.error_from(
                 ToastSource::panel("Logic Analyzer"),
                 "That timeline marker is no longer available",
@@ -851,7 +685,7 @@ impl App {
             id: local_id,
             timestamp_ns: (edit.time_us.max(0.0) * 1_000.0).round() as u64,
         };
-        let state = match self.graph_service.apply_timeline_marker_edit(
+        let state = match self.graph_run.service().apply_timeline_marker_edit(
             self.node_graph.graph(),
             owner_node,
             &request,
@@ -885,7 +719,7 @@ impl App {
                     + signal.transitions.capacity() * std::mem::size_of::<(f64, bool)>()
             })
             .sum::<usize>() as u64;
-        self.capture_storage = Some(CaptureStorageSnapshot {
+        self.capture_analysis.set_storage(CaptureStorageSnapshot {
             name: self
                 .platform
                 .capture_presentation_identity
@@ -917,11 +751,12 @@ impl App {
         identity: String,
         index: Box<dyn signal_capture::CaptureIndex + Send>,
     ) {
-        self.capture_storage = Some(capture_storage_from_index(
-            &identity,
-            index.as_ref(),
-            CaptureStorageBacking::Indexed,
-        ));
+        self.capture_analysis
+            .set_storage(capture_storage_from_index(
+                &identity,
+                index.as_ref(),
+                CaptureStorageBacking::Indexed,
+            ));
         self.logic_analyzer.set_prepared_capture(identity, index);
     }
 
@@ -930,7 +765,7 @@ impl App {
         identity: String,
         channels: Vec<(usize, String)>,
     ) {
-        self.capture_storage = Some(CaptureStorageSnapshot {
+        self.capture_analysis.set_storage(CaptureStorageSnapshot {
             name: identity,
             status: "Channel metadata ready".to_owned(),
             backing: CaptureStorageBacking::MetadataOnly,
@@ -962,7 +797,7 @@ impl App {
         let progress_fraction = progress.and_then(|progress| {
             (progress.total > 0).then(|| progress.completed as f32 / progress.total as f32)
         });
-        self.capture_storage = Some(CaptureStorageSnapshot {
+        self.capture_analysis.set_storage(CaptureStorageSnapshot {
             name: identity.clone(),
             status: "Preparing capture index".to_owned(),
             backing: CaptureStorageBacking::BuildingIndex,
@@ -984,12 +819,13 @@ impl App {
     }
 
     pub(crate) fn clear_capture_presentation(&mut self) {
-        self.capture_storage = None;
+        self.capture_analysis.clear_storage();
         self.logic_analyzer.clear_capture();
     }
 
     fn set_presented_derived_lanes(&mut self, lanes: signal_derived::DerivedLanes) {
-        self.presented_derived_lanes = lanes.clone();
+        self.presentations
+            .set_presented_derived_lanes(lanes.clone());
         self.logic_analyzer.set_derived_lanes(lanes);
     }
 
@@ -1078,28 +914,28 @@ impl App {
         else {
             return;
         };
-        if self.capture.is_active() || self.is_capture_analysis_active() {
+        if self.capture_analysis.coordinator().is_active() || self.is_capture_analysis_active() {
             self.toasts
                 .error("Stop the active capture before loading a demo");
             return;
         }
         self.clear_derived_data_presentations();
-        self.capture.clear_completed();
-        self.capture_graph = None;
-        self.capture_analysis = None;
-        self.capture_analysis_error = None;
-        self.capture_epoch_observed_graph = None;
-        self.capture_epoch_request_in_flight = false;
-        self.run_message = None;
+        self.capture_analysis.coordinator_mut().clear_completed();
+        self.capture_analysis.clear_capture_graph();
+        self.capture_analysis.clear_analysis();
+        self.graph_run.clear_run_message();
         self.error_badges.clear();
         self.clear_capture_presentation();
         self.platform_restore_graph_capture();
         self.apply_graph_document(graph);
-        self.capture_availability = capture_availability(
+        let availability = capture_availability(
             self.node_graph.graph(),
-            self.graph_service.as_ref(),
-            self.capture.backend_unavailable_reason(),
+            self.graph_run.service(),
+            self.capture_analysis
+                .coordinator()
+                .backend_unavailable_reason(),
         );
+        self.capture_analysis.set_availability(availability);
         self.refresh_trigger_configuration();
         self.toasts.info(format!("Loaded demo {name}"));
     }
@@ -1130,7 +966,9 @@ impl App {
     fn refresh_graph_output_selections(&mut self) -> ViewerOutputPanelData {
         let selections = viewer_output_selections(self.node_graph.graph());
         let subscriptions = output_subscription_plan(self.node_graph.graph());
-        self.graph_service.set_output_subscriptions(subscriptions);
+        self.graph_run
+            .service_mut()
+            .set_output_subscriptions(subscriptions);
         let mut by_node: HashMap<NodeId, Vec<ViewerOutputPanelEntry>> = HashMap::new();
         self.node_graph
             .clear_socket_indicators(VIEWER_SOCKET_INDICATOR_OWNER);
@@ -1334,27 +1172,11 @@ impl App {
             logic_analyzer,
             input_bindings,
             panel_layout: Self::default_panel_layout(),
-            graph_service,
-            derived_cache_clear_task: None,
+            graph_run: GraphRunLifecycle::new(graph_service),
             decoded_block_cache,
             host_service,
             host_ui_capabilities,
-            capture,
-            capture_availability,
-            trigger_configuration: None,
-            trigger_configuration_error: Some(
-                "Checking the graph for a trigger-configurable source".into(),
-            ),
-            capture_graph: None,
-            capture_analysis: None,
-            capture_analysis_error: None,
-            capture_epoch_observed_graph: None,
-            capture_epoch_request_in_flight: false,
-            last_capture_epoch_sync: -1.0,
-            run: None,
-            run_message: None,
-            cached_preview_graph: None,
-            running_graph_semantics: None,
+            capture_analysis: CaptureAnalysisLifecycle::new(capture, capture_availability),
             toasts: Toasts::default(),
             platform,
             about: AboutWindow::new(),
@@ -1363,21 +1185,12 @@ impl App {
             node_catalogs,
             demo_graphs: Vec::new(),
             error_badges: Vec::new(),
-            last_live_sync: -1.0,
-            sampling_overlay_candidates: Vec::new(),
-            selected_sampling_overlays: Vec::new(),
-            viewer_lane_order: Vec::new(),
-            decoder_panels: DecoderPanels::default(),
-            plugin_panels: PluginPanels::new(plugin_panel_registry),
+            presentations: PresentationCatalogs::new(
+                plugin_panel_registry,
+                presentation_graph_nodes,
+            ),
             memory_panel: MemoryPanel::default(),
-            presented_derived_lanes: signal_derived::DerivedLanes::new(),
-            output_presentation_catalog: Vec::new(),
-            table_presentation_catalog: Vec::new(),
-            presentation_graph_nodes,
-            capture_storage: None,
-            timeline_marker_owners: HashMap::new(),
-            timeline_marker_error: None,
-            timeline_marker_reference_error: None,
+            timeline_markers: TimelineMarkerBindings::default(),
             _worker_operation_executor: worker_operation_executor,
         }
     }
@@ -1393,18 +1206,23 @@ impl App {
         match saved_panel_layout(self.node_graph.graph()) {
             Ok(Some(saved)) => {
                 self.panel_layout = PanelLayout::from_state(saved.layout);
-                self.decoder_panels = DecoderPanels::from_state(saved.decoder_panels);
-                self.plugin_panels.restore_state(saved.plugin_panels);
+                self.presentations
+                    .replace_decoder_panels(DecoderPanels::from_state(saved.decoder_panels));
+                self.presentations
+                    .plugin_panels_mut()
+                    .restore_state(saved.plugin_panels);
             }
             Ok(None) => {
                 self.panel_layout = Self::default_panel_layout();
-                self.decoder_panels = DecoderPanels::default();
-                self.plugin_panels.reset_state();
+                self.presentations
+                    .replace_decoder_panels(DecoderPanels::default());
+                self.presentations.plugin_panels_mut().reset_state();
             }
             Err(error) => {
                 self.panel_layout = Self::default_panel_layout();
-                self.decoder_panels = DecoderPanels::default();
-                self.plugin_panels.reset_state();
+                self.presentations
+                    .replace_decoder_panels(DecoderPanels::default());
+                self.presentations.plugin_panels_mut().reset_state();
                 self.toasts
                     .error(format!("Could not restore the saved panel layout: {error}"));
             }
@@ -1415,22 +1233,23 @@ impl App {
         save_panel_layout(
             self.node_graph.graph_mut(),
             self.panel_layout.state().clone(),
-            self.decoder_panels.state().clone(),
-            self.plugin_panels.state(),
+            self.presentations.decoder_panels().state().clone(),
+            self.presentations.plugin_panels().state(),
         )
     }
 
     pub(crate) fn restore_viewer_lane_order_setting(&mut self) {
         match saved_viewer_lane_order(self.node_graph.graph()) {
-            Ok(order) => self.viewer_lane_order = order,
+            Ok(order) => self.presentations.replace_viewer_lane_order(order),
             Err(error) => {
-                self.viewer_lane_order.clear();
+                self.presentations.clear_viewer_lane_order();
                 self.toasts
                     .error(format!("Could not restore the viewer lane order: {error}"));
             }
         }
         let order = self
-            .viewer_lane_order
+            .presentations
+            .viewer_lane_order()
             .iter()
             .map(ViewerRowId::from)
             .collect::<Vec<_>>();
@@ -1446,15 +1265,17 @@ impl App {
                 .collect::<std::collections::HashSet<_>>();
             let mut saved = current.iter().map(SavedViewerRow::from).collect::<Vec<_>>();
             saved.extend(
-                self.viewer_lane_order
+                self.presentations
+                    .viewer_lane_order()
                     .iter()
                     .filter(|row| !current_set.contains(&ViewerRowId::from(*row)))
                     .cloned(),
             );
-            self.viewer_lane_order = saved;
-            if let Err(error) =
-                save_viewer_lane_order(self.node_graph.graph_mut(), &self.viewer_lane_order)
-            {
+            self.presentations.replace_viewer_lane_order(saved);
+            if let Err(error) = save_viewer_lane_order(
+                self.node_graph.graph_mut(),
+                self.presentations.viewer_lane_order(),
+            ) {
                 self.toasts
                     .error(format!("Could not save the viewer lane order: {error}"));
             }
@@ -1462,7 +1283,8 @@ impl App {
         }
 
         let requested = self
-            .viewer_lane_order
+            .presentations
+            .viewer_lane_order()
             .iter()
             .map(ViewerRowId::from)
             .collect::<Vec<_>>();
@@ -1534,21 +1356,21 @@ impl App {
 
     fn synchronize_timeline_marker_references(&mut self, viewer_changed: bool) {
         let discovered = match self
-            .graph_service
+            .graph_run
+            .service()
             .discover_timeline_marker_reference_bindings(self.node_graph.graph())
         {
             Ok(discovered) => {
-                self.timeline_marker_reference_error = None;
+                self.timeline_markers.clear_reference_error();
                 discovered
             }
             Err(error) => {
-                if self.timeline_marker_reference_error.as_deref() != Some(&error) {
+                if self.timeline_markers.record_reference_error(error.clone()) {
                     self.toasts.error_from(
                         ToastSource::panel("Logic Analyzer"),
                         format!("Could not synchronize cursor marker controls: {error}"),
                     );
                 }
-                self.timeline_marker_reference_error = Some(error);
                 return;
             }
         };
@@ -1589,7 +1411,10 @@ impl App {
 
         let choices = self.timeline_marker_reference_choices();
         for discovered in discovered {
-            if timeline_marker_reference_binding_is_synchronized(&discovered.binding, &choices) {
+            if TimelineMarkerBindings::reference_binding_is_synchronized(
+                &discovered.binding,
+                &choices,
+            ) {
                 continue;
             }
             let edit = TimelineMarkerReferenceBindingEdit::Synchronize {
@@ -1597,7 +1422,8 @@ impl App {
                 choices: choices.clone(),
             };
             match self
-                .graph_service
+                .graph_run
+                .service()
                 .apply_timeline_marker_reference_binding_edit(
                     self.node_graph.graph(),
                     discovered.owner_node,
@@ -1638,10 +1464,12 @@ impl App {
 
     fn refresh_sampling_overlay_ui(&mut self) {
         let overlays = self
-            .selected_sampling_overlays
+            .presentations
+            .selected_sampling_overlays()
             .iter()
             .filter_map(|selected| {
-                self.sampling_overlay_candidates
+                self.graph_run
+                    .sampling_overlay_candidates()
                     .iter()
                     .find(|candidate| {
                         candidate.node_id() == *selected
@@ -1657,9 +1485,10 @@ impl App {
         self.logic_analyzer.set_sampling_overlays(overlays);
 
         let mut actions: HashMap<NodeId, Vec<NodeContextAction>> = HashMap::new();
-        for candidate in &self.sampling_overlay_candidates {
+        for candidate in self.graph_run.sampling_overlay_candidates() {
             let selected = self
-                .selected_sampling_overlays
+                .presentations
+                .selected_sampling_overlays()
                 .iter()
                 .any(|selected| *selected == candidate.node_id());
             let mut action = NodeContextAction::new("sampling_overlay", "Sampling Points")
@@ -1675,7 +1504,8 @@ impl App {
     pub(crate) fn restore_sampling_overlay_setting(&mut self) {
         match saved_sampling_overlays(self.node_graph.graph()) {
             Ok((selected, migrated)) => {
-                self.selected_sampling_overlays = selected;
+                self.presentations
+                    .replace_selected_sampling_overlays(selected);
                 if migrated {
                     self.toasts.warning(
                         "Migrated the saved sampling-points selection to support multiple decoders",
@@ -1684,13 +1514,13 @@ impl App {
                 }
             }
             Err(error) => {
-                self.selected_sampling_overlays.clear();
+                self.presentations.clear_selected_sampling_overlays();
                 self.toasts.error(format!(
                     "Could not restore the graph's sampling-points setting: {error}"
                 ));
             }
         }
-        self.sampling_overlay_candidates.clear();
+        self.graph_run.clear_sampling_overlay_candidates();
         self.refresh_graph_output_selections();
         self.refresh_sampling_overlay_ui();
     }
@@ -1698,7 +1528,7 @@ impl App {
     fn persist_sampling_overlay_setting(&mut self) {
         let result = save_sampling_overlays(
             self.node_graph.graph_mut(),
-            &self.selected_sampling_overlays,
+            self.presentations.selected_sampling_overlays(),
         );
         if let Err(error) = result {
             self.toasts.error(format!(
@@ -1708,14 +1538,12 @@ impl App {
     }
 
     fn set_sampling_overlay_candidates(&mut self, candidates: Vec<plan::SamplingOverlayCandidate>) {
-        self.sampling_overlay_candidates = candidates;
-        let previous_len = self.selected_sampling_overlays.len();
-        self.selected_sampling_overlays.retain(|selected| {
-            self.sampling_overlay_candidates
-                .iter()
-                .any(|candidate| candidate.node_id() == *selected)
-        });
-        if self.selected_sampling_overlays.len() != previous_len {
+        self.graph_run
+            .replace_sampling_overlay_candidates(candidates);
+        if self
+            .presentations
+            .retain_sampling_overlay_candidates(self.graph_run.sampling_overlay_candidates())
+        {
             self.persist_sampling_overlay_setting();
         }
         self.refresh_sampling_overlay_ui();
@@ -1726,25 +1554,27 @@ impl App {
             return;
         }
         let current_run_candidates = self
-            .run
-            .as_ref()
+            .graph_run
+            .run()
             .map(|run| run.sampling_overlays().to_vec())
             .or_else(|| {
                 self.capture_analysis
-                    .as_ref()
+                    .analysis()
                     .map(|run| run.sampling_overlays().to_vec())
             });
         if let Some(candidates) = current_run_candidates {
-            self.sampling_overlay_candidates = candidates;
+            self.graph_run
+                .replace_sampling_overlay_candidates(candidates);
         }
         if !self
-            .sampling_overlay_candidates
+            .graph_run
+            .sampling_overlay_candidates()
             .iter()
             .any(|candidate| candidate.node_id() == node_id)
         {
             return;
         }
-        toggle_sampling_overlay(&mut self.selected_sampling_overlays, node_id);
+        self.presentations.toggle_sampling_overlay(node_id);
         self.persist_sampling_overlay_setting();
         self.refresh_sampling_overlay_ui();
     }
@@ -1766,14 +1596,12 @@ impl App {
             .map(|e| e.message.clone())
             .unwrap_or_else(|| "compile failed".to_owned());
         let extra = errors.len().saturating_sub(1);
-        self.run_message = Some((
-            if extra > 0 {
-                format!("{summary} (+{extra} more)")
-            } else {
-                summary
-            },
-            true,
-        ));
+        let message = if extra > 0 {
+            format!("{summary} (+{extra} more)")
+        } else {
+            summary
+        };
+        self.graph_run.set_run_message(message, true);
     }
 
     fn show_logic_analyzer_status(&mut self, ui: &mut egui::Ui) {
@@ -1791,38 +1619,30 @@ impl App {
     }
 
     pub(crate) fn clear_derived_data_presentations(&mut self) {
-        if let Some(mut run) = self.run.take() {
+        if let Some(mut run) = self.graph_run.take_run() {
             run.stop();
         }
-        self.running_graph_semantics = None;
-        self.output_presentation_catalog.clear();
-        self.table_presentation_catalog.clear();
-        let lanes = signal_derived::DerivedLanes::new();
-        self.set_presented_derived_lanes(lanes.clone());
+        let lanes = self.presentations.clear_run_catalogs();
+        self.logic_analyzer.set_derived_lanes(lanes);
         self.logic_analyzer
             .set_waveform_presentations(WaveformPresentationRegistry::new());
-        self.decoder_panels
-            .set_run_data(lanes.clone(), DecoderTableRegistry::new());
-        self.plugin_panels.set_run_data(lanes);
     }
 
     fn bind_run_data(&mut self, run_data: runtime::RunData) {
         let lanes = run_data.derived_lanes().clone();
         self.set_presented_derived_lanes(lanes.clone());
-        self.output_presentation_catalog = run_data.output_subscriptions().to_vec();
-        self.table_presentation_catalog = run_data.table_subscriptions().to_vec();
+        self.presentations.replace_run_catalogs(&run_data);
         self.bind_catalog_presentations();
-        self.plugin_panels.set_run_data(lanes);
         self.set_sampling_overlay_candidates(run_data.sampling_overlays().to_vec());
     }
 
     fn bind_catalog_presentations(&mut self) {
-        let outputs = visible_output_subscriptions(
-            &self.output_presentation_catalog,
-            self.node_graph.graph(),
-        );
-        let tables =
-            visible_table_subscriptions(&self.table_presentation_catalog, self.node_graph.graph());
+        let outputs = self
+            .presentations
+            .visible_output_subscriptions(self.node_graph.graph());
+        let tables = self
+            .presentations
+            .visible_table_subscriptions(self.node_graph.graph());
         match waveform_presentation_registry(&outputs) {
             Ok(presentations) => self
                 .logic_analyzer
@@ -1832,9 +1652,12 @@ impl App {
             )),
         }
         match decoder_table_registry(&tables) {
-            Ok(tables) => self
-                .decoder_panels
-                .set_run_data(self.presented_derived_lanes.clone(), tables),
+            Ok(tables) => {
+                let lanes = self.presentations.presented_derived_lanes().clone();
+                self.presentations
+                    .decoder_panels_mut()
+                    .set_run_data(lanes, tables);
+            }
             Err(error) => self.toasts.error(format!(
                 "Could not bind decoder-table presentation: {error}"
             )),
@@ -1842,36 +1665,41 @@ impl App {
     }
 
     fn merge_current_run_presentation_catalog(&mut self) {
-        let Some(run) = self.run.as_ref() else {
+        let Some(run) = self.graph_run.run() else {
             return;
         };
         let outputs = run.output_subscriptions().to_vec();
         let tables = run.table_subscriptions().to_vec();
-        merge_output_subscription_catalog(&mut self.output_presentation_catalog, &outputs);
-        merge_table_subscription_catalog(&mut self.table_presentation_catalog, &tables);
+        self.presentations.merge_run_catalogs(&outputs, &tables);
         self.bind_catalog_presentations();
     }
 
     fn synchronize_presentation_graph_nodes(&mut self) -> bool {
-        let graph_nodes = self.node_graph.graph().nodes.keys().copied().collect();
-        if self.presentation_graph_nodes == graph_nodes {
+        if !self
+            .presentations
+            .synchronize_graph_nodes(self.node_graph.graph())
+        {
             return false;
         }
-        self.presentation_graph_nodes = graph_nodes;
         self.bind_catalog_presentations();
         self.refresh_sampling_overlay_ui();
         true
     }
 
     fn restore_cached_derived_data(&mut self) {
-        if self.run.is_some() || self.capture.is_active() || self.is_capture_analysis_active() {
+        if self.graph_run.has_run()
+            || self.capture_analysis.coordinator().is_active()
+            || self.is_capture_analysis_active()
+        {
             return;
         }
-        self.cached_preview_graph = Some(self.node_graph.graph().semantic_snapshot());
+        self.graph_run
+            .set_cached_preview_graph(self.node_graph.graph().semantic_snapshot());
         let mut ctx = runtime::GraphRunContext::default();
         self.supply_timeline_cursors(&mut ctx);
         match self
-            .graph_service
+            .graph_run
+            .service()
             .load_cached_data(self.node_graph.graph(), &mut ctx)
         {
             Ok(true) => self.bind_run_data(ctx.run_data()),
@@ -1884,15 +1712,19 @@ impl App {
             self.node_graph.set_node_badge(id, None);
         }
         self.node_graph.clear_node_statuses();
-        self.run_message = None;
+        self.graph_run.clear_run_message();
 
-        let replay = match self.capture.replay_source_node() {
+        let replay = match self.capture_analysis.coordinator().replay_source_node() {
             Some(source_node) if self.node_graph.graph().nodes.contains_key(&source_node) => {
-                match self.capture.create_replay_attachment() {
+                match self
+                    .capture_analysis
+                    .coordinator()
+                    .create_replay_attachment()
+                {
                     Ok(Some(replay)) => Some(replay),
                     Ok(None) => None,
                     Err(error) => {
-                        self.run_message = Some((error.clone(), true));
+                        self.graph_run.set_run_message(error.clone(), true);
                         self.toasts.error(error);
                         return;
                     }
@@ -1905,14 +1737,16 @@ impl App {
             && matches!(
                 capture_availability(
                     self.node_graph.graph(),
-                    self.graph_service.as_ref(),
-                    self.capture.backend_unavailable_reason(),
+                    self.graph_run.service(),
+                    self.capture_analysis
+                        .coordinator()
+                        .backend_unavailable_reason(),
                 ),
                 CaptureAvailability::Available { .. }
             )
         {
             let message = "Capture data before running a live-source graph".to_owned();
-            self.run_message = Some((message.clone(), true));
+            self.graph_run.set_run_message(message.clone(), true);
             self.toasts.error(message);
             return;
         }
@@ -1925,23 +1759,26 @@ impl App {
         // Run is an explicit fresh execution. Cached lanes are a pre-run
         // preview only, so release their mmap/query handles before removing
         // this graph's entries and creating the replacement stores.
-        self.cached_preview_graph = None;
+        self.graph_run.clear_cached_preview_graph();
         self.clear_derived_data_presentations();
         let mut ctx = runtime::GraphRunContext::default();
         self.supply_timeline_cursors(&mut ctx);
         if replay.is_none()
             && let Err(error) = self.prepare_fresh_run_caches()
         {
-            self.run_message = Some((error.clone(), true));
+            self.graph_run.set_run_message(error.clone(), true);
             self.toasts.error(error);
             return;
         }
         self.set_presented_derived_lanes(ctx.derived_lanes().clone());
         self.logic_analyzer
             .set_waveform_presentations(WaveformPresentationRegistry::new());
-        self.decoder_panels
+        self.presentations
+            .decoder_panels_mut()
             .set_run_data(ctx.derived_lanes().clone(), DecoderTableRegistry::new());
-        self.plugin_panels.set_run_data(ctx.derived_lanes().clone());
+        self.presentations
+            .plugin_panels_mut()
+            .set_run_data(ctx.derived_lanes().clone());
 
         let mut source_overrides = runtime::SourceProcessOverrides::new();
         if let Some(CaptureReplayAttachment {
@@ -1952,17 +1789,18 @@ impl App {
             source_overrides.insert(source_node, process);
         }
         let started =
-            self.graph_service
+            self.graph_run
+                .service()
                 .start_run(self.node_graph.graph(), &mut ctx, source_overrides);
         match started {
             Ok(run) => {
                 let run_data = ctx.run_data();
                 self.bind_run_data(run_data);
-                self.running_graph_semantics = Some(self.node_graph.graph().semantic_snapshot());
-                self.run = Some(run);
+                self.graph_run
+                    .install_run(run, self.node_graph.graph().semantic_snapshot());
             }
             Err(errors) => {
-                self.sampling_overlay_candidates.clear();
+                self.graph_run.clear_sampling_overlay_candidates();
                 self.refresh_sampling_overlay_ui();
                 self.report_compile_errors(&errors);
             }
@@ -1971,7 +1809,8 @@ impl App {
 
     fn prepare_fresh_run_caches(&self) -> Result<(), String> {
         let Ok(inventory) = self
-            .graph_service
+            .graph_run
+            .service()
             .derived_cache_configs_by_node(self.node_graph.graph())
         else {
             // The ordinary start path reports compile errors with node
@@ -1984,7 +1823,8 @@ impl App {
             unique.entry(config.cache_key).or_insert(config);
         }
         for config in unique.into_values() {
-            self.graph_service
+            self.graph_run
+                .service()
                 .clear_derived_cache_entry(&config)
                 .map_err(|error| {
                     format!("Could not clear derived data cache before running: {error}")
@@ -1994,7 +1834,7 @@ impl App {
     }
 
     pub(crate) fn is_running(&self) -> bool {
-        self.run.as_ref().is_some_and(|run| !run.is_finished())
+        self.graph_run.is_running()
     }
 
     fn bind_current_run_presentations(&mut self) {
@@ -2003,34 +1843,34 @@ impl App {
 
     fn apply_view_configuration_to_run(&mut self) {
         if let Ok(Some(feature)) = self
-            .graph_service
+            .graph_run
+            .service()
             .discover_live_capture_feature(self.node_graph.graph())
         {
             self.logic_analyzer
                 .set_visible_capture_channels(feature.visible_channels().iter().copied());
         }
-        if self.run.is_none() {
+        if !self.graph_run.has_run() {
             self.restore_cached_derived_data();
             return;
         }
         let graph_semantics = self.node_graph.graph().semantic_snapshot();
-        let result = {
-            let run = self.run.as_mut().expect("run existence checked above");
-            self.graph_service
-                .apply_run(run.as_mut(), self.node_graph.graph())
-        };
+        let result = self
+            .graph_run
+            .apply_run(self.node_graph.graph())
+            .expect("run existence checked above");
         match result {
             Ok(_) => {
-                self.running_graph_semantics = Some(graph_semantics);
+                self.graph_run.set_running_graph_semantics(graph_semantics);
                 self.bind_current_run_presentations();
             }
             Err(runtime::ApplyError::Compile(_)) => {}
             Err(runtime::ApplyError::NeedsFullRestart(reason)) => {
-                self.running_graph_semantics = Some(graph_semantics);
-                self.run_message = Some((
+                self.graph_run.set_running_graph_semantics(graph_semantics);
+                self.graph_run.set_run_message(
                     format!("view update could not use cached data: {reason}"),
                     true,
-                ));
+                );
             }
             Err(runtime::ApplyError::Apply(message)) => {
                 self.toasts.error(format!("view update failed: {message}"))
@@ -2039,7 +1879,7 @@ impl App {
     }
 
     fn is_stopping(&self) -> bool {
-        self.run.as_ref().is_some_and(|run| run.is_stopping())
+        self.graph_run.is_stopping()
     }
 
     /// Run/Stop menu items and their `Cmd+R`/`Cmd+.` accelerators (Phase
@@ -2049,9 +1889,9 @@ impl App {
     /// is a safe no-op rather than double-starting or double-stopping.
     pub(crate) fn run_command(&mut self) {
         if !self.is_running()
-            && !self.capture.is_active()
+            && !self.capture_analysis.coordinator().is_active()
             && !self.is_capture_analysis_active()
-            && self.derived_cache_clear_task.is_none()
+            && self.graph_run.cache_clear_task().is_none()
         {
             self.start_run();
         }
@@ -2061,38 +1901,41 @@ impl App {
         if self.is_running() {
             return Some("The pipeline is already running".into());
         }
-        if self.capture.is_active() || self.is_capture_analysis_active() {
+        if self.capture_analysis.coordinator().is_active() || self.is_capture_analysis_active() {
             return Some("Wait for live capture analysis to finish".into());
         }
-        if self.derived_cache_clear_task.is_some() {
+        if self.graph_run.cache_clear_task().is_some() {
             return Some("Wait for derived data caches to be cleared".into());
         }
-        match &self.capture_availability {
+        match self.capture_analysis.availability() {
             CaptureAvailability::Available {
                 source_node,
                 source_title,
                 ..
-            } if self.capture.replay_source_node() != Some(*source_node) => Some(format!(
-                "Capture data from {source_title} before running the pipeline"
-            )),
+            } if self.capture_analysis.coordinator().replay_source_node() != Some(*source_node) => {
+                Some(format!(
+                    "Capture data from {source_title} before running the pipeline"
+                ))
+            }
             CaptureAvailability::Available { .. } | CaptureAvailability::Unavailable { .. } => None,
         }
     }
 
     pub(crate) fn stop_command(&mut self) {
-        if self.is_running()
-            && !self.is_stopping()
-            && let Some(run) = &mut self.run
-        {
-            run.stop();
+        if self.is_running() && !self.is_stopping() {
+            self.graph_run.stop_run();
         }
     }
 
     fn start_capture_command(&mut self, mode: signal_capture_session::CaptureStartMode) {
-        if self.capture.is_active()
+        if self.capture_analysis.coordinator().is_active()
             || self.is_running()
             || self.is_capture_analysis_active()
-            || self.capture.export_status().is_some()
+            || self
+                .capture_analysis
+                .coordinator()
+                .export_status()
+                .is_some()
         {
             return;
         }
@@ -2100,10 +1943,11 @@ impl App {
             self.node_graph.set_node_badge(id, None);
         }
         self.node_graph.clear_node_statuses();
-        self.run_message = None;
+        self.graph_run.clear_run_message();
         self.node_graph.sync_node_states();
         let feature = match self
-            .graph_service
+            .graph_run
+            .service()
             .discover_live_capture_feature(self.node_graph.graph())
         {
             Ok(Some(feature)) => feature,
@@ -2118,21 +1962,19 @@ impl App {
         };
         self.logic_analyzer
             .set_visible_capture_channels(feature.visible_channels().iter().copied());
-        self.capture_graph = Some(self.node_graph.graph().clone());
-        self.capture_epoch_observed_graph = serde_json::to_vec(self.node_graph.graph()).ok();
-        self.capture_epoch_request_in_flight = false;
         let capture_cache_configs = self
             .capture_analysis
-            .as_ref()
+            .analysis()
             .map(|run| run.persistent_cache_configs())
             .unwrap_or_default();
-        self.capture_analysis = None;
-        self.capture_analysis_error = None;
+        self.capture_analysis.begin_capture(
+            self.node_graph.graph().clone(),
+            serde_json::to_vec(self.node_graph.graph()).ok(),
+        );
         self.set_presented_derived_lanes(signal_derived::DerivedLanes::new());
         for config in &capture_cache_configs {
-            if let Err(error) = self.graph_service.clear_derived_cache_entry(config) {
-                self.capture_graph = None;
-                self.capture_epoch_observed_graph = None;
+            if let Err(error) = self.graph_run.service().clear_derived_cache_entry(config) {
+                self.capture_analysis.clear_capture_graph();
                 self.toasts
                     .error(format!("Could not remove previous capture cache: {error}"));
                 return;
@@ -2141,57 +1983,71 @@ impl App {
         // Capture data is replaceable working state. Drop the viewer's index
         // handle before the coordinator removes the previous store and index.
         self.clear_capture_presentation();
-        match self
-            .capture
-            .start_with_graph(feature, self.node_graph.graph(), mode)
-        {
+        match self.capture_analysis.coordinator_mut().start_with_graph(
+            feature,
+            self.node_graph.graph(),
+            mode,
+        ) {
             Ok(()) => self.node_graph.set_editing_enabled(false),
             Err(error) => {
-                self.capture_graph = None;
-                self.capture_epoch_observed_graph = None;
+                self.capture_analysis.clear_capture_graph();
                 self.toasts.error(error);
             }
         }
     }
 
     fn stop_capture_command(&mut self) {
-        self.capture.request_stop();
+        self.capture_analysis.coordinator_mut().request_stop();
     }
 
     fn abort_capture_command(&mut self) {
-        if let Err(error) = self.capture.request_abort() {
+        if let Err(error) = self.capture_analysis.coordinator_mut().request_abort() {
             self.toasts.error(error);
         }
     }
 
     fn force_trigger_capture_command(&mut self) {
-        if let Err(error) = self.capture.request_force_trigger() {
+        if let Err(error) = self
+            .capture_analysis
+            .coordinator_mut()
+            .request_force_trigger()
+        {
             self.toasts.error(error);
         }
     }
 
     fn poll_capture(&mut self, ctx: &egui::Context) {
-        self.capture.poll();
-        if let Some(attachment) = self.capture.take_analysis_attachment() {
+        self.capture_analysis.coordinator_mut().poll();
+        if let Some(attachment) = self
+            .capture_analysis
+            .coordinator_mut()
+            .take_analysis_attachment()
+        {
             self.start_capture_analysis(attachment);
         }
         let planned_span_us = self
-            .capture
+            .capture_analysis
+            .coordinator()
             .status()
             .and_then(|status| status.session_plan.as_ref())
             .and_then(planned_waveform_span_us);
-        if let Some(update) = self.capture.take_waveform_update() {
+        if let Some(update) = self
+            .capture_analysis
+            .coordinator_mut()
+            .take_waveform_update()
+        {
             match update {
                 Some(index) => {
-                    let identity = self.capture.status().map_or_else(
+                    let identity = self.capture_analysis.coordinator().status().map_or_else(
                         || "Live capture".to_owned(),
                         |status| status.source_title.clone(),
                     );
-                    self.capture_storage = Some(capture_storage_from_index(
-                        &identity,
-                        index.as_ref(),
-                        CaptureStorageBacking::GrowingIndex,
-                    ));
+                    self.capture_analysis
+                        .set_storage(capture_storage_from_index(
+                            &identity,
+                            index.as_ref(),
+                            CaptureStorageBacking::GrowingIndex,
+                        ));
                     self.logic_analyzer
                         .set_growing_capture_with_planned_span(index, planned_span_us);
                     self.publish_live_source_artifacts(true, true);
@@ -2204,23 +2060,31 @@ impl App {
         }
         self.sync_capture_analysis(ctx);
         let graph_processed = self.capture_analysis_progress();
-        self.capture.set_graph_processed_samples(graph_processed);
+        self.capture_analysis
+            .coordinator_mut()
+            .set_graph_processed_samples(graph_processed);
         let analysis_active = self.is_capture_analysis_active();
         self.node_graph
-            .set_editing_enabled(self.capture.graph_editing_enabled());
-        self.logic_analyzer
-            .set_simple_trigger_editing_enabled(!self.capture.is_active() && !analysis_active);
-        if self.capture.is_active() || analysis_active || self.capture.export_status().is_some() {
+            .set_editing_enabled(self.capture_analysis.coordinator().graph_editing_enabled());
+        self.logic_analyzer.set_simple_trigger_editing_enabled(
+            !self.capture_analysis.coordinator().is_active() && !analysis_active,
+        );
+        if self.capture_analysis.coordinator().is_active()
+            || analysis_active
+            || self
+                .capture_analysis
+                .coordinator()
+                .export_status()
+                .is_some()
+        {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
-        } else if self.capture_analysis.is_none() {
-            self.capture_graph = None;
-            self.capture_epoch_observed_graph = None;
-            self.capture_epoch_request_in_flight = false;
+        } else if self.capture_analysis.analysis().is_none() {
+            self.capture_analysis.clear_capture_graph();
         }
     }
 
     fn publish_live_source_artifacts(&self, cache: bool, index: bool) {
-        let Some(run) = &self.capture_analysis else {
+        let Some(run) = self.capture_analysis.analysis() else {
             return;
         };
         let registry = run.source_readiness();
@@ -2241,7 +2105,7 @@ impl App {
     }
 
     pub(crate) fn publish_file_source_ready(&self) {
-        let Some(run) = &self.run else {
+        let Some(run) = self.graph_run.run() else {
             return;
         };
         let registry = run.source_readiness();
@@ -2265,7 +2129,7 @@ impl App {
     }
 
     pub(crate) fn publish_file_source_failure(&self, error: &str) {
-        let Some(run) = &self.run else {
+        let Some(run) = self.graph_run.run() else {
             return;
         };
         let registry = run.source_readiness();
@@ -2289,13 +2153,15 @@ impl App {
     }
 
     fn start_capture_analysis(&mut self, attachment: CaptureAnalysisAttachment) {
-        let Some(graph) = self.capture_graph.take() else {
-            self.capture_analysis_error = Some("capture graph snapshot is unavailable".into());
+        let Some(graph) = self.capture_analysis.take_capture_graph() else {
+            self.capture_analysis
+                .fail_analysis("capture graph snapshot is unavailable");
             return;
         };
         self.refresh_graph_output_selections();
         let contains_source = match self
-            .graph_service
+            .graph_run
+            .service()
             .graph_contains_node(&graph, attachment.source_node)
         {
             Ok(contains_source) => contains_source,
@@ -2304,57 +2170,64 @@ impl App {
         if !contains_source {
             return;
         }
-        self.output_presentation_catalog.clear();
-        self.table_presentation_catalog.clear();
+        let _ = self.presentations.clear_run_catalogs();
         let mut ctx = runtime::GraphRunContext::default();
         self.supply_timeline_cursors(&mut ctx);
         self.set_presented_derived_lanes(ctx.derived_lanes().clone());
         self.logic_analyzer
             .set_waveform_presentations(WaveformPresentationRegistry::new());
-        self.decoder_panels
+        self.presentations
+            .decoder_panels_mut()
             .set_run_data(ctx.derived_lanes().clone(), DecoderTableRegistry::new());
-        self.plugin_panels.set_run_data(ctx.derived_lanes().clone());
+        self.presentations
+            .plugin_panels_mut()
+            .set_run_data(ctx.derived_lanes().clone());
         let source = runtime::LiveAnalysisSource {
             source_node: attachment.source_node,
             process: attachment.process,
         };
         match self
-            .graph_service
+            .graph_run
+            .service()
             .start_live_analysis(&graph, &mut ctx, source)
         {
             Ok(run) => {
                 self.bind_run_data(ctx.run_data());
-                self.capture_analysis = Some(run);
+                self.capture_analysis.install_analysis(run);
                 self.publish_live_source_artifacts(true, false);
             }
             Err(errors) => {
                 self.report_compile_errors(&errors);
-                self.capture_analysis_error = Some(
-                    errors
-                        .first()
-                        .map(|error| error.message.clone())
-                        .unwrap_or_else(|| "live analysis could not start".into()),
-                );
+                let message = errors
+                    .first()
+                    .map(|error| error.message.clone())
+                    .unwrap_or_else(|| "live analysis could not start".into());
+                self.capture_analysis.fail_analysis(message);
             }
         }
     }
 
     fn sync_capture_analysis(&mut self, ctx: &egui::Context) {
-        if self.capture_analysis.is_none() {
+        if self.capture_analysis.analysis().is_none() {
             return;
         }
         self.capture_analysis
-            .as_mut()
+            .analysis_mut()
             .unwrap()
             .pump_for(256, std::time::Duration::from_millis(8));
-        for (id, items) in self.capture_analysis.as_ref().unwrap().progress() {
+        for (id, items) in self.capture_analysis.analysis().unwrap().progress() {
             let status = (items > 0).then(|| format_count(items));
             self.node_graph.set_node_status(id, status);
         }
-        if !self.capture_analysis.as_ref().unwrap().is_finished() {
+        if !self.capture_analysis.analysis().unwrap().is_finished() {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
         }
-        for (node, event) in self.capture_analysis.as_ref().unwrap().take_disconnected() {
+        for (node, event) in self
+            .capture_analysis
+            .analysis()
+            .unwrap()
+            .take_disconnected()
+        {
             if let Some(id) = node {
                 self.node_graph.set_node_badge(
                     id,
@@ -2367,12 +2240,16 @@ impl App {
             }
         }
 
-        if let Some(preparation) = self.capture.take_configuration_epoch_preparation() {
-            self.capture_epoch_request_in_flight = false;
+        if let Some(preparation) = self
+            .capture_analysis
+            .coordinator_mut()
+            .take_configuration_epoch_preparation()
+        {
+            self.capture_analysis.mark_epoch_request_finished();
             match preparation {
                 Ok(prepared) => {
-                    let result = self.graph_service.apply_configuration_epoch(
-                        self.capture_analysis.as_mut().unwrap().as_mut(),
+                    let result = self.graph_run.service().apply_configuration_epoch(
+                        self.capture_analysis.analysis_mut().unwrap(),
                         &prepared.graph,
                         prepared.boundary,
                     );
@@ -2408,7 +2285,8 @@ impl App {
                         }
                     };
                     if let Err(error) = self
-                        .capture
+                        .capture_analysis
+                        .coordinator_mut()
                         .resolve_configuration_epoch(prepared.epoch_id, resolution)
                     {
                         self.toasts.error(error);
@@ -2417,7 +2295,11 @@ impl App {
                 Err(error) => self.toasts.error(error),
             }
         }
-        if let Some(Err(error)) = self.capture.take_configuration_epoch_notice() {
+        if let Some(Err(error)) = self
+            .capture_analysis
+            .coordinator_mut()
+            .take_configuration_epoch_notice()
+        {
             self.toasts.error(format!(
                 "could not persist configuration epoch outcome: {error}"
             ));
@@ -2425,17 +2307,21 @@ impl App {
 
         const EPOCH_SYNC_INTERVAL_S: f64 = 0.5;
         let now = ctx.input(|input| input.time);
-        let recording = self.capture.status().is_some_and(|status| {
-            status.state == signal_capture_session::CaptureSessionState::Recording
-        });
+        let recording = self
+            .capture_analysis
+            .coordinator()
+            .status()
+            .is_some_and(|status| {
+                status.state == signal_capture_session::CaptureSessionState::Recording
+            });
         if !recording
-            || self.capture_analysis.as_ref().unwrap().is_finished()
-            || self.capture_epoch_request_in_flight
-            || now - self.last_capture_epoch_sync < EPOCH_SYNC_INTERVAL_S
+            || self.capture_analysis.analysis().unwrap().is_finished()
+            || self.capture_analysis.epoch_request_in_flight()
+            || now - self.capture_analysis.last_epoch_sync() < EPOCH_SYNC_INTERVAL_S
         {
             return;
         }
-        self.last_capture_epoch_sync = now;
+        self.capture_analysis.mark_epoch_sync(now);
         let revision = match serde_json::to_vec(self.node_graph.graph()) {
             Ok(revision) => revision,
             Err(error) => {
@@ -2445,38 +2331,37 @@ impl App {
                 return;
             }
         };
-        if self.capture_epoch_observed_graph.as_ref() == Some(&revision) {
+        if self.capture_analysis.epoch_observed_graph() == Some(revision.as_slice()) {
             return;
         }
         match self
-            .capture
+            .capture_analysis
+            .coordinator_mut()
             .request_configuration_epoch(self.node_graph.graph().clone())
         {
             Ok(()) => {
-                self.capture_epoch_observed_graph = Some(revision);
-                self.capture_epoch_request_in_flight = true;
+                self.capture_analysis.observe_epoch_graph(revision);
+                self.capture_analysis.mark_epoch_request_started();
             }
             Err(error) => self.toasts.error(error),
         }
     }
 
     pub(crate) fn is_capture_analysis_active(&self) -> bool {
-        self.capture_analysis
-            .as_ref()
-            .is_some_and(|run| !run.is_finished())
+        self.capture_analysis.is_analysis_active()
     }
 
     fn capture_analysis_progress(&self) -> Option<u64> {
-        let source = self.capture.status()?.source_node;
+        let source = self.capture_analysis.coordinator().status()?.source_node;
         self.capture_analysis
-            .as_ref()?
+            .analysis()?
             .progress()
             .into_iter()
             .find_map(|(node, items)| (node == source).then_some(items))
     }
 
     fn show_capture_controls(&mut self, ui: &mut egui::Ui) {
-        if let Some(notice) = self.capture.take_export_notice() {
+        if let Some(notice) = self.capture_analysis.coordinator_mut().take_export_notice() {
             match notice {
                 Ok(completion) => {
                     self.toasts.info(format!(
@@ -2493,8 +2378,8 @@ impl App {
                 Err(error) => self.toasts.error(format!("Capture export failed: {error}")),
             }
         }
-        let status = self.capture.status().cloned();
-        if self.capture.is_active() {
+        let status = self.capture_analysis.coordinator().status().cloned();
+        if self.capture_analysis.coordinator().is_active() {
             let state = status.as_ref().map(|status| status.state);
             let popup_open = ui.ctx().any_popup_open();
             if !popup_open
@@ -2583,7 +2468,12 @@ impl App {
                 });
             }
         } else {
-            let availability = if self.capture.export_status().is_some() {
+            let availability = if self
+                .capture_analysis
+                .coordinator()
+                .export_status()
+                .is_some()
+            {
                 CaptureAvailability::Unavailable {
                     reason: "Wait for Save Capture Data to finish".into(),
                 }
@@ -2592,7 +2482,7 @@ impl App {
                     reason: "Stop the pipeline before starting capture".into(),
                 }
             } else {
-                self.capture_availability.clone()
+                self.capture_analysis.availability().clone()
             };
             let enabled = matches!(availability, CaptureAvailability::Available { .. });
             let response = ui.add_enabled(enabled, egui::Button::new("● Start"));
@@ -2636,7 +2526,7 @@ impl App {
             }
         }
 
-        if let Some(export) = self.capture.export_status().cloned() {
+        if let Some(export) = self.capture_analysis.coordinator().export_status().cloned() {
             ui.separator();
             let fraction = if export.total_samples == 0 {
                 0.0
@@ -2656,11 +2546,13 @@ impl App {
                 .add_enabled(!export.cancelling, egui::Button::new("Cancel Export"))
                 .clicked()
             {
-                self.capture.request_cancel_export();
+                self.capture_analysis
+                    .coordinator_mut()
+                    .request_cancel_export();
             }
         }
 
-        if let Some(status) = self.capture.status() {
+        if let Some(status) = self.capture_analysis.coordinator().status() {
             let mut summary = capture_state_name(status.state).to_owned();
             if status.outcome.is_terminal() {
                 summary = capture_outcome_name(status.outcome).into();
@@ -2700,7 +2592,7 @@ impl App {
                 });
             }
 
-            if let Some(error) = &self.capture_analysis_error {
+            if let Some(error) = self.capture_analysis.analysis_error() {
                 ui.colored_label(
                     egui::Color32::from_rgb(230, 120, 120),
                     format!("Analysis error · {error}"),
@@ -2719,14 +2611,14 @@ impl App {
                 let lag = captured.saturating_sub(processed);
                 if self
                     .capture_analysis
-                    .as_ref()
+                    .analysis()
                     .is_some_and(|run| run.is_finished())
                 {
                     ui.label(format!("Analysis complete · {processed} samples"));
                 } else {
                     ui.label(format!("Analysis · {processed} samples · lag {lag}"));
                 }
-            } else if self.capture.is_active() {
+            } else if self.capture_analysis.coordinator().is_active() {
                 ui.label("Analysis · waiting for committed data");
             }
         }
@@ -2775,29 +2667,34 @@ impl App {
     /// can't be gated behind the same throttle as the `apply()` diff below.
     fn sync_run(&mut self, ctx: &egui::Context) {
         const SYNC_INTERVAL_S: f64 = 0.5;
-        if self.derived_cache_clear_task.is_some() {
+        if self.graph_run.cache_clear_task().is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
             return;
         }
         let now = ctx.input(|input| input.time);
-        if self.run.is_none() {
-            if self.capture.is_active() || self.is_capture_analysis_active() {
+        if !self.graph_run.has_run() {
+            if self.capture_analysis.coordinator().is_active() || self.is_capture_analysis_active()
+            {
                 return;
             }
-            if now - self.last_live_sync >= SYNC_INTERVAL_S {
-                self.last_live_sync = now;
+            if now - self.graph_run.last_live_sync() >= SYNC_INTERVAL_S {
+                self.graph_run.mark_live_sync(now);
                 let graph_snapshot = Some(self.node_graph.graph().semantic_snapshot());
-                if graph_snapshot != self.cached_preview_graph {
+                if graph_snapshot.as_deref() != self.graph_run.cached_preview_graph() {
                     self.restore_cached_derived_data();
                 }
-                self.capture_availability = capture_availability(
+                let availability = capture_availability(
                     self.node_graph.graph(),
-                    self.graph_service.as_ref(),
-                    self.capture.backend_unavailable_reason(),
+                    self.graph_run.service(),
+                    self.capture_analysis
+                        .coordinator()
+                        .backend_unavailable_reason(),
                 );
+                self.capture_analysis.set_availability(availability);
                 self.refresh_trigger_configuration();
                 if let Ok(candidates) = self
-                    .graph_service
+                    .graph_run
+                    .service()
                     .sampling_overlay_candidates(self.node_graph.graph())
                 {
                     self.set_sampling_overlay_candidates(candidates);
@@ -2805,28 +2702,24 @@ impl App {
             }
             return;
         }
-        let (failure, synchronized, candidates, finished) = {
-            let Some(run) = &mut self.run else {
-                return;
-            };
-            run.pump_for(256, std::time::Duration::from_millis(8));
-            let failure = run.take_failure();
-            let synchronized = self
-                .graph_service
-                .synchronize_run_data(run.as_mut(), self.node_graph.graph());
-            let candidates = synchronized
-                .as_ref()
-                .is_ok_and(|changed| *changed)
-                .then(|| run.sampling_overlays().to_vec());
-            (failure, synchronized, candidates, run.is_finished())
+        let Some(GraphRunPoll {
+            failure,
+            synchronized,
+            sampling_overlay_candidates,
+            finished,
+        }) = self.graph_run.poll_run(self.node_graph.graph())
+        else {
+            return;
         };
         if let Some(message) = failure {
-            self.run_message = Some((message.clone(), true));
+            self.graph_run.set_run_message(message.clone(), true);
             self.toasts.error(message);
         }
         match synchronized {
             Ok(true) => {
-                self.set_sampling_overlay_candidates(candidates.unwrap_or_default());
+                self.set_sampling_overlay_candidates(
+                    sampling_overlay_candidates.unwrap_or_default(),
+                );
                 self.merge_current_run_presentation_catalog();
             }
             Ok(false) => {}
@@ -2836,42 +2729,42 @@ impl App {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
         }
 
-        if now - self.last_live_sync < SYNC_INTERVAL_S {
+        if now - self.graph_run.last_live_sync() < SYNC_INTERVAL_S {
             return;
         }
-        self.last_live_sync = now;
+        self.graph_run.mark_live_sync(now);
 
         // Per-node progress in the headers — also after the
         // run finished, so the final counts stick.
-        for (id, items) in self.run.as_ref().unwrap().progress() {
+        for (id, items) in self.graph_run.run().unwrap().progress() {
             let status = (items > 0).then(|| format_count(items));
             self.node_graph.set_node_status(id, status);
         }
-        let Some(run) = &mut self.run else {
-            return;
-        };
         // No live edits once the run is done or winding down — `apply()`'s
         // remove/restart paths join node threads, which a stopping run may
         // not finish promptly.
-        if run.is_finished() || run.is_stopping() {
+        if self.graph_run.run_is_finished_or_stopping() {
             return;
         }
         let graph_semantics = self.node_graph.graph().semantic_snapshot();
-        if self.running_graph_semantics.as_ref() == Some(&graph_semantics) {
+        if self.graph_run.running_graph_semantics() == Some(graph_semantics.as_slice()) {
             return;
         }
 
         let mut refresh_run_presentations = false;
         match self
-            .graph_service
-            .apply_run(run.as_mut(), self.node_graph.graph())
+            .graph_run
+            .apply_run(self.node_graph.graph())
+            .expect("run existence checked above")
         {
             Ok(summary) if summary.is_empty() => {
-                self.running_graph_semantics = Some(graph_semantics.clone());
+                self.graph_run
+                    .set_running_graph_semantics(graph_semantics.clone());
                 refresh_run_presentations = true;
             }
             Ok(summary) => {
-                self.running_graph_semantics = Some(graph_semantics.clone());
+                self.graph_run
+                    .set_running_graph_semantics(graph_semantics.clone());
                 refresh_run_presentations = true;
                 self.toasts.info(format!(
                     "live: +{} −{} cfg {} restart {}",
@@ -2883,15 +2776,21 @@ impl App {
                 // running pipeline and wait for the graph to become valid.
             }
             Err(runtime::ApplyError::NeedsFullRestart(reason)) => {
-                self.running_graph_semantics = Some(graph_semantics);
-                self.run_message = Some((format!("stop & rerun to apply: {reason}"), false));
+                self.graph_run.set_running_graph_semantics(graph_semantics);
+                self.graph_run
+                    .set_run_message(format!("stop & rerun to apply: {reason}"), false);
             }
             Err(runtime::ApplyError::Apply(message)) => {
                 self.toasts.error(format!("live edit failed: {message}"));
             }
         }
 
-        for (node, event) in run.take_disconnected() {
+        let disconnected = self
+            .graph_run
+            .run()
+            .expect("run existence checked above")
+            .take_disconnected();
+        for (node, event) in disconnected {
             if let Some(id) = node {
                 self.node_graph.set_node_badge(
                     id,
@@ -2904,7 +2803,12 @@ impl App {
             }
         }
         if refresh_run_presentations {
-            let candidates = run.sampling_overlays().to_vec();
+            let candidates = self
+                .graph_run
+                .run()
+                .expect("run existence checked above")
+                .sampling_overlays()
+                .to_vec();
             self.set_sampling_overlay_candidates(candidates);
             self.merge_current_run_presentation_catalog();
         }
@@ -2960,7 +2864,7 @@ impl App {
             }
             ui.spinner();
             ui.label("Running");
-        } else if self.derived_cache_clear_task.is_some() {
+        } else if self.graph_run.cache_clear_task().is_some() {
             ui.spinner();
             ui.label("Clearing derived data caches…");
         } else if self.is_capture_analysis_active() {
@@ -2975,11 +2879,11 @@ impl App {
             if run.clicked() {
                 self.run_command();
             }
-            if self.run.is_some() {
+            if self.graph_run.has_run() {
                 ui.label("Finished");
             }
         }
-        if let Some((message, is_error)) = &self.run_message {
+        if let Some((message, is_error)) = self.graph_run.run_message() {
             let color = if *is_error {
                 egui::Color32::from_rgb(230, 120, 120)
             } else {
@@ -3000,12 +2904,12 @@ impl App {
     }
 
     fn show_trigger_panel(&mut self, ui: &mut egui::Ui) {
-        let Some(configuration) = self.trigger_configuration.as_ref() else {
+        let Some(configuration) = self.capture_analysis.trigger_configuration() else {
             ui.centered_and_justified(|ui| {
                 ui.label(
                     egui::RichText::new(
-                        self.trigger_configuration_error
-                            .as_deref()
+                        self.capture_analysis
+                            .trigger_configuration_error()
                             .unwrap_or("No trigger configuration is available"),
                     )
                     .weak(),
@@ -3035,7 +2939,7 @@ impl App {
         )
         .enabled(
             self.node_graph.editing_enabled()
-                && !self.capture.is_active()
+                && !self.capture_analysis.coordinator().is_active()
                 && !self.is_capture_analysis_active(),
         )
         .show(ui);
@@ -3103,7 +3007,8 @@ impl App {
             ),
         ];
         panels.extend(
-            self.plugin_panels
+            self.presentations
+                .plugin_panels()
                 .definitions()
                 .into_iter()
                 .map(|panel| (panel.title, panel.stable_id, panel_icon(panel.icon))),
@@ -3125,7 +3030,8 @@ impl App {
         let pointer_interaction_active = ui.input(|input| input.pointer.any_down());
         if self.memory_panel.refresh_due() && !pointer_interaction_active {
             let derived_lanes = self
-                .presented_derived_lanes
+                .presentations
+                .presented_derived_lanes()
                 .opaque_lanes()
                 .into_iter()
                 .map(|lane| DerivedSignalStorageSnapshot {
@@ -3134,7 +3040,7 @@ impl App {
                     storage: lane.storage_snapshot(),
                 })
                 .collect::<Vec<_>>();
-            let graph_state = if let Some(run) = self.run.as_ref() {
+            let graph_state = if let Some(run) = self.graph_run.run() {
                 if run.is_finished() {
                     "Finished"
                 } else {
@@ -3152,7 +3058,7 @@ impl App {
                 used_bytes: None,
                 budget_bytes: None,
             }];
-            let capture_service = self.capture.status().map_or_else(
+            let capture_service = self.capture_analysis.coordinator().status().map_or_else(
                 || MemoryServiceSnapshot {
                     name: "Capture service".to_owned(),
                     state: "Idle".to_owned(),
@@ -3169,8 +3075,9 @@ impl App {
                 },
             );
             services.push(capture_service);
-            let mut capture = self.capture_storage.clone();
-            if let (Some(capture), Some(status)) = (&mut capture, self.capture.status())
+            let mut capture = self.capture_analysis.storage().cloned();
+            if let (Some(capture), Some(status)) =
+                (&mut capture, self.capture_analysis.coordinator().status())
                 && let Some(stored_samples) = status.health.stored_samples
             {
                 capture.total_samples = Some(stored_samples);
@@ -3196,8 +3103,9 @@ impl App {
 
     pub(crate) fn reset_panel_layout(&mut self) {
         self.panel_layout = Self::default_panel_layout();
-        self.decoder_panels = DecoderPanels::default();
-        self.plugin_panels.reset_state();
+        self.presentations
+            .replace_decoder_panels(DecoderPanels::default());
+        self.presentations.plugin_panels_mut().reset_state();
     }
 
     fn status_actions(
@@ -3579,7 +3487,9 @@ fn install_fonts(ctx: &egui::Context, host_symbol_fonts: Vec<egui::FontData>) {
 
 impl eframe::App for App {
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
-        self.decoder_panels.filter_raw_input(raw_input);
+        self.presentations
+            .decoder_panels_mut()
+            .filter_raw_input(raw_input);
         self.node_graph.filter_modal_raw_input(raw_input);
         self.platform_raw_input_hook(ctx, raw_input);
     }
@@ -3611,14 +3521,14 @@ impl eframe::App for App {
         self.poll_capture(ui.ctx());
         self.platform_sync_capture();
         if matches!(
-            self.graph_service.source_preparation_status(),
+            self.graph_run.service().source_preparation_status(),
             runtime::SourcePreparationStatus::Preparing
         ) {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(100));
         }
         self.sync_run(ui.ctx());
-        let plugin_panel_definitions = self.plugin_panels.definitions();
+        let plugin_panel_definitions = self.presentations.plugin_panels().definitions();
         let mut specs = vec![
             PanelSpec::new("logic_analyzer", "Logic Analyzer", 160.0)
                 .icon(LOGIC_ANALYZER_PANEL_ICON.panel_icon())
@@ -3760,13 +3670,20 @@ impl eframe::App for App {
                     panel_id,
                     content_id: "decoder",
                     ..
-                } => self.decoder_panels.show(panel_id, panel_ui),
+                } => self
+                    .presentations
+                    .decoder_panels_mut()
+                    .show(panel_id, panel_ui),
                 PanelSlot::Body {
                     panel_id,
                     content_id,
                     ..
                 } => {
-                    if let Some(warning) = self.plugin_panels.show(content_id, panel_id, panel_ui) {
+                    if let Some(warning) = self
+                        .presentations
+                        .plugin_panels_mut()
+                        .show(content_id, panel_id, panel_ui)
+                    {
                         self.toasts
                             .warning_from(ToastSource::panel(content_id), warning);
                     }
@@ -3842,6 +3759,8 @@ impl eframe::App for App {
 
 #[cfg(test)]
 mod font_tests {
+    use std::collections::HashSet;
+
     use logic_analyzer_graph_capabilities::node_support::{
         PortKind, ResolvedInput, TimelineMarkerReference, TimelineMarkerReferenceBindingDescriptor,
         TimelineMarkerReferenceChoice,
@@ -3854,18 +3773,19 @@ mod font_tests {
 
     use super::{
         PluginPanelsState, SavedViewerRow, StatusAction, TIMELINE_CURSORS_EXTENSION,
-        ViewerSocketIndicator, bundled_symbol_fonts, install_fonts,
-        merge_output_subscription_catalog, save_panel_layout, save_sampling_overlays,
-        save_timeline_cursors, save_viewer_lane_heights, save_viewer_lane_order,
-        saved_panel_layout, saved_sampling_overlays, saved_timeline_cursors,
-        saved_viewer_lane_heights, saved_viewer_lane_order, timeline_cursor_schema_version,
-        timeline_marker_reference_binding_is_synchronized, toggle_sampling_overlay,
-        visible_output_subscriptions, visible_table_subscriptions,
+        ViewerSocketIndicator, bundled_symbol_fonts, install_fonts, save_panel_layout,
+        save_sampling_overlays, save_timeline_cursors, save_viewer_lane_heights,
+        save_viewer_lane_order, saved_panel_layout, saved_sampling_overlays,
+        saved_timeline_cursors, saved_viewer_lane_heights, saved_viewer_lane_order,
+        timeline_cursor_schema_version,
     };
     use crate::panel_presentation::{
         DECODER_PANEL_ICON, LOG_PANEL_ICON, LOGIC_ANALYZER_PANEL_ICON, MEMORY_PANEL_ICON,
         NODE_GRAPH_PANEL_ICON, TRIGGERS_PANEL_ICON, WATCHES_PANEL_ICON,
     };
+    use crate::plugin_panel::PluginPanelRegistry;
+    use crate::presentation_catalogs::PresentationCatalogs;
+    use crate::timeline_marker_bindings::TimelineMarkerBindings;
 
     #[test]
     fn built_in_panels_have_unique_icons() {
@@ -3940,7 +3860,7 @@ mod font_tests {
             choices: Vec::new(),
         };
 
-        assert!(timeline_marker_reference_binding_is_synchronized(
+        assert!(TimelineMarkerBindings::reference_binding_is_synchronized(
             &binding,
             &[]
         ));
@@ -3958,7 +3878,7 @@ mod font_tests {
         };
         let moved = TimelineMarkerReferenceChoice::new(reference, "Cursor 1", 20);
 
-        assert!(!timeline_marker_reference_binding_is_synchronized(
+        assert!(!TimelineMarkerBindings::reference_binding_is_synchronized(
             &binding,
             &[moved]
         ));
@@ -4038,13 +3958,18 @@ mod font_tests {
 
     #[test]
     fn sampling_overlay_toggles_do_not_replace_other_decoder_selections() {
-        let mut selected = vec![NodeId(17)];
+        let mut catalogs =
+            PresentationCatalogs::new(PluginPanelRegistry::standard(), HashSet::new());
+        catalogs.replace_selected_sampling_overlays(vec![NodeId(17)]);
 
-        toggle_sampling_overlay(&mut selected, NodeId(23));
-        assert_eq!(selected, [NodeId(17), NodeId(23)]);
+        catalogs.toggle_sampling_overlay(NodeId(23));
+        assert_eq!(
+            catalogs.selected_sampling_overlays(),
+            [NodeId(17), NodeId(23)]
+        );
 
-        toggle_sampling_overlay(&mut selected, NodeId(17));
-        assert_eq!(selected, [NodeId(23)]);
+        catalogs.toggle_sampling_overlay(NodeId(17));
+        assert_eq!(catalogs.selected_sampling_overlays(), [NodeId(23)]);
     }
 
     #[test]
@@ -4054,25 +3979,30 @@ mod font_tests {
         let mut node = Node::blank(node_id, "Test Decoder", node_graph::GraphPosition::ZERO);
         node.outputs.push(output_socket());
         graph.add_node(node.clone());
-        let mut catalog = vec![output_subscription(node_id)];
+        let catalog = vec![output_subscription(node_id)];
         let table_catalog = vec![CollectedTableSubscription {
             collector: NodeId(99),
             lanes: catalog[0].lanes.clone(),
         }];
+        let mut catalogs = PresentationCatalogs::new(
+            PluginPanelRegistry::standard(),
+            graph.nodes.keys().copied().collect(),
+        );
+        catalogs.replace_catalogs(catalog, table_catalog);
 
-        assert_eq!(visible_output_subscriptions(&catalog, &graph).len(), 1);
-        assert_eq!(visible_table_subscriptions(&table_catalog, &graph).len(), 1);
+        assert_eq!(catalogs.visible_output_subscriptions(&graph).len(), 1);
+        assert_eq!(catalogs.visible_table_subscriptions(&graph).len(), 1);
 
         graph.remove_node(node_id);
-        assert!(visible_output_subscriptions(&catalog, &graph).is_empty());
-        assert!(visible_table_subscriptions(&table_catalog, &graph).is_empty());
-        merge_output_subscription_catalog(&mut catalog, &[]);
-        assert_eq!(catalog.len(), 1);
+        assert!(catalogs.visible_output_subscriptions(&graph).is_empty());
+        assert!(catalogs.visible_table_subscriptions(&graph).is_empty());
+        catalogs.merge_run_catalogs(&[], &[]);
 
         graph.add_node(node);
-        assert_eq!(visible_output_subscriptions(&catalog, &graph).len(), 1);
-        assert_eq!(visible_table_subscriptions(&table_catalog, &graph).len(), 1);
-        assert_eq!(catalog[0].lanes[0].lane_name, "Decoder.Out");
+        let visible = catalogs.visible_output_subscriptions(&graph);
+        assert_eq!(visible.len(), 1);
+        assert_eq!(catalogs.visible_table_subscriptions(&graph).len(), 1);
+        assert_eq!(visible[0].lanes[0].lane_name, "Decoder.Out");
     }
 
     #[test]

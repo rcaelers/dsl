@@ -6,11 +6,9 @@ architecture tests) apply to every item here and are not repeated. [`TODO.md`](.
 owns priorities and ordering constraints; delete each section when its item completes and the
 outcome is documented.
 
-P3 items are planned work, often alongside related changes. Ordering that matters:
-[ui.graph-service.port-shape](#ui-graph-service-port-shape) before
-[ui.app.decomposition](#ui-app-decomposition); the
-[ui.boundaries.module-ownership](#ui-boundaries-module-ownership) rules before or alongside both
-UI decompositions.
+P3 items are planned work, often alongside related changes. The
+[ui.boundaries.module-ownership](#ui-boundaries-module-ownership) rules guide the remaining UI
+decompositions.
 
 ## ui.graph-service.port-shape (P3 · medium) {#ui-graph-service-port-shape}
 
@@ -44,46 +42,6 @@ graph-crate dependencies regardless.
 **Acceptance.** No `dyn GraphService` in production code; UI tests pass against the real service
 with injected repositories/executors.
 
-## ui.app.decomposition (P3 · high) {#ui-app-decomposition}
-
-**Current state.** `pub struct App` (`crates/logic_analyzer_ui/src/app.rs:543`) has 47 fields in
-a 4,390-line file. The fields, grouped by the owner they should move to:
-
-- **Graph-run lifecycle** — `graph_service`, `run`, `run_message`, `running_graph_semantics`,
-  `cached_preview_graph`, `last_live_sync`, `sampling_overlay_candidates`,
-  `derived_cache_clear_task`.
-- **Capture-analysis lifecycle** — `capture` (the `CaptureCoordinator`), `capture_availability`,
-  `capture_graph`, `capture_analysis`, `capture_analysis_error`, `capture_epoch_observed_graph`,
-  `capture_epoch_request_in_flight`, `last_capture_epoch_sync`, `trigger_configuration`,
-  `trigger_configuration_error`, `capture_storage`.
-- **Presentation catalogs** — `presented_derived_lanes`, `output_presentation_catalog`,
-  `table_presentation_catalog`, `presentation_graph_nodes`, `decoder_panels`, `plugin_panels`,
-  `viewer_lane_order`, `selected_sampling_overlays`.
-- **Timeline-marker bindings** — `timeline_marker_owners`, `timeline_marker_error`,
-  `timeline_marker_reference_error`.
-- **Shell (stays on `App`)** — `node_graph`, `logic_analyzer`, `panel_layout`, `input_bindings`,
-  `host_service`, `host_ui_capabilities`, `toasts`, `platform`, `about`, `output_downloads`,
-  `preferences`, `node_catalogs`, `demo_graphs`, `error_badges`, `memory_panel`,
-  `_worker_operation_executor`.
-
-**Method.** Extract one group per PR, smallest first: timeline markers (3 fields), then
-presentation catalogs, then graph-run, then capture-analysis (largest, and partly gated on the
-[coordinator split](#ui-capture-coordinator-decomposition)). For each group:
-
-1. Create an owned struct in its own module under `logic_analyzer_ui` (directory-backed, facade
-   rules apply). Fields private; state transitions become methods; the struct's doc comment
-   states its invariants (e.g. "`capture_analysis_error` is `Some` only when `capture_analysis`
-   is `None`").
-2. Move the private `App` methods that touch only this group. Let the borrow checker drive the
-   remainder: a method touching two groups becomes a method on one group taking the other (or a
-   narrow view of it) as an argument — that argument list *is* the documented coupling between
-   owners. Do not pass `&mut App` back in.
-3. `App` keeps composition and per-frame dispatch: its `update` calls each owner once with what
-   that owner declares it needs.
-
-**Do not** redesign behavior, rename user-visible anything, or change persistence formats
-(`SavedPanelLayout`, `SavedTimelineCursors`, … at the top of `app.rs` are persisted contracts).
-
 ## ui.capture.coordinator-decomposition (P3 · high) {#ui-capture-coordinator-decomposition}
 
 **Current state.** `crates/logic_analyzer_ui/src/live_capture/coordinator.rs` is 2,867 lines.
@@ -112,17 +70,13 @@ trivial standalone PR.
 
 ## ui.boundaries.module-ownership (P3 · medium) {#ui-boundaries-module-ownership}
 
-**What it is.** A documentation-rule change, then applying it. `docs/aspects/
-responsibility_visibility.md` stops at the crate wall; the two files above show why that is not
-enough.
+**Current state.** `docs/aspects/responsibility_visibility.md` defines the four-part ownership
+statement for substantial modules, and the application-state owners apply it. The remaining work
+is applying the same review to existing oversized modules.
 
-**Steps.** Add a "Module ownership" section to `responsibility_visibility.md`: any module that
-exceeds roughly 1,000 lines or owns cross-cutting mutable state must answer the four owner
-questions (data/invariants, supported facade, permitted dependencies, exclusions) in its module
-doc comment — the same four questions `crate_responsibility.md` already poses. State that a
-module which cannot answer them concisely is a decomposition candidate. Then write those doc
-comments for the modules the two decomposition items create, and for the three or four largest
-existing modules that survive. Keep the threshold advisory, not a hard lint.
+**Steps.** Write the four-part owner doc comments for the three or four largest existing modules
+that survive decomposition and review whether each can still answer concisely. Keep the roughly
+1,000-line threshold advisory, not a hard lint.
 
 ## errors.typed-boundaries (P3 · medium) {#errors-typed-boundaries}
 
@@ -240,11 +194,10 @@ configuration, and sampling-overlay candidates. A parallel 0.5 s epoch poll exis
 
 ## capture.live.provider-unification (P3 · medium) {#capture-live-provider-unification}
 
-**Current state.** The application branches on file-versus-live throughout its frame path: `App`
-holds a parallel pair of worlds (`run`/`run_message` versus `capture`/`capture_graph`/
-`capture_analysis`), and code like `if self.run.is_none() { if self.capture.is_active() … }`
-(`app.rs:2778`) chooses which world to service. File sources and live sources publish artifacts
-and attach viewer data through different code paths.
+**Current state.** The application branches on file-versus-live throughout its frame path. The
+state is now explicit in `GraphRunLifecycle` and `CaptureAnalysisLifecycle`, but shell composition
+still chooses which owner to service. File sources and live sources publish artifacts and attach
+viewer data through different code paths.
 
 **Direction — investigation first, contract second.**
 
@@ -258,9 +211,8 @@ and attach viewer data through different code paths.
    payoff and requires no cross-crate design. Only push the contract down into
    `signal_capture_session` once the UI shape has stabilized and the multi-source viewer items
    (`viewer.multiple-sources`, `viewer.live-snapshots`) confirm what it must carry.
-4. This item pairs naturally with the capture-analysis extraction in
-   [ui.app.decomposition](#ui-app-decomposition): extracting that owner first makes the branch
-   inventory in step 1 nearly mechanical.
+4. Use the existing `CaptureAnalysisLifecycle` boundary to keep the branch inventory and the
+   eventual provider adaptation outside `App`'s shell fields.
 
 ## performance.regression-harness (P3 · medium) {#performance-regression-harness}
 

@@ -16,7 +16,7 @@ use crate::product::APPLICATION_NAME;
 
 impl App {
     fn can_replace_graph(&mut self) -> bool {
-        if self.capture.is_active() || self.is_capture_analysis_active() {
+        if self.capture_analysis.coordinator().is_active() || self.is_capture_analysis_active() {
             self.toasts
                 .error("Wait for live capture analysis before replacing the graph");
             false
@@ -144,7 +144,8 @@ impl App {
             return;
         }
         let update = self
-            .graph_service
+            .graph_run
+            .service_mut()
             .synchronize_prepared_capture(self.node_graph.graph());
         match update {
             runtime::SourcePreparationUpdate::Unchanged => {}
@@ -191,7 +192,7 @@ impl App {
                 }
             }
         }
-        match self.graph_service.source_preparation_status() {
+        match self.graph_run.service().source_preparation_status() {
             runtime::SourcePreparationStatus::Ready => self.publish_file_source_ready(),
             runtime::SourcePreparationStatus::Failed(error) => {
                 self.publish_file_source_failure(&error)
@@ -203,7 +204,7 @@ impl App {
 
     pub(crate) fn platform_restore_graph_capture(&mut self) {
         self.platform.capture_presentation_identity = None;
-        self.graph_service.reset_prepared_capture();
+        self.graph_run.service_mut().reset_prepared_capture();
     }
 
     pub(crate) fn platform_before_graph(&mut self) {
@@ -229,8 +230,8 @@ impl App {
         match self.host_service.load_graph(&path) {
             Ok(graph) => {
                 self.clear_derived_data_presentations();
-                self.capture.clear_completed();
-                self.run_message = None;
+                self.capture_analysis.coordinator_mut().clear_completed();
+                self.graph_run.clear_run_message();
                 self.error_badges.clear();
                 self.apply_graph_document(graph);
                 self.platform.current_file = Some(path.clone());
@@ -259,11 +260,12 @@ impl App {
             return;
         }
         self.clear_derived_data_presentations();
-        self.capture.clear_completed();
-        self.run_message = None;
+        self.capture_analysis.coordinator_mut().clear_completed();
+        self.graph_run.clear_run_message();
         self.error_badges.clear();
         self.node_graph.new_graph();
-        self.cached_preview_graph = serde_json::to_vec(self.node_graph.graph()).ok();
+        self.graph_run
+            .replace_cached_preview_graph(serde_json::to_vec(self.node_graph.graph()).ok());
         self.restore_sampling_overlay_setting();
         self.restore_viewer_lane_order_setting();
         self.restore_viewer_lane_height_setting();
@@ -399,7 +401,11 @@ impl App {
         if path.extension().is_none() {
             path.set_extension(descriptor.extension);
         }
-        if let Err(error) = self.capture.start_export_current(format, path) {
+        if let Err(error) = self
+            .capture_analysis
+            .coordinator_mut()
+            .start_export_current(format, path)
+        {
             self.toasts.error(error);
         }
     }
@@ -726,9 +732,17 @@ impl App {
                         ui.close();
                     }
                     ui.separator();
-                    let can_save_capture = self.capture.current_session_id().is_some()
-                        && !self.capture.is_active()
-                        && self.capture.export_status().is_none();
+                    let can_save_capture = self
+                        .capture_analysis
+                        .coordinator()
+                        .current_session_id()
+                        .is_some()
+                        && !self.capture_analysis.coordinator().is_active()
+                        && self
+                            .capture_analysis
+                            .coordinator()
+                            .export_status()
+                            .is_none();
                     if ui
                         .add_enabled(can_save_capture, egui::Button::new("Save Capture Data..."))
                         .on_disabled_hover_text("Finish a capture before saving its data")
@@ -822,7 +836,7 @@ impl App {
                 ui.separator();
                 if ui
                     .add_enabled(
-                        !self.is_running() && self.derived_cache_clear_task.is_none(),
+                        !self.is_running() && self.graph_run.cache_clear_task().is_none(),
                         egui::Button::new("Clear All Derived Data Caches..."),
                     )
                     .clicked()
@@ -849,7 +863,7 @@ impl App {
             self.toasts
                 .error("Stop the pipeline before clearing derived data caches");
             false
-        } else if self.derived_cache_clear_task.is_some() {
+        } else if self.graph_run.cache_clear_task().is_some() {
             self.toasts
                 .info("Derived data caches are already being cleared");
             false
@@ -864,7 +878,8 @@ impl App {
 
     fn refresh_derived_cache_nodes(&mut self) {
         self.platform.derived_cache_nodes = self
-            .graph_service
+            .graph_run
+            .service()
             .derived_cache_configs_by_node(self.node_graph.graph())
             .map(|inventory| {
                 inventory
@@ -887,7 +902,8 @@ impl App {
             .map(|node| node.title.clone())
             .unwrap_or_else(|| "node".to_owned());
         let configs = match self
-            .graph_service
+            .graph_run
+            .service()
             .derived_cache_configs_by_node(self.node_graph.graph())
         {
             Ok(mut inventory) => inventory.remove(&node_id).unwrap_or_default(),
@@ -911,7 +927,7 @@ impl App {
         let mut removed_entries = 0usize;
         let mut removed_bytes = 0u64;
         for config in &configs {
-            match self.graph_service.clear_derived_cache_entry(config) {
+            match self.graph_run.service().clear_derived_cache_entry(config) {
                 Ok(stats) => {
                     removed_entries += stats.removed_entries;
                     removed_bytes = removed_bytes.saturating_add(stats.removed_bytes);
@@ -944,14 +960,15 @@ impl App {
             return;
         }
         self.release_derived_data_handles();
-        match self.graph_service.start_clear_derived_caches() {
+        match self.graph_run.service().start_clear_derived_caches() {
             Ok(task) => {
-                self.cached_preview_graph = Some(self.node_graph.graph().semantic_snapshot());
-                self.derived_cache_clear_task = Some(task);
+                self.graph_run
+                    .set_cached_preview_graph(self.node_graph.graph().semantic_snapshot());
+                self.graph_run.install_cache_clear_task(task);
                 self.toasts.info("Clearing derived data caches…");
             }
             Err(error) => {
-                self.cached_preview_graph = None;
+                self.graph_run.clear_cached_preview_graph();
                 self.toasts
                     .error(format!("Failed to start clearing caches: {error}"));
             }
@@ -961,14 +978,14 @@ impl App {
     fn poll_derived_cache_clear(&mut self, ctx: &egui::Context) {
         const COOPERATIVE_ARTIFACT_BUDGET: usize = 16;
 
-        let Some(task) = self.derived_cache_clear_task.as_mut() else {
+        let Some(task) = self.graph_run.cache_clear_task_mut() else {
             return;
         };
         let Some(result) = task.poll(COOPERATIVE_ARTIFACT_BUDGET) else {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
             return;
         };
-        self.derived_cache_clear_task = None;
+        self.graph_run.clear_cache_clear_task();
         self.platform.derived_cache_nodes.clear();
         match result {
             Ok(stats) if stats.removed_entries == 0 && stats.removed_bytes == 0 => {
@@ -985,7 +1002,7 @@ impl App {
                 stats.removed_bytes
             )),
             Err(error) => {
-                self.cached_preview_graph = None;
+                self.graph_run.clear_cached_preview_graph();
                 self.toasts
                     .error(format!("Failed to clear caches: {error}"));
             }

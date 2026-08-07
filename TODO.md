@@ -306,25 +306,14 @@ item here, so acceptance comparisons stop being ad-hoc.
 
 ### Application state decomposition
 
-- [ui.app.decomposition] (P3 · high) Split `logic_analyzer_ui::App`. One struct with about fifty fields across
-  4,390 lines owns run lifecycle, capture lifecycle, trigger configuration, timeline markers,
-  presentation catalogs, panel state, and notifications, so no field's invariants are stated
-  anywhere. Extract owned types for the graph-run lifecycle, the capture-analysis lifecycle, the
-  presentation catalogs, and the timeline-marker bindings, each holding its own invariants and
-  exposing methods rather than fields. `App` retains composition and frame dispatch. Resolve
-  [ui.graph-service.port-shape] first so the graph-run lifecycle is extracted against the port's
-  final shape, and state the [ui.boundaries.module-ownership] rules before or alongside so the
-  decomposition follows written rules rather than defining them implicitly.
-  Direction, including the field-to-owner grouping:
-  [refactoring_p3.md](docs/plans/refactoring_p3.md#ui-app-decomposition).
 - [ui.capture.coordinator-decomposition] (P3 · high) Split `live_capture/coordinator.rs` along the same lines.
   Its 2,867 lines mix acquisition commands, event polling, storage publication, and status
   presentation; the acquisition state machine and the presentation projection are separate owners.
   Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#ui-capture-coordinator-decomposition).
-- [ui.boundaries.module-ownership] (P3 · medium) Extend the owner-boundary rules in
-  `docs/aspects/responsibility_visibility.md` to substantial modules inside a crate. Crate-level
-  ownership statements currently stop at the crate wall, which is why the largest single-owner
-  violations are invisible to the architecture documentation.
+- [ui.boundaries.module-ownership] (P3 · medium) Apply the module-ownership rules in
+  `docs/aspects/responsibility_visibility.md` to the remaining substantial modules. The rules and
+  the extracted application-state owners now state the intra-crate boundary, but several existing
+  oversized implementation leaves still need the four-part ownership documentation and review.
   Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#ui-boundaries-module-ownership).
 - [readability.large-module-decomposition] (P3 · medium) Decompose oversized implementation leaves
   whose crate responsibility is sound but whose internal ownership is difficult to read.
