@@ -6,9 +6,10 @@ use egui::{Pos2, Sense, Ui};
 use input_bindings::InputBindings;
 
 use super::action::HotkeyRegistry;
-use super::interaction::{GraphResponses, InteractionState};
+use super::interaction_state::InteractionState;
 use super::menu::MenuController;
 use super::panel::PanelState;
+use super::response::GraphResponses;
 use super::{layout, render};
 use crate::api::{
     FileDialogService, PanelAction, PanelDataProvider, PanelTabDef, SocketIndicatorPresentation,
@@ -835,7 +836,7 @@ mod tests {
     use crate::runtime::NodeTypeRegistry;
     use crate::support::graph_position;
     use crate::widget::graph::action::GraphAction;
-    use crate::widget::graph::interaction::InteractionState;
+    use crate::widget::graph::interaction_state::InteractionState;
 
     struct TestIndicator;
 

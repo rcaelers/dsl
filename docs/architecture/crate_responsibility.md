@@ -175,7 +175,10 @@ Owns the generic node-definition registry, definition reconciliation, editor int
 graph widget. Its public `api` module exposes node and socket definitions, controls, panel actions,
 and the portable file-dialog contract. Portable records come from `node-graph-document` and are
 re-exported for widget consumers. The crate-root facade owns editor composition. Concrete node
-semantics, compiler policy, and host adapters remain outside this crate.
+semantics, compiler policy, and host adapters remain outside this crate. Within the graph widget,
+private owners separate transient interaction state, response allocation and hit testing, global
+input/menu dispatch, modal pointer transitions, selection and frame membership, and wire gestures
+and rewiring.
 
 #### `logic-analyzer-graph-editor-registry`
 

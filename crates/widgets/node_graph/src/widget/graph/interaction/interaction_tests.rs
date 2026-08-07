@@ -1,0 +1,654 @@
+use std::collections::HashSet;
+use std::rc::Rc;
+
+use super::*;
+use crate::model::{Connection, SocketId};
+use crate::support::{graph_color, graph_position};
+use crate::widget::graph::interaction_state::snap_to_grid;
+use crate::widget::graph::wire::node_has_any_connection;
+
+fn modal_drag_bindings() -> std::sync::Arc<input_bindings::InputBindings> {
+    std::sync::Arc::new(
+            input_bindings::InputBindings::from_json(
+                r#"{"bindings":[
+                  {"context":"node_graph.drag_node","action":"confirm_move","label":"Confirm","input":"pointer","button":"primary","gesture":"release","any_modifiers":true},
+                  {"context":"node_graph.drag_node","action":"cancel_move","label":"Cancel","input":"pointer","button":"secondary","gesture":"press","any_modifiers":true},
+                  {"context":"node_graph.drag_wire","action":"confirm_link","label":"Confirm Link","input":"pointer","button":"primary","gesture":"release","any_modifiers":true},
+                  {"context":"node_graph.drag_wire","action":"cancel_link","label":"Cancel","input":"pointer","button":"secondary","gesture":"press","any_modifiers":true}
+                ]}"#,
+            )
+            .expect("modal drag bindings are valid"),
+        )
+}
+
+fn socket(node: u32, index: usize, direction: SocketDirection) -> SocketId {
+    SocketId {
+        node: NodeId(node),
+        index,
+        direction,
+    }
+}
+
+#[test]
+fn outside_click_that_closes_a_menu_does_not_clear_node_selection() {
+    use crate::runtime::NodeTypeRegistry;
+    use crate::widget::graph::action::GraphAction;
+    use crate::widget::menu::MenuEntry;
+
+    fn show_frame(context: &egui::Context, widget: &mut NodeGraphWidget, events: Vec<egui::Event>) {
+        let screen_rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        context.begin_pass(egui::RawInput {
+            screen_rect: Some(screen_rect),
+            events,
+            ..Default::default()
+        });
+        let mut ui = egui::Ui::new(
+            context.clone(),
+            egui::Id::new("menu-dismiss-selection-test"),
+            egui::UiBuilder::new().max_rect(screen_rect),
+        );
+        widget.show(&mut ui);
+        let _ = context.end_pass();
+    }
+
+    let context = egui::Context::default();
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    let node = widget
+        .add_node_at("Reroute", Pos2::new(300.0, 250.0))
+        .unwrap();
+    widget.graph.nodes.get_mut(&node).unwrap().selected = true;
+    show_frame(&context, &mut widget, Vec::new());
+
+    widget.menu.open_popup(
+        Pos2::new(400.0, 300.0),
+        vec![MenuEntry::action("Unused", GraphAction::DeselectAll)],
+    );
+    let outside = Pos2::new(60.0, 60.0);
+    show_frame(
+        &context,
+        &mut widget,
+        vec![
+            egui::Event::PointerMoved(outside),
+            egui::Event::PointerButton {
+                pos: outside,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    show_frame(
+        &context,
+        &mut widget,
+        vec![egui::Event::PointerButton {
+            pos: outside,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+
+    assert!(!widget.menu.is_open());
+    assert!(widget.graph.nodes[&node].selected);
+}
+
+#[test]
+fn node_with_no_connections_has_none() {
+    let connections = vec![Connection {
+        from: socket(1, 0, SocketDirection::Output),
+        to: socket(2, 0, SocketDirection::Input),
+    }];
+    assert!(!node_has_any_connection(&connections, NodeId(3)));
+}
+
+#[test]
+fn node_as_connection_source_counts() {
+    let connections = vec![Connection {
+        from: socket(1, 0, SocketDirection::Output),
+        to: socket(2, 0, SocketDirection::Input),
+    }];
+    assert!(node_has_any_connection(&connections, NodeId(1)));
+}
+
+#[test]
+fn node_as_connection_target_counts() {
+    let connections = vec![Connection {
+        from: socket(1, 0, SocketDirection::Output),
+        to: socket(2, 0, SocketDirection::Input),
+    }];
+    assert!(node_has_any_connection(&connections, NodeId(2)));
+}
+
+#[test]
+fn snap_to_grid_rounds_to_the_nearest_grid_point() {
+    assert_eq!(
+        snap_to_grid(Pos2::new(24.0, 26.0), 10.0),
+        Pos2::new(20.0, 30.0)
+    );
+    assert_eq!(
+        snap_to_grid(Pos2::new(-3.0, 5.0), 10.0),
+        Pos2::new(0.0, 10.0)
+    );
+    assert_eq!(
+        snap_to_grid(Pos2::new(10.0, 10.0), 10.0),
+        Pos2::new(10.0, 10.0)
+    );
+}
+
+#[test]
+fn pressing_the_active_drag_axis_again_restores_free_movement() {
+    let position = Pos2::new(13.0, 17.0);
+    let x_constraint = toggle_drag_axis(None, DragAxis::X, position).unwrap();
+    assert_eq!(x_constraint.axis, DragAxis::X);
+    assert_eq!(x_constraint.locked_coordinate, 17.0);
+    assert_eq!(
+        toggle_drag_axis(Some(x_constraint), DragAxis::X, position),
+        None
+    );
+    assert_eq!(
+        toggle_drag_axis(Some(x_constraint), DragAxis::Y, position),
+        Some(DragConstraint {
+            axis: DragAxis::Y,
+            locked_coordinate: 13.0,
+        })
+    );
+}
+
+#[test]
+fn activating_a_constraint_keeps_the_other_axis_at_its_current_position() {
+    let current = Pos2::new(24.0, 36.0);
+    let pointer_position = Pos2::new(43.0, 58.0);
+    let x_constraint = toggle_drag_axis(None, DragAxis::X, current);
+    let y_constraint = toggle_drag_axis(None, DragAxis::Y, current);
+
+    assert_eq!(
+        constrain_drag_position(pointer_position, x_constraint, false),
+        Pos2::new(43.0, 36.0)
+    );
+    assert_eq!(
+        constrain_drag_position(pointer_position, y_constraint, false),
+        Pos2::new(24.0, 58.0)
+    );
+    assert_eq!(
+        constrain_drag_position(pointer_position, x_constraint, true),
+        Pos2::new(40.0, 36.0)
+    );
+}
+
+#[test]
+fn disabling_a_constraint_rebases_free_movement_without_a_jump() {
+    let current = Pos2::new(24.0, 36.0);
+    let pointer = Pos2::new(43.0, 58.0);
+    let offset = rebase_drag_offset(pointer, current);
+
+    assert_eq!(
+        constrain_drag_position((pointer.to_vec2() - offset).to_pos2(), None, false),
+        current
+    );
+}
+
+#[test]
+fn secondary_press_always_cancels_even_when_another_button_is_configured() {
+    use crate::runtime::NodeTypeRegistry;
+
+    let context = egui::Context::default();
+    context.begin_pass(egui::RawInput {
+        events: vec![egui::Event::PointerButton {
+            pos: Pos2::new(20.0, 20.0),
+            button: egui::PointerButton::Secondary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        ..Default::default()
+    });
+    let ui = egui::Ui::new(
+        context.clone(),
+        egui::Id::new("cancel-node-drag-test"),
+        Default::default(),
+    );
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    widget.set_input_bindings(std::sync::Arc::new(
+            input_bindings::InputBindings::from_json(
+                r#"{"bindings":[
+                  {"context":"node_graph.drag_node","action":"cancel_move","label":"Cancel","input":"pointer","button":"primary","gesture":"press","any_modifiers":true}
+                ]}"#,
+            )
+            .unwrap(),
+        ));
+    widget.interaction_state = InteractionState::DraggingNode {
+        node_id: NodeId(1),
+        offset: Vec2::ZERO,
+        constraint: None,
+    };
+
+    assert!(widget.cancel_active_drag(&ui));
+    assert!(matches!(widget.interaction_state, InteractionState::Idle));
+    let _ = context.end_pass();
+}
+
+#[test]
+fn cancelling_a_new_wire_drag_does_not_pop_an_unrelated_undo_step() {
+    use crate::runtime::NodeTypeRegistry;
+
+    let context = egui::Context::default();
+    context.begin_pass(egui::RawInput {
+        events: vec![egui::Event::PointerButton {
+            pos: Pos2::new(20.0, 20.0),
+            button: egui::PointerButton::Secondary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        ..Default::default()
+    });
+    let ui = egui::Ui::new(
+        context.clone(),
+        egui::Id::new("cancel-new-wire-test"),
+        Default::default(),
+    );
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    widget.push_undo_snapshot();
+    widget.interaction_state = InteractionState::DraggingWire {
+        from: socket(1, 0, SocketDirection::Output),
+        from_canvas: Pos2::ZERO,
+        current_canvas: Pos2::new(10.0, 10.0),
+        restore_on_cancel: false,
+        connectable: Rc::new(HashSet::new()),
+    };
+
+    assert!(widget.cancel_active_drag(&ui));
+    assert_eq!(widget.undo_stack.len(), 1);
+    assert!(matches!(widget.interaction_state, InteractionState::Idle));
+    let _ = context.end_pass();
+}
+
+#[test]
+fn duplicate_primary_filter_restores_a_dragged_node() {
+    use crate::runtime::NodeTypeRegistry;
+
+    fn show_frame(
+        context: &egui::Context,
+        widget: &mut NodeGraphWidget,
+        events: Vec<egui::Event>,
+    ) -> Pos2 {
+        let screen_rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        context.begin_pass(egui::RawInput {
+            screen_rect: Some(screen_rect),
+            events,
+            ..Default::default()
+        });
+        let mut ui = egui::Ui::new(
+            context.clone(),
+            egui::Id::new("node-drag-sequence-test"),
+            egui::UiBuilder::new().max_rect(screen_rect),
+        );
+        let origin = ui.available_rect_before_wrap().min;
+        widget.show(&mut ui);
+        let _ = context.end_pass();
+        origin
+    }
+
+    let context = egui::Context::default();
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    widget.set_input_bindings(modal_drag_bindings());
+    let original = Pos2::new(100.0, 100.0);
+    let node_id = widget
+        .add_node_at("Reroute", original)
+        .expect("built-in reroute node");
+    let origin = show_frame(&context, &mut widget, Vec::new());
+    let press = widget.build_layout(origin).node_screen_rects[&node_id].center();
+    show_frame(
+        &context,
+        &mut widget,
+        vec![
+            egui::Event::PointerMoved(press),
+            egui::Event::PointerButton {
+                pos: press,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    let dragged = press + egui::vec2(40.0, 30.0);
+    show_frame(
+        &context,
+        &mut widget,
+        vec![egui::Event::PointerMoved(dragged)],
+    );
+    assert!(matches!(
+        widget.interaction_state,
+        InteractionState::DraggingNode { .. }
+    ));
+    let dragged_further = dragged + egui::vec2(10.0, 5.0);
+    show_frame(
+        &context,
+        &mut widget,
+        vec![egui::Event::PointerMoved(dragged_further)],
+    );
+    assert_ne!(widget.graph.nodes[&node_id].pos, graph_position(original));
+
+    let mut raw_input = egui::RawInput {
+        events: vec![egui::Event::PointerButton {
+            pos: dragged_further,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        ..Default::default()
+    };
+    assert!(widget.filter_modal_raw_input(&mut raw_input));
+    assert!(raw_input.events.is_empty());
+
+    assert!(matches!(widget.interaction_state, InteractionState::Idle));
+    assert_eq!(widget.graph.nodes[&node_id].pos, graph_position(original));
+}
+
+#[test]
+fn duplicate_primary_filter_cancels_a_new_wire() {
+    use crate::runtime::NodeTypeRegistry;
+
+    fn show_frame(
+        context: &egui::Context,
+        widget: &mut NodeGraphWidget,
+        events: Vec<egui::Event>,
+    ) -> Pos2 {
+        let screen_rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        context.begin_pass(egui::RawInput {
+            screen_rect: Some(screen_rect),
+            events,
+            ..Default::default()
+        });
+        let mut ui = egui::Ui::new(
+            context.clone(),
+            egui::Id::new("wire-drag-sequence-test"),
+            egui::UiBuilder::new().max_rect(screen_rect),
+        );
+        let origin = ui.available_rect_before_wrap().min;
+        widget.show(&mut ui);
+        let _ = context.end_pass();
+        origin
+    }
+
+    let context = egui::Context::default();
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    widget.set_input_bindings(modal_drag_bindings());
+    let source = widget
+        .add_node_at("Reroute", Pos2::new(100.0, 100.0))
+        .expect("built-in reroute node");
+    let origin = show_frame(&context, &mut widget, Vec::new());
+    let output = socket(source.0, 0, SocketDirection::Output);
+    let press = widget.build_layout(origin).socket_screen_pos[&output];
+    show_frame(
+        &context,
+        &mut widget,
+        vec![
+            egui::Event::PointerMoved(press),
+            egui::Event::PointerButton {
+                pos: press,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    let dragged = press + egui::vec2(80.0, 40.0);
+    show_frame(
+        &context,
+        &mut widget,
+        vec![egui::Event::PointerMoved(dragged)],
+    );
+    assert!(matches!(
+        widget.interaction_state,
+        InteractionState::DraggingWire { .. }
+    ));
+
+    let mut raw_input = egui::RawInput {
+        events: vec![egui::Event::PointerButton {
+            pos: dragged,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        ..Default::default()
+    };
+    assert!(widget.filter_modal_raw_input(&mut raw_input));
+    assert!(raw_input.events.is_empty());
+
+    assert!(matches!(widget.interaction_state, InteractionState::Idle));
+    assert!(widget.graph.connections.is_empty());
+}
+
+#[test]
+fn edge_auto_pan_does_nothing_well_inside_the_canvas() {
+    use crate::runtime::NodeTypeRegistry;
+
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    let canvas_rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+    widget.edge_auto_pan(canvas_rect.center(), canvas_rect);
+
+    assert_eq!(widget.view.pan, Vec2::ZERO);
+}
+
+#[test]
+fn edge_auto_pan_pans_positive_x_near_the_left_edge() {
+    use crate::runtime::NodeTypeRegistry;
+
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    let canvas_rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+    // Right at the left edge — well past the 24px margin.
+    widget.edge_auto_pan(Pos2::new(0.0, canvas_rect.center().y), canvas_rect);
+
+    assert!(widget.view.pan.x > 0.0);
+    assert_eq!(widget.view.pan.y, 0.0);
+}
+
+#[test]
+fn edge_auto_pan_pans_negative_x_near_the_right_edge() {
+    use crate::runtime::NodeTypeRegistry;
+
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    let canvas_rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+    widget.edge_auto_pan(Pos2::new(800.0, canvas_rect.center().y), canvas_rect);
+
+    assert!(widget.view.pan.x < 0.0);
+    assert_eq!(widget.view.pan.y, 0.0);
+}
+
+#[test]
+fn edge_auto_pan_clamps_to_max_speed_past_the_edge() {
+    use crate::runtime::NodeTypeRegistry;
+
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    let canvas_rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+    // Far past the edge — overshoot would blow past MAX_SPEED unclamped.
+    widget.edge_auto_pan(Pos2::new(-500.0, canvas_rect.center().y), canvas_rect);
+
+    assert_eq!(widget.view.pan.x, 15.0);
+}
+
+#[test]
+fn double_click_wire_inserts_a_reroute_and_rewires_both_halves() {
+    use crate::runtime::NodeTypeRegistry;
+
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    let a = widget
+        .add_node_at("Reroute", Pos2::new(0.0, 0.0))
+        .expect("reroute should always be creatable");
+    let b = widget
+        .add_node_at("Reroute", Pos2::new(200.0, 0.0))
+        .expect("reroute should always be creatable");
+    let from = socket(a.0, 0, SocketDirection::Output);
+    let to = socket(b.0, 0, SocketDirection::Input);
+    widget.graph_mut().add_connection(from, to);
+
+    let layout = widget.build_layout(Pos2::ZERO);
+    // A and B's reroute sockets sit on a horizontal line at y=12
+    // (REROUTE_SIZE/2); this point sits right on that wire.
+    let click = Pos2::new(100.0, 12.0);
+    let idx = widget
+        .wire_near_point(click, &layout.nodes)
+        .expect("click should land on the wire");
+    widget.insert_reroute_on_wire(idx, click);
+
+    assert_eq!(widget.graph.connections.len(), 2);
+    assert_eq!(widget.graph.nodes.len(), 3);
+    let new_id = *widget
+        .graph
+        .nodes
+        .keys()
+        .find(|&&id| id != a && id != b)
+        .expect("a third node should have been inserted");
+    assert_eq!(widget.graph.nodes[&new_id].pos, graph_position(click));
+    assert!(
+        widget
+            .graph
+            .connections
+            .iter()
+            .any(|c| c.from == from && c.to.node == new_id)
+    );
+    assert!(
+        widget
+            .graph
+            .connections
+            .iter()
+            .any(|c| c.from.node == new_id && c.to == to)
+    );
+}
+
+#[test]
+fn connectable_nodes_includes_a_node_with_a_compatible_socket() {
+    // Reroute sockets are `Any`/`Any`, so B's input is trivially
+    // compatible with A's output — the smallest fixture that exercises
+    // `connectable_nodes` without needing typed node defs (Phase 4.3).
+    use crate::runtime::NodeTypeRegistry;
+
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    let a = widget
+        .add_node_at("Reroute", Pos2::new(0.0, 0.0))
+        .expect("reroute should always be creatable");
+    let b = widget
+        .add_node_at("Reroute", Pos2::new(200.0, 0.0))
+        .expect("reroute should always be creatable");
+
+    let connectable = widget.connectable_nodes(SocketId {
+        node: a,
+        index: 0,
+        direction: SocketDirection::Output,
+    });
+
+    assert!(connectable.contains(&b));
+}
+
+#[test]
+fn resolve_frame_membership_on_drop_never_ejects_a_current_member() {
+    // Regression test: dragging can only ever *add* a node to a frame,
+    // never remove it — no matter how far it's dragged. Removing is
+    // exclusively the "Remove from Frame" action.
+    use crate::runtime::NodeTypeRegistry;
+
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    let a = widget
+        .add_node_at("Reroute", Pos2::new(0.0, 0.0))
+        .expect("reroute should always be creatable");
+    widget
+        .graph
+        .add_frame("F".to_owned(), graph_color(egui::Color32::WHITE), vec![a]);
+
+    widget.graph.nodes.get_mut(&a).unwrap().pos = graph_position(Pos2::new(5000.0, 5000.0));
+    let layout = widget.build_layout(Pos2::ZERO);
+    widget.resolve_frame_membership_on_drop(&[a], &layout);
+
+    assert_eq!(widget.graph.frames.len(), 1);
+    assert!(widget.graph.frames[0].node_ids.contains(&a));
+}
+
+#[test]
+fn resolve_frame_membership_on_drop_never_moves_a_member_to_a_different_frame() {
+    // A node already in frame A must never switch to frame B via drag,
+    // even when dropped squarely inside B's bounds — only nodes with no
+    // current frame can join one this way.
+    use crate::runtime::NodeTypeRegistry;
+
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    let a = widget
+        .add_node_at("Reroute", Pos2::new(0.0, 0.0))
+        .expect("reroute should always be creatable");
+    let frame_a =
+        widget
+            .graph
+            .add_frame("A".to_owned(), graph_color(egui::Color32::WHITE), vec![a]);
+    let b = widget
+        .add_node_at("Reroute", Pos2::new(5000.0, 5000.0))
+        .expect("reroute should always be creatable");
+    widget
+        .graph
+        .add_frame("B".to_owned(), graph_color(egui::Color32::WHITE), vec![b]);
+
+    widget.graph.nodes.get_mut(&a).unwrap().pos = graph_position(Pos2::new(5000.0, 5000.0));
+    let layout = widget.build_layout(Pos2::ZERO);
+    widget.resolve_frame_membership_on_drop(&[a], &layout);
+
+    let frame_a = widget
+        .graph
+        .frames
+        .iter()
+        .find(|f| f.id == frame_a)
+        .expect("frame A should still exist");
+    assert!(frame_a.node_ids.contains(&a));
+}
+
+#[test]
+fn resolve_frame_membership_on_drop_joins_node_dropped_inside_a_frame() {
+    use crate::runtime::NodeTypeRegistry;
+
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    let anchor = widget
+        .add_node_at("Reroute", Pos2::new(0.0, 0.0))
+        .expect("reroute should always be creatable");
+    let frame_id = widget.graph.add_frame(
+        "F".to_owned(),
+        graph_color(egui::Color32::WHITE),
+        vec![anchor],
+    );
+    let mover = widget
+        .add_node_at("Reroute", Pos2::new(5000.0, 5000.0))
+        .expect("reroute should always be creatable");
+
+    widget.graph.nodes.get_mut(&mover).unwrap().pos = graph_position(Pos2::new(0.0, 0.0));
+    let layout = widget.build_layout(Pos2::ZERO);
+    widget.resolve_frame_membership_on_drop(&[mover], &layout);
+
+    let frame = widget
+        .graph
+        .frames
+        .iter()
+        .find(|f| f.id == frame_id)
+        .expect("frame should still exist");
+    assert!(frame.node_ids.contains(&mover));
+    assert!(frame.node_ids.contains(&anchor));
+}
+
+#[test]
+fn resolve_frame_membership_on_drop_does_not_join_a_frame_from_outside_its_bounds() {
+    use crate::runtime::NodeTypeRegistry;
+
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    let anchor = widget
+        .add_node_at("Reroute", Pos2::new(0.0, 0.0))
+        .expect("reroute should always be creatable");
+    widget.graph.add_frame(
+        "F".to_owned(),
+        graph_color(egui::Color32::WHITE),
+        vec![anchor],
+    );
+    let mover = widget
+        .add_node_at("Reroute", Pos2::new(5000.0, 5000.0))
+        .expect("reroute should always be creatable");
+
+    // Left well outside F's bounds — should not join.
+    let layout = widget.build_layout(Pos2::ZERO);
+    widget.resolve_frame_membership_on_drop(&[mover], &layout);
+
+    assert_eq!(widget.graph.frames.len(), 1);
+    assert!(!widget.graph.frames[0].node_ids.contains(&mover));
+}

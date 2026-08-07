@@ -34,6 +34,9 @@ PUBLIC_MODULES = {
 }.freeze
 
 REQUIRED_PRIVATE_OWNER_MODULES = {
+  "crates/widgets/node_graph/src/widget/graph/mod.rs" => %w[
+    input_dispatch interaction interaction_state response selection wire
+  ],
   "crates/widgets/panel_layout/src/lib.rs" => %w[
     contract controls geometry icon layout tree
   ]
