@@ -722,8 +722,8 @@ impl App {
         self.capture_analysis.set_storage(CaptureStorageSnapshot {
             name: self
                 .platform
-                .capture_presentation_identity
-                .clone()
+                .capture_presentation_identity()
+                .map(str::to_owned)
                 .unwrap_or_else(|| "Raw capture".to_owned()),
             status: "In-memory capture ready".to_owned(),
             backing: CaptureStorageBacking::InMemory,

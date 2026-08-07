@@ -1,3 +1,17 @@
+//! Saved viewer-output selection, payload-subscription, and compatibility ownership.
+//!
+//! **Owned data and invariants.** This module owns the versioned graph extensions and migrations
+//! that turn explicit output and payload selections into `OutputSubscriptionPlan`.
+//!
+//! **Facade.** Application and headless orchestration use its crate-private selection,
+//! synchronization, planning, edit, and warning contracts.
+//!
+//! **Permitted owner dependencies.** The module consumes graph documents, registered generic graph
+//! capabilities, and graph-plan contracts.
+//!
+//! **Explicit exclusions.** It does not render the viewer, execute the graph, interpret protocol
+//! payloads, or infer behavior from display names.
+
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};

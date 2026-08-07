@@ -306,11 +306,6 @@ item here, so acceptance comparisons stop being ad-hoc.
 
 ### Application state decomposition
 
-- [ui.boundaries.module-ownership] (P3 · medium) Apply the module-ownership rules in
-  `docs/aspects/responsibility_visibility.md` to the remaining substantial modules. The rules and
-  the extracted application-state owners now state the intra-crate boundary, but several existing
-  oversized implementation leaves still need the four-part ownership documentation and review.
-  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#ui-boundaries-module-ownership).
 - [readability.large-module-decomposition] (P3 · medium) Decompose oversized implementation leaves
   whose crate responsibility is sound but whose internal ownership is difficult to read.
   `widgets/panel_layout/src/lib.rs` combines persisted state, geometry, layout algorithms, action

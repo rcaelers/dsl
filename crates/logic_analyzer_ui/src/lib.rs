@@ -23,6 +23,8 @@ mod headless;
 mod host_service;
 mod live_capture;
 mod memory_panel;
+#[cfg(test)]
+mod module_ownership_tests;
 mod node_catalog_service;
 mod node_registry;
 mod output_downloads;

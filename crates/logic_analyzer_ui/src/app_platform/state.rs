@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use node_graph::NodeId;
 
@@ -44,15 +44,15 @@ fn normalize_recent_files(paths: impl IntoIterator<Item = PathBuf>) -> Vec<PathB
 }
 
 pub(crate) struct PlatformState {
-    pub(crate) current_file: Option<PathBuf>,
-    pub(crate) saved_graph: serde_json::Value,
-    pub(crate) pending_guarded_action: Option<GuardedAction>,
-    pub(crate) allow_close: bool,
-    pub(crate) recent_files: Vec<PathBuf>,
-    pub(crate) confirm_clear_recent: bool,
-    pub(crate) confirm_clear_derived_caches: bool,
-    pub(crate) derived_cache_nodes: HashSet<NodeId>,
-    pub(crate) capture_presentation_identity: Option<String>,
+    current_file: Option<PathBuf>,
+    saved_graph: serde_json::Value,
+    pending_guarded_action: Option<GuardedAction>,
+    allow_close: bool,
+    recent_files: Vec<PathBuf>,
+    confirm_clear_recent: bool,
+    confirm_clear_derived_caches: bool,
+    derived_cache_nodes: HashSet<NodeId>,
+    capture_presentation_identity: Option<String>,
 }
 
 impl PlatformState {
@@ -89,10 +89,102 @@ impl PlatformState {
         &self.recent_files
     }
 
+    pub(crate) fn current_file(&self) -> Option<&Path> {
+        self.current_file.as_deref()
+    }
+
+    pub(crate) fn set_current_file(&mut self, path: PathBuf) {
+        self.current_file = Some(path);
+    }
+
+    pub(crate) fn clear_current_file(&mut self) {
+        self.current_file = None;
+    }
+
+    pub(crate) fn mark_saved_graph(&mut self, graph: serde_json::Value) {
+        self.saved_graph = graph;
+    }
+
+    pub(crate) fn is_saved_graph(&self, graph: &serde_json::Value) -> bool {
+        &self.saved_graph == graph
+    }
+
+    pub(crate) fn guarded_action(&self) -> Option<&GuardedAction> {
+        self.pending_guarded_action.as_ref()
+    }
+
+    pub(crate) fn request_guarded_action(&mut self, action: GuardedAction) {
+        self.pending_guarded_action = Some(action);
+    }
+
+    pub(crate) fn cancel_guarded_action(&mut self) {
+        self.pending_guarded_action = None;
+    }
+
+    pub(crate) fn take_guarded_action(&mut self) -> Option<GuardedAction> {
+        self.pending_guarded_action.take()
+    }
+
+    pub(crate) fn close_allowed(&self) -> bool {
+        self.allow_close
+    }
+
+    pub(crate) fn allow_close(&mut self) {
+        self.allow_close = true;
+    }
+
     pub(crate) fn push_recent_file(&mut self, path: PathBuf) {
         let mut paths = self.recent_files.clone();
         paths.insert(0, path);
         self.recent_files = normalize_recent_files(paths);
+    }
+
+    pub(crate) fn clear_recent_files(&mut self) {
+        self.recent_files.clear();
+    }
+
+    pub(crate) fn request_clear_recent_confirmation(&mut self) {
+        self.confirm_clear_recent = true;
+    }
+
+    pub(crate) fn clear_recent_confirmation_requested(&self) -> bool {
+        self.confirm_clear_recent
+    }
+
+    pub(crate) fn finish_clear_recent_confirmation(&mut self) {
+        self.confirm_clear_recent = false;
+    }
+
+    pub(crate) fn request_clear_derived_caches_confirmation(&mut self) {
+        self.confirm_clear_derived_caches = true;
+    }
+
+    pub(crate) fn clear_derived_caches_confirmation_requested(&self) -> bool {
+        self.confirm_clear_derived_caches
+    }
+
+    pub(crate) fn finish_clear_derived_caches_confirmation(&mut self) {
+        self.confirm_clear_derived_caches = false;
+    }
+
+    pub(crate) fn derived_cache_nodes(&self) -> &HashSet<NodeId> {
+        &self.derived_cache_nodes
+    }
+
+    pub(crate) fn set_derived_cache_nodes(&mut self, nodes: HashSet<NodeId>) {
+        self.derived_cache_nodes = nodes;
+    }
+
+    pub(crate) fn clear_derived_cache_nodes(&mut self) {
+        self.derived_cache_nodes.clear();
+    }
+
+    pub(crate) fn capture_presentation_identity(&self) -> Option<&str> {
+        self.capture_presentation_identity.as_deref()
+    }
+
+    pub(crate) fn set_capture_presentation_identity(&mut self, identity: Option<String>) {
+        self.capture_presentation_identity = identity;
     }
 
     pub(crate) fn save(

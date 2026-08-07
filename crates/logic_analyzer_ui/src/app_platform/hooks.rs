@@ -113,12 +113,12 @@ impl App {
 
         if self.host_ui_capabilities.viewport_close_guard {
             let close_requested = ctx.input(|input| input.viewport().close_requested());
-            if !self.platform.allow_close && close_requested {
+            if !self.platform.close_allowed() && close_requested {
                 if self.has_unsaved_changes() {
-                    self.platform.pending_guarded_action = Some(GuardedAction::Quit);
+                    self.platform.request_guarded_action(GuardedAction::Quit);
                     ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 } else {
-                    self.platform.allow_close = true;
+                    self.platform.allow_close();
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             }
@@ -150,14 +150,15 @@ impl App {
         match update {
             runtime::SourcePreparationUpdate::Unchanged => {}
             runtime::SourcePreparationUpdate::Preparing(preparing) => {
-                if self.platform.capture_presentation_identity.as_deref()
+                if self.platform.capture_presentation_identity()
                     != Some(preparing.identity.as_str())
                 {
                     self.clear_capture_presentation();
                 }
                 self.logic_analyzer
                     .set_visible_capture_channels(preparing.visible_channels);
-                self.platform.capture_presentation_identity = Some(preparing.identity.clone());
+                self.platform
+                    .set_capture_presentation_identity(Some(preparing.identity.clone()));
                 self.mark_capture_index_building(
                     preparing.identity,
                     preparing.metadata,
@@ -165,11 +166,11 @@ impl App {
                 );
             }
             runtime::SourcePreparationUpdate::Cleared => {
-                self.platform.capture_presentation_identity = None;
+                self.platform.set_capture_presentation_identity(None);
                 self.clear_capture_presentation();
             }
             runtime::SourcePreparationUpdate::Failed(error) => {
-                self.platform.capture_presentation_identity = None;
+                self.platform.set_capture_presentation_identity(None);
                 self.clear_capture_presentation();
                 self.toasts
                     .error(format!("Could not prepare capture source: {error}"));
@@ -177,7 +178,8 @@ impl App {
             runtime::SourcePreparationUpdate::Ready(prepared) => {
                 self.logic_analyzer
                     .set_visible_capture_channels(prepared.visible_channels);
-                self.platform.capture_presentation_identity = Some(prepared.identity.clone());
+                self.platform
+                    .set_capture_presentation_identity(Some(prepared.identity.clone()));
                 match prepared.data {
                     runtime::PreparedCaptureData::Indexed(index) => {
                         self.set_prepared_capture(prepared.identity, index)
@@ -203,13 +205,13 @@ impl App {
     }
 
     pub(crate) fn platform_restore_graph_capture(&mut self) {
-        self.platform.capture_presentation_identity = None;
+        self.platform.set_capture_presentation_identity(None);
         self.graph_run.service_mut().reset_prepared_capture();
     }
 
     pub(crate) fn platform_before_graph(&mut self) {
         self.node_graph
-            .set_derived_cache_nodes(self.platform.derived_cache_nodes.iter().copied());
+            .set_derived_cache_nodes(self.platform.derived_cache_nodes().iter().copied());
     }
 
     pub(crate) fn platform_after_graph(&mut self) {
@@ -234,7 +236,7 @@ impl App {
                 self.graph_run.clear_run_message();
                 self.error_badges.clear();
                 self.apply_graph_document(graph);
-                self.platform.current_file = Some(path.clone());
+                self.platform.set_current_file(path.clone());
                 self.mark_graph_saved();
                 self.push_recent_file(path.clone());
                 self.refresh_derived_cache_nodes();
@@ -250,7 +252,7 @@ impl App {
     fn push_recent_file(&mut self, path: PathBuf) {
         self.platform.push_recent_file(path);
         self.host_service
-            .publish_recent_files(&self.platform.recent_files);
+            .publish_recent_files(self.platform.recent_files());
     }
 
     /// Resets to a fresh, empty graph — File → New (Phase 5.1). Assumes the
@@ -271,8 +273,8 @@ impl App {
         self.restore_viewer_lane_height_setting();
         self.restore_timeline_cursor_setting();
         self.restore_panel_layout_setting();
-        self.platform.derived_cache_nodes.clear();
-        self.platform.current_file = None;
+        self.platform.clear_derived_cache_nodes();
+        self.platform.clear_current_file();
         self.mark_graph_saved();
         self.toasts.info("New graph");
     }
@@ -281,7 +283,7 @@ impl App {
     /// `request_quit` does.
     fn request_new(&mut self) {
         if self.has_unsaved_changes() {
-            self.platform.pending_guarded_action = Some(GuardedAction::New);
+            self.platform.request_guarded_action(GuardedAction::New);
         } else {
             self.do_new();
         }
@@ -291,7 +293,8 @@ impl App {
     /// changes the same way `request_quit` does.
     fn request_load_path(&mut self, path: PathBuf) {
         if self.has_unsaved_changes() {
-            self.platform.pending_guarded_action = Some(GuardedAction::LoadPath(path));
+            self.platform
+                .request_guarded_action(GuardedAction::LoadPath(path));
         } else {
             self.load_file(path);
         }
@@ -300,8 +303,7 @@ impl App {
     fn choose_and_load_file(&mut self) {
         let initial_directory = self
             .platform
-            .current_file
-            .as_ref()
+            .current_file()
             .and_then(|path| path.parent())
             .map(Path::to_owned);
         let path = self.host_service.choose_open_file(OpenDialog {
@@ -316,7 +318,7 @@ impl App {
     }
 
     fn save_file(&mut self) -> bool {
-        let Some(path) = self.platform.current_file.clone() else {
+        let Some(path) = self.platform.current_file().map(Path::to_owned) else {
             return self.save_file_as();
         };
         self.save_to_file(path)
@@ -325,14 +327,12 @@ impl App {
     fn save_file_as(&mut self) -> bool {
         let initial_directory = self
             .platform
-            .current_file
-            .as_ref()
+            .current_file()
             .and_then(|path| path.parent())
             .map(Path::to_owned);
         let default_file_name = self
             .platform
-            .current_file
-            .as_ref()
+            .current_file()
             .and_then(|path| path.file_name())
             .and_then(|name| name.to_str())
             .unwrap_or("pipeline.json")
@@ -366,7 +366,7 @@ impl App {
         };
         match self.host_service.save_graph(&path, &graph) {
             Ok(()) => {
-                self.platform.current_file = Some(path.clone());
+                self.platform.set_current_file(path.clone());
                 self.mark_graph_saved();
                 self.push_recent_file(path.clone());
                 let name = self.host_service.document_display_name(&path);
@@ -385,8 +385,7 @@ impl App {
         let descriptor = format.descriptor();
         let initial_directory = self
             .platform
-            .current_file
-            .as_ref()
+            .current_file()
             .and_then(|path| path.parent())
             .map(Path::to_owned);
         let Some(mut path) = self.host_service.choose_save_file(SaveDialog {
@@ -418,7 +417,7 @@ impl App {
         }
         self.synchronize_payload_subscription_manifest(false);
         match self.node_graph.snapshot_value() {
-            Ok(graph) => self.platform.saved_graph = graph,
+            Ok(graph) => self.platform.mark_saved_graph(graph),
             Err(error) => self.toasts.error(error),
         }
     }
@@ -430,14 +429,14 @@ impl App {
         self.synchronize_payload_subscription_manifest(false);
         self.node_graph
             .snapshot_value()
-            .map_or(true, |graph| graph != self.platform.saved_graph)
+            .map_or(true, |graph| !self.platform.is_saved_graph(&graph))
     }
 
     fn request_quit(&mut self, ctx: &egui::Context) {
         if self.has_unsaved_changes() {
-            self.platform.pending_guarded_action = Some(GuardedAction::Quit);
+            self.platform.request_guarded_action(GuardedAction::Quit);
         } else {
-            self.platform.allow_close = true;
+            self.platform.allow_close();
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
@@ -447,7 +446,7 @@ impl App {
             FileCommand::New => self.request_new(),
             FileCommand::Load => self.choose_and_load_file(),
             FileCommand::LoadPath(path) => self.request_load_path(path),
-            FileCommand::ClearRecent => self.platform.confirm_clear_recent = true,
+            FileCommand::ClearRecent => self.platform.request_clear_recent_confirmation(),
             FileCommand::Save => {
                 self.save_file();
             }
@@ -463,7 +462,7 @@ impl App {
     /// is outstanding — Save/Don't Save/Cancel, same dialog for all three
     /// (Phase 5.1).
     fn show_guarded_action_dialog(&mut self, ctx: &egui::Context) {
-        let continuation = match self.platform.pending_guarded_action.as_ref() {
+        let continuation = match self.platform.guarded_action() {
             Some(GuardedAction::Quit) => "quitting",
             Some(GuardedAction::New) => "creating a new graph",
             Some(GuardedAction::LoadPath(_)) => "opening another graph",
@@ -546,18 +545,18 @@ impl App {
             // action.
             Some(DialogChoice::Save) if self.save_file() => self.complete_guarded_action(ctx),
             Some(DialogChoice::Discard) => self.complete_guarded_action(ctx),
-            Some(DialogChoice::Cancel) => self.platform.pending_guarded_action = None,
+            Some(DialogChoice::Cancel) => self.platform.cancel_guarded_action(),
             _ => {}
         }
     }
 
     fn complete_guarded_action(&mut self, ctx: &egui::Context) {
-        let Some(action) = self.platform.pending_guarded_action.take() else {
+        let Some(action) = self.platform.take_guarded_action() else {
             return;
         };
         match action {
             GuardedAction::Quit => {
-                self.platform.allow_close = true;
+                self.platform.allow_close();
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
             GuardedAction::New => self.do_new(),
@@ -568,7 +567,7 @@ impl App {
     /// Resolves the "Clear the recent files list?" confirmation triggered
     /// by either the egui or native "Clear Recent" menu item.
     fn show_clear_recent_dialog(&mut self, ctx: &egui::Context) {
-        if !self.platform.confirm_clear_recent {
+        if !self.platform.clear_recent_confirmation_requested() {
             return;
         }
 
@@ -585,17 +584,19 @@ impl App {
 
         match choice {
             Some(ConfirmationChoice::Confirm) => {
-                self.platform.recent_files.clear();
+                self.platform.clear_recent_files();
                 self.host_service.publish_recent_files(&[]);
-                self.platform.confirm_clear_recent = false;
+                self.platform.finish_clear_recent_confirmation();
             }
-            Some(ConfirmationChoice::Cancel) => self.platform.confirm_clear_recent = false,
+            Some(ConfirmationChoice::Cancel) => {
+                self.platform.finish_clear_recent_confirmation();
+            }
             None => {}
         }
     }
 
     fn show_clear_derived_caches_dialog(&mut self, ctx: &egui::Context) {
-        if !self.platform.confirm_clear_derived_caches {
+        if !self.platform.clear_derived_caches_confirmation_requested() {
             return;
         }
 
@@ -610,11 +611,11 @@ impl App {
             },
         ) {
             Some(ConfirmationChoice::Confirm) => {
-                self.platform.confirm_clear_derived_caches = false;
+                self.platform.finish_clear_derived_caches_confirmation();
                 self.clear_all_derived_caches();
             }
             Some(ConfirmationChoice::Cancel) => {
-                self.platform.confirm_clear_derived_caches = false;
+                self.platform.finish_clear_derived_caches_confirmation();
             }
             None => {}
         }
@@ -877,7 +878,7 @@ impl App {
     }
 
     fn refresh_derived_cache_nodes(&mut self) {
-        self.platform.derived_cache_nodes = self
+        let nodes = self
             .graph_run
             .service()
             .derived_cache_configs_by_node(self.node_graph.graph())
@@ -888,6 +889,7 @@ impl App {
                     .collect()
             })
             .unwrap_or_default();
+        self.platform.set_derived_cache_nodes(nodes);
     }
 
     fn clear_node_derived_cache(&mut self, node_id: NodeId) {
@@ -951,7 +953,7 @@ impl App {
 
     fn request_clear_all_derived_caches(&mut self) {
         if self.can_clear_derived_caches() {
-            self.platform.confirm_clear_derived_caches = true;
+            self.platform.request_clear_derived_caches_confirmation();
         }
     }
 
@@ -986,7 +988,7 @@ impl App {
             return;
         };
         self.graph_run.clear_cache_clear_task();
-        self.platform.derived_cache_nodes.clear();
+        self.platform.clear_derived_cache_nodes();
         match result {
             Ok(stats) if stats.removed_entries == 0 && stats.removed_bytes == 0 => {
                 self.toasts.info("No derived data caches found");

@@ -1,3 +1,16 @@
+//! UI-equivalent graph execution without interactive widgets.
+//!
+//! **Owned data and invariants.** `HeadlessGraphRunner` owns one injected composition and the
+//! ordered load, restore, source-preparation, execution, progress, and report workflow.
+//!
+//! **Facade.** The crate root re-exports the runner plus its progress, report, and error contracts.
+//!
+//! **Permitted owner dependencies.** The owner consumes UI-owned graph and host services plus
+//! portable graph/runtime and executor contracts.
+//!
+//! **Explicit exclusions.** It does not construct concrete node inventories, implement host I/O,
+//! render widgets, select a target, or introduce a second graph-execution policy.
+
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::Path;

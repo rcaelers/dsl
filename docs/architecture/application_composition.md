@@ -33,6 +33,19 @@ facade. The shell composes operations that cross an owner boundary—for example
 edit through the graph service and then updating the viewer. Persisted graph extensions remain at
 the document-composition boundary, so this ownership split does not change saved formats.
 
+Four substantial supporting modules also state an explicit internal ownership contract:
+
+| Owner | Internal boundary |
+| --- | --- |
+| `app_platform` | Owns application-shell document identity, saved-state comparison, recent-file ordering, guarded actions, confirmation state, and capture-presentation identity. `PlatformState` keeps those fields private; intent-named methods and `App::platform_*` hooks coordinate UI-owned host ports without implementing host mechanisms. |
+| `decoder_panel` | Owns decoder-panel selection, formatting, column visibility, keyboard/popup interaction, and loaded table caches over generic derived-lane and table-presentation contracts. It does not decode protocols. |
+| `viewer_selection` | Owns versioned viewer-selection and payload-subscription graph extensions, compatibility migration, and conversion into an explicit `OutputSubscriptionPlan`. It neither renders nor executes the graph. |
+| `headless` | Owns the UI-equivalent load, restore, source-preparation, execution, progress, and reporting workflow over the same injected graph and host services. It does not define separate execution semantics. |
+
+These boundaries name the data and invariants, facade, permitted dependencies, and explicit
+exclusions in their Rust module documentation. Structural tests keep the three behavioral owner
+structs encapsulated and require all four ownership statements.
+
 ## Application services
 
 The application window uses a persistent panel layout. The default places the Logic Analyzer above

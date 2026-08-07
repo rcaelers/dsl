@@ -6,9 +6,9 @@ architecture tests) apply to every item here and are not repeated. [`TODO.md`](.
 owns priorities and ordering constraints; delete each section when its item completes and the
 outcome is documented.
 
-P3 items are planned work, often alongside related changes. The
-[ui.boundaries.module-ownership](#ui-boundaries-module-ownership) rules guide the remaining UI
-decompositions.
+P3 items are planned work, often alongside related changes. The module-ownership rules in
+[`responsibility_visibility.md`](../aspects/responsibility_visibility.md#module-ownership) guide
+the remaining UI decompositions.
 
 ## ui.graph-service.port-shape (P3 · medium) {#ui-graph-service-port-shape}
 
@@ -41,16 +41,6 @@ graph-crate dependencies regardless.
 
 **Acceptance.** No `dyn GraphService` in production code; UI tests pass against the real service
 with injected repositories/executors.
-
-## ui.boundaries.module-ownership (P3 · medium) {#ui-boundaries-module-ownership}
-
-**Current state.** `docs/aspects/responsibility_visibility.md` defines the four-part ownership
-statement for substantial modules, and the application-state owners apply it. The remaining work
-is applying the same review to existing oversized modules.
-
-**Steps.** Write the four-part owner doc comments for the three or four largest existing modules
-that survive decomposition and review whether each can still answer concisely. Keep the roughly
-1,000-line threshold advisory, not a hard lint.
 
 ## errors.typed-boundaries (P3 · medium) {#errors-typed-boundaries}
 
