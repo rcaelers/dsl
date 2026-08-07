@@ -8,7 +8,7 @@ use logic_analyzer_graph_capabilities::node_support::{
 };
 use node_graph_document::SocketReference;
 use signal_capture::Sample;
-use signal_derived::Trigger;
+use signal_derived::TimestampEvent;
 use signal_runtime::ProcessNode;
 use signal_transforms::sr_latch::SrLatch;
 
@@ -17,7 +17,7 @@ pub(crate) struct SrFlipFlopBuilder;
 
 impl GraphNodeSemantics for SrFlipFlopBuilder {
     fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
-        vec![PortKind::of::<Trigger>()]
+        vec![PortKind::of::<TimestampEvent>()]
     }
     fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<Sample>()]

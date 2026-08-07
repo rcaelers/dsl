@@ -9,7 +9,7 @@ use logic_analyzer_graph_capabilities::node_support::{
 };
 use node_graph_document::SocketReference;
 use signal_capture::{Sample, SampleBlock};
-use signal_derived::{NumberSample, TextSample, Trigger, Word};
+use signal_derived::{NumberSample, TextSample, TimestampEvent, Word};
 use signal_runtime::ProcessNode;
 use signal_transforms::buffer::BufferNode;
 
@@ -25,7 +25,7 @@ fn selected_kind(state: &Value) -> PortKind {
         "Word" => PortKind::of::<Word>(),
         "Number" => PortKind::of::<NumberSample>(),
         "Text" => PortKind::of::<TextSample>(),
-        "Trigger" => PortKind::of::<Trigger>(),
+        "Trigger" => PortKind::of::<TimestampEvent>(),
         _ => PortKind::of::<Sample>(),
     }
 }
@@ -67,7 +67,7 @@ impl RuntimeMaterializer for BufferBuilder {
             "Word" => Box::new(BufferNode::<Word>::new(name)),
             "Number" => Box::new(BufferNode::<NumberSample>::new(name)),
             "Text" => Box::new(BufferNode::<TextSample>::new(name)),
-            "Trigger" => Box::new(BufferNode::<Trigger>::new(name)),
+            "Trigger" => Box::new(BufferNode::<TimestampEvent>::new(name)),
             _ => Box::new(BufferNode::<Sample>::new(name)),
         };
         Ok(node)

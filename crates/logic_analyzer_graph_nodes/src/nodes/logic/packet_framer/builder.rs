@@ -8,11 +8,14 @@ use logic_analyzer_graph_capabilities::node::{
 use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableColumnDescriptor, NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
+use logic_analyzer_protocol_decoders::packet_framer::{
+    GatePolarity, PACKET_FRAME_PROTOCOL_ID, PacketFramer,
+};
+use logic_analyzer_protocol_decoders::types::ProtocolPacket;
 use node_graph_document::SocketReference;
 use signal_capture::Sample;
-use signal_derived::{ProtocolPacket, Trigger, Word};
+use signal_derived::{TimestampEvent, Word};
 use signal_runtime::ProcessNode;
-use signal_transforms::packet_framer::{GatePolarity, PACKET_FRAME_PROTOCOL_ID, PacketFramer};
 
 #[derive(Default)]
 pub(crate) struct PacketFramerBuilder;
@@ -36,7 +39,7 @@ impl GraphNodeSemantics for PacketFramerBuilder {
     fn accepted_kinds(&self, socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         match socket.definition_index() {
             0 => vec![PortKind::of::<Word>()],
-            1 => vec![PortKind::of::<Trigger>()],
+            1 => vec![PortKind::of::<TimestampEvent>()],
             2 => vec![PortKind::of::<Sample>()],
             _ => Vec::new(),
         }
@@ -65,7 +68,7 @@ impl GraphNodeSemantics for PacketFramerBuilder {
     ) -> Option<String> {
         match socket.definition_index() {
             0 if kind == PortKind::of::<Word>() => Some("words".to_owned()),
-            1 if kind == PortKind::of::<Trigger>() => Some("boundary".to_owned()),
+            1 if kind == PortKind::of::<TimestampEvent>() => Some("boundary".to_owned()),
             2 if kind == PortKind::of::<Sample>() => Some("gate".to_owned()),
             _ => None,
         }
@@ -169,7 +172,7 @@ mod builder_tests {
                 .iter()
                 .zip([
                     PortKind::of::<Word>(),
-                    PortKind::of::<Trigger>(),
+                    PortKind::of::<TimestampEvent>(),
                     PortKind::of::<Sample>()
                 ])
                 .map(|(socket, kind)| {

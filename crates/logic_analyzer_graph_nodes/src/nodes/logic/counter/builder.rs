@@ -7,22 +7,22 @@ use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
 use node_graph_document::SocketReference;
-use signal_derived::{NumberSample, Trigger};
+use signal_derived::{NumberSample, TimestampEvent};
 use signal_runtime::ProcessNode;
-use signal_transforms::trigger_counter::TriggerCounter;
+use signal_transforms::event_counter::EventCounter;
 
 #[derive(Default)]
 pub(crate) struct CounterBuilder;
 
 impl GraphNodeSemantics for CounterBuilder {
     fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
-        vec![PortKind::of::<Trigger>()]
+        vec![PortKind::of::<TimestampEvent>()]
     }
     fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![PortKind::of::<NumberSample>()]
     }
     fn input_port(&self, _: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
-        Some("trigger".into())
+        Some("event".into())
     }
     fn output_port(
         &self,
@@ -44,7 +44,7 @@ impl RuntimeMaterializer for CounterBuilder {
     ) -> Result<Box<dyn ProcessNode>, String> {
         let state: super::definition::CounterState = parse_state(state)?;
         Ok(Box::new(
-            TriggerCounter::new(state.start.value as i64, state.step.value as i64).with_name(name),
+            EventCounter::new(state.start.value as i64, state.step.value as i64).with_name(name),
         ))
     }
 }

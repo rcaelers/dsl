@@ -318,13 +318,6 @@ item here, so acceptance comparisons stop being ad-hoc.
   `signal_capture_session::live_capture_store::*`, `logic_analyzer_graph_plan::plan::*`, and
   `logic_analyzer_graph_runtime::runtime::*`. Treat the lists as API contracts and remove duplicate
   public paths while doing [node-graph.single-import-path].
-- [derived.payload.builtin-registration] (P3 · medium) Register built-in derived payload kinds through
-  `PayloadRegistry` like every other payload and purge product vocabulary from `signal_derived`.
-  The crate currently has both an open registry and a closed built-in set
-  (`digital_payload_adapter`, `word_payload_adapter`, `trigger_payload_adapter`,
-  `TriggerLaneSnapshot`, `ProtocolPacket`). Generic retained-value, query, and storage contracts
-  stay in `signal_derived`; trigger/protocol semantics and their registrations move to the
-  corresponding logic-analyzer feature owners.
   Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#derived-payload-builtin-registration).
 - [ui.graph-service.port-shape] (P3 · medium) Resolve the `GraphService` port. Its contract is typed in
   `ProcessingGraph`, `GraphRunContext`, `ApplySummary`, `SourceReadinessRegistry`, and

@@ -14,13 +14,26 @@ fn generic_derived_owner_has_no_concrete_protocol_or_session_vocabulary() {
             "collector",
             include_str!("derived_data_collector/collector.rs"),
         ),
+        (
+            "timestamp events",
+            include_str!("derived_data_collector/timestamp_event.rs"),
+        ),
         ("catalog", include_str!("derived_data_collector/catalog.rs")),
         ("word store", include_str!("derived_word_store/store.rs")),
         ("events", include_str!("events.rs")),
         ("payloads", include_str!("payload.rs")),
         ("sampling points", include_str!("sampling_points.rs")),
     ];
-    let forbidden = ["CaptureSession", "I2C", "SPI", "UART", "live_capture"];
+    let forbidden = [
+        "CaptureSession",
+        "I2C",
+        "ProtocolPacket",
+        "ProtocolValue",
+        "SPI",
+        "Trigger",
+        "UART",
+        "live_capture",
+    ];
 
     for (component, source) in sources {
         let source = implementation_source(source);

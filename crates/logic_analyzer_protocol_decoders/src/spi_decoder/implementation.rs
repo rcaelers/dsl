@@ -23,14 +23,12 @@ use std::sync::Arc;
 use tracing::{debug, trace};
 
 use signal_capture::{CaptureTransition, EdgeQuery, EdgeQueryInputPortExt, Sample};
-use signal_derived::{
-    PackedSamplingPoint, ProtocolPacket, ProtocolValue, SamplingPointStore, Word,
-};
+use signal_derived::{PackedSamplingPoint, SamplingPointStore, Word};
 use signal_runtime::{
     InputPort, OutputPort, ProcessNode, ProtocolKind, Receiver, WorkError, WorkOutcome, WorkResult,
 };
 
-use crate::types::{BitOrder, CsPolarity};
+use crate::types::{BitOrder, CsPolarity, ProtocolPacket, ProtocolValue};
 
 pub const SPI_TRANSACTION_PROTOCOL_ID: &str = "org.logicconduit.spi-transaction/v1";
 

@@ -13,7 +13,7 @@ use logic_analyzer_protocol_decoders::types::BitOrder;
 use logic_analyzer_protocol_decoders::uart_decoder::{UartDecoder, UartParity, UartStopBits};
 use node_graph_document::SocketReference;
 use signal_capture::Sample;
-use signal_derived::{Trigger, Word};
+use signal_derived::{TimestampEvent, Word};
 use signal_runtime::ProcessNode;
 
 #[derive(Default)]
@@ -29,7 +29,7 @@ impl GraphNodeSemantics for UartDecoderBuilder {
     fn offered_kinds(&self, socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         match socket.definition_index() {
             0 | 2 | 3 => vec![PortKind::of::<Word>()],
-            1 => vec![PortKind::of::<Trigger>()],
+            1 => vec![PortKind::of::<TimestampEvent>()],
             _ => vec![],
         }
     }

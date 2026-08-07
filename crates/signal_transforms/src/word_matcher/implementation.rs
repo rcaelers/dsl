@@ -1,4 +1,4 @@
-//! Word matcher emitting a trigger whenever a decoded word matches a pattern.
+//! Word matcher emitting a match whenever a decoded word matches a pattern.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use tracing::debug;
 
 use signal_capture::Sample;
-use signal_derived::{Trigger, Word};
+use signal_derived::{TimestampEvent, Word};
 use signal_runtime::{
     ConfigOutcome, ConfigValue, ConfigurationBoundary, ConfigurationScheduler, InputPort,
     NodeConfig, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,
@@ -54,23 +54,23 @@ impl MatchOp {
     }
 }
 
-/// Where in the matched word the emitted [`Trigger`] lands. A command
+/// Where in the matched word the emitted [`TimestampEvent`] lands. A command
 /// logically takes effect once it has fully arrived, so `End` (the word's
 /// last sampling edge, `Word::end_ns`) is the default; for instantaneous
 /// words (`duration_ns == 0`) the two coincide.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TriggerAt {
+pub enum MatchTimestamp {
     Start,
     #[default]
     End,
 }
 
-impl TriggerAt {
+impl MatchTimestamp {
     /// Parse from the wire names used by node configs.
     pub fn parse(name: &str) -> Option<Self> {
         Some(match name {
-            "start" => TriggerAt::Start,
-            "end" => TriggerAt::End,
+            "start" => MatchTimestamp::Start,
+            "end" => MatchTimestamp::End,
             _ => return None,
         })
     }
@@ -97,20 +97,20 @@ impl PredicateMode {
     }
 }
 
-/// Emits a [`Trigger`] for every word where `(word & mask) OP (pattern &
-/// mask)` holds (`OP` = [`MatchOp`], `==` by default). The trigger lands at
-/// the word's end by default ([`TriggerAt`]).
+/// Emits a [`TimestampEvent`] for every word where `(word & mask) OP (pattern &
+/// mask)` holds (`OP` = [`MatchOp`], `==` by default). The match lands at
+/// the word's end by default ([`MatchTimestamp`]).
 ///
 /// Inputs: `words` — a [`Word`] stream (from any decoder — SPI, parallel
 /// bus, UART, … — the matcher has no notion of which one)
-/// Outputs: `trigger` — `Trigger` per match;
+/// Outputs: `match` — `TimestampEvent` per match;
 ///          `matched` — optional `Sample` pulse lane for visualization
 pub struct WordMatcher {
     name: String,
     pattern: u64,
     mask: u64,
     op: MatchOp,
-    trigger_at: TriggerAt,
+    match_timestamp: MatchTimestamp,
     predicate_mode: PredicateMode,
     range_min: u64,
     range_max: u64,
@@ -124,9 +124,9 @@ pub struct WordMatcher {
     /// Width of the visualization pulse on the `matched` output.
     pulse_ns: u64,
     input_buffer: VecDeque<Word>,
-    rearm_buffer: VecDeque<Trigger>,
+    rearm_buffer: VecDeque<TimestampEvent>,
     word_head: Option<Word>,
-    rearm_head: Option<Trigger>,
+    rearm_head: Option<TimestampEvent>,
     word_eos: bool,
     rearm_eos: bool,
     matches: u64,
@@ -141,7 +141,7 @@ struct MatcherSettings {
     pattern: u64,
     mask: u64,
     op: MatchOp,
-    trigger_at: TriggerAt,
+    match_timestamp: MatchTimestamp,
     predicate_mode: PredicateMode,
     range_min: u64,
     range_max: u64,
@@ -190,7 +190,7 @@ impl WordMatcher {
             pattern,
             mask,
             op: MatchOp::default(),
-            trigger_at: TriggerAt::default(),
+            match_timestamp: MatchTimestamp::default(),
             predicate_mode: PredicateMode::default(),
             range_min: 0,
             range_max: u64::MAX,
@@ -227,9 +227,9 @@ impl WordMatcher {
         self
     }
 
-    /// Returns this value configured with trigger at.
-    pub fn with_trigger_at(mut self, trigger_at: TriggerAt) -> Self {
-        self.trigger_at = trigger_at;
+    /// Returns this value configured with match at.
+    pub fn with_match_timestamp(mut self, match_timestamp: MatchTimestamp) -> Self {
+        self.match_timestamp = match_timestamp;
         self
     }
 
@@ -280,7 +280,7 @@ impl WordMatcher {
             pattern: self.pattern,
             mask: self.mask,
             op: self.op,
-            trigger_at: self.trigger_at,
+            match_timestamp: self.match_timestamp,
             predicate_mode: self.predicate_mode,
             range_min: self.range_min,
             range_max: self.range_max,
@@ -300,7 +300,7 @@ impl WordMatcher {
                 ("mask", ConfigValue::U64(mask)) => settings.mask = *mask,
                 ("op", ConfigValue::Text(op)) => settings.op = MatchOp::parse(op).ok_or(())?,
                 ("trigger_at", ConfigValue::Text(at)) => {
-                    settings.trigger_at = TriggerAt::parse(at).ok_or(())?;
+                    settings.match_timestamp = MatchTimestamp::parse(at).ok_or(())?;
                 }
                 ("predicate", ConfigValue::Text(predicate)) => {
                     settings.predicate_mode = PredicateMode::parse(predicate).ok_or(())?;
@@ -326,7 +326,7 @@ impl WordMatcher {
         self.pattern = settings.pattern;
         self.mask = settings.mask;
         self.op = settings.op;
-        self.trigger_at = settings.trigger_at;
+        self.match_timestamp = settings.match_timestamp;
         self.predicate_mode = settings.predicate_mode;
         self.range_min = settings.range_min;
         self.range_max = settings.range_max;
@@ -387,7 +387,7 @@ impl WordMatcher {
         if self.manual_rearm && self.rearm_head.is_none() && !self.rearm_eos {
             let mut receiver = inputs
                 .get(1)
-                .and_then(|port| port.get::<Trigger>(&mut self.rearm_buffer))
+                .and_then(|port| port.get::<TimestampEvent>(&mut self.rearm_buffer))
                 .ok_or_else(|| WorkError::NodeError("Missing rearm input".to_owned()))?;
             match receiver.recv() {
                 Ok(rearm) => self.rearm_head = Some(rearm),
@@ -430,11 +430,11 @@ impl ProcessNode for WordMatcher {
     fn input_schema(&self) -> Vec<PortSchema> {
         vec![
             PortSchema::new::<Word>("words", 0, PortDirection::Input),
-            PortSchema::new::<Trigger>("rearm", 1, PortDirection::Input),
+            PortSchema::new::<TimestampEvent>("rearm", 1, PortDirection::Input),
         ]
     }
 
-    /// Hot-appliable: `pattern` / `mask` (U64), `op`, and `trigger_at`.
+    /// Hot-appliable: `pattern` / `mask` (U64), `op`, and the stable `trigger_at` key.
     /// Takes effect for the next word; in-flight words already consumed
     /// keep the old match result (accepted hot-reconfigure semantics).
     fn apply_config(&mut self, config: &NodeConfig) -> ConfigOutcome {
@@ -453,7 +453,7 @@ impl ProcessNode for WordMatcher {
 
     fn output_schema(&self) -> Vec<PortSchema> {
         vec![
-            PortSchema::new::<Trigger>("trigger", 0, PortDirection::Output),
+            PortSchema::new::<TimestampEvent>("match", 0, PortDirection::Output),
             PortSchema::state::<Sample>("matched", 1, PortDirection::Output),
             PortSchema::new::<Word>("matching_words", 2, PortDirection::Output)
                 .with_default_buffer_capacity(8),
@@ -487,7 +487,9 @@ impl ProcessNode for WordMatcher {
             return Ok(0);
         }
 
-        let trigger_out = outputs.first().and_then(|port| port.get::<Trigger>());
+        let match_out = outputs
+            .first()
+            .and_then(|port| port.get::<TimestampEvent>());
         // Optional visualization lane; None when unconnected.
         let pulse_out = outputs.get(1).and_then(|port| port.get::<Sample>());
         let word_out = outputs.get(2).and_then(|port| port.get::<Word>());
@@ -504,9 +506,9 @@ impl ProcessNode for WordMatcher {
         self.apply_scheduled_settings(word.timestamp_ns);
         let value = word.value;
         if self.predicate_matches(value) {
-            let ts = match self.trigger_at {
-                TriggerAt::Start => word.timestamp_ns,
-                TriggerAt::End => word.end_ns(),
+            let ts = match self.match_timestamp {
+                MatchTimestamp::Start => word.timestamp_ns,
+                MatchTimestamp::End => word.end_ns(),
             };
             if ts < self.next_allowed_ns || (self.manual_rearm && !self.armed) {
                 return Ok(0);
@@ -525,8 +527,8 @@ impl ProcessNode for WordMatcher {
                 "[{}] match #{}: 0x{:06X} at {}ns",
                 self.name, self.matches, value, ts
             );
-            if let Some(trigger) = &trigger_out {
-                trigger.send(Trigger::new(ts))?;
+            if let Some(match_event) = &match_out {
+                match_event.send(TimestampEvent::new(ts))?;
             }
             if let Some(pulse) = &pulse_out {
                 if ts >= self.last_pulse_end {
@@ -571,9 +573,8 @@ mod tests {
         let wd = Watchdog::new();
         let (tx, rx) = bounded::<ChannelMessage<Word>>(16);
         let input = InputPort::new_with_watchdog(rx, &wd, "m", "words");
-        let (ttx, trx) = bounded::<ChannelMessage<Trigger>>(16);
-        let trigger_out =
-            OutputPort::new_with_watchdog(Sender::new(vec![ttx]), &wd, "m", "trigger");
+        let (ttx, trx) = bounded::<ChannelMessage<TimestampEvent>>(16);
+        let match_out = OutputPort::new_with_watchdog(Sender::new(vec![ttx]), &wd, "m", "match");
         let (ptx, prx) = bounded::<ChannelMessage<Sample>>(16);
         let pulse_out = OutputPort::new_with_watchdog(Sender::new(vec![ptx]), &wd, "m", "matched");
 
@@ -586,16 +587,19 @@ mod tests {
         drop(tx);
 
         let mut m = WordMatcher::new(0x600081, 0xFFFFFF);
-        run_to_shutdown(&mut m, &[input], &[trigger_out, pulse_out]);
+        run_to_shutdown(&mut m, &[input], &[match_out, pulse_out]);
 
-        let triggers: Vec<Trigger> = trx
+        let matches: Vec<TimestampEvent> = trx
             .try_iter()
             .filter_map(|m| match m {
                 ChannelMessage::Sample(t) => Some(t),
                 _ => None,
             })
             .collect();
-        assert_eq!(triggers, vec![Trigger::new(100), Trigger::new(300_000)]);
+        assert_eq!(
+            matches,
+            vec![TimestampEvent::new(100), TimestampEvent::new(300_000)]
+        );
 
         let pulses: Vec<Sample> = prx
             .try_iter()
@@ -616,9 +620,8 @@ mod tests {
         let wd = Watchdog::new();
         let (tx, rx) = bounded::<ChannelMessage<Word>>(16);
         let input = InputPort::new_with_watchdog(rx, &wd, "m", "words");
-        let (ttx, trx) = bounded::<ChannelMessage<Trigger>>(16);
-        let trigger_out =
-            OutputPort::new_with_watchdog(Sender::new(vec![ttx]), &wd, "m", "trigger");
+        let (ttx, trx) = bounded::<ChannelMessage<TimestampEvent>>(16);
+        let match_out = OutputPort::new_with_watchdog(Sender::new(vec![ttx]), &wd, "m", "match");
         let (ptx, _prx) = bounded::<ChannelMessage<Sample>>(16);
         let pulse_out = OutputPort::new_with_watchdog(Sender::new(vec![ptx]), &wd, "m", "matched");
 
@@ -632,16 +635,16 @@ mod tests {
         drop(tx);
 
         let mut m = WordMatcher::new(0x600000, 0xFF0000);
-        run_to_shutdown(&mut m, &[input], &[trigger_out, pulse_out]);
+        run_to_shutdown(&mut m, &[input], &[match_out, pulse_out]);
 
-        let triggers: Vec<u64> = trx
+        let matches: Vec<u64> = trx
             .try_iter()
             .filter_map(|m| match m {
                 ChannelMessage::Sample(t) => Some(t.timestamp_ns),
                 _ => None,
             })
             .collect();
-        assert_eq!(triggers, vec![1, 2]);
+        assert_eq!(matches, vec![1, 2]);
     }
 
     #[test]
@@ -649,9 +652,8 @@ mod tests {
         let wd = Watchdog::new();
         let (tx, rx) = bounded::<ChannelMessage<Word>>(16);
         let input = InputPort::new_with_watchdog(rx, &wd, "m", "words");
-        let (ttx, trx) = bounded::<ChannelMessage<Trigger>>(16);
-        let trigger_out =
-            OutputPort::new_with_watchdog(Sender::new(vec![ttx]), &wd, "m", "trigger");
+        let (ttx, trx) = bounded::<ChannelMessage<TimestampEvent>>(16);
+        let match_out = OutputPort::new_with_watchdog(Sender::new(vec![ttx]), &wd, "m", "match");
         let (ptx, _prx) = bounded::<ChannelMessage<Sample>>(16);
         let pulse_out = OutputPort::new_with_watchdog(Sender::new(vec![ptx]), &wd, "m", "matched");
 
@@ -661,19 +663,19 @@ mod tests {
         drop(tx);
 
         let mut m = WordMatcher::new(0xAA, 0xFF);
-        run_to_shutdown(&mut m, &[input], &[trigger_out, pulse_out]);
+        run_to_shutdown(&mut m, &[input], &[match_out, pulse_out]);
 
-        let triggers: Vec<u64> = trx
+        let matches: Vec<u64> = trx
             .try_iter()
             .filter_map(|m| match m {
                 ChannelMessage::Sample(t) => Some(t.timestamp_ns),
                 _ => None,
             })
             .collect();
-        assert_eq!(triggers, vec![10, 30]);
+        assert_eq!(matches, vec![10, 30]);
     }
 
-    /// The trigger lands at the word's end by default (where the command
+    /// The match lands at the word's end by default (where the command
     /// has fully arrived), or at its start when configured — for
     /// instantaneous words (duration 0) the two coincide.
     #[test]
@@ -682,9 +684,9 @@ mod tests {
             let wd = Watchdog::new();
             let (tx, rx) = bounded::<ChannelMessage<Word>>(16);
             let input = InputPort::new_with_watchdog(rx, &wd, "m", "words");
-            let (ttx, trx) = bounded::<ChannelMessage<Trigger>>(16);
-            let trigger_out =
-                OutputPort::new_with_watchdog(Sender::new(vec![ttx]), &wd, "m", "trigger");
+            let (ttx, trx) = bounded::<ChannelMessage<TimestampEvent>>(16);
+            let match_out =
+                OutputPort::new_with_watchdog(Sender::new(vec![ttx]), &wd, "m", "match");
             let (ptx, _prx) = bounded::<ChannelMessage<Sample>>(16);
             let pulse_out =
                 OutputPort::new_with_watchdog(Sender::new(vec![ptx]), &wd, "m", "matched");
@@ -698,7 +700,7 @@ mod tests {
             drop(tx);
 
             let mut m = matcher;
-            run_to_shutdown(&mut m, &[input], &[trigger_out, pulse_out]);
+            run_to_shutdown(&mut m, &[input], &[match_out, pulse_out]);
             trx.try_iter()
                 .filter_map(|m| match m {
                     ChannelMessage::Sample(t) => Some(t.timestamp_ns),
@@ -709,7 +711,7 @@ mod tests {
 
         assert_eq!(run(WordMatcher::new(0xAA, 0xFF)), vec![2_400, 10_000]);
         assert_eq!(
-            run(WordMatcher::new(0xAA, 0xFF).with_trigger_at(TriggerAt::Start)),
+            run(WordMatcher::new(0xAA, 0xFF).with_match_timestamp(MatchTimestamp::Start)),
             vec![100, 10_000]
         );
     }
@@ -721,9 +723,9 @@ mod tests {
             let wd = Watchdog::new();
             let (tx, rx) = bounded::<ChannelMessage<Word>>(16);
             let input = InputPort::new_with_watchdog(rx, &wd, "m", "words");
-            let (ttx, trx) = bounded::<ChannelMessage<Trigger>>(16);
-            let trigger_out =
-                OutputPort::new_with_watchdog(Sender::new(vec![ttx]), &wd, "m", "trigger");
+            let (ttx, trx) = bounded::<ChannelMessage<TimestampEvent>>(16);
+            let match_out =
+                OutputPort::new_with_watchdog(Sender::new(vec![ttx]), &wd, "m", "match");
             let (ptx, _prx) = bounded::<ChannelMessage<Sample>>(16);
             let pulse_out =
                 OutputPort::new_with_watchdog(Sender::new(vec![ptx]), &wd, "m", "matched");
@@ -732,7 +734,7 @@ mod tests {
             }
             drop(tx);
             let mut m = WordMatcher::new(0x20, u64::MAX).with_op(op);
-            run_to_shutdown(&mut m, &[input], &[trigger_out, pulse_out]);
+            run_to_shutdown(&mut m, &[input], &[match_out, pulse_out]);
             trx.try_iter()
                 .filter_map(|m| match m {
                     ChannelMessage::Sample(t) => Some(t.timestamp_ns),
@@ -754,9 +756,8 @@ mod tests {
         let wd = Watchdog::new();
         let (tx, rx) = bounded::<ChannelMessage<Word>>(16);
         let input = InputPort::new_with_watchdog(rx, &wd, "m", "words");
-        let (ttx, trx) = bounded::<ChannelMessage<Trigger>>(16);
-        let trigger_out =
-            OutputPort::new_with_watchdog(Sender::new(vec![ttx]), &wd, "m", "trigger");
+        let (ttx, trx) = bounded::<ChannelMessage<TimestampEvent>>(16);
+        let match_out = OutputPort::new_with_watchdog(Sender::new(vec![ttx]), &wd, "m", "match");
         let (ptx, _prx) = bounded::<ChannelMessage<Sample>>(16);
         let pulse_out = OutputPort::new_with_watchdog(Sender::new(vec![ptx]), &wd, "m", "matched");
         for (value, timestamp) in [(1, 100), (2, 199), (2, 200), (1, 201)] {
@@ -774,12 +775,12 @@ mod tests {
                 .schedule_config(&config, ConfigurationBoundary::new(2, 200)),
             ConfigOutcome::Applied
         );
-        run_to_shutdown(&mut matcher, &[input], &[trigger_out, pulse_out]);
+        run_to_shutdown(&mut matcher, &[input], &[match_out, pulse_out]);
 
         let timestamps: Vec<_> = trx
             .try_iter()
             .filter_map(|message| match message {
-                ChannelMessage::Sample(trigger) => Some(trigger.timestamp_ns),
+                ChannelMessage::Sample(match_event) => Some(match_event.timestamp_ns),
                 _ => None,
             })
             .collect();
@@ -799,10 +800,10 @@ mod tests {
                 .unwrap();
         }
         drop(word_tx);
-        let (rearm_tx, rearm_rx) = bounded::<ChannelMessage<Trigger>>(32);
+        let (rearm_tx, rearm_rx) = bounded::<ChannelMessage<TimestampEvent>>(32);
         for timestamp_ns in rearms {
             rearm_tx
-                .send(ChannelMessage::Sample(Trigger::new(*timestamp_ns)))
+                .send(ChannelMessage::Sample(TimestampEvent::new(*timestamp_ns)))
                 .unwrap();
         }
         drop(rearm_tx);
@@ -810,7 +811,7 @@ mod tests {
             InputPort::new_with_watchdog(word_rx, &watchdog, "matcher", "words"),
             InputPort::new_with_watchdog(rearm_rx, &watchdog, "matcher", "rearm"),
         ];
-        let (trigger_tx, trigger_rx) = bounded::<ChannelMessage<Trigger>>(32);
+        let (trigger_tx, trigger_rx) = bounded::<ChannelMessage<TimestampEvent>>(32);
         let (pulse_tx, _pulse_rx) = bounded::<ChannelMessage<Sample>>(32);
         let (matching_word_tx, matching_word_rx) = bounded::<ChannelMessage<Word>>(32);
         let outputs = [
@@ -818,7 +819,7 @@ mod tests {
                 Sender::new(vec![trigger_tx]),
                 &watchdog,
                 "matcher",
-                "trigger",
+                "match",
             ),
             OutputPort::new_with_watchdog(
                 Sender::new(vec![pulse_tx]),
@@ -834,10 +835,10 @@ mod tests {
             ),
         ];
         run_to_shutdown(&mut matcher, &inputs, &outputs);
-        let triggers = trigger_rx
+        let matches = trigger_rx
             .try_iter()
             .filter_map(|message| match message {
-                ChannelMessage::Sample(trigger) => Some(trigger.timestamp_ns),
+                ChannelMessage::Sample(match_event) => Some(match_event.timestamp_ns),
                 _ => None,
             })
             .collect();
@@ -848,7 +849,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        (triggers, matching_words)
+        (matches, matching_words)
     }
 
     #[test]

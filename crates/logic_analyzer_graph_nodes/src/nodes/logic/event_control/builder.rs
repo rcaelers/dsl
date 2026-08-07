@@ -7,7 +7,7 @@ use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
 use node_graph_document::SocketReference;
-use signal_derived::Trigger;
+use signal_derived::TimestampEvent;
 use signal_runtime::ProcessNode;
 use signal_transforms::event_control::EventControl;
 
@@ -16,11 +16,11 @@ pub(crate) struct EventControlBuilder;
 
 impl GraphNodeSemantics for EventControlBuilder {
     fn accepted_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
-        vec![PortKind::of::<Trigger>()]
+        vec![PortKind::of::<TimestampEvent>()]
     }
 
     fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
-        vec![PortKind::of::<Trigger>()]
+        vec![PortKind::of::<TimestampEvent>()]
     }
 
     fn input_port(&self, socket: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {

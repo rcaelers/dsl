@@ -10,8 +10,8 @@ UI-independent processing behavior is divided by positive responsibility:
 - `logic_analyzer_acquisition` owns shared logic-analyzer driver, capture-configuration, and
   runtime-source contracts;
 - `logic_analyzer_device_dslogic` owns the DSLogic U3Pro16 protocol and acquisition source;
-- `logic_analyzer_protocol_decoders` owns concrete decoded-protocol state machines and host
-  contracts;
+- `logic_analyzer_protocol_decoders` owns protocol packet values, packet framing, concrete
+  decoded-protocol state machines, and decoder host contracts;
 - `signal_transforms` owns portable stream transformations;
 - `signal_sinks` owns terminal consumers and output encodings; and
 - `signal_generators` owns explicit deterministic signal sources.

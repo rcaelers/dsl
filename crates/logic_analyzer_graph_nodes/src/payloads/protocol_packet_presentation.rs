@@ -1,8 +1,66 @@
-use logic_analyzer_graph_capabilities::node::ProtocolPacketDisplay;
-use signal_derived::ProtocolPacket;
+use logic_analyzer_protocol_decoders::types::ProtocolPacket;
+
+const MAX_LABEL_CHARS: usize = 256;
+
+/// A protocol owner's bounded display projection for one packet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ProtocolPacketDisplay {
+    label: String,
+    visible: bool,
+    marker: bool,
+}
+
+impl ProtocolPacketDisplay {
+    /// Creates a visible duration-bearing packet display projection.
+    pub(crate) fn new(label: impl Into<String>) -> Self {
+        let label = label.into();
+        if label.chars().count() <= MAX_LABEL_CHARS {
+            return Self {
+                label,
+                visible: true,
+                marker: false,
+            };
+        }
+        let mut label = label.chars().take(MAX_LABEL_CHARS - 1).collect::<String>();
+        label.push('…');
+        Self {
+            label,
+            visible: true,
+            marker: false,
+        }
+    }
+
+    /// Presents an instantaneous protocol event as a labeled marker.
+    pub(crate) fn marker(label: impl Into<String>) -> Self {
+        let mut display = Self::new(label);
+        display.marker = true;
+        display
+    }
+
+    /// Omits a packet span from the default viewer presentation.
+    pub(crate) fn hidden() -> Self {
+        Self {
+            label: String::new(),
+            visible: false,
+            marker: false,
+        }
+    }
+
+    pub(crate) fn label(&self) -> &str {
+        &self.label
+    }
+
+    pub(crate) fn is_visible(&self) -> bool {
+        self.visible
+    }
+
+    pub(crate) fn is_marker(&self) -> bool {
+        self.marker
+    }
+}
 
 /// Compile-time packet formatter keyed by the packet's stable protocol ID.
-pub struct ProtocolPacketPresentationRegistration {
+pub(crate) struct ProtocolPacketPresentationRegistration {
     protocol_id: &'static str,
     display: fn(&ProtocolPacket) -> ProtocolPacketDisplay,
 }
@@ -13,7 +71,7 @@ impl ProtocolPacketPresentationRegistration {
     /// # Parameters
     /// - `protocol_id`: Stable protocol identity accepted by the formatter.
     /// - `display`: Protocol-owned projection from a packet to display data.
-    pub const fn new(
+    pub(crate) const fn new(
         protocol_id: &'static str,
         display: fn(&ProtocolPacket) -> ProtocolPacketDisplay,
     ) -> Self {
@@ -21,11 +79,6 @@ impl ProtocolPacketPresentationRegistration {
             protocol_id,
             display,
         }
-    }
-
-    /// Returns the stable protocol identity claimed by this formatter.
-    pub const fn protocol_id(&self) -> &'static str {
-        self.protocol_id
     }
 
     fn display(&self, packet: &ProtocolPacket) -> ProtocolPacketDisplay {
@@ -40,7 +93,7 @@ impl ProtocolPacketPresentationRegistration {
 ///
 /// # Parameters
 /// - `packet`: Generic packet whose protocol-specific display projection is needed.
-pub fn protocol_packet_display(packet: &ProtocolPacket) -> Option<ProtocolPacketDisplay> {
+pub(crate) fn protocol_packet_display(packet: &ProtocolPacket) -> Option<ProtocolPacketDisplay> {
     let mut registrations = inventory::iter::<ProtocolPacketPresentationRegistration>
         .into_iter()
         .filter(|registration| registration.protocol_id == packet.protocol_id);
@@ -51,11 +104,28 @@ pub fn protocol_packet_display(packet: &ProtocolPacket) -> Option<ProtocolPacket
     Some(registration.display(packet))
 }
 
+pub(crate) fn protocol_packet_fallback_label(packet: &ProtocolPacket) -> String {
+    use logic_analyzer_protocol_decoders::types::ProtocolValue;
+
+    let value = match &packet.value {
+        ProtocolValue::Null => "null".to_owned(),
+        ProtocolValue::Bool(value) => value.to_string(),
+        ProtocolValue::Integer(value) => value.to_string(),
+        ProtocolValue::Float(value) => value.to_string(),
+        ProtocolValue::String(value) => value.clone(),
+        ProtocolValue::Bytes(value) => format!("{} bytes", value.len()),
+        ProtocolValue::List(value) => format!("list[{}]", value.len()),
+        ProtocolValue::Tuple(value) => format!("tuple[{}]", value.len()),
+        ProtocolValue::Mapping(value) => format!("map[{}]", value.len()),
+    };
+    format!("{} · {value}", packet.protocol_id)
+}
+
 inventory::collect!(ProtocolPacketPresentationRegistration);
 
 #[cfg(test)]
 mod protocol_packet_presentation_tests {
-    use signal_derived::ProtocolValue;
+    use logic_analyzer_protocol_decoders::types::ProtocolValue;
 
     use super::*;
 
@@ -117,5 +187,25 @@ mod protocol_packet_presentation_tests {
             protocol_packet_display(&packet("org.logicconduit.graph-registry-test.duplicate/v1"))
                 .is_none()
         );
+    }
+
+    #[test]
+    fn display_labels_are_bounded_at_the_payload_boundary() {
+        let display = ProtocolPacketDisplay::new("x".repeat(MAX_LABEL_CHARS + 10));
+
+        assert_eq!(display.label().chars().count(), MAX_LABEL_CHARS);
+        assert!(display.label().ends_with('…'));
+    }
+
+    #[test]
+    fn hidden_and_marker_packets_are_explicit_display_choices() {
+        let hidden = ProtocolPacketDisplay::hidden();
+        assert!(!hidden.is_visible());
+        assert!(hidden.label().is_empty());
+
+        let marker = ProtocolPacketDisplay::marker("ACK");
+        assert!(marker.is_visible());
+        assert!(marker.is_marker());
+        assert_eq!(marker.label(), "ACK");
     }
 }

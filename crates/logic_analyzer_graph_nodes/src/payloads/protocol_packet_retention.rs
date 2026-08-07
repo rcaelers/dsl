@@ -3,14 +3,16 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
-use signal_runtime::{InputPort, PortDirection, PortSchema, WorkResult};
-
-use crate::{
+use logic_analyzer_protocol_decoders::types::{ProtocolPacket, ProtocolValue};
+use signal_derived::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
     CollectedLaneStorageBacking, CollectedLaneStorageSnapshot, CollectedLaneTableMetadata,
     CollectedLaneTableRow, CollectedLaneTableSnapshot, DerivedDataRetention,
-    OpaqueCollectedLaneSnapshot, PayloadAdapter, ProtocolPacket, ProtocolValue,
+    OpaqueCollectedLaneSnapshot, PayloadAdapter, WordPayload,
 };
+use signal_runtime::{InputPort, PortDirection, PortSchema, WorkResult};
+
+use super::protocol_packet_presentation::protocol_packet_fallback_label;
 
 const DRAIN_BATCH_SIZE: usize = 1_024;
 
@@ -130,7 +132,9 @@ impl CollectedLaneQuery for ProtocolPacketLaneQuery {
                     start_time_ns: packet.start_time_ns,
                     end_time_ns: packet.end_time_ns,
                     value: 0,
-                    payload: Some(crate::WordPayload::Text(packet.display_text().into())),
+                    payload: Some(WordPayload::Text(
+                        protocol_packet_fallback_label(packet).into(),
+                    )),
                 })
                 .collect(),
             complete: state.packets.len() <= max_rows,
@@ -257,6 +261,6 @@ impl PayloadAdapter for ProtocolPacketPayloadAdapter {
 }
 
 /// Returns the generic retention adapter for [`ProtocolPacket`] payloads.
-pub fn protocol_packet_payload_adapter() -> Arc<dyn PayloadAdapter> {
+pub(crate) fn protocol_packet_payload_adapter() -> Arc<dyn PayloadAdapter> {
     Arc::new(ProtocolPacketPayloadAdapter)
 }

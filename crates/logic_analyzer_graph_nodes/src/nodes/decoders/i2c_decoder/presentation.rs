@@ -2,14 +2,16 @@
 
 use std::sync::Arc;
 
-use logic_analyzer_graph_capabilities::node::ProtocolPacketDisplay;
 use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableCellMode, DecoderTableColumnDescriptor,
 };
-use logic_analyzer_graph_registry::ProtocolPacketPresentationRegistration;
 use logic_analyzer_protocol_decoders::i2c_decoder::I2C_PROTOCOL_ID;
+use logic_analyzer_protocol_decoders::types::{ProtocolPacket, ProtocolValue};
 use logic_analyzer_viewer::{DefaultViewerLaneRenderer, ViewerLaneRendererRegistration};
-use signal_derived::{ProtocolPacket, ProtocolValue};
+
+use crate::payloads::{
+    ProtocolPacketDisplay, ProtocolPacketPresentationRegistration, protocol_packet_fallback_label,
+};
 
 const I2C_TABLE_RENDERER: &str = "org.logicconduit.renderer.i2c-table/v1";
 
@@ -57,10 +59,10 @@ fn i2c_packet_display(packet: &ProtocolPacket) -> ProtocolPacketDisplay {
 
 fn i2c_packet_label(packet: &ProtocolPacket) -> String {
     let ProtocolValue::List(values) = &packet.value else {
-        return packet.display_text();
+        return protocol_packet_fallback_label(packet);
     };
     let Some(ProtocolValue::String(command)) = values.first() else {
-        return packet.display_text();
+        return protocol_packet_fallback_label(packet);
     };
     let integer = values.get(1).and_then(|value| match value {
         ProtocolValue::Integer(value) if *value >= 0 => Some(*value),

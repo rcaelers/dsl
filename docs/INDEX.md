@@ -79,8 +79,8 @@ These supported namespaces are documented at their source facades in Rustdoc:
 - `logic_analyzer_acquisition`: no public modules; its crate root is the acquisition-contract facade
 - `logic_analyzer_capture_formats`: `dsl_file` and `sigrok_file`
 - `logic_analyzer_device_dslogic`: no public modules; its crate root is the device facade
-- `logic_analyzer_protocol_decoders`: `i2c_decoder`, `parallel_decoder`, `sigrok_decoder`,
-  `spi_decoder`, `types`, and `uart_decoder`
+- `logic_analyzer_protocol_decoders`: `i2c_decoder`, `packet_framer`, `parallel_decoder`,
+  `sigrok_decoder`, `spi_decoder`, `types`, and `uart_decoder`
 - `signal_transforms`: one public module per transform
 - `signal_sinks`: one public module per sink
 - `signal_generators`: `synthetic_capture_source` and `synthetic_uart_source`

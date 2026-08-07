@@ -5,6 +5,7 @@ use std::sync::Arc;
 use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, TimelineMarkerEdit, TimelineMarkerReference, ViewerOutputControl,
 };
+use logic_analyzer_graph_nodes::ProtocolPacketLaneSnapshot;
 use logic_analyzer_graph_orchestration::{
     GraphWorkerMessage, GraphWorkerRequest, GraphWorkerRuntime,
 };
@@ -14,6 +15,7 @@ use logic_analyzer_graph_runtime::{
     GraphRunContext, LiveAnalysisSource, SourceArtifactReadiness, SourceDataKind,
     SourceProcessOverrides,
 };
+use logic_analyzer_protocol_decoders::types::{ProtocolPacket, ProtocolValue};
 use node_graph::{GraphState, NodeGraphWidget, NodeId, SocketDirection};
 use platform_artifacts::{
     ArtifactReplicationReceiver, ArtifactRepository, MemoryArtifactRepository,
@@ -24,8 +26,7 @@ use signal_capture_session::{
 };
 use signal_derived::{
     Annotation, CollectedLaneSnapshotRequest, DerivedLanes, DigitalLaneSnapshot,
-    NumberLaneSnapshot, ProtocolPacketLaneSnapshot, ProtocolValue, TextLaneSnapshot, Trigger,
-    TriggerLaneSnapshot, Word,
+    NumberLaneSnapshot, TextLaneSnapshot, TimestampEvent, TimestampEventLaneSnapshot, Word,
 };
 
 use integration_tests_support::{self as nodes, GraphHarness};
@@ -445,9 +446,9 @@ fn timeline_markers_demo_discovers_moves_and_executes_marker_conversions() {
             end_time_ns: 1_000_000,
             max_items: 32,
         })
-        .and_then(|snapshot| snapshot.value::<TriggerLaneSnapshot>())
+        .and_then(|snapshot| snapshot.value::<TimestampEventLaneSnapshot>())
         .expect("marker trigger should retain exact timestamps");
-    let TriggerLaneSnapshot::Exact(timestamps) = trigger.as_ref() else {
+    let TimestampEventLaneSnapshot::Exact(timestamps) = trigger.as_ref() else {
         panic!("marker trigger should be exact");
     };
     assert_eq!(timestamps, &[225_000]);
@@ -510,7 +511,7 @@ fn packet_framer_demo_fixture_loads_and_lowers() {
     );
 }
 
-fn transaction_packets(json: &str, output: usize) -> Vec<signal_derived::ProtocolPacket> {
+fn transaction_packets(json: &str, output: usize) -> Vec<ProtocolPacket> {
     let graph: GraphState = serde_json::from_str(json).expect("demo should deserialize");
     let mut widget = NodeGraphWidget::new(nodes::build_registry());
     widget.set_graph(graph);
@@ -640,7 +641,7 @@ fn word_matcher_demo_fixture_loads_lowers_and_executes() {
         .expect("set matcher should be present");
     assert_eq!(
         explicit_rearm.resolved.kind(1),
-        Some(logic_analyzer_graph_capabilities::node_support::PortKind::of::<Trigger>())
+        Some(logic_analyzer_graph_capabilities::node_support::PortKind::of::<TimestampEvent>())
     );
 
     let mut context = GraphRunContext::default();
@@ -746,7 +747,8 @@ fn built_in_startup_graph_lowers_with_explicit_subscriptions() {
             && input.source == "SPI Decoder.MOSI Bits"
     }));
     assert!(lanes.iter().any(|(_, input)| {
-        input.kind == logic_analyzer_graph_capabilities::node_support::PortKind::of::<Trigger>()
+        input.kind
+            == logic_analyzer_graph_capabilities::node_support::PortKind::of::<TimestampEvent>()
             && input.source == "Match Start.Match"
     }));
 

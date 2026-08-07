@@ -17,6 +17,6 @@
 mod implementation;
 
 pub use implementation::{
-    MarkerRelation, TimelineMarkerRelation, TimelineMarkerSource, TimelineMarkerToTrigger,
+    MarkerRelation, TimelineMarkerRelation, TimelineMarkerSource, TimelineMarkerToEvent,
     TimelineMarkerWindow,
 };

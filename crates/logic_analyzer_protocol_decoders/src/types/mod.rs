@@ -8,7 +8,7 @@
 //! ## Boundaries
 //!
 //! It does not own generic runtime payload contracts, graph sockets, widget presentation, or concrete
-//! source/decoder behavior. Values with wider generic meaning remain in `signal_capture_session`.
+//! source/decoder behavior. Values with wider generic meaning remain in the generic signal crates.
 
 //! Protocol-neutral value conventions shared by processing nodes.
 //!
@@ -16,5 +16,7 @@
 //! graph, UI, transport, or presentation behavior.
 
 mod digital;
+mod packet;
 
 pub use digital::{BitOrder, CsPolarity, Endianness};
+pub use packet::{ProtocolPacket, ProtocolValue};

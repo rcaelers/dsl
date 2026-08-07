@@ -8,7 +8,7 @@ use logic_analyzer_viewer::{
     OpaqueLaneDrawContext, ViewerLaneInteraction, ViewerLaneInteractionContext, ViewerLaneRenderer,
     ViewerLaneRendererRegistration, ViewerLaneTrack, draw_trigger_activity, draw_trigger_snapshot,
 };
-use signal_derived::{OpaqueCollectedLaneSnapshot, TriggerLaneSnapshot};
+use signal_derived::{OpaqueCollectedLaneSnapshot, TimestampEventLaneSnapshot};
 
 const RENDERER: &str = "org.logicconduit.renderer.trigger/v1";
 
@@ -21,13 +21,16 @@ impl ViewerLaneRenderer for TriggerSnapshotRenderer {
         snapshot: Option<&OpaqueCollectedLaneSnapshot>,
         context: OpaqueLaneDrawContext<'_>,
     ) -> bool {
-        let Some(snapshot) = snapshot.and_then(|snapshot| snapshot.value::<TriggerLaneSnapshot>())
+        let Some(snapshot) =
+            snapshot.and_then(|snapshot| snapshot.value::<TimestampEventLaneSnapshot>())
         else {
             return false;
         };
         match snapshot.as_ref() {
-            TriggerLaneSnapshot::Exact(markers) => draw_trigger_snapshot(&context, markers),
-            TriggerLaneSnapshot::Activity(records) => draw_trigger_activity(&context, records),
+            TimestampEventLaneSnapshot::Exact(markers) => draw_trigger_snapshot(&context, markers),
+            TimestampEventLaneSnapshot::Activity(records) => {
+                draw_trigger_activity(&context, records)
+            }
         }
         true
     }
@@ -42,10 +45,10 @@ impl ViewerLaneRenderer for TriggerSnapshotRenderer {
         snapshot: Option<&OpaqueCollectedLaneSnapshot>,
         _context: ViewerLaneInteractionContext,
     ) -> Option<ViewerLaneInteraction> {
-        let snapshot = snapshot?.value::<TriggerLaneSnapshot>()?;
+        let snapshot = snapshot?.value::<TimestampEventLaneSnapshot>()?;
         let timestamps: Vec<u64> = match snapshot.as_ref() {
-            TriggerLaneSnapshot::Exact(markers) => markers.clone(),
-            TriggerLaneSnapshot::Activity(records) => {
+            TimestampEventLaneSnapshot::Exact(markers) => markers.clone(),
+            TimestampEventLaneSnapshot::Activity(records) => {
                 records.iter().map(|record| record.start_ns).collect()
             }
         };
@@ -74,9 +77,9 @@ inventory::submit! {
 }
 
 inventory::submit! {
-    PayloadRegistration::subscribable_with_persistent_cache::<signal_derived::Trigger>(
+    PayloadRegistration::subscribable_with_persistent_cache::<signal_derived::TimestampEvent>(
         "org.logicconduit.trigger/v1",
-        signal_derived::trigger_payload_adapter,
+        signal_derived::timestamp_event_payload_adapter,
         presentation,
     )
 }

@@ -2,7 +2,7 @@ use std::any::TypeId;
 use std::fmt;
 
 use signal_capture::{Sample, SampleBlock};
-use signal_derived::{NumberSample, TextSample, Trigger, Word};
+use signal_derived::{NumberSample, TextSample, TimestampEvent, Word};
 
 /// Rust value type that may flow through a graph port.
 ///
@@ -141,7 +141,7 @@ impl PortValue for Word {
     }
 }
 
-impl PortValue for Trigger {
+impl PortValue for TimestampEvent {
     fn kind_name() -> &'static str {
         "Trigger"
     }

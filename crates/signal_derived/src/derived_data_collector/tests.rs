@@ -14,12 +14,12 @@ use super::collector::DRAIN_BATCH_SIZE;
 use super::digital::{DigitalLaneQuery, DigitalLaneStorage};
 use super::number::{NumberLaneQuery, NumberLaneStorage};
 use super::text::{TextLaneQuery, TextLaneStorage};
-use super::trigger::{TriggerLaneQuery, TriggerLaneStorage};
+use super::timestamp_event::{TimestampEventLaneQuery, TimestampEventLaneStorage};
 use super::word::{InMemoryWordLaneStorage, append_words_to_in_memory_storage};
 use super::*;
 use crate::derived_index::ChunkedMipmap;
 use crate::derived_word_store::{IndexedAnnotationWriter, LiveStoreConfig, StoreStatus};
-use crate::events::{Annotation, NumberSample, TextSample, Trigger, Word};
+use crate::events::{Annotation, NumberSample, TextSample, TimestampEvent, Word};
 use crate::payload::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
     CollectedLaneStorageBacking, CollectedLaneStorageSnapshot, CollectedLaneTableMetadata,
@@ -40,10 +40,10 @@ fn register_test_payload_adapters(registry: &mut PayloadRegistry) {
         .register_adapter::<Word>(word_payload_adapter())
         .unwrap();
     registry
-        .register::<Trigger>("org.logicconduit.trigger/v1")
+        .register::<TimestampEvent>("org.logicconduit.trigger/v1")
         .unwrap();
     registry
-        .register_adapter::<Trigger>(trigger_payload_adapter())
+        .register_adapter::<TimestampEvent>(timestamp_event_payload_adapter())
         .unwrap();
     registry
         .register::<NumberSample>("org.logicconduit.number-sample/v1")
@@ -151,10 +151,12 @@ impl TestCollector {
     }
 
     fn with_trigger(mut self, name: impl Into<String>) -> Self {
-        let request = self.test_lane_request::<Trigger>(name);
-        self.collector = self
-            .collector
-            .with_ingestor(trigger_payload_adapter().create_ingestor(request).unwrap());
+        let request = self.test_lane_request::<TimestampEvent>(name);
+        self.collector = self.collector.with_ingestor(
+            timestamp_event_payload_adapter()
+                .create_ingestor(request)
+                .unwrap(),
+        );
         self
     }
 
@@ -319,7 +321,7 @@ fn built_in_payloads_register_through_the_adapter_registry() {
     for type_id in [
         std::any::TypeId::of::<Sample>(),
         std::any::TypeId::of::<Word>(),
-        std::any::TypeId::of::<Trigger>(),
+        std::any::TypeId::of::<TimestampEvent>(),
         std::any::TypeId::of::<NumberSample>(),
         std::any::TypeId::of::<TextSample>(),
     ] {
@@ -501,9 +503,9 @@ fn trigger_adapter_publishes_an_opaque_snapshot_query() {
     let lanes = DerivedLanes::new();
     let mut payloads = crate::PayloadRegistry::new();
     register_test_payload_adapters(&mut payloads);
-    let descriptor = payloads.descriptor::<Trigger>().unwrap().clone();
+    let descriptor = payloads.descriptor::<TimestampEvent>().unwrap().clone();
     let ingestor = payloads
-        .adapter_by_type_id(std::any::TypeId::of::<Trigger>())
+        .adapter_by_type_id(std::any::TypeId::of::<TimestampEvent>())
         .unwrap()
         .create_ingestor(CollectedLaneRequest::new(
             "trigger",
@@ -523,8 +525,8 @@ fn trigger_adapter_publishes_an_opaque_snapshot_query() {
         })
         .unwrap();
     assert!(matches!(
-        snapshot.value::<TriggerLaneSnapshot>().as_deref(),
-        Some(TriggerLaneSnapshot::Exact(markers)) if markers.is_empty()
+        snapshot.value::<TimestampEventLaneSnapshot>().as_deref(),
+        Some(TimestampEventLaneSnapshot::Exact(markers)) if markers.is_empty()
     ));
 }
 
@@ -651,13 +653,13 @@ fn built_in_scalar_and_event_adapters_reopen_persistent_indexed_lanes() {
             .with_indexed_store(configs[2].clone()),
         )
         .unwrap();
-    let trigger = trigger_payload_adapter()
+    let trigger = timestamp_event_payload_adapter()
         .create_ingestor(
             CollectedLaneRequest::new(
                 "trigger",
                 3,
                 lanes.clone(),
-                payloads.descriptor::<Trigger>().unwrap().clone(),
+                payloads.descriptor::<TimestampEvent>().unwrap().clone(),
                 DerivedDataRetention::Unlimited,
             )
             .with_indexed_store(configs[3].clone()),
@@ -686,7 +688,7 @@ fn built_in_scalar_and_event_adapters_reopen_persistent_indexed_lanes() {
     drop(text_sender);
     let (trigger_sender, trigger_receiver) = bounded(4);
     trigger_sender
-        .send(ChannelMessage::Sample(Trigger { timestamp_ns: 40 }))
+        .send(ChannelMessage::Sample(TimestampEvent { timestamp_ns: 40 }))
         .unwrap();
     drop(trigger_sender);
     run_sink(
@@ -731,12 +733,12 @@ fn built_in_scalar_and_event_adapters_reopen_persistent_indexed_lanes() {
             )
             .with_indexed_store(configs[2].clone()),
         ),
-        trigger_payload_adapter().create_ingestor(
+        timestamp_event_payload_adapter().create_ingestor(
             CollectedLaneRequest::new(
                 "trigger",
                 3,
                 reopened_lanes.clone(),
-                payloads.descriptor::<Trigger>().unwrap().clone(),
+                payloads.descriptor::<TimestampEvent>().unwrap().clone(),
                 DerivedDataRetention::Unlimited,
             )
             .with_indexed_store(configs[3].clone()),
@@ -759,9 +761,9 @@ fn built_in_scalar_and_event_adapters_reopen_persistent_indexed_lanes() {
         TextLaneSnapshot::Exact(samples) if samples == &[TextSample::new("cached", 30)]
     ));
     assert!(matches!(
-        lane_snapshot::<TriggerLaneSnapshot>(&lane(&reopened_lanes, "trigger"), 0, 100, 8)
+        lane_snapshot::<TimestampEventLaneSnapshot>(&lane(&reopened_lanes, "trigger"), 0, 100, 8)
             .as_ref(),
-        TriggerLaneSnapshot::Exact(markers) if markers == &[40]
+        TimestampEventLaneSnapshot::Exact(markers) if markers == &[40]
     ));
 }
 
@@ -868,9 +870,9 @@ fn lanes_collect_signals_words_and_triggers() {
     }
     drop(word_tx);
 
-    let (trig_tx, trig_rx) = bounded::<ChannelMessage<Trigger>>(16);
+    let (trig_tx, trig_rx) = bounded::<ChannelMessage<TimestampEvent>>(16);
     trig_tx
-        .send(ChannelMessage::Sample(Trigger { timestamp_ns: 42 }))
+        .send(ChannelMessage::Sample(TimestampEvent { timestamp_ns: 42 }))
         .unwrap();
     drop(trig_tx);
 
@@ -918,8 +920,8 @@ fn lanes_collect_signals_words_and_triggers() {
         expected
     );
     assert!(matches!(
-        lane_snapshot::<TriggerLaneSnapshot>(&lanes[2], 0, 2_000, 10).as_ref(),
-        TriggerLaneSnapshot::Exact(markers) if markers == &[42]
+        lane_snapshot::<TimestampEventLaneSnapshot>(&lanes[2], 0, 2_000, 10).as_ref(),
+        TimestampEventLaneSnapshot::Exact(markers) if markers == &[42]
     ));
 }
 
@@ -1100,12 +1102,12 @@ fn digital_query_returns_bounded_exact_or_activity_snapshots() {
 
 #[test]
 fn trigger_query_returns_bounded_exact_or_activity_snapshots() {
-    let mut storage = TriggerLaneStorage::default();
+    let mut storage = TimestampEventLaneStorage::default();
     for timestamp_ns in [100, 200, 300] {
         storage.summary.push(&timestamp_ns);
         storage.timestamps.push(timestamp_ns);
     }
-    let query = TriggerLaneQuery {
+    let query = TimestampEventLaneQuery {
         storage: Arc::new(RwLock::new(storage)),
         indexed: None,
     };
@@ -1116,11 +1118,11 @@ fn trigger_query_returns_bounded_exact_or_activity_snapshots() {
             end_time_ns: 350,
             max_items: 3,
         })
-        .and_then(|snapshot| snapshot.value::<TriggerLaneSnapshot>())
+        .and_then(|snapshot| snapshot.value::<TimestampEventLaneSnapshot>())
         .expect("trigger exact snapshot");
     assert!(matches!(
         exact.as_ref(),
-        TriggerLaneSnapshot::Exact(markers) if markers == &[200, 300]
+        TimestampEventLaneSnapshot::Exact(markers) if markers == &[200, 300]
     ));
 
     let activity = query
@@ -1129,11 +1131,11 @@ fn trigger_query_returns_bounded_exact_or_activity_snapshots() {
             end_time_ns: 400,
             max_items: 1,
         })
-        .and_then(|snapshot| snapshot.value::<TriggerLaneSnapshot>())
+        .and_then(|snapshot| snapshot.value::<TimestampEventLaneSnapshot>())
         .expect("trigger activity snapshot");
     assert!(matches!(
         activity.as_ref(),
-        TriggerLaneSnapshot::Activity(records) if !records.is_empty()
+        TimestampEventLaneSnapshot::Activity(records) if !records.is_empty()
     ));
     assert_eq!(query.timeline_extent_end_ns(), Some(300));
     assert_eq!(query.nearest_time_boundary(190, 20), Some(200));
@@ -1316,7 +1318,7 @@ fn lane_growth_has_no_cap() {
     // slow) — just enough to prove there's no hidden ceiling like the
     // old `MAX_LANE_ENTRIES` silently discarding past some threshold.
     const ENTRIES: u64 = 10_000;
-    let mut storage = TriggerLaneStorage::default();
+    let mut storage = TimestampEventLaneStorage::default();
     for timestamp_ns in 0..ENTRIES {
         storage.summary.push(&timestamp_ns);
         storage.timestamps.push(timestamp_ns);
@@ -1447,9 +1449,9 @@ fn indexed_lane_failure_does_not_stop_other_collected_lanes() {
         ]))
         .unwrap();
     drop(word_tx);
-    let (trigger_tx, trigger_rx) = bounded::<ChannelMessage<Trigger>>(4);
+    let (trigger_tx, trigger_rx) = bounded::<ChannelMessage<TimestampEvent>>(4);
     trigger_tx
-        .send(ChannelMessage::Sample(Trigger { timestamp_ns: 42 }))
+        .send(ChannelMessage::Sample(TimestampEvent { timestamp_ns: 42 }))
         .unwrap();
     drop(trigger_tx);
 
@@ -1467,8 +1469,8 @@ fn indexed_lane_failure_does_not_stop_other_collected_lanes() {
         .expect("expected indexed annotation lane");
     assert!(matches!(indexed.status(), StoreStatus::Failed(_)));
     assert!(matches!(
-        lane_snapshot::<TriggerLaneSnapshot>(&lane(&store, "trigger"), 0, 100, 10).as_ref(),
-        TriggerLaneSnapshot::Exact(markers) if markers == &[42]
+        lane_snapshot::<TimestampEventLaneSnapshot>(&lane(&store, "trigger"), 0, 100, 10).as_ref(),
+        TimestampEventLaneSnapshot::Exact(markers) if markers == &[42]
     ));
 }
 

@@ -1,10 +1,12 @@
 use std::collections::VecDeque;
 
 use signal_capture::SampleBlock;
-use signal_derived::{ProtocolPacket, ProtocolValue, Word};
+use signal_derived::Word;
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };
+
+use crate::types::{ProtocolPacket, ProtocolValue};
 
 pub const I2C_PROTOCOL_ID: &str = "i2c";
 

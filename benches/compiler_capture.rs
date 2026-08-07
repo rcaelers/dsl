@@ -40,7 +40,7 @@ use signal_capture_session::{
 };
 use signal_derived::{
     CollectedLaneQuery, CollectedLaneSnapshotRequest, CollectedWordLaneQuery, DerivedLanes,
-    OpaqueCollectedLane, OpaqueCollectedLaneSnapshot, TriggerLaneSnapshot,
+    OpaqueCollectedLane, OpaqueCollectedLaneSnapshot, TimestampEventLaneSnapshot,
 };
 use signal_runtime::{
     AppManager, AppManagerBackend, AppManagerFactory, ConfigurationBoundary, DisconnectEvent,
@@ -49,10 +49,10 @@ use signal_runtime::{
 };
 use signal_sinks::binary_file_writer::BinaryFileWriter;
 use signal_sinks::{OutputFile, OutputStorage};
+use signal_transforms::event_counter::EventCounter;
 use signal_transforms::logic_gate::{GateOp, LogicGate};
 use signal_transforms::sr_latch::SrLatch;
 use signal_transforms::text_formatter::TextFormatter;
-use signal_transforms::trigger_counter::TriggerCounter;
 use signal_transforms::word_matcher::WordMatcher;
 
 use integration_tests_support as nodes;
@@ -1244,7 +1244,7 @@ fn run_phase_one_reference(capture: &Path, output: &Path) {
         .unwrap();
     pipeline.add_process("latch", SrLatch::new(false)).unwrap();
     pipeline
-        .add_process("counter", TriggerCounter::new(0, 1))
+        .add_process("counter", EventCounter::new(0, 1))
         .unwrap();
     pipeline
         .add_process(
@@ -1321,7 +1321,7 @@ fn run_current_reference(capture: &Path, output: &Path) {
         .add_process("gate", LogicGate::new(GateOp::And, 2))
         .unwrap();
     pipeline
-        .add_process("counter", TriggerCounter::new(0, 1))
+        .add_process("counter", EventCounter::new(0, 1))
         .unwrap();
     pipeline
         .add_process(
@@ -2760,9 +2760,9 @@ fn live_attach_detach_preserves_writer_output(capture: &Path) {
                         end_time_ns: u64::MAX,
                         max_items: usize::MAX,
                     })
-                    .and_then(|snapshot| snapshot.value::<TriggerLaneSnapshot>())
+                    .and_then(|snapshot| snapshot.value::<TimestampEventLaneSnapshot>())
                     .is_some_and(|snapshot| {
-                        matches!(snapshot.as_ref(), TriggerLaneSnapshot::Exact(markers) if !markers.is_empty())
+                        matches!(snapshot.as_ref(), TimestampEventLaneSnapshot::Exact(markers) if !markers.is_empty())
                     })
         });
         if observed {

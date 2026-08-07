@@ -32,7 +32,8 @@ order and rejects identity/type collisions before graph-node payload requirement
 other lanes. An adapter publishes its retained, type-erased query object through `DerivedLanes`,
 so a later subscriber can discover it by stable payload identity and downcast only to its own
 registered query type. Built-in payloads are registered through this same path and retain their
-digital, indexed-word, marker, numeric, and text data behind their adapters.
+digital, indexed-word, timestamp-event, numeric, text, and protocol-packet data behind their
+adapters.
 
 `GraphRegistry` owns one collection-subscription contract per subscribable payload. The contract
 binds the open `PortKind` to its adapter descriptor, diagnostic name, default waveform
@@ -46,20 +47,21 @@ The built-in digital adapter publishes an opaque query with bounded exact-transi
 activity snapshots, cursor-boundary lookup, and timeline extent. Its viewer presentation consumes
 those snapshots through the same renderer contract as a plugin payload.
 
-The built-in trigger adapter provides the same query capabilities with exact marker timestamps or
-dense marker-activity snapshots. Its presentation is likewise adapter-owned; neither the generic
-collector nor the generic viewer interprets trigger values to render the normal subscribed row.
+The generic timestamp-event adapter provides the same query capabilities with exact event
+timestamps or dense event-activity snapshots. The built-in trigger payload registration binds
+that neutral adapter to trigger presentation metadata; neither the generic collector nor the
+generic viewer interprets trigger identity to render the normal subscribed row.
 
 The built-in numeric and text adapters retain their respective `i64` and `String` payload values in
 their queries. Their graph-owned presentation adapters format bounded values only while rendering;
 the generic collector does not convert a payload into display text.
 
-The shared `ProtocolPacket` presentation dispatches each retained packet through a compile-time
-formatter registration keyed by its exact `protocol_id`. Protocol owners register only a bounded
-display projection; the generic packet payload renderer retains ownership of timeline geometry,
-clipping, and drawing. A missing or ambiguous registration uses a bounded protocol-neutral value
-formatter, so mixed-protocol lanes and packets contributed by unavailable presentation plugins
-remain readable without name-based cases in the viewer.
+The built-in protocol-packet payload feature dispatches each retained `ProtocolPacket` through a
+compile-time formatter registration keyed by its exact `protocol_id`. Built-in protocol features
+register only a bounded display projection; the graph-owned packet renderer retains ownership of
+timeline geometry, clipping, and drawing. A missing or ambiguous registration uses a bounded
+protocol-neutral value formatter, so mixed-protocol lanes remain readable without name-based
+cases in the generic viewer or registry.
 
 The built-in word adapter exposes `CollectedWordLaneQuery` as its concrete query contract. `Word`
 represents both ordinary numeric decoder values and arbitrary-width byte values, with optional

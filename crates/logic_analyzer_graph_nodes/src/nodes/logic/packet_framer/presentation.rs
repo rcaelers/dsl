@@ -2,14 +2,16 @@
 
 use std::fmt::Write;
 
-use logic_analyzer_graph_capabilities::node::ProtocolPacketDisplay;
 use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableCellMode, DecoderTableColumnDescriptor,
 };
-use logic_analyzer_graph_registry::ProtocolPacketPresentationRegistration;
+use logic_analyzer_protocol_decoders::packet_framer::PACKET_FRAME_PROTOCOL_ID;
+use logic_analyzer_protocol_decoders::types::{ProtocolPacket, ProtocolValue};
 use logic_analyzer_viewer::{DefaultViewerLaneRenderer, ViewerLaneRendererRegistration};
-use signal_derived::{ProtocolPacket, ProtocolValue};
-use signal_transforms::packet_framer::PACKET_FRAME_PROTOCOL_ID;
+
+use crate::payloads::{
+    ProtocolPacketDisplay, ProtocolPacketPresentationRegistration, protocol_packet_fallback_label,
+};
 
 const PACKET_TABLE_RENDERER: &str = "org.logicconduit.renderer.packet-frame-table/v1";
 const MAX_LABEL_WORDS: usize = 8;
@@ -49,7 +51,7 @@ fn packet_display(packet: &ProtocolPacket) -> ProtocolPacketDisplay {
 
 fn packet_label(packet: &ProtocolPacket) -> String {
     let ProtocolValue::List(words) = &packet.value else {
-        return packet.display_text();
+        return protocol_packet_fallback_label(packet);
     };
     let mut label = String::from("[");
     for (index, word) in words.iter().take(MAX_LABEL_WORDS).enumerate() {
@@ -119,7 +121,7 @@ mod presentation_tests {
         };
 
         assert_eq!(
-            logic_analyzer_graph_registry::protocol_packet_display(&packet)
+            crate::payloads::protocol_packet_display(&packet)
                 .unwrap()
                 .label(),
             "[0x12]"

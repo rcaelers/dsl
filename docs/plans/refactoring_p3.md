@@ -76,34 +76,6 @@ surfaces rather than replacing them with an umbrella error.
 
 Expect this to span many small PRs; each facade conversion is independently landable.
 
-## derived.payload.builtin-registration (P3 · medium) {#derived-payload-builtin-registration}
-
-The recorded signal-tier vocabulary makes this both an ownership purge and a registration-path
-correction. `logic_analyzer_graph_registry` provides an open `PayloadRegistration` inventory, and
-the built-in registrations already exist in
-`crates/logic_analyzer_graph_nodes/src/payloads/{digital,word,trigger}.rs`. In parallel,
-`signal_derived` owns a closed built-in set in
-`src/derived_data_collector/{digital,word,trigger}.rs` and exports the corresponding adapters.
-
-**Direction.**
-
-1. Classify the existing built-ins by responsibility. Generic retained-value, query, index, and
-   storage contracts remain in `signal_derived`; `TriggerLaneSnapshot`, `ProtocolPacket`, and
-   other product trigger/protocol semantics move to their logic-analyzer domain owners. A type
-   does not remain generic merely because several built-in nodes consume it.
-2. Remove concrete built-in branches from generic collection and query code. Extend the existing
-   type-erased adapter contract where necessary so externally owned payloads can supply ingestion,
-   snapshots, and persistent storage without adding a reverse dependency.
-3. Route every built-in through its registered adapter, following the same path as the example
-   plugin's camera payload. Registrations in the concrete feature owner become the only way those
-   payloads enter a registry snapshot.
-4. Remove trigger/protocol adapter exports and compatibility aliases from `signal_derived` once
-   consumers import their actual owner.
-
-Acceptance: the example-plugin payload and a built-in payload traverse identical code paths from
-registration to collection; `signal_derived` exposes no logic-analyzer trigger or decoded-protocol
-type; and no generic crate branches on a built-in payload identity.
-
 ## graph.execution.debounced-live-sync (P3 · medium) {#graph-execution-debounced-live-sync}
 
 **Current state.** `app.rs:2772` — `const SYNC_INTERVAL_S: f64 = 0.5`: every 0.5 s the UI thread

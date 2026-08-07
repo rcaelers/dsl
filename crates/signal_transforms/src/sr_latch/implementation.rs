@@ -1,4 +1,4 @@
-//! SR flip-flop mapping set/reset triggers to a boolean level.
+//! SR flip-flop mapping set/reset events to a boolean level.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -6,15 +6,15 @@ use std::sync::Arc;
 use tracing::{debug, warn};
 
 use signal_capture::{EdgeQuery, RecordedEdgeQuery, Sample};
-use signal_derived::Trigger;
+use signal_derived::TimestampEvent;
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, ProtocolKind, WorkError,
     WorkOutcome, WorkResult,
 };
 
-/// Set/reset latch over [`Trigger`] streams.
+/// Set/reset latch over [`TimestampEvent`] streams.
 ///
-/// Inputs: `set` (0), `reset` (1) — `Trigger`
+/// Inputs: `set` (0), `reset` (1) — `TimestampEvent`
 /// Output: `q` — `Sample` level
 ///
 /// The two ordered input streams are merged strictly by timestamp. Reset has
@@ -26,9 +26,9 @@ pub struct SrLatch {
     state: bool,
     started: bool,
     last_emit_ts: u64,
-    set_buffer: VecDeque<Trigger>,
-    reset_buffer: VecDeque<Trigger>,
-    heads: [Option<Trigger>; 2],
+    set_buffer: VecDeque<TimestampEvent>,
+    reset_buffer: VecDeque<TimestampEvent>,
+    heads: [Option<TimestampEvent>; 2],
     eos: [bool; 2],
     edge_query: RecordedEdgeQuery,
 }
@@ -75,8 +75,8 @@ impl ProcessNode for SrLatch {
 
     fn input_schema(&self) -> Vec<PortSchema> {
         vec![
-            PortSchema::new::<Trigger>("set", 0, PortDirection::Input),
-            PortSchema::new::<Trigger>("reset", 1, PortDirection::Input),
+            PortSchema::new::<TimestampEvent>("set", 0, PortDirection::Input),
+            PortSchema::new::<TimestampEvent>("reset", 1, PortDirection::Input),
         ]
     }
 
@@ -127,7 +127,7 @@ impl ProcessNode for SrLatch {
         for (index, buffer) in buffers.iter_mut().enumerate() {
             let receiver = inputs
                 .get(index)
-                .and_then(|port| port.get::<Trigger>(buffer))
+                .and_then(|port| port.get::<TimestampEvent>(buffer))
                 .ok_or_else(|| WorkError::NodeError("Missing set/reset input".to_string()))?;
             receivers.push(receiver);
         }
@@ -140,7 +140,7 @@ impl ProcessNode for SrLatch {
                 continue;
             }
             match receiver.recv() {
-                Ok(trigger) => self.heads[index] = Some(trigger),
+                Ok(event) => self.heads[index] = Some(event),
                 Err(WorkError::Shutdown) => self.eos[index] = true,
                 Err(error) => return Err(error),
             }
@@ -152,9 +152,9 @@ impl ProcessNode for SrLatch {
             .heads
             .iter()
             .enumerate()
-            .filter_map(|(index, trigger)| trigger.map(|trigger| (index, trigger)))
-            .min_by_key(|(index, trigger)| (trigger.timestamp_ns, *index));
-        let Some((index, trigger)) = next else {
+            .filter_map(|(index, event)| event.map(|event| (index, event)))
+            .min_by_key(|(index, event)| (event.timestamp_ns, *index));
+        let Some((index, event)) = next else {
             return Err(WorkError::Shutdown);
         };
         self.heads[index] = None;
@@ -163,7 +163,7 @@ impl ProcessNode for SrLatch {
         if new_state == self.state {
             return Ok(0);
         }
-        let mut ts = trigger.timestamp_ns;
+        let mut ts = event.timestamp_ns;
         if ts < self.last_emit_ts {
             warn!(
                 "[{}] out-of-order {} at {}ns clamped to {}ns",
@@ -191,8 +191,8 @@ mod tests {
     use super::*;
 
     struct Rig {
-        set_tx: crossbeam_channel::Sender<ChannelMessage<Trigger>>,
-        reset_tx: crossbeam_channel::Sender<ChannelMessage<Trigger>>,
+        set_tx: crossbeam_channel::Sender<ChannelMessage<TimestampEvent>>,
+        reset_tx: crossbeam_channel::Sender<ChannelMessage<TimestampEvent>>,
         inputs: Vec<InputPort>,
         outputs: Vec<OutputPort>,
         q_rx: crossbeam_channel::Receiver<ChannelMessage<Sample>>,
@@ -200,8 +200,8 @@ mod tests {
 
     fn rig() -> Rig {
         let wd = Watchdog::new();
-        let (set_tx, set_rx) = bounded::<ChannelMessage<Trigger>>(64);
-        let (reset_tx, reset_rx) = bounded::<ChannelMessage<Trigger>>(64);
+        let (set_tx, set_rx) = bounded::<ChannelMessage<TimestampEvent>>(64);
+        let (reset_tx, reset_rx) = bounded::<ChannelMessage<TimestampEvent>>(64);
         let (q_tx, q_rx) = bounded::<ChannelMessage<Sample>>(64);
         Rig {
             set_tx,
@@ -251,13 +251,13 @@ mod tests {
     fn set_reset_cycle() {
         let rig = rig();
         rig.set_tx
-            .send(ChannelMessage::Sample(Trigger::new(100)))
+            .send(ChannelMessage::Sample(TimestampEvent::new(100)))
             .unwrap();
         rig.reset_tx
-            .send(ChannelMessage::Sample(Trigger::new(200)))
+            .send(ChannelMessage::Sample(TimestampEvent::new(200)))
             .unwrap();
         rig.set_tx
-            .send(ChannelMessage::Sample(Trigger::new(300)))
+            .send(ChannelMessage::Sample(TimestampEvent::new(300)))
             .unwrap();
 
         let edges = run(rig, &mut SrLatch::new(false));
@@ -276,10 +276,10 @@ mod tests {
     fn redundant_sets_do_not_emit() {
         let rig = rig();
         rig.set_tx
-            .send(ChannelMessage::Sample(Trigger::new(100)))
+            .send(ChannelMessage::Sample(TimestampEvent::new(100)))
             .unwrap();
         rig.set_tx
-            .send(ChannelMessage::Sample(Trigger::new(150)))
+            .send(ChannelMessage::Sample(TimestampEvent::new(150)))
             .unwrap();
 
         let edges = run(rig, &mut SrLatch::new(false));
@@ -290,10 +290,10 @@ mod tests {
     fn simultaneous_set_reset_nets_to_reset() {
         let rig = rig();
         rig.set_tx
-            .send(ChannelMessage::Sample(Trigger::new(100)))
+            .send(ChannelMessage::Sample(TimestampEvent::new(100)))
             .unwrap();
         rig.reset_tx
-            .send(ChannelMessage::Sample(Trigger::new(100)))
+            .send(ChannelMessage::Sample(TimestampEvent::new(100)))
             .unwrap();
 
         let edges = run(rig, &mut SrLatch::new(false));

@@ -24,3 +24,4 @@ pub use host_configuration::{
     sigrok_node_templates, text_file_writer_capability_override, u3pro16_capability_override,
 };
 pub use link::link;
+pub use payloads::ProtocolPacketLaneSnapshot;

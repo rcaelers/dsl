@@ -3,11 +3,13 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use signal_capture::Sample;
-use signal_derived::{ProtocolPacket, ProtocolValue, Trigger, Word, WordPayload};
+use signal_derived::{TimestampEvent, Word, WordPayload};
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,
     WorkResult,
 };
+
+use crate::types::{ProtocolPacket, ProtocolValue};
 
 pub const PACKET_FRAME_PROTOCOL_ID: &str = "org.logicconduit.packet-frame/v1";
 
@@ -36,10 +38,10 @@ pub struct PacketFramer {
     gate_level: bool,
     words: Vec<Word>,
     word_buffer: VecDeque<Word>,
-    boundary_buffer: VecDeque<Trigger>,
+    boundary_buffer: VecDeque<TimestampEvent>,
     gate_buffer: VecDeque<Sample>,
     word_head: Option<Word>,
-    boundary_head: Option<Trigger>,
+    boundary_head: Option<TimestampEvent>,
     gate_head: Option<Sample>,
     word_eos: bool,
     boundary_eos: bool,
@@ -148,7 +150,7 @@ impl PacketFramer {
         if self.boundary_enabled && self.boundary_head.is_none() && !self.boundary_eos {
             let mut receiver = inputs
                 .get(1)
-                .and_then(|input| input.get::<Trigger>(&mut self.boundary_buffer))
+                .and_then(|input| input.get::<TimestampEvent>(&mut self.boundary_buffer))
                 .ok_or_else(|| WorkError::NodeError("Missing boundary input".to_owned()))?;
             match receiver.recv() {
                 Ok(boundary) => self.boundary_head = Some(boundary),
@@ -290,7 +292,7 @@ impl ProcessNode for PacketFramer {
     fn input_schema(&self) -> Vec<PortSchema> {
         vec![
             PortSchema::new::<Word>("words", 0, PortDirection::Input),
-            PortSchema::new::<Trigger>("boundary", 1, PortDirection::Input),
+            PortSchema::new::<TimestampEvent>("boundary", 1, PortDirection::Input),
             PortSchema::state::<Sample>("gate", 2, PortDirection::Input),
         ]
     }
@@ -376,7 +378,7 @@ mod implementation_tests {
 
     struct Rig {
         word_tx: ChannelSender<ChannelMessage<Word>>,
-        boundary_tx: ChannelSender<ChannelMessage<Trigger>>,
+        boundary_tx: ChannelSender<ChannelMessage<TimestampEvent>>,
         gate_tx: ChannelSender<ChannelMessage<Sample>>,
         inputs: Vec<InputPort>,
         outputs: Vec<OutputPort>,
@@ -505,10 +507,10 @@ mod implementation_tests {
         let rig = rig();
         send_words(&rig, &[(1, 10), (2, 30), (3, 40)]);
         rig.boundary_tx
-            .send(ChannelMessage::Sample(Trigger::new(25)))
+            .send(ChannelMessage::Sample(TimestampEvent::new(25)))
             .unwrap();
         rig.boundary_tx
-            .send(ChannelMessage::Sample(Trigger::new(40)))
+            .send(ChannelMessage::Sample(TimestampEvent::new(40)))
             .unwrap();
 
         let packets = run(PacketFramer::new().with_boundary_input(true), rig);

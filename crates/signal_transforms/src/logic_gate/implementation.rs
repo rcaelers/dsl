@@ -49,7 +49,7 @@ impl GateOp {
 /// Merges its inputs in **strict timestamp order**: it holds every input's
 /// current level (initially false), keeps one pending edge per input, and
 /// applies the globally earliest one, blocking on an input whose next edge
-/// is unknown. Unlike trigger streams (SR latch), level streams make this
+/// is unknown. Unlike event streams (SR latch), level streams make this
 /// safe: an input either advances or closes, and its edges are totally
 /// ordered — while a purely event-driven merge corrupts the output timeline
 /// whenever input arrival skew is large (a raw source channel runs

@@ -13,7 +13,6 @@ mod derived_index;
 pub mod derived_word_store;
 mod events;
 mod payload;
-mod protocol_packet_payload;
 mod sampling_points;
 mod worker_kernels;
 
@@ -21,9 +20,9 @@ pub use derived_data_collector::{
     CollectedWordLaneOptions, CollectedWordLaneQuery, DEFAULT_DERIVED_DATA_MAX_ENTRIES,
     DerivedDataCollector, DerivedDataCollectorMetrics, DerivedDataCollectorMetricsSnapshot,
     DerivedDataRetention, DerivedLanes, DigitalLaneSnapshot, IndexedAnnotationLane,
-    NumberLaneSnapshot, OpaqueCollectedLane, TextLaneSnapshot, TriggerLaneSnapshot,
+    NumberLaneSnapshot, OpaqueCollectedLane, TextLaneSnapshot, TimestampEventLaneSnapshot,
     WordLaneSnapshot, built_in_word_lane_ingestor, digital_payload_adapter, number_payload_adapter,
-    text_payload_adapter, trigger_payload_adapter, word_payload_adapter,
+    text_payload_adapter, timestamp_event_payload_adapter, word_payload_adapter,
 };
 pub use derived_index::{AppendOnlyMipmap, ChunkedMipmap, LaneFold, MipmapRecord};
 pub use derived_word_store::{
@@ -32,8 +31,8 @@ pub use derived_word_store::{
     StoreStatus, WordPresenceBucket, cleanup_cache, clear_cache, clear_cache_entry,
 };
 pub use events::{
-    Annotation, MAX_ANNOTATION_NS, NumberSample, ProtocolPacket, ProtocolValue, TextSample,
-    TimelineMarker, Trigger, Word, WordPayload, instantaneous_word_end_ns,
+    Annotation, MAX_ANNOTATION_NS, NumberSample, TextSample, TimelineMarker, TimestampEvent, Word,
+    WordPayload, instantaneous_word_end_ns,
 };
 pub use payload::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
@@ -41,7 +40,6 @@ pub use payload::{
     CollectedLaneTableRow, CollectedLaneTableSnapshot, OpaqueCollectedLaneSnapshot, PayloadAdapter,
     PayloadDescriptor, PayloadRegistrationError, PayloadRegistry,
 };
-pub use protocol_packet_payload::{ProtocolPacketLaneSnapshot, protocol_packet_payload_adapter};
 pub use sampling_points::{
     PackedSamplingPoint, PackedSamplingPointBatch, SamplingPoint, SamplingPointProvider,
     SamplingPointStore,

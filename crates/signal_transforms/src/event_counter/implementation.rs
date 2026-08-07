@@ -1,37 +1,37 @@
-//! Trigger counter mapping trigger events into an integer level.
+//! Counts timestamped events into an integer level.
 
 use std::collections::VecDeque;
 
 use tracing::debug;
 
-use signal_derived::{NumberSample, Trigger};
+use signal_derived::{NumberSample, TimestampEvent};
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
 };
 
-/// Counts triggers into a [`NumberSample`] level: `start` at t=0, then
-/// `start + n*step` after the n-th trigger.
+/// Counts events into a [`NumberSample`] level: `start` at t=0, then
+/// `start + n*step` after the n-th event.
 ///
-/// Input: `trigger` — `Trigger`
+/// Input: `event` — `TimestampEvent`
 /// Output: `count` — `NumberSample` level
-pub struct TriggerCounter {
+pub struct EventCounter {
     name: String,
     start: i64,
     step: i64,
     count: i64,
     started: bool,
-    input_buffer: VecDeque<Trigger>,
+    input_buffer: VecDeque<TimestampEvent>,
 }
 
-impl TriggerCounter {
-    /// Creates a trigger counter with the supplied count sequence configuration.
+impl EventCounter {
+    /// Creates an event counter with the supplied count sequence configuration.
     ///
     /// # Parameters
     /// - `start`: Input consumed by this operation.
     /// - `step`: Input consumed by this operation.
     pub fn new(start: i64, step: i64) -> Self {
         Self {
-            name: "trigger_counter".to_string(),
+            name: "event_counter".to_string(),
             start,
             step,
             count: 0,
@@ -47,7 +47,7 @@ impl TriggerCounter {
     }
 }
 
-impl ProcessNode for TriggerCounter {
+impl ProcessNode for EventCounter {
     fn name(&self) -> &str {
         &self.name
     }
@@ -61,8 +61,8 @@ impl ProcessNode for TriggerCounter {
     }
 
     fn input_schema(&self) -> Vec<PortSchema> {
-        vec![PortSchema::new::<Trigger>(
-            "trigger",
+        vec![PortSchema::new::<TimestampEvent>(
+            "event",
             0,
             PortDirection::Input,
         )]
@@ -79,8 +79,8 @@ impl ProcessNode for TriggerCounter {
     fn work(&mut self, inputs: &[InputPort], outputs: &[OutputPort]) -> WorkResult<usize> {
         let mut input = inputs
             .first()
-            .and_then(|port| port.get::<Trigger>(&mut self.input_buffer))
-            .ok_or_else(|| WorkError::NodeError("Missing trigger input".to_string()))?;
+            .and_then(|port| port.get::<TimestampEvent>(&mut self.input_buffer))
+            .ok_or_else(|| WorkError::NodeError("Missing event input".to_string()))?;
         let output = outputs
             .first()
             .and_then(|port| port.get::<NumberSample>())
@@ -91,14 +91,14 @@ impl ProcessNode for TriggerCounter {
             output.send(NumberSample::new(self.start, 0))?;
         }
 
-        let trigger = input.recv()?;
+        let event = input.recv()?;
         self.count += 1;
         let value = self.start + self.count * self.step;
         debug!(
             "[{}] count={} at {}ns",
-            self.name, value, trigger.timestamp_ns
+            self.name, value, event.timestamp_ns
         );
-        output.send(NumberSample::new(value, trigger.timestamp_ns))?;
+        output.send(NumberSample::new(value, event.timestamp_ns))?;
         Ok(1)
     }
 }
@@ -110,14 +110,15 @@ mod tests {
 
     use super::*;
 
-    fn run_counter(counter: &mut TriggerCounter, triggers: &[u64]) -> Vec<NumberSample> {
+    fn run_counter(counter: &mut EventCounter, events: &[u64]) -> Vec<NumberSample> {
         let wd = Watchdog::new();
-        let (tx, rx) = bounded::<ChannelMessage<Trigger>>(64);
-        for &ts in triggers {
-            tx.send(ChannelMessage::Sample(Trigger::new(ts))).unwrap();
+        let (tx, rx) = bounded::<ChannelMessage<TimestampEvent>>(64);
+        for &ts in events {
+            tx.send(ChannelMessage::Sample(TimestampEvent::new(ts)))
+                .unwrap();
         }
         drop(tx);
-        let inputs = [InputPort::new_with_watchdog(rx, &wd, "counter", "trigger")];
+        let inputs = [InputPort::new_with_watchdog(rx, &wd, "counter", "event")];
         let (out_tx, out_rx) = bounded::<ChannelMessage<NumberSample>>(64);
         let outputs = [OutputPort::new_with_watchdog(
             Sender::new(vec![out_tx]),
@@ -144,7 +145,7 @@ mod tests {
 
     #[test]
     fn counts_from_start_with_initial_level() {
-        let levels = run_counter(&mut TriggerCounter::new(0, 1), &[100, 200, 300]);
+        let levels = run_counter(&mut EventCounter::new(0, 1), &[100, 200, 300]);
         assert_eq!(
             levels,
             vec![
@@ -158,7 +159,7 @@ mod tests {
 
     #[test]
     fn custom_start_and_step() {
-        let levels = run_counter(&mut TriggerCounter::new(10, 5), &[50]);
+        let levels = run_counter(&mut EventCounter::new(10, 5), &[50]);
         assert_eq!(
             levels,
             vec![NumberSample::new(10, 0), NumberSample::new(15, 50)]
@@ -166,8 +167,8 @@ mod tests {
     }
 
     #[test]
-    fn no_triggers_emits_initial_only() {
-        let levels = run_counter(&mut TriggerCounter::new(0, 1), &[]);
+    fn no_events_emits_initial_only() {
+        let levels = run_counter(&mut EventCounter::new(0, 1), &[]);
         assert_eq!(levels, vec![NumberSample::new(0, 0)]);
     }
 }

@@ -9,8 +9,8 @@ use logic_analyzer_viewer::{
 };
 use signal_capture::Sample;
 use signal_derived::{
-    DigitalLaneSnapshot, NumberSample, OpaqueCollectedLaneSnapshot, TextSample, Trigger,
-    TriggerLaneSnapshot, Word,
+    DigitalLaneSnapshot, NumberSample, OpaqueCollectedLaneSnapshot, TextSample, TimestampEvent,
+    TimestampEventLaneSnapshot, Word,
 };
 
 use super::digital::DigitalSnapshotRenderer;
@@ -26,7 +26,7 @@ fn every_built_in_lane_payload_supports_persistent_restoration() {
     for type_id in [
         std::any::TypeId::of::<Sample>(),
         std::any::TypeId::of::<Word>(),
-        std::any::TypeId::of::<Trigger>(),
+        std::any::TypeId::of::<TimestampEvent>(),
         std::any::TypeId::of::<NumberSample>(),
         std::any::TypeId::of::<TextSample>(),
     ] {
@@ -92,7 +92,9 @@ fn trigger_snapshot_projects_event_interaction() {
     let renderer = TriggerSnapshotRenderer;
     let track = ViewerLaneTrack::new("trigger", DerivedLaneId::new("trigger"), 1.0);
     let snapshot =
-        OpaqueCollectedLaneSnapshot::new(Arc::new(TriggerLaneSnapshot::Exact(vec![10, 20, 30])));
+        OpaqueCollectedLaneSnapshot::new(Arc::new(TimestampEventLaneSnapshot::Exact(vec![
+            10, 20, 30,
+        ])));
 
     assert_eq!(
         renderer.interaction(&track, Some(&snapshot), interaction_context()),

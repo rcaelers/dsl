@@ -12,10 +12,10 @@ use logic_analyzer_graph_capabilities::node_support::{
 use logic_analyzer_protocol_decoders::spi_decoder::{
     SPI_TRANSACTION_PROTOCOL_ID, SpiDecoder, SpiMode,
 };
-use logic_analyzer_protocol_decoders::types::{BitOrder, CsPolarity};
+use logic_analyzer_protocol_decoders::types::{BitOrder, CsPolarity, ProtocolPacket};
 use node_graph_document::SocketReference;
 use signal_capture::Sample;
-use signal_derived::{ProtocolPacket, Word};
+use signal_derived::Word;
 use signal_runtime::ProcessNode;
 
 #[derive(Default)]

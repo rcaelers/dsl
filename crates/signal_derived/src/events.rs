@@ -3,7 +3,7 @@
 //! Two kinds of stream flow between control nodes (see
 //! `docs/architecture/processing_workflows.md`):
 //!
-//! - **Events** ([`Trigger`], [`Word`]): timestamped occurrences with no
+//! - **Events** ([`TimestampEvent`], [`Word`]): timestamped occurrences with no
 //!   value between occurrences. They can only be reacted to.
 //! - **Stepped levels** ([`NumberSample`], [`TextSample`]): a value defined at
 //!   *every* instant, transmitted as changes only — the same RLE idea as
@@ -13,7 +13,6 @@
 //!
 //! All timestamps are nanoseconds, in the same domain as `Sample.start_time_ns`.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// Longest inferred display span for an instantaneous word when no recent
@@ -59,9 +58,9 @@ pub(crate) fn instantaneous_word_end_ns_with_limit(
     start_ns.saturating_add(gap_ns.min(inferred_limit_ns))
 }
 
-/// Instantaneous event (e.g. a matcher hit). No payload beyond time.
+/// Generic instantaneous event with no payload beyond its timestamp.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Trigger {
+pub struct TimestampEvent {
     /// Timestamp in nanoseconds.
     pub timestamp_ns: u64,
 }
@@ -83,68 +82,8 @@ impl TimelineMarker {
     }
 }
 
-/// Open, protocol-neutral value transported between independently authored
-/// decoder nodes. Concrete protocol contracts determine which shapes are
-/// meaningful on a connection.
-#[derive(Clone, Debug, PartialEq)]
-pub enum ProtocolValue {
-    /// No structured value.
-    Null,
-    /// Boolean structured value.
-    Bool(bool),
-    /// Signed integer structured value.
-    Integer(i128),
-    /// Floating-point structured value.
-    Float(f64),
-    /// UTF-8 string structured value.
-    String(String),
-    /// Arbitrary immutable bytes.
-    Bytes(Arc<[u8]>),
-    /// Ordered collection of structured values.
-    List(Vec<Self>),
-    /// Fixed-position structured values.
-    Tuple(Vec<Self>),
-    /// Named structured values.
-    Mapping(BTreeMap<String, Self>),
-}
-
-/// Timestamped structured value exchanged by stacked protocol decoders.
-#[derive(Clone, Debug, PartialEq)]
-pub struct ProtocolPacket {
-    /// Source-domain sample coordinates. Producers derived from payloads that
-    /// carry time but no sample position set both sample coordinates to zero.
-    pub start_sample: u64,
-    pub end_sample: u64,
-    /// Shared timeline start timestamp.
-    pub start_time_ns: u64,
-    /// Shared timeline end timestamp.
-    pub end_time_ns: u64,
-    /// Stable protocol identity owned by the decoder.
-    pub protocol_id: String,
-    /// Protocol-owned structured packet value.
-    pub value: ProtocolValue,
-}
-
-impl ProtocolPacket {
-    /// Returns a bounded protocol-neutral fallback display string.
-    pub fn display_text(&self) -> String {
-        let value = match &self.value {
-            ProtocolValue::Null => "null".into(),
-            ProtocolValue::Bool(value) => value.to_string(),
-            ProtocolValue::Integer(value) => value.to_string(),
-            ProtocolValue::Float(value) => value.to_string(),
-            ProtocolValue::String(value) => value.clone(),
-            ProtocolValue::Bytes(value) => format!("{} bytes", value.len()),
-            ProtocolValue::List(value) => format!("list[{}]", value.len()),
-            ProtocolValue::Tuple(value) => format!("tuple[{}]", value.len()),
-            ProtocolValue::Mapping(value) => format!("map[{}]", value.len()),
-        };
-        format!("{} · {value}", self.protocol_id)
-    }
-}
-
-impl Trigger {
-    /// Creates an instantaneous trigger event at a shared nanosecond timestamp.
+impl TimestampEvent {
+    /// Creates an instantaneous event at a shared nanosecond timestamp.
     ///
     /// # Parameters
     /// - `timestamp_ns`: Shared timeline timestamp of the event.

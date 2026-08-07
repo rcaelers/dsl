@@ -3,20 +3,21 @@
 use std::fmt::Write;
 use std::sync::Arc;
 
-use logic_analyzer_graph_capabilities::node::ProtocolPacketDisplay;
 use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableCellMode, DecoderTableColumnDescriptor, LaneBadgeDescriptor,
     LanePresentationDescriptor,
 };
-use logic_analyzer_graph_registry::ProtocolPacketPresentationRegistration;
 use logic_analyzer_protocol_decoders::spi_decoder::SPI_TRANSACTION_PROTOCOL_ID;
+use logic_analyzer_protocol_decoders::types::{ProtocolPacket, ProtocolValue};
 use logic_analyzer_viewer::{
     AnnotationVisual, DefaultViewerLaneRenderer, DerivedLaneId, ViewerLaneGroup,
     ViewerLaneRenderer, ViewerLaneRendererRegistration, ViewerLaneTheme, ViewerLaneTrackId,
 };
-use signal_derived::{ProtocolPacket, ProtocolValue};
 
-use crate::payloads::WordSnapshotRenderer;
+use crate::payloads::{
+    ProtocolPacketDisplay, ProtocolPacketPresentationRegistration, WordSnapshotRenderer,
+    protocol_packet_fallback_label,
+};
 
 struct SpiLaneRenderer;
 
@@ -164,7 +165,7 @@ fn spi_transaction_display(packet: &ProtocolPacket) -> ProtocolPacketDisplay {
 
 fn spi_transaction_label(packet: &ProtocolPacket) -> String {
     let ProtocolValue::Mapping(fields) = &packet.value else {
-        return packet.display_text();
+        return protocol_packet_fallback_label(packet);
     };
     let digits = fields
         .get("word_bits")
@@ -217,7 +218,7 @@ fn spi_transaction_label(packet: &ProtocolPacket) -> String {
         }
     }
     if parts.is_empty() {
-        packet.display_text()
+        protocol_packet_fallback_label(packet)
     } else {
         parts.join(" · ")
     }

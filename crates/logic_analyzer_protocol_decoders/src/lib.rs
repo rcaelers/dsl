@@ -4,6 +4,7 @@
 //! outside this crate.
 
 pub mod i2c_decoder;
+pub mod packet_framer;
 pub mod parallel_decoder;
 pub mod sigrok_decoder;
 pub mod spi_decoder;

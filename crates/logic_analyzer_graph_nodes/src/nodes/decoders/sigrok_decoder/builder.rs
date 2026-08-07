@@ -13,9 +13,10 @@ use logic_analyzer_protocol_decoders::sigrok_decoder::{
     SigrokChannel, SigrokDecoderConfig, SigrokDecoderDescriptor, SigrokDecoderRuntime,
     SigrokInitialPin, SigrokOptionValue,
 };
+use logic_analyzer_protocol_decoders::types::ProtocolPacket;
 use node_graph_document::SocketReference;
 use signal_capture::SampleBlock;
-use signal_derived::{ProtocolPacket, Word};
+use signal_derived::Word;
 use signal_runtime::ProcessNode;
 
 use super::definition::{SavedOptionControl, SavedOutputKind, SavedScalar, SigrokDecoderState};

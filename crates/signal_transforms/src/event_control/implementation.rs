@@ -1,8 +1,8 @@
-//! Applies timing and optional manual-rearm policy to trigger events.
+//! Applies timing and optional manual-rearm policy to timestamped events.
 
 use std::collections::VecDeque;
 
-use signal_derived::Trigger;
+use signal_derived::TimestampEvent;
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,
     WorkResult,
@@ -15,10 +15,10 @@ pub struct EventControl {
     manual_rearm: bool,
     armed: bool,
     next_allowed_ns: u64,
-    event_buffer: VecDeque<Trigger>,
-    rearm_buffer: VecDeque<Trigger>,
-    event_head: Option<Trigger>,
-    rearm_head: Option<Trigger>,
+    event_buffer: VecDeque<TimestampEvent>,
+    rearm_buffer: VecDeque<TimestampEvent>,
+    event_head: Option<TimestampEvent>,
+    rearm_head: Option<TimestampEvent>,
     event_eos: bool,
     rearm_eos: bool,
 }
@@ -57,7 +57,7 @@ impl EventControl {
         if self.event_head.is_none() && !self.event_eos {
             let mut receiver = inputs
                 .first()
-                .and_then(|port| port.get::<Trigger>(&mut self.event_buffer))
+                .and_then(|port| port.get::<TimestampEvent>(&mut self.event_buffer))
                 .ok_or_else(|| WorkError::NodeError("Missing events input".to_owned()))?;
             match receiver.recv() {
                 Ok(event) => self.event_head = Some(event),
@@ -68,7 +68,7 @@ impl EventControl {
         if self.manual_rearm && self.rearm_head.is_none() && !self.rearm_eos {
             let mut receiver = inputs
                 .get(1)
-                .and_then(|port| port.get::<Trigger>(&mut self.rearm_buffer))
+                .and_then(|port| port.get::<TimestampEvent>(&mut self.rearm_buffer))
                 .ok_or_else(|| WorkError::NodeError("Missing rearm input".to_owned()))?;
             match receiver.recv() {
                 Ok(rearm) => self.rearm_head = Some(rearm),
@@ -95,13 +95,13 @@ impl ProcessNode for EventControl {
 
     fn input_schema(&self) -> Vec<PortSchema> {
         vec![
-            PortSchema::new::<Trigger>("events", 0, PortDirection::Input),
-            PortSchema::new::<Trigger>("rearm", 1, PortDirection::Input),
+            PortSchema::new::<TimestampEvent>("events", 0, PortDirection::Input),
+            PortSchema::new::<TimestampEvent>("rearm", 1, PortDirection::Input),
         ]
     }
 
     fn output_schema(&self) -> Vec<PortSchema> {
-        vec![PortSchema::new::<Trigger>(
+        vec![PortSchema::new::<TimestampEvent>(
             "events",
             0,
             PortDirection::Output,
@@ -145,9 +145,9 @@ impl ProcessNode for EventControl {
         }
         let output = outputs
             .first()
-            .and_then(|port| port.get::<Trigger>())
+            .and_then(|port| port.get::<TimestampEvent>())
             .ok_or_else(|| WorkError::NodeError("Missing events output".to_owned()))?;
-        output.send(Trigger::new(
+        output.send(TimestampEvent::new(
             event.timestamp_ns.saturating_add(self.delay_ns),
         ))?;
         Ok(1)
@@ -162,11 +162,11 @@ mod implementation_tests {
     use super::*;
 
     struct Rig {
-        event_tx: ChannelSender<ChannelMessage<Trigger>>,
-        rearm_tx: ChannelSender<ChannelMessage<Trigger>>,
+        event_tx: ChannelSender<ChannelMessage<TimestampEvent>>,
+        rearm_tx: ChannelSender<ChannelMessage<TimestampEvent>>,
         inputs: Vec<InputPort>,
         outputs: Vec<OutputPort>,
-        output_rx: Receiver<ChannelMessage<Trigger>>,
+        output_rx: Receiver<ChannelMessage<TimestampEvent>>,
     }
 
     fn rig(events: &[u64], rearms: &[u64]) -> Rig {
@@ -174,13 +174,13 @@ mod implementation_tests {
         let (event_tx, event_rx) = bounded(64);
         for timestamp_ns in events {
             event_tx
-                .send(ChannelMessage::Sample(Trigger::new(*timestamp_ns)))
+                .send(ChannelMessage::Sample(TimestampEvent::new(*timestamp_ns)))
                 .unwrap();
         }
         let (rearm_tx, rearm_rx) = bounded(64);
         for timestamp_ns in rearms {
             rearm_tx
-                .send(ChannelMessage::Sample(Trigger::new(*timestamp_ns)))
+                .send(ChannelMessage::Sample(TimestampEvent::new(*timestamp_ns)))
                 .unwrap();
         }
         let (output_tx, output_rx) = bounded(64);

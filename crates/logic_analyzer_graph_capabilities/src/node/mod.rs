@@ -19,11 +19,9 @@
 //! host paths, or UI operations.
 
 mod contracts;
-mod protocol_packet_presentation;
 
 pub use contracts::{
     CaptureGraphSourceFactory, CaptureSourceFeature, GraphNodeCapabilityBundle,
     GraphNodeCapabilityOverride, GraphNodePresentation, GraphNodeSemantics, LiveCaptureFeature,
     LiveCaptureFeatureProvider, RuntimeMaterializer, TimelineFeature,
 };
-pub use protocol_packet_presentation::ProtocolPacketDisplay;

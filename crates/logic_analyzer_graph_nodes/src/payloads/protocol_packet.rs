@@ -1,18 +1,20 @@
 use std::fmt::Write;
 use std::sync::Arc;
 
-use logic_analyzer_graph_capabilities::node::ProtocolPacketDisplay;
 use logic_analyzer_graph_capabilities::node_support::{
     DefaultLanePresentationDescriptor, LaneBadgeDescriptor, PortKind,
 };
-use logic_analyzer_graph_registry::{PayloadRegistration, protocol_packet_display};
+use logic_analyzer_graph_registry::PayloadRegistration;
+use logic_analyzer_protocol_decoders::types::{ProtocolPacket, ProtocolValue};
 use logic_analyzer_viewer::{
     OpaqueLaneDrawContext, ViewerLaneRenderer, ViewerLaneRendererRegistration, ViewerLaneTrack,
     draw_event_snapshot, draw_span_snapshot,
 };
-use signal_derived::{
-    OpaqueCollectedLaneSnapshot, ProtocolPacket, ProtocolPacketLaneSnapshot, ProtocolValue,
-    protocol_packet_payload_adapter,
+use signal_derived::OpaqueCollectedLaneSnapshot;
+
+use super::protocol_packet_presentation::{ProtocolPacketDisplay, protocol_packet_display};
+use super::protocol_packet_retention::{
+    ProtocolPacketLaneSnapshot, protocol_packet_payload_adapter,
 };
 
 const RENDERER: &str = "org.logicconduit.renderer.protocol-packet/v1";

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use signal_capture::SampleBlock;
-use signal_derived::{ProtocolPacket, ProtocolValue, Word};
+use signal_derived::Word;
 use signal_runtime::{
     InputPort, NodeCancellation, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError,
     WorkResult,
@@ -15,6 +15,7 @@ use super::contracts::{
     SigrokExecutionConfig, SigrokExecutionFactory, SigrokExecutionInput,
     SigrokExecutionOptionValue, SigrokExecutionOutput,
 };
+use crate::types::{ProtocolPacket, ProtocolValue};
 const OUTPUT_ANN: i32 = 0;
 const OUTPUT_PYTHON: i32 = 1;
 const OUTPUT_BINARY: i32 = 2;

@@ -1,9 +1,9 @@
-//! Converts qualified signal transitions into trigger events.
+//! Converts qualified signal transitions into timestamped events.
 
 use std::collections::VecDeque;
 
 use signal_capture::Sample;
-use signal_derived::Trigger;
+use signal_derived::TimestampEvent;
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,
     WorkResult,
@@ -81,8 +81,8 @@ impl ProcessNode for EdgeDetector {
     }
 
     fn output_schema(&self) -> Vec<PortSchema> {
-        vec![PortSchema::new::<Trigger>(
-            "trigger",
+        vec![PortSchema::new::<TimestampEvent>(
+            "event",
             0,
             PortDirection::Output,
         )]
@@ -103,8 +103,8 @@ impl ProcessNode for EdgeDetector {
             .ok_or_else(|| WorkError::NodeError("Missing signal input".to_owned()))?;
         let output = outputs
             .first()
-            .and_then(|port| port.get::<Trigger>())
-            .ok_or_else(|| WorkError::NodeError("Missing trigger output".to_owned()))?;
+            .and_then(|port| port.get::<TimestampEvent>())
+            .ok_or_else(|| WorkError::NodeError("Missing event output".to_owned()))?;
         let sample = input.recv()?;
         let Some(previous) = self.previous else {
             self.previous = Some(sample);
@@ -127,7 +127,7 @@ impl ProcessNode for EdgeDetector {
         }
 
         self.last_emitted_ns = Some(sample.start_time_ns);
-        output.send(Trigger::new(sample.start_time_ns))?;
+        output.send(TimestampEvent::new(sample.start_time_ns))?;
         Ok(1)
     }
 }
@@ -149,12 +149,12 @@ mod implementation_tests {
         let inputs = [InputPort::new_with_watchdog(
             input_rx, &watchdog, "edge", "signal",
         )];
-        let (output_tx, output_rx) = bounded::<ChannelMessage<Trigger>>(64);
+        let (output_tx, output_rx) = bounded::<ChannelMessage<TimestampEvent>>(64);
         let outputs = [OutputPort::new_with_watchdog(
             Sender::new(vec![output_tx]),
             &watchdog,
             "edge",
-            "trigger",
+            "event",
         )];
         loop {
             match detector.work(&inputs, &outputs) {

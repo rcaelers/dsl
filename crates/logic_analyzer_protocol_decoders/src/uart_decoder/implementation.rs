@@ -10,7 +10,7 @@ use std::collections::VecDeque;
 use tracing::{debug, trace};
 
 use signal_capture::Sample;
-use signal_derived::{Trigger, Word};
+use signal_derived::{TimestampEvent, Word};
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, Receiver, WorkError, WorkResult,
 };
@@ -58,7 +58,7 @@ impl UartStopBits {
 ///
 /// Input: `rx` — `Sample` edge stream of the transceive line
 /// Outputs: `words` — one `Word` per frame (timestamped at the
-///          start edge); `error` — `Trigger` per parity/framing error;
+///          start edge); `error` — `TimestampEvent` per parity/framing error;
 ///          `bits` — one timed `Word` for every decoded data bit.
 ///          (the word is still emitted, annotation-style)
 pub struct UartDecoder {
@@ -197,7 +197,7 @@ impl ProcessNode for UartDecoder {
         vec![
             PortSchema::new::<Word>("words", 0, PortDirection::Output)
                 .with_default_buffer_capacity(8),
-            PortSchema::new::<Trigger>("error", 1, PortDirection::Output),
+            PortSchema::new::<TimestampEvent>("error", 1, PortDirection::Output),
             PortSchema::new::<Word>("bits", 2, PortDirection::Output)
                 .with_default_buffer_capacity(8),
             PortSchema::new::<Word>("frame", 3, PortDirection::Output)
@@ -222,7 +222,7 @@ impl ProcessNode for UartDecoder {
             .ok_or_else(|| WorkError::NodeError("Missing rx input".to_string()))?;
         let words_out = outputs.first().and_then(|port| port.get::<Word>());
         // Optional; None when unconnected.
-        let error_out = outputs.get(1).and_then(|port| port.get::<Trigger>());
+        let error_out = outputs.get(1).and_then(|port| port.get::<TimestampEvent>());
         let bits_out = outputs.get(2).and_then(|port| port.get::<Word>());
         let frame_out = outputs.get(3).and_then(|port| port.get::<Word>());
 
@@ -324,7 +324,7 @@ impl ProcessNode for UartDecoder {
             if frame_error { " (error)" } else { "" }
         );
         if frame_error && let Some(errors) = &error_out {
-            errors.send(Trigger::new(t0))?;
+            errors.send(TimestampEvent::new(t0))?;
         }
         if let Some(bits_out) = bits_out {
             let bit_duration = bit_ns.round() as u64;
@@ -418,7 +418,7 @@ mod tests {
 
     struct Output {
         words: Vec<Word>,
-        errors: Vec<Trigger>,
+        errors: Vec<TimestampEvent>,
     }
 
     fn run_decoder(decoder: &mut UartDecoder, edges: Vec<Sample>) -> Output {
@@ -430,7 +430,7 @@ mod tests {
         drop(tx);
         let inputs = [InputPort::new_with_watchdog(rx, &wd, "uart", "rx")];
         let (words_tx, words_rx) = bounded::<ChannelMessage<Word>>(1024);
-        let (err_tx, err_rx) = bounded::<ChannelMessage<Trigger>>(1024);
+        let (err_tx, err_rx) = bounded::<ChannelMessage<TimestampEvent>>(1024);
         let outputs = [
             OutputPort::new_with_watchdog(Sender::new(vec![words_tx]), &wd, "uart", "words"),
             OutputPort::new_with_watchdog(Sender::new(vec![err_tx]), &wd, "uart", "error"),
@@ -497,7 +497,7 @@ mod tests {
         let mut decoder = UartDecoder::new(1_000_000, 8).with_parity(UartParity::Even, true);
         let out = run_decoder(&mut decoder, bad);
         assert_eq!(out.words[0].value, 0x03);
-        assert_eq!(out.errors, vec![Trigger::new(10_000)]);
+        assert_eq!(out.errors, vec![TimestampEvent::new(10_000)]);
     }
 
     #[test]
@@ -512,7 +512,7 @@ mod tests {
         let mut decoder = UartDecoder::new(1_000_000, 8);
         let out = run_decoder(&mut decoder, edges);
         assert_eq!(out.words[0].value, 0x00);
-        assert_eq!(out.errors, vec![Trigger::new(10_000)]);
+        assert_eq!(out.errors, vec![TimestampEvent::new(10_000)]);
     }
 
     #[test]

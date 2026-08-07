@@ -2335,6 +2335,7 @@ dependencies = [
 name = "logic-analyzer-graph-nodes"
 version = "0.1.0"
 dependencies = [
+ "crossbeam-channel",
  "egui",
  "inventory",
  "logic-analyzer-acquisition",

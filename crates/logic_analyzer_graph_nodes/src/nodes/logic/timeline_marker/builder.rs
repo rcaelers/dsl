@@ -12,11 +12,11 @@ use logic_analyzer_graph_capabilities::node_support::{
 };
 use node_graph_document::SocketReference;
 use signal_capture::Sample;
-use signal_derived::{TimelineMarker, Trigger};
+use signal_derived::{TimelineMarker, TimestampEvent};
 use signal_runtime::ProcessNode;
 use signal_transforms::timeline_marker::{
     MarkerRelation as RuntimeMarkerRelation, TimelineMarkerRelation, TimelineMarkerSource,
-    TimelineMarkerToTrigger, TimelineMarkerWindow,
+    TimelineMarkerToEvent, TimelineMarkerWindow,
 };
 
 fn marker_kind() -> PortKind {
@@ -221,7 +221,7 @@ impl GraphNodeSemantics for MarkerToTriggerBuilder {
     }
 
     fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
-        vec![PortKind::of::<Trigger>()]
+        vec![PortKind::of::<TimestampEvent>()]
     }
 
     fn input_port(&self, _socket: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
@@ -229,7 +229,7 @@ impl GraphNodeSemantics for MarkerToTriggerBuilder {
     }
 
     fn output_port(&self, _socket: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
-        Some("trigger".into())
+        Some("event".into())
     }
 }
 
@@ -241,7 +241,7 @@ impl RuntimeMaterializer for MarkerToTriggerBuilder {
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        Ok(Box::new(TimelineMarkerToTrigger::new().with_name(name)))
+        Ok(Box::new(TimelineMarkerToEvent::new().with_name(name)))
     }
 }
 

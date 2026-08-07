@@ -112,9 +112,10 @@ UI remain outside this crate.
 
 #### `logic-analyzer-protocol-decoders`
 
-Owns UI-independent I²C, parallel, Sigrok, SPI, and UART decoding state machines plus their runtime
-configuration and host contracts. Graph sockets, saved state, and renderer metadata remain with
-the corresponding graph features.
+Owns UI-independent protocol packet values, packet framing, and I²C, parallel, Sigrok, SPI, and
+UART decoding state machines plus their runtime configuration and host contracts. Graph sockets,
+saved state, retained-packet adapters, and renderer metadata remain with the corresponding graph
+features.
 
 ### Graph crates
 
@@ -129,7 +130,7 @@ outside this crate.
 
 #### `logic-analyzer-graph-registry`
 
-Owns graph-node, payload, and protocol-presentation registration descriptors; compile-time
+Owns graph-node and payload registration descriptors; compile-time
 inventory collection; deterministic validation; runtime capability overrides; and immutable
 `GraphRegistry` snapshots. Editor definitions and editor-registration overrides belong to
 `logic-analyzer-graph-editor-registry`. Viewer-renderer registration

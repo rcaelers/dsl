@@ -3,7 +3,7 @@
 use std::collections::VecDeque;
 
 use signal_capture::Sample;
-use signal_derived::{TimelineMarker, Trigger};
+use signal_derived::{TimelineMarker, TimestampEvent};
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,
     WorkResult,
@@ -88,16 +88,16 @@ impl ProcessNode for TimelineMarkerSource {
     }
 }
 
-pub struct TimelineMarkerToTrigger {
+pub struct TimelineMarkerToEvent {
     name: String,
     marker_buffer: VecDeque<TimelineMarker>,
 }
 
-impl TimelineMarkerToTrigger {
-    /// Creates a converter from timeline markers to trigger events.
+impl TimelineMarkerToEvent {
+    /// Creates a converter from timeline markers to timestamped events.
     pub fn new() -> Self {
         Self {
-            name: "timeline_marker_to_trigger".into(),
+            name: "timeline_marker_to_event".into(),
             marker_buffer: VecDeque::new(),
         }
     }
@@ -112,13 +112,13 @@ impl TimelineMarkerToTrigger {
     }
 }
 
-impl Default for TimelineMarkerToTrigger {
+impl Default for TimelineMarkerToEvent {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ProcessNode for TimelineMarkerToTrigger {
+impl ProcessNode for TimelineMarkerToEvent {
     fn name(&self) -> &str {
         &self.name
     }
@@ -140,8 +140,8 @@ impl ProcessNode for TimelineMarkerToTrigger {
     }
 
     fn output_schema(&self) -> Vec<PortSchema> {
-        vec![PortSchema::new::<Trigger>(
-            "trigger",
+        vec![PortSchema::new::<TimestampEvent>(
+            "event",
             0,
             PortDirection::Output,
         )]
@@ -159,9 +159,9 @@ impl ProcessNode for TimelineMarkerToTrigger {
         let marker = receive_marker(inputs, 0, &mut self.marker_buffer)?;
         let output = outputs
             .first()
-            .and_then(|port| port.get::<Trigger>())
-            .ok_or_else(|| WorkError::NodeError("Missing trigger output".into()))?;
-        output.send(Trigger::new(marker.timestamp_ns))?;
+            .and_then(|port| port.get::<TimestampEvent>())
+            .ok_or_else(|| WorkError::NodeError("Missing event output".into()))?;
+        output.send(TimestampEvent::new(marker.timestamp_ns))?;
         Ok(1)
     }
 }

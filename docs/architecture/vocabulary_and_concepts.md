@@ -39,12 +39,6 @@ when multiple domains need a capability, they share an explicitly neutral contra
 corresponding signal crate. The existing `signal_*` crate names accurately express this boundary,
 so this ownership decision does not require a crate rename.
 
-### Proposed future separation
-
-Trigger- and protocol-specific retained-data contracts in `signal_derived` are relocated to
-logic-analyzer domain owners. The actionable relocation is tracked by
-`derived.payload.builtin-registration` in [`TODO.md`](../../TODO.md).
-
 ## Graph documents and features
 
 ### Graph document

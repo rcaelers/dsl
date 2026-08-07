@@ -1,9 +1,9 @@
-//! Filters a trigger stream using a stepped boolean gate level.
+//! Filters a timestamped event stream using a stepped boolean gate level.
 
 use std::collections::VecDeque;
 
 use signal_capture::Sample;
-use signal_derived::Trigger;
+use signal_derived::TimestampEvent;
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkOutcome,
     WorkResult,
@@ -19,9 +19,9 @@ pub struct EventGate {
     name: String,
     polarity: GatePolarity,
     gate_level: bool,
-    event_buffer: VecDeque<Trigger>,
+    event_buffer: VecDeque<TimestampEvent>,
     gate_buffer: VecDeque<Sample>,
-    event_head: Option<Trigger>,
+    event_head: Option<TimestampEvent>,
     gate_head: Option<Sample>,
     event_eos: bool,
     gate_eos: bool,
@@ -63,7 +63,7 @@ impl EventGate {
         if self.event_head.is_none() && !self.event_eos {
             let mut receiver = inputs
                 .first()
-                .and_then(|port| port.get::<Trigger>(&mut self.event_buffer))
+                .and_then(|port| port.get::<TimestampEvent>(&mut self.event_buffer))
                 .ok_or_else(|| WorkError::NodeError("Missing events input".to_owned()))?;
             match receiver.recv() {
                 Ok(event) => self.event_head = Some(event),
@@ -101,13 +101,13 @@ impl ProcessNode for EventGate {
 
     fn input_schema(&self) -> Vec<PortSchema> {
         vec![
-            PortSchema::new::<Trigger>("events", 0, PortDirection::Input),
+            PortSchema::new::<TimestampEvent>("events", 0, PortDirection::Input),
             PortSchema::state::<Sample>("gate", 1, PortDirection::Input),
         ]
     }
 
     fn output_schema(&self) -> Vec<PortSchema> {
-        vec![PortSchema::new::<Trigger>(
+        vec![PortSchema::new::<TimestampEvent>(
             "events",
             0,
             PortDirection::Output,
@@ -143,7 +143,7 @@ impl ProcessNode for EventGate {
         }
         let output = outputs
             .first()
-            .and_then(|port| port.get::<Trigger>())
+            .and_then(|port| port.get::<TimestampEvent>())
             .ok_or_else(|| WorkError::NodeError("Missing events output".to_owned()))?;
         output.send(event)?;
         Ok(1)
@@ -162,7 +162,7 @@ mod implementation_tests {
         let (event_tx, event_rx) = bounded(64);
         for timestamp_ns in [10, 20, 30, 40] {
             event_tx
-                .send(ChannelMessage::Sample(Trigger::new(timestamp_ns)))
+                .send(ChannelMessage::Sample(TimestampEvent::new(timestamp_ns)))
                 .unwrap();
         }
         drop(event_tx);
@@ -179,7 +179,7 @@ mod implementation_tests {
             InputPort::new_with_watchdog(event_rx, &watchdog, "gate", "events"),
             InputPort::new_with_watchdog(gate_rx, &watchdog, "gate", "gate"),
         ];
-        let (output_tx, output_rx) = bounded::<ChannelMessage<Trigger>>(64);
+        let (output_tx, output_rx) = bounded::<ChannelMessage<TimestampEvent>>(64);
         let outputs = [OutputPort::new_with_watchdog(
             Sender::new(vec![output_tx]),
             &watchdog,

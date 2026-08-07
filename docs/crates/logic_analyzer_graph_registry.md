@@ -4,15 +4,14 @@
 
 `logic_analyzer_graph_registry` owns graph-node and payload registration descriptors, inventory
 collection, deterministic validation, host capability-override resolution, and the immutable
-`GraphRegistry` snapshot consumed by the compiler and UI composition. It also owns protocol-packet
-presentation registration and inventory lookup. Editor definitions and editor overrides belong to
+`GraphRegistry` snapshot consumed by the compiler and UI composition. Editor definitions and editor overrides belong to
 `logic_analyzer_graph_editor_registry`; the two inventories share stable IDs but neither registry
 reaches through the other.
 
 ## Facade and dependencies
 
-The crate root exposes `GraphNodeRegistration`, `PayloadRegistration`,
-`ProtocolPacketPresentationRegistration`, their inventory lookups, and `GraphRegistry`. It depends
+The crate root exposes `GraphNodeRegistration`, `PayloadRegistration`, their inventory lookups,
+and `GraphRegistry`. It depends
 only on `logic_analyzer_graph_capabilities`, the capture and derived contract owners, and the
 generic `inventory` mechanism. It has no node-editor dependency. Plugins implement capability
 traits and submit registry-owned descriptors.
@@ -32,8 +31,8 @@ host overrides or collisions with consumer-supplied infrastructure capabilities.
 ## Stable identities and deterministic lookup
 
 Stable graph-node IDs and payload IDs are persisted feature identities. Definition names select
-node behavior in graph documents, while renderer and protocol-presentation keys select registered
-presentation behavior. Enabled built-in and plug-in crates expose linker anchors so every intended
+node behavior in graph documents, while renderer keys select registered presentation behavior.
+Enabled built-in and plug-in crates expose linker anchors so every intended
 inventory submission is retained before deterministic collection.
 
 ## Test boundary

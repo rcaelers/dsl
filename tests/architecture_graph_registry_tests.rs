@@ -2,8 +2,9 @@ use std::hint::black_box;
 
 use logic_analyzer_graph_capabilities::node::{GraphNodeCapabilityOverride, GraphNodePresentation};
 use logic_analyzer_graph_registry::{
-    GraphNodeRegistration, GraphRegistry, graph_node_registrations,
+    GraphNodeRegistration, GraphRegistry, graph_node_registrations, payload_registrations,
 };
+use signal_derived::TimestampEvent;
 
 struct EmptyPresentation;
 
@@ -63,6 +64,33 @@ fn real_graph_node_inventory_constructs_one_consistent_capability_snapshot() {
             "{} timeline capability differs between registration and snapshot",
             registration.stable_id()
         );
+    }
+}
+
+#[test]
+fn builtin_and_plugin_payloads_follow_the_same_inventory_path() {
+    linked_registrations();
+    let registrations = payload_registrations();
+    let registry =
+        GraphRegistry::with_capability_overrides_and_infrastructure(Vec::new(), Vec::new());
+
+    for (stable_id, type_id) in [
+        (
+            "org.logicconduit.trigger/v1",
+            std::any::TypeId::of::<TimestampEvent>(),
+        ),
+        (
+            "org.logicconduit.example.camera-frame/v1",
+            std::any::TypeId::of::<example_plugin::CameraFrame>(),
+        ),
+    ] {
+        let registration = registrations
+            .iter()
+            .find(|registration| registration.stable_id() == stable_id)
+            .unwrap_or_else(|| panic!("payload inventory must contain {stable_id}"));
+        assert_eq!(registration.kind().type_id(), type_id);
+        assert!(registry.payloads().descriptor_by_type_id(type_id).is_some());
+        assert!(registry.payloads().adapter_by_type_id(type_id).is_some());
     }
 }
 

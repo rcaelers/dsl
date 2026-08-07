@@ -10,9 +10,9 @@ use logic_analyzer_graph_capabilities::node_support::{
 };
 use node_graph_document::SocketReference;
 use signal_capture::Sample;
-use signal_derived::{Trigger, Word};
+use signal_derived::{TimestampEvent, Word};
 use signal_runtime::{ConfigValue, NodeConfig, ProcessNode};
-use signal_transforms::word_matcher::{MatchOp, PredicateMode, TriggerAt, WordMatcher};
+use signal_transforms::word_matcher::{MatchOp, MatchTimestamp, PredicateMode, WordMatcher};
 
 #[derive(Default)]
 pub(crate) struct WordMatcherBuilder;
@@ -30,11 +30,11 @@ impl WordMatcherBuilder {
         }
     }
 
-    /// UI "Trigger at" selection → runtime `TriggerAt` and its wire name.
-    fn trigger_at(selected: &str) -> (TriggerAt, &'static str) {
+    /// UI timestamp selection to runtime `MatchTimestamp` and its wire name.
+    fn trigger_at(selected: &str) -> (MatchTimestamp, &'static str) {
         match selected {
-            "Word start" => (TriggerAt::Start, "start"),
-            _ => (TriggerAt::End, "end"),
+            "Word start" => (MatchTimestamp::Start, "start"),
+            _ => (MatchTimestamp::End, "end"),
         }
     }
 
@@ -51,13 +51,13 @@ impl GraphNodeSemantics for WordMatcherBuilder {
     fn accepted_kinds(&self, socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         match socket.definition_index() {
             0 => vec![PortKind::of::<Word>()],
-            1 => vec![PortKind::of::<Trigger>()],
+            1 => vec![PortKind::of::<TimestampEvent>()],
             _ => vec![],
         }
     }
     fn offered_kinds(&self, socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         match socket.definition_index() {
-            0 => vec![PortKind::of::<Trigger>()],
+            0 => vec![PortKind::of::<TimestampEvent>()],
             1 => vec![PortKind::of::<Sample>()],
             2 => vec![PortKind::of::<Word>()],
             _ => vec![],
@@ -77,7 +77,7 @@ impl GraphNodeSemantics for WordMatcherBuilder {
         _kind: PortKind,
     ) -> Option<String> {
         match socket.definition_index() {
-            0 => Some("trigger".into()),
+            0 => Some("match".into()),
             1 => Some("matched".into()),
             2 => Some("matching_words".into()),
             _ => None,
@@ -108,7 +108,7 @@ impl RuntimeMaterializer for WordMatcherBuilder {
         };
         let mut matcher = WordMatcher::new(pattern, mask)
             .with_op(op)
-            .with_trigger_at(trigger_at)
+            .with_match_timestamp(trigger_at)
             .with_match_count(state.match_count.value.max(1) as u64)
             .with_holdoff_ns((state.holdoff_us.value.max(0) as u64).saturating_mul(1_000))
             .with_manual_rearm(resolved.kind(1).is_some())

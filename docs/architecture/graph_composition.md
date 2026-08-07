@@ -144,9 +144,9 @@ reports a runtime error rather than changing what the document means.
 
 `PayloadRegistration` associates a stable payload identity and runtime `PortKind` with a type-erased
 ingestion adapter, default lane presentation, request customization, and persistent-cache support.
-`ProtocolPacketPresentationRegistration` associates protocol packet identities with display
-functions. The registry owns both inventories; capability crates contain only the contracts and
-values carried by them.
+The graph registry owns this generic inventory. Concrete protocol packet formatting and its
+formatter inventory remain inside the built-in protocol-packet graph feature, so registry and
+capability crates contain no protocol-specific contracts or values.
 
 The compiler owns an immutable `GraphRegistry` snapshot. The UI constructs the editor's
 `NodeTypeRegistry` from the parallel validated editor inventory, joins it to headless feature

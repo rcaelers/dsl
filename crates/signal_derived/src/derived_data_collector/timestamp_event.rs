@@ -8,34 +8,34 @@ use super::indexed::{IndexedLaneQuery, IndexedLaneSnapshot, IndexedLaneWriter, i
 use super::storage::in_memory_storage_snapshot;
 use crate::Word;
 use crate::derived_index::{AppendOnlyMipmap, LaneFold, MipmapRecord};
-use crate::events::Trigger;
+use crate::events::TimestampEvent;
 use crate::payload::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
     CollectedLaneStorageSnapshot, OpaqueCollectedLaneSnapshot, PayloadAdapter,
 };
 
-/// Immutable bounded result of a built-in trigger-marker lane query.
+/// Immutable bounded result of a built-in timestamp-event lane query.
 #[derive(Clone, Debug)]
-pub enum TriggerLaneSnapshot {
-    /// Exact trigger timestamps in the requested visible window.
+pub enum TimestampEventLaneSnapshot {
+    /// Exact event timestamps in the requested visible window.
     Exact(Vec<u64>),
     /// Bounded activity records for a dense visible window.
     Activity(Vec<MipmapRecord>),
 }
 
 #[derive(Default)]
-pub(crate) struct TriggerLaneStorage {
+pub(crate) struct TimestampEventLaneStorage {
     pub(crate) timestamps: Vec<u64>,
     pub(crate) summary: AppendOnlyMipmap<u64, MarkerFold>,
     pub(crate) generation: u64,
 }
 
-pub(crate) struct TriggerLaneQuery {
-    pub(crate) storage: Arc<RwLock<TriggerLaneStorage>>,
+pub(crate) struct TimestampEventLaneQuery {
+    pub(crate) storage: Arc<RwLock<TimestampEventLaneStorage>>,
     pub(crate) indexed: Option<IndexedLaneQuery>,
 }
 
-impl CollectedLaneQuery for TriggerLaneQuery {
+impl CollectedLaneQuery for TimestampEventLaneQuery {
     fn into_any(self: Arc<Self>) -> Arc<dyn std::any::Any + Send + Sync> {
         self
     }
@@ -62,13 +62,15 @@ impl CollectedLaneQuery for TriggerLaneQuery {
                 request.end_time_ns,
                 request.max_items,
             ) {
-                IndexedLaneSnapshot::Exact(annotations) => TriggerLaneSnapshot::Exact(
+                IndexedLaneSnapshot::Exact(annotations) => TimestampEventLaneSnapshot::Exact(
                     annotations
                         .into_iter()
                         .map(|annotation| annotation.start_ns)
                         .collect(),
                 ),
-                IndexedLaneSnapshot::Activity(records) => TriggerLaneSnapshot::Activity(records),
+                IndexedLaneSnapshot::Activity(records) => {
+                    TimestampEventLaneSnapshot::Activity(records)
+                }
                 IndexedLaneSnapshot::Error => return None,
             }
         } else {
@@ -80,9 +82,9 @@ impl CollectedLaneQuery for TriggerLaneQuery {
                 .timestamps
                 .partition_point(|timestamp| *timestamp <= request.end_time_ns);
             if last - first <= request.max_items {
-                TriggerLaneSnapshot::Exact(storage.timestamps[first..last].to_vec())
+                TimestampEventLaneSnapshot::Exact(storage.timestamps[first..last].to_vec())
             } else {
-                TriggerLaneSnapshot::Activity(storage.summary.sampled_window(
+                TimestampEventLaneSnapshot::Activity(storage.summary.sampled_window(
                     request.start_time_ns,
                     request.end_time_ns,
                     request.max_items,
@@ -153,18 +155,18 @@ impl LaneFold<u64> for MarkerFold {
     }
 }
 
-/// Typed append state for the built-in trigger payload.
-struct TriggerLane {
-    storage: Arc<RwLock<TriggerLaneStorage>>,
-    buffer: VecDeque<Trigger>,
+/// Typed append state for a timestamp-event payload.
+struct TimestampEventLane {
+    storage: Arc<RwLock<TimestampEventLaneStorage>>,
+    buffer: VecDeque<TimestampEvent>,
     eos: bool,
     retention: DerivedDataRetention,
     indexed: Option<IndexedLaneWriter>,
 }
 
-impl TriggerLane {
+impl TimestampEventLane {
     fn new(request: CollectedLaneRequest) -> Self {
-        let storage = Arc::new(RwLock::new(TriggerLaneStorage::default()));
+        let storage = Arc::new(RwLock::new(TimestampEventLaneStorage::default()));
         let (indexed, indexed_query) = request.indexed_store().cloned().map_or(
             (None, None),
             |config| {
@@ -175,13 +177,13 @@ impl TriggerLane {
                 ) {
                 Ok((writer, query)) => (Some(writer), Some(query)),
                 Err(error) => {
-                    tracing::warn!(lane = request.name(), %error, "could not create indexed trigger lane; using memory");
+                    tracing::warn!(lane = request.name(), %error, "could not create indexed timestamp-event lane; using memory");
                     (None, None)
                 }
                 }
             },
         );
-        request.publish_query(Arc::new(TriggerLaneQuery {
+        request.publish_query(Arc::new(TimestampEventLaneQuery {
             storage: Arc::clone(&storage),
             indexed: indexed_query,
         }));
@@ -195,16 +197,16 @@ impl TriggerLane {
     }
 }
 
-impl CollectedLaneIngestor for TriggerLane {
+impl CollectedLaneIngestor for TimestampEventLane {
     fn input_schema(&self, index: usize) -> PortSchema {
-        PortSchema::new::<Trigger>(format!("in{index}"), index, PortDirection::Input)
+        PortSchema::new::<TimestampEvent>(format!("in{index}"), index, PortDirection::Input)
     }
 
     fn drain(&mut self, input: &InputPort, _retention: DerivedDataRetention) -> WorkResult<usize> {
         use crossbeam_channel::TryRecvError;
 
         let mut batch = Vec::with_capacity(DRAIN_BATCH_SIZE);
-        if let Some(mut receiver) = input.get::<Trigger>(&mut self.buffer) {
+        if let Some(mut receiver) = input.get::<TimestampEvent>(&mut self.buffer) {
             match receiver.try_recv_many(&mut batch, DRAIN_BATCH_SIZE) {
                 Ok(_) | Err(TryRecvError::Empty) => {}
                 Err(TryRecvError::Disconnected) => self.eos = true,
@@ -216,7 +218,7 @@ impl CollectedLaneIngestor for TriggerLane {
         if !batch.is_empty() {
             let timestamps = batch
                 .iter()
-                .map(|trigger| trigger.timestamp_ns)
+                .map(|event| event.timestamp_ns)
                 .collect::<Vec<_>>();
             if let Some(indexed) = &mut self.indexed {
                 let words = timestamps
@@ -250,18 +252,18 @@ impl CollectedLaneIngestor for TriggerLane {
     }
 }
 
-struct TriggerPayloadAdapter;
+struct TimestampEventPayloadAdapter;
 
-impl PayloadAdapter for TriggerPayloadAdapter {
+impl PayloadAdapter for TimestampEventPayloadAdapter {
     fn create_ingestor(
         &self,
         request: CollectedLaneRequest,
     ) -> Result<Box<dyn CollectedLaneIngestor>, String> {
-        Ok(Box::new(TriggerLane::new(request)))
+        Ok(Box::new(TimestampEventLane::new(request)))
     }
 }
 
-/// Returns the payload adapter for built-in trigger-event lanes.
-pub fn trigger_payload_adapter() -> Arc<dyn PayloadAdapter> {
-    Arc::new(TriggerPayloadAdapter)
+/// Returns the payload adapter for built-in timestamp-event lanes.
+pub fn timestamp_event_payload_adapter() -> Arc<dyn PayloadAdapter> {
+    Arc::new(TimestampEventPayloadAdapter)
 }

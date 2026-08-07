@@ -2,7 +2,7 @@
 //!
 //! ## Responsibility
 //!
-//! This module owns configured matching, holdoff, selection, and trigger production over word streams.
+//! This module owns configured matching, holdoff, selection, and event production over word streams.
 //!
 //! ## Boundaries
 //!
@@ -15,4 +15,4 @@
 
 mod implementation;
 
-pub use implementation::{MatchOp, PredicateMode, TriggerAt, WordMatcher};
+pub use implementation::{MatchOp, MatchTimestamp, PredicateMode, WordMatcher};

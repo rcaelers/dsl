@@ -2,7 +2,7 @@
 //!
 //! The indexed derived-data store keeps retained lanes queryable without retaining every value in
 //! viewer-owned memory. Its encoded storage primitive is a timestamped `Word` stream. The built-in
-//! word, digital, trigger, number, and text payload adapters translate to and from that primitive, so
+//! word, digital, timestamp-event, number, and text payload adapters translate to and from that primitive, so
 //! all of those lane types share persistence, indexing, bounded queries, and restart restoration.
 //!
 //! Primary code locations:
@@ -24,7 +24,7 @@
 //!
 //! The store and its built-in payload adapters:
 //!
-//! - preserve decoded words as well as digital levels, trigger events, numeric levels, and text levels;
+//! - preserve decoded words as well as digital levels, timestamped events, numeric levels, and text levels;
 //! - keep viewer memory independent of recording duration;
 //! - answers exact-window, presence-window, and nearest-boundary queries;
 //! - supports queries while decoding is active;
@@ -111,7 +111,7 @@
 //!
 //! The built-in scalar and event adapters use the same representation without protocol knowledge:
 //! digital values use numeric zero or one, signed numeric values preserve their bit pattern, text
-//! uses `WordPayload::Text`, and triggers use timestamped zero-valued events. Typed snapshots restore
+//! uses `WordPayload::Text`, and timestamp events use zero-valued annotations. Typed snapshots restore
 //! those representations before they cross the payload adapter boundary.
 //!
 //! The public query surface is viewer-oriented and independent of the storage format:
@@ -327,7 +327,7 @@
 //! nearest-boundary queries, finish, cancellation, metadata semantics, codec round trips, corrupt and
 //! truncated data, persistent publication and reopening, cache invalidation, decoded-block caching,
 //! live queries, cursor behavior across blocks, deliberately reordered block completion, and
-//! visibility at a batched append boundary. Adapter tests additionally reopen digital, trigger,
+//! visibility at a batched append boundary. Adapter tests additionally reopen digital, timestamp-event,
 //! number, text, and word lanes from isolated in-memory repositories and compare their typed
 //! snapshots.
 //!
@@ -351,7 +351,7 @@
 //!
 //! An **indexed annotation store** retains timestamped [`Word`](crate::Word) values
 //! without keeping every value in viewer-owned memory. Built-in word, digital,
-//! trigger, number, and text adapters translate their values to this neutral form,
+//! timestamp-event, number, and text adapters translate their values to this neutral form,
 //! sharing persistence, indexes, and bounded queries without introducing protocol
 //! knowledge. Writers require nondecreasing timestamps and preserve arrival order
 //! for equal timestamps.

@@ -19,11 +19,11 @@ PUBLIC_MODULES = {
   "crates/signal_capture_session/src/lib.rs" => %w[live_capture live_capture_store],
   "crates/logic_analyzer_capture_formats/src/lib.rs" => %w[dsl_file sigrok_file],
   "crates/logic_analyzer_protocol_decoders/src/lib.rs" => %w[
-    i2c_decoder parallel_decoder sigrok_decoder spi_decoder types uart_decoder
+    i2c_decoder packet_framer parallel_decoder sigrok_decoder spi_decoder types uart_decoder
   ],
   "crates/signal_transforms/src/lib.rs" => %w[
-    buffer edge_detector event_control event_gate logic_gate packet_framer sr_latch text_formatter
-    timeline_marker trigger_counter word_field_extractor word_matcher
+    buffer edge_detector event_control event_counter event_gate logic_gate sr_latch text_formatter
+    timeline_marker word_field_extractor word_matcher
   ],
   "crates/signal_sinks/src/lib.rs" => %w[
     binary_file_writer csv_word_writer discard_writer text_file_writer tgck_recorder

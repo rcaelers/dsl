@@ -7,9 +7,10 @@ use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableColumnDescriptor, NodeBuildContext, PortKind, ResolvedInputs,
 };
 use logic_analyzer_protocol_decoders::i2c_decoder::{I2C_PROTOCOL_ID, I2cDecoder};
+use logic_analyzer_protocol_decoders::types::ProtocolPacket;
 use node_graph_document::SocketReference;
 use signal_capture::SampleBlock;
-use signal_derived::{ProtocolPacket, Word};
+use signal_derived::Word;
 use signal_runtime::ProcessNode;
 
 #[derive(Default)]

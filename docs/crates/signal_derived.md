@@ -2,10 +2,11 @@
 
 ## Responsibility
 
-`signal_derived` owns presentation-neutral retained outputs: derived payload records, open payload
-registration, collected-lane ingestion and queries, sampling points, mipmap indexes, and encoded
-artifact-backed word storage. Its crate root is the supported facade; `derived_word_store` is its
-only public module.
+`signal_derived` owns presentation-neutral retained outputs: generic derived payload records,
+open payload registration, collected-lane ingestion and queries, sampling points, mipmap indexes,
+and encoded artifact-backed word storage. Its crate root is the supported facade;
+`derived_word_store` is its only public module. Concrete protocol packet values, retention, and
+presentation remain with logic-analyzer domain owners.
 
 ## Dependency boundary
 
