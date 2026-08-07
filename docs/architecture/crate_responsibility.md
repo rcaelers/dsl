@@ -195,7 +195,10 @@ their owners.
 
 Owns a reusable egui panel layout: its persistent tree, split placement, content selection,
 dragging, closing, maximizing, and boundary menus. Panel and content identifiers are opaque;
-application panel identity and behavior belong to the host.
+application panel identity and behavior belong to the host. Its crate root is a facade over
+private contract, icon, control, geometry, tree-operation, and stateful-layout owners. Geometry
+calculation and tree mutation remain independent of the egui interaction orchestrator, while the
+serialized model and public paths remain stable.
 
 #### `trigger-editor`
 

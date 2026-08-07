@@ -33,6 +33,12 @@ PUBLIC_MODULES = {
   "crates/widgets/node_graph/src/lib.rs" => %w[api]
 }.freeze
 
+REQUIRED_PRIVATE_OWNER_MODULES = {
+  "crates/widgets/panel_layout/src/lib.rs" => %w[
+    contract controls geometry icon layout tree
+  ]
+}.freeze
+
 errors = []
 
 def relative(path)
@@ -92,6 +98,15 @@ def path_dependencies_by_kind(manifest)
 end
 
 files = SOURCE_GLOBS.flat_map { |glob| Dir.glob(File.join(ROOT, glob)) }.sort
+
+REQUIRED_PRIVATE_OWNER_MODULES.each do |relative_root, modules|
+  source = File.read(File.join(ROOT, relative_root))
+  modules.each do |name|
+    next if source.match?(/^mod #{Regexp.escape(name)};$/)
+
+    errors << "#{relative_root}: missing private owner module #{name.inspect}"
+  end
+end
 
 manifest_paths = [File.join(ROOT, "Cargo.toml")] +
                  Dir.glob(File.join(ROOT, "{crates,plugins}/**/Cargo.toml")).sort

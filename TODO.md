@@ -308,13 +308,11 @@ item here, so acceptance comparisons stop being ad-hoc.
 
 - [readability.large-module-decomposition] (P3 · medium) Decompose oversized implementation leaves
   whose crate responsibility is sound but whose internal ownership is difficult to read.
-  `widgets/panel_layout/src/lib.rs` combines persisted state, geometry, layout algorithms, action
-  reduction, rendering, pointer interaction, and tests in more than 3,500 lines;
-  `node_graph`'s graph interaction leaf and the trigger editor have similar navigation costs.
-  Extract cohesive private leaf modules behind the existing owner facade before considering new
-  crates. Keep behavior and public paths stable, and use the module-ownership rules above to name
-  each leaf by the behavior it owns.
-- [panel-layout.extraction.standalone-crate] (P5 · low — blocked by [readability.large-module-decomposition])
+  `node_graph`'s graph interaction leaf and the trigger editor still combine several internal
+  responsibilities and have high navigation costs. Extract cohesive private leaf modules behind
+  each existing owner facade before considering new crates. Keep behavior and public paths stable,
+  and use the module-ownership rules above to name each leaf by the behavior it owns.
+- [panel-layout.extraction.standalone-crate] (P4 · low)
   Prepare `panel-layout` for independent publication: replace workspace-inherited package and
   dependency metadata, move its documentation and examples with the crate, add standalone CI, and
   verify that its persisted layout, area, panel, and view contracts remain application-neutral.
