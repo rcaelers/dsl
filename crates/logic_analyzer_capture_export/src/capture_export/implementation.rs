@@ -5,14 +5,14 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use tempfile::NamedTempFile;
-use thiserror::Error;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
 use signal_capture_session::{
-    CaptureChunk, CaptureChunkPayload, CaptureCursorItem, CaptureStoreCursor, CaptureStoreError,
-    FinalizedCapture,
+    CaptureChunk, CaptureChunkPayload, CaptureCursorItem, CaptureStoreCursor, FinalizedCapture,
 };
+
+use super::errors::CaptureExportError;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CaptureExportRequest {
@@ -55,28 +55,6 @@ pub(crate) struct CaptureExportReport {
     pub(crate) samples_written: u64,
     pub(crate) encoded_bytes: u64,
     pub(crate) warnings: Vec<CaptureExportWarning>,
-}
-
-#[derive(Debug, Error)]
-pub(crate) enum CaptureExportError {
-    #[error("capture export requires durable timeline metadata")]
-    MissingTimelineMetadata,
-    #[error("cannot export an empty raw capture")]
-    EmptyCapture,
-    #[error("capture export destination already exists: {0}")]
-    DestinationExists(PathBuf),
-    #[error("capture export destination has no parent directory: {0}")]
-    InvalidDestination(PathBuf),
-    #[error("capture export was cancelled")]
-    Cancelled,
-    #[error("capture data is inconsistent: {0}")]
-    InconsistentCapture(String),
-    #[error(transparent)]
-    Store(#[from] CaptureStoreError),
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-    #[error(transparent)]
-    Zip(#[from] zip::result::ZipError),
 }
 
 pub(crate) fn export_finalized_capture(

@@ -2,25 +2,13 @@
 
 use std::path::{Path, PathBuf};
 
-use thiserror::Error;
-
 use signal_capture_session::FinalizedCapture;
 
+use super::errors::CaptureExportError;
 use super::implementation::{
     CaptureExportObserver as RawCaptureExportObserver,
     CaptureExportProgress as RawCaptureExportProgress, CaptureExportRequest,
 };
-
-/// Failure produced by a concrete finalized-capture export.
-#[derive(Clone, Debug, Error, PartialEq, Eq)]
-pub enum CaptureExportError {
-    /// Cooperative cancellation stopped the export before publication.
-    #[error("capture export was cancelled")]
-    Cancelled,
-    /// Encoding, source access, or destination publication failed.
-    #[error("{0}")]
-    Failed(String),
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CaptureExportFormat {
@@ -115,11 +103,7 @@ pub fn export_finalized_capture(
         capture,
         &request,
         &mut ObserverAdapter(observer),
-    )
-    .map_err(|error| match error {
-        super::implementation::CaptureExportError::Cancelled => CaptureExportError::Cancelled,
-        error => CaptureExportError::Failed(error.to_string()),
-    })?;
+    )?;
     Ok(CaptureExportReport {
         destination: report.destination,
         samples_written: report.samples_written,

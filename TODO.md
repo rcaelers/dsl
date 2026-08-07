@@ -290,8 +290,8 @@ item here, so acceptance comparisons stop being ad-hoc.
   processing crates hold many of them. Work outward from the lowest owner so downstream crates
   inherit typed failures instead of re-wrapping strings.
   Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#errors-typed-boundaries).
-  1. [ ] Keep display strings at the presentation boundary only; generic crates map a concrete
-     format or transport failure into their own variant rather than formatting it early.
+  1. [ ] Keep display strings at the presentation boundary only; generic crates map concrete
+     transport and host-service failures into their own variants rather than formatting them early.
 
 ### Application state decomposition
 

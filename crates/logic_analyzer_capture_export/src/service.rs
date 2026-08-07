@@ -72,7 +72,7 @@ impl CaptureExportService for NativeCaptureExportService {
         let (capture, session_pin) = self
             .repository
             .open(session_id)
-            .map_err(|error| CaptureExportServiceError::Capture(error.to_string()))?;
+            .map_err(CaptureExportServiceError::Capture)?;
         let total_samples = capture.manifest().committed_samples;
         let cancellation = Arc::new(AtomicBool::new(false));
         let (progress_sender, progress) = crossbeam_channel::bounded(1);
@@ -92,7 +92,7 @@ impl CaptureExportService for NativeCaptureExportService {
                         .map_err(CaptureExportServiceError::from);
                 let _ = completion_sender.send(result);
             })
-            .map_err(|error| CaptureExportServiceError::Executor(error.to_string()))?;
+            .map_err(CaptureExportServiceError::Executor)?;
         self.completion = None;
         self.status = Some(CaptureExportStatus {
             format_label: format.descriptor().label.to_owned(),
@@ -150,9 +150,7 @@ impl CaptureExportService for NativeCaptureExportService {
                     Ok(completion) => Some(completion),
                     Err(TryRecvError::Empty) => None,
                     Err(TryRecvError::Disconnected) => {
-                        Some(Err(CaptureExportServiceError::Executor(
-                            "worker stopped without a result".into(),
-                        )))
+                        Some(Err(CaptureExportServiceError::WorkerStopped))
                     }
                 });
         let Some(completion) = completion else {

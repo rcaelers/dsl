@@ -4,12 +4,12 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-use signal_capture_session::CaptureSessionId;
+use signal_capture_session::{CaptureSessionId, CaptureStoreError};
 
 use crate::capture_export::{CaptureExportError, CaptureExportFormat};
 
 /// Failure reported by the stateful capture-export application service.
-#[derive(Clone, Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error)]
 pub enum CaptureExportServiceError {
     /// This host has no capture-export implementation.
     #[error("capture export is unavailable on this host")]
@@ -19,23 +19,26 @@ pub enum CaptureExportServiceError {
     AlreadyActive,
     /// The requested finalized capture could not be opened.
     #[error("could not open the capture for export: {0}")]
-    Capture(String),
-    /// The asynchronous export worker could not be started or observed.
+    Capture(#[source] CaptureStoreError),
+    /// The asynchronous export worker could not be started.
     #[error("capture export executor failed: {0}")]
-    Executor(String),
+    Executor(#[source] std::io::Error),
+    /// The asynchronous export worker stopped without publishing a result.
+    #[error("capture export worker stopped without a result")]
+    WorkerStopped,
     /// Cooperative cancellation stopped the active export.
     #[error("capture export was cancelled")]
     Cancelled,
     /// The exporter could not encode or publish the capture.
-    #[error("{0}")]
-    Export(String),
+    #[error(transparent)]
+    Export(CaptureExportError),
 }
 
 impl From<CaptureExportError> for CaptureExportServiceError {
     fn from(error: CaptureExportError) -> Self {
         match error {
             CaptureExportError::Cancelled => Self::Cancelled,
-            CaptureExportError::Failed(message) => Self::Export(message),
+            error => Self::Export(error),
         }
     }
 }

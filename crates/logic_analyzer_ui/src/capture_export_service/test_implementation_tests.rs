@@ -1,10 +1,11 @@
 use std::collections::VecDeque;
+use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use logic_analyzer_capture_export::{
-    CaptureExportCompletion, CaptureExportFormat, CaptureExportService, CaptureExportServiceError,
-    CaptureExportStatus,
+    CaptureExportCompletion, CaptureExportError, CaptureExportFormat, CaptureExportService,
+    CaptureExportServiceError, CaptureExportStatus,
 };
 use signal_capture_session::CaptureSessionId;
 
@@ -38,8 +39,9 @@ impl ScriptedCaptureExportControl {
     }
 
     fn fail_start(&self, message: impl Into<String>) {
-        self.shared.lock().unwrap().start_error =
-            Some(CaptureExportServiceError::Executor(message.into()));
+        self.shared.lock().unwrap().start_error = Some(CaptureExportServiceError::Executor(
+            io::Error::other(message.into()),
+        ));
     }
 }
 
@@ -178,12 +180,16 @@ fn scripted_service_controls_progress_cancellation_and_completion_without_host_i
     assert!(service.status().unwrap().cancelling);
     assert_eq!(control.cancel_requests(), 1);
     service.poll();
+    let completion = service
+        .take_completion()
+        .expect("scripted export should complete")
+        .expect("scripted export should succeed");
     assert_eq!(
-        service.take_completion(),
-        Some(Ok(CaptureExportCompletion {
+        completion,
+        CaptureExportCompletion {
             destination,
             warnings: Vec::new(),
-        }))
+        }
     );
 }
 
@@ -191,19 +197,23 @@ fn scripted_service_controls_progress_cancellation_and_completion_without_host_i
 fn scripted_service_controls_start_and_worker_failures() {
     let (mut service, control) = scripted_capture_export_service();
     control.fail_start("executor unavailable");
-    assert_eq!(
-        service.start(
+    let error = service
+        .start(
             CaptureSessionId::new(8),
             CaptureExportFormat::Portable,
             PathBuf::from("capture.sr"),
-        ),
-        Err(CaptureExportServiceError::Executor(
-            "executor unavailable".into()
-        ))
-    );
+        )
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        CaptureExportServiceError::Executor(source)
+            if source.to_string() == "executor unavailable"
+    ));
 
     let (mut service, _) = scripted_service_with_events([ScriptedEvent::Complete(Err(
-        CaptureExportServiceError::Export("encoding failed".into()),
+        CaptureExportServiceError::Export(CaptureExportError::InconsistentCapture(
+            "encoding failed".into(),
+        )),
     ))]);
     service
         .start(
@@ -213,12 +223,15 @@ fn scripted_service_controls_start_and_worker_failures() {
         )
         .unwrap();
     service.poll();
-    assert_eq!(
-        service.take_completion(),
-        Some(Err(CaptureExportServiceError::Export(
-            "encoding failed".into()
-        )))
-    );
+    let error = service
+        .take_completion()
+        .expect("scripted export should complete")
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        CaptureExportServiceError::Export(CaptureExportError::InconsistentCapture(message))
+            if message == "encoding failed"
+    ));
 }
 
 #[test]
@@ -236,8 +249,8 @@ fn scripted_service_preserves_cancellation_as_a_typed_completion() {
 
     service.poll();
 
-    assert_eq!(
+    assert!(matches!(
         service.take_completion(),
         Some(Err(CaptureExportServiceError::Cancelled))
-    );
+    ));
 }

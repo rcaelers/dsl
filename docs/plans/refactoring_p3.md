@@ -23,8 +23,9 @@ transport failures before the graph materializer maps them into its generic buil
 `logic_analyzer_graph_runtime` owns `SourcePreparationError`, including discovery, metadata, index,
 cancellation, executor, and worker-protocol causes. Graph-worker messages and the UI graph-run
 adapter retain classified terminal failures. `logic_analyzer_capture_export` likewise preserves
-cancellation through its exporter and service contracts, so UI policy matches a variant rather
-than display text.
+export metadata, capture consistency, capture-store, destination, archive, and cancellation causes.
+Its service retains capture-store and executor sources, worker loss, and the typed exporter failure;
+UI policy therefore matches a cancellation variant rather than display text.
 
 **How to type an error here** (`thiserror` is already a workspace dependency):
 

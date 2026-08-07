@@ -107,6 +107,30 @@ unless capture_export_contract.match?(
 )
   errors << "crates/logic_analyzer_capture_export/src/service_contract.rs: capture-export completion must retain its typed service error"
 end
+capture_export_error_path = File.join(
+  ROOT,
+  "crates/logic_analyzer_capture_export/src/capture_export/errors.rs"
+)
+capture_export_error = File.read(capture_export_error_path)
+if capture_export_error.match?(/Failed\(String\)/)
+  errors << "crates/logic_analyzer_capture_export/src/capture_export/errors.rs: exporter failures must not collapse into a display string"
+end
+%w[MissingTimelineMetadata EmptyCapture DestinationExists InvalidDestination Cancelled
+   InconsistentCapture Store DestinationIo Archive].each do |variant|
+  next if capture_export_error.match?(/^\s*#{variant}(?:\b|\()/)
+
+  errors << "crates/logic_analyzer_capture_export/src/capture_export/errors.rs: CaptureExportError must classify #{variant} failures"
+end
+{
+  "capture access" => /Capture\(\#\[source\]\s*CaptureStoreError\)/,
+  "executor startup" => /Executor\(\#\[source\]\s*std::io::Error\)/,
+  "worker loss" => /WorkerStopped,/,
+  "export" => /Export\(CaptureExportError\)/
+}.each do |boundary, pattern|
+  next if capture_export_contract.match?(pattern)
+
+  errors << "crates/logic_analyzer_capture_export/src/service_contract.rs: capture-export service must retain its #{boundary} failure"
+end
 
 ui_graph_run_contract = File.read(File.join(
   ROOT,

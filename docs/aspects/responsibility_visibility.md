@@ -264,7 +264,9 @@ construction, cancellation, executor, and worker-protocol failures in `SourcePre
 The orchestration worker protocol retains a typed terminal category, and the UI maps it into its
 own graph-run failure contract before rendering a run message. `logic_analyzer_capture_export`
 retains cancellation separately from unavailable, lifecycle, capture-access, executor, and export
-failures across its application-service facade.
+failures across its application-service facade. Its exporter retains typed metadata, capture
+consistency, store, destination, and archive failures rather than collapsing them into an early
+display string.
 
 ## Platform surfaces
 

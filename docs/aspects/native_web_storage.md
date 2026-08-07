@@ -93,8 +93,10 @@ The `logic_analyzer_capture_export` crate supplies both `CaptureExportService` a
 repository-backed asynchronous implementation; native composition injects it, while the portable
 unavailable service reports absence explicitly on web. UI has no export feature flag or
 target-selected export module. Cancellation remains a typed service result rather than a display
-string interpreted by the UI. Graph document persistence and embedded node file dialogs likewise
-cross host-service contracts, and the node-graph widget exposes only model snapshots and replacement.
+string interpreted by the UI; all other exporter and service failures retain their owner-defined
+category and underlying store or I/O source until presentation. Graph document persistence and
+embedded node file dialogs likewise cross host-service contracts, and the node-graph widget exposes
+only model snapshots and replacement.
 Native shell integrations exchange portable commands and UI state through the app-owned host
 service; their queues and repaint wake-ups stay in the native app root. Runtime cache diagnostics
 use the same application boundary and one portable UI snapshot path. Embedded graph-node file
