@@ -3,11 +3,38 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use thiserror::Error;
+
 use platform_runtime::WorkExecutor;
 use signal_runtime::ProcessNode;
 
 use super::contracts::{SigrokCatalogSnapshot, SigrokDecoderDescriptor};
 use super::implementation::SigrokDecoderConfig;
+
+/// Failure reported by a host-provided Sigrok decoder runtime.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+pub enum SigrokDecoderRuntimeError {
+    /// The saved decoder package could not be discovered or inspected.
+    #[error("Sigrok decoder discovery failed: {0}")]
+    Discovery(String),
+    /// The portable decoder configuration is invalid.
+    #[error("Invalid Sigrok decoder configuration: {0}")]
+    Configuration(String),
+    /// The host execution transport could not be started.
+    #[error("Sigrok decoder transport failed: {0}")]
+    Transport(String),
+}
+
+/// Failure that prevents a host from producing any Sigrok catalog snapshot.
+///
+/// Missing paths, unreadable paths, and invalid individual decoder packages are recoverable
+/// per-entry diagnostics in [`SigrokCatalogSnapshot`], rather than whole-scan failures.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+pub enum SigrokCatalogError {
+    /// The host discovery mechanism could not scan the catalog.
+    #[error("Sigrok decoder catalog discovery failed: {0}")]
+    Discovery(String),
+}
 
 /// Discovers and executes installed Sigrok decoder packages.
 pub trait SigrokDecoderRuntime: Send + Sync {
@@ -16,7 +43,7 @@ pub trait SigrokDecoderRuntime: Send + Sync {
         &self,
         decoder_root: &Path,
         decoder_id: &str,
-    ) -> Result<SigrokDecoderDescriptor, String>;
+    ) -> Result<SigrokDecoderDescriptor, SigrokDecoderRuntimeError>;
 
     /// Creates one configured decoder processing node.
     fn create(
@@ -24,11 +51,11 @@ pub trait SigrokDecoderRuntime: Send + Sync {
         name: &str,
         config: SigrokDecoderConfig,
         work_executor: Arc<dyn WorkExecutor>,
-    ) -> Result<Box<dyn ProcessNode>, String>;
+    ) -> Result<Box<dyn ProcessNode>, SigrokDecoderRuntimeError>;
 }
 
 /// Scans host-selected directories for installed Sigrok decoder packages.
 pub trait SigrokCatalogScanner: Send + Sync {
     /// Returns the current decoder catalog for the selected directories.
-    fn scan(&self, directories: &[PathBuf]) -> SigrokCatalogSnapshot;
+    fn scan(&self, directories: &[PathBuf]) -> Result<SigrokCatalogSnapshot, SigrokCatalogError>;
 }

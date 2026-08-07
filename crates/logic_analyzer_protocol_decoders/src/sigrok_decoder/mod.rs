@@ -29,4 +29,6 @@ pub use contracts::{
 pub use implementation::{
     SigrokChannel, SigrokDecoder, SigrokDecoderConfig, SigrokInitialPin, SigrokOptionValue,
 };
-pub use runtime::{SigrokCatalogScanner, SigrokDecoderRuntime};
+pub use runtime::{
+    SigrokCatalogError, SigrokCatalogScanner, SigrokDecoderRuntime, SigrokDecoderRuntimeError,
+};

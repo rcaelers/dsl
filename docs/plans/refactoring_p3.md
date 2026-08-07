@@ -17,6 +17,9 @@ processing. `platform_runtime` owns typed work-executor, worker-kernel, queue, m
 terminal-failure contracts. `signal_runtime` owns `PortError`, `ConnectionError`, `PipelineError`,
 and `WorkError`; supervised `NodeFailure` values retain their `WorkError`. Extend those
 owner-specific surfaces rather than replacing them with an umbrella error.
+`logic_analyzer_protocol_decoders` owns the typed Sigrok catalog and decoder-runtime errors;
+host adapters classify catalog discovery, decoder discovery, invalid configuration, and execution
+transport failures before the graph materializer maps them into its generic build diagnostic.
 
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
@@ -29,14 +32,11 @@ owner-specific surfaces rather than replacing them with an umbrella error.
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. Host-override contracts — `SigrokDecoderRuntime::{discover,create}` and
-   `SigrokCatalogScanner` — in their `logic_analyzer_protocol_decoders` owner, so the error types are
-   defined once in their final home.
-2. `graph_runtime` source preparation: give `SourcePreparationUpdate::Failed` a typed cause and
+1. `graph_runtime` source preparation: give `SourcePreparationUpdate::Failed` a typed cause and
    find the UI code that currently distinguishes failures by message text (search `app.rs` and
    the run-message path for string matching on error content) — each such site becomes a match
    on a variant.
-3. Platform and UI last: most occurrences will collapse into carrying the
+2. Platform and UI last: most occurrences will collapse into carrying the
    now-typed lower errors; only genuinely UI-owned failures need new variants.
 
 Expect this to span many small PRs; each facade conversion is independently landable.

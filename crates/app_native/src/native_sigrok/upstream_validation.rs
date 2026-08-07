@@ -243,7 +243,8 @@ fn run_spi(
     let mut decoder = SigrokDecoder::with_execution_factory(
         spi_config(decoder_root),
         &PythonSigrokExecutionFactory::new(executor),
-    )?;
+    )
+    .map_err(|error| error.to_string())?;
     loop {
         match decoder.work(&inputs, &outputs) {
             Ok(_) if decoder.should_stop() => break,

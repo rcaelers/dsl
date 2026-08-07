@@ -7,7 +7,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use serde::{Deserialize, Serialize};
 
 use logic_analyzer_protocol_decoders::sigrok_decoder::{
-    SigrokCatalogScanner, SigrokCatalogSnapshot,
+    SigrokCatalogError, SigrokCatalogScanner, SigrokCatalogSnapshot,
 };
 use logic_analyzer_ui::{NodeCatalogService, NodeCatalogSnapshot};
 use node_graph::NodeTemplate;
@@ -26,8 +26,8 @@ struct SigrokDirectoryCatalog {
     settings_path: PathBuf,
     directories: Vec<PathBuf>,
     scanner: Arc<dyn SigrokCatalogScanner>,
-    sender: Sender<(u64, SigrokCatalogSnapshot)>,
-    receiver: Receiver<(u64, SigrokCatalogSnapshot)>,
+    sender: Sender<(u64, Result<SigrokCatalogSnapshot, SigrokCatalogError>)>,
+    receiver: Receiver<(u64, Result<SigrokCatalogSnapshot, SigrokCatalogError>)>,
     work_executor: Arc<dyn WorkExecutor>,
     scan_tasks: Vec<Box<dyn WorkTask>>,
     generation: u64,
@@ -86,18 +86,24 @@ impl SigrokDirectoryCatalog {
 
     fn poll(&mut self) {
         self.scan_tasks.retain(|task| !task.is_finished());
-        while let Ok((generation, snapshot)) = self.receiver.try_recv() {
+        while let Ok((generation, result)) = self.receiver.try_recv() {
             if generation != self.generation {
                 continue;
             }
             self.scanning = false;
-            self.discovered = snapshot.entries.len();
-            self.diagnostics = snapshot
-                .diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.message.clone())
-                .collect();
-            self.templates = Some(logic_analyzer_graph_nodes::sigrok_node_templates(&snapshot));
+            match result {
+                Ok(snapshot) => {
+                    self.discovered = snapshot.entries.len();
+                    self.diagnostics = snapshot
+                        .diagnostics
+                        .iter()
+                        .map(|diagnostic| diagnostic.message.clone())
+                        .collect();
+                    self.templates =
+                        Some(logic_analyzer_graph_nodes::sigrok_node_templates(&snapshot));
+                }
+                Err(error) => self.diagnostics = vec![error.to_string()],
+            }
         }
     }
 

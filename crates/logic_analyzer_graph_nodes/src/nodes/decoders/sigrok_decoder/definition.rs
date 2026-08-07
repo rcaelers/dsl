@@ -564,7 +564,14 @@ fn refresh_catalog(state: &mut SigrokDecoderState, scanner: &dyn SigrokCatalogSc
         return;
     }
     let search_paths = catalog_search_paths(&state.catalog);
-    let snapshot = scanner.scan(&search_paths);
+    let snapshot = match scanner.scan(&search_paths) {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            state.catalog.diagnostics = vec![error.to_string()];
+            state.catalog.refresh_requested = false;
+            return;
+        }
+    };
     apply_catalog_snapshot(state, &snapshot);
 }
 
@@ -757,6 +764,7 @@ fn output_definition(output: SavedOutputKind) -> OutputDef<SigrokDecoderState> {
 
 #[cfg(test)]
 mod definition_tests {
+    use logic_analyzer_protocol_decoders::sigrok_decoder::SigrokCatalogError;
     use node_graph::api::{GraphDocumentBuilder, NodeTypeRegistry};
 
     use super::*;
@@ -870,6 +878,35 @@ mod definition_tests {
                 .as_deref()
                 .is_some_and(|warning| warning.contains("protocol connection contracts"))
         );
+    }
+
+    struct FailingCatalogScanner;
+
+    impl SigrokCatalogScanner for FailingCatalogScanner {
+        fn scan(
+            &self,
+            _directories: &[PathBuf],
+        ) -> Result<SigrokCatalogSnapshot, SigrokCatalogError> {
+            Err(SigrokCatalogError::Discovery(
+                "controlled host failure".into(),
+            ))
+        }
+    }
+
+    #[test]
+    fn whole_catalog_failure_is_presented_without_discarding_saved_selection() {
+        let mut state = fixture_state();
+        state.catalog.refresh_requested = true;
+        let saved_decoder = state.decoder_id.clone();
+
+        update_catalog(&mut state, &FailingCatalogScanner);
+
+        assert_eq!(state.decoder_id, saved_decoder);
+        assert_eq!(
+            state.catalog.diagnostics,
+            ["Sigrok decoder catalog discovery failed: controlled host failure"]
+        );
+        assert!(!state.catalog.refresh_requested);
     }
 
     fn fixture_state() -> SigrokDecoderState {

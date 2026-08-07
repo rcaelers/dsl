@@ -253,6 +253,12 @@ supervision, and process-node work. Threaded and cooperative managers expose the
 `PipelineError` lifecycle contract, and a terminal `NodeFailure` retains its `WorkError` until a
 presentation or transport boundary formats it.
 
+`logic_analyzer_protocol_decoders::sigrok_decoder` owns the host-facing Sigrok catalog and decoder
+runtime error contracts. Whole-catalog discovery failures are distinct from recoverable per-path
+and per-package catalog diagnostics. Decoder runtime failures distinguish package discovery,
+portable configuration validation, and host execution transport without exposing PyO3 or another
+adapter dependency.
+
 ## Platform surfaces
 
 Native and wasm reusable crates share the platform-neutral data model and compile the same source

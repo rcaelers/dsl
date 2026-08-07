@@ -290,14 +290,9 @@ item here, so acceptance comparisons stop being ad-hoc.
   processing crates hold many of them. Work outward from the lowest owner so downstream crates
   inherit typed failures instead of re-wrapping strings.
   Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#errors-typed-boundaries).
-  1. [ ] Type the graph capability and host-override contracts, including
-     `SigrokCatalogScanner`, `SigrokDecoderRuntime::discover`, and `SigrokDecoderRuntime::create`,
-     so the domain adapter reports discovery, transport, and configuration failures distinctly;
-     neutral platform capabilities expose their own mechanism-level errors without importing
-     these domain contracts.
-  2. [ ] Type source preparation and run diagnostics so `SourcePreparationUpdate::Failed` and the
+  1. [ ] Type source preparation and run diagnostics so `SourcePreparationUpdate::Failed` and the
      UI's run-message path stop matching on message text.
-  3. [ ] Keep display strings at the presentation boundary only; generic crates map a concrete
+  2. [ ] Keep display strings at the presentation boundary only; generic crates map a concrete
      format or transport failure into their own variant rather than formatting it early.
 
 ### Application state decomposition

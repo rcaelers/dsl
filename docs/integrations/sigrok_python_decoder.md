@@ -82,6 +82,11 @@ package discovery, `wait()` scheduling, Python/Rust conversion, and the native e
 implementation. PyO3 types stay inside that target-specific adapter; the reusable platform crate
 has no Sigrok knowledge.
 
+The protocol-decoder facade also owns the typed catalog and runtime failures. Catalog-wide
+discovery failure is separate from recoverable path and package diagnostics. Runtime discovery,
+configuration validation, and execution-transport failures are distinguishable to the graph-node
+adapter, which maps them into its generic materialization diagnostic.
+
 Generic components see only graph contracts, typed ports, and registered collected
 payloads. They do not branch on Sigrok decoder IDs, channel labels, annotation classes, or protocol
 packet contents.

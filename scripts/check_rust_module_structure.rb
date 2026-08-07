@@ -47,6 +47,31 @@ REQUIRED_PRIVATE_OWNER_MODULES = {
 
 errors = []
 
+sigrok_runtime_path = File.join(
+  ROOT,
+  "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/runtime.rs"
+)
+sigrok_runtime_source = File.read(sigrok_runtime_path)
+sigrok_runtime_contracts = {
+  "Sigrok decoder discovery" =>
+    /fn\s+discover\b.*?Result<SigrokDecoderDescriptor,\s*SigrokDecoderRuntimeError>/m,
+  "Sigrok decoder creation" =>
+    /fn\s+create\b.*?Result<Box<dyn ProcessNode>,\s*SigrokDecoderRuntimeError>/m,
+  "Sigrok catalog scanning" =>
+    /fn\s+scan\b.*?Result<SigrokCatalogSnapshot,\s*SigrokCatalogError>/m
+}.freeze
+sigrok_runtime_contracts.each do |contract, pattern|
+  next if sigrok_runtime_source.match?(pattern)
+
+  errors << "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/runtime.rs: #{contract} must retain its owner-typed error contract"
+end
+sigrok_decoder_error = sigrok_runtime_source[/pub enum SigrokDecoderRuntimeError\s*\{(?<body>.*?)^\}/m, :body].to_s
+%w[Discovery Configuration Transport].each do |variant|
+  next if sigrok_decoder_error.match?(/^\s*#{variant}\(String\),$/)
+
+  errors << "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/runtime.rs: SigrokDecoderRuntimeError must classify #{variant.downcase} failures"
+end
+
 def relative(path)
   path.delete_prefix("#{ROOT}/")
 end

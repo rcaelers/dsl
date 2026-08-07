@@ -17,5 +17,6 @@ signal-capture = { path = "../signal_capture" }
 signal-derived = { path = "../signal_derived" }
 signal-runtime = { path = "../signal_runtime" }
 crossbeam-channel = { workspace = true }
+thiserror = { workspace = true }
 tracing = { workspace = true }
 web-time = { workspace = true }

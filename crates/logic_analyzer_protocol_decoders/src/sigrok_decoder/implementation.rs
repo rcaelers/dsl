@@ -15,6 +15,7 @@ use super::contracts::{
     SigrokExecutionConfig, SigrokExecutionFactory, SigrokExecutionInput,
     SigrokExecutionOptionValue, SigrokExecutionOutput,
 };
+use super::runtime::SigrokDecoderRuntimeError;
 use crate::types::{ProtocolPacket, ProtocolValue};
 const OUTPUT_ANN: i32 = 0;
 const OUTPUT_PYTHON: i32 = 1;
@@ -85,9 +86,11 @@ impl SigrokDecoder {
     pub fn with_execution_factory(
         config: SigrokDecoderConfig,
         execution_factory: &dyn SigrokExecutionFactory,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, SigrokDecoderRuntimeError> {
         if config.sample_rate == 0 {
-            return Err("Sigrok decoder sample rate must be positive".into());
+            return Err(SigrokDecoderRuntimeError::Configuration(
+                "sample rate must be positive".into(),
+            ));
         }
         let connected_count = config
             .channels
@@ -96,12 +99,14 @@ impl SigrokDecoder {
             .count();
         match (connected_count > 0, config.protocol_inputs.is_empty()) {
             (false, true) => {
-                return Err("Sigrok decoder requires raw-logic or protocol input".into());
+                return Err(SigrokDecoderRuntimeError::Configuration(
+                    "raw-logic or protocol input is required".into(),
+                ));
             }
             (true, false) => {
-                return Err(
-                    "Sigrok decoder cannot mix raw-logic channels and protocol input".into(),
-                );
+                return Err(SigrokDecoderRuntimeError::Configuration(
+                    "raw-logic channels and protocol input cannot be mixed".into(),
+                ));
             }
             _ => {}
         }
@@ -138,14 +143,16 @@ impl SigrokDecoder {
         } else {
             SigrokExecutionInput::Protocol(config.protocol_inputs.clone())
         };
-        let execution = execution_factory.spawn(SigrokExecutionConfig {
-            decoder_root: config.decoder_root.clone(),
-            decoder_id: config.decoder_id.clone(),
-            sample_rate: config.sample_rate,
-            input: execution_input,
-            options,
-            queue_capacity: OUTPUT_QUEUE_CAPACITY,
-        })?;
+        let execution = execution_factory
+            .spawn(SigrokExecutionConfig {
+                decoder_root: config.decoder_root.clone(),
+                decoder_id: config.decoder_id.clone(),
+                sample_rate: config.sample_rate,
+                input: execution_input,
+                options,
+                queue_capacity: OUTPUT_QUEUE_CAPACITY,
+            })
+            .map_err(SigrokDecoderRuntimeError::Transport)?;
         Ok(Self {
             name: format!("sigrok_{}", config.decoder_id),
             decoder_id: config.decoder_id,
@@ -939,7 +946,30 @@ mod implementation_tests {
             &FailingExecutionFactory::new(TestFailure::Spawn),
         );
 
-        assert_eq!(result.err().as_deref(), Some("controlled spawn failure"));
+        assert_eq!(
+            result.err(),
+            Some(SigrokDecoderRuntimeError::Transport(
+                "controlled spawn failure".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn invalid_decoder_configuration_is_distinct_from_transport_failure() {
+        let mut config = protocol_config();
+        config.sample_rate = 0;
+
+        let result = SigrokDecoder::with_execution_factory(
+            config,
+            &FailingExecutionFactory::new(TestFailure::Spawn),
+        );
+
+        assert_eq!(
+            result.err(),
+            Some(SigrokDecoderRuntimeError::Configuration(
+                "sample rate must be positive".into()
+            ))
+        );
     }
 
     #[test]

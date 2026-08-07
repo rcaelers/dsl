@@ -11,7 +11,7 @@ use logic_analyzer_graph_capabilities::node_support::{
 };
 use logic_analyzer_protocol_decoders::sigrok_decoder::{
     SigrokChannel, SigrokDecoderConfig, SigrokDecoderDescriptor, SigrokDecoderRuntime,
-    SigrokInitialPin, SigrokOptionValue,
+    SigrokDecoderRuntimeError, SigrokInitialPin, SigrokOptionValue,
 };
 use logic_analyzer_protocol_decoders::types::ProtocolPacket;
 use node_graph_document::SocketReference;
@@ -28,9 +28,11 @@ impl SigrokDecoderRuntime for UnavailableSigrokDecoderRuntime {
         &self,
         decoder_root: &std::path::Path,
         decoder_id: &str,
-    ) -> Result<SigrokDecoderDescriptor, String> {
+    ) -> Result<SigrokDecoderDescriptor, SigrokDecoderRuntimeError> {
         let _ = (decoder_root, decoder_id);
-        Err("Sigrok Python decoder runtime is unavailable on this host".into())
+        Err(SigrokDecoderRuntimeError::Discovery(
+            "the Python decoder runtime is unavailable on this host".into(),
+        ))
     }
 
     fn create(
@@ -38,9 +40,11 @@ impl SigrokDecoderRuntime for UnavailableSigrokDecoderRuntime {
         name: &str,
         config: SigrokDecoderConfig,
         work_executor: Arc<dyn platform_runtime::WorkExecutor>,
-    ) -> Result<Box<dyn ProcessNode>, String> {
+    ) -> Result<Box<dyn ProcessNode>, SigrokDecoderRuntimeError> {
         let _ = (name, config, work_executor);
-        Err("Sigrok Python decoder runtime is unavailable on this host".into())
+        Err(SigrokDecoderRuntimeError::Transport(
+            "the Python decoder runtime is unavailable on this host".into(),
+        ))
     }
 }
 
@@ -193,7 +197,8 @@ impl RuntimeMaterializer for SigrokDecoderBuilder {
         }
         let current = self
             .backend
-            .discover(&state.decoder_root, &state.decoder_id)?;
+            .discover(&state.decoder_root, &state.decoder_id)
+            .map_err(|error| error.to_string())?;
         if current.package_fingerprint != state.package_fingerprint {
             return Err(format!(
                 "Sigrok decoder '{}' changed since this graph was saved; reselect it to migrate its channels and options",
@@ -233,24 +238,26 @@ impl RuntimeMaterializer for SigrokDecoderBuilder {
             }
         }
         let sample_rate = state.sample_rate()?;
-        self.backend.create(
-            name,
-            SigrokDecoderConfig {
-                decoder_root: state.decoder_root,
-                decoder_id: state.decoder_id,
-                sample_rate,
-                channels,
-                protocol_inputs: state.protocol_inputs,
-                options,
-                annotation_rows_by_class: annotation_rows_by_class
-                    .into_iter()
-                    .map(Arc::from)
-                    .collect(),
-                binary_class_count: state.binary_class_count,
-                logic_groups: state.logic_groups,
-            },
-            ctx.work_executor(),
-        )
+        self.backend
+            .create(
+                name,
+                SigrokDecoderConfig {
+                    decoder_root: state.decoder_root,
+                    decoder_id: state.decoder_id,
+                    sample_rate,
+                    channels,
+                    protocol_inputs: state.protocol_inputs,
+                    options,
+                    annotation_rows_by_class: annotation_rows_by_class
+                        .into_iter()
+                        .map(Arc::from)
+                        .collect(),
+                    binary_class_count: state.binary_class_count,
+                    logic_groups: state.logic_groups,
+                },
+                ctx.work_executor(),
+            )
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -355,8 +362,8 @@ mod builder_tests {
 
     struct FakeBackend {
         descriptor: SigrokDecoderDescriptor,
-        discovery_error: Option<String>,
-        create_error: Option<String>,
+        discovery_error: Option<SigrokDecoderRuntimeError>,
+        create_error: Option<SigrokDecoderRuntimeError>,
         discoveries: Mutex<Vec<(PathBuf, String)>>,
         creation: Mutex<Option<(String, SigrokDecoderConfig)>>,
     }
@@ -378,7 +385,7 @@ mod builder_tests {
             &self,
             decoder_root: &Path,
             decoder_id: &str,
-        ) -> Result<SigrokDecoderDescriptor, String> {
+        ) -> Result<SigrokDecoderDescriptor, SigrokDecoderRuntimeError> {
             self.discoveries
                 .lock()
                 .unwrap()
@@ -395,7 +402,7 @@ mod builder_tests {
             name: &str,
             config: SigrokDecoderConfig,
             _work_executor: Arc<dyn platform_runtime::WorkExecutor>,
-        ) -> Result<Box<dyn ProcessNode>, String> {
+        ) -> Result<Box<dyn ProcessNode>, SigrokDecoderRuntimeError> {
             *self.creation.lock().unwrap() = Some((name.to_owned(), config));
             if let Some(error) = &self.create_error {
                 Err(error.clone())
@@ -508,7 +515,9 @@ mod builder_tests {
         let mut context = TestNodeBuildContext::default();
 
         let discovery_backend = Arc::new(FakeBackend {
-            discovery_error: Some("controlled discovery failure".into()),
+            discovery_error: Some(SigrokDecoderRuntimeError::Discovery(
+                "controlled discovery failure".into(),
+            )),
             ..FakeBackend::new(descriptor.clone())
         });
         let discovery_error = SigrokDecoderBuilder::with_backend(discovery_backend.clone())
@@ -520,11 +529,16 @@ mod builder_tests {
             )
             .err()
             .expect("discovery failure must be preserved");
-        assert_eq!(discovery_error, "controlled discovery failure");
+        assert_eq!(
+            discovery_error,
+            "Sigrok decoder discovery failed: controlled discovery failure"
+        );
         assert!(discovery_backend.creation.lock().unwrap().is_none());
 
         let runtime_backend = Arc::new(FakeBackend {
-            create_error: Some("controlled runtime failure".into()),
+            create_error: Some(SigrokDecoderRuntimeError::Transport(
+                "controlled runtime failure".into(),
+            )),
             ..FakeBackend::new(descriptor)
         });
         let runtime_error = SigrokDecoderBuilder::with_backend(runtime_backend.clone())
@@ -536,7 +550,10 @@ mod builder_tests {
             )
             .err()
             .expect("runtime failure must be preserved");
-        assert_eq!(runtime_error, "controlled runtime failure");
+        assert_eq!(
+            runtime_error,
+            "Sigrok decoder transport failed: controlled runtime failure"
+        );
         assert!(runtime_backend.creation.lock().unwrap().is_some());
     }
 

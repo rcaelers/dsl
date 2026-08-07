@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use logic_analyzer_protocol_decoders::sigrok_decoder::{
-    SigrokCatalogScanner, SigrokCatalogSnapshot, SigrokDecoder, SigrokDecoderConfig,
-    SigrokDecoderDescriptor, SigrokDecoderRuntime,
+    SigrokCatalogError, SigrokCatalogScanner, SigrokCatalogSnapshot, SigrokDecoder,
+    SigrokDecoderConfig, SigrokDecoderDescriptor, SigrokDecoderRuntime, SigrokDecoderRuntimeError,
 };
 use platform_runtime::WorkExecutor;
 use signal_runtime::ProcessNode;
@@ -17,8 +17,9 @@ impl SigrokDecoderRuntime for NativeSigrokDecoderRuntime {
         &self,
         decoder_root: &Path,
         decoder_id: &str,
-    ) -> Result<SigrokDecoderDescriptor, String> {
+    ) -> Result<SigrokDecoderDescriptor, SigrokDecoderRuntimeError> {
         discover_sigrok_decoder(decoder_root.to_owned(), decoder_id)
+            .map_err(SigrokDecoderRuntimeError::Discovery)
     }
 
     fn create(
@@ -26,7 +27,7 @@ impl SigrokDecoderRuntime for NativeSigrokDecoderRuntime {
         name: &str,
         config: SigrokDecoderConfig,
         work_executor: Arc<dyn WorkExecutor>,
-    ) -> Result<Box<dyn ProcessNode>, String> {
+    ) -> Result<Box<dyn ProcessNode>, SigrokDecoderRuntimeError> {
         SigrokDecoder::with_execution_factory(
             config,
             &PythonSigrokExecutionFactory::new(work_executor),
@@ -38,8 +39,8 @@ impl SigrokDecoderRuntime for NativeSigrokDecoderRuntime {
 struct NativeSigrokCatalogScanner;
 
 impl SigrokCatalogScanner for NativeSigrokCatalogScanner {
-    fn scan(&self, directories: &[PathBuf]) -> SigrokCatalogSnapshot {
-        scan_catalog(directories)
+    fn scan(&self, directories: &[PathBuf]) -> Result<SigrokCatalogSnapshot, SigrokCatalogError> {
+        Ok(scan_catalog(directories))
     }
 }
 

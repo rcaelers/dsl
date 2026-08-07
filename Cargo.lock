@@ -2430,6 +2430,7 @@ dependencies = [
  "signal-capture",
  "signal-derived",
  "signal-runtime",
+ "thiserror 2.0.19",
  "tracing",
  "web-time",
 ]
