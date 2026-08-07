@@ -207,7 +207,8 @@ serialized model and public paths remain stable.
 
 Owns the generic schema-driven editor for provider-neutral trigger programs. It renders trigger
 contracts and emits edits without defining device predicate semantics, acquisition behavior, or
-application workflow.
+application workflow. Its crate-root facade separates host-facing edit contracts, the validated
+program reducer, generic operand presentation, and egui composition into private owners.
 
 #### `widget-support`
 

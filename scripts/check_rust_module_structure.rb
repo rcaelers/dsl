@@ -39,6 +39,9 @@ REQUIRED_PRIVATE_OWNER_MODULES = {
   ],
   "crates/widgets/panel_layout/src/lib.rs" => %w[
     contract controls geometry icon layout tree
+  ],
+  "crates/widgets/trigger_editor/src/lib.rs" => %w[
+    contract model presentation widget
   ]
 }.freeze
 

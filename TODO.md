@@ -306,12 +306,6 @@ item here, so acceptance comparisons stop being ad-hoc.
 
 ### Application state decomposition
 
-- [readability.large-module-decomposition] (P3 · medium) Decompose oversized implementation leaves
-  whose crate responsibility is sound but whose internal ownership is difficult to read.
-  The trigger editor still combines several internal responsibilities and has high navigation
-  costs. Extract cohesive private leaf modules behind its existing owner facade before considering
-  new crates. Keep behavior and public paths stable, and use the module-ownership rules above to
-  name each leaf by the behavior it owns.
 - [panel-layout.extraction.standalone-crate] (P4 · low)
   Prepare `panel-layout` for independent publication: replace workspace-inherited package and
   dependency metadata, move its documentation and examples with the crate, add standalone CI, and
