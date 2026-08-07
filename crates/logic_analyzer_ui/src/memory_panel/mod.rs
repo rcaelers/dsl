@@ -1,7 +1,5 @@
 //! Application diagnostics for retained and indexed signal data.
 
-#[cfg(test)]
-mod architecture_tests;
 mod implementation;
 mod model;
 mod snapshot;

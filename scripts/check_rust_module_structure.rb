@@ -340,6 +340,12 @@ files.each do |path|
       end
     end
     unless File.basename(path).include?("tests")
+      implementation.to_enum(
+        :scan,
+        /\b(?:decoded_block_cache_stats|platform_memory_snapshot)\b|\bhost_service\s*\.\s*(?:decoded_block_cache|inspect_cache_entry)\b/
+      ).each do
+        errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: cache diagnostics use the instance-owned decoded cache and GraphService rather than host or platform routes"
+      end
       unless capture_export_service_adapter
         implementation.to_enum(:scan, /\blogic_analyzer_capture_export\b/).each do
           errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: capture export owner details belong behind the UI CaptureExportService adapter"

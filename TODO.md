@@ -384,7 +384,7 @@ item here, so acceptance comparisons stop being ad-hoc.
 ### Enforcement and documentation
 
 - [tests.architecture-structural] (P2 · medium) Replace the source-text architecture tests with structural
-  checks. About 473 lines remain across the workspace that `include_str!` a sibling file and assert on
+  checks. About 460 lines remain across the workspace that `include_str!` a sibling file and assert on
   `.contains("…")`, so they break on a rename or a reformat, pass when the string appears in a
   comment, and prove nothing about the compiled contract. Enforce dependency direction from the
   manifests and enforce capability rules by constructing a registry and asserting on the resulting
@@ -399,23 +399,24 @@ item here, so acceptance comparisons stop being ad-hoc.
   The workspace test now asserts the complete forbidden-edge list on Cargo's resolved non-dev
   dependency graph and constructs a capability snapshot from the real built-in and example-plugin
   inventories. The graph capability, plan, registry, runtime, orchestration, UI graph-service,
-  capture-format, UI capture-export-service, UI node-catalog-service, signal-sinks, and trigger-editor
-  source-text suites have been removed; graph nodes, compiler, viewer, node graph, derived data,
-  signal runtime, signal capture, capture session, UI live capture, and the UI host service retain
-  only ten explicitly documented checks for constraints that compiled structure cannot detect. The
-  viewer, node-graph, trigger-editor, capture-format, signal-sinks, derived-data, signal-runtime,
-  signal-capture, and capture-session workspace dependency surfaces are now asserted structurally,
-  as is the UI prohibition on host-adapter, concrete-node, and shared-test composition dependencies.
+  capture-format, UI capture-export-service, UI node-catalog-service, UI memory-panel, signal-sinks,
+  and trigger-editor source-text suites have been removed; graph nodes, compiler, viewer, node graph,
+  derived data, signal runtime, signal capture, capture session, UI live capture, and the UI host
+  service retain only ten explicitly documented checks for constraints that compiled structure cannot
+  detect. The viewer, node-graph, trigger-editor, capture-format, signal-sinks, derived-data,
+  signal-runtime, signal-capture, and capture-session workspace dependency surfaces are now asserted
+  structurally, as is the UI prohibition on host-adapter, concrete-node, and shared-test composition
+  dependencies.
   UI host and catalog injection, capture-format factory contracts, and UI capture-export contract
   identity are compile-time probes. Graph-service substitutability is verified with a complete local
   fake, while the workspace module check confines concrete graph lowering and runtime types to the
-  service adapter, keeps filesystem paths out of the node-catalog contract, rejects direct native
-  file I/O in portable sinks, and keeps concrete provider and protocol tokens out of the generic
-  trigger editor. Independent decoded-cache handles, injected sink storage, schema-driven trigger
-  editing, live-capture artifact repositories, capture-export service routing, and node-graph file
-  dialogs are verified behaviorally. The portable application-manager facade is covered by the
-  workspace platform-boundary and module-layout checks. Continue with the UI `memory_panel`
-  source-text suite.
+  service adapter, keeps cache diagnostics on the instance-owned cache and graph-service routes,
+  keeps filesystem paths out of the node-catalog contract, rejects direct native file I/O in portable
+  sinks, and keeps concrete provider and protocol tokens out of the generic trigger editor. Injected
+  sink storage, schema-driven trigger editing, live-capture artifact repositories, capture-export
+  service routing, and node-graph file dialogs are verified behaviorally. The portable
+  application-manager facade is covered by the workspace platform-boundary and module-layout checks.
+  Continue with the `example-plugin` source-text suite.
   Direction, including the forbidden-edge list:
   [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#tests-architecture-structural).
 - [docs.drift-correction] (P3 · medium) Correct the design statements the code no longer satisfies: `AGENTS.md`
