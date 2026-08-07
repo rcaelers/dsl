@@ -6,6 +6,10 @@ use super::host_protocol::{
 };
 use super::preparation::CaptureIndexPreparationRequest;
 use super::query::{CaptureIndexQuery, CaptureIndexQueryExecutor, CaptureIndexQueryUpdate};
+use super::worker_errors::{
+    CaptureWorkerClientError, CaptureWorkerFailure, CaptureWorkerMessageKind,
+    CaptureWorkerRequestKind, CaptureWorkerTransportFailure,
+};
 
 /// Thread-safe state machine shared by capture-worker host adapters and proxies.
 pub struct CaptureWorkerClient {
@@ -32,7 +36,9 @@ impl CaptureWorkerIndexQueryExecutor {
 
 impl CaptureIndexQueryExecutor for CaptureWorkerIndexQueryExecutor {
     fn submit(&self, query: CaptureIndexQuery) -> Result<u64, String> {
-        self.client.submit_query(self.session_id, query)
+        self.client
+            .submit_query(self.session_id, query)
+            .map_err(|error| error.to_string())
     }
 
     fn poll(&self, request_id: u64) -> CaptureIndexQueryUpdate {
@@ -42,8 +48,8 @@ impl CaptureIndexQueryExecutor for CaptureWorkerIndexQueryExecutor {
             Some(CaptureWorkerMessage::Window { window, .. }) => {
                 CaptureIndexQueryUpdate::Complete(Ok(window))
             }
-            Some(CaptureWorkerMessage::Failed { message, .. }) => {
-                CaptureIndexQueryUpdate::Complete(Err(message))
+            Some(CaptureWorkerMessage::Failed { error, .. }) => {
+                CaptureIndexQueryUpdate::Complete(Err(error.to_string()))
             }
             Some(CaptureWorkerMessage::Cancelled { .. }) => {
                 CaptureIndexQueryUpdate::Complete(Err("capture query cancelled".to_owned()))
@@ -71,25 +77,18 @@ impl Drop for CaptureWorkerIndexQueryExecutor {
 #[derive(Default)]
 struct ClientState {
     next_sequence: u64,
-    pending: BTreeMap<u64, RequestKind>,
+    pending: BTreeMap<u64, CaptureWorkerRequestKind>,
     cancelled: BTreeSet<u64>,
     outbound: VecDeque<CaptureWorkerRequest>,
     updates: BTreeMap<u64, VecDeque<CaptureWorkerMessage>>,
-    disconnected: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RequestKind {
-    Preparation,
-    Query,
-    Replay,
+    disconnected: Option<CaptureWorkerTransportFailure>,
 }
 
 impl CaptureWorkerClient {
     /// Creates a worker client with a bounded number of outstanding requests.
-    pub fn new(max_outstanding: usize) -> Result<Self, String> {
+    pub fn new(max_outstanding: usize) -> Result<Self, CaptureWorkerClientError> {
         if max_outstanding == 0 {
-            return Err("capture-worker queue must accept at least one request".to_owned());
+            return Err(CaptureWorkerClientError::InvalidCapacity);
         }
         Ok(Self {
             max_outstanding,
@@ -101,8 +100,8 @@ impl CaptureWorkerClient {
     pub fn submit_preparation(
         &self,
         request: CaptureIndexPreparationRequest,
-    ) -> Result<u64, String> {
-        self.submit(RequestKind::Preparation, |sequence| {
+    ) -> Result<u64, CaptureWorkerClientError> {
+        self.submit(CaptureWorkerRequestKind::Preparation, |sequence| {
             CaptureWorkerRequest::Prepare { sequence, request }
         })
     }
@@ -112,11 +111,17 @@ impl CaptureWorkerClient {
     /// # Parameters
     /// - `session_id`: Prepared capture session to query.
     /// - `query`: Channels, sample range, and point budget to request.
-    pub fn submit_query(&self, session_id: u64, query: CaptureIndexQuery) -> Result<u64, String> {
-        self.submit(RequestKind::Query, |sequence| CaptureWorkerRequest::Query {
-            sequence,
-            session_id,
-            query,
+    pub fn submit_query(
+        &self,
+        session_id: u64,
+        query: CaptureIndexQuery,
+    ) -> Result<u64, CaptureWorkerClientError> {
+        self.submit(CaptureWorkerRequestKind::Query, |sequence| {
+            CaptureWorkerRequest::Query {
+                sequence,
+                session_id,
+                query,
+            }
         })
     }
 
@@ -130,8 +135,8 @@ impl CaptureWorkerClient {
         &self,
         session_id: u64,
         request: CaptureWorkerReplayRequest,
-    ) -> Result<u64, String> {
-        self.submit(RequestKind::Replay, |sequence| {
+    ) -> Result<u64, CaptureWorkerClientError> {
+        self.submit(CaptureWorkerRequestKind::Replay, |sequence| {
             CaptureWorkerRequest::Replay {
                 sequence,
                 session_id,
@@ -183,13 +188,14 @@ impl CaptureWorkerClient {
     /// # Parameters
     ///
     /// - `message`: Worker protocol message to route to the waiting request.
-    pub fn publish(&self, mut message: CaptureWorkerMessage) -> Result<(), String> {
+    pub fn publish(
+        &self,
+        mut message: CaptureWorkerMessage,
+    ) -> Result<(), CaptureWorkerClientError> {
         let sequence = message_sequence(&message);
         let mut state = self.state.lock().unwrap();
         let Some(kind) = state.pending.get(&sequence).copied() else {
-            return Err(format!(
-                "capture worker returned sequence {sequence} with no pending request"
-            ));
+            return Err(CaptureWorkerClientError::UnexpectedSequence { sequence });
         };
         validate_message(kind, &message)?;
         if state.cancelled.contains(&sequence) {
@@ -240,11 +246,10 @@ impl CaptureWorkerClient {
     ///
     /// # Parameters
     ///
-    /// - `message`: Diagnostic reason reported to all pending callers.
-    pub fn fail_all(&self, message: impl Into<String>) {
-        let message = message.into();
+    /// - `error`: Owner-classified transport failure shared by all pending requests.
+    pub fn fail_all(&self, error: CaptureWorkerTransportFailure) {
         let mut state = self.state.lock().unwrap();
-        state.disconnected = Some(message.clone());
+        state.disconnected = Some(error.clone());
         let pending = std::mem::take(&mut state.pending);
         state.cancelled.clear();
         state.outbound.clear();
@@ -255,7 +260,7 @@ impl CaptureWorkerClient {
                 .or_default()
                 .push_back(CaptureWorkerMessage::Failed {
                     sequence,
-                    message: message.clone(),
+                    error: CaptureWorkerFailure::Transport(error.clone()),
                 });
         }
     }
@@ -267,23 +272,22 @@ impl CaptureWorkerClient {
 
     fn submit(
         &self,
-        kind: RequestKind,
+        kind: CaptureWorkerRequestKind,
         request: impl FnOnce(u64) -> CaptureWorkerRequest,
-    ) -> Result<u64, String> {
+    ) -> Result<u64, CaptureWorkerClientError> {
         let mut state = self.state.lock().unwrap();
-        if let Some(message) = &state.disconnected {
-            return Err(message.clone());
+        if let Some(error) = &state.disconnected {
+            return Err(CaptureWorkerClientError::Disconnected(error.clone()));
         }
         if state.pending.len() >= self.max_outstanding {
-            return Err(format!(
-                "capture-worker queue is full ({} outstanding request limit)",
-                self.max_outstanding
-            ));
+            return Err(CaptureWorkerClientError::QueueFull {
+                limit: self.max_outstanding,
+            });
         }
         state.next_sequence = state
             .next_sequence
             .checked_add(1)
-            .ok_or_else(|| "capture-worker request sequence exhausted".to_owned())?;
+            .ok_or(CaptureWorkerClientError::SequenceExhausted)?;
         let sequence = state.next_sequence;
         state.pending.insert(sequence, kind);
         state.outbound.push_back(request(sequence));
@@ -314,9 +318,12 @@ fn message_is_terminal(message: &CaptureWorkerMessage) -> bool {
     )
 }
 
-fn validate_message(kind: RequestKind, message: &CaptureWorkerMessage) -> Result<(), String> {
+fn validate_message(
+    kind: CaptureWorkerRequestKind,
+    message: &CaptureWorkerMessage,
+) -> Result<(), CaptureWorkerClientError> {
     let valid = match kind {
-        RequestKind::Preparation => matches!(
+        CaptureWorkerRequestKind::Preparation => matches!(
             message,
             CaptureWorkerMessage::Progress { .. }
                 | CaptureWorkerMessage::Metadata { .. }
@@ -324,13 +331,13 @@ fn validate_message(kind: RequestKind, message: &CaptureWorkerMessage) -> Result
                 | CaptureWorkerMessage::Failed { .. }
                 | CaptureWorkerMessage::Cancelled { .. }
         ),
-        RequestKind::Query => matches!(
+        CaptureWorkerRequestKind::Query => matches!(
             message,
             CaptureWorkerMessage::Window { .. }
                 | CaptureWorkerMessage::Failed { .. }
                 | CaptureWorkerMessage::Cancelled { .. }
         ),
-        RequestKind::Replay => matches!(
+        CaptureWorkerRequestKind::Replay => matches!(
             message,
             CaptureWorkerMessage::Replay { .. }
                 | CaptureWorkerMessage::Failed { .. }
@@ -340,27 +347,22 @@ fn validate_message(kind: RequestKind, message: &CaptureWorkerMessage) -> Result
     if valid {
         Ok(())
     } else {
-        Err(format!(
-            "capture worker returned {} for a {} request",
-            message_kind(message),
-            match kind {
-                RequestKind::Preparation => "preparation",
-                RequestKind::Query => "query",
-                RequestKind::Replay => "replay",
-            }
-        ))
+        Err(CaptureWorkerClientError::UnexpectedMessage {
+            request: kind,
+            message: message_kind(message),
+        })
     }
 }
 
-fn message_kind(message: &CaptureWorkerMessage) -> &'static str {
+fn message_kind(message: &CaptureWorkerMessage) -> CaptureWorkerMessageKind {
     match message {
-        CaptureWorkerMessage::Progress { .. } => "progress",
-        CaptureWorkerMessage::Metadata { .. } => "metadata",
-        CaptureWorkerMessage::Prepared { .. } => "prepared",
-        CaptureWorkerMessage::Window { .. } => "window",
-        CaptureWorkerMessage::Replay { .. } => "replay",
-        CaptureWorkerMessage::Failed { .. } => "failure",
-        CaptureWorkerMessage::Cancelled { .. } => "cancellation",
+        CaptureWorkerMessage::Progress { .. } => CaptureWorkerMessageKind::Progress,
+        CaptureWorkerMessage::Metadata { .. } => CaptureWorkerMessageKind::Metadata,
+        CaptureWorkerMessage::Prepared { .. } => CaptureWorkerMessageKind::Prepared,
+        CaptureWorkerMessage::Window { .. } => CaptureWorkerMessageKind::Window,
+        CaptureWorkerMessage::Replay { .. } => CaptureWorkerMessageKind::Replay,
+        CaptureWorkerMessage::Failed { .. } => CaptureWorkerMessageKind::Failure,
+        CaptureWorkerMessage::Cancelled { .. } => CaptureWorkerMessageKind::Cancellation,
     }
 }
 
@@ -403,11 +405,18 @@ mod worker_client_tests {
 
     #[test]
     fn client_bounds_requests_and_routes_updates_by_sequence() {
+        assert!(matches!(
+            CaptureWorkerClient::new(0),
+            Err(CaptureWorkerClientError::InvalidCapacity)
+        ));
         let client = CaptureWorkerClient::new(2).unwrap();
         let preparation_sequence = client.submit_preparation(preparation()).unwrap();
         let query_sequence = client.submit_query(7, query()).unwrap();
 
-        assert!(client.submit_query(7, query()).is_err());
+        assert!(matches!(
+            client.submit_query(7, query()),
+            Err(CaptureWorkerClientError::QueueFull { limit: 2 })
+        ));
         assert_eq!(client.outstanding(), 2);
         assert_eq!(client.drain_requests().len(), 2);
 
@@ -449,7 +458,17 @@ mod worker_client_tests {
             })
             .unwrap_err();
 
-        assert!(error.contains("metadata for a query request"));
+        assert!(matches!(
+            error,
+            CaptureWorkerClientError::UnexpectedMessage {
+                request: CaptureWorkerRequestKind::Query,
+                message: CaptureWorkerMessageKind::Metadata,
+            }
+        ));
+        assert!(matches!(
+            client.publish(CaptureWorkerMessage::Cancelled { sequence: 99 }),
+            Err(CaptureWorkerClientError::UnexpectedSequence { sequence: 99 })
+        ));
         assert_eq!(client.outstanding(), 1);
     }
 
@@ -470,7 +489,8 @@ mod worker_client_tests {
                 sequence: cancelled,
             })
             .unwrap();
-        client.fail_all("worker disconnected");
+        let failure = CaptureWorkerTransportFailure::Host("worker disconnected".into());
+        client.fail_all(failure.clone());
 
         assert!(matches!(
             client.take_updates(cancelled).as_slice(),
@@ -478,8 +498,10 @@ mod worker_client_tests {
         ));
         assert!(matches!(
             client.take_updates(disconnected).as_slice(),
-            [CaptureWorkerMessage::Failed { sequence, message }]
-                if *sequence == disconnected && message == "worker disconnected"
+            [CaptureWorkerMessage::Failed {
+                sequence,
+                error: CaptureWorkerFailure::Transport(error),
+            }] if *sequence == disconnected && error == &failure
         ));
         assert_eq!(client.outstanding(), 0);
     }
@@ -571,17 +593,20 @@ mod worker_client_tests {
         let client = CaptureWorkerClient::new(2).unwrap();
         let pending = client.submit_query(7, query()).unwrap();
 
-        client.fail_all("capture worker disconnected");
+        let failure = CaptureWorkerTransportFailure::Host("capture worker disconnected".into());
+        client.fail_all(failure.clone());
 
         assert!(matches!(
             client.take_updates(pending).as_slice(),
-            [CaptureWorkerMessage::Failed { sequence, message }]
-                if *sequence == pending && message == "capture worker disconnected"
+            [CaptureWorkerMessage::Failed {
+                sequence,
+                error: CaptureWorkerFailure::Transport(error),
+            }] if *sequence == pending && error == &failure
         ));
-        assert_eq!(
-            client.submit_query(7, query()).unwrap_err(),
-            "capture worker disconnected"
-        );
+        assert!(matches!(
+            client.submit_query(7, query()),
+            Err(CaptureWorkerClientError::Disconnected(error)) if error == failure
+        ));
         assert!(client.drain_requests().is_empty());
     }
 

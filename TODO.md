@@ -290,9 +290,9 @@ item here, so acceptance comparisons stop being ad-hoc.
   processing crates hold many of them. Work outward from the lowest owner so downstream crates
   inherit typed failures instead of re-wrapping strings.
   Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#errors-typed-boundaries).
-  1. [ ] Keep display strings at the presentation boundary only. Graph-worker codec, client, and
-     transport failures retain owner-typed causes; continue converting remaining host-service and
-     generic-crate surfaces rather than formatting them early.
+  1. [ ] Keep display strings at the presentation boundary only. Capture-worker and graph-worker
+     codec, client, transport, and terminal failures retain owner-typed causes; continue converting
+     remaining host-service and generic-crate surfaces rather than formatting them early.
 
 ### Application state decomposition
 

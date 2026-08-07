@@ -11,6 +11,7 @@ use super::host_protocol::{
 use super::implementation::{
     CaptureIndex, CaptureIndexFactory, CaptureIndexOpenStep, CaptureIndexOpenTask,
 };
+use super::worker_errors::CaptureWorkerFailure;
 
 type PreparationHandler =
     dyn Fn(Vec<u8>) -> Result<CaptureWorkerPreparedIndex, String> + Send + Sync + 'static;
@@ -211,7 +212,7 @@ impl CaptureWorkerRuntime {
                 for sequence in preparation.sequences {
                     emit(CaptureWorkerMessage::Failed {
                         sequence,
-                        message: error.to_string(),
+                        error: CaptureWorkerFailure::Preparation(error.to_string()),
                     });
                 }
             }
@@ -233,7 +234,10 @@ impl CaptureWorkerRuntime {
         let prepared = match self.operations.prepare(&operation, payload) {
             Ok(prepared) => prepared,
             Err(message) => {
-                emit(CaptureWorkerMessage::Failed { sequence, message });
+                emit(CaptureWorkerMessage::Failed {
+                    sequence,
+                    error: CaptureWorkerFailure::Preparation(message),
+                });
                 return;
             }
         };
@@ -272,7 +276,7 @@ impl CaptureWorkerRuntime {
             Err(error) => {
                 emit(CaptureWorkerMessage::Failed {
                     sequence,
-                    message: error.to_string(),
+                    error: CaptureWorkerFailure::Preparation(error.to_string()),
                 });
                 return;
             }
@@ -289,7 +293,7 @@ impl CaptureWorkerRuntime {
             Err(error) => {
                 emit(CaptureWorkerMessage::Failed {
                     sequence,
-                    message: error.to_string(),
+                    error: CaptureWorkerFailure::Preparation(error.to_string()),
                 });
                 return;
             }
@@ -329,9 +333,10 @@ impl CaptureWorkerRuntime {
             for sequence in sequences {
                 emit(CaptureWorkerMessage::Failed {
                     sequence,
-                    message:
+                    error: CaptureWorkerFailure::Preparation(
                         "prepared capture index does not match the identity declared by its builder"
                             .to_owned(),
+                    ),
                 });
             }
             return;
@@ -342,7 +347,9 @@ impl CaptureWorkerRuntime {
                 for sequence in sequences {
                     emit(CaptureWorkerMessage::Failed {
                         sequence,
-                        message: "capture-worker session identifiers are exhausted".to_owned(),
+                        error: CaptureWorkerFailure::Preparation(
+                            "capture-worker session identifiers are exhausted".to_owned(),
+                        ),
                     });
                 }
                 return;
@@ -448,7 +455,10 @@ impl CaptureWorkerRuntime {
         })();
         match result {
             Ok(window) => CaptureWorkerMessage::Window { sequence, window },
-            Err(message) => CaptureWorkerMessage::Failed { sequence, message },
+            Err(message) => CaptureWorkerMessage::Failed {
+                sequence,
+                error: CaptureWorkerFailure::Query(message),
+            },
         }
     }
 
@@ -523,7 +533,10 @@ impl CaptureWorkerRuntime {
                 blocks,
                 next_channel,
             },
-            Err(message) => CaptureWorkerMessage::Failed { sequence, message },
+            Err(message) => CaptureWorkerMessage::Failed {
+                sequence,
+                error: CaptureWorkerFailure::Replay(message),
+            },
         }
     }
 }
@@ -736,8 +749,9 @@ mod worker_runtime_tests {
             [
                 CaptureWorkerMessage::Metadata { sequence: 1, .. },
                 CaptureWorkerMessage::Progress { sequence: 1, .. },
-                CaptureWorkerMessage::Failed { sequence: 1, message },
-            ] if message.contains("identity declared by its builder")
+                CaptureWorkerMessage::Failed { sequence: 1, error },
+            ] if matches!(error, CaptureWorkerFailure::Preparation(message)
+                if message.contains("identity declared by its builder"))
         ));
     }
 
@@ -823,8 +837,9 @@ mod worker_runtime_tests {
                     },
                 })
                 .as_slice(),
-            [CaptureWorkerMessage::Failed { sequence: 3, message }]
-                if message.contains("does not exist")
+            [CaptureWorkerMessage::Failed { sequence: 3, error }]
+                if matches!(error, CaptureWorkerFailure::Query(message)
+                    if message.contains("does not exist"))
         ));
     }
 
@@ -843,8 +858,9 @@ mod worker_runtime_tests {
 
         assert!(matches!(
             messages.as_slice(),
-            [CaptureWorkerMessage::Failed { sequence: 4, message }]
-                if message.contains("not registered")
+            [CaptureWorkerMessage::Failed { sequence: 4, error }]
+                if matches!(error, CaptureWorkerFailure::Preparation(message)
+                    if message.contains("not registered"))
         ));
     }
 

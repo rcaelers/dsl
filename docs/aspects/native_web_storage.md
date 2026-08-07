@@ -550,8 +550,10 @@ protocol.
 outstanding preparation and query work, queues owned requests for the host transport, validates
 that each response kind matches its request, and retains updates until the corresponding task or
 proxy polls them. Cancellation and session release are explicit outbound commands. Worker loss
-clears unsent work and publishes a terminal failure for every pending sequence. The browser adapter
-therefore owns only worker creation and message transport, not queueing or capture semantics.
+clears unsent work and publishes the same typed transport failure for every pending sequence.
+Request admission, response correlation, and response-kind mismatches remain classified client
+errors. The browser adapter therefore owns only worker creation and message transport, not queueing
+or capture semantics.
 
 `CaptureWorkerSourcePreparationExecutor` connects that client to the graph runtime's source
 preparation lifecycle while delegating ordinary local closures to another injected executor. A
@@ -564,8 +566,10 @@ cancellation is released by the client instead of being published or leaked.
 preparation operations through an explicit registry, owns prepared `CaptureIndex` sessions, and
 executes bounded sampled-window queries until the host releases each session. The browser adapter
 serializes batches of the shared result envelopes without interpreting capture coordinates or
-protocol metadata. Worker loss permanently disconnects the client so subsequent queries fail at
-submission instead of accumulating in an unserviced queue.
+protocol metadata. Request and message-batch encoding failures remain typed codec errors; terminal
+preparation, query, replay, and transport failures remain classified in the result envelope. Worker
+loss permanently disconnects the client so subsequent queries fail at submission instead of
+accumulating in an unserviced queue.
 
 The worker runtime emits preparation metadata and index progress as each update is produced. The
 browser transport forwards those updates individually instead of retaining a capture-sized or

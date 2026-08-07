@@ -1,7 +1,10 @@
 use thiserror::Error;
 
 use logic_analyzer_graph_capabilities::node_support::CapturePresentationSignal;
-use signal_capture::{CaptureIndex, CaptureIndexBuildProgress, CaptureMetadata};
+use signal_capture::{
+    CaptureIndex, CaptureIndexBuildProgress, CaptureMetadata, CaptureWorkerClientError,
+    CaptureWorkerFailure,
+};
 
 /// Failure produced while discovering or preparing one finite capture source.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
@@ -21,6 +24,12 @@ pub enum SourcePreparationError {
     /// The injected preparation executor rejected or lost the operation.
     #[error("capture preparation executor failed: {0}")]
     Executor(String),
+    /// The bounded capture-worker client rejected the request.
+    #[error("capture preparation worker client failed: {0}")]
+    WorkerClient(#[source] CaptureWorkerClientError),
+    /// The capture worker reported a classified terminal failure.
+    #[error("capture preparation worker failed: {0}")]
+    Worker(#[source] CaptureWorkerFailure),
     /// The host worker returned a response that does not belong to preparation.
     #[error("capture preparation worker protocol failed: {0}")]
     WorkerProtocol(String),

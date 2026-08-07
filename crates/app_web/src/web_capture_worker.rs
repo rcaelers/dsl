@@ -19,7 +19,8 @@ use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository, SourceIde
 use platform_runtime::InlineWorkExecutor;
 use signal_capture::{
     CaptureMetadata, CaptureWorkerClient, CaptureWorkerRequest, CaptureWorkerRuntime,
-    decode_capture_worker_messages, encode_capture_worker_messages,
+    CaptureWorkerTransportFailure, decode_capture_worker_messages, decode_capture_worker_request,
+    encode_capture_worker_messages, encode_capture_worker_request,
 };
 
 const WORKER_BOOTSTRAP: &str = include_str!("capture_worker_bootstrap.js");
@@ -98,7 +99,8 @@ pub(crate) fn install_capture_worker(
     max_outstanding: usize,
     artifact_repository: Arc<dyn ArtifactRepository>,
 ) -> Result<BrowserWorkerClients, String> {
-    let capture_client = Arc::new(CaptureWorkerClient::new(max_outstanding)?);
+    let capture_client =
+        Arc::new(CaptureWorkerClient::new(max_outstanding).map_err(|error| error.to_string())?);
     let graph_client = Arc::new(
         GraphWorkerClient::new(1, artifact_repository).map_err(|error| error.to_string())?,
     );
@@ -142,7 +144,7 @@ pub(crate) fn install_capture_worker(
     let error_attachments = Rc::clone(&attachments);
     let error_handler = Closure::<dyn FnMut(ErrorEvent)>::new(move |event: ErrorEvent| {
         event.prevent_default();
-        disconnect(
+        disconnect_host(
             &error_capture_client,
             &error_graph_client,
             &error_disconnected,
@@ -172,7 +174,7 @@ pub(crate) fn install_capture_worker(
         }
         for request in pump_capture_client.drain_requests() {
             if let Err(error) = post_capture_request(&pump_worker, &request) {
-                disconnect(
+                disconnect_capture(
                     &pump_capture_client,
                     &pump_graph_client,
                     &pump_disconnected,
@@ -276,20 +278,22 @@ fn handle_worker_message(
         "ready" => ready.set(true),
         "capture_messages" => {
             let result = property(&value, "payload")
+                .map_err(CaptureWorkerTransportFailure::Host)
                 .map(|payload| Uint8Array::new(&payload).to_vec())
                 .and_then(|payload| {
-                    decode_capture_worker_messages(&payload).map_err(|error| {
-                        format!("capture worker returned an invalid message: {error}")
-                    })
+                    decode_capture_worker_messages(&payload)
+                        .map_err(CaptureWorkerTransportFailure::from)
                 })
                 .and_then(|messages| {
                     for message in messages {
-                        capture_client.publish(message)?;
+                        capture_client
+                            .publish(message)
+                            .map_err(CaptureWorkerTransportFailure::from)?;
                     }
-                    Ok(())
+                    Ok::<(), CaptureWorkerTransportFailure>(())
                 });
             if let Err(error) = result {
-                disconnect(capture_client, graph_client, disconnected, error);
+                disconnect_capture(capture_client, graph_client, disconnected, error);
             }
         }
         "graph_messages" => {
@@ -366,9 +370,9 @@ fn handle_worker_message(
         "worker_failed" => {
             let message = string_property(&value, "message")
                 .unwrap_or_else(|error| format!("capture worker failed: {error}"));
-            disconnect(capture_client, graph_client, disconnected, message);
+            disconnect_host(capture_client, graph_client, disconnected, message);
         }
-        _ => disconnect(
+        _ => disconnect_host(
             capture_client,
             graph_client,
             disconnected,
@@ -415,8 +419,8 @@ pub fn execute_capture_worker_request(
     publish: &Function,
 ) -> Result<bool, JsValue> {
     install_worker_panic_hook();
-    let request = serde_json::from_slice::<CaptureWorkerRequest>(&payload)
-        .map_err(|error| JsValue::from_str(&format!("invalid capture-worker request: {error}")))?;
+    let request = decode_capture_worker_request(&payload)
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
     let mut failure = None;
     CAPTURE_WORKER_RUNTIME.with(|runtime| {
         runtime
@@ -522,7 +526,7 @@ fn publish_capture_message(
     let encoded = match encode_capture_worker_messages(&[message]) {
         Ok(encoded) => encoded,
         Err(error) => {
-            *failure = Some(JsValue::from_str(&error));
+            *failure = Some(JsValue::from_str(&error.to_string()));
             return;
         }
     };
@@ -667,15 +671,27 @@ fn install_worker_panic_hook() {
     });
 }
 
-fn disconnect(
+fn disconnect_host(
     capture_client: &Arc<CaptureWorkerClient>,
     graph_client: &Arc<GraphWorkerClient>,
     disconnected: &Rc<Cell<bool>>,
     message: String,
 ) {
     if !disconnected.replace(true) {
-        capture_client.fail_all(message.clone());
+        capture_client.fail_all(CaptureWorkerTransportFailure::Host(message.clone()));
         graph_client.fail_all(GraphWorkerTransportFailure::Host(message));
+    }
+}
+
+fn disconnect_capture(
+    capture_client: &Arc<CaptureWorkerClient>,
+    graph_client: &Arc<GraphWorkerClient>,
+    disconnected: &Rc<Cell<bool>>,
+    error: CaptureWorkerTransportFailure,
+) {
+    if !disconnected.replace(true) {
+        graph_client.fail_all(GraphWorkerTransportFailure::Host(error.to_string()));
+        capture_client.fail_all(error);
     }
 }
 
@@ -686,23 +702,31 @@ fn disconnect_graph(
     error: GraphWorkerTransportFailure,
 ) {
     if !disconnected.replace(true) {
-        capture_client.fail_all(error.to_string());
+        capture_client.fail_all(CaptureWorkerTransportFailure::Host(error.to_string()));
         graph_client.fail_all(error);
     }
 }
 
-fn post_capture_request(worker: &Worker, request: &CaptureWorkerRequest) -> Result<(), String> {
-    let payload = serde_json::to_vec(request)
-        .map_err(|error| format!("could not encode capture-worker request: {error}"))?;
-    let message = message_object("capture_run")?;
+fn post_capture_request(
+    worker: &Worker,
+    request: &CaptureWorkerRequest,
+) -> Result<(), CaptureWorkerTransportFailure> {
+    let payload =
+        encode_capture_worker_request(request).map_err(CaptureWorkerTransportFailure::from)?;
+    let message = message_object("capture_run").map_err(CaptureWorkerTransportFailure::Host)?;
     let bytes = Uint8Array::from(payload.as_slice());
     let buffer = bytes.buffer();
-    set(&message, "payload", buffer.clone().into())?;
+    set(&message, "payload", buffer.clone().into()).map_err(CaptureWorkerTransportFailure::Host)?;
     let transfer = Array::new();
     transfer.push(&buffer);
     worker
         .post_message_with_transfer(&message, &transfer)
-        .map_err(|error| js_error("could not submit capture-worker request", error))
+        .map_err(|error| {
+            CaptureWorkerTransportFailure::Host(js_error(
+                "could not submit capture-worker request",
+                error,
+            ))
+        })
 }
 
 fn post_graph_request(

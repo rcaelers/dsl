@@ -21,11 +21,14 @@ pub use capture::{
     CaptureIndexOpenTask, CaptureIndexPreparationRequest, CaptureIndexProxy, CaptureIndexQuery,
     CaptureIndexQueryExecutor, CaptureIndexQueryUpdate, CaptureMetadata, CaptureSampledChannel,
     CaptureSampledWindow, CaptureSampledWindowPoll, CaptureSource, CaptureTransition,
-    CaptureWaveformSegment, CaptureWorkerClient, CaptureWorkerIndexQueryExecutor,
-    CaptureWorkerMessage, CaptureWorkerOperationRegistry, CaptureWorkerPreparedIndex,
-    CaptureWorkerReplayBlock, CaptureWorkerReplayRequest, CaptureWorkerReplaySource,
-    CaptureWorkerRequest, CaptureWorkerRuntime, IndexedCapturePresentation,
-    decode_capture_worker_messages, encode_capture_worker_messages, packed_bit,
+    CaptureWaveformSegment, CaptureWorkerClient, CaptureWorkerClientError, CaptureWorkerCodecError,
+    CaptureWorkerFailure, CaptureWorkerFrame, CaptureWorkerIndexQueryExecutor,
+    CaptureWorkerMessage, CaptureWorkerMessageKind, CaptureWorkerOperationRegistry,
+    CaptureWorkerPreparedIndex, CaptureWorkerReplayBlock, CaptureWorkerReplayRequest,
+    CaptureWorkerReplaySource, CaptureWorkerRequest, CaptureWorkerRequestKind,
+    CaptureWorkerRuntime, CaptureWorkerTransportFailure, IndexedCapturePresentation,
+    decode_capture_worker_messages, decode_capture_worker_request, encode_capture_worker_messages,
+    encode_capture_worker_request, packed_bit,
 };
 pub use capture_index_kernel::register_capture_worker_kernel;
 pub use channel_identity::CaptureChannelId;

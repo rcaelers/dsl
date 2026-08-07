@@ -5,6 +5,7 @@ use platform_artifacts::SourceIdentity;
 use super::implementation::{CaptureIndexBuildProgress, CaptureMetadata, CaptureSampledWindow};
 use super::preparation::CaptureIndexPreparationRequest;
 use super::query::CaptureIndexQuery;
+use super::worker_errors::{CaptureWorkerCodecError, CaptureWorkerFailure, CaptureWorkerFrame};
 
 /// One bounded request for packed raw blocks from a prepared capture session.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -130,8 +131,8 @@ pub enum CaptureWorkerMessage {
     Failed {
         /// Caller-assigned sequence that failed.
         sequence: u64,
-        /// User-presentable failure explanation.
-        message: String,
+        /// Classified terminal failure retained for the consumer.
+        error: CaptureWorkerFailure,
     },
     /// Confirms cancellation of one sequence.
     Cancelled {
@@ -144,19 +145,43 @@ const MESSAGE_BATCH_MAGIC: &[u8; 5] = b"LCWM\x01";
 const JSON_MESSAGE: u8 = 0;
 const REPLAY_MESSAGE: u8 = 1;
 
+/// Encodes one capture-worker request as an owned transport payload.
+///
+/// # Parameters
+/// - `request`: Preparation, query, replay, cancellation, or release command to encode.
+pub fn encode_capture_worker_request(
+    request: &CaptureWorkerRequest,
+) -> Result<Vec<u8>, CaptureWorkerCodecError> {
+    serde_json::to_vec(request).map_err(|error| CaptureWorkerCodecError::Encoding {
+        frame: CaptureWorkerFrame::Request,
+        message: error.to_string(),
+    })
+}
+
+/// Decodes one capture-worker request payload.
+pub fn decode_capture_worker_request(
+    bytes: &[u8],
+) -> Result<CaptureWorkerRequest, CaptureWorkerCodecError> {
+    serde_json::from_slice(bytes).map_err(|error| CaptureWorkerCodecError::Decoding {
+        frame: CaptureWorkerFrame::Request,
+        message: error.to_string(),
+    })
+}
+
 /// Encodes worker results without expanding packed replay bytes through JSON.
 ///
 /// # Parameters
 /// - `messages`: Ordered worker results to encode as one transport frame.
 pub fn encode_capture_worker_messages(
     messages: &[CaptureWorkerMessage],
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, CaptureWorkerCodecError> {
     let mut output = Vec::new();
     output.extend_from_slice(MESSAGE_BATCH_MAGIC);
     put_u32(
         &mut output,
-        u32::try_from(messages.len())
-            .map_err(|_| "capture-worker message batch is too large".to_owned())?,
+        u32::try_from(messages.len()).map_err(|_| CaptureWorkerCodecError::CountOverflow {
+            field: "message batch".into(),
+        })?,
     );
     for message in messages {
         let mut encoded = Vec::new();
@@ -184,7 +209,10 @@ pub fn encode_capture_worker_messages(
             _ => {
                 encoded.push(JSON_MESSAGE);
                 encoded.extend_from_slice(&serde_json::to_vec(message).map_err(|error| {
-                    format!("could not encode capture-worker message: {error}")
+                    CaptureWorkerCodecError::Encoding {
+                        frame: CaptureWorkerFrame::MessageBatch,
+                        message: error.to_string(),
+                    }
                 })?);
             }
         }
@@ -195,21 +223,29 @@ pub fn encode_capture_worker_messages(
 }
 
 /// Decodes a framed batch produced by [`encode_capture_worker_messages`].
-pub fn decode_capture_worker_messages(bytes: &[u8]) -> Result<Vec<CaptureWorkerMessage>, String> {
+pub fn decode_capture_worker_messages(
+    bytes: &[u8],
+) -> Result<Vec<CaptureWorkerMessage>, CaptureWorkerCodecError> {
     let mut reader = MessageReader::new(bytes);
     if reader.take(MESSAGE_BATCH_MAGIC.len())? != MESSAGE_BATCH_MAGIC {
-        return Err("capture-worker message batch has an invalid header".to_owned());
+        return Err(CaptureWorkerCodecError::InvalidHeader {
+            frame: CaptureWorkerFrame::MessageBatch,
+        });
     }
     let count = reader.u32()? as usize;
     let mut messages = Vec::with_capacity(count);
     for _ in 0..count {
         let length = reader.length()?;
         let mut message = MessageReader::new(reader.take(length)?);
-        match message.u8()? {
+        let kind = message.u8()?;
+        match kind {
             JSON_MESSAGE => {
                 messages.push(
                     serde_json::from_slice(message.remaining()).map_err(|error| {
-                        format!("capture-worker message contains invalid JSON: {error}")
+                        CaptureWorkerCodecError::Decoding {
+                            frame: CaptureWorkerFrame::MessageBatch,
+                            message: error.to_string(),
+                        }
                     })?,
                 );
                 message.consume_remaining();
@@ -241,7 +277,12 @@ pub fn decode_capture_worker_messages(bytes: &[u8]) -> Result<Vec<CaptureWorkerM
                     next_channel,
                 });
             }
-            _ => return Err("capture-worker message has an unknown encoding".to_owned()),
+            _ => {
+                return Err(CaptureWorkerCodecError::UnknownKind {
+                    frame: CaptureWorkerFrame::MessageBatch,
+                    kind,
+                });
+            }
         }
         message.finish()?;
     }
@@ -267,32 +308,31 @@ impl<'a> MessageReader<'a> {
         Self { bytes, cursor: 0 }
     }
 
-    fn u8(&mut self) -> Result<u8, String> {
+    fn u8(&mut self) -> Result<u8, CaptureWorkerCodecError> {
         Ok(self.take(1)?[0])
     }
 
-    fn u32(&mut self) -> Result<u32, String> {
+    fn u32(&mut self) -> Result<u32, CaptureWorkerCodecError> {
         Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap()))
     }
 
-    fn u64(&mut self) -> Result<u64, String> {
+    fn u64(&mut self) -> Result<u64, CaptureWorkerCodecError> {
         Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap()))
     }
 
-    fn length(&mut self) -> Result<usize, String> {
-        usize::try_from(self.u64()?)
-            .map_err(|_| "capture-worker message length exceeds this host".to_owned())
+    fn length(&mut self) -> Result<usize, CaptureWorkerCodecError> {
+        usize::try_from(self.u64()?).map_err(|_| CaptureWorkerCodecError::LengthOverflow)
     }
 
-    fn take(&mut self, length: usize) -> Result<&'a [u8], String> {
+    fn take(&mut self, length: usize) -> Result<&'a [u8], CaptureWorkerCodecError> {
         let end = self
             .cursor
             .checked_add(length)
-            .ok_or_else(|| "capture-worker message length overflow".to_owned())?;
+            .ok_or(CaptureWorkerCodecError::AddressOverflow)?;
         let value = self
             .bytes
             .get(self.cursor..end)
-            .ok_or_else(|| "capture-worker message is truncated".to_owned())?;
+            .ok_or(CaptureWorkerCodecError::Truncated)?;
         self.cursor = end;
         Ok(value)
     }
@@ -305,11 +345,11 @@ impl<'a> MessageReader<'a> {
         self.cursor = self.bytes.len();
     }
 
-    fn finish(self) -> Result<(), String> {
+    fn finish(self) -> Result<(), CaptureWorkerCodecError> {
         if self.cursor == self.bytes.len() {
             Ok(())
         } else {
-            Err("capture-worker message contains trailing bytes".to_owned())
+            Err(CaptureWorkerCodecError::TrailingBytes)
         }
     }
 }
@@ -318,6 +358,7 @@ impl<'a> MessageReader<'a> {
 mod host_protocol_tests {
     use platform_runtime::WorkerOperation;
 
+    use super::super::worker_errors::CaptureWorkerTransportFailure;
     use super::*;
     use crate::CaptureSampledChannel;
 
@@ -370,11 +411,8 @@ mod host_protocol_tests {
         ];
 
         for message in messages {
-            let encoded = serde_json::to_vec(&message).unwrap();
-            assert_eq!(
-                serde_json::from_slice::<CaptureWorkerRequest>(&encoded).unwrap(),
-                message
-            );
+            let encoded = encode_capture_worker_request(&message).unwrap();
+            assert_eq!(decode_capture_worker_request(&encoded).unwrap(), message);
         }
     }
 
@@ -429,7 +467,15 @@ mod host_protocol_tests {
             },
             CaptureWorkerMessage::Failed {
                 sequence: 3,
-                message: "controlled failure".to_owned(),
+                error: CaptureWorkerFailure::Query("controlled failure".to_owned()),
+            },
+            CaptureWorkerMessage::Failed {
+                sequence: 5,
+                error: CaptureWorkerFailure::Transport(CaptureWorkerTransportFailure::Codec(
+                    CaptureWorkerCodecError::InvalidHeader {
+                        frame: CaptureWorkerFrame::Request,
+                    },
+                )),
             },
             CaptureWorkerMessage::Cancelled { sequence: 4 },
         ];
@@ -472,5 +518,34 @@ mod host_protocol_tests {
 
         assert!(encoded.len() < payload.len() + 512);
         assert_eq!(decode_capture_worker_messages(&encoded).unwrap(), messages);
+    }
+
+    #[test]
+    fn malformed_frames_retain_their_codec_failure_category() {
+        assert!(matches!(
+            decode_capture_worker_request(b"not JSON"),
+            Err(CaptureWorkerCodecError::Decoding {
+                frame: CaptureWorkerFrame::Request,
+                ..
+            })
+        ));
+        assert!(matches!(
+            decode_capture_worker_messages(b"wrong"),
+            Err(CaptureWorkerCodecError::InvalidHeader {
+                frame: CaptureWorkerFrame::MessageBatch
+            })
+        ));
+
+        let mut unknown_batch = MESSAGE_BATCH_MAGIC.to_vec();
+        put_u32(&mut unknown_batch, 1);
+        put_u64(&mut unknown_batch, 1);
+        unknown_batch.push(99);
+        assert!(matches!(
+            decode_capture_worker_messages(&unknown_batch),
+            Err(CaptureWorkerCodecError::UnknownKind {
+                frame: CaptureWorkerFrame::MessageBatch,
+                kind: 99
+            })
+        ));
     }
 }

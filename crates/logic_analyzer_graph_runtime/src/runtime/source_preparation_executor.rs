@@ -270,7 +270,7 @@ impl SourcePreparationExecutor for CaptureWorkerSourcePreparationExecutor {
         let sequence = self
             .client
             .submit_preparation(request)
-            .map_err(SourcePreparationError::Executor)?;
+            .map_err(SourcePreparationError::WorkerClient)?;
         Ok(Box::new(CaptureWorkerSourcePreparationTask {
             client: Arc::clone(&self.client),
             control,
@@ -328,10 +328,10 @@ impl SourcePreparationTask for CaptureWorkerSourcePreparationTask {
                         PreparedCaptureData::Indexed(Box::new(proxy)),
                     ));
                 }
-                CaptureWorkerMessage::Failed { message, .. } => {
+                CaptureWorkerMessage::Failed { error, .. } => {
                     self.terminal = true;
                     return SourcePreparationTaskUpdate::Complete(Err(
-                        SourcePreparationError::Index(message),
+                        SourcePreparationError::Worker(error),
                     ));
                 }
                 CaptureWorkerMessage::Cancelled { .. } => {

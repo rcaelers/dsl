@@ -253,6 +253,12 @@ supervision, and process-node work. Threaded and cooperative managers expose the
 `PipelineError` lifecycle contract, and a terminal `NodeFailure` retains its `WorkError` until a
 presentation or transport boundary formats it.
 
+`signal_capture` owns the capture-worker request and message codec, bounded-client admission and
+correlation errors, serializable transport failures, and classified preparation, query, and replay
+terminal failures. Its client retains a typed disconnect cause for pending and subsequent requests.
+Graph source preparation wraps the capture-worker client and terminal errors as sources in
+`SourcePreparationError`; it does not relabel them as executor or index strings.
+
 `logic_analyzer_protocol_decoders::sigrok_decoder` owns the host-facing Sigrok catalog and decoder
 runtime error contracts. Whole-catalog discovery failures are distinct from recoverable per-path
 and per-package catalog diagnostics. Decoder runtime failures distinguish package discovery,

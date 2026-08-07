@@ -90,6 +90,60 @@ unless source_preparation_executor.match?(
   errors << "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_executor.rs: preparation tasks must retain SourcePreparationError"
 end
 
+capture_worker_protocol_path = File.join(
+  ROOT,
+  "crates/signal_capture/src/capture/host_protocol.rs"
+)
+capture_worker_protocol = File.read(capture_worker_protocol_path).split(
+  /^\s*#\s*\[\s*cfg\s*\([^\]]*\btest\b[^\]]*\)\s*\]\s*\n\s*mod\s+\w*tests\b/,
+  2
+).first
+unless capture_worker_protocol.match?(/Failed\s*\{.*?error:\s*CaptureWorkerFailure,/m)
+  errors << "crates/signal_capture/src/capture/host_protocol.rs: capture-worker terminal diagnostics must retain CaptureWorkerFailure"
+end
+%w[
+  encode_capture_worker_request decode_capture_worker_request
+  encode_capture_worker_messages decode_capture_worker_messages
+].each do |operation|
+  next if capture_worker_protocol.match?(
+    /pub fn\s+#{operation}\b[^\{]*->\s*Result<[^\{]*,\s*CaptureWorkerCodecError>\s*\{/m
+  )
+
+  errors << "crates/signal_capture/src/capture/host_protocol.rs: #{operation} must retain CaptureWorkerCodecError"
+end
+if capture_worker_protocol.match?(/Result<.*?,\s*String>/m)
+  errors << "crates/signal_capture/src/capture/host_protocol.rs: codec failures must not collapse into display strings"
+end
+
+capture_worker_client_path = File.join(
+  ROOT,
+  "crates/signal_capture/src/capture/worker_client.rs"
+)
+capture_worker_client = File.read(capture_worker_client_path).split(
+  /^\s*#\s*\[\s*cfg\s*\([^\]]*\btest\b[^\]]*\)\s*\]\s*\n\s*mod\s+\w*tests\b/,
+  2
+).first
+%w[new submit_preparation submit_query submit_replay publish].each do |operation|
+  next if capture_worker_client.match?(
+    /pub fn\s+#{operation}\b[^\{]*->\s*Result<[^\{]*,\s*CaptureWorkerClientError>\s*\{/m
+  )
+
+  errors << "crates/signal_capture/src/capture/worker_client.rs: #{operation} must retain CaptureWorkerClientError"
+end
+unless capture_worker_client.match?(
+  /pub fn\s+fail_all\b.*?error:\s*CaptureWorkerTransportFailure/m
+)
+  errors << "crates/signal_capture/src/capture/worker_client.rs: disconnects must retain CaptureWorkerTransportFailure"
+end
+
+%w[WorkerClient Worker].each do |variant|
+  next if source_preparation_contract.match?(
+    /^\s*#{variant}\(\#\[source\]\s*CaptureWorker(?:ClientError|Failure)\),$/
+  )
+
+  errors << "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_contract.rs: SourcePreparationError must retain capture-worker #{variant.downcase} failures"
+end
+
 graph_worker_contract = File.read(File.join(
   ROOT,
   "crates/logic_analyzer_graph_orchestration/src/worker_execution.rs"

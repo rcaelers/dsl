@@ -121,7 +121,7 @@ impl CaptureWorkerReplaySource {
             let sequence = self
                 .client
                 .submit_preparation(self.preparation.clone())
-                .map_err(WorkError::NodeError)?;
+                .map_err(|error| WorkError::NodeError(error.to_string()))?;
             self.preparation_sequence = Some(sequence);
             return Ok(WorkOutcome::progressed(0));
         };
@@ -135,8 +135,8 @@ impl CaptureWorkerReplaySource {
                     self.session_id = Some(session_id);
                     self.preparation_sequence = None;
                 }
-                CaptureWorkerMessage::Failed { message, .. } => {
-                    return Err(WorkError::NodeError(message));
+                CaptureWorkerMessage::Failed { error, .. } => {
+                    return Err(WorkError::NodeError(error.to_string()));
                 }
                 CaptureWorkerMessage::Cancelled { .. } => {
                     return Err(WorkError::NodeError(
@@ -176,8 +176,8 @@ impl CaptureWorkerReplaySource {
                         }
                         self.replay_sequence = None;
                     }
-                    CaptureWorkerMessage::Failed { message, .. } => {
-                        return Err(WorkError::NodeError(message));
+                    CaptureWorkerMessage::Failed { error, .. } => {
+                        return Err(WorkError::NodeError(error.to_string()));
                     }
                     CaptureWorkerMessage::Cancelled { .. } => {
                         return Err(WorkError::NodeError(
@@ -208,7 +208,7 @@ impl CaptureWorkerReplaySource {
                     max_payload_bytes: MAX_REPLAY_PAYLOAD_BYTES,
                 },
             )
-            .map_err(WorkError::NodeError)?;
+            .map_err(|error| WorkError::NodeError(error.to_string()))?;
         self.replay_sequence = Some(sequence);
         Ok(WorkOutcome::progressed(0))
     }
