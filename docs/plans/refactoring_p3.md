@@ -286,24 +286,6 @@ comparisons. The acceptance rule is documented in
    manual step. The harness must make it *hard to accept* a noisy improvement — refuse a
    "retain" verdict when spread overlaps — which is the actual requirement from the TODO item.
 
-## docs.drift-correction (P3 · medium) {#docs-drift-correction}
-
-Two classes, treated differently:
-
-1. **Plainly wrong now** — fix immediately: `AGENTS.md` line 27 documents a `signal_processing`
-   crate that no longer exists; replace that bullet with the actual `signal_runtime` /
-   `signal_capture` / `signal_derived` / `signal_capture_session` split (one line each, matching
-   `crate_responsibility.md`).
-2. **Aspirational-but-normative** — the statements that apps are the composition roots and host
-   factories are injected (`AGENTS.md`, `crate_responsibility.md`). These are the *target* of the
-   P1/P2 composition items; leave the documents normative and land the code. Only if the P1 items
-   stall long-term should the docs gain an explicit "not yet true, see TODO" marker — a normative
-   doc that silently disagrees with the code is how this drift started.
-
-Sweep for further drift while there: any doc naming obsolete composition facades, global
-`install_…` APIs, or the pre-split processing layout will need updating as those items land — each
-such PR updates the docs it invalidates, per the ground rules.
-
 ## naming.implementation-files (P3 · low) {#naming-implementation-files}
 
 46 files named `implementation.rs`. Mechanical, low risk, high navigation payoff. Per module:

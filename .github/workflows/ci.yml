@@ -32,12 +32,6 @@ jobs:
         run: |
           ruby scripts/check_platform_boundaries_test.rb
           ruby scripts/check_platform_boundaries.rb
-      - name: Check UI processing boundary
-        run: |
-          if rg -n 'logic-analyzer-processing|logic_analyzer_processing' crates/logic_analyzer_ui; then
-            echo 'logic_analyzer_ui must consume concrete processing behavior through logic_analyzer_graph'
-            exit 1
-          fi
       - name: Check architectural visibility
         env:
           RUSTFLAGS: -D unreachable-pub
@@ -104,7 +98,7 @@ jobs:
       - name: Check deterministic benchmark commands
         run: |
           cargo check -p signal-derived --bin derived-word-store-bench
-          cargo check -p logic-analyzer-processing --features developer-tools --bin u3pro16-streaming-bench
+          cargo check -p logic-analyzer-examples --features developer-tools --bin u3pro16-streaming-bench
           cargo check -p logic-analyzer-examples --bench compiler_capture
       - name: Check manual validation commands
         run: |
@@ -122,10 +116,10 @@ jobs:
           targets: wasm32-unknown-unknown
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
-      - name: Check concrete processing targets
+      - name: Check portable web composition
         env:
           RUSTFLAGS: -D unreachable-pub
-        run: cargo check -p logic-analyzer-processing --target wasm32-unknown-unknown --all-targets --all-features
+        run: cargo check -p logic-analyzer-app-web --target wasm32-unknown-unknown --all-targets --all-features
       - name: Install wasm test runner
         run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
       - name: Test portable capture-node parity in wasm

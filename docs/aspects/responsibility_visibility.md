@@ -71,7 +71,9 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
   implementations. Its public `HostService` port owns file and directory dialogs, graph-document
   persistence, derived-cache commands and diagnostics, and native-shell state exchange. Native and
   web application roots implement that application-facing port by adapting low-level host
-  mechanisms. The UI consumes and re-exports the `logic_analyzer_capture_export` service contract;
+  mechanisms. These application and domain contracts do not belong to `platform`; it remains
+  independent of UI and graph crates. The UI consumes and re-exports the
+  `logic_analyzer_capture_export` service contract;
   `CaptureCoordinator` supplies only a finalized session identity and retains capture lifecycle
   policy. Native composition injects the repository-backed exporter, while the UI supplies an
   explicit portable unavailable implementation for hosts without an export destination.
@@ -88,7 +90,7 @@ Concrete aliases are declared beside their concrete implementation. A common abs
 does not import one implementation merely to publish a convenience alias.
 
 Generic storage accepts explicit working, persistent-cache, and session-repository directories.
-The native application platform owns the application namespace and operating-system directory
+Native application composition owns the application namespace and operating-system directory
 policy, then passes resolved paths through configuration. Generic crates do not inspect host
 environment variables to choose an application location.
 
@@ -97,8 +99,7 @@ environment variables to choose an application location.
 Use the narrowest visibility that contains every intended consumer:
 
 - private for implementation details used in one module;
-- `pub(super)` for collaboration with the direct parent or sibling modules through that parent;
-- `pub(crate)` for an internal crate contract;
+- `pub(crate)` for collaboration between sibling modules or an internal crate contract;
 - `pub` only for a supported cross-crate or plugin contract.
 
 A `pub` item hidden below a private module is still an invalid declaration unless its wider

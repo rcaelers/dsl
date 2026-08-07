@@ -383,16 +383,6 @@ item here, so acceptance comparisons stop being ad-hoc.
 
 ### Enforcement and documentation
 
-- [docs.drift-correction] (P3 · medium) Correct the design statements the code no longer satisfies: `AGENTS.md`
-  still describes a `signal_processing` crate that no longer exists. `AGENTS.md` also assigns execution and saved-document
-  synchronization too broadly to the compiler; `responsibility_visibility.md` both permits and
-  forbids `pub(super)`; its UI-owned-port statement must be reconciled with the chosen
-  domain-neutral platform boundary. The P3 direction still treats completed composition work as
-  aspirational and refers to obsolete P1/P2 work; revise it together with the normative documents.
-  Normative documents are load-bearing, so each correction either describes current behavior or
-  is paired with the item that restores the stated behavior; target architecture belongs in plans,
-  not in present-tense design documents.
-  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#docs-drift-correction).
 - [docs.owner-local-detail] (P4 · low) Keep design detail with its owning crate. The viewer document
   currently describes capture file formats, indexes, and mipmaps owned by capture/processing and
   contains stale source paths. Move authoritative format and indexing descriptions to their owners

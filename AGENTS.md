@@ -24,28 +24,48 @@ See `docs/aspects/plugin_extensible_payload.md` for the detailed payload and vie
   crate with that capability as an explicit responsibility; consumers depend on that
   shared owner rather than reaching through one another. Treat `pub`, `pub(crate)`,
   re-exports, and module visibility as architectural contracts, not convenience access.
-- `signal_processing` is UI-independent generic runtime, capture, and derived-data
-  infrastructure.
+- `platform_artifacts` owns platform-neutral byte-source, artifact, repository, replication, and
+  persistence contracts.
+- `platform_runtime` owns platform-neutral host-work, worker-operation, kernel, and bounded-queue
+  contracts.
+- `signal_runtime` owns generic typed-stream execution, scheduling, and pipeline supervision.
+- `signal_capture` owns immutable generic capture, query, and finite-index contracts.
+- `signal_derived` owns generic derived-data payload, collection, query, indexing, and storage
+  contracts.
+- `signal_capture_session` owns generic acquisition, recording, capture-source lifecycle, and
+  driver-neutral logic-analyzer contracts.
 - `logic_analyzer_capture_formats` owns UI-independent DSL and Sigrok capture readers, indexes,
   and replay sources.
 - `logic_analyzer_device_dslogic` owns DSLogic acquisition behavior and its neutral transport port.
 - `logic_analyzer_protocol_decoders` owns UI-independent concrete protocol decoders.
 - `signal_transforms`, `signal_sinks`, and `signal_generators` own portable transforms, terminal
   consumers, and deterministic sources respectively.
+- `logic_analyzer_graph_capabilities` owns the contracts and neutral values implemented by graph
+  features and payloads.
+- `logic_analyzer_graph_registry` owns headless graph-feature and payload inventory validation and
+  immutable capability snapshots.
 - `logic_analyzer_graph_nodes` owns concrete graph nodes and their builders.
 - `node_graph_document` owns portable persisted graph records and semantic socket identities.
 - `logic_analyzer_graph_editor_registry` owns the product integration between stable graph-feature
   IDs and `node_graph` editor definitions; headless graph crates do not depend on it.
-- `logic_analyzer_graph_compiler` owns generic graph lowering, discovery, execution, and
-  saved-document synchronization.
-- `platform` owns reusable native and web host adapters. It implements capability
-  contracts owned by the core crates and is the only reusable crate that selects code or
-  dependencies by compilation target.
+- `logic_analyzer_graph_plan` owns the immutable processing-plan contract exchanged between
+  lowering and execution.
+- `logic_analyzer_graph_compiler` owns generic graph-document discovery, semantic validation,
+  capability negotiation, diagnostics, and lowering.
+- `logic_analyzer_graph_runtime` owns source preparation, cache planning, materialization,
+  execution lifecycle, run data, and live reconciliation.
+- `logic_analyzer_graph_orchestration` owns the application-neutral graph-worker protocol and
+  worker-side composition of the separate compiler and runtime.
+- `logic_analyzer_capture_export` owns finalized-capture export behavior and its application-facing
+  service contract.
+- `platform` owns reusable native and web host adapters. It implements the neutral contracts owned
+  by `platform_artifacts` and `platform_runtime` and is the only reusable crate that selects code
+  or dependencies by compilation target.
 - `logic_analyzer_ui` composes the widgets and application services; it must not
   contain concrete node definitions or runtime builders.
-- Native and web application crates are thin composition roots. They bootstrap their host and
-  inject `platform` services; they do not own storage, indexing, caching,
-  processing, or execution policy.
+- Native and web application crates are thin composition roots. They bootstrap their host, obtain
+  generic `platform` mechanisms, adapt application and domain ports, and inject the resulting
+  services; they do not own storage, indexing, caching, processing, or execution policy.
 - Reusable widgets live below `crates/widgets` and must remain independent of
   concrete nodes and protocols.
 
@@ -90,12 +110,13 @@ See the module layout and public-module allowlist in
 - All reusable runtime, compiler, viewer, graph, widget, UI, and portable processing crates compile
   the same Rust source on native and wasm. They do not contain target-selected modules, target
   conditionals, target-dependent public surfaces, or target-specific dependencies.
-- Core crates own platform-neutral capability traits and algorithms. `platform`
-  implements native and web host adapters for those traits and injects them at the application
-  composition boundary. It contains the single reusable target-selection point.
-- Native and web application crates may contain only the target-specific entry and bootstrap code
-  required to create the host and install `platform` services.
-- Complete file-I/O leaves in `logic_analyzer_capture_formats` and USB adapter leaves in
+- The neutral lower-level crates own platform-neutral capability traits and algorithms. `platform`
+  implements their native and web host adapters. Application roots adapt and inject those
+  mechanisms into application and domain contracts. `platform` contains the single reusable
+  target-selection point.
+- Native and web application crates may contain only target-specific entry, bootstrap, and
+  application-level adaptation required to inject `platform` mechanisms into owner contracts.
+- Complete file-I/O leaves in `logic_analyzer_capture_formats` and native device-runtime leaves in
   `logic_analyzer_device_dslogic` are the only
   permitted reusable-crate exception when the capability cannot yet be injected without moving
   concrete format or device behavior to the platform crate. Every exception is explicitly

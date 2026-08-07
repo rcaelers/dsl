@@ -19,4 +19,5 @@ Consumers import capability symbols from their owning namespace directly. Regist
 processing-plan values, and concrete node implementations remain in their separate owner crates.
 
 Host catalog directories, persistence, and scanning are outside this crate. The UI owns the
-portable catalog service contract, and platform adapters supply its implementations.
+portable catalog service contract, and application composition implements it by adapting generic
+platform work mechanisms and the concrete scanner.

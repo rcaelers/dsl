@@ -35,11 +35,9 @@ flowchart LR
     Apps[Native and web applications] --> Platform[platform]
     Apps --> UI[logic_analyzer_ui]
     Apps --> Nodes[logic_analyzer_graph_nodes]
-    Platform --> UI
-    Platform --> Runtime[logic_analyzer_graph_runtime]
 
     UI --> Compiler[logic_analyzer_graph_compiler]
-    UI --> Runtime
+    UI --> Runtime[logic_analyzer_graph_runtime]
     UI --> Orchestration[logic_analyzer_graph_orchestration]
     UI --> Registry[logic_analyzer_graph_registry]
     UI --> EditorRegistry[logic_analyzer_graph_editor_registry]

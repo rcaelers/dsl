@@ -94,8 +94,9 @@ remain outside it.
 #### `logic-analyzer-device-dslogic`
 
 Owns the DSLogic U3Pro16 protocol, acquisition planning, packet conversion, and processing source.
-It consumes an injected USB transport and FPGA-image contract. Platform owns the native transport;
-graph configuration and UI remain outside this crate.
+It consumes injected USB transport and FPGA-image contracts. Native application composition adapts
+the generic USB and file mechanisms supplied by `platform` to those ports; graph configuration and
+UI remain outside this crate.
 
 #### `logic-analyzer-protocol-decoders`
 
@@ -117,8 +118,9 @@ outside this crate.
 #### `logic-analyzer-graph-registry`
 
 Owns graph-node, payload, and protocol-presentation registration descriptors; compile-time
-inventory collection; deterministic validation; instance-owned editor registration overrides;
-runtime capability overrides; and immutable `GraphRegistry` snapshots. Viewer-renderer registration
+inventory collection; deterministic validation; runtime capability overrides; and immutable
+`GraphRegistry` snapshots. Editor definitions and editor-registration overrides belong to
+`logic-analyzer-graph-editor-registry`. Viewer-renderer registration
 remains with `logic-analyzer-viewer`, and application-panel registration remains with
 `logic-analyzer-ui`. The registry owns no graph document, lowering policy, execution lifetime, or
 UI state.
@@ -386,9 +388,10 @@ process-node executor.
 
 The UI's private graph-service adapter owns a lowerer and a graph runtime. It lowers the current
 document before Run or apply and passes the resulting `ProcessingGraph` to the runtime. The
-platform adapter provides worker transport, application composition injects its client into the UI
-graph service, and the web app constructs the worker-side runtime. The neutral graph orchestration
-crate owns the messages, codec, client, and worker-side compiler/runtime composition.
+platform adapter provides generic worker transport, application composition adapts and injects its
+client into the UI graph service, and the web app constructs the worker-side runtime. The neutral
+graph orchestration crate owns the messages, codec, client, and worker-side compiler/runtime
+composition.
 
 ## Graph plug-in contracts
 

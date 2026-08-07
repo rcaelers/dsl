@@ -982,9 +982,11 @@ this boundary and whose fixture suite verifies that representative violations ar
 - Reusable core crates compile the same module tree and Rust source on native and web targets.
 - `platform` is the only reusable crate with general target selection or
   target-specific dependencies.
-- Native and web application crates contain bootstrap and injection only.
-- Processing exceptions are complete, explicitly allowlisted file-I/O or USB adapter leaves; they
-  do not include node state, builders, parsers, protocol state machines, or synthetic substitutes.
+- Native and web application crates contain target-specific bootstrap, composition, and
+  application-level adaptation, not reusable data-plane or execution policy.
+- Processing exceptions are complete, explicitly allowlisted file-I/O or device-runtime leaves;
+  they do not include node state, builders, parsers, protocol state machines, or synthetic
+  substitutes.
 - The in-memory repository is a first-class backend, not an alternate derived-data model.
 - Persistence is a repository capability, not a compiler or lane-shape difference.
 - Mmap is a byte-backing optimization, not a public storage contract.
