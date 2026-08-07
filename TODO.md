@@ -383,51 +383,12 @@ item here, so acceptance comparisons stop being ad-hoc.
 
 ### Enforcement and documentation
 
-- [tests.architecture-structural] (P2 · medium) Replace the source-text architecture tests with structural
-  checks. About 447 lines remain across the workspace that `include_str!` a sibling file and assert on
-  `.contains("…")`, so they break on a rename or a reformat, pass when the string appears in a
-  comment, and prove nothing about the compiled contract. Enforce dependency direction from the
-  manifests and enforce capability rules by constructing a registry and asserting on the resulting
-  descriptors. Manifest-based checks would have caught platform's UI, graph, and processing edges
-  and the widget dependency in the graph execution tier; the string tests did not. Assert that
-  platform depends only on neutral host contracts and generic infrastructure, and that compiler
-  and registry also lose the widget dependency after editor registration is separated. Do not
-  mark future boundary assertions ignored: the repository forbids ignored tests. Use an explicit
-  temporary violation allowlist keyed by TODO ID, fail on every unlisted edge, and delete each
-  exception in the refactoring that removes it. Land the manifest checks together with the P1
-  composition items so restored boundaries are locked in as they are established.
-  The workspace test now asserts the complete forbidden-edge list on Cargo's resolved non-dev
-  dependency graph and constructs a capability snapshot from the real built-in and example-plugin
-  inventories, including the exact narrow capability shape of both example nodes. The graph
-  capability, plan, registry, runtime, orchestration, UI graph-service, capture-format, UI
-  capture-export-service, UI node-catalog-service, UI memory-panel, signal-sinks, trigger-editor, and
-  example-plugin source-text suites have been removed; graph nodes, compiler, viewer, node graph,
-  derived data, signal runtime, signal capture, capture session, UI live capture, and the UI host
-  service retain only ten explicitly documented checks for constraints that compiled structure cannot
-  detect. The viewer, node-graph, trigger-editor, capture-format, signal-sinks, derived-data,
-  signal-runtime, signal-capture, and capture-session workspace dependency surfaces are now asserted
-  structurally, as is the UI prohibition on host-adapter, concrete-node, and shared-test composition
-  dependencies.
-  UI host and catalog injection, capture-format factory contracts, and UI capture-export contract
-  identity are compile-time probes. Graph-service substitutability is verified with a complete local
-  fake, while the workspace module check confines concrete graph lowering and runtime types to the
-  service adapter, keeps cache diagnostics on the instance-owned cache and graph-service routes,
-  keeps filesystem paths out of the node-catalog contract, rejects direct native file I/O in portable
-  sinks, and keeps concrete provider and protocol tokens out of the generic trigger editor. Injected
-  sink storage, schema-driven trigger editing, live-capture artifact repositories, capture-export
-  service routing, and node-graph file dialogs are verified behaviorally. The portable
-  application-manager facade is covered by the workspace platform-boundary and module-layout checks.
-  Continue with the `logic_analyzer_device_dslogic` source-text suite.
-  Direction, including the forbidden-edge list:
-  [refactoring_p1_p2.md](docs/plans/refactoring_p1_p2.md#tests-architecture-structural).
 - [docs.drift-correction] (P3 · medium) Correct the design statements the code no longer satisfies: `AGENTS.md`
   still describes a `signal_processing` crate that no longer exists. `AGENTS.md` also assigns execution and saved-document
   synchronization too broadly to the compiler; `responsibility_visibility.md` both permits and
   forbids `pub(super)`; its UI-owned-port statement must be reconciled with the chosen
-  domain-neutral platform boundary. The P1/P2 direction currently contradicts this TODO by keeping
-  platform→processing, proposing an omnibus host-ports crate, limiting graph extraction to
-  identities, recommending domain vocabulary in `signal_*`, counting five processing binaries,
-  and suggesting ignored architecture tests. Revise that direction before implementation.
+  domain-neutral platform boundary. The P3 direction still treats completed composition work as
+  aspirational and refers to obsolete P1/P2 work; revise it together with the normative documents.
   Normative documents are load-bearing, so each correction either describes current behavior or
   is paired with the item that restores the stated behavior; target architecture belongs in plans,
   not in present-tense design documents.

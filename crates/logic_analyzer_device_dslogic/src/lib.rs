@@ -3,8 +3,6 @@
 //! This crate owns DSLogic U3Pro16 behavior and consumes injected USB transport and FPGA-image
 //! capabilities. It does not select a host adapter, define graph nodes, or own UI policy.
 
-#[cfg(test)]
-mod architecture_tests;
 mod device;
 
 pub use device::{

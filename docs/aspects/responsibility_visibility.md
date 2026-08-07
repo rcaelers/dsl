@@ -326,14 +326,35 @@ services, and low-level platform mechanisms needed for composition. The boundary
 core-to-platform dependencies, and the workspace manifest test rejects every platform dependency
 on a Logic Conduit domain crate. Application modules select implementations and wire contracts but
 do not implement reusable execution or data-plane policy.
-Target-conditioned synthetic
-sources and discard sinks are rejected even in otherwise allowlisted target-selection locations;
-those portable implementations are chosen through explicit graph configuration or injected
-capabilities.
+
+The resolved dependency check restricts the DSLogic device crate to portable artifact, scheduling,
+capture-session, capture, and typed-stream contracts. Its protocol consumes the crate-owned
+`UsbTransport` and `DsLogicU3Pro16TransportFactory` ports. The native application implements those
+ports with platform USB and file mechanisms, while deterministic device tests exercise the same
+protocol through fake transports.
+
+Target-conditioned synthetic sources and discard sinks are rejected even in otherwise allowlisted
+target-selection locations; those portable implementations are chosen through explicit graph
+configuration or injected capabilities.
 
 ## Enforcement
 
-Architecture tests protect prohibited dependency and terminology directions. Workspace checks
-run the compiler's `unreachable_pub` lint, and new warnings are treated as visibility defects.
-Public API review includes re-exports, associated items, fields, variants, native and wasm
-surfaces, and every type appearing in a public trait signature.
+Workspace integration tests inspect Cargo's resolved dependency graph. They assert the exact local
+dependency surfaces of generic capture, session, derived-data, runtime, viewer, node-editor,
+trigger-editor, sink, capture-format, and DSLogic crates; prohibit domain and adapter edges from
+generic compiler, graph, UI, widget, and platform owners; and include target-selected and
+development edges where those are architectural constraints.
+
+Compiled probes construct the real built-in and example-plugin inventories, verify registry and
+capability descriptors, implement replaceable UI services with local fakes, and assert public port
+type identity. Behavior tests exercise injected storage, capture, export, trigger-editing,
+file-dialog, device-transport, and graph-service paths. Repository checks enforce module facades,
+visibility, target-selection locations, and target-specific dependency allowlists.
+
+Source-text assertions remain only for semantic constraints that Rust types and Cargo edges cannot
+express, such as branching on persisted names or protocol labels, process-global state hidden
+inside an allowed owner, prohibited vocabulary within a generic crate, and unrelated details in an
+otherwise valid intra-crate port. Each retained assertion documents why it cannot be structural.
+Workspace checks also run the compiler's `unreachable_pub` lint, and new warnings are treated as
+visibility defects. Public API review includes re-exports, associated items, fields, variants,
+native and wasm surfaces, and every type appearing in a public trait signature.

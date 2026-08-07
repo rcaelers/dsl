@@ -335,6 +335,24 @@ fn capture_formats_depend_only_on_portable_capture_and_host_contracts() {
 }
 
 #[test]
+fn dslogic_device_depends_only_on_portable_device_runtime_contracts() {
+    let dependencies =
+        local_resolved_non_dev_dependencies(workspace_metadata(), "logic-analyzer-device-dslogic");
+
+    assert_eq!(
+        dependencies,
+        BTreeSet::from([
+            "platform-artifacts".to_owned(),
+            "platform-runtime".to_owned(),
+            "signal-capture".to_owned(),
+            "signal-capture-session".to_owned(),
+            "signal-runtime".to_owned(),
+        ]),
+        "DSLogic device behavior may depend only on portable storage, scheduling, capture, and typed-stream contracts"
+    );
+}
+
+#[test]
 fn signal_sinks_depend_only_on_portable_stream_and_data_contracts() {
     let dependencies = local_resolved_non_dev_dependencies(workspace_metadata(), "signal-sinks");
 
