@@ -56,6 +56,7 @@ namespace. All other crate contracts are documented in Rustdoc.
 - [Workspace examples and integration tests](crates/logic_analyzer_examples.md)
 - [platform_artifacts](crates/platform_artifacts.md)
 - [platform_runtime](crates/platform_runtime.md)
+- [logic_analyzer_capture_formats](crates/logic_analyzer_capture_formats.md)
 - [signal_capture](crates/signal_capture.md)
 - [signal_derived](crates/signal_derived.md)
 - [signal_capture_session](crates/signal_capture_session.md)

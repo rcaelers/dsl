@@ -66,7 +66,15 @@ Decoder features cover SPI, UART, I2C, parallel words, and catalog-derived Sigro
 features cover framing, field extraction, matching, edge and event control, state, formatting, and
 timeline markers. Output features cover binary, text, CSV, and TGCK recording. The Viewer
 registration remains a saved-document compatibility input; current viewing uses UI-owned output
-subscriptions and compiler-generated collectors.
+subscriptions and runtime-materialized collectors selected by the lowered plan.
+
+`Timeline Marker` owns a persisted marker name and time and converts that value to a `Trigger`, a
+before/at-or-after `Signal`, or an ordered `[start, end)` window. Its inline name is the generic node
+title, so the node body and properties panel edit one value. `Cursor Marker` uses the generic
+build-context reference contract to select a host cursor and convert its position into the same
+runtime marker value. Application composition supplies the available numbered cursors and owns
+bidirectional time synchronization; the node validates the choice and snapshots the resolved time
+when a run starts.
 
 The DSLogic feature owns its capture and signal property-panel sections, including the aligned
 16-channel enable grid. Invalid channel/rate combinations remain editable for correction, appear

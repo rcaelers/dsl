@@ -383,10 +383,6 @@ item here, so acceptance comparisons stop being ad-hoc.
 
 ### Enforcement and documentation
 
-- [docs.owner-local-detail] (P4 · low) Keep design detail with its owning crate. The viewer document
-  currently describes capture file formats, indexes, and mipmaps owned by capture/processing and
-  contains stale source paths. Move authoritative format and indexing descriptions to their owners
-  and leave the viewer document describing only how it consumes those contracts.
 - [docs.ownership-statements] (P4 · low) State crate ownership positively. Large parts of
   `crate_responsibility.md` define a crate by what it excludes; one sentence naming what it owns
   and the type it hands to the next layer carries more. Keep an exclusion only where the boundary

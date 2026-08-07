@@ -2,7 +2,8 @@
 //!
 //! ## Responsibility
 //!
-//! This module owns finite and growing generic waveform indexes plus bounded sampled-window queries.
+//! This module owns finite generic waveform indexes plus bounded sampled-window queries. Growing
+//! indexes remain in the capture-session owner because they follow mutable session storage.
 //!
 //! ## Boundaries
 //!

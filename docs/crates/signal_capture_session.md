@@ -21,7 +21,11 @@ the runtime's generic typed capability protocol.
 
 `live_capture`, `live_capture_store`, and `logic_analyzer` own driver-neutral acquisition, session
 storage, policy, trigger, and capture-source contracts. Growing waveform indexes remain here because
-they consume mutable session storage; finite index algorithms are supplied by `signal_capture`.
+they consume mutable session storage. `GrowingCaptureIndex` follows committed chunks in the
+authoritative live store and implements the same `CaptureIndex` sampled-window and transition-query
+contract as finite indexes. It reuses `signal_capture::WaveformSummaryGrid` and the shared
+resolution-selection algorithm; finite artifact layout, raw-block caching, and immutable index
+publication remain in `signal_capture`.
 
 ## Dependencies and platform boundary
 
