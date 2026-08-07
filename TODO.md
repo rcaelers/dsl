@@ -286,20 +286,18 @@ item here, so acceptance comparisons stop being ad-hoc.
 
 - [errors.typed-boundaries] (P3 · medium) Replace `Result<_, String>` on cross-crate contracts with owned error
   types so failures carry a responsibility and callers can classify them. Hundreds of signatures
-  still use a string error; `platform`, `logic_analyzer_ui`, and `signal_runtime` hold many of
-  them. Work outward from the lowest owner so downstream crates
+  still use a string error; `platform`, `logic_analyzer_ui`, graph capabilities, and concrete
+  processing crates hold many of them. Work outward from the lowest owner so downstream crates
   inherit typed failures instead of re-wrapping strings.
   Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#errors-typed-boundaries).
-  1. [ ] Complete the `signal_runtime` error surface next to `ConnectionError`, `PortError`, and
-     `WorkError`, covering manager and pipeline-supervision failures.
-  2. [ ] Type the graph capability and host-override contracts, including
+  1. [ ] Type the graph capability and host-override contracts, including
      `SigrokCatalogScanner`, `SigrokDecoderRuntime::discover`, and `SigrokDecoderRuntime::create`,
      so the domain adapter reports discovery, transport, and configuration failures distinctly;
      neutral platform capabilities expose their own mechanism-level errors without importing
      these domain contracts.
-  3. [ ] Type source preparation and run diagnostics so `SourcePreparationUpdate::Failed` and the
+  2. [ ] Type source preparation and run diagnostics so `SourcePreparationUpdate::Failed` and the
      UI's run-message path stop matching on message text.
-  4. [ ] Keep display strings at the presentation boundary only; generic crates map a concrete
+  3. [ ] Keep display strings at the presentation boundary only; generic crates map a concrete
      format or transport failure into their own variant rather than formatting it early.
 
 ### Application state decomposition

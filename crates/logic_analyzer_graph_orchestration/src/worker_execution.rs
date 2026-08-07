@@ -198,7 +198,7 @@ impl GraphWorkerRuntime {
                 sequence,
                 message: failures
                     .into_iter()
-                    .map(|(_, failure)| format!("{}: {}", failure.node, failure.message))
+                    .map(|(_, failure)| format!("{}: {}", failure.node, failure.error))
                     .collect::<Vec<_>>()
                     .join("\n"),
             });

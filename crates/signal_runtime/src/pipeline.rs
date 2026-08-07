@@ -8,7 +8,7 @@ use tracing::{debug, info};
 
 use platform_runtime::WorkExecutor;
 
-use super::errors::ConnectionError;
+use super::errors::{ConnectionError, PipelineError, PortError};
 use super::node::{InputProtocolCandidate, ProcessNode};
 use super::payload_negotiation;
 use super::ports::{InputPort, OutputPort, PortSchema};
@@ -85,11 +85,11 @@ impl Pipeline {
         &mut self,
         name: impl Into<String>,
         node: N,
-    ) -> Result<(), String> {
+    ) -> Result<(), PipelineError> {
         let name = name.into();
 
         if self.node_names.contains_key(&name) {
-            return Err(format!("Node with name '{}' already exists", name));
+            return Err(PipelineError::NodeAlreadyExists { node: name });
         }
 
         let inputs = node.input_schema();
@@ -219,10 +219,10 @@ impl Pipeline {
             .iter()
             .any(|c| c.to_node == to_id && c.to_port == to_schema.index)
         {
-            return Err(Box::new(ConnectionError::DuplicateConnection(format!(
-                "Input port '{}' on node '{}' is already connected",
-                to_port, to_node
-            ))));
+            return Err(Box::new(ConnectionError::DuplicateConnection {
+                to_node: to_node.to_string(),
+                to_port: to_port.to_string(),
+            }));
         }
 
         let buffer_size = buffer_size.unwrap_or_else(|| {
@@ -250,20 +250,20 @@ impl Pipeline {
     /// # Parameters
     /// - `name`: Name of the node that owns the input.
     /// - `port`: Declared name of the input port.
-    pub fn get_node_input_schema(&self, name: &str, port: &str) -> Result<&PortSchema, String> {
+    pub fn get_node_input_schema(&self, name: &str, port: &str) -> Result<&PortSchema, PortError> {
         let id = self
             .node_names
             .get(name)
-            .ok_or_else(|| format!("Node '{}' not found", name))?;
+            .ok_or_else(|| PortError::NodeNotFound(name.to_string()))?;
         let schemas = self
             .node_schemas
             .get(id)
-            .ok_or_else(|| format!("Node '{}' not found", name))?;
+            .ok_or_else(|| PortError::NodeNotFound(name.to_string()))?;
         schemas
             .inputs
             .iter()
             .find(|s| s.name == port)
-            .ok_or_else(|| format!("Input port '{}' not found on node '{}'", port, name))
+            .ok_or_else(|| PortError::NotFound(port.to_string(), name.to_string()))
     }
 
     /// Returns one output-port schema by node and port name.
@@ -272,20 +272,20 @@ impl Pipeline {
     ///
     /// - `name`: Name of the node that owns the output.
     /// - `port`: Declared name of the output port.
-    pub fn get_node_output_schema(&self, name: &str, port: &str) -> Result<&PortSchema, String> {
+    pub fn get_node_output_schema(&self, name: &str, port: &str) -> Result<&PortSchema, PortError> {
         let id = self
             .node_names
             .get(name)
-            .ok_or_else(|| format!("Node '{}' not found", name))?;
+            .ok_or_else(|| PortError::NodeNotFound(name.to_string()))?;
         let schemas = self
             .node_schemas
             .get(id)
-            .ok_or_else(|| format!("Node '{}' not found", name))?;
+            .ok_or_else(|| PortError::NodeNotFound(name.to_string()))?;
         schemas
             .outputs
             .iter()
             .find(|s| s.name == port)
-            .ok_or_else(|| format!("Output port '{}' not found on node '{}'", port, name))
+            .ok_or_else(|| PortError::NotFound(port.to_string(), name.to_string()))
     }
 
     /// Returns all input-port schemas for a named node in schema order.
@@ -293,15 +293,15 @@ impl Pipeline {
     /// # Parameters
     ///
     /// - `name`: Name of the node to inspect.
-    pub fn list_node_inputs(&self, name: &str) -> Result<&[PortSchema], String> {
+    pub fn list_node_inputs(&self, name: &str) -> Result<&[PortSchema], PortError> {
         let id = self
             .node_names
             .get(name)
-            .ok_or_else(|| format!("Node '{}' not found", name))?;
+            .ok_or_else(|| PortError::NodeNotFound(name.to_string()))?;
         let schemas = self
             .node_schemas
             .get(id)
-            .ok_or_else(|| format!("Node '{}' not found", name))?;
+            .ok_or_else(|| PortError::NodeNotFound(name.to_string()))?;
         Ok(schemas.inputs.as_slice())
     }
 
@@ -310,15 +310,15 @@ impl Pipeline {
     /// # Parameters
     ///
     /// - `name`: Name of the node to inspect.
-    pub fn list_node_outputs(&self, name: &str) -> Result<&[PortSchema], String> {
+    pub fn list_node_outputs(&self, name: &str) -> Result<&[PortSchema], PortError> {
         let id = self
             .node_names
             .get(name)
-            .ok_or_else(|| format!("Node '{}' not found", name))?;
+            .ok_or_else(|| PortError::NodeNotFound(name.to_string()))?;
         let schemas = self
             .node_schemas
             .get(id)
-            .ok_or_else(|| format!("Node '{}' not found", name))?;
+            .ok_or_else(|| PortError::NodeNotFound(name.to_string()))?;
         Ok(schemas.outputs.as_slice())
     }
 
@@ -336,14 +336,17 @@ impl Pipeline {
     /// # Parameters
     ///
     /// - `work_executor`: Host capability that runs node and watchdog tasks.
-    pub fn build(mut self, work_executor: Arc<dyn WorkExecutor>) -> Result<Scheduler, String> {
+    pub fn build(
+        mut self,
+        work_executor: Arc<dyn WorkExecutor>,
+    ) -> Result<Scheduler, PipelineError> {
         info!(
             "Building pipeline with {} nodes and {} connections",
             self.nodes.len(),
             self.connections.len()
         );
 
-        let mut scheduler = Scheduler::new(work_executor);
+        let mut scheduler = Scheduler::new(work_executor)?;
 
         type PortKey = (usize, usize);
         let node_by_id: HashMap<usize, &Box<dyn ProcessNode>> =
@@ -440,27 +443,33 @@ impl Pipeline {
             let node = node_by_id[&node_id];
             let selected = node.select_input_protocols(candidates);
             let schemas = &self.node_schemas[&node_id].inputs;
+            let node_name = node_name_by_id
+                .get(&node_id)
+                .cloned()
+                .unwrap_or_else(|| node_id.to_string());
             if selected.len() != schemas.len() {
-                return Err(format!(
-                    "Node {} returned {} protocol choices for {} inputs",
-                    node_id,
-                    selected.len(),
-                    schemas.len()
-                ));
+                return Err(PipelineError::ProtocolChoiceCount {
+                    node: node_name,
+                    actual: selected.len(),
+                    expected: schemas.len(),
+                });
             }
             for (input, candidate) in candidates.iter().enumerate() {
                 let Some(candidate) = candidate else {
                     continue;
                 };
-                let protocol = selected[input].ok_or_else(|| {
-                    format!("No common protocol for node {node_id} input {input}")
+                let protocol = selected[input].ok_or_else(|| PipelineError::NoCommonProtocol {
+                    node: node_name.clone(),
+                    input,
                 })?;
                 if !candidate.offered.contains(&protocol)
                     || !schemas[input].protocols.contains(&protocol)
                 {
-                    return Err(format!(
-                        "Node {node_id} selected unsupported protocol {protocol:?} for input {input}"
-                    ));
+                    return Err(PipelineError::UnsupportedProtocol {
+                        node: node_name.clone(),
+                        input,
+                        protocol,
+                    });
                 }
                 selected_by_input.insert((node_id, input), protocol);
             }
@@ -497,13 +506,16 @@ impl Pipeline {
                         .lock()
                         .unwrap()
                         .create_channel(conn.type_id, conn.buffer_size)
-                        .ok_or_else(|| format!("Type {:?} not registered. Call register_type::<T>() before building pipeline.", conn.type_id))?;
+                        .ok_or(PipelineError::TypeNotRegistered {
+                            type_id: conn.type_id,
+                        })?;
 
                     receivers.insert((conn.to_node, conn.to_port), rx);
-                    let to_schemas = self
-                        .node_schemas
-                        .get(&conn.to_node)
-                        .ok_or_else(|| format!("Node {} not found", conn.to_node))?;
+                    let to_schemas = self.node_schemas.get(&conn.to_node).ok_or_else(|| {
+                        PipelineError::NodeNotFound {
+                            node: conn.to_node.to_string(),
+                        }
+                    })?;
                     let to_port = to_schemas
                         .inputs
                         .get(conn.to_port)
@@ -579,7 +591,7 @@ impl Pipeline {
                 .collect();
 
             // Collect outputs (unconnected outputs are allowed - nodes must check before sending)
-            let output_ports: Result<Vec<_>, String> = (0..num_outputs)
+            let output_ports: Result<Vec<_>, PipelineError> = (0..num_outputs)
                 .map(|i| {
                     let groups = senders.remove(&(node_id, i)).unwrap_or_default();
                     let mut port: Option<OutputPort> = None;
@@ -611,7 +623,7 @@ impl Pipeline {
                 .collect();
             let output_ports = output_ports?;
 
-            scheduler.start_process(node, input_ports, output_ports);
+            scheduler.start_process(node, input_ports, output_ports)?;
         }
 
         info!(
@@ -958,16 +970,14 @@ mod tests {
         pipeline.connect("source1", "out", "sink", "in").unwrap();
 
         // Second connection to same input should fail
-        let result = pipeline.connect("source2", "out", "sink", "in");
-        assert!(
-            result.is_err(),
-            "Duplicate input connection should be rejected"
-        );
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("already connected")
+        assert_eq!(
+            *pipeline
+                .connect("source2", "out", "sink", "in")
+                .unwrap_err(),
+            ConnectionError::DuplicateConnection {
+                to_node: "sink".to_string(),
+                to_port: "in".to_string(),
+            }
         );
     }
 
@@ -994,10 +1004,11 @@ mod tests {
         let mut pipeline = Pipeline::new();
         pipeline.add_process("source", TestSource).unwrap();
 
-        let result = pipeline.connect("source", "out", "nonexistent", "in");
-        assert!(
-            result.is_err(),
-            "Connection to nonexistent node should fail"
+        assert_eq!(
+            *pipeline
+                .connect("source", "out", "nonexistent", "in")
+                .unwrap_err(),
+            ConnectionError::NodeNotFound("nonexistent".to_string())
         );
     }
 
@@ -1007,10 +1018,14 @@ mod tests {
         pipeline.add_process("source", TestSource).unwrap();
         pipeline.add_process("sink", TestSink).unwrap();
 
-        let result = pipeline.connect("source", "wrong_port", "sink", "in");
-        assert!(
-            result.is_err(),
-            "Connection to nonexistent port should fail"
+        assert_eq!(
+            *pipeline
+                .connect("source", "wrong_port", "sink", "in")
+                .unwrap_err(),
+            ConnectionError::PortNotFound {
+                node: "source".to_string(),
+                port: "wrong_port".to_string(),
+            }
         );
     }
 
@@ -1048,8 +1063,12 @@ mod tests {
         let result2 = pipeline.add_process("node1", TestSource);
 
         assert!(result1.is_ok(), "First node addition should succeed");
-        assert!(result2.is_err(), "Duplicate node name should be rejected");
-        assert!(result2.unwrap_err().contains("already exists"));
+        assert_eq!(
+            result2.unwrap_err(),
+            PipelineError::NodeAlreadyExists {
+                node: "node1".to_string(),
+            }
+        );
     }
 
     #[test]

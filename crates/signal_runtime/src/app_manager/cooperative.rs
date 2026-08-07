@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use super::super::cooperative_manager::CooperativeManager;
+use super::super::errors::PipelineError;
 use super::super::manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec};
 use super::super::node::{ConfigurationBoundary, NodeConfig, ProcessNode};
 use super::contract::{AppManagerBackend, AppManagerFactory};
@@ -31,23 +32,23 @@ impl AppManagerBackend for CooperativeAppManagerBackend {
         self.manager.is_finished()
     }
 
-    fn add_node(&mut self, spec: NodeSpec) -> Result<(), String> {
+    fn add_node(&mut self, spec: NodeSpec) -> Result<(), PipelineError> {
         self.manager.add_node(spec)
     }
 
-    fn add_node_deferred(&mut self, spec: NodeSpec) -> Result<(), String> {
+    fn add_node_deferred(&mut self, spec: NodeSpec) -> Result<(), PipelineError> {
         self.manager.add_node_deferred(spec)
     }
 
-    fn start_all_deferred(&mut self) -> Result<(), String> {
+    fn start_all_deferred(&mut self) -> Result<(), PipelineError> {
         self.manager.start_all_deferred()
     }
 
-    fn remove_node(&mut self, name: &str) -> Result<(), String> {
+    fn remove_node(&mut self, name: &str) -> Result<(), PipelineError> {
         self.manager.remove_node(name)
     }
 
-    fn reconfigure(&mut self, name: &str, config: NodeConfig) -> Result<(), String> {
+    fn reconfigure(&mut self, name: &str, config: NodeConfig) -> Result<(), PipelineError> {
         self.manager.reconfigure(name, config)
     }
 
@@ -56,7 +57,7 @@ impl AppManagerBackend for CooperativeAppManagerBackend {
         name: &str,
         config: NodeConfig,
         boundary: ConfigurationBoundary,
-    ) -> Result<(), String> {
+    ) -> Result<(), PipelineError> {
         self.manager.reconfigure_at(name, config, boundary)
     }
 
@@ -65,7 +66,7 @@ impl AppManagerBackend for CooperativeAppManagerBackend {
         name: &str,
         node: Box<dyn ProcessNode>,
         inputs: Vec<Option<InputSub>>,
-    ) -> Result<(), String> {
+    ) -> Result<(), PipelineError> {
         self.manager.restart_node(name, node, inputs)
     }
 
@@ -102,7 +103,9 @@ impl AppManagerBackend for CooperativeAppManagerBackend {
 pub struct CooperativeAppManagerFactory;
 
 impl AppManagerFactory for CooperativeAppManagerFactory {
-    fn create(&self) -> AppManager {
-        AppManager::with_backend(Box::new(CooperativeAppManagerBackend::new()))
+    fn create(&self) -> Result<AppManager, PipelineError> {
+        Ok(AppManager::with_backend(Box::new(
+            CooperativeAppManagerBackend::new(),
+        )))
     }
 }

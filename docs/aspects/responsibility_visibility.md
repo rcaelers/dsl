@@ -248,6 +248,11 @@ admission, message validation, and terminal worker failure. Native and browser a
 mechanism errors into those contracts; higher-level runtimes can classify the failure before any
 presentation boundary formats it.
 
+`signal_runtime` distinguishes port lookup, connection validation, pipeline construction and
+supervision, and process-node work. Threaded and cooperative managers expose the same
+`PipelineError` lifecycle contract, and a terminal `NodeFailure` retains its `WorkError` until a
+presentation or transport boundary formats it.
+
 ## Platform surfaces
 
 Native and wasm reusable crates share the platform-neutral data model and compile the same source
@@ -258,7 +263,8 @@ collection of incidental helpers.
 
 `AppManager` owns one portable facade over an injected `AppManagerBackend`. The native application
 combines `PipelineAppManagerFactory` with the platform work executor; the web application selects
-the portable cooperative factory. Graph-runtime and processing code do not inspect the target.
+the portable cooperative factory. Factory construction reports `PipelineError` when the selected
+host cannot start supervision. Graph-runtime and processing code do not inspect the target.
 
 Native and web application roots compose the UI `HostService` port. The browser adapter delegates
 byte-oriented document selection, storage, and downloads to `platform`; the native

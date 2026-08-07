@@ -627,7 +627,7 @@ use signal_runtime::{ChannelMessage, ProcessNode, Scheduler, Sender, Watchdog};
             1,
         );
 
-        let mut scheduler = Scheduler::new(Arc::new(TestWorkExecutor));
+        let mut scheduler = Scheduler::new(Arc::new(TestWorkExecutor)).unwrap();
         let inputs = vec![
             block_input(scheduler.watchdog(), strobe, "strobe"),
             block_input(scheduler.watchdog(), data, "d0"),
@@ -642,7 +642,9 @@ use signal_runtime::{ChannelMessage, ProcessNode, Scheduler, Sender, Watchdog};
             // manufacturing 64 runnable threads on a smaller CI host.
             .with_work_executor(Arc::new(SpawnWorkExecutor::new(2)));
         let metrics = decoder.parallel_metrics();
-        scheduler.start_process(Box::new(decoder), inputs, Vec::new());
+        scheduler
+            .start_process(Box::new(decoder), inputs, Vec::new())
+            .unwrap();
 
         let dispatch_deadline = Instant::now() + Duration::from_secs(1);
         while metrics.snapshot().max_outstanding == 0 && Instant::now() < dispatch_deadline {

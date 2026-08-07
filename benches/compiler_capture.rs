@@ -44,7 +44,7 @@ use signal_derived::{
 };
 use signal_runtime::{
     AppManager, AppManagerBackend, AppManagerFactory, ConfigurationBoundary, DisconnectEvent,
-    InputSub, NodeConfig, NodeSpec, Pipeline, PipelineManager, ProcessNode,
+    InputSub, NodeConfig, NodeSpec, Pipeline, PipelineError, PipelineManager, ProcessNode,
     ProcessNodeConstruction,
 };
 use signal_sinks::binary_file_writer::BinaryFileWriter;
@@ -711,11 +711,13 @@ struct BenchmarkAppManagerFactory {
 }
 
 impl AppManagerFactory for BenchmarkAppManagerFactory {
-    fn create(&self) -> AppManager {
-        AppManager::with_backend(Box::new(BenchmarkAppManagerBackend {
-            manager: PipelineManager::new(Arc::clone(&self.work_executor)),
-            metrics: self.metrics.clone(),
-        }))
+    fn create(&self) -> Result<AppManager, PipelineError> {
+        Ok(AppManager::with_backend(Box::new(
+            BenchmarkAppManagerBackend {
+                manager: PipelineManager::new(Arc::clone(&self.work_executor))?,
+                metrics: self.metrics.clone(),
+            },
+        )))
     }
 }
 
@@ -729,25 +731,25 @@ impl AppManagerBackend for BenchmarkAppManagerBackend {
         self.manager.is_finished()
     }
 
-    fn add_node(&mut self, spec: NodeSpec) -> Result<(), String> {
+    fn add_node(&mut self, spec: NodeSpec) -> Result<(), PipelineError> {
         self.manager
             .add_node(profile_node_spec(spec, &self.metrics))
     }
 
-    fn add_node_deferred(&mut self, spec: NodeSpec) -> Result<(), String> {
+    fn add_node_deferred(&mut self, spec: NodeSpec) -> Result<(), PipelineError> {
         self.manager
             .add_node_deferred(profile_node_spec(spec, &self.metrics))
     }
 
-    fn start_all_deferred(&mut self) -> Result<(), String> {
+    fn start_all_deferred(&mut self) -> Result<(), PipelineError> {
         self.manager.start_all_deferred()
     }
 
-    fn remove_node(&mut self, name: &str) -> Result<(), String> {
+    fn remove_node(&mut self, name: &str) -> Result<(), PipelineError> {
         self.manager.remove_node(name)
     }
 
-    fn reconfigure(&mut self, name: &str, config: NodeConfig) -> Result<(), String> {
+    fn reconfigure(&mut self, name: &str, config: NodeConfig) -> Result<(), PipelineError> {
         self.manager.reconfigure(name, config)
     }
 
@@ -756,7 +758,7 @@ impl AppManagerBackend for BenchmarkAppManagerBackend {
         name: &str,
         config: NodeConfig,
         boundary: ConfigurationBoundary,
-    ) -> Result<(), String> {
+    ) -> Result<(), PipelineError> {
         self.manager.reconfigure_at(name, config, boundary)
     }
 
@@ -765,7 +767,7 @@ impl AppManagerBackend for BenchmarkAppManagerBackend {
         name: &str,
         node: Box<dyn ProcessNode>,
         inputs: Vec<Option<InputSub>>,
-    ) -> Result<(), String> {
+    ) -> Result<(), PipelineError> {
         let node = if let Some(metrics) = &self.metrics {
             Box::new(TimedProcessNode {
                 name: name.to_owned(),

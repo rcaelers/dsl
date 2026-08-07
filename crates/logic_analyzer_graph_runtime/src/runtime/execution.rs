@@ -701,7 +701,9 @@ fn start_live_inner(
     ctx.sampling_points = sampling_point_map(&compiled);
     ctx.collected_output_subscriptions = collected_output_subscriptions(&compiled);
     ctx.collected_table_subscriptions = collected_table_subscriptions(&compiled);
-    let mut manager = runtime_factory.create();
+    let mut manager = runtime_factory
+        .create()
+        .map_err(|error| vec![ProcessingGraphError::global(error.to_string())])?;
     let mut names: HashMap<NodeId, String> = HashMap::new();
 
     for source_node in source_overrides.keys().copied() {
@@ -738,14 +740,14 @@ fn start_live_inner(
                 node: process,
                 inputs,
             })
-            .map_err(|message| vec![ProcessingGraphError::on(id, message)])?;
+            .map_err(|error| vec![ProcessingGraphError::on(id, error.to_string())])?;
         names.insert(id, node.runtime_name.clone());
     }
     // All initial subscriptions exist; only now may threads start (a
     // self-threading source snapshots its subscriber lists on first work()).
     manager
         .start_all_deferred()
-        .map_err(|message| vec![ProcessingGraphError::global(message)])?;
+        .map_err(|error| vec![ProcessingGraphError::global(error.to_string())])?;
     publish_materialized_source_readiness(&compiled, &ctx.source_readiness);
 
     Ok(LiveRun {
@@ -861,7 +863,9 @@ impl LiveRun {
             match edit {
                 LiveEdit::Remove(id) => {
                     if let Some(name) = self.names.remove(&id) {
-                        self.manager.remove_node(&name).map_err(ApplyError::Apply)?;
+                        self.manager
+                            .remove_node(&name)
+                            .map_err(ApplyError::Runtime)?;
                     }
                     summary.removed += 1;
                 }
@@ -880,7 +884,7 @@ impl LiveRun {
                             node: process,
                             inputs,
                         })
-                        .map_err(ApplyError::Apply)?;
+                        .map_err(ApplyError::Runtime)?;
                     self.names.insert(id, node.runtime_name.clone());
                     summary.added += 1;
                 }
@@ -891,7 +895,7 @@ impl LiveRun {
                         .ok_or_else(|| ApplyError::Apply(format!("n{} not running", id.0)))?;
                     self.manager
                         .reconfigure(name, config)
-                        .map_err(ApplyError::Apply)?;
+                        .map_err(ApplyError::Runtime)?;
                     summary.configured += 1;
                 }
                 LiveEdit::Restart(id) => {
@@ -909,7 +913,7 @@ impl LiveRun {
                         .map_err(ApplyError::Apply)?;
                     self.manager
                         .restart_node(&name, process, inputs)
-                        .map_err(ApplyError::Apply)?;
+                        .map_err(ApplyError::Runtime)?;
                     summary.restarted += 1;
                 }
             }
@@ -979,7 +983,7 @@ impl LiveRun {
         for (name, config) in scheduled {
             self.manager
                 .reconfigure_at(&name, config, boundary)
-                .map_err(ApplyError::Apply)?;
+                .map_err(ApplyError::Runtime)?;
         }
         self.collected_output_subscriptions = collected_output_subscriptions(&new);
         self.collected_table_subscriptions = collected_table_subscriptions(&new);

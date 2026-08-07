@@ -312,6 +312,16 @@ files.each do |path|
     end
   end
 
+  if rel.start_with?("crates/signal_runtime/src/")
+    implementation = implementation_source(source)
+    implementation.to_enum(:scan, /Result\s*<[^;{}]*,\s*String\s*>/).each do
+      errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: signal_runtime production contracts use port, connection, pipeline, or work error types"
+    end
+    implementation.to_enum(:scan, /struct\s+NodeFailure\s*\{[^}]{0,500}\bmessage\s*:/).each do
+      errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: supervised node failures retain the typed WorkError contract"
+    end
+  end
+
   source.to_enum(:scan, /#\s*\[\s*ignore(?:\s*=|\s*\])/).each do
     errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: benchmarks and external validation belong in explicit non-test commands, not ignored tests"
   end

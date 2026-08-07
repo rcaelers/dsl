@@ -22,8 +22,11 @@ the query's boolean-signal semantics.
 
 ## Errors and tests
 
-`ConnectionError` and `PortError` report graph wiring failures. `WorkError` is the process-node
-execution boundary. Unit tests cover channel behavior, negotiation, scheduling, managers, worker
-shutdown, and injected execution. Worker dispatch and cancellation are tested by their
-`platform_runtime` owner. Architecture tests reject signal-domain and storage
-dependencies.
+`ConnectionError` and `PortError` report graph wiring and schema-lookup failures. `PipelineError`
+classifies pipeline construction, protocol negotiation, node lifecycle, configuration, dynamic
+channel construction, and host task-submission failures. `WorkError` is the process-node execution
+boundary, and `NodeFailure` retains that typed error when a manager reports terminal work failure.
+Unit tests cover channel behavior, negotiation, scheduling, managers, worker shutdown, and
+injected execution. Worker dispatch and cancellation are tested by their `platform_runtime` owner.
+Architecture tests reject signal-domain and storage dependencies and prevent production runtime
+contracts from returning string errors.

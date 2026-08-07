@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use super::super::errors::PipelineError;
 use super::super::manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec};
 use super::super::node::{ConfigurationBoundary, NodeConfig, ProcessNode};
 use super::contract::AppManagerBackend;
@@ -37,7 +38,7 @@ impl AppManager {
     /// # Parameters
     ///
     /// - `spec`: Node implementation and input wiring to own.
-    pub fn add_node(&mut self, spec: NodeSpec) -> Result<(), String> {
+    pub fn add_node(&mut self, spec: NodeSpec) -> Result<(), PipelineError> {
         self.backend.add_node(spec)
     }
 
@@ -46,12 +47,12 @@ impl AppManager {
     /// # Parameters
     ///
     /// - `spec`: Node implementation and input wiring to own.
-    pub fn add_node_deferred(&mut self, spec: NodeSpec) -> Result<(), String> {
+    pub fn add_node_deferred(&mut self, spec: NodeSpec) -> Result<(), PipelineError> {
         self.backend.add_node_deferred(spec)
     }
 
     /// Starts all nodes registered through [`Self::add_node_deferred`].
-    pub fn start_all_deferred(&mut self) -> Result<(), String> {
+    pub fn start_all_deferred(&mut self) -> Result<(), PipelineError> {
         self.backend.start_all_deferred()
     }
 
@@ -60,7 +61,7 @@ impl AppManager {
     /// # Parameters
     ///
     /// - `name`: Graph-local name of the node to remove.
-    pub fn remove_node(&mut self, name: &str) -> Result<(), String> {
+    pub fn remove_node(&mut self, name: &str) -> Result<(), PipelineError> {
         self.backend.remove_node(name)
     }
 
@@ -70,7 +71,7 @@ impl AppManager {
     ///
     /// - `name`: Graph-local name of the node.
     /// - `config`: Configuration to apply.
-    pub fn reconfigure(&mut self, name: &str, config: NodeConfig) -> Result<(), String> {
+    pub fn reconfigure(&mut self, name: &str, config: NodeConfig) -> Result<(), PipelineError> {
         self.backend.reconfigure(name, config)
     }
 
@@ -86,7 +87,7 @@ impl AppManager {
         name: &str,
         config: NodeConfig,
         boundary: ConfigurationBoundary,
-    ) -> Result<(), String> {
+    ) -> Result<(), PipelineError> {
         self.backend.reconfigure_at(name, config, boundary)
     }
 
@@ -102,7 +103,7 @@ impl AppManager {
         name: &str,
         node: Box<dyn ProcessNode>,
         inputs: Vec<Option<InputSub>>,
-    ) -> Result<(), String> {
+    ) -> Result<(), PipelineError> {
         self.backend.restart_node(name, node, inputs)
     }
 

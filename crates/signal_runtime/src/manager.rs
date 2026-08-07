@@ -29,7 +29,7 @@ use tracing::{debug, error, info};
 
 use platform_runtime::{WorkExecutor, WorkTask};
 
-use super::errors::WorkError;
+use super::errors::{PipelineError, WorkError};
 use super::node::{
     ConfigOutcome, ConfigurationBoundary, ConfigurationScheduler, InputProtocolCandidate,
     NodeConfig, ProcessNode,
@@ -77,7 +77,7 @@ fn build_output_lists(
     node: &dyn ProcessNode,
     output_schemas: &[PortSchema],
     input_capabilities: &[Vec<ProtocolCapability>],
-) -> Result<HashMap<String, OutputList>, String> {
+) -> Result<HashMap<String, OutputList>, PipelineError> {
     let mut outputs: HashMap<String, OutputList> = HashMap::new();
     let registry = TYPE_REGISTRY.lock().unwrap();
     for schema in output_schemas {
@@ -87,7 +87,10 @@ fn build_output_lists(
             let sticky = payload.stream_semantics == StreamSemantics::State;
             let list = registry
                 .create_shared(payload.type_id, sticky)
-                .ok_or_else(|| format!("type of port '{}' not registered", schema.name))?;
+                .ok_or_else(|| PipelineError::PortTypeNotRegistered {
+                    port: schema.name.clone(),
+                    type_id: payload.type_id,
+                })?;
             lists.push((payload.type_id, list));
         }
 
@@ -125,21 +128,24 @@ fn build_output_lists(
 fn input_protocol_capabilities(
     inputs: &[Option<InputSub>],
     nodes: &HashMap<String, RunningNode>,
-) -> Result<Vec<Vec<ProtocolCapability>>, String> {
+) -> Result<Vec<Vec<ProtocolCapability>>, PipelineError> {
     inputs
         .iter()
         .map(|input| {
             let Some(input) = input else {
                 return Ok(Vec::new());
             };
-            let producer = nodes
-                .get(&input.from_node)
-                .ok_or_else(|| format!("producer '{}' not running", input.from_node))?;
+            let producer =
+                nodes
+                    .get(&input.from_node)
+                    .ok_or_else(|| PipelineError::ProducerNotRunning {
+                        producer: input.from_node.clone(),
+                    })?;
             let output = producer.outputs.get(&input.from_port).ok_or_else(|| {
-                format!(
-                    "producer '{}' has no port '{}'",
-                    input.from_node, input.from_port
-                )
+                PipelineError::ProducerPortNotFound {
+                    producer: input.from_node.clone(),
+                    port: input.from_port.clone(),
+                }
             })?;
             Ok(output.capabilities.clone())
         })
@@ -152,20 +158,23 @@ fn select_node_input_protocols(
     input_schemas: &[PortSchema],
     inputs: &[Option<InputSub>],
     nodes: &HashMap<String, RunningNode>,
-) -> Result<Vec<Option<ProtocolKind>>, String> {
+) -> Result<Vec<Option<ProtocolKind>>, PipelineError> {
     let mut candidates = vec![None; input_schemas.len()];
     for (index, sub) in inputs.iter().enumerate() {
         let Some(sub) = sub else {
             continue;
         };
-        let producer = nodes
-            .get(&sub.from_node)
-            .ok_or_else(|| format!("producer '{}' not running", sub.from_node))?;
+        let producer =
+            nodes
+                .get(&sub.from_node)
+                .ok_or_else(|| PipelineError::ProducerNotRunning {
+                    producer: sub.from_node.clone(),
+                })?;
         let output = producer.outputs.get(&sub.from_port).ok_or_else(|| {
-            format!(
-                "producer '{}' has no port '{}'",
-                sub.from_node, sub.from_port
-            )
+            PipelineError::ProducerPortNotFound {
+                producer: sub.from_node.clone(),
+                port: sub.from_port.clone(),
+            }
         })?;
         candidates[index] = Some(InputProtocolCandidate {
             offered: output.protocols.clone(),
@@ -174,24 +183,28 @@ fn select_node_input_protocols(
     }
     let selected = node.select_input_protocols(&candidates);
     if selected.len() != input_schemas.len() {
-        return Err(format!(
-            "node '{name}' returned {} protocol choices for {} inputs",
-            selected.len(),
-            input_schemas.len()
-        ));
+        return Err(PipelineError::ProtocolChoiceCount {
+            node: name.to_string(),
+            actual: selected.len(),
+            expected: input_schemas.len(),
+        });
     }
     for (index, candidate) in candidates.iter().enumerate() {
         let Some(candidate) = candidate else {
             continue;
         };
-        let protocol = selected[index]
-            .ok_or_else(|| format!("no common protocol for node '{name}' input {index}"))?;
+        let protocol = selected[index].ok_or_else(|| PipelineError::NoCommonProtocol {
+            node: name.to_string(),
+            input: index,
+        })?;
         if !candidate.offered.contains(&protocol)
             || !input_schemas[index].protocols.contains(&protocol)
         {
-            return Err(format!(
-                "node '{name}' selected unsupported protocol {protocol:?} for input {index}"
-            ));
+            return Err(PipelineError::UnsupportedProtocol {
+                node: name.to_string(),
+                input: index,
+                protocol,
+            });
         }
     }
     Ok(selected)
@@ -246,8 +259,8 @@ pub struct DisconnectEvent {
 pub struct NodeFailure {
     /// Name of the node whose work loop terminated with an error.
     pub node: String,
-    /// Displayable error text reported by that node.
-    pub message: String,
+    /// Typed work failure reported by that node.
+    pub error: WorkError,
 }
 
 struct OutputList {
@@ -312,18 +325,18 @@ impl PipelineManager {
     ///
     /// # Parameters
     /// - `work_executor`: Host capability that runs node and watchdog tasks.
-    pub fn new(work_executor: Arc<dyn WorkExecutor>) -> Self {
+    pub fn new(work_executor: Arc<dyn WorkExecutor>) -> Result<Self, PipelineError> {
         let watchdog = Watchdog::new();
         let watchdog_task = watchdog
             .start_monitoring(Arc::clone(&work_executor))
-            .expect("host work executor must accept watchdog monitoring");
-        Self {
+            .map_err(|source| PipelineError::WatchdogStart { source })?;
+        Ok(Self {
             nodes: HashMap::new(),
             watchdog,
             watchdog_task: Some(watchdog_task),
             work_executor,
             failures: Arc::new(Mutex::new(Vec::new())),
-        }
+        })
     }
 
     /// Returns the names of nodes currently registered with the manager.
@@ -363,7 +376,7 @@ impl PipelineManager {
     /// # Parameters
     ///
     /// - `spec`: Node implementation and its full input wiring.
-    pub fn add_node(&mut self, spec: NodeSpec) -> Result<(), String> {
+    pub fn add_node(&mut self, spec: NodeSpec) -> Result<(), PipelineError> {
         let name = spec.name.clone();
         self.add_node_deferred(spec)?;
         self.start_node(&name)
@@ -377,21 +390,22 @@ impl PipelineManager {
     /// # Parameters
     ///
     /// - `spec`: Node implementation and its full input wiring.
-    pub fn add_node_deferred(&mut self, spec: NodeSpec) -> Result<(), String> {
+    pub fn add_node_deferred(&mut self, spec: NodeSpec) -> Result<(), PipelineError> {
         if self.nodes.contains_key(&spec.name) {
-            return Err(format!("node '{}' already exists", spec.name));
+            return Err(PipelineError::NodeAlreadyExists {
+                node: spec.name.clone(),
+            });
         }
         let NodeSpec { name, node, inputs } = spec;
 
         let input_schemas = node.input_schema();
         let output_schemas = node.output_schema();
         if inputs.len() != input_schemas.len() {
-            return Err(format!(
-                "node '{}': {} input specs for {} ports",
-                name,
-                inputs.len(),
-                input_schemas.len()
-            ));
+            return Err(PipelineError::InputCountMismatch {
+                node: name,
+                provided: inputs.len(),
+                expected: input_schemas.len(),
+            });
         }
 
         // Output subscriber lists, supervisor-owned. `node` is still
@@ -417,22 +431,23 @@ impl PipelineManager {
             let port = match sub {
                 None => InputPort::from_type_erased(Box::new(()) as Box<dyn Any + Send>),
                 Some(sub) => {
-                    let producer = self
-                        .nodes
-                        .get(&sub.from_node)
-                        .ok_or_else(|| format!("producer '{}' not running", sub.from_node))?;
+                    let producer = self.nodes.get(&sub.from_node).ok_or_else(|| {
+                        PipelineError::ProducerNotRunning {
+                            producer: sub.from_node.clone(),
+                        }
+                    })?;
                     let output = producer.outputs.get(&sub.from_port).ok_or_else(|| {
-                        format!(
-                            "producer '{}' has no port '{}'",
-                            sub.from_node, sub.from_port
-                        )
+                        PipelineError::ProducerPortNotFound {
+                            producer: sub.from_node.clone(),
+                            port: sub.from_port.clone(),
+                        }
                     })?;
                     let list = negotiate_payload_list(output, &input_schemas[index].payloads)
-                        .ok_or_else(|| {
-                            format!(
-                                "type mismatch: {}.{} -> {}.{}",
-                                sub.from_node, sub.from_port, name, input_schemas[index].name
-                            )
+                        .ok_or_else(|| PipelineError::PayloadTypeMismatch {
+                            from_node: sub.from_node.clone(),
+                            from_port: sub.from_port.clone(),
+                            to_node: name.clone(),
+                            to_port: input_schemas[index].name.clone(),
                         })?;
                     if let Some(protocol @ ProtocolKind::Capability(_)) = selected_protocols[index]
                     {
@@ -441,11 +456,10 @@ impl PipelineManager {
                             .iter()
                             .find(|capability| capability.protocol() == protocol)
                             .cloned()
-                            .ok_or_else(|| {
-                                format!(
-                                    "producer '{}.{}' has no {protocol:?} capability",
-                                    sub.from_node, sub.from_port
-                                )
+                            .ok_or_else(|| PipelineError::CapabilityUnavailable {
+                                producer: sub.from_node.clone(),
+                                port: sub.from_port.clone(),
+                                protocol,
                             })?;
                         InputPort::from_type_erased(Box::new(()) as Box<dyn Any + Send>)
                             .with_protocol_capability(Some(capability))
@@ -532,7 +546,7 @@ impl PipelineManager {
     }
 
     /// Starts every node still awaiting its thread (initial bring-up).
-    pub fn start_all_deferred(&mut self) -> Result<(), String> {
+    pub fn start_all_deferred(&mut self) -> Result<(), PipelineError> {
         let deferred: Vec<String> = self
             .nodes
             .iter()
@@ -545,12 +559,14 @@ impl PipelineManager {
         Ok(())
     }
 
-    fn start_node(&mut self, name: &str) -> Result<(), String> {
+    fn start_node(&mut self, name: &str) -> Result<(), PipelineError> {
         let work_executor = Arc::clone(&self.work_executor);
         let entry = self
             .nodes
             .get_mut(name)
-            .ok_or_else(|| format!("node '{name}' not registered"))?;
+            .ok_or_else(|| PipelineError::NodeNotRegistered {
+                node: name.to_string(),
+            })?;
         let Some(PendingStart {
             mut node,
             inputs,
@@ -558,7 +574,9 @@ impl PipelineManager {
             control_rx,
         }) = entry.pending.take()
         else {
-            return Err(format!("node '{name}' already started"));
+            return Err(PipelineError::NodeAlreadyStarted {
+                node: name.to_string(),
+            });
         };
         let generation = entry.generation;
 
@@ -583,7 +601,7 @@ impl PipelineManager {
                         error!("[{thread_name}] failed to start: {e}");
                         failures.lock().unwrap().push(NodeFailure {
                             node: failure_node.clone(),
-                            message: e.to_string(),
+                            error: e,
                         });
                     } else {
                         loop {
@@ -634,7 +652,7 @@ impl PipelineManager {
                                 error!("[{thread_name}] work error: {e}");
                                 failures.lock().unwrap().push(NodeFailure {
                                     node: failure_node.clone(),
-                                    message: e.to_string(),
+                                    error: e,
                                 });
                                 break;
                             }
@@ -656,7 +674,10 @@ impl PipelineManager {
                 }
                 info!("[{thread_name}] exited");
             }))
-            .map_err(|error| format!("start '{name}': {error}"))?;
+            .map_err(|source| PipelineError::NodeTaskStart {
+                node: name.to_string(),
+                source,
+            })?;
 
         entry.task = Some(task);
         Ok(())
@@ -668,11 +689,13 @@ impl PipelineManager {
     ///
     /// # Parameters
     /// - `name`: Name of the node to detach, stop, and join.
-    pub fn remove_node(&mut self, name: &str) -> Result<(), String> {
+    pub fn remove_node(&mut self, name: &str) -> Result<(), PipelineError> {
         let node = self
             .nodes
             .remove(name)
-            .ok_or_else(|| format!("node '{name}' not running"))?;
+            .ok_or_else(|| PipelineError::NodeNotRunning {
+                node: name.to_string(),
+            })?;
         self.detach(&node);
         node.stop_flag.store(true, Ordering::Relaxed);
         if let Some(cancellation) = &node.cancellation {
@@ -715,14 +738,18 @@ impl PipelineManager {
     ///
     /// - `name`: Name of the running node to configure.
     /// - `config`: Validated configuration to apply between work calls.
-    pub fn reconfigure(&self, name: &str, config: NodeConfig) -> Result<(), String> {
+    pub fn reconfigure(&self, name: &str, config: NodeConfig) -> Result<(), PipelineError> {
         let node = self
             .nodes
             .get(name)
-            .ok_or_else(|| format!("node '{name}' not running"))?;
+            .ok_or_else(|| PipelineError::NodeNotRunning {
+                node: name.to_string(),
+            })?;
         node.control_tx
             .send(config)
-            .map_err(|_| format!("node '{name}' no longer accepts config"))
+            .map_err(|_| PipelineError::ConfigurationClosed {
+                node: name.to_string(),
+            })
     }
 
     /// Schedules validated hot configuration at an event-time boundary.
@@ -739,18 +766,22 @@ impl PipelineManager {
         name: &str,
         config: NodeConfig,
         boundary: ConfigurationBoundary,
-    ) -> Result<(), String> {
+    ) -> Result<(), PipelineError> {
         let node = self
             .nodes
             .get(name)
-            .ok_or_else(|| format!("node '{name}' not running"))?;
+            .ok_or_else(|| PipelineError::NodeNotRunning {
+                node: name.to_string(),
+            })?;
         let scheduler = node.configuration_scheduler.as_ref().ok_or_else(|| {
-            format!("node '{name}' does not expose a scheduled configuration handle")
+            PipelineError::ConfigurationUnavailable {
+                node: name.to_string(),
+            }
         })?;
         if scheduler.schedule_config(&config, boundary) == ConfigOutcome::NeedsRestart {
-            return Err(format!(
-                "node '{name}' rejected scheduled hot configuration"
-            ));
+            return Err(PipelineError::ConfigurationRejected {
+                node: name.to_string(),
+            });
         }
         Ok(())
     }
@@ -768,11 +799,13 @@ impl PipelineManager {
         name: &str,
         node: Box<dyn ProcessNode>,
         inputs: Vec<Option<InputSub>>,
-    ) -> Result<(), String> {
+    ) -> Result<(), PipelineError> {
         let old = self
             .nodes
             .remove(name)
-            .ok_or_else(|| format!("node '{name}' not running"))?;
+            .ok_or_else(|| PipelineError::NodeNotRunning {
+                node: name.to_string(),
+            })?;
         old.keep_outputs_open.store(true, Ordering::Relaxed);
         self.detach(&old);
         old.stop_flag.store(true, Ordering::Relaxed);
@@ -785,11 +818,11 @@ impl PipelineManager {
 
         let input_schemas = node.input_schema();
         if inputs.len() != input_schemas.len() {
-            return Err(format!(
-                "node '{name}': {} input specs for {} ports",
-                inputs.len(),
-                input_schemas.len()
-            ));
+            return Err(PipelineError::InputCountMismatch {
+                node: name.to_string(),
+                provided: inputs.len(),
+                expected: input_schemas.len(),
+            });
         }
         let selected_protocols =
             select_node_input_protocols(name, node.as_ref(), &input_schemas, &inputs, &self.nodes)?;
@@ -799,22 +832,23 @@ impl PipelineManager {
             let port = match sub {
                 None => InputPort::from_type_erased(Box::new(()) as Box<dyn Any + Send>),
                 Some(sub) => {
-                    let producer = self
-                        .nodes
-                        .get(&sub.from_node)
-                        .ok_or_else(|| format!("producer '{}' not running", sub.from_node))?;
+                    let producer = self.nodes.get(&sub.from_node).ok_or_else(|| {
+                        PipelineError::ProducerNotRunning {
+                            producer: sub.from_node.clone(),
+                        }
+                    })?;
                     let output = producer.outputs.get(&sub.from_port).ok_or_else(|| {
-                        format!(
-                            "producer '{}' has no port '{}'",
-                            sub.from_node, sub.from_port
-                        )
+                        PipelineError::ProducerPortNotFound {
+                            producer: sub.from_node.clone(),
+                            port: sub.from_port.clone(),
+                        }
                     })?;
                     let list = negotiate_payload_list(output, &input_schemas[index].payloads)
-                        .ok_or_else(|| {
-                            format!(
-                                "type mismatch: {}.{} -> {}.{}",
-                                sub.from_node, sub.from_port, name, input_schemas[index].name
-                            )
+                        .ok_or_else(|| PipelineError::PayloadTypeMismatch {
+                            from_node: sub.from_node.clone(),
+                            from_port: sub.from_port.clone(),
+                            to_node: name.to_string(),
+                            to_port: input_schemas[index].name.clone(),
                         })?;
                     if let Some(protocol @ ProtocolKind::Capability(_)) = selected_protocols[index]
                     {
@@ -823,11 +857,10 @@ impl PipelineManager {
                             .iter()
                             .find(|capability| capability.protocol() == protocol)
                             .cloned()
-                            .ok_or_else(|| {
-                                format!(
-                                    "producer '{}.{}' has no {protocol:?} capability",
-                                    sub.from_node, sub.from_port
-                                )
+                            .ok_or_else(|| PipelineError::CapabilityUnavailable {
+                                producer: sub.from_node.clone(),
+                                port: sub.from_port.clone(),
+                                protocol,
                             })?;
                         InputPort::from_type_erased(Box::new(()) as Box<dyn Any + Send>)
                             .with_protocol_capability(Some(capability))
@@ -1105,7 +1138,7 @@ mod tests {
     }
 
     fn manager() -> PipelineManager {
-        PipelineManager::new(Arc::new(TestWorkExecutor))
+        PipelineManager::new(Arc::new(TestWorkExecutor)).unwrap()
     }
 
     /// Emits `TestLevel { value: i, start_time_ns: i }` for i in 0..max,
@@ -1428,7 +1461,8 @@ mod tests {
         let idle_calls = Arc::new(AtomicU64::new(0));
         let mut manager = PipelineManager::new(Arc::new(IdleRecordingExecutor {
             idle_calls: Arc::clone(&idle_calls),
-        }));
+        }))
+        .unwrap();
         manager
             .add_node(NodeSpec {
                 name: "zero-output-progress".into(),
@@ -1460,7 +1494,7 @@ mod tests {
             manager.take_failures(),
             vec![NodeFailure {
                 node: "failure-node".into(),
-                message: "Node-specific error: intentional failure".into(),
+                error: WorkError::NodeError("intentional failure".into()),
             }]
         );
         assert!(manager.take_failures().is_empty());

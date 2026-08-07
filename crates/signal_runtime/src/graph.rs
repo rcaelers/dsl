@@ -5,6 +5,8 @@
 use std::any::TypeId;
 use std::collections::HashMap;
 
+use super::errors::ConnectionError;
+
 /// Unique identifier for a node in the graph
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId(usize);
@@ -111,46 +113,50 @@ impl GraphBuilder {
         to_node: NodeId,
         to_port: usize,
         buffer_size: usize,
-    ) -> Result<(), String> {
+    ) -> Result<(), Box<ConnectionError>> {
         // Validate nodes exist
-        let from_info = self
-            .nodes
-            .get(&from_node)
-            .ok_or_else(|| format!("Source node {:?} not found", from_node))?;
-        let to_info = self
-            .nodes
-            .get(&to_node)
-            .ok_or_else(|| format!("Destination node {:?} not found", to_node))?;
+        let from_info = self.nodes.get(&from_node).ok_or_else(|| {
+            Box::new(ConnectionError::NodeNotFound(
+                from_node.as_usize().to_string(),
+            ))
+        })?;
+        let to_info = self.nodes.get(&to_node).ok_or_else(|| {
+            Box::new(ConnectionError::NodeNotFound(
+                to_node.as_usize().to_string(),
+            ))
+        })?;
 
         // Validate ports exist
         let from_port_info = from_info.output_ports.get(from_port).ok_or_else(|| {
-            format!(
-                "Source port {} not found on node {}",
-                from_port, from_info.name
-            )
+            Box::new(ConnectionError::PortNotFound {
+                node: from_info.name.clone(),
+                port: from_port.to_string(),
+            })
         })?;
         let to_port_info = to_info.input_ports.get(to_port).ok_or_else(|| {
-            format!(
-                "Destination port {} not found on node {}",
-                to_port, to_info.name
-            )
+            Box::new(ConnectionError::PortNotFound {
+                node: to_info.name.clone(),
+                port: to_port.to_string(),
+            })
         })?;
 
         // Validate types match
         let expected_type = TypeId::of::<T>();
         if from_port_info.type_id != expected_type {
-            return Err(format!(
-                "Source port type mismatch: expected {}, got {}",
-                std::any::type_name::<T>(),
-                from_port_info.type_name
-            ));
+            return Err(Box::new(ConnectionError::PortTypeMismatch {
+                node: from_info.name.clone(),
+                port: from_port.to_string(),
+                requested: std::any::type_name::<T>().to_string(),
+                actual: from_port_info.type_name.clone(),
+            }));
         }
         if to_port_info.type_id != expected_type {
-            return Err(format!(
-                "Destination port type mismatch: expected {}, got {}",
-                std::any::type_name::<T>(),
-                to_port_info.type_name
-            ));
+            return Err(Box::new(ConnectionError::PortTypeMismatch {
+                node: to_info.name.clone(),
+                port: to_port.to_string(),
+                requested: std::any::type_name::<T>().to_string(),
+                actual: to_port_info.type_name.clone(),
+            }));
         }
 
         self.connections.push(Connection {
@@ -187,7 +193,7 @@ impl GraphBuilder {
     }
 
     /// Validate the graph (check all ports are connected, no cycles for now)
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), Box<ConnectionError>> {
         // For now, just ensure inputs and outputs are properly connected
         // More sophisticated validation (cycle checking, etc.) can be added later
 
@@ -200,10 +206,10 @@ impl GraphBuilder {
                     .any(|conn| conn.to_node == *node_id && conn.to_port == input_port);
 
                 if !connected {
-                    return Err(format!(
-                        "Input port {} on node '{}' is not connected",
-                        input_port, node_info.name
-                    ));
+                    return Err(Box::new(ConnectionError::UnconnectedInput {
+                        node: node_info.name.clone(),
+                        port: input_port.to_string(),
+                    }));
                 }
             }
 
@@ -258,7 +264,17 @@ mod tests {
             vec![],
         );
 
-        assert!(builder.connect::<u32>(source, 0, sink, 0, 1000).is_err());
+        assert_eq!(
+            *builder
+                .connect::<u32>(source, 0, sink, 0, 1000)
+                .unwrap_err(),
+            ConnectionError::PortTypeMismatch {
+                node: "sink".to_string(),
+                port: "0".to_string(),
+                requested: "u32".to_string(),
+                actual: "u64".to_string(),
+            }
+        );
     }
 
     #[test]
@@ -277,6 +293,14 @@ mod tests {
         );
 
         // Try to connect to non-existent port
-        assert!(builder.connect::<u32>(source, 1, sink, 0, 1000).is_err());
+        assert_eq!(
+            *builder
+                .connect::<u32>(source, 1, sink, 0, 1000)
+                .unwrap_err(),
+            ConnectionError::PortNotFound {
+                node: "source".to_string(),
+                port: "1".to_string(),
+            }
+        );
     }
 }

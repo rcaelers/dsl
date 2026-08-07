@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use crossbeam_channel::{Receiver as CrossbeamReceiver, Sender as CrossbeamSender, bounded};
 
+use super::errors::PipelineError;
 use super::sender::{ChannelMessage, OverflowPolicy, Sender, SharedSenders};
 
 /// Type-erased view of a [`SharedSenders<T>`] so the `PipelineManager` can
@@ -88,8 +89,9 @@ impl<T: Clone + Send + Sync + 'static> ErasedSharedSenders for SharedSenders<T> 
 /// Type registry for creating channels dynamically based on TypeId
 type ChannelCreatorFn =
     Box<dyn Fn(usize) -> (Box<dyn Any + Send>, Box<dyn Any + Send>) + Send + Sync>;
-type OutputWrapperFn =
-    Box<dyn Fn(Vec<Box<dyn Any + Send>>) -> Result<Box<dyn Any + Send>, String> + Send + Sync>;
+type OutputWrapperFn = Box<
+    dyn Fn(Vec<Box<dyn Any + Send>>) -> Result<Box<dyn Any + Send>, PipelineError> + Send + Sync,
+>;
 type SharedCreatorFn = Box<dyn Fn(bool) -> Arc<dyn ErasedSharedSenders> + Send + Sync>;
 
 pub(crate) struct LabeledSenderBox {
@@ -140,7 +142,7 @@ impl TypeRegistry {
             type_id,
             Box::new(|senders: Vec<Box<dyn Any + Send>>| {
                 if senders.is_empty() {
-                    return Err("No senders to wrap".to_string());
+                    return Err(PipelineError::OutputChannelUnavailable);
                 }
 
                 let mut typed_senders = Vec::new();
@@ -150,13 +152,13 @@ impl TypeRegistry {
                             let LabeledSenderBox { sender, label } = *labeled;
                             match sender.downcast::<CrossbeamSender<ChannelMessage<T>>>() {
                                 Ok(tx) => typed_senders.push((*tx, label)),
-                                Err(_) => return Err("Type mismatch in labeled sender".to_string()),
+                                Err(_) => return Err(PipelineError::OutputChannelTypeMismatch),
                             }
                         }
                         Err(sender) => {
                             match sender.downcast::<CrossbeamSender<ChannelMessage<T>>>() {
                                 Ok(tx) => typed_senders.push((*tx, None)),
-                                Err(_) => return Err("Type mismatch in sender".to_string()),
+                                Err(_) => return Err(PipelineError::OutputChannelTypeMismatch),
                             }
                         }
                     }
@@ -184,10 +186,10 @@ impl TypeRegistry {
         &self,
         type_id: TypeId,
         senders: Vec<Box<dyn Any + Send>>,
-    ) -> Result<Box<dyn Any + Send>, String> {
+    ) -> Result<Box<dyn Any + Send>, PipelineError> {
         self.output_wrappers
             .get(&type_id)
-            .ok_or_else(|| format!("Type {:?} not registered", type_id))?(senders)
+            .ok_or(PipelineError::TypeNotRegistered { type_id })?(senders)
     }
 
     /// Creates a supervisor-owned subscriber list for `type_id`.

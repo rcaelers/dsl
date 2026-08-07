@@ -256,7 +256,7 @@ impl HeadlessGraphRunner {
                             .and_then(|node| graph.nodes.get(&node))
                             .map(|node| node.title.as_str())
                             .unwrap_or(failure.node.as_str());
-                        format!("{owner}: {}", failure.message)
+                        format!("{owner}: {}", failure.error)
                     })
                     .collect::<Vec<_>>()
                     .join("\n"),

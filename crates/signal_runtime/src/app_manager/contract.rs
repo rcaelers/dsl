@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use super::super::errors::PipelineError;
 use super::super::manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec};
 use super::super::node::{ConfigurationBoundary, NodeConfig, ProcessNode};
 use super::implementation::AppManager;
@@ -13,24 +14,24 @@ pub trait AppManagerBackend {
     ///
     /// # Parameters
     /// - `spec`: Node implementation and input wiring to own.
-    fn add_node(&mut self, spec: NodeSpec) -> Result<(), String>;
+    fn add_node(&mut self, spec: NodeSpec) -> Result<(), PipelineError>;
 
     /// Registers a node without starting its execution yet.
     ///
     /// # Parameters
     ///
     /// - `spec`: Node implementation and input wiring to own.
-    fn add_node_deferred(&mut self, spec: NodeSpec) -> Result<(), String>;
+    fn add_node_deferred(&mut self, spec: NodeSpec) -> Result<(), PipelineError>;
 
     /// Starts all nodes previously added through [`Self::add_node_deferred`].
-    fn start_all_deferred(&mut self) -> Result<(), String>;
+    fn start_all_deferred(&mut self) -> Result<(), PipelineError>;
 
     /// Stops, detaches, and removes one node.
     ///
     /// # Parameters
     ///
     /// - `name`: Graph-local name of the node to remove.
-    fn remove_node(&mut self, name: &str) -> Result<(), String>;
+    fn remove_node(&mut self, name: &str) -> Result<(), PipelineError>;
 
     /// Applies a validated hot configuration to one node.
     ///
@@ -38,7 +39,7 @@ pub trait AppManagerBackend {
     ///
     /// - `name`: Graph-local name of the node.
     /// - `config`: Configuration to apply.
-    fn reconfigure(&mut self, name: &str, config: NodeConfig) -> Result<(), String>;
+    fn reconfigure(&mut self, name: &str, config: NodeConfig) -> Result<(), PipelineError>;
 
     /// Schedules hot configuration at an event-time boundary.
     ///
@@ -52,7 +53,7 @@ pub trait AppManagerBackend {
         name: &str,
         config: NodeConfig,
         boundary: ConfigurationBoundary,
-    ) -> Result<(), String>;
+    ) -> Result<(), PipelineError>;
 
     /// Replaces a node while retaining its downstream subscriptions.
     ///
@@ -66,7 +67,7 @@ pub trait AppManagerBackend {
         name: &str,
         node: Box<dyn ProcessNode>,
         inputs: Vec<Option<InputSub>>,
-    ) -> Result<(), String>;
+    ) -> Result<(), PipelineError>;
 
     /// Returns cumulative produced-item counts by node name.
     fn progress(&self) -> Vec<(String, u64)>;
@@ -106,5 +107,5 @@ pub trait AppManagerBackend {
 /// Constructs one application-runtime facade for each graph run.
 pub trait AppManagerFactory: Send + Sync {
     /// Creates a new independent application-runtime facade.
-    fn create(&self) -> AppManager;
+    fn create(&self) -> Result<AppManager, PipelineError>;
 }

@@ -1,4 +1,5 @@
 use logic_analyzer_graph_plan::ProcessingGraphError;
+use signal_runtime::PipelineError;
 
 /// Error produced while reconciling an active graph run.
 #[derive(Debug)]
@@ -9,6 +10,8 @@ pub enum ApplyError {
     NeedsFullRestart(String),
     /// Runtime reconciliation failed after it began.
     Apply(String),
+    /// Stream-pipeline supervision rejected a live reconciliation operation.
+    Runtime(PipelineError),
 }
 
 impl std::fmt::Display for ApplyError {
@@ -25,8 +28,16 @@ impl std::fmt::Display for ApplyError {
                 write!(formatter, "live edit requires a full restart: {message}")
             }
             Self::Apply(message) => write!(formatter, "could not apply live edit: {message}"),
+            Self::Runtime(error) => write!(formatter, "could not apply live edit: {error}"),
         }
     }
 }
 
-impl std::error::Error for ApplyError {}
+impl std::error::Error for ApplyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Runtime(error) => Some(error),
+            Self::Compile(_) | Self::NeedsFullRestart(_) | Self::Apply(_) => None,
+        }
+    }
+}

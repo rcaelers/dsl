@@ -23,6 +23,7 @@ use tracing::{debug, error, info};
 
 use platform_runtime::{WorkExecutor, WorkTask};
 
+use super::errors::PipelineError;
 use super::node::ProcessNode;
 use super::ports::{InputPort, OutputPort};
 use super::watchdog::Watchdog;
@@ -44,19 +45,19 @@ impl Scheduler {
     ///
     /// # Parameters
     /// - `work_executor`: Host capability used for node and watchdog tasks.
-    pub fn new(work_executor: Arc<dyn WorkExecutor>) -> Self {
+    pub fn new(work_executor: Arc<dyn WorkExecutor>) -> Result<Self, PipelineError> {
         let watchdog = Watchdog::new();
         let watchdog_task = watchdog
             .start_monitoring(Arc::clone(&work_executor))
-            .expect("host work executor must accept watchdog monitoring");
+            .map_err(|source| PipelineError::WatchdogStart { source })?;
         info!("Watchdog enabled - will report operations blocked >5 seconds");
-        Self {
+        Ok(Self {
             tasks: Vec::new(),
             stop_signal: Arc::new(AtomicBool::new(false)),
             watchdog,
             watchdog_task: Some(watchdog_task),
             work_executor,
-        }
+        })
     }
 
     /// Returns the watchdog used to register pipeline port operations.
@@ -79,7 +80,7 @@ impl Scheduler {
         mut node: Box<dyn ProcessNode>,
         inputs: Vec<InputPort>,
         outputs: Vec<OutputPort>,
-    ) {
+    ) -> Result<(), PipelineError> {
         let stop_signal = Arc::clone(&self.stop_signal);
         let work_executor = Arc::clone(&self.work_executor);
         let name = node.name().to_string();
@@ -153,9 +154,13 @@ impl Scheduler {
                     drop(node);
                 }
             }))
-            .expect("host work executor must accept process work");
+            .map_err(|source| PipelineError::NodeTaskStart {
+                node: name.clone(),
+                source,
+            })?;
 
         self.tasks.push((name, task));
+        Ok(())
     }
 
     /// Requests cooperative cancellation from all running node loops.
@@ -194,6 +199,13 @@ impl Scheduler {
     /// Returns node names for tasks currently owned by the scheduler.
     pub fn thread_names(&self) -> Vec<String> {
         self.tasks.iter().map(|(name, _)| name.clone()).collect()
+    }
+}
+
+impl Drop for Scheduler {
+    fn drop(&mut self) {
+        self.stop_signal.store(true, Ordering::Relaxed);
+        self.watchdog.stop();
     }
 }
 
@@ -242,6 +254,20 @@ mod tests {
         }
     }
 
+    struct RejectingWorkExecutor;
+
+    impl WorkExecutor for RejectingWorkExecutor {
+        fn available_parallelism(&self) -> usize {
+            1
+        }
+
+        fn submit(&self, _task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, WorkExecutorError> {
+            Err(WorkExecutorError::Rejected {
+                message: "expected rejection".to_string(),
+            })
+        }
+    }
+
     struct TestWorkTask {
         handle: Option<JoinHandle<()>>,
     }
@@ -260,6 +286,22 @@ mod tests {
 
     fn work_executor() -> Arc<dyn WorkExecutor> {
         Arc::new(TestWorkExecutor)
+    }
+
+    #[test]
+    fn scheduler_preserves_watchdog_submission_failure() {
+        let error = match Scheduler::new(Arc::new(RejectingWorkExecutor)) {
+            Ok(_) => panic!("watchdog submission should fail"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error,
+            PipelineError::WatchdogStart {
+                source: WorkExecutorError::Rejected {
+                    message: "expected rejection".to_string(),
+                },
+            }
+        );
     }
 
     struct TestSource {
@@ -337,7 +379,7 @@ mod tests {
 
     #[test]
     fn test_scheduler_basic() {
-        let mut scheduler = Scheduler::new(work_executor());
+        let mut scheduler = Scheduler::new(work_executor()).unwrap();
 
         let (tx, rx) = bounded::<ChannelMessage<u32>>(10);
 
@@ -357,7 +399,9 @@ mod tests {
             "test_source",
             "output",
         )];
-        scheduler.start_process(Box::new(source), vec![], source_outputs);
+        scheduler
+            .start_process(Box::new(source), vec![], source_outputs)
+            .unwrap();
 
         // Sink has 1 input, 0 outputs
         let sink_inputs = vec![InputPort::new_with_watchdog(
@@ -366,7 +410,9 @@ mod tests {
             "test_sink",
             "input",
         )];
-        scheduler.start_process(Box::new(sink), sink_inputs, vec![]);
+        scheduler
+            .start_process(Box::new(sink), sink_inputs, vec![])
+            .unwrap();
 
         thread::sleep(Duration::from_millis(200));
 
@@ -433,7 +479,7 @@ mod tests {
 
     #[test]
     fn test_scheduler_stop_signal_self_threading() {
-        let mut scheduler = Scheduler::new(work_executor());
+        let mut scheduler = Scheduler::new(work_executor()).unwrap();
 
         let stop = Arc::new(AtomicBool::new(false));
         let completed = Arc::new(AtomicBool::new(false));
@@ -443,7 +489,9 @@ mod tests {
             completed: Arc::clone(&completed),
         };
 
-        scheduler.start_process(Box::new(node), vec![], vec![]);
+        scheduler
+            .start_process(Box::new(node), vec![], vec![])
+            .unwrap();
 
         // Wait a bit to ensure thread starts
         thread::sleep(Duration::from_millis(50));

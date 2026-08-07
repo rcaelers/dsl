@@ -50,7 +50,7 @@ use std::time::Duration;
 
 use web_time::Instant;
 
-use super::errors::WorkError;
+use super::errors::{PipelineError, WorkError};
 use super::manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec};
 use super::node::{
     ConfigOutcome, ConfigurationBoundary, InputScheduling, NodeConfig, ProcessNode,
@@ -104,7 +104,7 @@ struct OutputList {
 
 fn build_output_lists(
     output_schemas: &[PortSchema],
-) -> Result<HashMap<String, OutputList>, String> {
+) -> Result<HashMap<String, OutputList>, PipelineError> {
     let mut outputs = HashMap::new();
     let registry = TYPE_REGISTRY.lock().unwrap();
     for schema in output_schemas {
@@ -118,7 +118,10 @@ fn build_output_lists(
                         payload.stream_semantics == StreamSemantics::State,
                     )
                     .map(|list| (payload.type_id, list))
-                    .ok_or_else(|| format!("type of port '{}' not registered", schema.name))
+                    .ok_or_else(|| PipelineError::PortTypeNotRegistered {
+                        port: schema.name.clone(),
+                        type_id: payload.type_id,
+                    })
             })
             .collect::<Result<Vec<_>, _>>()?;
         outputs.insert(
@@ -202,7 +205,7 @@ impl CooperativeManager {
     ///
     /// # Parameters
     /// - `spec`: Node implementation and its full input wiring.
-    pub fn add_node(&mut self, spec: NodeSpec) -> Result<(), String> {
+    pub fn add_node(&mut self, spec: NodeSpec) -> Result<(), PipelineError> {
         self.add_node_deferred(spec)
     }
 
@@ -214,9 +217,11 @@ impl CooperativeManager {
     /// # Parameters
     ///
     /// - `spec`: Node implementation and its full input wiring.
-    pub fn add_node_deferred(&mut self, spec: NodeSpec) -> Result<(), String> {
+    pub fn add_node_deferred(&mut self, spec: NodeSpec) -> Result<(), PipelineError> {
         if self.nodes.contains_key(&spec.name) {
-            return Err(format!("node '{}' already exists", spec.name));
+            return Err(PipelineError::NodeAlreadyExists {
+                node: spec.name.clone(),
+            });
         }
         let NodeSpec {
             name,
@@ -233,12 +238,11 @@ impl CooperativeManager {
             .collect();
         let output_schemas = node.output_schema();
         if inputs.len() != input_schemas.len() {
-            return Err(format!(
-                "node '{}': {} input specs for {} ports",
-                name,
-                inputs.len(),
-                input_schemas.len()
-            ));
+            return Err(PipelineError::InputCountMismatch {
+                node: name,
+                provided: inputs.len(),
+                expected: input_schemas.len(),
+            });
         }
 
         let output_lists = build_output_lists(&output_schemas)?;
@@ -257,22 +261,23 @@ impl CooperativeManager {
                     InputPort::disconnected()
                 }
                 Some(sub) => {
-                    let producer = self
-                        .nodes
-                        .get(&sub.from_node)
-                        .ok_or_else(|| format!("producer '{}' not running", sub.from_node))?;
+                    let producer = self.nodes.get(&sub.from_node).ok_or_else(|| {
+                        PipelineError::ProducerNotRunning {
+                            producer: sub.from_node.clone(),
+                        }
+                    })?;
                     let output = producer.output_lists.get(&sub.from_port).ok_or_else(|| {
-                        format!(
-                            "producer '{}' has no port '{}'",
-                            sub.from_node, sub.from_port
-                        )
+                        PipelineError::ProducerPortNotFound {
+                            producer: sub.from_node.clone(),
+                            port: sub.from_port.clone(),
+                        }
                     })?;
                     let list = negotiated_list(output, &input_schemas[index].payloads).ok_or_else(
-                        || {
-                            format!(
-                                "type mismatch: {}.{} -> {}.{}",
-                                sub.from_node, sub.from_port, name, input_schemas[index].name
-                            )
+                        || PipelineError::PayloadTypeMismatch {
+                            from_node: sub.from_node.clone(),
+                            from_port: sub.from_port.clone(),
+                            to_node: name.clone(),
+                            to_port: input_schemas[index].name.clone(),
                         },
                     )?;
                     let closed = Arc::clone(&output.closed);
@@ -322,7 +327,7 @@ impl CooperativeManager {
     /// Completes the threaded-manager-compatible startup phase.
     ///
     /// This is a no-op because cooperative nodes are started by pumping.
-    pub fn start_all_deferred(&mut self) -> Result<(), String> {
+    pub fn start_all_deferred(&mut self) -> Result<(), PipelineError> {
         Ok(())
     }
 
@@ -330,11 +335,13 @@ impl CooperativeManager {
     ///
     /// # Parameters
     /// - `name`: Name of the node to remove.
-    pub fn remove_node(&mut self, name: &str) -> Result<(), String> {
+    pub fn remove_node(&mut self, name: &str) -> Result<(), PipelineError> {
         let node = self
             .nodes
             .remove(name)
-            .ok_or_else(|| format!("node '{name}' not running"))?;
+            .ok_or_else(|| PipelineError::NodeNotRunning {
+                node: name.to_string(),
+            })?;
         self.detach(&node);
         close_outputs(&node);
         Ok(())
@@ -358,11 +365,13 @@ impl CooperativeManager {
     ///
     /// - `name`: Name of the node to configure.
     /// - `config`: Configuration to apply before the next work call.
-    pub fn reconfigure(&mut self, name: &str, config: NodeConfig) -> Result<(), String> {
+    pub fn reconfigure(&mut self, name: &str, config: NodeConfig) -> Result<(), PipelineError> {
         let node = self
             .nodes
             .get_mut(name)
-            .ok_or_else(|| format!("node '{name}' not running"))?;
+            .ok_or_else(|| PipelineError::NodeNotRunning {
+                node: name.to_string(),
+            })?;
         // Applied directly (no thread to hand it to); a `NeedsRestart`
         // outcome here means the caller mis-judged hot-appliability, same
         // as on the threaded manager — log it, don't fail the edit.
@@ -384,18 +393,22 @@ impl CooperativeManager {
         name: &str,
         config: NodeConfig,
         boundary: ConfigurationBoundary,
-    ) -> Result<(), String> {
+    ) -> Result<(), PipelineError> {
         let node = self
             .nodes
             .get_mut(name)
-            .ok_or_else(|| format!("node '{name}' not running"))?;
+            .ok_or_else(|| PipelineError::NodeNotRunning {
+                node: name.to_string(),
+            })?;
         let scheduler = node.node.configuration_scheduler().ok_or_else(|| {
-            format!("node '{name}' does not expose a scheduled configuration handle")
+            PipelineError::ConfigurationUnavailable {
+                node: name.to_string(),
+            }
         })?;
         if scheduler.schedule_config(&config, boundary) == ConfigOutcome::NeedsRestart {
-            return Err(format!(
-                "node '{name}' rejected scheduled hot configuration"
-            ));
+            return Err(PipelineError::ConfigurationRejected {
+                node: name.to_string(),
+            });
         }
         Ok(())
     }
@@ -414,12 +427,14 @@ impl CooperativeManager {
         name: &str,
         mut node: Box<dyn ProcessNode>,
         inputs: Vec<Option<InputSub>>,
-    ) -> Result<(), String> {
+    ) -> Result<(), PipelineError> {
         node.set_runtime_execution_mode(RuntimeExecutionMode::Cooperative);
         let old = self
             .nodes
             .remove(name)
-            .ok_or_else(|| format!("node '{name}' not running"))?;
+            .ok_or_else(|| PipelineError::NodeNotRunning {
+                node: name.to_string(),
+            })?;
         self.detach(&old);
 
         let input_scheduling = node.input_scheduling();
@@ -429,11 +444,11 @@ impl CooperativeManager {
             .map(|schema| schema.stream_readiness)
             .collect();
         if inputs.len() != input_schemas.len() {
-            return Err(format!(
-                "node '{name}': {} input specs for {} ports",
-                inputs.len(),
-                input_schemas.len()
-            ));
+            return Err(PipelineError::InputCountMismatch {
+                node: name.to_string(),
+                provided: inputs.len(),
+                expected: input_schemas.len(),
+            });
         }
         let mut input_ports: Vec<InputPort> = Vec::with_capacity(inputs.len());
         let mut probes: Vec<Probe> = Vec::with_capacity(inputs.len());
@@ -449,22 +464,23 @@ impl CooperativeManager {
                     InputPort::disconnected()
                 }
                 Some(sub) => {
-                    let producer = self
-                        .nodes
-                        .get(&sub.from_node)
-                        .ok_or_else(|| format!("producer '{}' not running", sub.from_node))?;
+                    let producer = self.nodes.get(&sub.from_node).ok_or_else(|| {
+                        PipelineError::ProducerNotRunning {
+                            producer: sub.from_node.clone(),
+                        }
+                    })?;
                     let output = producer.output_lists.get(&sub.from_port).ok_or_else(|| {
-                        format!(
-                            "producer '{}' has no port '{}'",
-                            sub.from_node, sub.from_port
-                        )
+                        PipelineError::ProducerPortNotFound {
+                            producer: sub.from_node.clone(),
+                            port: sub.from_port.clone(),
+                        }
                     })?;
                     let list = negotiated_list(output, &input_schemas[index].payloads).ok_or_else(
-                        || {
-                            format!(
-                                "type mismatch: {}.{} -> {}.{}",
-                                sub.from_node, sub.from_port, name, input_schemas[index].name
-                            )
+                        || PipelineError::PayloadTypeMismatch {
+                            from_node: sub.from_node.clone(),
+                            from_port: sub.from_port.clone(),
+                            to_node: name.to_string(),
+                            to_port: input_schemas[index].name.clone(),
                         },
                     )?;
                     let closed = Arc::clone(&output.closed);
@@ -675,7 +691,7 @@ impl CooperativeManager {
                         tracing::error!("[{runtime_name}] work error: {error}");
                         self.failures.push(NodeFailure {
                             node: runtime_name.clone(),
-                            message: error.to_string(),
+                            error,
                         });
                         node.done = true;
                         for output in node.output_lists.values() {
@@ -781,7 +797,7 @@ mod tests {
             manager.take_failures(),
             vec![NodeFailure {
                 node: "failure-node".into(),
-                message: "Node-specific error: intentional failure".into(),
+                error: WorkError::NodeError("intentional failure".into()),
             }]
         );
         assert!(manager.take_failures().is_empty());
