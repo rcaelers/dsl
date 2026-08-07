@@ -526,9 +526,12 @@ starve the viewport request.
 `CaptureIndexProxy` adapts that polling contract to a `CaptureIndexQueryExecutor` bound to one
 host-owned index. The proxy submits only bounded channel/range/point requests, retains at most one
 active request, cancels it when the viewport is superseded or the proxy is dropped, and maps host
-completion, failure, and disconnect into the ordinary capture-index result boundary. The executor
-owns request identifiers and scheduling; neither the viewer nor the proxy knows whether it is
-backed by a native worker, browser worker, or deterministic test implementation.
+completion, failure, and disconnect into the ordinary capture-index result boundary. The neutral
+query error distinguishes submission, execution, cancellation, disconnection, and an incompatible
+executor update; its source-bearing variants preserve the concrete adapter cause without exposing
+the capture-worker protocol. The executor owns request identifiers and scheduling; neither the
+viewer nor the proxy knows whether it is backed by a native worker, browser worker, or deterministic
+test implementation.
 
 A capture-index factory whose backing cannot be opened in the caller exposes an opaque
 `CaptureIndexPreparationRequest` containing a registered operation identifier and owned payload.
@@ -558,9 +561,10 @@ or capture semantics.
 `CaptureWorkerSourcePreparationExecutor` connects that client to the graph runtime's source
 preparation lifecycle while delegating ordinary local closures to another injected executor. A
 prepared worker message creates a `CaptureIndexProxy` whose `CaptureWorkerIndexQueryExecutor` is
-bound to the returned session. Dropping the proxy releases the session. Dropping unfinished
-preparation queues cancellation, and a session that becomes prepared concurrently with that
-cancellation is released by the client instead of being published or leaked.
+bound to the returned session. The adapter wraps request-admission failures as query-submission
+sources and terminal worker failures as query-execution sources. Dropping the proxy releases the
+session. Dropping unfinished preparation queues cancellation, and a session that becomes prepared
+concurrently with that cancellation is released by the client instead of being published or leaked.
 
 `CaptureWorkerRuntime` is the platform-neutral worker-side counterpart. It resolves opaque
 preparation operations through an explicit registry, owns prepared `CaptureIndex` sessions, and

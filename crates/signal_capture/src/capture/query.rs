@@ -21,12 +21,32 @@ pub struct CaptureIndexQuery {
     pub target_points: u64,
 }
 
+/// Failure at the host-backed capture-index query boundary.
+#[derive(Debug, thiserror::Error)]
+pub enum CaptureIndexQueryError {
+    /// The host query executor rejected a new request.
+    #[error("capture-index query submission failed: {0}")]
+    Submission(#[source] Box<dyn std::error::Error + Send + Sync>),
+    /// An accepted query completed unsuccessfully.
+    #[error("capture-index query execution failed: {0}")]
+    Execution(#[source] Box<dyn std::error::Error + Send + Sync>),
+    /// The accepted query was cancelled before producing a result.
+    #[error("capture-index query was cancelled")]
+    Cancelled,
+    /// The host query transport disconnected before a terminal result.
+    #[error("capture-index query host disconnected")]
+    Disconnected,
+    /// The executor returned an update that does not belong to a query.
+    #[error("capture-index query executor returned an unexpected update")]
+    UnexpectedUpdate,
+}
+
 /// Current state of one host-owned sampled-window request.
 pub enum CaptureIndexQueryUpdate {
     /// Submitted query has not produced a result.
     Pending,
-    /// Submitted query completed with a window or a worker error.
-    Complete(std::result::Result<CaptureSampledWindow, String>),
+    /// Submitted query completed with a window or a classified query failure.
+    Complete(std::result::Result<CaptureSampledWindow, CaptureIndexQueryError>),
     /// Host query transport disconnected before a terminal result.
     Disconnected,
 }
@@ -41,7 +61,7 @@ pub trait CaptureIndexQueryExecutor: Send + Sync {
     ///
     /// # Parameters
     /// - `query`: Channels, sample range, and point budget to query.
-    fn submit(&self, query: CaptureIndexQuery) -> std::result::Result<u64, String>;
+    fn submit(&self, query: CaptureIndexQuery) -> std::result::Result<u64, CaptureIndexQueryError>;
 
     /// Polls a submitted query without blocking.
     fn poll(&self, request_id: u64) -> CaptureIndexQueryUpdate;
@@ -108,9 +128,7 @@ impl CaptureIndexProxy {
                 }
                 CaptureIndexQueryUpdate::Disconnected => {
                     self.active = None;
-                    return Err(Error::CaptureQuery(
-                        "capture-index query host disconnected".to_owned(),
-                    ));
+                    return Err(Error::CaptureQuery(CaptureIndexQueryError::Disconnected));
                 }
             }
         }
@@ -140,9 +158,7 @@ impl CaptureIndexProxy {
             }
             CaptureIndexQueryUpdate::Disconnected => {
                 self.active = None;
-                Err(Error::CaptureQuery(
-                    "capture-index query host disconnected".to_owned(),
-                ))
+                Err(Error::CaptureQuery(CaptureIndexQueryError::Disconnected))
             }
         }
     }
@@ -214,11 +230,17 @@ mod query_tests {
         state: Mutex<TestState>,
     }
 
+    struct RejectingExecutor;
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("controlled query failure")]
+    struct ControlledQueryFailure;
+
     #[derive(Default)]
     struct TestState {
         next_request: u64,
         submitted: BTreeMap<u64, CaptureIndexQuery>,
-        completed: BTreeMap<u64, std::result::Result<CaptureSampledWindow, String>>,
+        completed: BTreeMap<u64, std::result::Result<CaptureSampledWindow, CaptureIndexQueryError>>,
         cancelled: BTreeSet<u64>,
     }
 
@@ -229,6 +251,15 @@ mod query_tests {
                 .unwrap()
                 .completed
                 .insert(request_id, Ok(window));
+        }
+
+        fn fail(&self, request_id: u64) {
+            self.state.lock().unwrap().completed.insert(
+                request_id,
+                Err(CaptureIndexQueryError::Execution(Box::new(
+                    ControlledQueryFailure,
+                ))),
+            );
         }
 
         fn request_ids(&self) -> Vec<u64> {
@@ -247,7 +278,10 @@ mod query_tests {
     }
 
     impl CaptureIndexQueryExecutor for TestExecutor {
-        fn submit(&self, query: CaptureIndexQuery) -> std::result::Result<u64, String> {
+        fn submit(
+            &self,
+            query: CaptureIndexQuery,
+        ) -> std::result::Result<u64, CaptureIndexQueryError> {
             let mut state = self.state.lock().unwrap();
             state.next_request += 1;
             let request_id = state.next_request;
@@ -267,6 +301,25 @@ mod query_tests {
 
         fn cancel(&self, request_id: u64) -> bool {
             self.state.lock().unwrap().cancelled.insert(request_id)
+        }
+    }
+
+    impl CaptureIndexQueryExecutor for RejectingExecutor {
+        fn submit(
+            &self,
+            _query: CaptureIndexQuery,
+        ) -> std::result::Result<u64, CaptureIndexQueryError> {
+            Err(CaptureIndexQueryError::Submission(Box::new(
+                ControlledQueryFailure,
+            )))
+        }
+
+        fn poll(&self, _request_id: u64) -> CaptureIndexQueryUpdate {
+            CaptureIndexQueryUpdate::Pending
+        }
+
+        fn cancel(&self, _request_id: u64) -> bool {
+            false
         }
     }
 
@@ -351,5 +404,49 @@ mod query_tests {
             proxy.poll_sampled_window(&[1], 20, 40, 100).unwrap(),
             CaptureSampledWindowPoll::Ready(window(20, 40))
         );
+    }
+
+    #[test]
+    fn proxy_retains_submission_failure_sources() {
+        let mut proxy = CaptureIndexProxy::new(
+            "capture",
+            SourceIdentity::from_bytes([9; 32]),
+            metadata(),
+            Arc::new(RejectingExecutor),
+        );
+
+        let error = proxy.poll_sampled_window(&[0], 10, 20, 100).unwrap_err();
+
+        match error {
+            Error::CaptureQuery(CaptureIndexQueryError::Submission(source)) => {
+                assert!(source.downcast_ref::<ControlledQueryFailure>().is_some());
+            }
+            error => panic!("unexpected error: {error}"),
+        }
+    }
+
+    #[test]
+    fn proxy_retains_execution_failure_sources() {
+        let executor = Arc::new(TestExecutor::default());
+        let mut proxy = CaptureIndexProxy::new(
+            "capture",
+            SourceIdentity::from_bytes([10; 32]),
+            metadata(),
+            executor.clone(),
+        );
+        assert_eq!(
+            proxy.poll_sampled_window(&[0], 10, 20, 100).unwrap(),
+            CaptureSampledWindowPoll::Pending
+        );
+        executor.fail(1);
+
+        let error = proxy.poll_sampled_window(&[0], 10, 20, 100).unwrap_err();
+
+        match error {
+            Error::CaptureQuery(CaptureIndexQueryError::Execution(source)) => {
+                assert!(source.downcast_ref::<ControlledQueryFailure>().is_some());
+            }
+            error => panic!("unexpected error: {error}"),
+        }
     }
 }

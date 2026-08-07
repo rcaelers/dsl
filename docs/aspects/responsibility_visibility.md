@@ -257,7 +257,10 @@ presentation or transport boundary formats it.
 correlation errors, serializable transport failures, and classified preparation, query, and replay
 terminal failures. Its client retains a typed disconnect cause for pending and subsequent requests.
 Graph source preparation wraps the capture-worker client and terminal errors as sources in
-`SourcePreparationError`; it does not relabel them as executor or index strings.
+`SourcePreparationError`; it does not relabel them as executor or index strings. The neutral
+`CaptureIndexQueryExecutor` port reports classified submission, execution, cancellation,
+disconnection, and invalid-update failures. Its source-bearing categories retain concrete adapter
+errors through `CaptureIndexProxy` without making the generic query contract depend on a worker.
 
 `logic_analyzer_protocol_decoders::sigrok_decoder` owns the host-facing Sigrok catalog and decoder
 runtime error contracts. Whole-catalog discovery failures are distinct from recoverable per-path

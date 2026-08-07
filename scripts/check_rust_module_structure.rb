@@ -136,6 +136,43 @@ unless capture_worker_client.match?(
   errors << "crates/signal_capture/src/capture/worker_client.rs: disconnects must retain CaptureWorkerTransportFailure"
 end
 
+capture_query_path = File.join(ROOT, "crates/signal_capture/src/capture/query.rs")
+capture_query = File.read(capture_query_path).split(
+  /^\s*#\s*\[\s*cfg\s*\([^\]]*\btest\b[^\]]*\)\s*\]\s*\n\s*mod\s+\w*tests\b/,
+  2
+).first
+unless capture_query.match?(
+  /Complete\(std::result::Result<CaptureSampledWindow, CaptureIndexQueryError>\)/
+)
+  errors << "crates/signal_capture/src/capture/query.rs: query updates must retain CaptureIndexQueryError"
+end
+unless capture_query.match?(
+  /fn\s+submit\b[^\{]*->\s*std::result::Result<u64, CaptureIndexQueryError>/m
+)
+  errors << "crates/signal_capture/src/capture/query.rs: query submission must retain CaptureIndexQueryError"
+end
+if capture_query.match?(/Result<[^>\n]*,\s*String>/)
+  errors << "crates/signal_capture/src/capture/query.rs: query failures must not collapse into display strings"
+end
+
+capture_errors = File.read(File.join(ROOT, "crates/signal_capture/src/errors.rs"))
+unless capture_errors.match?(
+  /^\s*CaptureQuery\(\#\[source\]\s*CaptureIndexQueryError\),$/
+)
+  errors << "crates/signal_capture/src/errors.rs: capture query failures must retain their typed source"
+end
+
+unless capture_worker_client.include?(
+  "CaptureIndexQueryError::Submission(Box::new(error))"
+)
+  errors << "crates/signal_capture/src/capture/worker_client.rs: query submission must preserve its capture-worker client source"
+end
+unless capture_worker_client.include?(
+  "CaptureIndexQueryError::Execution(Box::new(error))"
+)
+  errors << "crates/signal_capture/src/capture/worker_client.rs: query execution must preserve its capture-worker failure source"
+end
+
 %w[WorkerClient Worker].each do |variant|
   next if source_preparation_contract.match?(
     /^\s*#{variant}\(\#\[source\]\s*CaptureWorker(?:ClientError|Failure)\),$/

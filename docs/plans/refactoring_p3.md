@@ -23,7 +23,11 @@ transport failures before the graph materializer maps them into its generic buil
 `logic_analyzer_graph_runtime` owns `SourcePreparationError`, including discovery, metadata, index,
 cancellation, executor, and worker-protocol causes. `signal_capture` owns separate capture-worker
 codec, bounded-client, serializable transport, and terminal-operation failures. Capture-worker
-source preparation preserves those lower typed causes in `SourcePreparationError`.
+source preparation preserves those lower typed causes in `SourcePreparationError`. Its generic
+host-backed index query port classifies submission, execution, cancellation, disconnection, and
+invalid-update failures without exposing the worker protocol; source-bearing variants preserve the
+concrete host or worker cause through `CaptureIndexProxy`.
+
 `logic_analyzer_graph_orchestration` owns
 separate graph-worker codec, bounded-client, and serializable transport failures. The browser host
 retains those categories through disconnect and terminal messages; the UI graph-run adapter formats

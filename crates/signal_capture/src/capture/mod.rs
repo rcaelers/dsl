@@ -42,7 +42,8 @@ pub use implementation::{
 };
 pub use preparation::CaptureIndexPreparationRequest;
 pub use query::{
-    CaptureIndexProxy, CaptureIndexQuery, CaptureIndexQueryExecutor, CaptureIndexQueryUpdate,
+    CaptureIndexProxy, CaptureIndexQuery, CaptureIndexQueryError, CaptureIndexQueryExecutor,
+    CaptureIndexQueryUpdate,
 };
 pub use worker_client::{CaptureWorkerClient, CaptureWorkerIndexQueryExecutor};
 pub use worker_errors::{

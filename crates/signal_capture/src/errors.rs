@@ -1,3 +1,5 @@
+use crate::capture::CaptureIndexQueryError;
+
 /// Errors returned by capture and indexed-signal infrastructure.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -24,7 +26,7 @@ pub enum Error {
     CaptureQueryPending,
     /// A capture query completed unsuccessfully.
     #[error("capture query failed: {0}")]
-    CaptureQuery(String),
+    CaptureQuery(#[source] CaptureIndexQueryError),
 }
 
 /// Result alias for capture and indexed-signal operations.

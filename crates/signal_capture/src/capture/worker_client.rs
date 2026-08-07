@@ -5,7 +5,9 @@ use super::host_protocol::{
     CaptureWorkerMessage, CaptureWorkerReplayRequest, CaptureWorkerRequest,
 };
 use super::preparation::CaptureIndexPreparationRequest;
-use super::query::{CaptureIndexQuery, CaptureIndexQueryExecutor, CaptureIndexQueryUpdate};
+use super::query::{
+    CaptureIndexQuery, CaptureIndexQueryError, CaptureIndexQueryExecutor, CaptureIndexQueryUpdate,
+};
 use super::worker_errors::{
     CaptureWorkerClientError, CaptureWorkerFailure, CaptureWorkerMessageKind,
     CaptureWorkerRequestKind, CaptureWorkerTransportFailure,
@@ -35,10 +37,10 @@ impl CaptureWorkerIndexQueryExecutor {
 }
 
 impl CaptureIndexQueryExecutor for CaptureWorkerIndexQueryExecutor {
-    fn submit(&self, query: CaptureIndexQuery) -> Result<u64, String> {
+    fn submit(&self, query: CaptureIndexQuery) -> Result<u64, CaptureIndexQueryError> {
         self.client
             .submit_query(self.session_id, query)
-            .map_err(|error| error.to_string())
+            .map_err(|error| CaptureIndexQueryError::Submission(Box::new(error)))
     }
 
     fn poll(&self, request_id: u64) -> CaptureIndexQueryUpdate {
@@ -48,18 +50,18 @@ impl CaptureIndexQueryExecutor for CaptureWorkerIndexQueryExecutor {
             Some(CaptureWorkerMessage::Window { window, .. }) => {
                 CaptureIndexQueryUpdate::Complete(Ok(window))
             }
-            Some(CaptureWorkerMessage::Failed { error, .. }) => {
-                CaptureIndexQueryUpdate::Complete(Err(error.to_string()))
-            }
+            Some(CaptureWorkerMessage::Failed { error, .. }) => CaptureIndexQueryUpdate::Complete(
+                Err(CaptureIndexQueryError::Execution(Box::new(error))),
+            ),
             Some(CaptureWorkerMessage::Cancelled { .. }) => {
-                CaptureIndexQueryUpdate::Complete(Err("capture query cancelled".to_owned()))
+                CaptureIndexQueryUpdate::Complete(Err(CaptureIndexQueryError::Cancelled))
             }
             Some(
                 CaptureWorkerMessage::Progress { .. }
                 | CaptureWorkerMessage::Metadata { .. }
                 | CaptureWorkerMessage::Prepared { .. }
                 | CaptureWorkerMessage::Replay { .. },
-            ) => CaptureIndexQueryUpdate::Disconnected,
+            ) => CaptureIndexQueryUpdate::Complete(Err(CaptureIndexQueryError::UnexpectedUpdate)),
         }
     }
 
@@ -554,6 +556,30 @@ mod worker_client_tests {
             client.drain_requests().as_slice(),
             [CaptureWorkerRequest::Release { session_id: 42 }]
         ));
+    }
+
+    #[test]
+    fn session_query_executor_retains_worker_failure_sources() {
+        let client = Arc::new(CaptureWorkerClient::new(1).unwrap());
+        let executor = CaptureWorkerIndexQueryExecutor::new(Arc::clone(&client), 42);
+        let sequence = executor.submit(query()).unwrap();
+        client.drain_requests();
+        client
+            .publish(CaptureWorkerMessage::Failed {
+                sequence,
+                error: CaptureWorkerFailure::Query("controlled failure".to_owned()),
+            })
+            .unwrap();
+
+        match executor.poll(sequence) {
+            CaptureIndexQueryUpdate::Complete(Err(CaptureIndexQueryError::Execution(source))) => {
+                assert!(matches!(
+                    source.downcast_ref::<CaptureWorkerFailure>(),
+                    Some(CaptureWorkerFailure::Query(message)) if message == "controlled failure"
+                ));
+            }
+            _ => panic!("expected a classified capture-worker query failure"),
+        }
     }
 
     #[test]
