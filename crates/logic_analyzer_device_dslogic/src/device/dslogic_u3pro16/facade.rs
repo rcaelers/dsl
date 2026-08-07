@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use signal_capture_session::logic_analyzer::LogicCaptureConfig;
+use logic_analyzer_acquisition::LogicCaptureConfig;
 use signal_capture_session::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
     CaptureSourcePresentation,

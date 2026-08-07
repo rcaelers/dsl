@@ -1,6 +1,6 @@
 use egui::{Color32, CursorIcon, FontId, Id, Order, Pos2, Rect, Response, Sense, Ui, vec2};
 
-use signal_capture_session::SimpleTriggerCondition;
+use logic_analyzer_trigger::SimpleTriggerCondition;
 
 use crate::types::{AnalyzerLayout, RowKey};
 use crate::viewer::LogicAnalyzerViewer;

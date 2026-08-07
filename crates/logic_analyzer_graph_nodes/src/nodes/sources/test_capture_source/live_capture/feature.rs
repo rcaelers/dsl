@@ -11,14 +11,17 @@ use logic_analyzer_test_support::{
     DeterministicTriggerCount, DeterministicTriggerCountMode, DeterministicTriggerLogic,
     DeterministicTriggerPredicate, DeterministicTriggerStage,
 };
+use logic_analyzer_trigger::{
+    TriggerCountMode, TriggerLogicOperator, TriggerPredicate, TriggerProgram,
+};
+use signal_capture::CaptureChannelId;
 use signal_capture_session::{
     AcquisitionContext, AcquisitionResult, CaptureAnalysisChannel, CaptureAnalysisSource,
-    CaptureChannelId, CaptureCommandCapabilities, CaptureDataDelivery, CaptureFraction,
-    CapturePolicy, CapturePolicyCapabilities, CapturePolicyContext, CaptureProviderCapabilities,
+    CaptureCommandCapabilities, CaptureDataDelivery, CaptureFraction, CapturePolicy,
+    CapturePolicyCapabilities, CapturePolicyContext, CaptureProviderCapabilities,
     CaptureSessionPlan, CaptureSettingCombination, CaptureStartMode, CaptureStoreCursor,
     CompletionPolicy, CompletionPolicyKind, PreparedAcquisition, RecordingStart, RetentionPolicy,
-    RetentionPolicyKind, TriggerCountMode, TriggerLogicOperator, TriggerPlacement,
-    TriggerPlacementCapability, TriggerPredicate, TriggerProgram, TriggerTimeoutAction,
+    RetentionPolicyKind, TriggerPlacement, TriggerPlacementCapability, TriggerTimeoutAction,
 };
 use signal_runtime::ProcessNode;
 
@@ -263,8 +266,7 @@ pub(crate) fn feature(state: &Value) -> Result<Option<Box<dyn LiveCaptureFeature
     )
     .map_err(|error| error.to_string())?
     .with_commands(CaptureCommandCapabilities::new(true, true, true, true))
-    .with_policy(policy_capabilities)
-    .with_trigger_schema(super::super::trigger::schema());
+    .with_policy(policy_capabilities);
     let requested_policy = CapturePolicy {
         start: if has_trigger_program {
             RecordingStart::Trigger
@@ -317,7 +319,7 @@ pub(crate) fn feature(state: &Value) -> Result<Option<Box<dyn LiveCaptureFeature
 
 #[cfg(test)]
 mod tests {
-    use signal_capture_session::{
+    use logic_analyzer_trigger::{
         SimpleTriggerCondition, TriggerCount, TriggerCountMode, TriggerLogicOperator,
         TriggerPredicate, TriggerProgram, TriggerStage,
     };

@@ -3,8 +3,9 @@
 ## Responsibility
 
 `signal_capture` owns immutable generic signal capture: packed and edge payloads, source and index
-contracts, bounded query and worker protocols, random-access `EdgeQuery`, and finite artifact-backed
-waveform indexes. Its crate root is the supported facade; implementation modules are private.
+contracts, opaque provider-owned channel identities, bounded query and worker protocols,
+random-access `EdgeQuery`, and finite artifact-backed waveform indexes. Its crate root is the
+supported facade; implementation modules are private.
 
 ## Dependency boundary
 

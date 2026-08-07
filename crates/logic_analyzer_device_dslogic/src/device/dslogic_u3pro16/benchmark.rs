@@ -6,10 +6,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use logic_analyzer_acquisition::{CaptureMode, LogicCaptureConfig};
 use platform_artifacts::MemoryArtifactRepository;
 use platform_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
 use signal_capture::CaptureIndex;
-use signal_capture_session::logic_analyzer::{CaptureMode, LogicCaptureConfig};
 use signal_capture_session::{
     AcquisitionContext, CaptureCursorItem, CaptureSessionId, CaptureStore, CaptureStoreConfig,
     CaptureStoreCursor, CaptureStoreDescriptor, GrowingCaptureIndex, bounded_capture_event_queue,
@@ -171,9 +171,7 @@ fn run_scenario(channels_count: usize, rate_hz: u64, samples: u64) {
     .unwrap();
     let analyzer = DsLogicU3Pro16::new(GeneratedStreamingTransport::new(data_bytes)).unwrap();
     let channels = (0..channels_count)
-        .map(|channel| {
-            signal_capture_session::CaptureChannelId::new(format!("u3pro16:input:{channel}"))
-        })
+        .map(|channel| signal_capture::CaptureChannelId::new(format!("u3pro16:input:{channel}")))
         .collect::<Vec<_>>();
     let provider = StreamingProvider::new(analyzer, config, channels.clone()).unwrap();
     let session_id = CaptureSessionId::new(0x9000 + channels_count as u128);

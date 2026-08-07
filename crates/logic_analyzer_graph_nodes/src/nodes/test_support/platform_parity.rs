@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use logic_analyzer_acquisition::LogicCaptureConfig;
 use logic_analyzer_capture_formats::dsl_file::{DslFileSourceConfig, DslFileSourceFactory};
 use logic_analyzer_capture_formats::sigrok_file::{
     SigrokFileSourceConfig, SigrokFileSourceFactory,
@@ -8,7 +9,6 @@ use logic_analyzer_device_dslogic::DsLogicU3Pro16SourceFactory;
 use logic_analyzer_graph_capabilities::node::{
     CaptureSourceFeature, GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
 };
-use signal_capture_session::logic_analyzer::LogicCaptureConfig;
 use signal_capture_session::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
     CaptureSourcePresentation,

@@ -1,0 +1,20 @@
+[package]
+name = "logic-analyzer-trigger"
+version.workspace = true
+edition = "2024"
+authors = ["Rob Caelers <rob.caelers@gmail.com>"]
+description = "Portable logic-analyzer trigger programs, schemas, and validation"
+repository = "https://github.com/rcaelers/logic-conduit"
+license = "MIT"
+
+[lib]
+name = "logic_analyzer_trigger"
+path = "src/lib.rs"
+
+[dependencies]
+signal-capture = { path = "../signal_capture" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

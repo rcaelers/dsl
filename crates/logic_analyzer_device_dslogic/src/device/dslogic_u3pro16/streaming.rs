@@ -5,12 +5,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crossbeam_channel::Receiver;
 
+use logic_analyzer_acquisition::{LogicAnalyzer, LogicCaptureConfig};
 use platform_runtime::{WorkExecutor, WorkTask};
-use signal_capture_session::logic_analyzer::{LogicAnalyzer, LogicCaptureConfig};
+use signal_capture::CaptureChannelId;
 use signal_capture_session::{
     AcquisitionContext, AcquisitionError, AcquisitionOutcome, AcquisitionResult,
-    CaptureAcquisitionPhase, CaptureChannelId, CaptureChunk, CaptureCompletion, CaptureProgress,
-    CaptureSessionId, CaptureSessionState, PreparedAcquisition,
+    CaptureAcquisitionPhase, CaptureChunk, CaptureCompletion, CaptureProgress, CaptureSessionId,
+    CaptureSessionState, PreparedAcquisition,
 };
 
 use super::common::{CanonicalTransferAssembler, map_analyzer_error};

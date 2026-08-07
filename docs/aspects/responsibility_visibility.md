@@ -31,6 +31,10 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
   are absent from those contracts. Its public capture
   vocabulary is `Capture*`; it does not expose DSL, Sigrok, USB, decoder, graph-node, or UI
   terminology.
+- `logic_analyzer_trigger` owns portable trigger programs, schemas, predicates, simple digital
+  conditions, and validation diagnostics.
+- `logic_analyzer_acquisition` owns shared device-neutral driver, capture-configuration,
+  hardware-trigger, raw-chunk, and runtime-source contracts.
 - `logic_analyzer_capture_formats` owns DSL and Sigrok parsing, indexing, and replay sources.
 - `logic_analyzer_device_dslogic` owns DSLogic acquisition and its injected transport contract.
 - `logic_analyzer_protocol_decoders` owns concrete protocol decoding and decoder host contracts.
@@ -185,7 +189,9 @@ nearest owning facade. The allowlist names canonical public namespaces.
 | `signal_runtime` | none | Its crate root is the curated stream-execution facade; ports, channels, schedulers, and managers remain private implementation modules. |
 | `signal_capture` | none | Its crate root exposes immutable capture, query, edge-capability, and finite-index contracts; implementation modules remain private. |
 | `signal_derived` | `derived_word_store` | The public module owns the independently usable encoded annotation-store and decoded-block cache contracts; other payload, lane, sampling, and index contracts are exposed through the crate facade. |
-| `signal_capture_session` | `live_capture`, `live_capture_store`, `logic_analyzer` | These are substantial generic capture-session domains. `live_capture` owns the provider-neutral configured and prepared acquisition contracts. `logic_analyzer` owns the driver-neutral capture, trigger, and processing-source contracts consumed by concrete device nodes. Lower-level runtime, capture, and derived contracts are imported directly from their owning crates and are not re-exported. |
+| `signal_capture_session` | `live_capture`, `live_capture_store` | These are substantial generic capture-session domains. `live_capture` owns provider-neutral configured and prepared acquisition contracts; `live_capture_store` owns recording and committed-prefix storage. Lower-level runtime, capture, and derived contracts are imported directly from their owning crates and are not re-exported. |
+| `logic_analyzer_trigger` | none | Its crate root exposes serializable trigger programs, schemas, predicates, simple conditions, and validation contracts; implementation modules remain private. |
+| `logic_analyzer_acquisition` | none | Its crate root exposes device-neutral driver, capture-configuration, hardware-trigger, raw-chunk, and runtime-source contracts; implementation modules remain private. |
 | `logic_analyzer_capture_formats` | `dsl_file`, `sigrok_file` | Each format facade owns its configuration, factory, parser, index, and replay contracts; archive helpers remain private. |
 | `logic_analyzer_device_dslogic` | none | Its crate root exposes the DSLogic source and transport contracts; protocol implementation modules remain private. |
 | `logic_analyzer_protocol_decoders` | `i2c_decoder`, `parallel_decoder`, `sigrok_decoder`, `spi_decoder`, `types`, `uart_decoder` | Each decoder has one directory-backed public facade; shared decoder conventions live under `types`. |

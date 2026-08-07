@@ -4,13 +4,14 @@ use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{CaptureGraphSourceFactory, LiveCaptureFeature};
 use logic_analyzer_graph_capabilities::node_support::{SimpleTriggerChannel, parse_state};
+use logic_analyzer_trigger::TriggerProgram;
+use signal_capture::CaptureChannelId;
 use signal_capture_session::{
     AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureAnalysisChannel,
-    CaptureAnalysisSource, CaptureChannelId, CaptureCommandCapabilities, CaptureFraction,
-    CapturePolicyCapabilities, CapturePolicyContext, CaptureProviderCapabilities,
-    CaptureSessionPlan, CaptureStartMode, CaptureStoreCursor, CompletionPolicyKind,
-    ConfiguredAcquisition, PreparedAcquisition, RecordingStart, RetentionPolicyKind,
-    TriggerPlacementCapability, TriggerProgram, TriggerTimeoutAction,
+    CaptureAnalysisSource, CaptureCommandCapabilities, CaptureFraction, CapturePolicyCapabilities,
+    CapturePolicyContext, CaptureProviderCapabilities, CaptureSessionPlan, CaptureStartMode,
+    CaptureStoreCursor, CompletionPolicyKind, ConfiguredAcquisition, PreparedAcquisition,
+    RecordingStart, RetentionPolicyKind, TriggerPlacementCapability, TriggerTimeoutAction,
 };
 use signal_runtime::ProcessNode;
 
@@ -176,8 +177,7 @@ pub(crate) fn feature(
     let capabilities =
         CaptureProviderCapabilities::single(delivery, Arc::clone(&channels), config.sample_rate_hz)
             .with_commands(CaptureCommandCapabilities::new(true, false, false, true))
-            .with_policy(policy_capabilities)
-            .with_trigger_schema(super::trigger::schema());
+            .with_policy(policy_capabilities);
     let requested_policy = requested_capture_policy(&state)?;
     let mut policy = capabilities
         .policy()
@@ -315,7 +315,7 @@ mod tests {
         state.channels.enabled.fill(false);
         state.channels.enabled[0] = true;
         state
-            .set_trigger_condition(0, signal_capture_session::SimpleTriggerCondition::Rising)
+            .set_trigger_condition(0, logic_analyzer_trigger::SimpleTriggerCondition::Rising)
             .unwrap();
         state.trigger_position_percent.value = 37;
         state.retention.select("Recent duration");

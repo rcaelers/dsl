@@ -1,13 +1,14 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use logic_analyzer_trigger::SimpleTriggerCondition;
 use platform_artifacts::MemoryArtifactRepository;
+use signal_capture::CaptureChannelId;
 use signal_capture_session::{
-    AcquisitionContext, AcquisitionResult, CaptureAcquisitionPhase, CaptureChannelId,
-    CaptureCursorItem, CaptureDataDelivery, CaptureEvent, CaptureProviderCapabilities,
-    CaptureQueueReceiveError, CaptureSessionId, CaptureSessionState, CaptureStore,
-    CaptureStoreConfig, CaptureStoreCursor, CaptureStoreDescriptor, FinalizedCapture,
-    PreparedAcquisition, SimpleTriggerCondition, bounded_capture_event_queue,
+    AcquisitionContext, AcquisitionResult, CaptureAcquisitionPhase, CaptureCursorItem,
+    CaptureDataDelivery, CaptureEvent, CaptureProviderCapabilities, CaptureQueueReceiveError,
+    CaptureSessionId, CaptureSessionState, CaptureStore, CaptureStoreConfig, CaptureStoreCursor,
+    CaptureStoreDescriptor, FinalizedCapture, PreparedAcquisition, bounded_capture_event_queue,
 };
 
 use super::buffered_fake::{BufferedFakeConfig, BufferedFakeProvider};

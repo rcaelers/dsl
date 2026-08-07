@@ -313,16 +313,6 @@ item here, so acceptance comparisons stop being ad-hoc.
 
 ### Crate boundary corrections
 
-- [session.domain-relocation] (P3 · medium) Purge logic-analyzer vocabulary from the generic session tier.
-  `signal_capture_session` publishes 129 items and a public `logic_analyzer` module, and the
-  trigger program, trigger schema, and `SimpleTriggerCondition` types it owns are domain concepts
-  that generic acquisition does not need. Move trigger data into a small logic-analyzer trigger
-  domain and move source/driver contracts to their concrete acquisition owners; do not retain
-  compatibility re-exports through the generic crate.
-  The trigger vocabulary is the highest-leverage cluster: `logic_analyzer_viewer`
-  (`simple_trigger.rs`) and `logic_analyzer_graph_compiler` also import it from the session
-  crate, so three consumers currently reach into the generic tier for domain types.
-  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#session-domain-relocation).
 - [session.facade-glob] (P4 · low) Replace wildcard facade exports with explicit supported
   lists, as the facade rule requires. Current crate-root examples are
   `signal_capture_session::live_capture_store::*`, `logic_analyzer_graph_plan::plan::*`, and

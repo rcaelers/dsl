@@ -1,9 +1,10 @@
-use signal_capture_session::{
-    CaptureChannelId, RegisteredTriggerPredicateSchema, SimpleTriggerCondition, TriggerChoice,
-    TriggerCount, TriggerCountCapabilities, TriggerCountMode, TriggerEditorSchema,
-    TriggerIdentifier, TriggerLogicOperator, TriggerOperandKind, TriggerOperandSchema,
-    TriggerOperandValue, TriggerPredicate,
+use logic_analyzer_trigger::{
+    RegisteredTriggerPredicateSchema, SimpleTriggerCondition, TriggerChoice, TriggerCount,
+    TriggerCountCapabilities, TriggerCountMode, TriggerEditorSchema, TriggerIdentifier,
+    TriggerLogicOperator, TriggerOperandKind, TriggerOperandSchema, TriggerOperandValue,
+    TriggerPredicate,
 };
+use signal_capture::CaptureChannelId;
 
 use super::presentation::{format_bytes, parse_bytes};
 use super::*;

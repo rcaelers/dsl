@@ -5,9 +5,10 @@ use platform_artifacts::{
     ArtifactByteSource, ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange,
     PreparedByteSource, RepositoryCapabilities, SourceCapabilities, SourceIdentity, UnixTimeSource,
 };
+use signal_capture::CaptureChannelId;
 use signal_capture_session::{
-    CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureCursorItem, CaptureSessionId,
-    CaptureStore, CaptureStoreConfig, CaptureStoreCursor, CaptureStoreDescriptor, FinalizedCapture,
+    CaptureChunk, CaptureChunkWriter, CaptureCursorItem, CaptureSessionId, CaptureStore,
+    CaptureStoreConfig, CaptureStoreCursor, CaptureStoreDescriptor, FinalizedCapture,
 };
 use signal_derived::{
     Annotation, AnnotationQuery, BlockCodecConfig, DecodedBlockCacheHandle, IndexedAnnotationStore,

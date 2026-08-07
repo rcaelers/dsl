@@ -49,4 +49,24 @@ fn capture_sessions_do_not_leak_provider_application_or_lower_owner_details() {
             "signal_capture_session redirects lower owner {forbidden:?}"
         );
     }
+
+    let manifest = include_str!("../Cargo.toml");
+    for forbidden in ["logic-analyzer-acquisition", "logic-analyzer-trigger"] {
+        assert!(
+            !manifest.contains(forbidden),
+            "generic capture session depends on domain owner {forbidden:?}"
+        );
+    }
+
+    for forbidden in [
+        "logic_analyzer",
+        "SimpleTriggerCondition",
+        "TriggerEditorSchema",
+        "TriggerProgram",
+    ] {
+        assert!(
+            !library.contains(forbidden),
+            "capture-session facade exposes logic-analyzer vocabulary {forbidden:?}"
+        );
+    }
 }

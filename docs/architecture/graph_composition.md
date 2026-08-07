@@ -56,6 +56,8 @@ flowchart LR
     Nodes --> Capabilities[logic_analyzer_graph_capabilities]
     Nodes --> Formats[logic_analyzer_capture_formats]
     Nodes --> Device[logic_analyzer_device_dslogic]
+    Nodes --> Acquisition[logic_analyzer_acquisition]
+    Nodes --> Trigger[logic_analyzer_trigger]
     Nodes --> Decoders[logic_analyzer_protocol_decoders]
     Nodes --> Transforms[signal_transforms]
     Nodes --> Sinks[signal_sinks]
@@ -69,6 +71,11 @@ flowchart LR
     Formats --> Capture[signal_capture]
     Formats --> Stream[signal_runtime]
     Device --> Session
+    Device --> Acquisition
+    Acquisition --> Trigger
+    Acquisition --> Capture
+    Acquisition --> Stream
+    Trigger --> Capture
     Device --> Stream
     Decoders --> Capture
     Decoders --> Derived[signal_derived]

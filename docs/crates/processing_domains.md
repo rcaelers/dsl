@@ -6,6 +6,9 @@ UI-independent processing behavior is divided by positive responsibility:
 
 - `logic_analyzer_capture_formats` owns DSL and Sigrok archive parsing, indexes, and replay
   sources;
+- `logic_analyzer_trigger` owns portable trigger programs, schemas, and validation;
+- `logic_analyzer_acquisition` owns shared logic-analyzer driver, capture-configuration, and
+  runtime-source contracts;
 - `logic_analyzer_device_dslogic` owns the DSLogic U3Pro16 protocol and acquisition source;
 - `logic_analyzer_protocol_decoders` owns concrete decoded-protocol state machines and host
   contracts;
@@ -13,10 +16,10 @@ UI-independent processing behavior is divided by positive responsibility:
 - `signal_sinks` owns terminal consumers and output encodings; and
 - `signal_generators` owns explicit deterministic signal sources.
 
-These crates implement contracts from `signal_runtime`, `signal_capture`, `signal_derived`, and
-`signal_capture_session`. None owns graph definitions, saved graph state, socket presentation,
-application composition, or host selection. `logic_analyzer_graph_nodes` binds their runtime
-behavior to concrete graph features.
+These crates implement or consume contracts from `signal_runtime`, `signal_capture`,
+`signal_derived`, and `signal_capture_session`. None owns graph definitions, saved graph state,
+socket presentation, application composition, or host selection. `logic_analyzer_graph_nodes`
+binds their runtime behavior to concrete graph features.
 
 ## Shared construction contracts
 

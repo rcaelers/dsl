@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use signal_capture_session::logic_analyzer::LogicAnalyzerResult;
+use logic_analyzer_acquisition::LogicAnalyzerResult;
 
 /// USB link speed relevant to U3Pro16 capture planning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

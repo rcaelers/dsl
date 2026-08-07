@@ -2,10 +2,11 @@
 
 use std::sync::Arc;
 
-use signal_capture_session::logic_analyzer::{CaptureMode, LogicCaptureConfig};
+use logic_analyzer_acquisition::{CaptureMode, LogicCaptureConfig};
+use signal_capture::CaptureChannelId;
 use signal_capture_session::{
-    AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureChannelId, CaptureDataDelivery,
-    CaptureStartMode, ConfiguredAcquisition, PreparedAcquisition,
+    AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureDataDelivery, CaptureStartMode,
+    ConfiguredAcquisition, PreparedAcquisition,
 };
 
 use super::buffered::BufferedProvider;

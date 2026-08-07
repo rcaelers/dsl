@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use signal_capture_session::logic_analyzer::{LogicAnalyzerError, LogicChunk, LogicEncoding};
+use logic_analyzer_acquisition::{LogicAnalyzerError, LogicChunk, LogicEncoding};
 use signal_capture_session::{AcquisitionError, AcquisitionResult, CaptureBytes};
 
 pub(crate) struct CanonicalTransfer {

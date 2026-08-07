@@ -1,8 +1,6 @@
 //! Conventional pipeline source for the DSLogic U3Pro16.
 
-use signal_capture_session::logic_analyzer::{
-    LogicAnalyzerResult, LogicAnalyzerSource, LogicCaptureConfig,
-};
+use logic_analyzer_acquisition::{LogicAnalyzerResult, LogicAnalyzerSource, LogicCaptureConfig};
 use signal_runtime::{InputPort, OutputPort, ProcessNode, WorkResult};
 
 use super::implementation::DsLogicU3Pro16;

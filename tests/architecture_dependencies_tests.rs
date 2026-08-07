@@ -231,9 +231,9 @@ fn viewer_depends_only_on_generic_widget_and_data_contracts() {
         dependencies,
         BTreeSet::from([
             "input-bindings".to_owned(),
+            "logic-analyzer-trigger".to_owned(),
             "platform-artifacts".to_owned(),
             "signal-capture".to_owned(),
-            "signal-capture-session".to_owned(),
             "signal-derived".to_owned(),
         ]),
         "the reusable viewer may depend only on generic interaction, artifact, capture, and derived-data contracts"
@@ -342,6 +342,8 @@ fn dslogic_device_depends_only_on_portable_device_runtime_contracts() {
     assert_eq!(
         dependencies,
         BTreeSet::from([
+            "logic-analyzer-acquisition".to_owned(),
+            "logic-analyzer-trigger".to_owned(),
             "platform-artifacts".to_owned(),
             "platform-runtime".to_owned(),
             "signal-capture".to_owned(),
@@ -373,8 +375,32 @@ fn trigger_editor_depends_only_on_the_provider_neutral_trigger_contract() {
 
     assert_eq!(
         dependencies,
-        BTreeSet::from(["signal-capture-session".to_owned()]),
+        BTreeSet::from([
+            "logic-analyzer-trigger".to_owned(),
+            "signal-capture".to_owned(),
+        ]),
         "the generic trigger widget may depend only on the provider-neutral trigger contract"
+    );
+}
+
+#[test]
+fn logic_analyzer_domains_have_narrow_lower_level_dependencies() {
+    let metadata = workspace_metadata();
+
+    assert_eq!(
+        local_resolved_non_dev_dependencies(metadata, "logic-analyzer-trigger"),
+        BTreeSet::from(["signal-capture".to_owned()]),
+        "the trigger domain may depend only on neutral capture identities"
+    );
+    assert_eq!(
+        local_resolved_non_dev_dependencies(metadata, "logic-analyzer-acquisition"),
+        BTreeSet::from([
+            "logic-analyzer-trigger".to_owned(),
+            "platform-runtime".to_owned(),
+            "signal-capture".to_owned(),
+            "signal-runtime".to_owned(),
+        ]),
+        "device-neutral acquisition may depend only on trigger, capture, stream, and work contracts"
     );
 }
 

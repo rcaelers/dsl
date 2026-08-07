@@ -5,7 +5,7 @@
 //! It consumes only provider-neutral trigger contracts and excludes device
 //! semantics, acquisition behavior, and application workflow.
 
-use signal_capture_session::{
+use logic_analyzer_trigger::{
     TriggerCount, TriggerEditorSchema, TriggerPredicate, TriggerProgram, TriggerStage,
 };
 

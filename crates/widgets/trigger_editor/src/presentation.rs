@@ -4,10 +4,11 @@
 //! temporary egui editing state. It emits generic values and contains no
 //! program mutation, schema policy, device semantics, or application workflow.
 
-use signal_capture_session::{
-    CaptureChannelId, SimpleTriggerCondition, TriggerCountMode, TriggerLogicOperator,
-    TriggerOperandKind, TriggerOperandValue,
+use logic_analyzer_trigger::{
+    SimpleTriggerCondition, TriggerCountMode, TriggerLogicOperator, TriggerOperandKind,
+    TriggerOperandValue,
 };
+use signal_capture::CaptureChannelId;
 
 use super::contract::TriggerEditorChannel;
 

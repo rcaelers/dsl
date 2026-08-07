@@ -76,31 +76,6 @@ surfaces rather than replacing them with an umbrella error.
 
 Expect this to span many small PRs; each facade conversion is independently landable.
 
-## session.domain-relocation (P3 · medium) {#session-domain-relocation}
-
-The recorded signal-tier vocabulary makes this an ownership purge. The trigger cluster (trigger
-program, trigger schema, `SimpleTriggerCondition`) and the public `logic_analyzer` facade are
-product-domain APIs inside a generic acquisition-session crate. The trigger types are consumed by
-`logic_analyzer_viewer`, `logic_analyzer_graph_compiler`, `trigger_editor`, and the UI, so those
-consumers currently reach through the session owner for unrelated data contracts.
-
-**Direction.**
-
-1. Extract the serializable trigger program, schema, predicates, and control vocabulary into a
-   small `logic-analyzer-trigger` domain crate. It depends only on neutral value contracts and is
-   usable by the viewer, editor, compiler, concrete acquisition, and UI.
-2. Move the remaining driver/source contracts from `signal_capture_session::logic_analyzer` to
-   their logic-analyzer acquisition owners. Coordinate contracts shared by multiple devices with
-   the processing-domain split rather than making the generic session crate depend upward.
-3. Retain only acquisition lifecycle, integrity, bounded delivery, recording, and storage
-   coordination in `signal_capture_session`. Remove the `logic_analyzer` facade without a
-   compatibility re-export through the generic crate.
-4. Fix `session.facade-glob` opportunistically while curating the reduced facade.
-
-Acceptance: `signal_capture_session` exposes no logic-analyzer trigger, device, source, or driver
-vocabulary; it has no `logic_analyzer_*` dependency; and the viewer and trigger editor depend on
-the trigger owner rather than `signal-capture-session`.
-
 ## derived.payload.builtin-registration (P3 · medium) {#derived-payload-builtin-registration}
 
 The recorded signal-tier vocabulary makes this both an ownership purge and a registration-path

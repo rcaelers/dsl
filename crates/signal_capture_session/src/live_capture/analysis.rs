@@ -3,13 +3,13 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
-use signal_capture::{Sample, SampleBlock};
+use signal_capture::{CaptureChannelId, Sample, SampleBlock};
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortPayload, PortSchema, ProcessNode, WorkError,
     WorkResult,
 };
 
-use super::implementation::{CaptureChannelId, CaptureChunk};
+use super::implementation::CaptureChunk;
 use crate::live_capture_store::{CaptureCursorItem, CaptureStoreCursor};
 
 const CURSOR_WAIT: Duration = Duration::from_millis(10);

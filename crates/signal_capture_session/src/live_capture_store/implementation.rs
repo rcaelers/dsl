@@ -7,8 +7,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use platform_artifacts::RepositoryError;
+use signal_capture::CaptureChannelId;
 
-use crate::{CaptureChannelId, CaptureChunk, CaptureSessionId};
+use crate::{CaptureChunk, CaptureSessionId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CaptureStoreDescriptor {
@@ -494,8 +495,10 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use signal_capture::CaptureChannelId;
+
     use super::{CaptureCursorItem, CaptureRecordingGate, CaptureStoreCursor, CaptureStoreResult};
-    use crate::{CaptureChannelId, CaptureChunk, CaptureSessionId};
+    use crate::{CaptureChunk, CaptureSessionId};
 
     struct MemoryCursor {
         items: VecDeque<CaptureCursorItem>,

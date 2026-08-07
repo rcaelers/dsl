@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
+use logic_analyzer_trigger::TriggerProgram;
 use node_graph_document::SocketReference;
+use signal_capture::CaptureChannelId;
 use signal_capture_session::{
-    AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureChannelId,
-    CaptureProviderCapabilities, CaptureSessionPlan, CaptureStartMode, CaptureStoreCursor,
-    PreparedAcquisition, TriggerProgram,
+    AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureProviderCapabilities,
+    CaptureSessionPlan, CaptureStartMode, CaptureStoreCursor, PreparedAcquisition,
 };
 use signal_derived::DerivedDataRetention;
 use signal_runtime::{NodeConfig, ProcessNode};

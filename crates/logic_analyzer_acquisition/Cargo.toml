@@ -1,0 +1,23 @@
+[package]
+name = "logic-analyzer-acquisition"
+version.workspace = true
+edition = "2024"
+authors = ["Rob Caelers <rob.caelers@gmail.com>"]
+description = "Portable logic-analyzer driver, capture, and runtime-source contracts"
+repository = "https://github.com/rcaelers/logic-conduit"
+license = "MIT"
+
+[lib]
+name = "logic_analyzer_acquisition"
+path = "src/lib.rs"
+
+[dependencies]
+logic-analyzer-trigger = { path = "../logic_analyzer_trigger" }
+platform-runtime = { path = "../platform_runtime" }
+signal-capture = { path = "../signal_capture" }
+signal-runtime = { path = "../signal_runtime" }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+crossbeam-channel = { workspace = true }

@@ -4,11 +4,11 @@ use egui::Color32;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
+use logic_analyzer_trigger::{SimpleTriggerCondition, TriggerProgram};
 use node_graph::{
     BoolValue, EnumValue, FloatValue, InlineControl, InlineControlContext, InputDef, IntValue,
     NodeBadge, NodeDef, OutputDef, PanelSection, PropDef, Socket,
 };
-use signal_capture_session::{SimpleTriggerCondition, TriggerProgram};
 
 use crate::sockets::{COLOR_SOURCES, Signal};
 
@@ -858,8 +858,8 @@ impl NodeDef for DsLogicU3Pro16 {
 
 #[cfg(test)]
 mod tests {
+    use logic_analyzer_trigger::SimpleTriggerCondition::{Falling, High, Ignore};
     use node_graph::{BadgeSeverity, NodeDef};
-    use signal_capture_session::SimpleTriggerCondition::{Falling, High, Ignore};
 
     use super::super::trigger;
     use super::{

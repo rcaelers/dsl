@@ -8,6 +8,7 @@ mod architecture_tests;
 
 mod capture;
 mod capture_index_kernel;
+mod channel_identity;
 mod edge_query;
 mod errors;
 mod recorded_edge_query;
@@ -27,6 +28,7 @@ pub use capture::{
     decode_capture_worker_messages, encode_capture_worker_messages, packed_bit,
 };
 pub use capture_index_kernel::register_capture_worker_kernel;
+pub use channel_identity::CaptureChannelId;
 pub use edge_query::{
     EdgeQuery, EdgeQueryInputPortExt, EdgeQueryProcessNodeExt, edge_query_capability,
     edge_query_from_capability, edge_query_protocol,

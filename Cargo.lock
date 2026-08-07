@@ -2110,6 +2110,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
+name = "logic-analyzer-acquisition"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "logic-analyzer-trigger",
+ "platform-runtime",
+ "signal-capture",
+ "signal-runtime",
+ "thiserror 2.0.19",
+ "tracing",
+]
+
+[[package]]
 name = "logic-analyzer-app-native"
 version = "0.1.0"
 dependencies = [
@@ -2120,6 +2133,7 @@ dependencies = [
  "egui",
  "example-plugin",
  "input-bindings",
+ "logic-analyzer-acquisition",
  "logic-analyzer-capture-export",
  "logic-analyzer-capture-formats",
  "logic-analyzer-device-dslogic",
@@ -2189,6 +2203,7 @@ version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
  "platform-artifacts",
+ "signal-capture",
  "signal-capture-session",
  "tempfile",
  "thiserror 2.0.19",
@@ -2217,6 +2232,8 @@ name = "logic-analyzer-device-dslogic"
 version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
+ "logic-analyzer-acquisition",
+ "logic-analyzer-trigger",
  "platform-artifacts",
  "platform-runtime",
  "serde",
@@ -2237,6 +2254,7 @@ dependencies = [
  "egui",
  "example-plugin",
  "libc",
+ "logic-analyzer-acquisition",
  "logic-analyzer-capture-export",
  "logic-analyzer-capture-formats",
  "logic-analyzer-device-dslogic",
@@ -2248,6 +2266,7 @@ dependencies = [
  "logic-analyzer-graph-registry",
  "logic-analyzer-graph-runtime",
  "logic-analyzer-protocol-decoders",
+ "logic-analyzer-trigger",
  "logic-analyzer-ui",
  "logic-analyzer-viewer",
  "memmap2",
@@ -2274,6 +2293,7 @@ dependencies = [
 name = "logic-analyzer-graph-capabilities"
 version = "0.1.0"
 dependencies = [
+ "logic-analyzer-trigger",
  "node-graph-document",
  "platform-artifacts",
  "platform-runtime",
@@ -2293,9 +2313,11 @@ dependencies = [
  "logic-analyzer-graph-capabilities",
  "logic-analyzer-graph-plan",
  "logic-analyzer-graph-registry",
+ "logic-analyzer-trigger",
  "node-graph-document",
  "serde",
  "serde_json",
+ "signal-capture",
  "signal-capture-session",
  "signal-derived",
  "signal-runtime",
@@ -2315,6 +2337,7 @@ version = "0.1.0"
 dependencies = [
  "egui",
  "inventory",
+ "logic-analyzer-acquisition",
  "logic-analyzer-capture-formats",
  "logic-analyzer-device-dslogic",
  "logic-analyzer-graph-capabilities",
@@ -2322,6 +2345,7 @@ dependencies = [
  "logic-analyzer-graph-registry",
  "logic-analyzer-protocol-decoders",
  "logic-analyzer-test-support",
+ "logic-analyzer-trigger",
  "logic-analyzer-viewer",
  "node-graph",
  "node-graph-document",
@@ -2413,10 +2437,22 @@ dependencies = [
 name = "logic-analyzer-test-support"
 version = "0.1.0"
 dependencies = [
+ "logic-analyzer-trigger",
  "platform-artifacts",
+ "signal-capture",
  "signal-capture-session",
  "signal-derived",
  "tempfile",
+]
+
+[[package]]
+name = "logic-analyzer-trigger"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "signal-capture",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -2436,6 +2472,7 @@ dependencies = [
  "logic-analyzer-graph-plan",
  "logic-analyzer-graph-registry",
  "logic-analyzer-graph-runtime",
+ "logic-analyzer-trigger",
  "logic-analyzer-viewer",
  "node-graph",
  "node-graph-document",
@@ -2460,9 +2497,9 @@ dependencies = [
  "egui",
  "input-bindings",
  "inventory",
+ "logic-analyzer-trigger",
  "platform-artifacts",
  "signal-capture",
- "signal-capture-session",
  "signal-derived",
  "web-time",
 ]
@@ -4374,7 +4411,8 @@ name = "trigger-editor"
 version = "0.1.0"
 dependencies = [
  "egui",
- "signal-capture-session",
+ "logic-analyzer-trigger",
+ "signal-capture",
 ]
 
 [[package]]

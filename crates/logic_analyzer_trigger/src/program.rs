@@ -6,7 +6,9 @@ use std::fmt;
 use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 
-use crate::live_capture::{CaptureChannelId, SimpleTriggerCondition};
+use signal_capture::CaptureChannelId;
+
+use super::condition::SimpleTriggerCondition;
 
 /// Serialized format version for [`TriggerProgram`] values.
 pub const TRIGGER_PROGRAM_FORMAT_VERSION: u16 = 1;
@@ -1061,7 +1063,8 @@ impl TriggerValidationErrors {
         &self.diagnostics
     }
 
-    pub(crate) fn schema_unavailable() -> Self {
+    /// Creates the diagnostic returned when a capture profile has no trigger schema.
+    pub fn schema_unavailable() -> Self {
         Self {
             diagnostics: vec![diagnostic(
                 "program.schema_id",

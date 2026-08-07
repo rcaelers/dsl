@@ -26,14 +26,15 @@ use logic_analyzer_graph_plan::{
     ResolvedSamplingOverlay, SamplingOverlayCandidate,
 };
 use logic_analyzer_graph_registry::GraphRegistry;
+use logic_analyzer_trigger::{SimpleTriggerCondition, TriggerProgram};
 use node_graph_document::{
     Connection, GraphState, Node, NodeId, NodeKind, Socket, SocketDirection, SocketId,
     SocketReference, SocketShape, VariadicInfo,
 };
+use signal_capture::CaptureChannelId;
 use signal_capture_session::{
-    AcquisitionContext, AcquisitionResult, CaptureChannelId, CaptureProviderCapabilities,
-    CaptureSessionPlan, CaptureStartMode, PreparedAcquisition, SimpleTriggerCondition,
-    TriggerProgram,
+    AcquisitionContext, AcquisitionResult, CaptureProviderCapabilities, CaptureSessionPlan,
+    CaptureStartMode, PreparedAcquisition,
 };
 use signal_derived::{DerivedDataRetention, SamplingPointStore};
 

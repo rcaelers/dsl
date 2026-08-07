@@ -1,9 +1,10 @@
 //! Trigger contract for the deterministic test capture.
 
-use signal_capture_session::{
-    CaptureChannelId, SimpleTriggerCondition, TriggerCountCapabilities, TriggerCountMode,
-    TriggerEditorSchema, TriggerIdentifier, TriggerLogicOperator, TriggerProgram,
+use logic_analyzer_trigger::{
+    SimpleTriggerCondition, TriggerCountCapabilities, TriggerCountMode, TriggerEditorSchema,
+    TriggerIdentifier, TriggerLogicOperator, TriggerProgram,
 };
+use signal_capture::CaptureChannelId;
 
 use super::definition::TEST_CAPTURE_CHANNELS;
 

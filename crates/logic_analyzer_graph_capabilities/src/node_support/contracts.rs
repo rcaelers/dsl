@@ -1,13 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use logic_analyzer_trigger::{SimpleTriggerCondition, TriggerEditorSchema, TriggerProgram};
 use node_graph_document::NodeId;
 use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository, SourceIdentity};
 use platform_runtime::{InlineWorkExecutor, WorkExecutor};
-use signal_capture::CaptureIndexFactory;
-use signal_capture_session::{
-    CaptureChannelId, SimpleTriggerCondition, TriggerEditorSchema, TriggerProgram,
-};
+use signal_capture::{CaptureChannelId, CaptureIndexFactory};
 use signal_derived::{
     DecodedBlockCacheHandle, DerivedDataRetention, DerivedLanes, PersistentStoreConfig,
     SamplingPointStore, TimelineMarker,

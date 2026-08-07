@@ -6,16 +6,17 @@ use std::time::{Duration, Instant};
 use logic_analyzer_graph_capabilities::node::{CaptureGraphSourceFactory, LiveCaptureFeature};
 use logic_analyzer_graph_capabilities::node_support::SimpleTriggerChannel;
 use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
+use logic_analyzer_trigger::SimpleTriggerCondition;
 use node_graph::NodeId;
 use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 use platform_runtime::WorkExecutor;
+use signal_capture::CaptureChannelId;
 use signal_capture_session::{
     AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureAnalysisChannel,
-    CaptureAnalysisSource, CaptureChannelId, CaptureCommandCapabilities, CaptureDataDelivery,
-    CapturePolicy, CaptureProviderCapabilities, CaptureSessionPlan, CaptureSessionState,
-    CaptureStartMode, CaptureStoreCursor, CompletionPolicy, EffectiveCapturePolicy,
-    PreparedAcquisition, RecordingStart, RetentionPolicy, SimpleTriggerCondition, TriggerTimeout,
-    TriggerTimeoutAction,
+    CaptureAnalysisSource, CaptureCommandCapabilities, CaptureDataDelivery, CapturePolicy,
+    CaptureProviderCapabilities, CaptureSessionPlan, CaptureSessionState, CaptureStartMode,
+    CaptureStoreCursor, CompletionPolicy, EffectiveCapturePolicy, PreparedAcquisition,
+    RecordingStart, RetentionPolicy, TriggerTimeout, TriggerTimeoutAction,
 };
 use signal_runtime::ProcessNode;
 

@@ -15,10 +15,12 @@ path = "src/lib.rs"
 developer-tools = []
 
 [dependencies]
+logic-analyzer-acquisition = { path = "../logic_analyzer_acquisition" }
 platform-artifacts = { path = "../platform_artifacts" }
 platform-runtime = { path = "../platform_runtime" }
 signal-capture-session = { path = "../signal_capture_session" }
 signal-capture = { path = "../signal_capture" }
+logic-analyzer-trigger = { path = "../logic_analyzer_trigger" }
 signal-runtime = { path = "../signal_runtime" }
 crossbeam-channel = { workspace = true }
 tracing = { workspace = true }

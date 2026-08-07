@@ -6,10 +6,11 @@
 
 use std::collections::BTreeMap;
 
-use signal_capture_session::{
-    CaptureChannelId, RegisteredTriggerPredicateSchema, TriggerEditorSchema, TriggerIdentifier,
-    TriggerOperandKind, TriggerOperandValue, TriggerPredicate, TriggerProgram, TriggerStage,
+use logic_analyzer_trigger::{
+    RegisteredTriggerPredicateSchema, TriggerEditorSchema, TriggerIdentifier, TriggerOperandKind,
+    TriggerOperandValue, TriggerPredicate, TriggerProgram, TriggerStage,
 };
+use signal_capture::CaptureChannelId;
 
 use super::contract::{TriggerEditorAction, TriggerEditorChannel};
 

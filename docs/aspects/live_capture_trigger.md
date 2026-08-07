@@ -13,7 +13,10 @@ channel label, or mode label.
 
 | Owner | Responsibility |
 | --- | --- |
-| `signal_capture_session` | Driver-neutral lifecycle, capture policy, trigger program, canonical session store, committed-prefix cursors, retention, and growing index contracts |
+| `signal_capture` | Opaque physical-channel identity and immutable capture/index contracts |
+| `signal_capture_session` | Driver-neutral lifecycle, capture policy, canonical session store, committed-prefix cursors, retention, and growing index contracts |
+| `logic_analyzer_trigger` | Serializable trigger programs, capability schemas, simple conditions, and validation |
+| `logic_analyzer_acquisition` | Device-neutral driver, capture configuration, hardware-trigger, raw-chunk, and runtime-source contracts |
 | `logic_analyzer_device_dslogic` | DSLogic acquisition provider, device protocol, source factory, and packet conversion |
 | `logic_analyzer_graph_nodes` | Concrete live-source graph definition, saved state, migration, capabilities, and presentation metadata |
 | `logic_analyzer_graph_compiler` | Discovery of the one retained live source and lowering of its graph semantics |
@@ -24,7 +27,10 @@ channel label, or mode label.
 
 ```mermaid
 flowchart LR
-    Provider[Concrete capture provider] --> Session[signal_capture_session]
+    Provider[Concrete capture provider] --> Acquisition[logic_analyzer_acquisition]
+    Provider --> Session[signal_capture_session]
+    Acquisition --> Trigger[logic_analyzer_trigger]
+    Trigger --> Capture[signal_capture]
     Session --> Repo[ArtifactRepository]
     Session --> Query[Growing capture query]
     Session --> Cursor[Committed-prefix cursor]
@@ -71,7 +77,7 @@ presentation values.
 
 ## Trigger and capture policy
 
-`TriggerProgram` is a neutral, serializable program owned by `signal_capture_session`. The standard
+`TriggerProgram` is a neutral, serializable program owned by `logic_analyzer_trigger`. The standard
 simple digital predicates are Ignore, Low, High, Rising, Falling, and Either. The U3Pro16 feature
 maps enabled physical inputs to its hardware trigger stage and AND-combines non-ignored simple
 conditions. Unsupported programs and impossible channel/rate/depth combinations fail validation

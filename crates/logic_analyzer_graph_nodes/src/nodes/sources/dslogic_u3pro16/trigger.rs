@@ -3,10 +3,11 @@ use std::collections::BTreeMap;
 use logic_analyzer_graph_capabilities::node_support::{
     SimpleTriggerChannel, TriggerConfigurationFeature,
 };
-use signal_capture_session::{
-    CaptureChannelId, SimpleTriggerCondition, TriggerCountCapabilities, TriggerCountMode,
-    TriggerEditorSchema, TriggerIdentifier, TriggerLogicOperator, TriggerPredicate, TriggerProgram,
+use logic_analyzer_trigger::{
+    SimpleTriggerCondition, TriggerCountCapabilities, TriggerCountMode, TriggerEditorSchema,
+    TriggerIdentifier, TriggerLogicOperator, TriggerPredicate, TriggerProgram,
 };
+use signal_capture::CaptureChannelId;
 
 use super::definition::{U3PRO16_CHANNELS, U3Pro16State};
 
@@ -189,7 +190,7 @@ pub(crate) fn configuration(state: &U3Pro16State) -> Result<TriggerConfiguration
 
 #[cfg(test)]
 mod tests {
-    use signal_capture_session::{
+    use logic_analyzer_trigger::{
         TriggerCount, TriggerCountMode, TriggerLogicOperator, TriggerPredicate, TriggerProgram,
         TriggerStage,
     };

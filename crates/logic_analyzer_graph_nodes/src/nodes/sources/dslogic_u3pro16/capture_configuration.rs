@@ -1,4 +1,4 @@
-use signal_capture_session::logic_analyzer::{
+use logic_analyzer_acquisition::{
     CaptureMode, ClockEdge, ClockSource, LogicCaptureConfig, LogicEncodingRequest, LogicTrigger,
 };
 

@@ -41,10 +41,9 @@ so this ownership decision does not require a crate rename.
 
 ### Proposed future separation
 
-The remaining `signal_capture_session::logic_analyzer` facade and trigger- or protocol-specific
-retained-data contracts are relocated to logic-analyzer domain owners. The actionable relocations
-are tracked by `session.domain-relocation` and `derived.payload.builtin-registration` in
-[`TODO.md`](../../TODO.md).
+Trigger- and protocol-specific retained-data contracts in `signal_derived` are relocated to
+logic-analyzer domain owners. The actionable relocation is tracked by
+`derived.payload.builtin-registration` in [`TODO.md`](../../TODO.md).
 
 ## Graph documents and features
 

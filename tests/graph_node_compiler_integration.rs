@@ -18,10 +18,9 @@ use node_graph::{GraphState, NodeGraphWidget, NodeId, SocketDirection};
 use platform_artifacts::{
     ArtifactReplicationReceiver, ArtifactRepository, MemoryArtifactRepository,
 };
-use signal_capture::{Sample, SampleBlock};
+use signal_capture::{CaptureChannelId, Sample, SampleBlock};
 use signal_capture_session::{
-    CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId, CaptureStore,
-    CaptureStoreConfig,
+    CaptureChunk, CaptureChunkWriter, CaptureSessionId, CaptureStore, CaptureStoreConfig,
 };
 use signal_derived::{
     Annotation, CollectedLaneSnapshotRequest, DerivedLanes, DigitalLaneSnapshot,

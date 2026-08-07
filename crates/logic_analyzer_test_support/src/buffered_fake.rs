@@ -4,11 +4,13 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use logic_analyzer_trigger::SimpleTriggerCondition;
+use signal_capture::CaptureChannelId;
 use signal_capture_session::{
     AcquisitionContext, AcquisitionError, AcquisitionOutcome, AcquisitionResult,
-    CaptureAcquisitionPhase, CaptureBufferPool, CaptureChannelId, CaptureChunk, CaptureCompletion,
+    CaptureAcquisitionPhase, CaptureBufferPool, CaptureChunk, CaptureCompletion,
     CaptureDataDelivery, CaptureProgress, CaptureProviderCapabilities, CaptureSessionId,
-    CaptureSessionState, CaptureSettingCombination, PreparedAcquisition, SimpleTriggerCondition,
+    CaptureSessionState, CaptureSettingCombination, PreparedAcquisition,
 };
 
 /// Configuration for a deterministic provider that captures on-device then uploads in chunks.

@@ -5,8 +5,10 @@ use egui::Pos2;
 use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, LiveCaptureEdit, SourceDataLifecycleKind,
 };
+use logic_analyzer_trigger::SimpleTriggerCondition;
 use node_graph::NodeGraphWidget;
-use signal_capture_session::{CaptureChannelId, CaptureDataDelivery, SimpleTriggerCondition};
+use signal_capture::CaptureChannelId;
+use signal_capture_session::CaptureDataDelivery;
 
 use integration_tests_support::{
     GraphHarness, build_live_binary_test, build_registry, node_name, node_semantics,

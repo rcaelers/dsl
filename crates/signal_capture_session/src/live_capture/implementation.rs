@@ -1,7 +1,7 @@
 //! Generic, UI-independent contracts for bounded live-capture ingestion.
 //!
-//! Concrete devices and acquisition lifecycles live in their logic-analyzer device owners. This module
-//! owns only the canonical data, status, and writer boundaries shared by capture providers,
+//! Concrete devices and acquisition lifecycles live in their provider owners. This module owns
+//! only the canonical data, status, and writer boundaries shared by capture providers,
 //! stores, graph cursors, and viewers.
 
 use std::collections::HashSet;
@@ -11,65 +11,14 @@ use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::Duration;
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TryRecvError, TrySendError};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
 use platform_artifacts::ByteRegion;
+use signal_capture::CaptureChannelId;
 
-use crate::advanced_trigger::{
-    TriggerEditorSchema, TriggerProgram, TriggerValidationErrors, ValidatedTriggerProgram,
-};
 use crate::{CapturePolicyCapabilities, CaptureSessionPlan};
 
 pub const CAPTURE_CHUNK_FORMAT_VERSION: u16 = 1;
-
-/// Portable one-channel condition used by simple capture triggers.
-///
-/// Providers may lower this contract into a native device representation, or evaluate it in a
-/// host-side acquisition implementation. Multiple enabled conditions are combined with AND.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, Hash, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SimpleTriggerCondition {
-    /// Do not constrain this channel.
-    #[default]
-    Ignore,
-    /// Require the current level to be low.
-    Low,
-    /// Require the current level to be high.
-    High,
-    /// Require a low-to-high transition.
-    Rising,
-    /// Require a high-to-low transition.
-    Falling,
-    /// Require either level transition.
-    Either,
-}
-
-impl SimpleTriggerCondition {
-    /// Returns whether the condition depends on a prior sample.
-    pub const fn is_edge(self) -> bool {
-        matches!(self, Self::Rising | Self::Falling | Self::Either)
-    }
-
-    /// Tests a previous/current level pair against this condition.
-    ///
-    /// # Parameters
-    /// - `previous`: Prior level, or `None` when no prior sample exists.
-    /// - `current`: Current level to evaluate.
-    pub const fn matches(self, previous: Option<bool>, current: bool) -> bool {
-        match self {
-            Self::Ignore => true,
-            Self::Low => !current,
-            Self::High => current,
-            Self::Rising => matches!(previous, Some(false)) && current,
-            Self::Falling => matches!(previous, Some(true)) && !current,
-            Self::Either => match previous {
-                Some(previous) => previous != current,
-                None => false,
-            },
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CaptureSessionId(u128);
@@ -89,46 +38,6 @@ impl CaptureSessionId {
 impl fmt::Display for CaptureSessionId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{:032x}", self.0)
-    }
-}
-
-/// Provider-owned physical-channel identity. Generic code treats it as opaque.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct CaptureChannelId(Arc<str>);
-
-impl CaptureChannelId {
-    /// Creates an opaque physical-channel identifier.
-    pub fn new(value: impl Into<Arc<str>>) -> Self {
-        Self(value.into())
-    }
-
-    /// Returns the provider-defined channel identifier text.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for CaptureChannelId {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
-impl Serialize for CaptureChannelId {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(self.as_str())
-    }
-}
-
-impl<'de> Deserialize<'de> for CaptureChannelId {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        String::deserialize(deserializer).map(Self::new)
     }
 }
 
@@ -209,7 +118,6 @@ pub struct CaptureProviderCapabilities {
     setting_matrix: Arc<[CaptureSettingCombination]>,
     commands: CaptureCommandCapabilities,
     policy: CapturePolicyCapabilities,
-    trigger_schema: Option<Arc<TriggerEditorSchema>>,
 }
 
 impl CaptureProviderCapabilities {
@@ -239,7 +147,6 @@ impl CaptureProviderCapabilities {
                 capture_now: true,
             },
             policy: CapturePolicyCapabilities::finite_default(),
-            trigger_schema: None,
         })
     }
 
@@ -303,41 +210,6 @@ impl CaptureProviderCapabilities {
     pub fn with_policy(mut self, policy: CapturePolicyCapabilities) -> Self {
         self.policy = policy;
         self
-    }
-
-    /// Adds a schema for validating advanced trigger programs.
-    ///
-    /// # Parameters
-    ///
-    /// - `schema`: Trigger editor contract supported by the provider.
-    pub fn with_trigger_schema(mut self, schema: TriggerEditorSchema) -> Self {
-        self.trigger_schema = Some(Arc::new(schema));
-        self
-    }
-
-    /// Returns the advanced-trigger schema, when the provider supports one.
-    pub fn trigger_schema(&self) -> Option<&TriggerEditorSchema> {
-        self.trigger_schema.as_deref()
-    }
-
-    /// Validates a requested trigger program against provider capabilities.
-    ///
-    /// # Parameters
-    ///
-    /// - `program`: Optional user program; `None` needs no validation.
-    /// - `channels`: Physical channels available to the selected capture.
-    pub fn negotiate_trigger_program(
-        &self,
-        program: Option<&TriggerProgram>,
-        channels: &[CaptureChannelId],
-    ) -> Result<Option<ValidatedTriggerProgram>, TriggerValidationErrors> {
-        let Some(program) = program else {
-            return Ok(None);
-        };
-        let schema = self
-            .trigger_schema()
-            .ok_or_else(TriggerValidationErrors::schema_unavailable)?;
-        schema.validate_program(program, channels).map(Some)
     }
 
     /// Returns whether any advertised tuple supports channels and rate.
@@ -1272,15 +1144,12 @@ impl CaptureEventQueueReader {
 mod tests {
     use std::sync::Arc;
 
+    use signal_capture::CaptureChannelId;
+
     use super::{
-        CaptureBufferPool, CaptureChannelId, CaptureChunk, CaptureChunkError, CaptureChunkWriter,
+        CaptureBufferPool, CaptureChunk, CaptureChunkError, CaptureChunkWriter,
         CaptureDataDelivery, CaptureProviderCapabilities, CaptureQueueLimits, CaptureSessionId,
-        CaptureSettingCombination, CaptureWriteError, SimpleTriggerCondition,
-        bounded_capture_queue,
-    };
-    use crate::{
-        TriggerEditorSchema, TriggerIdentifier, TriggerLogicOperator, TriggerProgram,
-        TriggerValidationCode,
+        CaptureSettingCombination, CaptureWriteError, bounded_capture_queue,
     };
 
     fn channels() -> Arc<[CaptureChannelId]> {
@@ -1381,74 +1250,6 @@ mod tests {
     }
 
     #[test]
-    fn provider_capabilities_negotiate_only_advertised_trigger_programs() {
-        let channels = channels();
-        let schema = TriggerEditorSchema::new(
-            TriggerIdentifier::new("test.capture-trigger").unwrap(),
-            2,
-            1,
-            3,
-            vec![TriggerLogicOperator::And],
-        )
-        .unwrap()
-        .with_digital_conditions(vec![SimpleTriggerCondition::Rising])
-        .unwrap();
-        let program = schema
-            .simple_program([(channels[1].clone(), SimpleTriggerCondition::Rising)])
-            .unwrap()
-            .unwrap();
-        let capabilities = CaptureProviderCapabilities::single(
-            CaptureDataDelivery::DuringAcquisition,
-            Arc::clone(&channels),
-            1_000_000,
-        )
-        .with_trigger_schema(schema);
-
-        assert!(
-            capabilities
-                .negotiate_trigger_program(None, &channels)
-                .unwrap()
-                .is_none()
-        );
-        assert_eq!(
-            capabilities
-                .negotiate_trigger_program(Some(&program), &channels)
-                .unwrap()
-                .unwrap()
-                .program(),
-            &program
-        );
-
-        let without_schema = CaptureProviderCapabilities::single(
-            CaptureDataDelivery::DuringAcquisition,
-            Arc::clone(&channels),
-            1_000_000,
-        );
-        let error = without_schema
-            .negotiate_trigger_program(Some(&program), &channels)
-            .unwrap_err();
-        assert_eq!(
-            error.diagnostics()[0].code,
-            TriggerValidationCode::SchemaUnavailable
-        );
-
-        let wrong_schema = TriggerProgram::new(
-            TriggerIdentifier::new("test.other-trigger").unwrap(),
-            2,
-            program.stages.clone(),
-        );
-        let error = capabilities
-            .negotiate_trigger_program(Some(&wrong_schema), &channels)
-            .unwrap_err();
-        assert!(
-            error
-                .diagnostics()
-                .iter()
-                .any(|diagnostic| diagnostic.code == TriggerValidationCode::SchemaIdentity)
-        );
-    }
-
-    #[test]
     fn packed_chunk_rejects_short_payload() {
         let error = CaptureChunk::packed_lsb_first(
             CaptureSessionId::new(1),
@@ -1514,27 +1315,6 @@ mod tests {
         assert_eq!(metrics.available, 1);
         assert_eq!(metrics.in_use, 0);
         assert_eq!(metrics.max_in_use, 1);
-    }
-
-    #[test]
-    fn simple_trigger_condition_truth_table_covers_levels_and_edges() {
-        use SimpleTriggerCondition::{Either, Falling, High, Ignore, Low, Rising};
-
-        assert!(Ignore.matches(None, false));
-        assert!(Ignore.matches(Some(true), false));
-        assert!(Low.matches(None, false));
-        assert!(!Low.matches(None, true));
-        assert!(High.matches(None, true));
-        assert!(!High.matches(None, false));
-        assert!(Rising.matches(Some(false), true));
-        assert!(!Rising.matches(None, true));
-        assert!(!Rising.matches(Some(true), true));
-        assert!(Falling.matches(Some(true), false));
-        assert!(!Falling.matches(None, false));
-        assert!(Either.matches(Some(false), true));
-        assert!(Either.matches(Some(true), false));
-        assert!(!Either.matches(Some(true), true));
-        assert!(!Either.matches(None, true));
     }
 
     #[test]

@@ -4,8 +4,8 @@ use egui::Color32;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
+use logic_analyzer_trigger::{SimpleTriggerCondition, TriggerProgram};
 use node_graph::{InputDef, NodeBadge, NodeDef, OutputDef};
-use signal_capture_session::{SimpleTriggerCondition, TriggerProgram};
 
 use crate::sockets::{COLOR_SOURCES, Signal};
 
@@ -247,9 +247,9 @@ impl NodeDef for TestLiveCaptureSource {
 
 #[cfg(test)]
 mod tests {
+    use logic_analyzer_trigger::SimpleTriggerCondition::{Falling, High, Ignore};
+    use logic_analyzer_trigger::{SimpleTriggerCondition, TriggerPredicate, TriggerProgram};
     use node_graph::NodeDef;
-    use signal_capture_session::SimpleTriggerCondition::{Falling, High, Ignore};
-    use signal_capture_session::{SimpleTriggerCondition, TriggerPredicate, TriggerProgram};
 
     use super::{TEST_CAPTURE_CHANNELS, TestCaptureSource, TestCaptureSourceState};
 

@@ -3,11 +3,12 @@
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 
+use logic_analyzer_trigger::SimpleTriggerCondition;
+use signal_capture::CaptureChannelId;
 use signal_capture_session::{
     AcquisitionContext, AcquisitionError, AcquisitionOutcome, AcquisitionResult,
-    CaptureAcquisitionPhase, CaptureBufferPool, CaptureChannelId, CaptureChunk, CaptureCompletion,
-    CaptureProgress, CaptureSessionId, CaptureSessionState, PreparedAcquisition,
-    SimpleTriggerCondition,
+    CaptureAcquisitionPhase, CaptureBufferPool, CaptureChunk, CaptureCompletion, CaptureProgress,
+    CaptureSessionId, CaptureSessionState, PreparedAcquisition,
 };
 
 /// Boolean operation combining predicates in one deterministic trigger stage.
@@ -765,11 +766,12 @@ mod tests {
     use std::time::Duration;
 
     use platform_artifacts::MemoryArtifactRepository;
+    use signal_capture::CaptureChannelId;
     use signal_capture_session::{
-        AcquisitionContext, AcquisitionError, CaptureChannelId, CaptureCursorItem, CaptureEvent,
-        CaptureQueueLimits, CaptureQueueReceiveError, CaptureSessionId, CaptureSessionState,
-        CaptureStore, CaptureStoreConfig, CaptureStoreCursor, CaptureStoreDescriptor,
-        FinalizedCapture, bounded_capture_event_queue, bounded_capture_queue,
+        AcquisitionContext, AcquisitionError, CaptureCursorItem, CaptureEvent, CaptureQueueLimits,
+        CaptureQueueReceiveError, CaptureSessionId, CaptureSessionState, CaptureStore,
+        CaptureStoreConfig, CaptureStoreCursor, CaptureStoreDescriptor, FinalizedCapture,
+        bounded_capture_event_queue, bounded_capture_queue,
     };
 
     use super::{
@@ -795,7 +797,7 @@ mod tests {
 
     fn predicate(
         channel: usize,
-        condition: signal_capture_session::SimpleTriggerCondition,
+        condition: logic_analyzer_trigger::SimpleTriggerCondition,
     ) -> DeterministicTriggerPredicate {
         DeterministicTriggerPredicate { channel, condition }
     }
@@ -971,7 +973,7 @@ mod tests {
 
     #[test]
     fn portable_conditions_publish_the_exact_deterministic_trigger_sample() {
-        use signal_capture_session::SimpleTriggerCondition::{Either, Falling, High, Low, Rising};
+        use logic_analyzer_trigger::SimpleTriggerCondition::{Either, Falling, High, Low, Rising};
 
         for (condition, expected) in [(Low, 2), (High, 0), (Rising, 3), (Falling, 2), (Either, 2)] {
             let config = config()
@@ -1027,7 +1029,7 @@ mod tests {
 
     #[test]
     fn staged_trigger_executes_every_logic_operator_and_inversion() {
-        use signal_capture_session::SimpleTriggerCondition::High;
+        use logic_analyzer_trigger::SimpleTriggerCondition::High;
 
         let predicates = vec![predicate(0, High), predicate(2, High)];
         for (logic, expected) in [
@@ -1061,7 +1063,7 @@ mod tests {
 
     #[test]
     fn staged_trigger_counts_and_stage_progress_cross_chunk_boundaries() {
-        use signal_capture_session::SimpleTriggerCondition::{Falling, High, Rising};
+        use logic_analyzer_trigger::SimpleTriggerCondition::{Falling, High, Rising};
 
         let mut occurrences = stage(DeterministicTriggerLogic::And, vec![predicate(0, High)]);
         occurrences.count = Some(DeterministicTriggerCount {
@@ -1101,7 +1103,7 @@ mod tests {
 
     #[test]
     fn disabled_and_ignore_conditions_do_not_arm_the_fake_provider() {
-        use signal_capture_session::SimpleTriggerCondition::{High, Ignore};
+        use logic_analyzer_trigger::SimpleTriggerCondition::{High, Ignore};
 
         for conditions in [
             vec![None, None, None],

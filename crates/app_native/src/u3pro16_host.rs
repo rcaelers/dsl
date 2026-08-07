@@ -4,10 +4,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use logic_analyzer_acquisition::{LogicAnalyzerError, LogicAnalyzerResult};
 use logic_analyzer_device_dslogic::{
     DsLogicU3Pro16SourceFactory, DsLogicU3Pro16TransportFactory, LinkSpeed, UsbError, UsbTransport,
 };
-use signal_capture_session::logic_analyzer::{LogicAnalyzerError, LogicAnalyzerResult};
 
 const VENDOR_ID: u16 = 0x2a0e;
 const PRODUCT_ID: u16 = 0x002a;

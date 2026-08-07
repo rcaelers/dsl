@@ -1,4 +1,4 @@
-//! Portable live-acquisition lifecycle for concrete logic-analyzer providers.
+//! Portable live-acquisition lifecycle for concrete capture providers.
 
 use thiserror::Error;
 

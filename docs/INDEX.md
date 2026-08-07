@@ -57,6 +57,8 @@ namespace. All other crate contracts are documented in Rustdoc.
 - [platform_artifacts](crates/platform_artifacts.md)
 - [platform_runtime](crates/platform_runtime.md)
 - [logic_analyzer_capture_formats](crates/logic_analyzer_capture_formats.md)
+- [logic_analyzer_trigger](crates/logic_analyzer_trigger.md)
+- [logic_analyzer_acquisition](crates/logic_analyzer_acquisition.md)
 - [signal_capture](crates/signal_capture.md)
 - [signal_derived](crates/signal_derived.md)
 - [signal_capture_session](crates/signal_capture_session.md)
@@ -71,8 +73,10 @@ These supported namespaces are documented at their source facades in Rustdoc:
 - `platform_runtime`: no public modules; its crate root is the host-execution-contract facade
 - `signal_capture`: no public modules; its crate root is the immutable capture facade
 - `signal_derived`: `derived_word_store`
-- `signal_capture_session`: `live_capture`, `live_capture_store`, and `logic_analyzer`
+- `signal_capture_session`: `live_capture` and `live_capture_store`
 - `signal_runtime`: no public modules; its crate root is the execution-contract facade
+- `logic_analyzer_trigger`: no public modules; its crate root is the trigger-domain facade
+- `logic_analyzer_acquisition`: no public modules; its crate root is the acquisition-contract facade
 - `logic_analyzer_capture_formats`: `dsl_file` and `sigrok_file`
 - `logic_analyzer_device_dslogic`: no public modules; its crate root is the device facade
 - `logic_analyzer_protocol_decoders`: `i2c_decoder`, `parallel_decoder`, `sigrok_decoder`,
@@ -90,6 +94,8 @@ These supported namespaces are documented at their source facades in Rustdoc:
 - [`signal_capture` Design](crates/signal_capture.md)
 - [`signal_derived` Design](crates/signal_derived.md)
 - [`signal_capture_session` Design](crates/signal_capture_session.md)
+- [`logic_analyzer_trigger` Design](crates/logic_analyzer_trigger.md)
+- [`logic_analyzer_acquisition` Design](crates/logic_analyzer_acquisition.md)
 - [`signal_runtime` Design](crates/signal_runtime.md)
 - [`signal_runtime` Rustdoc](../crates/signal_runtime/src/lib.rs)
 - [Unified Native and Web Storage Platform Design](aspects/native_web_storage.md)

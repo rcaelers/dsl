@@ -9,8 +9,10 @@ name = "logic_analyzer_graph_nodes"
 path = "src/lib.rs"
 
 [dependencies]
+logic-analyzer-acquisition = { path = "../logic_analyzer_acquisition" }
 signal-capture-session = { path = "../signal_capture_session" }
 signal-capture = { path = "../signal_capture" }
+logic-analyzer-trigger = { path = "../logic_analyzer_trigger" }
 signal-derived = { path = "../signal_derived" }
 signal-generators = { path = "../signal_generators" }
 signal-runtime = { path = "../signal_runtime" }

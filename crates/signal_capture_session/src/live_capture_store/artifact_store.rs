@@ -7,7 +7,9 @@ use platform_artifacts::{
     ArtifactKey, ArtifactNamespace, ArtifactRepository, ByteRange, ByteRegion, RepositoryError,
     SourceIdentity, SystemUnixTimeSource, UnixTimeSource, read_artifact_region,
 };
-use signal_capture::{CaptureSampledChannel, CaptureSampledWindow, CaptureTransition, Error};
+use signal_capture::{
+    CaptureChannelId, CaptureSampledChannel, CaptureSampledWindow, CaptureTransition, Error,
+};
 
 use super::implementation::{
     CaptureCursorItem, CaptureReclamationReport, CaptureRecoveryReport, CaptureSessionMetadata,
@@ -99,7 +101,7 @@ impl PersistedManifest {
             self.channels
                 .iter()
                 .cloned()
-                .map(crate::CaptureChannelId::new)
+                .map(CaptureChannelId::new)
                 .collect::<Vec<_>>(),
         )
     }
@@ -167,7 +169,7 @@ impl PersistedSessionMetadata {
             parse_session_id(&self.session_id)?,
             self.channels
                 .into_iter()
-                .map(crate::CaptureChannelId::new)
+                .map(CaptureChannelId::new)
                 .collect::<Vec<_>>(),
         )?;
         let timeline = self
@@ -1078,7 +1080,7 @@ fn read_chunk(
             CaptureStoreError::Corrupt("capture chunk channel table is truncated".into())
         })?)
         .map_err(|_| CaptureStoreError::Corrupt("capture channel identity is not UTF-8".into()))?;
-        channels.push(crate::CaptureChannelId::new(name));
+        channels.push(CaptureChannelId::new(name));
         offset = end;
     }
     if channels.as_slice() != descriptor.channels() {
@@ -1228,10 +1230,11 @@ mod artifact_store_tests {
     use std::sync::Arc;
 
     use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
+    use signal_capture::CaptureChannelId;
 
     use super::{CaptureStore, CaptureStoreConfig, FinalizedCapture, PersistedManifest, chunk_key};
     use crate::{
-        CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId, CaptureStoreCursor,
+        CaptureChunk, CaptureChunkWriter, CaptureSessionId, CaptureStoreCursor,
         CaptureStoreDescriptor, CaptureStoreError,
     };
 

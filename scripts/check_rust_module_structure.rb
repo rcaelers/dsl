@@ -16,7 +16,7 @@ DECLARATIVE_SELECTION_FACADES = %w[
 
 PUBLIC_MODULES = {
   "crates/signal_derived/src/lib.rs" => %w[derived_word_store],
-  "crates/signal_capture_session/src/lib.rs" => %w[live_capture live_capture_store logic_analyzer],
+  "crates/signal_capture_session/src/lib.rs" => %w[live_capture live_capture_store],
   "crates/logic_analyzer_capture_formats/src/lib.rs" => %w[dsl_file sigrok_file],
   "crates/logic_analyzer_protocol_decoders/src/lib.rs" => %w[
     i2c_decoder parallel_decoder sigrok_decoder spi_decoder types uart_decoder

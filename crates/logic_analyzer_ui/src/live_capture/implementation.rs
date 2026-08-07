@@ -141,7 +141,8 @@ pub(crate) trait CaptureCoordinatorContract {
 
 #[cfg(test)]
 mod tests {
-    use signal_capture_session::{CaptureChannelId, CaptureDataDelivery};
+    use signal_capture::CaptureChannelId;
+    use signal_capture_session::CaptureDataDelivery;
 
     use super::*;
 

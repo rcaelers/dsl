@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use signal_capture_session::logic_analyzer::LogicCaptureConfig;
+use logic_analyzer_acquisition::LogicCaptureConfig;
+use signal_capture::CaptureChannelId;
 use signal_capture_session::{
-    CaptureChannelId, CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle,
-    CaptureSourceMetadata, CaptureSourcePresentation, CaptureSourceRuntimeCapabilities,
-    ConfiguredAcquisition,
+    CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
+    CaptureSourcePresentation, CaptureSourceRuntimeCapabilities, ConfiguredAcquisition,
 };
 use signal_runtime::ProcessNodeConstruction;
 

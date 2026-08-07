@@ -8,12 +8,12 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use signal_capture_session::TriggerCountMode;
-use signal_capture_session::logic_analyzer::{
+use logic_analyzer_acquisition::{
     CaptureMode, ClockEdge, ClockSource, LogicAnalyzer, LogicAnalyzerError, LogicAnalyzerInfo,
     LogicAnalyzerResult, LogicAnalyzerSource, LogicCaptureConfig, LogicChunk, LogicEncoding,
     LogicEncodingRequest, LogicTrigger, LogicTriggerStage, TriggerCondition, TriggerLogic,
 };
+use logic_analyzer_trigger::TriggerCountMode;
 
 use super::transport::{LinkSpeed, UsbError, UsbTransport};
 
@@ -2078,9 +2078,9 @@ mod tests {
         let (transport, settings_writes) = FixtureTransport::new(fixture_header(&fixture), data);
         let analyzer = DsLogicU3Pro16::new(transport).unwrap();
         let channels = vec![
-            signal_capture_session::CaptureChannelId::new("u3pro16:input:0"),
-            signal_capture_session::CaptureChannelId::new("u3pro16:input:2"),
-            signal_capture_session::CaptureChannelId::new("u3pro16:input:5"),
+            signal_capture::CaptureChannelId::new("u3pro16:input:0"),
+            signal_capture::CaptureChannelId::new("u3pro16:input:2"),
+            signal_capture::CaptureChannelId::new("u3pro16:input:5"),
         ];
         let provider = BufferedProvider::new(analyzer, config, channels.clone()).unwrap();
         let session_id = CaptureSessionId::new(0x8316);
@@ -2161,9 +2161,9 @@ mod tests {
         let transport = PrequeuedHeaderTransport::new(fixture_header(&fixture), data);
         let analyzer = DsLogicU3Pro16::new(transport).unwrap();
         let channels = vec![
-            signal_capture_session::CaptureChannelId::new("u3pro16:input:0"),
-            signal_capture_session::CaptureChannelId::new("u3pro16:input:2"),
-            signal_capture_session::CaptureChannelId::new("u3pro16:input:5"),
+            signal_capture::CaptureChannelId::new("u3pro16:input:0"),
+            signal_capture::CaptureChannelId::new("u3pro16:input:2"),
+            signal_capture::CaptureChannelId::new("u3pro16:input:5"),
         ];
         let provider = StreamingProvider::new(analyzer, config, channels.clone()).unwrap();
         let session_id = CaptureSessionId::new(0x8317);
@@ -2257,9 +2257,9 @@ mod tests {
         let (transport, _) = FixtureTransport::overflowing_stream(fixture_header(&fixture));
         let analyzer = DsLogicU3Pro16::new(transport).unwrap();
         let channels = vec![
-            signal_capture_session::CaptureChannelId::new("u3pro16:input:0"),
-            signal_capture_session::CaptureChannelId::new("u3pro16:input:2"),
-            signal_capture_session::CaptureChannelId::new("u3pro16:input:5"),
+            signal_capture::CaptureChannelId::new("u3pro16:input:0"),
+            signal_capture::CaptureChannelId::new("u3pro16:input:2"),
+            signal_capture::CaptureChannelId::new("u3pro16:input:5"),
         ];
         let provider = StreamingProvider::new(analyzer, config, channels.clone()).unwrap();
         let session_id = CaptureSessionId::new(0x8319);
@@ -2303,9 +2303,9 @@ mod tests {
         let transport = FixtureTransport::idle_stream(fixture_header(&fixture));
         let analyzer = DsLogicU3Pro16::new(transport).unwrap();
         let channels = vec![
-            signal_capture_session::CaptureChannelId::new("u3pro16:input:0"),
-            signal_capture_session::CaptureChannelId::new("u3pro16:input:2"),
-            signal_capture_session::CaptureChannelId::new("u3pro16:input:5"),
+            signal_capture::CaptureChannelId::new("u3pro16:input:0"),
+            signal_capture::CaptureChannelId::new("u3pro16:input:2"),
+            signal_capture::CaptureChannelId::new("u3pro16:input:5"),
         ];
         let provider = StreamingProvider::new(analyzer, config, channels.clone()).unwrap();
         let session_id = CaptureSessionId::new(0x8318);

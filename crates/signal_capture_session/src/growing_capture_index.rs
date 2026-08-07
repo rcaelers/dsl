@@ -1135,12 +1135,12 @@ mod tests {
 
     use platform_artifacts::MemoryArtifactRepository;
     use platform_runtime::{CompletedWorkTask, WorkExecutor, WorkExecutorTask, WorkTask};
-    use signal_capture::{CaptureIndex, CaptureWaveformSegment};
+    use signal_capture::{CaptureChannelId, CaptureIndex, CaptureWaveformSegment};
 
     use super::{FAN_OUT, GrowingCaptureIndex, LEAF_SAMPLES, summary_masks};
     use crate::{
-        CaptureChannelId, CaptureChunk, CaptureChunkWriter, CaptureSessionId, CaptureStore,
-        CaptureStoreConfig, CaptureStoreDescriptor,
+        CaptureChunk, CaptureChunkWriter, CaptureSessionId, CaptureStore, CaptureStoreConfig,
+        CaptureStoreDescriptor,
     };
 
     struct SpawnWorkExecutor;

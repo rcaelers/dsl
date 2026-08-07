@@ -4,10 +4,11 @@
 //! program edits, and render outcomes. They expose no reducer implementation,
 //! egui state, device semantics, or application workflow.
 
-use signal_capture_session::{
-    CaptureChannelId, SimpleTriggerCondition, TriggerCount, TriggerIdentifier,
-    TriggerLogicOperator, TriggerOperandValue, TriggerProgram,
+use logic_analyzer_trigger::{
+    SimpleTriggerCondition, TriggerCount, TriggerIdentifier, TriggerLogicOperator,
+    TriggerOperandValue, TriggerProgram,
 };
+use signal_capture::CaptureChannelId;
 
 /// One enabled capture channel offered by the trigger editor.
 #[derive(Clone, Debug, PartialEq, Eq)]

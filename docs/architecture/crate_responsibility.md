@@ -42,9 +42,9 @@ graph documents, or presentation.
 #### `signal-capture`
 
 Owns generic immutable capture payloads, capture data-source and query contracts, random-access
-signal capabilities, transition queries, and finite waveform indexing. Its crate root is the
-immutable-capture facade. Acquisition lifecycle, concrete formats and devices, derived data, and
-widgets remain outside this crate.
+signal capabilities, opaque provider-owned channel identities, transition queries, and finite
+waveform indexing. Its crate root is the immutable-capture facade. Acquisition lifecycle, concrete
+formats and devices, derived data, and widgets remain outside this crate.
 
 #### `signal-derived`
 
@@ -64,11 +64,10 @@ presentation, and cache-identity contracts. Its public modules are domain facade
 - `live_capture` defines provider-neutral acquisition configuration, commands, events, progress,
   bounded delivery, and terminal outcomes;
 - `live_capture_store` defines append-only recording, committed-prefix reading, finalization,
-  recovery, and session-repository contracts; and
-- `logic_analyzer` defines driver-neutral logic-analyzer configuration, trigger, source, and driver
-  contracts.
+  recovery, and session-repository contracts.
 
-Concrete device transports, formats, graph-node state, and UI workflow remain outside this crate.
+Logic-analyzer trigger programs, driver contracts, concrete device transports, formats, graph-node
+state, and UI workflow remain outside this crate.
 
 #### `signal-transforms`
 
@@ -90,6 +89,19 @@ tests, and scenarios. Generators are selected through configuration and are not 
 Owns DSL and Sigrok archive parsing, capture indexing, and finite replay sources. It consumes
 prepared byte sources and artifact/work capabilities; host file selection and graph definitions
 remain outside it.
+
+#### `logic-analyzer-trigger`
+
+Owns serializable trigger programs, provider schemas, registered predicates, stable identifiers,
+simple digital conditions, edit classification, and validation diagnostics. It depends only on the
+opaque channel identity from `signal-capture`; acquisition, graphs, widgets, UI, and devices consume
+its crate-root facade directly.
+
+#### `logic-analyzer-acquisition`
+
+Owns device-neutral logic-analyzer driver and capture-configuration contracts, hardware-trigger
+values, raw chunks, and the reusable runtime source adapter. It consumes trigger, capture, runtime,
+and host-work contracts without selecting a concrete device or transport.
 
 #### `logic-analyzer-device-dslogic`
 
@@ -311,6 +323,8 @@ flowchart LR
     Editor --> Document
     Nodes --> Formats[logic_analyzer_capture_formats]
     Nodes --> Device[logic_analyzer_device_dslogic]
+    Nodes --> Acquisition[logic_analyzer_acquisition]
+    Nodes --> Trigger[logic_analyzer_trigger]
     Nodes --> Decoders[logic_analyzer_protocol_decoders]
     Nodes --> Transforms[signal_transforms]
     Nodes --> Sinks[signal_sinks]
@@ -320,6 +334,12 @@ flowchart LR
     Formats --> Capture[signal_capture]
     Device --> HostRuntime
     Device --> Session
+    Device --> Acquisition
+    Acquisition --> HostRuntime
+    Acquisition --> Trigger
+    Acquisition --> Capture
+    Acquisition --> Stream[signal_runtime]
+    Trigger --> Capture
     Decoders --> HostRuntime
     Decoders --> Capture
     Decoders --> Derived[signal_derived]
@@ -329,7 +349,7 @@ flowchart LR
     Sinks --> Derived
     Generators --> Capture
     Generators --> Session
-    Formats --> Stream[signal_runtime]
+    Formats --> Stream
     Device --> Stream
     Decoders --> Stream
     Transforms --> Stream

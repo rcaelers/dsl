@@ -605,7 +605,7 @@ impl App {
 
     fn apply_trigger_program_edit(
         &mut self,
-        program: Option<signal_capture_session::TriggerProgram>,
+        program: Option<logic_analyzer_trigger::TriggerProgram>,
     ) {
         let Some(source_node) = self
             .capture_analysis

@@ -11,6 +11,7 @@ path = "src/lib.rs"
 [dependencies]
 signal-capture-session = { path = "../signal_capture_session" }
 signal-capture = { path = "../signal_capture" }
+logic-analyzer-trigger = { path = "../logic_analyzer_trigger" }
 signal-derived = { path = "../signal_derived" }
 signal-runtime = { path = "../signal_runtime" }
 platform-artifacts = { path = "../platform_artifacts" }

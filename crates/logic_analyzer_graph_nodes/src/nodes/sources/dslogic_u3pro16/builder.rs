@@ -40,9 +40,7 @@ impl DsLogicU3Pro16Builder {
         Self { source_factory }
     }
 
-    fn config(
-        state: &Value,
-    ) -> Result<signal_capture_session::logic_analyzer::LogicCaptureConfig, String> {
+    fn config(state: &Value) -> Result<logic_analyzer_acquisition::LogicCaptureConfig, String> {
         let state: U3Pro16State = parse_state(state)?;
         super::capture_configuration::capture_config(&state)
     }
@@ -243,7 +241,7 @@ inventory::submit! {
 mod builder_tests {
     use std::sync::Mutex;
 
-    use signal_capture_session::logic_analyzer::LogicCaptureConfig;
+    use logic_analyzer_acquisition::LogicCaptureConfig;
     use signal_capture_session::{
         CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle,
         CaptureSourcePresentation,
