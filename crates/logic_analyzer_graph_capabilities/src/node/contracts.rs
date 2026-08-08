@@ -14,7 +14,7 @@ use signal_capture_session::{
 use signal_derived::DerivedDataRetention;
 use signal_runtime::{NodeConfig, ProcessNode};
 
-use super::error::{LiveCaptureFeatureError, TimelineFeatureError};
+use super::error::{LiveCaptureFeatureError, RuntimeMaterializationError, TimelineFeatureError};
 use crate::node_support::{
     CaptureCacheIdentity, CapturePresentation, DecoderTableColumnDescriptor,
     LanePresentationDescriptor, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
@@ -497,7 +497,7 @@ pub trait RuntimeMaterializer: Send + Sync {
         state: &Value,
         resolved: &ResolvedInputs,
         ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String>;
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError>;
 
     /// Returns an in-place runtime configuration update, when supported.
     ///

@@ -314,7 +314,7 @@ impl GraphWorkerRuntime {
                 error: GraphWorkerFailure::Execution(
                     errors
                         .into_iter()
-                        .map(|error| error.message)
+                        .map(|error| error.to_string())
                         .collect::<Vec<_>>()
                         .join("\n"),
                 ),

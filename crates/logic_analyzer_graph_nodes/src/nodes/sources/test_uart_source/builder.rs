@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{
     CaptureSourceFeature, CaptureSourceFeatureError, GraphNodePresentation, GraphNodeSemantics,
-    RuntimeMaterializer,
+    RuntimeMaterializationError, RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, NodeBuildContext, PortKind, ResolvedInputs, parse_state,
@@ -51,9 +51,8 @@ impl RuntimeMaterializer for TestUartSourceBuilder {
         state: &Value,
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::TestUartSourceState =
-            parse_state(state).map_err(|error| error.to_string())?;
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
+        let state: super::definition::TestUartSourceState = parse_state(state)?;
         let source = SyntheticUartSource::new(
             state.message.value.into_bytes(),
             state.baud_rate.value.max(1) as u64,

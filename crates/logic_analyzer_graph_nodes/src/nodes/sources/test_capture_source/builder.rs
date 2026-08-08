@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{
     CaptureSourceFeature, CaptureSourceFeatureError, GraphNodePresentation, GraphNodeSemantics,
-    RuntimeMaterializer,
+    RuntimeMaterializationError, RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, CapturePresentationSignal, NodeBuildContext, PortKind, ResolvedInputs,
@@ -101,9 +101,8 @@ impl RuntimeMaterializer for TestCaptureSourceBuilder {
         state: &Value,
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        let _: super::definition::TestCaptureSourceState =
-            parse_state(state).map_err(|error| error.to_string())?;
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
+        let _: super::definition::TestCaptureSourceState = parse_state(state)?;
         Ok(Box::new(SyntheticCaptureSource::new().with_name(name)))
     }
 }

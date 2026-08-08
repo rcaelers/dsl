@@ -1,5 +1,5 @@
 use logic_analyzer_graph_capabilities::node::{
-    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
+    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializationError, RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     DefaultLanePresentationDescriptor, LaneBadgeDescriptor, NodeBuildContext, PortKind,
@@ -85,8 +85,10 @@ impl RuntimeMaterializer for WordProducerBuilder {
         _state: &serde_json::Value,
         _resolved: &ResolvedInputs,
         _context: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        Err("UI test producer is graph-only".to_owned())
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
+        Err(RuntimeMaterializationError::contract(
+            "UI test producer is graph-only",
+        ))
     }
 }
 

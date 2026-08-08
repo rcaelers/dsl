@@ -2,6 +2,99 @@ use signal_capture_session::CaptureSourceMetadataError;
 
 use crate::node_support::PersistedStateError;
 
+/// Failure to construct one graph node's processing-runtime implementation.
+#[derive(Debug, thiserror::Error)]
+pub enum RuntimeMaterializationError {
+    /// The node's persisted state could not be decoded.
+    #[error(transparent)]
+    State(#[from] PersistedStateError),
+    /// The node configuration is not valid for construction.
+    #[error("{0}")]
+    Configuration(String),
+    /// A required run-scoped input or resource is unavailable.
+    #[error("{0}")]
+    Unavailable(String),
+    /// A lower-level factory could not construct the processing node.
+    #[error("{0}")]
+    Construction(String),
+    /// A lower-level factory exposed a typed construction failure.
+    #[error("{source}")]
+    ConstructionSource {
+        /// Concrete lower-level construction cause.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    /// A materializer was invoked through an unsupported capability path.
+    #[error("{0}")]
+    Contract(String),
+}
+
+impl RuntimeMaterializationError {
+    /// Classifies invalid node configuration.
+    pub fn configuration(message: impl Into<String>) -> Self {
+        Self::Configuration(message.into())
+    }
+
+    /// Classifies an unavailable run-scoped input or resource.
+    pub fn unavailable(message: impl Into<String>) -> Self {
+        Self::Unavailable(message.into())
+    }
+
+    /// Adapts a lower-level construction diagnostic whose owner still exposes text.
+    pub fn construction(message: impl Into<String>) -> Self {
+        Self::Construction(message.into())
+    }
+
+    /// Retains a lower-level typed construction failure.
+    pub fn construction_source(source: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self::ConstructionSource {
+            source: Box::new(source),
+        }
+    }
+
+    /// Classifies use of an unsupported materialization path.
+    pub fn contract(message: impl Into<String>) -> Self {
+        Self::Contract(message.into())
+    }
+}
+
+#[cfg(test)]
+mod runtime_materialization_error_tests {
+    use std::error::Error;
+
+    use serde_json::json;
+
+    use super::RuntimeMaterializationError;
+    use crate::node_support::parse_state;
+
+    #[test]
+    fn persisted_state_causes_survive_materialization() {
+        let state_error = parse_state::<u64>(&json!("not a number")).unwrap_err();
+        let error = RuntimeMaterializationError::from(state_error);
+
+        assert!(matches!(error, RuntimeMaterializationError::State(_)));
+        assert!(error.source().is_some());
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("controlled construction failure")]
+    struct ControlledConstructionFailure;
+
+    #[test]
+    fn typed_construction_causes_survive_materialization() {
+        let error = RuntimeMaterializationError::construction_source(ControlledConstructionFailure);
+
+        assert!(matches!(
+            error,
+            RuntimeMaterializationError::ConstructionSource { .. }
+        ));
+        assert_eq!(
+            error.source().map(ToString::to_string).as_deref(),
+            Some("controlled construction failure")
+        );
+    }
+}
+
 /// Failure exposed by a node's generic live-capture capability.
 #[derive(Debug, thiserror::Error)]
 pub enum LiveCaptureFeatureError {

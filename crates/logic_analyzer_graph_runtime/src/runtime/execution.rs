@@ -1,12 +1,13 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
+use logic_analyzer_graph_capabilities::node::RuntimeMaterializationError;
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, TimelineMarkerReference,
 };
 use logic_analyzer_graph_plan::{
     CollectedOutputLane, CollectedOutputSubscription, CollectedTableSubscription, ProcessingGraph,
-    ProcessingGraphError, ProcessingNode, SamplingOverlayCandidate,
+    ProcessingNode, SamplingOverlayCandidate,
 };
 use node_graph_document::NodeId;
 use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
@@ -23,8 +24,8 @@ use signal_runtime::{
 
 use super::data_collector::DataCollectorBuilder;
 use super::{
-    ApplyError, RunData, RunDiagnosticRegistry, SourceArtifactReadiness, SourceDataKind,
-    SourceReadiness, SourceReadinessRegistry, cache_policy,
+    ApplyError, GraphRuntimeError, RunData, RunDiagnosticRegistry, SourceArtifactReadiness,
+    SourceDataKind, SourceReadiness, SourceReadinessRegistry, cache_policy,
 };
 
 pub struct GraphRunContext {
@@ -315,7 +316,7 @@ fn materialize_compiled_node(
     runtime_name: &str,
     graph: &ProcessingGraph,
     ctx: &mut GraphRunContext,
-) -> Result<Box<dyn ProcessNode>, String> {
+) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
     if node.data_collector {
         return DataCollectorBuilder::build_with_lane_names(
             runtime_name,
@@ -621,7 +622,7 @@ pub type SourceProcessOverrides = HashMap<NodeId, Box<dyn ProcessNode>>;
 pub(crate) fn load_cached_data_with_subscriptions(
     mut compiled: ProcessingGraph,
     ctx: &mut GraphRunContext,
-) -> Result<bool, Vec<ProcessingGraphError>> {
+) -> Result<bool, Vec<GraphRuntimeError>> {
     cache_policy::assign_derived_word_caches(&mut compiled);
     cache_policy::assign_sampling_point_caches(&mut compiled);
     cache_policy::configure_repository(&mut compiled, &ctx.artifact_repository);
@@ -655,7 +656,7 @@ pub(crate) fn load_cached_data_with_subscriptions(
             ctx.derived_word_caches
                 .clone_from(&node.derived_word_caches);
             materialize_compiled_node(node, &node.runtime_name, preview, ctx)
-                .map_err(|message| vec![ProcessingGraphError::on(node.id, message)])?;
+                .map_err(|source| vec![GraphRuntimeError::materialization(node.id, source)])?;
         }
     }
     cache_policy::schedule_maintenance(&compiled, &ctx.artifact_repository, &ctx.work_executor);
@@ -670,7 +671,7 @@ pub(crate) fn start_live_analysis_with_subscriptions(
     ctx: &mut GraphRunContext,
     source: LiveAnalysisSource,
     runtime_factory: &dyn signal_runtime::AppManagerFactory,
-) -> Result<LiveRun, Vec<ProcessingGraphError>> {
+) -> Result<LiveRun, Vec<GraphRuntimeError>> {
     let mut overrides = SourceProcessOverrides::new();
     overrides.insert(source.source_node, source.process);
     start_live_inner(compiled, ctx, overrides, runtime_factory)
@@ -681,7 +682,7 @@ fn start_live_inner(
     ctx: &mut GraphRunContext,
     mut source_overrides: SourceProcessOverrides,
     runtime_factory: &dyn signal_runtime::AppManagerFactory,
-) -> Result<LiveRun, Vec<ProcessingGraphError>> {
+) -> Result<LiveRun, Vec<GraphRuntimeError>> {
     cache_policy::assign_derived_word_caches(&mut compiled);
     cache_policy::assign_sampling_point_caches(&mut compiled);
     cache_policy::configure_repository(&mut compiled, &ctx.artifact_repository);
@@ -703,19 +704,19 @@ fn start_live_inner(
     ctx.collected_table_subscriptions = collected_table_subscriptions(&compiled);
     let mut manager = runtime_factory
         .create()
-        .map_err(|error| vec![ProcessingGraphError::global(error.to_string())])?;
+        .map_err(|error| vec![GraphRuntimeError::Pipeline(error)])?;
     let mut names: HashMap<NodeId, String> = HashMap::new();
 
     for source_node in source_overrides.keys().copied() {
         let Some(node) = execution.nodes.iter().find(|node| node.id == source_node) else {
-            return Err(vec![ProcessingGraphError::on(
+            return Err(vec![GraphRuntimeError::invalid_plan(
                 source_node,
                 "source override is not retained by the compiled graph",
             )]);
         };
         let is_source = node.time_domain_source;
         if !is_source {
-            return Err(vec![ProcessingGraphError::on(
+            return Err(vec![GraphRuntimeError::invalid_plan(
                 source_node,
                 "source override does not target a source node",
             )]);
@@ -730,24 +731,24 @@ fn start_live_inner(
             process
         } else {
             materialize_compiled_node(node, &node.runtime_name, &execution, ctx)
-                .map_err(|message| vec![ProcessingGraphError::on(id, message)])?
+                .map_err(|source| vec![GraphRuntimeError::materialization(id, source)])?
         };
         let inputs = input_subs(&execution, id, process.as_ref(), &names)
-            .map_err(|message| vec![ProcessingGraphError::on(id, message)])?;
+            .map_err(|message| vec![GraphRuntimeError::invalid_plan(id, message)])?;
         manager
             .add_node_deferred(signal_runtime::NodeSpec {
                 name: node.runtime_name.clone(),
                 node: process,
                 inputs,
             })
-            .map_err(|error| vec![ProcessingGraphError::on(id, error.to_string())])?;
+            .map_err(|error| vec![GraphRuntimeError::node_pipeline(id, error)])?;
         names.insert(id, node.runtime_name.clone());
     }
     // All initial subscriptions exist; only now may threads start (a
     // self-threading source snapshots its subscriber lists on first work()).
     manager
         .start_all_deferred()
-        .map_err(|error| vec![ProcessingGraphError::global(error.to_string())])?;
+        .map_err(|error| vec![GraphRuntimeError::Pipeline(error)])?;
     publish_materialized_source_readiness(&compiled, &ctx.source_readiness);
 
     Ok(LiveRun {
@@ -875,7 +876,7 @@ impl LiveRun {
                         .clone_from(&node.derived_word_caches);
                     let process =
                         materialize_compiled_node(node, &node.runtime_name, &new, &mut ctx)
-                            .map_err(ApplyError::Apply)?;
+                            .map_err(|source| ApplyError::Materialization { node: id, source })?;
                     let inputs = input_subs(&new, id, process.as_ref(), &self.names)
                         .map_err(ApplyError::Apply)?;
                     self.manager
@@ -908,7 +909,7 @@ impl LiveRun {
                     ctx.derived_word_caches
                         .clone_from(&node.derived_word_caches);
                     let process = materialize_compiled_node(node, &name, &new, &mut ctx)
-                        .map_err(ApplyError::Apply)?;
+                        .map_err(|source| ApplyError::Materialization { node: id, source })?;
                     let inputs = input_subs(&new, id, process.as_ref(), &self.names)
                         .map_err(ApplyError::Apply)?;
                     self.manager
@@ -1089,6 +1090,6 @@ pub(crate) fn start_app_run_with_source_overrides_and_subscriptions(
     ctx: &mut GraphRunContext,
     overrides: SourceProcessOverrides,
     runtime_factory: &dyn signal_runtime::AppManagerFactory,
-) -> Result<LiveRun, Vec<ProcessingGraphError>> {
+) -> Result<LiveRun, Vec<GraphRuntimeError>> {
     start_live_inner(compiled, ctx, overrides, runtime_factory)
 }

@@ -1,5 +1,6 @@
 //! Presentation-neutral collection of retained derived data.
 
+use logic_analyzer_graph_capabilities::node::RuntimeMaterializationError;
 use logic_analyzer_graph_capabilities::node_support::{NodeBuildContext, ResolvedInputs};
 use logic_analyzer_graph_plan::ProcessingPayloadCatalog;
 use signal_derived::{CollectedLaneRequest, DerivedDataCollector, LiveStoreConfig};
@@ -14,18 +15,25 @@ impl DataCollectorBuilder {
         lane_names: &[(usize, String)],
         payload_catalog: &dyn ProcessingPayloadCatalog,
         ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
         let mut collector = DerivedDataCollector::new()
             .with_name(name)
             .with_retention(ctx.derived_data_retention());
         for (member, lane_name) in lane_names {
-            let input = resolved
-                .get(0, *member)
-                .ok_or_else(|| format!("collector input {member} is unresolved"))?;
+            let input = resolved.get(0, *member).ok_or_else(|| {
+                RuntimeMaterializationError::unavailable(format!(
+                    "collector input {member} is unresolved"
+                ))
+            })?;
             let descriptor = payload_catalog
                 .payloads()
                 .descriptor_by_type_id(input.kind.type_id())
-                .ok_or_else(|| format!("collector cannot retain {:?}", input.kind))?
+                .ok_or_else(|| {
+                    RuntimeMaterializationError::configuration(format!(
+                        "collector cannot retain {:?}",
+                        input.kind
+                    ))
+                })?
                 .clone();
             let mut request = CollectedLaneRequest::new(
                 lane_name,
@@ -46,22 +54,23 @@ impl DataCollectorBuilder {
                 );
             }
             let (request, diagnostic_name) = payload_catalog
-                .configure_collected_lane_request(input.kind, request, *member, input, ctx)?;
+                .configure_collected_lane_request(input.kind, request, *member, input, ctx)
+                .map_err(RuntimeMaterializationError::configuration)?;
             let adapter = payload_catalog
                 .payloads()
                 .adapter_by_type_id(input.kind.type_id())
                 .ok_or_else(|| {
-                    format!(
+                    RuntimeMaterializationError::configuration(format!(
                         "payload '{}' ({}) has no ingestion adapter",
                         diagnostic_name,
                         request.payload().stable_id()
-                    )
+                    ))
                 })?;
             let ingestor = adapter.create_ingestor(request).map_err(|error| {
-                format!(
+                RuntimeMaterializationError::construction(format!(
                     "collector adapter for '{}' could not create '{}': {error}",
                     diagnostic_name, lane_name
-                )
+                ))
             })?;
             collector = collector.with_ingestor(ingestor);
         }

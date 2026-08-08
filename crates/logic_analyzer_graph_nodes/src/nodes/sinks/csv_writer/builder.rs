@@ -5,7 +5,8 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{
-    GraphNodeCapabilityOverride, GraphNodeSemantics, RuntimeMaterializer,
+    GraphNodeCapabilityOverride, GraphNodeSemantics, RuntimeMaterializationError,
+    RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
@@ -88,9 +89,8 @@ impl RuntimeMaterializer for CsvWriterBuilder {
         state: &Value,
         resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::CsvWriterState =
-            parse_state(state).map_err(|error| error.to_string())?;
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
+        let state: super::definition::CsvWriterState = parse_state(state)?;
         let format = match state.value_format.selected() {
             "Hex" => CsvValueFormat::Hex {
                 width: state.hex_digits.value.clamp(1, 16) as usize,
@@ -103,9 +103,9 @@ impl RuntimeMaterializer for CsvWriterBuilder {
         let static_filename = state.filename.value.trim();
         let static_filename = (resolved.kind(1).is_none() && !static_filename.is_empty())
             .then(|| static_filename.to_owned());
-        let source = resolved
-            .get(0, 0)
-            .ok_or_else(|| "CSV Writer data input is not connected".to_owned())?;
+        let source = resolved.get(0, 0).ok_or_else(|| {
+            RuntimeMaterializationError::unavailable("CSV Writer data input is not connected")
+        })?;
         self.writer_factory
             .create(
                 name,
@@ -120,6 +120,7 @@ impl RuntimeMaterializer for CsvWriterBuilder {
                 ),
             )
             .map(ProcessNodeConstruction::into_process)
+            .map_err(RuntimeMaterializationError::construction)
     }
 }
 

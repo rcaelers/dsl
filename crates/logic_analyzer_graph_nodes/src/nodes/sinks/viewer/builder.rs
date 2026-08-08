@@ -4,7 +4,9 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
+use logic_analyzer_graph_capabilities::node::{
+    GraphNodeSemantics, RuntimeMaterializationError, RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
@@ -92,7 +94,9 @@ impl RuntimeMaterializer for ViewerSubscriptionBuilder {
         _state: &Value,
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        Err("viewer subscriptions must be materialized through the payload registry".to_owned())
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
+        Err(RuntimeMaterializationError::contract(
+            "viewer subscriptions must be materialized through the payload registry",
+        ))
     }
 }

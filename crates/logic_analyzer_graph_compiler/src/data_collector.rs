@@ -4,7 +4,9 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
+use logic_analyzer_graph_capabilities::node::{
+    GraphNodeSemantics, RuntimeMaterializationError, RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{NodeBuildContext, PortKind, ResolvedInputs};
 use node_graph_document::SocketReference;
 use signal_runtime::ProcessNode;
@@ -107,7 +109,9 @@ impl RuntimeMaterializer for DataCollectorBuilder {
         _state: &Value,
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        Err("data collectors must be materialized through the payload registry".to_owned())
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
+        Err(RuntimeMaterializationError::contract(
+            "data collectors must be materialized through the payload registry",
+        ))
     }
 }

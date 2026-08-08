@@ -7,7 +7,9 @@ use std::sync::{Arc, RwLock};
 use egui::{Color32, Rect, Stroke, StrokeKind};
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
+use logic_analyzer_graph_capabilities::node::{
+    GraphNodeSemantics, RuntimeMaterializationError, RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     DefaultLanePresentationDescriptor, LaneBadgeDescriptor, NodeBuildContext, PortKind, PortValue,
     ResolvedInputs,
@@ -146,7 +148,7 @@ impl RuntimeMaterializer for CameraFrameSourceBuilder {
         _state: &Value,
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
         Ok(Box::new(CameraFrameSourceNode::new(name)))
     }
 }

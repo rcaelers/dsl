@@ -2,7 +2,9 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
+use logic_analyzer_graph_capabilities::node::{
+    GraphNodeSemantics, RuntimeMaterializationError, RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
@@ -46,12 +48,13 @@ impl RuntimeMaterializer for LogicGateBuilder {
         state: &Value,
         resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::LogicGateState =
-            parse_state(state).map_err(|error| error.to_string())?;
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
+        let state: super::definition::LogicGateState = parse_state(state)?;
         let inputs = resolved.member_count(0);
         if inputs == 0 {
-            return Err("no inputs connected".into());
+            return Err(RuntimeMaterializationError::unavailable(
+                "no inputs connected",
+            ));
         }
         let op = match state.op.selected() {
             "NOT" => GateOp::Not,
@@ -63,7 +66,9 @@ impl RuntimeMaterializer for LogicGateBuilder {
             _ => GateOp::And,
         };
         if op == GateOp::Not && inputs != 1 {
-            return Err("NOT takes exactly one input".into());
+            return Err(RuntimeMaterializationError::configuration(
+                "NOT takes exactly one input",
+            ));
         }
         Ok(Box::new(LogicGate::new(op, inputs).with_name(name)))
     }

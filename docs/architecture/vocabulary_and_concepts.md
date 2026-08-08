@@ -126,7 +126,9 @@ cache identities. It is complete enough to execute without the editable document
 **Materialization** turns a processing-graph node into a `signal_runtime::ProcessNode`. A
 `RuntimeMaterializer` is supplied by the concrete node feature and receives only the restricted
 build context and resolved plan inputs. Generated collector nodes are materialized through the
-plan's payload catalog.
+plan's payload catalog. Materializers return a capability-owned error that distinguishes persisted
+state, configuration, unavailable run resources, construction, and invalid capability use. The
+graph runtime adds graph-node context without converting the source into a compiler diagnostic.
 
 ### Graph runtime and run
 

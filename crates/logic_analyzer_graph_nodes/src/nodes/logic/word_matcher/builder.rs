@@ -4,7 +4,9 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
+use logic_analyzer_graph_capabilities::node::{
+    GraphNodeSemantics, RuntimeMaterializationError, RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
@@ -95,15 +97,18 @@ impl RuntimeMaterializer for WordMatcherBuilder {
         state: &Value,
         resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::WordMatcherState =
-            parse_state(state).map_err(|error| error.to_string())?;
-        let mask = super::super::word_value::parse_hex_u64(&state.mask.value)?;
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
+        let state: super::definition::WordMatcherState = parse_state(state)?;
+        let parse_hex = |value: &str| {
+            super::super::word_value::parse_hex_u64(value)
+                .map_err(RuntimeMaterializationError::configuration)
+        };
+        let mask = parse_hex(&state.mask.value)?;
         let (op, _) = Self::match_op(state.op.selected());
         let (trigger_at, _) = Self::trigger_at(state.trigger_at.selected());
         let (predicate, _) = Self::predicate(state.predicate.selected());
         let pattern = if predicate == PredicateMode::Compare {
-            super::super::word_value::parse_hex_u64(&state.pattern.value)?
+            parse_hex(&state.pattern.value)?
         } else {
             0
         };
@@ -117,12 +122,13 @@ impl RuntimeMaterializer for WordMatcherBuilder {
         matcher = match predicate {
             PredicateMode::Compare => matcher,
             PredicateMode::InclusiveRange => matcher.with_inclusive_range(
-                super::super::word_value::parse_hex_u64(&state.range_min.value)?,
-                super::super::word_value::parse_hex_u64(&state.range_max.value)?,
+                parse_hex(&state.range_min.value)?,
+                parse_hex(&state.range_max.value)?,
             ),
-            PredicateMode::Set => matcher.with_set(super::super::word_value::parse_hex_set(
-                &state.set_values.value,
-            )?),
+            PredicateMode::Set => matcher.with_set(
+                super::super::word_value::parse_hex_set(&state.set_values.value)
+                    .map_err(RuntimeMaterializationError::configuration)?,
+            ),
         };
         Ok(Box::new(matcher))
     }

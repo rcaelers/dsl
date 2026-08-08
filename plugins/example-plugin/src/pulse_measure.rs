@@ -11,7 +11,9 @@ use egui::Color32;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::{GraphNodeSemantics, RuntimeMaterializer};
+use logic_analyzer_graph_capabilities::node::{
+    GraphNodeSemantics, RuntimeMaterializationError, RuntimeMaterializer,
+};
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, PortValue, ResolvedInputs,
 };
@@ -130,7 +132,7 @@ impl RuntimeMaterializer for PulseMeasureBuilder {
         _state: &Value,
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
         Ok(Box::new(PulseMeasureNode::new(name)))
     }
 }

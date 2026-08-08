@@ -3,7 +3,7 @@
 use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{
-    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
+    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializationError, RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableColumnDescriptor, NodeBuildContext, PortKind, ResolvedInputs,
@@ -22,8 +22,10 @@ use signal_runtime::ProcessNode;
 pub(crate) struct ParallelDecoderBuilder;
 
 impl ParallelDecoderBuilder {
-    fn parsed(state: &Value) -> Result<super::definition::ParallelDecoderState, String> {
-        parse_state(state).map_err(|error| error.to_string())
+    fn parsed(
+        state: &Value,
+    ) -> Result<super::definition::ParallelDecoderState, RuntimeMaterializationError> {
+        parse_state(state).map_err(RuntimeMaterializationError::from)
     }
 
     fn cs_polarity(state: &super::definition::ParallelDecoderState) -> CsPolarity {
@@ -107,13 +109,16 @@ impl RuntimeMaterializer for ParallelDecoderBuilder {
         state: &Value,
         resolved: &ResolvedInputs,
         ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
         let state = Self::parsed(state)?;
         let data_bits = resolved.member_count(1);
         if data_bits == 0 {
-            return Err("no data channels connected".into());
+            return Err(RuntimeMaterializationError::unavailable(
+                "no data channels connected",
+            ));
         }
-        let cycles = Self::cycles_per_word(&state, data_bits)?;
+        let cycles = Self::cycles_per_word(&state, data_bits)
+            .map_err(RuntimeMaterializationError::configuration)?;
         let strobe_mode = match state.sample_on.selected() {
             "Falling (SDR)" => StrobeMode::FallingEdge,
             "Both (DDR)" => StrobeMode::AnyEdge,

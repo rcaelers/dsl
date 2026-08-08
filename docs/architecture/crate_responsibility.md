@@ -401,6 +401,8 @@ The graph runtime owns operations with a preparation or execution lifetime:
 
 - materializing plan nodes through compiler-resolved materializer handles;
 - materializing generated collectors and configuring generic payload collection;
+- retaining capability-owned construction failures with graph-node context until a presentation or
+  transport boundary;
 - validating cache entries and planning cache maintenance;
 - preparing finite sources and reporting readiness;
 - owning `GraphRun`, run data, progress, diagnostics, stop, wait, and live reconciliation; and

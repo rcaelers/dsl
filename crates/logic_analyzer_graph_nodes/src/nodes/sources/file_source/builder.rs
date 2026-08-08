@@ -9,7 +9,7 @@ use logic_analyzer_capture_formats::dsl_file::{
 };
 use logic_analyzer_graph_capabilities::node::{
     CaptureSourceFeature, CaptureSourceFeatureError, GraphNodeCapabilityOverride,
-    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
+    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializationError, RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     CaptureCacheIdentity, CapturePresentation, NodeBuildContext, PortKind, ResolvedInputs,
@@ -148,9 +148,8 @@ impl RuntimeMaterializer for FileSourceBuilder {
         state: &Value,
         _resolved: &ResolvedInputs,
         ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::DslFileSourceState =
-            parse_state(state).map_err(|error| error.to_string())?;
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
+        let state: super::definition::DslFileSourceState = parse_state(state)?;
         self.source_factory
             .create(
                 name,
@@ -159,7 +158,12 @@ impl RuntimeMaterializer for FileSourceBuilder {
                 ctx.work_executor(),
             )
             .map(signal_runtime::ProcessNodeConstruction::into_process)
-            .map_err(|error| format!("cannot open '{}': {error}", state.file.value))
+            .map_err(|error| {
+                RuntimeMaterializationError::construction(format!(
+                    "cannot open '{}': {error}",
+                    state.file.value
+                ))
+            })
     }
 }
 
@@ -358,7 +362,10 @@ mod builder_tests {
             )
             .err()
             .expect("controlled open failure must be preserved");
-        assert_eq!(error, "cannot open 'missing.dsl': controlled open failure");
+        assert_eq!(
+            error.to_string(),
+            "cannot open 'missing.dsl': controlled open failure"
+        );
     }
 
     #[test]
@@ -385,7 +392,7 @@ mod builder_tests {
             )
             .err()
             .expect("malformed state must fail");
-        assert!(error.starts_with("invalid node state:"));
+        assert!(error.to_string().starts_with("invalid node state:"));
         assert!(metadata.operations.lock().unwrap().is_empty());
         assert!(source_factory.opened.lock().unwrap().is_empty());
     }

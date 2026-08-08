@@ -19,7 +19,7 @@ and `WorkError`; supervised `NodeFailure` values retain their `WorkError`. Exten
 owner-specific surfaces rather than replacing them with an umbrella error.
 `logic_analyzer_protocol_decoders` owns the typed Sigrok catalog and decoder-runtime errors;
 host adapters classify catalog discovery, decoder discovery, invalid configuration, and execution
-transport failures before the graph materializer maps them into its generic build diagnostic.
+transport failures before the graph materializer retains them as typed construction sources.
 `logic_analyzer_graph_runtime` owns `SourcePreparationError`, including discovery, metadata, index,
 cancellation, executor, and worker-protocol causes. It also owns `DerivedCacheError`; synchronous
 and asynchronous cache administration retain the generic derived-store or host-executor cause until
@@ -107,6 +107,13 @@ configuration, edit, and provider-contract failures. `LiveCaptureOperationError`
 registry, ambiguity, and generic provider-validation context. UI availability, trigger status, and
 toast handling are the formatting boundaries.
 
+Runtime node construction uses `RuntimeMaterializationError`. Persisted-state failures and typed
+factory failures remain error sources; node-owned configuration, missing run resources, legacy
+construction diagnostics, and invalid capability paths remain separately classifiable. The graph
+runtime adds node or pipeline context through `GraphRuntimeError`, and live reconciliation carries
+the same materialization source through `ApplyError`. UI diagnostic projection and graph-worker
+serialization are the text-formatting boundaries.
+
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
 - One enum per *facade*, not per crate and not per function. Variants describe what failed in
@@ -118,8 +125,8 @@ toast handling are the formatting boundaries.
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. Type `RuntimeMaterializer::build` and graph-runtime materialization, preserving persisted-state
-   and concrete construction causes through compiler/runtime execution diagnostics.
+1. Type the concrete source and sink factory contracts still feeding string construction
+   diagnostics into materializers.
 2. Continue through the remaining platform and UI facades: most occurrences collapse into carrying
    the now-typed lower errors; only genuinely UI-owned failures need new variants.
 

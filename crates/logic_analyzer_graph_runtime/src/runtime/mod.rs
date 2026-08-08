@@ -18,7 +18,7 @@ mod source_preparation_executor;
 pub use cache_policy::{
     DerivedCacheClearStats, DerivedCacheClearTask, DerivedCacheEntrySnapshot, DerivedCacheError,
 };
-pub use errors::ApplyError;
+pub use errors::{ApplyError, GraphRuntimeError};
 pub use execution::{
     ApplySummary, GraphRunContext, LiveAnalysisSource, LiveRun, SourceProcessOverrides,
 };

@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use logic_analyzer_graph_plan::{
     CapturePresentationDiscoveryError, DiscoveredCapturePresentation, ProcessingGraph,
-    ProcessingGraphError,
 };
 use node_graph_document::NodeId;
 use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
@@ -15,7 +14,7 @@ use super::cache_policy::{
     self, DerivedCacheClearStats, DerivedCacheClearTask, DerivedCacheEntrySnapshot,
     DerivedCacheError,
 };
-use super::errors::ApplyError;
+use super::errors::{ApplyError, GraphRuntimeError};
 use super::execution::{
     self, ApplySummary, GraphRunContext, LiveAnalysisSource, LiveRun, SourceProcessOverrides,
 };
@@ -160,7 +159,7 @@ impl GraphRuntime {
         &self,
         compiled: ProcessingGraph,
         context: &mut GraphRunContext,
-    ) -> Result<bool, Vec<ProcessingGraphError>> {
+    ) -> Result<bool, Vec<GraphRuntimeError>> {
         self.configure_context(context);
         execution::load_cached_data_with_subscriptions(compiled, context)
     }
@@ -171,7 +170,7 @@ impl GraphRuntime {
         compiled: ProcessingGraph,
         context: &mut GraphRunContext,
         source_overrides: SourceProcessOverrides,
-    ) -> Result<LiveRun, Vec<ProcessingGraphError>> {
+    ) -> Result<LiveRun, Vec<GraphRuntimeError>> {
         self.configure_context(context);
         execution::start_app_run_with_source_overrides_and_subscriptions(
             compiled,
@@ -187,7 +186,7 @@ impl GraphRuntime {
         compiled: ProcessingGraph,
         context: &mut GraphRunContext,
         source: LiveAnalysisSource,
-    ) -> Result<LiveRun, Vec<ProcessingGraphError>> {
+    ) -> Result<LiveRun, Vec<GraphRuntimeError>> {
         self.configure_context(context);
         execution::start_live_analysis_with_subscriptions(
             compiled,

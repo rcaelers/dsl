@@ -3,7 +3,8 @@
 use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{
-    GraphNodeSemantics, RuntimeMaterializer, TimelineFeature, TimelineFeatureError,
+    GraphNodeSemantics, RuntimeMaterializationError, RuntimeMaterializer, TimelineFeature,
+    TimelineFeatureError,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, TimelineMarkerDescriptor, TimelineMarkerEdit,
@@ -64,9 +65,8 @@ impl RuntimeMaterializer for TimelineMarkerBuilder {
         state: &Value,
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::TimelineMarkerState =
-            parse_state(state).map_err(|error| error.to_string())?;
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
+        let state: super::definition::TimelineMarkerState = parse_state(state)?;
         Ok(Box::new(
             TimelineMarkerSource::new(state.timestamp.value_ns).with_name(name),
         ))
@@ -140,18 +140,19 @@ impl RuntimeMaterializer for CursorMarkerBuilder {
         state: &Value,
         _resolved: &ResolvedInputs,
         ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::CursorMarkerState =
-            parse_state(state).map_err(|error| error.to_string())?;
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
+        let state: super::definition::CursorMarkerState = parse_state(state)?;
         let number = state.selected_cursor().ok_or_else(|| {
-            "no cursor is available; add a cursor in the logic analyzer view".to_owned()
+            RuntimeMaterializationError::unavailable(
+                "no cursor is available; add a cursor in the logic analyzer view",
+            )
         })?;
         let marker = ctx
             .timeline_marker(TimelineMarkerReference::Cursor { number })
             .ok_or_else(|| {
-                format!(
+                RuntimeMaterializationError::unavailable(format!(
                     "cursor {number} is not available; add that cursor in the logic analyzer view"
-                )
+                ))
             })?;
         Ok(Box::new(
             TimelineMarkerSource::new(marker.timestamp_ns).with_name(name),
@@ -242,7 +243,7 @@ impl RuntimeMaterializer for MarkerToTriggerBuilder {
         _state: &Value,
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
         Ok(Box::new(TimelineMarkerToEvent::new().with_name(name)))
     }
 }
@@ -275,9 +276,8 @@ impl RuntimeMaterializer for MarkerRelationBuilder {
         state: &Value,
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::MarkerRelationState =
-            parse_state(state).map_err(|error| error.to_string())?;
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
+        let state: super::definition::MarkerRelationState = parse_state(state)?;
         let relation = match state.relation.index {
             0 => RuntimeMarkerRelation::Before,
             _ => RuntimeMarkerRelation::AtOrAfter,
@@ -320,7 +320,7 @@ impl RuntimeMaterializer for MarkerWindowBuilder {
         _state: &Value,
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
         Ok(Box::new(TimelineMarkerWindow::new().with_name(name)))
     }
 }

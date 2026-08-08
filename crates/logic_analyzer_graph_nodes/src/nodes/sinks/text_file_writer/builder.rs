@@ -5,7 +5,8 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{
-    GraphNodeCapabilityOverride, GraphNodeSemantics, RuntimeMaterializer,
+    GraphNodeCapabilityOverride, GraphNodeSemantics, RuntimeMaterializationError,
+    RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{NodeBuildContext, PortKind, ResolvedInputs};
 use node_graph_document::SocketReference;
@@ -72,10 +73,12 @@ impl RuntimeMaterializer for TextFileWriterBuilder {
         _state: &Value,
         resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        let source = resolved
-            .get(0, 0)
-            .ok_or_else(|| "Text File Writer lines input is not connected".to_owned())?;
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
+        let source = resolved.get(0, 0).ok_or_else(|| {
+            RuntimeMaterializationError::unavailable(
+                "Text File Writer lines input is not connected",
+            )
+        })?;
         self.writer_factory
             .create(
                 name,
@@ -85,6 +88,7 @@ impl RuntimeMaterializer for TextFileWriterBuilder {
                 ),
             )
             .map(ProcessNodeConstruction::into_process)
+            .map_err(RuntimeMaterializationError::construction)
     }
 }
 

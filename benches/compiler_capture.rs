@@ -15,10 +15,10 @@ use logic_analyzer_capture_formats::dsl_file::{
     DslFileSource, DslFileSourceConfig, DslFileSourceFactory,
 };
 use logic_analyzer_graph_compiler::GraphLowerer;
-use logic_analyzer_graph_plan::{OutputSubscriptionPlan, ProcessingGraph, ProcessingGraphError};
+use logic_analyzer_graph_plan::{OutputSubscriptionPlan, ProcessingGraph};
 use logic_analyzer_graph_runtime::{
-    ApplyError, ApplySummary, GraphRunContext, GraphRuntime, InlineSourcePreparationExecutor,
-    LiveRun, SourceProcessOverrides,
+    ApplyError, ApplySummary, GraphRunContext, GraphRuntime, GraphRuntimeError,
+    InlineSourcePreparationExecutor, LiveRun, SourceProcessOverrides,
 };
 use logic_analyzer_protocol_decoders::parallel_decoder::{
     ParallelDecoder, ParallelInputStrategy, StrobeMode,
@@ -95,7 +95,7 @@ impl BenchmarkGraphExecution {
         graph: ProcessingGraph,
         context: &mut GraphRunContext,
         source_overrides: SourceProcessOverrides,
-    ) -> Result<LiveRun, Vec<ProcessingGraphError>> {
+    ) -> Result<LiveRun, Vec<GraphRuntimeError>> {
         self.runtime.start(graph, context, source_overrides)
     }
 

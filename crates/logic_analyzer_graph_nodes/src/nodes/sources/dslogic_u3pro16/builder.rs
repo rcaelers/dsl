@@ -8,7 +8,7 @@ use logic_analyzer_device_dslogic::{DsLogicU3Pro16SourceFactory, unavailable_sou
 use logic_analyzer_graph_capabilities::node::{
     CaptureSourceFeature, CaptureSourceFeatureError, GraphNodeCapabilityOverride,
     GraphNodePresentation, GraphNodeSemantics, LiveCaptureFeature, LiveCaptureFeatureError,
-    LiveCaptureFeatureProvider, RuntimeMaterializer,
+    LiveCaptureFeatureProvider, RuntimeMaterializationError, RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
@@ -41,13 +41,18 @@ impl DsLogicU3Pro16Builder {
         Self { source_factory }
     }
 
-    fn config(state: &Value) -> Result<logic_analyzer_acquisition::LogicCaptureConfig, String> {
-        let state: U3Pro16State = parse_state(state).map_err(|error| error.to_string())?;
+    fn config(
+        state: &Value,
+    ) -> Result<logic_analyzer_acquisition::LogicCaptureConfig, RuntimeMaterializationError> {
+        let state: U3Pro16State = parse_state(state)?;
         super::capture_configuration::capture_config(&state)
+            .map_err(RuntimeMaterializationError::configuration)
     }
 
     fn metadata(&self, state: &Value) -> Result<Arc<dyn CaptureSourceMetadata>, String> {
-        Ok(self.source_factory.metadata(Self::config(state)?))
+        Ok(self
+            .source_factory
+            .metadata(Self::config(state).map_err(|error| error.to_string())?))
     }
 }
 
@@ -217,11 +222,12 @@ impl RuntimeMaterializer for DsLogicU3Pro16Builder {
         state: &Value,
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
         let config = Self::config(state)?;
         self.source_factory
             .create(name, config)
             .map(ProcessNodeConstruction::into_process)
+            .map_err(RuntimeMaterializationError::construction)
     }
 }
 
@@ -417,7 +423,7 @@ mod builder_tests {
             .err()
             .expect("factory error must be preserved");
 
-        assert_eq!(error, "test device unavailable");
+        assert_eq!(error.to_string(), "test device unavailable");
     }
 
     #[test]
@@ -436,7 +442,7 @@ mod builder_tests {
             .err()
             .expect("malformed state must fail");
 
-        assert!(error.starts_with("invalid node state:"));
+        assert!(error.to_string().starts_with("invalid node state:"));
         assert!(factory.opened.lock().unwrap().is_none());
     }
 }

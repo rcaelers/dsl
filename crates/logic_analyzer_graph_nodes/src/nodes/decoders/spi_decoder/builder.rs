@@ -3,7 +3,7 @@
 use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{
-    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
+    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializationError, RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableColumnDescriptor, LanePresentationDescriptor, NodeBuildContext, PortKind,
@@ -22,8 +22,10 @@ use signal_runtime::ProcessNode;
 pub(crate) struct SpiDecoderBuilder;
 
 impl SpiDecoderBuilder {
-    fn parsed(state: &Value) -> Result<super::definition::SpiDecoderState, String> {
-        parse_state(state).map_err(|error| error.to_string())
+    fn parsed(
+        state: &Value,
+    ) -> Result<super::definition::SpiDecoderState, RuntimeMaterializationError> {
+        parse_state(state).map_err(RuntimeMaterializationError::from)
     }
     fn cs_polarity(state: &super::definition::SpiDecoderState) -> CsPolarity {
         match state.cs_polarity.selected() {
@@ -111,14 +113,18 @@ impl RuntimeMaterializer for SpiDecoderBuilder {
         state: &Value,
         resolved: &ResolvedInputs,
         ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
         let state = Self::parsed(state)?;
         let mode = match (state.cpol.selected(), state.cpha.selected()) {
             ("0", "0") => SpiMode::Mode0,
             ("0", "1") => SpiMode::Mode1,
             ("1", "0") => SpiMode::Mode2,
             ("1", "1") => SpiMode::Mode3,
-            _ => return Err("invalid CPOL/CPHA".into()),
+            _ => {
+                return Err(RuntimeMaterializationError::configuration(
+                    "invalid CPOL/CPHA",
+                ));
+            }
         };
         let bit_order = if state.bit_order.selected() == "LSB first" {
             BitOrder::LsbFirst

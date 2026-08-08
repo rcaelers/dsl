@@ -1,7 +1,7 @@
 use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{
-    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
+    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializationError, RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableColumnDescriptor, NodeBuildContext, PortKind, ResolvedInputs,
@@ -80,7 +80,7 @@ impl RuntimeMaterializer for I2cDecoderBuilder {
         _state: &Value,
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
         Ok(Box::new(I2cDecoder::new().with_name(name)))
     }
 }

@@ -344,8 +344,13 @@ item here, so acceptance comparisons stop being ad-hoc.
      configuration, and document edits likewise preserve persisted-state and capture-metadata causes
      through `LiveCaptureFeatureError`; `LiveCaptureOperationError` adds provider validation,
      ambiguity, registry, ownership, and edit context until the UI availability, trigger-status, or
-     toast boundary. Next type `RuntimeMaterializer::build` and graph-runtime materialization so
-     concrete node state and construction failures stop being flattened into strings.
+     toast boundary. `RuntimeMaterializer::build` now carries `RuntimeMaterializationError`, which
+     retains persisted-state and typed construction causes while classifying configuration,
+     unavailable-resource, construction-diagnostic, and capability-contract failures. Graph runtime
+     adds node and pipeline context through `GraphRuntimeError`; only UI diagnostic projection and
+     graph-worker serialization format it. Live reconciliation retains the same construction source
+     through `ApplyError`. Next type the concrete source and sink factory contracts that still expose
+     construction diagnostics as strings so materializers can retain their original causes too.
 
 ### Application state decomposition
 

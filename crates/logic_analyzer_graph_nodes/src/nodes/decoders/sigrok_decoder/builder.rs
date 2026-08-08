@@ -4,7 +4,8 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{
-    GraphNodeCapabilityOverride, GraphNodeSemantics, RuntimeMaterializer,
+    GraphNodeCapabilityOverride, GraphNodeSemantics, RuntimeMaterializationError,
+    RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
@@ -61,8 +62,8 @@ impl Default for SigrokDecoderBuilder {
 }
 
 impl SigrokDecoderBuilder {
-    fn parsed(state: &Value) -> Result<SigrokDecoderState, String> {
-        parse_state(state).map_err(|error| error.to_string())
+    fn parsed(state: &Value) -> Result<SigrokDecoderState, RuntimeMaterializationError> {
+        parse_state(state).map_err(RuntimeMaterializationError::from)
     }
 
     fn with_backend(backend: Arc<dyn SigrokDecoderRuntime>) -> Self {
@@ -190,22 +191,25 @@ impl RuntimeMaterializer for SigrokDecoderBuilder {
         state: &Value,
         resolved: &ResolvedInputs,
         ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
         let state = Self::parsed(state)?;
         if state.decoder_id.is_empty() {
-            return Err("No Sigrok decoder is selected".to_owned());
+            return Err(RuntimeMaterializationError::configuration(
+                "No Sigrok decoder is selected",
+            ));
         }
         let current = self
             .backend
             .discover(&state.decoder_root, &state.decoder_id)
-            .map_err(|error| error.to_string())?;
+            .map_err(RuntimeMaterializationError::construction_source)?;
         if current.package_fingerprint != state.package_fingerprint {
-            return Err(format!(
+            return Err(RuntimeMaterializationError::configuration(format!(
                 "Sigrok decoder '{}' changed since this graph was saved; reselect it to migrate its channels and options",
                 state.decoder_id
-            ));
+            )));
         }
-        validate_descriptor_schema(&state, &current)?;
+        validate_descriptor_schema(&state, &current)
+            .map_err(RuntimeMaterializationError::configuration)?;
         let channels = state
             .channels
             .iter()
@@ -224,20 +228,23 @@ impl RuntimeMaterializer for SigrokDecoderBuilder {
             .options
             .iter()
             .map(|option| Ok((option.id.clone(), option_value(&option.control)?)))
-            .collect::<Result<BTreeMap<_, _>, String>>()?;
+            .collect::<Result<BTreeMap<_, _>, String>>()
+            .map_err(RuntimeMaterializationError::configuration)?;
         let mut annotation_rows_by_class = vec![Vec::new(); state.annotation_class_count];
         for (row, descriptor) in state.annotation_rows.iter().enumerate() {
             for &class in &descriptor.classes {
                 let Some(rows) = annotation_rows_by_class.get_mut(class) else {
-                    return Err(format!(
+                    return Err(RuntimeMaterializationError::configuration(format!(
                         "Sigrok decoder '{}' has an invalid saved annotation class {class}",
                         state.decoder_id
-                    ));
+                    )));
                 };
                 rows.push(row);
             }
         }
-        let sample_rate = state.sample_rate()?;
+        let sample_rate = state
+            .sample_rate()
+            .map_err(RuntimeMaterializationError::configuration)?;
         self.backend
             .create(
                 name,
@@ -257,7 +264,7 @@ impl RuntimeMaterializer for SigrokDecoderBuilder {
                 },
                 ctx.work_executor(),
             )
-            .map_err(|error| error.to_string())
+            .map_err(RuntimeMaterializationError::construction_source)
     }
 }
 
@@ -530,7 +537,7 @@ mod builder_tests {
             .err()
             .expect("discovery failure must be preserved");
         assert_eq!(
-            discovery_error,
+            discovery_error.to_string(),
             "Sigrok decoder discovery failed: controlled discovery failure"
         );
         assert!(discovery_backend.creation.lock().unwrap().is_none());
@@ -551,7 +558,7 @@ mod builder_tests {
             .err()
             .expect("runtime failure must be preserved");
         assert_eq!(
-            runtime_error,
+            runtime_error.to_string(),
             "Sigrok decoder transport failed: controlled runtime failure"
         );
         assert!(runtime_backend.creation.lock().unwrap().is_some());
@@ -581,7 +588,11 @@ mod builder_tests {
             .err()
             .expect("changed package must fail");
 
-        assert!(error.contains("changed since this graph was saved"));
+        assert!(
+            error
+                .to_string()
+                .contains("changed since this graph was saved")
+        );
         assert!(backend.creation.lock().unwrap().is_none());
     }
 
@@ -601,7 +612,7 @@ mod builder_tests {
             .err()
             .expect("malformed state must fail");
 
-        assert!(error.starts_with("invalid node state:"));
+        assert!(error.to_string().starts_with("invalid node state:"));
         assert!(backend.discoveries.lock().unwrap().is_empty());
         assert!(backend.creation.lock().unwrap().is_none());
     }

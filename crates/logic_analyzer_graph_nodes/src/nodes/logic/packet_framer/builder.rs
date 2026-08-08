@@ -3,7 +3,7 @@
 use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{
-    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
+    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializationError, RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     DecoderTableColumnDescriptor, NodeBuildContext, PortKind, ResolvedInputs, parse_state,
@@ -21,8 +21,10 @@ use signal_runtime::ProcessNode;
 pub(crate) struct PacketFramerBuilder;
 
 impl PacketFramerBuilder {
-    fn parsed(state: &Value) -> Result<super::definition::PacketFramerState, String> {
-        parse_state(state).map_err(|error| error.to_string())
+    fn parsed(
+        state: &Value,
+    ) -> Result<super::definition::PacketFramerState, RuntimeMaterializationError> {
+        parse_state(state).map_err(RuntimeMaterializationError::from)
     }
 
     fn delimiter(state: &super::definition::PacketFramerState) -> Result<Option<u64>, String> {
@@ -97,12 +99,19 @@ impl RuntimeMaterializer for PacketFramerBuilder {
         state: &Value,
         resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
         let state = Self::parsed(state)?;
-        let fixed_word_count = usize::try_from(state.words_per_packet.value.max(0))
-            .map_err(|_| "words-per-packet is outside the supported range")?;
-        let maximum_words = usize::try_from(state.maximum_words.value.max(1))
-            .map_err(|_| "hard word limit is outside the supported range")?;
+        let fixed_word_count =
+            usize::try_from(state.words_per_packet.value.max(0)).map_err(|_| {
+                RuntimeMaterializationError::configuration(
+                    "words-per-packet is outside the supported range",
+                )
+            })?;
+        let maximum_words = usize::try_from(state.maximum_words.value.max(1)).map_err(|_| {
+            RuntimeMaterializationError::configuration(
+                "hard word limit is outside the supported range",
+            )
+        })?;
         let maximum_gap_ns = (state.maximum_gap_us.value > 0)
             .then(|| (state.maximum_gap_us.value as u64).saturating_mul(1_000));
         let gate_polarity = resolved.kind(2).map(|_| {
@@ -117,7 +126,7 @@ impl RuntimeMaterializer for PacketFramerBuilder {
                 .with_name(name)
                 .with_fixed_word_count((fixed_word_count > 0).then_some(fixed_word_count))
                 .with_delimiter(
-                    Self::delimiter(&state)?,
+                    Self::delimiter(&state).map_err(RuntimeMaterializationError::configuration)?,
                     state.delimiter_policy.selected() == "Include",
                 )
                 .with_maximum_gap_ns(maximum_gap_ns)

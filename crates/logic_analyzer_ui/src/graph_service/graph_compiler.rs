@@ -18,7 +18,7 @@ use logic_analyzer_graph_plan::{
 };
 use logic_analyzer_graph_runtime::{
     ApplyError, ApplySummary, DerivedCacheClearStats, DerivedCacheClearTask,
-    DerivedCacheEntrySnapshot, DerivedCacheError, GraphRunContext, GraphRuntime,
+    DerivedCacheEntrySnapshot, DerivedCacheError, GraphRunContext, GraphRuntime, GraphRuntimeError,
     LiveAnalysisSource, LiveRun, SourcePreparationExecutor, SourcePreparationStatus,
     SourcePreparationUpdate, SourceProcessOverrides, SourceReadinessRegistry,
 };
@@ -35,6 +35,16 @@ pub(crate) struct UiGraphService {
     compiler: GraphLowerer,
     runtime: GraphRuntime,
     graph_worker_client: Option<Arc<GraphWorkerClient>>,
+}
+
+fn present_runtime_errors(errors: Vec<GraphRuntimeError>) -> Vec<CompileError> {
+    errors
+        .into_iter()
+        .map(|error| CompileError {
+            node: error.node(),
+            message: error.to_string(),
+        })
+        .collect()
 }
 
 impl UiGraphService {
@@ -453,7 +463,9 @@ impl UiGraphService {
         context: &mut GraphRunContext,
     ) -> Result<bool, Vec<CompileError>> {
         let compiled = self.lowerer().lower(graph)?;
-        self.runtime.load_cached_data(compiled, context)
+        self.runtime
+            .load_cached_data(compiled, context)
+            .map_err(present_runtime_errors)
     }
 
     pub(crate) fn start_run(
@@ -472,6 +484,7 @@ impl UiGraphService {
         self.runtime
             .start(compiled, context, source_overrides)
             .map(|run| Box::new(run) as Box<dyn GraphRun>)
+            .map_err(present_runtime_errors)
     }
 
     pub(crate) fn start_live_analysis(
@@ -484,6 +497,7 @@ impl UiGraphService {
         self.runtime
             .start_live_analysis(compiled, context, source)
             .map(|run| Box::new(run) as Box<dyn GraphRun>)
+            .map_err(present_runtime_errors)
     }
 
     pub(crate) fn apply_run(
@@ -512,7 +526,9 @@ impl UiGraphService {
     ) -> Result<bool, Vec<CompileError>> {
         run.synchronize_cached_data(graph, &mut |graph, context| {
             let compiled = self.lowerer().lower(graph)?;
-            self.runtime.load_cached_data(compiled, context)
+            self.runtime
+                .load_cached_data(compiled, context)
+                .map_err(present_runtime_errors)
         })
     }
 }

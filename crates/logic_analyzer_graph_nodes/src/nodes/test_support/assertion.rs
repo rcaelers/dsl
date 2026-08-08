@@ -168,7 +168,7 @@ fn assert_node_registration_contract_impl(
                     )
                 });
             assert!(
-                !error.trim().is_empty(),
+                !error.to_string().trim().is_empty(),
                 "{} returned an empty malformed-state error",
                 registration.name()
             );

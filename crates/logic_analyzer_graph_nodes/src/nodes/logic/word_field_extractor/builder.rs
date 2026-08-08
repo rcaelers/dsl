@@ -3,7 +3,7 @@
 use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{
-    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
+    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializationError, RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
@@ -55,13 +55,14 @@ impl RuntimeMaterializer for WordFieldExtractorBuilder {
         state: &Value,
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
-    ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::WordFieldExtractorState =
-            parse_state(state).map_err(|error| error.to_string())?;
-        let first_bit = usize::try_from(state.first_bit.value.max(0))
-            .map_err(|_| "start bit is outside the supported range")?;
-        let bit_count = usize::try_from(state.bit_count.value.max(1))
-            .map_err(|_| "field width is outside the supported range")?;
+    ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
+        let state: super::definition::WordFieldExtractorState = parse_state(state)?;
+        let first_bit = usize::try_from(state.first_bit.value.max(0)).map_err(|_| {
+            RuntimeMaterializationError::configuration("start bit is outside the supported range")
+        })?;
+        let bit_count = usize::try_from(state.bit_count.value.max(1)).map_err(|_| {
+            RuntimeMaterializationError::configuration("field width is outside the supported range")
+        })?;
         Ok(Box::new(
             WordFieldExtractor::new(first_bit, bit_count).with_name(name),
         ))

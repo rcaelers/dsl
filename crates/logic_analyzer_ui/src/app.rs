@@ -1883,6 +1883,9 @@ impl App {
             Err(runtime::ApplyError::Apply(message)) => {
                 self.toasts.error(format!("view update failed: {message}"))
             }
+            Err(runtime::ApplyError::Materialization { source, .. }) => {
+                self.toasts.error(format!("view update failed: {source}"))
+            }
             Err(runtime::ApplyError::Runtime(error)) => {
                 self.toasts.error(format!("view update failed: {error}"))
             }
@@ -2290,6 +2293,12 @@ impl App {
                             ConfigurationEpochResolution::Failed(message)
                         }
                         Err(runtime::ApplyError::Apply(message)) => {
+                            self.toasts
+                                .error(format!("configuration epoch failed: {message}"));
+                            ConfigurationEpochResolution::Failed(message)
+                        }
+                        Err(runtime::ApplyError::Materialization { source, .. }) => {
+                            let message = source.to_string();
                             self.toasts
                                 .error(format!("configuration epoch failed: {message}"));
                             ConfigurationEpochResolution::Failed(message)
@@ -2800,6 +2809,9 @@ impl App {
             }
             Err(runtime::ApplyError::Apply(message)) => {
                 self.toasts.error(format!("live edit failed: {message}"));
+            }
+            Err(runtime::ApplyError::Materialization { source, .. }) => {
+                self.toasts.error(format!("live edit failed: {source}"));
             }
             Err(runtime::ApplyError::Runtime(error)) => {
                 self.toasts.error(format!("live edit failed: {error}"));
