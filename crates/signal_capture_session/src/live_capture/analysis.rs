@@ -10,6 +10,7 @@ use signal_runtime::{
 };
 
 use super::implementation::CaptureChunk;
+use super::validation::CaptureValidationError;
 use crate::live_capture_store::{CaptureCursorItem, CaptureStoreCursor};
 
 const CURSOR_WAIT: Duration = Duration::from_millis(10);
@@ -101,18 +102,18 @@ impl CaptureAnalysisSource {
         cursor: Box<dyn CaptureStoreCursor>,
         sample_rate_hz: f64,
         channels: Vec<CaptureAnalysisChannel>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, CaptureValidationError> {
         if channels.is_empty() {
-            return Err("live analysis requires at least one channel".into());
+            return Err(CaptureValidationError::AnalysisChannelsEmpty);
         }
         if !sample_rate_hz.is_finite() || sample_rate_hz <= 0.0 {
-            return Err("live analysis sample rate must be positive".into());
+            return Err(CaptureValidationError::AnalysisSampleRateInvalid { sample_rate_hz });
         }
         let timestamp_step = (1_000_000_000.0 / sample_rate_hz).round();
         if !(1.0..=u64::MAX as f64).contains(&timestamp_step) {
-            return Err(format!(
-                "live analysis sample rate {sample_rate_hz} Hz cannot be represented by SampleBlock"
-            ));
+            return Err(
+                CaptureValidationError::AnalysisTimestampStepUnrepresentable { sample_rate_hz },
+            );
         }
 
         let mut channel_ids = HashSet::new();
@@ -121,23 +122,23 @@ impl CaptureAnalysisSource {
         let mut channel_ports = Vec::with_capacity(channels.len());
         for channel in channels {
             if !channel_ids.insert(channel.channel.clone()) {
-                return Err(format!(
-                    "live analysis channel '{}' is configured more than once",
-                    channel.channel
-                ));
+                return Err(CaptureValidationError::AnalysisChannelDuplicate {
+                    channel: channel.channel,
+                });
             }
             if channel.edge_port.is_empty() || channel.block_port.is_empty() {
-                return Err("live analysis port names cannot be empty".into());
+                return Err(CaptureValidationError::AnalysisPortNameEmpty {
+                    channel: channel.channel,
+                });
             }
 
             let edge_output = output_schema.len();
             let block_output;
             if channel.edge_port == channel.block_port {
                 if !port_names.insert(channel.edge_port.clone()) {
-                    return Err(format!(
-                        "live analysis output port '{}' is configured more than once",
-                        channel.edge_port
-                    ));
+                    return Err(CaptureValidationError::AnalysisPortDuplicate {
+                        port: channel.edge_port,
+                    });
                 }
                 output_schema.push(
                     PortSchema::state::<Sample>(
@@ -153,10 +154,9 @@ impl CaptureAnalysisSource {
                 block_output = edge_output;
             } else {
                 if !port_names.insert(channel.edge_port.clone()) {
-                    return Err(format!(
-                        "live analysis output port '{}' is configured more than once",
-                        channel.edge_port
-                    ));
+                    return Err(CaptureValidationError::AnalysisPortDuplicate {
+                        port: channel.edge_port,
+                    });
                 }
                 output_schema.push(PortSchema::state::<Sample>(
                     channel.edge_port,
@@ -165,10 +165,9 @@ impl CaptureAnalysisSource {
                 ));
                 block_output = output_schema.len();
                 if !port_names.insert(channel.block_port.clone()) {
-                    return Err(format!(
-                        "live analysis output port '{}' is configured more than once",
-                        channel.block_port
-                    ));
+                    return Err(CaptureValidationError::AnalysisPortDuplicate {
+                        port: channel.block_port,
+                    });
                 }
                 output_schema.push(
                     PortSchema::new::<SampleBlock>(
@@ -365,6 +364,97 @@ mod tests {
     struct OffsetCursor {
         next: Option<CaptureChunk>,
         offset_samples: u64,
+    }
+
+    fn empty_cursor() -> Box<dyn CaptureStoreCursor> {
+        Box::new(OffsetCursor {
+            next: None,
+            offset_samples: 0,
+        })
+    }
+
+    #[test]
+    fn analysis_source_classifies_invalid_channel_and_port_layouts() {
+        let channel = CaptureChannelId::new("probe:0");
+        let other_channel = CaptureChannelId::new("probe:1");
+
+        assert_eq!(
+            CaptureAnalysisSource::new("analysis", empty_cursor(), 1_000_000.0, Vec::new()).err(),
+            Some(CaptureValidationError::AnalysisChannelsEmpty)
+        );
+        assert!(matches!(
+            CaptureAnalysisSource::new(
+                "analysis",
+                empty_cursor(),
+                f64::NAN,
+                vec![CaptureAnalysisChannel::polymorphic(
+                    channel.clone(),
+                    "probe",
+                )],
+            )
+            .err(),
+            Some(CaptureValidationError::AnalysisSampleRateInvalid { sample_rate_hz })
+                if sample_rate_hz.is_nan()
+        ));
+        assert_eq!(
+            CaptureAnalysisSource::new(
+                "analysis",
+                empty_cursor(),
+                1_000_000.0,
+                vec![
+                    CaptureAnalysisChannel::polymorphic(channel.clone(), "first"),
+                    CaptureAnalysisChannel::polymorphic(channel.clone(), "second"),
+                ],
+            )
+            .err(),
+            Some(CaptureValidationError::AnalysisChannelDuplicate {
+                channel: channel.clone(),
+            })
+        );
+        assert_eq!(
+            CaptureAnalysisSource::new(
+                "analysis",
+                empty_cursor(),
+                1_000_000.0,
+                vec![CaptureAnalysisChannel::polymorphic(channel.clone(), "")],
+            )
+            .err(),
+            Some(CaptureValidationError::AnalysisPortNameEmpty {
+                channel: channel.clone(),
+            })
+        );
+        assert_eq!(
+            CaptureAnalysisSource::new(
+                "analysis",
+                empty_cursor(),
+                1_000_000.0,
+                vec![
+                    CaptureAnalysisChannel::polymorphic(channel, "samples"),
+                    CaptureAnalysisChannel::polymorphic(other_channel, "samples"),
+                ],
+            )
+            .err(),
+            Some(CaptureValidationError::AnalysisPortDuplicate {
+                port: "samples".to_owned(),
+            })
+        );
+        assert_eq!(
+            CaptureAnalysisSource::new(
+                "analysis",
+                empty_cursor(),
+                3_000_000_000.0,
+                vec![CaptureAnalysisChannel::polymorphic(
+                    CaptureChannelId::new("probe:2"),
+                    "fast",
+                )],
+            )
+            .err(),
+            Some(
+                CaptureValidationError::AnalysisTimestampStepUnrepresentable {
+                    sample_rate_hz: 3_000_000_000.0,
+                }
+            )
+        );
     }
 
     impl CaptureStoreCursor for OffsetCursor {

@@ -3,7 +3,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use logic_analyzer_graph_capabilities::node::{CaptureGraphSourceFactory, LiveCaptureFeature};
+use logic_analyzer_graph_capabilities::node::{
+    CaptureGraphSourceError, CaptureGraphSourceFactory, LiveCaptureFeature,
+};
 use logic_analyzer_graph_capabilities::node_support::SimpleTriggerChannel;
 use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
 use logic_analyzer_trigger::SimpleTriggerCondition;
@@ -108,7 +110,10 @@ struct TestGraphSourceFactory {
 }
 
 impl CaptureGraphSourceFactory for TestGraphSourceFactory {
-    fn create(&self, cursor: Box<dyn CaptureStoreCursor>) -> Result<Box<dyn ProcessNode>, String> {
+    fn create(
+        &self,
+        cursor: Box<dyn CaptureStoreCursor>,
+    ) -> Result<Box<dyn ProcessNode>, CaptureGraphSourceError> {
         test_analysis_source(&self.channels, self.sample_rate_hz, cursor)
     }
 }
@@ -200,8 +205,8 @@ impl LiveCaptureFeature for FailingFeature {
         self: Box<Self>,
         _context: AcquisitionContext,
     ) -> AcquisitionResult<Box<dyn PreparedAcquisition>> {
-        Err(AcquisitionError::InvalidRequest(
-            "intentional preparation failure".into(),
+        Err(AcquisitionError::invalid_request_message(
+            "intentional preparation failure",
         ))
     }
 }
@@ -210,7 +215,7 @@ fn test_analysis_source(
     channels: &[CaptureChannelId],
     sample_rate_hz: f64,
     cursor: Box<dyn CaptureStoreCursor>,
-) -> Result<Box<dyn ProcessNode>, String> {
+) -> Result<Box<dyn ProcessNode>, CaptureGraphSourceError> {
     let layout = channels
         .iter()
         .cloned()
@@ -219,6 +224,7 @@ fn test_analysis_source(
         .collect();
     CaptureAnalysisSource::new("test-live-analysis", cursor, sample_rate_hz, layout)
         .map(|source| Box::new(source) as Box<dyn ProcessNode>)
+        .map_err(CaptureGraphSourceError::new)
 }
 
 fn streaming_capabilities(channels: &[CaptureChannelId]) -> CaptureProviderCapabilities {

@@ -19,6 +19,7 @@
 mod acquisition;
 mod analysis;
 mod implementation;
+mod validation;
 
 pub use acquisition::{
     AcquisitionContext, AcquisitionError, AcquisitionOutcome, AcquisitionResult,
@@ -36,3 +37,4 @@ pub use implementation::{
     CaptureQueueWriter, CaptureSessionId, CaptureSessionState, CaptureSettingCombination,
     CaptureStatus, CaptureWriteError, bounded_capture_event_queue, bounded_capture_queue,
 };
+pub use validation::CaptureValidationError;

@@ -107,6 +107,41 @@ unless capture_feature_contract.match?(
 )
   errors << "crates/logic_analyzer_graph_capabilities/src/node/contracts.rs: CaptureSourceFeatureError must retain CaptureSourceMetadataError"
 end
+unless capture_feature_contract.match?(/pub struct CaptureGraphSourceError\s*\{/) &&
+       capture_feature_contract.match?(
+         /source:\s*Box<dyn StdError \+ Send \+ Sync>/
+       ) && capture_feature_contract.match?(
+         /fn\s+create\b.*?Result<Box<dyn ProcessNode>,\s*CaptureGraphSourceError>/m
+       )
+  errors << "crates/logic_analyzer_graph_capabilities/src/node/contracts.rs: capture graph-source construction must retain typed causes"
+end
+
+capture_validation = File.read(File.join(
+  ROOT,
+  "crates/signal_capture_session/src/live_capture/validation.rs"
+))
+capture_implementation = File.read(File.join(
+  ROOT,
+  "crates/signal_capture_session/src/live_capture/implementation.rs"
+))
+capture_analysis = File.read(File.join(
+  ROOT,
+  "crates/signal_capture_session/src/live_capture/analysis.rs"
+))
+capture_acquisition = File.read(File.join(
+  ROOT,
+  "crates/signal_capture_session/src/live_capture/acquisition.rs"
+))
+unless capture_validation.match?(/pub enum CaptureValidationError\s*\{/) &&
+       capture_implementation.scan(/Result<Self,\s*CaptureValidationError>/).length >= 2 &&
+       capture_analysis.match?(/Result<Self,\s*CaptureValidationError>/)
+  errors << "crates/signal_capture_session/src/live_capture: constructor validation must use CaptureValidationError"
+end
+unless capture_acquisition.match?(
+  /InvalidRequest\(\#\[source\]\s*Box<dyn StdError \+ Send \+ Sync>\)/
+) && capture_acquisition.match?(/pub fn invalid_request\b/)
+  errors << "crates/signal_capture_session/src/live_capture/acquisition.rs: invalid acquisition requests must retain typed causes"
+end
 
 capture_discovery_plan = File.read(File.join(
   ROOT,

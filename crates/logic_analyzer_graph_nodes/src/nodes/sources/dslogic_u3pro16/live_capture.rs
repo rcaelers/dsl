@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::{CaptureGraphSourceFactory, LiveCaptureFeature};
+use logic_analyzer_graph_capabilities::node::{
+    CaptureGraphSourceError, CaptureGraphSourceFactory, LiveCaptureFeature,
+};
 use logic_analyzer_graph_capabilities::node_support::{SimpleTriggerChannel, parse_state};
 use logic_analyzer_trigger::TriggerProgram;
 use signal_capture::CaptureChannelId;
@@ -25,7 +27,10 @@ struct U3Pro16GraphSourceFactory {
 }
 
 impl CaptureGraphSourceFactory for U3Pro16GraphSourceFactory {
-    fn create(&self, cursor: Box<dyn CaptureStoreCursor>) -> Result<Box<dyn ProcessNode>, String> {
+    fn create(
+        &self,
+        cursor: Box<dyn CaptureStoreCursor>,
+    ) -> Result<Box<dyn ProcessNode>, CaptureGraphSourceError> {
         CaptureAnalysisSource::new(
             "u3pro16-captured-analysis",
             cursor,
@@ -33,6 +38,7 @@ impl CaptureGraphSourceFactory for U3Pro16GraphSourceFactory {
             self.channels.to_vec(),
         )
         .map(|source| Box::new(source) as Box<dyn ProcessNode>)
+        .map_err(CaptureGraphSourceError::new)
     }
 }
 

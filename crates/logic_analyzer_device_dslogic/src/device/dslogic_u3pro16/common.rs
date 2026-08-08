@@ -185,7 +185,9 @@ fn canonicalize_transfer(
 
 pub(crate) fn map_analyzer_error(error: LogicAnalyzerError) -> AcquisitionError {
     match error {
-        LogicAnalyzerError::InvalidSettings(message) => AcquisitionError::InvalidRequest(message),
+        LogicAnalyzerError::InvalidSettings(message) => {
+            AcquisitionError::invalid_request_message(message)
+        }
         LogicAnalyzerError::Transport(source) => AcquisitionError::Transport(source),
         LogicAnalyzerError::Timeout(message) => AcquisitionError::transport_message(message),
         LogicAnalyzerError::Protocol(message) => AcquisitionError::Protocol(message),

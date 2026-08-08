@@ -20,7 +20,7 @@ pub type AcquisitionResult<T> = Result<T, AcquisitionError>;
 pub enum AcquisitionError {
     /// The request conflicts with provider capabilities or capture policy.
     #[error("invalid acquisition request: {0}")]
-    InvalidRequest(String),
+    InvalidRequest(#[source] Box<dyn StdError + Send + Sync>),
     /// An attempt was made to start an already-started acquisition.
     #[error("acquisition has already started")]
     AlreadyStarted,
@@ -66,8 +66,7 @@ struct AcquisitionDiagnostic(String);
 impl PartialEq for AcquisitionError {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::InvalidRequest(left), Self::InvalidRequest(right))
-            | (Self::UnsupportedOperation(left), Self::UnsupportedOperation(right))
+            (Self::UnsupportedOperation(left), Self::UnsupportedOperation(right))
             | (Self::Protocol(left), Self::Protocol(right))
             | (Self::Integrity(left), Self::Integrity(right))
             | (Self::WorkerStart(left), Self::WorkerStart(right))
@@ -75,6 +74,9 @@ impl PartialEq for AcquisitionError {
             (Self::Writer(left), Self::Writer(right)) => left == right,
             (Self::Event(left), Self::Event(right)) => left == right,
             (Self::Transport(left), Self::Transport(right)) => {
+                left.to_string() == right.to_string()
+            }
+            (Self::InvalidRequest(left), Self::InvalidRequest(right)) => {
                 left.to_string() == right.to_string()
             }
             (Self::AlreadyStarted, Self::AlreadyStarted)
@@ -89,6 +91,16 @@ impl PartialEq for AcquisitionError {
 impl Eq for AcquisitionError {}
 
 impl AcquisitionError {
+    /// Retains a typed cause for an invalid provider request.
+    pub fn invalid_request(error: impl StdError + Send + Sync + 'static) -> Self {
+        Self::InvalidRequest(Box::new(error))
+    }
+
+    /// Adapts a provider that exposes only an invalid-request diagnostic.
+    pub fn invalid_request_message(message: impl Into<String>) -> Self {
+        Self::invalid_request(AcquisitionDiagnostic(message.into()))
+    }
+
     /// Retains a typed transport failure raised by an acquisition provider.
     pub fn transport(error: impl StdError + Send + Sync + 'static) -> Self {
         Self::Transport(Box::new(error))
@@ -174,7 +186,7 @@ impl AcquisitionContext {
     /// - `chunk`: Capture data belonging to this context's session.
     pub fn append(&mut self, chunk: CaptureChunk) -> AcquisitionResult<()> {
         if chunk.session_id() != self.session_id {
-            return Err(AcquisitionError::InvalidRequest(format!(
+            return Err(AcquisitionError::invalid_request_message(format!(
                 "chunk belongs to session {}, expected {}",
                 chunk.session_id(),
                 self.session_id
@@ -346,6 +358,7 @@ pub trait ConfiguredAcquisition: Send {
 mod acquisition_error_tests {
     use std::error::Error as _;
 
+    use super::super::validation::CaptureValidationError;
     use super::AcquisitionError;
 
     #[derive(Debug, thiserror::Error)]
@@ -357,5 +370,13 @@ mod acquisition_error_tests {
         let error = AcquisitionError::transport(ControlledTransportFailure);
 
         assert!(error.source().unwrap().is::<ControlledTransportFailure>());
+    }
+
+    #[test]
+    fn invalid_request_retains_the_capture_validation_cause() {
+        let error =
+            AcquisitionError::invalid_request(CaptureValidationError::CapabilitySettingMatrixEmpty);
+
+        assert!(error.source().unwrap().is::<CaptureValidationError>());
     }
 }

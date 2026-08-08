@@ -43,27 +43,27 @@ impl BufferedFakeConfig {
     ) -> AcquisitionResult<Self> {
         let channels = channels.into();
         if channels.is_empty() {
-            return Err(AcquisitionError::InvalidRequest(
-                "buffered fake capture requires at least one channel".into(),
+            return Err(AcquisitionError::invalid_request_message(
+                "buffered fake capture requires at least one channel",
             ));
         }
         if sample_rate_hz == 0 || total_samples == 0 || upload_chunk_samples == 0 {
-            return Err(AcquisitionError::InvalidRequest(
-                "buffered fake rate, sample count, and upload chunk size must be non-zero".into(),
+            return Err(AcquisitionError::invalid_request_message(
+                "buffered fake rate, sample count, and upload chunk size must be non-zero",
             ));
         }
         let mut setting_matrix = vec![
             CaptureSettingCombination::new(Arc::clone(&channels), Arc::from([sample_rate_hz]))
-                .map_err(AcquisitionError::InvalidRequest)?,
+                .map_err(AcquisitionError::invalid_request)?,
         ];
         if channels.len() > 1 {
             let bank_subset = channels.iter().step_by(2).cloned().collect::<Vec<_>>();
             let faster_rate = sample_rate_hz.checked_mul(4).ok_or_else(|| {
-                AcquisitionError::InvalidRequest("buffered fake sample rate overflows u64".into())
+                AcquisitionError::invalid_request_message("buffered fake sample rate overflows u64")
             })?;
             setting_matrix.push(
                 CaptureSettingCombination::new(bank_subset, Arc::from([faster_rate]))
-                    .map_err(AcquisitionError::InvalidRequest)?,
+                    .map_err(AcquisitionError::invalid_request)?,
             );
         }
         let capabilities = CaptureProviderCapabilities::new(
@@ -71,7 +71,7 @@ impl BufferedFakeConfig {
             setting_matrix,
             false,
         )
-        .map_err(AcquisitionError::InvalidRequest)?;
+        .map_err(AcquisitionError::invalid_request)?;
         let config = Self {
             trigger_conditions: vec![None; channels.len()].into(),
             channels,
@@ -96,7 +96,7 @@ impl BufferedFakeConfig {
     ) -> AcquisitionResult<Self> {
         let conditions = conditions.into();
         if conditions.len() != self.channels.len() {
-            return Err(AcquisitionError::InvalidRequest(format!(
+            return Err(AcquisitionError::invalid_request_message(format!(
                 "buffered fake trigger has {} channels, expected {}",
                 conditions.len(),
                 self.channels.len()

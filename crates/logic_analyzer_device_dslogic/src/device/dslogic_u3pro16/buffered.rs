@@ -32,8 +32,8 @@ impl<T: UsbTransport> BufferedProvider<T> {
     ) -> AcquisitionResult<Self> {
         let channels = channels.into();
         if channels.is_empty() || channels.len() != config.input_mask.count_ones() as usize {
-            return Err(AcquisitionError::InvalidRequest(
-                "U3Pro16 channel identities must match the enabled physical inputs".into(),
+            return Err(AcquisitionError::invalid_request_message(
+                "U3Pro16 channel identities must match the enabled physical inputs",
             ));
         }
         Ok(Self {

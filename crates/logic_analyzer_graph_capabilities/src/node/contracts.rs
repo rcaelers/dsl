@@ -1,3 +1,4 @@
+use std::error::Error as StdError;
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -30,8 +31,37 @@ pub trait CaptureGraphSourceFactory: Send + Sync {
     ///
     /// # Parameters
     /// - `cursor`: Prepared capture-store cursor to replay through the graph.
-    fn create(&self, cursor: Box<dyn CaptureStoreCursor>) -> Result<Box<dyn ProcessNode>, String>;
+    fn create(
+        &self,
+        cursor: Box<dyn CaptureStoreCursor>,
+    ) -> Result<Box<dyn ProcessNode>, CaptureGraphSourceError>;
 }
+
+/// Failure to construct a processing source for a prepared capture store.
+#[derive(Debug, thiserror::Error)]
+#[error("{source}")]
+pub struct CaptureGraphSourceError {
+    #[source]
+    source: Box<dyn StdError + Send + Sync>,
+}
+
+impl CaptureGraphSourceError {
+    /// Retains a typed source-construction failure raised by a graph feature.
+    pub fn new(error: impl StdError + Send + Sync + 'static) -> Self {
+        Self {
+            source: Box::new(error),
+        }
+    }
+
+    /// Adapts a graph feature that exposes only a source-construction diagnostic.
+    pub fn message(message: impl Into<String>) -> Self {
+        Self::new(CaptureGraphSourceDiagnostic(message.into()))
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+struct CaptureGraphSourceDiagnostic(String);
 
 /// Failure exposed by a graph node's generic capture-source feature.
 #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]

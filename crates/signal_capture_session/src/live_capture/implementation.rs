@@ -16,6 +16,7 @@ use thiserror::Error;
 use platform_artifacts::ByteRegion;
 use signal_capture::CaptureChannelId;
 
+use super::validation::CaptureValidationError;
 use crate::{CapturePolicyCapabilities, CaptureSessionPlan};
 
 pub const CAPTURE_CHUNK_FORMAT_VERSION: u16 = 1;
@@ -64,22 +65,31 @@ impl CaptureSettingCombination {
     pub fn new(
         channels: impl Into<Arc<[CaptureChannelId]>>,
         sample_rates_hz: impl Into<Arc<[u64]>>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, CaptureValidationError> {
         let channels = channels.into();
         let sample_rates_hz = sample_rates_hz.into();
         if channels.is_empty() {
-            return Err("a capture setting combination requires at least one channel".into());
+            return Err(CaptureValidationError::SettingChannelsEmpty);
         }
-        if sample_rates_hz.is_empty() || sample_rates_hz.contains(&0) {
-            return Err("capture setting sample rates must be non-zero".into());
+        if sample_rates_hz.is_empty() {
+            return Err(CaptureValidationError::SettingSampleRatesEmpty);
         }
-        let unique_channels: HashSet<_> = channels.iter().collect();
-        if unique_channels.len() != channels.len() {
-            return Err("capture setting channels must be unique".into());
+        if sample_rates_hz.contains(&0) {
+            return Err(CaptureValidationError::SettingSampleRateZero);
         }
-        let unique_rates: HashSet<_> = sample_rates_hz.iter().collect();
-        if unique_rates.len() != sample_rates_hz.len() {
-            return Err("capture setting sample rates must be unique".into());
+        let mut unique_channels = HashSet::new();
+        for channel in channels.iter() {
+            if !unique_channels.insert(channel) {
+                return Err(CaptureValidationError::SettingChannelDuplicate {
+                    channel: channel.clone(),
+                });
+            }
+        }
+        let mut unique_rates = HashSet::new();
+        for sample_rate_hz in sample_rates_hz.iter().copied() {
+            if !unique_rates.insert(sample_rate_hz) {
+                return Err(CaptureValidationError::SettingSampleRateDuplicate { sample_rate_hz });
+            }
         }
         Ok(Self {
             channels,
@@ -132,10 +142,10 @@ impl CaptureProviderCapabilities {
         data_delivery: CaptureDataDelivery,
         setting_matrix: impl Into<Arc<[CaptureSettingCombination]>>,
         force_trigger: bool,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, CaptureValidationError> {
         let setting_matrix = setting_matrix.into();
         if setting_matrix.is_empty() {
-            return Err("capture capabilities require a non-empty setting matrix".into());
+            return Err(CaptureValidationError::CapabilitySettingMatrixEmpty);
         }
         Ok(Self {
             data_delivery,
@@ -1149,7 +1159,8 @@ mod tests {
     use super::{
         CaptureBufferPool, CaptureChunk, CaptureChunkError, CaptureChunkWriter,
         CaptureDataDelivery, CaptureProviderCapabilities, CaptureQueueLimits, CaptureSessionId,
-        CaptureSettingCombination, CaptureWriteError, bounded_capture_queue,
+        CaptureSettingCombination, CaptureValidationError, CaptureWriteError,
+        bounded_capture_queue,
     };
 
     fn channels() -> Arc<[CaptureChannelId]> {
@@ -1228,24 +1239,43 @@ mod tests {
         assert!(capabilities.commands().capture_now);
         assert!(!capabilities.policy().recording_starts().is_empty());
 
-        assert!(CaptureSettingCombination::new(Vec::new(), Arc::from([1_u64])).is_err());
-        assert!(
+        assert_eq!(
+            CaptureSettingCombination::new(Vec::new(), Arc::from([1_u64])),
+            Err(CaptureValidationError::SettingChannelsEmpty)
+        );
+        assert_eq!(
             CaptureSettingCombination::new(
                 vec![all_channels[0].clone(), all_channels[0].clone()],
                 Arc::from([1_u64]),
-            )
-            .is_err()
+            ),
+            Err(CaptureValidationError::SettingChannelDuplicate {
+                channel: all_channels[0].clone(),
+            })
         );
-        assert!(
-            CaptureSettingCombination::new(Arc::clone(&all_channels), Arc::from([0_u64])).is_err()
+        assert_eq!(
+            CaptureSettingCombination::new(Arc::clone(&all_channels), Arc::from([0_u64])),
+            Err(CaptureValidationError::SettingSampleRateZero)
         );
-        assert!(
+        assert_eq!(
+            CaptureSettingCombination::new(Arc::clone(&all_channels), Vec::new()),
+            Err(CaptureValidationError::SettingSampleRatesEmpty)
+        );
+        assert_eq!(
+            CaptureSettingCombination::new(
+                Arc::clone(&all_channels),
+                Arc::from([1_000_000_u64, 1_000_000]),
+            ),
+            Err(CaptureValidationError::SettingSampleRateDuplicate {
+                sample_rate_hz: 1_000_000,
+            })
+        );
+        assert_eq!(
             CaptureProviderCapabilities::new(
                 CaptureDataDelivery::DuringAcquisition,
                 Vec::new(),
                 false,
-            )
-            .is_err()
+            ),
+            Err(CaptureValidationError::CapabilitySettingMatrixEmpty)
         );
     }
 

@@ -48,22 +48,22 @@ impl DsLogicU3Pro16Capture {
     ) -> AcquisitionResult<Self> {
         let channels = channels.into();
         if channels.is_empty() || channels.len() != config.input_mask.count_ones() as usize {
-            return Err(AcquisitionError::InvalidRequest(
-                "U3Pro16 channel identities must match the enabled physical inputs".into(),
+            return Err(AcquisitionError::invalid_request_message(
+                "U3Pro16 channel identities must match the enabled physical inputs",
             ));
         }
         let (profile, capture_window_samples) = match config.mode {
             CaptureMode::Finite => (
                 CaptureProfile::Buffered,
                 DsLogicCapturePlan::new_buffered(&config)
-                    .map_err(|error| AcquisitionError::InvalidRequest(error.to_string()))?
+                    .map_err(AcquisitionError::invalid_request)?
                     .actual_samples(),
             ),
             CaptureMode::Streaming => {
                 let high = DsLogicCapturePlan::new_streaming(&config, LinkSpeed::High);
                 let super_speed = DsLogicCapturePlan::new_streaming(&config, LinkSpeed::Super);
                 if let (Err(high), Err(super_speed)) = (high, super_speed) {
-                    return Err(AcquisitionError::InvalidRequest(format!(
+                    return Err(AcquisitionError::invalid_request_message(format!(
                         "U3Pro16 stream is unsupported on High Speed ({high}) and SuperSpeed ({super_speed})"
                     )));
                 }

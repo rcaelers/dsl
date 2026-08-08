@@ -4,7 +4,9 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node::{CaptureGraphSourceFactory, LiveCaptureFeature};
+use logic_analyzer_graph_capabilities::node::{
+    CaptureGraphSourceError, CaptureGraphSourceFactory, LiveCaptureFeature,
+};
 use logic_analyzer_graph_capabilities::node_support::SimpleTriggerChannel;
 use logic_analyzer_test_support::{
     DeterministicFakeConfig, DeterministicFakeProvider, DeterministicTrigger,
@@ -36,7 +38,10 @@ struct DemoCaptureGraphSourceFactory {
 }
 
 impl CaptureGraphSourceFactory for DemoCaptureGraphSourceFactory {
-    fn create(&self, cursor: Box<dyn CaptureStoreCursor>) -> Result<Box<dyn ProcessNode>, String> {
+    fn create(
+        &self,
+        cursor: Box<dyn CaptureStoreCursor>,
+    ) -> Result<Box<dyn ProcessNode>, CaptureGraphSourceError> {
         let channels = self
             .channels
             .iter()
@@ -52,6 +57,7 @@ impl CaptureGraphSourceFactory for DemoCaptureGraphSourceFactory {
             .collect();
         CaptureAnalysisSource::new("demo-capture-analysis", cursor, SAMPLE_RATE_HZ, channels)
             .map(|source| Box::new(source) as Box<dyn ProcessNode>)
+            .map_err(CaptureGraphSourceError::new)
     }
 }
 

@@ -82,6 +82,13 @@ owners, and inventory assembly carries it to application construction. A plugin 
 `PluginPanelStateError` when persisted state cannot be restored; the error retains a typed
 plugin-owned source through panel lookup and is formatted only when the application emits a toast.
 
+Driver-neutral setting combinations, provider capabilities, and analysis sources return the
+classified `CaptureValidationError`. Invalid acquisition requests retain that typed source through
+`AcquisitionError`, while explicit message adapters remain available to providers that expose only
+diagnostics. Analysis-source construction then crosses the graph feature port as the source-bearing
+`CaptureGraphSourceError`; concrete graph nodes and the generic capability crate do not format the
+session-owned validation cause.
+
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
 - One enum per *facade*, not per crate and not per function. Variants describe what failed in
@@ -93,8 +100,8 @@ plugin-owned source through panel lookup and is formatted only when the applicat
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. Type validation failures returned by `CaptureSettingCombination`,
-   `CaptureProviderCapabilities`, and `CaptureAnalysisSource` in `signal_capture_session`.
+1. Type live-capture attachment and storage-publication failures in `logic_analyzer_ui`, retaining
+   capture-store, repository, and graph-source causes until application presentation.
 2. Continue through the remaining platform and UI facades: most occurrences collapse into carrying
    the now-typed lower errors; only genuinely UI-owned failures need new variants.
 

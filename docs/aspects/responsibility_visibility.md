@@ -25,7 +25,9 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
 - `signal_derived` owns generic derived-data payload, collection, indexing, storage, and the
   explicitly injected decoded-block cache handle.
 - `signal_capture_session` owns generic capture-session
-  contracts and lazy capture-source metadata/lifecycle contracts. It consumes fixed-width byte ranges, stable source identities, prepared
+  contracts and lazy capture-source metadata/lifecycle contracts. Its validation facade classifies
+  invalid setting matrices, provider capabilities, and analysis-source layouts; invalid acquisition
+  requests retain those typed causes. It consumes fixed-width byte ranges, stable source identities, prepared
   random-access sources, immutable byte regions, and portable memory sources directly from
   `platform_artifacts` without re-exporting them. Host paths, files, mappings, and browser handles
   are absent from those contracts. Its public capture
@@ -40,7 +42,9 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
 - `logic_analyzer_protocol_decoders` owns concrete protocol decoding and decoder host contracts.
 - `signal_transforms`, `signal_sinks`, and `signal_generators` own portable stream transforms,
   terminal consumers, and deterministic configured sources respectively.
-- `logic_analyzer_graph_capabilities` owns graph-node and payload capability contracts.
+- `logic_analyzer_graph_capabilities` owns graph-node and payload capability contracts. Its capture
+  graph-source factory carries a source-bearing construction error without interpreting the
+  session-owned validation cause.
 - `logic_analyzer_graph_registry` owns graph-node and payload registration, inventory validation,
   and immutable catalog assembly.
 - `logic_analyzer_graph_nodes` owns built-in concrete node definitions, builders, migrations,

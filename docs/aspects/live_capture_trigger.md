@@ -201,6 +201,12 @@ After acquisition starts, the coordinator opens an independent store cursor and 
 document, and `GraphRuntime::start_live_analysis` replaces only that source process. All downstream
 nodes use the same processing plan and port mapping as an ordinary Run.
 
+Driver-neutral setting, capability, and analysis-source invariants are represented by
+`CaptureValidationError`. A provider preserves that cause through
+`AcquisitionError::InvalidRequest`; a graph feature preserves analysis-source construction causes
+through `CaptureGraphSourceError`. Neither boundary depends on a concrete device or formats the
+cause into a display string.
+
 ```mermaid
 sequenceDiagram
     participant UI as Capture coordinator

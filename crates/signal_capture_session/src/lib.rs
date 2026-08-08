@@ -36,7 +36,7 @@ pub use live_capture::{
     CaptureEventQueueReader, CaptureFailure, CaptureFailureKind, CaptureHealth, CaptureProgress,
     CaptureProviderCapabilities, CaptureQueueConfigError, CaptureQueueLimits, CaptureQueueReader,
     CaptureQueueReceiveError, CaptureQueueWriter, CaptureSessionId, CaptureSessionState,
-    CaptureSettingCombination, CaptureStatus, CaptureWriteError, ConfiguredAcquisition,
-    PreparedAcquisition, bounded_capture_event_queue, bounded_capture_queue,
+    CaptureSettingCombination, CaptureStatus, CaptureValidationError, CaptureWriteError,
+    ConfiguredAcquisition, PreparedAcquisition, bounded_capture_event_queue, bounded_capture_queue,
 };
 pub use live_capture_store::*;

@@ -328,9 +328,13 @@ item here, so acceptance comparisons stop being ad-hoc.
      `logic_analyzer_ui` plugin-panel facade now classifies invalid and duplicate registrations
      through `PluginPanelRegistrationError`; plugin state restoration retains plugin-owned causes
      through `PluginPanelStateError`, and the application adds panel context only when creating its
-     toast. Next type the validation failures returned by `CaptureSettingCombination`,
-     `CaptureProviderCapabilities`, and `CaptureAnalysisSource` in the driver-neutral
-     `signal_capture_session` facade. Continue converting remaining host-service and generic-crate
+     toast. Driver-neutral capture settings, provider capabilities, and analysis-source construction
+     now return classified `CaptureValidationError` values. `AcquisitionError::InvalidRequest`
+     retains those and other provider-owned causes, while the graph-feature-owned
+     `CaptureGraphSourceError` carries analysis construction failures across
+     `CaptureGraphSourceFactory`. Next type live-capture attachment and storage-publication failures
+     in `logic_analyzer_ui` so capture-store, repository, and graph-source causes reach application
+     presentation without formatting. Continue converting remaining host-service and generic-crate
      surfaces rather than formatting them early.
 
 ### Application state decomposition

@@ -513,8 +513,8 @@ impl DeterministicFakeConfig {
     ) -> AcquisitionResult<Self> {
         if channels.is_empty() || chunk_sample_counts.is_empty() || chunk_sample_counts.contains(&0)
         {
-            return Err(AcquisitionError::InvalidRequest(
-                "UI test acquisition requires channels and non-zero chunks".into(),
+            return Err(AcquisitionError::invalid_request_message(
+                "UI test acquisition requires channels and non-zero chunks",
             ));
         }
         let channel_count = channels.len();
@@ -539,8 +539,8 @@ impl DeterministicFakeConfig {
         conditions: Vec<Option<SimpleTriggerCondition>>,
     ) -> AcquisitionResult<Self> {
         if conditions.len() != self.config.channels.len() {
-            return Err(AcquisitionError::InvalidRequest(
-                "UI test trigger channel count mismatch".into(),
+            return Err(AcquisitionError::invalid_request_message(
+                "UI test trigger channel count mismatch",
             ));
         }
         self.trigger_conditions = conditions.into();
@@ -635,13 +635,13 @@ impl BufferedFakeConfig {
             || total_samples == 0
             || upload_chunk_samples == 0
         {
-            return Err(AcquisitionError::InvalidRequest(
-                "UI buffered test acquisition requires non-zero settings".into(),
+            return Err(AcquisitionError::invalid_request_message(
+                "UI buffered test acquisition requires non-zero settings",
             ));
         }
         let mut setting_matrix = vec![
             CaptureSettingCombination::new(channels.clone(), Arc::from([sample_rate_hz]))
-                .map_err(AcquisitionError::InvalidRequest)?,
+                .map_err(AcquisitionError::invalid_request)?,
         ];
         if channels.len() > 1 {
             setting_matrix.push(
@@ -649,7 +649,7 @@ impl BufferedFakeConfig {
                     channels.iter().step_by(2).cloned().collect::<Vec<_>>(),
                     Arc::from([sample_rate_hz.saturating_mul(4)]),
                 )
-                .map_err(AcquisitionError::InvalidRequest)?,
+                .map_err(AcquisitionError::invalid_request)?,
             );
         }
         let capabilities = CaptureProviderCapabilities::new(
@@ -657,7 +657,7 @@ impl BufferedFakeConfig {
             setting_matrix,
             false,
         )
-        .map_err(AcquisitionError::InvalidRequest)?;
+        .map_err(AcquisitionError::invalid_request)?;
         let chunk_sample_counts = (0..total_samples)
             .step_by(upload_chunk_samples as usize)
             .map(|start| upload_chunk_samples.min(total_samples - start))
@@ -681,8 +681,8 @@ impl BufferedFakeConfig {
         conditions: Vec<Option<SimpleTriggerCondition>>,
     ) -> AcquisitionResult<Self> {
         if conditions.len() != self.config.channels.len() {
-            return Err(AcquisitionError::InvalidRequest(
-                "UI buffered test trigger channel count mismatch".into(),
+            return Err(AcquisitionError::invalid_request_message(
+                "UI buffered test trigger channel count mismatch",
             ));
         }
         self.trigger_conditions = conditions.into();

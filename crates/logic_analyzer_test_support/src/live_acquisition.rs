@@ -152,18 +152,18 @@ impl DeterministicFakeConfig {
         let channels = channels.into();
         let chunk_sample_counts = chunk_sample_counts.into();
         if channels.is_empty() {
-            return Err(AcquisitionError::InvalidRequest(
-                "fake capture requires at least one channel".into(),
+            return Err(AcquisitionError::invalid_request_message(
+                "fake capture requires at least one channel",
             ));
         }
         if chunk_sample_counts.is_empty() || chunk_sample_counts.contains(&0) {
-            return Err(AcquisitionError::InvalidRequest(
-                "fake capture requires non-empty, non-zero chunk sizes".into(),
+            return Err(AcquisitionError::invalid_request_message(
+                "fake capture requires non-empty, non-zero chunk sizes",
             ));
         }
         chunk_sample_counts.iter().try_fold(0_u64, |total, count| {
             total.checked_add(*count).ok_or_else(|| {
-                AcquisitionError::InvalidRequest("fake capture sample count overflows u64".into())
+                AcquisitionError::invalid_request_message("fake capture sample count overflows u64")
             })
         })?;
         let config = Self {
@@ -201,7 +201,7 @@ impl DeterministicFakeConfig {
     ) -> AcquisitionResult<Self> {
         let conditions = conditions.into();
         if conditions.len() != self.channels.len() {
-            return Err(AcquisitionError::InvalidRequest(format!(
+            return Err(AcquisitionError::invalid_request_message(format!(
                 "fake trigger has {} channels, expected {}",
                 conditions.len(),
                 self.channels.len()
@@ -240,13 +240,13 @@ impl DeterministicFakeConfig {
     ) -> AcquisitionResult<Self> {
         if let Some(trigger) = &trigger {
             if trigger.stages.is_empty() {
-                return Err(AcquisitionError::InvalidRequest(
-                    "fake trigger requires at least one stage".into(),
+                return Err(AcquisitionError::invalid_request_message(
+                    "fake trigger requires at least one stage",
                 ));
             }
             for (stage_index, stage) in trigger.stages.iter().enumerate() {
                 if stage.predicates.is_empty() {
-                    return Err(AcquisitionError::InvalidRequest(format!(
+                    return Err(AcquisitionError::invalid_request_message(format!(
                         "fake trigger stage {stage_index} requires at least one predicate"
                     )));
                 }
@@ -255,14 +255,14 @@ impl DeterministicFakeConfig {
                     .iter()
                     .find(|predicate| predicate.channel >= self.channels.len())
                 {
-                    return Err(AcquisitionError::InvalidRequest(format!(
+                    return Err(AcquisitionError::invalid_request_message(format!(
                         "fake trigger channel {} is outside 0..{}",
                         predicate.channel,
                         self.channels.len()
                     )));
                 }
                 if stage.count.is_some_and(|count| count.value == 0) {
-                    return Err(AcquisitionError::InvalidRequest(format!(
+                    return Err(AcquisitionError::invalid_request_message(format!(
                         "fake trigger stage {stage_index} count must be non-zero"
                     )));
                 }
