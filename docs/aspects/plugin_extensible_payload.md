@@ -212,7 +212,10 @@ branch. Each panel instance receives a restricted read-only context containing c
 descriptors and query handles. It keeps versioned serializable state under its stable panel identity
 and the layout instance identity. A panel can be opened after a capture finishes because it queries
 retained data rather than receiving the live stream. The current contract intentionally exposes no
-application mutation commands.
+application mutation commands. Registration validation returns the UI-owned
+`PluginPanelRegistrationError`, while state restoration returns the source-bearing
+`PluginPanelStateError`. The application retains restoration failures through panel lookup and adds
+the panel title only at toast presentation.
 
 The out-of-tree example plugin proves the complete route with `CameraFrame`: a custom socket and
 finite source produce timestamped RGB images, a custom adapter retains bounded frames, a viewer

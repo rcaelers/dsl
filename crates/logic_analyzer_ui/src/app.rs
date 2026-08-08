@@ -1139,7 +1139,8 @@ impl App {
         let registry =
             crate::node_registry::build_node_registry_with_editor_overrides(node_editor_overrides);
         let input_bindings = Arc::new(input_bindings);
-        let plugin_panel_registry = PluginPanelRegistry::standard();
+        let plugin_panel_registry =
+            PluginPanelRegistry::standard().expect("UI-panel inventory registration must be valid");
         let mut widget = NodeGraphWidget::new(registry);
         if let Some(mut file_dialog) = node_file_dialog {
             let repaint_context = cc.egui_ctx.clone();
@@ -3698,7 +3699,7 @@ impl eframe::App for App {
                         .show(content_id, panel_id, panel_ui)
                     {
                         self.toasts
-                            .warning_from(ToastSource::panel(content_id), warning);
+                            .warning_from(ToastSource::panel(content_id), warning.to_string());
                     }
                 }
                 PanelSlot::TitleBar { .. } => {}
@@ -3972,7 +3973,7 @@ mod font_tests {
     #[test]
     fn sampling_overlay_toggles_do_not_replace_other_decoder_selections() {
         let mut catalogs =
-            PresentationCatalogs::new(PluginPanelRegistry::standard(), HashSet::new());
+            PresentationCatalogs::new(PluginPanelRegistry::standard().unwrap(), HashSet::new());
         catalogs.replace_selected_sampling_overlays(vec![NodeId(17)]);
 
         catalogs.toggle_sampling_overlay(NodeId(23));
@@ -3998,7 +3999,7 @@ mod font_tests {
             lanes: catalog[0].lanes.clone(),
         }];
         let mut catalogs = PresentationCatalogs::new(
-            PluginPanelRegistry::standard(),
+            PluginPanelRegistry::standard().unwrap(),
             graph.nodes.keys().copied().collect(),
         );
         catalogs.replace_catalogs(catalog, table_catalog);

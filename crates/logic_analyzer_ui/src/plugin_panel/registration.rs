@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 
 use super::contract::{PluginPanel, PluginPanelDescriptor, PluginPanelIcon};
+use super::error::{PluginPanelRegistrationError, validate_plugin_panel_definition};
 use super::registry::PluginPanelRegistry;
 
 /// Compile-time registration for one persistable panel kind.
@@ -13,7 +14,10 @@ pub struct UiPanelRegistration {
     minimum_width: f32,
     minimum_height: f32,
     singleton: bool,
-    register: fn(&UiPanelRegistration, &mut PluginPanelRegistry) -> Result<(), String>,
+    register: fn(
+        &UiPanelRegistration,
+        &mut PluginPanelRegistry,
+    ) -> Result<(), PluginPanelRegistrationError>,
 }
 
 impl UiPanelRegistration {
@@ -73,7 +77,15 @@ impl UiPanelRegistration {
         self.title
     }
 
-    pub(crate) fn apply_to(&self, registry: &mut PluginPanelRegistry) -> Result<(), String> {
+    /// Validates the panel identity and user-facing title supplied by this registration.
+    pub fn validate(&self) -> Result<(), PluginPanelRegistrationError> {
+        validate_plugin_panel_definition(self.stable_id, self.title)
+    }
+
+    pub(crate) fn apply_to(
+        &self,
+        registry: &mut PluginPanelRegistry,
+    ) -> Result<(), PluginPanelRegistrationError> {
         (self.register)(self, registry)
     }
 
@@ -91,40 +103,36 @@ impl UiPanelRegistration {
 fn register_panel<P: PluginPanel + Default + 'static>(
     registration: &UiPanelRegistration,
     registry: &mut PluginPanelRegistry,
-) -> Result<(), String> {
+) -> Result<(), PluginPanelRegistrationError> {
     registry.register::<P>(registration.descriptor())
 }
 
 inventory::collect!(UiPanelRegistration);
 
-pub(crate) fn ui_panel_registrations() -> Vec<&'static UiPanelRegistration> {
+pub(crate) fn ui_panel_registrations()
+-> Result<Vec<&'static UiPanelRegistration>, PluginPanelRegistrationError> {
     let mut registrations = inventory::iter::<UiPanelRegistration>
         .into_iter()
         .collect::<Vec<_>>();
-    validate_ui_panel_registrations(&mut registrations);
-    registrations
+    validate_ui_panel_registrations(&mut registrations)?;
+    Ok(registrations)
 }
 
-fn validate_ui_panel_registrations(registrations: &mut Vec<&UiPanelRegistration>) {
+fn validate_ui_panel_registrations(
+    registrations: &mut Vec<&UiPanelRegistration>,
+) -> Result<(), PluginPanelRegistrationError> {
     registrations.sort_by_key(|registration| registration.stable_id());
 
     let mut stable_ids = HashSet::new();
     for registration in registrations {
-        assert!(
-            !registration.stable_id().trim().is_empty(),
-            "UI-panel inventory contains an empty stable ID"
-        );
-        assert!(
-            stable_ids.insert(registration.stable_id()),
-            "duplicate UI-panel inventory stable ID '{}'",
-            registration.stable_id()
-        );
-        assert!(
-            !registration.title().trim().is_empty(),
-            "UI-panel inventory feature '{}' has an empty title",
-            registration.stable_id()
-        );
+        registration.validate()?;
+        if !stable_ids.insert(registration.stable_id()) {
+            return Err(PluginPanelRegistrationError::DuplicateStableId {
+                stable_id: registration.stable_id().to_owned(),
+            });
+        }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -150,14 +158,14 @@ mod registration_tests {
 
     #[test]
     fn inventory_panel_is_discovered_and_applied() {
-        let registrations = ui_panel_registrations();
+        let registrations = ui_panel_registrations().unwrap();
         assert!(
             registrations
                 .windows(2)
                 .all(|pair| pair[0].stable_id() < pair[1].stable_id())
         );
 
-        let panels = PluginPanels::new(PluginPanelRegistry::standard());
+        let panels = PluginPanels::new(PluginPanelRegistry::standard().unwrap());
         let definition = panels
             .definitions()
             .into_iter()
@@ -169,14 +177,29 @@ mod registration_tests {
 
     #[test]
     fn duplicate_ui_panel_registration_is_rejected() {
-        let registration = ui_panel_registrations()[0];
+        let registration = ui_panel_registrations().unwrap()[0];
         let mut registrations = vec![registration, registration];
 
-        assert!(
-            std::panic::catch_unwind(move || {
-                validate_ui_panel_registrations(&mut registrations)
+        assert_eq!(
+            validate_ui_panel_registrations(&mut registrations),
+            Err(PluginPanelRegistrationError::DuplicateStableId {
+                stable_id: registration.stable_id().to_owned(),
             })
-            .is_err()
+        );
+    }
+
+    #[test]
+    fn plugin_can_classify_an_invalid_registration_before_submission() {
+        let registration = UiPanelRegistration::panel::<InventoryPanel>(
+            "org.logicconduit.test.invalid-panel/v1",
+            " ",
+        );
+
+        assert_eq!(
+            registration.validate(),
+            Err(PluginPanelRegistrationError::EmptyTitle {
+                stable_id: "org.logicconduit.test.invalid-panel/v1".to_owned(),
+            })
         );
     }
 }

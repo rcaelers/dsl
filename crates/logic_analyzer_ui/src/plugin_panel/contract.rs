@@ -2,6 +2,8 @@
 
 use signal_derived::OpaqueCollectedLane;
 
+use super::error::PluginPanelStateError;
+
 /// Read-only application data exposed while a plugin panel is drawn.
 pub struct PluginPanelContext<'a> {
     lanes: &'a [OpaqueCollectedLane],
@@ -44,7 +46,7 @@ pub trait PluginPanel: Send {
     /// - `_state`: Persisted JSON value for this panel instance.
     ///
     /// The default accepts no state and leaves the panel unchanged.
-    fn restore_state(&mut self, _state: serde_json::Value) -> Result<(), String> {
+    fn restore_state(&mut self, _state: serde_json::Value) -> Result<(), PluginPanelStateError> {
         Ok(())
     }
 }

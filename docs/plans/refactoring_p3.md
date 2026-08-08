@@ -76,6 +76,12 @@ cancellation causes.
 Its service retains capture-store and executor sources, worker loss, and the typed exporter failure;
 UI policy therefore matches a cancellation variant rather than display text.
 
+The `logic_analyzer_ui` plugin-panel facade classifies invalid and duplicate definitions with
+`PluginPanelRegistrationError`. `UiPanelRegistration::validate` exposes that contract to plugin
+owners, and inventory assembly carries it to application construction. A plugin returns
+`PluginPanelStateError` when persisted state cannot be restored; the error retains a typed
+plugin-owned source through panel lookup and is formatted only when the application emits a toast.
+
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
 - One enum per *facade*, not per crate and not per function. Variants describe what failed in
@@ -87,7 +93,8 @@ UI policy therefore matches a cancellation variant rather than display text.
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. Type plugin-panel registration and state-restoration failures at the `logic_analyzer_ui` facade.
+1. Type validation failures returned by `CaptureSettingCombination`,
+   `CaptureProviderCapabilities`, and `CaptureAnalysisSource` in `signal_capture_session`.
 2. Continue through the remaining platform and UI facades: most occurrences collapse into carrying
    the now-typed lower errors; only genuinely UI-owned failures need new variants.
 

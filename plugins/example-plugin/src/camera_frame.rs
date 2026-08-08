@@ -13,7 +13,9 @@ use logic_analyzer_graph_capabilities::node_support::{
     ResolvedInputs,
 };
 use logic_analyzer_graph_registry::{GraphNodeRegistration, PayloadRegistration};
-use logic_analyzer_ui::{PluginPanel, PluginPanelContext, PluginPanelIcon, UiPanelRegistration};
+use logic_analyzer_ui::{
+    PluginPanel, PluginPanelContext, PluginPanelIcon, PluginPanelStateError, UiPanelRegistration,
+};
 use logic_analyzer_viewer::{
     OpaqueLaneDrawContext, ViewerLaneRenderer, ViewerLaneRendererRegistration, ViewerLaneTrack,
 };
@@ -476,6 +478,18 @@ struct CameraPanel {
     selected_from_end: usize,
 }
 
+#[derive(serde::Deserialize)]
+struct CameraPanelState {
+    #[serde(default = "camera_panel_state_version")]
+    version: u64,
+    #[serde(default)]
+    selected_from_end: usize,
+}
+
+const fn camera_panel_state_version() -> u64 {
+    1
+}
+
 impl PluginPanel for CameraPanel {
     fn show(&mut self, ui: &mut egui::Ui, context: PluginPanelContext<'_>) {
         let Some(query) = context
@@ -519,15 +533,16 @@ impl PluginPanel for CameraPanel {
         })
     }
 
-    fn restore_state(&mut self, state: Value) -> Result<(), String> {
-        let version = state.get("version").and_then(Value::as_u64).unwrap_or(1);
-        if version != 1 {
-            return Err(format!("unsupported camera-panel state version {version}"));
+    fn restore_state(&mut self, state: Value) -> Result<(), PluginPanelStateError> {
+        let state = serde_json::from_value::<CameraPanelState>(state)
+            .map_err(PluginPanelStateError::new)?;
+        if state.version != camera_panel_state_version() {
+            return Err(PluginPanelStateError::message(format!(
+                "unsupported camera-panel state version {}",
+                state.version
+            )));
         }
-        self.selected_from_end = state
-            .get("selected_from_end")
-            .and_then(Value::as_u64)
-            .unwrap_or_default() as usize;
+        self.selected_from_end = state.selected_from_end;
         Ok(())
     }
 }

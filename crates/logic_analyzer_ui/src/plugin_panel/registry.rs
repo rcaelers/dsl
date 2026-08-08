@@ -6,6 +6,9 @@ use std::sync::Arc;
 use signal_derived::{DerivedLanes, OpaqueCollectedLane};
 
 use super::contract::{PluginPanel, PluginPanelContext, PluginPanelDescriptor, PluginPanelIcon};
+use super::error::{
+    PluginPanelRegistrationError, PluginPanelRestoreError, validate_plugin_panel_definition,
+};
 
 type PluginPanelFactory = Arc<dyn Fn() -> Box<dyn PluginPanel> + Send + Sync>;
 
@@ -30,32 +33,30 @@ pub(crate) struct PluginPanelRegistry {
 }
 
 impl PluginPanelRegistry {
-    pub(crate) fn standard() -> Self {
+    pub(crate) fn standard() -> Result<Self, PluginPanelRegistrationError> {
         let mut registry = Self::default();
-        for registration in super::registration::ui_panel_registrations() {
-            registration
-                .apply_to(&mut registry)
-                .expect("UI-panel inventory registration must be valid");
+        for registration in super::registration::ui_panel_registrations()? {
+            registration.apply_to(&mut registry)?;
         }
-        registry
+        Ok(registry)
     }
 
-    pub(crate) fn register<P>(&mut self, descriptor: PluginPanelDescriptor) -> Result<(), String>
+    pub(crate) fn register<P>(
+        &mut self,
+        descriptor: PluginPanelDescriptor,
+    ) -> Result<(), PluginPanelRegistrationError>
     where
         P: PluginPanel + Default + 'static,
     {
-        if descriptor.stable_id.trim().is_empty() {
-            return Err("plugin panel identifiers must not be empty".to_owned());
-        }
+        validate_plugin_panel_definition(&descriptor.stable_id, &descriptor.title)?;
         if self
             .panels
             .iter()
             .any(|panel| panel.definition.stable_id == descriptor.stable_id)
         {
-            return Err(format!(
-                "plugin panel '{}' is already registered",
-                descriptor.stable_id
-            ));
+            return Err(PluginPanelRegistrationError::DuplicateStableId {
+                stable_id: descriptor.stable_id,
+            });
         }
         self.panels.push(RegisteredPluginPanel {
             definition: PluginPanelDefinition {
@@ -132,7 +133,7 @@ impl PluginPanels {
         content_id: &str,
         panel_id: &str,
         ui: &mut egui::Ui,
-    ) -> Option<String> {
+    ) -> Option<PluginPanelRestoreError> {
         let registered = self
             .registry
             .panels
@@ -150,9 +151,9 @@ impl PluginPanels {
                 .cloned()
                 && let Err(error) = panel.restore_state(state)
             {
-                restore_warning = Some(format!(
-                    "Could not restore saved state for plugin panel '{}': {error}",
-                    registered.definition.title
+                restore_warning = Some(PluginPanelRestoreError::new(
+                    &registered.definition.title,
+                    error,
                 ));
             }
             panel
@@ -165,6 +166,7 @@ impl PluginPanels {
 
 #[cfg(test)]
 mod registry_tests {
+    use super::super::error::PluginPanelStateError;
     use super::*;
 
     #[derive(Default)]
@@ -180,8 +182,13 @@ mod registry_tests {
     impl PluginPanel for RejectingStatePanel {
         fn show(&mut self, _ui: &mut egui::Ui, _context: PluginPanelContext<'_>) {}
 
-        fn restore_state(&mut self, _state: serde_json::Value) -> Result<(), String> {
-            Err("unsupported state version 9".to_owned())
+        fn restore_state(
+            &mut self,
+            _state: serde_json::Value,
+        ) -> Result<(), PluginPanelStateError> {
+            Err(PluginPanelStateError::message(
+                "unsupported state version 9",
+            ))
         }
     }
 
@@ -208,7 +215,12 @@ mod registry_tests {
         let descriptor = PluginPanelDescriptor::new("org.example.camera/v1", "Camera");
         registry.register::<TestPanel>(descriptor.clone()).unwrap();
 
-        assert!(registry.register::<TestPanel>(descriptor).is_err());
+        assert_eq!(
+            registry.register::<TestPanel>(descriptor),
+            Err(PluginPanelRegistrationError::DuplicateStableId {
+                stable_id: "org.example.camera/v1".to_owned(),
+            })
+        );
     }
 
     #[test]
@@ -239,11 +251,9 @@ mod registry_tests {
         let second_warning = panels.show("org.example.camera/v1", "panel-1", &mut ui);
         let _ = context.end_pass();
 
-        assert!(
-            first_warning
-                .as_deref()
-                .is_some_and(|warning| warning.contains("unsupported state version 9"))
-        );
-        assert_eq!(second_warning, None);
+        assert!(first_warning.is_some_and(|warning| {
+            warning.to_string().contains("unsupported state version 9")
+        }));
+        assert!(second_warning.is_none());
     }
 }

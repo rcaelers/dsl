@@ -77,7 +77,9 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
   executors. Its public `HostService` port owns file and directory dialogs, graph-document
   persistence, derived-cache commands and diagnostics, and native-shell state exchange. Native and
   web application roots implement that application-facing port by adapting low-level host
-  mechanisms. These application and domain contracts do not belong to `platform`; it remains
+  mechanisms. Its plugin-panel facade owns registration validation and source-bearing persisted-state
+  restoration errors, keeping plugin causes typed until application toast presentation. These
+  application and domain contracts do not belong to `platform`; it remains
   independent of UI and graph crates. The UI consumes and re-exports the
   `logic_analyzer_capture_export` service contract;
   `CaptureCoordinator` supplies only a finalized session identity and retains capture lifecycle
@@ -214,7 +216,7 @@ nearest owning facade. The allowlist names canonical public namespaces.
 | `node_graph_document` | none | Its crate root exposes portable graph records, identities, neutral presentation values, serialization, and semantic socket references. Implementation modules remain private. |
 | `node_graph` | `api` | `api` exposes node-definition contracts and compatibility re-exports of document records to graph-node implementations. The crate root exposes the widget/editor composition surface used by UI hosts. |
 | `logic_analyzer_viewer` | none | The reusable viewer exposes one curated crate-root API; drawing, sampling, input, cursor, lane, worker, and indexing modules remain private. |
-| `logic_analyzer_ui` | none | The application-composition crate exposes only its host-facing crate-root facade, including portable host service contracts such as `NodeCatalogService`. |
+| `logic_analyzer_ui` | none | The application-composition crate exposes only its host-facing crate-root facade, including portable host services and typed plugin-panel registration and state-restoration contracts. |
 | `input_bindings`, `panel_layout`, `trigger_editor`, `widget_support` | none | Each crate represents one cohesive public component and does not need a second namespace level. |
 | Native/web application crates and example plugins | none | Binary integration and plugin linker anchors are crate-root entry points; inventory submissions and other implementation modules remain private. |
 

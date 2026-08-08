@@ -62,5 +62,8 @@ pub use panel_presentation::{
     ApplicationPanelIcon, DECODER_PANEL_ICON, LOG_PANEL_ICON, LOGIC_ANALYZER_PANEL_ICON,
     MEMORY_PANEL_ICON, NODE_GRAPH_PANEL_ICON, TRIGGERS_PANEL_ICON, WATCHES_PANEL_ICON,
 };
-pub use plugin_panel::{PluginPanel, PluginPanelContext, PluginPanelIcon, UiPanelRegistration};
+pub use plugin_panel::{
+    PluginPanel, PluginPanelContext, PluginPanelIcon, PluginPanelRegistrationError,
+    PluginPanelStateError, UiPanelRegistration,
+};
 pub use product::{APPLICATION_ID, APPLICATION_NAME};

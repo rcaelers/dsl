@@ -324,10 +324,14 @@ item here, so acceptance comparisons stop being ad-hoc.
      `platform::UsbDeviceOpenError`, retaining the concrete `rusb::Error`. The driver-neutral
      `LogicAnalyzerError::Transport` and session-neutral `AcquisitionError::Transport` now retain
      boxed typed sources; native composition injects the platform error, and DSLogic device
-     construction moves that source between the two generic facades without formatting it. Next
-     type plugin-panel registration and state-restoration failures at the `logic_analyzer_ui`
-     facade. Continue converting remaining host-service and generic-crate surfaces rather than
-     formatting them early.
+     construction moves that source between the two generic facades without formatting it. The
+     `logic_analyzer_ui` plugin-panel facade now classifies invalid and duplicate registrations
+     through `PluginPanelRegistrationError`; plugin state restoration retains plugin-owned causes
+     through `PluginPanelStateError`, and the application adds panel context only when creating its
+     toast. Next type the validation failures returned by `CaptureSettingCombination`,
+     `CaptureProviderCapabilities`, and `CaptureAnalysisSource` in the driver-neutral
+     `signal_capture_session` facade. Continue converting remaining host-service and generic-crate
+     surfaces rather than formatting them early.
 
 ### Application state decomposition
 

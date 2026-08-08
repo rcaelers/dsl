@@ -692,6 +692,32 @@ unless ui_host_contract.match?(/pub enum GraphDocumentError\s*\{/) &&
        ui_host_contract.match?(/fn save_graph\b.*?Result<\(\),\s*GraphDocumentError>/m)
   errors << "crates/logic_analyzer_ui/src/host_service/contract.rs: graph persistence must retain GraphDocumentError"
 end
+ui_plugin_panel_contract = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_ui/src/plugin_panel/contract.rs"
+))
+ui_plugin_panel_error = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_ui/src/plugin_panel/error.rs"
+))
+ui_plugin_panel_registration = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_ui/src/plugin_panel/registration.rs"
+))
+unless ui_plugin_panel_contract.match?(
+  /fn restore_state\b.*?Result<\(\),\s*PluginPanelStateError>/m
+) && ui_plugin_panel_error.match?(/pub struct PluginPanelStateError\s*\{/) &&
+       ui_plugin_panel_error.match?(
+         /source:\s*Box<dyn StdError \+ Send \+ Sync>/
+       )
+  errors << "crates/logic_analyzer_ui/src/plugin_panel: panel-state restoration must retain typed plugin causes"
+end
+unless ui_plugin_panel_error.match?(/pub enum PluginPanelRegistrationError\s*\{/) &&
+       ui_plugin_panel_registration.match?(
+         /pub fn validate\b.*?Result<\(\),\s*PluginPanelRegistrationError>/m
+       )
+  errors << "crates/logic_analyzer_ui/src/plugin_panel: panel registration must expose its classified UI-owned error"
+end
 %w[app_native/src/native_host.rs app_web/src/host_service.rs].each do |adapter|
   source = File.read(File.join(ROOT, "crates/#{adapter}"))
   unless source.include?("GraphDocumentError::read") && source.include?("GraphDocumentError::write")
