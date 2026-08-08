@@ -766,6 +766,15 @@ browser_repository = File.read(File.join(
 
   errors << "crates/platform/src/host/web_artifact_repository.rs: #{operation} must retain ArtifactRepositoryOpenError"
 end
+native_usb = File.read(File.join(ROOT, "crates/platform/src/host/native_usb.rs"))
+unless native_usb.match?(/pub enum UsbDeviceOpenError\s*\{/) &&
+       native_usb.match?(/pub enum UsbDeviceOpenOperation\s*\{/) &&
+       native_usb.include?("source: rusb::Error") &&
+       native_usb.match?(
+         /pub fn open\b.*?Result<Self,\s*UsbDeviceOpenError>/m
+       )
+  errors << "crates/platform/src/host/native_usb.rs: USB opening must retain selector and classified libusb failures"
+end
 
 native_app_manifest = File.read(File.join(ROOT, "crates/app_native/Cargo.toml"))
 if native_app_manifest.match?(/^logic-analyzer-ui\s*=\s*\{[^}]*features\s*=/)

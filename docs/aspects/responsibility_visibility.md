@@ -270,6 +270,11 @@ invalid initialization responses, and hydration. Hydration retains the lower
 `platform_artifacts::RepositoryError`; browser composition formats the typed failure only when
 reporting its explicit in-memory fallback.
 
+`platform::UsbDeviceOpenError` owns generic native USB discovery and opening failures. It separates
+a complete selector miss from classified context, enumeration, descriptor, identity,
+configuration, and interface operations, and host-operation variants retain their concrete
+`rusb::Error`. The platform type contains no device-model or protocol knowledge.
+
 `signal_runtime` distinguishes port lookup, connection validation, pipeline construction and
 supervision, and process-node work. Threaded and cooperative managers expose the same
 `PipelineError` lifecycle contract, and a terminal `NodeFailure` retains its `WorkError` until a

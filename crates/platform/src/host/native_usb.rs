@@ -1,8 +1,71 @@
 use std::collections::VecDeque;
+use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use rusb::{Context, DeviceHandle, UsbContext};
+use thiserror::Error;
+
+/// Host operation performed while discovering and opening a USB device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UsbDeviceOpenOperation {
+    /// Initialize the host USB context.
+    InitializeContext,
+    /// Enumerate USB devices visible to the host.
+    EnumerateDevices,
+    /// Read one enumerated device descriptor.
+    ReadDescriptor,
+    /// Open a matching USB device.
+    OpenDevice,
+    /// Read the matching device's manufacturer identity.
+    ReadManufacturer,
+    /// Read the matching device's product identity.
+    ReadProduct,
+    /// Read the matching device's active configuration.
+    ReadConfiguration,
+    /// Activate the requested device configuration.
+    SetConfiguration,
+    /// Claim the requested device interface.
+    ClaimInterface,
+}
+
+impl fmt::Display for UsbDeviceOpenOperation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::InitializeContext => "initialize the USB context",
+            Self::EnumerateDevices => "enumerate USB devices",
+            Self::ReadDescriptor => "read a USB device descriptor",
+            Self::OpenDevice => "open the USB device",
+            Self::ReadManufacturer => "read the USB manufacturer identity",
+            Self::ReadProduct => "read the USB product identity",
+            Self::ReadConfiguration => "read the active USB configuration",
+            Self::SetConfiguration => "activate the requested USB configuration",
+            Self::ClaimInterface => "claim the requested USB interface",
+        })
+    }
+}
+
+/// Failure while discovering and opening a generic native USB device.
+#[derive(Debug, Error)]
+pub enum UsbDeviceOpenError {
+    /// No accessible device satisfied the complete selector.
+    #[error("no accessible USB device {vendor_id:04x}:{product_id:04x} matched the selector")]
+    NoMatch {
+        /// Requested USB vendor identifier.
+        vendor_id: u16,
+        /// Requested USB product identifier.
+        product_id: u16,
+    },
+    /// The native USB host failed during discovery or opening.
+    #[error("failed to {operation}: {source}")]
+    Host {
+        /// Classified discovery or opening operation.
+        operation: UsbDeviceOpenOperation,
+        /// Native libusb cause.
+        #[source]
+        source: rusb::Error,
+    },
+}
 
 /// USB link speed exposed by the native adapter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,13 +159,16 @@ impl NativeUsbDeviceSelector {
 
 impl NativeUsbDevice {
     /// Opens the first accessible USB device matching the selector.
-    pub fn open(selector: &NativeUsbDeviceSelector) -> Result<Self, String> {
-        let context = Context::new().map_err(|error| error.to_string())?;
-        let devices = context.devices().map_err(|error| error.to_string())?;
+    pub fn open(selector: &NativeUsbDeviceSelector) -> Result<Self, UsbDeviceOpenError> {
+        let context = Context::new()
+            .map_err(|source| usb_open_error(UsbDeviceOpenOperation::InitializeContext, source))?;
+        let devices = context
+            .devices()
+            .map_err(|source| usb_open_error(UsbDeviceOpenOperation::EnumerateDevices, source))?;
         for device in devices.iter() {
             let descriptor = device
                 .device_descriptor()
-                .map_err(|error| error.to_string())?;
+                .map_err(|source| usb_open_error(UsbDeviceOpenOperation::ReadDescriptor, source))?;
             if descriptor.vendor_id() != selector.vendor_id
                 || descriptor.product_id() != selector.product_id
             {
@@ -113,11 +179,16 @@ impl NativeUsbDevice {
                 rusb::Speed::Super | rusb::Speed::SuperPlus => UsbLinkSpeed::Super,
                 _ => continue,
             };
-            let handle = device.open().map_err(|error| error.to_string())?;
+            let handle = device
+                .open()
+                .map_err(|source| usb_open_error(UsbDeviceOpenOperation::OpenDevice, source))?;
             if let Some(prefix) = &selector.manufacturer_prefix {
-                let manufacturer = handle
-                    .read_manufacturer_string_ascii(&descriptor)
-                    .map_err(|error| error.to_string())?;
+                let manufacturer =
+                    handle
+                        .read_manufacturer_string_ascii(&descriptor)
+                        .map_err(|source| {
+                            usb_open_error(UsbDeviceOpenOperation::ReadManufacturer, source)
+                        })?;
                 if !manufacturer.starts_with(prefix) {
                     continue;
                 }
@@ -125,19 +196,22 @@ impl NativeUsbDevice {
             if let Some(prefix) = &selector.product_prefix {
                 let product = handle
                     .read_product_string_ascii(&descriptor)
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|source| {
+                        usb_open_error(UsbDeviceOpenOperation::ReadProduct, source)
+                    })?;
                 if !product.starts_with(prefix) {
                     continue;
                 }
             }
-            if handle
-                .active_configuration()
-                .map_err(|error| error.to_string())?
-                != selector.configuration
+            if handle.active_configuration().map_err(|source| {
+                usb_open_error(UsbDeviceOpenOperation::ReadConfiguration, source)
+            })? != selector.configuration
             {
                 handle
                     .set_active_configuration(selector.configuration)
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|source| {
+                        usb_open_error(UsbDeviceOpenOperation::SetConfiguration, source)
+                    })?;
             }
             if handle
                 .kernel_driver_active(selector.interface)
@@ -147,7 +221,7 @@ impl NativeUsbDevice {
             }
             handle
                 .claim_interface(selector.interface)
-                .map_err(|error| error.to_string())?;
+                .map_err(|source| usb_open_error(UsbDeviceOpenOperation::ClaimInterface, source))?;
             return Ok(Self {
                 context,
                 handle,
@@ -157,10 +231,10 @@ impl NativeUsbDevice {
                 queued_bulk_reads: VecDeque::new(),
             });
         }
-        Err(format!(
-            "no accessible USB device {:04x}:{:04x} matched the selector",
-            selector.vendor_id, selector.product_id
-        ))
+        Err(UsbDeviceOpenError::NoMatch {
+            vendor_id: selector.vendor_id,
+            product_id: selector.product_id,
+        })
     }
 }
 
@@ -376,5 +450,33 @@ fn native_usb_error(error: rusb::Error) -> UsbTransferError {
         UsbTransferError::Timeout
     } else {
         UsbTransferError::Other
+    }
+}
+
+fn usb_open_error(operation: UsbDeviceOpenOperation, source: rusb::Error) -> UsbDeviceOpenError {
+    UsbDeviceOpenError::Host { operation, source }
+}
+
+#[cfg(test)]
+mod native_usb_tests {
+    use std::error::Error as _;
+
+    use super::{UsbDeviceOpenError, UsbDeviceOpenOperation};
+
+    #[test]
+    fn opening_failure_retains_the_libusb_cause_and_stage() {
+        let error = UsbDeviceOpenError::Host {
+            operation: UsbDeviceOpenOperation::ClaimInterface,
+            source: rusb::Error::Access,
+        };
+
+        assert!(matches!(
+            &error,
+            UsbDeviceOpenError::Host {
+                operation: UsbDeviceOpenOperation::ClaimInterface,
+                ..
+            }
+        ));
+        assert!(error.source().unwrap().is::<rusb::Error>());
     }
 }

@@ -34,10 +34,11 @@ std::cfg_select! {
         #[cfg(feature = "developer-tools")]
         pub use host::isolated_native_artifact_repository;
         pub use host::{
-            NativeDocumentHost, NativeUsbDevice, NativeUsbDeviceSelector, UsbLinkSpeed,
-            UsbTransferError, native_append_file, native_artifact_repository, native_create_file,
-            native_create_parent_directories, native_file_byte_source, native_path_exists,
-            native_work_executor, native_worker_operation_executor,
+            NativeDocumentHost, NativeUsbDevice, NativeUsbDeviceSelector, UsbDeviceOpenError,
+            UsbDeviceOpenOperation, UsbLinkSpeed, UsbTransferError, native_append_file,
+            native_artifact_repository, native_create_file, native_create_parent_directories,
+            native_file_byte_source, native_path_exists, native_work_executor,
+            native_worker_operation_executor,
         };
     }
 }

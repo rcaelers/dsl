@@ -33,7 +33,8 @@ std::cfg_select! {
         };
         pub use native_file_source::native_file_byte_source;
         pub use native_usb::{
-            NativeUsbDevice, NativeUsbDeviceSelector, UsbLinkSpeed, UsbTransferError,
+            NativeUsbDevice, NativeUsbDeviceSelector, UsbDeviceOpenError, UsbDeviceOpenOperation,
+            UsbLinkSpeed, UsbTransferError,
         };
     }
 }

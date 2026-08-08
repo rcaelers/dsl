@@ -319,9 +319,13 @@ item here, so acceptance comparisons stop being ad-hoc.
      roots, host worker stages, unavailable persistence, malformed initialization responses, and
      session hydration through `platform::ArtifactRepositoryOpenError`; hydration retains its
      `platform_artifacts::RepositoryError` source until web composition selects and reports the
-     in-memory fallback. Next type generic native USB device discovery and opening at the `platform`
-     facade. Continue converting remaining host-service and generic-crate surfaces rather than
-     formatting them early.
+     in-memory fallback. Generic native USB opening distinguishes selector misses and each libusb
+     discovery, identity, configuration, and interface stage through
+     `platform::UsbDeviceOpenError`, retaining the concrete `rusb::Error`. The native device adapter
+     still formats that error for the string-only driver-neutral `LogicAnalyzerError::Transport`.
+     Next make that acquisition transport category source-bearing so composition can retain the
+     platform cause through device construction. Continue converting remaining host-service and
+     generic-crate surfaces rather than formatting them early.
 
 ### Application state decomposition
 

@@ -132,7 +132,7 @@ impl DsLogicU3Pro16TransportFactory for NativeU3Pro16TransportFactory {
             .with_configuration_interface(1, 0);
         platform::NativeUsbDevice::open(&selector)
             .map(|device| Box::new(NativeU3Pro16Transport { device }) as Box<dyn UsbTransport>)
-            .map_err(LogicAnalyzerError::Transport)
+            .map_err(|error| LogicAnalyzerError::Transport(error.to_string()))
     }
 }
 

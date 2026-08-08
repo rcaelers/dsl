@@ -59,6 +59,11 @@ Browser artifact-repository opening distinguishes invalid roots, host persistenc
 unavailable durable storage, invalid initialization responses, and session hydration through
 `platform::ArtifactRepositoryOpenError`. Hydration retains the portable `RepositoryError`; web
 composition formats the typed failure only when reporting why it selected the memory repository.
+Generic native USB opening distinguishes a complete selector miss from context, enumeration,
+descriptor, device, identity, configuration, and interface failures through
+`platform::UsbDeviceOpenError`. Host failures retain their `rusb::Error`. The existing
+driver-neutral acquisition transport variant remains string-only, so the native device adapter is
+the current formatting boundary for this source.
 
 `logic_analyzer_graph_orchestration` owns
 separate graph-worker codec, bounded-client, and serializable transport failures. The browser host
@@ -80,8 +85,8 @@ UI policy therefore matches a cancellation variant rather than display text.
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. Type generic native USB device discovery and opening at the `platform` facade, retaining the
-   underlying transport cause and the failed discovery/open stage.
+1. Make the driver-neutral acquisition transport error source-bearing and retain
+   `platform::UsbDeviceOpenError` through native DSLogic device construction.
 2. Continue through the remaining platform and UI facades: most occurrences collapse into carrying
    the now-typed lower errors; only genuinely UI-owned failures need new variants.
 
