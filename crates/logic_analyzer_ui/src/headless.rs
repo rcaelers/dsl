@@ -162,7 +162,7 @@ impl HeadlessGraphRunner {
         let graph = self
             .host_service
             .load_graph(path)
-            .map_err(HeadlessRunError::new)?;
+            .map_err(|error| HeadlessRunError::new(error.to_string()))?;
         let graph = restore_graph(graph, self.node_editor_overrides.clone());
         let graph_load_seconds = load_started.elapsed().as_secs_f64();
         self.run_restored_graph(graph, graph_load_seconds, total_started, emit)

@@ -243,7 +243,7 @@ impl App {
                 let name = self.host_service.document_display_name(&path);
                 self.toasts.info(format!("Loaded {name}"));
             }
-            Err(error) => self.toasts.error(error),
+            Err(error) => self.toasts.error(error.to_string()),
         }
     }
 
@@ -360,7 +360,7 @@ impl App {
         let graph = match self.node_graph.snapshot_value() {
             Ok(graph) => graph,
             Err(error) => {
-                self.toasts.error(error);
+                self.toasts.error(error.to_string());
                 return false;
             }
         };
@@ -374,7 +374,7 @@ impl App {
                 true
             }
             Err(error) => {
-                self.toasts.error(error);
+                self.toasts.error(error.to_string());
                 false
             }
         }

@@ -53,8 +53,8 @@ pub use headless::{
     HeadlessRunEvent, HeadlessRunReport,
 };
 pub use host_service::{
-    DownloadableOutput, HostCommand, HostService, HostUiCapabilities, ModifierKeyLabels,
-    OpenDialog, SaveDialog,
+    DownloadableOutput, GraphDocumentError, HostCommand, HostService, HostUiCapabilities,
+    ModifierKeyLabels, OpenDialog, SaveDialog,
 };
 pub use node_catalog_service::{NodeCatalogService, NodeCatalogSnapshot};
 pub use node_registry::build_node_registry;

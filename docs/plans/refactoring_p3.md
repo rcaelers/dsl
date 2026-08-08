@@ -44,6 +44,10 @@ The reusable host picker classifies file reads, capacity limits, imports, and mi
 contents through `platform::FilePickerError`. Application composition preserves that error as the
 source of the independent widget-owned `node_graph::FileDialogError`; the inline file control is
 the presentation boundary that formats it.
+Reusable document mechanisms retain filesystem and browser-session causes in
+`platform::DocumentError`. Native and browser application roots map that source into the UI-owned
+`GraphDocumentError`, which distinguishes host reads, JSON decoding, JSON encoding, and host writes
+until toast or headless presentation.
 
 `logic_analyzer_graph_orchestration` owns
 separate graph-worker codec, bounded-client, and serializable transport failures. The browser host
@@ -65,8 +69,8 @@ UI policy therefore matches a cancellation variant rather than display text.
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. Type the reusable `platform` document-I/O facade and carry native and web adapter causes through
-   application graph-load and graph-save services without formatting them.
+1. Type the browser output-download mechanism and the UI host service's download result without
+   formatting the platform cause.
 2. Continue through the remaining platform and UI facades: most occurrences collapse into carrying
    the now-typed lower errors; only genuinely UI-owned failures need new variants.
 

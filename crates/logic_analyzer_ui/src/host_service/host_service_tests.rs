@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
-use super::contract::{HostService, OpenDialog, SaveDialog};
+use super::contract::{GraphDocumentError, HostService, OpenDialog, SaveDialog};
 
 #[derive(Default)]
 struct FakeHostService {
@@ -19,11 +19,15 @@ impl HostService for FakeHostService {
         self.save_paths.pop_front().flatten()
     }
 
-    fn load_graph(&mut self, _path: &Path) -> Result<node_graph::GraphState, String> {
+    fn load_graph(&mut self, _path: &Path) -> Result<node_graph::GraphState, GraphDocumentError> {
         Ok(node_graph::GraphState::default())
     }
 
-    fn save_graph(&mut self, path: &Path, graph: &serde_json::Value) -> Result<(), String> {
+    fn save_graph(
+        &mut self,
+        path: &Path,
+        graph: &serde_json::Value,
+    ) -> Result<(), GraphDocumentError> {
         self.saved_graphs.push((path.to_owned(), graph.clone()));
         Ok(())
     }

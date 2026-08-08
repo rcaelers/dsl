@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use logic_analyzer_ui::{
-    APPLICATION_ID, ApplicationSettings, HostCommand, HostService, HostUiCapabilities,
-    ModifierKeyLabels, OpenDialog, SaveDialog, default_input_bindings,
+    APPLICATION_ID, ApplicationSettings, GraphDocumentError, HostCommand, HostService,
+    HostUiCapabilities, ModifierKeyLabels, OpenDialog, SaveDialog, default_input_bindings,
 };
 use node_graph::{FileDialogRequest, FileDialogService};
 use platform::{FileDialogFilter, FileOpenDialog, FileSaveDialog, NativeDocumentHost};
@@ -140,16 +140,27 @@ impl HostService for NativeHostService {
         })
     }
 
-    fn load_graph(&mut self, path: &Path) -> Result<node_graph::GraphState, String> {
-        let json = self.documents.read(path)?;
-        serde_json::from_slice(&json)
-            .map_err(|error| format!("could not parse {}: {error}", path.display()))
+    fn load_graph(&mut self, path: &Path) -> Result<node_graph::GraphState, GraphDocumentError> {
+        let json = self
+            .documents
+            .read(path)
+            .map_err(|error| GraphDocumentError::read(path, error))?;
+        serde_json::from_slice(&json).map_err(|source| GraphDocumentError::Decode {
+            path: path.to_owned(),
+            source,
+        })
     }
 
-    fn save_graph(&mut self, path: &Path, graph: &serde_json::Value) -> Result<(), String> {
+    fn save_graph(
+        &mut self,
+        path: &Path,
+        graph: &serde_json::Value,
+    ) -> Result<(), GraphDocumentError> {
         let json = serde_json::to_vec_pretty(graph)
-            .map_err(|error| format!("could not serialize graph: {error}"))?;
-        self.documents.write(path, &json)
+            .map_err(|source| GraphDocumentError::Encode { source })?;
+        self.documents
+            .write(path, &json)
+            .map_err(|error| GraphDocumentError::write(path, error))
     }
 }
 

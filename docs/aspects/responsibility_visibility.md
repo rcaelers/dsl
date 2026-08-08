@@ -249,6 +249,11 @@ admission, message validation, and terminal worker failure. Native and browser a
 mechanism errors into those contracts; higher-level runtimes can classify the failure before any
 presentation boundary formats it.
 
+`platform` document mechanisms retain native filesystem and browser-session failures in
+`DocumentError`. Application roots adapt those mechanisms to the UI-owned `GraphDocumentError`,
+which classifies graph read, decode, encode, and write failures without making UI depend on
+`platform`. Toast and headless reporting format the error.
+
 `signal_runtime` distinguishes port lookup, connection validation, pipeline construction and
 supervision, and process-node work. Threaded and cooperative managers expose the same
 `PipelineError` lifecycle contract, and a terminal `NodeFailure` retains its `WorkError` until a

@@ -8,9 +8,11 @@
 //! Platform-neutral policy, product composition, and concrete node selection
 //! remain outside this crate.
 
+mod document;
 mod file_dialog;
 mod host;
 
+pub use document::DocumentError;
 pub use file_dialog::{
     DroppedFileData, FileDialogFilter, FileOpenDialog, FilePickerError, FilePickerProgress,
     FilePickerRequest, FilePickerService, FileReference, FileSaveDialog,

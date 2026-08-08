@@ -3,7 +3,7 @@
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use crate::{FileOpenDialog, FileSaveDialog};
+use crate::{DocumentError, FileOpenDialog, FileSaveDialog};
 
 /// Native filesystem and file-dialog mechanisms.
 #[derive(Clone, Copy, Default)]
@@ -65,32 +65,41 @@ impl NativeDocumentHost {
     }
 
     /// Reads all bytes from a host path.
-    pub fn read(&self, path: &Path) -> Result<Vec<u8>, String> {
-        std::fs::read(path).map_err(|error| format!("could not read {}: {error}", path.display()))
+    pub fn read(&self, path: &Path) -> Result<Vec<u8>, DocumentError> {
+        std::fs::read(path).map_err(|error| DocumentError::Read {
+            path: path.to_owned(),
+            source: Box::new(error),
+        })
     }
 
     /// Reads a host path when it exists.
-    pub fn read_optional(&self, path: &Path) -> Result<Option<Vec<u8>>, String> {
+    pub fn read_optional(&self, path: &Path) -> Result<Option<Vec<u8>>, DocumentError> {
         match std::fs::read(path) {
             Ok(contents) => Ok(Some(contents)),
             Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(format!("could not read {}: {error}", path.display())),
+            Err(error) => Err(DocumentError::Read {
+                path: path.to_owned(),
+                source: Box::new(error),
+            }),
         }
     }
 
     /// Writes all bytes to a host path.
-    pub fn write(&self, path: &Path, contents: &[u8]) -> Result<(), String> {
-        std::fs::write(path, contents)
-            .map_err(|error| format!("could not write {}: {error}", path.display()))
+    pub fn write(&self, path: &Path, contents: &[u8]) -> Result<(), DocumentError> {
+        std::fs::write(path, contents).map_err(|error| DocumentError::write(path, error))
     }
 
     /// Creates the parent directories required by a host path.
-    pub fn create_parent_directories(&self, path: &Path) -> Result<(), String> {
+    pub fn create_parent_directories(&self, path: &Path) -> Result<(), DocumentError> {
         let Some(parent) = path.parent() else {
-            return Err(format!("{} has no parent directory", path.display()));
+            return Err(DocumentError::MissingParent {
+                path: path.to_owned(),
+            });
         };
-        std::fs::create_dir_all(parent)
-            .map_err(|error| format!("could not create {}: {error}", parent.display()))
+        std::fs::create_dir_all(parent).map_err(|error| DocumentError::CreateParent {
+            path: parent.to_owned(),
+            source: Box::new(error),
+        })
     }
 
     /// Resolves a configuration-file path under an application namespace.

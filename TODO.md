@@ -305,10 +305,13 @@ item here, so acceptance comparisons stop being ad-hoc.
      graph-runtime-owned `SourcePreparationProtocolError`. The reusable `platform` picker facade
      classifies read, capacity, import, and missing-content failures through `FilePickerError`;
      application composition preserves that cause through the independent node-graph widget's
-     `FileDialogError` until its file control formats the diagnostic. Next type the `platform`
-     document-I/O facade and carry its native and web adapter causes through application graph-load
-     and graph-save services. Continue converting remaining host-service and generic-crate surfaces
-     rather than formatting them early.
+     `FileDialogError` until its file control formats the diagnostic. The `platform` document-I/O
+     facade carries native and web adapter causes through application graph-load and graph-save
+     services. `DocumentError` retains host byte-access causes, and the UI-owned
+     `GraphDocumentError` separately classifies read, decode, encode, and write failures until toast
+     or headless presentation. Next type the browser output-download boundary and the UI host
+     service's download result. Continue converting remaining host-service and generic-crate
+     surfaces rather than formatting them early.
 
 ### Application state decomposition
 

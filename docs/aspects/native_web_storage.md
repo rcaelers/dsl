@@ -80,7 +80,9 @@ app supplies embedded settings and adapts the platform's asynchronous browser pi
 process-lifetime document registry, and byte download mechanism to graph documents. Its opaque
 document references never enter the saved graph. Capture-file selection remains a separate
 asynchronous node file-dialog capability. General output-file operations are explicit unavailable
-capabilities.
+capabilities. Native filesystem and browser document-session failures retain `DocumentError`;
+application roots preserve that source in the UI-owned `GraphDocumentError`, alongside distinct
+graph decoding and encoding categories.
 Finite-source preparation uses the graph-runtime-owned execution contract: native composition
 selects its threaded executor, while web composition selects a browser capture-worker executor with
 an inline fallback. The compiler discovers the source-preparation factory; the graph runtime polls

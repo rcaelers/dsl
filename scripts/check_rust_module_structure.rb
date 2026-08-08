@@ -670,6 +670,34 @@ web_node_file_dialog = File.read(File.join(ROOT, "crates/app_web/src/node_file_d
 unless web_node_file_dialog.scan(/\.map_err\(FileDialogError::host\)/).length >= 2
   errors << "crates/app_web/src/node_file_dialog.rs: browser composition must preserve platform picker failures through the widget facade"
 end
+platform_document_error = File.read(File.join(ROOT, "crates/platform/src/document.rs"))
+unless platform_document_error.match?(/pub enum DocumentError\s*\{/) &&
+       platform_document_error.scan(/#\[source\]\s*\n\s*source:\s*Box<dyn Error \+ Send \+ Sync>/).length >= 3
+  errors << "crates/platform/src/document.rs: document access must retain typed host causes"
+end
+%w[native_document web_document].each do |adapter|
+  source = File.read(File.join(ROOT, "crates/platform/src/host/#{adapter}.rs"))
+  %w[read write].each do |operation|
+    next if source.match?(/pub fn #{operation}(?:_document)?\b.*?Result<.*?DocumentError>/m)
+
+    errors << "crates/platform/src/host/#{adapter}.rs: #{operation} must return DocumentError"
+  end
+end
+ui_host_contract = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_ui/src/host_service/contract.rs"
+))
+unless ui_host_contract.match?(/pub enum GraphDocumentError\s*\{/) &&
+       ui_host_contract.match?(/fn load_graph\b.*?Result<node_graph::GraphState,\s*GraphDocumentError>/m) &&
+       ui_host_contract.match?(/fn save_graph\b.*?Result<\(\),\s*GraphDocumentError>/m)
+  errors << "crates/logic_analyzer_ui/src/host_service/contract.rs: graph persistence must retain GraphDocumentError"
+end
+%w[app_native/src/native_host.rs app_web/src/host_service.rs].each do |adapter|
+  source = File.read(File.join(ROOT, "crates/#{adapter}"))
+  unless source.include?("GraphDocumentError::read") && source.include?("GraphDocumentError::write")
+    errors << "crates/#{adapter}: application composition must preserve platform document causes through the UI facade"
+  end
+end
 
 native_app_manifest = File.read(File.join(ROOT, "crates/app_native/Cargo.toml"))
 if native_app_manifest.match?(/^logic-analyzer-ui\s*=\s*\{[^}]*features\s*=/)

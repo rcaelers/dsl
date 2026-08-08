@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use wasm_bindgen::JsCast;
 
-use crate::{FileOpenDialog, FileSaveDialog};
+use crate::{DocumentError, FileOpenDialog, FileSaveDialog};
 
 const MAX_DOCUMENT_BYTES: f64 = 32.0 * 1024.0 * 1024.0;
 
@@ -43,10 +43,14 @@ struct BrowserOutputDownload {
     annotations: Vec<String>,
 }
 
-#[derive(Clone)]
 struct BrowserDocument {
     display_name: String,
-    contents: Result<Arc<[u8]>, String>,
+    contents: BrowserDocumentContents,
+}
+
+enum BrowserDocumentContents {
+    Available(Arc<[u8]>),
+    TooLarge { max_bytes: u64 },
 }
 
 #[derive(Default)]
@@ -129,11 +133,11 @@ impl BrowserDocumentHost {
             let selected = if let Some(file) = selected {
                 let display_name = file.file_name();
                 let contents = if file.inner().size() > MAX_DOCUMENT_BYTES {
-                    Err(format!(
-                        "'{display_name}' is too large to open (32 MiB limit)"
-                    ))
+                    BrowserDocumentContents::TooLarge {
+                        max_bytes: MAX_DOCUMENT_BYTES as u64,
+                    }
                 } else {
-                    Ok(Arc::from(file.read().await))
+                    BrowserDocumentContents::Available(Arc::from(file.read().await))
                 };
                 Some((display_name, contents))
             } else {
@@ -171,45 +175,47 @@ impl BrowserDocumentHost {
             register_document(
                 &mut self.state.lock().unwrap(),
                 display_name,
-                Ok(Arc::from([])),
+                BrowserDocumentContents::Available(Arc::from([])),
             )
         })
     }
 
     /// Reads bytes from a browser-owned document reference.
-    pub fn read_document(&self, path: &Path) -> Result<Vec<u8>, String> {
+    pub fn read_document(&self, path: &Path) -> Result<Vec<u8>, DocumentError> {
         let key = path.to_string_lossy().into_owned();
-        let document = self
-            .state
-            .lock()
-            .unwrap()
+        let state = self.state.lock().unwrap();
+        let document = state
             .documents
             .get(&key)
-            .cloned()
-            .ok_or_else(|| {
-                format!(
-                    "browser document '{}' is no longer available; open it again",
-                    path.display()
-                )
+            .ok_or_else(|| DocumentError::Unavailable {
+                path: path.to_owned(),
             })?;
-        document.contents.map(|contents| contents.to_vec())
+        match &document.contents {
+            BrowserDocumentContents::Available(contents) => Ok(contents.to_vec()),
+            BrowserDocumentContents::TooLarge { max_bytes } => Err(DocumentError::TooLarge {
+                name: document.display_name.clone(),
+                max_bytes: *max_bytes,
+            }),
+        }
     }
 
     /// Stores and downloads bytes for a browser-owned document destination.
-    pub fn write_document(&mut self, path: &Path, contents: &[u8]) -> Result<(), String> {
+    pub fn write_document(&mut self, path: &Path, contents: &[u8]) -> Result<(), DocumentError> {
         let key = path.to_string_lossy().into_owned();
         let display_name = {
             let mut state = self.state.lock().unwrap();
-            let document = state.documents.get_mut(&key).ok_or_else(|| {
-                format!(
-                    "browser document '{}' is no longer available; choose a destination again",
-                    path.display()
-                )
-            })?;
-            document.contents = Ok(Arc::from(contents));
+            let document =
+                state
+                    .documents
+                    .get_mut(&key)
+                    .ok_or_else(|| DocumentError::Unavailable {
+                        path: path.to_owned(),
+                    })?;
+            document.contents = BrowserDocumentContents::Available(Arc::from(contents));
             document.display_name.clone()
         };
         download_file(&display_name, contents, "application/octet-stream")
+            .map_err(|error| DocumentError::write(path, std::io::Error::other(error)))
     }
 
     /// Lists completed output bytes retained for explicit download.
@@ -281,7 +287,7 @@ pub fn queue_browser_downloads(files: impl IntoIterator<Item = BrowserDownloadFi
 fn register_document(
     state: &mut BrowserDocumentState,
     display_name: String,
-    contents: Result<Arc<[u8]>, String>,
+    contents: BrowserDocumentContents,
 ) -> PathBuf {
     state.next_reference = state.next_reference.saturating_add(1);
     let safe_name = display_name.replace(['/', '\\'], "_");
@@ -355,7 +361,7 @@ mod web_document_tests {
         let path = register_document(
             &mut state,
             "example.json".to_owned(),
-            Ok(Arc::from(&b"{}"[..])),
+            BrowserDocumentContents::Available(Arc::from(&b"{}"[..])),
         );
         let service = BrowserDocumentHost {
             state: Arc::new(Mutex::new(state)),

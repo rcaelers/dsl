@@ -3,7 +3,8 @@
 use std::path::{Path, PathBuf};
 
 use logic_analyzer_ui::{
-    DownloadableOutput, HostCommand, HostService, HostUiCapabilities, OpenDialog, SaveDialog,
+    DownloadableOutput, GraphDocumentError, HostCommand, HostService, HostUiCapabilities,
+    OpenDialog, SaveDialog,
 };
 use platform::{BrowserDocumentHost, FileDialogFilter, FileOpenDialog, FileSaveDialog};
 
@@ -99,15 +100,26 @@ impl HostService for BrowserHostService {
         })
     }
 
-    fn load_graph(&mut self, path: &Path) -> Result<node_graph::GraphState, String> {
-        let contents = self.documents.read_document(path)?;
-        serde_json::from_slice(&contents)
-            .map_err(|error| format!("could not parse {}: {error}", path.display()))
+    fn load_graph(&mut self, path: &Path) -> Result<node_graph::GraphState, GraphDocumentError> {
+        let contents = self
+            .documents
+            .read_document(path)
+            .map_err(|error| GraphDocumentError::read(path, error))?;
+        serde_json::from_slice(&contents).map_err(|source| GraphDocumentError::Decode {
+            path: path.to_owned(),
+            source,
+        })
     }
 
-    fn save_graph(&mut self, path: &Path, graph: &serde_json::Value) -> Result<(), String> {
+    fn save_graph(
+        &mut self,
+        path: &Path,
+        graph: &serde_json::Value,
+    ) -> Result<(), GraphDocumentError> {
         let contents = serde_json::to_vec_pretty(graph)
-            .map_err(|error| format!("could not serialize graph: {error}"))?;
-        self.documents.write_document(path, &contents)
+            .map_err(|source| GraphDocumentError::Encode { source })?;
+        self.documents
+            .write_document(path, &contents)
+            .map_err(|error| GraphDocumentError::write(path, error))
     }
 }

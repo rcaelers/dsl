@@ -111,11 +111,15 @@ impl SigrokDirectoryCatalog {
         let settings = SavedSettings {
             directories: self.directories.clone(),
         };
-        let result = self
-            .documents
-            .create_parent_directories(&self.settings_path)
-            .and_then(|()| serde_json::to_vec_pretty(&settings).map_err(|error| error.to_string()))
-            .and_then(|bytes| self.documents.write(&self.settings_path, &bytes));
+        let result = (|| -> Result<(), String> {
+            self.documents
+                .create_parent_directories(&self.settings_path)
+                .map_err(|error| error.to_string())?;
+            let bytes = serde_json::to_vec_pretty(&settings).map_err(|error| error.to_string())?;
+            self.documents
+                .write(&self.settings_path, &bytes)
+                .map_err(|error| error.to_string())
+        })();
         if let Err(error) = result {
             self.diagnostics.push(format!(
                 "Could not save Sigrok decoder settings to {}: {error}",

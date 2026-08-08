@@ -1,5 +1,86 @@
 use std::path::{Path, PathBuf};
 
+use thiserror::Error;
+
+/// Failure while loading or saving a graph document through the application host.
+#[derive(Debug, Error)]
+pub enum GraphDocumentError {
+    /// No document host was injected into this application instance.
+    #[error("host integration was not supplied by the application")]
+    Unavailable,
+    /// Host byte access failed while loading a graph.
+    #[error("could not read graph document {}: {source}", path.display())]
+    Read {
+        /// Host path or opaque document reference.
+        path: PathBuf,
+        /// Concrete host document cause.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    /// Loaded bytes do not encode a valid graph document.
+    #[error("could not parse graph document {}: {source}", path.display())]
+    Decode {
+        /// Host path or opaque document reference.
+        path: PathBuf,
+        /// Concrete JSON decoding cause.
+        #[source]
+        source: serde_json::Error,
+    },
+    /// The current graph document could not be encoded for persistence.
+    #[error("could not serialize graph document: {source}")]
+    Encode {
+        /// Concrete JSON encoding cause.
+        #[source]
+        source: serde_json::Error,
+    },
+    /// Host byte access failed while saving a graph.
+    #[error("could not write graph document {}: {source}", path.display())]
+    Write {
+        /// Host path or opaque document reference.
+        path: PathBuf,
+        /// Concrete host document cause.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+}
+
+impl GraphDocumentError {
+    /// Retains a host document-read cause without depending on its platform crate.
+    pub fn read(path: &Path, error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self::Read {
+            path: path.to_owned(),
+            source: Box::new(error),
+        }
+    }
+
+    /// Retains a host document-write cause without depending on its platform crate.
+    pub fn write(path: &Path, error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self::Write {
+            path: path.to_owned(),
+            source: Box::new(error),
+        }
+    }
+}
+
+#[cfg(test)]
+mod graph_document_error_tests {
+    use std::error::Error as _;
+    use std::path::Path;
+
+    use super::GraphDocumentError;
+
+    #[test]
+    fn graph_document_access_retains_the_injected_host_cause() {
+        let error = GraphDocumentError::read(
+            Path::new("graph.json"),
+            std::io::Error::new(std::io::ErrorKind::NotFound, "missing"),
+        );
+
+        assert!(matches!(&error, GraphDocumentError::Read { .. }));
+        assert!(error.source().unwrap().is::<std::io::Error>());
+    }
+}
+
 /// A request to select one existing file.
 pub struct OpenDialog<'a> {
     pub title: &'a str,
@@ -163,12 +244,16 @@ pub trait HostService {
     ///
     /// # Parameters
     /// - `path`: File path returned by the host picker or command.
-    fn load_graph(&mut self, path: &Path) -> Result<node_graph::GraphState, String>;
+    fn load_graph(&mut self, path: &Path) -> Result<node_graph::GraphState, GraphDocumentError>;
 
     /// Persists a serialized graph document through the host adapter.
     ///
     /// # Parameters
     /// - `path`: Destination file path.
     /// - `graph`: Current graph document serialized by the UI.
-    fn save_graph(&mut self, path: &Path, graph: &serde_json::Value) -> Result<(), String>;
+    fn save_graph(
+        &mut self,
+        path: &Path,
+        graph: &serde_json::Value,
+    ) -> Result<(), GraphDocumentError>;
 }

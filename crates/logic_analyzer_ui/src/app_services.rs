@@ -243,15 +243,18 @@ impl HostService for UnavailableHostService {
         None
     }
 
-    fn load_graph(&mut self, _path: &Path) -> Result<node_graph::GraphState, String> {
-        Err(unavailable())
+    fn load_graph(
+        &mut self,
+        _path: &Path,
+    ) -> Result<node_graph::GraphState, crate::GraphDocumentError> {
+        Err(crate::GraphDocumentError::Unavailable)
     }
 
-    fn save_graph(&mut self, _path: &Path, _graph: &serde_json::Value) -> Result<(), String> {
-        Err(unavailable())
+    fn save_graph(
+        &mut self,
+        _path: &Path,
+        _graph: &serde_json::Value,
+    ) -> Result<(), crate::GraphDocumentError> {
+        Err(crate::GraphDocumentError::Unavailable)
     }
-}
-
-fn unavailable() -> String {
-    "host integration was not supplied by the application".into()
 }
