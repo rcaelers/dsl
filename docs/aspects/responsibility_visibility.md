@@ -258,6 +258,12 @@ which classifies graph read, decode, encode, and write failures without making U
 activation stages. Web composition retains that cause in the UI-owned `OutputDownloadError`, and
 only output-download presentation formats it.
 
+`platform::WorkerAdapterError` owns host worker-pool construction failures. It retains
+`platform_runtime::WorkerQueueError` for portable queue configuration, `std::io::Error` for native
+thread creation, and classified browser bootstrap-stage diagnostics. Native composition propagates
+the typed source to application startup; web composition renders it only as the cooperative
+executor's explicit unavailability reason.
+
 `signal_runtime` distinguishes port lookup, connection validation, pipeline construction and
 supervision, and process-node work. Threaded and cooperative managers expose the same
 `PipelineError` lifecycle contract, and a terminal `NodeFailure` retains its `WorkError` until a

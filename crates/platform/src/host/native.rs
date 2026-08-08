@@ -12,6 +12,7 @@ use platform_runtime::{
 
 use super::native_artifact_repository::NativeArtifactRepository;
 use super::native_worker::NativeWorkerOperationExecutor;
+use crate::WorkerAdapterError;
 
 /// Opens the native durable artifact repository for an application.
 pub fn native_artifact_repository(application_id: &str) -> Arc<dyn ArtifactRepository> {
@@ -28,7 +29,7 @@ pub fn native_work_executor() -> Arc<dyn WorkExecutor> {
 /// Creates the native worker-operation executor.
 pub fn native_worker_operation_executor(
     kernels: WorkerKernelRegistry,
-) -> Result<Rc<dyn WorkerOperationExecutor>, String> {
+) -> Result<Rc<dyn WorkerOperationExecutor>, WorkerAdapterError> {
     NativeWorkerOperationExecutor::new(kernels)
         .map(|executor| Rc::new(executor) as Rc<dyn WorkerOperationExecutor>)
 }

@@ -311,9 +311,13 @@ item here, so acceptance comparisons stop being ad-hoc.
      `GraphDocumentError` separately classifies read, decode, encode, and write failures until toast
      or headless presentation. Browser output downloads classify queue expiry and each host
      activation stage through `platform::DownloadError`; the UI-owned `OutputDownloadError` retains
-     that source until toast presentation. Next type native and browser worker-adapter construction
-     failures at the `platform` facade. Continue converting remaining host-service and generic-crate
-     surfaces rather than formatting them early.
+     that source until toast presentation. Native and browser worker-adapter construction now
+     retains portable queue configuration, native thread creation, and classified browser bootstrap
+     failures through `platform::WorkerAdapterError`. Native composition propagates that source to
+     application startup; web composition formats it only when selecting and describing the
+     cooperative fallback. Next type browser durable artifact-repository construction at the
+     `platform` facade. Continue converting remaining host-service and generic-crate surfaces rather
+     than formatting them early.
 
 ### Application state decomposition
 

@@ -170,7 +170,10 @@ async fn application_services(
             &required_operations,
         ) {
             Ok(adapter) => Rc::new(adapter),
-            Err(reason) => Rc::new(CooperativeWorkerOperationExecutor::new(kernels, reason)),
+            Err(error) => Rc::new(CooperativeWorkerOperationExecutor::new(
+                kernels,
+                error.to_string(),
+            )),
         };
     let artifact_repository: Arc<dyn ArtifactRepository> =
         match platform::open_browser_artifact_repository(&format!(

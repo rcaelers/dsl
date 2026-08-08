@@ -162,7 +162,7 @@ fn run_ui(file: Option<PathBuf>) -> MainResult {
         APPLICATION_NAME,
         options,
         Box::new(move |cc| {
-            let (ui_services, node_catalogs) = application_services();
+            let (ui_services, node_catalogs) = application_services()?;
             let app = logic_analyzer_ui::App::new_with_file_catalogs_and_services(
                 cc,
                 file.as_deref(),
@@ -177,10 +177,13 @@ fn run_ui(file: Option<PathBuf>) -> MainResult {
     Ok(())
 }
 
-fn application_services() -> (
-    logic_analyzer_ui::AppServices,
-    Vec<Box<dyn logic_analyzer_ui::NodeCatalogService>>,
-) {
+fn application_services() -> Result<
+    (
+        logic_analyzer_ui::AppServices,
+        Vec<Box<dyn logic_analyzer_ui::NodeCatalogService>>,
+    ),
+    platform::WorkerAdapterError,
+> {
     let artifact_repository = platform::native_artifact_repository(APPLICATION_ID);
     let dsl_file_source_factory =
         logic_analyzer_capture_formats::dsl_file::prepared_file_source_factory(Arc::new(
@@ -199,8 +202,7 @@ fn application_services() -> (
         signal_runtime::PipelineAppManagerFactory::new(Arc::clone(&work_executor)),
     );
     let worker_operation_executor =
-        platform::native_worker_operation_executor(signal_derived::portable_worker_kernels())
-            .expect("native worker-operation pool configuration is valid");
+        platform::native_worker_operation_executor(signal_derived::portable_worker_kernels())?;
 
     let node_editor_overrides = vec![
         logic_analyzer_graph_nodes::dsl_file_source_editor_override(Arc::clone(
@@ -261,11 +263,11 @@ fn application_services() -> (
     .with_worker_operation_executor(worker_operation_executor)
     .with_artifact_repository(artifact_repository);
 
-    (ui_services, node_catalogs)
+    Ok((ui_services, node_catalogs))
 }
 
 fn run_headless(args: RunArgs) -> MainResult {
-    let (ui_services, _node_catalogs) = application_services();
+    let (ui_services, _node_catalogs) = application_services()?;
     let mut runner = HeadlessGraphRunner::new(ui_services);
     let progress_interval = Duration::from_secs_f64(args.progress_interval);
     let mut last_progress = Instant::now()

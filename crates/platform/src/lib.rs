@@ -12,6 +12,7 @@ mod document;
 mod download;
 mod file_dialog;
 mod host;
+mod worker_adapter;
 
 pub use document::DocumentError;
 pub use download::{DownloadError, DownloadOperation};
@@ -19,6 +20,7 @@ pub use file_dialog::{
     DroppedFileData, FileDialogFilter, FileOpenDialog, FilePickerError, FilePickerProgress,
     FilePickerRequest, FilePickerService, FileReference, FileSaveDialog,
 };
+pub use worker_adapter::{WorkerAdapterError, WorkerAdapterOperation};
 std::cfg_select! {
     target_arch = "wasm32" => {
         pub use host::{

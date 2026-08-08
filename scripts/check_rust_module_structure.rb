@@ -716,6 +716,30 @@ web_host_service = File.read(File.join(ROOT, "crates/app_web/src/host_service.rs
 unless web_host_service.include?("OutputDownloadError::host(id, error)")
   errors << "crates/app_web/src/host_service.rs: web composition must preserve the platform download cause"
 end
+platform_worker_adapter_error = File.read(File.join(ROOT, "crates/platform/src/worker_adapter.rs"))
+unless platform_worker_adapter_error.match?(/pub enum WorkerAdapterError\s*\{/) &&
+       platform_worker_adapter_error.include?("source: WorkerQueueError") &&
+       platform_worker_adapter_error.include?("source: std::io::Error") &&
+       platform_worker_adapter_error.match?(/pub enum WorkerAdapterOperation\s*\{/)
+  errors << "crates/platform/src/worker_adapter.rs: worker construction must retain queue, native-start, and host-stage failures"
+end
+native_worker = File.read(File.join(ROOT, "crates/platform/src/host/native_worker.rs"))
+unless native_worker.match?(/pub\(crate\) fn new\b.*?Result<Self,\s*WorkerAdapterError>/m) &&
+       native_worker.include?("WorkerAdapterError::NativeWorkerStart")
+  errors << "crates/platform/src/host/native_worker.rs: native worker construction must retain WorkerAdapterError"
+end
+browser_worker = File.read(File.join(ROOT, "crates/platform/src/host/web_worker.rs"))
+unless browser_worker.match?(/pub fn new\b.*?Result<Self,\s*WorkerAdapterError>/m) &&
+       browser_worker.include?("WorkerAdapterOperation::CreateBootstrapPayload") &&
+       browser_worker.include?("WorkerAdapterOperation::StartWorker")
+  errors << "crates/platform/src/host/web_worker.rs: browser worker construction must retain WorkerAdapterError"
+end
+native_composition = File.read(File.join(ROOT, "crates/app_native/src/native.rs"))
+unless native_composition.include?(
+  "platform::native_worker_operation_executor(signal_derived::portable_worker_kernels())?"
+)
+  errors << "crates/app_native/src/native.rs: native composition must propagate worker-adapter construction failure"
+end
 
 native_app_manifest = File.read(File.join(ROOT, "crates/app_native/Cargo.toml"))
 if native_app_manifest.match?(/^logic-analyzer-ui\s*=\s*\{[^}]*features\s*=/)

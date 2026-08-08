@@ -14,6 +14,8 @@ use platform_runtime::{
     WorkerOperationExecutor, WorkerOperationQueue, WorkerQueueError, WorkerRequest,
 };
 
+use crate::{WorkerAdapterError, WorkerAdapterOperation};
+
 const WORKER_BOOTSTRAP: &str = include_str!("web_worker_bootstrap.js");
 
 struct AdapterState {
@@ -51,15 +53,12 @@ impl WebWorkerAdapter {
         worker_count: usize,
         max_outstanding: usize,
         registered_operations: &[WorkerOperation],
-    ) -> Result<Self, String> {
-        if worker_count == 0 {
-            return Err("the Web Worker pool must contain at least one worker".to_string());
-        }
-        if max_outstanding < worker_count {
-            return Err(
-                "the Web Worker queue must hold at least one request per worker".to_string(),
-            );
-        }
+    ) -> Result<Self, WorkerAdapterError> {
+        let queue = WorkerOperationQueue::new(
+            worker_count,
+            max_outstanding,
+            registered_operations.to_vec(),
+        )?;
         let worker_url = create_worker_url()?;
         let mut workers: Vec<Worker> = Vec::with_capacity(worker_count);
         for _ in 0..worker_count {
@@ -79,15 +78,11 @@ impl WebWorkerAdapter {
             for worker in &workers {
                 worker.terminate();
             }
-            return Err(js_error("could not release worker bootstrap URL", error));
+            return Err(host_error(
+                WorkerAdapterOperation::ReleaseBootstrapUrl,
+                error,
+            ));
         }
-
-        let queue = WorkerOperationQueue::new(
-            worker_count,
-            max_outstanding,
-            registered_operations.to_vec(),
-        )
-        .map_err(|error| error.to_string())?;
         let state = Rc::new(RefCell::new(AdapterState {
             workers,
             queue,
@@ -194,22 +189,22 @@ impl Drop for WebWorkerAdapter {
     }
 }
 
-fn create_worker_url() -> Result<String, String> {
+fn create_worker_url() -> Result<String, WorkerAdapterError> {
     let parts = Array::new();
     parts.push(&JsValue::from_str(WORKER_BOOTSTRAP));
     let options = BlobPropertyBag::new();
     options.set_type("text/javascript");
     let blob = Blob::new_with_str_sequence_and_options(&parts, &options)
-        .map_err(|error| js_error("could not create worker bootstrap", error))?;
+        .map_err(|error| host_error(WorkerAdapterOperation::CreateBootstrapPayload, error))?;
     Url::create_object_url_with_blob(&blob)
-        .map_err(|error| js_error("could not create worker bootstrap URL", error))
+        .map_err(|error| host_error(WorkerAdapterOperation::CreateBootstrapUrl, error))
 }
 
-fn create_worker(worker_url: &str) -> Result<Worker, String> {
+fn create_worker(worker_url: &str) -> Result<Worker, WorkerAdapterError> {
     let options = WorkerOptions::new();
     options.set_type(WorkerType::Module);
     Worker::new_with_options(worker_url, &options)
-        .map_err(|error| js_error("could not create Web Worker", error))
+        .map_err(|error| host_error(WorkerAdapterOperation::StartWorker, error))
 }
 
 fn post_initialize(worker: &Worker, module_url: &str, wasm_url: &str) -> Result<(), String> {
@@ -417,4 +412,11 @@ fn optional_integer_property(object: &JsValue, name: &str) -> Result<Option<u64>
 fn js_error(context: &str, error: JsValue) -> String {
     let detail = error.as_string().unwrap_or_else(|| format!("{error:?}"));
     format!("{context}: {detail}")
+}
+
+fn host_error(operation: WorkerAdapterOperation, error: JsValue) -> WorkerAdapterError {
+    WorkerAdapterError::Host {
+        operation,
+        message: error.as_string().unwrap_or_else(|| format!("{error:?}")),
+    }
 }

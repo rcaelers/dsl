@@ -7,6 +7,8 @@ use platform_runtime::{
     WorkerMessage, WorkerOperationExecutor, WorkerOperationQueue, WorkerQueueError, WorkerRequest,
 };
 
+use crate::WorkerAdapterError;
+
 enum WorkerEvent {
     Progress {
         sequence: u64,
@@ -32,7 +34,7 @@ pub(crate) struct NativeWorkerOperationExecutor {
 }
 
 impl NativeWorkerOperationExecutor {
-    pub(crate) fn new(kernels: WorkerKernelRegistry) -> Result<Self, String> {
+    pub(crate) fn new(kernels: WorkerKernelRegistry) -> Result<Self, WorkerAdapterError> {
         let worker_count = native_worker_count();
         Self::with_registry(kernels, worker_count, worker_count.saturating_mul(4))
     }
@@ -41,10 +43,9 @@ impl NativeWorkerOperationExecutor {
         kernels: WorkerKernelRegistry,
         worker_count: usize,
         max_outstanding: usize,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, WorkerAdapterError> {
         let operations = kernels.operations().cloned().collect::<Vec<_>>();
-        let mut queue = WorkerOperationQueue::new(worker_count, max_outstanding, operations)
-            .map_err(|error| error.to_string())?;
+        let mut queue = WorkerOperationQueue::new(worker_count, max_outstanding, operations)?;
         let (event_sender, events) = crossbeam_channel::unbounded();
         let mut workers = Vec::with_capacity(worker_count);
 
@@ -55,7 +56,10 @@ impl NativeWorkerOperationExecutor {
             std::thread::Builder::new()
                 .name(format!("portable-operation-{worker_index}"))
                 .spawn(move || run_worker(worker_index, receiver, worker_events, worker_kernels))
-                .map_err(|error| format!("could not start native operation worker: {error}"))?;
+                .map_err(|source| WorkerAdapterError::NativeWorkerStart {
+                    worker_index,
+                    source,
+                })?;
             workers.push(sender);
             let commands = queue.worker_ready(worker_index);
             debug_assert!(commands.is_empty());

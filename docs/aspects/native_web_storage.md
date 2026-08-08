@@ -84,6 +84,10 @@ capabilities. Native filesystem and browser document-session failures retain `Do
 application roots preserve that source in the UI-owned `GraphDocumentError`, alongside distinct
 graph decoding and encoding categories. Browser output activation retains its queue or host-stage
 `DownloadError` through the UI-owned `OutputDownloadError` until toast presentation.
+Finite-operation worker pools retain queue configuration, native thread-start, and classified
+browser bootstrap failures through `platform::WorkerAdapterError`. Native application startup
+propagates that typed failure; web composition renders it as the explicit reason for selecting the
+portable cooperative executor.
 Finite-source preparation uses the graph-runtime-owned execution contract: native composition
 selects its threaded executor, while web composition selects a browser capture-worker executor with
 an inline fallback. The compiler discovers the source-preparation factory; the graph runtime polls
