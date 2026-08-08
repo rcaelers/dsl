@@ -115,6 +115,7 @@ impl CaptureSourceFeature for FileSourceBuilder {
     fn capture_presentation(&self, state: &Value) -> Result<Option<CapturePresentation>, String> {
         self.metadata(state)?
             .presentation()
+            .map_err(|error| error.to_string())
             .map(|presentation| presentation.map(super::super::metadata::presentation))
     }
     fn capture_cache_identity(
@@ -187,7 +188,7 @@ mod builder_tests {
     use signal_capture::IndexedCapturePresentation;
     use signal_capture_session::{
         CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle,
-        CaptureSourcePresentation,
+        CaptureSourceMetadataError, CaptureSourcePresentation,
     };
     use signal_runtime::ProcessNodeConstruction;
 
@@ -207,7 +208,9 @@ mod builder_tests {
             CaptureSourceLifecycle::new(CaptureSourceKind::File, true, true, true)
         }
 
-        fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+        fn presentation(
+            &self,
+        ) -> Result<Option<CaptureSourcePresentation>, CaptureSourceMetadataError> {
             self.operations
                 .lock()
                 .unwrap()
@@ -231,7 +234,7 @@ mod builder_tests {
             }
         }
 
-        fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+        fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError> {
             Ok(Some(vec!["Clock".into()]))
         }
     }

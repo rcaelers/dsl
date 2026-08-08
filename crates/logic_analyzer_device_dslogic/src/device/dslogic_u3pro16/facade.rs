@@ -3,7 +3,7 @@ use std::sync::Arc;
 use logic_analyzer_acquisition::LogicCaptureConfig;
 use signal_capture_session::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
-    CaptureSourcePresentation,
+    CaptureSourceMetadataError, CaptureSourcePresentation,
 };
 use signal_runtime::ProcessNodeConstruction;
 
@@ -66,7 +66,9 @@ impl CaptureSourceMetadata for UnavailableDsLogicU3Pro16Metadata {
         CaptureSourceLifecycle::new(CaptureSourceKind::Live, false, true, true)
     }
 
-    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+    fn presentation(
+        &self,
+    ) -> Result<Option<CaptureSourcePresentation>, CaptureSourceMetadataError> {
         Ok(Some(CaptureSourcePresentation::Channels(
             self.enabled_channels()
                 .enumerate()
@@ -81,7 +83,7 @@ impl CaptureSourceMetadata for UnavailableDsLogicU3Pro16Metadata {
         CaptureSourceCacheIdentity::NotCapture
     }
 
-    fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+    fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError> {
         Ok(Some(
             self.enabled_channels()
                 .map(|channel| format!("Ch {channel}"))

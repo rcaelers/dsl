@@ -10,7 +10,7 @@ use signal_capture::{
 };
 use signal_capture_session::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
-    CaptureSourcePresentation,
+    CaptureSourceMetadataError, CaptureSourcePresentation,
 };
 use signal_runtime::ProcessNodeConstruction;
 
@@ -79,11 +79,16 @@ impl CaptureSourceMetadata for BrowserDslFileSourceMetadata {
         FILE_SOURCE_LIFECYCLE
     }
 
-    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+    fn presentation(
+        &self,
+    ) -> Result<Option<CaptureSourcePresentation>, CaptureSourceMetadataError> {
         if self.config.path().as_os_str().is_empty() {
             return Ok(None);
         }
-        let imported = self.registry.resolve(self.config.path())?;
+        let imported = self
+            .registry
+            .resolve(self.config.path())
+            .map_err(CaptureSourceMetadataError::access_message)?;
         Ok(Some(CaptureSourcePresentation::Indexed(
             IndexedCapturePresentation {
                 identity: imported.identity,
@@ -99,8 +104,11 @@ impl CaptureSourceMetadata for BrowserDslFileSourceMetadata {
             .unwrap_or(CaptureSourceCacheIdentity::Dynamic)
     }
 
-    fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
-        let imported = self.registry.resolve(self.config.path())?;
+    fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError> {
+        let imported = self
+            .registry
+            .resolve(self.config.path())
+            .map_err(CaptureSourceMetadataError::access_message)?;
         if let Some(metadata) = imported.metadata {
             return Ok(Some(metadata.probe_names));
         }
@@ -110,7 +118,7 @@ impl CaptureSourceMetadata for BrowserDslFileSourceMetadata {
                 .expect("resident browser captures retain their prepared source"),
             imported.display_name,
         )
-        .map_err(|error| error.to_string())
+        .map_err(CaptureSourceMetadataError::decode)
         .map(|source| Some(source.header().probe_names.clone()))
     }
 }

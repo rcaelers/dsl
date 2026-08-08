@@ -4,7 +4,7 @@ use platform_artifacts::ArtifactRepository;
 use platform_runtime::WorkExecutor;
 use signal_capture_session::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
-    CaptureSourcePresentation,
+    CaptureSourceMetadataError, CaptureSourcePresentation,
 };
 use signal_runtime::ProcessNodeConstruction;
 
@@ -48,7 +48,9 @@ impl CaptureSourceMetadata for UnavailableDslFileSourceMetadata {
         LIFECYCLE
     }
 
-    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+    fn presentation(
+        &self,
+    ) -> Result<Option<CaptureSourcePresentation>, CaptureSourceMetadataError> {
         Ok(None)
     }
 
@@ -56,7 +58,7 @@ impl CaptureSourceMetadata for UnavailableDslFileSourceMetadata {
         CaptureSourceCacheIdentity::Dynamic
     }
 
-    fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+    fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError> {
         Ok((!self.config.channel_names().is_empty()).then(|| self.config.channel_names().to_vec()))
     }
 }

@@ -262,6 +262,11 @@ Graph source preparation wraps the capture-worker client and terminal errors as 
 disconnection, and invalid-update failures. Its source-bearing categories retain concrete adapter
 errors through `CaptureIndexProxy` without making the generic query contract depend on a worker.
 
+`signal_capture_session` owns lazy capture-source metadata inspection. Its metadata facade
+classifies source access, metadata decoding, and live-acquisition configuration separately and
+retains typed adapter causes. Providers that expose only diagnostic text use the facade's explicit
+message adapter, keeping that loss of source type visible at the provider boundary.
+
 `logic_analyzer_protocol_decoders::sigrok_decoder` owns the host-facing Sigrok catalog and decoder
 runtime error contracts. Whole-catalog discovery failures are distinct from recoverable per-path
 and per-package catalog diagnostics. Decoder runtime failures distinguish package discovery,

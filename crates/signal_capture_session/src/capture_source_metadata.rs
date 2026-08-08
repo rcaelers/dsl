@@ -1,6 +1,48 @@
+use std::error::Error;
+
 use signal_capture::IndexedCapturePresentation;
 
 use super::live_capture::ConfiguredAcquisition;
+
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+struct CaptureSourceMetadataDiagnostic(String);
+
+/// Failure categories exposed while inspecting or preparing capture-source metadata.
+#[derive(Debug, thiserror::Error)]
+pub enum CaptureSourceMetadataError {
+    /// The source artifact or host resource could not be accessed.
+    #[error("capture-source access failed: {0}")]
+    Access(#[source] Box<dyn Error + Send + Sync>),
+    /// Available source bytes could not be decoded into capture metadata.
+    #[error("capture-source metadata decoding failed: {0}")]
+    Decode(#[source] Box<dyn Error + Send + Sync>),
+    /// The source could not create its configured live acquisition.
+    #[error("capture-source acquisition configuration failed: {0}")]
+    Acquisition(#[source] Box<dyn Error + Send + Sync>),
+}
+
+impl CaptureSourceMetadataError {
+    /// Classifies a typed source-access failure without discarding its concrete cause.
+    pub fn access(error: impl Error + Send + Sync + 'static) -> Self {
+        Self::Access(Box::new(error))
+    }
+
+    /// Classifies a source-access diagnostic whose provider exposes only display text.
+    pub fn access_message(message: impl Into<String>) -> Self {
+        Self::access(CaptureSourceMetadataDiagnostic(message.into()))
+    }
+
+    /// Classifies a typed metadata-decoding failure without discarding its concrete cause.
+    pub fn decode(error: impl Error + Send + Sync + 'static) -> Self {
+        Self::Decode(Box::new(error))
+    }
+
+    /// Classifies a typed acquisition-configuration failure without discarding its concrete cause.
+    pub fn acquisition(error: impl Error + Send + Sync + 'static) -> Self {
+        Self::Acquisition(Box::new(error))
+    }
+}
 
 /// Distinguishes an imported capture from a source that acquires data live.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -173,7 +215,8 @@ pub trait CaptureSourceMetadata: Send + Sync {
     /// Returns available presentation data, or an error if it cannot be inspected.
     ///
     /// `Ok(None)` means that presentation data is not available until acquisition starts.
-    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String>;
+    fn presentation(&self)
+    -> Result<Option<CaptureSourcePresentation>, CaptureSourceMetadataError>;
 
     /// Returns the cache-reuse identity for the source's capture content.
     fn cache_identity(&self) -> CaptureSourceCacheIdentity;
@@ -181,7 +224,7 @@ pub trait CaptureSourceMetadata: Send + Sync {
     /// Returns source channel names when they can be discovered without acquisition.
     ///
     /// `Ok(None)` means names are unavailable or will be supplied later by the source.
-    fn channel_names(&self) -> Result<Option<Vec<String>>, String>;
+    fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError>;
 
     /// Returns optional interactive-acquisition capabilities.
     ///
@@ -192,7 +235,47 @@ pub trait CaptureSourceMetadata: Send + Sync {
     /// Returns an acquisition configuration for a live source, when it has one.
     ///
     /// The default returns `Ok(None)`, which is appropriate for finite file sources.
-    fn configured_acquisition(&self) -> Result<Option<Box<dyn ConfiguredAcquisition>>, String> {
+    fn configured_acquisition(
+        &self,
+    ) -> Result<Option<Box<dyn ConfiguredAcquisition>>, CaptureSourceMetadataError> {
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod capture_source_metadata_tests {
+    use super::CaptureSourceMetadataError;
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("controlled metadata failure")]
+    struct ControlledMetadataFailure;
+
+    #[test]
+    fn typed_causes_remain_available_in_each_metadata_category() {
+        assert!(matches!(
+            CaptureSourceMetadataError::access(ControlledMetadataFailure),
+            CaptureSourceMetadataError::Access(source)
+                if source.downcast_ref::<ControlledMetadataFailure>().is_some()
+        ));
+        assert!(matches!(
+            CaptureSourceMetadataError::decode(ControlledMetadataFailure),
+            CaptureSourceMetadataError::Decode(source)
+                if source.downcast_ref::<ControlledMetadataFailure>().is_some()
+        ));
+        assert!(matches!(
+            CaptureSourceMetadataError::acquisition(ControlledMetadataFailure),
+            CaptureSourceMetadataError::Acquisition(source)
+                if source.downcast_ref::<ControlledMetadataFailure>().is_some()
+        ));
+    }
+
+    #[test]
+    fn string_only_providers_are_explicitly_adapted_at_the_facade() {
+        let error = CaptureSourceMetadataError::access_message("browser registry lookup failed");
+
+        assert_eq!(
+            error.to_string(),
+            "capture-source access failed: browser registry lookup failed"
+        );
     }
 }

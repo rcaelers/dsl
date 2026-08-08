@@ -4,7 +4,8 @@ use logic_analyzer_acquisition::LogicCaptureConfig;
 use signal_capture::CaptureChannelId;
 use signal_capture_session::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
-    CaptureSourcePresentation, CaptureSourceRuntimeCapabilities, ConfiguredAcquisition,
+    CaptureSourceMetadataError, CaptureSourcePresentation, CaptureSourceRuntimeCapabilities,
+    ConfiguredAcquisition,
 };
 use signal_runtime::ProcessNodeConstruction;
 
@@ -62,7 +63,9 @@ impl CaptureSourceMetadata for HostU3Pro16Metadata {
         U3PRO16_LIFECYCLE
     }
 
-    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+    fn presentation(
+        &self,
+    ) -> Result<Option<CaptureSourcePresentation>, CaptureSourceMetadataError> {
         Ok(Some(CaptureSourcePresentation::Channels(
             self.enabled_channels()
                 .enumerate()
@@ -77,7 +80,7 @@ impl CaptureSourceMetadata for HostU3Pro16Metadata {
         CaptureSourceCacheIdentity::NotCapture
     }
 
-    fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+    fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError> {
         Ok(Some(
             self.enabled_channels()
                 .map(|channel| format!("Ch {channel}"))
@@ -89,7 +92,9 @@ impl CaptureSourceMetadata for HostU3Pro16Metadata {
         CaptureSourceRuntimeCapabilities::new(true)
     }
 
-    fn configured_acquisition(&self) -> Result<Option<Box<dyn ConfiguredAcquisition>>, String> {
+    fn configured_acquisition(
+        &self,
+    ) -> Result<Option<Box<dyn ConfiguredAcquisition>>, CaptureSourceMetadataError> {
         let channels = self
             .enabled_channels()
             .map(|channel| CaptureChannelId::new(format!("u3pro16:input:{channel}")))
@@ -100,7 +105,7 @@ impl CaptureSourceMetadata for HostU3Pro16Metadata {
             Arc::clone(&self.transport_factory),
         )
         .map(|capture| Some(Box::new(capture) as Box<dyn ConfiguredAcquisition>))
-        .map_err(|error| error.to_string())
+        .map_err(CaptureSourceMetadataError::acquisition)
     }
 }
 

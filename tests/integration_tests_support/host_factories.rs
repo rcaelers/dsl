@@ -15,8 +15,9 @@ use signal_capture::{
 };
 use signal_capture_session::{
     AcquisitionContext, AcquisitionResult, CaptureDataDelivery, CaptureSourceCacheIdentity,
-    CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata, CaptureSourcePresentation,
-    CaptureSourceRuntimeCapabilities, CaptureStartMode, ConfiguredAcquisition, PreparedAcquisition,
+    CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata, CaptureSourceMetadataError,
+    CaptureSourcePresentation, CaptureSourceRuntimeCapabilities, CaptureStartMode,
+    ConfiguredAcquisition, PreparedAcquisition,
 };
 use signal_runtime::{CooperativeAppManagerFactory, ProcessNodeConstruction};
 
@@ -97,7 +98,9 @@ impl CaptureSourceMetadata for TestLiveSourceMetadata {
         CaptureSourceLifecycle::new(CaptureSourceKind::Live, false, true, true)
     }
 
-    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+    fn presentation(
+        &self,
+    ) -> Result<Option<CaptureSourcePresentation>, CaptureSourceMetadataError> {
         Ok(Some(CaptureSourcePresentation::Channels(
             enabled_channels(&self.config)
                 .enumerate()
@@ -110,7 +113,7 @@ impl CaptureSourceMetadata for TestLiveSourceMetadata {
         CaptureSourceCacheIdentity::NotCapture
     }
 
-    fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+    fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError> {
         Ok(Some(
             enabled_channels(&self.config)
                 .map(|channel| format!("Ch {channel}"))
@@ -122,7 +125,9 @@ impl CaptureSourceMetadata for TestLiveSourceMetadata {
         CaptureSourceRuntimeCapabilities::new(true)
     }
 
-    fn configured_acquisition(&self) -> Result<Option<Box<dyn ConfiguredAcquisition>>, String> {
+    fn configured_acquisition(
+        &self,
+    ) -> Result<Option<Box<dyn ConfiguredAcquisition>>, CaptureSourceMetadataError> {
         Ok(Some(Box::new(TestConfiguredAcquisition {
             delivery: match self.config.mode {
                 CaptureMode::Streaming => CaptureDataDelivery::DuringAcquisition,
@@ -198,7 +203,9 @@ impl CaptureSourceMetadata for TestDslSourceMetadata {
         CaptureSourceLifecycle::new(CaptureSourceKind::File, true, true, true)
     }
 
-    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+    fn presentation(
+        &self,
+    ) -> Result<Option<CaptureSourcePresentation>, CaptureSourceMetadataError> {
         if self.config.path().as_os_str().is_empty() {
             return Ok(None);
         }
@@ -214,7 +221,7 @@ impl CaptureSourceMetadata for TestDslSourceMetadata {
         CaptureSourceCacheIdentity::Stable(*self.identity().as_bytes())
     }
 
-    fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+    fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError> {
         Ok(Some(self.config.channel_names().to_vec()))
     }
 }

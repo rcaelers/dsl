@@ -11,7 +11,7 @@ use logic_analyzer_graph_capabilities::node::{
 };
 use signal_capture_session::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
-    CaptureSourcePresentation,
+    CaptureSourceMetadataError, CaptureSourcePresentation,
 };
 use signal_runtime::ProcessNodeConstruction;
 use signal_sinks::OutputOrigin;
@@ -119,7 +119,9 @@ impl CaptureSourceMetadata for TestMetadata {
         self.lifecycle
     }
 
-    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+    fn presentation(
+        &self,
+    ) -> Result<Option<CaptureSourcePresentation>, CaptureSourceMetadataError> {
         Ok(Some(CaptureSourcePresentation::Channels(Vec::new())))
     }
 
@@ -127,7 +129,7 @@ impl CaptureSourceMetadata for TestMetadata {
         CaptureSourceCacheIdentity::NotCapture
     }
 
-    fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+    fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError> {
         Ok(Some(Vec::new()))
     }
 }
@@ -198,7 +200,9 @@ impl CaptureSourceMetadata for U3Pro16TestMetadata {
         CaptureSourceLifecycle::new(CaptureSourceKind::Live, false, true, true)
     }
 
-    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+    fn presentation(
+        &self,
+    ) -> Result<Option<CaptureSourcePresentation>, CaptureSourceMetadataError> {
         Ok(Some(CaptureSourcePresentation::Channels(
             (0..u64::BITS as usize)
                 .filter(|channel| self.config.input_mask & (1_u64 << channel) != 0)
@@ -214,7 +218,7 @@ impl CaptureSourceMetadata for U3Pro16TestMetadata {
         CaptureSourceCacheIdentity::NotCapture
     }
 
-    fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+    fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError> {
         Ok(Some(
             (0..u64::BITS as usize)
                 .filter(|channel| self.config.input_mask & (1_u64 << channel) != 0)

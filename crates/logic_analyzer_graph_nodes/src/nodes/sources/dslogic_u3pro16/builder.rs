@@ -158,6 +158,7 @@ impl CaptureSourceFeature for DsLogicU3Pro16Builder {
     fn capture_presentation(&self, state: &Value) -> Result<Option<CapturePresentation>, String> {
         self.metadata(state)?
             .presentation()
+            .map_err(|error| error.to_string())
             .map(|presentation| presentation.map(super::super::metadata::presentation))
     }
 }
@@ -171,9 +172,12 @@ impl LiveCaptureFeatureProvider for DsLogicU3Pro16Builder {
         if !metadata.runtime_capabilities().live_acquisition() {
             return Ok(None);
         }
-        let acquisition = metadata.configured_acquisition()?.ok_or_else(|| {
-            "capture source advertises live acquisition without providing it".to_owned()
-        })?;
+        let acquisition = metadata
+            .configured_acquisition()
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| {
+                "capture source advertises live acquisition without providing it".to_owned()
+            })?;
         super::live_capture::feature(state, acquisition)
     }
 
@@ -244,7 +248,7 @@ mod builder_tests {
     use logic_analyzer_acquisition::LogicCaptureConfig;
     use signal_capture_session::{
         CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle,
-        CaptureSourcePresentation,
+        CaptureSourceMetadataError, CaptureSourcePresentation,
     };
     use signal_runtime::{InputPort, OutputPort, WorkResult};
 
@@ -285,7 +289,9 @@ mod builder_tests {
             CaptureSourceLifecycle::new(CaptureSourceKind::Live, false, true, true)
         }
 
-        fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+        fn presentation(
+            &self,
+        ) -> Result<Option<CaptureSourcePresentation>, CaptureSourceMetadataError> {
             Ok(Some(CaptureSourcePresentation::Channels(vec![(
                 0,
                 "Ch 0".into(),
@@ -296,7 +302,7 @@ mod builder_tests {
             CaptureSourceCacheIdentity::NotCapture
         }
 
-        fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+        fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError> {
             Ok(Some(vec!["Ch 0".into()]))
         }
     }

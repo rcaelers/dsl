@@ -8,7 +8,7 @@ use signal_capture::{
 };
 use signal_capture_session::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
-    CaptureSourcePresentation,
+    CaptureSourceMetadataError, CaptureSourcePresentation,
 };
 use signal_generators::synthetic_capture_source::SyntheticCaptureSource;
 use signal_runtime::{ProcessNode, ProcessNodeConstruction};
@@ -66,7 +66,9 @@ impl CaptureSourceMetadata for PreparedSigrokFileSourceMetadata {
         FILE_SOURCE_LIFECYCLE
     }
 
-    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+    fn presentation(
+        &self,
+    ) -> Result<Option<CaptureSourcePresentation>, CaptureSourceMetadataError> {
         if self.config.demo_data() {
             return portable_source_factory()
                 .metadata(self.config.clone())
@@ -78,7 +80,7 @@ impl CaptureSourceMetadata for PreparedSigrokFileSourceMetadata {
         let source = self
             .opener
             .open(self.config.path())
-            .map_err(|error| error.to_string())?;
+            .map_err(CaptureSourceMetadataError::access)?;
         Ok(Some(CaptureSourcePresentation::Indexed(
             IndexedCapturePresentation {
                 identity: source.identity(),
@@ -100,16 +102,16 @@ impl CaptureSourceMetadata for PreparedSigrokFileSourceMetadata {
             .unwrap_or(CaptureSourceCacheIdentity::Dynamic)
     }
 
-    fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+    fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError> {
         if self.config.demo_data() {
             return Ok(Some(self.config.channel_names().to_vec()));
         }
-        self.opener
+        let source = self
+            .opener
             .open(self.config.path())
-            .map_err(|error| error.to_string())
-            .and_then(|source| {
-                SigrokFileSource::from_prepared_source(source).map_err(|error| error.to_string())
-            })
+            .map_err(CaptureSourceMetadataError::access)?;
+        SigrokFileSource::from_prepared_source(source)
+            .map_err(CaptureSourceMetadataError::decode)
             .map(|source| Some(source.header().probe_names.clone()))
     }
 }

@@ -34,6 +34,9 @@ fit in one resident allocation.
 
 Host source acquisition and output-destination adapters are selected by
 `platform`, then installed as concrete node capabilities by the application roots.
+Their lazy source metadata crosses the shared `signal_capture_session` facade with typed access,
+decoding, and acquisition-configuration failures; prepared-file and USB adapters preserve their
+concrete causes until a presentation or transport boundary formats them.
 Native composition injects DSL and Sigrok path adapters, filesystem-backed writer storage, the
 U3Pro16 USB transport and FPGA-image provider, and the capture-export-owned repository-backed
 service. Web composition injects browser DSL and Sigrok import adapters plus explicit unavailable

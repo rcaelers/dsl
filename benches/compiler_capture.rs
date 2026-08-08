@@ -36,7 +36,7 @@ use platform_artifacts::{
 use platform_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
 use signal_capture_session::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
-    CaptureSourcePresentation,
+    CaptureSourceMetadataError, CaptureSourcePresentation,
 };
 use signal_derived::{
     CollectedLaneQuery, CollectedLaneSnapshotRequest, CollectedWordLaneQuery, DerivedLanes,
@@ -456,11 +456,13 @@ impl CaptureSourceMetadata for BenchmarkDslFileSourceMetadata {
         CaptureSourceLifecycle::new(CaptureSourceKind::File, true, true, true)
     }
 
-    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+    fn presentation(
+        &self,
+    ) -> Result<Option<CaptureSourcePresentation>, CaptureSourceMetadataError> {
         DslFileSource::indexed_capture_presentation_from_path(self.config.path())
             .map(CaptureSourcePresentation::Indexed)
             .map(Some)
-            .map_err(|error| error.to_string())
+            .map_err(CaptureSourceMetadataError::decode)
     }
 
     fn cache_identity(&self) -> CaptureSourceCacheIdentity {
@@ -469,10 +471,10 @@ impl CaptureSourceMetadata for BenchmarkDslFileSourceMetadata {
             .unwrap_or(CaptureSourceCacheIdentity::Dynamic)
     }
 
-    fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+    fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError> {
         DslFileSource::new(self.config.path())
             .map(|source| Some(source.header().probe_names.clone()))
-            .map_err(|error| error.to_string())
+            .map_err(CaptureSourceMetadataError::decode)
     }
 }
 

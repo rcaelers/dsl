@@ -28,7 +28,10 @@ bounded-client, serializable transport, and terminal-operation failures. Capture
 preparation preserves those lower typed causes in `SourcePreparationError`. Its generic host-backed
 index query port classifies submission, execution, cancellation, disconnection, and invalid-update
 failures without exposing the worker protocol; source-bearing variants preserve the concrete host
-or worker cause through `CaptureIndexProxy`.
+or worker cause through `CaptureIndexProxy`. `signal_capture_session` owns
+`CaptureSourceMetadataError`; lazy presentation and channel discovery distinguish source access
+from metadata decoding, while live acquisition construction has its own category. Prepared-file
+and device adapters retain their concrete I/O, parser, and acquisition causes through that facade.
 
 `logic_analyzer_graph_orchestration` owns
 separate graph-worker codec, bounded-client, and serializable transport failures. The browser host
@@ -50,7 +53,9 @@ UI policy therefore matches a cancellation variant rather than display text.
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. Platform and UI last: most occurrences will collapse into carrying the
+1. Propagate `CaptureSourceMetadataError` into the generic graph capability and source-discovery
+   boundary so graph runtime no longer receives a formatted discovery diagnostic.
+2. Platform and UI last: most occurrences will collapse into carrying the
    now-typed lower errors; only genuinely UI-owned failures need new variants.
 
 Expect this to span many small PRs; each facade conversion is independently landable.

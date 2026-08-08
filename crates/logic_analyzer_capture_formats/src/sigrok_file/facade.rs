@@ -3,7 +3,7 @@ use std::sync::Arc;
 use platform_runtime::WorkExecutor;
 use signal_capture_session::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
-    CaptureSourcePresentation,
+    CaptureSourceMetadataError, CaptureSourcePresentation,
 };
 use signal_generators::synthetic_capture_source::{SyntheticCaptureSource, synthetic_presentation};
 use signal_runtime::ProcessNodeConstruction;
@@ -46,7 +46,9 @@ impl CaptureSourceMetadata for PortableSigrokFileSourceMetadata {
         LIFECYCLE
     }
 
-    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+    fn presentation(
+        &self,
+    ) -> Result<Option<CaptureSourcePresentation>, CaptureSourceMetadataError> {
         Ok(self
             .config
             .demo_data()
@@ -61,7 +63,7 @@ impl CaptureSourceMetadata for PortableSigrokFileSourceMetadata {
         }
     }
 
-    fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+    fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError> {
         Ok((!self.config.channel_names().is_empty()).then(|| self.config.channel_names().to_vec()))
     }
 }

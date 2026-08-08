@@ -23,7 +23,7 @@ use signal_capture::{
 };
 use signal_capture_session::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
-    CaptureSourcePresentation,
+    CaptureSourceMetadataError, CaptureSourcePresentation,
 };
 use signal_runtime::{ProcessNode, ProcessNodeConstruction};
 
@@ -236,11 +236,14 @@ impl CaptureSourceMetadata for WorkerDslFileSourceMetadata {
         FILE_SOURCE_LIFECYCLE
     }
 
-    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+    fn presentation(
+        &self,
+    ) -> Result<Option<CaptureSourcePresentation>, CaptureSourceMetadataError> {
         if self.config.path().as_os_str().is_empty() {
             return Ok(None);
         }
-        let capture = worker_capture(self.config.path())?;
+        let capture = worker_capture(self.config.path())
+            .map_err(CaptureSourceMetadataError::access_message)?;
         Ok(Some(CaptureSourcePresentation::Indexed(
             DslFileSource::indexed_capture_presentation(capture.source, capture.display_name),
         )))
@@ -252,8 +255,10 @@ impl CaptureSourceMetadata for WorkerDslFileSourceMetadata {
             .unwrap_or(CaptureSourceCacheIdentity::Dynamic)
     }
 
-    fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
-        worker_capture(self.config.path()).map(|capture| Some(capture.metadata.probe_names))
+    fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError> {
+        worker_capture(self.config.path())
+            .map_err(CaptureSourceMetadataError::access_message)
+            .map(|capture| Some(capture.metadata.probe_names))
     }
 }
 
@@ -295,7 +300,9 @@ impl CaptureSourceMetadata for WorkerSigrokFileSourceMetadata {
         FILE_SOURCE_LIFECYCLE
     }
 
-    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+    fn presentation(
+        &self,
+    ) -> Result<Option<CaptureSourcePresentation>, CaptureSourceMetadataError> {
         if self.config.demo_data() {
             return portable_source_factory()
                 .metadata(self.config.clone())
@@ -304,7 +311,8 @@ impl CaptureSourceMetadata for WorkerSigrokFileSourceMetadata {
         if self.config.path().as_os_str().is_empty() {
             return Ok(None);
         }
-        let capture = worker_capture(self.config.path())?;
+        let capture = worker_capture(self.config.path())
+            .map_err(CaptureSourceMetadataError::access_message)?;
         Ok(Some(CaptureSourcePresentation::Indexed(
             SigrokFileSource::indexed_capture_presentation(capture.source, capture.display_name),
         )))
@@ -319,11 +327,13 @@ impl CaptureSourceMetadata for WorkerSigrokFileSourceMetadata {
             .unwrap_or(CaptureSourceCacheIdentity::Dynamic)
     }
 
-    fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+    fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError> {
         if self.config.demo_data() {
             return Ok(Some(self.config.channel_names().to_vec()));
         }
-        worker_capture(self.config.path()).map(|capture| Some(capture.metadata.probe_names))
+        worker_capture(self.config.path())
+            .map_err(CaptureSourceMetadataError::access_message)
+            .map(|capture| Some(capture.metadata.probe_names))
     }
 }
 

@@ -22,7 +22,8 @@ pub use capture_policy::{
 };
 pub use capture_source_metadata::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
-    CaptureSourcePresentation, CaptureSourceRuntimeCapabilities, CaptureSourceSignal,
+    CaptureSourceMetadataError, CaptureSourcePresentation, CaptureSourceRuntimeCapabilities,
+    CaptureSourceSignal,
 };
 pub use growing_capture_index::{GrowingCaptureIndex, GrowingCaptureIndexWorker};
 pub use live_capture::{

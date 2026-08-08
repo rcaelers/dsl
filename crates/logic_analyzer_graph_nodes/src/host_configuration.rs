@@ -142,7 +142,7 @@ mod host_configuration_tests {
     use platform_runtime::WorkExecutor;
     use signal_capture_session::{
         CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle,
-        CaptureSourceMetadata, CaptureSourcePresentation,
+        CaptureSourceMetadata, CaptureSourceMetadataError, CaptureSourcePresentation,
     };
     use signal_runtime::ProcessNodeConstruction;
 
@@ -158,7 +158,9 @@ mod host_configuration_tests {
             CaptureSourceLifecycle::new(CaptureSourceKind::File, true, true, true)
         }
 
-        fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+        fn presentation(
+            &self,
+        ) -> Result<Option<CaptureSourcePresentation>, CaptureSourceMetadataError> {
             Ok(None)
         }
 
@@ -166,7 +168,7 @@ mod host_configuration_tests {
             CaptureSourceCacheIdentity::Dynamic
         }
 
-        fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+        fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError> {
             Ok(Some(vec![self.channel.clone()]))
         }
     }

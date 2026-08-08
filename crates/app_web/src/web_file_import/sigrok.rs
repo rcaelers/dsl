@@ -10,7 +10,7 @@ use signal_capture::{
 };
 use signal_capture_session::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
-    CaptureSourcePresentation,
+    CaptureSourceMetadataError, CaptureSourcePresentation,
 };
 use signal_generators::synthetic_capture_source::SyntheticCaptureSource;
 use signal_runtime::{ProcessNode, ProcessNodeConstruction};
@@ -80,7 +80,9 @@ impl CaptureSourceMetadata for BrowserSigrokFileSourceMetadata {
         FILE_SOURCE_LIFECYCLE
     }
 
-    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+    fn presentation(
+        &self,
+    ) -> Result<Option<CaptureSourcePresentation>, CaptureSourceMetadataError> {
         if self.config.demo_data() {
             return portable_source_factory()
                 .metadata(self.config.clone())
@@ -89,7 +91,10 @@ impl CaptureSourceMetadata for BrowserSigrokFileSourceMetadata {
         if self.config.path().as_os_str().is_empty() {
             return Ok(None);
         }
-        let imported = self.registry.resolve(self.config.path())?;
+        let imported = self
+            .registry
+            .resolve(self.config.path())
+            .map_err(CaptureSourceMetadataError::access_message)?;
         Ok(Some(CaptureSourcePresentation::Indexed(
             IndexedCapturePresentation {
                 identity: imported.identity,
@@ -108,11 +113,14 @@ impl CaptureSourceMetadata for BrowserSigrokFileSourceMetadata {
             .unwrap_or(CaptureSourceCacheIdentity::Dynamic)
     }
 
-    fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
+    fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError> {
         if self.config.demo_data() {
             return Ok(Some(self.config.channel_names().to_vec()));
         }
-        let imported = self.registry.resolve(self.config.path())?;
+        let imported = self
+            .registry
+            .resolve(self.config.path())
+            .map_err(CaptureSourceMetadataError::access_message)?;
         if let Some(metadata) = imported.metadata {
             return Ok(Some(metadata.probe_names));
         }
@@ -121,7 +129,7 @@ impl CaptureSourceMetadata for BrowserSigrokFileSourceMetadata {
                 .source
                 .expect("resident browser captures retain their prepared source"),
         )
-        .map_err(|error| error.to_string())
+        .map_err(CaptureSourceMetadataError::decode)
         .map(|source| Some(source.header().probe_names.clone()))
     }
 }

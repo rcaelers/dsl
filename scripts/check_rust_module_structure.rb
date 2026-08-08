@@ -47,6 +47,46 @@ REQUIRED_PRIVATE_OWNER_MODULES = {
 
 errors = []
 
+capture_source_metadata_path = File.join(
+  ROOT,
+  "crates/signal_capture_session/src/capture_source_metadata.rs"
+)
+capture_source_metadata = File.read(capture_source_metadata_path).split(
+  /^\s*#\s*\[\s*cfg\s*\([^\]]*\btest\b[^\]]*\)\s*\]\s*\n\s*mod\s+\w*tests\b/,
+  2
+).first
+%w[presentation channel_names configured_acquisition].each do |operation|
+  signature = capture_source_metadata[/fn\s+#{operation}\b(?<signature>.*?)(?:\{|;)/m, :signature]
+  next if signature&.include?("CaptureSourceMetadataError") &&
+          !signature.match?(/,\s*String\s*>\s*$/m)
+
+  errors << "crates/signal_capture_session/src/capture_source_metadata.rs: #{operation} must retain CaptureSourceMetadataError"
+end
+capture_source_metadata_error = capture_source_metadata[
+  /pub enum CaptureSourceMetadataError\s*\{(?<body>.*?)^\}/m,
+  :body
+].to_s
+%w[Access Decode Acquisition].each do |variant|
+  next if capture_source_metadata_error.match?(
+    /^\s*#{variant}\(\#\[source\]\s*Box<dyn Error \+ Send \+ Sync>\),$/
+  )
+
+  errors << "crates/signal_capture_session/src/capture_source_metadata.rs: CaptureSourceMetadataError must retain its #{variant.downcase} source"
+end
+
+{
+  "crates/logic_analyzer_capture_formats/src/dsl_file/prepared_file.rs" => %w[access decode],
+  "crates/logic_analyzer_capture_formats/src/sigrok_file/prepared_file.rs" => %w[access decode],
+  "crates/logic_analyzer_device_dslogic/src/device/dslogic_u3pro16/host_factory.rs" => %w[acquisition]
+}.each do |path, categories|
+  source = File.read(File.join(ROOT, path))
+  categories.each do |category|
+    next if source.include?("CaptureSourceMetadataError::#{category}")
+
+    errors << "#{path}: capture-source metadata adapter must preserve its #{category} cause"
+  end
+end
+
 sigrok_runtime_path = File.join(
   ROOT,
   "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/runtime.rs"

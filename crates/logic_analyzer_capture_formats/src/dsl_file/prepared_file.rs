@@ -8,7 +8,7 @@ use signal_capture::{
 };
 use signal_capture_session::{
     CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle, CaptureSourceMetadata,
-    CaptureSourcePresentation,
+    CaptureSourceMetadataError, CaptureSourcePresentation,
 };
 use signal_runtime::ProcessNodeConstruction;
 
@@ -63,14 +63,16 @@ impl CaptureSourceMetadata for PreparedDslFileSourceMetadata {
         FILE_SOURCE_LIFECYCLE
     }
 
-    fn presentation(&self) -> Result<Option<CaptureSourcePresentation>, String> {
+    fn presentation(
+        &self,
+    ) -> Result<Option<CaptureSourcePresentation>, CaptureSourceMetadataError> {
         if self.config.path().as_os_str().is_empty() {
             return Ok(None);
         }
         let source = self
             .opener
             .open(self.config.path())
-            .map_err(|error| error.to_string())?;
+            .map_err(CaptureSourceMetadataError::access)?;
         Ok(Some(CaptureSourcePresentation::Indexed(
             IndexedCapturePresentation {
                 identity: source.identity(),
@@ -92,17 +94,13 @@ impl CaptureSourceMetadata for PreparedDslFileSourceMetadata {
             .unwrap_or(CaptureSourceCacheIdentity::Dynamic)
     }
 
-    fn channel_names(&self) -> Result<Option<Vec<String>>, String> {
-        self.opener
+    fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError> {
+        let source = self
+            .opener
             .open(self.config.path())
-            .map_err(|error| error.to_string())
-            .and_then(|source| {
-                DslFileSource::from_prepared_source(
-                    source,
-                    self.config.path().display().to_string(),
-                )
-                .map_err(|error| error.to_string())
-            })
+            .map_err(CaptureSourceMetadataError::access)?;
+        DslFileSource::from_prepared_source(source, self.config.path().display().to_string())
+            .map_err(CaptureSourceMetadataError::decode)
             .map(|source| Some(source.header().probe_names.clone()))
     }
 }
