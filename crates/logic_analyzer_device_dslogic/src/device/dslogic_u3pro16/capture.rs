@@ -108,18 +108,18 @@ impl DsLogicU3Pro16Capture {
                 let analyzer = super::implementation::DsLogicU3Pro16::new(
                     self.transport_factory
                         .open()
-                        .map_err(|error| AcquisitionError::Transport(error.to_string()))?,
+                        .map_err(super::common::map_analyzer_error)?,
                 )
-                .map_err(|error| AcquisitionError::Transport(error.to_string()))?;
+                .map_err(super::common::map_analyzer_error)?;
                 BufferedProvider::new(analyzer, self.config, self.channels)?.prepare(context)
             }
             CaptureProfile::Streaming => {
                 let analyzer = super::implementation::DsLogicU3Pro16::new(
                     self.transport_factory
                         .open()
-                        .map_err(|error| AcquisitionError::Transport(error.to_string()))?,
+                        .map_err(super::common::map_analyzer_error)?,
                 )
-                .map_err(|error| AcquisitionError::Transport(error.to_string()))?;
+                .map_err(super::common::map_analyzer_error)?;
                 StreamingProvider::new(analyzer, self.config, self.channels)?.prepare(context)
             }
         }

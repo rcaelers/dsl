@@ -95,7 +95,9 @@ when choosing the explicit session-memory fallback.
 Native USB discovery and opening retain selector misses or classified libusb causes through
 `platform::UsbDeviceOpenError`. The native application adapter supplies the generic selector and
 adapts the opened transport to the concrete device owner; `platform` contains no analyzer-model or
-protocol policy.
+protocol policy. The adapter injects the platform failure into the source-bearing driver-neutral
+`LogicAnalyzerError::Transport`; DSLogic construction moves that same source into the
+session-neutral `AcquisitionError::Transport` without formatting it.
 Finite-source preparation uses the graph-runtime-owned execution contract: native composition
 selects its threaded executor, while web composition selects a browser capture-worker executor with
 an inline fallback. The compiler discovers the source-preparation factory; the graph runtime polls

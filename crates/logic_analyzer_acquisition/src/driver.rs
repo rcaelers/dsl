@@ -5,6 +5,7 @@
 //! connected to the same decoders as a `.dsl` replay.  A future libsigrok
 //! adapter only needs to implement [`LogicAnalyzer`].
 
+use std::error::Error as StdError;
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -187,7 +188,7 @@ pub enum LogicAnalyzerError {
     InvalidSettings(String),
     /// Communication with the device failed.
     #[error("transport error: {0}")]
-    Transport(String),
+    Transport(#[source] Box<dyn StdError + Send + Sync>),
     /// The driver or device returned an invalid protocol response.
     #[error("protocol error: {0}")]
     Protocol(String),
@@ -200,6 +201,22 @@ pub enum LogicAnalyzerError {
     /// An operation requiring an active capture was requested while idle.
     #[error("capture is not active")]
     NotCapturing,
+}
+
+#[derive(Debug, Error)]
+#[error("{0}")]
+struct LogicAnalyzerDiagnostic(String);
+
+impl LogicAnalyzerError {
+    /// Retains a typed transport failure raised by an injected driver adapter.
+    pub fn transport(error: impl StdError + Send + Sync + 'static) -> Self {
+        Self::Transport(Box::new(error))
+    }
+
+    /// Adapts a provider that exposes only a transport diagnostic.
+    pub fn transport_message(message: impl Into<String>) -> Self {
+        Self::transport(LogicAnalyzerDiagnostic(message.into()))
+    }
 }
 
 /// Result alias for device-driver operations.
@@ -582,9 +599,21 @@ impl fmt::Display for LogicChunk {
 #[cfg(test)]
 mod tests {
     use crossbeam_channel::bounded;
+
     use signal_runtime::ChannelMessage;
 
     use super::*;
+
+    #[derive(Debug, Error)]
+    #[error("controlled transport failure")]
+    struct ControlledTransportFailure;
+
+    #[test]
+    fn transport_error_retains_the_injected_driver_cause() {
+        let error = LogicAnalyzerError::transport(ControlledTransportFailure);
+
+        assert!(error.source().unwrap().is::<ControlledTransportFailure>());
+    }
 
     #[test]
     fn demux_emits_aligned_owned_channel_blocks() {

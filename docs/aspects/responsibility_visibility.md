@@ -275,6 +275,12 @@ a complete selector miss from classified context, enumeration, descriptor, ident
 configuration, and interface operations, and host-operation variants retain their concrete
 `rusb::Error`. The platform type contains no device-model or protocol knowledge.
 
+`logic_analyzer_acquisition::LogicAnalyzerError::Transport` owns driver-neutral transport failure
+propagation, and `signal_capture_session::AcquisitionError::Transport` owns the corresponding
+session-lifecycle boundary. Both retain boxed typed sources and expose explicit message adapters for
+providers that have only diagnostics. Concrete device adapters move sources between these neutral
+facades without depending on their platform type.
+
 `signal_runtime` distinguishes port lookup, connection validation, pipeline construction and
 supervision, and process-node work. Threaded and cooperative managers expose the same
 `PipelineError` lifecycle contract, and a terminal `NodeFailure` retains its `WorkError` until a

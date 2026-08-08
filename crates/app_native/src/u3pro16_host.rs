@@ -34,7 +34,7 @@ impl UsbTransport for NativeU3Pro16Transport {
             return Ok(None);
         };
         let image = std::fs::read(&path).map_err(|error| {
-            LogicAnalyzerError::Transport(format!(
+            LogicAnalyzerError::transport_message(format!(
                 "cannot read U3Pro16 FPGA image '{}': {error}",
                 path.display()
             ))
@@ -132,7 +132,7 @@ impl DsLogicU3Pro16TransportFactory for NativeU3Pro16TransportFactory {
             .with_configuration_interface(1, 0);
         platform::NativeUsbDevice::open(&selector)
             .map(|device| Box::new(NativeU3Pro16Transport { device }) as Box<dyn UsbTransport>)
-            .map_err(|error| LogicAnalyzerError::Transport(error.to_string()))
+            .map_err(LogicAnalyzerError::transport)
     }
 }
 

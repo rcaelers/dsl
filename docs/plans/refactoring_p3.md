@@ -61,9 +61,11 @@ unavailable durable storage, invalid initialization responses, and session hydra
 composition formats the typed failure only when reporting why it selected the memory repository.
 Generic native USB opening distinguishes a complete selector miss from context, enumeration,
 descriptor, device, identity, configuration, and interface failures through
-`platform::UsbDeviceOpenError`. Host failures retain their `rusb::Error`. The existing
-driver-neutral acquisition transport variant remains string-only, so the native device adapter is
-the current formatting boundary for this source.
+`platform::UsbDeviceOpenError`. Host failures retain their `rusb::Error`. Driver-neutral
+`LogicAnalyzerError::Transport` and session-neutral `AcquisitionError::Transport` retain boxed typed
+sources. Native composition injects the platform error, and DSLogic device construction moves that
+source between the generic facades without formatting it; providers exposing only diagnostics use
+explicit message adapters.
 
 `logic_analyzer_graph_orchestration` owns
 separate graph-worker codec, bounded-client, and serializable transport failures. The browser host
@@ -85,8 +87,7 @@ UI policy therefore matches a cancellation variant rather than display text.
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. Make the driver-neutral acquisition transport error source-bearing and retain
-   `platform::UsbDeviceOpenError` through native DSLogic device construction.
+1. Type plugin-panel registration and state-restoration failures at the `logic_analyzer_ui` facade.
 2. Continue through the remaining platform and UI facades: most occurrences collapse into carrying
    the now-typed lower errors; only genuinely UI-owned failures need new variants.
 

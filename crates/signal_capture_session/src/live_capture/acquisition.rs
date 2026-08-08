@@ -1,5 +1,7 @@
 //! Portable live-acquisition lifecycle for concrete capture providers.
 
+use std::error::Error as StdError;
+
 use thiserror::Error;
 
 use platform_runtime::{InlineWorkExecutor, WorkExecutor};
@@ -14,7 +16,7 @@ use crate::capture_policy::{CaptureSessionPlan, CaptureStartMode};
 
 /// Result alias for provider preparation and acquisition execution.
 pub type AcquisitionResult<T> = Result<T, AcquisitionError>;
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error)]
 pub enum AcquisitionError {
     /// The request conflicts with provider capabilities or capture policy.
     #[error("invalid acquisition request: {0}")]
@@ -36,7 +38,7 @@ pub enum AcquisitionError {
     Event(#[from] CaptureEventPublishError),
     /// Transport communication with the acquisition device failed.
     #[error("acquisition transport failed: {0}")]
-    Transport(String),
+    Transport(#[source] Box<dyn StdError + Send + Sync>),
     /// The provider or device returned an invalid protocol response.
     #[error("acquisition protocol failed: {0}")]
     Protocol(String),
@@ -57,7 +59,46 @@ pub enum AcquisitionError {
     Internal(String),
 }
 
+#[derive(Debug, Error)]
+#[error("{0}")]
+struct AcquisitionDiagnostic(String);
+
+impl PartialEq for AcquisitionError {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::InvalidRequest(left), Self::InvalidRequest(right))
+            | (Self::UnsupportedOperation(left), Self::UnsupportedOperation(right))
+            | (Self::Protocol(left), Self::Protocol(right))
+            | (Self::Integrity(left), Self::Integrity(right))
+            | (Self::WorkerStart(left), Self::WorkerStart(right))
+            | (Self::Internal(left), Self::Internal(right)) => left == right,
+            (Self::Writer(left), Self::Writer(right)) => left == right,
+            (Self::Event(left), Self::Event(right)) => left == right,
+            (Self::Transport(left), Self::Transport(right)) => {
+                left.to_string() == right.to_string()
+            }
+            (Self::AlreadyStarted, Self::AlreadyStarted)
+            | (Self::NotStarted, Self::NotStarted)
+            | (Self::Cancelled, Self::Cancelled)
+            | (Self::WorkerPanicked, Self::WorkerPanicked) => true,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for AcquisitionError {}
+
 impl AcquisitionError {
+    /// Retains a typed transport failure raised by an acquisition provider.
+    pub fn transport(error: impl StdError + Send + Sync + 'static) -> Self {
+        Self::Transport(Box::new(error))
+    }
+
+    /// Adapts a provider that exposes only a transport diagnostic.
+    pub fn transport_message(message: impl Into<String>) -> Self {
+        Self::transport(AcquisitionDiagnostic(message.into()))
+    }
+
     /// Converts this error into the persistent capture-failure category.
     pub fn failure_kind(&self) -> CaptureFailureKind {
         match self {
@@ -299,4 +340,22 @@ pub trait ConfiguredAcquisition: Send {
         context: AcquisitionContext,
         mode: CaptureStartMode,
     ) -> AcquisitionResult<Box<dyn PreparedAcquisition>>;
+}
+
+#[cfg(test)]
+mod acquisition_error_tests {
+    use std::error::Error as _;
+
+    use super::AcquisitionError;
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("controlled acquisition transport failure")]
+    struct ControlledTransportFailure;
+
+    #[test]
+    fn transport_error_retains_the_injected_provider_cause() {
+        let error = AcquisitionError::transport(ControlledTransportFailure);
+
+        assert!(error.source().unwrap().is::<ControlledTransportFailure>());
+    }
 }

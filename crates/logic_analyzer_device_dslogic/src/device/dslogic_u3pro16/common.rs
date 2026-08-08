@@ -186,13 +186,32 @@ fn canonicalize_transfer(
 pub(crate) fn map_analyzer_error(error: LogicAnalyzerError) -> AcquisitionError {
     match error {
         LogicAnalyzerError::InvalidSettings(message) => AcquisitionError::InvalidRequest(message),
-        LogicAnalyzerError::Transport(message) | LogicAnalyzerError::Timeout(message) => {
-            AcquisitionError::Transport(message)
-        }
+        LogicAnalyzerError::Transport(source) => AcquisitionError::Transport(source),
+        LogicAnalyzerError::Timeout(message) => AcquisitionError::transport_message(message),
         LogicAnalyzerError::Protocol(message) => AcquisitionError::Protocol(message),
         LogicAnalyzerError::Integrity(message) => AcquisitionError::Integrity(message),
         LogicAnalyzerError::NotCapturing => {
             AcquisitionError::Protocol("U3Pro16 capture is not active".into())
         }
+    }
+}
+
+#[cfg(test)]
+mod common_tests {
+    use std::error::Error as _;
+
+    use logic_analyzer_acquisition::LogicAnalyzerError;
+
+    use super::map_analyzer_error;
+
+    #[test]
+    fn analyzer_transport_cause_survives_acquisition_mapping() {
+        let error = LogicAnalyzerError::transport(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "controlled device transport failure",
+        ));
+        let error = map_analyzer_error(error);
+
+        assert!(error.source().unwrap().is::<std::io::Error>());
     }
 }

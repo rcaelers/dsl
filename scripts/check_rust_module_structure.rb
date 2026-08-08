@@ -775,6 +775,37 @@ unless native_usb.match?(/pub enum UsbDeviceOpenError\s*\{/) &&
        )
   errors << "crates/platform/src/host/native_usb.rs: USB opening must retain selector and classified libusb failures"
 end
+logic_analyzer_driver = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_acquisition/src/driver.rs"
+))
+unless logic_analyzer_driver.match?(
+  /Transport\(\#\[source\]\s*Box<dyn StdError \+ Send \+ Sync>\)/
+) && logic_analyzer_driver.include?("pub fn transport(")
+  errors << "crates/logic_analyzer_acquisition/src/driver.rs: driver transport failures must retain typed sources"
+end
+acquisition_contract = File.read(File.join(
+  ROOT,
+  "crates/signal_capture_session/src/live_capture/acquisition.rs"
+))
+unless acquisition_contract.match?(
+  /Transport\(\#\[source\]\s*Box<dyn StdError \+ Send \+ Sync>\)/
+) && acquisition_contract.include?("pub fn transport(")
+  errors << "crates/signal_capture_session/src/live_capture/acquisition.rs: acquisition transport failures must retain typed sources"
+end
+native_u3pro16 = File.read(File.join(ROOT, "crates/app_native/src/u3pro16_host.rs"))
+unless native_u3pro16.include?(".map_err(LogicAnalyzerError::transport)")
+  errors << "crates/app_native/src/u3pro16_host.rs: native device composition must preserve the platform USB-open cause"
+end
+dslogic_common = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_device_dslogic/src/device/dslogic_u3pro16/common.rs"
+))
+unless dslogic_common.include?(
+  "LogicAnalyzerError::Transport(source) => AcquisitionError::Transport(source)"
+)
+  errors << "crates/logic_analyzer_device_dslogic: device construction must preserve typed transport causes"
+end
 
 native_app_manifest = File.read(File.join(ROOT, "crates/app_native/Cargo.toml"))
 if native_app_manifest.match?(/^logic-analyzer-ui\s*=\s*\{[^}]*features\s*=/)

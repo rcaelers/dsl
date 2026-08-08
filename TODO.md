@@ -321,11 +321,13 @@ item here, so acceptance comparisons stop being ad-hoc.
      `platform_artifacts::RepositoryError` source until web composition selects and reports the
      in-memory fallback. Generic native USB opening distinguishes selector misses and each libusb
      discovery, identity, configuration, and interface stage through
-     `platform::UsbDeviceOpenError`, retaining the concrete `rusb::Error`. The native device adapter
-     still formats that error for the string-only driver-neutral `LogicAnalyzerError::Transport`.
-     Next make that acquisition transport category source-bearing so composition can retain the
-     platform cause through device construction. Continue converting remaining host-service and
-     generic-crate surfaces rather than formatting them early.
+     `platform::UsbDeviceOpenError`, retaining the concrete `rusb::Error`. The driver-neutral
+     `LogicAnalyzerError::Transport` and session-neutral `AcquisitionError::Transport` now retain
+     boxed typed sources; native composition injects the platform error, and DSLogic device
+     construction moves that source between the two generic facades without formatting it. Next
+     type plugin-panel registration and state-restoration failures at the `logic_analyzer_ui`
+     facade. Continue converting remaining host-service and generic-crate surfaces rather than
+     formatting them early.
 
 ### Application state decomposition
 

@@ -152,7 +152,7 @@ fn settings_from_config(
 fn usb<T>(result: Result<T, UsbError>, action: &str) -> LogicAnalyzerResult<T> {
     result.map_err(|e| match e {
         UsbError::Timeout => LogicAnalyzerError::Timeout(action.into()),
-        UsbError::Other => LogicAnalyzerError::Transport(action.into()),
+        UsbError::Other => LogicAnalyzerError::transport_message(action),
     })
 }
 
@@ -697,8 +697,8 @@ impl<T: UsbTransport> DsLogicU3Pro16<T> {
                         Ok(read) => read,
                         Err(UsbError::Timeout) => return Ok(false),
                         Err(UsbError::Other) => {
-                            return Err(LogicAnalyzerError::Transport(
-                                "trigger header read".into(),
+                            return Err(LogicAnalyzerError::transport_message(
+                                "trigger header read",
                             ));
                         }
                     };
@@ -707,8 +707,8 @@ impl<T: UsbTransport> DsLogicU3Pro16<T> {
                 }
                 Err(UsbError::Timeout) => return Ok(false),
                 Err(UsbError::Other) => {
-                    return Err(LogicAnalyzerError::Transport(
-                        "queued trigger header read".into(),
+                    return Err(LogicAnalyzerError::transport_message(
+                        "queued trigger header read",
                     ));
                 }
             }
@@ -718,7 +718,7 @@ impl<T: UsbTransport> DsLogicU3Pro16<T> {
                 Ok(read) => read,
                 Err(UsbError::Timeout) => return Ok(false),
                 Err(UsbError::Other) => {
-                    return Err(LogicAnalyzerError::Transport("trigger header read".into()));
+                    return Err(LogicAnalyzerError::transport_message("trigger header read"));
                 }
             };
             header.truncate(read);
@@ -801,7 +801,7 @@ impl<T: UsbTransport> LogicAnalyzer for DsLogicU3Pro16<T> {
         let header_receive_queued = self
             .transport
             .queue_bulk_read(BULK_IN, 1024, BULK_TIMEOUT)
-            .map_err(|_| LogicAnalyzerError::Transport("queue trigger header read".into()))?;
+            .map_err(|_| LogicAnalyzerError::transport_message("queue trigger header read"))?;
         let initial_data_receive_bytes = match self.settings.mode {
             CaptureMode::Finite => plan.actual_bytes.min(1_048_576),
             CaptureMode::Streaming => plan.stream_buffer,
@@ -820,8 +820,8 @@ impl<T: UsbTransport> LogicAnalyzer for DsLogicU3Pro16<T> {
                 Ok(false) => break,
                 Err(_) => {
                     let _ = self.transport.cancel_queued_bulk_read();
-                    return Err(LogicAnalyzerError::Transport(
-                        "queue initial logic data read".into(),
+                    return Err(LogicAnalyzerError::transport_message(
+                        "queue initial logic data read",
                     ));
                 }
             }
@@ -898,7 +898,7 @@ impl<T: UsbTransport> LogicAnalyzer for DsLogicU3Pro16<T> {
                     return Err(match error {
                         UsbError::Timeout => LogicAnalyzerError::Timeout("logic data read".into()),
                         UsbError::Other => {
-                            LogicAnalyzerError::Transport("queued logic data read".into())
+                            LogicAnalyzerError::transport_message("queued logic data read")
                         }
                     });
                 }
@@ -917,7 +917,7 @@ impl<T: UsbTransport> LogicAnalyzer for DsLogicU3Pro16<T> {
                 Err(error) => {
                     return Err(match error {
                         UsbError::Timeout => LogicAnalyzerError::Timeout("logic data read".into()),
-                        UsbError::Other => LogicAnalyzerError::Transport("logic data read".into()),
+                        UsbError::Other => LogicAnalyzerError::transport_message("logic data read"),
                     });
                 }
             };
@@ -939,8 +939,8 @@ impl<T: UsbTransport> LogicAnalyzer for DsLogicU3Pro16<T> {
                 Ok(true) => self.queued_data_receives += 1,
                 Ok(false) => {}
                 Err(_) => {
-                    return Err(LogicAnalyzerError::Transport(
-                        "queue replacement logic data read".into(),
+                    return Err(LogicAnalyzerError::transport_message(
+                        "queue replacement logic data read",
                     ));
                 }
             }
@@ -984,7 +984,7 @@ impl<T: UsbTransport> LogicAnalyzer for DsLogicU3Pro16<T> {
         }
         self.transport
             .cancel_queued_bulk_read()
-            .map_err(|_| LogicAnalyzerError::Transport("cancel trigger header read".into()))?;
+            .map_err(|_| LogicAnalyzerError::transport_message("cancel trigger header read"))?;
         self.header_receive_queued = false;
         self.queued_data_receives = 0;
         self.queued_data_receive_bytes = 0;
