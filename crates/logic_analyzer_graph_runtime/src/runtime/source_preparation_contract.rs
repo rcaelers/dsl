@@ -4,10 +4,22 @@ use thiserror::Error;
 
 use logic_analyzer_graph_capabilities::node_support::CapturePresentationSignal;
 use logic_analyzer_graph_plan::CapturePresentationDiscoveryError;
+use platform_runtime::WorkExecutorError;
 use signal_capture::{
     CaptureIndex, CaptureIndexBuildProgress, CaptureMetadata, CaptureWorkerClientError,
-    CaptureWorkerFailure,
+    CaptureWorkerFailure, CaptureWorkerMessageKind,
 };
+
+/// Invalid capture-worker response received while preparing a finite source.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+pub enum SourcePreparationProtocolError {
+    /// The worker returned an update reserved for another request kind.
+    #[error("capture worker returned {received} data for a preparation request")]
+    UnexpectedResponse {
+        /// Kind of response that violated the preparation protocol.
+        received: CaptureWorkerMessageKind,
+    },
+}
 
 /// Failure produced while discovering or preparing one finite capture source.
 #[derive(Clone, Debug, Error)]
@@ -26,7 +38,7 @@ pub enum SourcePreparationError {
     Cancelled,
     /// The injected preparation executor rejected or lost the operation.
     #[error("capture preparation executor failed: {0}")]
-    Executor(String),
+    Executor(#[source] WorkExecutorError),
     /// The bounded capture-worker client rejected the request.
     #[error("capture preparation worker client failed: {0}")]
     WorkerClient(#[source] CaptureWorkerClientError),
@@ -35,7 +47,7 @@ pub enum SourcePreparationError {
     Worker(#[source] CaptureWorkerFailure),
     /// The host worker returned a response that does not belong to preparation.
     #[error("capture preparation worker protocol failed: {0}")]
-    WorkerProtocol(String),
+    WorkerProtocol(#[source] SourcePreparationProtocolError),
 }
 
 impl SourcePreparationError {
@@ -59,16 +71,44 @@ impl PartialEq for SourcePreparationError {
             (Self::Metadata(left), Self::Metadata(right))
             | (Self::Index(left), Self::Index(right)) => left.to_string() == right.to_string(),
             (Self::Cancelled, Self::Cancelled) => true,
-            (Self::Executor(left), Self::Executor(right))
-            | (Self::WorkerProtocol(left), Self::WorkerProtocol(right)) => left == right,
+            (Self::Executor(left), Self::Executor(right)) => left == right,
             (Self::WorkerClient(left), Self::WorkerClient(right)) => left == right,
             (Self::Worker(left), Self::Worker(right)) => left == right,
+            (Self::WorkerProtocol(left), Self::WorkerProtocol(right)) => left == right,
             _ => false,
         }
     }
 }
 
 impl Eq for SourcePreparationError {}
+
+#[cfg(test)]
+mod source_preparation_contract_tests {
+    use std::error::Error as _;
+
+    use platform_runtime::WorkExecutorError;
+    use signal_capture::CaptureWorkerMessageKind;
+
+    use super::{SourcePreparationError, SourcePreparationProtocolError};
+
+    #[test]
+    fn infrastructure_failures_retain_their_typed_sources() {
+        let executor = SourcePreparationError::Executor(WorkExecutorError::QueueFull);
+        assert!(executor.source().unwrap().is::<WorkExecutorError>());
+
+        let protocol = SourcePreparationError::WorkerProtocol(
+            SourcePreparationProtocolError::UnexpectedResponse {
+                received: CaptureWorkerMessageKind::Replay,
+            },
+        );
+        assert!(
+            protocol
+                .source()
+                .unwrap()
+                .is::<SourcePreparationProtocolError>()
+        );
+    }
+}
 
 /// Prepared capture data ready for the host viewer and graph runtime.
 pub struct PreparedCapture {

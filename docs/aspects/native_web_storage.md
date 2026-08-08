@@ -505,7 +505,9 @@ stop at a deterministic work boundary after cancellation. Completion is publishe
 task retained by the active generation; stale workers cannot replace current viewer data.
 Preparation failures retain a graph-runtime-owned category for discovery, metadata, index work,
 cancellation, executor admission or loss, and worker-protocol violations. Host adapters do not
-encode those distinctions into messages.
+encode those distinctions into messages. Executor failures preserve `WorkExecutorError`, and an
+unexpected worker response preserves its typed capture-worker message kind in
+`SourcePreparationProtocolError`.
 
 The preparation algorithm is identical for inline/cooperative and native execution. The host
 executor only decides where the capability-driven operation runs. Cache validation, index build and

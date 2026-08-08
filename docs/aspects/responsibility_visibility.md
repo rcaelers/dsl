@@ -282,7 +282,9 @@ adapter dependency.
 `logic_analyzer_graph_runtime` classifies finite-source discovery, metadata inspection, index
 construction, cancellation, executor, and worker-protocol failures in `SourcePreparationError`.
 Discovery retains the graph-plan error, while index metadata inspection and index construction
-retain their `signal_capture::Error` causes.
+retain their `signal_capture::Error` causes. Executor admission and loss retain the neutral
+`platform_runtime::WorkExecutorError`; invalid preparation responses retain a runtime-owned
+`SourcePreparationProtocolError` with the unexpected response kind.
 Its cache-administration facade retains derived-store and host-executor causes in
 `DerivedCacheError`; background and cooperative cleanup return the same error contract. UI
 presentation formats that error, while worker composition converts it only when building the

@@ -178,6 +178,21 @@ end
 
   errors << "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_contract.rs: SourcePreparationError must retain its #{variant.downcase} capture source"
 end
+unless source_preparation_contract.match?(
+  /^\s*Executor\(\#\[source\]\s*WorkExecutorError\),$/
+)
+  errors << "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_contract.rs: SourcePreparationError must retain the typed host-work executor failure"
+end
+unless source_preparation_contract.match?(
+  /^\s*WorkerProtocol\(\#\[source\]\s*SourcePreparationProtocolError\),$/
+)
+  errors << "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_contract.rs: SourcePreparationError must retain the typed preparation-protocol failure"
+end
+unless source_preparation_contract.match?(
+  /pub enum SourcePreparationProtocolError\s*\{.*?UnexpectedResponse\s*\{/m
+)
+  errors << "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_contract.rs: preparation protocol failures must classify unexpected worker responses"
+end
 source_preparation_implementation = File.read(File.join(
   ROOT,
   "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation.rs"
@@ -201,6 +216,11 @@ unless source_preparation_executor.match?(
   /pub type SourcePreparationResult\s*=\s*Result<PreparedCaptureData, SourcePreparationError>/
 )
   errors << "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_executor.rs: preparation tasks must retain SourcePreparationError"
+end
+if source_preparation_executor.match?(
+  /SourcePreparationError::(?:Executor|WorkerProtocol)\(\s*(?:format!|"[^"]*")/
+)
+  errors << "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_executor.rs: executor and worker-protocol failures must not be flattened into strings"
 end
 
 derived_cache_policy_path = File.join(

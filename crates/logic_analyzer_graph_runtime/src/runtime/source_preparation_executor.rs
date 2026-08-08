@@ -2,12 +2,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError};
 use std::sync::{Arc, Mutex};
 
+use platform_runtime::WorkExecutorError;
 use signal_capture::{
     CaptureIndexBuildProgress, CaptureIndexPreparationRequest, CaptureIndexProxy, CaptureMetadata,
     CaptureWorkerClient, CaptureWorkerIndexQueryExecutor, CaptureWorkerMessage,
+    CaptureWorkerMessageKind,
 };
 
-use super::source_preparation_contract::{PreparedCaptureData, SourcePreparationError};
+use super::source_preparation_contract::{
+    PreparedCaptureData, SourcePreparationError, SourcePreparationProtocolError,
+};
 
 /// Result produced when a source-preparation task completes.
 pub type SourcePreparationResult = Result<PreparedCaptureData, SourcePreparationError>;
@@ -128,10 +132,14 @@ pub trait SourcePreparationExecutor: Send + Sync {
         request: CaptureIndexPreparationRequest,
         _control: SourcePreparationControl,
     ) -> Result<Box<dyn SourcePreparationTask>, SourcePreparationError> {
-        Err(SourcePreparationError::Executor(format!(
-            "operation '{}' is unavailable",
-            request.operation().as_str()
-        )))
+        Err(SourcePreparationError::Executor(
+            WorkExecutorError::Rejected {
+                message: format!(
+                    "operation '{}' is unavailable",
+                    request.operation().as_str()
+                ),
+            },
+        ))
     }
 }
 
@@ -188,10 +196,10 @@ impl SourcePreparationExecutor for ThreadedSourcePreparationExecutor {
             })
             .map_err(|error| match error {
                 TrySendError::Full(_) => {
-                    SourcePreparationError::Executor("worker queue is full".into())
+                    SourcePreparationError::Executor(WorkExecutorError::QueueFull)
                 }
                 TrySendError::Disconnected(_) => {
-                    SourcePreparationError::Executor("worker stopped".into())
+                    SourcePreparationError::Executor(WorkExecutorError::Stopped)
                 }
             })?;
         Ok(Box::new(ThreadedSourcePreparationTask { receiver }))
@@ -210,7 +218,13 @@ fn run_source_preparation_worker(receiver: Receiver<QueuedSourcePreparation>) {
             Err(SourcePreparationError::Cancelled)
         } else {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (task.work)(task.control)))
-                .unwrap_or_else(|_| Err(SourcePreparationError::Executor("worker panicked".into())))
+                .unwrap_or_else(|_| {
+                    Err(SourcePreparationError::Executor(
+                        WorkExecutorError::Rejected {
+                            message: "source preparation worker panicked".into(),
+                        },
+                    ))
+                })
         };
         let _ = task.result.send(result);
     }
@@ -340,11 +354,23 @@ impl SourcePreparationTask for CaptureWorkerSourcePreparationTask {
                         SourcePreparationError::Cancelled,
                     ));
                 }
-                CaptureWorkerMessage::Window { .. } | CaptureWorkerMessage::Replay { .. } => {
+                CaptureWorkerMessage::Window { .. } => {
                     self.terminal = true;
                     return SourcePreparationTaskUpdate::Complete(Err(
                         SourcePreparationError::WorkerProtocol(
-                            "worker returned query or replay data for a preparation request".into(),
+                            SourcePreparationProtocolError::UnexpectedResponse {
+                                received: CaptureWorkerMessageKind::Window,
+                            },
+                        ),
+                    ));
+                }
+                CaptureWorkerMessage::Replay { .. } => {
+                    self.terminal = true;
+                    return SourcePreparationTaskUpdate::Complete(Err(
+                        SourcePreparationError::WorkerProtocol(
+                            SourcePreparationProtocolError::UnexpectedResponse {
+                                received: CaptureWorkerMessageKind::Replay,
+                            },
                         ),
                     ));
                 }

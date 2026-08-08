@@ -113,7 +113,8 @@ impl SourcePreparation {
             SourcePreparationTaskUpdate::Disconnected => {
                 self.task = None;
                 self.control = None;
-                let error = SourcePreparationError::Executor("worker stopped".into());
+                let error =
+                    SourcePreparationError::Executor(platform_runtime::WorkExecutorError::Stopped);
                 self.status = SourcePreparationStatus::Failed(error.clone());
                 SourcePreparationUpdate::Failed(error)
             }
@@ -446,7 +447,9 @@ mod source_preparation_tests {
             _control: SourcePreparationControl,
         ) -> Result<Box<dyn SourcePreparationTask>, SourcePreparationError> {
             Err(SourcePreparationError::Executor(
-                "hosted preparation must not use the local work path".into(),
+                platform_runtime::WorkExecutorError::Rejected {
+                    message: "hosted preparation must not use the local work path".into(),
+                },
             ))
         }
 
@@ -1006,8 +1009,9 @@ mod source_preparation_tests {
         executor.disconnect_next();
         assert!(matches!(
             preparation.synchronize(Some(indexed("indexed-capture", open_count))),
-            SourcePreparationUpdate::Failed(SourcePreparationError::Executor(error))
-                if error == "worker stopped"
+            SourcePreparationUpdate::Failed(SourcePreparationError::Executor(
+                platform_runtime::WorkExecutorError::Stopped
+            ))
         ));
     }
 }

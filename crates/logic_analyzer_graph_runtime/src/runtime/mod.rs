@@ -29,7 +29,8 @@ pub use run_data::{
 pub use service::GraphRuntime;
 pub use source_preparation_contract::{
     PreparedCapture, PreparedCaptureData, PreparingCapture, SourcePreparationError,
-    SourcePreparationSnapshot, SourcePreparationStatus, SourcePreparationUpdate,
+    SourcePreparationProtocolError, SourcePreparationSnapshot, SourcePreparationStatus,
+    SourcePreparationUpdate,
 };
 pub use source_preparation_executor::{
     CaptureWorkerSourcePreparationExecutor, InlineSourcePreparationExecutor,

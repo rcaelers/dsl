@@ -300,9 +300,12 @@ item here, so acceptance comparisons stop being ad-hoc.
      `CaptureSourceFeatureError`, and compiler discovery carries feature, identity-encoding, and
      multiple-source failures through `CapturePresentationDiscoveryError` into graph-runtime
      source preparation. Capture-index metadata inspection and index construction likewise retain
-     `signal_capture::Error` through `SourcePreparationError`. Next replace its executor and worker
-     protocol strings with typed owner errors. Continue converting remaining host-service and
-     generic-crate surfaces rather than formatting them early.
+     `signal_capture::Error` through `SourcePreparationError`. Source-preparation executor admission
+     and loss retain `platform_runtime::WorkExecutorError`, while invalid preparation responses use
+     graph-runtime-owned `SourcePreparationProtocolError`. Next type the reusable `platform`
+     file-dialog facade so native and web adapters preserve owner errors through the UI host-service
+     boundary. Continue converting remaining host-service and generic-crate surfaces rather than
+     formatting them early.
 
 ### Application state decomposition
 
