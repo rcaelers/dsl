@@ -17,6 +17,7 @@ use signal_derived::PayloadRegistry;
 use super::data_collector::{
     BUILDER_NAME as DATA_COLLECTOR_BUILDER, DataCollectorBuilder, OUTPUT_SUBSCRIPTION_BUILDER_NAME,
 };
+use super::error::TimelineOperationError;
 use super::graph;
 use super::graph::{
     DiscoveredLiveCaptureFeature, DiscoveredTimelineMarker,
@@ -158,7 +159,7 @@ impl GraphLowerer {
     pub fn discover_timeline_markers(
         &self,
         graph: &GraphState,
-    ) -> Result<Vec<DiscoveredTimelineMarker>, String> {
+    ) -> Result<Vec<DiscoveredTimelineMarker>, TimelineOperationError> {
         graph::discover_timeline_markers(graph, &self.registry)
     }
 
@@ -168,7 +169,7 @@ impl GraphLowerer {
         graph: &GraphState,
         owner_node: NodeId,
         edit: &TimelineMarkerEdit,
-    ) -> Result<serde_json::Value, String> {
+    ) -> Result<serde_json::Value, TimelineOperationError> {
         graph::apply_timeline_marker_edit(graph, &self.registry, owner_node, edit)
     }
 
@@ -176,7 +177,7 @@ impl GraphLowerer {
     pub fn discover_timeline_marker_reference_bindings(
         &self,
         graph: &GraphState,
-    ) -> Result<Vec<DiscoveredTimelineMarkerReferenceBinding>, String> {
+    ) -> Result<Vec<DiscoveredTimelineMarkerReferenceBinding>, TimelineOperationError> {
         graph::discover_timeline_marker_reference_bindings(graph, &self.registry)
     }
 
@@ -186,7 +187,7 @@ impl GraphLowerer {
         graph: &GraphState,
         owner_node: NodeId,
         edit: &TimelineMarkerReferenceBindingEdit,
-    ) -> Result<serde_json::Value, String> {
+    ) -> Result<serde_json::Value, TimelineOperationError> {
         graph::apply_timeline_marker_reference_binding_edit(graph, &self.registry, owner_node, edit)
     }
 }

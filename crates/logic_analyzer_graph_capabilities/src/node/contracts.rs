@@ -14,6 +14,7 @@ use signal_capture_session::{
 use signal_derived::DerivedDataRetention;
 use signal_runtime::{NodeConfig, ProcessNode};
 
+use super::error::TimelineFeatureError;
 use crate::node_support::{
     CaptureCacheIdentity, CapturePresentation, DecoderTableColumnDescriptor,
     LanePresentationDescriptor, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
@@ -350,7 +351,10 @@ pub trait GraphNodePresentation: Send + Sync {
 /// Supplies node-owned timeline metadata and editing behavior.
 pub trait TimelineFeature: Send + Sync {
     /// Returns node-owned markers for the host timeline.
-    fn timeline_markers(&self, _state: &Value) -> Result<Vec<TimelineMarkerDescriptor>, String> {
+    fn timeline_markers(
+        &self,
+        _state: &Value,
+    ) -> Result<Vec<TimelineMarkerDescriptor>, TimelineFeatureError> {
         Ok(Vec::new())
     }
 
@@ -359,7 +363,7 @@ pub trait TimelineFeature: Send + Sync {
         &self,
         _state: &Value,
         _edit: &TimelineMarkerEdit,
-    ) -> Result<Option<Value>, String> {
+    ) -> Result<Option<Value>, TimelineFeatureError> {
         Ok(None)
     }
 
@@ -367,7 +371,7 @@ pub trait TimelineFeature: Send + Sync {
     fn timeline_marker_reference_bindings(
         &self,
         _state: &Value,
-    ) -> Result<Vec<TimelineMarkerReferenceBindingDescriptor>, String> {
+    ) -> Result<Vec<TimelineMarkerReferenceBindingDescriptor>, TimelineFeatureError> {
         Ok(Vec::new())
     }
 
@@ -376,7 +380,7 @@ pub trait TimelineFeature: Send + Sync {
         &self,
         _state: &Value,
         _edit: &TimelineMarkerReferenceBindingEdit,
-    ) -> Result<Option<Value>, String> {
+    ) -> Result<Option<Value>, TimelineFeatureError> {
         Ok(None)
     }
 }

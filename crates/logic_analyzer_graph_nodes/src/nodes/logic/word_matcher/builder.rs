@@ -96,7 +96,8 @@ impl RuntimeMaterializer for WordMatcherBuilder {
         resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::WordMatcherState = parse_state(state)?;
+        let state: super::definition::WordMatcherState =
+            parse_state(state).map_err(|error| error.to_string())?;
         let mask = super::super::word_value::parse_hex_u64(&state.mask.value)?;
         let (op, _) = Self::match_op(state.op.selected());
         let (trigger_at, _) = Self::trigger_at(state.trigger_at.selected());

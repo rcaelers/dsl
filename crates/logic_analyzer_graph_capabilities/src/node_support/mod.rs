@@ -19,6 +19,7 @@
 
 mod contracts;
 mod port;
+mod state;
 
 pub use contracts::{
     CaptureCacheIdentity, CapturePresentation, CapturePresentationSignal, DecoderTableCellMode,
@@ -29,6 +30,6 @@ pub use contracts::{
     TimelineMarkerReference, TimelineMarkerReferenceBindingDescriptor,
     TimelineMarkerReferenceBindingEdit, TimelineMarkerReferenceChoice, TriggerConfigurationFeature,
     ViewerOutputControl, ViewerOutputPanelAction, ViewerOutputPanelEntry, ViewerOutputPanelModel,
-    parse_state,
 };
 pub use port::{PortKind, PortValue};
+pub use state::{PersistedStateError, parse_state, serialize_state};

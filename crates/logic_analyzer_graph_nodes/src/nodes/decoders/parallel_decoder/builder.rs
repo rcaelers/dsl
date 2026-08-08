@@ -23,7 +23,7 @@ pub(crate) struct ParallelDecoderBuilder;
 
 impl ParallelDecoderBuilder {
     fn parsed(state: &Value) -> Result<super::definition::ParallelDecoderState, String> {
-        parse_state(state)
+        parse_state(state).map_err(|error| error.to_string())
     }
 
     fn cs_polarity(state: &super::definition::ParallelDecoderState) -> CsPolarity {

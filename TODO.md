@@ -335,10 +335,13 @@ item here, so acceptance comparisons stop being ad-hoc.
      `CaptureGraphSourceFactory`. The UI-owned `CaptureCoordinatorError` now retains repository,
      capture-store, graph-source, waveform-index, executor, export, acquisition, metadata-codec,
      and capture-policy causes throughout live attachment, replay, publication, and worker
-     supervision; status projection and application toasts are the formatting boundaries. Next type
-     persisted-state parsing and timeline feature failures in `logic_analyzer_graph_capabilities`.
-     Continue converting remaining host-service and generic-crate surfaces rather than formatting
-     them early.
+     supervision; status projection and application toasts are the formatting boundaries.
+     `logic_analyzer_graph_capabilities::node_support::PersistedStateError` now retains JSON decode
+     and encode causes, while `TimelineFeatureError` carries those causes and classified edit
+     failures through concrete timeline nodes. `logic_analyzer_graph_compiler` adds graph-node and
+     operation context through `TimelineOperationError`, and UI timeline synchronization formats it
+     only when deduplicating or presenting the failure. Next continue converting remaining platform,
+     UI, and generic-crate service surfaces rather than formatting lower errors early.
 
 ### Application state decomposition
 

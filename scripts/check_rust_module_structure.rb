@@ -116,6 +116,45 @@ unless capture_feature_contract.match?(/pub struct CaptureGraphSourceError\s*\{/
   errors << "crates/logic_analyzer_graph_capabilities/src/node/contracts.rs: capture graph-source construction must retain typed causes"
 end
 
+persisted_state_contract = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_graph_capabilities/src/node_support/state.rs"
+))
+timeline_feature_error = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_graph_capabilities/src/node/error.rs"
+))
+unless persisted_state_contract.match?(/pub enum PersistedStateError\s*\{/) &&
+       persisted_state_contract.match?(/^\s*Decode\(\#\[source\]\s*serde_json::Error\),$/) &&
+       persisted_state_contract.match?(/^\s*Encode\(\#\[source\]\s*serde_json::Error\),$/) &&
+       persisted_state_contract.match?(
+         /pub fn parse_state\b.*?Result<T, PersistedStateError>/m
+       )
+  errors << "crates/logic_analyzer_graph_capabilities/src/node_support/state.rs: persisted state must retain JSON codec causes"
+end
+unless timeline_feature_error.match?(/pub enum TimelineFeatureError\s*\{/) &&
+       timeline_feature_error.match?(/^\s*State\(\#\[from\]\s*PersistedStateError\),$/) &&
+       capture_feature_contract.scan(/TimelineFeatureError/).length >= 4
+  errors << "crates/logic_analyzer_graph_capabilities/src/node: timeline features must retain typed state and edit failures"
+end
+
+timeline_compiler_error = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_graph_compiler/src/error.rs"
+))
+timeline_compiler = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_graph_compiler/src/graph.rs"
+))
+unless timeline_compiler_error.match?(/pub enum TimelineOperationError\s*\{/) &&
+       timeline_compiler_error.match?(
+         /Feature\s*\{.*?source:\s*TimelineFeatureError,/m
+       ) && timeline_compiler_error.match?(
+         /Self::Feature\s*\{\s*source,\s*\.\.\s*\}\s*=>\s*Some\(source\)/m
+       ) && timeline_compiler.scan(/TimelineOperationError::feature/).length >= 4
+  errors << "crates/logic_analyzer_graph_compiler: timeline operations must retain graph-feature failures"
+end
+
 capture_validation = File.read(File.join(
   ROOT,
   "crates/signal_capture_session/src/live_capture/validation.rs"

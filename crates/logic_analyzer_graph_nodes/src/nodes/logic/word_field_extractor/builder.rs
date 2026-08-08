@@ -56,7 +56,8 @@ impl RuntimeMaterializer for WordFieldExtractorBuilder {
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::WordFieldExtractorState = parse_state(state)?;
+        let state: super::definition::WordFieldExtractorState =
+            parse_state(state).map_err(|error| error.to_string())?;
         let first_bit = usize::try_from(state.first_bit.value.max(0))
             .map_err(|_| "start bit is outside the supported range")?;
         let bit_count = usize::try_from(state.bit_count.value.max(1))

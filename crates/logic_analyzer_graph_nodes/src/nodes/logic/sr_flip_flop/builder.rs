@@ -47,7 +47,8 @@ impl RuntimeMaterializer for SrFlipFlopBuilder {
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::SrFlipFlopState = parse_state(state)?;
+        let state: super::definition::SrFlipFlopState =
+            parse_state(state).map_err(|error| error.to_string())?;
         Ok(Box::new(SrLatch::new(state.initial.value).with_name(name)))
     }
 }

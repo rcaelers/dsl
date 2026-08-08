@@ -102,7 +102,8 @@ impl RuntimeMaterializer for TestCaptureSourceBuilder {
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        let _: super::definition::TestCaptureSourceState = parse_state(state)?;
+        let _: super::definition::TestCaptureSourceState =
+            parse_state(state).map_err(|error| error.to_string())?;
         Ok(Box::new(SyntheticCaptureSource::new().with_name(name)))
     }
 }

@@ -89,7 +89,8 @@ impl RuntimeMaterializer for CsvWriterBuilder {
         resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::CsvWriterState = parse_state(state)?;
+        let state: super::definition::CsvWriterState =
+            parse_state(state).map_err(|error| error.to_string())?;
         let format = match state.value_format.selected() {
             "Hex" => CsvValueFormat::Hex {
                 width: state.hex_digits.value.clamp(1, 16) as usize,

@@ -95,6 +95,12 @@ capture-policy, and metadata-codec causes through worker completion, live attach
 replay, retention, and publication. Status projection and application toast/run-message calls are
 the only points that convert this workflow error to text.
 
+`logic_analyzer_graph_capabilities::node_support` owns `PersistedStateError`, retaining JSON decode
+and encode causes at the graph-document boundary. Timeline node features carry that error through
+`TimelineFeatureError`, alongside classified marker and reference-edit failures. The graph compiler
+adds owner-node and operation context through `TimelineOperationError`; UI timeline synchronization
+formats the error only for deduplication and presentation.
+
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
 - One enum per *facade*, not per crate and not per function. Variants describe what failed in
@@ -106,10 +112,7 @@ the only points that convert this workflow error to text.
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. Type persisted-state parsing and timeline-feature failures in
-   `logic_analyzer_graph_capabilities`, preserving JSON codec causes through concrete graph
-   features and their UI consumers.
-2. Continue through the remaining platform and UI facades: most occurrences collapse into carrying
+1. Continue through the remaining platform and UI facades: most occurrences collapse into carrying
    the now-typed lower errors; only genuinely UI-owned failures need new variants.
 
 Expect this to span many small PRs; each facade conversion is independently landable.

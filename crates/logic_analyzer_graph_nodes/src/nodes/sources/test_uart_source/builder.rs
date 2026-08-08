@@ -52,7 +52,8 @@ impl RuntimeMaterializer for TestUartSourceBuilder {
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::TestUartSourceState = parse_state(state)?;
+        let state: super::definition::TestUartSourceState =
+            parse_state(state).map_err(|error| error.to_string())?;
         let source = SyntheticUartSource::new(
             state.message.value.into_bytes(),
             state.baud_rate.value.max(1) as u64,

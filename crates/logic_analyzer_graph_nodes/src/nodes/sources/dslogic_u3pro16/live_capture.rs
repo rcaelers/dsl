@@ -129,7 +129,7 @@ pub(crate) fn feature(
     state: &Value,
     capture: Box<dyn ConfiguredAcquisition>,
 ) -> Result<Option<Box<dyn LiveCaptureFeature>>, String> {
-    let state = parse_state::<U3Pro16State>(state)?;
+    let state = parse_state::<U3Pro16State>(state).map_err(|error| error.to_string())?;
     let config = capture_config(&state)?;
     let trigger_conditions = super::trigger::conditions(&state)?;
     let mut channels = Vec::new();

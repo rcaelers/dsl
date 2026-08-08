@@ -61,7 +61,8 @@ impl RuntimeMaterializer for BufferBuilder {
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::BufferState = parse_state(state)?;
+        let state: super::definition::BufferState =
+            parse_state(state).map_err(|error| error.to_string())?;
         let node: Box<dyn ProcessNode> = match state.kind.selected() {
             "Block" => Box::new(BufferNode::<SampleBlock>::new(name)),
             "Word" => Box::new(BufferNode::<Word>::new(name)),

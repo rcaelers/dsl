@@ -22,7 +22,7 @@ pub(crate) struct PacketFramerBuilder;
 
 impl PacketFramerBuilder {
     fn parsed(state: &Value) -> Result<super::definition::PacketFramerState, String> {
-        parse_state(state)
+        parse_state(state).map_err(|error| error.to_string())
     }
 
     fn delimiter(state: &super::definition::PacketFramerState) -> Result<Option<u64>, String> {

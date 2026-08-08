@@ -23,7 +23,7 @@ pub(crate) struct SpiDecoderBuilder;
 
 impl SpiDecoderBuilder {
     fn parsed(state: &Value) -> Result<super::definition::SpiDecoderState, String> {
-        parse_state(state)
+        parse_state(state).map_err(|error| error.to_string())
     }
     fn cs_polarity(state: &super::definition::SpiDecoderState) -> CsPolarity {
         match state.cs_polarity.selected() {

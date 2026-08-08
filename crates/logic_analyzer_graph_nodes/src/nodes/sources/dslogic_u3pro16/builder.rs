@@ -42,7 +42,7 @@ impl DsLogicU3Pro16Builder {
     }
 
     fn config(state: &Value) -> Result<logic_analyzer_acquisition::LogicCaptureConfig, String> {
-        let state: U3Pro16State = parse_state(state)?;
+        let state: U3Pro16State = parse_state(state).map_err(|error| error.to_string())?;
         super::capture_configuration::capture_config(&state)
     }
 
@@ -190,7 +190,7 @@ impl LiveCaptureFeatureProvider for DsLogicU3Pro16Builder {
         &self,
         state: &Value,
     ) -> Result<Option<TriggerConfigurationFeature>, String> {
-        let state: U3Pro16State = parse_state(state)?;
+        let state: U3Pro16State = parse_state(state).map_err(|error| error.to_string())?;
         super::trigger::configuration(&state).map(Some)
     }
 

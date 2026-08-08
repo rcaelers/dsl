@@ -5,7 +5,7 @@ use logic_analyzer_graph_capabilities::node_support::{LiveCaptureEdit, parse_sta
 use super::definition::U3Pro16State;
 
 pub(crate) fn apply(state: &Value, edit: &LiveCaptureEdit) -> Result<Value, String> {
-    let mut state = parse_state::<U3Pro16State>(state)?;
+    let mut state = parse_state::<U3Pro16State>(state).map_err(|error| error.to_string())?;
     match edit {
         LiveCaptureEdit::SetSimpleTrigger {
             channel_id,

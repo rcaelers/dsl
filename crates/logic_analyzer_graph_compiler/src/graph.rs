@@ -38,6 +38,8 @@ use signal_capture_session::{
 };
 use signal_derived::{DerivedDataRetention, SamplingPointStore};
 
+use super::error::TimelineOperationError;
+
 // ── Builder trait & registry ─────────────────────────────────────────────────
 
 /// Trigger configuration discovered from one live-capture source.
@@ -314,7 +316,7 @@ pub(crate) fn discover_trigger_configuration(
 pub(crate) fn discover_timeline_markers(
     graph: &GraphState,
     builders: &GraphRegistry,
-) -> Result<Vec<DiscoveredTimelineMarker>, String> {
+) -> Result<Vec<DiscoveredTimelineMarker>, TimelineOperationError> {
     let mut discovered = Vec::new();
     for node in graph
         .nodes
@@ -326,7 +328,7 @@ pub(crate) fn discover_timeline_markers(
         };
         let markers = timeline
             .timeline_markers(&node.state)
-            .map_err(|message| format!("{}: {message}", node.title))?;
+            .map_err(|error| TimelineOperationError::feature(node.id, node.title.clone(), error))?;
         discovered.extend(markers.into_iter().map(|marker| DiscoveredTimelineMarker {
             owner_node: node.id,
             owner_title: node.title.clone(),
@@ -346,24 +348,29 @@ pub(crate) fn apply_timeline_marker_edit(
     builders: &GraphRegistry,
     owner_node: NodeId,
     edit: &TimelineMarkerEdit,
-) -> Result<Value, String> {
+) -> Result<Value, TimelineOperationError> {
     let node = graph
         .nodes
         .get(&owner_node)
-        .ok_or_else(|| format!("timeline-marker node {owner_node:?} no longer exists"))?;
-    let timeline = builders
-        .timeline(node.def_name())
-        .ok_or_else(|| format!("no timeline feature is registered for {}", node.def_name()))?;
+        .ok_or(TimelineOperationError::MarkerOwnerMissing { owner_node })?;
+    let timeline = builders.timeline(node.def_name()).ok_or_else(|| {
+        TimelineOperationError::FeatureUnavailable {
+            definition_name: node.def_name().to_owned(),
+        }
+    })?;
     timeline
-        .apply_timeline_marker_edit(&node.state, edit)?
-        .ok_or_else(|| format!("{} does not support this timeline-marker edit", node.title))
+        .apply_timeline_marker_edit(&node.state, edit)
+        .map_err(|error| TimelineOperationError::feature(node.id, node.title.clone(), error))?
+        .ok_or_else(|| TimelineOperationError::UnsupportedMarkerEdit {
+            owner_title: node.title.clone(),
+        })
 }
 
 /// Discovers controls which select a host-owned timeline position.
 pub(crate) fn discover_timeline_marker_reference_bindings(
     graph: &GraphState,
     builders: &GraphRegistry,
-) -> Result<Vec<DiscoveredTimelineMarkerReferenceBinding>, String> {
+) -> Result<Vec<DiscoveredTimelineMarkerReferenceBinding>, TimelineOperationError> {
     let mut discovered = Vec::new();
     for node in graph
         .nodes
@@ -375,7 +382,7 @@ pub(crate) fn discover_timeline_marker_reference_bindings(
         };
         let bindings = timeline
             .timeline_marker_reference_bindings(&node.state)
-            .map_err(|message| format!("{}: {message}", node.title))?;
+            .map_err(|error| TimelineOperationError::feature(node.id, node.title.clone(), error))?;
         discovered.extend(bindings.into_iter().map(|binding| {
             DiscoveredTimelineMarkerReferenceBinding {
                 owner_node: node.id,
@@ -397,21 +404,21 @@ pub(crate) fn apply_timeline_marker_reference_binding_edit(
     builders: &GraphRegistry,
     owner_node: NodeId,
     edit: &TimelineMarkerReferenceBindingEdit,
-) -> Result<Value, String> {
+) -> Result<Value, TimelineOperationError> {
     let node = graph
         .nodes
         .get(&owner_node)
-        .ok_or_else(|| format!("timeline-reference node {owner_node:?} no longer exists"))?;
-    let timeline = builders
-        .timeline(node.def_name())
-        .ok_or_else(|| format!("no timeline feature is registered for {}", node.def_name()))?;
+        .ok_or(TimelineOperationError::ReferenceOwnerMissing { owner_node })?;
+    let timeline = builders.timeline(node.def_name()).ok_or_else(|| {
+        TimelineOperationError::FeatureUnavailable {
+            definition_name: node.def_name().to_owned(),
+        }
+    })?;
     timeline
-        .apply_timeline_marker_reference_binding_edit(&node.state, edit)?
-        .ok_or_else(|| {
-            format!(
-                "{} does not support this timeline-reference edit",
-                node.title
-            )
+        .apply_timeline_marker_reference_binding_edit(&node.state, edit)
+        .map_err(|error| TimelineOperationError::feature(node.id, node.title.clone(), error))?
+        .ok_or_else(|| TimelineOperationError::UnsupportedReferenceEdit {
+            owner_title: node.title.clone(),
         })
 }
 

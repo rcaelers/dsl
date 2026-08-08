@@ -89,7 +89,8 @@ impl RuntimeMaterializer for FileWriterBuilder {
         resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::FileWriterState = parse_state(state)?;
+        let state: super::definition::FileWriterState =
+            parse_state(state).map_err(|error| error.to_string())?;
         let width = match state.write_width.selected() {
             "U16 LE" => WriteWidth::U16Le,
             "U32 LE" => WriteWidth::U32Le,

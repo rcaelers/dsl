@@ -46,7 +46,8 @@ impl SigrokFileSourceBuilder {
     }
 
     fn metadata(&self, state: &Value) -> Result<Arc<dyn CaptureSourceMetadata>, String> {
-        let state: super::definition::SigrokFileSourceState = parse_state(state)?;
+        let state: super::definition::SigrokFileSourceState =
+            parse_state(state).map_err(|error| error.to_string())?;
         Ok(self.source_factory.metadata(Self::config(&state)))
     }
 }
@@ -144,7 +145,8 @@ impl RuntimeMaterializer for SigrokFileSourceBuilder {
         _resolved: &ResolvedInputs,
         ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::SigrokFileSourceState = parse_state(state)?;
+        let state: super::definition::SigrokFileSourceState =
+            parse_state(state).map_err(|error| error.to_string())?;
         self.source_factory
             .create(name, Self::config(&state), ctx.work_executor())
             .map(signal_runtime::ProcessNodeConstruction::into_process)

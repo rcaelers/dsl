@@ -3,12 +3,13 @@
 use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{
-    GraphNodeSemantics, RuntimeMaterializer, TimelineFeature,
+    GraphNodeSemantics, RuntimeMaterializer, TimelineFeature, TimelineFeatureError,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, TimelineMarkerDescriptor, TimelineMarkerEdit,
     TimelineMarkerReference, TimelineMarkerReferenceBindingDescriptor,
     TimelineMarkerReferenceBindingEdit, TimelineMarkerReferenceChoice, parse_state,
+    serialize_state,
 };
 use node_graph_document::SocketReference;
 use signal_capture::Sample;
@@ -64,7 +65,8 @@ impl RuntimeMaterializer for TimelineMarkerBuilder {
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::TimelineMarkerState = parse_state(state)?;
+        let state: super::definition::TimelineMarkerState =
+            parse_state(state).map_err(|error| error.to_string())?;
         Ok(Box::new(
             TimelineMarkerSource::new(state.timestamp.value_ns).with_name(name),
         ))
@@ -72,7 +74,10 @@ impl RuntimeMaterializer for TimelineMarkerBuilder {
 }
 
 impl TimelineFeature for TimelineMarkerBuilder {
-    fn timeline_markers(&self, state: &Value) -> Result<Vec<TimelineMarkerDescriptor>, String> {
+    fn timeline_markers(
+        &self,
+        state: &Value,
+    ) -> Result<Vec<TimelineMarkerDescriptor>, TimelineFeatureError> {
         let state: super::definition::TimelineMarkerState = parse_state(state)?;
         Ok(vec![TimelineMarkerDescriptor::new(
             "marker",
@@ -85,17 +90,15 @@ impl TimelineFeature for TimelineMarkerBuilder {
         &self,
         state: &Value,
         edit: &TimelineMarkerEdit,
-    ) -> Result<Option<Value>, String> {
+    ) -> Result<Option<Value>, TimelineFeatureError> {
         let mut state: super::definition::TimelineMarkerState = parse_state(state)?;
         match edit {
             TimelineMarkerEdit::SetTimestamp { id, timestamp_ns } if id == "marker" => {
                 state.timestamp.value_ns = *timestamp_ns;
-                serde_json::to_value(state)
-                    .map(Some)
-                    .map_err(|error| error.to_string())
+                serialize_state(state).map(Some).map_err(Into::into)
             }
             TimelineMarkerEdit::SetTimestamp { id, .. } => {
-                Err(format!("unknown timeline marker '{id}'"))
+                Err(TimelineFeatureError::unknown_marker(id))
             }
         }
     }
@@ -138,7 +141,8 @@ impl RuntimeMaterializer for CursorMarkerBuilder {
         _resolved: &ResolvedInputs,
         ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::CursorMarkerState = parse_state(state)?;
+        let state: super::definition::CursorMarkerState =
+            parse_state(state).map_err(|error| error.to_string())?;
         let number = state.selected_cursor().ok_or_else(|| {
             "no cursor is available; add a cursor in the logic analyzer view".to_owned()
         })?;
@@ -159,7 +163,7 @@ impl TimelineFeature for CursorMarkerBuilder {
     fn timeline_marker_reference_bindings(
         &self,
         state: &Value,
-    ) -> Result<Vec<TimelineMarkerReferenceBindingDescriptor>, String> {
+    ) -> Result<Vec<TimelineMarkerReferenceBindingDescriptor>, TimelineFeatureError> {
         let state: super::definition::CursorMarkerState = parse_state(state)?;
         Ok(vec![TimelineMarkerReferenceBindingDescriptor {
             id: "cursor".into(),
@@ -187,11 +191,11 @@ impl TimelineFeature for CursorMarkerBuilder {
         &self,
         state: &Value,
         edit: &TimelineMarkerReferenceBindingEdit,
-    ) -> Result<Option<Value>, String> {
+    ) -> Result<Option<Value>, TimelineFeatureError> {
         let mut state: super::definition::CursorMarkerState = parse_state(state)?;
         let TimelineMarkerReferenceBindingEdit::Synchronize { id, choices } = edit;
         if id != "cursor" {
-            return Err(format!("unknown timeline reference '{id}'"));
+            return Err(TimelineFeatureError::unknown_reference(id));
         }
         let choices = choices
             .iter()
@@ -206,9 +210,7 @@ impl TimelineFeature for CursorMarkerBuilder {
             })
             .collect();
         state.synchronize_cursor_choices(choices);
-        serde_json::to_value(state)
-            .map(Some)
-            .map_err(|error| error.to_string())
+        serialize_state(state).map(Some).map_err(Into::into)
     }
 }
 
@@ -274,7 +276,8 @@ impl RuntimeMaterializer for MarkerRelationBuilder {
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::MarkerRelationState = parse_state(state)?;
+        let state: super::definition::MarkerRelationState =
+            parse_state(state).map_err(|error| error.to_string())?;
         let relation = match state.relation.index {
             0 => RuntimeMarkerRelation::Before,
             _ => RuntimeMarkerRelation::AtOrAfter,

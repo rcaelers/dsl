@@ -42,7 +42,8 @@ impl RuntimeMaterializer for CounterBuilder {
         _resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::CounterState = parse_state(state)?;
+        let state: super::definition::CounterState =
+            parse_state(state).map_err(|error| error.to_string())?;
         Ok(Box::new(
             EventCounter::new(state.start.value as i64, state.step.value as i64).with_name(name),
         ))

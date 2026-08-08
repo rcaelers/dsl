@@ -48,7 +48,8 @@ impl RuntimeMaterializer for EventControlBuilder {
         resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::EventControlState = parse_state(state)?;
+        let state: super::definition::EventControlState =
+            parse_state(state).map_err(|error| error.to_string())?;
         Ok(Box::new(
             EventControl::new(
                 (state.delay_us.value.max(0) as u64).saturating_mul(1_000),

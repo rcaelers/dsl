@@ -43,7 +43,8 @@ impl FileSourceBuilder {
     }
 
     fn metadata(&self, state: &Value) -> Result<Arc<dyn CaptureSourceMetadata>, String> {
-        let state: super::definition::DslFileSourceState = parse_state(state)?;
+        let state: super::definition::DslFileSourceState =
+            parse_state(state).map_err(|error| error.to_string())?;
         Ok(self.source_factory.metadata(Self::config(&state)))
     }
 }
@@ -148,7 +149,8 @@ impl RuntimeMaterializer for FileSourceBuilder {
         _resolved: &ResolvedInputs,
         ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::DslFileSourceState = parse_state(state)?;
+        let state: super::definition::DslFileSourceState =
+            parse_state(state).map_err(|error| error.to_string())?;
         self.source_factory
             .create(
                 name,

@@ -658,10 +658,11 @@ impl App {
         {
             Ok(discovered) => discovered,
             Err(error) => {
-                if self.timeline_markers.record_marker_error(error.clone()) {
+                let message = error.to_string();
+                if self.timeline_markers.record_marker_error(message.clone()) {
                     self.toasts.error_from(
                         ToastSource::panel("Logic Analyzer"),
-                        format!("Could not load timeline markers: {error}"),
+                        format!("Could not load timeline markers: {message}"),
                     );
                 }
                 self.logic_analyzer.set_timeline_markers(Vec::new());
@@ -693,7 +694,7 @@ impl App {
             Ok(state) => state,
             Err(error) => {
                 self.toasts
-                    .error_from(self.toast_source_for_node(owner_node), error);
+                    .error_from(self.toast_source_for_node(owner_node), error.to_string());
                 self.refresh_timeline_markers();
                 return;
             }
@@ -1366,10 +1367,14 @@ impl App {
                 discovered
             }
             Err(error) => {
-                if self.timeline_markers.record_reference_error(error.clone()) {
+                let message = error.to_string();
+                if self
+                    .timeline_markers
+                    .record_reference_error(message.clone())
+                {
                     self.toasts.error_from(
                         ToastSource::panel("Logic Analyzer"),
-                        format!("Could not synchronize cursor marker controls: {error}"),
+                        format!("Could not synchronize cursor marker controls: {message}"),
                     );
                 }
                 return;
@@ -1438,9 +1443,10 @@ impl App {
                         );
                     }
                 }
-                Err(error) => self
-                    .toasts
-                    .error_from(self.toast_source_for_node(discovered.owner_node), error),
+                Err(error) => self.toasts.error_from(
+                    self.toast_source_for_node(discovered.owner_node),
+                    error.to_string(),
+                ),
             }
         }
     }

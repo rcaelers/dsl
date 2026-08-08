@@ -19,6 +19,7 @@
 //! host paths, or UI operations.
 
 mod contracts;
+mod error;
 
 pub use contracts::{
     CaptureGraphSourceError, CaptureGraphSourceFactory, CaptureSourceFeature,
@@ -26,3 +27,4 @@ pub use contracts::{
     GraphNodePresentation, GraphNodeSemantics, LiveCaptureFeature, LiveCaptureFeatureProvider,
     RuntimeMaterializer, TimelineFeature,
 };
+pub use error::TimelineFeatureError;

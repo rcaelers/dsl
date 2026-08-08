@@ -44,7 +44,8 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
   terminal consumers, and deterministic configured sources respectively.
 - `logic_analyzer_graph_capabilities` owns graph-node and payload capability contracts. Its capture
   graph-source factory carries a source-bearing construction error without interpreting the
-  session-owned validation cause.
+  session-owned validation cause. Its persisted-state facade retains JSON decode and encode causes,
+  and timeline capabilities classify state and edit failures without formatting them.
 - `logic_analyzer_graph_registry` owns graph-node and payload registration, inventory validation,
   and immutable catalog assembly.
 - `logic_analyzer_graph_nodes` owns built-in concrete node definitions, builders, migrations,
@@ -314,6 +315,12 @@ generic capture-source feature contract. `logic_analyzer_graph_plan` owns the ty
 exchanged between compiler and runtime, including feature, identity-encoding, and multiple-source
 selection failures. The compiler adds graph-node context without formatting the feature cause, and
 graph-runtime source preparation retains the complete discovery error.
+
+The same capability crate owns `PersistedStateError` for decoding and encoding node-owned document
+state and `TimelineFeatureError` for timeline discovery and edits. Concrete timeline nodes preserve
+the JSON codec cause through that feature contract. `logic_analyzer_graph_compiler` adds graph-node
+and operation context through `TimelineOperationError`; UI timeline synchronization formats it only
+when deduplicating or presenting an error.
 
 `logic_analyzer_protocol_decoders::sigrok_decoder` owns the host-facing Sigrok catalog and decoder
 runtime error contracts. Whole-catalog discovery failures are distinct from recoverable per-path

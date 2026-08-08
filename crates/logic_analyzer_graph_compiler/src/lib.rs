@@ -11,6 +11,7 @@
 //! this crate.
 
 mod data_collector;
+mod error;
 mod graph;
 mod graph_lowerer;
 mod payload_catalog;
@@ -18,6 +19,7 @@ mod payload_catalog;
 #[cfg(test)]
 mod architecture_tests;
 
+pub use error::TimelineOperationError;
 pub use graph::{
     DiscoveredLiveCaptureFeature, DiscoveredTimelineMarker,
     DiscoveredTimelineMarkerReferenceBinding, DiscoveredTriggerConfiguration,

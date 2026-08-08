@@ -62,7 +62,7 @@ impl Default for SigrokDecoderBuilder {
 
 impl SigrokDecoderBuilder {
     fn parsed(state: &Value) -> Result<SigrokDecoderState, String> {
-        parse_state(state)
+        parse_state(state).map_err(|error| error.to_string())
     }
 
     fn with_backend(backend: Arc<dyn SigrokDecoderRuntime>) -> Self {

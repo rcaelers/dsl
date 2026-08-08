@@ -73,14 +73,6 @@ impl ViewerOutputControl {
     }
 }
 
-/// Deserializes node-owned persisted state from the generic graph document.
-///
-/// Concrete features call this at their load boundary and report its error to the
-/// user; generic compiler and viewer code never interprets concrete state.
-pub fn parse_state<T: serde::de::DeserializeOwned>(state: &serde_json::Value) -> Result<T, String> {
-    serde_json::from_value(state.clone()).map_err(|error| format!("invalid node state: {error}"))
-}
-
 /// Restricted runtime services available while a concrete node materializes.
 ///
 /// The context exposes generic storage and execution capabilities only; it never

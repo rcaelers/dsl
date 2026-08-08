@@ -7,7 +7,7 @@ use logic_analyzer_graph_capabilities::node_support::{
 use logic_analyzer_graph_compiler::{
     DiscoveredLiveCaptureFeature, DiscoveredTimelineMarker,
     DiscoveredTimelineMarkerReferenceBinding, DiscoveredTriggerConfiguration, GraphLowerer,
-    LiveCaptureDiscoveryError,
+    LiveCaptureDiscoveryError, TimelineOperationError,
 };
 use logic_analyzer_graph_orchestration::{
     GraphWorkerClient, GraphWorkerFailure, GraphWorkerMessage,
@@ -395,7 +395,7 @@ impl UiGraphService {
     pub(crate) fn discover_timeline_markers(
         &self,
         graph: &GraphState,
-    ) -> Result<Vec<DiscoveredTimelineMarker>, String> {
+    ) -> Result<Vec<DiscoveredTimelineMarker>, TimelineOperationError> {
         self.lowerer().discover_timeline_markers(graph)
     }
 
@@ -404,7 +404,7 @@ impl UiGraphService {
         graph: &GraphState,
         owner_node: NodeId,
         edit: &TimelineMarkerEdit,
-    ) -> Result<serde_json::Value, String> {
+    ) -> Result<serde_json::Value, TimelineOperationError> {
         self.lowerer()
             .apply_timeline_marker_edit(graph, owner_node, edit)
     }
@@ -412,7 +412,7 @@ impl UiGraphService {
     pub(crate) fn discover_timeline_marker_reference_bindings(
         &self,
         graph: &GraphState,
-    ) -> Result<Vec<DiscoveredTimelineMarkerReferenceBinding>, String> {
+    ) -> Result<Vec<DiscoveredTimelineMarkerReferenceBinding>, TimelineOperationError> {
         self.lowerer()
             .discover_timeline_marker_reference_bindings(graph)
     }
@@ -422,7 +422,7 @@ impl UiGraphService {
         graph: &GraphState,
         owner_node: NodeId,
         edit: &TimelineMarkerReferenceBindingEdit,
-    ) -> Result<serde_json::Value, String> {
+    ) -> Result<serde_json::Value, TimelineOperationError> {
         self.lowerer()
             .apply_timeline_marker_reference_binding_edit(graph, owner_node, edit)
     }

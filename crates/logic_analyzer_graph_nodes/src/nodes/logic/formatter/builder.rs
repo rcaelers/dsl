@@ -47,7 +47,8 @@ impl RuntimeMaterializer for FormatterBuilder {
         resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::StringFormatterState = parse_state(state)?;
+        let state: super::definition::StringFormatterState =
+            parse_state(state).map_err(|error| error.to_string())?;
         let values = resolved.member_count(0).max(1);
         Ok(Box::new(
             TextFormatter::with_num_values(state.template.value.clone(), values).with_name(name),

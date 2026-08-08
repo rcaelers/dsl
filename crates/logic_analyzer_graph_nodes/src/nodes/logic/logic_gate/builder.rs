@@ -47,7 +47,8 @@ impl RuntimeMaterializer for LogicGateBuilder {
         resolved: &ResolvedInputs,
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, String> {
-        let state: super::definition::LogicGateState = parse_state(state)?;
+        let state: super::definition::LogicGateState =
+            parse_state(state).map_err(|error| error.to_string())?;
         let inputs = resolved.member_count(0);
         if inputs == 0 {
             return Err("no inputs connected".into());
