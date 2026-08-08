@@ -21,12 +21,14 @@ owner-specific surfaces rather than replacing them with an umbrella error.
 host adapters classify catalog discovery, decoder discovery, invalid configuration, and execution
 transport failures before the graph materializer maps them into its generic build diagnostic.
 `logic_analyzer_graph_runtime` owns `SourcePreparationError`, including discovery, metadata, index,
-cancellation, executor, and worker-protocol causes. `signal_capture` owns separate capture-worker
-codec, bounded-client, serializable transport, and terminal-operation failures. Capture-worker
-source preparation preserves those lower typed causes in `SourcePreparationError`. Its generic
-host-backed index query port classifies submission, execution, cancellation, disconnection, and
-invalid-update failures without exposing the worker protocol; source-bearing variants preserve the
-concrete host or worker cause through `CaptureIndexProxy`.
+cancellation, executor, and worker-protocol causes. It also owns `DerivedCacheError`; synchronous
+and asynchronous cache administration retain the generic derived-store or host-executor cause until
+UI presentation or graph-worker serialization. `signal_capture` owns separate capture-worker codec,
+bounded-client, serializable transport, and terminal-operation failures. Capture-worker source
+preparation preserves those lower typed causes in `SourcePreparationError`. Its generic host-backed
+index query port classifies submission, execution, cancellation, disconnection, and invalid-update
+failures without exposing the worker protocol; source-bearing variants preserve the concrete host
+or worker cause through `CaptureIndexProxy`.
 
 `logic_analyzer_graph_orchestration` owns
 separate graph-worker codec, bounded-client, and serializable transport failures. The browser host

@@ -375,7 +375,7 @@ impl HeadlessGraphRunner {
             let cleared = self
                 .graph_service
                 .clear_derived_cache_entry(config)
-                .map_err(HeadlessRunError::new)?;
+                .map_err(|error| HeadlessRunError::new(error.to_string()))?;
             entries += cleared.removed_entries;
             bytes = bytes.saturating_add(cleared.removed_bytes);
         }
@@ -396,7 +396,8 @@ impl HeadlessGraphRunner {
                     .map(|result| result.map(|snapshot| (cache_key, node, snapshot)))
             })
             .map(|result| {
-                let (cache_key, node, snapshot) = result.map_err(HeadlessRunError::new)?;
+                let (cache_key, node, snapshot) =
+                    result.map_err(|error| HeadlessRunError::new(error.to_string()))?;
                 Ok(HeadlessCacheReport {
                     node_id: node.0,
                     node_title: graph

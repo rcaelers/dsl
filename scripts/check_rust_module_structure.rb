@@ -90,6 +90,47 @@ unless source_preparation_executor.match?(
   errors << "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_executor.rs: preparation tasks must retain SourcePreparationError"
 end
 
+derived_cache_policy_path = File.join(
+  ROOT,
+  "crates/logic_analyzer_graph_runtime/src/runtime/cache_policy.rs"
+)
+derived_cache_policy = File.read(derived_cache_policy_path).split(
+  /^\s*#\s*\[\s*cfg\s*\([^\]]*\btest\b[^\]]*\)\s*\]\s*\n\s*mod\s+\w*tests\b/,
+  2
+).first
+%w[Store Executor].each do |variant|
+  lower_error = variant == "Store" ? "StoreError" : "WorkExecutorError"
+  next if derived_cache_policy.match?(
+    /^\s*#{variant}\(\#\[from\]\s*#{lower_error}\),$/
+  )
+
+  errors << "crates/logic_analyzer_graph_runtime/src/runtime/cache_policy.rs: DerivedCacheError must retain its #{variant.downcase} source"
+end
+unless derived_cache_policy.match?(
+  /Option<Result<DerivedCacheClearStats, DerivedCacheError>>/
+)
+  errors << "crates/logic_analyzer_graph_runtime/src/runtime/cache_policy.rs: asynchronous cache cleanup must retain DerivedCacheError"
+end
+if derived_cache_policy.match?(/Result<[^\n]*,\s*String>/) ||
+   derived_cache_policy.match?(/map_err\s*\(\s*\|[^|]*\|[^\n]*\.to_string\(\)/)
+  errors << "crates/logic_analyzer_graph_runtime/src/runtime/cache_policy.rs: cache failures must not collapse into display strings"
+end
+
+graph_runtime_service = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_graph_runtime/src/runtime/service.rs"
+))
+%w[
+  clear_derived_cache_entry start_clear_derived_caches clear_derived_caches
+  inspect_derived_cache_entry
+].each do |operation|
+  next if graph_runtime_service.match?(
+    /pub fn\s+#{operation}\b[^\{]*->\s*Result<[^\{]*DerivedCacheError>\s*\{/m
+  )
+
+  errors << "crates/logic_analyzer_graph_runtime/src/runtime/service.rs: #{operation} must retain DerivedCacheError"
+end
+
 capture_worker_protocol_path = File.join(
   ROOT,
   "crates/signal_capture/src/capture/host_protocol.rs"

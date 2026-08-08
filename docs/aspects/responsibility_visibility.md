@@ -270,6 +270,11 @@ adapter dependency.
 
 `logic_analyzer_graph_runtime` classifies finite-source discovery, metadata inspection, index
 construction, cancellation, executor, and worker-protocol failures in `SourcePreparationError`.
+Its cache-administration facade retains derived-store and host-executor causes in
+`DerivedCacheError`; background and cooperative cleanup return the same error contract. UI
+presentation formats that error, while worker composition converts it only when building the
+serializable graph-worker terminal message.
+
 `logic_analyzer_graph_orchestration` separately classifies codec, bounded-client, and serializable
 transport failures. Its client retains the typed transport cause after disconnection and in every
 pending run's terminal message. The browser host maps JavaScript mechanism failures into that

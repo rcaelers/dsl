@@ -17,9 +17,10 @@ use logic_analyzer_graph_plan::{
     ProcessingGraphError as CompileError, SamplingOverlayCandidate,
 };
 use logic_analyzer_graph_runtime::{
-    ApplyError, ApplySummary, GraphRunContext, GraphRuntime, LiveAnalysisSource, LiveRun,
-    SourcePreparationExecutor, SourcePreparationStatus, SourcePreparationUpdate,
-    SourceProcessOverrides, SourceReadinessRegistry,
+    ApplyError, ApplySummary, DerivedCacheClearStats, DerivedCacheClearTask,
+    DerivedCacheEntrySnapshot, DerivedCacheError, GraphRunContext, GraphRuntime,
+    LiveAnalysisSource, LiveRun, SourcePreparationExecutor, SourcePreparationStatus,
+    SourcePreparationUpdate, SourceProcessOverrides, SourceReadinessRegistry,
 };
 use node_graph::{GraphState, NodeId};
 use platform_runtime::WorkExecutor;
@@ -330,20 +331,20 @@ impl UiGraphService {
     pub(crate) fn clear_derived_cache_entry(
         &self,
         config: &PersistentStoreConfig,
-    ) -> Result<logic_analyzer_graph_runtime::DerivedCacheClearStats, String> {
+    ) -> Result<DerivedCacheClearStats, DerivedCacheError> {
         self.runtime.clear_derived_cache_entry(config)
     }
 
     pub(crate) fn start_clear_derived_caches(
         &self,
-    ) -> Result<logic_analyzer_graph_runtime::DerivedCacheClearTask, String> {
+    ) -> Result<DerivedCacheClearTask, DerivedCacheError> {
         self.runtime.start_clear_derived_caches()
     }
 
     pub(crate) fn inspect_derived_cache_entry(
         &self,
         config: &PersistentStoreConfig,
-    ) -> Result<Option<logic_analyzer_graph_runtime::DerivedCacheEntrySnapshot>, String> {
+    ) -> Result<Option<DerivedCacheEntrySnapshot>, DerivedCacheError> {
         self.runtime.inspect_derived_cache_entry(config)
     }
 

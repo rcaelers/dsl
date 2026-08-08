@@ -264,10 +264,10 @@ impl GraphWorkerRuntime {
             });
             return;
         }
-        if let Err(message) = self.runtime.clear_derived_caches() {
+        if let Err(error) = self.runtime.clear_derived_caches() {
             emit(GraphWorkerMessage::Failed {
                 sequence,
-                error: GraphWorkerFailure::Cache(message),
+                error: GraphWorkerFailure::Cache(error.to_string()),
             });
             return;
         }

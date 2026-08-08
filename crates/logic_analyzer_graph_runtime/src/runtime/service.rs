@@ -12,6 +12,7 @@ use signal_runtime::{AppManagerFactory, ConfigurationBoundary, CooperativeAppMan
 
 use super::cache_policy::{
     self, DerivedCacheClearStats, DerivedCacheClearTask, DerivedCacheEntrySnapshot,
+    DerivedCacheError,
 };
 use super::errors::ApplyError;
 use super::execution::{
@@ -125,19 +126,19 @@ impl GraphRuntime {
     pub fn clear_derived_cache_entry(
         &self,
         config: &PersistentStoreConfig,
-    ) -> Result<DerivedCacheClearStats, String> {
+    ) -> Result<DerivedCacheClearStats, DerivedCacheError> {
         self.decoded_block_cache.clear();
         cache_policy::clear_entry(config)
     }
 
     /// Starts host-scheduled cleanup of all persistent derived-data caches.
-    pub fn start_clear_derived_caches(&self) -> Result<DerivedCacheClearTask, String> {
+    pub fn start_clear_derived_caches(&self) -> Result<DerivedCacheClearTask, DerivedCacheError> {
         self.decoded_block_cache.clear();
         cache_policy::start_clear_repository(&self.artifact_repository, &self.work_executor)
     }
 
     /// Immediately removes all persistent derived-data cache entries.
-    pub fn clear_derived_caches(&self) -> Result<DerivedCacheClearStats, String> {
+    pub fn clear_derived_caches(&self) -> Result<DerivedCacheClearStats, DerivedCacheError> {
         self.decoded_block_cache.clear();
         cache_policy::clear_repository(&self.artifact_repository)
     }
@@ -146,7 +147,7 @@ impl GraphRuntime {
     pub fn inspect_derived_cache_entry(
         &self,
         config: &PersistentStoreConfig,
-    ) -> Result<Option<DerivedCacheEntrySnapshot>, String> {
+    ) -> Result<Option<DerivedCacheEntrySnapshot>, DerivedCacheError> {
         cache_policy::inspect_entry(config)
     }
 

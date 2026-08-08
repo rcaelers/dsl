@@ -293,8 +293,9 @@ item here, so acceptance comparisons stop being ad-hoc.
   1. [ ] Keep display strings at the presentation boundary only. Capture-worker and graph-worker
      codec, client, transport, and terminal failures retain owner-typed causes, and the generic
      host-backed capture-index query boundary preserves classified submission and execution
-     sources; continue converting remaining host-service and generic-crate surfaces rather than
-     formatting them early.
+     sources. Graph-runtime cache administration likewise retains derived-store and host-executor
+     causes through `DerivedCacheError`; continue converting remaining host-service and
+     generic-crate surfaces rather than formatting them early.
 
 ### Application state decomposition
 

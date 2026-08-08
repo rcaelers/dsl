@@ -871,8 +871,10 @@ bounded blocks and a repository rather than preloading one contiguous buffer.
 - `logic_analyzer_graph_compiler` owns document discovery, semantic validation, capability
   negotiation, and lowering to a storage-neutral `ProcessingGraph`.
 - `logic_analyzer_graph_runtime` owns source-preparation orchestration, cache planning,
-  materialization, execution lifecycle, and collected run data. It depends on injected repository,
-  manager, and work-execution capabilities rather than physical storage implementations.
+  materialization, execution lifecycle, and collected run data. Cache inspection and cleanup retain
+  a runtime-owned error that wraps derived-store or host-executor causes identically for cooperative
+  and background execution. The runtime depends on injected repository, manager, and work-execution
+  capabilities rather than physical storage implementations.
 - `logic_analyzer_ui` owns application-facing commands and status. Native and web application
   crates adapt host mechanisms, select concrete capabilities, and construct UI/worker services.
 - `logic_analyzer_viewer` consumes capture and derived query handles. It has no repository,

@@ -11,8 +11,8 @@ use logic_analyzer_graph_plan::{
 };
 use node_graph_document::NodeId;
 use platform_artifacts::ArtifactRepository;
-use platform_runtime::{WorkExecutor, WorkTask};
-use signal_derived::derived_word_store::PersistentCacheClearTask;
+use platform_runtime::{WorkExecutor, WorkExecutorError, WorkTask};
+use signal_derived::derived_word_store::{PersistentCacheClearTask, StoreError};
 use signal_derived::{DecodedBlockCacheHandle, PersistentStoreConfig};
 
 use super::derived_cache_backend::{
@@ -48,6 +48,23 @@ pub struct DerivedCacheEntrySnapshot {
     pub last_timestamp_ns: Option<u64>,
 }
 
+/// Failure while inspecting or maintaining persistent derived-data caches.
+#[derive(Debug, thiserror::Error)]
+pub enum DerivedCacheError {
+    /// The generic derived-data store rejected a repository operation.
+    #[error("derived-cache store operation failed: {0}")]
+    Store(#[from] StoreError),
+    /// The injected host executor rejected background cache maintenance.
+    #[error("could not schedule derived-cache maintenance: {0}")]
+    Executor(#[from] WorkExecutorError),
+    /// A finished background task did not publish its terminal result.
+    #[error("derived-cache worker returned no result")]
+    MissingWorkerResult,
+    /// The background task's result channel was poisoned.
+    #[error("derived-cache worker result was poisoned")]
+    PoisonedWorkerResult,
+}
+
 /// Host-scheduled removal of all persistent derived-data artifacts.
 pub struct DerivedCacheClearTask {
     mode: DerivedCacheClearMode,
@@ -56,7 +73,7 @@ pub struct DerivedCacheClearTask {
 enum DerivedCacheClearMode {
     Background {
         work: Box<dyn WorkTask>,
-        result: Arc<Mutex<Option<Result<DerivedCacheClearStats, String>>>>,
+        result: Arc<Mutex<Option<Result<DerivedCacheClearStats, DerivedCacheError>>>>,
     },
     Cooperative(PersistentCacheClearTask),
 }
@@ -70,17 +87,17 @@ impl DerivedCacheClearTask {
     pub fn poll(
         &mut self,
         artifact_budget: usize,
-    ) -> Option<Result<DerivedCacheClearStats, String>> {
+    ) -> Option<Result<DerivedCacheClearStats, DerivedCacheError>> {
         match &mut self.mode {
             DerivedCacheClearMode::Background { work, result } => {
                 if !work.is_finished() {
                     return None;
                 }
                 match result.lock() {
-                    Ok(mut result) => result.take().or_else(|| {
-                        Some(Err("derived-data cache worker returned no result".into()))
-                    }),
-                    Err(_) => Some(Err("derived-data cache worker result was poisoned".into())),
+                    Ok(mut result) => result
+                        .take()
+                        .or(Some(Err(DerivedCacheError::MissingWorkerResult))),
+                    Err(_) => Some(Err(DerivedCacheError::PoisonedWorkerResult)),
                 }
             }
             DerivedCacheClearMode::Cooperative(task) => match task.advance(artifact_budget) {
@@ -89,7 +106,7 @@ impl DerivedCacheClearTask {
                     removed_bytes: stats.removed_bytes,
                 })),
                 Ok(None) => None,
-                Err(error) => Some(Err(error.to_string())),
+                Err(error) => Some(Err(DerivedCacheError::Store(error))),
             },
         }
     }
@@ -97,36 +114,36 @@ impl DerivedCacheClearTask {
 
 pub(crate) fn clear_entry(
     config: &PersistentStoreConfig,
-) -> Result<DerivedCacheClearStats, String> {
+) -> Result<DerivedCacheClearStats, DerivedCacheError> {
     signal_derived::derived_word_store::clear_cache_entry(config)
         .map(|stats| DerivedCacheClearStats {
             removed_entries: stats.removed_entries,
             removed_bytes: stats.removed_bytes,
         })
-        .map_err(|error| error.to_string())
+        .map_err(DerivedCacheError::Store)
 }
 
 pub(crate) fn clear_repository(
     repository: &Arc<dyn ArtifactRepository>,
-) -> Result<DerivedCacheClearStats, String> {
+) -> Result<DerivedCacheClearStats, DerivedCacheError> {
     signal_derived::derived_word_store::clear_cache(repository)
         .map(|stats| DerivedCacheClearStats {
             removed_entries: stats.removed_entries,
             removed_bytes: stats.removed_bytes,
         })
-        .map_err(|error| error.to_string())
+        .map_err(DerivedCacheError::Store)
 }
 
 pub(crate) fn start_clear_repository(
     repository: &Arc<dyn ArtifactRepository>,
     work_executor: &Arc<dyn WorkExecutor>,
-) -> Result<DerivedCacheClearTask, String> {
+) -> Result<DerivedCacheClearTask, DerivedCacheError> {
     if !work_executor.supports_long_running_tasks() {
         return PersistentCacheClearTask::new(Arc::clone(repository))
             .map(|task| DerivedCacheClearTask {
                 mode: DerivedCacheClearMode::Cooperative(task),
             })
-            .map_err(|error| error.to_string());
+            .map_err(DerivedCacheError::Store);
     }
 
     let result = Arc::new(Mutex::new(None));
@@ -139,7 +156,7 @@ pub(crate) fn start_clear_repository(
                 *result = Some(cleared);
             }
         }))
-        .map_err(|error| error.to_string())?;
+        .map_err(DerivedCacheError::Executor)?;
     Ok(DerivedCacheClearTask {
         mode: DerivedCacheClearMode::Background { work, result },
     })
@@ -147,7 +164,7 @@ pub(crate) fn start_clear_repository(
 
 pub(crate) fn inspect_entry(
     config: &PersistentStoreConfig,
-) -> Result<Option<DerivedCacheEntrySnapshot>, String> {
+) -> Result<Option<DerivedCacheEntrySnapshot>, DerivedCacheError> {
     signal_derived::derived_word_store::inspect_cache_entry(config)
         .map(|entry| {
             entry.map(|entry| DerivedCacheEntrySnapshot {
@@ -160,7 +177,7 @@ pub(crate) fn inspect_entry(
                 last_timestamp_ns: entry.last_timestamp_ns,
             })
         })
-        .map_err(|error| error.to_string())
+        .map_err(DerivedCacheError::Store)
 }
 
 pub(crate) fn assign_derived_word_caches(compiled: &mut ProcessingGraph) {
@@ -690,12 +707,17 @@ mod cache_policy_tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
 
-    use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
-    use platform_runtime::{WorkExecutor, WorkExecutorTask, WorkTask};
+    use platform_artifacts::{
+        ArtifactKey, ArtifactMetadata, ArtifactNamespace, ArtifactRepository,
+        MemoryArtifactRepository, ReadArtifact, RepositoryCapabilities, RepositoryError,
+        WriteArtifact,
+    };
+    use platform_runtime::{WorkExecutor, WorkExecutorError, WorkExecutorTask, WorkTask};
+    use signal_derived::derived_word_store::StoreError;
     use signal_derived::{IndexedAnnotationWriter, LiveStoreConfig, PersistentStoreConfig, Word};
 
     use super::{
-        DerivedCacheClearStats, clear_entry, clear_repository, inspect_entry,
+        DerivedCacheClearStats, DerivedCacheError, clear_entry, clear_repository, inspect_entry,
         start_clear_repository,
     };
 
@@ -720,6 +742,10 @@ mod cache_policy_tests {
 
     struct QueuedWorkTask(Arc<AtomicBool>);
 
+    struct RejectingWorkExecutor;
+
+    struct UnavailableRepository;
+
     impl WorkTask for QueuedWorkTask {
         fn is_finished(&self) -> bool {
             self.0.load(Ordering::Acquire)
@@ -743,6 +769,55 @@ mod cache_policy_tests {
         ) -> Result<Box<dyn WorkTask>, platform_runtime::WorkExecutorError> {
             *self.queued.lock().unwrap() = Some(task);
             Ok(Box::new(QueuedWorkTask(Arc::clone(&self.finished))))
+        }
+    }
+
+    impl WorkExecutor for RejectingWorkExecutor {
+        fn available_parallelism(&self) -> usize {
+            1
+        }
+
+        fn supports_long_running_tasks(&self) -> bool {
+            true
+        }
+
+        fn submit(&self, _task: WorkExecutorTask) -> Result<Box<dyn WorkTask>, WorkExecutorError> {
+            Err(WorkExecutorError::Stopped)
+        }
+    }
+
+    impl ArtifactRepository for UnavailableRepository {
+        fn capabilities(&self) -> RepositoryCapabilities {
+            RepositoryCapabilities::EPHEMERAL_MEMORY
+        }
+
+        fn namespaces(&self) -> Result<Vec<ArtifactNamespace>, RepositoryError> {
+            Err(RepositoryError::Unavailable)
+        }
+
+        fn open(
+            &self,
+            _key: &ArtifactKey,
+        ) -> Result<Option<Box<dyn ReadArtifact>>, RepositoryError> {
+            Err(RepositoryError::Unavailable)
+        }
+
+        fn begin_write(
+            &self,
+            _key: ArtifactKey,
+        ) -> Result<Box<dyn WriteArtifact>, RepositoryError> {
+            Err(RepositoryError::Unavailable)
+        }
+
+        fn remove(&self, _key: &ArtifactKey) -> Result<(), RepositoryError> {
+            Err(RepositoryError::Unavailable)
+        }
+
+        fn entries(
+            &self,
+            _namespace: &ArtifactNamespace,
+        ) -> Result<Vec<ArtifactMetadata>, RepositoryError> {
+            Err(RepositoryError::Unavailable)
         }
     }
 
@@ -789,6 +864,27 @@ mod cache_policy_tests {
         assert!(task.poll(1).is_none());
 
         queued.run_queued();
-        assert_eq!(task.poll(1), Some(Ok(DerivedCacheClearStats::default())));
+        assert!(matches!(
+            task.poll(1),
+            Some(Ok(stats)) if stats == DerivedCacheClearStats::default()
+        ));
+    }
+
+    #[test]
+    fn cache_maintenance_retains_store_and_executor_failures() {
+        let repository: Arc<dyn ArtifactRepository> = Arc::new(UnavailableRepository);
+        assert!(matches!(
+            clear_repository(&repository),
+            Err(DerivedCacheError::Store(StoreError::Repository(
+                RepositoryError::Unavailable
+            )))
+        ));
+
+        let repository: Arc<dyn ArtifactRepository> = Arc::new(MemoryArtifactRepository::new());
+        let executor: Arc<dyn WorkExecutor> = Arc::new(RejectingWorkExecutor);
+        assert!(matches!(
+            start_clear_repository(&repository, &executor),
+            Err(DerivedCacheError::Executor(WorkExecutorError::Stopped))
+        ));
     }
 }

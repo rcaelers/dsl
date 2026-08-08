@@ -73,7 +73,10 @@ impl App {
             let (state, info) = match inspected {
                 Ok(Some(info)) => (PersistentCacheSnapshotState::Ready, Some(info)),
                 Ok(None) => (PersistentCacheSnapshotState::Missing, None),
-                Err(error) => (PersistentCacheSnapshotState::Unreadable(error), None),
+                Err(error) => (
+                    PersistentCacheSnapshotState::Unreadable(error.to_string()),
+                    None,
+                ),
             };
             snapshot.persistent_caches.push(PersistentCacheSnapshot {
                 cache_key: config.cache_key,
