@@ -299,9 +299,10 @@ item here, so acceptance comparisons stop being ad-hoc.
      `CaptureSourceMetadataError`. Generic graph features preserve that cause through
      `CaptureSourceFeatureError`, and compiler discovery carries feature, identity-encoding, and
      multiple-source failures through `CapturePresentationDiscoveryError` into graph-runtime
-     source preparation. Next retain the capture-index metadata and index-construction causes in
-     `SourcePreparationError`. Continue converting remaining host-service and generic-crate
-     surfaces rather than formatting them early.
+     source preparation. Capture-index metadata inspection and index construction likewise retain
+     `signal_capture::Error` through `SourcePreparationError`. Next replace its executor and worker
+     protocol strings with typed owner errors. Continue converting remaining host-service and
+     generic-crate surfaces rather than formatting them early.
 
 ### Application state decomposition
 

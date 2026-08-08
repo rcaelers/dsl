@@ -182,7 +182,7 @@ impl SourcePreparation {
                     let work = Box::new(move |control: SourcePreparationControl| {
                         let metadata = factory
                             .metadata()
-                            .map_err(|error| SourcePreparationError::Metadata(error.to_string()))?;
+                            .map_err(SourcePreparationError::metadata)?;
                         if !control.report_metadata(metadata) {
                             return Err(SourcePreparationError::Cancelled);
                         }
@@ -191,7 +191,7 @@ impl SourcePreparation {
                                 control.report_progress(progress)
                             })
                             .map(PreparedCaptureData::Indexed)
-                            .map_err(|error| SourcePreparationError::Index(error.to_string()))
+                            .map_err(SourcePreparationError::index)
                     });
                     self.executor.submit(work, control.clone())
                 };
@@ -572,6 +572,29 @@ mod source_preparation_tests {
         }
     }
 
+    struct FailingMetadataFactory;
+
+    impl CaptureIndexFactory for FailingMetadataFactory {
+        fn display_name(&self) -> String {
+            "failing metadata test factory".into()
+        }
+
+        fn metadata(&self) -> signal_capture::Result<CaptureMetadata> {
+            Err(signal_capture::Error::ParseError(
+                "controlled metadata error".into(),
+            ))
+        }
+
+        fn open(
+            self: Box<Self>,
+            _artifact_repository: Arc<dyn platform_artifacts::ArtifactRepository>,
+            _work_executor: Arc<dyn platform_runtime::WorkExecutor>,
+            _progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
+        ) -> signal_capture::Result<Box<dyn CaptureIndex + Send>> {
+            panic!("metadata failure must prevent index opening")
+        }
+    }
+
     struct ProgressFactory;
 
     impl CaptureIndexFactory for ProgressFactory {
@@ -681,6 +704,17 @@ mod source_preparation_tests {
             presentation: CapturePresentation::Indexed {
                 identity: platform_artifacts::SourceIdentity::from_bytes([2; 32]),
                 factory: Box::new(FailingFactory),
+            },
+        }
+    }
+
+    fn failing_metadata_indexed(identity: &str) -> DiscoveredCapturePresentation {
+        DiscoveredCapturePresentation {
+            identity: identity.into(),
+            visible_channels: vec![0],
+            presentation: CapturePresentation::Indexed {
+                identity: platform_artifacts::SourceIdentity::from_bytes([3; 32]),
+                factory: Box::new(FailingMetadataFactory),
             },
         }
     }
@@ -875,21 +909,37 @@ mod source_preparation_tests {
             SourcePreparationUpdate::Preparing(_)
         ));
 
-        executor.fail_next(SourcePreparationError::Index(
-            "controlled preparation failure".into(),
+        executor.fail_next(SourcePreparationError::index(
+            signal_capture::Error::ParseError("controlled preparation failure".into()),
         ));
         assert!(matches!(
             preparation.synchronize(Some(indexed("indexed-capture", open_count.clone()))),
             SourcePreparationUpdate::Failed(SourcePreparationError::Index(error))
-                if error == "controlled preparation failure"
+                if matches!(error.as_ref(), signal_capture::Error::ParseError(message)
+                    if message == "controlled preparation failure")
         ));
         assert_eq!(*open_count.lock().unwrap(), 0);
         assert_eq!(
             preparation.status(),
-            SourcePreparationStatus::Failed(SourcePreparationError::Index(
-                "controlled preparation failure".into()
+            SourcePreparationStatus::Failed(SourcePreparationError::index(
+                signal_capture::Error::ParseError("controlled preparation failure".into())
             ))
         );
+    }
+
+    #[test]
+    fn indexed_capture_metadata_error_retains_the_capture_cause() {
+        let mut preparation = SourcePreparation::with_executor(Box::new(ImmediateExecutor));
+        assert!(matches!(
+            preparation.synchronize(Some(failing_metadata_indexed("indexed-capture"))),
+            SourcePreparationUpdate::Preparing(_)
+        ));
+        assert!(matches!(
+            preparation.synchronize(Some(failing_metadata_indexed("indexed-capture"))),
+            SourcePreparationUpdate::Failed(SourcePreparationError::Metadata(error))
+                if matches!(error.as_ref(), signal_capture::Error::ParseError(message)
+                    if message == "controlled metadata error")
+        ));
     }
 
     #[test]
@@ -902,7 +952,8 @@ mod source_preparation_tests {
         assert!(matches!(
             preparation.synchronize(Some(failing_indexed("indexed-capture"))),
             SourcePreparationUpdate::Failed(SourcePreparationError::Index(error))
-                if error == "Parse error: controlled index error"
+                if matches!(error.as_ref(), signal_capture::Error::ParseError(message)
+                    if message == "controlled index error")
         ));
     }
 

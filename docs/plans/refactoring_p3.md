@@ -35,7 +35,9 @@ and device adapters retain their concrete I/O, parser, and acquisition causes th
 The generic graph feature wraps metadata inspection in `CaptureSourceFeatureError`, and the neutral
 graph-plan exchange contract carries feature, source-identity encoding, and multiple-source
 selection failures through `CapturePresentationDiscoveryError`. Compiler discovery and runtime
-source preparation therefore share the typed result without depending on one another.
+source preparation therefore share the typed result without depending on one another. Index
+metadata inspection and index opening or construction retain `signal_capture::Error` in distinct
+`SourcePreparationError` variants.
 
 `logic_analyzer_graph_orchestration` owns
 separate graph-worker codec, bounded-client, and serializable transport failures. The browser host
@@ -57,7 +59,8 @@ UI policy therefore matches a cancellation variant rather than display text.
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. Retain capture-index metadata and index-construction causes in `SourcePreparationError`.
+1. Replace the remaining source-preparation executor and worker-protocol strings with typed owner
+   errors.
 2. Platform and UI last: most occurrences will collapse into carrying the
    now-typed lower errors; only genuinely UI-owned failures need new variants.
 

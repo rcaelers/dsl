@@ -171,6 +171,25 @@ unless source_preparation_contract.match?(
 )
   errors << "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_contract.rs: source preparation must retain typed capture-discovery failures"
 end
+%w[Metadata Index].each do |variant|
+  next if source_preparation_contract.match?(
+    /^\s*#{variant}\(\#\[source\]\s*Arc<signal_capture::Error>\),$/
+  )
+
+  errors << "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_contract.rs: SourcePreparationError must retain its #{variant.downcase} capture source"
+end
+source_preparation_implementation = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation.rs"
+)).split(
+  /^\s*#\s*\[\s*cfg\s*\([^\]]*\btest\b[^\]]*\)\s*\]\s*\n\s*mod\s+\w*tests\b/,
+  2
+).first
+%w[metadata index].each do |category|
+  next if source_preparation_implementation.include?("SourcePreparationError::#{category}")
+
+  errors << "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation.rs: capture #{category} failures must cross the typed source-preparation boundary"
+end
 if source_preparation_contract.scan(/Failed\(SourcePreparationError\)/).length < 2
   errors << "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_contract.rs: source-preparation updates and status must retain their typed failure cause"
 end

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use thiserror::Error;
 
 use logic_analyzer_graph_capabilities::node_support::CapturePresentationSignal;
@@ -8,17 +10,17 @@ use signal_capture::{
 };
 
 /// Failure produced while discovering or preparing one finite capture source.
-#[derive(Clone, Debug, Error, PartialEq, Eq)]
+#[derive(Clone, Debug, Error)]
 pub enum SourcePreparationError {
     /// The graph's finite-source presentation contract could not be discovered.
     #[error("capture-source discovery failed: {0}")]
     Discovery(#[source] CapturePresentationDiscoveryError),
     /// Source metadata could not be inspected before preparation.
     #[error("capture metadata inspection failed: {0}")]
-    Metadata(String),
+    Metadata(#[source] Arc<signal_capture::Error>),
     /// The source's waveform index could not be opened or built.
     #[error("capture index preparation failed: {0}")]
-    Index(String),
+    Index(#[source] Arc<signal_capture::Error>),
     /// The current preparation generation was cancelled.
     #[error("source preparation was cancelled")]
     Cancelled,
@@ -35,6 +37,38 @@ pub enum SourcePreparationError {
     #[error("capture preparation worker protocol failed: {0}")]
     WorkerProtocol(String),
 }
+
+impl SourcePreparationError {
+    /// Retains a capture-index metadata inspection failure.
+    pub fn metadata(error: signal_capture::Error) -> Self {
+        Self::Metadata(Arc::new(error))
+    }
+
+    /// Retains a capture-index opening or construction failure.
+    pub fn index(error: signal_capture::Error) -> Self {
+        Self::Index(Arc::new(error))
+    }
+}
+
+impl PartialEq for SourcePreparationError {
+    fn eq(&self, other: &Self) -> bool {
+        // Preparation is polled. Equivalent capture diagnostics deduplicate while each error
+        // value continues to retain the concrete signal-capture source.
+        match (self, other) {
+            (Self::Discovery(left), Self::Discovery(right)) => left == right,
+            (Self::Metadata(left), Self::Metadata(right))
+            | (Self::Index(left), Self::Index(right)) => left.to_string() == right.to_string(),
+            (Self::Cancelled, Self::Cancelled) => true,
+            (Self::Executor(left), Self::Executor(right))
+            | (Self::WorkerProtocol(left), Self::WorkerProtocol(right)) => left == right,
+            (Self::WorkerClient(left), Self::WorkerClient(right)) => left == right,
+            (Self::Worker(left), Self::Worker(right)) => left == right,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for SourcePreparationError {}
 
 /// Prepared capture data ready for the host viewer and graph runtime.
 pub struct PreparedCapture {

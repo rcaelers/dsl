@@ -57,6 +57,8 @@ is published last. Missing manifests are cache misses; invalid manifests, indexe
 generations are rejected and invalidated as a unit. Unfinished ephemeral artifacts are reclaimed
 when their last store handle is dropped. Graph-runtime cache lookup, graph pruning, preview,
 invalidation, and cleanup apply the same policy to native and web repositories.
+Capture-index metadata inspection and index construction retain the shared capture error through
+graph-runtime preparation on both targets.
 
 `platform` exposes target-scoped constructors for artifact repositories and host
 mechanisms. Native and web application roots call the constructors they need, adapt mechanisms to
