@@ -7,6 +7,8 @@ use signal_capture_session::{
 };
 use signal_runtime::ProcessNode;
 
+use super::error::CaptureCoordinatorError;
+
 /// Outer `Option` on the coordinator method means "no update"; this inner
 /// option carries either a new growing index or an explicit detach.
 pub(crate) type CaptureWaveformUpdate = Option<Box<dyn CaptureIndex>>;
@@ -101,8 +103,8 @@ pub(crate) enum ConfigurationEpochResolution {
 pub(crate) trait CaptureCoordinatorContract {
     fn backend_unavailable_reason(&self) -> Option<&'static str>;
     fn request_stop(&mut self);
-    fn request_abort(&mut self) -> Result<(), String>;
-    fn request_force_trigger(&mut self) -> Result<(), String>;
+    fn request_abort(&mut self) -> Result<(), CaptureCoordinatorError>;
+    fn request_force_trigger(&mut self) -> Result<(), CaptureCoordinatorError>;
     fn set_graph_processed_samples(&mut self, processed_samples: Option<u64>);
     fn poll(&mut self);
     fn status(&self) -> Option<&CaptureSessionStatus>;
@@ -111,26 +113,32 @@ pub(crate) trait CaptureCoordinatorContract {
     fn request_configuration_epoch(
         &mut self,
         _graph: node_graph::GraphState,
-    ) -> Result<(), String> {
-        Err("live configuration epochs are unavailable on this platform".into())
+    ) -> Result<(), CaptureCoordinatorError> {
+        Err(CaptureCoordinatorError::policy(
+            "live configuration epochs are unavailable on this platform",
+        ))
     }
     fn take_configuration_epoch_preparation(
         &mut self,
-    ) -> Option<Result<PreparedConfigurationEpoch, String>> {
+    ) -> Option<Result<PreparedConfigurationEpoch, CaptureCoordinatorError>> {
         None
     }
     fn resolve_configuration_epoch(
         &mut self,
         _epoch_id: u64,
         _resolution: ConfigurationEpochResolution,
-    ) -> Result<(), String> {
-        Err("live configuration epochs are unavailable on this platform".into())
+    ) -> Result<(), CaptureCoordinatorError> {
+        Err(CaptureCoordinatorError::policy(
+            "live configuration epochs are unavailable on this platform",
+        ))
     }
-    fn take_configuration_epoch_notice(&mut self) -> Option<Result<(), String>> {
+    fn take_configuration_epoch_notice(&mut self) -> Option<Result<(), CaptureCoordinatorError>> {
         None
     }
     fn replay_source_node(&self) -> Option<NodeId>;
-    fn create_replay_attachment(&self) -> Result<Option<CaptureReplayAttachment>, String>;
+    fn create_replay_attachment(
+        &self,
+    ) -> Result<Option<CaptureReplayAttachment>, CaptureCoordinatorError>;
     /// Remains true through Error cleanup until the supervisor has returned.
     fn is_active(&self) -> bool;
 

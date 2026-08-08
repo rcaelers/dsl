@@ -24,6 +24,9 @@ use signal_capture_session::{
     TriggerTimeoutAction, bounded_capture_event_queue,
 };
 
+use super::error::{
+    CaptureAttachmentKind, CaptureCoordinatorError, CaptureStoreOperation, CaptureWaveformOperation,
+};
 use super::implementation::{
     CaptureAnalysisAttachment, ConfigurationEpochResolution, PreparedConfigurationEpoch,
 };
@@ -50,18 +53,18 @@ enum CaptureCommand {
     ForceTrigger,
     PrepareConfigurationEpoch {
         graph: Box<node_graph::GraphState>,
-        response: Sender<Result<WorkerPreparedConfigurationEpoch, String>>,
+        response: Sender<Result<WorkerPreparedConfigurationEpoch, CaptureCoordinatorError>>,
     },
     ResolveConfigurationEpoch {
         epoch_id: u64,
         resolution: ConfigurationEpochResolution,
-        response: Sender<Result<(), String>>,
+        response: Sender<Result<(), CaptureCoordinatorError>>,
     },
 }
 
 pub(crate) enum WorkerCompletion {
     Complete(Box<PublishedCapture>),
-    Failed(String),
+    Failed(CaptureCoordinatorError),
 }
 
 struct ActiveCapture {
@@ -77,7 +80,7 @@ struct ActiveCapture {
 
 struct PendingConfigurationEpoch {
     graph: node_graph::GraphState,
-    response: Receiver<Result<WorkerPreparedConfigurationEpoch, String>>,
+    response: Receiver<Result<WorkerPreparedConfigurationEpoch, CaptureCoordinatorError>>,
 }
 
 struct CaptureWorkerPorts {
@@ -108,9 +111,10 @@ pub(crate) struct AcquisitionPoll {
 pub(crate) struct CaptureAcquisition {
     active: Option<ActiveCapture>,
     pending_configuration_epoch: Option<PendingConfigurationEpoch>,
-    configuration_epoch_preparation: Option<Result<PreparedConfigurationEpoch, String>>,
-    configuration_epoch_resolutions: Vec<Receiver<Result<(), String>>>,
-    configuration_epoch_notice: Option<Result<(), String>>,
+    configuration_epoch_preparation:
+        Option<Result<PreparedConfigurationEpoch, CaptureCoordinatorError>>,
+    configuration_epoch_resolutions: Vec<Receiver<Result<(), CaptureCoordinatorError>>>,
+    configuration_epoch_notice: Option<Result<(), CaptureCoordinatorError>>,
     work_executor: Arc<dyn WorkExecutor>,
 }
 
@@ -137,16 +141,22 @@ impl CaptureAcquisition {
         feature: DiscoveredLiveCaptureFeature,
         graph: Option<&node_graph::GraphState>,
         mode: CaptureStartMode,
-    ) -> Result<CaptureStartProjection, String> {
+    ) -> Result<CaptureStartProjection, CaptureCoordinatorError> {
         if self.is_active() {
-            return Err("a live capture is already active".into());
+            return Err(CaptureCoordinatorError::policy(
+                "a live capture is already active",
+            ));
         }
         let commands = feature.capabilities().commands();
         if mode == CaptureStartMode::CaptureNow && !commands.capture_now {
-            return Err("this capture source does not support Capture Now".into());
+            return Err(CaptureCoordinatorError::policy(
+                "this capture source does not support Capture Now",
+            ));
         }
         if !self.work_executor.supports_long_running_tasks() {
-            return Err("the selected host cannot schedule live capture supervision".into());
+            return Err(CaptureCoordinatorError::policy(
+                "the selected host cannot schedule live capture supervision",
+            ));
         }
 
         let session_id = fresh_session_id();
@@ -204,7 +214,7 @@ impl CaptureAcquisition {
                 };
                 let _ = completion_sender.send(completion);
             }))
-            .map_err(|error| format!("could not start capture supervisor: {error}"))?;
+            .map_err(CaptureCoordinatorError::Executor)?;
 
         self.active = Some(ActiveCapture {
             commands: command_sender,
@@ -238,30 +248,31 @@ impl CaptureAcquisition {
         true
     }
 
-    pub(crate) fn request_abort(&mut self) -> Result<(), String> {
-        let active = self
-            .active
-            .as_mut()
-            .ok_or_else(|| "there is no active capture to abort".to_owned())?;
+    pub(crate) fn request_abort(&mut self) -> Result<(), CaptureCoordinatorError> {
+        let active = self.active.as_mut().ok_or_else(|| {
+            CaptureCoordinatorError::policy("there is no active capture to abort")
+        })?;
         if !active.abort_requested {
             active.abort_requested = true;
             active
                 .commands
                 .try_send(CaptureCommand::Abort)
-                .map_err(|error| format!("could not request capture abort: {error}"))?;
+                .map_err(|_| {
+                    CaptureCoordinatorError::protocol("could not request capture abort")
+                })?;
         }
         Ok(())
     }
 
-    pub(crate) fn request_force_trigger(&mut self) -> Result<(), String> {
+    pub(crate) fn request_force_trigger(&mut self) -> Result<(), CaptureCoordinatorError> {
         let active = self
             .active
             .as_mut()
-            .ok_or_else(|| "there is no armed capture".to_owned())?;
+            .ok_or_else(|| CaptureCoordinatorError::policy("there is no armed capture"))?;
         active
             .commands
             .try_send(CaptureCommand::ForceTrigger)
-            .map_err(|error| format!("could not request force trigger: {error}"))
+            .map_err(|_| CaptureCoordinatorError::protocol("could not request force trigger"))
     }
 
     pub(crate) fn poll(&mut self) -> AcquisitionPoll {
@@ -300,9 +311,11 @@ impl CaptureAcquisition {
                 .as_ref()
                 .and_then(|active| match active.completion.try_recv() {
                     Ok(completion) => Some(completion),
-                    Err(TryRecvError::Disconnected) => Some(WorkerCompletion::Failed(
-                        "capture supervisor stopped without a result".into(),
-                    )),
+                    Err(TryRecvError::Disconnected) => {
+                        Some(WorkerCompletion::Failed(CaptureCoordinatorError::protocol(
+                            "capture supervisor stopped without a result",
+                        )))
+                    }
                     Err(TryRecvError::Empty) => None,
                 });
         if completion.is_some() {
@@ -325,16 +338,18 @@ impl CaptureAcquisition {
     pub(crate) fn request_configuration_epoch(
         &mut self,
         graph: node_graph::GraphState,
-    ) -> Result<(), String> {
+    ) -> Result<(), CaptureCoordinatorError> {
         if self.pending_configuration_epoch.is_some()
             || self.configuration_epoch_preparation.is_some()
         {
-            return Err("a configuration epoch is already being prepared".into());
+            return Err(CaptureCoordinatorError::policy(
+                "a configuration epoch is already being prepared",
+            ));
         }
         let active = self
             .active
             .as_ref()
-            .ok_or_else(|| "there is no active capture".to_owned())?;
+            .ok_or_else(|| CaptureCoordinatorError::policy("there is no active capture"))?;
         let (response_sender, response) = crossbeam_channel::bounded(1);
         active
             .commands
@@ -342,14 +357,18 @@ impl CaptureAcquisition {
                 graph: Box::new(graph.clone()),
                 response: response_sender,
             })
-            .map_err(|_| "capture supervisor no longer accepts configuration changes".to_owned())?;
+            .map_err(|_| {
+                CaptureCoordinatorError::protocol(
+                    "capture supervisor no longer accepts configuration changes",
+                )
+            })?;
         self.pending_configuration_epoch = Some(PendingConfigurationEpoch { graph, response });
         Ok(())
     }
 
     pub(crate) fn take_configuration_epoch_preparation(
         &mut self,
-    ) -> Option<Result<PreparedConfigurationEpoch, String>> {
+    ) -> Option<Result<PreparedConfigurationEpoch, CaptureCoordinatorError>> {
         self.configuration_epoch_preparation.take()
     }
 
@@ -357,9 +376,11 @@ impl CaptureAcquisition {
         &mut self,
         epoch_id: u64,
         resolution: ConfigurationEpochResolution,
-    ) -> Result<(), String> {
+    ) -> Result<(), CaptureCoordinatorError> {
         let active = self.active.as_ref().ok_or_else(|| {
-            "capture ended before the configuration epoch was resolved".to_owned()
+            CaptureCoordinatorError::policy(
+                "capture ended before the configuration epoch was resolved",
+            )
         })?;
         let (response_sender, response) = crossbeam_channel::bounded(1);
         active
@@ -369,12 +390,18 @@ impl CaptureAcquisition {
                 resolution,
                 response: response_sender,
             })
-            .map_err(|_| "capture supervisor no longer accepts epoch outcomes".to_owned())?;
+            .map_err(|_| {
+                CaptureCoordinatorError::protocol(
+                    "capture supervisor no longer accepts epoch outcomes",
+                )
+            })?;
         self.configuration_epoch_resolutions.push(response);
         Ok(())
     }
 
-    pub(crate) fn take_configuration_epoch_notice(&mut self) -> Option<Result<(), String>> {
+    pub(crate) fn take_configuration_epoch_notice(
+        &mut self,
+    ) -> Option<Result<(), CaptureCoordinatorError>> {
         self.configuration_epoch_notice.take()
     }
 
@@ -389,9 +416,11 @@ impl CaptureAcquisition {
                 .and_then(|pending| match pending.response.try_recv() {
                     Ok(result) => Some(result),
                     Err(TryRecvError::Empty) => None,
-                    Err(TryRecvError::Disconnected) => Some(Err(
-                        "capture supervisor stopped while preparing a configuration epoch".into(),
-                    )),
+                    Err(TryRecvError::Disconnected) => {
+                        Some(Err(CaptureCoordinatorError::protocol(
+                            "capture supervisor stopped while preparing a configuration epoch",
+                        )))
+                    }
                 });
         if let Some(preparation) = preparation {
             let pending = self
@@ -412,9 +441,9 @@ impl CaptureAcquisition {
             let result = match self.configuration_epoch_resolutions[index].try_recv() {
                 Ok(result) => Some(result),
                 Err(TryRecvError::Empty) => None,
-                Err(TryRecvError::Disconnected) => Some(Err(
-                    "capture supervisor stopped before resolving a configuration epoch".into(),
-                )),
+                Err(TryRecvError::Disconnected) => Some(Err(CaptureCoordinatorError::protocol(
+                    "capture supervisor stopped before resolving a configuration epoch",
+                ))),
             };
             if let Some(result) = result {
                 self.configuration_epoch_resolutions.swap_remove(index);
@@ -537,14 +566,14 @@ fn run_capture_worker(
     session: CaptureWorkerSession,
     ports: CaptureWorkerPorts,
     work_executor: Arc<dyn WorkExecutor>,
-) -> Result<PublishedCapture, String> {
+) -> Result<PublishedCapture, CaptureCoordinatorError> {
     let CaptureWorkerSession {
         repository,
         mut application_metadata,
     } = session;
-    let session_pin = repository
-        .reserve(session_id)
-        .map_err(|error| error.to_string())?;
+    let session_pin = repository.reserve(session_id).map_err(|error| {
+        CaptureCoordinatorError::store(CaptureStoreOperation::ReserveSession, error)
+    })?;
     if let Some(metadata) = &application_metadata
         && let Err(error) = write_application_metadata(
             repository.artifact_repository().as_ref(),
@@ -583,32 +612,42 @@ fn run_capture_worker(
     } else {
         CaptureRecordingGate::immediate()
     };
-    let descriptor = CaptureStoreDescriptor::new(session_id, feature.channels().to_vec())
-        .map_err(|error| error.to_string())?;
+    let descriptor =
+        CaptureStoreDescriptor::new(session_id, feature.channels().to_vec()).map_err(|error| {
+            CaptureCoordinatorError::store(CaptureStoreOperation::CreateStore, error)
+        })?;
     let (store, writer) = CaptureStore::create(CaptureStoreConfig::new(
         repository.artifact_repository(),
         descriptor,
     ))
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| CaptureCoordinatorError::store(CaptureStoreOperation::CreateStore, error))?;
     let timeline =
         CaptureTimelineMetadata::new(feature.sample_rate_hz(), feature.channel_names().to_vec())
-            .map_err(|error| error.to_string())?;
-    store
-        .write_timeline_metadata(timeline)
-        .map_err(|error| error.to_string())?;
+            .map_err(|error| {
+                CaptureCoordinatorError::store(CaptureStoreOperation::WriteTimelineMetadata, error)
+            })?;
+    store.write_timeline_metadata(timeline).map_err(|error| {
+        CaptureCoordinatorError::store(CaptureStoreOperation::WriteTimelineMetadata, error)
+    })?;
     let graph_source_factory = feature.graph_source_factory();
     let sample_rate_hz = feature.sample_rate_hz();
-    let analysis_cursor = store.open_cursor().map_err(|error| error.to_string())?;
+    let analysis_cursor = store.open_cursor().map_err(|error| {
+        CaptureCoordinatorError::store(CaptureStoreOperation::OpenAnalysisCursor, error)
+    })?;
     let analysis_cursor = recording_gate.cursor(Box::new(analysis_cursor));
     let analysis_process = graph_source_factory
         .create(Box::new(analysis_cursor))
-        .map_err(|error| format!("could not build live analysis source: {error}"))?;
+        .map_err(|error| {
+            CaptureCoordinatorError::graph_source(CaptureAttachmentKind::LiveAnalysis, error)
+        })?;
     analysis_ready
         .send(CaptureAnalysisAttachment {
             source_node: feature.source_node(),
             process: analysis_process,
         })
-        .map_err(|_| "live analysis attachment receiver closed".to_owned())?;
+        .map_err(|_| {
+            CaptureCoordinatorError::protocol("live analysis attachment receiver closed")
+        })?;
     let source_node = feature.source_node();
     let source_title = feature.source_title().to_owned();
     let (waveform, waveform_worker) = GrowingCaptureIndex::spawn(
@@ -618,7 +657,7 @@ fn run_capture_worker(
         feature.channel_names().to_vec(),
         Arc::clone(&work_executor),
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| CaptureCoordinatorError::waveform(CaptureWaveformOperation::Build, error))?;
     let mut waveform_published = false;
     let runtime = Arc::new(Mutex::new(CaptureRuntimeSignals::default()));
     let events = RecordingEventPublisher {
@@ -634,8 +673,10 @@ fn run_capture_worker(
         .with_work_executor(Arc::clone(&work_executor));
     let mut acquisition = feature
         .prepare(context, mode)
-        .map_err(|error| error.to_string())?;
-    acquisition.start().map_err(|error| error.to_string())?;
+        .map_err(CaptureCoordinatorError::Acquisition)?;
+    acquisition
+        .start()
+        .map_err(CaptureCoordinatorError::Acquisition)?;
 
     let mut stop_requested = false;
     let mut abort_requested = false;
@@ -649,18 +690,18 @@ fn run_capture_worker(
                 stop_requested = true;
                 acquisition
                     .request_stop()
-                    .map_err(|error| error.to_string())?;
+                    .map_err(CaptureCoordinatorError::Acquisition)?;
             }
             Ok(CaptureCommand::Abort) if !abort_requested => {
                 abort_requested = true;
                 acquisition
                     .request_abort()
-                    .map_err(|error| error.to_string())?;
+                    .map_err(CaptureCoordinatorError::Acquisition)?;
             }
             Ok(CaptureCommand::ForceTrigger) => {
                 acquisition
                     .request_force_trigger()
-                    .map_err(|error| error.to_string())?;
+                    .map_err(CaptureCoordinatorError::Acquisition)?;
             }
             Ok(CaptureCommand::PrepareConfigurationEpoch { graph, response }) => {
                 let result = prepare_configuration_epoch(
@@ -694,7 +735,7 @@ fn run_capture_worker(
                 stop_requested = true;
                 acquisition
                     .request_stop()
-                    .map_err(|error| error.to_string())?;
+                    .map_err(CaptureCoordinatorError::Acquisition)?;
             }
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {}
         }
@@ -717,12 +758,12 @@ fn run_capture_worker(
                     stop_requested = true;
                     acquisition
                         .request_stop()
-                        .map_err(|error| error.to_string())?;
+                        .map_err(CaptureCoordinatorError::Acquisition)?;
                 }
                 TriggerTimeoutAction::ForceTrigger => {
                     acquisition
                         .request_force_trigger()
-                        .map_err(|error| error.to_string())?;
+                        .map_err(CaptureCoordinatorError::Acquisition)?;
                 }
             }
         }
@@ -733,13 +774,13 @@ fn run_capture_worker(
             && let Some(completion) = plan
                 .policy
                 .completion_sample(origin, plan.sample_rate_hz)
-                .map_err(|error| error.to_string())?
+                .map_err(CaptureCoordinatorError::CapturePolicy)?
             && captured_samples >= completion
         {
             stop_requested = true;
             acquisition
                 .request_stop()
-                .map_err(|error| error.to_string())?;
+                .map_err(CaptureCoordinatorError::Acquisition)?;
         }
         let waveform_metadata = waveform.current_metadata();
         if !waveform_published
@@ -754,7 +795,9 @@ fn run_capture_worker(
             waveform_published = true;
         }
     }
-    let outcome = acquisition.join().map_err(|error| error.to_string())?;
+    let outcome = acquisition
+        .join()
+        .map_err(CaptureCoordinatorError::Acquisition)?;
     let resolution_deadline = Instant::now() + Duration::from_millis(500);
     while application_metadata.as_ref().is_some_and(|metadata| {
         metadata
@@ -779,9 +822,9 @@ fn run_capture_worker(
                 let _ = response.send(result);
             }
             Ok(CaptureCommand::PrepareConfigurationEpoch { response, .. }) => {
-                let _ = response.send(Err(
-                    "capture ended before the configuration epoch was prepared".into(),
-                ));
+                let _ = response.send(Err(CaptureCoordinatorError::protocol(
+                    "capture ended before the configuration epoch was prepared",
+                )));
             }
             Ok(CaptureCommand::Stop | CaptureCommand::Abort | CaptureCommand::ForceTrigger) => {}
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
@@ -805,9 +848,9 @@ fn run_capture_worker(
                 let _ = response.send(result);
             }
             CaptureCommand::PrepareConfigurationEpoch { response, .. } => {
-                let _ = response.send(Err(
-                    "capture ended before the configuration epoch was prepared".into(),
-                ));
+                let _ = response.send(Err(CaptureCoordinatorError::protocol(
+                    "capture ended before the configuration epoch was prepared",
+                )));
             }
             CaptureCommand::Stop | CaptureCommand::Abort | CaptureCommand::ForceTrigger => {}
         }
@@ -818,15 +861,17 @@ fn run_capture_worker(
     if !recording_gate.is_resolved() {
         recording_gate.finish_without_trigger();
     }
-    waveform_worker.join().map_err(|error| error.to_string())?;
+    waveform_worker.join().map_err(|error| {
+        CaptureCoordinatorError::waveform(CaptureWaveformOperation::Build, error)
+    })?;
     let session_plan = session_plan.map(|plan| match recording_gate.recording_origin() {
         Some(sample) => plan.with_actual_trigger_sample(sample),
         None => plan,
     });
     if let Some(plan) = &session_plan {
-        store
-            .write_session_plan(plan)
-            .map_err(|error| error.to_string())?;
+        store.write_session_plan(plan).map_err(|error| {
+            CaptureCoordinatorError::store(CaptureStoreOperation::WriteSessionPlan, error)
+        })?;
     }
     let session_outcome = match outcome.completion {
         CaptureCompletion::Finished => CaptureSessionOutcome::Complete,
@@ -844,7 +889,9 @@ fn run_capture_worker(
             recording_gate.recording_origin(),
             trigger_sample,
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            CaptureCoordinatorError::store(CaptureStoreOperation::FinalizeSession, error)
+        })?;
     Ok(PublishedCapture {
         _session_pin: session_pin,
         capture,

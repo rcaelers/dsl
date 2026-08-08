@@ -82,7 +82,10 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
   persistence, derived-cache commands and diagnostics, and native-shell state exchange. Native and
   web application roots implement that application-facing port by adapting low-level host
   mechanisms. Its plugin-panel facade owns registration validation and source-bearing persisted-state
-  restoration errors, keeping plugin causes typed until application toast presentation. These
+  restoration errors, keeping plugin causes typed until application toast presentation. Its
+  live-capture coordinator likewise owns the application workflow error that retains repository,
+  capture-store, graph-source, waveform, executor, export, and acquisition causes until status or
+  toast presentation. These
   application and domain contracts do not belong to `platform`; it remains
   independent of UI and graph crates. The UI consumes and re-exports the
   `logic_analyzer_capture_export` service contract;

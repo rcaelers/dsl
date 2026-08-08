@@ -10,6 +10,7 @@ mod acquisition_state;
 #[cfg(test)]
 mod architecture_tests;
 mod coordinator;
+mod error;
 mod implementation;
 mod status_projection;
 mod storage_publication;

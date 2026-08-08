@@ -27,8 +27,8 @@ use super::super::test_acquisition_tests::{
     DeterministicFakeController, DeterministicFakeProvider,
 };
 use super::{
-    CaptureCoordinator, CaptureCoordinatorContract, CaptureRawExportFormat, WorkerCompletion,
-    waveform_ready_for_publication,
+    CaptureCoordinator, CaptureCoordinatorContract, CaptureCoordinatorError,
+    CaptureRawExportFormat, WorkerCompletion, waveform_ready_for_publication,
 };
 use crate::capture_export_service::unavailable_capture_export_service;
 
@@ -61,7 +61,7 @@ impl CaptureCoordinator {
         &mut self,
         feature: DiscoveredLiveCaptureFeature,
         mode: CaptureStartMode,
-    ) -> Result<(), String> {
+    ) -> Result<(), CaptureCoordinatorError> {
         self.start_session(feature, None, mode)
     }
 }
@@ -496,7 +496,9 @@ fn poll_until(
 fn failed_capture_does_not_detach_an_already_published_waveform() {
     let mut coordinator = CaptureCoordinator::new();
 
-    coordinator.finish_worker(WorkerCompletion::Failed("stream overflow".into()));
+    coordinator.finish_worker(WorkerCompletion::Failed(CaptureCoordinatorError::protocol(
+        "stream overflow",
+    )));
 
     assert!(coordinator.take_waveform_update().is_none());
 }

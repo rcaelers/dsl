@@ -89,6 +89,12 @@ diagnostics. Analysis-source construction then crosses the graph feature port as
 `CaptureGraphSourceError`; concrete graph nodes and the generic capability crate do not format the
 session-owned validation cause.
 
+`logic_analyzer_ui` carries live-capture failures through `CaptureCoordinatorError`. Its variants
+retain repository, capture-store, graph-source, waveform-index, executor, export, acquisition,
+capture-policy, and metadata-codec causes through worker completion, live attachment, finalized
+replay, retention, and publication. Status projection and application toast/run-message calls are
+the only points that convert this workflow error to text.
+
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
 - One enum per *facade*, not per crate and not per function. Variants describe what failed in
@@ -100,8 +106,9 @@ session-owned validation cause.
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. Type live-capture attachment and storage-publication failures in `logic_analyzer_ui`, retaining
-   capture-store, repository, and graph-source causes until application presentation.
+1. Type persisted-state parsing and timeline-feature failures in
+   `logic_analyzer_graph_capabilities`, preserving JSON codec causes through concrete graph
+   features and their UI consumers.
 2. Continue through the remaining platform and UI facades: most occurrences collapse into carrying
    the now-typed lower errors; only genuinely UI-owned failures need new variants.
 

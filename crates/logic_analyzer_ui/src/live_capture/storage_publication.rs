@@ -19,6 +19,10 @@ use signal_capture_session::{
     CaptureStore, FinalizedCapture, GrowingCaptureIndex, GrowingCaptureIndexWorker,
 };
 
+use super::error::{
+    CaptureAttachmentKind, CaptureCoordinatorError, CaptureRepositoryOperation,
+    CaptureStoreOperation, CaptureWaveformOperation,
+};
 use super::implementation::{
     CaptureAnalysisAttachment, CaptureReplayAttachment, CaptureWaveformUpdate,
     ConfigurationEpochResolution,
@@ -203,16 +207,18 @@ impl CapturePublication {
         format: CaptureRawExportFormat,
         destination: PathBuf,
         acquisition_active: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), CaptureCoordinatorError> {
         if acquisition_active {
-            return Err("finish the live capture before exporting it".into());
+            return Err(CaptureCoordinatorError::policy(
+                "finish the live capture before exporting it",
+            ));
         }
-        let session_id = self
-            .current_session_id()
-            .ok_or_else(|| "there is no displayed capture to export".to_owned())?;
+        let session_id = self.current_session_id().ok_or_else(|| {
+            CaptureCoordinatorError::policy("there is no displayed capture to export")
+        })?;
         self.export_service
             .start(session_id, format, destination)
-            .map_err(|error| error.to_string())
+            .map_err(CaptureCoordinatorError::Export)
     }
 
     pub(crate) fn request_cancel_export(&mut self) {
@@ -226,12 +232,16 @@ impl CapturePublication {
     pub(crate) fn discard_all_capture_data(
         &mut self,
         acquisition_active: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), CaptureCoordinatorError> {
         if acquisition_active {
-            return Err("cannot replace capture data while acquisition is active".into());
+            return Err(CaptureCoordinatorError::policy(
+                "cannot replace capture data while acquisition is active",
+            ));
         }
         if self.export_service.is_active() {
-            return Err("cannot replace capture data while it is being saved".into());
+            return Err(CaptureCoordinatorError::policy(
+                "cannot replace capture data while it is being saved",
+            ));
         }
 
         self.analysis_attachment = None;
@@ -243,7 +253,10 @@ impl CapturePublication {
         for capture in &mut completed {
             if let Some(worker) = capture.waveform_worker.take() {
                 worker.join().map_err(|error| {
-                    format!("could not finish the previous capture index: {error}")
+                    CaptureCoordinatorError::waveform(
+                        CaptureWaveformOperation::FinishPrevious,
+                        error,
+                    )
                 })?;
             }
         }
@@ -260,9 +273,9 @@ impl CapturePublication {
                 .repository
                 .artifact_repository()
                 .remove(&application_metadata_key(session_id)?);
-            self.repository
-                .discard(session_id)
-                .map_err(|error| format!("could not remove previous capture data: {error}"))?;
+            self.repository.discard(session_id).map_err(|error| {
+                CaptureCoordinatorError::store(CaptureStoreOperation::DiscardSession, error)
+            })?;
         }
         self.refresh_recent_sessions();
         Ok(())
@@ -277,11 +290,10 @@ impl CapturePublication {
         &mut self,
         session_id: CaptureSessionId,
         waveform: GrowingCaptureIndex,
-    ) -> Result<(), String> {
-        let session_pin = self
-            .repository
-            .pin(session_id)
-            .map_err(|error| format!("could not pin capture waveform: {error}"))?;
+    ) -> Result<(), CaptureCoordinatorError> {
+        let session_pin = self.repository.pin(session_id).map_err(|error| {
+            CaptureCoordinatorError::store(CaptureStoreOperation::PinWaveform, error)
+        })?;
         self.waveform_update = Some(Some(Box::new(PinnedCaptureIndex {
             inner: waveform,
             _session_pin: session_pin,
@@ -299,7 +311,7 @@ impl CapturePublication {
         self.refresh_recent_sessions();
     }
 
-    pub(crate) fn retain_previous_after_failure(&mut self) -> Result<(), String> {
+    pub(crate) fn retain_previous_after_failure(&mut self) -> Result<(), CaptureCoordinatorError> {
         let previous = self.completed.as_ref().map(|completed| {
             (
                 completed.capture.manifest().descriptor.session_id(),
@@ -313,7 +325,7 @@ impl CapturePublication {
         Ok(())
     }
 
-    pub(crate) fn reap_waveform_workers(&mut self) -> Option<String> {
+    pub(crate) fn reap_waveform_workers(&mut self) -> Option<CaptureCoordinatorError> {
         let mut error = None;
         if let Some(completed) = &mut self.completed
             && completed
@@ -323,8 +335,9 @@ impl CapturePublication {
             && let Some(worker) = completed.waveform_worker.take()
             && let Err(worker_error) = worker.join()
         {
-            error = Some(format!(
-                "could not rebuild capture waveform: {worker_error}"
+            error = Some(CaptureCoordinatorError::waveform(
+                CaptureWaveformOperation::Rebuild,
+                worker_error,
             ));
         }
         let mut pending = Vec::new();
@@ -359,20 +372,21 @@ impl CapturePublication {
 
     pub(crate) fn create_replay_attachment(
         &self,
-    ) -> Result<Option<CaptureReplayAttachment>, String> {
+    ) -> Result<Option<CaptureReplayAttachment>, CaptureCoordinatorError> {
         let Some(completed) = &self.completed else {
             return Ok(None);
         };
-        let cursor = completed
-            .capture
-            .open_cursor()
-            .map_err(|error| format!("could not open finalized capture: {error}"))?;
+        let cursor = completed.capture.open_cursor().map_err(|error| {
+            CaptureCoordinatorError::store(CaptureStoreOperation::OpenReplayCursor, error)
+        })?;
         let cursor =
             CaptureRecordingGate::finalized(completed.recording_origin).cursor(Box::new(cursor));
         let process = completed
             .graph_source_factory
             .create(Box::new(cursor))
-            .map_err(|error| format!("could not build capture replay source: {error}"))?;
+            .map_err(|error| {
+                CaptureCoordinatorError::graph_source(CaptureAttachmentKind::Replay, error)
+            })?;
         Ok(Some(CaptureReplayAttachment {
             source_node: completed.source_node,
             process,
@@ -445,21 +459,42 @@ pub(crate) fn write_application_metadata(
     repository: &dyn ArtifactRepository,
     session_id: CaptureSessionId,
     metadata: &CaptureApplicationMetadata,
-) -> Result<(), String> {
-    let mut bytes = serde_json::to_vec_pretty(metadata)
-        .map_err(|error| format!("could not encode capture application metadata: {error}"))?;
+) -> Result<(), CaptureCoordinatorError> {
+    let mut bytes =
+        serde_json::to_vec_pretty(metadata).map_err(CaptureCoordinatorError::MetadataEncode)?;
     bytes.push(b'\n');
     let mut writer = repository
         .begin_write(application_metadata_key(session_id)?)
-        .map_err(|error| error.to_string())?;
-    writer
-        .write_at(0, &bytes)
-        .map_err(|error| error.to_string())?;
-    writer
-        .truncate(bytes.len() as u64)
-        .map_err(|error| error.to_string())?;
-    writer.flush().map_err(|error| error.to_string())?;
-    writer.publish().map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            CaptureCoordinatorError::repository(
+                CaptureRepositoryOperation::WriteApplicationMetadata,
+                error,
+            )
+        })?;
+    writer.write_at(0, &bytes).map_err(|error| {
+        CaptureCoordinatorError::repository(
+            CaptureRepositoryOperation::WriteApplicationMetadata,
+            error,
+        )
+    })?;
+    writer.truncate(bytes.len() as u64).map_err(|error| {
+        CaptureCoordinatorError::repository(
+            CaptureRepositoryOperation::WriteApplicationMetadata,
+            error,
+        )
+    })?;
+    writer.flush().map_err(|error| {
+        CaptureCoordinatorError::repository(
+            CaptureRepositoryOperation::WriteApplicationMetadata,
+            error,
+        )
+    })?;
+    writer.publish().map_err(|error| {
+        CaptureCoordinatorError::repository(
+            CaptureRepositoryOperation::WriteApplicationMetadata,
+            error,
+        )
+    })?;
     Ok(())
 }
 
@@ -467,31 +502,50 @@ pub(crate) fn write_application_metadata(
 pub(crate) fn read_application_metadata(
     repository: &dyn ArtifactRepository,
     session_id: CaptureSessionId,
-) -> Result<CaptureApplicationMetadata, String> {
+) -> Result<CaptureApplicationMetadata, CaptureCoordinatorError> {
     let mut reader = repository
         .open(&application_metadata_key(session_id)?)
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "capture application metadata is missing".to_owned())?;
-    let length = usize::try_from(reader.len().map_err(|error| error.to_string())?)
-        .map_err(|_| "capture application metadata is too large".to_owned())?;
+        .map_err(|error| {
+            CaptureCoordinatorError::repository(
+                CaptureRepositoryOperation::ReadApplicationMetadata,
+                error,
+            )
+        })?
+        .ok_or_else(|| {
+            CaptureCoordinatorError::protocol("capture application metadata is missing")
+        })?;
+    let length = usize::try_from(reader.len().map_err(|error| {
+        CaptureCoordinatorError::repository(
+            CaptureRepositoryOperation::ReadApplicationMetadata,
+            error,
+        )
+    })?)
+    .map_err(|_| CaptureCoordinatorError::protocol("capture application metadata is too large"))?;
     let mut bytes = vec![0_u8; length];
     let mut copied = 0;
     while copied < bytes.len() {
         let count = reader
             .read_at(copied as u64, &mut bytes[copied..])
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| {
+                CaptureCoordinatorError::repository(
+                    CaptureRepositoryOperation::ReadApplicationMetadata,
+                    error,
+                )
+            })?;
         if count == 0 {
-            return Err("capture application metadata is truncated".into());
+            return Err(CaptureCoordinatorError::protocol(
+                "capture application metadata is truncated",
+            ));
         }
         copied += count;
     }
     let mut metadata = serde_json::from_slice::<CaptureApplicationMetadata>(&bytes)
-        .map_err(|error| format!("invalid capture application metadata: {error}"))?;
+        .map_err(CaptureCoordinatorError::MetadataDecode)?;
     if metadata.format_version != 1 && metadata.format_version != APPLICATION_METADATA_VERSION {
-        return Err(format!(
+        return Err(CaptureCoordinatorError::protocol(format!(
             "unsupported capture application metadata version {}",
             metadata.format_version
-        ));
+        )));
     }
     let mut repaired = metadata.format_version != APPLICATION_METADATA_VERSION;
     metadata.format_version = APPLICATION_METADATA_VERSION;
@@ -510,9 +564,13 @@ pub(crate) fn read_application_metadata(
 
 pub(crate) fn application_metadata_key(
     session_id: CaptureSessionId,
-) -> Result<ArtifactKey, String> {
-    let namespace = ArtifactNamespace::new(APPLICATION_METADATA_NAMESPACE)
-        .map_err(|error| error.to_string())?;
+) -> Result<ArtifactKey, CaptureCoordinatorError> {
+    let namespace = ArtifactNamespace::new(APPLICATION_METADATA_NAMESPACE).map_err(|error| {
+        CaptureCoordinatorError::repository(
+            CaptureRepositoryOperation::BuildApplicationMetadataKey,
+            error,
+        )
+    })?;
     let session = session_id.get().to_le_bytes();
     let mut identity = [0_u8; 32];
     identity[..16].copy_from_slice(&session);
@@ -531,13 +589,13 @@ pub(crate) fn prepare_configuration_epoch(
     store: &CaptureStore,
     recording_gate: &CaptureRecordingGate,
     sample_rate_hz: f64,
-) -> Result<super::acquisition_state::WorkerPreparedConfigurationEpoch, String> {
-    let metadata = metadata
-        .as_mut()
-        .ok_or_else(|| "capture graph metadata is unavailable".to_owned())?;
-    let recording_origin = recording_gate
-        .recording_origin()
-        .ok_or_else(|| "capture has not reached its recording origin".to_owned())?;
+) -> Result<super::acquisition_state::WorkerPreparedConfigurationEpoch, CaptureCoordinatorError> {
+    let metadata = metadata.as_mut().ok_or_else(|| {
+        CaptureCoordinatorError::protocol("capture graph metadata is unavailable")
+    })?;
+    let recording_origin = recording_gate.recording_origin().ok_or_else(|| {
+        CaptureCoordinatorError::protocol("capture has not reached its recording origin")
+    })?;
     let source_sample = store.snapshot().committed_samples.max(recording_origin);
     let analysis_sample = source_sample.saturating_sub(recording_origin);
     let timestamp_step_ns = (1_000_000_000.0 / sample_rate_hz).round();
@@ -545,16 +603,16 @@ pub(crate) fn prepare_configuration_epoch(
         || timestamp_step_ns <= 0.0
         || timestamp_step_ns > u64::MAX as f64
     {
-        return Err(format!(
+        return Err(CaptureCoordinatorError::protocol(format!(
             "capture sample rate {sample_rate_hz} Hz cannot represent an epoch timestamp"
-        ));
+        )));
     }
     let timestamp_ns = source_sample.saturating_mul(timestamp_step_ns as u64);
     let epoch_id = metadata
         .configuration_epochs
         .last()
         .map_or(Ok(1), |epoch| epoch.epoch_id.checked_add(1).ok_or(()))
-        .map_err(|()| "configuration epoch ID overflow".to_owned())?;
+        .map_err(|()| CaptureCoordinatorError::protocol("configuration epoch ID overflow"))?;
     metadata.graph = graph.clone();
     metadata
         .configuration_epochs
@@ -581,19 +639,21 @@ pub(crate) fn resolve_configuration_epoch(
     session_id: CaptureSessionId,
     epoch_id: u64,
     resolution: ConfigurationEpochResolution,
-) -> Result<(), String> {
-    let metadata = metadata
-        .as_mut()
-        .ok_or_else(|| "capture graph metadata is unavailable".to_owned())?;
+) -> Result<(), CaptureCoordinatorError> {
+    let metadata = metadata.as_mut().ok_or_else(|| {
+        CaptureCoordinatorError::protocol("capture graph metadata is unavailable")
+    })?;
     let epoch = metadata
         .configuration_epochs
         .iter_mut()
         .find(|epoch| epoch.epoch_id == epoch_id)
-        .ok_or_else(|| format!("configuration epoch {epoch_id} is missing"))?;
+        .ok_or_else(|| {
+            CaptureCoordinatorError::protocol(format!("configuration epoch {epoch_id} is missing"))
+        })?;
     if epoch.outcome != PersistedConfigurationEpochOutcome::Pending {
-        return Err(format!(
+        return Err(CaptureCoordinatorError::protocol(format!(
             "configuration epoch {epoch_id} is already resolved"
-        ));
+        )));
     }
     let (outcome, message) = match resolution {
         ConfigurationEpochResolution::Applied => {

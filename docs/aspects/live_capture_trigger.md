@@ -207,6 +207,12 @@ Driver-neutral setting, capability, and analysis-source invariants are represent
 through `CaptureGraphSourceError`. Neither boundary depends on a concrete device or formats the
 cause into a display string.
 
+Application coordination retains repository, capture-store, graph-source, waveform-index,
+executor, export, acquisition, capture-policy, and metadata-codec failures through
+`CaptureCoordinatorError`. Worker completion, live attachment, finalized replay, retention, and
+publication use that typed contract; status projection and toast/run-message presentation format
+the final diagnostic.
+
 ```mermaid
 sequenceDiagram
     participant UI as Capture coordinator

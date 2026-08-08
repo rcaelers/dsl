@@ -1725,8 +1725,9 @@ impl App {
                     Ok(Some(replay)) => Some(replay),
                     Ok(None) => None,
                     Err(error) => {
-                        self.graph_run.set_run_message(error.clone(), true);
-                        self.toasts.error(error);
+                        let message = error.to_string();
+                        self.graph_run.set_run_message(message.clone(), true);
+                        self.toasts.error(message);
                         return;
                     }
                 }
@@ -1995,7 +1996,7 @@ impl App {
             Ok(()) => self.node_graph.set_editing_enabled(false),
             Err(error) => {
                 self.capture_analysis.clear_capture_graph();
-                self.toasts.error(error);
+                self.toasts.error(error.to_string());
             }
         }
     }
@@ -2006,7 +2007,7 @@ impl App {
 
     fn abort_capture_command(&mut self) {
         if let Err(error) = self.capture_analysis.coordinator_mut().request_abort() {
-            self.toasts.error(error);
+            self.toasts.error(error.to_string());
         }
     }
 
@@ -2016,7 +2017,7 @@ impl App {
             .coordinator_mut()
             .request_force_trigger()
         {
-            self.toasts.error(error);
+            self.toasts.error(error.to_string());
         }
     }
 
@@ -2299,10 +2300,10 @@ impl App {
                         .coordinator_mut()
                         .resolve_configuration_epoch(prepared.epoch_id, resolution)
                     {
-                        self.toasts.error(error);
+                        self.toasts.error(error.to_string());
                     }
                 }
-                Err(error) => self.toasts.error(error),
+                Err(error) => self.toasts.error(error.to_string()),
             }
         }
         if let Some(Err(error)) = self
@@ -2353,7 +2354,7 @@ impl App {
                 self.capture_analysis.observe_epoch_graph(revision);
                 self.capture_analysis.mark_epoch_request_started();
             }
-            Err(error) => self.toasts.error(error),
+            Err(error) => self.toasts.error(error.to_string()),
         }
     }
 

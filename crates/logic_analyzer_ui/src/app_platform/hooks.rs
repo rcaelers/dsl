@@ -405,7 +405,7 @@ impl App {
             .coordinator_mut()
             .start_export_current(format, path)
         {
-            self.toasts.error(error);
+            self.toasts.error(error.to_string());
         }
     }
 

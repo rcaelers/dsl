@@ -332,10 +332,13 @@ item here, so acceptance comparisons stop being ad-hoc.
      now return classified `CaptureValidationError` values. `AcquisitionError::InvalidRequest`
      retains those and other provider-owned causes, while the graph-feature-owned
      `CaptureGraphSourceError` carries analysis construction failures across
-     `CaptureGraphSourceFactory`. Next type live-capture attachment and storage-publication failures
-     in `logic_analyzer_ui` so capture-store, repository, and graph-source causes reach application
-     presentation without formatting. Continue converting remaining host-service and generic-crate
-     surfaces rather than formatting them early.
+     `CaptureGraphSourceFactory`. The UI-owned `CaptureCoordinatorError` now retains repository,
+     capture-store, graph-source, waveform-index, executor, export, acquisition, metadata-codec,
+     and capture-policy causes throughout live attachment, replay, publication, and worker
+     supervision; status projection and application toasts are the formatting boundaries. Next type
+     persisted-state parsing and timeline feature failures in `logic_analyzer_graph_capabilities`.
+     Continue converting remaining host-service and generic-crate surfaces rather than formatting
+     them early.
 
 ### Application state decomposition
 

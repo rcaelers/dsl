@@ -18,6 +18,7 @@ use signal_capture_session::{
 #[cfg(test)]
 use super::acquisition_state::waveform_ready_for_publication;
 use super::acquisition_state::{CaptureAcquisition, WorkerCompletion};
+use super::error::CaptureCoordinatorError;
 use super::implementation::{
     CaptureAnalysisAttachment, CaptureCoordinatorContract, CaptureReplayAttachment,
     CaptureSessionStatus, CaptureWaveformUpdate, ConfigurationEpochResolution,
@@ -116,7 +117,7 @@ impl CaptureCoordinator {
         &mut self,
         format: CaptureRawExportFormat,
         destination: PathBuf,
-    ) -> Result<(), String> {
+    ) -> Result<(), CaptureCoordinatorError> {
         self.publication
             .start_export_current(format, destination, self.acquisition.is_active())
     }
@@ -130,7 +131,7 @@ impl CaptureCoordinator {
         feature: DiscoveredLiveCaptureFeature,
         graph: &node_graph::GraphState,
         mode: CaptureStartMode,
-    ) -> Result<(), String> {
+    ) -> Result<(), CaptureCoordinatorError> {
         self.start_session(feature, Some(graph), mode)
     }
 
@@ -139,12 +140,16 @@ impl CaptureCoordinator {
         feature: DiscoveredLiveCaptureFeature,
         graph: Option<&node_graph::GraphState>,
         mode: CaptureStartMode,
-    ) -> Result<(), String> {
+    ) -> Result<(), CaptureCoordinatorError> {
         if self.acquisition.is_active() {
-            return Err("a live capture is already active".into());
+            return Err(CaptureCoordinatorError::policy(
+                "a live capture is already active",
+            ));
         }
         if mode == CaptureStartMode::CaptureNow && !feature.capabilities().commands().capture_now {
-            return Err("this capture source does not support Capture Now".into());
+            return Err(CaptureCoordinatorError::policy(
+                "this capture source does not support Capture Now",
+            ));
         }
         self.publication.discard_all_capture_data(false)?;
         self.projection.clear();
@@ -171,9 +176,9 @@ impl CaptureCoordinator {
                 self.publication.publish_completed(*completed);
             }
             WorkerCompletion::Failed(error) => {
-                self.projection.fail(error);
+                self.projection.fail(error.to_string());
                 if let Err(error) = self.publication.retain_previous_after_failure() {
-                    self.projection.report_error(error);
+                    self.projection.report_error(error.to_string());
                 }
             }
         }
@@ -237,13 +242,17 @@ impl CaptureCoordinatorContract for CaptureCoordinator {
         }
     }
 
-    fn request_abort(&mut self) -> Result<(), String> {
-        self.projection.ensure_abort_supported()?;
+    fn request_abort(&mut self) -> Result<(), CaptureCoordinatorError> {
+        self.projection
+            .ensure_abort_supported()
+            .map_err(CaptureCoordinatorError::policy)?;
         self.acquisition.request_abort()
     }
 
-    fn request_force_trigger(&mut self) -> Result<(), String> {
-        self.projection.ensure_force_trigger_supported()?;
+    fn request_force_trigger(&mut self) -> Result<(), CaptureCoordinatorError> {
+        self.projection
+            .ensure_force_trigger_supported()
+            .map_err(CaptureCoordinatorError::policy)?;
         self.acquisition.request_force_trigger()
     }
 
@@ -255,7 +264,7 @@ impl CaptureCoordinatorContract for CaptureCoordinator {
     fn poll(&mut self) {
         self.publication.poll_export();
         if let Some(error) = self.publication.reap_waveform_workers() {
-            self.projection.report_error(error);
+            self.projection.report_error(error.to_string());
         }
 
         let poll = self.acquisition.poll();
@@ -266,10 +275,14 @@ impl CaptureCoordinatorContract for CaptureCoordinator {
             let result = self
                 .projection
                 .session_id()
-                .ok_or_else(|| "capture status is unavailable for its waveform".to_owned())
+                .ok_or_else(|| {
+                    CaptureCoordinatorError::protocol(
+                        "capture status is unavailable for its waveform",
+                    )
+                })
                 .and_then(|session_id| self.publication.publish_waveform(session_id, waveform));
             if let Err(error) = result {
-                self.projection.report_error(error);
+                self.projection.report_error(error.to_string());
             }
         }
         let stop_requested = self.acquisition.stop_requested();
@@ -293,16 +306,21 @@ impl CaptureCoordinatorContract for CaptureCoordinator {
         self.publication.take_analysis_attachment()
     }
 
-    fn request_configuration_epoch(&mut self, graph: node_graph::GraphState) -> Result<(), String> {
+    fn request_configuration_epoch(
+        &mut self,
+        graph: node_graph::GraphState,
+    ) -> Result<(), CaptureCoordinatorError> {
         if !self.projection.is_recording() {
-            return Err("configuration changes are accepted only while recording".into());
+            return Err(CaptureCoordinatorError::policy(
+                "configuration changes are accepted only while recording",
+            ));
         }
         self.acquisition.request_configuration_epoch(graph)
     }
 
     fn take_configuration_epoch_preparation(
         &mut self,
-    ) -> Option<Result<PreparedConfigurationEpoch, String>> {
+    ) -> Option<Result<PreparedConfigurationEpoch, CaptureCoordinatorError>> {
         self.acquisition.take_configuration_epoch_preparation()
     }
 
@@ -310,12 +328,12 @@ impl CaptureCoordinatorContract for CaptureCoordinator {
         &mut self,
         epoch_id: u64,
         resolution: ConfigurationEpochResolution,
-    ) -> Result<(), String> {
+    ) -> Result<(), CaptureCoordinatorError> {
         self.acquisition
             .resolve_configuration_epoch(epoch_id, resolution)
     }
 
-    fn take_configuration_epoch_notice(&mut self) -> Option<Result<(), String>> {
+    fn take_configuration_epoch_notice(&mut self) -> Option<Result<(), CaptureCoordinatorError>> {
         self.acquisition.take_configuration_epoch_notice()
     }
 
@@ -323,7 +341,9 @@ impl CaptureCoordinatorContract for CaptureCoordinator {
         self.publication.replay_source_node()
     }
 
-    fn create_replay_attachment(&self) -> Result<Option<CaptureReplayAttachment>, String> {
+    fn create_replay_attachment(
+        &self,
+    ) -> Result<Option<CaptureReplayAttachment>, CaptureCoordinatorError> {
         self.publication.create_replay_attachment()
     }
 

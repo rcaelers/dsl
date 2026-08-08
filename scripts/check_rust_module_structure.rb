@@ -753,6 +753,29 @@ unless ui_plugin_panel_error.match?(/pub enum PluginPanelRegistrationError\s*\{/
        )
   errors << "crates/logic_analyzer_ui/src/plugin_panel: panel registration must expose its classified UI-owned error"
 end
+ui_capture_error = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_ui/src/live_capture/error.rs"
+))
+ui_capture_acquisition = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_ui/src/live_capture/acquisition_state.rs"
+))
+ui_capture_publication = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_ui/src/live_capture/storage_publication.rs"
+))
+unless ui_capture_error.match?(/pub\(crate\) enum CaptureCoordinatorError\s*\{/) &&
+       %w[Repository Store GraphSource Waveform Executor Acquisition].all? do |variant|
+         ui_capture_error.match?(/^\s*#{variant}\b/)
+       end
+  errors << "crates/logic_analyzer_ui/src/live_capture/error.rs: live-capture coordination must classify and retain owner-typed causes"
+end
+unless ui_capture_acquisition.match?(
+  /fn run_capture_worker\b.*?Result<PublishedCapture,\s*CaptureCoordinatorError>/m
+) && ui_capture_publication.scan(/Result<.*?CaptureCoordinatorError>/m).length >= 6
+  errors << "crates/logic_analyzer_ui/src/live_capture: worker and publication paths must retain CaptureCoordinatorError"
+end
 %w[app_native/src/native_host.rs app_web/src/host_service.rs].each do |adapter|
   source = File.read(File.join(ROOT, "crates/#{adapter}"))
   unless source.include?("GraphDocumentError::read") && source.include?("GraphDocumentError::write")
