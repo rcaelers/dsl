@@ -48,6 +48,9 @@ Reusable document mechanisms retain filesystem and browser-session causes in
 `platform::DocumentError`. Native and browser application roots map that source into the UI-owned
 `GraphDocumentError`, which distinguishes host reads, JSON decoding, JSON encoding, and host writes
 until toast or headless presentation.
+Browser output activation distinguishes queue expiry from payload, URL, document, link, and cleanup
+stages through `platform::DownloadError`. Web composition retains that error as the source of the
+UI-owned `OutputDownloadError`, and the application toast is the presentation boundary.
 
 `logic_analyzer_graph_orchestration` owns
 separate graph-worker codec, bounded-client, and serializable transport failures. The browser host
@@ -69,8 +72,8 @@ UI policy therefore matches a cancellation variant rather than display text.
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. Type the browser output-download mechanism and the UI host service's download result without
-   formatting the platform cause.
+1. Type native and browser worker-adapter construction failures at the `platform` facade and retain
+   their lower startup causes.
 2. Continue through the remaining platform and UI facades: most occurrences collapse into carrying
    the now-typed lower errors; only genuinely UI-owned failures need new variants.
 

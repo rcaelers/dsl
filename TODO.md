@@ -309,8 +309,10 @@ item here, so acceptance comparisons stop being ad-hoc.
      facade carries native and web adapter causes through application graph-load and graph-save
      services. `DocumentError` retains host byte-access causes, and the UI-owned
      `GraphDocumentError` separately classifies read, decode, encode, and write failures until toast
-     or headless presentation. Next type the browser output-download boundary and the UI host
-     service's download result. Continue converting remaining host-service and generic-crate
+     or headless presentation. Browser output downloads classify queue expiry and each host
+     activation stage through `platform::DownloadError`; the UI-owned `OutputDownloadError` retains
+     that source until toast presentation. Next type native and browser worker-adapter construction
+     failures at the `platform` facade. Continue converting remaining host-service and generic-crate
      surfaces rather than formatting them early.
 
 ### Application state decomposition

@@ -2,6 +2,33 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
+/// Failure while activating one host-retained output download.
+#[derive(Debug, Error)]
+pub enum OutputDownloadError {
+    /// The application host does not provide output downloads.
+    #[error("output download is unavailable on this host")]
+    Unavailable,
+    /// The injected host mechanism failed to activate the selected output.
+    #[error("could not download output {id}: {source}")]
+    Host {
+        /// Host-local output identifier.
+        id: u64,
+        /// Concrete host download cause.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+}
+
+impl OutputDownloadError {
+    /// Retains an injected host download failure without formatting it.
+    pub fn host(id: u64, error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self::Host {
+            id,
+            source: Box::new(error),
+        }
+    }
+}
+
 /// Failure while loading or saving a graph document through the application host.
 #[derive(Debug, Error)]
 pub enum GraphDocumentError {
@@ -77,6 +104,24 @@ mod graph_document_error_tests {
         );
 
         assert!(matches!(&error, GraphDocumentError::Read { .. }));
+        assert!(error.source().unwrap().is::<std::io::Error>());
+    }
+}
+
+#[cfg(test)]
+mod output_download_error_tests {
+    use std::error::Error as _;
+
+    use super::OutputDownloadError;
+
+    #[test]
+    fn output_download_retains_the_injected_host_cause() {
+        let error = OutputDownloadError::host(
+            7,
+            std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied"),
+        );
+
+        assert!(matches!(&error, OutputDownloadError::Host { id: 7, .. }));
         assert!(error.source().unwrap().is::<std::io::Error>());
     }
 }
@@ -185,8 +230,8 @@ pub trait HostService {
     ///
     /// # Parameters
     /// - `id`: Stable identifier returned by [`Self::pending_output_downloads`].
-    fn download_output(&mut self, _id: u64) -> Result<(), String> {
-        Err("output download is unavailable on this host".to_owned())
+    fn download_output(&mut self, _id: u64) -> Result<(), OutputDownloadError> {
+        Err(OutputDownloadError::Unavailable)
     }
 
     /// Installs the wake-up callback used when the host queues a command.

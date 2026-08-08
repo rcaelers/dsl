@@ -698,6 +698,24 @@ end
     errors << "crates/#{adapter}: application composition must preserve platform document causes through the UI facade"
   end
 end
+platform_download_error = File.read(File.join(ROOT, "crates/platform/src/download.rs"))
+unless platform_download_error.match?(/pub enum DownloadError\s*\{/) &&
+       platform_download_error.match?(/pub enum DownloadOperation\s*\{/)
+  errors << "crates/platform/src/download.rs: output downloads must classify availability and host-operation failures"
+end
+browser_document = File.read(File.join(ROOT, "crates/platform/src/host/web_document.rs"))
+unless browser_document.match?(/pub fn download\b.*?Result<\(\),\s*DownloadError>/m) &&
+       browser_document.match?(/fn download_file\b.*?Result<\(\),\s*DownloadError>/m)
+  errors << "crates/platform/src/host/web_document.rs: browser output downloads must retain DownloadError"
+end
+unless ui_host_contract.match?(/pub enum OutputDownloadError\s*\{.*?Host\s*\{/m) &&
+       ui_host_contract.match?(/fn download_output\b.*?Result<\(\),\s*OutputDownloadError>/m)
+  errors << "crates/logic_analyzer_ui/src/host_service/contract.rs: output downloads must retain typed host failures"
+end
+web_host_service = File.read(File.join(ROOT, "crates/app_web/src/host_service.rs"))
+unless web_host_service.include?("OutputDownloadError::host(id, error)")
+  errors << "crates/app_web/src/host_service.rs: web composition must preserve the platform download cause"
+end
 
 native_app_manifest = File.read(File.join(ROOT, "crates/app_native/Cargo.toml"))
 if native_app_manifest.match?(/^logic-analyzer-ui\s*=\s*\{[^}]*features\s*=/)

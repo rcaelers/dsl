@@ -254,6 +254,10 @@ presentation boundary formats it.
 which classifies graph read, decode, encode, and write failures without making UI depend on
 `platform`. Toast and headless reporting format the error.
 
+`platform::DownloadError` distinguishes expired queued outputs from individual host download
+activation stages. Web composition retains that cause in the UI-owned `OutputDownloadError`, and
+only output-download presentation formats it.
+
 `signal_runtime` distinguishes port lookup, connection validation, pipeline construction and
 supervision, and process-node work. Threaded and cooperative managers expose the same
 `PipelineError` lifecycle contract, and a terminal `NodeFailure` retains its `WorkError` until a

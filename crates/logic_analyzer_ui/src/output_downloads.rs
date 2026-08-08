@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::host_service::{DownloadableOutput, HostService};
+use crate::host_service::{DownloadableOutput, HostService, OutputDownloadError};
 
 const WINDOW_WIDTH: f32 = 620.0;
 const WINDOW_HEIGHT: f32 = 260.0;
@@ -30,7 +30,11 @@ impl OutputDownloadsWindow {
     }
 
     /// Shows the output-download chooser and returns any user-presentable failures.
-    pub(crate) fn show(&mut self, ctx: &egui::Context, host: &mut dyn HostService) -> Vec<String> {
+    pub(crate) fn show(
+        &mut self,
+        ctx: &egui::Context,
+        host: &mut dyn HostService,
+    ) -> Vec<OutputDownloadError> {
         if !self.open {
             return Vec::new();
         }

@@ -8,5 +8,5 @@ mod host_service_tests;
 
 pub use contract::{
     DownloadableOutput, GraphDocumentError, HostCommand, HostService, HostUiCapabilities,
-    ModifierKeyLabels, OpenDialog, SaveDialog,
+    ModifierKeyLabels, OpenDialog, OutputDownloadError, SaveDialog,
 };

@@ -54,7 +54,7 @@ pub use headless::{
 };
 pub use host_service::{
     DownloadableOutput, GraphDocumentError, HostCommand, HostService, HostUiCapabilities,
-    ModifierKeyLabels, OpenDialog, SaveDialog,
+    ModifierKeyLabels, OpenDialog, OutputDownloadError, SaveDialog,
 };
 pub use node_catalog_service::{NodeCatalogService, NodeCatalogSnapshot};
 pub use node_registry::build_node_registry;

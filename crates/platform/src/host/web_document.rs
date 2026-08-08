@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use wasm_bindgen::JsCast;
 
-use crate::{DocumentError, FileOpenDialog, FileSaveDialog};
+use crate::{DocumentError, DownloadError, DownloadOperation, FileOpenDialog, FileSaveDialog};
 
 const MAX_DOCUMENT_BYTES: f64 = 32.0 * 1024.0 * 1024.0;
 
@@ -215,7 +215,7 @@ impl BrowserDocumentHost {
             document.display_name.clone()
         };
         download_file(&display_name, contents, "application/octet-stream")
-            .map_err(|error| DocumentError::write(path, std::io::Error::other(error)))
+            .map_err(|error| DocumentError::write(path, error))
     }
 
     /// Lists completed output bytes retained for explicit download.
@@ -238,10 +238,10 @@ impl BrowserDocumentHost {
     }
 
     /// Downloads and removes one retained output.
-    pub fn download(&mut self, id: u64) -> Result<(), String> {
+    pub fn download(&mut self, id: u64) -> Result<(), DownloadError> {
         let output = OUTPUT_DOWNLOADS.with(|downloads| downloads.borrow_mut().files.remove(&id));
         let Some(output) = output else {
-            return Err("that output is no longer available".to_owned());
+            return Err(DownloadError::Unavailable { id });
         };
         if let Err(error) = download_file(&output.name, &output.bytes, "application/octet-stream") {
             OUTPUT_DOWNLOADS.with(|downloads| {
@@ -313,39 +313,77 @@ fn ensure_extension(name: &str, extension: Option<&str>) -> String {
     name
 }
 
-fn download_file(display_name: &str, contents: &[u8], media_type: &str) -> Result<(), String> {
+fn download_file(
+    display_name: &str,
+    contents: &[u8],
+    media_type: &str,
+) -> Result<(), DownloadError> {
     let array = js_sys::Array::new();
     let bytes = js_sys::Uint8Array::from(contents);
     array.push(&bytes.buffer());
     let options = web_sys::BlobPropertyBag::new();
     options.set_type(media_type);
-    let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(&array, &options)
-        .map_err(|error| format!("could not create download: {error:?}"))?;
-    let url = web_sys::Url::create_object_url_with_blob(&blob)
-        .map_err(|error| format!("could not create download URL: {error:?}"))?;
+    let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(&array, &options).map_err(
+        |error| DownloadError::Host {
+            name: display_name.to_owned(),
+            operation: DownloadOperation::CreatePayload,
+            message: format!("{error:?}"),
+        },
+    )?;
+    let url =
+        web_sys::Url::create_object_url_with_blob(&blob).map_err(|error| DownloadError::Host {
+            name: display_name.to_owned(),
+            operation: DownloadOperation::CreateUrl,
+            message: format!("{error:?}"),
+        })?;
     let result = (|| {
         let document = web_sys::window()
             .and_then(|window| window.document())
-            .ok_or_else(|| "the browser document is unavailable".to_owned())?;
+            .ok_or_else(|| DownloadError::Host {
+                name: display_name.to_owned(),
+                operation: DownloadOperation::AccessDocument,
+                message: "the host document is unavailable".to_owned(),
+            })?;
         let anchor: web_sys::HtmlAnchorElement = document
             .create_element("a")
-            .map_err(|error| format!("could not create download link: {error:?}"))?
+            .map_err(|error| DownloadError::Host {
+                name: display_name.to_owned(),
+                operation: DownloadOperation::CreateLink,
+                message: format!("{error:?}"),
+            })?
             .dyn_into()
-            .map_err(|_| "could not create download link".to_owned())?;
+            .map_err(|_| DownloadError::Host {
+                name: display_name.to_owned(),
+                operation: DownloadOperation::CreateLink,
+                message: "the created element is not a download link".to_owned(),
+            })?;
         anchor.set_href(&url);
         anchor.set_download(display_name);
-        let body = document
-            .body()
-            .ok_or_else(|| "the browser document has no body".to_owned())?;
+        let body = document.body().ok_or_else(|| DownloadError::Host {
+            name: display_name.to_owned(),
+            operation: DownloadOperation::AccessBody,
+            message: "the host document has no body".to_owned(),
+        })?;
         body.append_child(&anchor)
-            .map_err(|error| format!("could not attach download: {error:?}"))?;
+            .map_err(|error| DownloadError::Host {
+                name: display_name.to_owned(),
+                operation: DownloadOperation::AttachLink,
+                message: format!("{error:?}"),
+            })?;
         anchor.click();
         body.remove_child(&anchor)
-            .map_err(|error| format!("could not detach download: {error:?}"))?;
+            .map_err(|error| DownloadError::Host {
+                name: display_name.to_owned(),
+                operation: DownloadOperation::DetachLink,
+                message: format!("{error:?}"),
+            })?;
         Ok(())
     })();
-    web_sys::Url::revoke_object_url(&url)
-        .map_err(|error| format!("could not release download URL: {error:?}"))?;
+    web_sys::Url::revoke_object_url(&url).map_err(|error| DownloadError::Host {
+        name: display_name.to_owned(),
+        operation: DownloadOperation::ReleaseUrl,
+        message: format!("{error:?}"),
+    })?;
     result
 }
 

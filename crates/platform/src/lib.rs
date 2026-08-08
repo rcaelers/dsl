@@ -9,10 +9,12 @@
 //! remain outside this crate.
 
 mod document;
+mod download;
 mod file_dialog;
 mod host;
 
 pub use document::DocumentError;
+pub use download::{DownloadError, DownloadOperation};
 pub use file_dialog::{
     DroppedFileData, FileDialogFilter, FileOpenDialog, FilePickerError, FilePickerProgress,
     FilePickerRequest, FilePickerService, FileReference, FileSaveDialog,

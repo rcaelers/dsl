@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use logic_analyzer_ui::{
     DownloadableOutput, GraphDocumentError, HostCommand, HostService, HostUiCapabilities,
-    OpenDialog, SaveDialog,
+    OpenDialog, OutputDownloadError, SaveDialog,
 };
 use platform::{BrowserDocumentHost, FileDialogFilter, FileOpenDialog, FileSaveDialog};
 
@@ -57,8 +57,10 @@ impl HostService for BrowserHostService {
             .collect()
     }
 
-    fn download_output(&mut self, id: u64) -> Result<(), String> {
-        self.documents.download(id)
+    fn download_output(&mut self, id: u64) -> Result<(), OutputDownloadError> {
+        self.documents
+            .download(id)
+            .map_err(|error| OutputDownloadError::host(id, error))
     }
 
     fn document_exists(&self, path: &Path) -> bool {
