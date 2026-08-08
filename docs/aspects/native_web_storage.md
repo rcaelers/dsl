@@ -88,6 +88,10 @@ Finite-operation worker pools retain queue configuration, native thread-start, a
 browser bootstrap failures through `platform::WorkerAdapterError`. Native application startup
 propagates that typed failure; web composition renders it as the explicit reason for selecting the
 portable cooperative executor.
+Browser artifact-repository opening retains invalid-root, persistence-worker host-stage,
+availability, initialization-protocol, and portable hydration failures through
+`platform::ArtifactRepositoryOpenError`. The web root receives that typed result and reports it only
+when choosing the explicit session-memory fallback.
 Finite-source preparation uses the graph-runtime-owned execution contract: native composition
 selects its threaded executor, while web composition selects a browser capture-worker executor with
 an inline fallback. The compiler discovers the source-preparation factory; the graph runtime polls

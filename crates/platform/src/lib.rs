@@ -8,12 +8,14 @@
 //! Platform-neutral policy, product composition, and concrete node selection
 //! remain outside this crate.
 
+mod artifact_repository;
 mod document;
 mod download;
 mod file_dialog;
 mod host;
 mod worker_adapter;
 
+pub use artifact_repository::{ArtifactRepositoryOpenError, ArtifactRepositoryOpenOperation};
 pub use document::DocumentError;
 pub use download::{DownloadError, DownloadOperation};
 pub use file_dialog::{

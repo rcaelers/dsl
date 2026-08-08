@@ -264,6 +264,12 @@ thread creation, and classified browser bootstrap-stage diagnostics. Native comp
 the typed source to application startup; web composition renders it only as the cooperative
 executor's explicit unavailability reason.
 
+`platform::ArtifactRepositoryOpenError` owns reusable host repository-opening failures. It
+distinguishes invalid namespaces, host persistence-worker stages, unavailable durable storage,
+invalid initialization responses, and hydration. Hydration retains the lower
+`platform_artifacts::RepositoryError`; browser composition formats the typed failure only when
+reporting its explicit in-memory fallback.
+
 `signal_runtime` distinguishes port lookup, connection validation, pipeline construction and
 supervision, and process-node work. Threaded and cooperative managers expose the same
 `PipelineError` lifecycle contract, and a terminal `NodeFailure` retains its `WorkError` until a

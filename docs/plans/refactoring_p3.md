@@ -55,6 +55,10 @@ Worker-adapter construction retains portable queue configuration and native thre
 and classifies browser bootstrap-payload, URL, worker-start, and cleanup failures through
 `platform::WorkerAdapterError`. Native composition propagates the error to application startup;
 web composition formats it only when describing why the portable cooperative fallback was selected.
+Browser artifact-repository opening distinguishes invalid roots, host persistence-worker stages,
+unavailable durable storage, invalid initialization responses, and session hydration through
+`platform::ArtifactRepositoryOpenError`. Hydration retains the portable `RepositoryError`; web
+composition formats the typed failure only when reporting why it selected the memory repository.
 
 `logic_analyzer_graph_orchestration` owns
 separate graph-worker codec, bounded-client, and serializable transport failures. The browser host
@@ -76,8 +80,8 @@ UI policy therefore matches a cancellation variant rather than display text.
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. Type browser durable artifact-repository construction at the `platform` facade and retain its
-   lower host initialization causes.
+1. Type generic native USB device discovery and opening at the `platform` facade, retaining the
+   underlying transport cause and the failed discovery/open stage.
 2. Continue through the remaining platform and UI facades: most occurrences collapse into carrying
    the now-typed lower errors; only genuinely UI-owned failures need new variants.
 

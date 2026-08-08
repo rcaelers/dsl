@@ -315,9 +315,13 @@ item here, so acceptance comparisons stop being ad-hoc.
      retains portable queue configuration, native thread creation, and classified browser bootstrap
      failures through `platform::WorkerAdapterError`. Native composition propagates that source to
      application startup; web composition formats it only when selecting and describing the
-     cooperative fallback. Next type browser durable artifact-repository construction at the
-     `platform` facade. Continue converting remaining host-service and generic-crate surfaces rather
-     than formatting them early.
+     cooperative fallback. Browser durable artifact-repository construction distinguishes invalid
+     roots, host worker stages, unavailable persistence, malformed initialization responses, and
+     session hydration through `platform::ArtifactRepositoryOpenError`; hydration retains its
+     `platform_artifacts::RepositoryError` source until web composition selects and reports the
+     in-memory fallback. Next type generic native USB device discovery and opening at the `platform`
+     facade. Continue converting remaining host-service and generic-crate surfaces rather than
+     formatting them early.
 
 ### Application state decomposition
 

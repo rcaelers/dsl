@@ -16,6 +16,8 @@ use platform_artifacts::{
     ReadArtifact, RepositoryCapabilities, RepositoryError, SourceIdentity, WriteArtifact,
 };
 
+use crate::{ArtifactRepositoryOpenError, ArtifactRepositoryOpenOperation};
+
 const OPFS_WORKER_BOOTSTRAP: &str = include_str!("opfs_worker_bootstrap.js");
 const DEFAULT_BROWSER_CACHE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_QUEUED_PERSISTENCE_BYTES: u64 = 64 * 1024 * 1024;
@@ -76,21 +78,19 @@ struct OpfsRuntime {
 }
 
 impl BrowserArtifactRepository {
-    pub(crate) async fn open(root_name: &str) -> Result<Self, String> {
+    pub(crate) async fn open(root_name: &str) -> Result<Self, ArtifactRepositoryOpenError> {
         Self::open_with_budget(root_name, DEFAULT_BROWSER_CACHE_BYTES).await
     }
 
-    async fn open_with_budget(root_name: &str, max_bytes: u64) -> Result<Self, String> {
+    async fn open_with_budget(
+        root_name: &str,
+        max_bytes: u64,
+    ) -> Result<Self, ArtifactRepositoryOpenError> {
         let (worker, initial) = initialize_worker(root_name, max_bytes).await?;
         let memory = MemoryArtifactRepository::with_budget(max_bytes);
-        for entry in initial.entries {
-            let mut writer = memory
-                .begin_write(entry.key)
-                .map_err(|error| error.to_string())?;
-            writer
-                .write_at(0, &entry.bytes)
-                .map_err(|error| error.to_string())?;
-            writer.publish().map_err(|error| error.to_string())?;
+        if let Err(error) = hydrate_entries(&memory, initial.entries) {
+            worker.terminate();
+            return Err(error);
         }
         if initial.evicted > 0 {
             tracing::warn!(
@@ -165,6 +165,18 @@ impl BrowserArtifactRepository {
             .map(|mirror| mirror.commands.is_empty() && mirror.in_flight == 0)
             .unwrap_or(false)
     }
+}
+
+fn hydrate_entries(
+    repository: &MemoryArtifactRepository,
+    entries: Vec<InitialEntry>,
+) -> Result<(), ArtifactRepositoryOpenError> {
+    for entry in entries {
+        let mut writer = repository.begin_write(entry.key).map_err(hydration_error)?;
+        writer.write_at(0, &entry.bytes).map_err(hydration_error)?;
+        writer.publish().map_err(hydration_error)?;
+    }
+    Ok(())
 }
 
 impl ArtifactRepository for BrowserArtifactRepository {
@@ -275,14 +287,25 @@ fn read_complete_artifact(
 async fn initialize_worker(
     root_name: &str,
     max_bytes: u64,
-) -> Result<(Worker, InitialState), String> {
+) -> Result<(Worker, InitialState), ArtifactRepositoryOpenError> {
     if root_name.is_empty() {
-        return Err("the browser artifact root name must not be empty".to_owned());
+        return Err(ArtifactRepositoryOpenError::InvalidRootName);
     }
     let worker_url = create_worker_url()?;
-    let worker = create_worker(&worker_url);
-    let _ = Url::revoke_object_url(&worker_url);
-    let worker = worker?;
+    let worker = match create_worker(&worker_url) {
+        Ok(worker) => worker,
+        Err(error) => {
+            let _ = Url::revoke_object_url(&worker_url);
+            return Err(error);
+        }
+    };
+    if let Err(error) = Url::revoke_object_url(&worker_url) {
+        worker.terminate();
+        return Err(host_js_error(
+            ArtifactRepositoryOpenOperation::ReleaseWorkerUrl,
+            error,
+        ));
+    }
 
     let callbacks = Rc::new(RefCell::new(None::<(Function, Function)>));
     let promise_callbacks = Rc::clone(&callbacks);
@@ -291,21 +314,8 @@ async fn initialize_worker(
     });
     let message_callbacks = Rc::clone(&callbacks);
     let message_handler = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
-        let value = event.data();
-        let result = match string_property(&value, "kind").as_deref() {
-            Ok("ready") => Ok(value),
-            Ok("unavailable") => Err(string_property(&value, "message")
-                .unwrap_or_else(|error| error)
-                .into()),
-            Ok(kind) => Err(format!("OPFS worker returned unexpected '{kind}' message").into()),
-            Err(error) => Err(error.into()),
-        };
-        if let Some((resolve, reject)) = message_callbacks.borrow_mut().take() {
-            let (callback, argument) = match result {
-                Ok(value) => (resolve, value),
-                Err(value) => (reject, value),
-            };
-            let _ = callback.call1(&JsValue::UNDEFINED, &argument);
+        if let Some((resolve, _reject)) = message_callbacks.borrow_mut().take() {
+            let _ = resolve.call1(&JsValue::UNDEFINED, &event.data());
         }
     });
     let error_callbacks = Rc::clone(&callbacks);
@@ -317,51 +327,100 @@ async fn initialize_worker(
     });
     worker.set_onmessage(Some(message_handler.as_ref().unchecked_ref()));
     worker.set_onerror(Some(error_handler.as_ref().unchecked_ref()));
-    let message = message_object("initialize")?;
-    set(&message, "rootName", JsValue::from_str(root_name))?;
-    set(&message, "maxBytes", JsValue::from_f64(max_bytes as f64))?;
+    let message = (|| -> Result<JsValue, String> {
+        let message = message_object("initialize")?;
+        set(&message, "rootName", JsValue::from_str(root_name))?;
+        set(&message, "maxBytes", JsValue::from_f64(max_bytes as f64))?;
+        Ok(message)
+    })();
+    let message = match message {
+        Ok(message) => message,
+        Err(message) => {
+            worker.terminate();
+            return Err(host_error(
+                ArtifactRepositoryOpenOperation::SendInitialization,
+                message,
+            ));
+        }
+    };
     if let Err(error) = worker.post_message(&message) {
         worker.terminate();
-        return Err(js_error("could not initialize OPFS worker", error));
+        return Err(host_js_error(
+            ArtifactRepositoryOpenOperation::SendInitialization,
+            error,
+        ));
     }
     let value = match JsFuture::from(promise).await {
         Ok(value) => value,
         Err(error) => {
             worker.terminate();
-            return Err(js_error("could not initialize browser persistence", error));
+            return Err(host_js_error(
+                ArtifactRepositoryOpenOperation::AwaitInitialization,
+                error,
+            ));
         }
     };
     worker.set_onmessage(None);
     worker.set_onerror(None);
     drop(message_handler);
     drop(error_handler);
-    parse_initial_state(&value).map(|state| (worker, state))
-}
-
-fn parse_initial_state(value: &JsValue) -> Result<InitialState, String> {
-    let entries = Array::from(&property(value, "entries")?)
-        .iter()
-        .map(|entry| {
-            let namespace = ArtifactNamespace::new(string_property(&entry, "namespace")?)
-                .map_err(|error| error.to_string())?;
-            let identity = decode_identity(&string_property(&entry, "identity")?)?;
-            let bytes = Uint8Array::new(&property(&entry, "bytes")?).to_vec();
-            Ok(InitialEntry {
-                key: ArtifactKey::new(namespace, SourceIdentity::from_bytes(identity)),
-                bytes,
+    match string_property(&value, "kind").as_deref() {
+        Ok("ready") => match parse_initial_state(&value) {
+            Ok(state) => Ok((worker, state)),
+            Err(error) => {
+                worker.terminate();
+                Err(error)
+            }
+        },
+        Ok("unavailable") => {
+            worker.terminate();
+            Err(ArtifactRepositoryOpenError::Unavailable {
+                message: string_property(&value, "message").unwrap_or_else(|error| error),
             })
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    Ok(InitialState {
-        durable: bool_property(value, "durable")?,
-        quota: optional_integer_property(value, "quota")?,
-        usage: optional_integer_property(value, "usage")?,
-        evicted: integer_property(value, "evicted")?,
-        entries,
-    })
+        }
+        Ok(kind) => {
+            worker.terminate();
+            Err(protocol_error(format!(
+                "persistence worker returned unexpected '{kind}' message"
+            )))
+        }
+        Err(message) => {
+            worker.terminate();
+            Err(protocol_error(message))
+        }
+    }
 }
 
-fn install_runtime(worker: Worker, mirror: Arc<Mutex<MirrorState>>) -> Result<(), String> {
+fn parse_initial_state(value: &JsValue) -> Result<InitialState, ArtifactRepositoryOpenError> {
+    (|| -> Result<InitialState, String> {
+        let entries = Array::from(&property(value, "entries")?)
+            .iter()
+            .map(|entry| {
+                let namespace = ArtifactNamespace::new(string_property(&entry, "namespace")?)
+                    .map_err(|error| error.to_string())?;
+                let identity = decode_identity(&string_property(&entry, "identity")?)?;
+                let bytes = Uint8Array::new(&property(&entry, "bytes")?).to_vec();
+                Ok(InitialEntry {
+                    key: ArtifactKey::new(namespace, SourceIdentity::from_bytes(identity)),
+                    bytes,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        Ok(InitialState {
+            durable: bool_property(value, "durable")?,
+            quota: optional_integer_property(value, "quota")?,
+            usage: optional_integer_property(value, "usage")?,
+            evicted: integer_property(value, "evicted")?,
+            entries,
+        })
+    })()
+    .map_err(protocol_error)
+}
+
+fn install_runtime(
+    worker: Worker,
+    mirror: Arc<Mutex<MirrorState>>,
+) -> Result<(), ArtifactRepositoryOpenError> {
     let message_mirror = Arc::clone(&mirror);
     let message_handler = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
         handle_worker_message(&message_mirror, event.data());
@@ -383,13 +442,26 @@ fn install_runtime(worker: Worker, mirror: Arc<Mutex<MirrorState>>) -> Result<()
     let pump = Closure::<dyn FnMut()>::new(move || {
         pump_commands(&pump_worker, &pump_mirror);
     });
-    let window = web_sys::window().ok_or_else(|| "browser window is unavailable".to_string())?;
-    let interval_id = window
-        .set_interval_with_callback_and_timeout_and_arguments_0(
-            pump.as_ref().unchecked_ref(),
-            PUMP_INTERVAL_MS,
-        )
-        .map_err(|error| js_error("could not start browser persistence pump", error))?;
+    let Some(window) = web_sys::window() else {
+        worker.terminate();
+        return Err(host_error(
+            ArtifactRepositoryOpenOperation::StartCommandPump,
+            "browser window is unavailable",
+        ));
+    };
+    let interval_id = match window.set_interval_with_callback_and_timeout_and_arguments_0(
+        pump.as_ref().unchecked_ref(),
+        PUMP_INTERVAL_MS,
+    ) {
+        Ok(interval_id) => interval_id,
+        Err(error) => {
+            worker.terminate();
+            return Err(host_js_error(
+                ArtifactRepositoryOpenOperation::StartCommandPump,
+                error,
+            ));
+        }
+    };
     OPFS_RUNTIMES.with(|runtimes| {
         runtimes.borrow_mut().push(OpfsRuntime {
             _worker: worker,
@@ -515,22 +587,23 @@ fn handle_worker_message(mirror: &Arc<Mutex<MirrorState>>, value: JsValue) {
     }
 }
 
-fn create_worker_url() -> Result<String, String> {
+fn create_worker_url() -> Result<String, ArtifactRepositoryOpenError> {
     let parts = Array::new();
     parts.push(&JsValue::from_str(OPFS_WORKER_BOOTSTRAP));
     let options = BlobPropertyBag::new();
     options.set_type("text/javascript");
-    let blob = Blob::new_with_str_sequence_and_options(&parts, &options)
-        .map_err(|error| js_error("could not create OPFS worker bootstrap", error))?;
+    let blob = Blob::new_with_str_sequence_and_options(&parts, &options).map_err(|error| {
+        host_js_error(ArtifactRepositoryOpenOperation::CreateWorkerPayload, error)
+    })?;
     Url::create_object_url_with_blob(&blob)
-        .map_err(|error| js_error("could not create OPFS worker URL", error))
+        .map_err(|error| host_js_error(ArtifactRepositoryOpenOperation::CreateWorkerUrl, error))
 }
 
-fn create_worker(worker_url: &str) -> Result<Worker, String> {
+fn create_worker(worker_url: &str) -> Result<Worker, ArtifactRepositoryOpenError> {
     let options = WorkerOptions::new();
     options.set_type(WorkerType::Module);
     Worker::new_with_options(worker_url, &options)
-        .map_err(|error| js_error("could not create OPFS worker", error))
+        .map_err(|error| host_js_error(ArtifactRepositoryOpenOperation::StartWorker, error))
 }
 
 fn message_object(kind: &str) -> Result<JsValue, String> {
@@ -620,6 +693,36 @@ fn hex_value(value: u8) -> Result<u8, String> {
 fn js_error(context: &str, error: JsValue) -> String {
     let detail = error.as_string().unwrap_or_else(|| format!("{error:?}"));
     format!("{context}: {detail}")
+}
+
+fn host_js_error(
+    operation: ArtifactRepositoryOpenOperation,
+    error: JsValue,
+) -> ArtifactRepositoryOpenError {
+    host_error(
+        operation,
+        error.as_string().unwrap_or_else(|| format!("{error:?}")),
+    )
+}
+
+fn host_error(
+    operation: ArtifactRepositoryOpenOperation,
+    message: impl Into<String>,
+) -> ArtifactRepositoryOpenError {
+    ArtifactRepositoryOpenError::Host {
+        operation,
+        message: message.into(),
+    }
+}
+
+fn hydration_error(source: RepositoryError) -> ArtifactRepositoryOpenError {
+    ArtifactRepositoryOpenError::Hydration { source }
+}
+
+fn protocol_error(message: impl Into<String>) -> ArtifactRepositoryOpenError {
+    ArtifactRepositoryOpenError::Protocol {
+        message: message.into(),
+    }
 }
 
 #[cfg(test)]

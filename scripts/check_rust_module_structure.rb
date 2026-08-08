@@ -740,6 +740,32 @@ unless native_composition.include?(
 )
   errors << "crates/app_native/src/native.rs: native composition must propagate worker-adapter construction failure"
 end
+platform_artifact_open_error = File.read(File.join(
+  ROOT,
+  "crates/platform/src/artifact_repository.rs"
+))
+unless platform_artifact_open_error.match?(/pub enum ArtifactRepositoryOpenError\s*\{/) &&
+       platform_artifact_open_error.match?(/pub enum ArtifactRepositoryOpenOperation\s*\{/) &&
+       platform_artifact_open_error.include?("source: RepositoryError")
+  errors << "crates/platform/src/artifact_repository.rs: repository opening must classify host, availability, protocol, and hydration failures"
+end
+browser_repository_facade = File.read(File.join(ROOT, "crates/platform/src/host/web.rs"))
+unless browser_repository_facade.match?(
+  /open_browser_artifact_repository\b.*?Result<Arc<dyn ArtifactRepository>,\s*ArtifactRepositoryOpenError>/m
+)
+  errors << "crates/platform/src/host/web.rs: browser repository facade must retain ArtifactRepositoryOpenError"
+end
+browser_repository = File.read(File.join(
+  ROOT,
+  "crates/platform/src/host/web_artifact_repository.rs"
+))
+%w[open initialize_worker parse_initial_state install_runtime].each do |operation|
+  next if browser_repository.match?(
+    /(?:fn|async fn) #{operation}\b.*?Result<.*?ArtifactRepositoryOpenError>/m
+  )
+
+  errors << "crates/platform/src/host/web_artifact_repository.rs: #{operation} must retain ArtifactRepositoryOpenError"
+end
 
 native_app_manifest = File.read(File.join(ROOT, "crates/app_native/Cargo.toml"))
 if native_app_manifest.match?(/^logic-analyzer-ui\s*=\s*\{[^}]*features\s*=/)
