@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
 use logic_analyzer_graph_capabilities::node_support::CapturePresentation;
+#[cfg(test)]
+use logic_analyzer_graph_plan::CapturePresentationDiscoveryError;
 use logic_analyzer_graph_plan::DiscoveredCapturePresentation;
 use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 #[cfg(test)]
@@ -923,25 +925,20 @@ mod source_preparation_tests {
     #[test]
     fn unchanged_discovery_failure_is_reported_once() {
         let mut preparation = SourcePreparation::new();
+        let discovery_error = CapturePresentationDiscoveryError::multiple_sources(2);
 
         assert!(matches!(
-            preparation.fail(SourcePreparationError::Discovery(
-                "two sources are enabled".into()
-            )),
+            preparation.fail(SourcePreparationError::Discovery(discovery_error.clone())),
             SourcePreparationUpdate::Failed(SourcePreparationError::Discovery(error))
-                if error == "two sources are enabled"
+                if error == discovery_error
         ));
         assert!(matches!(
-            preparation.fail(SourcePreparationError::Discovery(
-                "two sources are enabled".into()
-            )),
+            preparation.fail(SourcePreparationError::Discovery(discovery_error.clone())),
             SourcePreparationUpdate::Unchanged
         ));
         assert_eq!(
             preparation.status(),
-            SourcePreparationStatus::Failed(SourcePreparationError::Discovery(
-                "two sources are enabled".into()
-            ))
+            SourcePreparationStatus::Failed(SourcePreparationError::Discovery(discovery_error))
         );
     }
 

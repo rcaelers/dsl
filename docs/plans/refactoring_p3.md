@@ -32,6 +32,10 @@ or worker cause through `CaptureIndexProxy`. `signal_capture_session` owns
 `CaptureSourceMetadataError`; lazy presentation and channel discovery distinguish source access
 from metadata decoding, while live acquisition construction has its own category. Prepared-file
 and device adapters retain their concrete I/O, parser, and acquisition causes through that facade.
+The generic graph feature wraps metadata inspection in `CaptureSourceFeatureError`, and the neutral
+graph-plan exchange contract carries feature, source-identity encoding, and multiple-source
+selection failures through `CapturePresentationDiscoveryError`. Compiler discovery and runtime
+source preparation therefore share the typed result without depending on one another.
 
 `logic_analyzer_graph_orchestration` owns
 separate graph-worker codec, bounded-client, and serializable transport failures. The browser host
@@ -53,8 +57,7 @@ UI policy therefore matches a cancellation variant rather than display text.
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. Propagate `CaptureSourceMetadataError` into the generic graph capability and source-discovery
-   boundary so graph runtime no longer receives a formatted discovery diagnostic.
+1. Retain capture-index metadata and index-construction causes in `SourcePreparationError`.
 2. Platform and UI last: most occurrences will collapse into carrying the
    now-typed lower errors; only genuinely UI-owned failures need new variants.
 

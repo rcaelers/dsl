@@ -8,8 +8,8 @@ use logic_analyzer_capture_formats::sigrok_file::{
     SigrokFileSourceConfig, SigrokFileSourceFactory, portable_source_factory,
 };
 use logic_analyzer_graph_capabilities::node::{
-    CaptureSourceFeature, GraphNodeCapabilityOverride, GraphNodePresentation, GraphNodeSemantics,
-    RuntimeMaterializer,
+    CaptureSourceFeature, CaptureSourceFeatureError, GraphNodeCapabilityOverride,
+    GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     CaptureCacheIdentity, CapturePresentation, NodeBuildContext, PortKind, ResolvedInputs,
@@ -108,10 +108,14 @@ impl GraphNodeSemantics for SigrokFileSourceBuilder {
 }
 
 impl CaptureSourceFeature for SigrokFileSourceBuilder {
-    fn capture_presentation(&self, state: &Value) -> Result<Option<CapturePresentation>, String> {
-        self.metadata(state)?
+    fn capture_presentation(
+        &self,
+        state: &Value,
+    ) -> Result<Option<CapturePresentation>, CaptureSourceFeatureError> {
+        self.metadata(state)
+            .map_err(CaptureSourceFeatureError::state)?
             .presentation()
-            .map_err(|error| error.to_string())
+            .map_err(CaptureSourceFeatureError::from)
             .map(|presentation| presentation.map(super::super::metadata::presentation))
     }
     fn capture_cache_identity(

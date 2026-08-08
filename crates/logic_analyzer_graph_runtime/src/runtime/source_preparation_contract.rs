@@ -1,6 +1,7 @@
 use thiserror::Error;
 
 use logic_analyzer_graph_capabilities::node_support::CapturePresentationSignal;
+use logic_analyzer_graph_plan::CapturePresentationDiscoveryError;
 use signal_capture::{
     CaptureIndex, CaptureIndexBuildProgress, CaptureMetadata, CaptureWorkerClientError,
     CaptureWorkerFailure,
@@ -11,7 +12,7 @@ use signal_capture::{
 pub enum SourcePreparationError {
     /// The graph's finite-source presentation contract could not be discovered.
     #[error("capture-source discovery failed: {0}")]
-    Discovery(String),
+    Discovery(#[source] CapturePresentationDiscoveryError),
     /// Source metadata could not be inspected before preparation.
     #[error("capture metadata inspection failed: {0}")]
     Metadata(String),

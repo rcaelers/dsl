@@ -296,9 +296,12 @@ item here, so acceptance comparisons stop being ad-hoc.
      sources. Graph-runtime cache administration likewise retains derived-store and host-executor
      causes through `DerivedCacheError`. Capture-source presentation, channel discovery, and live
      acquisition configuration now retain access, decoding, and acquisition causes through
-     `CaptureSourceMetadataError`; next propagate that type through the generic graph capability
-     and source-discovery boundary rather than formatting it there. Continue converting remaining
-     host-service and generic-crate surfaces rather than formatting them early.
+     `CaptureSourceMetadataError`. Generic graph features preserve that cause through
+     `CaptureSourceFeatureError`, and compiler discovery carries feature, identity-encoding, and
+     multiple-source failures through `CapturePresentationDiscoveryError` into graph-runtime
+     source preparation. Next retain the capture-index metadata and index-construction causes in
+     `SourcePreparationError`. Continue converting remaining host-service and generic-crate
+     surfaces rather than formatting them early.
 
 ### Application state decomposition
 

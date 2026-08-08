@@ -6,8 +6,9 @@ use serde_json::Value;
 
 use logic_analyzer_device_dslogic::{DsLogicU3Pro16SourceFactory, unavailable_source_factory};
 use logic_analyzer_graph_capabilities::node::{
-    CaptureSourceFeature, GraphNodeCapabilityOverride, GraphNodePresentation, GraphNodeSemantics,
-    LiveCaptureFeature, LiveCaptureFeatureProvider, RuntimeMaterializer,
+    CaptureSourceFeature, CaptureSourceFeatureError, GraphNodeCapabilityOverride,
+    GraphNodePresentation, GraphNodeSemantics, LiveCaptureFeature, LiveCaptureFeatureProvider,
+    RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
@@ -155,10 +156,14 @@ impl GraphNodePresentation for DsLogicU3Pro16Builder {
 }
 
 impl CaptureSourceFeature for DsLogicU3Pro16Builder {
-    fn capture_presentation(&self, state: &Value) -> Result<Option<CapturePresentation>, String> {
-        self.metadata(state)?
+    fn capture_presentation(
+        &self,
+        state: &Value,
+    ) -> Result<Option<CapturePresentation>, CaptureSourceFeatureError> {
+        self.metadata(state)
+            .map_err(CaptureSourceFeatureError::state)?
             .presentation()
-            .map_err(|error| error.to_string())
+            .map_err(CaptureSourceFeatureError::from)
             .map(|presentation| presentation.map(super::super::metadata::presentation))
     }
 }

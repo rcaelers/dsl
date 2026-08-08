@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use logic_analyzer_graph_capabilities::node::RuntimeMaterializer;
+use logic_analyzer_graph_capabilities::node::{CaptureSourceFeatureError, RuntimeMaterializer};
 use logic_analyzer_graph_capabilities::node_support::{
     CaptureCacheIdentity, CapturePresentation, NodeBuildContext, PortKind, ResolvedInput,
     ResolvedInputs, SourceDataLifecycle,
@@ -336,6 +336,86 @@ impl SamplingOverlayCandidate {
     }
 }
 
+/// Typed failure passed from capture-presentation discovery to runtime preparation.
+#[derive(Clone, Debug, thiserror::Error)]
+pub enum CapturePresentationDiscoveryError {
+    /// One node's capture-source feature rejected its saved state or source metadata.
+    #[error("capture-source feature '{title}' ({node:?}) failed: {error}")]
+    SourceFeature {
+        /// Node whose feature failed.
+        node: NodeId,
+        /// User-visible node title used to contextualize the failure.
+        title: String,
+        /// Typed failure returned by the node's capture-source feature.
+        #[source]
+        error: CaptureSourceFeatureError,
+    },
+    /// The discovered source state could not be encoded for stable identity generation.
+    #[error("capture-source identity encoding failed: {0}")]
+    Identity(#[source] Arc<serde_json::Error>),
+    /// More than one enabled source supplied a pre-run capture presentation.
+    #[error(
+        "the graph has {count} enabled sources with pre-run capture presentations; keep one source enabled"
+    )]
+    MultipleSources {
+        /// Number of conflicting source presentations.
+        count: usize,
+    },
+}
+
+impl CapturePresentationDiscoveryError {
+    /// Associates a typed feature failure with the graph node that reported it.
+    pub fn source_feature(
+        node: NodeId,
+        title: impl Into<String>,
+        error: CaptureSourceFeatureError,
+    ) -> Self {
+        Self::SourceFeature {
+            node,
+            title: title.into(),
+            error,
+        }
+    }
+
+    /// Retains a source-identity serialization failure.
+    pub fn identity(error: serde_json::Error) -> Self {
+        Self::Identity(Arc::new(error))
+    }
+
+    /// Reports competing pre-run source presentations.
+    pub const fn multiple_sources(count: usize) -> Self {
+        Self::MultipleSources { count }
+    }
+}
+
+impl PartialEq for CapturePresentationDiscoveryError {
+    fn eq(&self, other: &Self) -> bool {
+        // Runtime discovery is polled. Equivalent diagnostics deduplicate across polls without
+        // replacing the retained typed causes with their rendered text.
+        match (self, other) {
+            (
+                Self::SourceFeature {
+                    node: left_node,
+                    title: left_title,
+                    error: left_error,
+                },
+                Self::SourceFeature {
+                    node: right_node,
+                    title: right_title,
+                    error: right_error,
+                },
+            ) => left_node == right_node && left_title == right_title && left_error == right_error,
+            (Self::Identity(left), Self::Identity(right)) => left.to_string() == right.to_string(),
+            (Self::MultipleSources { count: left }, Self::MultipleSources { count: right }) => {
+                left == right
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for CapturePresentationDiscoveryError {}
+
 /// Capture presentation request passed from compiler discovery to runtime preparation.
 pub struct DiscoveredCapturePresentation {
     /// Stable source identity.
@@ -344,4 +424,31 @@ pub struct DiscoveredCapturePresentation {
     pub visible_channels: Vec<usize>,
     /// Indexed, in-memory, or metadata-only presentation.
     pub presentation: CapturePresentation,
+}
+
+#[cfg(test)]
+mod capture_presentation_discovery_error_tests {
+    use std::error::Error;
+
+    use logic_analyzer_graph_capabilities::node::CaptureSourceFeatureError;
+    use node_graph_document::NodeId;
+
+    use super::CapturePresentationDiscoveryError;
+
+    #[test]
+    fn feature_causes_remain_typed_and_clone_for_runtime_snapshots() {
+        let error = CapturePresentationDiscoveryError::source_feature(
+            NodeId(7),
+            "Capture Source",
+            CaptureSourceFeatureError::state("malformed state"),
+        );
+
+        assert_eq!(error, error.clone());
+        assert!(
+            error
+                .source()
+                .and_then(|source| source.downcast_ref::<CaptureSourceFeatureError>())
+                .is_some()
+        );
+    }
 }

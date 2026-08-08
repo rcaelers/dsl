@@ -3,7 +3,8 @@
 use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{
-    CaptureSourceFeature, GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
+    CaptureSourceFeature, CaptureSourceFeatureError, GraphNodePresentation, GraphNodeSemantics,
+    RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, CapturePresentationSignal, NodeBuildContext, PortKind, ResolvedInputs,
@@ -55,7 +56,10 @@ impl GraphNodeSemantics for TestCaptureSourceBuilder {
 }
 
 impl CaptureSourceFeature for TestCaptureSourceBuilder {
-    fn capture_presentation(&self, _state: &Value) -> Result<Option<CapturePresentation>, String> {
+    fn capture_presentation(
+        &self,
+        _state: &Value,
+    ) -> Result<Option<CapturePresentation>, CaptureSourceFeatureError> {
         let channels = SyntheticCaptureSource::preview_channels();
         let signals = (0..=8)
             .chain(std::iter::once(10))

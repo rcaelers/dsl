@@ -21,9 +21,9 @@ use logic_analyzer_graph_capabilities::node_support::{
     TimelineMarkerReferenceBindingEdit, TriggerConfigurationFeature,
 };
 use logic_analyzer_graph_plan::{
-    DiscoveredCapturePresentation, OutputSubscriptionPlan, ProcessingEdge, ProcessingGraph,
-    ProcessingGraphError as CompileError, ProcessingNode, ProcessingPayloadCatalog,
-    ResolvedSamplingOverlay, SamplingOverlayCandidate,
+    CapturePresentationDiscoveryError, DiscoveredCapturePresentation, OutputSubscriptionPlan,
+    ProcessingEdge, ProcessingGraph, ProcessingGraphError as CompileError, ProcessingNode,
+    ProcessingPayloadCatalog, ResolvedSamplingOverlay, SamplingOverlayCandidate,
 };
 use logic_analyzer_graph_registry::GraphRegistry;
 use logic_analyzer_trigger::{SimpleTriggerCondition, TriggerProgram};
@@ -222,7 +222,7 @@ pub(crate) fn discover_capture_presentation_with_subscriptions(
     graph: &GraphState,
     builders: &GraphRegistry,
     subscriptions: &OutputSubscriptionPlan,
-) -> Result<Option<DiscoveredCapturePresentation>, String> {
+) -> Result<Option<DiscoveredCapturePresentation>, CapturePresentationDiscoveryError> {
     let mut candidates = Vec::new();
     for (&node_id, node) in &graph.nodes {
         if node.kind != NodeKind::Regular || node.muted {
@@ -231,7 +231,10 @@ pub(crate) fn discover_capture_presentation_with_subscriptions(
         let Some(feature) = builders.capture_source(node.def_name()) else {
             continue;
         };
-        let Some(presentation) = feature.capture_presentation(&node.state)? else {
+        let Some(presentation) = feature.capture_presentation(&node.state).map_err(|error| {
+            CapturePresentationDiscoveryError::source_feature(node_id, node.title.clone(), error)
+        })?
+        else {
             continue;
         };
         let visible_channels = capture_channel_selection(subscriptions, node_id, node, |output| {
@@ -240,7 +243,8 @@ pub(crate) fn discover_capture_presentation_with_subscriptions(
                 .and_then(|presentation| presentation.viewer_channel_origin(output, &node.state))
         });
         let identity_state = (&node.state, &visible_channels);
-        let state = serde_json::to_vec(&identity_state).map_err(|error| error.to_string())?;
+        let state = serde_json::to_vec(&identity_state)
+            .map_err(CapturePresentationDiscoveryError::identity)?;
         candidates.push(DiscoveredCapturePresentation {
             identity: format!("{node_id:?}:{}", blake3::hash(&state).to_hex()),
             visible_channels,
@@ -250,9 +254,7 @@ pub(crate) fn discover_capture_presentation_with_subscriptions(
     match candidates.len() {
         0 => Ok(None),
         1 => Ok(candidates.pop()),
-        count => Err(format!(
-            "the graph has {count} enabled sources with pre-run capture presentations"
-        )),
+        count => Err(CapturePresentationDiscoveryError::multiple_sources(count)),
     }
 }
 /// Resolves exactly one enabled live-capture feature without identifying a

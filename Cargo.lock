@@ -2303,6 +2303,7 @@ dependencies = [
  "signal-capture-session",
  "signal-derived",
  "signal-runtime",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -2392,6 +2393,7 @@ dependencies = [
  "serde",
  "serde_json",
  "signal-derived",
+ "thiserror 2.0.19",
 ]
 
 [[package]]

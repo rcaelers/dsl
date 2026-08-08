@@ -68,7 +68,7 @@ capture_source_metadata_error = capture_source_metadata[
 ].to_s
 %w[Access Decode Acquisition].each do |variant|
   next if capture_source_metadata_error.match?(
-    /^\s*#{variant}\(\#\[source\]\s*Box<dyn Error \+ Send \+ Sync>\),$/
+    /^\s*#{variant}\(\#\[source\]\s*Arc<dyn Error \+ Send \+ Sync>\),$/
   )
 
   errors << "crates/signal_capture_session/src/capture_source_metadata.rs: CaptureSourceMetadataError must retain its #{variant.downcase} source"
@@ -85,6 +85,55 @@ end
 
     errors << "#{path}: capture-source metadata adapter must preserve its #{category} cause"
   end
+end
+
+capture_feature_contract_path = File.join(
+  ROOT,
+  "crates/logic_analyzer_graph_capabilities/src/node/contracts.rs"
+)
+capture_feature_contract = File.read(capture_feature_contract_path).split(
+  /^\s*#\s*\[\s*cfg\s*\([^\]]*\btest\b[^\]]*\)\s*\]\s*\n\s*mod\s+\w*tests\b/,
+  2
+).first
+capture_presentation_signature = capture_feature_contract[
+  /fn\s+capture_presentation\b(?<signature>.*?)(?:\{|;)/m,
+  :signature
+].to_s
+unless capture_presentation_signature.include?("CaptureSourceFeatureError")
+  errors << "crates/logic_analyzer_graph_capabilities/src/node/contracts.rs: capture_presentation must retain CaptureSourceFeatureError"
+end
+unless capture_feature_contract.match?(
+  /^\s*Metadata\(\#\[from\]\s*CaptureSourceMetadataError\),$/
+)
+  errors << "crates/logic_analyzer_graph_capabilities/src/node/contracts.rs: CaptureSourceFeatureError must retain CaptureSourceMetadataError"
+end
+
+capture_discovery_plan = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_graph_plan/src/plan/types.rs"
+)).split(
+  /^\s*#\s*\[\s*cfg\s*\([^\]]*\btest\b[^\]]*\)\s*\]\s*\n\s*mod\s+\w*tests\b/,
+  2
+).first
+unless capture_discovery_plan.match?(
+  /SourceFeature\s*\{.*?\#\[source\]\s*error:\s*CaptureSourceFeatureError,/m
+)
+  errors << "crates/logic_analyzer_graph_plan/src/plan/types.rs: capture discovery must retain its typed feature cause"
+end
+unless capture_discovery_plan.match?(
+  /Identity\(\#\[source\]\s*Arc<serde_json::Error>\),/
+)
+  errors << "crates/logic_analyzer_graph_plan/src/plan/types.rs: capture discovery must retain its identity-encoding cause"
+end
+
+capture_discovery = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_graph_compiler/src/graph.rs"
+))
+unless capture_discovery.match?(
+  /fn\s+discover_capture_presentation_with_subscriptions\b.*?CapturePresentationDiscoveryError/m
+) && capture_discovery.include?("CapturePresentationDiscoveryError::source_feature")
+  errors << "crates/logic_analyzer_graph_compiler/src/graph.rs: capture discovery must preserve typed graph-feature failures"
 end
 
 sigrok_runtime_path = File.join(
@@ -117,6 +166,11 @@ source_preparation_contract_path = File.join(
   "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_contract.rs"
 )
 source_preparation_contract = File.read(source_preparation_contract_path)
+unless source_preparation_contract.match?(
+  /^\s*Discovery\(\#\[source\]\s*CapturePresentationDiscoveryError\),$/
+)
+  errors << "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_contract.rs: source preparation must retain typed capture-discovery failures"
+end
 if source_preparation_contract.scan(/Failed\(SourcePreparationError\)/).length < 2
   errors << "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_contract.rs: source-preparation updates and status must retain their typed failure cause"
 end

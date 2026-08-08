@@ -21,7 +21,8 @@
 mod contracts;
 
 pub use contracts::{
-    CaptureGraphSourceFactory, CaptureSourceFeature, GraphNodeCapabilityBundle,
-    GraphNodeCapabilityOverride, GraphNodePresentation, GraphNodeSemantics, LiveCaptureFeature,
-    LiveCaptureFeatureProvider, RuntimeMaterializer, TimelineFeature,
+    CaptureGraphSourceFactory, CaptureSourceFeature, CaptureSourceFeatureError,
+    GraphNodeCapabilityBundle, GraphNodeCapabilityOverride, GraphNodePresentation,
+    GraphNodeSemantics, LiveCaptureFeature, LiveCaptureFeatureProvider, RuntimeMaterializer,
+    TimelineFeature,
 };

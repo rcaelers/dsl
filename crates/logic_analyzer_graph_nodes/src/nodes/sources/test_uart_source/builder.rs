@@ -4,7 +4,8 @@
 use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{
-    CaptureSourceFeature, GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
+    CaptureSourceFeature, CaptureSourceFeatureError, GraphNodePresentation, GraphNodeSemantics,
+    RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, NodeBuildContext, PortKind, ResolvedInputs, parse_state,
@@ -62,7 +63,10 @@ impl RuntimeMaterializer for TestUartSourceBuilder {
 }
 
 impl CaptureSourceFeature for TestUartSourceBuilder {
-    fn capture_presentation(&self, _state: &Value) -> Result<Option<CapturePresentation>, String> {
+    fn capture_presentation(
+        &self,
+        _state: &Value,
+    ) -> Result<Option<CapturePresentation>, CaptureSourceFeatureError> {
         Ok(Some(CapturePresentation::Channels(vec![(0, "RX".into())])))
     }
 }

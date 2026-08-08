@@ -7,7 +7,8 @@ use node_graph_document::SocketReference;
 use signal_capture::CaptureChannelId;
 use signal_capture_session::{
     AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureProviderCapabilities,
-    CaptureSessionPlan, CaptureStartMode, CaptureStoreCursor, PreparedAcquisition,
+    CaptureSessionPlan, CaptureSourceMetadataError, CaptureStartMode, CaptureStoreCursor,
+    PreparedAcquisition,
 };
 use signal_derived::DerivedDataRetention;
 use signal_runtime::{NodeConfig, ProcessNode};
@@ -30,6 +31,24 @@ pub trait CaptureGraphSourceFactory: Send + Sync {
     /// # Parameters
     /// - `cursor`: Prepared capture-store cursor to replay through the graph.
     fn create(&self, cursor: Box<dyn CaptureStoreCursor>) -> Result<Box<dyn ProcessNode>, String>;
+}
+
+/// Failure exposed by a graph node's generic capture-source feature.
+#[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
+pub enum CaptureSourceFeatureError {
+    /// The saved node state could not be interpreted for capture discovery.
+    #[error("capture-source state is invalid: {0}")]
+    State(String),
+    /// The concrete source's lazy metadata could not be inspected.
+    #[error("capture-source metadata inspection failed: {0}")]
+    Metadata(#[from] CaptureSourceMetadataError),
+}
+
+impl CaptureSourceFeatureError {
+    /// Classifies a node-state diagnostic reported by a feature implementation.
+    pub fn state(message: impl Into<String>) -> Self {
+        Self::State(message.into())
+    }
 }
 
 /// Host-selected replacement capabilities for one inventory-provided graph node.
@@ -205,7 +224,10 @@ pub trait LiveCaptureFeature: Send {
 /// lowering, runtime materialization, or unrelated presentation behavior.
 pub trait CaptureSourceFeature: Send + Sync {
     /// Returns capture data or metadata to hand to the waveform viewer.
-    fn capture_presentation(&self, _state: &Value) -> Result<Option<CapturePresentation>, String> {
+    fn capture_presentation(
+        &self,
+        _state: &Value,
+    ) -> Result<Option<CapturePresentation>, CaptureSourceFeatureError> {
         Ok(None)
     }
 
@@ -449,5 +471,29 @@ pub trait RuntimeMaterializer: Send + Sync {
     /// - `state`: Current persisted node state.
     fn hot_config(&self, _state: &Value) -> Option<NodeConfig> {
         None
+    }
+}
+
+#[cfg(test)]
+mod capture_source_feature_error_tests {
+    use signal_capture_session::CaptureSourceMetadataError;
+
+    use super::CaptureSourceFeatureError;
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("controlled source access failure")]
+    struct ControlledAccessFailure;
+
+    #[test]
+    fn metadata_causes_survive_the_graph_feature_boundary() {
+        let error = CaptureSourceFeatureError::from(CaptureSourceMetadataError::access(
+            ControlledAccessFailure,
+        ));
+
+        assert!(matches!(
+            error,
+            CaptureSourceFeatureError::Metadata(CaptureSourceMetadataError::Access(source))
+                if source.downcast_ref::<ControlledAccessFailure>().is_some()
+        ));
     }
 }

@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::sync::Arc;
 
 use signal_capture::IndexedCapturePresentation;
 
@@ -9,23 +10,40 @@ use super::live_capture::ConfiguredAcquisition;
 struct CaptureSourceMetadataDiagnostic(String);
 
 /// Failure categories exposed while inspecting or preparing capture-source metadata.
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum CaptureSourceMetadataError {
     /// The source artifact or host resource could not be accessed.
     #[error("capture-source access failed: {0}")]
-    Access(#[source] Box<dyn Error + Send + Sync>),
+    Access(#[source] Arc<dyn Error + Send + Sync>),
     /// Available source bytes could not be decoded into capture metadata.
     #[error("capture-source metadata decoding failed: {0}")]
-    Decode(#[source] Box<dyn Error + Send + Sync>),
+    Decode(#[source] Arc<dyn Error + Send + Sync>),
     /// The source could not create its configured live acquisition.
     #[error("capture-source acquisition configuration failed: {0}")]
-    Acquisition(#[source] Box<dyn Error + Send + Sync>),
+    Acquisition(#[source] Arc<dyn Error + Send + Sync>),
 }
+
+impl PartialEq for CaptureSourceMetadataError {
+    fn eq(&self, other: &Self) -> bool {
+        // Discovery is polled, so independently reconstructed failures with the same category and
+        // diagnostic must deduplicate while each value still retains its concrete typed source.
+        match (self, other) {
+            (Self::Access(left), Self::Access(right))
+            | (Self::Decode(left), Self::Decode(right))
+            | (Self::Acquisition(left), Self::Acquisition(right)) => {
+                left.to_string() == right.to_string()
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for CaptureSourceMetadataError {}
 
 impl CaptureSourceMetadataError {
     /// Classifies a typed source-access failure without discarding its concrete cause.
     pub fn access(error: impl Error + Send + Sync + 'static) -> Self {
-        Self::Access(Box::new(error))
+        Self::Access(Arc::new(error))
     }
 
     /// Classifies a source-access diagnostic whose provider exposes only display text.
@@ -35,12 +53,12 @@ impl CaptureSourceMetadataError {
 
     /// Classifies a typed metadata-decoding failure without discarding its concrete cause.
     pub fn decode(error: impl Error + Send + Sync + 'static) -> Self {
-        Self::Decode(Box::new(error))
+        Self::Decode(Arc::new(error))
     }
 
     /// Classifies a typed acquisition-configuration failure without discarding its concrete cause.
     pub fn acquisition(error: impl Error + Send + Sync + 'static) -> Self {
-        Self::Acquisition(Box::new(error))
+        Self::Acquisition(Arc::new(error))
     }
 }
 

@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use logic_analyzer_graph_plan::{
-    DiscoveredCapturePresentation, ProcessingGraph, ProcessingGraphError,
+    CapturePresentationDiscoveryError, DiscoveredCapturePresentation, ProcessingGraph,
+    ProcessingGraphError,
 };
 use node_graph_document::NodeId;
 use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
@@ -86,7 +87,10 @@ impl GraphRuntime {
     /// Synchronizes finite-source preparation from compiler discovery output.
     pub fn synchronize_prepared_capture(
         &mut self,
-        discovered: Result<Option<DiscoveredCapturePresentation>, String>,
+        discovered: Result<
+            Option<DiscoveredCapturePresentation>,
+            CapturePresentationDiscoveryError,
+        >,
     ) -> SourcePreparationUpdate {
         match discovered {
             Ok(discovered) => self.source_preparation.synchronize(discovered),

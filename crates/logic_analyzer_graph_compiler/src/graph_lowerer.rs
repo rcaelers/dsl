@@ -7,8 +7,8 @@ use logic_analyzer_graph_capabilities::node_support::{
     LiveCaptureEdit, TimelineMarkerEdit, TimelineMarkerReferenceBindingEdit,
 };
 use logic_analyzer_graph_plan::{
-    DiscoveredCapturePresentation, OutputSubscriptionPlan, ProcessingGraph,
-    ProcessingGraphError as CompileError, SamplingOverlayCandidate,
+    CapturePresentationDiscoveryError, DiscoveredCapturePresentation, OutputSubscriptionPlan,
+    ProcessingGraph, ProcessingGraphError as CompileError, SamplingOverlayCandidate,
 };
 use logic_analyzer_graph_registry::GraphRegistry;
 use node_graph_document::{GraphState, NodeId};
@@ -116,7 +116,7 @@ impl GraphLowerer {
     pub fn discover_capture_presentation(
         &self,
         graph: &GraphState,
-    ) -> Result<Option<DiscoveredCapturePresentation>, String> {
+    ) -> Result<Option<DiscoveredCapturePresentation>, CapturePresentationDiscoveryError> {
         graph::discover_capture_presentation_with_subscriptions(
             graph,
             &self.registry,
