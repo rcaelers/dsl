@@ -340,8 +340,12 @@ item here, so acceptance comparisons stop being ad-hoc.
      and encode causes, while `TimelineFeatureError` carries those causes and classified edit
      failures through concrete timeline nodes. `logic_analyzer_graph_compiler` adds graph-node and
      operation context through `TimelineOperationError`, and UI timeline synchronization formats it
-     only when deduplicating or presenting the failure. Next continue converting remaining platform,
-     UI, and generic-crate service surfaces rather than formatting lower errors early.
+     only when deduplicating or presenting the failure. Live-capture feature discovery, trigger
+     configuration, and document edits likewise preserve persisted-state and capture-metadata causes
+     through `LiveCaptureFeatureError`; `LiveCaptureOperationError` adds provider validation,
+     ambiguity, registry, ownership, and edit context until the UI availability, trigger-status, or
+     toast boundary. Next type `RuntimeMaterializer::build` and graph-runtime materialization so
+     concrete node state and construction failures stop being flattened into strings.
 
 ### Application state decomposition
 

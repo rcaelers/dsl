@@ -1,4 +1,43 @@
+use signal_capture_session::CaptureSourceMetadataError;
+
 use crate::node_support::PersistedStateError;
+
+/// Failure exposed by a node's generic live-capture capability.
+#[derive(Debug, thiserror::Error)]
+pub enum LiveCaptureFeatureError {
+    /// The node's persisted state could not be decoded or encoded.
+    #[error(transparent)]
+    State(#[from] PersistedStateError),
+    /// Lazy capture-source metadata could not supply live-acquisition configuration.
+    #[error(transparent)]
+    Metadata(#[from] CaptureSourceMetadataError),
+    /// The node's capture or trigger configuration is invalid.
+    #[error("{0}")]
+    Configuration(String),
+    /// A requested edit is invalid for the node's current state.
+    #[error("{0}")]
+    Edit(String),
+    /// The provider exposed an internally inconsistent live-capture contract.
+    #[error("{0}")]
+    InvalidProvider(String),
+}
+
+impl LiveCaptureFeatureError {
+    /// Classifies a node-owned capture or trigger configuration diagnostic.
+    pub fn configuration(message: impl Into<String>) -> Self {
+        Self::Configuration(message.into())
+    }
+
+    /// Classifies a node-owned live-capture edit diagnostic.
+    pub fn edit(message: impl Into<String>) -> Self {
+        Self::Edit(message.into())
+    }
+
+    /// Classifies an internally inconsistent provider contract.
+    pub fn invalid_provider(message: impl Into<String>) -> Self {
+        Self::InvalidProvider(message.into())
+    }
+}
 
 /// Failure exposed by a node's generic timeline capability.
 #[derive(Debug, thiserror::Error)]

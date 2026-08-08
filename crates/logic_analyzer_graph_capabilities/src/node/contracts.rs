@@ -14,7 +14,7 @@ use signal_capture_session::{
 use signal_derived::DerivedDataRetention;
 use signal_runtime::{NodeConfig, ProcessNode};
 
-use super::error::TimelineFeatureError;
+use super::error::{LiveCaptureFeatureError, TimelineFeatureError};
 use crate::node_support::{
     CaptureCacheIdentity, CapturePresentation, DecoderTableColumnDescriptor,
     LanePresentationDescriptor, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
@@ -280,13 +280,13 @@ pub trait LiveCaptureFeatureProvider: Send + Sync {
     fn live_capture_feature(
         &self,
         state: &Value,
-    ) -> Result<Option<Box<dyn LiveCaptureFeature>>, String>;
+    ) -> Result<Option<Box<dyn LiveCaptureFeature>>, LiveCaptureFeatureError>;
 
     /// Returns validated trigger configuration exposed by this node, when any.
     fn trigger_configuration(
         &self,
         _state: &Value,
-    ) -> Result<Option<TriggerConfigurationFeature>, String> {
+    ) -> Result<Option<TriggerConfigurationFeature>, LiveCaptureFeatureError> {
         Ok(None)
     }
 
@@ -295,7 +295,7 @@ pub trait LiveCaptureFeatureProvider: Send + Sync {
         &self,
         _state: &Value,
         _edit: &LiveCaptureEdit,
-    ) -> Result<Option<Value>, String> {
+    ) -> Result<Option<Value>, LiveCaptureFeatureError> {
         Ok(None)
     }
 }

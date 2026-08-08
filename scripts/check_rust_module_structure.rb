@@ -137,6 +137,13 @@ unless timeline_feature_error.match?(/pub enum TimelineFeatureError\s*\{/) &&
        capture_feature_contract.scan(/TimelineFeatureError/).length >= 4
   errors << "crates/logic_analyzer_graph_capabilities/src/node: timeline features must retain typed state and edit failures"
 end
+unless timeline_feature_error.match?(/pub enum LiveCaptureFeatureError\s*\{/) &&
+       timeline_feature_error.match?(/^\s*State\(\#\[from\]\s*PersistedStateError\),$/) &&
+       timeline_feature_error.match?(
+         /^\s*Metadata\(\#\[from\]\s*CaptureSourceMetadataError\),$/
+       ) && capture_feature_contract.scan(/LiveCaptureFeatureError/).length >= 4
+  errors << "crates/logic_analyzer_graph_capabilities/src/node: live-capture features must retain typed state and metadata failures"
+end
 
 timeline_compiler_error = File.read(File.join(
   ROOT,
@@ -153,6 +160,14 @@ unless timeline_compiler_error.match?(/pub enum TimelineOperationError\s*\{/) &&
          /Self::Feature\s*\{\s*source,\s*\.\.\s*\}\s*=>\s*Some\(source\)/m
        ) && timeline_compiler.scan(/TimelineOperationError::feature/).length >= 4
   errors << "crates/logic_analyzer_graph_compiler: timeline operations must retain graph-feature failures"
+end
+unless timeline_compiler_error.match?(/pub enum LiveCaptureOperationError\s*\{/) &&
+       timeline_compiler_error.match?(
+         /Feature\s*\{.*?source:\s*LiveCaptureFeatureError,/m
+       ) && timeline_compiler_error.match?(
+         /Self::Feature\s*\{\s*source,\s*\.\.\s*\}\s*=>\s*Some\(source\)/m
+       ) && timeline_compiler.scan(/LiveCaptureOperationError::feature/).length >= 3
+  errors << "crates/logic_analyzer_graph_compiler: live-capture operations must retain graph-feature failures"
 end
 
 capture_validation = File.read(File.join(

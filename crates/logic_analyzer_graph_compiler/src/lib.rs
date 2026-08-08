@@ -19,10 +19,9 @@ mod payload_catalog;
 #[cfg(test)]
 mod architecture_tests;
 
-pub use error::TimelineOperationError;
+pub use error::{LiveCaptureOperationError, TimelineOperationError};
 pub use graph::{
     DiscoveredLiveCaptureFeature, DiscoveredTimelineMarker,
     DiscoveredTimelineMarkerReferenceBinding, DiscoveredTriggerConfiguration,
-    LiveCaptureDiscoveryError,
 };
 pub use graph_lowerer::GraphLowerer;

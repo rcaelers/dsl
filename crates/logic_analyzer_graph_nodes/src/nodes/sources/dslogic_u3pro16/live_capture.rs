@@ -3,7 +3,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{
-    CaptureGraphSourceError, CaptureGraphSourceFactory, LiveCaptureFeature,
+    CaptureGraphSourceError, CaptureGraphSourceFactory, LiveCaptureFeature, LiveCaptureFeatureError,
 };
 use logic_analyzer_graph_capabilities::node_support::{SimpleTriggerChannel, parse_state};
 use logic_analyzer_trigger::TriggerProgram;
@@ -128,10 +128,11 @@ impl U3Pro16LiveCaptureFeature {
 pub(crate) fn feature(
     state: &Value,
     capture: Box<dyn ConfiguredAcquisition>,
-) -> Result<Option<Box<dyn LiveCaptureFeature>>, String> {
-    let state = parse_state::<U3Pro16State>(state).map_err(|error| error.to_string())?;
-    let config = capture_config(&state)?;
-    let trigger_conditions = super::trigger::conditions(&state)?;
+) -> Result<Option<Box<dyn LiveCaptureFeature>>, LiveCaptureFeatureError> {
+    let state = parse_state::<U3Pro16State>(state)?;
+    let config = capture_config(&state).map_err(LiveCaptureFeatureError::configuration)?;
+    let trigger_conditions =
+        super::trigger::conditions(&state).map_err(LiveCaptureFeatureError::configuration)?;
     let mut channels = Vec::new();
     let mut channel_names = Vec::new();
     let mut simple_trigger_channels = Vec::new();
@@ -179,12 +180,13 @@ pub(crate) fn feature(
             TriggerTimeoutAction::Stop,
         ]),
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| LiveCaptureFeatureError::configuration(error.to_string()))?;
     let capabilities =
         CaptureProviderCapabilities::single(delivery, Arc::clone(&channels), config.sample_rate_hz)
             .with_commands(CaptureCommandCapabilities::new(true, false, false, true))
             .with_policy(policy_capabilities);
-    let requested_policy = requested_capture_policy(&state)?;
+    let requested_policy =
+        requested_capture_policy(&state).map_err(LiveCaptureFeatureError::configuration)?;
     let mut policy = capabilities
         .policy()
         .negotiate(
@@ -195,7 +197,7 @@ pub(crate) fn feature(
                 has_trigger_program: !config.trigger.stages.is_empty(),
             },
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| LiveCaptureFeatureError::configuration(error.to_string()))?;
     let effective_before = match policy.effective.trigger_placement {
         Some(signal_capture_session::TriggerPlacement::SamplesBefore(samples)) => samples,
         Some(signal_capture_session::TriggerPlacement::Fraction(fraction)) => {
@@ -215,8 +217,11 @@ pub(crate) fn feature(
     );
     let session_plan = CaptureSessionPlan {
         sample_rate_hz: config.sample_rate_hz,
-        channel_count: u64::try_from(channels.len())
-            .map_err(|_| "capture channel count exceeds the fixed-width plan format")?,
+        channel_count: u64::try_from(channels.len()).map_err(|_| {
+            LiveCaptureFeatureError::configuration(
+                "capture channel count exceeds the fixed-width plan format",
+            )
+        })?,
         capture_window_samples: Some(actual_samples),
         policy,
     };

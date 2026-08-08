@@ -5,9 +5,9 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{
-    CaptureGraphSourceError, CaptureGraphSourceFactory, LiveCaptureFeature,
+    CaptureGraphSourceError, CaptureGraphSourceFactory, LiveCaptureFeature, LiveCaptureFeatureError,
 };
-use logic_analyzer_graph_capabilities::node_support::SimpleTriggerChannel;
+use logic_analyzer_graph_capabilities::node_support::{SimpleTriggerChannel, parse_state};
 use logic_analyzer_test_support::{
     DeterministicFakeConfig, DeterministicFakeProvider, DeterministicTrigger,
     DeterministicTriggerCount, DeterministicTriggerCountMode, DeterministicTriggerLogic,
@@ -200,23 +200,27 @@ fn lower_trigger(program: Option<&TriggerProgram>) -> Result<Option<Deterministi
         .transpose()
 }
 
-pub(crate) fn feature(state: &Value) -> Result<Option<Box<dyn LiveCaptureFeature>>, String> {
-    let state = serde_json::from_value::<TestCaptureSourceState>(state.clone())
-        .map_err(|error| format!("invalid test capture state: {error}"))?;
+pub(crate) fn feature(
+    state: &Value,
+) -> Result<Option<Box<dyn LiveCaptureFeature>>, LiveCaptureFeatureError> {
+    let state = parse_state::<TestCaptureSourceState>(state)?;
     let channels: Arc<[CaptureChannelId]> = super::super::trigger::channel_ids().into();
     let channel_names: Arc<[String]> = (0..11)
         .map(|channel| format!("D{channel}"))
         .collect::<Vec<_>>()
         .into();
-    let trigger_conditions = super::super::live_builder::conditions(state.trigger_program())?;
+    let trigger_conditions = super::super::live_builder::conditions(state.trigger_program())
+        .map_err(LiveCaptureFeatureError::configuration)?;
     let config = DeterministicFakeConfig::new(
         Arc::clone(&channels),
         vec![CHUNK_SAMPLES; CHUNK_COUNT],
         0x5a17_d3a0,
     )
-    .map_err(|error| error.to_string())?
-    .with_trigger(lower_trigger(state.trigger_program())?)
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| LiveCaptureFeatureError::configuration(error.to_string()))?
+    .with_trigger(
+        lower_trigger(state.trigger_program()).map_err(LiveCaptureFeatureError::configuration)?,
+    )
+    .map_err(|error| LiveCaptureFeatureError::configuration(error.to_string()))?;
     let simple_trigger_channels: Arc<[SimpleTriggerChannel]> = channels
         .iter()
         .cloned()
@@ -236,12 +240,12 @@ pub(crate) fn feature(state: &Value) -> Result<Option<Box<dyn LiveCaptureFeature
         .into();
     let setting_matrix = vec![
         CaptureSettingCombination::new(Arc::clone(&channels), Arc::from([1_000_000_u64]))
-            .map_err(|error| error.to_string())?,
+            .map_err(|error| LiveCaptureFeatureError::configuration(error.to_string()))?,
         CaptureSettingCombination::new(
             channels[..4].to_vec(),
             Arc::from([5_000_000_u64, 10_000_000]),
         )
-        .map_err(|error| error.to_string())?,
+        .map_err(|error| LiveCaptureFeatureError::configuration(error.to_string()))?,
     ];
     let has_trigger_program = config.has_trigger();
     let trigger_sample = config.first_trigger_sample().unwrap_or(0);
@@ -264,13 +268,13 @@ pub(crate) fn feature(state: &Value) -> Result<Option<Box<dyn LiveCaptureFeature
             TriggerTimeoutAction::Stop,
         ]),
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| LiveCaptureFeatureError::configuration(error.to_string()))?;
     let capabilities = CaptureProviderCapabilities::new(
         CaptureDataDelivery::DuringAcquisition,
         setting_matrix,
         false,
     )
-    .map_err(|error| error.to_string())?
+    .map_err(|error| LiveCaptureFeatureError::configuration(error.to_string()))?
     .with_commands(CaptureCommandCapabilities::new(true, true, true, true))
     .with_policy(policy_capabilities);
     let requested_policy = CapturePolicy {
@@ -301,14 +305,17 @@ pub(crate) fn feature(state: &Value) -> Result<Option<Box<dyn LiveCaptureFeature
                 has_trigger_program,
             },
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| LiveCaptureFeatureError::configuration(error.to_string()))?;
     if has_trigger_program {
         policy.effective.trigger_placement = Some(TriggerPlacement::SamplesBefore(trigger_sample));
     }
     let session_plan = CaptureSessionPlan {
         sample_rate_hz: SAMPLE_RATE_HZ as u64,
-        channel_count: u64::try_from(channels.len())
-            .map_err(|_| "capture channel count exceeds the fixed-width plan format")?,
+        channel_count: u64::try_from(channels.len()).map_err(|_| {
+            LiveCaptureFeatureError::configuration(
+                "capture channel count exceeds the fixed-width plan format",
+            )
+        })?,
         capture_window_samples: Some(config.total_samples()),
         policy,
     };

@@ -165,13 +165,12 @@ fn buffered_hardware_discovery_rejects_too_many_channels_for_the_rate() {
         .discover_live_capture_feature(widget.graph())
         .err()
         .expect("wide 1 GHz buffered capture must be rejected before opening hardware");
+    let message = error.to_string();
 
     assert!(
-        error
-            .message
-            .contains("Too many channels for 1 GHz in Buffer mode"),
+        message.contains("Too many channels for 1 GHz in Buffer mode"),
         "{}",
-        error.message
+        message
     );
 }
 
@@ -190,13 +189,12 @@ fn streaming_hardware_discovery_rejects_too_many_channels_for_the_rate() {
         .discover_live_capture_feature(widget.graph())
         .err()
         .expect("four-input 1 GHz stream must be rejected before opening hardware");
+    let message = error.to_string();
 
     assert!(
-        error
-            .message
-            .contains("Too many channels for 1 GHz in Stream mode"),
+        message.contains("Too many channels for 1 GHz in Stream mode"),
         "{}",
-        error.message
+        message
     );
 }
 

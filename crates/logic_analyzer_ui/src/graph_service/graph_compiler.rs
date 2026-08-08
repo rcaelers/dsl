@@ -7,7 +7,7 @@ use logic_analyzer_graph_capabilities::node_support::{
 use logic_analyzer_graph_compiler::{
     DiscoveredLiveCaptureFeature, DiscoveredTimelineMarker,
     DiscoveredTimelineMarkerReferenceBinding, DiscoveredTriggerConfiguration, GraphLowerer,
-    LiveCaptureDiscoveryError, TimelineOperationError,
+    LiveCaptureOperationError, TimelineOperationError,
 };
 use logic_analyzer_graph_orchestration::{
     GraphWorkerClient, GraphWorkerFailure, GraphWorkerMessage,
@@ -294,7 +294,7 @@ impl CaptureFeatureDiscovery for UiGraphService {
                 reason: "The graph has no live capture source".into(),
             },
             Err(error) => CaptureAvailability::Unavailable {
-                reason: error.message,
+                reason: error.to_string(),
             },
         }
     }
@@ -371,14 +371,14 @@ impl UiGraphService {
     pub(crate) fn discover_live_capture_feature(
         &self,
         graph: &GraphState,
-    ) -> Result<Option<DiscoveredLiveCaptureFeature>, LiveCaptureDiscoveryError> {
+    ) -> Result<Option<DiscoveredLiveCaptureFeature>, LiveCaptureOperationError> {
         self.lowerer().discover_live_capture_feature(graph)
     }
 
     pub(crate) fn discover_trigger_configuration(
         &self,
         graph: &GraphState,
-    ) -> Result<Option<DiscoveredTriggerConfiguration>, LiveCaptureDiscoveryError> {
+    ) -> Result<Option<DiscoveredTriggerConfiguration>, LiveCaptureOperationError> {
         self.lowerer().discover_trigger_configuration(graph)
     }
 
@@ -387,7 +387,7 @@ impl UiGraphService {
         graph: &GraphState,
         source_node: NodeId,
         edit: &LiveCaptureEdit,
-    ) -> Result<serde_json::Value, String> {
+    ) -> Result<serde_json::Value, LiveCaptureOperationError> {
         self.lowerer()
             .apply_live_capture_edit(graph, source_node, edit)
     }

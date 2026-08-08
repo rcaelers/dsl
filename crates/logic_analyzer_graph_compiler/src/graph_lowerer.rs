@@ -17,12 +17,11 @@ use signal_derived::PayloadRegistry;
 use super::data_collector::{
     BUILDER_NAME as DATA_COLLECTOR_BUILDER, DataCollectorBuilder, OUTPUT_SUBSCRIPTION_BUILDER_NAME,
 };
-use super::error::TimelineOperationError;
+use super::error::{LiveCaptureOperationError, TimelineOperationError};
 use super::graph;
 use super::graph::{
     DiscoveredLiveCaptureFeature, DiscoveredTimelineMarker,
     DiscoveredTimelineMarkerReferenceBinding, DiscoveredTriggerConfiguration,
-    LiveCaptureDiscoveryError,
 };
 use super::payload_catalog::RegistryPayloadCatalog;
 
@@ -129,7 +128,7 @@ impl GraphLowerer {
     pub fn discover_live_capture_feature(
         &self,
         graph: &GraphState,
-    ) -> Result<Option<DiscoveredLiveCaptureFeature>, LiveCaptureDiscoveryError> {
+    ) -> Result<Option<DiscoveredLiveCaptureFeature>, LiveCaptureOperationError> {
         graph::discover_live_capture_feature_with_subscriptions(
             graph,
             &self.registry,
@@ -141,7 +140,7 @@ impl GraphLowerer {
     pub fn discover_trigger_configuration(
         &self,
         graph: &GraphState,
-    ) -> Result<Option<DiscoveredTriggerConfiguration>, LiveCaptureDiscoveryError> {
+    ) -> Result<Option<DiscoveredTriggerConfiguration>, LiveCaptureOperationError> {
         graph::discover_trigger_configuration(graph, &self.registry)
     }
 
@@ -151,7 +150,7 @@ impl GraphLowerer {
         graph: &GraphState,
         source_node: NodeId,
         edit: &LiveCaptureEdit,
-    ) -> Result<serde_json::Value, String> {
+    ) -> Result<serde_json::Value, LiveCaptureOperationError> {
         graph::apply_live_capture_edit(graph, &self.registry, source_node, edit)
     }
 

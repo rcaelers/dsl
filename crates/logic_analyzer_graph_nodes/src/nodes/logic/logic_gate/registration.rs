@@ -16,7 +16,7 @@ mod registration_tests {
 
     use logic_analyzer_graph_capabilities::node::{
         GraphNodeCapabilityOverride, GraphNodePresentation, LiveCaptureFeature,
-        LiveCaptureFeatureProvider,
+        LiveCaptureFeatureError, LiveCaptureFeatureProvider,
     };
     use logic_analyzer_graph_registry::{GraphRegistry, graph_node_registrations};
 
@@ -32,7 +32,7 @@ mod registration_tests {
         fn live_capture_feature(
             &self,
             _state: &serde_json::Value,
-        ) -> Result<Option<Box<dyn LiveCaptureFeature>>, String> {
+        ) -> Result<Option<Box<dyn LiveCaptureFeature>>, LiveCaptureFeatureError> {
             Ok(None)
         }
     }

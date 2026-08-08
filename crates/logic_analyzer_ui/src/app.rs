@@ -538,7 +538,7 @@ impl App {
                 .set_trigger_configuration(configuration),
             Err(error) => self
                 .capture_analysis
-                .set_trigger_configuration_error(error.message),
+                .set_trigger_configuration_error(error.to_string()),
         }
         self.refresh_simple_trigger_ui();
     }
@@ -579,7 +579,7 @@ impl App {
         ) {
             Ok(state) => state,
             Err(error) => {
-                self.toasts.error_from(toast_source, error);
+                self.toasts.error_from(toast_source, error.to_string());
                 self.refresh_simple_trigger_ui();
                 return;
             }
@@ -628,7 +628,7 @@ impl App {
         ) {
             Ok(state) => state,
             Err(error) => {
-                self.toasts.error_from(toast_source, error);
+                self.toasts.error_from(toast_source, error.to_string());
                 self.refresh_trigger_configuration();
                 return;
             }
@@ -1967,7 +1967,7 @@ impl App {
                 return;
             }
             Err(error) => {
-                self.toasts.error(error.message);
+                self.toasts.error(error.to_string());
                 return;
             }
         };

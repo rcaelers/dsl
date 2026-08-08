@@ -213,6 +213,12 @@ executor, export, acquisition, capture-policy, and metadata-codec failures throu
 publication use that typed contract; status projection and toast/run-message presentation format
 the final diagnostic.
 
+Before coordination starts, graph feature discovery, trigger configuration, and trigger edits carry
+`LiveCaptureFeatureError`. Persisted-state and capture-metadata causes remain typed through concrete
+providers, while `LiveCaptureOperationError` adds graph owner, ambiguity, registry, provider
+validation, and edit context. Availability text, trigger status, and application toasts are the
+presentation boundaries.
+
 ```mermaid
 sequenceDiagram
     participant UI as Capture coordinator

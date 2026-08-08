@@ -2,16 +2,18 @@
 
 use serde_json::Value;
 
-use logic_analyzer_graph_capabilities::node_support::LiveCaptureEdit;
+use logic_analyzer_graph_capabilities::node::LiveCaptureFeatureError;
+use logic_analyzer_graph_capabilities::node_support::{
+    LiveCaptureEdit, parse_state, serialize_state,
+};
 
 use super::definition::TestCaptureSourceState;
 
 pub(crate) fn apply_live_capture_edit(
     state: &Value,
     edit: &LiveCaptureEdit,
-) -> Result<Value, String> {
-    let mut state = serde_json::from_value::<TestCaptureSourceState>(state.clone())
-        .map_err(|error| format!("invalid test capture state: {error}"))?;
+) -> Result<Value, LiveCaptureFeatureError> {
+    let mut state = parse_state::<TestCaptureSourceState>(state)?;
     match edit {
         LiveCaptureEdit::SetSimpleTrigger {
             channel_id,
@@ -21,12 +23,20 @@ pub(crate) fn apply_live_capture_edit(
                 .as_str()
                 .strip_prefix("demo:")
                 .and_then(|channel| channel.parse::<usize>().ok())
-                .ok_or_else(|| format!("unknown test capture channel {channel_id}"))?;
-            state.set_trigger_condition(channel, *condition)?;
+                .ok_or_else(|| {
+                    LiveCaptureFeatureError::edit(format!(
+                        "unknown test capture channel {channel_id}"
+                    ))
+                })?;
+            state
+                .set_trigger_condition(channel, *condition)
+                .map_err(LiveCaptureFeatureError::edit)?;
         }
         LiveCaptureEdit::SetTriggerProgram { program } => {
-            state.set_trigger_program(program.clone())?;
+            state
+                .set_trigger_program(program.clone())
+                .map_err(LiveCaptureFeatureError::edit)?;
         }
     }
-    serde_json::to_value(state).map_err(|error| error.to_string())
+    serialize_state(state).map_err(Into::into)
 }

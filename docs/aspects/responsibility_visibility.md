@@ -322,6 +322,13 @@ the JSON codec cause through that feature contract. `logic_analyzer_graph_compil
 and operation context through `TimelineOperationError`; UI timeline synchronization formats it only
 when deduplicating or presenting an error.
 
+Live-capture feature discovery, trigger configuration, and state editing use
+`LiveCaptureFeatureError`. It preserves persisted-state and lazy capture-metadata causes and
+classifies node-owned configuration, edit, and provider-contract failures. The compiler adds graph
+ownership, registry, ambiguity, and generic provider-validation context through
+`LiveCaptureOperationError`; UI capture availability, trigger status, and toasts are its formatting
+boundaries.
+
 `logic_analyzer_protocol_decoders::sigrok_decoder` owns the host-facing Sigrok catalog and decoder
 runtime error contracts. Whole-catalog discovery failures are distinct from recoverable per-path
 and per-package catalog diagnostics. Decoder runtime failures distinguish package discovery,

@@ -101,6 +101,12 @@ and encode causes at the graph-document boundary. Timeline node features carry t
 adds owner-node and operation context through `TimelineOperationError`; UI timeline synchronization
 formats the error only for deduplication and presentation.
 
+Live-capture feature discovery, trigger configuration, and document edits use
+`LiveCaptureFeatureError` to retain persisted-state and capture-metadata causes and to classify
+configuration, edit, and provider-contract failures. `LiveCaptureOperationError` adds graph owner,
+registry, ambiguity, and generic provider-validation context. UI availability, trigger status, and
+toast handling are the formatting boundaries.
+
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
 - One enum per *facade*, not per crate and not per function. Variants describe what failed in
@@ -112,7 +118,9 @@ formats the error only for deduplication and presentation.
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. Continue through the remaining platform and UI facades: most occurrences collapse into carrying
+1. Type `RuntimeMaterializer::build` and graph-runtime materialization, preserving persisted-state
+   and concrete construction causes through compiler/runtime execution diagnostics.
+2. Continue through the remaining platform and UI facades: most occurrences collapse into carrying
    the now-typed lower errors; only genuinely UI-owned failures need new variants.
 
 Expect this to span many small PRs; each facade conversion is independently landable.

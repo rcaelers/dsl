@@ -38,7 +38,7 @@ use signal_capture_session::{
 };
 use signal_derived::{DerivedDataRetention, SamplingPointStore};
 
-use super::error::TimelineOperationError;
+use super::error::{LiveCaptureOperationError, TimelineOperationError};
 
 // ── Builder trait & registry ─────────────────────────────────────────────────
 
@@ -194,15 +194,6 @@ impl DiscoveredLiveCaptureFeature {
     }
 }
 
-/// Reason discovery could not choose a single live-capture feature.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LiveCaptureDiscoveryError {
-    /// Source nodes that made discovery ambiguous.
-    pub source_nodes: Vec<NodeId>,
-    /// User-presentable explanation of the discovery failure.
-    pub message: String,
-}
-
 fn capture_channel_selection(
     subscriptions: &OutputSubscriptionPlan,
     node_id: NodeId,
@@ -265,7 +256,7 @@ pub(crate) fn discover_live_capture_feature_with_subscriptions(
     graph: &GraphState,
     builders: &GraphRegistry,
     subscriptions: &OutputSubscriptionPlan,
-) -> Result<Option<DiscoveredLiveCaptureFeature>, LiveCaptureDiscoveryError> {
+) -> Result<Option<DiscoveredLiveCaptureFeature>, LiveCaptureOperationError> {
     discover_live_capture_feature_from(graph, builders, subscriptions, |_| true)
 }
 /// Resolves exactly one enabled trigger-configuration feature without consulting acquisition
@@ -273,7 +264,7 @@ pub(crate) fn discover_live_capture_feature_with_subscriptions(
 pub(crate) fn discover_trigger_configuration(
     graph: &GraphState,
     builders: &GraphRegistry,
-) -> Result<Option<DiscoveredTriggerConfiguration>, LiveCaptureDiscoveryError> {
+) -> Result<Option<DiscoveredTriggerConfiguration>, LiveCaptureOperationError> {
     let mut candidates = Vec::new();
     for node in graph
         .nodes
@@ -290,24 +281,23 @@ pub(crate) fn discover_trigger_configuration(
                 feature,
             }),
             Ok(None) => {}
-            Err(message) => {
-                return Err(LiveCaptureDiscoveryError {
-                    source_nodes: vec![node.id],
-                    message: format!("{}: {message}", node.title),
-                });
+            Err(error) => {
+                return Err(LiveCaptureOperationError::feature(
+                    node.id,
+                    node.title.clone(),
+                    error,
+                ));
             }
         }
     }
     match candidates.len() {
         0 => Ok(None),
         1 => Ok(candidates.pop()),
-        _ => Err(LiveCaptureDiscoveryError {
+        _ => Err(LiveCaptureOperationError::MultipleTriggerConfigurations {
             source_nodes: candidates
                 .iter()
                 .map(|candidate| candidate.source_node)
                 .collect(),
-            message: "multiple enabled trigger configurations are present; keep one capture source enabled"
-                .into(),
         }),
     }
 }
@@ -428,20 +418,26 @@ pub(crate) fn apply_live_capture_edit(
     builders: &GraphRegistry,
     source_node: NodeId,
     edit: &LiveCaptureEdit,
-) -> Result<Value, String> {
+) -> Result<Value, LiveCaptureOperationError> {
     let node = graph
         .nodes
         .get(&source_node)
-        .ok_or_else(|| format!("live capture source {source_node:?} no longer exists"))?;
+        .ok_or(LiveCaptureOperationError::OwnerMissing {
+            owner_node: source_node,
+        })?;
     let feature = builders.live_capture(node.def_name()).ok_or_else(|| {
-        format!(
-            "no live-capture feature is registered for {}",
-            node.def_name()
-        )
+        LiveCaptureOperationError::FeatureUnavailable {
+            owner_node: node.id,
+            definition_name: node.def_name().to_owned(),
+        }
     })?;
     feature
-        .apply_live_capture_edit(&node.state, edit)?
-        .ok_or_else(|| format!("{} does not support this live capture edit", node.title))
+        .apply_live_capture_edit(&node.state, edit)
+        .map_err(|error| LiveCaptureOperationError::feature(node.id, node.title.clone(), error))?
+        .ok_or_else(|| LiveCaptureOperationError::UnsupportedEdit {
+            owner_node: node.id,
+            owner_title: node.title.clone(),
+        })
 }
 
 /// Resolves a live feature only from nodes retained by a successfully
@@ -452,7 +448,7 @@ fn discover_live_capture_feature_from(
     builders: &GraphRegistry,
     subscriptions: &OutputSubscriptionPlan,
     include: impl Fn(&Node) -> bool,
-) -> Result<Option<DiscoveredLiveCaptureFeature>, LiveCaptureDiscoveryError> {
+) -> Result<Option<DiscoveredLiveCaptureFeature>, LiveCaptureOperationError> {
     let mut candidates = Vec::new();
     for node in graph
         .nodes
@@ -514,9 +510,10 @@ fn discover_live_capture_feature_from(
                     None
                 };
                 if let Some(message) = invalid {
-                    return Err(LiveCaptureDiscoveryError {
-                        source_nodes: vec![node.id],
-                        message: format!("{}: {message}", node.title),
+                    return Err(LiveCaptureOperationError::InvalidFeature {
+                        owner_node: node.id,
+                        owner_title: node.title.clone(),
+                        message: message.into(),
                     });
                 }
                 candidates.push(DiscoveredLiveCaptureFeature::new_with_visible_channels(
@@ -533,11 +530,12 @@ fn discover_live_capture_feature_from(
                 ));
             }
             Ok(None) => {}
-            Err(message) => {
-                return Err(LiveCaptureDiscoveryError {
-                    source_nodes: vec![node.id],
-                    message: format!("{}: {message}", node.title),
-                });
+            Err(error) => {
+                return Err(LiveCaptureOperationError::feature(
+                    node.id,
+                    node.title.clone(),
+                    error,
+                ));
             }
         }
     }
@@ -551,10 +549,7 @@ fn discover_live_capture_feature_from(
                 .map(|candidate| candidate.source_node)
                 .collect();
             source_nodes.sort_unstable_by_key(|node| node.0);
-            Err(LiveCaptureDiscoveryError {
-                source_nodes,
-                message: "the graph contains multiple live capture sources".into(),
-            })
+            Err(LiveCaptureOperationError::MultipleSources { source_nodes })
         }
     }
 }

@@ -4,11 +4,11 @@ use serde_json::Value;
 
 use logic_analyzer_graph_capabilities::node::{
     CaptureSourceFeature, CaptureSourceFeatureError, GraphNodePresentation, GraphNodeSemantics,
-    LiveCaptureFeature, LiveCaptureFeatureProvider, RuntimeMaterializer,
+    LiveCaptureFeature, LiveCaptureFeatureError, LiveCaptureFeatureProvider, RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
-    SimpleTriggerChannel, TriggerConfigurationFeature,
+    SimpleTriggerChannel, TriggerConfigurationFeature, parse_state,
 };
 use logic_analyzer_trigger::{SimpleTriggerCondition, TriggerPredicate, TriggerProgram};
 use node_graph_document::SocketReference;
@@ -137,25 +137,25 @@ impl LiveCaptureFeatureProvider for TestLiveCaptureSourceBuilder {
     fn live_capture_feature(
         &self,
         state: &Value,
-    ) -> Result<Option<Box<dyn LiveCaptureFeature>>, String> {
+    ) -> Result<Option<Box<dyn LiveCaptureFeature>>, LiveCaptureFeatureError> {
         super::live_capture::feature(state)
     }
 
     fn trigger_configuration(
         &self,
         state: &Value,
-    ) -> Result<Option<TriggerConfigurationFeature>, String> {
-        let state =
-            serde_json::from_value::<super::definition::TestCaptureSourceState>(state.clone())
-                .map_err(|error| format!("invalid test capture state: {error}"))?;
-        configuration(&state).map(Some)
+    ) -> Result<Option<TriggerConfigurationFeature>, LiveCaptureFeatureError> {
+        let state = parse_state::<super::definition::TestCaptureSourceState>(state)?;
+        configuration(&state)
+            .map(Some)
+            .map_err(LiveCaptureFeatureError::configuration)
     }
 
     fn apply_live_capture_edit(
         &self,
         state: &Value,
         edit: &LiveCaptureEdit,
-    ) -> Result<Option<Value>, String> {
+    ) -> Result<Option<Value>, LiveCaptureFeatureError> {
         super::implementation::apply_live_capture_edit(state, edit).map(Some)
     }
 }

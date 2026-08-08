@@ -7,8 +7,8 @@ use serde_json::Value;
 use logic_analyzer_device_dslogic::{DsLogicU3Pro16SourceFactory, unavailable_source_factory};
 use logic_analyzer_graph_capabilities::node::{
     CaptureSourceFeature, CaptureSourceFeatureError, GraphNodeCapabilityOverride,
-    GraphNodePresentation, GraphNodeSemantics, LiveCaptureFeature, LiveCaptureFeatureProvider,
-    RuntimeMaterializer,
+    GraphNodePresentation, GraphNodeSemantics, LiveCaptureFeature, LiveCaptureFeatureError,
+    LiveCaptureFeatureProvider, RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{
     CapturePresentation, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
@@ -172,16 +172,21 @@ impl LiveCaptureFeatureProvider for DsLogicU3Pro16Builder {
     fn live_capture_feature(
         &self,
         state: &Value,
-    ) -> Result<Option<Box<dyn LiveCaptureFeature>>, String> {
-        let metadata = self.metadata(state)?;
+    ) -> Result<Option<Box<dyn LiveCaptureFeature>>, LiveCaptureFeatureError> {
+        let parsed = parse_state::<U3Pro16State>(state)?;
+        let config = super::capture_configuration::capture_config(&parsed)
+            .map_err(LiveCaptureFeatureError::configuration)?;
+        let metadata = self.source_factory.metadata(config);
         if !metadata.runtime_capabilities().live_acquisition() {
             return Ok(None);
         }
         let acquisition = metadata
             .configured_acquisition()
-            .map_err(|error| error.to_string())?
+            .map_err(LiveCaptureFeatureError::from)?
             .ok_or_else(|| {
-                "capture source advertises live acquisition without providing it".to_owned()
+                LiveCaptureFeatureError::invalid_provider(
+                    "capture source advertises live acquisition without providing it",
+                )
             })?;
         super::live_capture::feature(state, acquisition)
     }
@@ -189,16 +194,18 @@ impl LiveCaptureFeatureProvider for DsLogicU3Pro16Builder {
     fn trigger_configuration(
         &self,
         state: &Value,
-    ) -> Result<Option<TriggerConfigurationFeature>, String> {
-        let state: U3Pro16State = parse_state(state).map_err(|error| error.to_string())?;
-        super::trigger::configuration(&state).map(Some)
+    ) -> Result<Option<TriggerConfigurationFeature>, LiveCaptureFeatureError> {
+        let state: U3Pro16State = parse_state(state)?;
+        super::trigger::configuration(&state)
+            .map(Some)
+            .map_err(LiveCaptureFeatureError::configuration)
     }
 
     fn apply_live_capture_edit(
         &self,
         state: &Value,
         edit: &LiveCaptureEdit,
-    ) -> Result<Option<Value>, String> {
+    ) -> Result<Option<Value>, LiveCaptureFeatureError> {
         super::live_edit::apply(state, edit).map(Some)
     }
 }

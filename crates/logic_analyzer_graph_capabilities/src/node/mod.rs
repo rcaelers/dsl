@@ -27,4 +27,4 @@ pub use contracts::{
     GraphNodePresentation, GraphNodeSemantics, LiveCaptureFeature, LiveCaptureFeatureProvider,
     RuntimeMaterializer, TimelineFeature,
 };
-pub use error::TimelineFeatureError;
+pub use error::{LiveCaptureFeatureError, TimelineFeatureError};
