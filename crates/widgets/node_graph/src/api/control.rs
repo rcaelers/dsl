@@ -3,6 +3,34 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use egui::{Rect, Ui};
+use thiserror::Error;
+
+/// Failure returned by an injected file-dialog service.
+#[derive(Debug, Error)]
+pub enum FileDialogError {
+    /// A dropped file did not include a path or importable contents.
+    #[error("the host did not provide contents for '{name}'")]
+    ContentsUnavailable {
+        /// Display name supplied by the host.
+        name: String,
+    },
+    /// The injected host service reported a typed failure.
+    #[error("{source}")]
+    Host {
+        /// Concrete host-adapter cause retained until widget presentation.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+}
+
+impl FileDialogError {
+    /// Retains an injected host service failure without formatting it.
+    pub fn host(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self::Host {
+            source: Box::new(error),
+        }
+    }
+}
 
 /// File-type filter offered by a host file picker.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -56,7 +84,7 @@ pub trait FileDialogService: Send {
     fn pick(&mut self, request: FileDialogRequest<'_>) -> Option<String>;
 
     /// Returns a completed asynchronous selection for one control.
-    fn take_picked(&mut self, _request_id: u64) -> Option<Result<String, String>> {
+    fn take_picked(&mut self, _request_id: u64) -> Option<Result<String, FileDialogError>> {
         None
     }
 
@@ -71,10 +99,11 @@ pub trait FileDialogService: Send {
     }
 
     /// Imports bytes supplied by the host's drag-and-drop mechanism.
-    fn import_dropped(&mut self, file: DroppedFile) -> Result<String, String> {
+    fn import_dropped(&mut self, file: DroppedFile) -> Result<String, FileDialogError> {
+        let name = file.name;
         file.path
             .map(|path| path.display().to_string())
-            .ok_or_else(|| "this host cannot import dropped file bytes".to_owned())
+            .ok_or(FileDialogError::ContentsUnavailable { name })
     }
 
     /// Installs the wake-up callback used by asynchronous dialog implementations.
@@ -102,7 +131,7 @@ impl<'a> InlineControlContext<'a> {
     }
 
     /// Takes picked file, leaving its default state.
-    pub fn take_picked_file(&mut self, request_id: u64) -> Option<Result<String, String>> {
+    pub fn take_picked_file(&mut self, request_id: u64) -> Option<Result<String, FileDialogError>> {
         self.file_dialog.take_picked(request_id)
     }
 
@@ -117,7 +146,7 @@ impl<'a> InlineControlContext<'a> {
     }
 
     /// Imports a host-supplied dropped file into a control value.
-    pub fn import_dropped_file(&mut self, file: DroppedFile) -> Result<String, String> {
+    pub fn import_dropped_file(&mut self, file: DroppedFile) -> Result<String, FileDialogError> {
         self.file_dialog.import_dropped(file)
     }
 }

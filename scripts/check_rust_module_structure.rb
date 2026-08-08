@@ -641,6 +641,35 @@ node_graph_manifest = File.read(File.join(ROOT, "crates/widgets/node_graph/Cargo
 if node_graph_manifest.match?(/^rfd\s*=/) || node_graph_manifest.match?(/^native-file-dialog\s*=/)
   errors << "crates/widgets/node_graph/Cargo.toml: file dialogs must be injected through the widget-owned portable contract"
 end
+platform_file_dialog = File.read(File.join(ROOT, "crates/platform/src/file_dialog.rs"))
+unless platform_file_dialog.match?(/pub enum FilePickerError\s*\{/)
+  errors << "crates/platform/src/file_dialog.rs: the reusable picker facade must own a typed failure contract"
+end
+%w[take_picked import_dropped].each do |method|
+  next if platform_file_dialog.match?(
+    /fn\s+#{method}\b.*?Result<FileReference,\s*FilePickerError>/m
+  )
+
+  errors << "crates/platform/src/file_dialog.rs: #{method} must retain FilePickerError"
+end
+node_graph_file_dialog = File.read(File.join(
+  ROOT,
+  "crates/widgets/node_graph/src/api/control.rs"
+))
+unless node_graph_file_dialog.match?(/pub enum FileDialogError\s*\{.*?Host\s*\{/m)
+  errors << "crates/widgets/node_graph/src/api/control.rs: the portable widget dialog facade must retain typed host failures"
+end
+%w[take_picked import_dropped].each do |method|
+  next if node_graph_file_dialog.match?(
+    /fn\s+#{method}\b.*?Result<String,\s*FileDialogError>/m
+  )
+
+  errors << "crates/widgets/node_graph/src/api/control.rs: #{method} must retain FileDialogError"
+end
+web_node_file_dialog = File.read(File.join(ROOT, "crates/app_web/src/node_file_dialog.rs"))
+unless web_node_file_dialog.scan(/\.map_err\(FileDialogError::host\)/).length >= 2
+  errors << "crates/app_web/src/node_file_dialog.rs: browser composition must preserve platform picker failures through the widget facade"
+end
 
 native_app_manifest = File.read(File.join(ROOT, "crates/app_native/Cargo.toml"))
 if native_app_manifest.match?(/^logic-analyzer-ui\s*=\s*\{[^}]*features\s*=/)

@@ -3,6 +3,68 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use thiserror::Error;
+
+/// Failure produced while a host selects or imports a file.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+pub enum FilePickerError {
+    /// The host did not supply either a path or file contents for a dropped file.
+    #[error("the host did not provide contents for '{name}'")]
+    ContentsUnavailable {
+        /// Display name supplied by the host.
+        name: String,
+    },
+    /// The selected file could not be read through the host mechanism.
+    #[error("could not read '{name}': {message}")]
+    Read {
+        /// Display name supplied by the host.
+        name: String,
+        /// Host-adapter diagnostic.
+        message: String,
+    },
+    /// The selected file exceeds the import capacity advertised by the host.
+    #[error("'{name}' is too large for this host ({max_bytes} byte limit)")]
+    TooLarge {
+        /// Display name supplied by the host.
+        name: String,
+        /// Maximum supported imported-file size.
+        max_bytes: u64,
+    },
+    /// The host could read the file but could not retain its imported representation.
+    #[error("could not import '{name}': {message}")]
+    Import {
+        /// Display name supplied by the host.
+        name: String,
+        /// Import-adapter diagnostic.
+        message: String,
+    },
+}
+
+#[cfg(test)]
+mod file_dialog_tests {
+    use super::FilePickerError;
+
+    #[test]
+    fn picker_failures_keep_host_mechanism_categories() {
+        assert!(matches!(
+            FilePickerError::ContentsUnavailable {
+                name: "capture.sr".to_owned()
+            },
+            FilePickerError::ContentsUnavailable { .. }
+        ));
+        assert!(matches!(
+            FilePickerError::TooLarge {
+                name: "capture.sr".to_owned(),
+                max_bytes: 1024,
+            },
+            FilePickerError::TooLarge {
+                max_bytes: 1024,
+                ..
+            }
+        ));
+    }
+}
+
 /// One named group of extensions offered by a host file dialog.
 pub struct FileDialogFilter {
     /// User-facing filter name.
@@ -90,7 +152,7 @@ pub trait FilePickerService: Send {
     fn pick(&mut self, request: FilePickerRequest<'_>) -> Option<FileReference>;
 
     /// Returns a completed asynchronous selection for one request.
-    fn take_picked(&mut self, request_id: u64) -> Option<Result<FileReference, String>>;
+    fn take_picked(&mut self, request_id: u64) -> Option<Result<FileReference, FilePickerError>>;
 
     /// Returns current asynchronous selection or import progress.
     fn progress(&self, request_id: u64) -> Option<FilePickerProgress>;
@@ -99,7 +161,7 @@ pub trait FilePickerService: Send {
     fn cancel(&mut self, request_id: u64) -> bool;
 
     /// Imports data supplied by the host's drag-and-drop mechanism.
-    fn import_dropped(&mut self, file: DroppedFileData) -> Result<FileReference, String>;
+    fn import_dropped(&mut self, file: DroppedFileData) -> Result<FileReference, FilePickerError>;
 
     /// Installs the wake-up callback used by asynchronous operations.
     fn set_repaint(&mut self, repaint: Box<dyn Fn() + Send + Sync>);

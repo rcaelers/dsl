@@ -40,6 +40,10 @@ metadata inspection and index opening or construction retain `signal_capture::Er
 `SourcePreparationError` variants. Executor admission and loss retain
 `platform_runtime::WorkExecutorError`, and graph runtime classifies an unexpected capture-worker
 response with `SourcePreparationProtocolError`.
+The reusable host picker classifies file reads, capacity limits, imports, and missing dropped-file
+contents through `platform::FilePickerError`. Application composition preserves that error as the
+source of the independent widget-owned `node_graph::FileDialogError`; the inline file control is
+the presentation boundary that formats it.
 
 `logic_analyzer_graph_orchestration` owns
 separate graph-worker codec, bounded-client, and serializable transport failures. The browser host
@@ -61,10 +65,10 @@ UI policy therefore matches a cancellation variant rather than display text.
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. Type the reusable `platform` file-dialog facade and carry its adapter errors through the UI
-   host-service boundary without formatting them.
-2. Continue through the remaining platform and UI facades: most occurrences collapse into carrying the
-   now-typed lower errors; only genuinely UI-owned failures need new variants.
+1. Type the reusable `platform` document-I/O facade and carry native and web adapter causes through
+   application graph-load and graph-save services without formatting them.
+2. Continue through the remaining platform and UI facades: most occurrences collapse into carrying
+   the now-typed lower errors; only genuinely UI-owned failures need new variants.
 
 Expect this to span many small PRs; each facade conversion is independently landable.
 

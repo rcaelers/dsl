@@ -2688,6 +2688,7 @@ dependencies = [
  "node-graph-document",
  "serde",
  "serde_json",
+ "thiserror 2.0.19",
  "widget-support",
 ]
 
@@ -3337,6 +3338,7 @@ dependencies = [
  "rfd",
  "rusb",
  "tempfile",
+ "thiserror 2.0.19",
  "tracing",
  "wasm-bindgen",
  "wasm-bindgen-futures",

@@ -60,8 +60,9 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
 - `node_graph::api` owns node-definition and editor integration contracts. Graph-node definition
   code depends on this namespace; widget and editor operations remain at the `node_graph` crate
   root for UI composition. File controls depend on its portable
-  `FileDialogService`; the widget defaults to an unavailable implementation and the application
-  composition injects the host adapter.
+  `FileDialogService`; its `FileDialogError` retains an injected host cause without depending on a
+  platform crate. The widget defaults to an unavailable implementation and application composition
+  injects the host adapter.
 - `logic_analyzer_capture_export` owns native streaming export of finalized generic capture
   storage plus the stateful export-service contract and asynchronous native implementation. It
   depends on capture contracts and format libraries, not graph crates, UI, platform, or concrete

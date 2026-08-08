@@ -15,9 +15,9 @@ mod support;
 mod widget;
 
 pub use api::{
-    AnySocket, BoolSocket, BoolValue, DroppedFile, EnumValue, FileDialogFilter, FileDialogProgress,
-    FileDialogRequest, FileDialogService, FileSocket, FileValue, FloatSocket, FloatValue,
-    InlineControl, InlineControlContext, InputDef, IntSocket, IntValue, NodeDef,
+    AnySocket, BoolSocket, BoolValue, DroppedFile, EnumValue, FileDialogError, FileDialogFilter,
+    FileDialogProgress, FileDialogRequest, FileDialogService, FileSocket, FileValue, FloatSocket,
+    FloatValue, InlineControl, InlineControlContext, InputDef, IntSocket, IntValue, NodeDef,
     NodeInstanceSchema, NodePanelDef, NodePanelPresentation, OutputDef, PanelAction, PanelContext,
     PanelDataProvider, PanelMetadata, PanelSection, PanelTabDef, PropDef,
     PropertyPanelPresentation, SocketDef, SocketIndicatorPresentation, SocketTypeIdentity,

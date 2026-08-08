@@ -463,7 +463,7 @@ impl InlineControl for FileValue {
                     self.value = path;
                     self.dialog_error = None;
                 }
-                Err(error) => self.dialog_error = Some(error),
+                Err(error) => self.dialog_error = Some(error.to_string()),
             }
         }
         let progress = context.picked_file_progress(request_id);
@@ -492,7 +492,7 @@ impl InlineControl for FileValue {
                         self.value = path;
                         self.dialog_error = None;
                     }
-                    Err(error) => self.dialog_error = Some(error),
+                    Err(error) => self.dialog_error = Some(error.to_string()),
                 }
             } else {
                 self.dialog_error = Some("the dropped file does not match this input".to_owned());
@@ -733,12 +733,12 @@ mod builtins_tests {
     use egui::Context;
 
     use super::super::control::{
-        FileDialogRequest, FileDialogService, InlineControl, InlineControlContext,
+        FileDialogError, FileDialogRequest, FileDialogService, InlineControl, InlineControlContext,
     };
     use super::FileValue;
 
     struct CompletingFileDialog {
-        completion: Option<Result<String, String>>,
+        completion: Option<Result<String, FileDialogError>>,
     }
 
     impl FileDialogService for CompletingFileDialog {
@@ -750,7 +750,7 @@ mod builtins_tests {
             None
         }
 
-        fn take_picked(&mut self, _request_id: u64) -> Option<Result<String, String>> {
+        fn take_picked(&mut self, _request_id: u64) -> Option<Result<String, FileDialogError>> {
             self.completion.take()
         }
     }

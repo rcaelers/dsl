@@ -302,10 +302,13 @@ item here, so acceptance comparisons stop being ad-hoc.
      source preparation. Capture-index metadata inspection and index construction likewise retain
      `signal_capture::Error` through `SourcePreparationError`. Source-preparation executor admission
      and loss retain `platform_runtime::WorkExecutorError`, while invalid preparation responses use
-     graph-runtime-owned `SourcePreparationProtocolError`. Next type the reusable `platform`
-     file-dialog facade so native and web adapters preserve owner errors through the UI host-service
-     boundary. Continue converting remaining host-service and generic-crate surfaces rather than
-     formatting them early.
+     graph-runtime-owned `SourcePreparationProtocolError`. The reusable `platform` picker facade
+     classifies read, capacity, import, and missing-content failures through `FilePickerError`;
+     application composition preserves that cause through the independent node-graph widget's
+     `FileDialogError` until its file control formats the diagnostic. Next type the `platform`
+     document-I/O facade and carry its native and web adapter causes through application graph-load
+     and graph-save services. Continue converting remaining host-service and generic-crate surfaces
+     rather than formatting them early.
 
 ### Application state decomposition
 

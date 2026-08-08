@@ -92,8 +92,8 @@ pub use builtins::{
 };
 pub(crate) use control::UnavailableFileDialogService;
 pub use control::{
-    DroppedFile, FileDialogFilter, FileDialogProgress, FileDialogRequest, FileDialogService,
-    InlineControl, InlineControlContext,
+    DroppedFile, FileDialogError, FileDialogFilter, FileDialogProgress, FileDialogRequest,
+    FileDialogService, InlineControl, InlineControlContext,
 };
 pub use document::GraphDocumentBuilder;
 pub use indicator::SocketIndicatorPresentation;

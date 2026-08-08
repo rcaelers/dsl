@@ -5,19 +5,18 @@ use js_sys::Uint8Array;
 use wasm_bindgen_futures::JsFuture;
 
 use platform::{
-    DroppedFileData, FilePickerProgress, FilePickerRequest, FilePickerService, FileReference,
+    DroppedFileData, FilePickerError, FilePickerProgress, FilePickerRequest, FilePickerService,
+    FileReference,
 };
 use platform_artifacts::SourceIdentity;
 
 use super::super::web_capture_worker::{attach_capture_file, cancel_capture_file_attachment};
-use super::registry::{
-    BrowserFileRegistry, IMPORT_CHUNK_BYTES, MAX_IMPORT_BYTES, file_limit_error,
-};
+use super::registry::{BrowserFileRegistry, IMPORT_CHUNK_BYTES, MAX_IMPORT_BYTES};
 
 #[derive(Default)]
 struct DialogState {
     pending: HashMap<u64, u64>,
-    completed: HashMap<u64, Result<FileReference, String>>,
+    completed: HashMap<u64, Result<FileReference, FilePickerError>>,
     progress: HashMap<u64, FilePickerProgress>,
     attachments: HashMap<u64, String>,
     next_generation: u64,
@@ -123,16 +122,26 @@ impl FilePickerService for BrowserFilePickerService {
                             }
                         }),
                         Box::new(move |result| {
-                            let result = result.and_then(|attached| {
-                                complete_registry.register_worker_backed(
-                                    complete_reference.clone(),
-                                    complete_name,
-                                    length as u64,
-                                    attached.identity,
-                                    attached.metadata,
-                                )?;
-                                Ok(FileReference::from(complete_reference))
-                            });
+                            let result = result
+                                .map_err(|message| FilePickerError::Import {
+                                    name: complete_name.clone(),
+                                    message,
+                                })
+                                .and_then(|attached| {
+                                    complete_registry
+                                        .register_worker_backed(
+                                            complete_reference.clone(),
+                                            complete_name.clone(),
+                                            length as u64,
+                                            attached.identity,
+                                            attached.metadata,
+                                        )
+                                        .map_err(|message| FilePickerError::Import {
+                                            name: complete_name,
+                                            message,
+                                        })?;
+                                    Ok(FileReference::from(complete_reference))
+                                });
                             finish_request(&complete_state, request_id, generation, Some(result));
                         }),
                     ) {
@@ -151,15 +160,25 @@ impl FilePickerService for BrowserFilePickerService {
                         ),
                     }
                     if length > MAX_IMPORT_BYTES as f64 {
-                        Some(Err(file_limit_error(&name)))
+                        Some(Err(FilePickerError::TooLarge {
+                            name,
+                            max_bytes: MAX_IMPORT_BYTES as u64,
+                        }))
                     } else {
-                        match read_browser_file_chunks(file.inner(), &state, request_id, generation)
-                            .await
+                        match read_browser_file_chunks(
+                            file.inner(),
+                            &name,
+                            &state,
+                            request_id,
+                            generation,
+                        )
+                        .await
                         {
                             Ok(Some((chunks, identity))) => Some(
                                 registry
-                                    .register_chunks_with_identity(name, chunks, identity)
-                                    .map(FileReference::from),
+                                    .register_chunks_with_identity(name.clone(), chunks, identity)
+                                    .map(FileReference::from)
+                                    .map_err(|message| FilePickerError::Import { name, message }),
                             ),
                             Ok(None) => None,
                             Err(error) => Some(Err(error)),
@@ -174,7 +193,7 @@ impl FilePickerService for BrowserFilePickerService {
         None
     }
 
-    fn take_picked(&mut self, request_id: u64) -> Option<Result<FileReference, String>> {
+    fn take_picked(&mut self, request_id: u64) -> Option<Result<FileReference, FilePickerError>> {
         self.state.lock().unwrap().completed.remove(&request_id)
     }
 
@@ -205,13 +224,15 @@ impl FilePickerService for BrowserFilePickerService {
         cancelled
     }
 
-    fn import_dropped(&mut self, file: DroppedFileData) -> Result<FileReference, String> {
+    fn import_dropped(&mut self, file: DroppedFileData) -> Result<FileReference, FilePickerError> {
+        let name = file.name;
         let bytes = file
             .bytes
-            .ok_or_else(|| format!("the browser did not provide bytes for '{}'", file.name))?;
+            .ok_or_else(|| FilePickerError::ContentsUnavailable { name: name.clone() })?;
         self.registry
-            .register(file.name, bytes)
+            .register(name.clone(), bytes)
             .map(FileReference::from)
+            .map_err(|message| FilePickerError::Import { name, message })
     }
 
     fn set_repaint(&mut self, repaint: Box<dyn Fn() + Send + Sync>) {
@@ -221,10 +242,11 @@ impl FilePickerService for BrowserFilePickerService {
 
 async fn read_browser_file_chunks(
     file: &web_sys::File,
+    name: &str,
     state: &Arc<Mutex<DialogState>>,
     request_id: u64,
     generation: u64,
-) -> Result<Option<(Vec<Arc<[u8]>>, SourceIdentity)>, String> {
+) -> Result<Option<(Vec<Arc<[u8]>>, SourceIdentity)>, FilePickerError> {
     let length = file.size();
     let mut chunks = Vec::new();
     let mut hasher = blake3::Hasher::new();
@@ -234,12 +256,19 @@ async fn read_browser_file_chunks(
             return Ok(None);
         }
         let end = (offset + IMPORT_CHUNK_BYTES as f64).min(length);
-        let blob = file
-            .slice_with_f64_and_f64(offset, end)
-            .map_err(|error| format!("could not slice browser file: {error:?}"))?;
-        let buffer = JsFuture::from(blob.array_buffer())
-            .await
-            .map_err(|error| format!("could not read browser file: {error:?}"))?;
+        let blob =
+            file.slice_with_f64_and_f64(offset, end)
+                .map_err(|error| FilePickerError::Read {
+                    name: name.to_owned(),
+                    message: format!("could not slice host file: {error:?}"),
+                })?;
+        let buffer =
+            JsFuture::from(blob.array_buffer())
+                .await
+                .map_err(|error| FilePickerError::Read {
+                    name: name.to_owned(),
+                    message: format!("could not read host file: {error:?}"),
+                })?;
         let bytes = Uint8Array::new(&buffer).to_vec();
         hasher.update(&bytes);
         chunks.push(Arc::from(bytes));
@@ -286,7 +315,7 @@ fn finish_request(
     state: &Arc<Mutex<DialogState>>,
     request_id: u64,
     generation: u64,
-    result: Option<Result<FileReference, String>>,
+    result: Option<Result<FileReference, FilePickerError>>,
 ) {
     let finished = {
         let mut state = state.lock().unwrap();

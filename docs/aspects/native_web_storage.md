@@ -108,7 +108,10 @@ service; their queues and repaint wake-ups stay in the native app root. Runtime 
 use the same application boundary and one portable UI snapshot path. Embedded graph-node file
 controls use `node_graph::FileDialogService`. Native composition implements it in the app root;
 browser composition adapts the platform's generic asynchronous `FilePickerService` and opaque file
-references to it. The widget contains no target selection or platform dependency.
+references to it. `FilePickerError` classifies host reads, capacity limits, imports, and missing
+dropped-file contents. The application-root adapter retains that cause inside the widget-owned
+`FileDialogError`, and the inline file control formats it for presentation. The widget contains no
+target selection or platform dependency.
 
 ## Unified native and web data plane
 
@@ -810,8 +813,9 @@ exactly the same code as native prepared sources.
 The asynchronous picker reads the browser `File` in bounded chunks, computes its content identity
 during that same pass, reports byte progress through the host-neutral file-dialog contract, and
 checks cancellation between chunks. Cancelling or superseding a request prevents its eventual
-picker result from being published. The adapter requests a repaint only at picker and chunk
-boundaries; it does not run a second whole-file hashing pass on the UI event loop.
+picker result from being published. Read, import, missing-content, and per-file capacity failures
+remain typed until the node file control presents them. The adapter requests a repaint only at
+picker and chunk boundaries; it does not run a second whole-file hashing pass on the UI event loop.
 
 Browser references deliberately do not imply durable access to the user's original file. A saved
 graph that is reopened in a new browser session reports that the capture must be selected again.

@@ -1,6 +1,8 @@
 //! Adaptation of the browser file-picker mechanism to the node widget port.
 
-use node_graph::{DroppedFile, FileDialogProgress, FileDialogRequest, FileDialogService};
+use node_graph::{
+    DroppedFile, FileDialogError, FileDialogProgress, FileDialogRequest, FileDialogService,
+};
 use platform::{
     DroppedFileData, FileDialogFilter as HostFileDialogFilter, FilePickerRequest, FilePickerService,
 };
@@ -39,10 +41,12 @@ impl FileDialogService for BrowserNodeFileDialog {
             .map(|reference| reference.into_string())
     }
 
-    fn take_picked(&mut self, request_id: u64) -> Option<Result<String, String>> {
-        self.picker
-            .take_picked(request_id)
-            .map(|result| result.map(|reference| reference.into_string()))
+    fn take_picked(&mut self, request_id: u64) -> Option<Result<String, FileDialogError>> {
+        self.picker.take_picked(request_id).map(|result| {
+            result
+                .map(|reference| reference.into_string())
+                .map_err(FileDialogError::host)
+        })
     }
 
     fn progress(&self, request_id: u64) -> Option<FileDialogProgress> {
@@ -58,7 +62,7 @@ impl FileDialogService for BrowserNodeFileDialog {
         self.picker.cancel(request_id)
     }
 
-    fn import_dropped(&mut self, file: DroppedFile) -> Result<String, String> {
+    fn import_dropped(&mut self, file: DroppedFile) -> Result<String, FileDialogError> {
         self.picker
             .import_dropped(DroppedFileData {
                 name: file.name,
@@ -66,6 +70,7 @@ impl FileDialogService for BrowserNodeFileDialog {
                 bytes: file.bytes,
             })
             .map(|reference| reference.into_string())
+            .map_err(FileDialogError::host)
     }
 
     fn set_repaint(&mut self, repaint: Box<dyn Fn() + Send + Sync>) {
@@ -75,12 +80,14 @@ impl FileDialogService for BrowserNodeFileDialog {
 
 #[cfg(test)]
 mod node_file_dialog_tests {
+    use std::error::Error as _;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
     use node_graph::{DroppedFile, FileDialogFilter, FileDialogRequest, FileDialogService};
     use platform::{
-        DroppedFileData, FilePickerProgress, FilePickerRequest, FilePickerService, FileReference,
+        DroppedFileData, FilePickerError, FilePickerProgress, FilePickerRequest, FilePickerService,
+        FileReference,
     };
 
     use super::BrowserNodeFileDialog;
@@ -108,8 +115,18 @@ mod node_file_dialog_tests {
             Some(FileReference::from("host-file://selected".to_owned()))
         }
 
-        fn take_picked(&mut self, request_id: u64) -> Option<Result<FileReference, String>> {
-            (request_id == 7).then(|| Ok(FileReference::from("host-file://async".to_owned())))
+        fn take_picked(
+            &mut self,
+            request_id: u64,
+        ) -> Option<Result<FileReference, FilePickerError>> {
+            match request_id {
+                7 => Some(Ok(FileReference::from("host-file://async".to_owned()))),
+                8 => Some(Err(FilePickerError::Read {
+                    name: "capture.sr".to_owned(),
+                    message: "host read failed".to_owned(),
+                })),
+                _ => None,
+            }
         }
 
         fn progress(&self, request_id: u64) -> Option<FilePickerProgress> {
@@ -123,7 +140,10 @@ mod node_file_dialog_tests {
             request_id == 7
         }
 
-        fn import_dropped(&mut self, file: DroppedFileData) -> Result<FileReference, String> {
+        fn import_dropped(
+            &mut self,
+            file: DroppedFileData,
+        ) -> Result<FileReference, FilePickerError> {
             self.observation.lock().unwrap().dropped_name = file.name;
             Ok(FileReference::from("host-file://dropped".to_owned()))
         }
@@ -151,10 +171,14 @@ mod node_file_dialog_tests {
             }),
             Some("host-file://selected".to_owned())
         );
-        assert_eq!(
+        assert!(matches!(
             dialog.take_picked(7),
-            Some(Ok("host-file://async".to_owned()))
-        );
+            Some(Ok(reference)) if reference == "host-file://async"
+        ));
+        let Some(Err(error)) = dialog.take_picked(8) else {
+            panic!("host picker failure should cross the widget adapter");
+        };
+        assert!(error.source().unwrap().is::<FilePickerError>());
         assert_eq!(dialog.progress(7).unwrap().completed_bytes, 4);
         assert!(dialog.cancel(7));
         assert_eq!(

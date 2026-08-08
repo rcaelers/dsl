@@ -12,8 +12,8 @@ mod file_dialog;
 mod host;
 
 pub use file_dialog::{
-    DroppedFileData, FileDialogFilter, FileOpenDialog, FilePickerProgress, FilePickerRequest,
-    FilePickerService, FileReference, FileSaveDialog,
+    DroppedFileData, FileDialogFilter, FileOpenDialog, FilePickerError, FilePickerProgress,
+    FilePickerRequest, FilePickerService, FileReference, FileSaveDialog,
 };
 std::cfg_select! {
     target_arch = "wasm32" => {
