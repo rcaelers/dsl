@@ -367,8 +367,12 @@ item here, so acceptance comparisons stop being ad-hoc.
      `SigrokDecoderRuntimeError` retains it as a typed source. Native inspection and fingerprinting
      preserve `PyErr` and filesystem causes until invalid packages become recoverable catalog
      diagnostics. `SigrokCatalogError` retains typed fatal scanner sources when no snapshot can be
-     produced. Next type the public `logic_analyzer_trigger` program-construction and edit boundary,
-     whose invariant failures still cross into widget and graph-feature consumers as strings.
+     produced. Portable trigger schema construction now returns `TriggerSchemaError`, and
+     `TriggerProgramEditError` retains schema and validation causes. The reusable trigger widget
+     classifies reducer failures through `TriggerEditorError`, formatting only its presentation
+     response. Graph trigger assembly returns `TriggerConfigurationError`, retained by
+     `LiveCaptureFeatureError`. Next type the public `node_graph` document-snapshot serialization
+     boundary, which still exposes `Result<serde_json::Value, String>` to application composition.
 
 ### Application state decomposition
 

@@ -8,6 +8,7 @@
 mod architecture_tests;
 mod condition;
 mod program;
+mod schema_error;
 
 pub use condition::SimpleTriggerCondition;
 pub use program::{
@@ -18,3 +19,4 @@ pub use program::{
     TriggerValidationCode, TriggerValidationDiagnostic, TriggerValidationErrors,
     ValidatedTriggerProgram,
 };
+pub use schema_error::TriggerSchemaError;

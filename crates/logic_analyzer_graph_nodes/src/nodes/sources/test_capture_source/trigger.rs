@@ -54,7 +54,9 @@ pub(crate) fn channel_ids() -> Vec<CaptureChannelId> {
 pub(crate) fn program_from_conditions(
     conditions: &[SimpleTriggerCondition],
 ) -> Result<Option<TriggerProgram>, String> {
-    schema().simple_program(channel_ids().into_iter().zip(conditions.iter().copied()))
+    schema()
+        .simple_program(channel_ids().into_iter().zip(conditions.iter().copied()))
+        .map_err(|error| error.to_string())
 }
 
 pub(crate) fn validate_program(program: Option<&TriggerProgram>) -> Result<(), String> {

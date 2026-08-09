@@ -4426,6 +4426,7 @@ dependencies = [
  "egui",
  "logic-analyzer-trigger",
  "signal-capture",
+ "thiserror 2.0.19",
 ]
 
 [[package]]

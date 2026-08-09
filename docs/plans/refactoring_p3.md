@@ -142,6 +142,14 @@ enumeration and content hashing preserve the originating filesystem error. Catal
 missing or unreadable paths and invalid individual packages as recoverable structured diagnostics;
 `SigrokCatalogError` retains a typed source only when a scanner cannot produce a snapshot at all.
 
+Portable trigger schema construction returns `TriggerSchemaError`; identifier, range, default,
+uniqueness, limit, and simple-program representability failures no longer cross crate boundaries as
+strings. `TriggerProgramEditError` retains schema and program-validation causes. The independent
+trigger widget classifies reducer failures through `TriggerEditorError` and formats them only when
+building its presentation response. Graph trigger assembly uses `TriggerConfigurationError` for
+duplicate channel mappings and invalid programs, and `LiveCaptureFeatureError` retains that source
+through feature discovery.
+
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
 - One enum per *facade*, not per crate and not per function. Variants describe what failed in

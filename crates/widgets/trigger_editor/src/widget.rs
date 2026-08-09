@@ -132,7 +132,7 @@ impl<'a> TriggerEditor<'a> {
             },
             Err(error) => TriggerEditorResponse {
                 program: None,
-                error: Some(error),
+                error: Some(error.to_string()),
             },
         }
     }

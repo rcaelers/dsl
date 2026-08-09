@@ -7,11 +7,13 @@
 //! widget owners.
 
 mod contract;
+mod error;
 mod model;
 mod presentation;
 mod widget;
 
 pub use contract::{TriggerEditorAction, TriggerEditorChannel, TriggerEditorResponse};
+pub use error::TriggerEditorError;
 pub use model::TriggerEditorModel;
 pub use widget::TriggerEditor;
 

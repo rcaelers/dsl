@@ -1,6 +1,6 @@
 use signal_capture_session::CaptureSourceMetadataError;
 
-use crate::node_support::PersistedStateError;
+use crate::node_support::{PersistedStateError, TriggerConfigurationError};
 
 /// Failure to construct one graph node's processing-runtime implementation.
 #[derive(Debug, thiserror::Error)]
@@ -161,6 +161,13 @@ pub enum LiveCaptureFeatureError {
     /// Lazy capture-source metadata could not supply live-acquisition configuration.
     #[error(transparent)]
     Metadata(#[from] CaptureSourceMetadataError),
+    /// The node exposed inconsistent trigger channels or an invalid trigger program.
+    #[error("{0}")]
+    TriggerConfiguration(
+        #[from]
+        #[source]
+        TriggerConfigurationError,
+    ),
     /// The node's capture or trigger configuration is invalid.
     #[error("{0}")]
     Configuration(String),
@@ -186,6 +193,30 @@ impl LiveCaptureFeatureError {
     /// Classifies an internally inconsistent provider contract.
     pub fn invalid_provider(message: impl Into<String>) -> Self {
         Self::InvalidProvider(message.into())
+    }
+}
+
+#[cfg(test)]
+mod live_capture_feature_error_tests {
+    use std::error::Error;
+
+    use logic_analyzer_trigger::TriggerValidationErrors;
+
+    use super::LiveCaptureFeatureError;
+    use crate::node_support::TriggerConfigurationError;
+
+    #[test]
+    fn trigger_configuration_retains_program_validation() {
+        let configuration =
+            TriggerConfigurationError::from(TriggerValidationErrors::schema_unavailable());
+        let error = LiveCaptureFeatureError::from(configuration);
+
+        assert!(matches!(
+            &error,
+            LiveCaptureFeatureError::TriggerConfiguration(_)
+        ));
+        let configuration = error.source().unwrap();
+        assert!(configuration.source().is_some());
     }
 }
 

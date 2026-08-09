@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use logic_analyzer_graph_capabilities::node::LiveCaptureFeatureError;
 use logic_analyzer_graph_capabilities::node_support::{
     SimpleTriggerChannel, TriggerConfigurationFeature,
 };
@@ -62,14 +63,16 @@ pub(crate) fn program_from_conditions(
     conditions: &[SimpleTriggerCondition],
     enabled: &[bool],
 ) -> Result<Option<TriggerProgram>, String> {
-    schema().simple_program(
-        conditions
-            .iter()
-            .copied()
-            .enumerate()
-            .filter(|(channel, _)| enabled.get(*channel).copied().unwrap_or(false))
-            .map(|(channel, condition)| (physical_channel_id(channel), condition)),
-    )
+    schema()
+        .simple_program(
+            conditions
+                .iter()
+                .copied()
+                .enumerate()
+                .filter(|(channel, _)| enabled.get(*channel).copied().unwrap_or(false))
+                .map(|(channel, condition)| (physical_channel_id(channel), condition)),
+        )
+        .map_err(|error| error.to_string())
 }
 
 pub(crate) fn conditions(state: &U3Pro16State) -> Result<Vec<SimpleTriggerCondition>, String> {
@@ -165,8 +168,10 @@ pub(crate) fn retain_enabled_conditions(
     Ok(Some(program))
 }
 
-pub(crate) fn configuration(state: &U3Pro16State) -> Result<TriggerConfigurationFeature, String> {
-    let conditions = conditions(state)?;
+pub(crate) fn configuration(
+    state: &U3Pro16State,
+) -> Result<TriggerConfigurationFeature, LiveCaptureFeatureError> {
+    let conditions = conditions(state).map_err(LiveCaptureFeatureError::configuration)?;
     let channels = state
         .channels
         .enabled
@@ -185,7 +190,11 @@ pub(crate) fn configuration(state: &U3Pro16State) -> Result<TriggerConfiguration
             },
         )
         .collect();
-    TriggerConfigurationFeature::new(schema(), state.trigger_program().cloned(), channels)
+    Ok(TriggerConfigurationFeature::new(
+        schema(),
+        state.trigger_program().cloned(),
+        channels,
+    )?)
 }
 
 #[cfg(test)]

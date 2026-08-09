@@ -9,6 +9,7 @@ use thiserror::Error;
 use signal_capture::CaptureChannelId;
 
 use super::condition::SimpleTriggerCondition;
+use super::schema_error::TriggerSchemaError;
 
 /// Serialized format version for [`TriggerProgram`] values.
 pub const TRIGGER_PROGRAM_FORMAT_VERSION: u16 = 1;
@@ -26,18 +27,16 @@ impl TriggerIdentifier {
     ///
     /// # Parameters
     /// - `value`: Input consumed by this operation.
-    pub fn new(value: impl Into<String>) -> Result<Self, String> {
+    pub fn new(value: impl Into<String>) -> Result<Self, TriggerSchemaError> {
         let value = value.into();
         if value.is_empty() {
-            return Err("a trigger identifier must not be empty".into());
+            return Err(TriggerSchemaError::EmptyIdentifier);
         }
         if !value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
         {
-            return Err(format!(
-                "trigger identifier '{value}' may contain only ASCII letters, digits, '.', '_', and '-'"
-            ));
+            return Err(TriggerSchemaError::InvalidIdentifierCharacters { value });
         }
         Ok(Self(value))
     }
@@ -109,15 +108,15 @@ impl TriggerCountCapabilities {
         minimum: u64,
         maximum: u64,
         step: u64,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, TriggerSchemaError> {
         if modes.is_empty() {
-            return Err("trigger count capabilities require at least one mode".into());
+            return Err(TriggerSchemaError::EmptyCountModes);
         }
         if modes.iter().copied().collect::<HashSet<_>>().len() != modes.len() {
-            return Err("trigger count modes must be unique".into());
+            return Err(TriggerSchemaError::DuplicateCountModes);
         }
         if minimum > maximum || step == 0 {
-            return Err("trigger count range or step is invalid".into());
+            return Err(TriggerSchemaError::InvalidCountRange);
         }
         Ok(Self {
             modes,
@@ -161,10 +160,13 @@ impl TriggerChoice {
     /// # Parameters
     /// - `id`: Stable value persisted in trigger programs.
     /// - `label`: Non-empty provider-facing display label.
-    pub fn new(id: TriggerIdentifier, label: impl Into<String>) -> Result<Self, String> {
+    pub fn new(
+        id: TriggerIdentifier,
+        label: impl Into<String>,
+    ) -> Result<Self, TriggerSchemaError> {
         let label = label.into();
         if label.trim().is_empty() {
-            return Err("a trigger choice label must not be empty".into());
+            return Err(TriggerSchemaError::EmptyChoiceLabel);
         }
         Ok(Self { id, label })
     }
@@ -248,7 +250,7 @@ pub enum TriggerOperandKind {
 }
 
 impl TriggerOperandKind {
-    fn validate_schema(&self) -> Result<(), String> {
+    fn validate_schema(&self) -> Result<(), TriggerSchemaError> {
         match self {
             Self::Boolean { .. } | Self::Channel { .. } => Ok(()),
             Self::Unsigned {
@@ -271,14 +273,14 @@ impl TriggerOperandKind {
             } => validate_signed_range(*minimum, *maximum, *step, *default),
             Self::Choice { choices, default } => {
                 if choices.is_empty() {
-                    return Err("a trigger choice operand requires at least one choice".into());
+                    return Err(TriggerSchemaError::EmptyOperandChoices);
                 }
                 let ids: HashSet<_> = choices.iter().map(|choice| &choice.id).collect();
                 if ids.len() != choices.len() {
-                    return Err("trigger operand choice IDs must be unique".into());
+                    return Err(TriggerSchemaError::DuplicateOperandChoices);
                 }
                 if !ids.contains(default) {
-                    return Err("trigger operand default choice is not registered".into());
+                    return Err(TriggerSchemaError::UnknownDefaultChoice);
                 }
                 Ok(())
             }
@@ -291,7 +293,7 @@ impl TriggerOperandKind {
                     || default.len() < *minimum_length
                     || default.len() > *maximum_length
                 {
-                    return Err("trigger byte operand bounds or default are invalid".into());
+                    return Err(TriggerSchemaError::InvalidByteOperand);
                 }
                 Ok(())
             }
@@ -318,10 +320,10 @@ impl TriggerOperandSchema {
         id: TriggerIdentifier,
         label: impl Into<String>,
         kind: TriggerOperandKind,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, TriggerSchemaError> {
         let label = label.into();
         if label.trim().is_empty() {
-            return Err("a trigger operand label must not be empty".into());
+            return Err(TriggerSchemaError::EmptyOperandLabel);
         }
         kind.validate_schema()?;
         Ok(Self { id, label, kind })
@@ -362,10 +364,10 @@ impl RegisteredTriggerPredicateSchema {
         id: TriggerIdentifier,
         label: impl Into<String>,
         operands: Vec<TriggerOperandSchema>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, TriggerSchemaError> {
         let label = label.into();
         if label.trim().is_empty() {
-            return Err("a trigger predicate label must not be empty".into());
+            return Err(TriggerSchemaError::EmptyPredicateLabel);
         }
         if operands
             .iter()
@@ -374,7 +376,7 @@ impl RegisteredTriggerPredicateSchema {
             .len()
             != operands.len()
         {
-            return Err("trigger predicate operand IDs must be unique".into());
+            return Err(TriggerSchemaError::DuplicatePredicateOperands);
         }
         Ok(Self {
             id,
@@ -428,22 +430,24 @@ impl TriggerEditorSchema {
         maximum_stages: usize,
         maximum_predicates_per_stage: usize,
         logic_operators: Vec<TriggerLogicOperator>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, TriggerSchemaError> {
         if revision == 0 {
-            return Err("trigger schema revision must be non-zero".into());
+            return Err(TriggerSchemaError::ZeroSchemaRevision);
         }
         if maximum_stages == 0 || maximum_predicates_per_stage == 0 {
-            return Err("trigger schema limits must be non-zero".into());
+            return Err(TriggerSchemaError::ZeroSchemaLimits);
         }
-        if logic_operators.is_empty()
-            || logic_operators
-                .iter()
-                .copied()
-                .collect::<HashSet<_>>()
-                .len()
-                != logic_operators.len()
+        if logic_operators.is_empty() {
+            return Err(TriggerSchemaError::EmptyLogicOperators);
+        }
+        if logic_operators
+            .iter()
+            .copied()
+            .collect::<HashSet<_>>()
+            .len()
+            != logic_operators.len()
         {
-            return Err("trigger schema logic operators must be non-empty and unique".into());
+            return Err(TriggerSchemaError::DuplicateLogicOperators);
         }
         Ok(Self {
             id,
@@ -462,12 +466,12 @@ impl TriggerEditorSchema {
     pub fn with_digital_conditions(
         mut self,
         conditions: Vec<SimpleTriggerCondition>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, TriggerSchemaError> {
         if conditions.contains(&SimpleTriggerCondition::Ignore) {
-            return Err("Ignore is represented by an omitted digital predicate".into());
+            return Err(TriggerSchemaError::ExplicitIgnoreCondition);
         }
         if conditions.iter().copied().collect::<HashSet<_>>().len() != conditions.len() {
-            return Err("trigger digital conditions must be unique".into());
+            return Err(TriggerSchemaError::DuplicateDigitalConditions);
         }
         self.digital_conditions = conditions;
         Ok(self)
@@ -489,7 +493,7 @@ impl TriggerEditorSchema {
     pub fn with_registered_predicates(
         mut self,
         predicates: Vec<RegisteredTriggerPredicateSchema>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, TriggerSchemaError> {
         if predicates
             .iter()
             .map(|predicate| &predicate.id)
@@ -497,7 +501,7 @@ impl TriggerEditorSchema {
             .len()
             != predicates.len()
         {
-            return Err("registered trigger predicate IDs must be unique".into());
+            return Err(TriggerSchemaError::DuplicateRegisteredPredicates);
         }
         self.predicates = predicates;
         Ok(self)
@@ -555,11 +559,9 @@ impl TriggerEditorSchema {
     pub fn simple_program(
         &self,
         conditions: impl IntoIterator<Item = (CaptureChannelId, SimpleTriggerCondition)>,
-    ) -> Result<Option<TriggerProgram>, String> {
+    ) -> Result<Option<TriggerProgram>, TriggerSchemaError> {
         if !self.logic_operators.contains(&TriggerLogicOperator::And) {
-            return Err(
-                "this trigger schema cannot represent an AND-combined simple trigger".into(),
-            );
+            return Err(TriggerSchemaError::UnsupportedSimpleProgram);
         }
         let predicates: Vec<_> = conditions
             .into_iter()
@@ -884,20 +886,22 @@ pub enum TriggerProgramForm {
 /// Failure while converting between common controls and a trigger program.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum TriggerProgramEditError {
-    #[error(transparent)]
-    Validation(#[from] TriggerValidationErrors),
+    #[error("{0}")]
+    Validation(
+        #[from]
+        #[source]
+        TriggerValidationErrors,
+    ),
     #[error("lane controls cannot replace an advanced trigger program; use the Triggers panel")]
     AdvancedProgram,
     #[error("capture channel '{0}' is not enabled")]
     UnknownChannel(CaptureChannelId),
-    #[error("the trigger schema cannot represent this simple trigger: {0}")]
-    UnsupportedSimpleProgram(String),
-}
-
-impl From<String> for TriggerProgramEditError {
-    fn from(message: String) -> Self {
-        Self::UnsupportedSimpleProgram(message)
-    }
+    #[error("{0}")]
+    Schema(
+        #[from]
+        #[source]
+        TriggerSchemaError,
+    ),
 }
 
 impl TriggerProgram {
@@ -1161,14 +1165,14 @@ fn validate_unsigned_range(
     maximum: u64,
     step: u64,
     default: u64,
-) -> Result<(), String> {
+) -> Result<(), TriggerSchemaError> {
     if minimum > maximum
         || step == 0
         || default < minimum
         || default > maximum
         || !(default - minimum).is_multiple_of(step)
     {
-        return Err("trigger unsigned operand range, step, or default is invalid".into());
+        return Err(TriggerSchemaError::InvalidUnsignedOperandRange);
     }
     Ok(())
 }
@@ -1178,16 +1182,16 @@ fn validate_signed_range(
     maximum: i64,
     step: u64,
     default: i64,
-) -> Result<(), String> {
+) -> Result<(), TriggerSchemaError> {
     if minimum > maximum || step == 0 || default < minimum || default > maximum {
-        return Err("trigger signed operand range, step, or default is invalid".into());
+        return Err(TriggerSchemaError::InvalidSignedOperandRange);
     }
     let offset = i128::from(default) - i128::from(minimum);
     if !u128::try_from(offset)
         .unwrap_or(u128::MAX)
         .is_multiple_of(u128::from(step))
     {
-        return Err("trigger signed operand default is not on its configured step".into());
+        return Err(TriggerSchemaError::InvalidSignedOperandStep);
     }
     Ok(())
 }
@@ -1259,6 +1263,37 @@ mod tests {
 
     fn id(value: &str) -> TriggerIdentifier {
         TriggerIdentifier::new(value).unwrap()
+    }
+
+    #[test]
+    fn schema_construction_reports_classified_invariant_failures() {
+        assert_eq!(
+            TriggerIdentifier::new("invalid identifier").unwrap_err(),
+            TriggerSchemaError::InvalidIdentifierCharacters {
+                value: "invalid identifier".into(),
+            }
+        );
+        assert_eq!(
+            TriggerCountCapabilities::new(Vec::new(), 1, 1, 1).unwrap_err(),
+            TriggerSchemaError::EmptyCountModes
+        );
+    }
+
+    #[test]
+    fn simple_program_representability_remains_a_schema_error() {
+        let schema =
+            TriggerEditorSchema::new(id("or-only"), 1, 1, 1, vec![TriggerLogicOperator::Or])
+                .unwrap();
+
+        assert_eq!(
+            schema
+                .simple_program([(
+                    CaptureChannelId::new("pod-a:0"),
+                    SimpleTriggerCondition::High,
+                )])
+                .unwrap_err(),
+            TriggerSchemaError::UnsupportedSimpleProgram
+        );
     }
 
     fn schema() -> TriggerEditorSchema {

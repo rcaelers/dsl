@@ -13,6 +13,7 @@ use logic_analyzer_trigger::{
 use signal_capture::CaptureChannelId;
 
 use super::contract::{TriggerEditorAction, TriggerEditorChannel};
+use super::error::TriggerEditorError;
 
 pub struct TriggerEditorModel<'a> {
     schema: &'a TriggerEditorSchema,
@@ -43,14 +44,12 @@ impl<'a> TriggerEditorModel<'a> {
         &self,
         current: Option<&TriggerProgram>,
         action: TriggerEditorAction,
-    ) -> Result<Option<TriggerProgram>, String> {
+    ) -> Result<Option<TriggerProgram>, TriggerEditorError> {
         if action == TriggerEditorAction::Clear {
             return Ok(None);
         }
         if let Some(current) = current {
-            self.schema
-                .validate_program(current, &self.channel_ids())
-                .map_err(|error| error.to_string())?;
+            self.schema.validate_program(current, &self.channel_ids())?;
         }
         let mut program = current.cloned().unwrap_or_else(|| {
             TriggerProgram::new(self.schema.id().clone(), self.schema.revision(), Vec::new())
@@ -59,15 +58,17 @@ impl<'a> TriggerEditorModel<'a> {
             TriggerEditorAction::Clear => unreachable!(),
             TriggerEditorAction::AddStage => {
                 if program.stages.len() >= self.schema.maximum_stages() {
-                    return Err(format!(
-                        "this trigger schema supports at most {} stage(s)",
-                        self.schema.maximum_stages()
-                    ));
+                    return Err(TriggerEditorError::StageLimit {
+                        maximum: self.schema.maximum_stages(),
+                    });
                 }
                 program.stages.push(self.default_stage()?);
             }
             TriggerEditorAction::RemoveStage { stage } => {
-                checked_remove(&mut program.stages, stage, "trigger stage")?;
+                if stage >= program.stages.len() {
+                    return Err(TriggerEditorError::UnknownStage { stage });
+                }
+                program.stages.remove(stage);
                 if program.stages.is_empty() {
                     return Ok(None);
                 }
@@ -98,8 +99,8 @@ impl<'a> TriggerEditorModel<'a> {
                     .registered_predicates()
                     .iter()
                     .find(|candidate| candidate.id() == &predicate)
-                    .ok_or_else(|| {
-                        format!("registered trigger predicate '{predicate}' is unknown")
+                    .ok_or_else(|| TriggerEditorError::UnknownRegisteredPredicate {
+                        predicate: predicate.clone(),
                     })?;
                 let operands = self.default_operands(predicate_schema)?;
                 self.stage_mut(&mut program, stage)?.predicates.push(
@@ -111,7 +112,10 @@ impl<'a> TriggerEditorModel<'a> {
             }
             TriggerEditorAction::RemovePredicate { stage, predicate } => {
                 let stage_ref = self.stage_mut(&mut program, stage)?;
-                checked_remove(&mut stage_ref.predicates, predicate, "trigger predicate")?;
+                if predicate >= stage_ref.predicates.len() {
+                    return Err(TriggerEditorError::UnknownPredicate { stage, predicate });
+                }
+                stage_ref.predicates.remove(predicate);
                 if stage_ref.predicates.is_empty() {
                     program.stages.remove(stage);
                     if program.stages.is_empty() {
@@ -128,7 +132,7 @@ impl<'a> TriggerEditorModel<'a> {
                     channel: current, ..
                 } = self.predicate_mut(&mut program, stage, predicate)?
                 else {
-                    return Err("the selected predicate is not a digital condition".into());
+                    return Err(TriggerEditorError::ExpectedDigitalPredicate);
                 };
                 *current = channel;
             }
@@ -141,7 +145,7 @@ impl<'a> TriggerEditorModel<'a> {
                     condition: current, ..
                 } = self.predicate_mut(&mut program, stage, predicate)?
                 else {
-                    return Err("the selected predicate is not a digital condition".into());
+                    return Err(TriggerEditorError::ExpectedDigitalPredicate);
                 };
                 *current = condition;
             }
@@ -154,17 +158,16 @@ impl<'a> TriggerEditorModel<'a> {
                 let TriggerPredicate::Registered { operands, .. } =
                     self.predicate_mut(&mut program, stage, predicate)?
                 else {
-                    return Err("the selected predicate is not registered".into());
+                    return Err(TriggerEditorError::ExpectedRegisteredPredicate);
                 };
                 let Some(current) = operands.get_mut(&operand) else {
-                    return Err(format!("registered trigger operand '{operand}' is unknown"));
+                    return Err(TriggerEditorError::UnknownRegisteredOperand { operand });
                 };
                 *current = value;
             }
         }
         self.schema
-            .validate_program(&program, &self.channel_ids())
-            .map_err(|error| error.to_string())?;
+            .validate_program(&program, &self.channel_ids())?;
         Ok(Some(program))
     }
 
@@ -175,7 +178,7 @@ impl<'a> TriggerEditorModel<'a> {
             .collect()
     }
 
-    fn default_stage(&self) -> Result<TriggerStage, String> {
+    fn default_stage(&self) -> Result<TriggerStage, TriggerEditorError> {
         let predicate = if let (Some(channel), Some(condition)) = (
             self.channels.first(),
             self.schema.digital_conditions().first(),
@@ -190,7 +193,7 @@ impl<'a> TriggerEditorModel<'a> {
                 operands: self.default_operands(predicate)?,
             }
         } else {
-            return Err("this trigger schema has no predicate available for a new stage".into());
+            return Err(TriggerEditorError::NoPredicateAvailable);
         };
         Ok(TriggerStage {
             predicates: vec![predicate],
@@ -198,7 +201,7 @@ impl<'a> TriggerEditorModel<'a> {
                 .schema
                 .logic_operators()
                 .first()
-                .ok_or_else(|| "this trigger schema has no stage logic".to_owned())?,
+                .ok_or(TriggerEditorError::NoStageLogic)?,
             inverted: false,
             count: None,
         })
@@ -207,7 +210,7 @@ impl<'a> TriggerEditorModel<'a> {
     fn default_operands(
         &self,
         predicate: &RegisteredTriggerPredicateSchema,
-    ) -> Result<BTreeMap<TriggerIdentifier, TriggerOperandValue>, String> {
+    ) -> Result<BTreeMap<TriggerIdentifier, TriggerOperandValue>, TriggerEditorError> {
         predicate
             .operands()
             .iter()
@@ -218,7 +221,10 @@ impl<'a> TriggerEditorModel<'a> {
             .collect()
     }
 
-    fn default_operand(&self, kind: &TriggerOperandKind) -> Result<TriggerOperandValue, String> {
+    fn default_operand(
+        &self,
+        kind: &TriggerOperandKind,
+    ) -> Result<TriggerOperandValue, TriggerEditorError> {
         Ok(match kind {
             TriggerOperandKind::Boolean { default } => TriggerOperandValue::Boolean(*default),
             TriggerOperandKind::Unsigned { default, .. } => TriggerOperandValue::Unsigned(*default),
@@ -235,7 +241,7 @@ impl<'a> TriggerEditorModel<'a> {
                     .filter(|default| self.channels.iter().any(|channel| channel.id == **default))
                     .cloned()
                     .or_else(|| self.channels.first().map(|channel| channel.id.clone()))
-                    .ok_or_else(|| "a channel operand requires an enabled channel".to_owned())?;
+                    .ok_or(TriggerEditorError::ChannelOperandWithoutChannel)?;
                 TriggerOperandValue::Channel(channel)
             }
             TriggerOperandKind::Bytes { default, .. } => {
@@ -248,11 +254,11 @@ impl<'a> TriggerEditorModel<'a> {
         &self,
         program: &'program mut TriggerProgram,
         stage: usize,
-    ) -> Result<&'program mut TriggerStage, String> {
+    ) -> Result<&'program mut TriggerStage, TriggerEditorError> {
         program
             .stages
             .get_mut(stage)
-            .ok_or_else(|| format!("trigger stage {stage} does not exist"))
+            .ok_or(TriggerEditorError::UnknownStage { stage })
     }
 
     fn predicate_mut<'program>(
@@ -260,35 +266,27 @@ impl<'a> TriggerEditorModel<'a> {
         program: &'program mut TriggerProgram,
         stage: usize,
         predicate: usize,
-    ) -> Result<&'program mut TriggerPredicate, String> {
+    ) -> Result<&'program mut TriggerPredicate, TriggerEditorError> {
         self.stage_mut(program, stage)?
             .predicates
             .get_mut(predicate)
-            .ok_or_else(|| format!("trigger predicate {stage}:{predicate} does not exist"))
+            .ok_or(TriggerEditorError::UnknownPredicate { stage, predicate })
     }
 
     fn ensure_predicate_capacity(
         &self,
         program: &TriggerProgram,
         stage: usize,
-    ) -> Result<(), String> {
+    ) -> Result<(), TriggerEditorError> {
         let stage = program
             .stages
             .get(stage)
-            .ok_or_else(|| format!("trigger stage {stage} does not exist"))?;
+            .ok_or(TriggerEditorError::UnknownStage { stage })?;
         if stage.predicates.len() >= self.schema.maximum_predicates_per_stage() {
-            return Err(format!(
-                "this trigger schema supports at most {} predicate(s) per stage",
-                self.schema.maximum_predicates_per_stage()
-            ));
+            return Err(TriggerEditorError::PredicateLimit {
+                maximum: self.schema.maximum_predicates_per_stage(),
+            });
         }
         Ok(())
     }
-}
-
-fn checked_remove<T>(values: &mut Vec<T>, index: usize, label: &str) -> Result<T, String> {
-    if index >= values.len() {
-        return Err(format!("{label} {index} does not exist"));
-    }
-    Ok(values.remove(index))
 }

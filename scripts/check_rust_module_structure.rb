@@ -270,6 +270,37 @@ unless sigrok_discovery_error_source.match?(
   errors << "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/discovery_error.rs: fatal catalog scanning must retain its host source"
 end
 
+trigger_program_path = File.join(ROOT, "crates/logic_analyzer_trigger/src/program.rs")
+trigger_program_source = File.read(trigger_program_path)
+unless trigger_program_source.scan(/Result<Self,\s*TriggerSchemaError>/).length >= 6 &&
+       trigger_program_source.match?(/pub fn simple_program\b.*?Result<Option<TriggerProgram>,\s*TriggerSchemaError>/m)
+  errors << "crates/logic_analyzer_trigger/src/program.rs: public trigger construction must use its typed schema or validation errors"
+end
+unless trigger_program_source.match?(
+  /pub enum TriggerProgramEditError\s*\{.*?Validation\(.*?TriggerValidationErrors,?\s*\).*?Schema\(.*?TriggerSchemaError,?\s*\)/m
+)
+  errors << "crates/logic_analyzer_trigger/src/program.rs: trigger edits must retain validation and schema causes"
+end
+
+trigger_editor_model_path = File.join(ROOT, "crates/widgets/trigger_editor/src/model.rs")
+trigger_editor_model_source = File.read(trigger_editor_model_path)
+unless trigger_editor_model_source.match?(
+  /pub fn apply\b.*?Result<Option<TriggerProgram>,\s*TriggerEditorError>/m
+)
+  errors << "crates/widgets/trigger_editor/src/model.rs: trigger reducer must expose its widget-owned typed error"
+end
+
+trigger_configuration_path = File.join(
+  ROOT,
+  "crates/logic_analyzer_graph_capabilities/src/node_support/contracts.rs"
+)
+trigger_configuration_source = File.read(trigger_configuration_path)
+unless trigger_configuration_source.match?(
+  /impl TriggerConfigurationFeature\s*\{.*?pub fn new\b.*?Result<Self,\s*TriggerConfigurationError>/m
+)
+  errors << "crates/logic_analyzer_graph_capabilities/src/node_support/contracts.rs: trigger configuration assembly must expose its owner-typed error"
+end
+
 source_preparation_contract_path = File.join(
   ROOT,
   "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_contract.rs"

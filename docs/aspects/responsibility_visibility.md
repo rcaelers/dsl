@@ -35,7 +35,7 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
   vocabulary is `Capture*`; it does not expose DSL, Sigrok, USB, decoder, graph-node, or UI
   terminology.
 - `logic_analyzer_trigger` owns portable trigger programs, schemas, predicates, simple digital
-  conditions, and validation diagnostics.
+  conditions, typed schema-construction and edit failures, and validation diagnostics.
 - `logic_analyzer_acquisition` owns shared device-neutral driver, capture-configuration,
   hardware-trigger, raw-chunk, and runtime-source contracts.
 - `logic_analyzer_capture_formats` owns DSL and Sigrok parsing, indexing, replay sources, and their
@@ -330,7 +330,8 @@ when deduplicating or presenting an error.
 
 Live-capture feature discovery, trigger configuration, and state editing use
 `LiveCaptureFeatureError`. It preserves persisted-state and lazy capture-metadata causes and
-classifies node-owned configuration, edit, and provider-contract failures. The compiler adds graph
+typed trigger-configuration causes, and classifies node-owned configuration, edit, and
+provider-contract failures. The compiler adds graph
 ownership, registry, ambiguity, and generic provider-validation context through
 `LiveCaptureOperationError`; UI capture availability, trigger status, and toasts are its formatting
 boundaries.

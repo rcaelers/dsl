@@ -47,8 +47,9 @@ pub(crate) fn conditions(
 
 fn configuration(
     state: &super::definition::TestCaptureSourceState,
-) -> Result<TriggerConfigurationFeature, String> {
-    let conditions = conditions(state.trigger_program())?;
+) -> Result<TriggerConfigurationFeature, LiveCaptureFeatureError> {
+    let conditions =
+        conditions(state.trigger_program()).map_err(LiveCaptureFeatureError::configuration)?;
     let channels = super::trigger::channel_ids()
         .into_iter()
         .zip(conditions)
@@ -63,11 +64,11 @@ fn configuration(
             },
         )
         .collect();
-    TriggerConfigurationFeature::new(
+    Ok(TriggerConfigurationFeature::new(
         super::trigger::schema(),
         state.trigger_program().cloned(),
         channels,
-    )
+    )?)
 }
 
 impl GraphNodeSemantics for TestLiveCaptureSourceBuilder {
@@ -147,9 +148,7 @@ impl LiveCaptureFeatureProvider for TestLiveCaptureSourceBuilder {
         state: &Value,
     ) -> Result<Option<TriggerConfigurationFeature>, LiveCaptureFeatureError> {
         let state = parse_state::<super::definition::TestCaptureSourceState>(state)?;
-        configuration(&state)
-            .map(Some)
-            .map_err(LiveCaptureFeatureError::configuration)
+        configuration(&state).map(Some)
     }
 
     fn apply_live_capture_edit(

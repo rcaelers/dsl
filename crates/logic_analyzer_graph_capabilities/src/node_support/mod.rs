@@ -20,6 +20,7 @@
 mod contracts;
 mod port;
 mod state;
+mod trigger_configuration_error;
 
 pub use contracts::{
     CaptureCacheIdentity, CapturePresentation, CapturePresentationSignal, DecoderTableCellMode,
@@ -33,3 +34,4 @@ pub use contracts::{
 };
 pub use port::{PortKind, PortValue};
 pub use state::{PersistedStateError, parse_state, serialize_state};
+pub use trigger_configuration_error::TriggerConfigurationError;

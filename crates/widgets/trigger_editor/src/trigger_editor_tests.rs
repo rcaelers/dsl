@@ -2,7 +2,7 @@ use logic_analyzer_trigger::{
     RegisteredTriggerPredicateSchema, SimpleTriggerCondition, TriggerChoice, TriggerCount,
     TriggerCountCapabilities, TriggerCountMode, TriggerEditorSchema, TriggerIdentifier,
     TriggerLogicOperator, TriggerOperandKind, TriggerOperandSchema, TriggerOperandValue,
-    TriggerPredicate,
+    TriggerPredicate, TriggerValidationCode,
 };
 use signal_capture::CaptureChannelId;
 
@@ -173,19 +173,23 @@ fn neutral_actions_build_stages_counts_and_registered_operands() {
             },
         )
         .unwrap();
-    assert!(
-        model
-            .apply(
-                program.as_ref(),
-                TriggerEditorAction::AddDigitalPredicate {
-                    stage: 0,
-                    channel: channels[0].id.clone(),
-                    condition: SimpleTriggerCondition::Rising,
-                },
-            )
-            .unwrap_err()
-            .contains("more than once")
-    );
+    let error = model
+        .apply(
+            program.as_ref(),
+            TriggerEditorAction::AddDigitalPredicate {
+                stage: 0,
+                channel: channels[0].id.clone(),
+                condition: SimpleTriggerCondition::Rising,
+            },
+        )
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        TriggerEditorError::Validation(ref errors)
+            if errors.diagnostics().iter().any(|diagnostic| {
+                diagnostic.code == TriggerValidationCode::DuplicateChannel
+            })
+    ));
     program = model
         .apply(
             program.as_ref(),
@@ -254,11 +258,11 @@ fn neutral_actions_enforce_schema_limits_and_clear_invalid_programs() {
     let second = model
         .apply(first.as_ref(), TriggerEditorAction::AddStage)
         .unwrap();
-    assert!(
+    assert_eq!(
         model
             .apply(second.as_ref(), TriggerEditorAction::AddStage)
-            .unwrap_err()
-            .contains("at most 2")
+            .unwrap_err(),
+        TriggerEditorError::StageLimit { maximum: 2 }
     );
 
     let mut incompatible = second.unwrap();

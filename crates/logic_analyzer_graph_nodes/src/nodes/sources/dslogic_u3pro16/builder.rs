@@ -201,9 +201,7 @@ impl LiveCaptureFeatureProvider for DsLogicU3Pro16Builder {
         state: &Value,
     ) -> Result<Option<TriggerConfigurationFeature>, LiveCaptureFeatureError> {
         let state: U3Pro16State = parse_state(state)?;
-        super::trigger::configuration(&state)
-            .map(Some)
-            .map_err(LiveCaptureFeatureError::configuration)
+        super::trigger::configuration(&state).map(Some)
     }
 
     fn apply_live_capture_edit(

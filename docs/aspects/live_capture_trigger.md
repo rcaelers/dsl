@@ -215,9 +215,11 @@ the final diagnostic.
 
 Before coordination starts, graph feature discovery, trigger configuration, and trigger edits carry
 `LiveCaptureFeatureError`. Persisted-state and capture-metadata causes remain typed through concrete
-providers, while `LiveCaptureOperationError` adds graph owner, ambiguity, registry, provider
-validation, and edit context. Availability text, trigger status, and application toasts are the
-presentation boundaries.
+providers. Trigger schema construction, widget edits, and graph configuration assembly retain their
+owner-defined `TriggerSchemaError`, `TriggerEditorError`, and `TriggerConfigurationError` values;
+the feature error preserves graph-configuration causes. `LiveCaptureOperationError` adds graph
+owner, ambiguity, registry, provider validation, and edit context. Availability text, trigger
+status, widget responses, and application toasts are the presentation boundaries.
 
 ```mermaid
 sequenceDiagram

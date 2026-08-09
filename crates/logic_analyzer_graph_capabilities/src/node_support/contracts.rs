@@ -12,6 +12,7 @@ use signal_derived::{
 };
 
 use super::port::PortKind;
+use super::trigger_configuration_error::TriggerConfigurationError;
 
 /// Logic-analyzer presentation choice contributed by a concrete graph node.
 /// Generic graph widgets receive only a transient, application-neutral UI
@@ -397,7 +398,7 @@ impl TriggerConfigurationFeature {
         schema: TriggerEditorSchema,
         program: Option<TriggerProgram>,
         channels: Vec<SimpleTriggerChannel>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, TriggerConfigurationError> {
         let all_channel_ids = channels
             .iter()
             .map(|channel| channel.channel_id.clone())
@@ -408,7 +409,7 @@ impl TriggerConfigurationFeature {
             .map(|channel| channel.channel_id.clone())
             .collect::<Vec<_>>();
         if all_channel_ids.iter().collect::<HashSet<_>>().len() != all_channel_ids.len() {
-            return Err("trigger configuration channel identities must be unique".into());
+            return Err(TriggerConfigurationError::DuplicateChannelIdentities);
         }
         if channels
             .iter()
@@ -417,12 +418,10 @@ impl TriggerConfigurationFeature {
             .len()
             != channels.len()
         {
-            return Err("trigger configuration viewer channels must be unique".into());
+            return Err(TriggerConfigurationError::DuplicateViewerChannels);
         }
         if let Some(program) = &program {
-            schema
-                .validate_program(program, &channel_ids)
-                .map_err(|error| error.to_string())?;
+            schema.validate_program(program, &channel_ids)?;
         }
         Ok(Self {
             schema: Arc::new(schema),

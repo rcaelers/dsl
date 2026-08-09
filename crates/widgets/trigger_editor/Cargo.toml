@@ -11,4 +11,5 @@ path = "src/lib.rs"
 [dependencies]
 egui = { workspace = true }
 signal-capture = { path = "../../signal_capture" }
+thiserror = { workspace = true }
 logic-analyzer-trigger = { path = "../../logic_analyzer_trigger" }
