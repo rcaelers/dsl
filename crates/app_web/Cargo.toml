@@ -34,6 +34,7 @@ signal-generators = { path = "../signal_generators" }
 signal-runtime = { path = "../signal_runtime" }
 signal-sinks = { path = "../signal_sinks" }
 tracing = { workspace = true }
+thiserror = { workspace = true }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
 web-sys = { workspace = true }

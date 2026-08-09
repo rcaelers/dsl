@@ -12,9 +12,12 @@ use super::implementation::{
     CaptureIndex, CaptureIndexFactory, CaptureIndexOpenStep, CaptureIndexOpenTask,
 };
 use super::worker_errors::CaptureWorkerFailure;
+use super::worker_operation_errors::{
+    CaptureWorkerOperationPreparationError, CaptureWorkerOperationRegistrationError,
+};
 
-type PreparationHandler =
-    dyn Fn(Vec<u8>) -> Result<CaptureWorkerPreparedIndex, String> + Send + Sync + 'static;
+type PreparationResult = Result<CaptureWorkerPreparedIndex, CaptureWorkerOperationPreparationError>;
+type PreparationHandler = dyn Fn(Vec<u8>) -> PreparationResult + Send + Sync + 'static;
 
 /// Concrete index factory produced by one registered capture-worker operation.
 pub struct CaptureWorkerPreparedIndex {
@@ -58,18 +61,29 @@ impl CaptureWorkerOperationRegistry {
     ///
     /// - `operation`: Provider-specific operation identifier.
     /// - `handler`: Decoder that turns opaque request bytes into an index factory.
-    pub fn register(
+    pub fn register<E>(
         &mut self,
         operation: WorkerOperation,
-        handler: impl Fn(Vec<u8>) -> Result<CaptureWorkerPreparedIndex, String> + Send + Sync + 'static,
-    ) -> Result<(), String> {
+        handler: impl Fn(Vec<u8>) -> Result<CaptureWorkerPreparedIndex, E> + Send + Sync + 'static,
+    ) -> Result<(), CaptureWorkerOperationRegistrationError>
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
         if self.handlers.contains_key(&operation) {
-            return Err(format!(
-                "capture-worker operation '{}' is already registered",
-                operation.as_str()
-            ));
+            return Err(CaptureWorkerOperationRegistrationError::Duplicate { operation });
         }
-        self.handlers.insert(operation, Arc::new(handler));
+        let handler_operation = operation.clone();
+        self.handlers.insert(
+            operation,
+            Arc::new(move |payload| {
+                handler(payload).map_err(|source| {
+                    CaptureWorkerOperationPreparationError::handler(
+                        handler_operation.clone(),
+                        source,
+                    )
+                })
+            }),
+        );
         Ok(())
     }
 
@@ -77,14 +91,11 @@ impl CaptureWorkerOperationRegistry {
         &self,
         operation: &WorkerOperation,
         payload: Vec<u8>,
-    ) -> Result<CaptureWorkerPreparedIndex, String> {
+    ) -> Result<CaptureWorkerPreparedIndex, CaptureWorkerOperationPreparationError> {
         self.handlers
             .get(operation)
-            .ok_or_else(|| {
-                format!(
-                    "capture-worker operation '{}' is not registered",
-                    operation.as_str()
-                )
+            .ok_or_else(|| CaptureWorkerOperationPreparationError::Unregistered {
+                operation: operation.clone(),
             })?
             .as_ref()(payload)
     }
@@ -233,10 +244,10 @@ impl CaptureWorkerRuntime {
     ) {
         let prepared = match self.operations.prepare(&operation, payload) {
             Ok(prepared) => prepared,
-            Err(message) => {
+            Err(error) => {
                 emit(CaptureWorkerMessage::Failed {
                     sequence,
-                    error: CaptureWorkerFailure::Preparation(message),
+                    error: CaptureWorkerFailure::Preparation(error.to_string()),
                 });
                 return;
             }
@@ -554,6 +565,10 @@ mod worker_runtime_tests {
 
     const OPERATION: &str = "test.capture.prepare/v1";
 
+    #[derive(Debug, thiserror::Error)]
+    #[error("unknown fixture")]
+    struct UnknownFixture;
+
     struct TestFactory {
         identity: SourceIdentity,
         expected_identity: SourceIdentity,
@@ -710,7 +725,7 @@ mod worker_runtime_tests {
         operations
             .register(WorkerOperation::new(OPERATION).unwrap(), move |payload| {
                 if payload != b"fixture" {
-                    return Err("unknown fixture".to_owned());
+                    return Err(UnknownFixture);
                 }
                 Ok(CaptureWorkerPreparedIndex::new(
                     source_identity,
@@ -726,6 +741,51 @@ mod worker_runtime_tests {
             Arc::new(MemoryArtifactRepository::new()),
             Arc::new(InlineWorkExecutor),
         )
+    }
+
+    #[test]
+    fn operation_registration_classifies_duplicate_identifiers() {
+        let operation = WorkerOperation::new(OPERATION).unwrap();
+        let mut operations = CaptureWorkerOperationRegistry::new();
+        operations
+            .register(
+                operation.clone(),
+                |_| -> std::result::Result<_, UnknownFixture> {
+                    unreachable!("the registration handler is not invoked")
+                },
+            )
+            .unwrap();
+
+        let error = operations
+            .register(
+                operation.clone(),
+                |_| -> std::result::Result<_, UnknownFixture> {
+                    unreachable!("the duplicate handler is not installed")
+                },
+            )
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            CaptureWorkerOperationRegistrationError::Duplicate {
+                operation: duplicate
+            } if duplicate == operation
+        ));
+    }
+
+    #[test]
+    fn operation_preparation_classifies_unregistered_identifiers() {
+        let operation = WorkerOperation::new(OPERATION).unwrap();
+        let operations = CaptureWorkerOperationRegistry::new();
+
+        let error = operations.prepare(&operation, Vec::new()).err().unwrap();
+
+        assert!(matches!(
+            error,
+            CaptureWorkerOperationPreparationError::Unregistered {
+                operation: missing
+            } if missing == operation
+        ));
     }
 
     #[test]

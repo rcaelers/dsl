@@ -2189,6 +2189,7 @@ dependencies = [
  "signal-generators",
  "signal-runtime",
  "signal-sinks",
+ "thiserror 2.0.19",
  "tracing",
  "wasm-bindgen",
  "wasm-bindgen-futures",

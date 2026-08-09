@@ -24,6 +24,7 @@ pub use capture::{
     CaptureTransition, CaptureWaveformSegment, CaptureWorkerClient, CaptureWorkerClientError,
     CaptureWorkerCodecError, CaptureWorkerFailure, CaptureWorkerFrame,
     CaptureWorkerIndexQueryExecutor, CaptureWorkerMessage, CaptureWorkerMessageKind,
+    CaptureWorkerOperationPreparationError, CaptureWorkerOperationRegistrationError,
     CaptureWorkerOperationRegistry, CaptureWorkerPreparedIndex, CaptureWorkerReplayBlock,
     CaptureWorkerReplayRequest, CaptureWorkerReplaySource, CaptureWorkerRequest,
     CaptureWorkerRequestKind, CaptureWorkerRuntime, CaptureWorkerTransportFailure,

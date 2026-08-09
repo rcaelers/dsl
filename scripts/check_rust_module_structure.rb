@@ -426,6 +426,28 @@ capture_worker_protocol = File.read(capture_worker_protocol_path).split(
 unless capture_worker_protocol.match?(/Failed\s*\{.*?error:\s*CaptureWorkerFailure,/m)
   errors << "crates/signal_capture/src/capture/host_protocol.rs: capture-worker terminal diagnostics must retain CaptureWorkerFailure"
 end
+
+capture_worker_runtime_path = File.join(
+  ROOT,
+  "crates/signal_capture/src/capture/worker_runtime.rs"
+)
+capture_worker_runtime = File.read(capture_worker_runtime_path).split(
+  /^\s*#\s*\[\s*cfg\s*\([^\]]*\btest\b[^\]]*\)\s*\]\s*\n\s*mod\s+\w*tests\b/,
+  2
+).first
+unless capture_worker_runtime.match?(
+  /pub fn\s+register\b.*?Result<\(\),\s*CaptureWorkerOperationRegistrationError>/m
+)
+  errors << "crates/signal_capture/src/capture/worker_runtime.rs: capture operation registration must retain its typed error"
+end
+unless capture_worker_runtime.match?(
+  /fn\s+prepare\b.*?Result<CaptureWorkerPreparedIndex,\s*CaptureWorkerOperationPreparationError>/m
+)
+  errors << "crates/signal_capture/src/capture/worker_runtime.rs: capture operation preparation must retain its typed error"
+end
+if capture_worker_runtime.match?(/Result<.*?,\s*String>/m)
+  errors << "crates/signal_capture/src/capture/worker_runtime.rs: capture operation failures must not collapse into display strings"
+end
 %w[
   encode_capture_worker_request decode_capture_worker_request
   encode_capture_worker_messages decode_capture_worker_messages

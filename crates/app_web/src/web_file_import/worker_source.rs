@@ -70,6 +70,14 @@ struct WorkerCapturePayload {
     length: u64,
 }
 
+#[derive(Debug, thiserror::Error)]
+enum BrowserCapturePreparationError {
+    #[error("invalid browser capture reference: {0}")]
+    InvalidReference(#[source] serde_json::Error),
+    #[error("browser capture length exceeds JavaScript's exact integer range")]
+    LengthOutOfRange,
+}
+
 #[derive(Clone)]
 struct WorkerCapture {
     source: Arc<dyn PreparedByteSource>,
@@ -160,7 +168,7 @@ pub(crate) fn capture_worker_operations() -> CaptureWorkerOperationRegistry {
         .register(
             WorkerOperation::new(DSL_PREPARATION_OPERATION)
                 .expect("the DSL capture-worker operation is valid"),
-            |payload| {
+            |payload| -> Result<CaptureWorkerPreparedIndex, BrowserCapturePreparationError> {
                 let (source, display_name, identity) = decode_source(payload)?;
                 let presentation =
                     DslFileSource::indexed_capture_presentation(source, display_name);
@@ -175,7 +183,7 @@ pub(crate) fn capture_worker_operations() -> CaptureWorkerOperationRegistry {
         .register(
             WorkerOperation::new(SIGROK_PREPARATION_OPERATION)
                 .expect("the Sigrok capture-worker operation is valid"),
-            |payload| {
+            |payload| -> Result<CaptureWorkerPreparedIndex, BrowserCapturePreparationError> {
                 let (source, display_name, identity) = decode_source(payload)?;
                 let presentation =
                     SigrokFileSource::indexed_capture_presentation(source, display_name);
@@ -195,7 +203,8 @@ pub(crate) fn capture_metadata(
     identity: SourceIdentity,
     length: u64,
 ) -> Result<CaptureMetadata, String> {
-    let source = byte_source(reference.clone(), identity, length)?;
+    let source =
+        byte_source(reference.clone(), identity, length).map_err(|error| error.to_string())?;
     let factory = if display_name.to_ascii_lowercase().ends_with(".sr") {
         SigrokFileSource::indexed_capture_presentation(Arc::clone(&source), display_name.clone())
             .factory
@@ -408,9 +417,9 @@ fn preparation_request(
 
 fn decode_source(
     payload: Vec<u8>,
-) -> Result<(Arc<dyn PreparedByteSource>, String, SourceIdentity), String> {
+) -> Result<(Arc<dyn PreparedByteSource>, String, SourceIdentity), BrowserCapturePreparationError> {
     let payload = serde_json::from_slice::<WorkerCapturePayload>(&payload)
-        .map_err(|error| format!("invalid browser capture reference: {error}"))?;
+        .map_err(BrowserCapturePreparationError::InvalidReference)?;
     let source = byte_source(payload.reference, payload.identity, payload.length)?;
     Ok((source, payload.display_name, payload.identity))
 }
@@ -419,9 +428,9 @@ fn byte_source(
     reference: String,
     identity: SourceIdentity,
     length: u64,
-) -> Result<Arc<dyn PreparedByteSource>, String> {
+) -> Result<Arc<dyn PreparedByteSource>, BrowserCapturePreparationError> {
     if length > MAX_SAFE_INTEGER {
-        return Err("browser capture length exceeds JavaScript's exact integer range".to_owned());
+        return Err(BrowserCapturePreparationError::LengthOutOfRange);
     }
     Ok(Arc::new(BrowserWorkerByteSource {
         reference,

@@ -304,7 +304,10 @@ typed processing failure while the legacy diagnostic variant marks nodes that ex
 
 `signal_capture` owns the capture-worker request and message codec, bounded-client admission and
 correlation errors, serializable transport failures, and classified preparation, query, and replay
-terminal failures. Its client retains a typed disconnect cause for pending and subsequent requests.
+terminal failures. Capture-operation registration classifies duplicate identifiers, while
+preparation distinguishes missing handlers from typed handler-owned causes. Serialization into a
+terminal worker failure is the first point where those local causes become transport diagnostics.
+Its client retains a typed disconnect cause for pending and subsequent requests.
 Graph source preparation wraps the capture-worker client and terminal errors as sources in
 `SourcePreparationError`; it does not relabel them as executor or index strings. The neutral
 `CaptureIndexQueryExecutor` port reports classified submission, execution, cancellation,

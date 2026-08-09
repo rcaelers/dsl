@@ -155,6 +155,14 @@ a JSON document snapshot. The error retains `serde_json::Error`; application com
 only for save/status presentation, while host document encoding remains the separate UI-owned
 `GraphDocumentError` boundary.
 
+Capture-worker operation inventory construction returns
+`CaptureWorkerOperationRegistrationError`, distinguishing duplicate stable identifiers without
+turning them into diagnostics. Preparation returns `CaptureWorkerOperationPreparationError`, which
+separates missing handlers from registered handler failures and retains the adapter-owned error as
+its source. The runtime formats that local failure only when constructing the serializable
+`CaptureWorkerFailure` terminal message. Browser capture preparation supplies a typed JSON or range
+failure through the same handler contract.
+
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
 - One enum per *facade*, not per crate and not per function. Variants describe what failed in

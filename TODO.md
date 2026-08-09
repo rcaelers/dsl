@@ -373,8 +373,12 @@ item here, so acceptance comparisons stop being ad-hoc.
      response. Graph trigger assembly returns `TriggerConfigurationError`, retained by
      `LiveCaptureFeatureError`. `node_graph::NodeGraphWidget::snapshot_value` now returns
      `GraphSnapshotError`, retaining its JSON serialization cause until application save/status
-     presentation. Next type `signal_capture::CaptureWorkerOperationRegistry` registration and
-     preparation, whose public handler and registry contracts still exchange string failures.
+     presentation. `signal_capture::CaptureWorkerOperationRegistry` now returns separate typed
+     registration and preparation failures; missing operations remain distinguishable and
+     registered handlers retain their concrete source until the runtime serializes a terminal
+     worker diagnostic. Browser capture preparation implements the same typed handler contract.
+     Next type the `logic_analyzer_ui` collected-output and decoder-table presentation assembly,
+     which still represents missing renderer and missing presentation contracts as strings.
 
 ### Application state decomposition
 

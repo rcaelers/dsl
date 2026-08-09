@@ -25,6 +25,7 @@ mod preparation;
 mod query;
 mod worker_client;
 mod worker_errors;
+mod worker_operation_errors;
 mod worker_replay_source;
 mod worker_runtime;
 
@@ -49,6 +50,9 @@ pub use worker_client::{CaptureWorkerClient, CaptureWorkerIndexQueryExecutor};
 pub use worker_errors::{
     CaptureWorkerClientError, CaptureWorkerCodecError, CaptureWorkerFailure, CaptureWorkerFrame,
     CaptureWorkerMessageKind, CaptureWorkerRequestKind, CaptureWorkerTransportFailure,
+};
+pub use worker_operation_errors::{
+    CaptureWorkerOperationPreparationError, CaptureWorkerOperationRegistrationError,
 };
 pub use worker_replay_source::CaptureWorkerReplaySource;
 pub use worker_runtime::{
