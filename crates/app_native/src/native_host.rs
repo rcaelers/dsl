@@ -17,6 +17,10 @@ type RecentFilesListener = Box<dyn Fn(&[PathBuf]) + Send + Sync>;
 static RECENT_FILES_LISTENER: OnceLock<RecentFilesListener> = OnceLock::new();
 
 struct HostCommandBridge {
+    #[cfg_attr(
+        not(target_os = "macos"),
+        expect(dead_code, reason = "keeps the host-command channel connected")
+    )]
     sender: crossbeam_channel::Sender<HostCommand>,
     receiver: crossbeam_channel::Receiver<HostCommand>,
     repaint: std::sync::Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
