@@ -917,6 +917,22 @@ end
     errors << "crates/app_web/src/web_file_import/#{adapter}.rs: source adapters must retain browser registry causes"
   end
 end
+web_worker_source = File.read(File.join(
+  ROOT,
+  "crates/app_web/src/web_file_import/worker_source.rs"
+))
+%w[capture_metadata worker_capture decode_source byte_source].each do |operation|
+  next if web_worker_source.match?(
+    /fn\s+#{operation}\b.*?Result<.*?BrowserWorkerSourceError>/m
+  )
+
+  errors << "crates/app_web/src/web_file_import/worker_source.rs: #{operation} must retain BrowserWorkerSourceError"
+end
+if web_worker_source.match?(/Result<.*?,\s*String>/m) ||
+   web_worker_source.include?("CaptureSourceMetadataError::access_message") ||
+   web_worker_source.include?("CaptureSourceConstructionError::diagnostic")
+  errors << "crates/app_web/src/web_file_import/worker_source.rs: worker-source failures must retain typed causes"
+end
 platform_document_error = File.read(File.join(ROOT, "crates/platform/src/document.rs"))
 unless platform_document_error.match?(/pub enum DocumentError\s*\{/) &&
        platform_document_error.scan(/#\[source\]\s*\n\s*source:\s*Box<dyn Error \+ Send \+ Sync>/).length >= 3

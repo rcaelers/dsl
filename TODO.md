@@ -385,8 +385,11 @@ item here, so acceptance comparisons stop being ad-hoc.
      errors until fallback logging or file-picker presentation. The browser imported-file registry
      now classifies file/session limits, reference lifecycle, and resident byte-source failures;
      DSL and Sigrok adapters retain lookup errors through typed metadata and construction sources.
-     Next type the browser worker-source metadata/cache lifecycle in `app_web`, whose source lookup,
-     metadata preparation, and cache access still exchange strings.
+     The browser worker-source facade now classifies preparation payloads, JavaScript length limits,
+     metadata parsing, and worker-cache lookup; DSL and Sigrok worker adapters retain those causes
+     through typed metadata and construction boundaries. Next type the remaining web application
+     host-service and worker-transport adapters whose JavaScript mechanism failures still collapse
+     into strings before reaching their owner facades.
 
 ### Application state decomposition
 

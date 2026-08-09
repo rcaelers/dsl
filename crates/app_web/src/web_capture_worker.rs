@@ -700,7 +700,7 @@ pub fn inspect_capture_file(
         SourceIdentity::from_bytes(identity),
         length as u64,
     )
-    .map_err(|error| JsValue::from_str(&error))?;
+    .map_err(|error| JsValue::from_str(&error.to_string()))?;
     serde_json::to_vec(&metadata)
         .map_err(|error| JsValue::from_str(&format!("could not encode capture metadata: {error}")))
 }

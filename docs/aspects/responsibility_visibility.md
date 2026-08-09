@@ -382,6 +382,10 @@ The same application root owns the session-local imported-file registry. Its err
 classifies file and session limits, reference lifecycle failures, and resident byte-source
 validation. Browser DSL and Sigrok adapters retain lookup errors through the neutral metadata and
 source-construction facades rather than exposing registry diagnostics as their domain contract.
+The graph worker's browser-file source facade separately classifies preparation-payload decoding,
+JavaScript length limits, capture-metadata parsing, and worker-cache lookup. It retains capture
+parsing and lookup causes through the neutral metadata and source-construction facades, formatting
+them only at the wasm export boundary.
 
 ## Platform surfaces
 

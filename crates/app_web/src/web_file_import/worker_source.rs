@@ -28,6 +28,8 @@ use signal_capture_session::{
 };
 use signal_runtime::{ProcessNode, ProcessNodeConstruction};
 
+use super::error::BrowserWorkerSourceError;
+
 const DSL_PREPARATION_OPERATION: &str = "logic-analyzer.dsl-file.prepare/v1";
 const SIGROK_PREPARATION_OPERATION: &str = "logic-analyzer.sigrok-file.prepare/v1";
 const MAX_SAFE_INTEGER: u64 = (1_u64 << 53) - 1;
@@ -68,14 +70,6 @@ struct WorkerCapturePayload {
     display_name: String,
     identity: SourceIdentity,
     length: u64,
-}
-
-#[derive(Debug, thiserror::Error)]
-enum BrowserCapturePreparationError {
-    #[error("invalid browser capture reference: {0}")]
-    InvalidReference(#[source] serde_json::Error),
-    #[error("browser capture length exceeds JavaScript's exact integer range")]
-    LengthOutOfRange,
 }
 
 #[derive(Clone)]
@@ -168,7 +162,7 @@ pub(crate) fn capture_worker_operations() -> CaptureWorkerOperationRegistry {
         .register(
             WorkerOperation::new(DSL_PREPARATION_OPERATION)
                 .expect("the DSL capture-worker operation is valid"),
-            |payload| -> Result<CaptureWorkerPreparedIndex, BrowserCapturePreparationError> {
+            |payload| -> Result<CaptureWorkerPreparedIndex, BrowserWorkerSourceError> {
                 let (source, display_name, identity) = decode_source(payload)?;
                 let presentation =
                     DslFileSource::indexed_capture_presentation(source, display_name);
@@ -183,7 +177,7 @@ pub(crate) fn capture_worker_operations() -> CaptureWorkerOperationRegistry {
         .register(
             WorkerOperation::new(SIGROK_PREPARATION_OPERATION)
                 .expect("the Sigrok capture-worker operation is valid"),
-            |payload| -> Result<CaptureWorkerPreparedIndex, BrowserCapturePreparationError> {
+            |payload| -> Result<CaptureWorkerPreparedIndex, BrowserWorkerSourceError> {
                 let (source, display_name, identity) = decode_source(payload)?;
                 let presentation =
                     SigrokFileSource::indexed_capture_presentation(source, display_name);
@@ -202,9 +196,8 @@ pub(crate) fn capture_metadata(
     display_name: String,
     identity: SourceIdentity,
     length: u64,
-) -> Result<CaptureMetadata, String> {
-    let source =
-        byte_source(reference.clone(), identity, length).map_err(|error| error.to_string())?;
+) -> Result<CaptureMetadata, BrowserWorkerSourceError> {
+    let source = byte_source(reference.clone(), identity, length)?;
     let factory = if display_name.to_ascii_lowercase().ends_with(".sr") {
         SigrokFileSource::indexed_capture_presentation(Arc::clone(&source), display_name.clone())
             .factory
@@ -212,7 +205,9 @@ pub(crate) fn capture_metadata(
         DslFileSource::indexed_capture_presentation(Arc::clone(&source), display_name.clone())
             .factory
     };
-    let metadata = factory.metadata().map_err(|error| error.to_string())?;
+    let metadata = factory
+        .metadata()
+        .map_err(BrowserWorkerSourceError::Metadata)?;
     WORKER_CAPTURES.with(|captures| {
         captures.borrow_mut().insert(
             reference,
@@ -252,8 +247,8 @@ impl CaptureSourceMetadata for WorkerDslFileSourceMetadata {
         if self.config.path().as_os_str().is_empty() {
             return Ok(None);
         }
-        let capture = worker_capture(self.config.path())
-            .map_err(CaptureSourceMetadataError::access_message)?;
+        let capture =
+            worker_capture(self.config.path()).map_err(CaptureSourceMetadataError::access)?;
         Ok(Some(CaptureSourcePresentation::Indexed(
             DslFileSource::indexed_capture_presentation(capture.source, capture.display_name),
         )))
@@ -267,7 +262,7 @@ impl CaptureSourceMetadata for WorkerDslFileSourceMetadata {
 
     fn channel_names(&self) -> Result<Option<Vec<String>>, CaptureSourceMetadataError> {
         worker_capture(self.config.path())
-            .map_err(CaptureSourceMetadataError::access_message)
+            .map_err(CaptureSourceMetadataError::access)
             .map(|capture| Some(capture.metadata.probe_names))
     }
 }
@@ -293,7 +288,7 @@ impl DslFileSourceFactory for WorkerDslFileSourceFactory {
     > {
         let metadata = self.metadata(config.clone());
         let capture =
-            worker_capture(config.path()).map_err(CaptureSourceConstructionError::diagnostic)?;
+            worker_capture(config.path()).map_err(CaptureSourceConstructionError::construction)?;
         let source = DslFileSource::from_prepared_source(capture.source, capture.display_name)
             .map_err(CaptureSourceConstructionError::from)?
             .with_name(name)
@@ -325,8 +320,8 @@ impl CaptureSourceMetadata for WorkerSigrokFileSourceMetadata {
         if self.config.path().as_os_str().is_empty() {
             return Ok(None);
         }
-        let capture = worker_capture(self.config.path())
-            .map_err(CaptureSourceMetadataError::access_message)?;
+        let capture =
+            worker_capture(self.config.path()).map_err(CaptureSourceMetadataError::access)?;
         Ok(Some(CaptureSourcePresentation::Indexed(
             SigrokFileSource::indexed_capture_presentation(capture.source, capture.display_name),
         )))
@@ -346,7 +341,7 @@ impl CaptureSourceMetadata for WorkerSigrokFileSourceMetadata {
             return Ok(Some(self.config.channel_names().to_vec()));
         }
         worker_capture(self.config.path())
-            .map_err(CaptureSourceMetadataError::access_message)
+            .map_err(CaptureSourceMetadataError::access)
             .map(|capture| Some(capture.metadata.probe_names))
     }
 }
@@ -374,7 +369,7 @@ impl SigrokFileSourceFactory for WorkerSigrokFileSourceFactory {
         }
         let metadata = self.metadata(config.clone());
         let capture =
-            worker_capture(config.path()).map_err(CaptureSourceConstructionError::diagnostic)?;
+            worker_capture(config.path()).map_err(CaptureSourceConstructionError::construction)?;
         let source = SigrokFileSource::from_prepared_source(capture.source)
             .map_err(CaptureSourceConstructionError::from)?
             .with_name(name)
@@ -386,16 +381,14 @@ impl SigrokFileSourceFactory for WorkerSigrokFileSourceFactory {
     }
 }
 
-fn worker_capture(path: &std::path::Path) -> Result<WorkerCapture, String> {
-    let reference = path.to_string_lossy();
+fn worker_capture(path: &std::path::Path) -> Result<WorkerCapture, BrowserWorkerSourceError> {
+    let reference = path.to_string_lossy().into_owned();
     WORKER_CAPTURES.with(|captures| {
         captures
             .borrow()
-            .get(reference.as_ref() as &str)
+            .get(&reference)
             .cloned()
-            .ok_or_else(|| {
-                format!("browser capture '{reference}' is not attached to the graph worker")
-            })
+            .ok_or(BrowserWorkerSourceError::UnavailableCapture { reference })
     })
 }
 
@@ -417,9 +410,9 @@ fn preparation_request(
 
 fn decode_source(
     payload: Vec<u8>,
-) -> Result<(Arc<dyn PreparedByteSource>, String, SourceIdentity), BrowserCapturePreparationError> {
+) -> Result<(Arc<dyn PreparedByteSource>, String, SourceIdentity), BrowserWorkerSourceError> {
     let payload = serde_json::from_slice::<WorkerCapturePayload>(&payload)
-        .map_err(BrowserCapturePreparationError::InvalidReference)?;
+        .map_err(BrowserWorkerSourceError::InvalidPreparationReference)?;
     let source = byte_source(payload.reference, payload.identity, payload.length)?;
     Ok((source, payload.display_name, payload.identity))
 }
@@ -428,9 +421,9 @@ fn byte_source(
     reference: String,
     identity: SourceIdentity,
     length: u64,
-) -> Result<Arc<dyn PreparedByteSource>, BrowserCapturePreparationError> {
+) -> Result<Arc<dyn PreparedByteSource>, BrowserWorkerSourceError> {
     if length > MAX_SAFE_INTEGER {
-        return Err(BrowserCapturePreparationError::LengthOutOfRange);
+        return Err(BrowserWorkerSourceError::LengthOutOfRange);
     }
     Ok(Arc::new(BrowserWorkerByteSource {
         reference,
@@ -441,6 +434,50 @@ fn byte_source(
 
 fn js_error(error: JsValue) -> String {
     error.as_string().unwrap_or_else(|| format!("{error:?}"))
+}
+
+#[cfg(test)]
+mod worker_source_tests {
+    use std::error::Error;
+    use std::path::Path;
+
+    use signal_capture::Error as CaptureError;
+
+    use super::{BrowserWorkerSourceError, MAX_SAFE_INTEGER, byte_source, worker_capture};
+
+    #[test]
+    fn missing_worker_capture_remains_a_typed_lookup_failure() {
+        let Err(error) = worker_capture(Path::new("browser-file://missing/capture.dsl")) else {
+            panic!("a missing worker capture must fail lookup");
+        };
+
+        assert!(matches!(
+            error,
+            BrowserWorkerSourceError::UnavailableCapture { .. }
+        ));
+    }
+
+    #[test]
+    fn metadata_failure_retains_the_capture_parser_cause() {
+        let error = BrowserWorkerSourceError::Metadata(CaptureError::ParseError(
+            "invalid capture".to_owned(),
+        ));
+
+        assert!(error.source().is_some());
+    }
+
+    #[test]
+    fn worker_byte_source_rejects_inexact_javascript_lengths() {
+        let Err(error) = byte_source(
+            "browser-file://capture".to_owned(),
+            platform_artifacts::SourceIdentity::from_bytes([0_u8; 32]),
+            MAX_SAFE_INTEGER + 1,
+        ) else {
+            panic!("an inexact JavaScript length must be rejected");
+        };
+
+        assert!(matches!(error, BrowserWorkerSourceError::LengthOutOfRange));
+    }
 }
 
 #[wasm_bindgen]

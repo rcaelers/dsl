@@ -184,6 +184,12 @@ validation. DSL and Sigrok browser adapters carry registry lookup failures as ty
 or source-construction causes. Only the file-picker adapter formats registration failures into its
 presentation-facing import result.
 
+The graph worker's browser-file source facade returns `BrowserWorkerSourceError`. It distinguishes
+malformed preparation references, JavaScript length limits, capture-metadata parsing, and missing
+worker-cache entries. Metadata parsing retains the generic capture error, while DSL and Sigrok
+worker factories preserve cache lookup failures through capture-source metadata and construction
+errors. The wasm export formats this error only when returning the final JavaScript diagnostic.
+
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
 - One enum per *facade*, not per crate and not per function. Variants describe what failed in

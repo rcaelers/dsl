@@ -1,4 +1,5 @@
 use platform_artifacts::SourceReadError;
+use signal_capture::Error as CaptureError;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum BrowserFileRegistryError {
@@ -27,4 +28,16 @@ impl From<SourceReadError> for BrowserFileRegistryError {
     fn from(error: SourceReadError) -> Self {
         Self::Source(error)
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum BrowserWorkerSourceError {
+    #[error("invalid browser capture preparation reference: {0}")]
+    InvalidPreparationReference(#[source] serde_json::Error),
+    #[error("browser capture length exceeds JavaScript's exact integer range")]
+    LengthOutOfRange,
+    #[error("could not prepare browser capture metadata: {0}")]
+    Metadata(#[source] CaptureError),
+    #[error("browser capture '{reference}' is not attached to the graph worker")]
+    UnavailableCapture { reference: String },
 }
