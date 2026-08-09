@@ -55,6 +55,10 @@ Worker-adapter construction retains portable queue configuration and native thre
 and classifies browser bootstrap-payload, URL, worker-start, and cleanup failures through
 `platform::WorkerAdapterError`. Native composition propagates the error to application startup;
 web composition formats it only when describing why the portable cooperative fallback was selected.
+The reusable browser worker adapter separately types JavaScript message validation, request
+submission stages, and missing worker slots internally. Those errors become display text only when
+the adapter creates the portable serialized `WorkerFailure`; worker-reported host and kernel
+messages are already diagnostics received across that wire boundary.
 Browser artifact-repository opening distinguishes invalid roots, host persistence-worker stages,
 unavailable durable storage, invalid initialization responses, and session hydration through
 `platform::ArtifactRepositoryOpenError`. Hydration retains the portable `RepositoryError`; web

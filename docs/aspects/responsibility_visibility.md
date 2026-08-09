@@ -278,6 +278,10 @@ only output-download presentation formats it.
 thread creation, and classified browser bootstrap-stage diagnostics. Native composition propagates
 the typed source to application startup; web composition renders it only as the cooperative
 executor's explicit unavailability reason.
+After construction, the browser adapter keeps JavaScript message validation, request submission,
+and worker-slot failures in private typed errors. It converts them to `WorkerFailure` diagnostics
+only when entering the portable serialized worker protocol; kernel and host messages received from
+the worker are already wire diagnostics.
 
 `platform::ArtifactRepositoryOpenError` owns reusable host repository-opening failures. It
 distinguishes invalid namespaces, host persistence-worker stages, unavailable durable storage,

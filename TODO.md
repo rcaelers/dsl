@@ -393,9 +393,12 @@ item here, so acceptance comparisons stop being ad-hoc.
      audit confirms document and download failures already cross through typed UI contracts.
      Native Sigrok catalog settings persistence now distinguishes document reads, JSON decoding and
      encoding, parent creation, and writes; persistence diagnostics remain visible independently of
-     successful background scans. Next type the reusable `platform` web-worker adapter, whose
-     JavaScript message construction, property validation, and request submission still exchange
-     strings internally before reaching `WorkerAdapterError` or `WorkError`.
+     successful background scans. The reusable `platform` web-worker adapter now types JavaScript
+     message construction and validation, request submission stages, and missing worker slots until
+     it enters the portable serialized `WorkerFailure` contract. Next type the browser durable
+     artifact-repository adapter's command, initialization-message, property-validation, and
+     identity-decoding paths, which still exchange strings below `ArtifactRepositoryOpenError` and
+     `RepositoryError`.
 
 ### Application state decomposition
 

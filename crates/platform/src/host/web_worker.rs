@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::fmt;
 use std::rc::Rc;
 
 use js_sys::{Array, Object, Reflect, Uint8Array};
@@ -17,6 +18,49 @@ use platform_runtime::{
 use crate::{WorkerAdapterError, WorkerAdapterOperation};
 
 const WORKER_BOOTSTRAP: &str = include_str!("web_worker_bootstrap.js");
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WebWorkerHostOperation {
+    Initialize,
+    Run,
+    Cancel,
+}
+
+impl fmt::Display for WebWorkerHostOperation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Initialize => "initialize Web Worker",
+            Self::Run => "submit Web Worker operation",
+            Self::Cancel => "cancel Web Worker operation",
+        })
+    }
+}
+
+#[derive(Clone, Debug, thiserror::Error)]
+enum WebWorkerMessageError {
+    #[error("worker message has no '{property}' property: {detail}")]
+    PropertyAccess { property: String, detail: String },
+    #[error("could not set worker message '{property}': {detail}")]
+    PropertyWrite { property: String, detail: String },
+    #[error("worker message '{property}' is not {expected}")]
+    InvalidProperty {
+        property: String,
+        expected: &'static str,
+    },
+}
+
+#[derive(Debug, thiserror::Error)]
+enum WebWorkerHostError {
+    #[error("invalid Web Worker message: {0}")]
+    Message(#[from] WebWorkerMessageError),
+    #[error("could not {operation}: {detail}")]
+    Submission {
+        operation: WebWorkerHostOperation,
+        detail: String,
+    },
+    #[error("worker slot {worker_index} does not exist")]
+    MissingWorker { worker_index: usize },
+}
 
 struct AdapterState {
     workers: Vec<Worker>,
@@ -207,16 +251,23 @@ fn create_worker(worker_url: &str) -> Result<Worker, WorkerAdapterError> {
         .map_err(|error| host_error(WorkerAdapterOperation::StartWorker, error))
 }
 
-fn post_initialize(worker: &Worker, module_url: &str, wasm_url: &str) -> Result<(), String> {
+fn post_initialize(
+    worker: &Worker,
+    module_url: &str,
+    wasm_url: &str,
+) -> Result<(), WebWorkerHostError> {
     let message = message_object("initialize")?;
     set(&message, "moduleUrl", JsValue::from_str(module_url))?;
     set(&message, "wasmUrl", JsValue::from_str(wasm_url))?;
     worker
         .post_message(&message)
-        .map_err(|error| js_error("could not initialize Web Worker", error))
+        .map_err(|error| WebWorkerHostError::Submission {
+            operation: WebWorkerHostOperation::Initialize,
+            detail: js_detail(error),
+        })
 }
 
-fn post_run(worker: &Worker, request: WorkerRequest) -> Result<(), String> {
+fn post_run(worker: &Worker, request: WorkerRequest) -> Result<(), WebWorkerHostError> {
     let message = message_object("run")?;
     set(
         &message,
@@ -235,10 +286,13 @@ fn post_run(worker: &Worker, request: WorkerRequest) -> Result<(), String> {
     transfer.push(&buffer);
     worker
         .post_message_with_transfer(&message, &transfer)
-        .map_err(|error| js_error("could not submit Web Worker operation", error))
+        .map_err(|error| WebWorkerHostError::Submission {
+            operation: WebWorkerHostOperation::Run,
+            detail: js_detail(error),
+        })
 }
 
-fn post_cancel(worker: &Worker, sequence: u64) -> Result<(), String> {
+fn post_cancel(worker: &Worker, sequence: u64) -> Result<(), WebWorkerHostError> {
     let message = message_object("cancel")?;
     set(
         &message,
@@ -247,7 +301,10 @@ fn post_cancel(worker: &Worker, sequence: u64) -> Result<(), String> {
     )?;
     worker
         .post_message(&message)
-        .map_err(|error| js_error("could not cancel Web Worker operation", error))
+        .map_err(|error| WebWorkerHostError::Submission {
+            operation: WebWorkerHostOperation::Cancel,
+            detail: js_detail(error),
+        })
 }
 
 fn initialize_workers(state: &mut AdapterState) {
@@ -262,11 +319,12 @@ fn initialize_workers(state: &mut AdapterState) {
             &state.module_url,
             &state.wasm_url,
         ) {
-            commands.extend(
-                state
-                    .queue
-                    .worker_failed(worker_index, WorkerFailure::Host { message: error }),
-            );
+            commands.extend(state.queue.worker_failed(
+                worker_index,
+                WorkerFailure::Host {
+                    message: error.to_string(),
+                },
+            ));
         }
     }
     apply_commands(state, commands);
@@ -283,14 +341,15 @@ fn apply_commands(state: &mut AdapterState, commands: Vec<WorkerHostCommand>) {
                 let result = state
                     .workers
                     .get(worker_index)
-                    .ok_or_else(|| format!("worker slot {worker_index} does not exist"))
+                    .ok_or(WebWorkerHostError::MissingWorker { worker_index })
                     .and_then(|worker| post_run(worker, request));
-                if let Err(message) = result {
-                    commands.extend(
-                        state
-                            .queue
-                            .worker_failed(worker_index, WorkerFailure::Host { message }),
-                    );
+                if let Err(error) = result {
+                    commands.extend(state.queue.worker_failed(
+                        worker_index,
+                        WorkerFailure::Host {
+                            message: error.to_string(),
+                        },
+                    ));
                 }
             }
             WorkerHostCommand::Cancel {
@@ -306,39 +365,65 @@ fn apply_commands(state: &mut AdapterState, commands: Vec<WorkerHostCommand>) {
 }
 
 fn handle_worker_message(state: &Rc<RefCell<AdapterState>>, worker_index: usize, value: JsValue) {
-    let kind = string_property(&value, "kind").unwrap_or_default();
+    let kind = match string_property(&value, "kind") {
+        Ok(kind) => kind,
+        Err(error) => {
+            let mut state = state.borrow_mut();
+            let commands = state.queue.worker_failed(
+                worker_index,
+                WorkerFailure::Protocol {
+                    message: error.to_string(),
+                },
+            );
+            apply_commands(&mut state, commands);
+            return;
+        }
+    };
     let mut state = state.borrow_mut();
     let commands = match kind.as_str() {
         "ready" => state.queue.worker_ready(worker_index),
-        "progress" => {
-            if let (Ok(sequence), Ok(completed)) = (
-                sequence_property(&value),
-                integer_property(&value, "completed"),
-            ) {
-                let total = optional_integer_property(&value, "total").ok().flatten();
+        "progress" => match progress_message(&value) {
+            Ok((sequence, completed, total)) => {
                 state.queue.worker_progress(sequence, completed, total);
+                Vec::new()
             }
-            Vec::new()
-        }
+            Err(error) => state.queue.worker_failed(
+                worker_index,
+                WorkerFailure::Protocol {
+                    message: error.to_string(),
+                },
+            ),
+        },
         "complete" | "failed" => {
             let sequence = sequence_property(&value).ok();
             let result = if kind == "complete" {
                 property(&value, "payload")
                     .map(|payload| Uint8Array::new(&payload).to_vec())
-                    .map_err(|message| WorkerFailure::Protocol { message })
+                    .map_err(|error| WorkerFailure::Protocol {
+                        message: error.to_string(),
+                    })
             } else {
-                Err(WorkerFailure::Kernel {
-                    message: string_property(&value, "message").unwrap_or_else(|error| error),
-                })
+                string_property(&value, "message")
+                    .map(|message| Err(WorkerFailure::Kernel { message }))
+                    .unwrap_or_else(|error| {
+                        Err(WorkerFailure::Protocol {
+                            message: error.to_string(),
+                        })
+                    })
             };
             state.queue.worker_completed(worker_index, sequence, result)
         }
-        "worker_failed" => {
-            let message = string_property(&value, "message").unwrap_or_else(|error| error);
-            state
+        "worker_failed" => match string_property(&value, "message") {
+            Ok(message) => state
                 .queue
-                .worker_failed(worker_index, WorkerFailure::Host { message })
-        }
+                .worker_failed(worker_index, WorkerFailure::Host { message }),
+            Err(error) => state.queue.worker_failed(
+                worker_index,
+                WorkerFailure::Protocol {
+                    message: error.to_string(),
+                },
+            ),
+        },
         _ => state.queue.worker_failed(
             worker_index,
             WorkerFailure::Protocol {
@@ -357,50 +442,80 @@ fn handle_worker_error(state: &Rc<RefCell<AdapterState>>, worker_index: usize, m
     apply_commands(&mut state, commands);
 }
 
-fn message_object(kind: &str) -> Result<JsValue, String> {
+fn progress_message(value: &JsValue) -> Result<(u64, u64, Option<u64>), WebWorkerMessageError> {
+    Ok((
+        sequence_property(value)?,
+        integer_property(value, "completed")?,
+        optional_integer_property(value, "total")?,
+    ))
+}
+
+fn message_object(kind: &str) -> Result<JsValue, WebWorkerMessageError> {
     let message: JsValue = Object::new().into();
     set(&message, "kind", JsValue::from_str(kind))?;
     Ok(message)
 }
 
-fn property(object: &JsValue, name: &str) -> Result<JsValue, String> {
-    Reflect::get(object, &JsValue::from_str(name))
-        .map_err(|error| js_error(&format!("worker message has no '{name}' property"), error))
+fn property(object: &JsValue, name: &str) -> Result<JsValue, WebWorkerMessageError> {
+    Reflect::get(object, &JsValue::from_str(name)).map_err(|error| {
+        WebWorkerMessageError::PropertyAccess {
+            property: name.to_owned(),
+            detail: js_detail(error),
+        }
+    })
 }
 
-fn set(object: &JsValue, name: &str, value: JsValue) -> Result<(), String> {
+fn set(object: &JsValue, name: &str, value: JsValue) -> Result<(), WebWorkerMessageError> {
     Reflect::set(object, &JsValue::from_str(name), &value)
         .map(|_| ())
-        .map_err(|error| js_error(&format!("could not set worker message '{name}'"), error))
+        .map_err(|error| WebWorkerMessageError::PropertyWrite {
+            property: name.to_owned(),
+            detail: js_detail(error),
+        })
 }
 
-fn string_property(object: &JsValue, name: &str) -> Result<String, String> {
+fn string_property(object: &JsValue, name: &str) -> Result<String, WebWorkerMessageError> {
     property(object, name)?
         .as_string()
-        .ok_or_else(|| format!("worker message '{name}' is not a string"))
+        .ok_or_else(|| WebWorkerMessageError::InvalidProperty {
+            property: name.to_owned(),
+            expected: "a string",
+        })
 }
 
-fn sequence_property(object: &JsValue) -> Result<u64, String> {
-    string_property(object, "sequence")?
-        .parse()
-        .map_err(|_| "worker message sequence is invalid".to_string())
+fn sequence_property(object: &JsValue) -> Result<u64, WebWorkerMessageError> {
+    string_property(object, "sequence")?.parse().map_err(|_| {
+        WebWorkerMessageError::InvalidProperty {
+            property: "sequence".to_owned(),
+            expected: "an unsigned integer",
+        }
+    })
 }
 
-fn integer_property(object: &JsValue, name: &str) -> Result<u64, String> {
+fn integer_property(object: &JsValue, name: &str) -> Result<u64, WebWorkerMessageError> {
     let value = property(object, name)?;
     if let Some(value) = value.as_string() {
         return value
             .parse()
-            .map_err(|_| format!("worker message '{name}' is not an unsigned integer"));
+            .map_err(|_| WebWorkerMessageError::InvalidProperty {
+                property: name.to_owned(),
+                expected: "an unsigned integer",
+            });
     }
     value
         .as_f64()
         .filter(|value| value.is_finite() && *value >= 0.0 && value.fract() == 0.0)
         .map(|value| value as u64)
-        .ok_or_else(|| format!("worker message '{name}' is not an unsigned integer"))
+        .ok_or_else(|| WebWorkerMessageError::InvalidProperty {
+            property: name.to_owned(),
+            expected: "an unsigned integer",
+        })
 }
 
-fn optional_integer_property(object: &JsValue, name: &str) -> Result<Option<u64>, String> {
+fn optional_integer_property(
+    object: &JsValue,
+    name: &str,
+) -> Result<Option<u64>, WebWorkerMessageError> {
     let value = property(object, name)?;
     if value.is_null() || value.is_undefined() {
         Ok(None)
@@ -409,14 +524,13 @@ fn optional_integer_property(object: &JsValue, name: &str) -> Result<Option<u64>
     }
 }
 
-fn js_error(context: &str, error: JsValue) -> String {
-    let detail = error.as_string().unwrap_or_else(|| format!("{error:?}"));
-    format!("{context}: {detail}")
+fn js_detail(error: JsValue) -> String {
+    error.as_string().unwrap_or_else(|| format!("{error:?}"))
 }
 
 fn host_error(operation: WorkerAdapterOperation, error: JsValue) -> WorkerAdapterError {
     WorkerAdapterError::Host {
         operation,
-        message: error.as_string().unwrap_or_else(|| format!("{error:?}")),
+        message: js_detail(error),
     }
 }

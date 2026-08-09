@@ -1069,8 +1069,14 @@ end
 browser_worker = File.read(File.join(ROOT, "crates/platform/src/host/web_worker.rs"))
 unless browser_worker.match?(/pub fn new\b.*?Result<Self,\s*WorkerAdapterError>/m) &&
        browser_worker.include?("WorkerAdapterOperation::CreateBootstrapPayload") &&
-       browser_worker.include?("WorkerAdapterOperation::StartWorker")
+       browser_worker.include?("WorkerAdapterOperation::StartWorker") &&
+       browser_worker.match?(/enum WebWorkerMessageError\s*\{/) &&
+       browser_worker.match?(/enum WebWorkerHostError\s*\{/) &&
+       browser_worker.match?(/fn post_run\b.*?Result<\(\),\s*WebWorkerHostError>/m)
   errors << "crates/platform/src/host/web_worker.rs: browser worker construction must retain WorkerAdapterError"
+end
+if browser_worker.match?(/Result<.*?,\s*String>/m)
+  errors << "crates/platform/src/host/web_worker.rs: browser worker message and submission failures must not collapse into strings before WorkerFailure serialization"
 end
 native_composition = File.read(File.join(ROOT, "crates/app_native/src/native.rs"))
 unless native_composition.include?(
