@@ -31,7 +31,7 @@ pub use app_manager::{
     CooperativeAppManagerFactory, PipelineAppManagerFactory,
 };
 pub use cooperative_manager::CooperativeManager;
-pub use errors::{ConnectionError, PipelineError, PortError, WorkError, WorkResult};
+pub use errors::{ConnectionError, NodeWorkError, PipelineError, PortError, WorkError, WorkResult};
 pub use graph::{Connection, GraphBuilder, NodeId};
 pub use manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec, PipelineManager};
 pub use node::{

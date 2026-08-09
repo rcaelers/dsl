@@ -15,6 +15,7 @@
 //! node controls, and host catalog selection remain outside the processing node.
 
 mod contracts;
+mod execution_error;
 mod implementation;
 mod runtime;
 
@@ -25,6 +26,9 @@ pub use contracts::{
     SigrokDecoderChannelDescriptor, SigrokDecoderDescriptor, SigrokDecoderOptionDescriptor,
     SigrokExecution, SigrokExecutionConfig, SigrokExecutionFactory, SigrokExecutionInput,
     SigrokExecutionOptionValue, SigrokExecutionOutput, SigrokOutputKind, SigrokScalarValue,
+};
+pub use execution_error::{
+    SigrokExecutionError, SigrokExecutionOperation, SigrokExecutionStartError,
 };
 pub use implementation::{
     SigrokChannel, SigrokDecoder, SigrokDecoderConfig, SigrokInitialPin, SigrokOptionValue,

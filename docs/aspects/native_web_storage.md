@@ -245,8 +245,9 @@ roots perform domain/UI adaptation and select these implementations; in particul
 bridges the platform file-picker mechanism to the node-control dialog port. Making a port
 implementable does not expose its concrete native or web dependencies.
 
-The Sigrok decoder node follows the same ownership boundaries. `logic_analyzer_protocol_decoders` owns the
-portable decoder configuration, state machine, output contracts, and `SigrokExecutionFactory` port.
+The Sigrok decoder node follows the same ownership boundaries. `logic_analyzer_protocol_decoders`
+owns the portable decoder configuration, state machine, output contracts, `SigrokExecutionFactory`
+port, and typed startup and execution-lifecycle failures.
 `logic_analyzer_graph_nodes` owns the portable graph-node schema and turns portable discovery
 snapshots into node templates. The native application adapter owns Python interpreter
 initialization, the `sigrokdecode` compatibility host, package discovery, directory settings, and

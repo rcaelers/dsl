@@ -145,7 +145,10 @@ class Decoder(srd.Decoder):
     );
     let mut worker = fixture.spawn(vec![Some(InitialPin::Low)]);
     let error = worker.join().unwrap_err();
-    let WorkerError::Python(traceback) = error else {
+    let WorkerError::Python {
+        message: traceback, ..
+    } = error
+    else {
         panic!("expected Python error");
     };
     assert!(traceback.contains("Traceback (most recent call last)"));

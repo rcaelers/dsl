@@ -152,7 +152,7 @@ pub(crate) fn discover_sigrok_decoder(
     .map_err(|error| {
         format!(
             "could not discover Sigrok decoder '{id}':\n{}",
-            format_python_error(error)
+            format_python_error(&error)
         )
     })
 }

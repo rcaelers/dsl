@@ -126,6 +126,12 @@ Python objects and delegates scheduling to the decoder worker. Processing-node t
 deterministic execution implementation; focused adapter tests generate their own decoder package
 and cover the Python boundary.
 
+Factory startup returns `SigrokExecutionStartError`. A running execution returns
+`SigrokExecutionError`, whose input, output, completion, and join variants retain the native
+worker, executor, bridge, or Python cause without exposing those implementation types in the
+portable facade. `WorkError::NodeSource` then retains the execution error through pipeline
+supervision.
+
 The native Preferences window owns an ordered collection of external decoder directories. Adding,
 removing, or rescanning directories starts discovery on a background thread; the UI continues to
 render and reports scan progress and package diagnostics. The collection is persisted in the

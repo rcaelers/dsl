@@ -12,7 +12,7 @@ use logic_analyzer_graph_capabilities::node_support::{
 };
 use logic_analyzer_protocol_decoders::sigrok_decoder::{
     SigrokChannel, SigrokDecoderConfig, SigrokDecoderDescriptor, SigrokDecoderRuntime,
-    SigrokDecoderRuntimeError, SigrokInitialPin, SigrokOptionValue,
+    SigrokDecoderRuntimeError, SigrokExecutionStartError, SigrokInitialPin, SigrokOptionValue,
 };
 use logic_analyzer_protocol_decoders::types::ProtocolPacket;
 use node_graph_document::SocketReference;
@@ -43,8 +43,10 @@ impl SigrokDecoderRuntime for UnavailableSigrokDecoderRuntime {
         work_executor: Arc<dyn platform_runtime::WorkExecutor>,
     ) -> Result<Box<dyn ProcessNode>, SigrokDecoderRuntimeError> {
         let _ = (name, config, work_executor);
-        Err(SigrokDecoderRuntimeError::Transport(
-            "the Python decoder runtime is unavailable on this host".into(),
+        Err(SigrokDecoderRuntimeError::ExecutionStart(
+            SigrokExecutionStartError::unavailable(
+                "the Python decoder runtime is unavailable on this host",
+            ),
         ))
     }
 }
@@ -543,8 +545,8 @@ mod builder_tests {
         assert!(discovery_backend.creation.lock().unwrap().is_none());
 
         let runtime_backend = Arc::new(FakeBackend {
-            create_error: Some(SigrokDecoderRuntimeError::Transport(
-                "controlled runtime failure".into(),
+            create_error: Some(SigrokDecoderRuntimeError::ExecutionStart(
+                SigrokExecutionStartError::diagnostic("controlled runtime failure"),
             )),
             ..FakeBackend::new(descriptor)
         });
@@ -559,7 +561,7 @@ mod builder_tests {
             .expect("runtime failure must be preserved");
         assert_eq!(
             runtime_error.to_string(),
-            "Sigrok decoder transport failed: controlled runtime failure"
+            "Sigrok decoder execution startup failed: controlled runtime failure"
         );
         assert!(runtime_backend.creation.lock().unwrap().is_some());
     }

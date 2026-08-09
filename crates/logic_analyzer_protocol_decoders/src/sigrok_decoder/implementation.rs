@@ -15,6 +15,7 @@ use super::contracts::{
     SigrokExecutionConfig, SigrokExecutionFactory, SigrokExecutionInput,
     SigrokExecutionOptionValue, SigrokExecutionOutput,
 };
+use super::execution_error::SigrokExecutionError;
 use super::runtime::SigrokDecoderRuntimeError;
 use crate::types::{ProtocolPacket, ProtocolValue};
 const OUTPUT_ANN: i32 = 0;
@@ -152,7 +153,7 @@ impl SigrokDecoder {
                 options,
                 queue_capacity: OUTPUT_QUEUE_CAPACITY,
             })
-            .map_err(SigrokDecoderRuntimeError::Transport)?;
+            .map_err(SigrokDecoderRuntimeError::ExecutionStart)?;
         Ok(Self {
             name: format!("sigrok_{}", config.decoder_id),
             decoder_id: config.decoder_id,
@@ -653,8 +654,8 @@ fn sample_time_ns(sample: u64, timestamp_step_ns: Option<u64>, sample_rate: u64)
     )
 }
 
-fn execution_error(error: String) -> WorkError {
-    WorkError::NodeError(error)
+fn execution_error(error: SigrokExecutionError) -> WorkError {
+    WorkError::node_source(error)
 }
 
 #[cfg(test)]
@@ -668,7 +669,9 @@ mod implementation_tests {
     use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
     use super::*;
-    use crate::sigrok_decoder::MetadataRegistration;
+    use crate::sigrok_decoder::{
+        MetadataRegistration, SigrokExecutionOperation, SigrokExecutionStartError,
+    };
 
     #[test]
     fn raw_input_timing_takes_precedence_over_the_decoder_configuration() {
@@ -946,12 +949,12 @@ mod implementation_tests {
             &FailingExecutionFactory::new(TestFailure::Spawn),
         );
 
-        assert_eq!(
-            result.err(),
-            Some(SigrokDecoderRuntimeError::Transport(
-                "controlled spawn failure".into()
-            ))
-        );
+        let error = result.err().expect("spawn failure must be returned");
+        assert!(matches!(
+            error,
+            SigrokDecoderRuntimeError::ExecutionStart(_)
+        ));
+        assert!(error.to_string().contains("controlled spawn failure"));
     }
 
     #[test]
@@ -964,12 +967,11 @@ mod implementation_tests {
             &FailingExecutionFactory::new(TestFailure::Spawn),
         );
 
-        assert_eq!(
-            result.err(),
-            Some(SigrokDecoderRuntimeError::Configuration(
-                "sample rate must be positive".into()
-            ))
-        );
+        assert!(matches!(
+            result,
+            Err(SigrokDecoderRuntimeError::Configuration(message))
+                if message == "sample rate must be positive"
+        ));
     }
 
     #[test]
@@ -1094,7 +1096,7 @@ mod implementation_tests {
 
     fn assert_node_error(result: WorkResult<usize>, expected: &str) {
         assert!(
-            matches!(result, Err(WorkError::NodeError(message)) if message == expected),
+            matches!(result, Err(WorkError::NodeSource(error)) if error.to_string().contains(expected)),
             "expected node error: {expected}"
         );
     }
@@ -1124,9 +1126,11 @@ mod implementation_tests {
         fn spawn(
             &self,
             _config: SigrokExecutionConfig,
-        ) -> Result<Box<dyn SigrokExecution>, String> {
+        ) -> Result<Box<dyn SigrokExecution>, SigrokExecutionStartError> {
             if self.failure == TestFailure::Spawn {
-                return Err("controlled spawn failure".into());
+                return Err(SigrokExecutionStartError::diagnostic(
+                    "controlled spawn failure",
+                ));
             }
             Ok(Box::new(FailingExecution {
                 failure: self.failure,
@@ -1141,25 +1145,37 @@ mod implementation_tests {
     }
 
     impl SigrokExecution for FailingExecution {
-        fn push_chunk(&self, _chunk: LogicChunk) -> Result<(), String> {
+        fn push_chunk(&self, _chunk: LogicChunk) -> Result<(), SigrokExecutionError> {
             if self.failure == TestFailure::PushChunk {
-                Err("controlled logic chunk failure".into())
+                Err(SigrokExecutionError::diagnostic(
+                    SigrokExecutionOperation::Input,
+                    "controlled logic chunk failure",
+                ))
             } else {
                 Ok(())
             }
         }
 
-        fn push_protocol_packet(&self, _packet: ProtocolPacket) -> Result<(), String> {
+        fn push_protocol_packet(
+            &self,
+            _packet: ProtocolPacket,
+        ) -> Result<(), SigrokExecutionError> {
             if self.failure == TestFailure::PushProtocol {
-                Err("controlled protocol failure".into())
+                Err(SigrokExecutionError::diagnostic(
+                    SigrokExecutionOperation::Input,
+                    "controlled protocol failure",
+                ))
             } else {
                 Ok(())
             }
         }
 
-        fn finish(&self) -> Result<(), String> {
+        fn finish(&self) -> Result<(), SigrokExecutionError> {
             if self.failure == TestFailure::Finish {
-                return Err("controlled finish failure".into());
+                return Err(SigrokExecutionError::diagnostic(
+                    SigrokExecutionOperation::Completion,
+                    "controlled finish failure",
+                ));
             }
             if self.failure != TestFailure::ReceiveOutput {
                 self.finished.store(true, Ordering::Relaxed);
@@ -1171,9 +1187,12 @@ mod implementation_tests {
             Arc::new(TestCancellation)
         }
 
-        fn try_output(&self) -> Result<Option<SigrokExecutionOutput>, String> {
+        fn try_output(&self) -> Result<Option<SigrokExecutionOutput>, SigrokExecutionError> {
             if self.failure == TestFailure::TryOutput {
-                Err("controlled output poll failure".into())
+                Err(SigrokExecutionError::diagnostic(
+                    SigrokExecutionOperation::Output,
+                    "controlled output poll failure",
+                ))
             } else {
                 Ok(None)
             }
@@ -1190,17 +1209,23 @@ mod implementation_tests {
         fn receive_output(
             &self,
             _timeout: Duration,
-        ) -> Result<Option<SigrokExecutionOutput>, String> {
+        ) -> Result<Option<SigrokExecutionOutput>, SigrokExecutionError> {
             if self.failure == TestFailure::ReceiveOutput {
-                Err("controlled output wait failure".into())
+                Err(SigrokExecutionError::diagnostic(
+                    SigrokExecutionOperation::Output,
+                    "controlled output wait failure",
+                ))
             } else {
                 Ok(None)
             }
         }
 
-        fn join(&mut self) -> Result<(), String> {
+        fn join(&mut self) -> Result<(), SigrokExecutionError> {
             if self.failure == TestFailure::Join {
-                Err("controlled join failure".into())
+                Err(SigrokExecutionError::diagnostic(
+                    SigrokExecutionOperation::Join,
+                    "controlled join failure",
+                ))
             } else {
                 Ok(())
             }
@@ -1221,7 +1246,10 @@ mod implementation_tests {
     }
 
     impl SigrokExecutionFactory for TestExecutionFactory {
-        fn spawn(&self, config: SigrokExecutionConfig) -> Result<Box<dyn SigrokExecution>, String> {
+        fn spawn(
+            &self,
+            config: SigrokExecutionConfig,
+        ) -> Result<Box<dyn SigrokExecution>, SigrokExecutionStartError> {
             self.state.lock().unwrap().config = Some(config);
             Ok(Box::new(TestExecution {
                 state: Arc::clone(&self.state),
@@ -1234,11 +1262,14 @@ mod implementation_tests {
     }
 
     impl SigrokExecution for TestExecution {
-        fn push_chunk(&self, _chunk: LogicChunk) -> Result<(), String> {
-            Err("test execution accepts only protocol input".into())
+        fn push_chunk(&self, _chunk: LogicChunk) -> Result<(), SigrokExecutionError> {
+            Err(SigrokExecutionError::diagnostic(
+                SigrokExecutionOperation::Input,
+                "test execution accepts only protocol input",
+            ))
         }
 
-        fn push_protocol_packet(&self, packet: ProtocolPacket) -> Result<(), String> {
+        fn push_protocol_packet(&self, packet: ProtocolPacket) -> Result<(), SigrokExecutionError> {
             let mut state = self.state.lock().unwrap();
             state.outputs.push_back(SigrokExecutionOutput {
                 start_sample: packet.start_sample,
@@ -1253,7 +1284,7 @@ mod implementation_tests {
             Ok(())
         }
 
-        fn finish(&self) -> Result<(), String> {
+        fn finish(&self) -> Result<(), SigrokExecutionError> {
             self.state.lock().unwrap().finished = true;
             Ok(())
         }
@@ -1262,7 +1293,7 @@ mod implementation_tests {
             Arc::new(TestCancellation)
         }
 
-        fn try_output(&self) -> Result<Option<SigrokExecutionOutput>, String> {
+        fn try_output(&self) -> Result<Option<SigrokExecutionOutput>, SigrokExecutionError> {
             Ok(self.state.lock().unwrap().outputs.pop_front())
         }
 
@@ -1281,11 +1312,11 @@ mod implementation_tests {
         fn receive_output(
             &self,
             _timeout: Duration,
-        ) -> Result<Option<SigrokExecutionOutput>, String> {
+        ) -> Result<Option<SigrokExecutionOutput>, SigrokExecutionError> {
             self.try_output()
         }
 
-        fn join(&mut self) -> Result<(), String> {
+        fn join(&mut self) -> Result<(), SigrokExecutionError> {
             Ok(())
         }
     }

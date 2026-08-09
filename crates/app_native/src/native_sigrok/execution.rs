@@ -5,8 +5,9 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString, PyTuple};
 
 use logic_analyzer_protocol_decoders::sigrok_decoder::{
-    LogicChunk, OutputRegistration, SigrokExecution, SigrokExecutionConfig, SigrokExecutionFactory,
-    SigrokExecutionInput, SigrokExecutionOptionValue, SigrokExecutionOutput,
+    LogicChunk, OutputRegistration, SigrokExecution, SigrokExecutionConfig, SigrokExecutionError,
+    SigrokExecutionFactory, SigrokExecutionInput, SigrokExecutionOptionValue,
+    SigrokExecutionOutput, SigrokExecutionStartError,
 };
 use logic_analyzer_protocol_decoders::types::{ProtocolPacket, ProtocolValue};
 use platform_runtime::{InlineWorkExecutor, WorkExecutor};
@@ -33,7 +34,10 @@ impl Default for PythonSigrokExecutionFactory {
 }
 
 impl SigrokExecutionFactory for PythonSigrokExecutionFactory {
-    fn spawn(&self, config: SigrokExecutionConfig) -> Result<Box<dyn SigrokExecution>, String> {
+    fn spawn(
+        &self,
+        config: SigrokExecutionConfig,
+    ) -> Result<Box<dyn SigrokExecution>, SigrokExecutionStartError> {
         Python::initialize();
         let input = match config.input {
             SigrokExecutionInput::Logic(channels) => WorkerInputConfig::Logic(channels),
@@ -64,7 +68,7 @@ impl SigrokExecutionFactory for PythonSigrokExecutionFactory {
             Arc::clone(&self.work_executor),
         )
         .map(|worker| Box::new(PythonSigrokExecution { worker }) as Box<dyn SigrokExecution>)
-        .map_err(|error| error.to_string())
+        .map_err(SigrokExecutionStartError::startup)
     }
 }
 
@@ -73,15 +77,15 @@ struct PythonSigrokExecution {
 }
 
 impl SigrokExecution for PythonSigrokExecution {
-    fn push_chunk(&self, chunk: LogicChunk) -> Result<(), String> {
+    fn push_chunk(&self, chunk: LogicChunk) -> Result<(), SigrokExecutionError> {
         self.worker
             .push_chunk(chunk)
-            .map_err(|error| error.to_string())
+            .map_err(SigrokExecutionError::input)
     }
 
-    fn push_protocol_packet(&self, packet: ProtocolPacket) -> Result<(), String> {
+    fn push_protocol_packet(&self, packet: ProtocolPacket) -> Result<(), SigrokExecutionError> {
         let value = Python::attach(|py| protocol_value_to_python(py, &packet.value, 0))
-            .map_err(|error| format!("could not reconstruct Sigrok protocol packet: {error}"))?;
+            .map_err(SigrokExecutionError::input)?;
         self.worker
             .push_protocol_packet(
                 packet.start_sample,
@@ -89,21 +93,23 @@ impl SigrokExecution for PythonSigrokExecution {
                 packet.protocol_id,
                 value,
             )
-            .map_err(|error| error.to_string())
+            .map_err(SigrokExecutionError::input)
     }
 
-    fn finish(&self) -> Result<(), String> {
-        self.worker.finish().map_err(|error| error.to_string())
+    fn finish(&self) -> Result<(), SigrokExecutionError> {
+        self.worker
+            .finish()
+            .map_err(SigrokExecutionError::completion)
     }
 
     fn cancellation(&self) -> Arc<dyn NodeCancellation> {
         self.worker.cancellation()
     }
 
-    fn try_output(&self) -> Result<Option<SigrokExecutionOutput>, String> {
+    fn try_output(&self) -> Result<Option<SigrokExecutionOutput>, SigrokExecutionError> {
         self.worker
             .try_output()
-            .map_err(|error| error.to_string())?
+            .map_err(SigrokExecutionError::output)?
             .map(convert_output)
             .transpose()
     }
@@ -116,22 +122,25 @@ impl SigrokExecution for PythonSigrokExecution {
         self.worker.is_finished()
     }
 
-    fn receive_output(&self, timeout: Duration) -> Result<Option<SigrokExecutionOutput>, String> {
+    fn receive_output(
+        &self,
+        timeout: Duration,
+    ) -> Result<Option<SigrokExecutionOutput>, SigrokExecutionError> {
         self.worker
             .receive_output(timeout)
-            .map_err(|error| error.to_string())?
+            .map_err(SigrokExecutionError::output)?
             .map(convert_output)
             .transpose()
     }
 
-    fn join(&mut self) -> Result<(), String> {
-        self.worker.join().map_err(|error| error.to_string())
+    fn join(&mut self) -> Result<(), SigrokExecutionError> {
+        self.worker.join().map_err(SigrokExecutionError::join)
     }
 }
 
-fn convert_output(output: DecoderOutput) -> Result<SigrokExecutionOutput, String> {
+fn convert_output(output: DecoderOutput) -> Result<SigrokExecutionOutput, SigrokExecutionError> {
     let data = Python::attach(|py| python_to_protocol_value(output.data.bind(py), 0))
-        .map_err(|error| format!("invalid Sigrok decoder output: {error}"))?;
+        .map_err(SigrokExecutionError::output)?;
     Ok(SigrokExecutionOutput {
         start_sample: output.start_sample,
         end_sample: output.end_sample,
@@ -234,6 +243,7 @@ fn python_to_protocol_value(value: &Bound<'_, PyAny>, depth: usize) -> PyResult<
 #[cfg(test)]
 mod execution_tests {
     use std::collections::BTreeMap;
+    use std::error::Error;
     use std::fs;
     use std::sync::Arc;
     use std::thread::JoinHandle;
@@ -281,6 +291,57 @@ mod execution_tests {
                 let _ = handle.join();
             }
         }
+    }
+
+    struct RejectingWorkExecutor;
+
+    impl WorkExecutor for RejectingWorkExecutor {
+        fn available_parallelism(&self) -> usize {
+            1
+        }
+
+        fn submit(
+            &self,
+            _task: platform_runtime::WorkExecutorTask,
+        ) -> Result<Box<dyn platform_runtime::WorkTask>, platform_runtime::WorkExecutorError>
+        {
+            Err(platform_runtime::WorkExecutorError::Stopped)
+        }
+
+        fn submit_long_running(
+            &self,
+            task: platform_runtime::WorkExecutorTask,
+        ) -> Result<Box<dyn platform_runtime::WorkTask>, platform_runtime::WorkExecutorError>
+        {
+            self.submit(task)
+        }
+    }
+
+    #[test]
+    fn python_adapter_retains_worker_start_causes() {
+        let error = PythonSigrokExecutionFactory::new(Arc::new(RejectingWorkExecutor))
+            .spawn(SigrokExecutionConfig {
+                decoder_root: "virtual/decoders".into(),
+                decoder_id: "fixture".into(),
+                sample_rate: 1_000_000,
+                input: SigrokExecutionInput::Logic(vec![Some(
+                    logic_analyzer_protocol_decoders::sigrok_decoder::InitialPin::Low,
+                )]),
+                options: BTreeMap::new(),
+                queue_capacity: 1,
+            })
+            .err()
+            .expect("executor rejection must fail startup");
+
+        assert!(matches!(error, SigrokExecutionStartError::Startup { .. }));
+        assert_eq!(
+            error
+                .source()
+                .and_then(std::error::Error::source)
+                .map(ToString::to_string)
+                .as_deref(),
+            Some("processing work executor stopped")
+        );
     }
 
     #[test]

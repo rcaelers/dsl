@@ -1,6 +1,8 @@
 //! Error types for the runtime system.
 
 use std::any::TypeId;
+use std::fmt;
+use std::sync::Arc;
 
 use crossbeam_channel::{RecvError, SendError};
 
@@ -264,9 +266,59 @@ pub enum WorkError {
     #[error("Node-specific error: {0}")]
     NodeError(String),
 
+    /// A processing node retained a typed owner-specific failure.
+    #[error("Node-specific error: {0}")]
+    NodeSource(#[source] NodeWorkError),
+
     /// The runtime requested that the worker stop processing.
     #[error("Shutdown signal received")]
     Shutdown,
+}
+
+/// Cloneable owner-specific failure retained by the generic process-work boundary.
+#[derive(Clone)]
+pub struct NodeWorkError(Arc<dyn std::error::Error + Send + Sync>);
+
+impl NodeWorkError {
+    pub(crate) fn new(source: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self(Arc::new(source))
+    }
+}
+
+impl fmt::Debug for NodeWorkError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_tuple("NodeWorkError")
+            .field(&self.0.to_string())
+            .finish()
+    }
+}
+
+impl fmt::Display for NodeWorkError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+impl std::error::Error for NodeWorkError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.0.as_ref())
+    }
+}
+
+impl PartialEq for NodeWorkError {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for NodeWorkError {}
+
+impl WorkError {
+    /// Retains a typed processing-node failure through runtime supervision.
+    pub fn node_source(source: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self::NodeSource(NodeWorkError::new(source))
+    }
 }
 
 impl<T> From<SendError<T>> for WorkError {
@@ -277,3 +329,30 @@ impl<T> From<SendError<T>> for WorkError {
 
 /// Result alias for worker operations.
 pub type WorkResult<T = ()> = std::result::Result<T, WorkError>;
+
+#[cfg(test)]
+mod node_work_error_tests {
+    use std::error::Error;
+
+    use super::WorkError;
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("controlled node failure")]
+    struct ControlledNodeFailure;
+
+    #[test]
+    fn typed_node_causes_survive_cloneable_work_errors() {
+        let error = WorkError::node_source(ControlledNodeFailure);
+        let cloned = error.clone();
+
+        assert_eq!(error, cloned);
+        assert_eq!(
+            error
+                .source()
+                .and_then(Error::source)
+                .map(ToString::to_string)
+                .as_deref(),
+            Some("controlled node failure")
+        );
+    }
+}

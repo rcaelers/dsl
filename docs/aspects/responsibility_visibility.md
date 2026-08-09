@@ -20,7 +20,8 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
 - `platform_runtime` owns generic host work scheduling, worker-operation messages, kernel
   registration, and portable worker-queue policy.
 - `signal_runtime` owns generic typed-stream execution, scheduling, and pipeline supervision.
-  Its root also owns the generic `ProcessNodeConstruction<M>` result contract.
+  Its root also owns the generic `ProcessNodeConstruction<M>` result contract and the cloneable
+  source-bearing node-work failure boundary.
 - `signal_capture` owns immutable generic capture, query, and finite indexing contracts.
 - `signal_derived` owns generic derived-data payload, collection, indexing, storage, the explicitly
   injected decoded-block cache handle, and typed payload-ingestor construction failures.
@@ -41,7 +42,8 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
   typed construction boundary.
 - `logic_analyzer_device_dslogic` owns DSLogic acquisition, its injected transport contract, and
   typed source construction failures.
-- `logic_analyzer_protocol_decoders` owns concrete protocol decoding and decoder host contracts.
+- `logic_analyzer_protocol_decoders` owns concrete protocol decoding, decoder host contracts, and
+  typed Sigrok execution startup and lifecycle failures.
 - `signal_transforms`, `signal_sinks`, and `signal_generators` own portable stream transforms,
   terminal consumers, and deterministic configured sources respectively. `signal_sinks` also owns
   the shared typed writer-construction boundary.
@@ -297,7 +299,8 @@ facades without depending on their platform type.
 `signal_runtime` distinguishes port lookup, connection validation, pipeline construction and
 supervision, and process-node work. Threaded and cooperative managers expose the same
 `PipelineError` lifecycle contract, and a terminal `NodeFailure` retains its `WorkError` until a
-presentation or transport boundary formats it.
+presentation or transport boundary formats it. `WorkError::NodeSource` retains an owner-specific
+typed processing failure while the legacy diagnostic variant marks nodes that expose only text.
 
 `signal_capture` owns the capture-worker request and message codec, bounded-client admission and
 correlation errors, serializable transport failures, and classified preparation, query, and replay
@@ -335,8 +338,9 @@ boundaries.
 `logic_analyzer_protocol_decoders::sigrok_decoder` owns the host-facing Sigrok catalog and decoder
 runtime error contracts. Whole-catalog discovery failures are distinct from recoverable per-path
 and per-package catalog diagnostics. Decoder runtime failures distinguish package discovery,
-portable configuration validation, and host execution transport without exposing PyO3 or another
-adapter dependency.
+portable configuration validation, and host execution startup without exposing PyO3 or another
+adapter dependency. Its execution port separately classifies input, output, completion, and join
+failures while retaining adapter-owned causes.
 
 `logic_analyzer_graph_runtime` classifies finite-source discovery, metadata inspection, index
 construction, cancellation, executor, and worker-protocol failures in `SourcePreparationError`.

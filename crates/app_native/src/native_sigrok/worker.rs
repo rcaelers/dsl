@@ -11,7 +11,7 @@ use thiserror::Error;
 use logic_analyzer_protocol_decoders::sigrok_decoder::{
     InitialPin, LogicChunk, OutputRegistration,
 };
-use platform_runtime::{WorkExecutor, WorkTask};
+use platform_runtime::{WorkExecutor, WorkExecutorError, WorkTask};
 use signal_runtime::NodeCancellation;
 
 use super::bridge::{BridgeError, DecoderBridge, DecoderOutput};
@@ -60,11 +60,15 @@ pub(crate) enum WorkerError {
     #[error(transparent)]
     Bridge(#[from] BridgeError),
     #[error("failed to start Sigrok decoder worker: {0}")]
-    Execution(String),
+    Execution(#[source] WorkExecutorError),
     #[error("Sigrok decoder worker result was unavailable")]
     ResultUnavailable,
-    #[error("Sigrok decoder failed:\n{0}")]
-    Python(String),
+    #[error("Sigrok decoder failed:\n{message}")]
+    Python {
+        message: String,
+        #[source]
+        source: PyErr,
+    },
 }
 
 pub(crate) struct DecoderWorker {
@@ -114,7 +118,7 @@ impl DecoderWorker {
             .submit_long_running(Box::new(move || {
                 let _ = result_sender.send(run_decoder(config, task_bridge, protocol_receiver));
             }))
-            .map_err(|error| WorkerError::Execution(error.to_string()))?;
+            .map_err(WorkerError::Execution)?;
         Ok(Self {
             bridge,
             outputs,
@@ -281,7 +285,10 @@ fn run_decoder(
             },
         }
     })
-    .map_err(|error| WorkerError::Python(format_python_error(error)))
+    .map_err(|source| WorkerError::Python {
+        message: format_python_error(&source),
+        source,
+    })
 }
 
 fn import_decoder<'py>(

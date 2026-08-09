@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 
-pub(crate) fn format_python_error(error: PyErr) -> String {
+pub(crate) fn format_python_error(error: &PyErr) -> String {
     Python::attach(|py| {
         let formatted = (|| -> PyResult<String> {
             let traceback = PyModule::import(py, "traceback")?;

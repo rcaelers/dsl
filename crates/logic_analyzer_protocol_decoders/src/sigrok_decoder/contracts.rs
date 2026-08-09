@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use signal_runtime::NodeCancellation;
 
+use super::execution_error::{SigrokExecutionError, SigrokExecutionStartError};
 use crate::types::{ProtocolPacket, ProtocolValue};
 
 /// Initial logic level supplied to the Sigrok execution scheduler for a channel.
@@ -276,18 +277,18 @@ pub trait SigrokExecution: Send {
     /// # Parameters
     /// - `chunk`: Packed samples in capture order. Its range must follow previously submitted
     ///   chunks according to the execution's input contract.
-    fn push_chunk(&self, chunk: LogicChunk) -> Result<(), String>;
+    fn push_chunk(&self, chunk: LogicChunk) -> Result<(), SigrokExecutionError>;
 
     /// Submits the next structured packet for a protocol-input decoder.
     ///
     /// # Parameters
     /// - `packet`: Packet received from the graph input stream, in stream order.
-    fn push_protocol_packet(&self, packet: ProtocolPacket) -> Result<(), String>;
+    fn push_protocol_packet(&self, packet: ProtocolPacket) -> Result<(), SigrokExecutionError>;
 
     /// Signals end-of-input and asks the decoder to flush pending output.
     ///
     /// This may be called once after all input was submitted.
-    fn finish(&self) -> Result<(), String>;
+    fn finish(&self) -> Result<(), SigrokExecutionError>;
 
     /// Returns the cancellation handle observed by the underlying execution.
     fn cancellation(&self) -> Arc<dyn NodeCancellation>;
@@ -295,7 +296,7 @@ pub trait SigrokExecution: Send {
     /// Returns one immediately available output, without waiting.
     ///
     /// `Ok(None)` means no output is currently queued; it does not imply completion.
-    fn try_output(&self) -> Result<Option<SigrokExecutionOutput>, String>;
+    fn try_output(&self) -> Result<Option<SigrokExecutionOutput>, SigrokExecutionError>;
 
     /// Returns output registrations declared by the initialized decoder.
     fn registrations(&self) -> Vec<OutputRegistration>;
@@ -309,12 +310,15 @@ pub trait SigrokExecution: Send {
     /// - `timeout`: Maximum time to wait for a queued result.
     ///
     /// `Ok(None)` means the decoder completed or no output arrived before the timeout.
-    fn receive_output(&self, timeout: Duration) -> Result<Option<SigrokExecutionOutput>, String>;
+    fn receive_output(
+        &self,
+        timeout: Duration,
+    ) -> Result<Option<SigrokExecutionOutput>, SigrokExecutionError>;
 
     /// Waits for the worker to stop and releases its resources.
     ///
     /// Call after [`Self::finish`] and output draining, or when propagating a terminal error.
-    fn join(&mut self) -> Result<(), String>;
+    fn join(&mut self) -> Result<(), SigrokExecutionError>;
 }
 
 /// Factory for platform-specific Sigrok decoder execution workers.
@@ -323,5 +327,8 @@ pub trait SigrokExecutionFactory: Send + Sync {
     ///
     /// # Parameters
     /// - `config`: Package location, decoder identity, input transport, options, and queue limit.
-    fn spawn(&self, config: SigrokExecutionConfig) -> Result<Box<dyn SigrokExecution>, String>;
+    fn spawn(
+        &self,
+        config: SigrokExecutionConfig,
+    ) -> Result<Box<dyn SigrokExecution>, SigrokExecutionStartError>;
 }

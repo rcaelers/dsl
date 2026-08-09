@@ -128,6 +128,13 @@ catalog adapter. `signal_derived::PayloadAdapter` returns `PayloadIngestorConstr
 invalid requests, typed adapter failures, and explicit diagnostic adapters. Graph runtime adds
 collector member, adapter, and lane context without formatting either owner error.
 
+The portable Sigrok execution facade separates worker startup from running lifecycle failures.
+`SigrokExecutionStartError` retains typed factory-start causes, and `SigrokExecutionError`
+classifies input submission, output retrieval or conversion, completion, and join failures. The
+native Python adapter preserves executor, bridge, worker, and `PyErr` sources; the portable decoder
+retains that execution error through `WorkError::NodeSource`, and `NodeFailure` carries it through
+generic runtime supervision.
+
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
 - One enum per *facade*, not per crate and not per function. Variants describe what failed in
@@ -139,8 +146,8 @@ collector member, adapter, and lane context without formatting either owner erro
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. Type the `SigrokExecutionFactory` and `SigrokExecution` host ports so spawn, input transport,
-   output retrieval, completion, and worker-join failures retain owner-specific categories.
+1. Type Sigrok package discovery and catalog scanning so filesystem enumeration and Python package
+   inspection retain their causes through `SigrokDecoderRuntimeError` and `SigrokCatalogError`.
 2. Continue through the remaining platform and UI facades: most occurrences collapse into carrying
    the now-typed lower errors; only genuinely UI-owned failures need new variants.
 

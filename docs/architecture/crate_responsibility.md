@@ -35,7 +35,9 @@ application policy, or native/browser transports.
 Owns generic typed-stream execution: process-node lifecycle, named ports, channels, pipeline
 wiring, scheduling, and threaded and cooperative managers. Its crate root is the supported
 execution facade. `ProcessNodeConstruction` couples a constructed process with owner-defined
-metadata without introducing an umbrella processing crate. It consumes injected `platform-runtime` work capabilities and does not define
+metadata without introducing an umbrella processing crate. `NodeWorkError` retains owner-specific
+typed work failures through cloneable `WorkError` and `NodeFailure` values. It consumes injected
+`platform-runtime` work capabilities and does not define
 their host adapters, capture or derived payload storage, acquisition sessions, concrete nodes,
 graph documents, or presentation.
 
@@ -113,9 +115,10 @@ UI remain outside this crate.
 #### `logic-analyzer-protocol-decoders`
 
 Owns UI-independent protocol packet values, packet framing, and I²C, parallel, Sigrok, SPI, and
-UART decoding state machines plus their runtime configuration and host contracts. Graph sockets,
-saved state, retained-packet adapters, and renderer metadata remain with the corresponding graph
-features.
+UART decoding state machines plus their runtime configuration and host contracts. Sigrok execution
+startup and running lifecycle failures retain host-adapter causes through owner-typed contracts.
+Graph sockets, saved state, retained-packet adapters, and renderer metadata remain with the
+corresponding graph features.
 
 ### Graph crates
 

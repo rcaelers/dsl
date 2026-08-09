@@ -357,10 +357,14 @@ item here, so acceptance comparisons stop being ad-hoc.
      Generated collectors now retain typed request-configuration causes through
      `PayloadRequestConfigurationError` and the plan-owned `PayloadCatalogConfigurationError`.
      `PayloadAdapter` returns `PayloadIngestorConstructionError`, so built-in and plugin payload
-     adapters preserve typed ingestor-construction causes through runtime materialization. Next type
-     the `SigrokExecutionFactory` and `SigrokExecution` host ports; they are the remaining public
-     concrete-processing contracts that collapse spawn, transport, output, and join failures into
-     strings.
+     adapters preserve typed ingestor-construction causes through runtime materialization.
+     `SigrokExecutionFactory` now returns `SigrokExecutionStartError`, while `SigrokExecution`
+     classifies input, output, completion, and join failures through `SigrokExecutionError`. Native
+     Python composition retains worker, executor, bridge, and `PyErr` causes through those ports;
+     `WorkError::NodeSource` carries the execution cause through generic runtime supervision.
+     Next type Sigrok package discovery and catalog scanning, which still reduce filesystem and
+     Python inspection causes to `SigrokDecoderRuntimeError::Discovery(String)` and
+     `SigrokCatalogError::Discovery(String)`.
 
 ### Application state decomposition
 
