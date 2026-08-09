@@ -25,7 +25,8 @@ use signal_capture::{
 
 use crate::web_capture_worker_errors::{
     BrowserCaptureAttachmentError, BrowserCaptureWorkerInstallError,
-    BrowserCaptureWorkerInstallStage, BrowserWorkerMessageError,
+    BrowserCaptureWorkerInstallStage, BrowserWorkerMessageError, BrowserWorkerTransportChannel,
+    BrowserWorkerTransportError,
 };
 
 const WORKER_BOOTSTRAP: &str = include_str!("capture_worker_bootstrap.js");
@@ -152,16 +153,16 @@ pub(crate) fn install_capture_worker(
     let error_attachments = Rc::clone(&attachments);
     let error_handler = Closure::<dyn FnMut(ErrorEvent)>::new(move |event: ErrorEvent| {
         event.prevent_default();
+        let message = format!("capture worker failed: {}", event.message());
         disconnect_host(
             &error_capture_client,
             &error_graph_client,
             &error_disconnected,
-            format!("capture worker failed: {}", event.message()),
+            BrowserWorkerTransportError::WorkerFailure {
+                message: message.clone(),
+            },
         );
-        fail_attachments(
-            &error_attachments,
-            format!("capture worker failed: {}", event.message()),
-        );
+        fail_attachments(&error_attachments, message);
     });
     worker.set_onmessage(Some(message_handler.as_ref().unchecked_ref()));
     worker.set_onerror(Some(error_handler.as_ref().unchecked_ref()));
@@ -288,7 +289,7 @@ fn handle_worker_message(
                 capture_client,
                 graph_client,
                 disconnected,
-                error.to_string(),
+                BrowserWorkerTransportError::Message(error.clone()),
             );
             fail_attachments_with_message(attachments, error);
             return;
@@ -298,19 +299,21 @@ fn handle_worker_message(
         "ready" => ready.set(true),
         "capture_messages" => {
             let result = property(&value, "payload")
-                .map_err(|error| CaptureWorkerTransportFailure::Host(error.to_string()))
+                .map_err(BrowserWorkerTransportError::Message)
                 .map(|payload| Uint8Array::new(&payload).to_vec())
                 .and_then(|payload| {
                     decode_capture_worker_messages(&payload)
                         .map_err(CaptureWorkerTransportFailure::from)
+                        .map_err(BrowserWorkerTransportError::Capture)
                 })
                 .and_then(|messages| {
                     for message in messages {
                         capture_client
                             .publish(message)
-                            .map_err(CaptureWorkerTransportFailure::from)?;
+                            .map_err(CaptureWorkerTransportFailure::from)
+                            .map_err(BrowserWorkerTransportError::Capture)?;
                     }
-                    Ok::<(), CaptureWorkerTransportFailure>(())
+                    Ok::<(), BrowserWorkerTransportError>(())
                 });
             if let Err(error) = result {
                 disconnect_capture(capture_client, graph_client, disconnected, error);
@@ -318,19 +321,21 @@ fn handle_worker_message(
         }
         "graph_messages" => {
             let result = property(&value, "payload")
-                .map_err(|error| GraphWorkerTransportFailure::Host(error.to_string()))
+                .map_err(BrowserWorkerTransportError::Message)
                 .map(|payload| Uint8Array::new(&payload).to_vec())
                 .and_then(|payload| {
                     decode_graph_worker_messages(&payload)
                         .map_err(GraphWorkerTransportFailure::from)
+                        .map_err(BrowserWorkerTransportError::Graph)
                 })
                 .and_then(|messages| {
                     for message in messages {
                         graph_client
                             .publish(message)
-                            .map_err(GraphWorkerTransportFailure::from)?;
+                            .map_err(GraphWorkerTransportFailure::from)
+                            .map_err(BrowserWorkerTransportError::Graph)?;
                     }
-                    Ok::<(), GraphWorkerTransportFailure>(())
+                    Ok::<(), BrowserWorkerTransportError>(())
                 });
             if let Err(error) = result {
                 disconnect_graph(capture_client, graph_client, disconnected, error);
@@ -338,13 +343,13 @@ fn handle_worker_message(
         }
         "graph_output_files" => {
             let result = property(&value, "payload")
-                .map_err(|error| error.to_string())
+                .map_err(BrowserWorkerTransportError::Message)
                 .map(|payload| Uint8Array::new(&payload).to_vec())
                 .and_then(|payload| {
                     serde_json::from_slice::<Vec<super::web_output_storage::BrowserOutputFile>>(
                         &payload,
                     )
-                    .map_err(|error| format!("graph worker returned invalid output files: {error}"))
+                    .map_err(BrowserWorkerTransportError::OutputFiles)
                 })
                 .map(|files| {
                     files
@@ -396,7 +401,14 @@ fn handle_worker_message(
         },
         "worker_failed" => match string_property(&value, "message") {
             Ok(message) => {
-                disconnect_host(capture_client, graph_client, disconnected, message.clone());
+                disconnect_host(
+                    capture_client,
+                    graph_client,
+                    disconnected,
+                    BrowserWorkerTransportError::WorkerFailure {
+                        message: message.clone(),
+                    },
+                );
                 fail_attachments(attachments, message);
             }
             Err(error) => {
@@ -404,14 +416,15 @@ fn handle_worker_message(
                     capture_client,
                     graph_client,
                     disconnected,
-                    error.to_string(),
+                    BrowserWorkerTransportError::Message(error.clone()),
                 );
                 fail_attachments_with_message(attachments, error);
             }
         },
         _ => {
-            let message = "capture worker returned an unknown message".to_owned();
-            disconnect_host(capture_client, graph_client, disconnected, message.clone());
+            let error = BrowserWorkerTransportError::UnknownMessage;
+            let message = error.to_string();
+            disconnect_host(capture_client, graph_client, disconnected, error);
             fail_attachments(attachments, message);
         }
     }
@@ -724,9 +737,10 @@ fn disconnect_host(
     capture_client: &Arc<CaptureWorkerClient>,
     graph_client: &Arc<GraphWorkerClient>,
     disconnected: &Rc<Cell<bool>>,
-    message: String,
+    error: BrowserWorkerTransportError,
 ) {
     if !disconnected.replace(true) {
+        let message = error.to_string();
         capture_client.fail_all(CaptureWorkerTransportFailure::Host(message.clone()));
         graph_client.fail_all(GraphWorkerTransportFailure::Host(message));
     }
@@ -736,11 +750,12 @@ fn disconnect_capture(
     capture_client: &Arc<CaptureWorkerClient>,
     graph_client: &Arc<GraphWorkerClient>,
     disconnected: &Rc<Cell<bool>>,
-    error: CaptureWorkerTransportFailure,
+    error: BrowserWorkerTransportError,
 ) {
     if !disconnected.replace(true) {
-        graph_client.fail_all(GraphWorkerTransportFailure::Host(error.to_string()));
-        capture_client.fail_all(error);
+        let diagnostic = error.to_string();
+        capture_client.fail_all(error.into_capture_failure());
+        graph_client.fail_all(GraphWorkerTransportFailure::Host(diagnostic));
     }
 }
 
@@ -748,59 +763,54 @@ fn disconnect_graph(
     capture_client: &Arc<CaptureWorkerClient>,
     graph_client: &Arc<GraphWorkerClient>,
     disconnected: &Rc<Cell<bool>>,
-    error: GraphWorkerTransportFailure,
+    error: BrowserWorkerTransportError,
 ) {
     if !disconnected.replace(true) {
-        capture_client.fail_all(CaptureWorkerTransportFailure::Host(error.to_string()));
-        graph_client.fail_all(error);
+        let diagnostic = error.to_string();
+        graph_client.fail_all(error.into_graph_failure());
+        capture_client.fail_all(CaptureWorkerTransportFailure::Host(diagnostic));
     }
 }
 
 fn post_capture_request(
     worker: &Worker,
     request: &CaptureWorkerRequest,
-) -> Result<(), CaptureWorkerTransportFailure> {
-    let payload =
-        encode_capture_worker_request(request).map_err(CaptureWorkerTransportFailure::from)?;
-    let message = message_object("capture_run")
-        .map_err(|error| CaptureWorkerTransportFailure::Host(error.to_string()))?;
+) -> Result<(), BrowserWorkerTransportError> {
+    let payload = encode_capture_worker_request(request)
+        .map_err(CaptureWorkerTransportFailure::from)
+        .map_err(BrowserWorkerTransportError::Capture)?;
+    let message = message_object("capture_run")?;
     let bytes = Uint8Array::from(payload.as_slice());
     let buffer = bytes.buffer();
-    set(&message, "payload", buffer.clone().into())
-        .map_err(|error| CaptureWorkerTransportFailure::Host(error.to_string()))?;
+    set(&message, "payload", buffer.clone().into())?;
     let transfer = Array::new();
     transfer.push(&buffer);
     worker
         .post_message_with_transfer(&message, &transfer)
-        .map_err(|error| {
-            CaptureWorkerTransportFailure::Host(js_error(
-                "could not submit capture-worker request",
-                error,
-            ))
+        .map_err(|error| BrowserWorkerTransportError::Submission {
+            channel: BrowserWorkerTransportChannel::Capture,
+            detail: js_detail(error),
         })
 }
 
 fn post_graph_request(
     worker: &Worker,
     request: &GraphWorkerRequest,
-) -> Result<(), GraphWorkerTransportFailure> {
-    let payload =
-        encode_graph_worker_request(request).map_err(GraphWorkerTransportFailure::from)?;
-    let message = message_object("graph_run")
-        .map_err(|error| GraphWorkerTransportFailure::Host(error.to_string()))?;
+) -> Result<(), BrowserWorkerTransportError> {
+    let payload = encode_graph_worker_request(request)
+        .map_err(GraphWorkerTransportFailure::from)
+        .map_err(BrowserWorkerTransportError::Graph)?;
+    let message = message_object("graph_run")?;
     let bytes = Uint8Array::from(payload.as_slice());
     let buffer = bytes.buffer();
-    set(&message, "payload", buffer.clone().into())
-        .map_err(|error| GraphWorkerTransportFailure::Host(error.to_string()))?;
+    set(&message, "payload", buffer.clone().into())?;
     let transfer = Array::new();
     transfer.push(&buffer);
     worker
         .post_message_with_transfer(&message, &transfer)
-        .map_err(|error| {
-            GraphWorkerTransportFailure::Host(js_error(
-                "could not submit graph-worker request",
-                error,
-            ))
+        .map_err(|error| BrowserWorkerTransportError::Submission {
+            channel: BrowserWorkerTransportChannel::Graph,
+            detail: js_detail(error),
         })
 }
 
@@ -896,11 +906,6 @@ fn install_host_error(
 
 fn js_detail(error: JsValue) -> String {
     error.as_string().unwrap_or_else(|| format!("{error:?}"))
-}
-
-fn js_error(context: &str, error: JsValue) -> String {
-    let detail = js_detail(error);
-    format!("{context}: {detail}")
 }
 
 #[cfg(test)]

@@ -377,6 +377,11 @@ the portable capture- and graph-client configuration errors and classifies brows
 stages. Its message facade validates JavaScript properties, and capture attachment retains message
 and metadata causes through asynchronous completion. These application-level adapters compose the
 neutral worker clients; they add no worker policy to `platform`.
+The browser transport facade retains JavaScript message-shape failures, the primary neutral capture
+or graph transport failure, request-submission context, and graph-output decoding causes. It formats
+only when crossing into the other serializable worker client's host-failure variant or logging a
+terminal output-download failure. The browser `HostService` adapter already retains platform
+document and download failures through UI-owned contracts.
 
 The same application root owns the session-local imported-file registry. Its error contract
 classifies file and session limits, reference lifecycle failures, and resident byte-source

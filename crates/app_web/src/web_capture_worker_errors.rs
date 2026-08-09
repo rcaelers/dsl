@@ -1,7 +1,7 @@
 use std::fmt;
 
-use logic_analyzer_graph_orchestration::GraphWorkerClientError;
-use signal_capture::CaptureWorkerClientError;
+use logic_analyzer_graph_orchestration::{GraphWorkerClientError, GraphWorkerTransportFailure};
+use signal_capture::{CaptureWorkerClientError, CaptureWorkerTransportFailure};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BrowserCaptureWorkerInstallStage {
@@ -70,6 +70,58 @@ pub(crate) enum BrowserWorkerMessageError {
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BrowserWorkerTransportChannel {
+    Capture,
+    Graph,
+}
+
+impl fmt::Display for BrowserWorkerTransportChannel {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Capture => "capture worker",
+            Self::Graph => "graph worker",
+        })
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum BrowserWorkerTransportError {
+    #[error("browser worker message is invalid: {0}")]
+    Message(#[from] BrowserWorkerMessageError),
+    #[error("{0}")]
+    Capture(#[source] CaptureWorkerTransportFailure),
+    #[error("{0}")]
+    Graph(#[source] GraphWorkerTransportFailure),
+    #[error("could not submit {channel} request: {detail}")]
+    Submission {
+        channel: BrowserWorkerTransportChannel,
+        detail: String,
+    },
+    #[error("graph worker returned invalid output files: {0}")]
+    OutputFiles(#[source] serde_json::Error),
+    #[error("{message}")]
+    WorkerFailure { message: String },
+    #[error("capture worker returned an unknown message")]
+    UnknownMessage,
+}
+
+impl BrowserWorkerTransportError {
+    pub(crate) fn into_capture_failure(self) -> CaptureWorkerTransportFailure {
+        match self {
+            Self::Capture(error) => error,
+            error => CaptureWorkerTransportFailure::Host(error.to_string()),
+        }
+    }
+
+    pub(crate) fn into_graph_failure(self) -> GraphWorkerTransportFailure {
+        match self {
+            Self::Graph(error) => error,
+            error => GraphWorkerTransportFailure::Host(error.to_string()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod web_capture_worker_error_tests {
     use std::error::Error;
@@ -81,7 +133,8 @@ mod web_capture_worker_error_tests {
 
     use super::{
         BrowserCaptureAttachmentError, BrowserCaptureWorkerInstallError,
-        BrowserCaptureWorkerInstallStage, BrowserWorkerMessageError,
+        BrowserCaptureWorkerInstallStage, BrowserWorkerMessageError, BrowserWorkerTransportChannel,
+        BrowserWorkerTransportError,
     };
 
     #[test]
@@ -158,5 +211,62 @@ mod web_capture_worker_error_tests {
         ];
 
         assert!(errors.iter().all(|error| !error.is_empty()));
+    }
+
+    #[test]
+    fn worker_transport_preserves_the_primary_neutral_failure() {
+        let capture_error = BrowserWorkerTransportError::Capture(
+            signal_capture::CaptureWorkerTransportFailure::SequenceExhausted,
+        );
+        assert!(capture_error.source().is_some());
+        let capture = capture_error.into_capture_failure();
+        let graph_error = BrowserWorkerTransportError::Graph(
+            logic_analyzer_graph_orchestration::GraphWorkerTransportFailure::SequenceExhausted,
+        );
+        assert!(graph_error.source().is_some());
+        let graph = graph_error.into_graph_failure();
+
+        assert!(matches!(
+            capture,
+            signal_capture::CaptureWorkerTransportFailure::SequenceExhausted
+        ));
+        assert!(matches!(
+            graph,
+            logic_analyzer_graph_orchestration::GraphWorkerTransportFailure::SequenceExhausted
+        ));
+
+        let submission = BrowserWorkerTransportError::Submission {
+            channel: BrowserWorkerTransportChannel::Capture,
+            detail: "worker unavailable".to_owned(),
+        };
+        assert!(matches!(
+            submission.into_capture_failure(),
+            signal_capture::CaptureWorkerTransportFailure::Host(_)
+        ));
+        let graph_submission = BrowserWorkerTransportError::Submission {
+            channel: BrowserWorkerTransportChannel::Graph,
+            detail: "worker unavailable".to_owned(),
+        };
+        assert!(matches!(
+            graph_submission.into_graph_failure(),
+            logic_analyzer_graph_orchestration::GraphWorkerTransportFailure::Host(_)
+        ));
+
+        let output_error = BrowserWorkerTransportError::OutputFiles(
+            serde_json::from_slice::<Vec<serde_json::Value>>(b"not output files").unwrap_err(),
+        );
+        assert!(output_error.source().is_some());
+        assert!(
+            !BrowserWorkerTransportError::WorkerFailure {
+                message: "worker stopped".to_owned(),
+            }
+            .to_string()
+            .is_empty()
+        );
+        assert!(
+            !BrowserWorkerTransportError::UnknownMessage
+                .to_string()
+                .is_empty()
+        );
     }
 }

@@ -893,6 +893,19 @@ unless web_capture_worker_errors.match?(/CaptureClient\(\#\[source\]\s*CaptureWo
        web_capture_worker_errors.match?(/Metadata\(\#\[source\]\s*serde_json::Error\)/)
   errors << "crates/app_web/src/web_capture_worker_errors.rs: browser worker lifecycle must retain client and metadata causes"
 end
+unless web_capture_worker_errors.match?(/pub\(crate\) enum BrowserWorkerTransportError\s*\{/) &&
+       web_capture_worker_errors.match?(/Capture\(\#\[source\]\s*CaptureWorkerTransportFailure\)/) &&
+       web_capture_worker_errors.match?(/Graph\(\#\[source\]\s*GraphWorkerTransportFailure\)/) &&
+       web_capture_worker_errors.match?(/OutputFiles\(\#\[source\]\s*serde_json::Error\)/)
+  errors << "crates/app_web/src/web_capture_worker_errors.rs: browser worker transport must retain neutral transport and output-codec causes"
+end
+%w[post_capture_request post_graph_request].each do |operation|
+  unless web_capture_worker.match?(
+    /fn\s+#{operation}\b.*?Result<.*?BrowserWorkerTransportError>/m
+  )
+    errors << "crates/app_web/src/web_capture_worker.rs: #{operation} must retain BrowserWorkerTransportError"
+  end
+end
 web_file_registry = File.read(File.join(
   ROOT,
   "crates/app_web/src/web_file_import/registry.rs"

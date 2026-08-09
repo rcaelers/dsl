@@ -190,6 +190,14 @@ worker-cache entries. Metadata parsing retains the generic capture error, while 
 worker factories preserve cache lookup failures through capture-source metadata and construction
 errors. The wasm export formats this error only when returning the final JavaScript diagnostic.
 
+The combined browser worker adapter returns `BrowserWorkerTransportError` while validating inbound
+messages and submitting outbound capture and graph requests. It retains the primary neutral worker
+transport failure, JavaScript message classification, request channel, and graph-output JSON cause.
+Conversion to a string occurs only for the serializable `Host` variant delivered to the other
+worker client, or for the terminal graph-output warning. The browser `HostService` adapter needs no
+parallel error enum: it already maps typed platform document and download failures directly into
+the UI-owned contracts.
+
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
 - One enum per *facade*, not per crate and not per function. Variants describe what failed in

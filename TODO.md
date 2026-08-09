@@ -387,9 +387,12 @@ item here, so acceptance comparisons stop being ad-hoc.
      DSL and Sigrok adapters retain lookup errors through typed metadata and construction sources.
      The browser worker-source facade now classifies preparation payloads, JavaScript length limits,
      metadata parsing, and worker-cache lookup; DSL and Sigrok worker adapters retain those causes
-     through typed metadata and construction boundaries. Next type the remaining web application
-     host-service and worker-transport adapters whose JavaScript mechanism failures still collapse
-     into strings before reaching their owner facades.
+     through typed metadata and construction boundaries. The combined browser worker transport now
+     retains message-shape, primary neutral transport, request-submission, and graph-output decode
+     causes until the serializable cross-client or terminal logging boundary. The web host-service
+     audit confirms document and download failures already cross through typed UI contracts. Next
+     type native Sigrok catalog settings persistence, whose application-owned load, encode, and
+     write path still collapses failures into strings before logging.
 
 ### Application state decomposition
 
