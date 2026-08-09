@@ -630,6 +630,31 @@ if ui_app_source.match?(/error\s*==\s*"capture export was cancelled"/)
   errors << "crates/logic_analyzer_ui/src/app.rs: capture-export cancellation must be matched by typed variant, not display text"
 end
 
+ui_output_presentation = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_ui/src/collected_output_presentation.rs"
+)).split(/^\s*#\s*\[\s*cfg\s*\([^\]]*\btest\b[^\]]*\)\s*\]\s*\n\s*mod\s+\w*tests\b/, 2).first
+%w[bind_collected_output_presentations waveform_presentation_registry].each do |operation|
+  next if ui_output_presentation.match?(
+    /fn\s+#{operation}\b.*?Result<.*?PresentationBindingError>/m
+  )
+
+  errors << "crates/logic_analyzer_ui/src/collected_output_presentation.rs: #{operation} must retain PresentationBindingError"
+end
+ui_table_presentation = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_ui/src/decoder_table_presentation.rs"
+)).split(/^\s*#\s*\[\s*cfg\s*\([^\]]*\btest\b[^\]]*\)\s*\]\s*\n\s*mod\s+\w*tests\b/, 2).first
+unless ui_table_presentation.match?(
+  /fn\s+decoder_table_registry\b.*?Result<.*?PresentationBindingError>/m
+)
+  errors << "crates/logic_analyzer_ui/src/decoder_table_presentation.rs: decoder-table binding must retain PresentationBindingError"
+end
+if ui_output_presentation.match?(/Result<.*?,\s*String>/m) ||
+   ui_table_presentation.match?(/Result<.*?,\s*String>/m)
+  errors << "crates/logic_analyzer_ui/src: catalog-presentation binding must not collapse contract failures into strings"
+end
+
 def relative(path)
   path.delete_prefix("#{ROOT}/")
 end

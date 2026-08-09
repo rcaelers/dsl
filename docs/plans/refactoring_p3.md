@@ -163,6 +163,11 @@ its source. The runtime formats that local failure only when constructing the se
 `CaptureWorkerFailure` terminal message. Browser capture preparation supplies a typed JSON or range
 failure through the same handler contract.
 
+UI presentation-catalog assembly returns `PresentationBindingError`. Its variants distinguish a
+payload missing its required default lane presentation from absent waveform-lane and decoder-table
+renderer registrations, retaining the relevant stable payload, lane, column, and renderer keys.
+The application toast projection is the boundary that formats those catalog contract failures.
+
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
 - One enum per *facade*, not per crate and not per function. Variants describe what failed in

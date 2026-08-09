@@ -377,8 +377,11 @@ item here, so acceptance comparisons stop being ad-hoc.
      registration and preparation failures; missing operations remain distinguishable and
      registered handlers retain their concrete source until the runtime serializes a terminal
      worker diagnostic. Browser capture preparation implements the same typed handler contract.
-     Next type the `logic_analyzer_ui` collected-output and decoder-table presentation assembly,
-     which still represents missing renderer and missing presentation contracts as strings.
+     `logic_analyzer_ui` collected-output and decoder-table assembly now returns
+     `PresentationBindingError`, distinguishing missing default lane metadata from unknown lane and
+     table renderer registrations until application toast presentation. Next type the browser
+     capture-worker installation and file-attachment lifecycle in `app_web`, whose bootstrap,
+     message-decoding, transfer, and completion boundaries still exchange strings.
 
 ### Application state decomposition
 

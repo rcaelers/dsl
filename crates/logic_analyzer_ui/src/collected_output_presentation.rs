@@ -6,6 +6,8 @@ use logic_analyzer_viewer::{
     ViewerLaneTrack, WaveformPresentationRegistry, viewer_lane_renderer,
 };
 
+use crate::presentation_catalogs::PresentationBindingError;
+
 struct PendingGroup {
     source_node: node_graph::NodeId,
     key: String,
@@ -18,7 +20,7 @@ struct PendingGroup {
 pub(crate) fn bind_collected_output_presentations(
     registry: &WaveformPresentationRegistry,
     subscriptions: &[CollectedOutputSubscription],
-) -> Result<(), String> {
+) -> Result<(), PresentationBindingError> {
     for subscription in subscriptions {
         let mut pending_groups: Vec<PendingGroup> = Vec::new();
         for lane in &subscription.lanes {
@@ -26,10 +28,10 @@ pub(crate) fn bind_collected_output_presentations(
             if let Some(presentation) = &lane.input.lane_presentation {
                 let renderer =
                     viewer_lane_renderer(&presentation.renderer_key).ok_or_else(|| {
-                        format!(
-                            "collected lane '{}' references unknown renderer '{}'",
-                            lane.lane_name, presentation.renderer_key
-                        )
+                        PresentationBindingError::UnknownLaneRenderer {
+                            lane: lane.lane_name.clone(),
+                            renderer: presentation.renderer_key.clone(),
+                        }
                     })?;
                 let [red, green, blue] = presentation.badge.color;
                 let track = ViewerLaneTrack::new(
@@ -61,10 +63,9 @@ pub(crate) fn bind_collected_output_presentations(
                         .default_lane_presentation
                         .as_ref()
                         .ok_or_else(|| {
-                            format!(
-                                "subscribed payload '{}' has no default presentation",
-                                lane.input.kind.name()
-                            )
+                            PresentationBindingError::MissingDefaultLanePresentation {
+                                payload_kind: lane.input.kind.name().to_owned(),
+                            }
                         })?;
                 registry.register(ViewerLaneGroup {
                     id: ViewerLaneGroupId::new(format!(
@@ -81,11 +82,9 @@ pub(crate) fn bind_collected_output_presentations(
                     },
                     tracks: vec![ViewerLaneTrack::new("primary", lane_id, 1.0)],
                     renderer: viewer_lane_renderer(&presentation.renderer_key).ok_or_else(
-                        || {
-                            format!(
-                                "collected lane '{}' references unknown renderer '{}'",
-                                lane.lane_name, presentation.renderer_key
-                            )
+                        || PresentationBindingError::UnknownLaneRenderer {
+                            lane: lane.lane_name.clone(),
+                            renderer: presentation.renderer_key.clone(),
                         },
                     )?,
                 });
@@ -110,7 +109,7 @@ pub(crate) fn bind_collected_output_presentations(
 
 pub(crate) fn waveform_presentation_registry(
     subscriptions: &[CollectedOutputSubscription],
-) -> Result<WaveformPresentationRegistry, String> {
+) -> Result<WaveformPresentationRegistry, PresentationBindingError> {
     let registry = WaveformPresentationRegistry::new();
     registry.set_implicit_groups(false);
     bind_collected_output_presentations(&registry, subscriptions)?;
@@ -183,6 +182,45 @@ mod collected_output_presentation_tests {
                 .map(|track| track.id.as_str())
                 .collect::<Vec<_>>(),
             ["bits", "data"]
+        );
+    }
+
+    #[test]
+    fn ui_adapter_classifies_missing_default_presentations() {
+        let mut lane = grouped_lane(0, "data", 0);
+        lane.input.lane_presentation = None;
+        let payload_kind = lane.input.kind.name().to_owned();
+        let error = waveform_presentation_registry(&[CollectedOutputSubscription {
+            runtime_name: "subscription".to_owned(),
+            lanes: vec![lane],
+        }])
+        .err()
+        .unwrap();
+
+        assert_eq!(
+            error,
+            PresentationBindingError::MissingDefaultLanePresentation { payload_kind }
+        );
+    }
+
+    #[test]
+    fn ui_adapter_classifies_unknown_lane_renderers() {
+        let mut lane = grouped_lane(0, "data", 0);
+        lane.input.lane_presentation.as_mut().unwrap().renderer_key =
+            "org.logicconduit.missing.renderer/v1".to_owned();
+        let error = waveform_presentation_registry(&[CollectedOutputSubscription {
+            runtime_name: "subscription".to_owned(),
+            lanes: vec![lane],
+        }])
+        .err()
+        .unwrap();
+
+        assert_eq!(
+            error,
+            PresentationBindingError::UnknownLaneRenderer {
+                lane: "Decoder.data".to_owned(),
+                renderer: "org.logicconduit.missing.renderer/v1".to_owned(),
+            }
         );
     }
 }

@@ -3,6 +3,7 @@ use logic_analyzer_viewer::{DerivedLaneId, ViewerLaneTrackId, viewer_lane_render
 use node_graph::NodeId;
 
 use crate::decoder_panel::{DecoderTableColumn, DecoderTableRegistry, DecoderTableSource};
+use crate::presentation_catalogs::PresentationBindingError;
 
 struct PendingSource {
     source_node: NodeId,
@@ -13,7 +14,7 @@ struct PendingSource {
 
 pub(crate) fn decoder_table_registry(
     subscriptions: &[CollectedTableSubscription],
-) -> Result<DecoderTableRegistry, String> {
+) -> Result<DecoderTableRegistry, PresentationBindingError> {
     let registry = DecoderTableRegistry::new();
     for subscription in subscriptions {
         let mut pending: Vec<PendingSource> = Vec::new();
@@ -29,10 +30,10 @@ pub(crate) fn decoder_table_registry(
                 row_anchor: table.row_anchor,
                 cell_mode: table.cell_mode.clone(),
                 renderer: viewer_lane_renderer(&table.renderer_key).ok_or_else(|| {
-                    format!(
-                        "decoder-table column '{}' references unknown renderer '{}'",
-                        table.column_key, table.renderer_key
-                    )
+                    PresentationBindingError::UnknownTableRenderer {
+                        column: table.column_key.clone(),
+                        renderer: table.renderer_key.clone(),
+                    }
                 })?,
             };
             if let Some(source) = pending.iter_mut().find(|source| {
@@ -134,6 +135,30 @@ mod decoder_table_presentation_tests {
                 .map(|column| column.key.as_str())
                 .collect::<Vec<_>>(),
             ["bits", "data"]
+        );
+    }
+
+    #[test]
+    fn ui_adapter_classifies_unknown_table_renderers() {
+        let mut lane = table_lane(0, "bits", 0);
+        lane.input
+            .decoder_table_column
+            .as_mut()
+            .unwrap()
+            .renderer_key = "org.logicconduit.missing.table-renderer/v1".to_owned();
+        let error = decoder_table_registry(&[CollectedTableSubscription {
+            collector: NodeId(4),
+            lanes: vec![lane],
+        }])
+        .err()
+        .unwrap();
+
+        assert_eq!(
+            error,
+            PresentationBindingError::UnknownTableRenderer {
+                column: "bits".to_owned(),
+                renderer: "org.logicconduit.missing.table-renderer/v1".to_owned(),
+            }
         );
     }
 }

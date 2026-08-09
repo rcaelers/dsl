@@ -367,6 +367,11 @@ failures across its application-service facade. Its exporter retains typed metad
 consistency, store, destination, and archive failures rather than collapsing them into an early
 display string.
 
+`logic_analyzer_ui` owns the presentation-catalog binding between lowered generic metadata and the
+registered waveform and decoder-table renderer inventories. `PresentationBindingError`
+distinguishes missing default lane metadata from unknown lane and table renderers, retaining their
+stable keys until application toast presentation.
+
 ## Platform surfaces
 
 Native and wasm reusable crates share the platform-neutral data model and compile the same source
