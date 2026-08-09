@@ -182,6 +182,9 @@ associates its stable payload identity and `PortKind` with type-erased retained-
 default presentation metadata, request customization, and optional persistent-cache behavior.
 The compiler places the required registrations into a plan-owned `ProcessingPayloadCatalog`, which
 lets generated collectors operate without concrete payload branches.
+Registry request-configuration failures remain typed through that catalog, and each
+`PayloadAdapter` returns a typed ingestor-construction failure. Graph runtime adds collector and
+lane context while retaining those causes.
 
 ### Derived lane and collector
 

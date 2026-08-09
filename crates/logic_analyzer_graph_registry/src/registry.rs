@@ -13,6 +13,7 @@ use signal_derived::{CollectedLaneRequest, PayloadRegistry};
 
 use super::graph_registration::graph_node_registrations;
 use super::payload_registration::{PayloadRequestConfigurator, payload_registrations};
+use super::payload_request_error::PayloadRequestConfigurationError;
 
 /// One compiler- or runtime-neutral snapshot of registered graph and payload capabilities.
 pub struct GraphRegistry {
@@ -247,12 +248,12 @@ impl GraphRegistry {
         member: usize,
         input: &ResolvedInput,
         ctx: &dyn NodeBuildContext,
-    ) -> Result<(CollectedLaneRequest, &str), String> {
+    ) -> Result<(CollectedLaneRequest, &str), PayloadRequestConfigurationError> {
         let contract = self
             .payload_subscriptions
             .iter()
             .find(|payload| payload.kind == kind)
-            .ok_or_else(|| format!("payload {kind:?} has no data-subscription contract"))?;
+            .ok_or_else(|| PayloadRequestConfigurationError::missing_subscription(kind))?;
         Ok((
             (contract.configure_request)(request, member, input, ctx),
             &contract.diagnostic_name,

@@ -8,7 +8,7 @@ use signal_derived::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
     CollectedLaneStorageBacking, CollectedLaneStorageSnapshot, CollectedLaneTableMetadata,
     CollectedLaneTableRow, CollectedLaneTableSnapshot, DerivedDataRetention,
-    OpaqueCollectedLaneSnapshot, PayloadAdapter, WordPayload,
+    OpaqueCollectedLaneSnapshot, PayloadAdapter, PayloadIngestorConstructionError, WordPayload,
 };
 use signal_runtime::{InputPort, PortDirection, PortSchema, WorkResult};
 
@@ -255,7 +255,7 @@ impl PayloadAdapter for ProtocolPacketPayloadAdapter {
     fn create_ingestor(
         &self,
         request: CollectedLaneRequest,
-    ) -> Result<Box<dyn CollectedLaneIngestor>, String> {
+    ) -> Result<Box<dyn CollectedLaneIngestor>, PayloadIngestorConstructionError> {
         Ok(Box::new(ProtocolPacketLane::new(request)))
     }
 }

@@ -168,6 +168,11 @@ plugins from silently assigning incompatible semantics to one payload.
 `PayloadAdapter` registration for `T` creates a typed lane ingestor while exposing only
 an erased, object-safe interface to the collector.
 
+Adapter construction returns `PayloadIngestorConstructionError`. Plugin adapters retain typed
+construction causes through its source-bearing variant; the explicit diagnostic adapter marks the
+point where an external implementation can supply text only. The generated collector adds payload
+and lane context without formatting the adapter error.
+
 ```rust
 trait ErasedLaneIngestor: Send {
     fn input_schema(&self, index: usize) -> PortSchema;

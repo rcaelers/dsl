@@ -14,6 +14,8 @@ use signal_derived::{
     PersistentStoreConfig, SamplingPointStore,
 };
 
+use super::payload_catalog_error::PayloadCatalogConfigurationError;
+
 /// Error produced while constructing or materializing a processing graph.
 #[derive(Debug, Clone)]
 pub struct ProcessingGraphError {
@@ -55,7 +57,7 @@ pub trait ProcessingPayloadCatalog {
         member: usize,
         input: &ResolvedInput,
         context: &dyn NodeBuildContext,
-    ) -> Result<(CollectedLaneRequest, &str), String>;
+    ) -> Result<(CollectedLaneRequest, &str), PayloadCatalogConfigurationError>;
 }
 
 /// Execution-ready graph produced by a graph compiler and consumed by a graph runtime.

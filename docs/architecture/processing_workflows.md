@@ -154,6 +154,10 @@ sequenceDiagram
 `logic_analyzer_ui` owns which retained data is visible and how neutral renderer keys become
 widgets. Presentation changes never alter collection policy.
 
+Catalog request customization and adapter construction return owner-typed errors. The runtime
+adds collector, member, and lane context while preserving the underlying configuration or
+construction source until a graph-worker or UI presentation boundary formats it.
+
 ## Derived-cache and sampling-point behavior
 
 Persistent keys are protocol neutral. For a derived lane, the runtime hashes the cache ABI and

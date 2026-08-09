@@ -19,6 +19,7 @@ use crate::payload::{
     CollectedLaneTableRow, CollectedLaneTableSnapshot, OpaqueCollectedLaneSnapshot, PayloadAdapter,
     PayloadRegistry,
 };
+use crate::payload_ingestor_construction_error::PayloadIngestorConstructionError;
 
 const WORD_DRAIN_BATCH_SIZE: usize = DRAIN_BATCH_SIZE * 2;
 
@@ -802,7 +803,7 @@ impl PayloadAdapter for WordPayloadAdapter {
     fn create_ingestor(
         &self,
         request: CollectedLaneRequest,
-    ) -> Result<Box<dyn CollectedLaneIngestor>, String> {
+    ) -> Result<Box<dyn CollectedLaneIngestor>, PayloadIngestorConstructionError> {
         Ok(Box::new(WordLane::new(request)))
     }
 }

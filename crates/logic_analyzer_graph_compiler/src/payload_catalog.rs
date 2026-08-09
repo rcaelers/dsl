@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use logic_analyzer_graph_capabilities::node_support::{NodeBuildContext, PortKind, ResolvedInput};
-use logic_analyzer_graph_plan::ProcessingPayloadCatalog;
+use logic_analyzer_graph_plan::{PayloadCatalogConfigurationError, ProcessingPayloadCatalog};
 use logic_analyzer_graph_registry::GraphRegistry;
 use signal_derived::{CollectedLaneRequest, PayloadRegistry};
 
@@ -31,8 +31,9 @@ impl ProcessingPayloadCatalog for RegistryPayloadCatalog {
         member: usize,
         input: &ResolvedInput,
         context: &dyn NodeBuildContext,
-    ) -> Result<(CollectedLaneRequest, &str), String> {
+    ) -> Result<(CollectedLaneRequest, &str), PayloadCatalogConfigurationError> {
         self.registry
             .configure_collected_lane_request(kind, request, member, input, context)
+            .map_err(PayloadCatalogConfigurationError::configuration)
     }
 }

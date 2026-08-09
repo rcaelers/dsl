@@ -13,6 +13,7 @@ use crate::payload::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
     CollectedLaneStorageSnapshot, OpaqueCollectedLaneSnapshot, PayloadAdapter,
 };
+use crate::payload_ingestor_construction_error::PayloadIngestorConstructionError;
 
 /// Immutable bounded result of a built-in digital-lane query.
 #[derive(Clone, Debug)]
@@ -288,7 +289,7 @@ impl PayloadAdapter for DigitalPayloadAdapter {
     fn create_ingestor(
         &self,
         request: CollectedLaneRequest,
-    ) -> Result<Box<dyn CollectedLaneIngestor>, String> {
+    ) -> Result<Box<dyn CollectedLaneIngestor>, PayloadIngestorConstructionError> {
         Ok(Box::new(DigitalLane::new(request)))
     }
 }

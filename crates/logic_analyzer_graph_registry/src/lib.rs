@@ -9,10 +9,12 @@ mod architecture_tests;
 
 mod graph_registration;
 mod payload_registration;
+mod payload_request_error;
 mod registry;
 
 pub use graph_registration::{GraphNodeRegistration, graph_node_registrations};
 pub use payload_registration::{
     PayloadRegistration, PayloadRequestConfigurator, payload_registrations,
 };
+pub use payload_request_error::PayloadRequestConfigurationError;
 pub use registry::GraphRegistry;

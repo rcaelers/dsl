@@ -22,8 +22,8 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
 - `signal_runtime` owns generic typed-stream execution, scheduling, and pipeline supervision.
   Its root also owns the generic `ProcessNodeConstruction<M>` result contract.
 - `signal_capture` owns immutable generic capture, query, and finite indexing contracts.
-- `signal_derived` owns generic derived-data payload, collection, indexing, storage, and the
-  explicitly injected decoded-block cache handle.
+- `signal_derived` owns generic derived-data payload, collection, indexing, storage, the explicitly
+  injected decoded-block cache handle, and typed payload-ingestor construction failures.
 - `signal_capture_session` owns generic capture-session
   contracts and lazy capture-source metadata/lifecycle contracts. Its validation facade classifies
   invalid setting matrices, provider capabilities, and analysis-source layouts; invalid acquisition
@@ -50,7 +50,7 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
   session-owned validation cause. Its persisted-state facade retains JSON decode and encode causes,
   and timeline capabilities classify state and edit failures without formatting them.
 - `logic_analyzer_graph_registry` owns graph-node and payload registration, inventory validation,
-  and immutable catalog assembly.
+  immutable catalog assembly, and typed payload-request configuration failures.
 - `logic_analyzer_graph_nodes` owns built-in concrete node definitions, builders, migrations,
   registrations, and presentation metadata.
 - `logic_analyzer_graph_compiler` owns generic graph lowering, document discovery, and semantic
@@ -58,7 +58,7 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
   Definition defaults and lowering helpers remain crate-private unless plugin authors or another
   crate implement against a documented contract.
 - `logic_analyzer_graph_plan` owns the immutable processing-plan contract exchanged between plan
-  producers and consumers.
+  producers and consumers, including the typed payload-catalog configuration boundary.
 - `logic_analyzer_graph_runtime` owns materialization, source preparation, cache planning,
   execution lifecycle, collected run data, and live reconciliation.
 - `logic_analyzer_graph_orchestration` owns the graph-worker protocol and worker-side composition
@@ -203,7 +203,7 @@ nearest owning facade. The allowlist names canonical public namespaces.
 | `platform_runtime` | none | Its crate root exposes host work, worker-operation, kernel, capability, and queue contracts; implementation modules remain private. |
 | `signal_runtime` | none | Its crate root is the curated stream-execution facade; ports, channels, schedulers, and managers remain private implementation modules. |
 | `signal_capture` | none | Its crate root exposes immutable capture, query, edge-capability, and finite-index contracts; implementation modules remain private. |
-| `signal_derived` | `derived_word_store` | The public module owns the independently usable encoded annotation-store and decoded-block cache contracts; other payload, lane, sampling, and index contracts are exposed through the crate facade. |
+| `signal_derived` | `derived_word_store` | The public module owns the independently usable encoded annotation-store and decoded-block cache contracts; other payload, lane, sampling, index, and typed ingestor-construction contracts are exposed through the crate facade. |
 | `signal_capture_session` | `live_capture`, `live_capture_store` | These are substantial generic capture-session domains. `live_capture` owns provider-neutral configured and prepared acquisition contracts; `live_capture_store` owns recording and committed-prefix storage. Lower-level runtime, capture, and derived contracts are imported directly from their owning crates and are not re-exported. |
 | `logic_analyzer_trigger` | none | Its crate root exposes serializable trigger programs, schemas, predicates, simple conditions, and validation contracts; implementation modules remain private. |
 | `logic_analyzer_acquisition` | none | Its crate root exposes device-neutral driver, capture-configuration, hardware-trigger, raw-chunk, and runtime-source contracts; implementation modules remain private. |
@@ -215,8 +215,8 @@ nearest owning facade. The allowlist names canonical public namespaces.
 | `signal_generators` | `synthetic_capture_source`, `synthetic_uart_source` | Each namespace owns one explicit deterministic source family. |
 | `logic_analyzer_graph_capabilities` | `node`, `node_support` | `node` owns capability traits implemented by graph-node plugins. `node_support` owns open port identity, protocol-neutral presentation descriptions, capture descriptions, decoder-table contracts, and the restricted node build context. It contains no graph-node or payload inventory assembly, compiler, host, built-in-node, UI, or export operations. |
 | `logic_analyzer_graph_editor_registry` | none | Its crate root exposes stable-ID-keyed node-editor registration, validated editor inventory access, and instance-bound editor overrides. Implementation modules remain private. |
-| `logic_analyzer_graph_registry` | none | Its crate root exposes graph-node and payload registration descriptors, validated inventory access, and the immutable `GraphRegistry`. Implementation modules remain private. |
-| `logic_analyzer_graph_plan` | none | Its crate root exposes the immutable `ProcessingGraph`, processing-node/edge, payload-materialization, subscription, sampling, and diagnostic contracts exchanged between compiler and runtime. |
+| `logic_analyzer_graph_registry` | none | Its crate root exposes graph-node and payload registration descriptors, typed request-configuration failures, validated inventory access, and the immutable `GraphRegistry`. Implementation modules remain private. |
+| `logic_analyzer_graph_plan` | none | Its crate root exposes the immutable `ProcessingGraph`, processing-node/edge, typed payload-materialization, subscription, sampling, and diagnostic contracts exchanged between compiler and runtime. |
 | `logic_analyzer_graph_compiler` | none | Its crate root exposes `GraphLowerer` and document-discovery results. Processing-plan values are imported from `logic_analyzer_graph_plan`, capability contracts from `logic_analyzer_graph_capabilities`, and registry contracts from `logic_analyzer_graph_registry`; the compiler crate does not forward them. |
 | `logic_analyzer_graph_runtime` | none | Its crate root exposes `GraphRuntime`, `LiveRun`, run-data and source-preparation results, cache operations, and source-preparation execution contracts. Execution implementation modules remain private. |
 | `logic_analyzer_graph_orchestration` | none | Its crate root exposes graph-worker request, message, codec, client, and worker-runtime contracts. Lowering and execution behavior remain in their owning crates. |

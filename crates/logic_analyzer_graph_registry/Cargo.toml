@@ -15,3 +15,4 @@ serde_json = { workspace = true }
 signal-capture = { path = "../signal_capture" }
 signal-derived = { path = "../signal_derived" }
 signal-runtime = { path = "../signal_runtime" }
+thiserror = { workspace = true }

@@ -12,6 +12,7 @@ use crate::payload::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
     CollectedLaneStorageSnapshot, OpaqueCollectedLaneSnapshot, PayloadAdapter,
 };
+use crate::payload_ingestor_construction_error::PayloadIngestorConstructionError;
 use crate::{Word, WordPayload};
 
 /// Immutable bounded result of a built-in text-level lane query.
@@ -294,7 +295,7 @@ impl PayloadAdapter for TextPayloadAdapter {
     fn create_ingestor(
         &self,
         request: CollectedLaneRequest,
-    ) -> Result<Box<dyn CollectedLaneIngestor>, String> {
+    ) -> Result<Box<dyn CollectedLaneIngestor>, PayloadIngestorConstructionError> {
         Ok(Box::new(TextLane::new(request)))
     }
 }

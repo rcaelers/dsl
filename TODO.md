@@ -354,9 +354,13 @@ item here, so acceptance comparisons stop being ad-hoc.
      access and capture-parser causes; and the DSLogic source factory returns
      `DsLogicU3Pro16SourceError`, retaining `LogicAnalyzerError`. Built-in, browser, test, and
      benchmark adapters use the same contracts, and materializers preserve them as typed sources.
-     Next type generated-collector configuration and payload-ingestor construction across
-     `ProcessingPayloadCatalog` and `PayloadAdapter`, which are the remaining string boundaries in
-     graph-runtime materialization.
+     Generated collectors now retain typed request-configuration causes through
+     `PayloadRequestConfigurationError` and the plan-owned `PayloadCatalogConfigurationError`.
+     `PayloadAdapter` returns `PayloadIngestorConstructionError`, so built-in and plugin payload
+     adapters preserve typed ingestor-construction causes through runtime materialization. Next type
+     the `SigrokExecutionFactory` and `SigrokExecution` host ports; they are the remaining public
+     concrete-processing contracts that collapse spawn, transport, output, and join failures into
+     strings.
 
 ### Application state decomposition
 

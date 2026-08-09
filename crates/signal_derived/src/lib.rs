@@ -13,6 +13,7 @@ mod derived_index;
 pub mod derived_word_store;
 mod events;
 mod payload;
+mod payload_ingestor_construction_error;
 mod sampling_points;
 mod worker_kernels;
 
@@ -40,6 +41,7 @@ pub use payload::{
     CollectedLaneTableRow, CollectedLaneTableSnapshot, OpaqueCollectedLaneSnapshot, PayloadAdapter,
     PayloadDescriptor, PayloadRegistrationError, PayloadRegistry,
 };
+pub use payload_ingestor_construction_error::PayloadIngestorConstructionError;
 pub use sampling_points::{
     PackedSamplingPoint, PackedSamplingPointBatch, SamplingPoint, SamplingPointProvider,
     SamplingPointStore,

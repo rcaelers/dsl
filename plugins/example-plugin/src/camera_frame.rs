@@ -26,6 +26,7 @@ use node_graph_document::SocketReference;
 use signal_derived::{
     CollectedLaneIngestor, CollectedLaneQuery, CollectedLaneRequest, CollectedLaneSnapshotRequest,
     DerivedDataRetention, OpaqueCollectedLaneSnapshot, PayloadAdapter,
+    PayloadIngestorConstructionError,
 };
 use signal_runtime::{
     InputPort, OutputPort, PortDirection, PortSchema, ProcessNode, WorkError, WorkResult,
@@ -388,7 +389,7 @@ impl PayloadAdapter for CameraFrameAdapter {
     fn create_ingestor(
         &self,
         request: CollectedLaneRequest,
-    ) -> Result<Box<dyn CollectedLaneIngestor>, String> {
+    ) -> Result<Box<dyn CollectedLaneIngestor>, PayloadIngestorConstructionError> {
         Ok(Box::new(CameraFrameIngestor::new(request)))
     }
 }

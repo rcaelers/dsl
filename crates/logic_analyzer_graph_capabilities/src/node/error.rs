@@ -11,6 +11,15 @@ pub enum RuntimeMaterializationError {
     /// The node configuration is not valid for construction.
     #[error("{0}")]
     Configuration(String),
+    /// A lower-level typed configuration failure with node-owned context.
+    #[error("{context}: {source}")]
+    ConfigurationContext {
+        /// Node-owned description of the failed configuration operation.
+        context: String,
+        /// Concrete lower-level configuration cause.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
     /// A required run-scoped input or resource is unavailable.
     #[error("{0}")]
     Unavailable(String),
@@ -42,6 +51,17 @@ impl RuntimeMaterializationError {
     /// Classifies invalid node configuration.
     pub fn configuration(message: impl Into<String>) -> Self {
         Self::Configuration(message.into())
+    }
+
+    /// Retains a lower-level typed configuration failure with node-owned context.
+    pub fn configuration_context(
+        context: impl Into<String>,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self::ConfigurationContext {
+            context: context.into(),
+            source: Box::new(source),
+        }
     }
 
     /// Classifies an unavailable run-scoped input or resource.
@@ -107,6 +127,23 @@ mod runtime_materialization_error_tests {
         assert!(matches!(
             error,
             RuntimeMaterializationError::ConstructionSource { .. }
+        ));
+        assert_eq!(
+            error.source().map(ToString::to_string).as_deref(),
+            Some("controlled construction failure")
+        );
+    }
+
+    #[test]
+    fn typed_configuration_causes_survive_materialization_context() {
+        let error = RuntimeMaterializationError::configuration_context(
+            "could not configure collector lane",
+            ControlledConstructionFailure,
+        );
+
+        assert!(matches!(
+            error,
+            RuntimeMaterializationError::ConfigurationContext { .. }
         ));
         assert_eq!(
             error.source().map(ToString::to_string).as_deref(),

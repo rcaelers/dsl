@@ -14,6 +14,7 @@ use signal_runtime::{InputPort, PortSchema, WorkResult};
 use crate::derived_data_collector::{DerivedDataRetention, DerivedLanes};
 use crate::derived_word_store::{DecodedBlockCacheHandle, LiveStoreConfig};
 use crate::events::WordPayload;
+use crate::payload_ingestor_construction_error::PayloadIngestorConstructionError;
 
 /// One type-erased collector input owned by a registered payload adapter.
 ///
@@ -351,7 +352,7 @@ pub trait PayloadAdapter: Send + Sync {
     fn create_ingestor(
         &self,
         request: CollectedLaneRequest,
-    ) -> Result<Box<dyn CollectedLaneIngestor>, String>;
+    ) -> Result<Box<dyn CollectedLaneIngestor>, PayloadIngestorConstructionError>;
 }
 
 /// Persistable identity assigned by a payload owner.
@@ -584,8 +585,10 @@ mod payload_tests {
         fn create_ingestor(
             &self,
             _request: CollectedLaneRequest,
-        ) -> Result<Box<dyn CollectedLaneIngestor>, String> {
-            Err("not used by registration test".to_owned())
+        ) -> Result<Box<dyn CollectedLaneIngestor>, PayloadIngestorConstructionError> {
+            Err(PayloadIngestorConstructionError::diagnostic(
+                "not used by registration test",
+            ))
         }
     }
 

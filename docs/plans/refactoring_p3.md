@@ -121,6 +121,13 @@ retain prepared-source access and capture-format failures. The DSLogic source fa
 these owner errors as typed construction sources; native, browser, test, and benchmark factories
 implement the same portable contracts.
 
+Generated collector request customization returns the plan-owned
+`PayloadCatalogConfigurationError`; the registry retains missing-subscription context through
+`PayloadRequestConfigurationError`, and the compiler preserves that typed cause in its immutable
+catalog adapter. `signal_derived::PayloadAdapter` returns `PayloadIngestorConstructionError` for
+invalid requests, typed adapter failures, and explicit diagnostic adapters. Graph runtime adds
+collector member, adapter, and lane context without formatting either owner error.
+
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
 - One enum per *facade*, not per crate and not per function. Variants describe what failed in
@@ -132,8 +139,8 @@ implement the same portable contracts.
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. Type generated-collector configuration and payload-ingestor construction across
-   `ProcessingPayloadCatalog` and `PayloadAdapter`.
+1. Type the `SigrokExecutionFactory` and `SigrokExecution` host ports so spawn, input transport,
+   output retrieval, completion, and worker-join failures retain owner-specific categories.
 2. Continue through the remaining platform and UI facades: most occurrences collapse into carrying
    the now-typed lower errors; only genuinely UI-owned failures need new variants.
 

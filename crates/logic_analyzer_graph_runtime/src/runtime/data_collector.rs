@@ -55,7 +55,12 @@ impl DataCollectorBuilder {
             }
             let (request, diagnostic_name) = payload_catalog
                 .configure_collected_lane_request(input.kind, request, *member, input, ctx)
-                .map_err(RuntimeMaterializationError::configuration)?;
+                .map_err(|error| {
+                    RuntimeMaterializationError::configuration_context(
+                        format!("could not configure collector input {member}"),
+                        error,
+                    )
+                })?;
             let adapter = payload_catalog
                 .payloads()
                 .adapter_by_type_id(input.kind.type_id())
@@ -67,10 +72,13 @@ impl DataCollectorBuilder {
                     ))
                 })?;
             let ingestor = adapter.create_ingestor(request).map_err(|error| {
-                RuntimeMaterializationError::construction(format!(
-                    "collector adapter for '{}' could not create '{}': {error}",
-                    diagnostic_name, lane_name
-                ))
+                RuntimeMaterializationError::construction_context(
+                    format!(
+                        "collector adapter for '{}' could not create '{}'",
+                        diagnostic_name, lane_name
+                    ),
+                    error,
+                )
             })?;
             collector = collector.with_ingestor(ingestor);
         }
