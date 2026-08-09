@@ -247,7 +247,8 @@ implementable does not expose its concrete native or web dependencies.
 
 The Sigrok decoder node follows the same ownership boundaries. `logic_analyzer_protocol_decoders`
 owns the portable decoder configuration, state machine, output contracts, `SigrokExecutionFactory`
-port, and typed startup and execution-lifecycle failures.
+port, typed startup and execution-lifecycle failures, and the typed decoder-discovery and
+whole-catalog failure facades.
 `logic_analyzer_graph_nodes` owns the portable graph-node schema and turns portable discovery
 snapshots into node templates. The native application adapter owns Python interpreter
 initialization, the `sigrokdecode` compatibility host, package discovery, directory settings, and

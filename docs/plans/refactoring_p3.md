@@ -135,6 +135,13 @@ native Python adapter preserves executor, bridge, worker, and `PyErr` sources; t
 retains that execution error through `WorkError::NodeSource`, and `NodeFailure` carries it through
 generic runtime supervision.
 
+Sigrok package discovery uses `SigrokDecoderDiscoveryError` to distinguish unavailable hosts,
+Python package inspection, package fingerprinting, and diagnostic-only adapters.
+`SigrokDecoderRuntimeError` retains that source. Native inspection preserves `PyErr`, while package
+enumeration and content hashing preserve the originating filesystem error. Catalog snapshots keep
+missing or unreadable paths and invalid individual packages as recoverable structured diagnostics;
+`SigrokCatalogError` retains a typed source only when a scanner cannot produce a snapshot at all.
+
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
 - One enum per *facade*, not per crate and not per function. Variants describe what failed in

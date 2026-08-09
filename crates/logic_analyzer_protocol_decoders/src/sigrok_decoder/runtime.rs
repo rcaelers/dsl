@@ -9,6 +9,7 @@ use platform_runtime::WorkExecutor;
 use signal_runtime::ProcessNode;
 
 use super::contracts::{SigrokCatalogSnapshot, SigrokDecoderDescriptor};
+use super::discovery_error::{SigrokCatalogError, SigrokDecoderDiscoveryError};
 use super::execution_error::SigrokExecutionStartError;
 use super::implementation::SigrokDecoderConfig;
 
@@ -17,24 +18,13 @@ use super::implementation::SigrokDecoderConfig;
 pub enum SigrokDecoderRuntimeError {
     /// The saved decoder package could not be discovered or inspected.
     #[error("Sigrok decoder discovery failed: {0}")]
-    Discovery(String),
+    Discovery(#[source] SigrokDecoderDiscoveryError),
     /// The portable decoder configuration is invalid.
     #[error("Invalid Sigrok decoder configuration: {0}")]
     Configuration(String),
     /// The host execution worker could not be started.
     #[error("Sigrok decoder execution startup failed: {0}")]
     ExecutionStart(#[source] SigrokExecutionStartError),
-}
-
-/// Failure that prevents a host from producing any Sigrok catalog snapshot.
-///
-/// Missing paths, unreadable paths, and invalid individual decoder packages are recoverable
-/// per-entry diagnostics in [`SigrokCatalogSnapshot`], rather than whole-scan failures.
-#[derive(Clone, Debug, Error, PartialEq, Eq)]
-pub enum SigrokCatalogError {
-    /// The host discovery mechanism could not scan the catalog.
-    #[error("Sigrok decoder catalog discovery failed: {0}")]
-    Discovery(String),
 }
 
 /// Discovers and executes installed Sigrok decoder packages.

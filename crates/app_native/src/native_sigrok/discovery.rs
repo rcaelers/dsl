@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -7,12 +8,14 @@ use pyo3::prelude::*;
 use pyo3::types::{
     PyAny, PyBool, PyDict, PyDictMethods, PyFloat, PyInt, PyList, PyModule, PyString,
 };
+use thiserror::Error;
 
 use logic_analyzer_protocol_decoders::sigrok_decoder::{
     InitialPin, SigrokAnnotationClassDescriptor, SigrokAnnotationRowDescriptor,
     SigrokCatalogDiagnostic, SigrokCatalogDiagnosticKind, SigrokCatalogEntry,
     SigrokCatalogSnapshot, SigrokDecoderChannelDescriptor, SigrokDecoderDescriptor,
-    SigrokDecoderOptionDescriptor, SigrokOutputKind, SigrokScalarValue,
+    SigrokDecoderDiscoveryError, SigrokDecoderOptionDescriptor, SigrokOutputKind,
+    SigrokScalarValue,
 };
 
 use super::bridge::DecoderBridge;
@@ -22,10 +25,46 @@ use super::python_host::{
     SRD_CONF_SAMPLERATE, decoder_import_guard, install_sigrokdecode_module,
 };
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Error)]
 enum SigrokSearchPathError {
+    #[error("search path does not exist")]
     Missing,
-    Unreadable(String),
+    #[error("{source}")]
+    Unreadable {
+        #[source]
+        source: Arc<io::Error>,
+    },
+}
+
+#[derive(Debug, Error)]
+#[error("could not discover Sigrok decoder '{decoder_id}':\n{traceback}")]
+struct PythonPackageInspectionError {
+    decoder_id: String,
+    traceback: String,
+    #[source]
+    source: PyErr,
+}
+
+#[derive(Debug, Error)]
+enum PackageFingerprintError {
+    #[error("could not enumerate {}: {source}", path.display())]
+    Enumerate {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("could not read an entry in {}: {source}", path.display())]
+    ReadEntry {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("could not read {}: {source}", path.display())]
+    ReadFile {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
 }
 
 trait SigrokSearchPathDiscovery: Send + Sync {
@@ -35,7 +74,11 @@ trait SigrokSearchPathDiscovery: Send + Sync {
 }
 
 trait SigrokPackageDiscovery: Send + Sync {
-    fn discover(&self, decoder_root: &Path, id: &str) -> Result<SigrokDecoderDescriptor, String>;
+    fn discover(
+        &self,
+        decoder_root: &Path,
+        id: &str,
+    ) -> Result<SigrokDecoderDescriptor, SigrokDecoderDiscoveryError>;
 }
 
 struct SigrokDecoderCatalog {
@@ -108,11 +151,20 @@ impl SigrokSearchPathDiscovery for FilesystemSigrokSearchPathDiscovery {
         if !path.exists() {
             return Err(SigrokSearchPathError::Missing);
         }
-        let directory = std::fs::read_dir(path)
-            .map_err(|error| SigrokSearchPathError::Unreadable(error.to_string()))?;
+        let directory =
+            std::fs::read_dir(path).map_err(|source| SigrokSearchPathError::Unreadable {
+                source: Arc::new(source),
+            })?;
         let mut packages = directory
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
+            .map(|entry| {
+                entry.map(|entry| entry.path()).map_err(|source| {
+                    SigrokSearchPathError::Unreadable {
+                        source: Arc::new(source),
+                    }
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
             .filter(|package| package.is_dir() && package.join("pd.py").is_file())
             .collect::<Vec<_>>();
         packages.sort();
@@ -123,7 +175,11 @@ impl SigrokSearchPathDiscovery for FilesystemSigrokSearchPathDiscovery {
 struct PythonSigrokPackageDiscovery;
 
 impl SigrokPackageDiscovery for PythonSigrokPackageDiscovery {
-    fn discover(&self, decoder_root: &Path, id: &str) -> Result<SigrokDecoderDescriptor, String> {
+    fn discover(
+        &self,
+        decoder_root: &Path,
+        id: &str,
+    ) -> Result<SigrokDecoderDescriptor, SigrokDecoderDiscoveryError> {
         discover_sigrok_decoder(decoder_root, id)
     }
 }
@@ -131,11 +187,11 @@ impl SigrokPackageDiscovery for PythonSigrokPackageDiscovery {
 pub(crate) fn discover_sigrok_decoder(
     decoder_root: impl Into<PathBuf>,
     id: &str,
-) -> Result<SigrokDecoderDescriptor, String> {
+) -> Result<SigrokDecoderDescriptor, SigrokDecoderDiscoveryError> {
     let decoder_root = decoder_root.into();
     Python::initialize();
     let _import_guard = decoder_import_guard();
-    Python::attach(|py| {
+    let mut descriptor = Python::attach(|py| {
         install_sigrokdecode_module(py)?;
         let decoder_class = import_decoder(py, &decoder_root, id)?;
         let mut descriptor = descriptor_from_class(&decoder_class)?;
@@ -145,16 +201,19 @@ pub(crate) fn discover_sigrok_decoder(
             .into_iter()
             .filter_map(|registration| output_kind(registration.output_type))
             .collect();
-        descriptor.package_fingerprint =
-            package_fingerprint(&decoder_root.join(id)).map_err(PyValueError::new_err)?;
         PyResult::Ok(descriptor)
     })
-    .map_err(|error| {
-        format!(
-            "could not discover Sigrok decoder '{id}':\n{}",
-            format_python_error(&error)
-        )
-    })
+    .map_err(|source| {
+        let traceback = format_python_error(&source);
+        SigrokDecoderDiscoveryError::inspection(PythonPackageInspectionError {
+            decoder_id: id.to_owned(),
+            traceback,
+            source,
+        })
+    })?;
+    descriptor.package_fingerprint = package_fingerprint(&decoder_root.join(id))
+        .map_err(SigrokDecoderDiscoveryError::fingerprint)?;
+    Ok(descriptor)
 }
 
 fn normalized_search_paths(
@@ -193,13 +252,13 @@ fn scan_with_discovery(
                 });
                 continue;
             }
-            Err(SigrokSearchPathError::Unreadable(error)) => {
+            Err(SigrokSearchPathError::Unreadable { source }) => {
                 snapshot.diagnostics.push(SigrokCatalogDiagnostic {
                     kind: SigrokCatalogDiagnosticKind::UnreadableSearchPath,
                     path: decoder_root.clone(),
                     decoder_id: None,
                     message: format!(
-                        "Could not read Sigrok decoder search path {}: {error}",
+                        "Could not read Sigrok decoder search path {}: {source}",
                         decoder_root.display()
                     ),
                 });
@@ -240,11 +299,11 @@ fn scan_with_discovery(
                         descriptor,
                     });
                 }
-                Err(message) => snapshot.diagnostics.push(SigrokCatalogDiagnostic {
+                Err(error) => snapshot.diagnostics.push(SigrokCatalogDiagnostic {
                     kind: SigrokCatalogDiagnosticKind::InvalidDecoder,
                     path: package,
                     decoder_id: Some(decoder_id),
-                    message,
+                    message: error.to_string(),
                 }),
             }
         }
@@ -516,13 +575,22 @@ fn output_kind(output_type: i32) -> Option<SigrokOutputKind> {
     }
 }
 
-fn package_fingerprint(package: &Path) -> Result<String, String> {
-    fn collect_files(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
-        for entry in std::fs::read_dir(directory)
-            .map_err(|error| format!("could not read {}: {error}", directory.display()))?
+fn package_fingerprint(package: &Path) -> Result<String, PackageFingerprintError> {
+    fn collect_files(
+        directory: &Path,
+        files: &mut Vec<PathBuf>,
+    ) -> Result<(), PackageFingerprintError> {
+        for entry in
+            std::fs::read_dir(directory).map_err(|source| PackageFingerprintError::Enumerate {
+                path: directory.to_owned(),
+                source,
+            })?
         {
             let path = entry
-                .map_err(|error| format!("could not read {}: {error}", directory.display()))?
+                .map_err(|source| PackageFingerprintError::ReadEntry {
+                    path: directory.to_owned(),
+                    source,
+                })?
                 .path();
             if path.is_dir() {
                 if path.file_name().is_some_and(|name| name == "__pycache__") {
@@ -549,10 +617,12 @@ fn package_fingerprint(package: &Path) -> Result<String, String> {
     for path in files {
         let relative = path.strip_prefix(package).unwrap_or(&path);
         hasher.update(relative.to_string_lossy().as_bytes());
-        hasher.update(
-            &std::fs::read(&path)
-                .map_err(|error| format!("could not read {}: {error}", path.display()))?,
-        );
+        hasher.update(&std::fs::read(&path).map_err(|source| {
+            PackageFingerprintError::ReadFile {
+                path: path.clone(),
+                source,
+            }
+        })?);
     }
     Ok(hasher.finalize().to_hex().to_string())
 }
@@ -601,7 +671,10 @@ mod tests {
 
     #[derive(Default)]
     struct TestPackageDiscovery {
-        descriptors: HashMap<(PathBuf, String), Result<SigrokDecoderDescriptor, String>>,
+        descriptors: HashMap<
+            (PathBuf, String),
+            Result<SigrokDecoderDescriptor, SigrokDecoderDiscoveryError>,
+        >,
         calls: Mutex<Vec<(PathBuf, String)>>,
     }
 
@@ -613,8 +686,10 @@ mod tests {
         }
 
         fn with_error(mut self, root: &str, id: &str, error: &str) -> Self {
-            self.descriptors
-                .insert((PathBuf::from(root), id.to_owned()), Err(error.to_owned()));
+            self.descriptors.insert(
+                (PathBuf::from(root), id.to_owned()),
+                Err(SigrokDecoderDiscoveryError::diagnostic(error)),
+            );
             self
         }
 
@@ -628,7 +703,7 @@ mod tests {
             &self,
             decoder_root: &Path,
             id: &str,
-        ) -> Result<SigrokDecoderDescriptor, String> {
+        ) -> Result<SigrokDecoderDescriptor, SigrokDecoderDiscoveryError> {
             self.calls
                 .lock()
                 .unwrap()
@@ -636,7 +711,11 @@ mod tests {
             self.descriptors
                 .get(&(decoder_root.to_path_buf(), id.to_owned()))
                 .cloned()
-                .unwrap_or_else(|| Err(format!("no descriptor for {id}")))
+                .unwrap_or_else(|| {
+                    Err(SigrokDecoderDiscoveryError::diagnostic(format!(
+                        "no descriptor for {id}"
+                    )))
+                })
         }
     }
 
@@ -693,6 +772,19 @@ mod tests {
     }
 
     #[test]
+    fn missing_package_fingerprint_retains_the_enumeration_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let missing = directory.path().join("missing");
+
+        let error = package_fingerprint(&missing).unwrap_err();
+
+        assert!(matches!(
+            error,
+            PackageFingerprintError::Enumerate { path, .. } if path == missing
+        ));
+    }
+
+    #[test]
     fn concurrent_decoder_discovery_keeps_python_packages_registered() {
         let directory = tempfile::tempdir().unwrap();
         for id in ["fixture_a", "fixture_b"] {
@@ -723,13 +815,13 @@ mod tests {
                         };
                         let descriptor = discover_sigrok_decoder(&decoder_root, id)?;
                         if descriptor.id != id {
-                            return Err(format!(
+                            return Err(SigrokDecoderDiscoveryError::diagnostic(format!(
                                 "requested decoder {id}, discovered {}",
                                 descriptor.id
-                            ));
+                            )));
                         }
                     }
-                    Ok::<_, String>(())
+                    Ok::<_, SigrokDecoderDiscoveryError>(())
                 })
             })
             .collect::<Vec<_>>();
@@ -785,7 +877,9 @@ mod tests {
             .with_error("virtual/missing", SigrokSearchPathError::Missing)
             .with_error(
                 "virtual/unreadable",
-                SigrokSearchPathError::Unreadable("controlled read error".into()),
+                SigrokSearchPathError::Unreadable {
+                    source: Arc::new(io::Error::other("controlled read error")),
+                },
             )
             .with_packages("virtual/invalid", &["broken"]);
         let packages = TestPackageDiscovery::default().with_error(

@@ -362,9 +362,13 @@ item here, so acceptance comparisons stop being ad-hoc.
      classifies input, output, completion, and join failures through `SigrokExecutionError`. Native
      Python composition retains worker, executor, bridge, and `PyErr` causes through those ports;
      `WorkError::NodeSource` carries the execution cause through generic runtime supervision.
-     Next type Sigrok package discovery and catalog scanning, which still reduce filesystem and
-     Python inspection causes to `SigrokDecoderRuntimeError::Discovery(String)` and
-     `SigrokCatalogError::Discovery(String)`.
+     Sigrok package discovery now distinguishes unavailable hosts, Python inspection, package
+     fingerprinting, and diagnostic-only adapters through `SigrokDecoderDiscoveryError`;
+     `SigrokDecoderRuntimeError` retains it as a typed source. Native inspection and fingerprinting
+     preserve `PyErr` and filesystem causes until invalid packages become recoverable catalog
+     diagnostics. `SigrokCatalogError` retains typed fatal scanner sources when no snapshot can be
+     produced. Next type the public `logic_analyzer_trigger` program-construction and edit boundary,
+     whose invariant failures still cross into widget and graph-feature consumers as strings.
 
 ### Application state decomposition
 

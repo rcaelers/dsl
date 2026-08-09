@@ -887,9 +887,7 @@ mod definition_tests {
             &self,
             _directories: &[PathBuf],
         ) -> Result<SigrokCatalogSnapshot, SigrokCatalogError> {
-            Err(SigrokCatalogError::Discovery(
-                "controlled host failure".into(),
-            ))
+            Err(SigrokCatalogError::diagnostic("controlled host failure"))
         }
     }
 
@@ -904,7 +902,7 @@ mod definition_tests {
         assert_eq!(state.decoder_id, saved_decoder);
         assert_eq!(
             state.catalog.diagnostics,
-            ["Sigrok decoder catalog discovery failed: controlled host failure"]
+            ["Sigrok decoder catalog scan failed: controlled host failure"]
         );
         assert!(!state.catalog.refresh_requested);
     }

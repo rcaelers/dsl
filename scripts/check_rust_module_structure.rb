@@ -244,10 +244,30 @@ sigrok_runtime_contracts.each do |contract, pattern|
   errors << "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/runtime.rs: #{contract} must retain its owner-typed error contract"
 end
 sigrok_decoder_error = sigrok_runtime_source[/pub enum SigrokDecoderRuntimeError\s*\{(?<body>.*?)^\}/m, :body].to_s
-%w[Discovery Configuration Transport].each do |variant|
-  next if sigrok_decoder_error.match?(/^\s*#{variant}\(String\),$/)
+sigrok_decoder_error_contracts = {
+  "discovery" => /Discovery\(\#\[source\]\s*SigrokDecoderDiscoveryError\),/,
+  "configuration" => /Configuration\(String\),/,
+  "execution startup" => /ExecutionStart\(\#\[source\]\s*SigrokExecutionStartError\),/
+}.freeze
+sigrok_decoder_error_contracts.each do |failure, pattern|
+  next if sigrok_decoder_error.match?(pattern)
 
-  errors << "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/runtime.rs: SigrokDecoderRuntimeError must classify #{variant.downcase} failures"
+  errors << "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/runtime.rs: SigrokDecoderRuntimeError must classify #{failure} failures"
+end
+sigrok_discovery_error_path = File.join(
+  ROOT,
+  "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/discovery_error.rs"
+)
+sigrok_discovery_error_source = File.read(sigrok_discovery_error_path)
+unless sigrok_discovery_error_source.match?(
+  /pub enum SigrokDecoderDiscoveryError\s*\{.*?Inspection\s*\{.*?\#\[source\].*?Fingerprint\s*\{.*?\#\[source\]/m
+)
+  errors << "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/discovery_error.rs: decoder discovery must retain typed inspection and fingerprint sources"
+end
+unless sigrok_discovery_error_source.match?(
+  /pub enum SigrokCatalogError\s*\{.*?Scan\s*\{.*?\#\[source\]/m
+)
+  errors << "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/discovery_error.rs: fatal catalog scanning must retain its host source"
 end
 
 source_preparation_contract_path = File.join(

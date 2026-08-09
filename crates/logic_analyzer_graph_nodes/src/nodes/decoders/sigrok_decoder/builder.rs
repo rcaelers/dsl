@@ -11,8 +11,9 @@ use logic_analyzer_graph_capabilities::node_support::{
     NodeBuildContext, PortKind, ResolvedInputs, parse_state,
 };
 use logic_analyzer_protocol_decoders::sigrok_decoder::{
-    SigrokChannel, SigrokDecoderConfig, SigrokDecoderDescriptor, SigrokDecoderRuntime,
-    SigrokDecoderRuntimeError, SigrokExecutionStartError, SigrokInitialPin, SigrokOptionValue,
+    SigrokChannel, SigrokDecoderConfig, SigrokDecoderDescriptor, SigrokDecoderDiscoveryError,
+    SigrokDecoderRuntime, SigrokDecoderRuntimeError, SigrokExecutionStartError, SigrokInitialPin,
+    SigrokOptionValue,
 };
 use logic_analyzer_protocol_decoders::types::ProtocolPacket;
 use node_graph_document::SocketReference;
@@ -32,7 +33,9 @@ impl SigrokDecoderRuntime for UnavailableSigrokDecoderRuntime {
     ) -> Result<SigrokDecoderDescriptor, SigrokDecoderRuntimeError> {
         let _ = (decoder_root, decoder_id);
         Err(SigrokDecoderRuntimeError::Discovery(
-            "the Python decoder runtime is unavailable on this host".into(),
+            SigrokDecoderDiscoveryError::unavailable(
+                "the Python decoder runtime is unavailable on this host",
+            ),
         ))
     }
 
@@ -525,7 +528,7 @@ mod builder_tests {
 
         let discovery_backend = Arc::new(FakeBackend {
             discovery_error: Some(SigrokDecoderRuntimeError::Discovery(
-                "controlled discovery failure".into(),
+                SigrokDecoderDiscoveryError::diagnostic("controlled discovery failure"),
             )),
             ..FakeBackend::new(descriptor.clone())
         });
