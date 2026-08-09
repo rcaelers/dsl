@@ -328,7 +328,8 @@ retains typed adapter causes. Providers that expose only diagnostic text use the
 message adapter, keeping that loss of source type visible at the provider boundary.
 
 `logic_analyzer_graph_capabilities` maps saved-state and metadata inspection failures into its
-generic capture-source feature contract. `logic_analyzer_graph_plan` owns the typed discovery result
+generic capture-source feature contract. Saved-state failures retain `PersistedStateError` and its
+JSON codec cause rather than converting it to display text. `logic_analyzer_graph_plan` owns the typed discovery result
 exchanged between compiler and runtime, including feature, identity-encoding, and multiple-source
 selection failures. The compiler adds graph-node context without formatting the feature cause, and
 graph-runtime source preparation retains the complete discovery error.

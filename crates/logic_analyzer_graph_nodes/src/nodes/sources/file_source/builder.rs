@@ -12,8 +12,8 @@ use logic_analyzer_graph_capabilities::node::{
     GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializationError, RuntimeMaterializer,
 };
 use logic_analyzer_graph_capabilities::node_support::{
-    CaptureCacheIdentity, CapturePresentation, NodeBuildContext, PortKind, ResolvedInputs,
-    parse_state,
+    CaptureCacheIdentity, CapturePresentation, NodeBuildContext, PersistedStateError, PortKind,
+    ResolvedInputs, parse_state,
 };
 use node_graph_document::SocketReference;
 use signal_capture::{Sample, SampleBlock};
@@ -42,9 +42,11 @@ impl FileSourceBuilder {
         DslFileSourceConfig::new(&state.file.value, state.channel_names.iter().cloned())
     }
 
-    fn metadata(&self, state: &Value) -> Result<Arc<dyn CaptureSourceMetadata>, String> {
-        let state: super::definition::DslFileSourceState =
-            parse_state(state).map_err(|error| error.to_string())?;
+    fn metadata(
+        &self,
+        state: &Value,
+    ) -> Result<Arc<dyn CaptureSourceMetadata>, PersistedStateError> {
+        let state: super::definition::DslFileSourceState = parse_state(state)?;
         Ok(self.source_factory.metadata(Self::config(&state)))
     }
 }
@@ -118,7 +120,7 @@ impl CaptureSourceFeature for FileSourceBuilder {
         state: &Value,
     ) -> Result<Option<CapturePresentation>, CaptureSourceFeatureError> {
         self.metadata(state)
-            .map_err(CaptureSourceFeatureError::state)?
+            .map_err(CaptureSourceFeatureError::from)?
             .presentation()
             .map_err(CaptureSourceFeatureError::from)
             .map(|presentation| presentation.map(super::super::metadata::presentation))

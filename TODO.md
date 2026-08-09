@@ -398,9 +398,12 @@ item here, so acceptance comparisons stop being ad-hoc.
      it enters the portable serialized `WorkerFailure` contract. The browser durable artifact
      repository now types command construction and submission, initialization and runtime message
      validation, completion metadata, and identity decoding; initialization protocol causes remain
-     available through `ArtifactRepositoryOpenError`. Next remove the remaining state-decoding
-     string adapters in concrete graph source builders so `PersistedStateError` reaches
-     `CaptureSourceFeatureError` without formatting.
+     available through `ArtifactRepositoryOpenError`. Concrete graph source builders now carry
+     `PersistedStateError` and its retained JSON codec cause through `CaptureSourceFeatureError`;
+     DSLogic configuration diagnostics remain a separate classified feature failure. Next audit
+     the remaining public and cross-module string-result signatures in capture indexing, derived
+     worker kernels, graph execution, and UI orchestration, typing any responsibility boundary while
+     leaving serialization, parsers, developer tooling, and presentation-only diagnostics explicit.
 
 ### Application state decomposition
 

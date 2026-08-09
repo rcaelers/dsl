@@ -125,8 +125,8 @@ timeline_feature_error = File.read(File.join(
   "crates/logic_analyzer_graph_capabilities/src/node/error.rs"
 ))
 unless persisted_state_contract.match?(/pub enum PersistedStateError\s*\{/) &&
-       persisted_state_contract.match?(/^\s*Decode\(\#\[source\]\s*serde_json::Error\),$/) &&
-       persisted_state_contract.match?(/^\s*Encode\(\#\[source\]\s*serde_json::Error\),$/) &&
+       persisted_state_contract.match?(/^\s*Decode\(\#\[source\]\s*Arc<serde_json::Error>\),$/) &&
+       persisted_state_contract.match?(/^\s*Encode\(\#\[source\]\s*Arc<serde_json::Error>\),$/) &&
        persisted_state_contract.match?(
          /pub fn parse_state\b.*?Result<T, PersistedStateError>/m
        )
@@ -1119,6 +1119,25 @@ unless browser_repository.match?(/enum BrowserArtifactProtocolError\s*\{/) &&
 end
 if browser_repository.match?(/Result<.*?,\s*String>/m)
   errors << "crates/platform/src/host/web_artifact_repository.rs: browser persistence failures must not collapse into strings below repository or logging boundaries"
+end
+
+capture_source_contract = File.read(
+  File.join(ROOT, "crates/logic_analyzer_graph_capabilities/src/node/contracts.rs")
+)
+if capture_source_contract.match?(/CaptureSourceFeatureError[\s\S]*?State\(String\)/)
+  errors << "crates/logic_analyzer_graph_capabilities/src/node/contracts.rs: capture-source state failures must retain PersistedStateError"
+end
+
+Dir.glob(
+  File.join(ROOT, "crates/logic_analyzer_graph_nodes/src/nodes/sources/*/builder.rs")
+).each do |path|
+  source = implementation_source(File.read(path))
+  next unless source.match?(/impl\s+CaptureSourceFeature\s+for/)
+  next unless source.match?(/fn\s+metadata\b/)
+
+  if source.match?(/fn\s+metadata\b[\s\S]{0,300}Result<[^;{}]*,\s*String\s*>/)
+    errors << "#{relative(path)}: capture-source metadata state decoding must retain an owner-typed error"
+  end
 end
 native_usb = File.read(File.join(ROOT, "crates/platform/src/host/native_usb.rs"))
 unless native_usb.match?(/pub enum UsbDeviceOpenError\s*\{/) &&

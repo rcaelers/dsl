@@ -17,9 +17,9 @@ use signal_runtime::{NodeConfig, ProcessNode};
 use super::error::{LiveCaptureFeatureError, RuntimeMaterializationError, TimelineFeatureError};
 use crate::node_support::{
     CaptureCacheIdentity, CapturePresentation, DecoderTableColumnDescriptor,
-    LanePresentationDescriptor, LiveCaptureEdit, NodeBuildContext, PortKind, ResolvedInputs,
-    SamplingOverlayDescriptor, SimpleTriggerChannel, SourceDataLifecycle, TimelineMarkerDescriptor,
-    TimelineMarkerEdit, TimelineMarkerReferenceBindingDescriptor,
+    LanePresentationDescriptor, LiveCaptureEdit, NodeBuildContext, PersistedStateError, PortKind,
+    ResolvedInputs, SamplingOverlayDescriptor, SimpleTriggerChannel, SourceDataLifecycle,
+    TimelineMarkerDescriptor, TimelineMarkerEdit, TimelineMarkerReferenceBindingDescriptor,
     TimelineMarkerReferenceBindingEdit, TriggerConfigurationFeature, ViewerOutputControl,
 };
 
@@ -68,17 +68,20 @@ struct CaptureGraphSourceDiagnostic(String);
 #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
 pub enum CaptureSourceFeatureError {
     /// The saved node state could not be interpreted for capture discovery.
-    #[error("capture-source state is invalid: {0}")]
-    State(String),
+    #[error(transparent)]
+    State(#[from] PersistedStateError),
+    /// The decoded source state is not a valid capture configuration.
+    #[error("capture-source configuration is invalid: {0}")]
+    Configuration(String),
     /// The concrete source's lazy metadata could not be inspected.
     #[error("capture-source metadata inspection failed: {0}")]
     Metadata(#[from] CaptureSourceMetadataError),
 }
 
 impl CaptureSourceFeatureError {
-    /// Classifies a node-state diagnostic reported by a feature implementation.
-    pub fn state(message: impl Into<String>) -> Self {
-        Self::State(message.into())
+    /// Classifies a node-owned capture-configuration diagnostic.
+    pub fn configuration(message: impl Into<String>) -> Self {
+        Self::Configuration(message.into())
     }
 }
 
@@ -510,9 +513,14 @@ pub trait RuntimeMaterializer: Send + Sync {
 
 #[cfg(test)]
 mod capture_source_feature_error_tests {
+    use std::error::Error;
+
+    use serde_json::json;
+
     use signal_capture_session::CaptureSourceMetadataError;
 
     use super::CaptureSourceFeatureError;
+    use crate::node_support::parse_state;
 
     #[derive(Debug, thiserror::Error)]
     #[error("controlled source access failure")]
@@ -529,5 +537,15 @@ mod capture_source_feature_error_tests {
             CaptureSourceFeatureError::Metadata(CaptureSourceMetadataError::Access(source))
                 if source.downcast_ref::<ControlledAccessFailure>().is_some()
         ));
+    }
+
+    #[test]
+    fn persisted_state_causes_survive_the_graph_feature_boundary() {
+        let error = CaptureSourceFeatureError::from(
+            parse_state::<u64>(&json!("not a number")).unwrap_err(),
+        );
+
+        assert!(matches!(error, CaptureSourceFeatureError::State(_)));
+        assert!(error.source().is_some());
     }
 }

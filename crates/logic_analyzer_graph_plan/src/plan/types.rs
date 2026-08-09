@@ -432,7 +432,10 @@ pub struct DiscoveredCapturePresentation {
 mod capture_presentation_discovery_error_tests {
     use std::error::Error;
 
+    use serde_json::json;
+
     use logic_analyzer_graph_capabilities::node::CaptureSourceFeatureError;
+    use logic_analyzer_graph_capabilities::node_support::parse_state;
     use node_graph_document::NodeId;
 
     use super::CapturePresentationDiscoveryError;
@@ -442,7 +445,9 @@ mod capture_presentation_discovery_error_tests {
         let error = CapturePresentationDiscoveryError::source_feature(
             NodeId(7),
             "Capture Source",
-            CaptureSourceFeatureError::state("malformed state"),
+            CaptureSourceFeatureError::from(
+                parse_state::<u64>(&json!("malformed state")).unwrap_err(),
+            ),
         );
 
         assert_eq!(error, error.clone());

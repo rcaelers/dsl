@@ -49,10 +49,14 @@ impl DsLogicU3Pro16Builder {
             .map_err(RuntimeMaterializationError::configuration)
     }
 
-    fn metadata(&self, state: &Value) -> Result<Arc<dyn CaptureSourceMetadata>, String> {
-        Ok(self
-            .source_factory
-            .metadata(Self::config(state).map_err(|error| error.to_string())?))
+    fn metadata(
+        &self,
+        state: &Value,
+    ) -> Result<Arc<dyn CaptureSourceMetadata>, CaptureSourceFeatureError> {
+        let state: U3Pro16State = parse_state(state)?;
+        let config = super::capture_configuration::capture_config(&state)
+            .map_err(CaptureSourceFeatureError::configuration)?;
+        Ok(self.source_factory.metadata(config))
     }
 }
 
@@ -165,8 +169,7 @@ impl CaptureSourceFeature for DsLogicU3Pro16Builder {
         &self,
         state: &Value,
     ) -> Result<Option<CapturePresentation>, CaptureSourceFeatureError> {
-        self.metadata(state)
-            .map_err(CaptureSourceFeatureError::state)?
+        self.metadata(state)?
             .presentation()
             .map_err(CaptureSourceFeatureError::from)
             .map(|presentation| presentation.map(super::super::metadata::presentation))

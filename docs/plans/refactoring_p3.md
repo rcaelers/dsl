@@ -32,7 +32,8 @@ or worker cause through `CaptureIndexProxy`. `signal_capture_session` owns
 `CaptureSourceMetadataError`; lazy presentation and channel discovery distinguish source access
 from metadata decoding, while live acquisition construction has its own category. Prepared-file
 and device adapters retain their concrete I/O, parser, and acquisition causes through that facade.
-The generic graph feature wraps metadata inspection in `CaptureSourceFeatureError`, and the neutral
+The generic graph feature wraps persisted-state decoding and metadata inspection in
+`CaptureSourceFeatureError`, retaining `PersistedStateError` and its JSON codec cause, and the neutral
 graph-plan exchange contract carries feature, source-identity encoding, and multiple-source
 selection failures through `CapturePresentationDiscoveryError`. Compiler discovery and runtime
 source preparation therefore share the typed result without depending on one another. Index
