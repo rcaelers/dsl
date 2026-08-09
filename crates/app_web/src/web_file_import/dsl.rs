@@ -89,7 +89,7 @@ impl CaptureSourceMetadata for BrowserDslFileSourceMetadata {
         let imported = self
             .registry
             .resolve(self.config.path())
-            .map_err(CaptureSourceMetadataError::access_message)?;
+            .map_err(CaptureSourceMetadataError::access)?;
         Ok(Some(CaptureSourcePresentation::Indexed(
             IndexedCapturePresentation {
                 identity: imported.identity,
@@ -109,7 +109,7 @@ impl CaptureSourceMetadata for BrowserDslFileSourceMetadata {
         let imported = self
             .registry
             .resolve(self.config.path())
-            .map_err(CaptureSourceMetadataError::access_message)?;
+            .map_err(CaptureSourceMetadataError::access)?;
         if let Some(metadata) = imported.metadata {
             return Ok(Some(metadata.probe_names));
         }
@@ -155,7 +155,7 @@ impl DslFileSourceFactory for BrowserDslFileSourceFactory {
         let imported = self
             .registry
             .resolve(config.path())
-            .map_err(CaptureSourceConstructionError::diagnostic)?;
+            .map_err(CaptureSourceConstructionError::construction)?;
         if let Some(source) = imported.source {
             return DslFileSource::from_prepared_source(source, imported.display_name)
                 .map_err(CaptureSourceConstructionError::from)

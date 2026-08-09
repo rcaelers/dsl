@@ -97,7 +97,21 @@ impl FilePickerService for BrowserFilePickerService {
                 ) {
                     None
                 } else {
-                    let reference = registry.allocate_reference(&name);
+                    let reference = match registry.allocate_reference(&name) {
+                        Ok(reference) => reference,
+                        Err(error) => {
+                            finish_request(
+                                &state,
+                                request_id,
+                                generation,
+                                Some(Err(FilePickerError::Import {
+                                    name,
+                                    message: error.to_string(),
+                                })),
+                            );
+                            return;
+                        }
+                    };
                     let progress_state = Arc::clone(&state);
                     let progress_reference = reference.clone();
                     let complete_state = Arc::clone(&state);
@@ -136,9 +150,9 @@ impl FilePickerService for BrowserFilePickerService {
                                             attached.identity,
                                             attached.metadata,
                                         )
-                                        .map_err(|message| FilePickerError::Import {
+                                        .map_err(|error| FilePickerError::Import {
                                             name: complete_name,
-                                            message,
+                                            message: error.to_string(),
                                         })?;
                                     Ok(FileReference::from(complete_reference))
                                 });
@@ -178,7 +192,10 @@ impl FilePickerService for BrowserFilePickerService {
                                 registry
                                     .register_chunks_with_identity(name.clone(), chunks, identity)
                                     .map(FileReference::from)
-                                    .map_err(|message| FilePickerError::Import { name, message }),
+                                    .map_err(|error| FilePickerError::Import {
+                                        name,
+                                        message: error.to_string(),
+                                    }),
                             ),
                             Ok(None) => None,
                             Err(error) => Some(Err(error)),
@@ -232,7 +249,10 @@ impl FilePickerService for BrowserFilePickerService {
         self.registry
             .register(name.clone(), bytes)
             .map(FileReference::from)
-            .map_err(|message| FilePickerError::Import { name, message })
+            .map_err(|error| FilePickerError::Import {
+                name,
+                message: error.to_string(),
+            })
     }
 
     fn set_repaint(&mut self, repaint: Box<dyn Fn() + Send + Sync>) {

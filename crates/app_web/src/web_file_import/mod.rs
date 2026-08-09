@@ -2,6 +2,7 @@
 
 mod dialog;
 mod dsl;
+mod error;
 mod registry;
 mod sigrok;
 mod worker_source;

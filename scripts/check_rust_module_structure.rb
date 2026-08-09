@@ -893,6 +893,30 @@ unless web_capture_worker_errors.match?(/CaptureClient\(\#\[source\]\s*CaptureWo
        web_capture_worker_errors.match?(/Metadata\(\#\[source\]\s*serde_json::Error\)/)
   errors << "crates/app_web/src/web_capture_worker_errors.rs: browser worker lifecycle must retain client and metadata causes"
 end
+web_file_registry = File.read(File.join(
+  ROOT,
+  "crates/app_web/src/web_file_import/registry.rs"
+))
+%w[
+  register register_chunks register_chunks_with_identity allocate_reference
+  register_worker_backed resolve
+].each do |operation|
+  next if web_file_registry.match?(
+    /fn\s+#{operation}\b.*?Result<.*?BrowserFileRegistryError>/m
+  )
+
+  errors << "crates/app_web/src/web_file_import/registry.rs: #{operation} must retain BrowserFileRegistryError"
+end
+if web_file_registry.match?(/Result<.*?,\s*String>/m)
+  errors << "crates/app_web/src/web_file_import/registry.rs: imported-file registry failures must not collapse into strings"
+end
+%w[dsl sigrok].each do |adapter|
+  source = File.read(File.join(ROOT, "crates/app_web/src/web_file_import/#{adapter}.rs"))
+  unless source.scan(/CaptureSourceMetadataError::access\)/).length >= 2 &&
+         source.include?("CaptureSourceConstructionError::construction")
+    errors << "crates/app_web/src/web_file_import/#{adapter}.rs: source adapters must retain browser registry causes"
+  end
+end
 platform_document_error = File.read(File.join(ROOT, "crates/platform/src/document.rs"))
 unless platform_document_error.match?(/pub enum DocumentError\s*\{/) &&
        platform_document_error.scan(/#\[source\]\s*\n\s*source:\s*Box<dyn Error \+ Send \+ Sync>/).length >= 3

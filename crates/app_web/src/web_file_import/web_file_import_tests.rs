@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::io::{Cursor, Write};
 use std::path::Path;
 use std::sync::Arc;
@@ -53,7 +54,26 @@ fn unresolved_saved_browser_reference_requests_reselection() {
         panic!("an unknown browser reference must not resolve");
     };
 
-    assert!(error.contains("select the file again"));
+    assert!(matches!(
+        error,
+        super::error::BrowserFileRegistryError::UnavailableReference { .. }
+    ));
+}
+
+#[wasm_bindgen_test(unsupported = test)]
+fn malformed_resident_chunks_retain_the_byte_source_cause() {
+    let error = BrowserFileRegistry::default()
+        .register_chunks(
+            "capture.dsl".to_owned(),
+            vec![Arc::from(&b"short"[..]), Arc::from(&b"tail"[..])],
+        )
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        super::error::BrowserFileRegistryError::Source(_)
+    ));
+    assert!(error.source().is_some());
 }
 
 #[wasm_bindgen_test(unsupported = test)]
@@ -179,7 +199,7 @@ fn worker_backed_dsl_capture() -> (Arc<BrowserFileRegistry>, String) {
             }
         })
         .unwrap();
-    let reference = registry.allocate_reference("worker.dsl");
+    let reference = registry.allocate_reference("worker.dsl").unwrap();
     registry
         .register_worker_backed(
             reference.clone(),
@@ -214,7 +234,7 @@ fn worker_backed_sigrok_capture() -> (Arc<BrowserFileRegistry>, String) {
             }
         })
         .unwrap();
-    let reference = registry.allocate_reference("worker.sr");
+    let reference = registry.allocate_reference("worker.sr").unwrap();
     registry
         .register_worker_backed(
             reference.clone(),

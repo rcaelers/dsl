@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use platform_artifacts::{ChunkedByteSource, PreparedByteSource, SourceIdentity};
 use signal_capture::CaptureMetadata;
 
+use super::error::BrowserFileRegistryError;
 use super::worker_source::WorkerCaptureReference;
 
 pub(crate) const IMPORT_CHUNK_BYTES: usize = 4 * 1024 * 1024;
@@ -37,10 +38,13 @@ impl BrowserFileRegistry {
         &self,
         display_name: String,
         bytes: impl AsRef<[u8]>,
-    ) -> Result<String, String> {
+    ) -> Result<String, BrowserFileRegistryError> {
         let bytes = bytes.as_ref();
         if bytes.len() > MAX_IMPORT_BYTES {
-            return Err(file_limit_error(&display_name));
+            return Err(BrowserFileRegistryError::FileTooLarge {
+                display_name,
+                max_mib: MAX_IMPORT_BYTES / (1024 * 1024),
+            });
         }
         let chunks = bytes
             .chunks(IMPORT_CHUNK_BYTES)
@@ -53,7 +57,7 @@ impl BrowserFileRegistry {
         &self,
         display_name: String,
         chunks: Vec<Arc<[u8]>>,
-    ) -> Result<String, String> {
+    ) -> Result<String, BrowserFileRegistryError> {
         let mut hasher = blake3::Hasher::new();
         for chunk in &chunks {
             hasher.update(chunk);
@@ -67,17 +71,21 @@ impl BrowserFileRegistry {
         display_name: String,
         chunks: Vec<Arc<[u8]>>,
         identity: SourceIdentity,
-    ) -> Result<String, String> {
+    ) -> Result<String, BrowserFileRegistryError> {
         let length = chunks.iter().try_fold(0_usize, |total, chunk| {
             total.checked_add(chunk.len()).ok_or_else(|| {
-                format!("'{display_name}' exceeds the browser importer address space")
+                BrowserFileRegistryError::AddressSpaceOverflow {
+                    display_name: display_name.clone(),
+                }
             })
         })?;
         if length > MAX_IMPORT_BYTES {
-            return Err(file_limit_error(&display_name));
+            return Err(BrowserFileRegistryError::FileTooLarge {
+                display_name,
+                max_mib: MAX_IMPORT_BYTES / (1024 * 1024),
+            });
         }
-        let source = ChunkedByteSource::new(identity, chunks, IMPORT_CHUNK_BYTES)
-            .map_err(|error| error.to_string())?;
+        let source = ChunkedByteSource::new(identity, chunks, IMPORT_CHUNK_BYTES)?;
         let mut state = self.state.lock().unwrap();
         if let Some((reference, _)) = state.files.iter().find(|(_, imported)| {
             imported.display_name == display_name && imported.identity == identity
@@ -85,14 +93,11 @@ impl BrowserFileRegistry {
             return Ok(reference.clone());
         }
         if state.resident_bytes > MAX_IMPORT_SESSION_BYTES.saturating_sub(length) {
-            return Err(format!(
-                "the browser capture import budget is full ({} MiB limit)",
-                MAX_IMPORT_SESSION_BYTES / (1024 * 1024)
-            ));
+            return Err(BrowserFileRegistryError::SessionBudgetFull {
+                max_mib: MAX_IMPORT_SESSION_BYTES / (1024 * 1024),
+            });
         }
-        let safe_name = display_name.replace(['/', '\\'], "_");
-        state.next_reference = state.next_reference.saturating_add(1);
-        let reference = format!("browser-file://{}/{safe_name}", state.next_reference);
+        let reference = allocate_reference(&mut state, &display_name)?;
         state.resident_bytes += length;
         state.files.insert(
             reference.clone(),
@@ -107,11 +112,12 @@ impl BrowserFileRegistry {
         Ok(reference)
     }
 
-    pub(crate) fn allocate_reference(&self, display_name: &str) -> String {
+    pub(crate) fn allocate_reference(
+        &self,
+        display_name: &str,
+    ) -> Result<String, BrowserFileRegistryError> {
         let mut state = self.state.lock().unwrap();
-        state.next_reference = state.next_reference.saturating_add(1);
-        let safe_name = display_name.replace(['/', '\\'], "_");
-        format!("browser-file://{}/{safe_name}", state.next_reference)
+        allocate_reference(&mut state, display_name)
     }
 
     pub(crate) fn register_worker_backed(
@@ -121,12 +127,10 @@ impl BrowserFileRegistry {
         length: u64,
         identity: SourceIdentity,
         metadata: CaptureMetadata,
-    ) -> Result<(), String> {
+    ) -> Result<(), BrowserFileRegistryError> {
         let mut state = self.state.lock().unwrap();
         if state.files.contains_key(&reference) {
-            return Err(format!(
-                "browser capture '{reference}' is already registered"
-            ));
+            return Err(BrowserFileRegistryError::DuplicateReference { reference });
         }
         let worker_reference =
             WorkerCaptureReference::new(reference.clone(), display_name.clone(), identity, length);
@@ -143,25 +147,32 @@ impl BrowserFileRegistry {
         Ok(())
     }
 
-    pub(crate) fn resolve(&self, reference: &Path) -> Result<ImportedFile, String> {
-        let reference = reference.to_string_lossy();
+    pub(crate) fn resolve(
+        &self,
+        reference: &Path,
+    ) -> Result<ImportedFile, BrowserFileRegistryError> {
+        let reference = reference.to_string_lossy().into_owned();
         self.state
             .lock()
             .unwrap()
             .files
-            .get(reference.as_ref() as &str)
+            .get(&reference)
             .cloned()
-            .ok_or_else(|| {
-                format!(
-                    "browser capture '{reference}' is not available in this session; select the file again"
-                )
-            })
+            .ok_or(BrowserFileRegistryError::UnavailableReference { reference })
     }
 }
 
-pub(crate) fn file_limit_error(display_name: &str) -> String {
-    format!(
-        "'{display_name}' is too large for the current browser importer ({} MiB limit)",
-        MAX_IMPORT_BYTES / (1024 * 1024)
-    )
+fn allocate_reference(
+    state: &mut RegistryState,
+    display_name: &str,
+) -> Result<String, BrowserFileRegistryError> {
+    state.next_reference = state
+        .next_reference
+        .checked_add(1)
+        .ok_or(BrowserFileRegistryError::ReferenceExhausted)?;
+    let safe_name = display_name.replace(['/', '\\'], "_");
+    Ok(format!(
+        "browser-file://{}/{safe_name}",
+        state.next_reference
+    ))
 }

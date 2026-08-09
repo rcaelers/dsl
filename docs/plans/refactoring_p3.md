@@ -177,6 +177,13 @@ separates submission, invalid identity, and worker-reported failures. The web ap
 installation failure only when selecting its inline fallback; the file-picker adapter formats an
 attachment error only when constructing its presentation-facing import failure.
 
+The browser imported-file registry returns `BrowserFileRegistryError`. It distinguishes per-file
+limits, address-space overflow, session-budget exhaustion, reference exhaustion, duplicate worker
+references, and unavailable saved references while retaining `SourceReadError` from resident chunk
+validation. DSL and Sigrok browser adapters carry registry lookup failures as typed metadata-access
+or source-construction causes. Only the file-picker adapter formats registration failures into its
+presentation-facing import result.
+
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
 - One enum per *facade*, not per crate and not per function. Variants describe what failed in

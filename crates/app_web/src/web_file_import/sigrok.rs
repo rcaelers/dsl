@@ -95,7 +95,7 @@ impl CaptureSourceMetadata for BrowserSigrokFileSourceMetadata {
         let imported = self
             .registry
             .resolve(self.config.path())
-            .map_err(CaptureSourceMetadataError::access_message)?;
+            .map_err(CaptureSourceMetadataError::access)?;
         Ok(Some(CaptureSourcePresentation::Indexed(
             IndexedCapturePresentation {
                 identity: imported.identity,
@@ -121,7 +121,7 @@ impl CaptureSourceMetadata for BrowserSigrokFileSourceMetadata {
         let imported = self
             .registry
             .resolve(self.config.path())
-            .map_err(CaptureSourceMetadataError::access_message)?;
+            .map_err(CaptureSourceMetadataError::access)?;
         if let Some(metadata) = imported.metadata {
             return Ok(Some(metadata.probe_names));
         }
@@ -172,7 +172,7 @@ impl SigrokFileSourceFactory for BrowserSigrokFileSourceFactory {
             let imported = self
                 .registry
                 .resolve(config.path())
-                .map_err(CaptureSourceConstructionError::diagnostic)?;
+                .map_err(CaptureSourceConstructionError::construction)?;
             if let Some(source) = imported.source {
                 Box::new(
                     SigrokFileSource::from_prepared_source(source)

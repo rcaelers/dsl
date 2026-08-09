@@ -378,6 +378,11 @@ stages. Its message facade validates JavaScript properties, and capture attachme
 and metadata causes through asynchronous completion. These application-level adapters compose the
 neutral worker clients; they add no worker policy to `platform`.
 
+The same application root owns the session-local imported-file registry. Its error contract
+classifies file and session limits, reference lifecycle failures, and resident byte-source
+validation. Browser DSL and Sigrok adapters retain lookup errors through the neutral metadata and
+source-construction facades rather than exposing registry diagnostics as their domain contract.
+
 ## Platform surfaces
 
 Native and wasm reusable crates share the platform-neutral data model and compile the same source
