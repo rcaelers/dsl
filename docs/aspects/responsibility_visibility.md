@@ -358,6 +358,12 @@ and per-package catalog diagnostics. Decoder runtime failures distinguish packag
 portable configuration validation, and host execution startup without exposing PyO3 or another
 adapter dependency. Its execution port separately classifies input, output, completion, and join
 failures while retaining adapter-owned causes.
+Malformed decoder output values follow the same source-bearing path through a decoder-owned output
+error rather than becoming a generic node string.
+
+`signal_derived` retains queued sampling-writer completion failures as shared `StoreError` causes.
+Executor admission and background store failures remain distinguishable when public sampling-point
+operations observe them.
 
 The native application root owns persistence of the selected Sigrok decoder directories.
 `SigrokCatalogSettingsError` distinguishes document reads, JSON decoding and encoding, parent

@@ -226,10 +226,12 @@ enum PersistentSamplingWriter {
     Queued(QueuedSamplingWriter),
 }
 
+type QueuedSamplingResult = Arc<Mutex<Option<Result<(), Arc<StoreError>>>>>;
+
 struct QueuedSamplingWriter {
     sender: Mutex<Option<Sender<Vec<Word>>>>,
     task: Mutex<Option<Box<dyn WorkTask>>>,
-    result: Arc<Mutex<Option<Result<(), String>>>>,
+    result: QueuedSamplingResult,
 }
 
 #[derive(Clone)]
@@ -555,9 +557,9 @@ impl QueuedSamplingWriter {
             return self.completed_result();
         };
         sender.send(words).map_err(|_| {
-            StoreError::Persistent(
-                self.failure_message()
-                    .unwrap_or_else(|| "sampling-point cache writer stopped".into()),
+            self.failure().map_or_else(
+                || StoreError::Persistent("sampling-point cache writer stopped".into()),
+                StoreError::Background,
             )
         })
     }
@@ -573,19 +575,19 @@ impl QueuedSamplingWriter {
     fn completed_result(&self) -> StoreResult<()> {
         match self.result.lock().unwrap().as_ref() {
             Some(Ok(())) => Ok(()),
-            Some(Err(message)) => Err(StoreError::Persistent(message.clone())),
+            Some(Err(error)) => Err(StoreError::Background(Arc::clone(error))),
             None => Err(StoreError::Persistent(
                 "sampling-point cache writer has not completed".into(),
             )),
         }
     }
 
-    fn failure_message(&self) -> Option<String> {
+    fn failure(&self) -> Option<Arc<StoreError>> {
         self.result
             .lock()
             .unwrap()
             .as_ref()
-            .and_then(|result| result.as_ref().err().cloned())
+            .and_then(|result| result.as_ref().err().map(Arc::clone))
     }
 }
 
@@ -598,10 +600,10 @@ fn start_queued_writer(
     let worker_result = Arc::clone(&result);
     let task = work_executor
         .submit_long_running(Box::new(move || {
-            let outcome = run_queued_writer(writer, receiver).map_err(|error| error.to_string());
+            let outcome = run_queued_writer(writer, receiver).map_err(Arc::new);
             *worker_result.lock().unwrap() = Some(outcome);
         }))
-        .map_err(|error| StoreError::Persistent(error.to_string()))?;
+        .map_err(StoreError::from)?;
     Ok(QueuedSamplingWriter {
         sender: Mutex::new(Some(sender)),
         task: Mutex::new(Some(task)),

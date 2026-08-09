@@ -27,6 +27,26 @@ const OUTPUT_META: i32 = 4;
 const OUTPUT_QUEUE_CAPACITY: usize = 65_536;
 const OUTPUT_WAIT: Duration = Duration::from_millis(2);
 
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[error("{message}")]
+struct SigrokOutputError {
+    message: String,
+}
+
+impl From<String> for SigrokOutputError {
+    fn from(message: String) -> Self {
+        Self { message }
+    }
+}
+
+impl From<&str> for SigrokOutputError {
+    fn from(message: &str) -> Self {
+        Self {
+            message: message.to_owned(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SigrokInitialPin {
     Low,
@@ -339,7 +359,7 @@ impl SigrokDecoder {
             self.binary_class_count,
             &self.logic_groups,
         )
-        .map_err(|error| WorkError::NodeError(format!("invalid Sigrok decoder output: {error}")))
+        .map_err(WorkError::node_source)
     }
 
     fn sample_time_ns(&self, sample: u64) -> u64 {
@@ -494,7 +514,7 @@ fn convert_output(
     annotation_rows_by_class: &[Arc<[usize]>],
     binary_class_count: usize,
     logic_groups: &[String],
-) -> Result<ConvertedOutput, String> {
+) -> Result<ConvertedOutput, SigrokOutputError> {
     match registration.output_type {
         OUTPUT_ANN => {
             let data = list_value(data, "annotation")?;
@@ -503,11 +523,13 @@ fn convert_output(
             let _rows = annotation_rows_by_class
                 .get(class)
                 .cloned()
-                .ok_or_else(|| format!("annotation class {class} is not declared"))?;
+                .ok_or_else(|| {
+                    SigrokOutputError::from(format!("annotation class {class} is not declared"))
+                })?;
             let texts = list_value(&data[1], "annotation texts")?
                 .iter()
                 .map(|text| string_value(text, "annotation text").map(ToOwned::to_owned))
-                .collect::<Result<Vec<String>, String>>()?;
+                .collect::<Result<Vec<String>, SigrokOutputError>>()?;
             let label = texts.first().cloned().unwrap_or_default();
             Ok(ConvertedOutput::Annotation(Word::labeled(
                 class as u64,
@@ -521,7 +543,7 @@ fn convert_output(
             require_length(data.len(), 2, "binary output")?;
             let class = usize_value(&data[0], "binary class")?;
             if class >= binary_class_count {
-                return Err(format!("binary class {class} is not declared"));
+                return Err(format!("binary class {class} is not declared").into());
             }
             let bytes = bytes_value(&data[1], "binary data")?;
             Ok(ConvertedOutput::Binary(Word::bytes_with_tag(
@@ -535,10 +557,9 @@ fn convert_output(
             let data = list_value(data, "generated logic output")?;
             require_length(data.len(), 2, "generated logic output")?;
             let group_index = usize_value(&data[0], "logic group")?;
-            let _group = logic_groups
-                .get(group_index)
-                .cloned()
-                .ok_or_else(|| format!("logic group {group_index} is not declared"))?;
+            let _group = logic_groups.get(group_index).cloned().ok_or_else(|| {
+                SigrokOutputError::from(format!("logic group {group_index} is not declared"))
+            })?;
             let samples = bytes_value(&data[1], "generated logic samples")?;
             let sample_count = end_sample
                 .saturating_sub(start_sample)
@@ -557,14 +578,15 @@ fn convert_output(
             )))
         }
         OUTPUT_META => {
-            let metadata = registration
-                .metadata
-                .as_ref()
-                .ok_or_else(|| "metadata output has no registration descriptor".to_owned())?;
+            let metadata = registration.metadata.as_ref().ok_or_else(|| {
+                SigrokOutputError::from("metadata output has no registration descriptor")
+            })?;
             let (value, display) = match metadata.value_type {
                 MetadataType::Integer => {
-                    let value = i64::try_from(integer_value(data, "integer metadata")?)
-                        .map_err(|_| "integer metadata exceeds the supported range".to_owned())?;
+                    let value =
+                        i64::try_from(integer_value(data, "integer metadata")?).map_err(|_| {
+                            SigrokOutputError::from("integer metadata exceeds the supported range")
+                        })?;
                     (value as u64, format!("{}: {value}", metadata.name))
                 }
                 MetadataType::Float => {
@@ -590,57 +612,58 @@ fn convert_output(
                 .unwrap_or_else(|| decoder_id.to_owned()),
             value: data.clone(),
         })),
-        output_type => Err(format!("unsupported output type {output_type}")),
+        output_type => Err(format!("unsupported output type {output_type}").into()),
     }
 }
 
-fn list_value<'a>(value: &'a ProtocolValue, name: &str) -> Result<&'a [ProtocolValue], String> {
+fn list_value<'a>(
+    value: &'a ProtocolValue,
+    name: &str,
+) -> Result<&'a [ProtocolValue], SigrokOutputError> {
     match value {
         ProtocolValue::List(values) => Ok(values),
-        _ => Err(format!("{name} must be a list")),
+        _ => Err(format!("{name} must be a list").into()),
     }
 }
 
-fn usize_value(value: &ProtocolValue, name: &str) -> Result<usize, String> {
+fn usize_value(value: &ProtocolValue, name: &str) -> Result<usize, SigrokOutputError> {
     let value = integer_value(value, name)?;
-    usize::try_from(value).map_err(|_| format!("{name} must be a non-negative integer"))
+    usize::try_from(value).map_err(|_| format!("{name} must be a non-negative integer").into())
 }
 
-fn integer_value(value: &ProtocolValue, name: &str) -> Result<i128, String> {
+fn integer_value(value: &ProtocolValue, name: &str) -> Result<i128, SigrokOutputError> {
     match value {
         ProtocolValue::Integer(value) => Ok(*value),
-        _ => Err(format!("{name} must be an integer")),
+        _ => Err(format!("{name} must be an integer").into()),
     }
 }
 
-fn float_value(value: &ProtocolValue, name: &str) -> Result<f64, String> {
+fn float_value(value: &ProtocolValue, name: &str) -> Result<f64, SigrokOutputError> {
     match value {
         ProtocolValue::Float(value) => Ok(*value),
-        _ => Err(format!("{name} must be a float")),
+        _ => Err(format!("{name} must be a float").into()),
     }
 }
 
-fn string_value<'a>(value: &'a ProtocolValue, name: &str) -> Result<&'a str, String> {
+fn string_value<'a>(value: &'a ProtocolValue, name: &str) -> Result<&'a str, SigrokOutputError> {
     match value {
         ProtocolValue::String(value) => Ok(value),
-        _ => Err(format!("{name} must be a string")),
+        _ => Err(format!("{name} must be a string").into()),
     }
 }
 
-fn bytes_value(value: &ProtocolValue, name: &str) -> Result<Arc<[u8]>, String> {
+fn bytes_value(value: &ProtocolValue, name: &str) -> Result<Arc<[u8]>, SigrokOutputError> {
     match value {
         ProtocolValue::Bytes(value) => Ok(value.clone()),
-        _ => Err(format!("{name} must be bytes")),
+        _ => Err(format!("{name} must be bytes").into()),
     }
 }
 
-fn require_length(actual: usize, expected: usize, name: &str) -> Result<(), String> {
+fn require_length(actual: usize, expected: usize, name: &str) -> Result<(), SigrokOutputError> {
     if actual == expected {
         Ok(())
     } else {
-        Err(format!(
-            "{name} must have {expected} elements, got {actual}"
-        ))
+        Err(format!("{name} must have {expected} elements, got {actual}").into())
     }
 }
 
@@ -836,14 +859,14 @@ mod implementation_tests {
             let error = convert_fixture(value, registration)
                 .err()
                 .expect("malformed output must fail");
-            assert_eq!(error, expected);
+            assert_eq!(error.to_string(), expected);
         }
     }
 
     fn convert_fixture(
         value: ProtocolValue,
         registration: OutputRegistration,
-    ) -> Result<ConvertedOutput, String> {
+    ) -> Result<ConvertedOutput, SigrokOutputError> {
         convert_output(
             &value,
             &registration,

@@ -147,6 +147,8 @@ classifies input submission, output retrieval or conversion, completion, and joi
 native Python adapter preserves executor, bridge, worker, and `PyErr` sources; the portable decoder
 retains that execution error through `WorkError::NodeSource`, and `NodeFailure` carries it through
 generic runtime supervision.
+Malformed Sigrok output values use a decoder-owned error through the same
+`WorkError::NodeSource` path. They are formatted only by runtime diagnostic presentation.
 
 Sigrok package discovery uses `SigrokDecoderDiscoveryError` to distinguish unavailable hosts,
 Python package inspection, package fingerprinting, and diagnostic-only adapters.
@@ -216,6 +218,12 @@ Conversion to a string occurs only for the serializable `Host` variant delivered
 worker client, or for the terminal graph-output warning. The browser `HostService` adapter needs no
 parallel error enum: it already maps typed platform document and download failures directly into
 the UI-owned contracts.
+
+Queued sampling-point persistence keeps shared `StoreError` causes across background completion and
+retains executor-admission failures separately. Saved timeline-cursor restoration carries its
+typed extension error until headless presentation. Bare string results remain only inside audited
+owner-private node parsers and validation helpers, graph restart decisions, UI presentation and
+control helpers, CLI parsers, and explicit developer-validation commands.
 
 **How to type an error here** (`thiserror` is already a workspace dependency):
 

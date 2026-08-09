@@ -147,7 +147,7 @@ fn timeline_cursor_schema_version() -> u32 {
 }
 
 #[derive(Debug)]
-enum TimelineCursorExtensionError {
+pub(crate) enum TimelineCursorExtensionError {
     Json(serde_json::Error),
     UnsupportedVersion(u32),
 }
@@ -352,8 +352,8 @@ fn saved_timeline_cursors(
 pub(crate) fn supply_saved_timeline_cursors(
     graph: &GraphState,
     context: &mut runtime::GraphRunContext,
-) -> Result<(), String> {
-    for cursor in saved_timeline_cursors(graph).map_err(|error| error.to_string())? {
+) -> Result<(), TimelineCursorExtensionError> {
+    for cursor in saved_timeline_cursors(graph)? {
         context.set_timeline_marker(
             TimelineMarkerReference::Cursor {
                 number: cursor.number,

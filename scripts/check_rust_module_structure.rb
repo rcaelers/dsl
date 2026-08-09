@@ -125,8 +125,10 @@ timeline_feature_error = File.read(File.join(
   "crates/logic_analyzer_graph_capabilities/src/node/error.rs"
 ))
 unless persisted_state_contract.match?(/pub enum PersistedStateError\s*\{/) &&
-       persisted_state_contract.match?(/^\s*Decode\(\#\[source\]\s*Arc<serde_json::Error>\),$/) &&
-       persisted_state_contract.match?(/^\s*Encode\(\#\[source\]\s*Arc<serde_json::Error>\),$/) &&
+       persisted_state_contract.match?(/^\s*Decode\(Arc<serde_json::Error>\),$/) &&
+       persisted_state_contract.match?(/^\s*Encode\(Arc<serde_json::Error>\),$/) &&
+       persisted_state_contract.match?(/impl error::Error for PersistedStateError/) &&
+       persisted_state_contract.match?(/Some\(error\.as_ref\(\)\)/) &&
        persisted_state_contract.match?(
          /pub fn parse_state\b.*?Result<T, PersistedStateError>/m
        )
@@ -136,6 +138,13 @@ unless timeline_feature_error.match?(/pub enum TimelineFeatureError\s*\{/) &&
        timeline_feature_error.match?(/^\s*State\(\#\[from\]\s*PersistedStateError\),$/) &&
        capture_feature_contract.scan(/TimelineFeatureError/).length >= 4
   errors << "crates/logic_analyzer_graph_capabilities/src/node: timeline features must retain typed state and edit failures"
+end
+
+ui_app_source = File.read(File.join(ROOT, "crates/logic_analyzer_ui/src/app.rs"))
+unless ui_app_source.match?(
+  /pub\(crate\) fn supply_saved_timeline_cursors\b.*?Result<\(\),\s*TimelineCursorExtensionError>/m
+)
+  errors << "crates/logic_analyzer_ui/src/app.rs: saved timeline cursor restoration must retain its typed extension error"
 end
 unless timeline_feature_error.match?(/pub enum LiveCaptureFeatureError\s*\{/) &&
        timeline_feature_error.match?(/^\s*State\(\#\[from\]\s*PersistedStateError\),$/) &&
@@ -242,6 +251,20 @@ sigrok_runtime_contracts.each do |contract, pattern|
   next if sigrok_runtime_source.match?(pattern)
 
   errors << "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/runtime.rs: #{contract} must retain its owner-typed error contract"
+end
+sigrok_output_implementation = File.read(File.join(
+  ROOT,
+  "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/implementation.rs"
+))
+unless sigrok_output_implementation.match?(/struct SigrokOutputError\s*\{/) &&
+       sigrok_output_implementation.match?(
+         /fn\s+convert_output\b.*?Result<ConvertedOutput,\s*SigrokOutputError>/m
+       ) &&
+       sigrok_output_implementation.include?(".map_err(WorkError::node_source)")
+  errors << "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/implementation.rs: malformed decoder output must remain typed through WorkError"
+end
+if sigrok_output_implementation.match?(/Result<.*?,\s*String>/m)
+  errors << "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/implementation.rs: Sigrok output conversion must not collapse failures into strings"
 end
 sigrok_decoder_error = sigrok_runtime_source[/pub enum SigrokDecoderRuntimeError\s*\{(?<body>.*?)^\}/m, :body].to_s
 sigrok_decoder_error_contracts = {
@@ -536,6 +559,12 @@ derived_indexed_lane = File.read(File.join(
 ))
 if derived_indexed_lane.match?(/fn indexed_lane\b.*?Result<.*?,\s*String>/m)
   errors << "crates/signal_derived/src/derived_data_collector/indexed.rs: indexed-lane construction must retain StoreError"
+end
+
+sampling_points = File.read(File.join(ROOT, "crates/signal_derived/src/sampling_points.rs"))
+if sampling_points.match?(/Option<Result<\(\),\s*String>>/) ||
+   sampling_points.match?(/run_queued_writer\([^;]*?\.map_err\(\|error\| error\.to_string\(\)\)/m)
+  errors << "crates/signal_derived/src/sampling_points.rs: queued sampling writers must retain StoreError causes"
 end
 
 capture_errors = File.read(File.join(ROOT, "crates/signal_capture/src/errors.rs"))
@@ -1280,14 +1309,49 @@ end
   end
 end
 
+intentional_string_result_files = %w[
+  crates/app_native/src/bin/sigrok-upstream-validation/main.rs
+  crates/app_native/src/bin/u3pro16-hardware-validation/main.rs
+  crates/app_native/src/native.rs
+  crates/app_native/src/native_sigrok/upstream_validation.rs
+  crates/logic_analyzer_device_dslogic/src/device/dslogic_u3pro16/hardware_validation.rs
+  crates/logic_analyzer_graph_nodes/src/nodes/decoders/parallel_decoder/builder.rs
+  crates/logic_analyzer_graph_nodes/src/nodes/decoders/sigrok_decoder/builder.rs
+  crates/logic_analyzer_graph_nodes/src/nodes/decoders/sigrok_decoder/definition.rs
+  crates/logic_analyzer_graph_nodes/src/nodes/logic/packet_framer/builder.rs
+  crates/logic_analyzer_graph_nodes/src/nodes/logic/word_value.rs
+  crates/logic_analyzer_graph_nodes/src/nodes/sources/dslogic_u3pro16/capture_configuration.rs
+  crates/logic_analyzer_graph_nodes/src/nodes/sources/dslogic_u3pro16/definition.rs
+  crates/logic_analyzer_graph_nodes/src/nodes/sources/dslogic_u3pro16/implementation.rs
+  crates/logic_analyzer_graph_nodes/src/nodes/sources/dslogic_u3pro16/trigger.rs
+  crates/logic_analyzer_graph_nodes/src/nodes/sources/dslogic_u3pro16/trigger_lowering.rs
+  crates/logic_analyzer_graph_nodes/src/nodes/sources/test_capture_source/definition.rs
+  crates/logic_analyzer_graph_nodes/src/nodes/sources/test_capture_source/live_builder.rs
+  crates/logic_analyzer_graph_nodes/src/nodes/sources/test_capture_source/live_capture/feature.rs
+  crates/logic_analyzer_graph_nodes/src/nodes/sources/test_capture_source/trigger.rs
+  crates/logic_analyzer_graph_runtime/src/runtime/execution.rs
+  crates/logic_analyzer_ui/src/app.rs
+  crates/logic_analyzer_ui/src/decoder_panel/implementation.rs
+  crates/logic_analyzer_ui/src/live_capture/status_projection.rs
+].freeze
+
 files.each do |path|
   rel = relative(path)
   source = File.read(path)
   tests = test_source(path, source)
   test_offset = tests.empty? ? 0 : source.index(tests)
+  implementation = implementation_source(source)
+
+  has_bare_string_result = implementation.match?(/Result\s*<[^,\n]+,\s*String\s*>/) ||
+                           implementation.match?(
+                             /Result\s*<[^,\n]*<[^,\n>]*>,\s*String\s*>/
+                           )
+  if has_bare_string_result &&
+     !intentional_string_result_files.include?(rel)
+    errors << "#{rel}: bare string results are limited to audited owner-private parsing, presentation, restart-decision, and developer-tool boundaries"
+  end
 
   if rel.start_with?("crates/platform_runtime/src/")
-    implementation = implementation_source(source)
     implementation.to_enum(:scan, /Result\s*<[^;{}]*,\s*String\s*>/).each do
       errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: platform_runtime cross-crate contracts use owner-specific error types"
     end
@@ -1297,7 +1361,6 @@ files.each do |path|
   end
 
   if rel.start_with?("crates/signal_runtime/src/")
-    implementation = implementation_source(source)
     implementation.to_enum(:scan, /Result\s*<[^;{}]*,\s*String\s*>/).each do
       errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: signal_runtime production contracts use port, connection, pipeline, or work error types"
     end

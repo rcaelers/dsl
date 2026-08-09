@@ -285,12 +285,11 @@ item here, so acceptance comparisons stop being ad-hoc.
 ### Error contracts
 
 - [errors.typed-boundaries] (P3 · medium) Replace `Result<_, String>` on cross-crate contracts with owned error
-  types so failures carry a responsibility and callers can classify them. Hundreds of signatures
-  still use a string error; `platform`, `logic_analyzer_ui`, graph capabilities, and concrete
-  processing crates hold many of them. Work outward from the lowest owner so downstream crates
-  inherit typed failures instead of re-wrapping strings.
+  types so failures carry a responsibility and callers can classify them. Keep the small remaining
+  set of string results confined to audited owner-private parsers and validation helpers,
+  presentation and restart-decision boundaries, CLI parsers, and explicit developer tools.
   Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#errors-typed-boundaries).
-  1. [ ] Keep display strings at the presentation boundary only. Capture-worker and graph-worker
+  1. [x] Keep display strings at the presentation boundary only. Capture-worker and graph-worker
      codec, client, transport, and terminal failures retain owner-typed causes, and the generic
      host-backed capture-index query boundary preserves classified submission and execution
      sources. Graph-runtime cache administration likewise retains derived-store and host-executor
@@ -403,10 +402,14 @@ item here, so acceptance comparisons stop being ad-hoc.
      DSLogic configuration diagnostics remain a separate classified feature failure. Finite
      capture-index and derived-word kernels now retain typed payload-codec and validation failures
      until the portable worker registry serializes a terminal diagnostic; indexed derived-lane
-     construction retains `StoreError` across collector modules. Next audit the remaining public
-     and cross-module string-result signatures in graph execution, concrete nodes, protocol output
-     conversion, and UI orchestration, typing any responsibility boundary while leaving parsers,
-     developer tooling, and presentation-only diagnostics explicit.
+     construction retains `StoreError` across collector modules. Queued sampling writers retain
+     shared `StoreError` causes across background completion, including executor admission, and
+     Sigrok output conversion carries its owner error through `WorkError::NodeSource`. Saved
+     timeline-cursor restoration likewise keeps `TimelineCursorExtensionError` until the headless
+     presentation boundary. The remaining string-result signatures are audited owner-private node
+     parsing and validation helpers, graph restart reasons, UI presentation/control diagnostics,
+     CLI parsers, or explicit developer validation tools; a structural allowlist prevents new bare
+     string results from appearing elsewhere.
 
 ### Application state decomposition
 

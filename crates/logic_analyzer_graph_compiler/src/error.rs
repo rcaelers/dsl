@@ -255,7 +255,7 @@ mod error_tests {
         let error = LiveCaptureOperationError::feature(
             NodeId(5),
             "Capture",
-            LiveCaptureFeatureError::from(PersistedStateError::Decode(codec)),
+            LiveCaptureFeatureError::from(PersistedStateError::Decode(codec.into())),
         );
 
         let feature = error
@@ -302,7 +302,7 @@ mod error_tests {
         let error = TimelineOperationError::feature(
             NodeId(7),
             "Marker",
-            TimelineFeatureError::from(PersistedStateError::Decode(codec)),
+            TimelineFeatureError::from(PersistedStateError::Decode(codec.into())),
         );
 
         let feature = error

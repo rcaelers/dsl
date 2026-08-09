@@ -1,18 +1,34 @@
 use std::sync::Arc;
+use std::{error, fmt};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 /// Failure to translate between a graph document value and node-owned persisted state.
-#[derive(Clone, Debug, thiserror::Error)]
+#[derive(Clone, Debug)]
 pub enum PersistedStateError {
     /// The generic document value could not be decoded as the node's state record.
-    #[error("invalid node state: {0}")]
-    Decode(#[source] Arc<serde_json::Error>),
+    Decode(Arc<serde_json::Error>),
     /// An edited node state record could not be encoded as a generic document value.
-    #[error("could not encode node state: {0}")]
-    Encode(#[source] Arc<serde_json::Error>),
+    Encode(Arc<serde_json::Error>),
+}
+
+impl fmt::Display for PersistedStateError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Decode(error) => write!(formatter, "invalid node state: {error}"),
+            Self::Encode(error) => write!(formatter, "could not encode node state: {error}"),
+        }
+    }
+}
+
+impl error::Error for PersistedStateError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self {
+            Self::Decode(error) | Self::Encode(error) => Some(error.as_ref()),
+        }
+    }
 }
 
 impl PartialEq for PersistedStateError {

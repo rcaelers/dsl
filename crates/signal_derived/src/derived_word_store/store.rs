@@ -10,7 +10,7 @@ use platform_artifacts::{
     ArtifactKey, ArtifactRepository, ByteRange, RepositoryError, WriteArtifact,
     read_artifact_region,
 };
-use platform_runtime::WorkExecutor;
+use platform_runtime::{WorkExecutor, WorkExecutorError};
 
 use super::backend::{AnnotationStoreBackend, AnnotationStoreWriterBackend};
 use super::cache::DecodedBlockCacheHandle;
@@ -49,6 +49,14 @@ fn block_encoder_count(available_workers: usize) -> usize {
 pub enum StoreError {
     #[error("derived-word artifact repository error: {0}")]
     Repository(#[from] RepositoryError),
+
+    /// The selected host executor rejected background store work.
+    #[error("derived-word executor error: {0}")]
+    Executor(#[from] WorkExecutorError),
+
+    /// A previously accepted background store operation failed.
+    #[error("background derived-word store operation failed: {0}")]
+    Background(#[source] Arc<StoreError>),
 
     #[error("derived-word store codec error: {0}")]
     Codec(#[from] CodecError),

@@ -219,7 +219,8 @@ impl HeadlessGraphRunner {
         let cache_clear_seconds = cache_clear_started.elapsed().as_secs_f64();
 
         let mut context = GraphRunContext::default();
-        supply_saved_timeline_cursors(&graph, &mut context).map_err(HeadlessRunError::new)?;
+        supply_saved_timeline_cursors(&graph, &mut context)
+            .map_err(|error| HeadlessRunError::new(error.to_string()))?;
         let lanes = context.derived_lanes().clone();
         let execution_started = Instant::now();
         let mut run = self
