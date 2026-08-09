@@ -10,6 +10,7 @@ std::cfg_select! {
         mod node_file_dialog;
         #[allow(unreachable_pub)]
         mod web_capture_worker;
+        mod web_capture_worker_errors;
         mod web_file_import;
         mod web_output_storage;
         #[allow(unreachable_pub)]
@@ -20,6 +21,7 @@ std::cfg_select! {
     test => {
         mod demo_graphs;
         mod node_file_dialog;
+        mod web_capture_worker_errors;
     }
     _ => {}
 }

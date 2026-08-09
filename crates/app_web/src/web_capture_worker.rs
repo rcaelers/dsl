@@ -23,6 +23,11 @@ use signal_capture::{
     encode_capture_worker_messages, encode_capture_worker_request,
 };
 
+use crate::web_capture_worker_errors::{
+    BrowserCaptureAttachmentError, BrowserCaptureWorkerInstallError,
+    BrowserCaptureWorkerInstallStage, BrowserWorkerMessageError,
+};
+
 const WORKER_BOOTSTRAP: &str = include_str!("capture_worker_bootstrap.js");
 const PUMP_INTERVAL_MS: i32 = 4;
 const WORKER_PANIC_PROPERTY: &str = "logicConduitWorkerPanic";
@@ -52,7 +57,7 @@ pub fn worker_artifact_repository() -> Arc<dyn ArtifactRepository> {
 }
 
 type AttachmentProgress = Box<dyn Fn(u64, u64)>;
-type AttachmentComplete = Box<dyn FnOnce(Result<AttachedCapture, String>)>;
+type AttachmentComplete = Box<dyn FnOnce(Result<AttachedCapture, BrowserCaptureAttachmentError>)>;
 
 pub(crate) struct AttachedCapture {
     pub(crate) identity: SourceIdentity,
@@ -98,11 +103,14 @@ pub(crate) fn install_capture_worker(
     wasm_url: &str,
     max_outstanding: usize,
     artifact_repository: Arc<dyn ArtifactRepository>,
-) -> Result<BrowserWorkerClients, String> {
-    let capture_client =
-        Arc::new(CaptureWorkerClient::new(max_outstanding).map_err(|error| error.to_string())?);
+) -> Result<BrowserWorkerClients, BrowserCaptureWorkerInstallError> {
+    let capture_client = Arc::new(
+        CaptureWorkerClient::new(max_outstanding)
+            .map_err(BrowserCaptureWorkerInstallError::CaptureClient)?,
+    );
     let graph_client = Arc::new(
-        GraphWorkerClient::new(1, artifact_repository).map_err(|error| error.to_string())?,
+        GraphWorkerClient::new(1, artifact_repository)
+            .map_err(BrowserCaptureWorkerInstallError::GraphClient)?,
     );
     let worker_url = create_worker_url()?;
     let worker = match create_worker(&worker_url) {
@@ -114,8 +122,8 @@ pub(crate) fn install_capture_worker(
     };
     if let Err(error) = Url::revoke_object_url(&worker_url) {
         worker.terminate();
-        return Err(js_error(
-            "could not release capture-worker bootstrap URL",
+        return Err(install_host_error(
+            BrowserCaptureWorkerInstallStage::BootstrapUrlCleanup,
             error,
         ));
     }
@@ -195,13 +203,13 @@ pub(crate) fn install_capture_worker(
             }
         }
     });
-    let window = web_sys::window().ok_or_else(|| "browser window is unavailable".to_owned())?;
+    let window = web_sys::window().ok_or(BrowserCaptureWorkerInstallError::WindowUnavailable)?;
     let interval_id = window
         .set_interval_with_callback_and_timeout_and_arguments_0(
             pump.as_ref().unchecked_ref(),
             PUMP_INTERVAL_MS,
         )
-        .map_err(|error| js_error("could not start capture-worker pump", error))?;
+        .map_err(|error| install_host_error(BrowserCaptureWorkerInstallStage::PumpStart, error))?;
 
     CAPTURE_WORKER_RUNTIMES.with(|runtimes| {
         runtimes.borrow_mut().push(BrowserCaptureWorkerRuntime {
@@ -225,7 +233,7 @@ pub(crate) fn attach_capture_file(
     file: &web_sys::File,
     progress: AttachmentProgress,
     complete: AttachmentComplete,
-) -> Result<bool, String> {
+) -> Result<bool, BrowserCaptureAttachmentError> {
     CAPTURE_WORKER_RUNTIMES.with(|runtimes| {
         let runtimes = runtimes.borrow();
         let Some(runtime) = runtimes.last() else {
@@ -239,11 +247,11 @@ pub(crate) fn attach_capture_file(
             reference.to_owned(),
             AttachmentCallbacks { progress, complete },
         );
-        if let Err(error) = runtime
-            .worker
-            .post_message(&message)
-            .map_err(|error| js_error("could not attach browser file to capture worker", error))
-        {
+        if let Err(error) = runtime.worker.post_message(&message).map_err(|error| {
+            BrowserCaptureAttachmentError::Submission {
+                detail: js_detail(error),
+            }
+        }) {
             runtime.attachments.borrow_mut().remove(reference);
             return Err(error);
         }
@@ -273,12 +281,24 @@ fn handle_worker_message(
     attachments: &Rc<RefCell<HashMap<String, AttachmentCallbacks>>>,
     value: JsValue,
 ) {
-    let kind = string_property(&value, "kind").unwrap_or_default();
+    let kind = match string_property(&value, "kind") {
+        Ok(kind) => kind,
+        Err(error) => {
+            disconnect_host(
+                capture_client,
+                graph_client,
+                disconnected,
+                error.to_string(),
+            );
+            fail_attachments_with_message(attachments, error);
+            return;
+        }
+    };
     match kind.as_str() {
         "ready" => ready.set(true),
         "capture_messages" => {
             let result = property(&value, "payload")
-                .map_err(CaptureWorkerTransportFailure::Host)
+                .map_err(|error| CaptureWorkerTransportFailure::Host(error.to_string()))
                 .map(|payload| Uint8Array::new(&payload).to_vec())
                 .and_then(|payload| {
                     decode_capture_worker_messages(&payload)
@@ -298,7 +318,7 @@ fn handle_worker_message(
         }
         "graph_messages" => {
             let result = property(&value, "payload")
-                .map_err(GraphWorkerTransportFailure::Host)
+                .map_err(|error| GraphWorkerTransportFailure::Host(error.to_string()))
                 .map(|payload| Uint8Array::new(&payload).to_vec())
                 .and_then(|payload| {
                     decode_graph_worker_messages(&payload)
@@ -318,6 +338,7 @@ fn handle_worker_message(
         }
         "graph_output_files" => {
             let result = property(&value, "payload")
+                .map_err(|error| error.to_string())
                 .map(|payload| Uint8Array::new(&payload).to_vec())
                 .and_then(|payload| {
                     serde_json::from_slice::<Vec<super::web_output_storage::BrowserOutputFile>>(
@@ -352,43 +373,60 @@ fn handle_worker_message(
         }
         "capture_attached" => {
             let result = decode_attached_capture(&value);
-            if let Ok(reference) = string_property(&value, "reference")
-                && let Some(callbacks) = attachments.borrow_mut().remove(&reference)
-            {
-                (callbacks.complete)(result);
+            match string_property(&value, "reference") {
+                Ok(reference) => {
+                    if let Some(callbacks) = attachments.borrow_mut().remove(&reference) {
+                        (callbacks.complete)(result);
+                    }
+                }
+                Err(error) => fail_attachments_with_message(attachments, error),
             }
         }
-        "capture_attach_failed" => {
-            if let Ok(reference) = string_property(&value, "reference")
-                && let Some(callbacks) = attachments.borrow_mut().remove(&reference)
-            {
-                let message = string_property(&value, "message")
-                    .unwrap_or_else(|error| format!("browser capture import failed: {error}"));
-                (callbacks.complete)(Err(message));
+        "capture_attach_failed" => match string_property(&value, "reference") {
+            Ok(reference) => {
+                if let Some(callbacks) = attachments.borrow_mut().remove(&reference) {
+                    let error = match string_property(&value, "message") {
+                        Ok(message) => BrowserCaptureAttachmentError::Worker { message },
+                        Err(error) => BrowserCaptureAttachmentError::Message(error),
+                    };
+                    (callbacks.complete)(Err(error));
+                }
             }
+            Err(error) => fail_attachments_with_message(attachments, error),
+        },
+        "worker_failed" => match string_property(&value, "message") {
+            Ok(message) => {
+                disconnect_host(capture_client, graph_client, disconnected, message.clone());
+                fail_attachments(attachments, message);
+            }
+            Err(error) => {
+                disconnect_host(
+                    capture_client,
+                    graph_client,
+                    disconnected,
+                    error.to_string(),
+                );
+                fail_attachments_with_message(attachments, error);
+            }
+        },
+        _ => {
+            let message = "capture worker returned an unknown message".to_owned();
+            disconnect_host(capture_client, graph_client, disconnected, message.clone());
+            fail_attachments(attachments, message);
         }
-        "worker_failed" => {
-            let message = string_property(&value, "message")
-                .unwrap_or_else(|error| format!("capture worker failed: {error}"));
-            disconnect_host(capture_client, graph_client, disconnected, message);
-        }
-        _ => disconnect_host(
-            capture_client,
-            graph_client,
-            disconnected,
-            "capture worker returned an unknown message".to_owned(),
-        ),
     }
 }
 
-fn decode_attached_capture(value: &JsValue) -> Result<AttachedCapture, String> {
+fn decode_attached_capture(
+    value: &JsValue,
+) -> Result<AttachedCapture, BrowserCaptureAttachmentError> {
     let identity = Uint8Array::new(&property(value, "identity")?).to_vec();
     let identity: [u8; 32] = identity
         .try_into()
-        .map_err(|_| "capture worker returned an invalid content identity".to_owned())?;
+        .map_err(|_| BrowserCaptureAttachmentError::InvalidIdentity)?;
     let metadata = Uint8Array::new(&property(value, "metadata")?).to_vec();
-    let metadata = serde_json::from_slice(&metadata)
-        .map_err(|error| format!("capture worker returned invalid metadata: {error}"))?;
+    let metadata =
+        serde_json::from_slice(&metadata).map_err(BrowserCaptureAttachmentError::Metadata)?;
     Ok(AttachedCapture {
         identity: SourceIdentity::from_bytes(identity),
         metadata,
@@ -400,7 +438,18 @@ fn fail_attachments(
     message: String,
 ) {
     for (_, callbacks) in attachments.borrow_mut().drain() {
-        (callbacks.complete)(Err(message.clone()));
+        (callbacks.complete)(Err(BrowserCaptureAttachmentError::Worker {
+            message: message.clone(),
+        }));
+    }
+}
+
+fn fail_attachments_with_message(
+    attachments: &Rc<RefCell<HashMap<String, AttachmentCallbacks>>>,
+    error: BrowserWorkerMessageError,
+) {
+    for (_, callbacks) in attachments.borrow_mut().drain() {
+        (callbacks.complete)(Err(BrowserCaptureAttachmentError::Message(error.clone())));
     }
 }
 
@@ -713,10 +762,12 @@ fn post_capture_request(
 ) -> Result<(), CaptureWorkerTransportFailure> {
     let payload =
         encode_capture_worker_request(request).map_err(CaptureWorkerTransportFailure::from)?;
-    let message = message_object("capture_run").map_err(CaptureWorkerTransportFailure::Host)?;
+    let message = message_object("capture_run")
+        .map_err(|error| CaptureWorkerTransportFailure::Host(error.to_string()))?;
     let bytes = Uint8Array::from(payload.as_slice());
     let buffer = bytes.buffer();
-    set(&message, "payload", buffer.clone().into()).map_err(CaptureWorkerTransportFailure::Host)?;
+    set(&message, "payload", buffer.clone().into())
+        .map_err(|error| CaptureWorkerTransportFailure::Host(error.to_string()))?;
     let transfer = Array::new();
     transfer.push(&buffer);
     worker
@@ -735,10 +786,12 @@ fn post_graph_request(
 ) -> Result<(), GraphWorkerTransportFailure> {
     let payload =
         encode_graph_worker_request(request).map_err(GraphWorkerTransportFailure::from)?;
-    let message = message_object("graph_run").map_err(GraphWorkerTransportFailure::Host)?;
+    let message = message_object("graph_run")
+        .map_err(|error| GraphWorkerTransportFailure::Host(error.to_string()))?;
     let bytes = Uint8Array::from(payload.as_slice());
     let buffer = bytes.buffer();
-    set(&message, "payload", buffer.clone().into()).map_err(GraphWorkerTransportFailure::Host)?;
+    set(&message, "payload", buffer.clone().into())
+        .map_err(|error| GraphWorkerTransportFailure::Host(error.to_string()))?;
     let transfer = Array::new();
     transfer.push(&buffer);
     worker
@@ -751,64 +804,102 @@ fn post_graph_request(
         })
 }
 
-fn create_worker_url() -> Result<String, String> {
+fn create_worker_url() -> Result<String, BrowserCaptureWorkerInstallError> {
     let parts = Array::new();
     parts.push(&JsValue::from_str(WORKER_BOOTSTRAP));
     let options = BlobPropertyBag::new();
     options.set_type("text/javascript");
-    let blob = Blob::new_with_str_sequence_and_options(&parts, &options)
-        .map_err(|error| js_error("could not create capture-worker bootstrap", error))?;
+    let blob = Blob::new_with_str_sequence_and_options(&parts, &options).map_err(|error| {
+        install_host_error(BrowserCaptureWorkerInstallStage::BootstrapBlob, error)
+    })?;
     Url::create_object_url_with_blob(&blob)
-        .map_err(|error| js_error("could not create capture-worker bootstrap URL", error))
+        .map_err(|error| install_host_error(BrowserCaptureWorkerInstallStage::BootstrapUrl, error))
 }
 
-fn create_worker(worker_url: &str) -> Result<Worker, String> {
+fn create_worker(worker_url: &str) -> Result<Worker, BrowserCaptureWorkerInstallError> {
     let options = WorkerOptions::new();
     options.set_type(WorkerType::Module);
     Worker::new_with_options(worker_url, &options)
-        .map_err(|error| js_error("could not create capture worker", error))
+        .map_err(|error| install_host_error(BrowserCaptureWorkerInstallStage::WorkerStart, error))
 }
 
-fn post_initialize(worker: &Worker, module_url: &str, wasm_url: &str) -> Result<(), String> {
-    let message = message_object("initialize")?;
-    set(&message, "moduleUrl", JsValue::from_str(module_url))?;
-    set(&message, "wasmUrl", JsValue::from_str(wasm_url))?;
-    worker
-        .post_message(&message)
-        .map_err(|error| js_error("could not initialize capture worker", error))
+fn post_initialize(
+    worker: &Worker,
+    module_url: &str,
+    wasm_url: &str,
+) -> Result<(), BrowserCaptureWorkerInstallError> {
+    let message =
+        message_object("initialize").map_err(BrowserCaptureWorkerInstallError::Message)?;
+    set(&message, "moduleUrl", JsValue::from_str(module_url))
+        .map_err(BrowserCaptureWorkerInstallError::Message)?;
+    set(&message, "wasmUrl", JsValue::from_str(wasm_url))
+        .map_err(BrowserCaptureWorkerInstallError::Message)?;
+    worker.post_message(&message).map_err(|error| {
+        install_host_error(
+            BrowserCaptureWorkerInstallStage::WorkerInitialization,
+            error,
+        )
+    })
 }
 
-fn message_object(kind: &str) -> Result<JsValue, String> {
+fn message_object(kind: &str) -> Result<JsValue, BrowserWorkerMessageError> {
     let message: JsValue = Object::new().into();
     set(&message, "kind", JsValue::from_str(kind))?;
     Ok(message)
 }
 
-fn property(object: &JsValue, name: &str) -> Result<JsValue, String> {
-    Reflect::get(object, &JsValue::from_str(name))
-        .map_err(|error| js_error(&format!("worker message has no '{name}' property"), error))
+fn property(object: &JsValue, name: &str) -> Result<JsValue, BrowserWorkerMessageError> {
+    Reflect::get(object, &JsValue::from_str(name)).map_err(|error| {
+        BrowserWorkerMessageError::PropertyAccess {
+            property: name.to_owned(),
+            detail: js_detail(error),
+        }
+    })
 }
 
-fn set(object: &JsValue, name: &str, value: JsValue) -> Result<(), String> {
+fn set(object: &JsValue, name: &str, value: JsValue) -> Result<(), BrowserWorkerMessageError> {
     Reflect::set(object, &JsValue::from_str(name), &value)
         .map(|_| ())
-        .map_err(|error| js_error(&format!("could not set worker message '{name}'"), error))
+        .map_err(|error| BrowserWorkerMessageError::PropertyWrite {
+            property: name.to_owned(),
+            detail: js_detail(error),
+        })
 }
 
-fn string_property(object: &JsValue, name: &str) -> Result<String, String> {
+fn string_property(object: &JsValue, name: &str) -> Result<String, BrowserWorkerMessageError> {
     property(object, name)?
         .as_string()
-        .ok_or_else(|| format!("worker message '{name}' is not a string"))
+        .ok_or_else(|| BrowserWorkerMessageError::InvalidProperty {
+            property: name.to_owned(),
+            expected: "a string",
+        })
 }
 
-fn integer_property(object: &JsValue, name: &str) -> Result<u64, String> {
+fn integer_property(object: &JsValue, name: &str) -> Result<u64, BrowserWorkerMessageError> {
     string_property(object, name)?
         .parse()
-        .map_err(|_| format!("worker message '{name}' is not an unsigned integer"))
+        .map_err(|_| BrowserWorkerMessageError::InvalidProperty {
+            property: name.to_owned(),
+            expected: "an unsigned integer",
+        })
+}
+
+fn install_host_error(
+    stage: BrowserCaptureWorkerInstallStage,
+    error: JsValue,
+) -> BrowserCaptureWorkerInstallError {
+    BrowserCaptureWorkerInstallError::Host {
+        stage,
+        detail: js_detail(error),
+    }
+}
+
+fn js_detail(error: JsValue) -> String {
+    error.as_string().unwrap_or_else(|| format!("{error:?}"))
 }
 
 fn js_error(context: &str, error: JsValue) -> String {
-    let detail = error.as_string().unwrap_or_else(|| format!("{error:?}"));
+    let detail = js_detail(error);
     format!("{context}: {detail}")
 }
 

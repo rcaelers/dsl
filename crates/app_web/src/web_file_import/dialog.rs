@@ -123,9 +123,9 @@ impl FilePickerService for BrowserFilePickerService {
                         }),
                         Box::new(move |result| {
                             let result = result
-                                .map_err(|message| FilePickerError::Import {
+                                .map_err(|error| FilePickerError::Import {
                                     name: complete_name.clone(),
-                                    message,
+                                    message: error.to_string(),
                                 })
                                 .and_then(|attached| {
                                     complete_registry

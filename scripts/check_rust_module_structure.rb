@@ -868,6 +868,31 @@ web_node_file_dialog = File.read(File.join(ROOT, "crates/app_web/src/node_file_d
 unless web_node_file_dialog.scan(/\.map_err\(FileDialogError::host\)/).length >= 2
   errors << "crates/app_web/src/node_file_dialog.rs: browser composition must preserve platform picker failures through the widget facade"
 end
+web_capture_worker = File.read(File.join(
+  ROOT,
+  "crates/app_web/src/web_capture_worker.rs"
+)).split(/^\s*#\s*\[\s*cfg\s*\([^\]]*\btest\b[^\]]*\)\s*\]\s*\n\s*mod\s+\w*tests\b/, 2).first
+unless web_capture_worker.match?(
+  /fn\s+install_capture_worker\b.*?Result<BrowserWorkerClients,\s*BrowserCaptureWorkerInstallError>/m
+)
+  errors << "crates/app_web/src/web_capture_worker.rs: browser capture-worker installation must retain its typed lifecycle error"
+end
+unless web_capture_worker.match?(
+  /type AttachmentComplete\s*=.*?Result<AttachedCapture,\s*BrowserCaptureAttachmentError>/m
+) && web_capture_worker.match?(
+  /fn\s+attach_capture_file\b.*?Result<bool,\s*BrowserCaptureAttachmentError>/m
+)
+  errors << "crates/app_web/src/web_capture_worker.rs: browser capture attachment submission and completion must retain typed failures"
+end
+web_capture_worker_errors = File.read(File.join(
+  ROOT,
+  "crates/app_web/src/web_capture_worker_errors.rs"
+))
+unless web_capture_worker_errors.match?(/CaptureClient\(\#\[source\]\s*CaptureWorkerClientError\)/) &&
+       web_capture_worker_errors.match?(/GraphClient\(\#\[source\]\s*GraphWorkerClientError\)/) &&
+       web_capture_worker_errors.match?(/Metadata\(\#\[source\]\s*serde_json::Error\)/)
+  errors << "crates/app_web/src/web_capture_worker_errors.rs: browser worker lifecycle must retain client and metadata causes"
+end
 platform_document_error = File.read(File.join(ROOT, "crates/platform/src/document.rs"))
 unless platform_document_error.match?(/pub enum DocumentError\s*\{/) &&
        platform_document_error.scan(/#\[source\]\s*\n\s*source:\s*Box<dyn Error \+ Send \+ Sync>/).length >= 3

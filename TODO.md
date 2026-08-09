@@ -379,9 +379,12 @@ item here, so acceptance comparisons stop being ad-hoc.
      worker diagnostic. Browser capture preparation implements the same typed handler contract.
      `logic_analyzer_ui` collected-output and decoder-table assembly now returns
      `PresentationBindingError`, distinguishing missing default lane metadata from unknown lane and
-     table renderer registrations until application toast presentation. Next type the browser
-     capture-worker installation and file-attachment lifecycle in `app_web`, whose bootstrap,
-     message-decoding, transfer, and completion boundaries still exchange strings.
+     table renderer registrations until application toast presentation. Browser capture-worker
+     installation now retains portable client errors and classifies browser bootstrap stages;
+     JavaScript message validation and file-attachment submission/completion use separate typed
+     errors until fallback logging or file-picker presentation. Next type the browser imported-file
+     registry in `app_web`, whose registration, worker-backed insertion, and reference resolution
+     still exchange strings.
 
 ### Application state decomposition
 

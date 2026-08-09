@@ -372,6 +372,12 @@ registered waveform and decoder-table renderer inventories. `PresentationBinding
 distinguishes missing default lane metadata from unknown lane and table renderers, retaining their
 stable keys until application toast presentation.
 
+The web application root owns its combined capture/graph worker adaptation. Installation retains
+the portable capture- and graph-client configuration errors and classifies browser bootstrap
+stages. Its message facade validates JavaScript properties, and capture attachment retains message
+and metadata causes through asynchronous completion. These application-level adapters compose the
+neutral worker clients; they add no worker policy to `platform`.
+
 ## Platform surfaces
 
 Native and wasm reusable crates share the platform-neutral data model and compile the same source

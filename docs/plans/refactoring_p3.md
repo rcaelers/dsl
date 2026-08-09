@@ -168,6 +168,15 @@ payload missing its required default lane presentation from absent waveform-lane
 renderer registrations, retaining the relevant stable payload, lane, column, and renderer keys.
 The application toast projection is the boundary that formats those catalog contract failures.
 
+Browser capture-worker composition returns `BrowserCaptureWorkerInstallError`, retaining capture-
+and graph-client configuration causes while classifying bootstrap, worker startup, initialization,
+URL cleanup, window availability, and pump startup. `BrowserWorkerMessageError` owns JavaScript
+message property access, writes, and type validation. File submission and asynchronous completion
+share `BrowserCaptureAttachmentError`, which preserves message-shape and metadata codec causes and
+separates submission, invalid identity, and worker-reported failures. The web application logs an
+installation failure only when selecting its inline fallback; the file-picker adapter formats an
+attachment error only when constructing its presentation-facing import failure.
+
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
 - One enum per *facade*, not per crate and not per function. Variants describe what failed in
