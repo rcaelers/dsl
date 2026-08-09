@@ -142,6 +142,12 @@ enumeration and content hashing preserve the originating filesystem error. Catal
 missing or unreadable paths and invalid individual packages as recoverable structured diagnostics;
 `SigrokCatalogError` retains a typed source only when a scanner cannot produce a snapshot at all.
 
+Native Sigrok directory settings persistence returns `SigrokCatalogSettingsError`. It retains
+platform document causes for reads, parent-directory creation, and writes, and preserves JSON
+decode and encode causes. A missing settings file remains the ordinary first-run state. Persistence
+diagnostics are stored separately from discovery diagnostics and are formatted only when the
+application builds the node-catalog snapshot.
+
 Portable trigger schema construction returns `TriggerSchemaError`; identifier, range, default,
 uniqueness, limit, and simple-program representability failures no longer cross crate boundaries as
 strings. `TriggerProgramEditError` retains schema and program-validation causes. The independent

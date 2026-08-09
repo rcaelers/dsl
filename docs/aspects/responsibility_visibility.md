@@ -346,6 +346,12 @@ portable configuration validation, and host execution startup without exposing P
 adapter dependency. Its execution port separately classifies input, output, completion, and join
 failures while retaining adapter-owned causes.
 
+The native application root owns persistence of the selected Sigrok decoder directories.
+`SigrokCatalogSettingsError` distinguishes document reads, JSON decoding and encoding, parent
+directory creation, and document writes while retaining the platform or codec cause. Settings
+failures remain separate from scanner diagnostics so a successful background scan does not erase a
+persistence warning; the node-catalog snapshot is the formatting boundary.
+
 `logic_analyzer_graph_runtime` classifies finite-source discovery, metadata inspection, index
 construction, cancellation, executor, and worker-protocol failures in `SourcePreparationError`.
 Discovery retains the graph-plan error, while index metadata inspection and index construction

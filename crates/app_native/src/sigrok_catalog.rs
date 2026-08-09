@@ -11,14 +11,44 @@ use logic_analyzer_protocol_decoders::sigrok_decoder::{
 };
 use logic_analyzer_ui::{NodeCatalogService, NodeCatalogSnapshot};
 use node_graph::NodeTemplate;
-use platform::NativeDocumentHost;
+use platform::{DocumentError, NativeDocumentHost};
 use platform_runtime::{WorkExecutor, WorkTask};
 
 const NAMESPACE: &str = "logic_conduit.sigrok_python";
 
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 struct SavedSettings {
     directories: Vec<PathBuf>,
+}
+
+#[derive(Debug, thiserror::Error)]
+enum SigrokCatalogSettingsError {
+    #[error("could not read Sigrok decoder settings from {}: {source}", path.display())]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: DocumentError,
+    },
+    #[error("could not decode Sigrok decoder settings from {}: {source}", path.display())]
+    Decode {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("could not create the Sigrok decoder settings directory for {}: {source}", path.display())]
+    CreateParent {
+        path: PathBuf,
+        #[source]
+        source: DocumentError,
+    },
+    #[error("could not encode Sigrok decoder settings: {0}")]
+    Encode(#[source] serde_json::Error),
+    #[error("could not write Sigrok decoder settings to {}: {source}", path.display())]
+    Write {
+        path: PathBuf,
+        #[source]
+        source: DocumentError,
+    },
 }
 
 struct SigrokDirectoryCatalog {
@@ -34,6 +64,7 @@ struct SigrokDirectoryCatalog {
     scanning: bool,
     discovered: usize,
     diagnostics: Vec<String>,
+    settings_error: Option<SigrokCatalogSettingsError>,
     templates: Option<Vec<NodeTemplate>>,
 }
 
@@ -46,9 +77,11 @@ impl SigrokDirectoryCatalog {
         work_executor: Arc<dyn WorkExecutor>,
     ) -> Self {
         let (sender, receiver) = mpsc::channel();
-        let directories = load_settings(&documents, &settings_path)
-            .map(|settings| settings.directories)
-            .unwrap_or(default_directories);
+        let (directories, settings_error) = match load_settings(&documents, &settings_path) {
+            Ok(Some(settings)) => (settings.directories, None),
+            Ok(None) => (default_directories, None),
+            Err(error) => (default_directories, Some(error)),
+        };
         let mut catalog = Self {
             documents,
             settings_path,
@@ -62,6 +95,7 @@ impl SigrokDirectoryCatalog {
             scanning: false,
             discovered: 0,
             diagnostics: Vec::new(),
+            settings_error,
             templates: None,
         };
         catalog.start_scan();
@@ -111,27 +145,19 @@ impl SigrokDirectoryCatalog {
         let settings = SavedSettings {
             directories: self.directories.clone(),
         };
-        let result = (|| -> Result<(), String> {
-            self.documents
-                .create_parent_directories(&self.settings_path)
-                .map_err(|error| error.to_string())?;
-            let bytes = serde_json::to_vec_pretty(&settings).map_err(|error| error.to_string())?;
-            self.documents
-                .write(&self.settings_path, &bytes)
-                .map_err(|error| error.to_string())
-        })();
-        if let Err(error) = result {
-            self.diagnostics.push(format!(
-                "Could not save Sigrok decoder settings to {}: {error}",
-                self.settings_path.display()
-            ));
-        }
+        self.settings_error = save_settings(&self.documents, &self.settings_path, &settings).err();
     }
 }
 
 impl NodeCatalogService for SigrokDirectoryCatalog {
     fn snapshot(&mut self) -> NodeCatalogSnapshot {
         self.poll();
+        let diagnostics = self
+            .settings_error
+            .iter()
+            .map(ToString::to_string)
+            .chain(self.diagnostics.iter().cloned())
+            .collect();
         NodeCatalogSnapshot {
             namespace: NAMESPACE.to_owned(),
             title: "External Sigrok Python decoders".to_owned(),
@@ -142,7 +168,7 @@ impl NodeCatalogService for SigrokDirectoryCatalog {
                 .collect(),
             scanning: self.scanning,
             discovered: self.discovered,
-            diagnostics: self.diagnostics.clone(),
+            diagnostics,
         }
     }
 
@@ -209,6 +235,112 @@ fn default_directories(documents: &NativeDocumentHost) -> Vec<PathBuf> {
     paths
 }
 
-fn load_settings(documents: &NativeDocumentHost, path: &Path) -> Option<SavedSettings> {
-    serde_json::from_slice(&documents.read_optional(path).ok()??).ok()
+fn load_settings(
+    documents: &NativeDocumentHost,
+    path: &Path,
+) -> Result<Option<SavedSettings>, SigrokCatalogSettingsError> {
+    let Some(contents) =
+        documents
+            .read_optional(path)
+            .map_err(|source| SigrokCatalogSettingsError::Read {
+                path: path.to_owned(),
+                source,
+            })?
+    else {
+        return Ok(None);
+    };
+    serde_json::from_slice(&contents)
+        .map(Some)
+        .map_err(|source| SigrokCatalogSettingsError::Decode {
+            path: path.to_owned(),
+            source,
+        })
+}
+
+fn save_settings(
+    documents: &NativeDocumentHost,
+    path: &Path,
+    settings: &SavedSettings,
+) -> Result<(), SigrokCatalogSettingsError> {
+    documents
+        .create_parent_directories(path)
+        .map_err(|source| SigrokCatalogSettingsError::CreateParent {
+            path: path.to_owned(),
+            source,
+        })?;
+    let contents =
+        serde_json::to_vec_pretty(settings).map_err(SigrokCatalogSettingsError::Encode)?;
+    documents
+        .write(path, &contents)
+        .map_err(|source| SigrokCatalogSettingsError::Write {
+            path: path.to_owned(),
+            source,
+        })
+}
+
+#[cfg(test)]
+mod sigrok_catalog_settings_tests {
+    use std::error::Error;
+    use std::path::PathBuf;
+
+    use platform::NativeDocumentHost;
+
+    use super::{SavedSettings, SigrokCatalogSettingsError, load_settings, save_settings};
+
+    #[test]
+    fn missing_settings_are_distinct_from_load_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let settings_path = directory.path().join("missing.json");
+
+        assert!(
+            load_settings(&NativeDocumentHost::new(), &settings_path)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn malformed_settings_retain_the_json_cause() {
+        let directory = tempfile::tempdir().unwrap();
+        let settings_path = directory.path().join("sigrok.json");
+        std::fs::write(&settings_path, b"not settings").unwrap();
+
+        let error = load_settings(&NativeDocumentHost::new(), &settings_path).unwrap_err();
+
+        assert!(matches!(error, SigrokCatalogSettingsError::Decode { .. }));
+        assert!(error.source().unwrap().is::<serde_json::Error>());
+    }
+
+    #[test]
+    fn settings_round_trip_through_the_document_host() {
+        let directory = tempfile::tempdir().unwrap();
+        let settings_path = directory.path().join("nested/sigrok.json");
+        let settings = SavedSettings {
+            directories: vec![PathBuf::from("decoder-a"), PathBuf::from("decoder-b")],
+        };
+        let documents = NativeDocumentHost::new();
+
+        save_settings(&documents, &settings_path, &settings).unwrap();
+        let restored = load_settings(&documents, &settings_path).unwrap().unwrap();
+
+        assert_eq!(restored.directories, settings.directories);
+    }
+
+    #[test]
+    fn parent_creation_failure_retains_the_document_cause() {
+        let directory = tempfile::tempdir().unwrap();
+        let occupied_parent = directory.path().join("occupied");
+        std::fs::write(&occupied_parent, b"file").unwrap();
+        let settings_path = occupied_parent.join("sigrok.json");
+        let settings = SavedSettings::default();
+
+        let error =
+            save_settings(&NativeDocumentHost::new(), &settings_path, &settings).unwrap_err();
+
+        assert!(matches!(
+            error,
+            SigrokCatalogSettingsError::CreateParent { .. }
+        ));
+        assert!(error.source().unwrap().is::<platform::DocumentError>());
+    }
 }

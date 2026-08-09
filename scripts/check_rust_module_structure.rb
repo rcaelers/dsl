@@ -946,6 +946,19 @@ if web_worker_source.match?(/Result<.*?,\s*String>/m) ||
    web_worker_source.include?("CaptureSourceConstructionError::diagnostic")
   errors << "crates/app_web/src/web_file_import/worker_source.rs: worker-source failures must retain typed causes"
 end
+native_sigrok_catalog = File.read(File.join(
+  ROOT,
+  "crates/app_native/src/sigrok_catalog.rs"
+))
+unless native_sigrok_catalog.match?(/enum SigrokCatalogSettingsError\s*\{/) &&
+       native_sigrok_catalog.match?(/fn load_settings\b.*?Result<.*?SigrokCatalogSettingsError>/m) &&
+       native_sigrok_catalog.match?(/fn save_settings\b.*?Result<.*?SigrokCatalogSettingsError>/m) &&
+       native_sigrok_catalog.include?("settings_error: Option<SigrokCatalogSettingsError>")
+  errors << "crates/app_native/src/sigrok_catalog.rs: Sigrok settings persistence must retain typed load/save causes independently of scan diagnostics"
+end
+if native_sigrok_catalog.match?(/Result<.*?,\s*String>/m)
+  errors << "crates/app_native/src/sigrok_catalog.rs: Sigrok settings persistence failures must not collapse into strings"
+end
 platform_document_error = File.read(File.join(ROOT, "crates/platform/src/document.rs"))
 unless platform_document_error.match?(/pub enum DocumentError\s*\{/) &&
        platform_document_error.scan(/#\[source\]\s*\n\s*source:\s*Box<dyn Error \+ Send \+ Sync>/).length >= 3

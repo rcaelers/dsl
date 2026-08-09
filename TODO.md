@@ -390,9 +390,12 @@ item here, so acceptance comparisons stop being ad-hoc.
      through typed metadata and construction boundaries. The combined browser worker transport now
      retains message-shape, primary neutral transport, request-submission, and graph-output decode
      causes until the serializable cross-client or terminal logging boundary. The web host-service
-     audit confirms document and download failures already cross through typed UI contracts. Next
-     type native Sigrok catalog settings persistence, whose application-owned load, encode, and
-     write path still collapses failures into strings before logging.
+     audit confirms document and download failures already cross through typed UI contracts.
+     Native Sigrok catalog settings persistence now distinguishes document reads, JSON decoding and
+     encoding, parent creation, and writes; persistence diagnostics remain visible independently of
+     successful background scans. Next type the reusable `platform` web-worker adapter, whose
+     JavaScript message construction, property validation, and request submission still exchange
+     strings internally before reaching `WorkerAdapterError` or `WorkError`.
 
 ### Application state decomposition
 
