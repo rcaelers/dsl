@@ -5,7 +5,7 @@ use signal_runtime::ProcessNodeConstruction;
 use super::super::output_storage::UnavailableOutputStorage;
 use super::configuration::CsvWordWriterConfig;
 use super::implementation::CsvWordWriter;
-use crate::{OutputOrigin, OutputStorage};
+use crate::{OutputOrigin, OutputStorage, WriterConstructionError};
 
 /// Platform-neutral construction contract for a CSV word writer.
 pub trait CsvWordWriterFactory: Send + Sync {
@@ -19,7 +19,7 @@ pub trait CsvWordWriterFactory: Send + Sync {
         name: &str,
         config: CsvWordWriterConfig,
         output_origin: OutputOrigin,
-    ) -> Result<ProcessNodeConstruction, String>;
+    ) -> Result<ProcessNodeConstruction, WriterConstructionError>;
 }
 
 struct StorageCsvWordWriterFactory {
@@ -32,7 +32,7 @@ impl CsvWordWriterFactory for StorageCsvWordWriterFactory {
         name: &str,
         config: CsvWordWriterConfig,
         output_origin: OutputOrigin,
-    ) -> Result<ProcessNodeConstruction, String> {
+    ) -> Result<ProcessNodeConstruction, WriterConstructionError> {
         let mut writer = CsvWordWriter::with_output_storage(Arc::clone(&self.storage))
             .with_value_format(config.value_format())
             .with_header(config.header().map(str::to_owned))

@@ -9,6 +9,7 @@ use signal_generators::synthetic_capture_source::{SyntheticCaptureSource, synthe
 use signal_runtime::ProcessNodeConstruction;
 
 use super::configuration::SigrokFileSourceConfig;
+use crate::CaptureSourceConstructionError;
 
 const LIFECYCLE: CaptureSourceLifecycle =
     CaptureSourceLifecycle::new(CaptureSourceKind::File, true, true, true);
@@ -34,7 +35,10 @@ pub trait SigrokFileSourceFactory: Send + Sync {
         name: &str,
         config: SigrokFileSourceConfig,
         work_executor: Arc<dyn WorkExecutor>,
-    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String>;
+    ) -> Result<
+        ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
+        CaptureSourceConstructionError,
+    >;
 }
 
 struct PortableSigrokFileSourceMetadata {
@@ -84,9 +88,14 @@ impl SigrokFileSourceFactory for PortableSigrokFileSourceFactory {
         name: &str,
         config: SigrokFileSourceConfig,
         _work_executor: Arc<dyn WorkExecutor>,
-    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+    ) -> Result<
+        ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
+        CaptureSourceConstructionError,
+    > {
         if !config.demo_data() {
-            return Err("no Sigrok capture-file acquisition capability was supplied".to_string());
+            return Err(CaptureSourceConstructionError::unavailable(
+                "no Sigrok capture-file acquisition capability was supplied",
+            ));
         }
         let metadata = self.metadata(config.clone());
         Ok(ProcessNodeConstruction::new(

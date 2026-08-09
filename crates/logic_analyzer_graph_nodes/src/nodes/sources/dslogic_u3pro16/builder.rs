@@ -227,7 +227,7 @@ impl RuntimeMaterializer for DsLogicU3Pro16Builder {
         self.source_factory
             .create(name, config)
             .map(ProcessNodeConstruction::into_process)
-            .map_err(RuntimeMaterializationError::construction)
+            .map_err(RuntimeMaterializationError::construction_source)
     }
 }
 
@@ -264,6 +264,7 @@ mod builder_tests {
     use std::sync::Mutex;
 
     use logic_analyzer_acquisition::LogicCaptureConfig;
+    use logic_analyzer_device_dslogic::DsLogicU3Pro16SourceError;
     use signal_capture_session::{
         CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle,
         CaptureSourceMetadataError, CaptureSourcePresentation,
@@ -338,9 +339,12 @@ mod builder_tests {
             &self,
             name: &str,
             config: LogicCaptureConfig,
-        ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+        ) -> Result<
+            ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
+            DsLogicU3Pro16SourceError,
+        > {
             if let Some(error) = &self.error {
-                return Err(error.clone());
+                return Err(DsLogicU3Pro16SourceError::diagnostic(error));
             }
             *self.opened.lock().unwrap() = Some((name.to_owned(), config.clone()));
             Ok(ProcessNodeConstruction::new(

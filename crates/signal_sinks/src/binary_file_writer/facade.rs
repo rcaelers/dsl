@@ -5,7 +5,7 @@ use signal_runtime::ProcessNodeConstruction;
 use super::super::output_storage::UnavailableOutputStorage;
 use super::configuration::BinaryFileWriterConfig;
 use super::implementation::BinaryFileWriter;
-use crate::{OutputOrigin, OutputStorage};
+use crate::{OutputOrigin, OutputStorage, WriterConstructionError};
 
 /// Platform-neutral construction contract for a binary file writer.
 pub trait BinaryFileWriterFactory: Send + Sync {
@@ -19,7 +19,7 @@ pub trait BinaryFileWriterFactory: Send + Sync {
         name: &str,
         config: BinaryFileWriterConfig,
         output_origin: OutputOrigin,
-    ) -> Result<ProcessNodeConstruction, String>;
+    ) -> Result<ProcessNodeConstruction, WriterConstructionError>;
 }
 
 struct StorageBinaryFileWriterFactory {
@@ -32,7 +32,7 @@ impl BinaryFileWriterFactory for StorageBinaryFileWriterFactory {
         name: &str,
         config: BinaryFileWriterConfig,
         output_origin: OutputOrigin,
-    ) -> Result<ProcessNodeConstruction, String> {
+    ) -> Result<ProcessNodeConstruction, WriterConstructionError> {
         let mut writer = BinaryFileWriter::with_output_storage(Arc::clone(&self.storage))
             .with_width(config.width())
             .with_index_csv(config.index_csv())

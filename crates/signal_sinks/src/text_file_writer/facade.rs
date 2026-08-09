@@ -4,7 +4,7 @@ use signal_runtime::ProcessNodeConstruction;
 
 use super::super::output_storage::UnavailableOutputStorage;
 use super::implementation::TextFileWriter;
-use crate::{OutputOrigin, OutputStorage};
+use crate::{OutputOrigin, OutputStorage, WriterConstructionError};
 
 /// Platform-neutral construction contract for a text file writer.
 pub trait TextFileWriterFactory: Send + Sync {
@@ -16,7 +16,7 @@ pub trait TextFileWriterFactory: Send + Sync {
         &self,
         name: &str,
         output_origin: OutputOrigin,
-    ) -> Result<ProcessNodeConstruction, String>;
+    ) -> Result<ProcessNodeConstruction, WriterConstructionError>;
 }
 
 struct StorageTextFileWriterFactory {
@@ -28,7 +28,7 @@ impl TextFileWriterFactory for StorageTextFileWriterFactory {
         &self,
         name: &str,
         output_origin: OutputOrigin,
-    ) -> Result<ProcessNodeConstruction, String> {
+    ) -> Result<ProcessNodeConstruction, WriterConstructionError> {
         Ok(ProcessNodeConstruction::new(
             Box::new(
                 TextFileWriter::with_output_storage(Arc::clone(&self.storage))

@@ -349,8 +349,14 @@ item here, so acceptance comparisons stop being ad-hoc.
      unavailable-resource, construction-diagnostic, and capability-contract failures. Graph runtime
      adds node and pipeline context through `GraphRuntimeError`; only UI diagnostic projection and
      graph-worker serialization format it. Live reconciliation retains the same construction source
-     through `ApplyError`. Next type the concrete source and sink factory contracts that still expose
-     construction diagnostics as strings so materializers can retain their original causes too.
+     through `ApplyError`. Portable output-writer factories now return `WriterConstructionError`;
+     DSL and Sigrok source factories return `CaptureSourceConstructionError`, retaining prepared-byte
+     access and capture-parser causes; and the DSLogic source factory returns
+     `DsLogicU3Pro16SourceError`, retaining `LogicAnalyzerError`. Built-in, browser, test, and
+     benchmark adapters use the same contracts, and materializers preserve them as typed sources.
+     Next type generated-collector configuration and payload-ingestor construction across
+     `ProcessingPayloadCatalog` and `PayloadAdapter`, which are the remaining string boundaries in
+     graph-runtime materialization.
 
 ### Application state decomposition
 

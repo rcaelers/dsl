@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use logic_analyzer_capture_formats::CaptureSourceConstructionError;
 use logic_analyzer_capture_formats::dsl_file::{
     DslFileSource, DslFileSourceConfig, DslFileSourceFactory,
 };
@@ -146,12 +147,18 @@ impl DslFileSourceFactory for BrowserDslFileSourceFactory {
         config: DslFileSourceConfig,
         artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
-    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+    ) -> Result<
+        ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
+        CaptureSourceConstructionError,
+    > {
         let metadata = self.metadata(config.clone());
-        let imported = self.registry.resolve(config.path())?;
+        let imported = self
+            .registry
+            .resolve(config.path())
+            .map_err(CaptureSourceConstructionError::diagnostic)?;
         if let Some(source) = imported.source {
             return DslFileSource::from_prepared_source(source, imported.display_name)
-                .map_err(|error| error.to_string())
+                .map_err(CaptureSourceConstructionError::from)
                 .map(|source| {
                     ProcessNodeConstruction::new(
                         Box::new(
@@ -165,16 +172,24 @@ impl DslFileSourceFactory for BrowserDslFileSourceFactory {
                 });
         }
         let client = self.capture_worker.clone().ok_or_else(|| {
-            "worker-owned browser capture replay requires a capture worker".to_owned()
+            CaptureSourceConstructionError::unavailable(
+                "worker-owned browser capture replay requires a capture worker",
+            )
         })?;
         let request = imported
             .worker_reference
             .as_ref()
             .map(dsl_preparation_request)
-            .ok_or_else(|| "worker-owned browser capture has no preparation request".to_owned())?;
-        let capture_metadata = imported
-            .metadata
-            .ok_or_else(|| "worker-owned browser capture has no metadata".to_owned())?;
+            .ok_or_else(|| {
+                CaptureSourceConstructionError::diagnostic(
+                    "worker-owned browser capture has no preparation request",
+                )
+            })?;
+        let capture_metadata = imported.metadata.ok_or_else(|| {
+            CaptureSourceConstructionError::diagnostic(
+                "worker-owned browser capture has no metadata",
+            )
+        })?;
         Ok(ProcessNodeConstruction::new(
             Box::new(signal_capture::CaptureWorkerReplaySource::new(
                 name,

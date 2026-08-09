@@ -15,9 +15,11 @@
 //! It owns concrete device behavior and portable configuration contracts. USB
 //! transport and firmware capabilities are injected by platform composition.
 
+mod error;
 mod facade;
 mod transport;
 
+pub use error::DsLogicU3Pro16SourceError;
 pub use facade::{DsLogicU3Pro16SourceFactory, unavailable_source_factory};
 pub use transport::{DsLogicU3Pro16TransportFactory, LinkSpeed, UsbError, UsbTransport};
 

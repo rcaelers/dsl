@@ -6,4 +6,7 @@
 
 pub mod dsl_file;
 pub mod sigrok_file;
+mod source_construction_error;
 mod support;
+
+pub use source_construction_error::CaptureSourceConstructionError;

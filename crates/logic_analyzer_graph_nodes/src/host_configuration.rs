@@ -136,6 +136,7 @@ pub fn sigrok_node_templates(snapshot: &SigrokCatalogSnapshot) -> Vec<node_graph
 mod host_configuration_tests {
     use std::sync::Arc;
 
+    use logic_analyzer_capture_formats::CaptureSourceConstructionError;
     use logic_analyzer_capture_formats::dsl_file::{DslFileSourceConfig, DslFileSourceFactory};
     use node_graph::api::{GraphDocumentBuilder, NodeDef, NodeTypeRegistry};
     use platform_artifacts::ArtifactRepository;
@@ -194,8 +195,13 @@ mod host_configuration_tests {
             _config: DslFileSourceConfig,
             _artifact_repository: Arc<dyn ArtifactRepository>,
             _work_executor: Arc<dyn WorkExecutor>,
-        ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
-            Err("not used by editor metadata tests".into())
+        ) -> Result<
+            ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
+            CaptureSourceConstructionError,
+        > {
+            Err(CaptureSourceConstructionError::diagnostic(
+                "not used by editor metadata tests",
+            ))
         }
     }
 

@@ -24,6 +24,15 @@ pub enum RuntimeMaterializationError {
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+    /// A lower-level typed construction failure with node-owned context.
+    #[error("{context}: {source}")]
+    ConstructionContext {
+        /// Node-owned description of the failed construction operation.
+        context: String,
+        /// Concrete lower-level construction cause.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
     /// A materializer was invoked through an unsupported capability path.
     #[error("{0}")]
     Contract(String),
@@ -48,6 +57,17 @@ impl RuntimeMaterializationError {
     /// Retains a lower-level typed construction failure.
     pub fn construction_source(source: impl std::error::Error + Send + Sync + 'static) -> Self {
         Self::ConstructionSource {
+            source: Box::new(source),
+        }
+    }
+
+    /// Retains a lower-level typed construction failure with node-owned context.
+    pub fn construction_context(
+        context: impl Into<String>,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self::ConstructionContext {
+            context: context.into(),
             source: Box::new(source),
         }
     }

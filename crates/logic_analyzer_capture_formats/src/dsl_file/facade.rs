@@ -9,6 +9,7 @@ use signal_capture_session::{
 use signal_runtime::ProcessNodeConstruction;
 
 use super::configuration::DslFileSourceConfig;
+use crate::CaptureSourceConstructionError;
 
 const LIFECYCLE: CaptureSourceLifecycle =
     CaptureSourceLifecycle::new(CaptureSourceKind::File, true, true, true);
@@ -36,7 +37,10 @@ pub trait DslFileSourceFactory: Send + Sync {
         config: DslFileSourceConfig,
         artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
-    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String>;
+    ) -> Result<
+        ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
+        CaptureSourceConstructionError,
+    >;
 }
 
 struct UnavailableDslFileSourceMetadata {
@@ -80,8 +84,13 @@ impl DslFileSourceFactory for UnavailableDslFileSourceFactory {
         _config: DslFileSourceConfig,
         _artifact_repository: Arc<dyn ArtifactRepository>,
         _work_executor: Arc<dyn WorkExecutor>,
-    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
-        Err("no DSL capture-file acquisition capability was supplied".to_string())
+    ) -> Result<
+        ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
+        CaptureSourceConstructionError,
+    > {
+        Err(CaptureSourceConstructionError::unavailable(
+            "no DSL capture-file acquisition capability was supplied",
+        ))
     }
 }
 

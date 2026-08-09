@@ -120,7 +120,7 @@ impl RuntimeMaterializer for CsvWriterBuilder {
                 ),
             )
             .map(ProcessNodeConstruction::into_process)
-            .map_err(RuntimeMaterializationError::construction)
+            .map_err(RuntimeMaterializationError::construction_source)
     }
 }
 

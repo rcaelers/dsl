@@ -114,6 +114,13 @@ runtime adds node or pipeline context through `GraphRuntimeError`, and live reco
 the same materialization source through `ApplyError`. UI diagnostic projection and graph-worker
 serialization are the text-formatting boundaries.
 
+Portable writer factories use `WriterConstructionError` for configuration, typed construction, and
+explicit diagnostic adapters. DSL and Sigrok factories use `CaptureSourceConstructionError` to
+retain prepared-source access and capture-format failures. The DSLogic source factory uses
+`DsLogicU3Pro16SourceError` to retain driver-neutral acquisition failures. Graph materializers wrap
+these owner errors as typed construction sources; native, browser, test, and benchmark factories
+implement the same portable contracts.
+
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
 - One enum per *facade*, not per crate and not per function. Variants describe what failed in
@@ -125,8 +132,8 @@ serialization are the text-formatting boundaries.
 
 **Order (work outward from the lowest owner, per the TODO item):**
 
-1. Type the concrete source and sink factory contracts still feeding string construction
-   diagnostics into materializers.
+1. Type generated-collector configuration and payload-ingestor construction across
+   `ProcessingPayloadCatalog` and `PayloadAdapter`.
 2. Continue through the remaining platform and UI facades: most occurrences collapse into carrying
    the now-typed lower errors; only genuinely UI-owned failures need new variants.
 

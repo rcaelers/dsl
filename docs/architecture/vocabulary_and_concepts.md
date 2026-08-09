@@ -129,6 +129,8 @@ build context and resolved plan inputs. Generated collector nodes are materializ
 plan's payload catalog. Materializers return a capability-owned error that distinguishes persisted
 state, configuration, unavailable run resources, construction, and invalid capability use. The
 graph runtime adds graph-node context without converting the source into a compiler diagnostic.
+Capture-file, device-source, and output-writer factories retain their owner-specific construction
+errors through that materialization contract.
 
 ### Graph runtime and run
 

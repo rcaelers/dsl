@@ -159,10 +159,10 @@ impl RuntimeMaterializer for FileSourceBuilder {
             )
             .map(signal_runtime::ProcessNodeConstruction::into_process)
             .map_err(|error| {
-                RuntimeMaterializationError::construction(format!(
-                    "cannot open '{}': {error}",
-                    state.file.value
-                ))
+                RuntimeMaterializationError::construction_context(
+                    format!("cannot open '{}'", state.file.value),
+                    error,
+                )
             })
     }
 }
@@ -194,6 +194,7 @@ mod builder_tests {
     use std::path::PathBuf;
     use std::sync::Mutex;
 
+    use logic_analyzer_capture_formats::CaptureSourceConstructionError;
     use node_graph::NodeDef;
     use signal_capture::IndexedCapturePresentation;
     use signal_capture_session::{
@@ -270,13 +271,16 @@ mod builder_tests {
             config: DslFileSourceConfig,
             _artifact_repository: Arc<dyn platform_artifacts::ArtifactRepository>,
             _work_executor: Arc<dyn platform_runtime::WorkExecutor>,
-        ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+        ) -> Result<
+            ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
+            CaptureSourceConstructionError,
+        > {
             self.opened
                 .lock()
                 .unwrap()
                 .push(format!("{}:{name}", config.path().display()));
             if let Some(error) = &self.error {
-                return Err(error.clone());
+                return Err(CaptureSourceConstructionError::diagnostic(error));
             }
             Ok(ProcessNodeConstruction::new(
                 Box::new(TestProcessNode::new(name)),

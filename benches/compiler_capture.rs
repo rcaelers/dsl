@@ -11,6 +11,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use egui::{Color32, Event, Id, Pos2, Rect, UiBuilder};
 
+use logic_analyzer_capture_formats::CaptureSourceConstructionError;
 use logic_analyzer_capture_formats::dsl_file::{
     DslFileSource, DslFileSourceConfig, DslFileSourceFactory,
 };
@@ -493,7 +494,10 @@ impl DslFileSourceFactory for BenchmarkDslFileSourceFactory {
         config: DslFileSourceConfig,
         artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
-    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+    ) -> Result<
+        ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
+        CaptureSourceConstructionError,
+    > {
         let metadata = self.metadata(config.clone());
         DslFileSource::new(config.path())
             .map(|source| {
@@ -507,7 +511,7 @@ impl DslFileSourceFactory for BenchmarkDslFileSourceFactory {
                     metadata,
                 )
             })
-            .map_err(|error| error.to_string())
+            .map_err(CaptureSourceConstructionError::from)
     }
 }
 

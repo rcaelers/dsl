@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use logic_analyzer_capture_formats::CaptureSourceConstructionError;
 use logic_analyzer_capture_formats::sigrok_file::{
     SigrokFileSource, SigrokFileSourceConfig, SigrokFileSourceFactory, portable_source_factory,
 };
@@ -156,7 +157,10 @@ impl SigrokFileSourceFactory for BrowserSigrokFileSourceFactory {
         name: &str,
         config: SigrokFileSourceConfig,
         work_executor: Arc<dyn WorkExecutor>,
-    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+    ) -> Result<
+        ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
+        CaptureSourceConstructionError,
+    > {
         let metadata = self.metadata(config.clone());
         let process = if config.demo_data() {
             Box::new(
@@ -165,28 +169,37 @@ impl SigrokFileSourceFactory for BrowserSigrokFileSourceFactory {
                     .with_name(name),
             ) as Box<dyn ProcessNode>
         } else {
-            let imported = self.registry.resolve(config.path())?;
+            let imported = self
+                .registry
+                .resolve(config.path())
+                .map_err(CaptureSourceConstructionError::diagnostic)?;
             if let Some(source) = imported.source {
                 Box::new(
                     SigrokFileSource::from_prepared_source(source)
-                        .map_err(|error| error.to_string())?
+                        .map_err(CaptureSourceConstructionError::from)?
                         .with_name(name)
                         .with_work_executor(work_executor),
                 ) as Box<dyn ProcessNode>
             } else {
                 let client = self.capture_worker.clone().ok_or_else(|| {
-                    "worker-owned browser capture replay requires a capture worker".to_owned()
+                    CaptureSourceConstructionError::unavailable(
+                        "worker-owned browser capture replay requires a capture worker",
+                    )
                 })?;
                 let request = imported
                     .worker_reference
                     .as_ref()
                     .map(sigrok_preparation_request)
                     .ok_or_else(|| {
-                        "worker-owned browser capture has no preparation request".to_owned()
+                        CaptureSourceConstructionError::diagnostic(
+                            "worker-owned browser capture has no preparation request",
+                        )
                     })?;
-                let capture_metadata = imported
-                    .metadata
-                    .ok_or_else(|| "worker-owned browser capture has no metadata".to_owned())?;
+                let capture_metadata = imported.metadata.ok_or_else(|| {
+                    CaptureSourceConstructionError::diagnostic(
+                        "worker-owned browser capture has no metadata",
+                    )
+                })?;
                 Box::new(signal_capture::CaptureWorkerReplaySource::new(
                     name,
                     client,

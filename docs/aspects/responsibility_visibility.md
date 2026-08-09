@@ -37,11 +37,14 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
   conditions, and validation diagnostics.
 - `logic_analyzer_acquisition` owns shared device-neutral driver, capture-configuration,
   hardware-trigger, raw-chunk, and runtime-source contracts.
-- `logic_analyzer_capture_formats` owns DSL and Sigrok parsing, indexing, and replay sources.
-- `logic_analyzer_device_dslogic` owns DSLogic acquisition and its injected transport contract.
+- `logic_analyzer_capture_formats` owns DSL and Sigrok parsing, indexing, replay sources, and their
+  typed construction boundary.
+- `logic_analyzer_device_dslogic` owns DSLogic acquisition, its injected transport contract, and
+  typed source construction failures.
 - `logic_analyzer_protocol_decoders` owns concrete protocol decoding and decoder host contracts.
 - `signal_transforms`, `signal_sinks`, and `signal_generators` own portable stream transforms,
-  terminal consumers, and deterministic configured sources respectively.
+  terminal consumers, and deterministic configured sources respectively. `signal_sinks` also owns
+  the shared typed writer-construction boundary.
 - `logic_analyzer_graph_capabilities` owns graph-node and payload capability contracts. Its capture
   graph-source factory carries a source-bearing construction error without interpreting the
   session-owned validation cause. Its persisted-state facade retains JSON decode and encode causes,
@@ -204,11 +207,11 @@ nearest owning facade. The allowlist names canonical public namespaces.
 | `signal_capture_session` | `live_capture`, `live_capture_store` | These are substantial generic capture-session domains. `live_capture` owns provider-neutral configured and prepared acquisition contracts; `live_capture_store` owns recording and committed-prefix storage. Lower-level runtime, capture, and derived contracts are imported directly from their owning crates and are not re-exported. |
 | `logic_analyzer_trigger` | none | Its crate root exposes serializable trigger programs, schemas, predicates, simple conditions, and validation contracts; implementation modules remain private. |
 | `logic_analyzer_acquisition` | none | Its crate root exposes device-neutral driver, capture-configuration, hardware-trigger, raw-chunk, and runtime-source contracts; implementation modules remain private. |
-| `logic_analyzer_capture_formats` | `dsl_file`, `sigrok_file` | Each format facade owns its configuration, factory, parser, index, and replay contracts; archive helpers remain private. |
-| `logic_analyzer_device_dslogic` | none | Its crate root exposes the DSLogic source and transport contracts; protocol implementation modules remain private. |
+| `logic_analyzer_capture_formats` | `dsl_file`, `sigrok_file` | Each format facade owns its configuration, factory, parser, index, and replay contracts; the crate root exposes their shared typed construction error and archive helpers remain private. |
+| `logic_analyzer_device_dslogic` | none | Its crate root exposes the DSLogic source, typed source-construction error, and transport contracts; protocol implementation modules remain private. |
 | `logic_analyzer_protocol_decoders` | `i2c_decoder`, `packet_framer`, `parallel_decoder`, `sigrok_decoder`, `spi_decoder`, `types`, `uart_decoder` | Each decoder or protocol-packet processor has one directory-backed public facade; shared packet and decoder conventions live under `types`. |
 | `signal_transforms` | `buffer`, `edge_detector`, `event_control`, `event_counter`, `event_gate`, `logic_gate`, `sr_latch`, `text_formatter`, `timeline_marker`, `word_field_extractor`, `word_matcher` | Each namespace owns one portable transform contract and implementation. |
-| `signal_sinks` | `binary_file_writer`, `csv_word_writer`, `discard_writer`, `text_file_writer`, `tgck_recorder` | Each namespace owns one sink; the shared destination contract is exposed through the crate root. |
+| `signal_sinks` | `binary_file_writer`, `csv_word_writer`, `discard_writer`, `text_file_writer`, `tgck_recorder` | Each namespace owns one sink; the shared destination and typed writer-construction contracts are exposed through the crate root. |
 | `signal_generators` | `synthetic_capture_source`, `synthetic_uart_source` | Each namespace owns one explicit deterministic source family. |
 | `logic_analyzer_graph_capabilities` | `node`, `node_support` | `node` owns capability traits implemented by graph-node plugins. `node_support` owns open port identity, protocol-neutral presentation descriptions, capture descriptions, decoder-table contracts, and the restricted node build context. It contains no graph-node or payload inventory assembly, compiler, host, built-in-node, UI, or export operations. |
 | `logic_analyzer_graph_editor_registry` | none | Its crate root exposes stable-ID-keyed node-editor registration, validated editor inventory access, and instance-bound editor overrides. Implementation modules remain private. |

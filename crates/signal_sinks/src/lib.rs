@@ -9,5 +9,7 @@ pub mod discard_writer;
 mod output_storage;
 pub mod text_file_writer;
 pub mod tgck_recorder;
+mod writer_construction_error;
 
 pub use output_storage::{OutputFile, OutputOrigin, OutputStorage};
+pub use writer_construction_error::WriterConstructionError;

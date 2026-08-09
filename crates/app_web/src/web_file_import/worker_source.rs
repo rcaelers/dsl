@@ -6,6 +6,7 @@ use js_sys::Uint8Array;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
+use logic_analyzer_capture_formats::CaptureSourceConstructionError;
 use logic_analyzer_capture_formats::dsl_file::{
     DslFileSource, DslFileSourceConfig, DslFileSourceFactory,
 };
@@ -277,11 +278,15 @@ impl DslFileSourceFactory for WorkerDslFileSourceFactory {
         config: DslFileSourceConfig,
         artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
-    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+    ) -> Result<
+        ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
+        CaptureSourceConstructionError,
+    > {
         let metadata = self.metadata(config.clone());
-        let capture = worker_capture(config.path())?;
+        let capture =
+            worker_capture(config.path()).map_err(CaptureSourceConstructionError::diagnostic)?;
         let source = DslFileSource::from_prepared_source(capture.source, capture.display_name)
-            .map_err(|error| error.to_string())?
+            .map_err(CaptureSourceConstructionError::from)?
             .with_name(name)
             .with_artifact_repository(artifact_repository)
             .with_work_executor(work_executor);
@@ -351,14 +356,18 @@ impl SigrokFileSourceFactory for WorkerSigrokFileSourceFactory {
         name: &str,
         config: SigrokFileSourceConfig,
         work_executor: Arc<dyn WorkExecutor>,
-    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+    ) -> Result<
+        ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
+        CaptureSourceConstructionError,
+    > {
         if config.demo_data() {
             return portable_source_factory().create(name, config, work_executor);
         }
         let metadata = self.metadata(config.clone());
-        let capture = worker_capture(config.path())?;
+        let capture =
+            worker_capture(config.path()).map_err(CaptureSourceConstructionError::diagnostic)?;
         let source = SigrokFileSource::from_prepared_source(capture.source)
-            .map_err(|error| error.to_string())?
+            .map_err(CaptureSourceConstructionError::from)?
             .with_name(name)
             .with_work_executor(work_executor);
         Ok(ProcessNodeConstruction::new(

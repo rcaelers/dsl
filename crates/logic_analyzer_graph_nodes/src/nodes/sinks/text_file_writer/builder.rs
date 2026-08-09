@@ -88,7 +88,7 @@ impl RuntimeMaterializer for TextFileWriterBuilder {
                 ),
             )
             .map(ProcessNodeConstruction::into_process)
-            .map_err(RuntimeMaterializationError::construction)
+            .map_err(RuntimeMaterializationError::construction_source)
     }
 }
 

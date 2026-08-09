@@ -13,6 +13,7 @@ use signal_capture_session::{
 use signal_runtime::ProcessNodeConstruction;
 
 use super::{DslFileSource, DslFileSourceConfig, DslFileSourceFactory};
+use crate::CaptureSourceConstructionError;
 
 const FILE_SOURCE_LIFECYCLE: CaptureSourceLifecycle =
     CaptureSourceLifecycle::new(CaptureSourceKind::File, true, true, true);
@@ -127,14 +128,17 @@ impl DslFileSourceFactory for PreparedDslFileSourceFactory {
         config: DslFileSourceConfig,
         artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
-    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+    ) -> Result<
+        ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
+        CaptureSourceConstructionError,
+    > {
         let metadata = self.metadata(config.clone());
         self.opener
             .open(config.path())
-            .map_err(|error| error.to_string())
+            .map_err(CaptureSourceConstructionError::from)
             .and_then(|source| {
                 DslFileSource::from_prepared_source(source, config.path().display().to_string())
-                    .map_err(|error| error.to_string())
+                    .map_err(CaptureSourceConstructionError::from)
             })
             .map(|source| {
                 ProcessNodeConstruction::new(

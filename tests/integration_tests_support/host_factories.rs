@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use logic_analyzer_acquisition::{CaptureMode, LogicCaptureConfig};
+use logic_analyzer_capture_formats::CaptureSourceConstructionError;
 use logic_analyzer_capture_formats::dsl_file::{DslFileSourceConfig, DslFileSourceFactory};
-use logic_analyzer_device_dslogic::DsLogicU3Pro16SourceFactory;
+use logic_analyzer_device_dslogic::{DsLogicU3Pro16SourceError, DsLogicU3Pro16SourceFactory};
 use logic_analyzer_graph_capabilities::node::GraphNodeCapabilityOverride;
 use logic_analyzer_graph_compiler::GraphLowerer;
 use logic_analyzer_graph_plan::OutputSubscriptionPlan;
@@ -154,8 +155,11 @@ impl DsLogicU3Pro16SourceFactory for TestLiveSourceFactory {
         &self,
         _name: &str,
         _config: LogicCaptureConfig,
-    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
-        Err("source-override integration does not construct capture hardware".into())
+    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, DsLogicU3Pro16SourceError>
+    {
+        Err(DsLogicU3Pro16SourceError::diagnostic(
+            "source-override integration does not construct capture hardware",
+        ))
     }
 }
 
@@ -241,8 +245,13 @@ impl DslFileSourceFactory for TestDslSourceFactory {
         _config: DslFileSourceConfig,
         _artifact_repository: Arc<dyn ArtifactRepository>,
         _work_executor: Arc<dyn WorkExecutor>,
-    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
-        Err("presentation integration does not execute a file source".into())
+    ) -> Result<
+        ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
+        CaptureSourceConstructionError,
+    > {
+        Err(CaptureSourceConstructionError::diagnostic(
+            "presentation integration does not execute a file source",
+        ))
     }
 }
 

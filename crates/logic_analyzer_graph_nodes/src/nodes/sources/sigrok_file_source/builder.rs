@@ -150,10 +150,10 @@ impl RuntimeMaterializer for SigrokFileSourceBuilder {
             .create(name, Self::config(&state), ctx.work_executor())
             .map(signal_runtime::ProcessNodeConstruction::into_process)
             .map_err(|error| {
-                RuntimeMaterializationError::construction(format!(
-                    "cannot open '{}': {error}",
-                    state.file.value
-                ))
+                RuntimeMaterializationError::construction_context(
+                    format!("cannot open '{}'", state.file.value),
+                    error,
+                )
             })
     }
 }
@@ -191,6 +191,7 @@ mod builder_tests {
     use std::path::Path;
     use std::sync::Mutex;
 
+    use logic_analyzer_capture_formats::CaptureSourceConstructionError;
     use node_graph::NodeDef;
     use signal_capture::IndexedCapturePresentation;
     use signal_capture_session::{
@@ -280,13 +281,16 @@ mod builder_tests {
             name: &str,
             config: SigrokFileSourceConfig,
             _work_executor: Arc<dyn platform_runtime::WorkExecutor>,
-        ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+        ) -> Result<
+            ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
+            CaptureSourceConstructionError,
+        > {
             self.opened
                 .lock()
                 .unwrap()
                 .push((name.to_owned(), config.clone()));
             if let Some(error) = &self.error {
-                return Err(error.clone());
+                return Err(CaptureSourceConstructionError::diagnostic(error));
             }
             Ok(ProcessNodeConstruction::new(
                 Box::new(TestProcessNode::new(name)),

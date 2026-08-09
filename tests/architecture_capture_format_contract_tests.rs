@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use logic_analyzer_capture_formats::CaptureSourceConstructionError;
 use logic_analyzer_capture_formats::dsl_file::{
     DslFileSourceConfig, DslFileSourceFactory, unavailable_source_factory,
 };
@@ -25,13 +26,15 @@ fn capture_source_factories_expose_neutral_metadata_bearing_construction_contrac
     let dsl_config = DslFileSourceConfig::new("capture.dsl", []);
     let dsl_factory = unavailable_source_factory();
     let _: Arc<dyn CaptureSourceMetadata> = dsl_factory.metadata(dsl_config.clone());
-    let dsl_construction: Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> =
-        dsl_factory.create(
-            "DSL capture",
-            dsl_config,
-            artifact_repository,
-            Arc::clone(&work_executor),
-        );
+    let dsl_construction: Result<
+        ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
+        CaptureSourceConstructionError,
+    > = dsl_factory.create(
+        "DSL capture",
+        dsl_config,
+        artifact_repository,
+        Arc::clone(&work_executor),
+    );
     assert!(dsl_construction.is_err());
 
     let sigrok_config = SigrokFileSourceConfig::new("demo.sr", [], true);
@@ -39,7 +42,7 @@ fn capture_source_factories_expose_neutral_metadata_bearing_construction_contrac
     let _: Arc<dyn CaptureSourceMetadata> = sigrok_factory.metadata(sigrok_config.clone());
     let sigrok_construction: Result<
         ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
-        String,
+        CaptureSourceConstructionError,
     > = sigrok_factory.create("Sigrok demo", sigrok_config, work_executor);
     assert!(sigrok_construction.is_ok());
 }

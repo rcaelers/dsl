@@ -7,6 +7,8 @@ use signal_capture_session::{
 };
 use signal_runtime::ProcessNodeConstruction;
 
+use super::error::DsLogicU3Pro16SourceError;
+
 /// Platform-neutral construction contract for a U3Pro16 capture source.
 pub trait DsLogicU3Pro16SourceFactory: Send + Sync {
     /// Returns the lifecycle requirements shared by sources created by this factory.
@@ -26,7 +28,7 @@ pub trait DsLogicU3Pro16SourceFactory: Send + Sync {
         &self,
         name: &str,
         config: LogicCaptureConfig,
-    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String>;
+    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, DsLogicU3Pro16SourceError>;
 }
 
 /// Returns a source factory that reports the U3Pro16 capability as unavailable.
@@ -52,8 +54,11 @@ impl DsLogicU3Pro16SourceFactory for UnavailableDsLogicU3Pro16SourceFactory {
         &self,
         _name: &str,
         _config: LogicCaptureConfig,
-    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
-        Err("DSLogic U3Pro16 USB capture is unavailable on this host".into())
+    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, DsLogicU3Pro16SourceError>
+    {
+        Err(DsLogicU3Pro16SourceError::unavailable(
+            "DSLogic U3Pro16 USB capture is unavailable on this host",
+        ))
     }
 }
 

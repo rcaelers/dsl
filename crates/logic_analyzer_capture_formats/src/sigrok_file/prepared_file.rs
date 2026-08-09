@@ -16,6 +16,7 @@ use signal_runtime::{ProcessNode, ProcessNodeConstruction};
 use super::{
     SigrokFileSource, SigrokFileSourceConfig, SigrokFileSourceFactory, portable_source_factory,
 };
+use crate::CaptureSourceConstructionError;
 
 const FILE_SOURCE_LIFECYCLE: CaptureSourceLifecycle =
     CaptureSourceLifecycle::new(CaptureSourceKind::File, true, true, true);
@@ -137,7 +138,10 @@ impl SigrokFileSourceFactory for PreparedSigrokFileSourceFactory {
         name: &str,
         config: SigrokFileSourceConfig,
         work_executor: Arc<dyn WorkExecutor>,
-    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+    ) -> Result<
+        ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
+        CaptureSourceConstructionError,
+    > {
         let metadata = self.metadata(config.clone());
         let process = if config.demo_data() {
             Box::new(
@@ -150,9 +154,9 @@ impl SigrokFileSourceFactory for PreparedSigrokFileSourceFactory {
                 SigrokFileSource::from_prepared_source(
                     self.opener
                         .open(config.path())
-                        .map_err(|error| error.to_string())?,
+                        .map_err(CaptureSourceConstructionError::from)?,
                 )
-                .map_err(|error| error.to_string())?
+                .map_err(CaptureSourceConstructionError::from)?
                 .with_name(name)
                 .with_work_executor(work_executor),
             )

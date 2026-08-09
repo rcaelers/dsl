@@ -23,6 +23,7 @@ signal-capture = { path = "../signal_capture" }
 logic-analyzer-trigger = { path = "../logic_analyzer_trigger" }
 signal-runtime = { path = "../signal_runtime" }
 crossbeam-channel = { workspace = true }
+thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]

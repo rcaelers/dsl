@@ -10,8 +10,8 @@ use signal_capture_session::{
 use signal_runtime::ProcessNodeConstruction;
 
 use super::{
-    DsLogicU3Pro16Capture, DsLogicU3Pro16Source, DsLogicU3Pro16SourceFactory,
-    DsLogicU3Pro16TransportFactory,
+    DsLogicU3Pro16Capture, DsLogicU3Pro16Source, DsLogicU3Pro16SourceError,
+    DsLogicU3Pro16SourceFactory, DsLogicU3Pro16TransportFactory,
 };
 
 const U3PRO16_LIFECYCLE: CaptureSourceLifecycle =
@@ -37,13 +37,14 @@ impl DsLogicU3Pro16SourceFactory for HostU3Pro16SourceFactory {
         &self,
         name: &str,
         config: LogicCaptureConfig,
-    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, DsLogicU3Pro16SourceError>
+    {
         let metadata = self.metadata(config.clone());
         self.transport_factory
             .open()
             .and_then(|transport| DsLogicU3Pro16Source::from_transport(config, transport))
             .map(|source| ProcessNodeConstruction::new(Box::new(source.with_name(name)), metadata))
-            .map_err(|error| error.to_string())
+            .map_err(DsLogicU3Pro16SourceError::from)
     }
 }
 

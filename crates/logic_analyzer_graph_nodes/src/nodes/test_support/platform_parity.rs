@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use logic_analyzer_acquisition::LogicCaptureConfig;
+use logic_analyzer_capture_formats::CaptureSourceConstructionError;
 use logic_analyzer_capture_formats::dsl_file::{DslFileSourceConfig, DslFileSourceFactory};
 use logic_analyzer_capture_formats::sigrok_file::{
     SigrokFileSourceConfig, SigrokFileSourceFactory,
 };
-use logic_analyzer_device_dslogic::DsLogicU3Pro16SourceFactory;
+use logic_analyzer_device_dslogic::{DsLogicU3Pro16SourceError, DsLogicU3Pro16SourceFactory};
 use logic_analyzer_graph_capabilities::node::{
     CaptureSourceFeature, GraphNodePresentation, GraphNodeSemantics, RuntimeMaterializer,
 };
@@ -14,10 +15,10 @@ use signal_capture_session::{
     CaptureSourceMetadataError, CaptureSourcePresentation,
 };
 use signal_runtime::ProcessNodeConstruction;
-use signal_sinks::OutputOrigin;
 use signal_sinks::binary_file_writer::{BinaryFileWriterConfig, BinaryFileWriterFactory};
 use signal_sinks::csv_word_writer::{CsvWordWriterConfig, CsvWordWriterFactory};
 use signal_sinks::text_file_writer::TextFileWriterFactory;
+use signal_sinks::{OutputOrigin, WriterConstructionError};
 
 use super::process_node::TestProcessNode;
 
@@ -149,7 +150,10 @@ impl DslFileSourceFactory for TestSourceFactory {
         _config: DslFileSourceConfig,
         _artifact_repository: Arc<dyn platform_artifacts::ArtifactRepository>,
         _work_executor: Arc<dyn platform_runtime::WorkExecutor>,
-    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+    ) -> Result<
+        ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
+        CaptureSourceConstructionError,
+    > {
         Ok(self.construction(name))
     }
 }
@@ -168,7 +172,10 @@ impl SigrokFileSourceFactory for TestSourceFactory {
         name: &str,
         _config: SigrokFileSourceConfig,
         _work_executor: Arc<dyn platform_runtime::WorkExecutor>,
-    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+    ) -> Result<
+        ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>,
+        CaptureSourceConstructionError,
+    > {
         Ok(self.construction(name))
     }
 }
@@ -186,7 +193,8 @@ impl DsLogicU3Pro16SourceFactory for TestSourceFactory {
         &self,
         name: &str,
         _config: LogicCaptureConfig,
-    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, String> {
+    ) -> Result<ProcessNodeConstruction<Arc<dyn CaptureSourceMetadata>>, DsLogicU3Pro16SourceError>
+    {
         Ok(self.construction(name))
     }
 }
@@ -236,7 +244,7 @@ impl BinaryFileWriterFactory for TestWriterFactory {
         name: &str,
         _config: BinaryFileWriterConfig,
         output_origin: OutputOrigin,
-    ) -> Result<ProcessNodeConstruction, String> {
+    ) -> Result<ProcessNodeConstruction, WriterConstructionError> {
         assert_writer_origin(output_origin);
         Ok(writer_construction(name))
     }
@@ -248,7 +256,7 @@ impl CsvWordWriterFactory for TestWriterFactory {
         name: &str,
         _config: CsvWordWriterConfig,
         output_origin: OutputOrigin,
-    ) -> Result<ProcessNodeConstruction, String> {
+    ) -> Result<ProcessNodeConstruction, WriterConstructionError> {
         assert_writer_origin(output_origin);
         Ok(writer_construction(name))
     }
@@ -259,7 +267,7 @@ impl TextFileWriterFactory for TestWriterFactory {
         &self,
         name: &str,
         output_origin: OutputOrigin,
-    ) -> Result<ProcessNodeConstruction, String> {
+    ) -> Result<ProcessNodeConstruction, WriterConstructionError> {
         assert_writer_origin(output_origin);
         Ok(writer_construction(name))
     }

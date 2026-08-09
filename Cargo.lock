@@ -2223,6 +2223,7 @@ dependencies = [
  "signal-generators",
  "signal-runtime",
  "tempfile",
+ "thiserror 2.0.19",
  "tracing",
  "zip",
 ]
@@ -2241,6 +2242,7 @@ dependencies = [
  "signal-capture",
  "signal-capture-session",
  "signal-runtime",
+ "thiserror 2.0.19",
  "tracing",
 ]
 
@@ -3983,6 +3985,7 @@ dependencies = [
  "signal-capture",
  "signal-derived",
  "signal-runtime",
+ "thiserror 2.0.19",
  "tracing",
 ]
 
