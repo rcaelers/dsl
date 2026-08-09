@@ -301,6 +301,17 @@ unless trigger_configuration_source.match?(
   errors << "crates/logic_analyzer_graph_capabilities/src/node_support/contracts.rs: trigger configuration assembly must expose its owner-typed error"
 end
 
+node_graph_widget_path = File.join(
+  ROOT,
+  "crates/widgets/node_graph/src/widget/graph/widget.rs"
+)
+node_graph_widget_source = File.read(node_graph_widget_path)
+unless node_graph_widget_source.match?(
+  /pub fn snapshot_value\b.*?Result<serde_json::Value,\s*GraphSnapshotError>/m
+)
+  errors << "crates/widgets/node_graph/src/widget/graph/widget.rs: document snapshots must retain their typed JSON serialization failure"
+end
+
 source_preparation_contract_path = File.join(
   ROOT,
   "crates/logic_analyzer_graph_runtime/src/runtime/source_preparation_contract.rs"

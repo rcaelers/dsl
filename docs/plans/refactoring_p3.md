@@ -150,6 +150,11 @@ building its presentation response. Graph trigger assembly uses `TriggerConfigur
 duplicate channel mappings and invalid programs, and `LiveCaptureFeatureError` retains that source
 through feature discovery.
 
+The reusable node-graph widget returns `GraphSnapshotError` when synchronizing its editor state to
+a JSON document snapshot. The error retains `serde_json::Error`; application composition formats it
+only for save/status presentation, while host document encoding remains the separate UI-owned
+`GraphDocumentError` boundary.
+
 **How to type an error here** (`thiserror` is already a workspace dependency):
 
 - One enum per *facade*, not per crate and not per function. Variants describe what failed in

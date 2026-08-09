@@ -10,6 +10,7 @@ use super::interaction_state::InteractionState;
 use super::menu::MenuController;
 use super::panel::PanelState;
 use super::response::GraphResponses;
+use super::snapshot_error::GraphSnapshotError;
 use super::{layout, render};
 use crate::api::{
     FileDialogService, PanelAction, PanelDataProvider, PanelTabDef, SocketIndicatorPresentation,
@@ -621,10 +622,9 @@ impl NodeGraphWidget {
 
     /// Captures the current graph, including state still held by inline node
     /// controls. Used by document persistence and dirty-state tracking.
-    pub fn snapshot_value(&mut self) -> Result<serde_json::Value, String> {
+    pub fn snapshot_value(&mut self) -> Result<serde_json::Value, GraphSnapshotError> {
         self.sync_all_node_state();
-        serde_json::to_value(&self.graph)
-            .map_err(|error| format!("could not serialize graph: {error}"))
+        serde_json::to_value(&self.graph).map_err(GraphSnapshotError::from)
     }
 
     pub(crate) fn run_update(&mut self, id: NodeId) {

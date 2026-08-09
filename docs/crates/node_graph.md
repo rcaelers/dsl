@@ -258,8 +258,9 @@ def-driven badges so neither clobbers the other:
 
 ## Persistence
 
-The document is `GraphState`. `snapshot_value` first syncs every instance's state into the model;
-the host serializes and persists that value through its document service. A host loads and parses a
-document before passing the resulting model to `set_graph`, which rebuilds all runtime instances
-through the restore reconciliation above. New model fields use `#[serde(default)]` so older files
-keep loading. The widget never opens a path itself.
+The document is `GraphState`. `snapshot_value` first syncs every instance's state into the model and
+returns `GraphSnapshotError` if JSON serialization fails, retaining the codec source. The host
+persists the resulting value through its document service. A host loads and parses a document before
+passing the resulting model to `set_graph`, which rebuilds all runtime instances through the restore
+reconciliation above. New model fields use `#[serde(default)]` so older files keep loading. The
+widget never opens a path itself.

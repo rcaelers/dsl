@@ -29,4 +29,4 @@ pub use model::{
     SocketReference, SocketShape, VariadicInfo,
 };
 pub use runtime::{NodeTemplate, NodeTypeRegistry, SocketTypeStyle};
-pub use widget::{GraphUiPrefs, NodeContextAction, NodeGraphWidget};
+pub use widget::{GraphSnapshotError, GraphUiPrefs, NodeContextAction, NodeGraphWidget};

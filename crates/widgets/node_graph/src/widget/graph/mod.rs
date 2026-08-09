@@ -9,8 +9,10 @@ mod panel;
 mod render;
 mod response;
 mod selection;
+mod snapshot_error;
 mod widget;
 mod wire;
 
+pub use snapshot_error::GraphSnapshotError;
 pub(crate) use widget::SocketIndicatorRegistry;
 pub use widget::{GraphUiPrefs, NodeContextAction, NodeGraphWidget};

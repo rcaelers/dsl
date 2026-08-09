@@ -371,8 +371,10 @@ item here, so acceptance comparisons stop being ad-hoc.
      `TriggerProgramEditError` retains schema and validation causes. The reusable trigger widget
      classifies reducer failures through `TriggerEditorError`, formatting only its presentation
      response. Graph trigger assembly returns `TriggerConfigurationError`, retained by
-     `LiveCaptureFeatureError`. Next type the public `node_graph` document-snapshot serialization
-     boundary, which still exposes `Result<serde_json::Value, String>` to application composition.
+     `LiveCaptureFeatureError`. `node_graph::NodeGraphWidget::snapshot_value` now returns
+     `GraphSnapshotError`, retaining its JSON serialization cause until application save/status
+     presentation. Next type `signal_capture::CaptureWorkerOperationRegistry` registration and
+     preparation, whose public handler and registry contracts still exchange string failures.
 
 ### Application state decomposition
 

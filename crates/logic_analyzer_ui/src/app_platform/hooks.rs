@@ -418,7 +418,7 @@ impl App {
         self.synchronize_payload_subscription_manifest(false);
         match self.node_graph.snapshot_value() {
             Ok(graph) => self.platform.mark_saved_graph(graph),
-            Err(error) => self.toasts.error(error),
+            Err(error) => self.toasts.error(error.to_string()),
         }
     }
 
