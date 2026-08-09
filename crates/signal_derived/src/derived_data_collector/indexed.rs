@@ -1,7 +1,7 @@
 use crate::derived_index::MipmapRecord;
 use crate::derived_word_store::{
     AnnotationQuery, DecodedBlockCacheHandle, IndexedAnnotationStore, IndexedAnnotationWriter,
-    LiveStoreConfig, StoreStatus,
+    LiveStoreConfig, StoreError, StoreStatus,
 };
 use crate::events::{Annotation, Word};
 use crate::payload::{CollectedLaneStorageBacking, CollectedLaneStorageSnapshot};
@@ -26,7 +26,7 @@ pub(crate) fn indexed_lane(
     name: &str,
     config: LiveStoreConfig,
     decoded_block_cache: DecodedBlockCacheHandle,
-) -> Result<(IndexedLaneWriter, IndexedLaneQuery), String> {
+) -> Result<(IndexedLaneWriter, IndexedLaneQuery), StoreError> {
     if let Some(persistent) = config.persistence.as_ref() {
         match IndexedAnnotationStore::open_persistent(persistent, decoded_block_cache.clone()) {
             Ok(Some(store)) => {
@@ -47,17 +47,15 @@ pub(crate) fn indexed_lane(
         }
     }
 
-    IndexedAnnotationWriter::create(config, decoded_block_cache)
-        .map(|(writer, store)| {
-            (
-                IndexedLaneWriter {
-                    name: name.to_owned(),
-                    writer: Some(writer),
-                },
-                IndexedLaneQuery { store },
-            )
-        })
-        .map_err(|error| error.to_string())
+    IndexedAnnotationWriter::create(config, decoded_block_cache).map(|(writer, store)| {
+        (
+            IndexedLaneWriter {
+                name: name.to_owned(),
+                writer: Some(writer),
+            },
+            IndexedLaneQuery { store },
+        )
+    })
 }
 
 impl IndexedLaneWriter {

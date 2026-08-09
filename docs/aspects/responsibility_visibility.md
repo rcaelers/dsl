@@ -322,6 +322,10 @@ Graph source preparation wraps the capture-worker client and terminal errors as 
 disconnection, and invalid-update failures. Its source-bearing categories retain concrete adapter
 errors through `CaptureIndexProxy` without making the generic query contract depend on a worker.
 
+Finite worker operation owners retain typed payload-codec, validation, and store-construction
+failures inside `signal_capture` and `signal_derived`. Conversion to `WorkerKernelError` occurs only
+at the portable worker registry's serialized terminal boundary.
+
 `signal_capture_session` owns lazy capture-source metadata inspection. Its metadata facade
 classifies source access, metadata decoding, and live-acquisition configuration separately and
 retains typed adapter causes. Providers that expose only diagnostic text use the facade's explicit

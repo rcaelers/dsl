@@ -400,10 +400,13 @@ item here, so acceptance comparisons stop being ad-hoc.
      validation, completion metadata, and identity decoding; initialization protocol causes remain
      available through `ArtifactRepositoryOpenError`. Concrete graph source builders now carry
      `PersistedStateError` and its retained JSON codec cause through `CaptureSourceFeatureError`;
-     DSLogic configuration diagnostics remain a separate classified feature failure. Next audit
-     the remaining public and cross-module string-result signatures in capture indexing, derived
-     worker kernels, graph execution, and UI orchestration, typing any responsibility boundary while
-     leaving serialization, parsers, developer tooling, and presentation-only diagnostics explicit.
+     DSLogic configuration diagnostics remain a separate classified feature failure. Finite
+     capture-index and derived-word kernels now retain typed payload-codec and validation failures
+     until the portable worker registry serializes a terminal diagnostic; indexed derived-lane
+     construction retains `StoreError` across collector modules. Next audit the remaining public
+     and cross-module string-result signatures in graph execution, concrete nodes, protocol output
+     conversion, and UI orchestration, typing any responsibility boundary while leaving parsers,
+     developer tooling, and presentation-only diagnostics explicit.
 
 ### Application state decomposition
 

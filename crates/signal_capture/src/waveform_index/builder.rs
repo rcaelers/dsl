@@ -463,7 +463,7 @@ where
             handoff_copy_duration: Duration::ZERO,
             summary_kernel_duration: summary_started.elapsed(),
         })
-        .map_err(Error::ParseError)
+        .map_err(|error| Error::ParseError(error.to_string()))
     }
 
     fn finish_block_result(result: CaptureIndexBlockResult) -> Result<(BuildJob, BlockIndex)> {
@@ -514,7 +514,7 @@ where
 
     pub(crate) fn build_leaf(data: &[u8], valid_samples: u64) -> Result<BlockIndex> {
         let result = build_capture_index_block_from_packed(0, 0, 0, valid_samples, data)
-            .map_err(Error::ParseError)?;
+            .map_err(|error| Error::ParseError(error.to_string()))?;
         Self::finish_block_result(result).map(|(_, leaf)| leaf)
     }
 

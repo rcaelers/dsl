@@ -502,6 +502,42 @@ if capture_query.match?(/Result<[^>\n]*,\s*String>/)
   errors << "crates/signal_capture/src/capture/query.rs: query failures must not collapse into display strings"
 end
 
+capture_index_kernel = File.read(File.join(
+  ROOT,
+  "crates/signal_capture/src/capture_index_kernel.rs"
+))
+unless capture_index_kernel.match?(/enum CaptureIndexKernelError\s*\{/) &&
+       capture_index_kernel.match?(
+         /fn build_capture_index_block_from_packed\b.*?Result<CaptureIndexBlockResult,\s*CaptureIndexKernelError>/m
+       )
+  errors << "crates/signal_capture/src/capture_index_kernel.rs: capture-index codec and validation failures must remain owner-typed until worker serialization"
+end
+if capture_index_kernel.match?(/Result<.*?,\s*String>/m)
+  errors << "crates/signal_capture/src/capture_index_kernel.rs: capture-index kernel internals must not collapse failures into strings"
+end
+
+derived_worker_kernels = File.read(File.join(
+  ROOT,
+  "crates/signal_derived/src/worker_kernels.rs"
+))
+unless derived_worker_kernels.match?(/enum WorkerPayloadError\s*\{/) &&
+       derived_worker_kernels.match?(
+         /fn decode_word_block_request\b.*?Result<EncodeWordBlockRequest,\s*WorkerPayloadError>/m
+       )
+  errors << "crates/signal_derived/src/worker_kernels.rs: derived-worker payload failures must remain owner-typed until worker serialization"
+end
+if derived_worker_kernels.match?(/Result<.*?,\s*String>/m)
+  errors << "crates/signal_derived/src/worker_kernels.rs: derived-worker kernel internals must not collapse failures into strings"
+end
+
+derived_indexed_lane = File.read(File.join(
+  ROOT,
+  "crates/signal_derived/src/derived_data_collector/indexed.rs"
+))
+if derived_indexed_lane.match?(/fn indexed_lane\b.*?Result<.*?,\s*String>/m)
+  errors << "crates/signal_derived/src/derived_data_collector/indexed.rs: indexed-lane construction must retain StoreError"
+end
+
 capture_errors = File.read(File.join(ROOT, "crates/signal_capture/src/errors.rs"))
 unless capture_errors.match?(
   /^\s*CaptureQuery\(\#\[source\]\s*CaptureIndexQueryError\),$/

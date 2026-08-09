@@ -1,4 +1,4 @@
-use platform_runtime::WorkerKernelRegistry;
+use platform_runtime::{WorkerKernelError, WorkerKernelRegistry};
 
 const LEVEL_POWER: usize = 6;
 const L1_WORDS: usize = 1 << (LEVEL_POWER * 2);
@@ -9,8 +9,11 @@ const BUILD_CAPTURE_INDEX_BLOCK_OPERATION: &str = "signal-processing.build-captu
 pub fn register_capture_worker_kernel(registry: &mut WorkerKernelRegistry) {
     registry
         .register(BUILD_CAPTURE_INDEX_BLOCK_OPERATION, |payload| {
-            let request = decode_capture_index_request(&payload)?;
-            Ok(build_capture_index_block(request).map(encode_capture_index_result)?)
+            let request = decode_capture_index_request(&payload)
+                .map_err(|error| WorkerKernelError::from(error.to_string()))?;
+            build_capture_index_block(request)
+                .map(encode_capture_index_result)
+                .map_err(|error| WorkerKernelError::from(error.to_string()))
         })
         .expect("the capture-index operation identifier is unique and valid");
 }
@@ -51,9 +54,27 @@ pub(crate) struct CaptureIndexBlockResult {
     pub(crate) levels: Option<CaptureIndexBlockLevels>,
 }
 
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub(crate) enum CaptureIndexKernelError {
+    #[error(
+        "capture-index request declares {declared} valid samples but contains only {available}"
+    )]
+    ValidSamplesExceedPayload { declared: u64, available: u64 },
+    #[error("capture-index leaf exceeds the fixed-width sample limit")]
+    LeafSampleLimit,
+    #[error("worker byte payload length exceeds this address space")]
+    ByteLengthExceedsAddressSpace,
+    #[error("worker payload length overflow")]
+    PayloadLengthOverflow,
+    #[error("worker payload is truncated")]
+    TruncatedPayload,
+    #[error("worker payload contains trailing bytes")]
+    TrailingBytes,
+}
+
 pub(crate) fn build_capture_index_block(
     request: CaptureIndexBlockRequest,
-) -> Result<CaptureIndexBlockResult, String> {
+) -> Result<CaptureIndexBlockResult, CaptureIndexKernelError> {
     build_capture_index_block_from_packed(
         request.sequence,
         request.channel,
@@ -69,16 +90,16 @@ pub(crate) fn build_capture_index_block_from_packed(
     block: u64,
     requested_valid_samples: u64,
     packed_samples: &[u8],
-) -> Result<CaptureIndexBlockResult, String> {
+) -> Result<CaptureIndexBlockResult, CaptureIndexKernelError> {
     let available_samples = (packed_samples.len() as u64).saturating_mul(8);
     if requested_valid_samples > available_samples {
-        return Err(format!(
-            "capture-index request declares {} valid samples but contains only {available_samples}",
-            requested_valid_samples
-        ));
+        return Err(CaptureIndexKernelError::ValidSamplesExceedPayload {
+            declared: requested_valid_samples,
+            available: available_samples,
+        });
     }
     let valid_samples = u32::try_from(requested_valid_samples)
-        .map_err(|_| "capture-index leaf exceeds the fixed-width sample limit".to_string())?;
+        .map_err(|_| CaptureIndexKernelError::LeafSampleLimit)?;
     if valid_samples == 0 {
         return Ok(CaptureIndexBlockResult {
             sequence,
@@ -162,7 +183,9 @@ pub(crate) fn build_capture_index_block_from_packed(
     })
 }
 
-fn decode_capture_index_request(payload: &[u8]) -> Result<CaptureIndexBlockRequest, String> {
+fn decode_capture_index_request(
+    payload: &[u8],
+) -> Result<CaptureIndexBlockRequest, CaptureIndexKernelError> {
     let mut reader = PayloadReader::new(payload);
     let request = CaptureIndexBlockRequest {
         sequence: reader.u64()?,
@@ -214,34 +237,34 @@ impl<'a> PayloadReader<'a> {
         Self { payload, cursor: 0 }
     }
 
-    fn u64(&mut self) -> Result<u64, String> {
+    fn u64(&mut self) -> Result<u64, CaptureIndexKernelError> {
         Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap()))
     }
 
-    fn bytes(&mut self) -> Result<&'a [u8], String> {
+    fn bytes(&mut self) -> Result<&'a [u8], CaptureIndexKernelError> {
         let length = usize::try_from(self.u64()?)
-            .map_err(|_| "worker byte payload length exceeds this address space".to_string())?;
+            .map_err(|_| CaptureIndexKernelError::ByteLengthExceedsAddressSpace)?;
         self.take(length)
     }
 
-    fn take(&mut self, length: usize) -> Result<&'a [u8], String> {
+    fn take(&mut self, length: usize) -> Result<&'a [u8], CaptureIndexKernelError> {
         let end = self
             .cursor
             .checked_add(length)
-            .ok_or_else(|| "worker payload length overflow".to_string())?;
+            .ok_or(CaptureIndexKernelError::PayloadLengthOverflow)?;
         let bytes = self
             .payload
             .get(self.cursor..end)
-            .ok_or_else(|| "worker payload is truncated".to_string())?;
+            .ok_or(CaptureIndexKernelError::TruncatedPayload)?;
         self.cursor = end;
         Ok(bytes)
     }
 
-    fn finish(self) -> Result<(), String> {
+    fn finish(self) -> Result<(), CaptureIndexKernelError> {
         if self.cursor == self.payload.len() {
             Ok(())
         } else {
-            Err("worker payload contains trailing bytes".to_string())
+            Err(CaptureIndexKernelError::TrailingBytes)
         }
     }
 }
@@ -311,7 +334,10 @@ fn set_bit(word: &mut u64, index: usize) {
 
 #[cfg(test)]
 mod capture_index_kernel_tests {
-    use super::{CaptureIndexBlockRequest, build_capture_index_block, l1_word_has_internal_toggle};
+    use super::{
+        CaptureIndexBlockRequest, CaptureIndexKernelError, build_capture_index_block,
+        l1_word_has_internal_toggle,
+    };
 
     #[test]
     fn owned_request_builds_a_result_without_host_state() {
@@ -342,7 +368,13 @@ mod capture_index_kernel_tests {
         })
         .unwrap_err();
 
-        assert!(error.contains("contains only 8"));
+        assert_eq!(
+            error,
+            CaptureIndexKernelError::ValidSamplesExceedPayload {
+                declared: 9,
+                available: 8,
+            }
+        );
     }
 
     #[test]

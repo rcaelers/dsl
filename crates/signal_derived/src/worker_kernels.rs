@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use platform_runtime::WorkerKernelRegistry;
+use platform_runtime::{WorkerKernelError, WorkerKernelRegistry};
 use signal_capture::register_capture_worker_kernel;
 
 use super::derived_word_store::{EncodeWordBlockRequest, encode_owned_word_block};
@@ -16,10 +16,11 @@ pub fn portable_worker_kernels() -> WorkerKernelRegistry {
     let mut registry = WorkerKernelRegistry::new();
     registry
         .register(ENCODE_WORD_BLOCK_OPERATION, |payload| {
-            let request = decode_word_block_request(&payload)?;
-            Ok(encode_owned_word_block(request, Vec::new())
+            let request = decode_word_block_request(&payload)
+                .map_err(|error| WorkerKernelError::from(error.to_string()))?;
+            encode_owned_word_block(request, Vec::new())
                 .map(|result| result.bytes)
-                .map_err(|error| error.to_string())?)
+                .map_err(|error| WorkerKernelError::from(error.to_string()))
         })
         .expect("the derived-word operation identifier is unique and valid");
     register_capture_worker_kernel(&mut registry);
@@ -55,7 +56,23 @@ fn encode_word_block_request(request: &EncodeWordBlockRequest) -> Vec<u8> {
     payload
 }
 
-fn decode_word_block_request(payload: &[u8]) -> Result<EncodeWordBlockRequest, String> {
+#[derive(Debug, thiserror::Error)]
+enum WorkerPayloadError {
+    #[error("worker {what} exceeds this address space")]
+    LengthExceedsAddressSpace { what: &'static str },
+    #[error("worker payload length overflow")]
+    LengthOverflow,
+    #[error("worker payload is truncated")]
+    Truncated,
+    #[error("worker payload contains trailing bytes")]
+    TrailingBytes,
+    #[error("worker word payload contains invalid UTF-8")]
+    InvalidUtf8(#[source] std::str::Utf8Error),
+    #[error("worker word payload has an unknown tag {0}")]
+    UnknownWordPayloadTag(u8),
+}
+
+fn decode_word_block_request(payload: &[u8]) -> Result<EncodeWordBlockRequest, WorkerPayloadError> {
     let mut reader = PayloadReader::new(payload);
     let sequence = reader.u64()?;
     let max_words = reader.u64()?;
@@ -74,10 +91,10 @@ fn decode_word_block_request(payload: &[u8]) -> Result<EncodeWordBlockRequest, S
             1 => Some(WordPayload::Bytes(Arc::from(reader.bytes()?.to_vec()))),
             2 => {
                 let text = std::str::from_utf8(reader.bytes()?)
-                    .map_err(|_| "worker word payload contains invalid UTF-8".to_string())?;
+                    .map_err(WorkerPayloadError::InvalidUtf8)?;
                 Some(WordPayload::Text(Arc::from(text)))
             }
-            _ => return Err("worker word payload has an unknown tag".to_string()),
+            tag => return Err(WorkerPayloadError::UnknownWordPayloadTag(tag)),
         };
         words.push(Word {
             value,
@@ -119,42 +136,42 @@ impl<'a> PayloadReader<'a> {
         Self { payload, cursor: 0 }
     }
 
-    fn u8(&mut self) -> Result<u8, String> {
+    fn u8(&mut self) -> Result<u8, WorkerPayloadError> {
         Ok(*self.take(1)?.first().unwrap())
     }
 
-    fn u64(&mut self) -> Result<u64, String> {
+    fn u64(&mut self) -> Result<u64, WorkerPayloadError> {
         Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap()))
     }
 
-    fn length(&mut self, what: &str) -> Result<usize, String> {
+    fn length(&mut self, what: &'static str) -> Result<usize, WorkerPayloadError> {
         usize::try_from(self.u64()?)
-            .map_err(|_| format!("worker {what} exceeds this address space"))
+            .map_err(|_| WorkerPayloadError::LengthExceedsAddressSpace { what })
     }
 
-    fn bytes(&mut self) -> Result<&'a [u8], String> {
+    fn bytes(&mut self) -> Result<&'a [u8], WorkerPayloadError> {
         let length = self.length("byte payload length")?;
         self.take(length)
     }
 
-    fn take(&mut self, length: usize) -> Result<&'a [u8], String> {
+    fn take(&mut self, length: usize) -> Result<&'a [u8], WorkerPayloadError> {
         let end = self
             .cursor
             .checked_add(length)
-            .ok_or_else(|| "worker payload length overflow".to_string())?;
+            .ok_or(WorkerPayloadError::LengthOverflow)?;
         let bytes = self
             .payload
             .get(self.cursor..end)
-            .ok_or_else(|| "worker payload is truncated".to_string())?;
+            .ok_or(WorkerPayloadError::Truncated)?;
         self.cursor = end;
         Ok(bytes)
     }
 
-    fn finish(self) -> Result<(), String> {
+    fn finish(self) -> Result<(), WorkerPayloadError> {
         if self.cursor == self.payload.len() {
             Ok(())
         } else {
-            Err("worker payload contains trailing bytes".to_string())
+            Err(WorkerPayloadError::TrailingBytes)
         }
     }
 }

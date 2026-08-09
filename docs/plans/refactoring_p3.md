@@ -41,6 +41,10 @@ metadata inspection and index opening or construction retain `signal_capture::Er
 `SourcePreparationError` variants. Executor admission and loss retain
 `platform_runtime::WorkExecutorError`, and graph runtime classifies an unexpected capture-worker
 response with `SourcePreparationProtocolError`.
+Finite capture-index kernels retain owner-typed payload and validation failures until the portable
+worker registry serializes a terminal diagnostic. Derived-word kernels do the same for payload
+shape and UTF-8 failures, while indexed derived-lane construction returns `StoreError` across its
+collector-module boundary.
 The reusable host picker classifies file reads, capacity limits, imports, and missing dropped-file
 contents through `platform::FilePickerError`. Application composition preserves that error as the
 source of the independent widget-owned `node_graph::FileDialogError`; the inline file control is
