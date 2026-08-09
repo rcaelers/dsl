@@ -50,10 +50,11 @@ pub enum ArtifactRepositoryOpenError {
         message: String,
     },
     /// The persistence worker returned an invalid initialization response.
-    #[error("invalid artifact repository initialization response: {message}")]
+    #[error("invalid artifact repository initialization response: {source}")]
     Protocol {
-        /// Response validation diagnostic.
-        message: String,
+        /// Concrete response-validation cause.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
     },
     /// A host mechanism failed while opening the repository.
     #[error("failed to {operation}: {message}")]
@@ -103,5 +104,17 @@ mod artifact_repository_tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn protocol_failures_retain_the_response_validation_cause() {
+        let error = ArtifactRepositoryOpenError::Protocol {
+            source: Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "invalid response",
+            )),
+        };
+
+        assert!(error.source().unwrap().is::<std::io::Error>());
     }
 }

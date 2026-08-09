@@ -63,6 +63,10 @@ Browser artifact-repository opening distinguishes invalid roots, host persistenc
 unavailable durable storage, invalid initialization responses, and session hydration through
 `platform::ArtifactRepositoryOpenError`. Hydration retains the portable `RepositoryError`; web
 composition formats the typed failure only when reporting why it selected the memory repository.
+Initialization protocol failures likewise retain their concrete browser validation source.
+Persistence command construction and submission, runtime message properties, completion metadata,
+and identity decoding use typed private errors until the adapter emits its terminal durability
+warning.
 Generic native USB opening distinguishes a complete selector miss from context, enumeration,
 descriptor, device, identity, configuration, and interface failures through
 `platform::UsbDeviceOpenError`. Host failures retain their `rusb::Error`. Driver-neutral

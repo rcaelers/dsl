@@ -395,10 +395,12 @@ item here, so acceptance comparisons stop being ad-hoc.
      encoding, parent creation, and writes; persistence diagnostics remain visible independently of
      successful background scans. The reusable `platform` web-worker adapter now types JavaScript
      message construction and validation, request submission stages, and missing worker slots until
-     it enters the portable serialized `WorkerFailure` contract. Next type the browser durable
-     artifact-repository adapter's command, initialization-message, property-validation, and
-     identity-decoding paths, which still exchange strings below `ArtifactRepositoryOpenError` and
-     `RepositoryError`.
+     it enters the portable serialized `WorkerFailure` contract. The browser durable artifact
+     repository now types command construction and submission, initialization and runtime message
+     validation, completion metadata, and identity decoding; initialization protocol causes remain
+     available through `ArtifactRepositoryOpenError`. Next remove the remaining state-decoding
+     string adapters in concrete graph source builders so `PersistedStateError` reaches
+     `CaptureSourceFeatureError` without formatting.
 
 ### Application state decomposition
 

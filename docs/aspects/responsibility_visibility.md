@@ -288,6 +288,10 @@ distinguishes invalid namespaces, host persistence-worker stages, unavailable du
 invalid initialization responses, and hydration. Hydration retains the lower
 `platform_artifacts::RepositoryError`; browser composition formats the typed failure only when
 reporting its explicit in-memory fallback.
+Invalid initialization responses retain their concrete browser protocol source. The adapter also
+types runtime command construction and submission, message properties, completion metadata, and
+artifact identity decoding internally; runtime failures are formatted only at the persistence
+warning boundary because the durable mirror has no error-returning application port.
 
 `platform::UsbDeviceOpenError` owns generic native USB discovery and opening failures. It separates
 a complete selector miss from classified context, enumeration, descriptor, identity,

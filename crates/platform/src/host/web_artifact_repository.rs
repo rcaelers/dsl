@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::fmt;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -23,6 +24,53 @@ const DEFAULT_BROWSER_CACHE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_QUEUED_PERSISTENCE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_IN_FLIGHT_COMMANDS: usize = 4;
 const PUMP_INTERVAL_MS: i32 = 4;
+
+#[derive(Debug, thiserror::Error)]
+enum BrowserArtifactProtocolError {
+    #[error("persistence-worker message has no '{property}' property: {detail}")]
+    PropertyAccess { property: String, detail: String },
+    #[error("could not set persistence-worker message '{property}': {detail}")]
+    PropertyWrite { property: String, detail: String },
+    #[error("persistence-worker message '{property}' is not {expected}")]
+    InvalidProperty {
+        property: String,
+        expected: &'static str,
+    },
+    #[error("persistence-worker entry has an invalid namespace: {0}")]
+    Namespace(#[source] RepositoryError),
+    #[error("browser artifact identity has an invalid length")]
+    IdentityLength,
+    #[error("browser artifact identity contains invalid hexadecimal")]
+    IdentityHex,
+    #[error("persistence worker returned unexpected '{kind}' message")]
+    UnexpectedMessage { kind: String },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BrowserPersistenceOperation {
+    Publish,
+    Remove,
+}
+
+impl fmt::Display for BrowserPersistenceOperation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Publish => "publish browser artifact",
+            Self::Remove => "remove browser artifact",
+        })
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+enum BrowserPersistenceCommandError {
+    #[error("invalid persistence-worker command: {0}")]
+    Protocol(#[from] BrowserArtifactProtocolError),
+    #[error("could not {operation}: {detail}")]
+    Submission {
+        operation: BrowserPersistenceOperation,
+        detail: String,
+    },
+}
 
 thread_local! {
     static OPFS_RUNTIMES: RefCell<Vec<OpfsRuntime>> = const { RefCell::new(Vec::new()) };
@@ -327,7 +375,7 @@ async fn initialize_worker(
     });
     worker.set_onmessage(Some(message_handler.as_ref().unchecked_ref()));
     worker.set_onerror(Some(error_handler.as_ref().unchecked_ref()));
-    let message = (|| -> Result<JsValue, String> {
+    let message = (|| -> Result<JsValue, BrowserArtifactProtocolError> {
         let message = message_object("initialize")?;
         set(&message, "rootName", JsValue::from_str(root_name))?;
         set(&message, "maxBytes", JsValue::from_f64(max_bytes as f64))?;
@@ -335,11 +383,11 @@ async fn initialize_worker(
     })();
     let message = match message {
         Ok(message) => message,
-        Err(message) => {
+        Err(error) => {
             worker.terminate();
             return Err(host_error(
                 ArtifactRepositoryOpenOperation::SendInitialization,
-                message,
+                error.to_string(),
             ));
         }
     };
@@ -364,40 +412,40 @@ async fn initialize_worker(
     worker.set_onerror(None);
     drop(message_handler);
     drop(error_handler);
-    match string_property(&value, "kind").as_deref() {
-        Ok("ready") => match parse_initial_state(&value) {
+    match string_property(&value, "kind") {
+        Ok(kind) if kind == "ready" => match parse_initial_state(&value) {
             Ok(state) => Ok((worker, state)),
             Err(error) => {
                 worker.terminate();
                 Err(error)
             }
         },
-        Ok("unavailable") => {
+        Ok(kind) if kind == "unavailable" => {
             worker.terminate();
-            Err(ArtifactRepositoryOpenError::Unavailable {
-                message: string_property(&value, "message").unwrap_or_else(|error| error),
-            })
+            string_property(&value, "message")
+                .map(|message| ArtifactRepositoryOpenError::Unavailable { message })
+                .map_or_else(|error| Err(protocol_error(error)), Err)
         }
         Ok(kind) => {
             worker.terminate();
-            Err(protocol_error(format!(
-                "persistence worker returned unexpected '{kind}' message"
-            )))
+            Err(protocol_error(
+                BrowserArtifactProtocolError::UnexpectedMessage { kind },
+            ))
         }
-        Err(message) => {
+        Err(error) => {
             worker.terminate();
-            Err(protocol_error(message))
+            Err(protocol_error(error))
         }
     }
 }
 
 fn parse_initial_state(value: &JsValue) -> Result<InitialState, ArtifactRepositoryOpenError> {
-    (|| -> Result<InitialState, String> {
+    (|| -> Result<InitialState, BrowserArtifactProtocolError> {
         let entries = Array::from(&property(value, "entries")?)
             .iter()
             .map(|entry| {
                 let namespace = ArtifactNamespace::new(string_property(&entry, "namespace")?)
-                    .map_err(|error| error.to_string())?;
+                    .map_err(BrowserArtifactProtocolError::Namespace)?;
                 let identity = decode_identity(&string_property(&entry, "identity")?)?;
                 let bytes = Uint8Array::new(&property(&entry, "bytes")?).to_vec();
                 Ok(InitialEntry {
@@ -405,7 +453,7 @@ fn parse_initial_state(value: &JsValue) -> Result<InitialState, ArtifactReposito
                     bytes,
                 })
             })
-            .collect::<Result<Vec<_>, String>>()?;
+            .collect::<Result<Vec<_>, BrowserArtifactProtocolError>>()?;
         Ok(InitialState {
             durable: bool_property(value, "durable")?,
             quota: optional_integer_property(value, "quota")?,
@@ -521,7 +569,10 @@ impl PersistenceCommand {
     }
 }
 
-fn post_command(worker: &Worker, command: PersistenceCommand) -> Result<(), String> {
+fn post_command(
+    worker: &Worker,
+    command: PersistenceCommand,
+) -> Result<(), BrowserPersistenceCommandError> {
     let kind = match command {
         PersistenceCommand::Publish { .. } => "publish",
         PersistenceCommand::Remove { .. } => "remove",
@@ -551,40 +602,89 @@ fn post_command(worker: &Worker, command: PersistenceCommand) -> Result<(), Stri
             transfer.push(&buffer);
             worker
                 .post_message_with_transfer(&message, &transfer)
-                .map_err(|error| js_error("could not publish browser artifact", error))
+                .map_err(|error| BrowserPersistenceCommandError::Submission {
+                    operation: BrowserPersistenceOperation::Publish,
+                    detail: js_detail(error),
+                })
         }
-        PersistenceCommand::Remove { .. } => worker
-            .post_message(&message)
-            .map_err(|error| js_error("could not remove browser artifact", error)),
+        PersistenceCommand::Remove { .. } => worker.post_message(&message).map_err(|error| {
+            BrowserPersistenceCommandError::Submission {
+                operation: BrowserPersistenceOperation::Remove,
+                detail: js_detail(error),
+            }
+        }),
     }
 }
 
 fn handle_worker_message(mirror: &Arc<Mutex<MirrorState>>, value: JsValue) {
-    let kind = string_property(&value, "kind").unwrap_or_default();
+    let kind = match string_property(&value, "kind") {
+        Ok(kind) => kind,
+        Err(error) => {
+            if let Ok(mut mirror) = mirror.lock() {
+                mirror.durable = false;
+                mirror.in_flight = 0;
+            }
+            tracing::warn!(%error, "browser persistence worker returned an invalid message");
+            return;
+        }
+    };
     let Ok(mut mirror) = mirror.lock() else {
         return;
     };
     match kind.as_str() {
         "complete" => {
             mirror.in_flight = mirror.in_flight.saturating_sub(1);
-            mirror.quota = optional_integer_property(&value, "quota").ok().flatten();
-            mirror.usage = optional_integer_property(&value, "usage").ok().flatten();
+            match completion_usage(&value) {
+                Ok((quota, usage)) => {
+                    mirror.quota = quota;
+                    mirror.usage = usage;
+                }
+                Err(error) => {
+                    mirror.durable = false;
+                    drop(mirror);
+                    tracing::warn!(%error, "browser persistence worker returned invalid completion metadata");
+                }
+            }
         }
         "failed" => {
             mirror.in_flight = mirror.in_flight.saturating_sub(1);
-            let code = string_property(&value, "code").unwrap_or_else(|_| "io".into());
-            let message = string_property(&value, "message").unwrap_or_else(|error| error);
-            if code == "site_data_lost" || code == "permission" {
-                mirror.durable = false;
+            match failure_message(&value) {
+                Ok((code, message)) => {
+                    if code == "site_data_lost" || code == "permission" {
+                        mirror.durable = false;
+                    }
+                    drop(mirror);
+                    tracing::warn!(%code, %message, "browser persistence command failed");
+                }
+                Err(error) => {
+                    mirror.durable = false;
+                    drop(mirror);
+                    tracing::warn!(%error, "browser persistence worker returned an invalid failure message");
+                }
             }
-            drop(mirror);
-            tracing::warn!(%code, %message, "browser persistence command failed");
         }
         _ => {
+            mirror.durable = false;
             drop(mirror);
             tracing::warn!(%kind, "browser persistence worker returned an unknown message");
         }
     }
+}
+
+fn completion_usage(
+    value: &JsValue,
+) -> Result<(Option<u64>, Option<u64>), BrowserArtifactProtocolError> {
+    Ok((
+        optional_integer_property(value, "quota")?,
+        optional_integer_property(value, "usage")?,
+    ))
+}
+
+fn failure_message(value: &JsValue) -> Result<(String, String), BrowserArtifactProtocolError> {
+    Ok((
+        string_property(value, "code")?,
+        string_property(value, "message")?,
+    ))
 }
 
 fn create_worker_url() -> Result<String, ArtifactRepositoryOpenError> {
@@ -606,50 +706,72 @@ fn create_worker(worker_url: &str) -> Result<Worker, ArtifactRepositoryOpenError
         .map_err(|error| host_js_error(ArtifactRepositoryOpenOperation::StartWorker, error))
 }
 
-fn message_object(kind: &str) -> Result<JsValue, String> {
+fn message_object(kind: &str) -> Result<JsValue, BrowserArtifactProtocolError> {
     let message: JsValue = Object::new().into();
     set(&message, "kind", JsValue::from_str(kind))?;
     Ok(message)
 }
 
-fn property(object: &JsValue, name: &str) -> Result<JsValue, String> {
-    Reflect::get(object, &JsValue::from_str(name))
-        .map_err(|error| js_error(&format!("worker message has no '{name}' property"), error))
+fn property(object: &JsValue, name: &str) -> Result<JsValue, BrowserArtifactProtocolError> {
+    Reflect::get(object, &JsValue::from_str(name)).map_err(|error| {
+        BrowserArtifactProtocolError::PropertyAccess {
+            property: name.to_owned(),
+            detail: js_detail(error),
+        }
+    })
 }
 
-fn set(object: &JsValue, name: &str, value: JsValue) -> Result<(), String> {
+fn set(object: &JsValue, name: &str, value: JsValue) -> Result<(), BrowserArtifactProtocolError> {
     Reflect::set(object, &JsValue::from_str(name), &value)
         .map(|_| ())
-        .map_err(|error| js_error(&format!("could not set worker message '{name}'"), error))
+        .map_err(|error| BrowserArtifactProtocolError::PropertyWrite {
+            property: name.to_owned(),
+            detail: js_detail(error),
+        })
 }
 
-fn string_property(object: &JsValue, name: &str) -> Result<String, String> {
-    property(object, name)?
-        .as_string()
-        .ok_or_else(|| format!("worker message '{name}' is not a string"))
+fn string_property(object: &JsValue, name: &str) -> Result<String, BrowserArtifactProtocolError> {
+    property(object, name)?.as_string().ok_or_else(|| {
+        BrowserArtifactProtocolError::InvalidProperty {
+            property: name.to_owned(),
+            expected: "a string",
+        }
+    })
 }
 
-fn bool_property(object: &JsValue, name: &str) -> Result<bool, String> {
+fn bool_property(object: &JsValue, name: &str) -> Result<bool, BrowserArtifactProtocolError> {
     property(object, name)?
         .as_bool()
-        .ok_or_else(|| format!("worker message '{name}' is not a boolean"))
+        .ok_or_else(|| BrowserArtifactProtocolError::InvalidProperty {
+            property: name.to_owned(),
+            expected: "a boolean",
+        })
 }
 
-fn integer_property(object: &JsValue, name: &str) -> Result<u64, String> {
+fn integer_property(object: &JsValue, name: &str) -> Result<u64, BrowserArtifactProtocolError> {
     let value = property(object, name)?;
     if let Some(value) = value.as_string() {
         return value
             .parse()
-            .map_err(|_| format!("worker message '{name}' is not an unsigned integer"));
+            .map_err(|_| BrowserArtifactProtocolError::InvalidProperty {
+                property: name.to_owned(),
+                expected: "an unsigned integer",
+            });
     }
     value
         .as_f64()
         .filter(|value| value.is_finite() && *value >= 0.0 && value.fract() == 0.0)
         .map(|value| value as u64)
-        .ok_or_else(|| format!("worker message '{name}' is not an unsigned integer"))
+        .ok_or_else(|| BrowserArtifactProtocolError::InvalidProperty {
+            property: name.to_owned(),
+            expected: "an unsigned integer",
+        })
 }
 
-fn optional_integer_property(object: &JsValue, name: &str) -> Result<Option<u64>, String> {
+fn optional_integer_property(
+    object: &JsValue,
+    name: &str,
+) -> Result<Option<u64>, BrowserArtifactProtocolError> {
     let value = property(object, name)?;
     if value.is_null() || value.is_undefined() {
         Ok(None)
@@ -668,9 +790,9 @@ fn encode_identity(identity: SourceIdentity) -> String {
     output
 }
 
-fn decode_identity(value: &str) -> Result<[u8; 32], String> {
+fn decode_identity(value: &str) -> Result<[u8; 32], BrowserArtifactProtocolError> {
     if value.len() != 64 {
-        return Err("browser artifact identity has an invalid length".into());
+        return Err(BrowserArtifactProtocolError::IdentityLength);
     }
     let mut identity = [0_u8; 32];
     for (index, byte) in identity.iter_mut().enumerate() {
@@ -682,27 +804,23 @@ fn decode_identity(value: &str) -> Result<[u8; 32], String> {
     Ok(identity)
 }
 
-fn hex_value(value: u8) -> Result<u8, String> {
+fn hex_value(value: u8) -> Result<u8, BrowserArtifactProtocolError> {
     match value {
         b'0'..=b'9' => Ok(value - b'0'),
         b'a'..=b'f' => Ok(value - b'a' + 10),
-        _ => Err("browser artifact identity contains invalid hexadecimal".into()),
+        _ => Err(BrowserArtifactProtocolError::IdentityHex),
     }
 }
 
-fn js_error(context: &str, error: JsValue) -> String {
-    let detail = error.as_string().unwrap_or_else(|| format!("{error:?}"));
-    format!("{context}: {detail}")
+fn js_detail(error: JsValue) -> String {
+    error.as_string().unwrap_or_else(|| format!("{error:?}"))
 }
 
 fn host_js_error(
     operation: ArtifactRepositoryOpenOperation,
     error: JsValue,
 ) -> ArtifactRepositoryOpenError {
-    host_error(
-        operation,
-        error.as_string().unwrap_or_else(|| format!("{error:?}")),
-    )
+    host_error(operation, js_detail(error))
 }
 
 fn host_error(
@@ -719,9 +837,11 @@ fn hydration_error(source: RepositoryError) -> ArtifactRepositoryOpenError {
     ArtifactRepositoryOpenError::Hydration { source }
 }
 
-fn protocol_error(message: impl Into<String>) -> ArtifactRepositoryOpenError {
+fn protocol_error(
+    source: impl std::error::Error + Send + Sync + 'static,
+) -> ArtifactRepositoryOpenError {
     ArtifactRepositoryOpenError::Protocol {
-        message: message.into(),
+        source: Box::new(source),
     }
 }
 

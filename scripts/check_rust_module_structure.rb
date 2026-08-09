@@ -1090,7 +1090,8 @@ platform_artifact_open_error = File.read(File.join(
 ))
 unless platform_artifact_open_error.match?(/pub enum ArtifactRepositoryOpenError\s*\{/) &&
        platform_artifact_open_error.match?(/pub enum ArtifactRepositoryOpenOperation\s*\{/) &&
-       platform_artifact_open_error.include?("source: RepositoryError")
+       platform_artifact_open_error.include?("source: RepositoryError") &&
+       platform_artifact_open_error.match?(/Protocol\s*\{.*?source:\s*Box<dyn std::error::Error \+ Send \+ Sync>/m)
   errors << "crates/platform/src/artifact_repository.rs: repository opening must classify host, availability, protocol, and hydration failures"
 end
 browser_repository_facade = File.read(File.join(ROOT, "crates/platform/src/host/web.rs"))
@@ -1109,6 +1110,15 @@ browser_repository = File.read(File.join(
   )
 
   errors << "crates/platform/src/host/web_artifact_repository.rs: #{operation} must retain ArtifactRepositoryOpenError"
+end
+unless browser_repository.match?(/enum BrowserArtifactProtocolError\s*\{/) &&
+       browser_repository.match?(/enum BrowserPersistenceCommandError\s*\{/) &&
+       browser_repository.match?(/fn post_command\b.*?Result<\(\),\s*BrowserPersistenceCommandError>/m) &&
+       browser_repository.match?(/fn decode_identity\b.*?Result<\[u8; 32\],\s*BrowserArtifactProtocolError>/m)
+  errors << "crates/platform/src/host/web_artifact_repository.rs: browser persistence messages, commands, and identities must retain typed failures"
+end
+if browser_repository.match?(/Result<.*?,\s*String>/m)
+  errors << "crates/platform/src/host/web_artifact_repository.rs: browser persistence failures must not collapse into strings below repository or logging boundaries"
 end
 native_usb = File.read(File.join(ROOT, "crates/platform/src/host/native_usb.rs"))
 unless native_usb.match?(/pub enum UsbDeviceOpenError\s*\{/) &&
